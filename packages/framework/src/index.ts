@@ -43,6 +43,7 @@ export type {
   HttpMethod,
   LoaderArgs,
   LoaderData,
+  LazyImport,
   LoaderFn,
   MiddlewareArgs,
   MiddlewareFn,

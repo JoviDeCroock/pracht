@@ -37,7 +37,7 @@ describe("create-viact", () => {
     expect(packageJson).toContain('"@viact/cli": "latest"');
     expect(packageJson).toContain('"@viact/adapter-node": "latest"');
     expect(packageJson).not.toContain("wrangler");
-    expect(routes).toContain('route("/", "./routes/home.tsx"');
+    expect(routes).toContain('route("/", () => import("./routes/home.tsx")');
     expect(existsSync(join(targetDir, "wrangler.jsonc"))).toBe(false);
   });
 

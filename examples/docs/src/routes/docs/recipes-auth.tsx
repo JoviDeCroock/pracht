@@ -270,15 +270,15 @@ export const app = defineApp({
   routes: [
     // Public routes — no auth
     group({ shell: "public" }, [
-      route("/", "./routes/home.tsx", { render: "ssg" }),
-      route("/login", "./routes/login.tsx", { render: "ssr" }),
-      route("/logout", "./routes/logout.tsx", { render: "ssr" }),
+      route("/", () => import("./routes/home.tsx"), { render: "ssg" }),
+      route("/login", () => import("./routes/login.tsx"), { render: "ssr" }),
+      route("/logout", () => import("./routes/logout.tsx"), { render: "ssr" }),
     ]),
 
     // Protected routes — auth middleware applied
     group({ shell: "app", middleware: ["auth"] }, [
-      route("/dashboard", "./routes/dashboard.tsx", { render: "ssr" }),
-      route("/settings", "./routes/settings.tsx", { render: "ssr" }),
+      route("/dashboard", () => import("./routes/dashboard.tsx"), { render: "ssr" }),
+      route("/settings", () => import("./routes/settings.tsx"), { render: "ssr" }),
     ]),
   ],
 });`}

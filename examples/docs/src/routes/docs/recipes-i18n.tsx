@@ -197,9 +197,9 @@ export function Component({ data }: RouteComponentProps<typeof loader>) {
         code={`import { defineApp, group, route } from "viact";
 
 const localizedRoutes = [
-  route("/", "./routes/home.tsx", { render: "ssr" }),
-  route("/about", "./routes/about.tsx", { render: "ssg" }),
-  route("/pricing", "./routes/pricing.tsx", { render: "ssg" }),
+  route("/", () => import("./routes/home.tsx"), { render: "ssr" }),
+  route("/about", () => import("./routes/about.tsx"), { render: "ssg" }),
+  route("/pricing", () => import("./routes/pricing.tsx"), { render: "ssg" }),
 ];
 
 export const app = defineApp({
@@ -212,7 +212,7 @@ export const app = defineApp({
       group({ pathPrefix: "/fr" }, localizedRoutes),
 
       // Root redirects to detected locale
-      route("/", "./routes/locale-redirect.tsx", { render: "ssr" }),
+      route("/", () => import("./routes/locale-redirect.tsx"), { render: "ssr" }),
     ]),
   ],
 });`}

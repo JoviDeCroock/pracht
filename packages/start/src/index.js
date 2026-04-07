@@ -288,7 +288,7 @@ function createRoutesFile() {
     '    public: "./shells/public.tsx",',
     "  },",
     "  routes: [",
-    '    route("/", "./routes/home.tsx", { id: "home", render: "ssg", shell: "public" }),',
+    '    route("/", () => import("./routes/home.tsx"), { id: "home", render: "ssg", shell: "public" }),',
     "  ],",
     "});",
     "",

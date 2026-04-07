@@ -107,19 +107,19 @@ export function Component() {
 export const app = defineApp({
   routes: [
     // Prefetch when the link enters the viewport
-    route("/pricing", "./routes/pricing.tsx", {
+    route("/pricing", () => import("./routes/pricing.tsx"), {
       render: "isg",
       prefetch: "viewport",
     }),
 
     // Disable prefetching for a rarely visited page
-    route("/terms", "./routes/terms.tsx", {
+    route("/terms", () => import("./routes/terms.tsx"), {
       render: "ssg",
       prefetch: "none",
     }),
 
     // Default: intent-based prefetching (hover/focus)
-    route("/about", "./routes/about.tsx", { render: "ssg" }),
+    route("/about", () => import("./routes/about.tsx"), { render: "ssg" }),
   ],
 });`}
       />

@@ -46,9 +46,14 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
     match: RouteMatch,
     state: { data: unknown; error?: SerializedRouteError | null },
   ): Promise<VNode<any> | null> {
-    const routeKey = findModuleKey(routeModules, match.route.file);
-    if (!routeKey) return null;
-    const routeMod = await routeModules[routeKey]();
+    let routeMod: any;
+    if (match.route.component) {
+      routeMod = await match.route.component();
+    } else {
+      const routeKey = findModuleKey(routeModules, match.route.file ?? "");
+      if (!routeKey) return null;
+      routeMod = await routeModules[routeKey]();
+    }
 
     let Shell: any = null;
     if (match.route.shellFile) {

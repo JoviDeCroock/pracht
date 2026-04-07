@@ -90,12 +90,12 @@ export function head() {
   },
   routes: [
     // Per-route
-    route("/", "./routes/home.tsx", { shell: "public" }),
+    route("/", () => import("./routes/home.tsx"), { shell: "public" }),
 
     // Per-group — all children inherit
     group({ shell: "app" }, [
-      route("/dashboard", "./routes/dashboard.tsx"),
-      route("/settings", "./routes/settings.tsx"),
+      route("/dashboard", () => import("./routes/dashboard.tsx")),
+      route("/settings", () => import("./routes/settings.tsx")),
     ]),
   ],
 });`}

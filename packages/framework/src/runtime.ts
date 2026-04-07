@@ -411,10 +411,12 @@ export async function handleViactRequest<TContext>(
   const context = middlewareResult.context;
 
   // --- Load route module ---
-  const routeModule = await resolveRegistryModule<RouteModule>(
-    registry.routeModules,
-    match.route.file,
-  );
+  const routeModule = match.route.component
+    ? await match.route.component() as RouteModule
+    : await resolveRegistryModule<RouteModule>(
+        registry.routeModules,
+        match.route.file ?? "",
+      );
 
   const routeArgs: BaseRouteArgs<TContext> = {
     request: options.request,
@@ -472,8 +474,8 @@ export async function handleViactRequest<TContext>(
     // --- Merge head metadata ---
     const head = await mergeHeadMetadata(shellModule, routeModule, routeArgs, data);
 
-    const cssUrls = resolvePageCssUrls(options, match.route.shellFile, match.route.file);
-    const modulePreloadUrls = resolvePageJsUrls(options, match.route.shellFile, match.route.file);
+    const cssUrls = resolvePageCssUrls(options, match.route.shellFile, match.route.file ?? "");
+    const modulePreloadUrls = resolvePageJsUrls(options, match.route.shellFile, match.route.file ?? "");
 
     // --- SPA mode: shell HTML with empty body, no SSR ---
     if (match.route.render === "spa") {
@@ -757,8 +759,8 @@ async function renderRouteErrorResponse<TContext>(options: {
         )
       : undefined);
   const head = shellModule?.head ? await shellModule.head(options.routeArgs) : {};
-  const cssUrls = resolvePageCssUrls(options.options, options.shellFile, options.routeArgs.route.file);
-  const modulePreloadUrls = resolvePageJsUrls(options.options, options.shellFile, options.routeArgs.route.file);
+  const cssUrls = resolvePageCssUrls(options.options, options.shellFile, options.routeArgs.route.file ?? "");
+  const modulePreloadUrls = resolvePageJsUrls(options.options, options.shellFile, options.routeArgs.route.file ?? "");
   const { renderToStringAsync } = await import("preact-render-to-string");
 
   const ErrorBoundary = options.routeModule.ErrorBoundary as any;
@@ -1184,7 +1186,9 @@ async function collectSSGPaths(
   }
 
   // Dynamic route — must export prerender() to enumerate paths
-  const routeModule = await resolveRegistryModule<RouteModule>(registry?.routeModules, route.file);
+  const routeModule = route.component
+    ? await route.component() as RouteModule
+    : await resolveRegistryModule<RouteModule>(registry?.routeModules, route.file ?? "");
 
   if (!routeModule?.prerender) {
     console.warn(

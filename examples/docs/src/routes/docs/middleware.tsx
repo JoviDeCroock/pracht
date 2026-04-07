@@ -57,12 +57,12 @@ export const middleware: MiddlewareFn = async ({ request }) => {
   },
   routes: [
     // Applied to a single route
-    route("/profile", "./routes/profile.tsx", { middleware: ["auth"] }),
+    route("/profile", () => import("./routes/profile.tsx"), { middleware: ["auth"] }),
 
     // Applied to a group — all children inherit
     group({ middleware: ["auth"], shell: "app" }, [
-      route("/dashboard", "./routes/dashboard.tsx"),
-      route("/settings", "./routes/settings.tsx"),
+      route("/dashboard", () => import("./routes/dashboard.tsx")),
+      route("/settings", () => import("./routes/settings.tsx")),
     ]),
   ],
 });`}

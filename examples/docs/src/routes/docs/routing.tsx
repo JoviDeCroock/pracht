@@ -41,14 +41,14 @@ export const app = defineApp({
   },
   routes: [
     group({ shell: "public" }, [
-      route("/",        "./routes/home.tsx",    { render: "ssg" }),
-      route("/pricing", "./routes/pricing.tsx", {
+      route("/",        () => import("./routes/home.tsx"),    { render: "ssg" }),
+      route("/pricing", () => import("./routes/pricing.tsx"), {
         render: "isg", revalidate: timeRevalidate(3600),
       }),
     ]),
     group({ shell: "app", middleware: ["auth"] }, [
-      route("/dashboard", "./routes/dashboard.tsx", { render: "ssr" }),
-      route("/settings",  "./routes/settings.tsx",  { render: "spa" }),
+      route("/dashboard", () => import("./routes/dashboard.tsx"), { render: "ssr" }),
+      route("/settings",  () => import("./routes/settings.tsx"),  { render: "spa" }),
     ]),
   ],
 });`}
@@ -85,7 +85,7 @@ export const app = defineApp({
         </table>
       </div>
 
-      <h3>route(path, file, meta?)</h3>
+      <h3>route(path, component, meta?)</h3>
       <div class="doc-table-wrap">
         <table class="doc-table">
           <thead>
@@ -93,11 +93,16 @@ export const app = defineApp({
           </thead>
           <tbody>
             <tr><td>path</td><td>string</td><td>URL pattern, e.g. <code>/blog/:slug</code></td></tr>
-            <tr><td>file</td><td>string</td><td>Relative path to the route module</td></tr>
+            <tr><td>component</td><td>{"() => Promise<any>"}</td><td>Lazy import function for the route module</td></tr>
             <tr><td>meta</td><td>RouteMeta</td><td>Optional render mode, shell, middleware, revalidation</td></tr>
           </tbody>
         </table>
       </div>
+      <p>
+        The <code>component</code> argument is a dynamic <code>import()</code>{" "}
+        expression, giving you IDE jump-to-definition and TypeScript module
+        resolution. String paths are still accepted for backward compatibility.
+      </p>
 
       <h3>group(meta, routes)</h3>
       <p>
@@ -121,18 +126,18 @@ export const app = defineApp({
       <h2>Path Patterns</h2>
 
       <h3>Static paths</h3>
-      <CodeBlock code={`route("/about", "./routes/about.tsx")
+      <CodeBlock code={`route("/about", () => import("./routes/about.tsx"))
 // Matches /about exactly`} />
 
       <h3>Dynamic segments</h3>
-      <CodeBlock code={`route("/blog/:slug", "./routes/blog-post.tsx")
+      <CodeBlock code={`route("/blog/:slug", () => import("./routes/blog-post.tsx"))
 // /blog/hello-world → params.slug = "hello-world"
 
-route("/users/:userId/posts/:postId", "./routes/user-post.tsx")
+route("/users/:userId/posts/:postId", () => import("./routes/user-post.tsx"))
 // Multiple dynamic segments`} />
 
       <h3>Catch-all segments</h3>
-      <CodeBlock code={`route("/docs/*", "./routes/docs.tsx")
+      <CodeBlock code={`route("/docs/*", () => import("./routes/docs.tsx"))
 // Matches /docs/a/b/c — catch-all available in params`} />
 
       <div class="doc-sep" />
@@ -202,9 +207,9 @@ export const middleware: MiddlewareFn = async ({ request }) => {
         flat while grouping URLs logically:
       </p>
       <CodeBlock code={`group({ pathPrefix: "/admin", shell: "admin", middleware: ["auth"] }, [
-  route("/",       "./routes/admin/index.tsx"),   // → /admin
-  route("/users",  "./routes/admin/users.tsx"),   // → /admin/users
-  route("/settings", "./routes/admin/settings.tsx"), // → /admin/settings
+  route("/",       () => import("./routes/admin/index.tsx")),   // → /admin
+  route("/users",  () => import("./routes/admin/users.tsx")),   // → /admin/users
+  route("/settings", () => import("./routes/admin/settings.tsx")), // → /admin/settings
 ])`} />
 
       <div class="doc-nav">

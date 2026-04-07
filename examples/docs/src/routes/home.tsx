@@ -119,14 +119,14 @@ export const app = defineApp({
   middleware: { auth: "./middleware/auth.ts" },
   routes: [
     group({ shell: "public" }, [
-      route("/",        "./routes/home.tsx",    { render: "ssg" }),
-      route("/pricing", "./routes/pricing.tsx", {
+      route("/",        () => import("./routes/home.tsx"),    { render: "ssg" }),
+      route("/pricing", () => import("./routes/pricing.tsx"), {
         render: "isg", revalidate: timeRevalidate(3600),
       }),
     ]),
     group({ shell: "app", middleware: ["auth"] }, [
-      route("/dashboard", "./routes/dashboard.tsx", { render: "ssr" }),
-      route("/settings",  "./routes/settings.tsx",  { render: "spa" }),
+      route("/dashboard", () => import("./routes/dashboard.tsx"), { render: "ssr" }),
+      route("/settings",  () => import("./routes/settings.tsx"),  { render: "spa" }),
     ]),
   ],
 });`}

@@ -6,70 +6,70 @@ export const app = defineApp({
     docs: "./shells/docs.tsx",
   },
   routes: [
-    group({ shell: "home" }, [route("/", "./routes/home.tsx", { id: "home", render: "ssg" })]),
+    group({ shell: "home" }, [route("/", () => import("./routes/home.tsx"), { id: "home", render: "ssg" })]),
     group({ shell: "docs" }, [
-      route("/docs", "./routes/docs/index.tsx", { id: "docs-index", render: "ssr" }),
-      route("/docs/getting-started", "./routes/docs/getting-started.tsx", {
+      route("/docs", () => import("./routes/docs/index.tsx"), { id: "docs-index", render: "ssr" }),
+      route("/docs/getting-started", () => import("./routes/docs/getting-started.tsx"), {
         id: "getting-started",
         render: "ssg",
       }),
-      route("/docs/routing", "./routes/docs/routing.tsx", {
+      route("/docs/routing", () => import("./routes/docs/routing.tsx"), {
         id: "routing",
         render: "ssg",
       }),
-      route("/docs/rendering", "./routes/docs/rendering.tsx", {
+      route("/docs/rendering", () => import("./routes/docs/rendering.tsx"), {
         id: "rendering",
         render: "ssg",
       }),
-      route("/docs/data-loading", "./routes/docs/data-loading.tsx", {
+      route("/docs/data-loading", () => import("./routes/docs/data-loading.tsx"), {
         id: "data-loading",
         render: "ssg",
       }),
-      route("/docs/api-routes", "./routes/docs/api-routes.tsx", {
+      route("/docs/api-routes", () => import("./routes/docs/api-routes.tsx"), {
         id: "api-routes",
         render: "ssg",
       }),
-      route("/docs/middleware", "./routes/docs/middleware.tsx", {
+      route("/docs/middleware", () => import("./routes/docs/middleware.tsx"), {
         id: "middleware",
         render: "ssg",
       }),
-      route("/docs/shells", "./routes/docs/shells.tsx", {
+      route("/docs/shells", () => import("./routes/docs/shells.tsx"), {
         id: "shells",
         render: "ssg",
       }),
-      route("/docs/cli", "./routes/docs/cli.tsx", {
+      route("/docs/cli", () => import("./routes/docs/cli.tsx"), {
         id: "cli",
         render: "ssg",
       }),
-      route("/docs/deployment", "./routes/docs/deployment.tsx", {
+      route("/docs/deployment", () => import("./routes/docs/deployment.tsx"), {
         id: "deployment",
         render: "ssg",
       }),
-      route("/docs/adapters", "./routes/docs/adapters.tsx", {
+      route("/docs/adapters", () => import("./routes/docs/adapters.tsx"), {
         id: "adapters",
         render: "ssg",
       }),
-      route("/docs/prefetching", "./routes/docs/prefetching.tsx", {
+      route("/docs/prefetching", () => import("./routes/docs/prefetching.tsx"), {
         id: "prefetching",
         render: "ssg",
       }),
-      route("/docs/performance", "./routes/docs/performance.tsx", {
+      route("/docs/performance", () => import("./routes/docs/performance.tsx"), {
         id: "performance",
         render: "ssg",
       }),
-      route("/docs/recipes/i18n", "./routes/docs/recipes-i18n.tsx", {
+      route("/docs/recipes/i18n", () => import("./routes/docs/recipes-i18n.tsx"), {
         id: "recipes-i18n",
         render: "ssg",
       }),
-      route("/docs/recipes/auth", "./routes/docs/recipes-auth.tsx", {
+      route("/docs/recipes/auth", () => import("./routes/docs/recipes-auth.tsx"), {
         id: "recipes-auth",
         render: "ssg",
       }),
-      route("/docs/recipes/forms", "./routes/docs/recipes-forms.tsx", {
+      route("/docs/recipes/forms", () => import("./routes/docs/recipes-forms.tsx"), {
         id: "recipes-forms",
         render: "ssg",
       }),
-      route("/docs/recipes/testing", "./routes/docs/recipes-testing.tsx", {
+      route("/docs/recipes/testing", () => import("./routes/docs/recipes-testing.tsx"), {
         id: "recipes-testing",
         render: "ssg",
       }),

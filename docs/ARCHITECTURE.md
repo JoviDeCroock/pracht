@@ -54,19 +54,19 @@ export const app = defineApp({
   },
   routes: [
     group({ shell: "public" }, [
-      route("/", "./routes/home.tsx", { render: "ssg" }),
-      route("/about", "./routes/about.tsx", { render: "ssg" }),
-      route("/blog/:slug", "./routes/blog-post.tsx", {
+      route("/", () => import("./routes/home.tsx"), { render: "ssg" }),
+      route("/about", () => import("./routes/about.tsx"), { render: "ssg" }),
+      route("/blog/:slug", () => import("./routes/blog-post.tsx"), {
         render: "isg",
         revalidate: timeRevalidate(3600),
       }),
     ]),
     group({ shell: "app", middleware: ["auth"] }, [
       // Inline style: loader/action exported from the route file
-      route("/settings", "./routes/settings.tsx", { render: "spa" }),
+      route("/settings", () => import("./routes/settings.tsx"), { render: "spa" }),
       // Separate files style: server code in dedicated files
       route("/dashboard", {
-        component: "./routes/dashboard.tsx",
+        component: () => import("./routes/dashboard.tsx"),
         loader: "./server/dashboard-loader.ts",
         action: "./server/dashboard-action.ts",
         render: "ssr",
@@ -165,7 +165,7 @@ Wired in the manifest via the `RouteConfig` object form:
 
 ```typescript
 route("/dashboard", {
-  component: "./routes/dashboard.tsx",
+  component: () => import("./routes/dashboard.tsx"),
   loader: "./server/dashboard-loader.ts",
   action: "./server/dashboard-action.ts",
   render: "ssr",

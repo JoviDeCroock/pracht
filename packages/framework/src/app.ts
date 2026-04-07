@@ -2,6 +2,7 @@ import type {
   ApiRouteMatch,
   GroupDefinition,
   GroupMeta,
+  LazyImport,
   ResolvedApiRoute,
   ResolvedRoute,
   ResolvedViactApp,
@@ -35,27 +36,39 @@ export function timeRevalidate(seconds: number): TimeRevalidatePolicy {
   };
 }
 
+export function route(path: string, component: LazyImport, meta?: RouteMeta): RouteDefinition;
 export function route(path: string, file: string, meta?: RouteMeta): RouteDefinition;
 export function route(path: string, config: RouteConfig): RouteDefinition;
 export function route(
   path: string,
-  fileOrConfig: string | RouteConfig,
+  fileOrConfigOrImport: string | LazyImport | RouteConfig,
   meta: RouteMeta = {},
 ): RouteDefinition {
-  if (typeof fileOrConfig === "string") {
+  if (typeof fileOrConfigOrImport === "function") {
     return {
       kind: "route",
       path: normalizeRoutePath(path),
-      file: fileOrConfig,
+      component: fileOrConfigOrImport,
       ...meta,
     };
   }
 
-  const { component, loader, action, ...routeMeta } = fileOrConfig;
+  if (typeof fileOrConfigOrImport === "string") {
+    return {
+      kind: "route",
+      path: normalizeRoutePath(path),
+      file: fileOrConfigOrImport,
+      ...meta,
+    };
+  }
+
+  const { component, loader, action, ...routeMeta } = fileOrConfigOrImport;
   return {
     kind: "route",
     path: normalizeRoutePath(path),
-    file: component,
+    ...(typeof component === "function"
+      ? { component }
+      : { file: component }),
     loaderFile: loader,
     actionFile: action,
     ...routeMeta,
@@ -150,6 +163,7 @@ function flattenRouteNode(
     id: node.id ?? createRouteId(fullPath),
     path: fullPath,
     file: node.file,
+    component: node.component,
     loaderFile: node.loaderFile,
     actionFile: node.actionFile,
     shell,

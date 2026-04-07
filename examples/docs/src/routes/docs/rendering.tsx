@@ -45,7 +45,7 @@ export function Component() {
       <div class="doc-sep" />
 
       <h2>SSG — Static Site Generation</h2>
-      <CodeBlock code={`route("/about", "./routes/about.tsx", { render: "ssg" })`} />
+      <CodeBlock code={`route("/about", () => import("./routes/about.tsx"), { render: "ssg" })`} />
       <p>
         HTML is generated at build time. The loader runs once during the build,
         and the output is written to <code>dist/client/about/index.html</code>.
@@ -82,7 +82,7 @@ export function Component({ data }) {
       <div class="doc-sep" />
 
       <h2>SSR — Server-Side Rendering</h2>
-      <CodeBlock code={`route("/dashboard", "./routes/dashboard.tsx", { render: "ssr" })`} />
+      <CodeBlock code={`route("/dashboard", () => import("./routes/dashboard.tsx"), { render: "ssr" })`} />
       <p>
         HTML is generated fresh on every request. The loader runs server-side,
         the component renders to a string, and the full HTML response includes
@@ -106,7 +106,7 @@ export function Component({ data }) {
       <CodeBlock
         code={`import { timeRevalidate } from "viact";
 
-route("/pricing", "./routes/pricing.tsx", {
+route("/pricing", () => import("./routes/pricing.tsx"), {
   render: "isg",
   revalidate: timeRevalidate(3600), // revalidate every hour
 })`}
@@ -134,7 +134,7 @@ route("/pricing", "./routes/pricing.tsx", {
       <div class="doc-sep" />
 
       <h2>SPA — Single Page Application</h2>
-      <CodeBlock code={`route("/settings", "./routes/settings.tsx", { render: "spa" })`} />
+      <CodeBlock code={`route("/settings", () => import("./routes/settings.tsx"), { render: "spa" })`} />
       <p>
         No server-side rendering. The server returns a minimal HTML shell, and
         the component renders entirely in the browser. The loader runs during
@@ -158,14 +158,14 @@ route("/pricing", "./routes/pricing.tsx", {
       <CodeBlock code={`export const app = defineApp({
   routes: [
     group({ shell: "public" }, [
-      route("/",        "...", { render: "ssg" }),           // Static
-      route("/pricing", "...", { render: "isg",             // Revalidating
+      route("/",        () => import("..."), { render: "ssg" }),           // Static
+      route("/pricing", () => import("..."), { render: "isg",             // Revalidating
         revalidate: timeRevalidate(3600) }),
-      route("/login",   "...", { render: "ssr" }),           // Dynamic
+      route("/login",   () => import("..."), { render: "ssr" }),           // Dynamic
     ]),
     group({ shell: "app", middleware: ["auth"] }, [
-      route("/dashboard", "...", { render: "ssr" }),         // Personalized
-      route("/settings",  "...", { render: "spa" }),         // Client-only
+      route("/dashboard", () => import("..."), { render: "ssr" }),         // Personalized
+      route("/settings",  () => import("..."), { render: "spa" }),         // Client-only
     ]),
   ],
 });`} />

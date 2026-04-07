@@ -62,7 +62,7 @@ export interface ApiConfig {
 }
 
 export interface RouteConfig extends RouteMeta {
-  component: string;
+  component: string | LazyImport;
   loader?: string;
   action?: string;
 }
@@ -70,7 +70,8 @@ export interface RouteConfig extends RouteMeta {
 export interface RouteDefinition extends RouteMeta {
   kind: "route";
   path: string;
-  file: string;
+  file?: string;
+  component?: LazyImport;
   loaderFile?: string;
   actionFile?: string;
 }
@@ -116,7 +117,8 @@ export type RouteSegment = StaticRouteSegment | ParamRouteSegment | CatchAllRout
 
 export interface ResolvedRoute extends Omit<RouteMeta, "middleware"> {
   path: string;
-  file: string;
+  file?: string;
+  component?: LazyImport;
   loaderFile?: string;
   actionFile?: string;
   shell?: string;
@@ -235,7 +237,9 @@ export interface MiddlewareModule<TContext = unknown> {
   middleware: MiddlewareFn<TContext>;
 }
 
-export type ModuleImporter<TModule = unknown> = () => Promise<TModule>;
+export type LazyImport<TModule = unknown> = () => Promise<TModule>;
+
+export type ModuleImporter<TModule = unknown> = LazyImport<TModule>;
 
 export interface DataModule<TContext = unknown> {
   loader?: LoaderFn<TContext>;

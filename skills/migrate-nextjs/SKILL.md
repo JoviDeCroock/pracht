@@ -51,7 +51,7 @@ Ask the user to confirm the migration scope if the project is large (>20 routes)
 | `app/layout.tsx` | `src/shells/*.tsx` + `shells` in `defineApp` | Shells are named, not directory-nested |
 | `app/loading.tsx` | No direct equivalent | Use Suspense in component if needed |
 | `app/error.tsx` | `ErrorBoundary` export in route module | Same concept, different wiring |
-| `app/not-found.tsx` | 404 route: `route("*", "./routes/not-found.tsx")` | Catch-all at end of routes array |
+| `app/not-found.tsx` | 404 route: `route("*", () => import("./routes/not-found.tsx"))` | Catch-all at end of routes array |
 | `middleware.ts` | `src/middleware/*.ts` + `middleware` in `defineApp` | Named, applied per route/group |
 | `app/api/*/route.ts` | `src/api/*.ts` with `GET`/`POST` exports | Auto-discovered, no manifest entry |
 | `generateStaticParams` | `prerender()` export | Returns `string[]` of paths |
@@ -270,7 +270,7 @@ export const middleware: MiddlewareFn = async ({ request }) => {
 Then apply it in the manifest:
 ```ts
 group({ middleware: ["auth"] }, [
-  route("/dashboard", "./routes/dashboard.tsx", { render: "ssr" }),
+  route("/dashboard", () => import("./routes/dashboard.tsx"), { render: "ssr" }),
 ])
 ```
 
@@ -295,14 +295,14 @@ export const app = defineApp({
   },
   routes: [
     group({ shell: "main" }, [
-      route("/", "./routes/home.tsx", { render: "ssg" }),
-      route("/about", "./routes/about.tsx", { render: "ssg" }),
-      route("/dashboard", "./routes/dashboard.tsx", {
+      route("/", () => import("./routes/home.tsx"), { render: "ssg" }),
+      route("/about", () => import("./routes/about.tsx"), { render: "ssg" }),
+      route("/dashboard", () => import("./routes/dashboard.tsx"), {
         render: "ssr",
         middleware: ["auth"],
       }),
-      route("/blog/:slug", "./routes/blog-post.tsx", { render: "isg" }),
-      route("*", "./routes/not-found.tsx", { render: "ssr" }),
+      route("/blog/:slug", () => import("./routes/blog-post.tsx"), { render: "isg" }),
+      route("*", () => import("./routes/not-found.tsx"), { render: "ssr" }),
     ]),
   ],
 });

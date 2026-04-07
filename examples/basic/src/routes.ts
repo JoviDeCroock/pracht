@@ -10,19 +10,19 @@ export const app = defineApp({
   },
   routes: [
     group({ shell: "public" }, [
-      route("/", "./routes/home.tsx", { id: "home", render: "ssg" }),
-      route("/pricing", "./routes/pricing.tsx", {
+      route("/", () => import("./routes/home.tsx"), { id: "home", render: "ssg" }),
+      route("/pricing", () => import("./routes/pricing.tsx"), {
         id: "pricing",
         render: "isg",
         revalidate: timeRevalidate(3600),
       }),
     ]),
     group({ shell: "app", middleware: ["auth"] }, [
-      route("/dashboard", "./routes/dashboard.tsx", {
+      route("/dashboard", () => import("./routes/dashboard.tsx"), {
         id: "dashboard",
         render: "ssr",
       }),
-      route("/settings", "./routes/settings.tsx", {
+      route("/settings", () => import("./routes/settings.tsx"), {
         id: "settings",
         render: "spa",
       }),

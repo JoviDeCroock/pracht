@@ -19,7 +19,7 @@ how and when its HTML is generated.
 ## SSG — Static Site Generation
 
 ```typescript
-route("/about", "./routes/about.tsx", { render: "ssg" });
+route("/about", () => import("./routes/about.tsx"), { render: "ssg" });
 ```
 
 HTML is generated at build time. The loader runs once during the build, and the
@@ -52,7 +52,7 @@ Prerendering runs concurrently (default: 6 parallel renders).
 ## SSR — Server-Side Rendering
 
 ```typescript
-route("/dashboard", "./routes/dashboard.tsx", { render: "ssr" });
+route("/dashboard", () => import("./routes/dashboard.tsx"), { render: "ssr" });
 ```
 
 HTML is generated fresh on every request. The loader runs server-side, the
@@ -72,7 +72,7 @@ fetch only the loader data as JSON, not full HTML.
 ## ISG — Incremental Static Generation
 
 ```typescript
-route("/pricing", "./routes/pricing.tsx", {
+route("/pricing", () => import("./routes/pricing.tsx"), {
   render: "isg",
   revalidate: timeRevalidate(3600), // revalidate every hour
 });
@@ -113,7 +113,7 @@ Useful for CMS-driven content where you know exactly when data changes.
 ## SPA — Single Page Application
 
 ```typescript
-route("/settings", "./routes/settings.tsx", { render: "spa" });
+route("/settings", () => import("./routes/settings.tsx"), { render: "spa" });
 ```
 
 No server-side rendering. The server returns a minimal HTML shell, and the
@@ -140,16 +140,16 @@ export const app = defineApp({
   },
   routes: [
     group({ shell: "public" }, [
-      route("/", "./routes/home.tsx", { render: "ssg" }), // Static
-      route("/pricing", "./routes/pricing.tsx", {
+      route("/", () => import("./routes/home.tsx"), { render: "ssg" }), // Static
+      route("/pricing", () => import("./routes/pricing.tsx"), {
         render: "isg",
         revalidate: timeRevalidate(3600), // Revalidating
       }),
-      route("/login", "./routes/login.tsx", { render: "ssr" }), // Dynamic
+      route("/login", () => import("./routes/login.tsx"), { render: "ssr" }), // Dynamic
     ]),
     group({ shell: "app", middleware: ["auth"] }, [
-      route("/dashboard", "./routes/dashboard.tsx", { render: "ssr" }), // Dynamic
-      route("/settings", "./routes/settings.tsx", { render: "spa" }), // Client-only
+      route("/dashboard", () => import("./routes/dashboard.tsx"), { render: "ssr" }), // Dynamic
+      route("/settings", () => import("./routes/settings.tsx"), { render: "spa" }), // Client-only
     ]),
   ],
 });
