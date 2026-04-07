@@ -51,13 +51,12 @@ export function route(
     };
   }
 
-  const { component, loader, action, ...routeMeta } = fileOrConfig;
+  const { component, loader, ...routeMeta } = fileOrConfig;
   return {
     kind: "route",
     path: normalizeRoutePath(path),
     file: component,
     loaderFile: loader,
-    actionFile: action,
     ...routeMeta,
   };
 }
@@ -151,7 +150,6 @@ function flattenRouteNode(
     path: fullPath,
     file: node.file,
     loaderFile: node.loaderFile,
-    actionFile: node.actionFile,
     shell,
     shellFile: shell ? app.shells[shell] : undefined,
     render: node.render ?? inherited.render,

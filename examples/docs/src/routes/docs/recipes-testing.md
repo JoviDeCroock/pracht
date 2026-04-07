@@ -1,6 +1,6 @@
 ---
 title: Testing
-lead: Test your viact app at every level — unit test loaders and actions with Vitest, and run full E2E tests with Playwright to verify rendering, navigation, and hydration.
+lead: Test your viact app at every level — unit test loaders and API routes with Vitest, and run full E2E tests with Playwright to verify rendering, navigation, and hydration.
 breadcrumb: Testing
 prev:
   href: /docs/recipes/forms
@@ -18,9 +18,9 @@ pnpm add -D vitest @playwright/test
 
 ---
 
-## Unit Testing Loaders & Actions
+## Unit Testing Loaders & API Routes
 
-Loaders and actions are plain async functions that take a `Request` and return data. Test them directly — no framework bootstrap needed.
+Loaders and API route handlers are plain async functions that take a `Request` and return data. Test them directly — no framework bootstrap needed.
 
 ### Testing a loader
 
@@ -60,50 +60,52 @@ describe("dashboard loader", () => {
 });
 ```
 
-### Testing an action
+### Testing an API route
 
-```ts [src/routes/contact.test.ts]
+```ts [src/api/contact.test.ts]
 import { describe, it, expect } from "vitest";
-import { action } from "./contact";
+import { POST } from "./contact";
 
 function makeFormRequest(fields: Record<string, string>) {
   const form = new FormData();
   for (const [key, value] of Object.entries(fields)) {
     form.set(key, value);
   }
-  return new Request("http://localhost/contact", {
+  return new Request("http://localhost/api/contact", {
     method: "POST",
     body: form,
     headers: { origin: "http://localhost" },
   });
 }
 
-describe("contact action", () => {
+describe("contact API route", () => {
   it("validates required fields", async () => {
-    const result = await action({
+    const response = await POST({
       request: makeFormRequest({ name: "", email: "", message: "" }),
       params: {},
-      url: new URL("http://localhost/contact"),
+      url: new URL("http://localhost/api/contact"),
       signal: AbortSignal.timeout(5000),
     });
 
+    const result = await response.json();
     expect(result.ok).toBe(false);
-    expect(result.data.errors.name).toBeDefined();
-    expect(result.data.errors.email).toBeDefined();
+    expect(result.errors.name).toBeDefined();
+    expect(result.errors.email).toBeDefined();
   });
 
   it("succeeds with valid input", async () => {
-    const result = await action({
+    const response = await POST({
       request: makeFormRequest({
         name: "Alice",
         email: "alice@example.com",
         message: "Hello!",
       }),
       params: {},
-      url: new URL("http://localhost/contact"),
+      url: new URL("http://localhost/api/contact"),
       signal: AbortSignal.timeout(5000),
     });
 
+    const result = await response.json();
     expect(result.ok).toBe(true);
   });
 });
@@ -408,6 +410,7 @@ Add these to your `package.json`:
 ## Tips
 
 - **Test loaders directly** — they're plain functions. No need to spin up a server for data logic tests.
+- **Test API routes directly** — they take a request and return a `Response`. Easy to unit test.
 - **Use E2E for hydration** — unit tests can't verify that client-side routing and hydration work correctly. That's what Playwright is for.
 - Check for `(window as any).__VIACT_ROUTER_READY__` in Playwright tests to wait for hydration before interacting with the page.
 - **Test the JSON endpoint** — send `x-viact-route-state-request: 1` to get loader data as JSON. Great for verifying data without parsing HTML.

@@ -74,5 +74,5 @@ pnpm preview
 
 - **Route manifest** — `src/routes.ts` declares all routes, their shells, middleware, and render modes. See [Routing](/docs/routing).
 - **Render modes** — each route can be SSR, SSG, ISG, or SPA. See [Rendering Modes](/docs/rendering).
-- **Loaders & actions** — server-side data fetching and mutations. See [Data Loading](/docs/data-loading).
+- **Loaders & API routes** — server-side data fetching and mutations. See [Data Loading](/docs/data-loading).
 - **Adapters** — deploy to Node.js, Cloudflare, or Vercel. See [Adapters](/docs/adapters).

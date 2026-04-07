@@ -64,7 +64,6 @@ export interface ApiConfig {
 export interface RouteConfig extends RouteMeta {
   component: string;
   loader?: string;
-  action?: string;
 }
 
 export interface RouteDefinition extends RouteMeta {
@@ -72,7 +71,6 @@ export interface RouteDefinition extends RouteMeta {
   path: string;
   file: string;
   loaderFile?: string;
-  actionFile?: string;
 }
 
 export interface GroupDefinition {
@@ -118,7 +116,6 @@ export interface ResolvedRoute extends Omit<RouteMeta, "middleware"> {
   path: string;
   file: string;
   loaderFile?: string;
-  actionFile?: string;
   shell?: string;
   shellFile?: string;
   middleware: string[];
@@ -147,8 +144,6 @@ export interface BaseRouteArgs<TContext = unknown> {
 }
 
 export interface LoaderArgs<TContext = unknown> extends BaseRouteArgs<TContext> {}
-
-export interface ActionArgs<TContext = unknown> extends BaseRouteArgs<TContext> {}
 
 export interface MiddlewareArgs<TContext = unknown> extends BaseRouteArgs<TContext> {}
 
@@ -189,27 +184,13 @@ export interface ShellProps {
   children: ComponentChildren;
 }
 
-export interface ActionEnvelope<TData = unknown> {
-  ok?: boolean;
-  data?: TData;
-  revalidate?: string[];
-  redirect?: string;
-  headers?: HeadersInit;
-}
-
-export type ActionResult<TData = unknown> = TData | ActionEnvelope<TData>;
 
 export type LoaderFn<TContext = unknown, TData = unknown> = (
   args: LoaderArgs<TContext>,
 ) => MaybePromise<TData>;
 
-export type ActionFn<TContext = unknown, TData = unknown> = (
-  args: ActionArgs<TContext>,
-) => MaybePromise<ActionResult<TData>>;
-
 export interface RouteModule<TContext = unknown, TLoader extends LoaderLike = undefined> {
   loader?: LoaderFn<TContext>;
-  action?: ActionFn<TContext>;
   head?: (args: HeadArgs<TLoader, TContext>) => MaybePromise<HeadMetadata>;
   Component: FunctionComponent<RouteComponentProps<TLoader>>;
   ErrorBoundary?: FunctionComponent<ErrorBoundaryProps>;
@@ -239,7 +220,6 @@ export type ModuleImporter<TModule = unknown> = () => Promise<TModule>;
 
 export interface DataModule<TContext = unknown> {
   loader?: LoaderFn<TContext>;
-  action?: ActionFn<TContext>;
 }
 
 export interface ModuleRegistry {

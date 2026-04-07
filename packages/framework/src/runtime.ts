@@ -5,7 +5,6 @@ import { useContext, useEffect, useMemo, useState } from "preact/hooks";
 import { matchApiRoute, matchAppRoute } from "./app.ts";
 import type {
   ApiRouteModule,
-  ActionEnvelope,
   BaseRouteArgs,
   DataModule,
   HeadMetadata,
@@ -51,13 +50,6 @@ export interface HandleViactRequestOptions<TContext = unknown> {
   /** Per-source-file JS chunk map produced by the vite plugin for modulepreload hints. */
   jsManifest?: Record<string, string[]>;
   apiRoutes?: ResolvedApiRoute[];
-}
-
-export interface SubmitActionOptions {
-  action?: string;
-  method?: string;
-  body?: BodyInit | null;
-  headers?: HeadersInit;
 }
 
 export interface FormProps extends Omit<JSX.HTMLAttributes<HTMLFormElement>, "action" | "method"> {
@@ -194,52 +186,32 @@ export function useRevalidateRoute() {
   };
 }
 
-export function useSubmitAction() {
+export function useRevalidate() {
   const runtime = useContext(RouteDataContext);
 
-  return async (options: SubmitActionOptions = {}) => {
+  return async () => {
     if (typeof window === "undefined") {
-      throw new Error("useSubmitAction can only be used in the browser.");
-    }
-
-    const response = await fetch(options.action ?? window.location.pathname, {
-      method: options.method ?? "POST",
-      body: options.body ?? null,
-      headers: options.headers,
-      redirect: "manual",
-    });
-
-    if (response.type === "opaqueredirect" || (response.status >= 300 && response.status < 400)) {
-      const location = response.headers.get("location");
-      if (location) {
-        await navigateToClientLocation(location);
-        return undefined;
-      }
-
-      window.location.href = options.action ?? window.location.pathname;
       return undefined;
     }
 
-    const result = await readResponseBody(response);
-    if (!isActionEnvelope(result)) {
-      return result;
+    const path = runtime?.url || window.location.pathname + window.location.search;
+    const result = await fetchViactRouteState(path);
+
+    if (result.type === "redirect") {
+      await navigateToClientLocation(result.location);
+      return undefined;
     }
 
-    if (result.redirect) {
-      await navigateToClientLocation(result.redirect);
-      return result;
+    if (result.type === "error") {
+      throw deserializeRouteError(result.error);
     }
 
-    if (shouldRevalidateCurrentRoute(result.revalidate, runtime?.routeId)) {
-      await useRevalidateResult(runtime, window.location.pathname + window.location.search);
-    }
-
-    return result;
+    runtime?.setData(result.data);
+    return result.data;
   };
 }
 
 export function Form(props: FormProps) {
-  const submitAction = useSubmitAction();
   const { onSubmit, method, ...rest } = props;
 
   return h("form", {
@@ -262,11 +234,23 @@ export function Form(props: FormProps) {
       }
 
       event.preventDefault();
-      await submitAction({
-        action: props.action ?? form.action,
-        body: new FormData(form),
+
+      const response = await fetch(props.action ?? form.action, {
         method: formMethod,
+        body: new FormData(form),
+        redirect: "manual",
       });
+
+      if (response.type === "opaqueredirect" || (response.status >= 300 && response.status < 400)) {
+        const location = response.headers.get("location");
+        if (location) {
+          await navigateToClientLocation(location);
+          return;
+        }
+
+        window.location.href = props.action ?? form.action;
+        return;
+      }
     },
   } as JSX.HTMLAttributes<HTMLFormElement>);
 }
@@ -386,14 +370,6 @@ export async function handleViactRequest<TContext>(
   }
 
   const isRouteStateRequest = options.request.headers.get("x-viact-route-state-request") === "1";
-  const isAction = !SAFE_METHODS.has(options.request.method);
-
-  if (isAction) {
-    const csrfError = validateActionCsrfRequest(options.request, url);
-    if (csrfError) {
-      return csrfError;
-    }
-  }
 
   // --- Middleware chain ---
   const middlewareResult = await runMiddlewareChain({
@@ -425,26 +401,12 @@ export async function handleViactRequest<TContext>(
     route: match.route,
   };
 
-  // --- Resolve loader/action from separate data modules or route module ---
-  const { loader, action } = await resolveDataFunctions(
+  // --- Resolve loader from separate data modules or route module ---
+  const loader = await resolveLoaderFunction(
     match.route,
     routeModule,
     registry,
   );
-
-  // --- Handle actions (POST/PUT/PATCH/DELETE) ---
-  if (isAction) {
-    if (!action) {
-      return withDefaultSecurityHeaders(
-        new Response("Method not allowed", {
-          status: 405,
-          headers: { "content-type": "text/plain; charset=utf-8" },
-        }),
-      );
-    }
-    const actionResult = await action(routeArgs);
-    return actionResultToResponse(actionResult);
-  }
 
   let shellModule: ShellModule | undefined;
 
@@ -607,23 +569,6 @@ function resolvePageJsUrls(
   return [...js];
 }
 
-async function useRevalidateResult(
-  runtime: ViactRuntimeValue | undefined,
-  url: string,
-): Promise<void> {
-  const result = await fetchViactRouteState(url);
-  if (result.type === "redirect") {
-    await navigateToClientLocation(result.location);
-    return;
-  }
-
-  if (result.type === "error") {
-    throw deserializeRouteError(result.error);
-  }
-
-  runtime?.setData(result.data);
-}
-
 async function navigateToClientLocation(
   location: string,
   options?: { replace?: boolean },
@@ -645,31 +590,6 @@ async function navigateToClientLocation(
   }
 
   window.location.href = targetUrl.toString();
-}
-
-function shouldRevalidateCurrentRoute(
-  revalidate: string[] | undefined,
-  routeId: string | undefined,
-): boolean {
-  if (!revalidate?.length) {
-    return false;
-  }
-
-  return revalidate.some((value) => {
-    if (value === "route:self") {
-      return true;
-    }
-
-    return Boolean(routeId) && value === `route:${routeId}`;
-  });
-}
-
-function isActionEnvelope(value: unknown): value is ActionEnvelope {
-  if (typeof value !== "object" || value === null) {
-    return false;
-  }
-
-  return "headers" in value || "ok" in value || "redirect" in value || "revalidate" in value;
 }
 
 function isViactHttpError(error: unknown): error is ViactHttpError {
@@ -796,34 +716,6 @@ async function renderRouteErrorResponse<TContext>(options: {
   );
 }
 
-function actionResultToResponse(actionResult: unknown): Response {
-  if (actionResult instanceof Response) {
-    return withDefaultSecurityHeaders(actionResult);
-  }
-
-  if (isActionEnvelope(actionResult) && actionResult.redirect) {
-    const headers = new Headers(actionResult.headers);
-    headers.set("location", actionResult.redirect);
-    return withDefaultSecurityHeaders(
-      new Response(null, {
-        status: 302,
-        headers,
-      }),
-    );
-  }
-
-  const headers = new Headers(isActionEnvelope(actionResult) ? actionResult.headers : undefined);
-  if (!headers.has("content-type")) {
-    headers.set("content-type", "application/json; charset=utf-8");
-  }
-
-  return withDefaultSecurityHeaders(
-    new Response(JSON.stringify(actionResult), {
-      headers,
-    }),
-  );
-}
-
 async function runMiddlewareChain<TContext>(options: {
   context: TContext;
   middlewareFiles: string[];
@@ -875,13 +767,12 @@ async function runMiddlewareChain<TContext>(options: {
   return { context };
 }
 
-async function resolveDataFunctions(
+async function resolveLoaderFunction(
   route: ResolvedRoute,
   routeModule: RouteModule | undefined,
   registry: ModuleRegistry,
-): Promise<{ loader: RouteModule["loader"]; action: RouteModule["action"] }> {
+): Promise<RouteModule["loader"]> {
   let loader = routeModule?.loader;
-  let action = routeModule?.action;
 
   if (route.loaderFile) {
     const dataModule = await resolveRegistryModule<DataModule>(
@@ -891,15 +782,7 @@ async function resolveDataFunctions(
     if (dataModule?.loader) loader = dataModule.loader;
   }
 
-  if (route.actionFile) {
-    const dataModule = await resolveRegistryModule<DataModule>(
-      registry.dataModules,
-      route.actionFile,
-    );
-    if (dataModule?.action) action = dataModule.action;
-  }
-
-  return { loader, action };
+  return loader;
 }
 
 async function resolveRegistryModule<T>(
@@ -1060,36 +943,6 @@ function serializeJsonForHtml(value: unknown): string {
     .replace(/\u2029/g, "\\u2029");
 }
 
-function validateActionCsrfRequest(request: Request, url: URL): Response | null {
-  const origin = request.headers.get("origin");
-  if (origin) {
-    return isSameOrigin(origin, url.origin) ? null : createCsrfErrorResponse();
-  }
-
-  const referer = request.headers.get("referer");
-  if (referer) {
-    return isSameOrigin(referer, url.origin) ? null : createCsrfErrorResponse();
-  }
-
-  return createCsrfErrorResponse();
-}
-
-function isSameOrigin(candidate: string, expectedOrigin: string): boolean {
-  try {
-    return new URL(candidate).origin === expectedOrigin;
-  } catch {
-    return false;
-  }
-}
-
-function createCsrfErrorResponse(): Response {
-  return withDefaultSecurityHeaders(
-    new Response("Cross-site action blocked", {
-      status: 403,
-      headers: { "content-type": "text/plain; charset=utf-8" },
-    }),
-  );
-}
 
 // ---------------------------------------------------------------------------
 // SSG Prerendering
@@ -1196,11 +1049,3 @@ async function collectSSGPaths(
   return routeModule.prerender();
 }
 
-async function readResponseBody(response: Response): Promise<unknown> {
-  const contentType = response.headers.get("content-type") ?? "";
-  if (contentType.includes("application/json")) {
-    return response.json();
-  }
-
-  return response.text();
-}

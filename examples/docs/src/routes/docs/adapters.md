@@ -67,7 +67,7 @@ Keep your `wrangler.jsonc` in the project root so you can add bindings without t
 
 ### Accessing Cloudflare bindings
 
-The `env` object is passed through to your loaders and actions via the context:
+The `env` object is passed through to your loaders and API route handlers via the context:
 
 ```ts
 // src/routes/dashboard.tsx
@@ -167,7 +167,7 @@ createContext: ({ request, env, executionContext }) => ({
 })
 ```
 
-The context object is available as `args.context` in every loader, action, middleware, and API route handler.
+The context object is available as `args.context` in every loader, middleware, and API route handler.
 
 ---
 

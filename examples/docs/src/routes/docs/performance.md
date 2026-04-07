@@ -39,7 +39,7 @@ viact builds a CSS manifest that maps each source file to its transitive CSS dep
 
 ## Error Overlay in Dev
 
-During development, if a loader, action, or component throws an error during server-side rendering, viact renders a framework-aware error overlay instead of a generic Vite error page.
+During development, if a loader or component throws an error during server-side rendering, viact renders a framework-aware error overlay instead of a generic Vite error page.
 
 The overlay shows:
 

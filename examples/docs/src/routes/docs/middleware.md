@@ -1,6 +1,6 @@
 ---
 title: Middleware
-lead: Server-side request interceptors that run before loaders and actions. Use them for authentication, redirects, request validation, and context enrichment.
+lead: Server-side request interceptors that run before loaders and API route handlers. Use them for authentication, redirects, request validation, and context enrichment.
 breadcrumb: Middleware
 prev:
   href: /docs/api-routes
@@ -62,7 +62,7 @@ Middleware from groups and routes is combined. A route inside a group with `["au
 
 1. `auth` (from group)
 2. `rateLimit` (from route)
-3. Loader / action
+3. Loader / API handler
 
 ---
 

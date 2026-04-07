@@ -47,7 +47,7 @@ viact build
 wrangler deploy
 ```
 
-Configure bindings (KV, D1, R2) in `wrangler.jsonc`. They are available via `context.env` in loaders and actions.
+Configure bindings (KV, D1, R2) in `wrangler.jsonc`. They are available via `context.env` in loaders and API route handlers.
 
 ---
 
@@ -71,7 +71,7 @@ vercel deploy --prebuilt
 
 ## Custom Context
 
-All adapters support a `createContext` option that enriches the context passed to loaders, actions, and middleware:
+All adapters support a `createContext` option that enriches the context passed to loaders, API route handlers, and middleware:
 
 ```ts
 createNodeRequestHandler({

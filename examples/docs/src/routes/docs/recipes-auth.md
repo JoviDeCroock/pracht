@@ -1,6 +1,6 @@
 ---
 title: Authentication
-lead: Protect routes with session-based auth using middleware, loaders, and actions. This recipe covers login/logout flows, session management, and route guards.
+lead: Protect routes with session-based auth using middleware, loaders, and API routes. This recipe covers login/logout flows, session management, and route guards.
 breadcrumb: Authentication
 prev:
   href: /docs/recipes/i18n
@@ -12,12 +12,12 @@ next:
 
 ## Architecture
 
-Auth in viact follows a simple pattern: middleware checks the session before any loader runs. If there's no valid session, redirect to login. Loaders can read the authenticated user. Actions handle login/logout mutations.
+Auth in viact follows a simple pattern: middleware checks the session before any loader runs. If there's no valid session, redirect to login. Loaders can read the authenticated user. API routes handle login/logout mutations.
 
 - **Middleware** — gate access, redirect unauthenticated users
 - **Loaders** — read session data, pass user to components
-- **Actions** — handle login/logout form submissions
-- **Cookies** — store session tokens (set via action response headers)
+- **API routes** — handle login/logout form submissions
+- **Cookies** — store session tokens (set via API route response headers)
 
 ---
 
@@ -96,20 +96,15 @@ export const middleware: MiddlewareFn = async ({ request }) => {
 
 ---
 
-## 3. Login Page
+## 3. Login API Route
 
-The login route has an action that validates credentials and sets the session cookie:
+The login API route validates credentials and sets the session cookie:
 
-```ts [src/routes/login.tsx]
-import type { ActionArgs, LoaderArgs, RouteComponentProps } from "viact";
-import { Form } from "viact";
-import { createSessionCookie } from "../server/session";
+```ts [src/api/auth/login.ts]
+import type { BaseRouteArgs } from "viact";
+import { createSessionCookie } from "../../server/session";
 
-export async function loader({ url }: LoaderArgs) {
-  return { redirect: url.searchParams.get("redirect") ?? "/dashboard" };
-}
-
-export async function action({ request }: ActionArgs) {
+export async function POST({ request }: BaseRouteArgs) {
   const form = await request.formData();
   const email = String(form.get("email") ?? "");
   const password = String(form.get("password") ?? "");
@@ -118,7 +113,7 @@ export async function action({ request }: ActionArgs) {
   // Replace with your actual auth logic
   const user = await verifyCredentials(email, password);
   if (!user) {
-    return { ok: false, data: { error: "Invalid email or password" } };
+    return Response.json({ error: "Invalid email or password" }, { status: 401 });
   }
 
   const cookie = await createSessionCookie({
@@ -126,18 +121,38 @@ export async function action({ request }: ActionArgs) {
     email: user.email,
   });
 
-  return {
-    redirect: redirectTo,
-    headers: { "set-cookie": cookie },
-  };
+  return new Response(null, {
+    status: 302,
+    headers: {
+      location: redirectTo,
+      "set-cookie": cookie,
+    },
+  });
 }
 
-export function Component({ data, actionData }: RouteComponentProps<typeof loader>) {
+async function verifyCredentials(email: string, password: string) {
+  // Your DB lookup here
+  return null as any;
+}
+```
+
+## 4. Login Page
+
+The login page renders the form and points it at the login API route:
+
+```tsx [src/routes/login.tsx]
+import type { LoaderArgs, RouteComponentProps } from "viact";
+import { Form } from "viact";
+
+export async function loader({ url }: LoaderArgs) {
+  return { redirect: url.searchParams.get("redirect") ?? "/dashboard" };
+}
+
+export function Component({ data }: RouteComponentProps<typeof loader>) {
   return (
     <div class="login-page">
       <h1>Log in</h1>
-      {actionData?.error && <p class="error">{actionData.error}</p>}
-      <Form method="post">
+      <Form method="post" action="/api/auth/login">
         <input type="hidden" name="redirect" value={data.redirect} />
         <label>
           Email
@@ -152,44 +167,38 @@ export function Component({ data, actionData }: RouteComponentProps<typeof loade
     </div>
   );
 }
-
-async function verifyCredentials(email: string, password: string) {
-  // Your DB lookup here
-  return null as any;
-}
 ```
 
 ---
 
-## 4. Logout Action
+## 5. Logout API Route
 
-```ts [src/routes/logout.tsx]
-import type { ActionArgs } from "viact";
-import { clearSessionCookie } from "../server/session";
+```ts [src/api/auth/logout.ts]
+import type { BaseRouteArgs } from "viact";
+import { clearSessionCookie } from "../../server/session";
 
-export async function action(_args: ActionArgs) {
-  return {
-    redirect: "/",
-    headers: { "set-cookie": clearSessionCookie() },
-  };
-}
-
-export function Component() {
-  return null;
+export async function POST(_args: BaseRouteArgs) {
+  return new Response(null, {
+    status: 302,
+    headers: {
+      location: "/",
+      "set-cookie": clearSessionCookie(),
+    },
+  });
 }
 ```
 
 Trigger logout from anywhere with a form:
 
 ```tsx
-<Form method="post" action="/logout">
+<Form method="post" action="/api/auth/logout">
   <button type="submit">Log out</button>
 </Form>
 ```
 
 ---
 
-## 5. Reading the User in Loaders
+## 6. Reading the User in Loaders
 
 Behind the auth middleware, loaders can safely read user info from the headers set by middleware:
 
@@ -218,7 +227,7 @@ export function Component({ data }: RouteComponentProps<typeof loader>) {
 
 ---
 
-## 6. Wire It Up
+## 7. Wire It Up
 
 ```ts [src/routes.ts]
 import { defineApp, group, route } from "viact";
@@ -236,7 +245,6 @@ export const app = defineApp({
     group({ shell: "public" }, [
       route("/", "./routes/home.tsx", { render: "ssg" }),
       route("/login", "./routes/login.tsx", { render: "ssr" }),
-      route("/logout", "./routes/logout.tsx", { render: "ssr" }),
     ]),
 
     // Protected routes — auth middleware applied
