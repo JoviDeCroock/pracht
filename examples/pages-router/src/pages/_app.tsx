@@ -1,10 +1,10 @@
-import type { ShellProps } from "viact";
+import type { ShellProps } from "previte";
 
 export function Shell({ children }: ShellProps) {
   return (
     <div class="pages-shell">
       <header>
-        <strong>Viact Pages</strong>
+        <strong>Previte Pages</strong>
         <nav>
           <a href="/">Home</a>
           <a href="/about">About</a>
@@ -12,7 +12,7 @@ export function Shell({ children }: ShellProps) {
         </nav>
       </header>
       <main>{children}</main>
-      <footer>File-system routing powered by viact.</footer>
+      <footer>File-system routing powered by previte.</footer>
     </div>
   );
 }
@@ -20,6 +20,6 @@ export function Shell({ children }: ShellProps) {
 export function head() {
   return {
     meta: [{ content: "width=device-width, initial-scale=1", name: "viewport" }],
-    title: "Viact Pages Router",
+    title: "Previte Pages Router",
   };
 }

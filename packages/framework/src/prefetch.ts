@@ -1,7 +1,7 @@
 import { matchAppRoute } from "./app.ts";
-import { fetchViactRouteState } from "./runtime.ts";
+import { fetchPreviteRouteState } from "./runtime.ts";
 import type { RouteStateResult } from "./runtime.ts";
-import type { ResolvedViactApp, PrefetchStrategy } from "./types.ts";
+import type { ResolvedPreviteApp, PrefetchStrategy } from "./types.ts";
 
 const CACHE_TTL_MS = 30_000;
 
@@ -26,12 +26,12 @@ export function prefetchRouteState(url: string): Promise<RouteStateResult> {
   const cached = getCachedRouteState(url);
   if (cached) return cached;
 
-  const promise = fetchViactRouteState(url);
+  const promise = fetchPreviteRouteState(url);
   prefetchCache.set(url, { promise, timestamp: Date.now() });
   return promise;
 }
 
-export function setupPrefetching(app: ResolvedViactApp): void {
+export function setupPrefetching(app: ResolvedPreviteApp): void {
   let hoverTimer: ReturnType<typeof setTimeout> | null = null;
 
   function getInternalHref(anchor: HTMLAnchorElement): string | null {

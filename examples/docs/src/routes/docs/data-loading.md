@@ -1,6 +1,6 @@
 ---
 title: Data Loading
-lead: viact provides a unified data model that works across all rendering modes. Loaders fetch data on the server, API routes handle mutations, and client hooks give reactive access to route data — all with full TypeScript inference.
+lead: previte provides a unified data model that works across all rendering modes. Loaders fetch data on the server, API routes handle mutations, and client hooks give reactive access to route data — all with full TypeScript inference.
 breadcrumb: Data Loading
 prev:
   href: /docs/rendering
@@ -15,7 +15,7 @@ next:
 A **loader** is an async function exported from a route module. It runs server-side and returns serializable data that flows into the route component.
 
 ```ts [src/routes/dashboard.tsx]
-import type { LoaderArgs, RouteComponentProps } from "viact";
+import type { LoaderArgs, RouteComponentProps } from "previte";
 
 export async function loader({ request, params, context }: LoaderArgs) {
   const user = await getUser(request);
@@ -63,11 +63,11 @@ export function Component({ data }: RouteComponentProps<typeof loader>) {
 ### Error handling
 
 ```ts
-import { ViactHttpError } from "viact";
+import { PreviteHttpError } from "previte";
 
 export async function loader({ params }: LoaderArgs) {
   const post = await getPost(params.slug);
-  if (!post) throw new ViactHttpError(404, "Post not found");
+  if (!post) throw new PreviteHttpError(404, "Post not found");
   return { post };
 }
 
@@ -128,7 +128,7 @@ export function Component() {
 Declarative form submission with progressive enhancement. Use the `action` prop to target an API route:
 
 ```ts
-import { Form } from "viact";
+import { Form } from "previte";
 
 export function Component() {
   return (

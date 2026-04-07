@@ -1,23 +1,23 @@
 {
-  "name": "viact-workspace",
+  "name": "previte-workspace",
   "version": "0.0.0",
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "pnpm -r --filter='./packages/*' --filter='!@viact/cli' run build",
+    "build": "pnpm -r --filter='./packages/*' --filter='!@previte/cli' run build",
     "check": "pnpm build && pnpm typecheck && pnpm test",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "viact": "node ./packages/cli/bin/viact.js",
+    "previte": "node ./packages/cli/bin/previte.js",
     "format": "oxfmt --write .",
     "lint": "oxlint . --fix",
     "changeset": "changeset",
     "version": "changeset version",
     "release": "pnpm build && changeset publish",
     "e2e": "playwright test",
-    "dev:example": "cd examples/cloudflare && node ../../packages/cli/bin/viact.js dev",
-    "build:example": "cd examples/cloudflare && node ../../packages/cli/bin/viact.js build",
-    "preview:example": "cd examples/cloudflare && node ../../packages/cli/bin/viact.js preview"
+    "dev:example": "cd examples/cloudflare && node ../../packages/cli/bin/previte.js dev",
+    "build:example": "cd examples/cloudflare && node ../../packages/cli/bin/previte.js build",
+    "preview:example": "cd examples/cloudflare && node ../../packages/cli/bin/previte.js preview"
   },
   "devDependencies": {
     "@changesets/changelog-github": "^0.6.0",

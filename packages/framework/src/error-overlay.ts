@@ -1,5 +1,5 @@
 /**
- * Self-contained error overlay for viact dev mode.
+ * Self-contained error overlay for previte dev mode.
  *
  * Returns a standalone HTML document with inline styles and scripts.
  * Not a Preact component — must render even when Preact itself fails.
@@ -29,7 +29,7 @@ export function buildErrorOverlayHtml(options: ErrorOverlayOptions): string {
 <html>
 <head>
   <meta charset="utf-8">
-  <title>viact error</title>
+  <title>previte error</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
@@ -107,7 +107,7 @@ export function buildErrorOverlayHtml(options: ErrorOverlayOptions): string {
   <div class="overlay">
     <div class="header">
       <span class="badge">Error</span>
-      <span class="title">viact dev</span>
+      <span class="title">previte dev</span>
     </div>
     <div class="message">${escapeHtml(message)}</div>
     ${routeHtml}

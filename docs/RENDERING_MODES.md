@@ -1,6 +1,6 @@
 # Rendering Modes
 
-Viact supports four rendering modes, configured per-route. Each route declares
+Previte supports four rendering modes, configured per-route. Each route declares
 how and when its HTML is generated.
 
 ---
@@ -33,7 +33,7 @@ returns the params for each page to generate:
 
 ```typescript
 // src/routes/blog-post.tsx
-import type { LoaderArgs, RouteParams } from "viact";
+import type { LoaderArgs, RouteParams } from "previte";
 
 export function getStaticPaths(): RouteParams[] {
   const posts = getAllPosts();
@@ -89,7 +89,7 @@ the stale page is served while a new version is generated in the background.
 ### Time-based revalidation
 
 ```typescript
-import { timeRevalidate } from "viact";
+import { timeRevalidate } from "previte";
 
 {
   revalidate: timeRevalidate(3600);
@@ -102,7 +102,7 @@ against the revalidation window. If stale, it triggers regeneration.
 ### Webhook-based revalidation (Phase 2)
 
 ```typescript
-import { webhookRevalidate } from "viact";
+import { webhookRevalidate } from "previte";
 
 {
   revalidate: webhookRevalidate({ key: "pricing-update" });
@@ -171,7 +171,7 @@ After the initial page load (regardless of mode), the client router handles
 navigation. All subsequent route transitions use the same flow:
 
 1. Client matches the new route
-2. Fetches loader data as JSON from the server (via `x-viact-route-state-request` header)
+2. Fetches loader data as JSON from the server (via `x-previte-route-state-request` header)
 3. Updates the component tree with new data
 4. Pushes to browser history
 

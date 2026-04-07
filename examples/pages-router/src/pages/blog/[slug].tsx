@@ -1,4 +1,4 @@
-import type { LoaderArgs, RouteComponentProps, RouteParams } from "viact";
+import type { LoaderArgs, RouteComponentProps, RouteParams } from "previte";
 
 export const RENDER_MODE = "ssg";
 

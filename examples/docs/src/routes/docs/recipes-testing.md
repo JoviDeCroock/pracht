@@ -1,6 +1,6 @@
 ---
 title: Testing
-lead: Test your viact app at every level — unit test loaders and API routes with Vitest, and run full E2E tests with Playwright to verify rendering, navigation, and hydration.
+lead: Test your previte app at every level — unit test loaders and API routes with Vitest, and run full E2E tests with Playwright to verify rendering, navigation, and hydration.
 breadcrumb: Testing
 prev:
   href: /docs/recipes/forms
@@ -12,7 +12,7 @@ next:
 
 ## Recommended Setup
 
-Viact apps are built on Vite, so **Vitest** is the natural choice for unit and integration tests. For E2E browser tests, use **Playwright**.
+Previte apps are built on Vite, so **Vitest** is the natural choice for unit and integration tests. For E2E browser tests, use **Playwright**.
 
 ```sh
 # Install test dependencies
@@ -161,11 +161,11 @@ describe("auth middleware", () => {
 
 ## Testing the Request Pipeline
 
-For integration tests, use `handleViactRequest()` to test the full server pipeline — middleware, loaders, rendering — without a browser:
+For integration tests, use `handlePreviteRequest()` to test the full server pipeline — middleware, loaders, rendering — without a browser:
 
 ```ts [test/integration.test.ts]
 import { describe, it, expect } from "vitest";
-import { handleViactRequest, resolveApp } from "viact";
+import { handlePreviteRequest, resolveApp } from "previte";
 
 // Build a test app with mock modules
 const app = resolveApp({
@@ -193,7 +193,7 @@ const registry = {
 describe("request pipeline", () => {
   it("renders the home page with loader data", async () => {
     const request = new Request("http://localhost/");
-    const response = await handleViactRequest(request, {
+    const response = await handlePreviteRequest(request, {
       app,
       registry,
       mode: "development",
@@ -206,9 +206,9 @@ describe("request pipeline", () => {
 
   it("returns loader data as JSON for client navigation", async () => {
     const request = new Request("http://localhost/", {
-      headers: { "x-viact-route-state-request": "1" },
+      headers: { "x-previte-route-state-request": "1" },
     });
-    const response = await handleViactRequest(request, {
+    const response = await handlePreviteRequest(request, {
       app,
       registry,
       mode: "development",
@@ -272,7 +272,7 @@ test("navigates between pages without full reload", async ({ page }) => {
   await page.goto("/");
 
   // Wait for hydration
-  await page.waitForFunction(() => (window as any).__VIACT_ROUTER_READY__);
+  await page.waitForFunction(() => (window as any).__PREVITE_ROUTER_READY__);
 
   // Click a link
   await page.click('a[href="/about"]');
@@ -286,7 +286,7 @@ test("navigates between pages without full reload", async ({ page }) => {
 
 test("shell persists across same-shell navigations", async ({ page }) => {
   await page.goto("/");
-  await page.waitForFunction(() => (window as any).__VIACT_ROUTER_READY__);
+  await page.waitForFunction(() => (window as any).__PREVITE_ROUTER_READY__);
 
   // Mark the shell DOM to verify it's not re-mounted
   await page.evaluate(() => {
@@ -309,7 +309,7 @@ import { test, expect } from "@playwright/test";
 
 test("submits contact form and shows success", async ({ page }) => {
   await page.goto("/contact");
-  await page.waitForFunction(() => (window as any).__VIACT_ROUTER_READY__);
+  await page.waitForFunction(() => (window as any).__PREVITE_ROUTER_READY__);
 
   await page.fill('input[name="name"]', "Alice");
   await page.fill('input[name="email"]', "alice@example.com");
@@ -321,7 +321,7 @@ test("submits contact form and shows success", async ({ page }) => {
 
 test("shows validation errors on empty submit", async ({ page }) => {
   await page.goto("/contact");
-  await page.waitForFunction(() => (window as any).__VIACT_ROUTER_READY__);
+  await page.waitForFunction(() => (window as any).__PREVITE_ROUTER_READY__);
 
   await page.click('button[type="submit"]');
 
@@ -359,12 +359,12 @@ test("unsupported methods return 405", async ({ request }) => {
 
 ## Testing Route Data (JSON Endpoint)
 
-During client navigation, viact fetches loader data as JSON. You can test this directly:
+During client navigation, previte fetches loader data as JSON. You can test this directly:
 
 ```ts
 test("loader returns JSON for client navigation requests", async ({ request }) => {
   const response = await request.get("/dashboard", {
-    headers: { "x-viact-route-state-request": "1" },
+    headers: { "x-previte-route-state-request": "1" },
   });
 
   expect(response.status()).toBe(200);
@@ -377,7 +377,7 @@ test("loader returns JSON for client navigation requests", async ({ request }) =
 
 ## Vitest Configuration
 
-A minimal `vitest.config.ts` for a viact app:
+A minimal `vitest.config.ts` for a previte app:
 
 ```ts [vitest.config.ts]
 import { defineConfig } from "vitest/config";
@@ -414,6 +414,6 @@ Add these to your `package.json`:
 - **Test loaders directly** — they're plain functions. No need to spin up a server for data logic tests.
 - **Test API routes directly** — they take a `Request` and return a `Response`. Easy to unit test without any framework setup.
 - **Use E2E for hydration** — unit tests can't verify that client-side routing and hydration work correctly. That's what Playwright is for.
-- Check for `(window as any).__VIACT_ROUTER_READY__` in Playwright tests to wait for hydration before interacting with the page.
-- **Test the JSON endpoint** — send `x-viact-route-state-request: 1` to get loader data as JSON. Great for verifying data without parsing HTML.
+- Check for `(window as any).__PREVITE_ROUTER_READY__` in Playwright tests to wait for hydration before interacting with the page.
+- **Test the JSON endpoint** — send `x-previte-route-state-request: 1` to get loader data as JSON. Great for verifying data without parsing HTML.
 - Keep E2E tests focused on behavior (navigation, form flows, error states) rather than visual assertions.

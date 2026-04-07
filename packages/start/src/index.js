@@ -6,35 +6,35 @@ import { createInterface } from "node:readline/promises";
 
 const ADAPTERS = {
   node: {
-    description: "Node.js server with viact preview",
+    description: "Node.js server with previte preview",
     id: "node",
     label: "Node.js",
-    packageName: "@viact/adapter-node",
+    packageName: "@previte/adapter-node",
     short: "node",
   },
   cloudflare: {
     description: "Cloudflare Workers with wrangler deploy",
     id: "cloudflare",
     label: "Cloudflare Workers",
-    packageName: "@viact/adapter-cloudflare",
+    packageName: "@previte/adapter-cloudflare",
     short: "cf",
   },
   vercel: {
     description: "Vercel Edge Functions with prebuilt deploy",
     id: "vercel",
     label: "Vercel",
-    packageName: "@viact/adapter-vercel",
+    packageName: "@previte/adapter-vercel",
     short: "vercel",
   },
 };
 
-const DEFAULT_DIRECTORY = "viact-app";
+const DEFAULT_DIRECTORY = "previte-app";
 
 export async function run(argv = process.argv.slice(2)) {
   const options = parseArgs(argv);
   const packageManager = getPackageManager();
 
-  console.log("create-viact");
+  console.log("create-previte");
   console.log(`Using ${packageManager} for this scaffold.`);
   console.log("");
 
@@ -237,26 +237,26 @@ function buildProjectFiles({ adapter, packageManager, projectName }) {
 
 function createPackageJson({ adapter, projectName }) {
   const scripts = {
-    build: "viact build",
-    dev: "viact dev",
-    preview: "viact preview",
+    build: "previte build",
+    dev: "previte dev",
+    preview: "previte preview",
   };
 
   const devDependencies = {
-    "@viact/cli": "latest",
-    "@viact/vite-plugin": "latest",
+    "@previte/cli": "latest",
+    "@previte/vite-plugin": "latest",
     preact: "^10.26.9",
     "preact-render-to-string": "^6.5.13",
     vite: "^8.0.0",
   };
 
   if (adapter.id === "cloudflare") {
-    scripts.deploy = "viact build && wrangler deploy";
+    scripts.deploy = "previte build && wrangler deploy";
     devDependencies.wrangler = "^4.81.0";
   }
 
   if (adapter.id === "vercel") {
-    scripts.deploy = "viact build && vercel deploy --prebuilt";
+    scripts.deploy = "previte build && vercel deploy --prebuilt";
     devDependencies.vercel = "latest";
   }
 
@@ -264,7 +264,7 @@ function createPackageJson({ adapter, projectName }) {
     {
       dependencies: {
         [adapter.packageName]: "latest",
-        viact: "latest",
+        previte: "latest",
       },
       devDependencies,
       name: projectName,
@@ -280,20 +280,20 @@ function createPackageJson({ adapter, projectName }) {
 
 function createViteConfig(adapter) {
   const ADAPTER_IMPORTS = {
-    node: { fn: "nodeAdapter", pkg: "@viact/adapter-node" },
-    cloudflare: { fn: "cloudflareAdapter", pkg: "@viact/adapter-cloudflare" },
-    vercel: { fn: "vercelAdapter", pkg: "@viact/adapter-vercel" },
+    node: { fn: "nodeAdapter", pkg: "@previte/adapter-node" },
+    cloudflare: { fn: "cloudflareAdapter", pkg: "@previte/adapter-cloudflare" },
+    vercel: { fn: "vercelAdapter", pkg: "@previte/adapter-vercel" },
   };
 
   const info = ADAPTER_IMPORTS[adapter.id] ?? ADAPTER_IMPORTS.node;
 
   return [
     'import { defineConfig } from "vite";',
-    'import { viact } from "@viact/vite-plugin";',
+    'import { previte } from "@previte/vite-plugin";',
     `import { ${info.fn} } from "${info.pkg}";`,
     "",
     "export default defineConfig({",
-    `  plugins: [viact({ adapter: ${info.fn}() })],`,
+    `  plugins: [previte({ adapter: ${info.fn}() })],`,
     "});",
     "",
   ].join("\n");
@@ -301,7 +301,7 @@ function createViteConfig(adapter) {
 
 function createRoutesFile() {
   return [
-    'import { defineApp, route } from "viact";',
+    'import { defineApp, route } from "previte";',
     "",
     "export const app = defineApp({",
     "  shells: {",
@@ -317,14 +317,14 @@ function createRoutesFile() {
 
 function createShellFile(projectName) {
   return [
-    'import type { ShellProps } from "viact";',
+    'import type { ShellProps } from "previte";',
     "",
     "export function Shell({ children }: ShellProps) {",
     "  return (",
     '    <div style={{ fontFamily: "Inter, system-ui, sans-serif", margin: "0 auto", maxWidth: "720px", padding: "48px 20px" }}>',
     '      <header style={{ marginBottom: "32px" }}>',
     `        <strong>${projectName}</strong>`,
-    '        <p style={{ color: "#555", margin: "8px 0 0" }}>A new viact app.</p>',
+    '        <p style={{ color: "#555", margin: "8px 0 0" }}>A new previte app.</p>',
     "      </header>",
     "      <main>{children}</main>",
     "    </div>",
@@ -343,7 +343,7 @@ function createShellFile(projectName) {
 
 function createHomeRoute(adapter) {
   return [
-    'import type { LoaderArgs, RouteComponentProps } from "viact";',
+    'import type { LoaderArgs, RouteComponentProps } from "previte";',
     "",
     "export async function loader(_args: LoaderArgs) {",
     "  return {",
@@ -360,7 +360,7 @@ function createHomeRoute(adapter) {
     "  return (",
     "    <section>",
     '      <p style={{ color: "#555", marginBottom: "8px" }}>Starter ready.</p>',
-    '      <h1 style={{ fontSize: "2.5rem", lineHeight: 1.1, margin: "0 0 16px" }}>Your viact app is up and running.</h1>',
+    '      <h1 style={{ fontSize: "2.5rem", lineHeight: 1.1, margin: "0 0 16px" }}>Your previte app is up and running.</h1>',
     '      <p style={{ fontSize: "1.1rem", lineHeight: 1.6, marginBottom: "24px" }}>',
     "        This starter is configured for <strong>{data.adapter}</strong>.",
     "      </p>",
@@ -385,7 +385,7 @@ function createHealthRoute(adapter) {
     "  return Response.json({",
     `    adapter: ${JSON.stringify(adapter.short)},`,
     "    ok: true,",
-    '    service: "viact",',
+    '    service: "previte",',
     "  });",
     "}",
     "",
@@ -413,8 +413,8 @@ function createWranglerConfig(projectName) {
 
 function createCloudflareEnvDeclaration() {
   return [
-    'import "viact";',
-    'declare module "viact" {',
+    'import "previte";',
+    'declare module "previte" {',
     "  interface Register {",
     "    context: {",
     "      env: Env;",
@@ -435,7 +435,7 @@ function createReadme({ adapter, packageManager, projectName }) {
   const lines = [
     `# ${projectName}`,
     "",
-    `This viact starter is configured for ${adapter.label}.`,
+    `This previte starter is configured for ${adapter.label}.`,
     "",
     "## Commands",
     "",
@@ -492,7 +492,7 @@ function printNextSteps({ adapter, dir, installSucceeded, packageManager, skipIn
   const devCommand = packageManager === "npm" ? "npm run dev" : `${packageManager} dev`;
 
   console.log("");
-  console.log(`Created a viact app in ${dir}.`);
+  console.log(`Created a previte app in ${dir}.`);
   console.log(`Adapter: ${adapter.label}`);
   console.log("");
   console.log("Next steps:");
@@ -511,10 +511,10 @@ function printNextSteps({ adapter, dir, installSucceeded, packageManager, skipIn
 }
 
 function printHelp() {
-  console.log(`create-viact
+  console.log(`create-previte
 
 Usage:
-  create-viact [directory] [--adapter=node|cf|vercel] [--skip-install]
+  create-previte [directory] [--adapter=node|cf|vercel] [--skip-install]
 `);
 }
 

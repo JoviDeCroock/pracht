@@ -1,6 +1,6 @@
 ---
 title: Forms & Validation
-lead: Handle form submissions with progressive enhancement using viact's <code>&lt;Form&gt;</code> component and API routes. Forms work without JavaScript and upgrade to fetch-based submissions when JS is available.
+lead: Handle form submissions with progressive enhancement using previte's <code>&lt;Form&gt;</code> component and API routes. Forms work without JavaScript and upgrade to fetch-based submissions when JS is available.
 breadcrumb: Forms
 prev:
   href: /docs/recipes/auth
@@ -36,7 +36,7 @@ export async function POST({ request }: ApiRouteArgs) {
 ```
 
 ```tsx [src/routes/contact.tsx]
-import { Form } from "viact";
+import { Form } from "previte";
 import { useState } from "preact/hooks";
 
 export function Component() {
@@ -107,7 +107,7 @@ Use the `action` prop to target any API route:
 Use plain `fetch()` when you need to submit from code rather than a form element:
 
 ```ts
-import { useRevalidate } from "viact";
+import { useRevalidate } from "previte";
 
 export function Component() {
   const revalidate = useRevalidate();
@@ -217,7 +217,7 @@ export async function POST({ request }: ApiRouteArgs) {
 After a mutation via an API route, use `useRevalidate()` to refresh the current route's loader data:
 
 ```ts
-import { useRevalidate } from "viact";
+import { useRevalidate } from "previte";
 
 export function Component({ data }: RouteComponentProps<typeof loader>) {
   const revalidate = useRevalidate();

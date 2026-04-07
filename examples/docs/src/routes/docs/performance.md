@@ -1,6 +1,6 @@
 ---
 title: Performance
-lead: viact optimizes page load performance through automatic code splitting, module preloading, and vendor chunk extraction — with zero configuration.
+lead: previte optimizes page load performance through automatic code splitting, module preloading, and vendor chunk extraction — with zero configuration.
 breadcrumb: Performance
 prev:
   href: /docs/prefetching
@@ -11,7 +11,7 @@ prev:
 
 Every route and shell module is loaded via `import.meta.glob()`, which Vite compiles into dynamic imports. Each route becomes its own JS chunk, loaded only when needed.
 
-On the server, viact knows which route and shell are being rendered. It uses this to emit `<link rel="modulepreload">` hints in the HTML `<head>` so the browser can start downloading the matched route's JS chunks immediately — before the client entry script even executes.
+On the server, previte knows which route and shell are being rendered. It uses this to emit `<link rel="modulepreload">` hints in the HTML `<head>` so the browser can start downloading the matched route's JS chunks immediately — before the client entry script even executes.
 
 ```html
 <!-- Automatically injected for the matched route -->
@@ -33,13 +33,13 @@ Preact, preact/hooks, and preact-suspense are extracted into a shared `vendor` c
 
 ## CSS Per Page
 
-viact builds a CSS manifest that maps each source file to its transitive CSS dependencies. At request time, only the CSS needed for the matched route and shell is injected as `<link rel="stylesheet">` tags — no unused CSS is sent.
+previte builds a CSS manifest that maps each source file to its transitive CSS dependencies. At request time, only the CSS needed for the matched route and shell is injected as `<link rel="stylesheet">` tags — no unused CSS is sent.
 
 ---
 
 ## Error Overlay in Dev
 
-During development, if a loader or component throws an error during server-side rendering, viact renders a framework-aware error overlay instead of a generic Vite error page.
+During development, if a loader or component throws an error during server-side rendering, previte renders a framework-aware error overlay instead of a generic Vite error page.
 
 The overlay shows:
 
@@ -50,13 +50,13 @@ The overlay shows:
 The overlay auto-reloads when you save a fix — it listens for Vite's HMR full-reload event and refreshes the page automatically.
 
 > [!NOTE]
-> The error overlay only appears during `viact dev`. Production builds return standard error responses (or render your `ErrorBoundary` component if one is exported from the route module).
+> The error overlay only appears during `previte dev`. Production builds return standard error responses (or render your `ErrorBoundary` component if one is exported from the route module).
 
 ---
 
 ## What You Get For Free
 
-None of these optimizations require configuration. A standard viact app automatically gets:
+None of these optimizations require configuration. A standard previte app automatically gets:
 
 | Optimization         | What It Does                                                 |
 | -------------------- | ------------------------------------------------------------ |

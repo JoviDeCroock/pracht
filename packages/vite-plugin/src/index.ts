@@ -6,61 +6,61 @@ import type { Connect, Plugin, ViteDevServer } from "vite";
 
 import { generatePagesManifestSource, scanPagesDirectory } from "./pages-router.ts";
 
-export const VIACT_CLIENT_MODULE_ID = "virtual:viact/client";
-export const VIACT_SERVER_MODULE_ID = "virtual:viact/server";
+export const PREVITE_CLIENT_MODULE_ID = "virtual:previte/client";
+export const PREVITE_SERVER_MODULE_ID = "virtual:previte/server";
 
 // Browser-safe path alias — the colon in "virtual:" is parsed as a protocol
 // scheme by browsers, so we serve the client module from a plain path.
-const CLIENT_BROWSER_PATH = "/@viact/client.js";
+const CLIENT_BROWSER_PATH = "/@previte/client.js";
 
 // Vite 8's SSR build prepends the project root to entry IDs before calling
-// resolveId, so we may receive "/abs/path/virtual:viact/server" instead of
-// just "virtual:viact/server".  These helpers match both forms.
+// resolveId, so we may receive "/abs/path/virtual:previte/server" instead of
+// just "virtual:previte/server".  These helpers match both forms.
 function isClientModule(id: string): boolean {
   return (
-    id === VIACT_CLIENT_MODULE_ID ||
+    id === PREVITE_CLIENT_MODULE_ID ||
     id === CLIENT_BROWSER_PATH ||
-    id.endsWith(VIACT_CLIENT_MODULE_ID)
+    id.endsWith(PREVITE_CLIENT_MODULE_ID)
   );
 }
 
 function isServerModule(id: string): boolean {
-  return id === VIACT_SERVER_MODULE_ID || id.endsWith(VIACT_SERVER_MODULE_ID);
+  return id === PREVITE_SERVER_MODULE_ID || id.endsWith(PREVITE_SERVER_MODULE_ID);
 }
 
 /**
- * An adapter object that bridges viact's platform-agnostic core to a specific
- * deployment target.  Built-in adapters are provided by `@viact/adapter-node`,
- * `@viact/adapter-cloudflare`, and `@viact/adapter-vercel`.  You can also
+ * An adapter object that bridges previte's platform-agnostic core to a specific
+ * deployment target.  Built-in adapters are provided by `@previte/adapter-node`,
+ * `@previte/adapter-cloudflare`, and `@previte/adapter-vercel`.  You can also
  * supply a custom adapter that conforms to this interface.
  */
-export interface ViactAdapter {
+export interface PreviteAdapter {
   /** A short identifier used at build time (e.g. "node", "cloudflare", "vercel"). */
   id: string;
   /**
    * Extra import statements that must appear at the top of the generated
-   * `virtual:viact/server` module.  Return an empty string if none are needed.
+   * `virtual:previte/server` module.  Return an empty string if none are needed.
    */
   serverImports: string;
   /**
    * Returns the JavaScript source code appended to the generated
-   * `virtual:viact/server` module.  This is where the adapter wires up its
+   * `virtual:previte/server` module.  This is where the adapter wires up its
    * request handler or default export.
    */
   createServerEntryModule(): string;
 }
 
-function createDefaultNodeAdapter(): ViactAdapter {
+function createDefaultNodeAdapter(): PreviteAdapter {
   return {
     id: "node",
-    serverImports: 'import { resolveApp, resolveApiRoutes } from "viact";',
+    serverImports: 'import { resolveApp, resolveApiRoutes } from "previte";',
     createServerEntryModule() {
       return [
         'import { existsSync, readFileSync } from "node:fs";',
         'import { createServer } from "node:http";',
         'import { dirname, resolve } from "node:path";',
         'import { fileURLToPath, pathToFileURL } from "node:url";',
-        'import { createNodeRequestHandler } from "@viact/adapter-node";',
+        'import { createNodeRequestHandler } from "@previte/adapter-node";',
         "",
         "const serverDir = dirname(fileURLToPath(import.meta.url));",
         'const staticDir = resolve(serverDir, "../client");',
@@ -85,7 +85,7 @@ function createDefaultNodeAdapter(): ViactAdapter {
         "  const server = createServer(handler);",
         "  const port = Number(process.env.PORT ?? 3000);",
         "  server.listen(port, () => {",
-        "    console.log(`viact node server listening on http://localhost:${port}`);",
+        "    console.log(`previte node server listening on http://localhost:${port}`);",
         "  });",
         "}",
         "",
@@ -96,23 +96,23 @@ function createDefaultNodeAdapter(): ViactAdapter {
 
 export type RenderMode = "spa" | "ssr" | "ssg" | "isg";
 
-export interface ViactPluginOptions {
+export interface PrevitePluginOptions {
   appFile?: string;
   routesDir?: string;
   shellsDir?: string;
   middlewareDir?: string;
   apiDir?: string;
   serverDir?: string;
-  adapter?: ViactAdapter;
+  adapter?: PreviteAdapter;
   /** Enable file-system pages routing by pointing to the pages directory (e.g. "/src/pages"). */
   pagesDir?: string;
   /** Default render mode for pages when RENDER_MODE is not exported. Defaults to "ssr". */
   pagesDefaultRender?: RenderMode;
 }
 
-type ResolvedViactPluginOptions = Required<ViactPluginOptions>;
+type ResolvedPrevitePluginOptions = Required<PrevitePluginOptions>;
 
-const DEFAULTS: ResolvedViactPluginOptions = {
+const DEFAULTS: ResolvedPrevitePluginOptions = {
   appFile: "/src/routes.ts",
   middlewareDir: "/src/middleware",
   routesDir: "/src/routes",
@@ -124,19 +124,19 @@ const DEFAULTS: ResolvedViactPluginOptions = {
   pagesDefaultRender: "ssr",
 };
 
-export async function viact(options: ViactPluginOptions = {}): Promise<Plugin[]> {
+export async function previte(options: PrevitePluginOptions = {}): Promise<Plugin[]> {
   const resolved = resolveOptions(options);
   const isPagesMode = !!resolved.pagesDir;
   let root = process.cwd();
 
   if (isPagesMode && options.appFile) {
     console.warn(
-      "[viact] Both `pagesDir` and `appFile` are set. `pagesDir` takes precedence — `appFile` will be ignored.",
+      "[previte] Both `pagesDir` and `appFile` are set. `pagesDir` takes precedence — `appFile` will be ignored.",
     );
   }
 
-  const viactPlugin: Plugin = {
-    name: "viact",
+  const previtePlugin: Plugin = {
+    name: "previte",
     enforce: "pre",
 
     config() {
@@ -164,17 +164,17 @@ export async function viact(options: ViactPluginOptions = {}): Promise<Plugin[]>
     },
 
     resolveId(id) {
-      if (isClientModule(id)) return VIACT_CLIENT_MODULE_ID;
-      if (isServerModule(id)) return VIACT_SERVER_MODULE_ID;
+      if (isClientModule(id)) return PREVITE_CLIENT_MODULE_ID;
+      if (isServerModule(id)) return PREVITE_SERVER_MODULE_ID;
       return null;
     },
 
     load(id) {
       if (isClientModule(id)) {
-        return createViactClientModuleSource(resolved, { root });
+        return createPreviteClientModuleSource(resolved, { root });
       }
       if (isServerModule(id)) {
-        return createViactServerModuleSource(resolved, { root });
+        return createPreviteServerModuleSource(resolved, { root });
       }
       return null;
     },
@@ -203,8 +203,8 @@ export async function viact(options: ViactPluginOptions = {}): Promise<Plugin[]>
 
       // Pages mode: edits to page files invalidate virtual modules
       if (isPagesMode && relative.startsWith(resolved.pagesDir)) {
-        const clientMod = server.moduleGraph.getModuleById(VIACT_CLIENT_MODULE_ID);
-        const serverMod = server.moduleGraph.getModuleById(VIACT_SERVER_MODULE_ID);
+        const clientMod = server.moduleGraph.getModuleById(PREVITE_CLIENT_MODULE_ID);
+        const serverMod = server.moduleGraph.getModuleById(PREVITE_SERVER_MODULE_ID);
         if (clientMod) server.moduleGraph.invalidateModule(clientMod);
         if (serverMod) server.moduleGraph.invalidateModule(serverMod);
         return;
@@ -226,14 +226,14 @@ export async function viact(options: ViactPluginOptions = {}): Promise<Plugin[]>
         resolved.serverDir,
       ];
       if (dirs.some((dir) => relative.startsWith(dir))) {
-        const serverMod = server.moduleGraph.getModuleById(VIACT_SERVER_MODULE_ID);
+        const serverMod = server.moduleGraph.getModuleById(PREVITE_SERVER_MODULE_ID);
         if (serverMod) server.moduleGraph.invalidateModule(serverMod);
         // Don't return [] — let Vite's default HMR handle the component update
       }
     },
   };
 
-  const plugins: Plugin[] = [...preact(), viactPlugin];
+  const plugins: Plugin[] = [...preact(), previtePlugin];
 
   if (resolved.adapter.id === "cloudflare") {
     const { cloudflare } = (await import("@cloudflare/vite-plugin")) as {
@@ -242,7 +242,7 @@ export async function viact(options: ViactPluginOptions = {}): Promise<Plugin[]>
     plugins.push(
       ...cloudflare({
         config: {
-          main: "virtual:viact/server",
+          main: "virtual:previte/server",
         },
       }),
     );
@@ -255,8 +255,8 @@ export async function viact(options: ViactPluginOptions = {}): Promise<Plugin[]>
 // Virtual module source generators
 // ---------------------------------------------------------------------------
 
-export function createViactClientModuleSource(
-  options: ViactPluginOptions = {},
+export function createPreviteClientModuleSource(
+  options: PrevitePluginOptions = {},
   buildOptions: { root?: string } = {},
 ): string {
   const resolved = resolveOptions(options);
@@ -275,7 +275,7 @@ export function createViactClientModuleSource(
     : `${resolved.shellsDir}/**/*.{ts,tsx,js,jsx,md,mdx}`;
 
   return [
-    'import { resolveApp, initClientRouter, readHydrationState } from "viact";',
+    'import { resolveApp, initClientRouter, readHydrationState } from "previte";',
     appImport,
     "",
     `const routeModules = import.meta.glob(${JSON.stringify(routeGlob)});`,
@@ -293,7 +293,7 @@ export function createViactClientModuleSource(
     "}",
     "",
     "const state = readHydrationState();",
-    'const root = document.getElementById("viact-root");',
+    'const root = document.getElementById("previte-root");',
     "if (state && root) {",
     "  initClientRouter({",
     "    app: resolvedApp,",
@@ -308,29 +308,29 @@ export function createViactClientModuleSource(
   ].join("\n");
 }
 
-export function createViactServerModuleSource(
-  options: ViactPluginOptions = {},
+export function createPreviteServerModuleSource(
+  options: PrevitePluginOptions = {},
   buildOptions: {
     root?: string;
   } = {},
 ): string {
   const resolved = resolveOptions(options);
   const isPagesMode = !!resolved.pagesDir;
-  const registrySource = createViactRegistryModuleSource(resolved);
+  const registrySource = createPreviteRegistryModuleSource(resolved);
   const clientBuild = readClientBuildAssets(buildOptions.root);
   const adapter = resolved.adapter;
 
-  // The adapter tells us what extra imports it needs (e.g. handleViactRequest)
-  const viactImports = adapter?.serverImports
+  // The adapter tells us what extra imports it needs (e.g. handlePreviteRequest)
+  const previteImports = adapter?.serverImports
     ? adapter.serverImports
-    : 'import { resolveApp, resolveApiRoutes } from "viact";';
+    : 'import { resolveApp, resolveApiRoutes } from "previte";';
 
   const appImport = isPagesMode
     ? generatePagesAppInlineSource(resolved, buildOptions.root)
     : `import { app } from ${JSON.stringify(resolved.appFile)};`;
 
   const source = [
-    viactImports,
+    previteImports,
     appImport,
     "",
     registrySource,
@@ -351,7 +351,7 @@ export function createViactServerModuleSource(
   return source.join("\n");
 }
 
-export function createViactRegistryModuleSource(options: ViactPluginOptions = {}): string {
+export function createPreviteRegistryModuleSource(options: PrevitePluginOptions = {}): string {
   const resolved = resolveOptions(options);
   const isPagesMode = !!resolved.pagesDir;
 
@@ -385,7 +385,7 @@ export function createViactRegistryModuleSource(options: ViactPluginOptions = {}
 // ---------------------------------------------------------------------------
 
 function generatePagesAppInlineSource(
-  options: ResolvedViactPluginOptions,
+  options: ResolvedPrevitePluginOptions,
   root = process.cwd(),
 ): string {
   const absPagesDir = resolve(root, options.pagesDir.slice(1));
@@ -404,7 +404,7 @@ function generatePagesAppInlineSource(
 
 function createDevSSRMiddleware(
   server: ViteDevServer,
-  _pluginOptions: ResolvedViactPluginOptions,
+  _pluginOptions: ResolvedPrevitePluginOptions,
 ): Connect.NextHandleFunction {
   return async (req: IncomingMessage, res: ServerResponse, next: Connect.NextFunction) => {
     const url = req.url ?? "/";
@@ -418,8 +418,8 @@ function createDevSSRMiddleware(
     try {
       // Load the framework and server module through Vite's SSR pipeline
       const [framework, serverMod] = await Promise.all([
-        server.ssrLoadModule("viact"),
-        server.ssrLoadModule(VIACT_SERVER_MODULE_ID),
+        server.ssrLoadModule("previte"),
+        server.ssrLoadModule(PREVITE_SERVER_MODULE_ID),
       ]);
 
       let webRequest: Request;
@@ -433,7 +433,7 @@ function createDevSSRMiddleware(
         }
         throw err;
       }
-      const response = await framework.handleViactRequest({
+      const response = await framework.handlePreviteRequest({
         app: serverMod.resolvedApp,
         registry: serverMod.registry,
         request: webRequest,
@@ -465,7 +465,7 @@ function createDevSSRMiddleware(
       }
 
       // For route-state JSON requests, return a JSON error
-      const isRouteState = req.headers["x-viact-route-state-request"] === "1";
+      const isRouteState = req.headers["x-previte-route-state-request"] === "1";
       if (isRouteState) {
         res.statusCode = 500;
         res.setHeader("content-type", "application/json; charset=utf-8");
@@ -481,9 +481,9 @@ function createDevSSRMiddleware(
         return;
       }
 
-      // Render the viact error overlay for HTML requests
+      // Render the previte error overlay for HTML requests
       try {
-        const { buildErrorOverlayHtml } = await server.ssrLoadModule("viact/error-overlay");
+        const { buildErrorOverlayHtml } = await server.ssrLoadModule("previte/error-overlay");
         let html = buildErrorOverlayHtml({
           message: error instanceof Error ? error.message : String(error),
           stack: error instanceof Error ? error.stack : undefined,
@@ -545,7 +545,7 @@ async function nodeToWebRequest(req: IncomingMessage): Promise<Request> {
   return new Request(url, init);
 }
 
-function resolveOptions(options: ViactPluginOptions): ResolvedViactPluginOptions {
+function resolveOptions(options: PrevitePluginOptions): ResolvedPrevitePluginOptions {
   return {
     ...DEFAULTS,
     ...options,
@@ -564,7 +564,7 @@ function readClientBuildAssets(root = process.cwd()): {
 
   const rawManifest = readFileSync(manifestPath, "utf-8");
   const manifest = JSON.parse(rawManifest) as Record<string, ViteManifestEntry>;
-  const clientEntry = manifest[VIACT_CLIENT_MODULE_ID];
+  const clientEntry = manifest[PREVITE_CLIENT_MODULE_ID];
 
   // Walk static imports transitively (not dynamicImports — those belong to
   // other shells/routes loaded separately). Returns both CSS and JS deps.

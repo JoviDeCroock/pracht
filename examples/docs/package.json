@@ -1,21 +1,21 @@
 {
-  "name": "@viact/example-docs",
+  "name": "@previte/example-docs",
   "version": "0.0.0",
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "viact dev",
-    "build": "viact build",
-    "preview": "viact preview"
+    "dev": "previte dev",
+    "build": "previte build",
+    "preview": "previte preview"
   },
   "dependencies": {
-    "@viact/adapter-cloudflare": "workspace:*",
-    "viact": "workspace:*",
+    "@previte/adapter-cloudflare": "workspace:*",
+    "previte": "workspace:*",
     "wrangler": "^4.80.0"
   },
   "devDependencies": {
-    "@viact/cli": "workspace:*",
-    "@viact/vite-plugin": "workspace:*",
+    "@previte/cli": "workspace:*",
+    "@previte/vite-plugin": "workspace:*",
     "marked": "^18.0.0",
     "preact": "^10.26.9",
     "preact-render-to-string": "^6.5.13",

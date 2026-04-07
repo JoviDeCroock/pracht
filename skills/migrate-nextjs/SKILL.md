@@ -2,12 +2,12 @@
 name: migrate-nextjs
 version: 1.0.0
 description: |
-  Migrate a Next.js application to Viact. Converts App Router pages, layouts,
-  middleware, API routes, data fetching, and metadata to viact equivalents.
+  Migrate a Next.js application to Previte. Converts App Router pages, layouts,
+  middleware, API routes, data fetching, and metadata to previte equivalents.
   Handles React→Preact, className→class, server components→loaders, and
   manifest wiring.
   Use when asked to "migrate from next", "convert next.js app", "port from
-  next to viact", "nextjs migration", or "switch from next".
+  next to previte", "nextjs migration", or "switch from next".
 allowed-tools:
   - Bash
   - Read
@@ -18,9 +18,9 @@ allowed-tools:
   - AskUserQuestion
 ---
 
-# Migrate Next.js to Viact
+# Migrate Next.js to Previte
 
-Systematically migrate a Next.js application (App Router or Pages Router) to viact — a full-stack Preact framework built on Vite.
+Systematically migrate a Next.js application (App Router or Pages Router) to previte — a full-stack Preact framework built on Vite.
 
 ## Step 0: Assess the source project
 
@@ -45,11 +45,11 @@ Ask the user to confirm the migration scope if the project is large (>20 routes)
 
 ## Fast Path: Pages Router Projects
 
-If the source Next.js project uses the **pages router** (`pages/` directory), viact's `pagesDir` plugin option provides a near-drop-in migration:
+If the source Next.js project uses the **pages router** (`pages/` directory), previte's `pagesDir` plugin option provides a near-drop-in migration:
 
-1. Set `viact({ pagesDir: "/src/pages" })` in `vite.config.ts`
+1. Set `previte({ pagesDir: "/src/pages" })` in `vite.config.ts`
 2. Copy `pages/` to `src/pages/`
-3. Convert `_app.tsx` to viact shell format (`Shell` export + `children` prop)
+3. Convert `_app.tsx` to previte shell format (`Shell` export + `children` prop)
 4. Convert `getServerSideProps`/`getStaticProps` to `loader` exports
 5. Add `export const RENDER_MODE = "ssg"` to static pages, `"ssr"` for dynamic (default is `"ssr"`)
 6. Run dev server, iterate on errors
@@ -59,7 +59,7 @@ For pages router projects, you can **skip manual manifest wiring entirely** (Pha
 
 ## Concept Mapping
 
-| Next.js                         | Viact                                               | Notes                                                                 |
+| Next.js                         | Previte                                               | Notes                                                                 |
 | ------------------------------- | --------------------------------------------------- | --------------------------------------------------------------------- |
 | `pages/` directory              | `pagesDir` plugin option                            | Auto-discovers routes from file system                                |
 | `app/page.tsx`                  | `src/routes/*.tsx` + `route()` in manifest          | File is a module; wiring is explicit                                  |
@@ -73,22 +73,22 @@ For pages router projects, you can **skip manual manifest wiring entirely** (Pha
 | `generateMetadata`              | `head()` export                                     | Returns `{ title, meta }`                                             |
 | Server Components               | `loader()` export                                   | Data fetching moves to loader; component is always a Preact component |
 | `"use server"` actions          | `action()` export                                   | Returns data/redirect/revalidation hints                              |
-| `useRouter()` (next/navigation) | `useNavigate()` from viact                          | Client-side navigation                                                |
+| `useRouter()` (next/navigation) | `useNavigate()` from previte                          | Client-side navigation                                                |
 | `useSearchParams()`             | `useRouteData()` or parse from loader args          | Loaders receive `url` with searchParams                               |
 | `useParams()`                   | `useRouteData()` or `params` in loader              | Params flow through loader data                                       |
-| `next/link` `<Link>`            | Plain `<a>` tags                                    | Viact client router intercepts `<a>` clicks automatically             |
+| `next/link` `<Link>`            | Plain `<a>` tags                                    | Previte client router intercepts `<a>` clicks automatically             |
 | `next/image`                    | Standard `<img>`                                    | Use `vite-imagetools` plugin if optimization needed                   |
 | `next/head` or Metadata API     | `head()` export on route/shell                      | Per-route and per-shell head merging                                  |
 | `className`                     | `class`                                             | Preact uses `class` attribute                                         |
 | `React.useState` etc.           | `import { useState } from "preact/hooks"`           | Preact hooks API is compatible                                        |
 | `React.useEffect`               | `import { useEffect } from "preact/hooks"`          | Same API                                                              |
-| `import React from "react"`     | Remove — no import needed                           | Viact's Vite plugin handles JSX automatically                         |
+| `import React from "react"`     | Remove — no import needed                           | Previte's Vite plugin handles JSX automatically                         |
 
 ## Migration Procedure
 
 ### Phase 1: Project setup
 
-1. Initialize the viact project structure:
+1. Initialize the previte project structure:
    ```
    src/
      routes.ts          # Route manifest
@@ -101,17 +101,17 @@ For pages router projects, you can **skip manual manifest wiring entirely** (Pha
 
    ```ts
    import { defineConfig } from "vite";
-   import { viact } from "@viact/vite-plugin";
+   import { previte } from "@previte/vite-plugin";
 
    export default defineConfig({
-     plugins: [viact()],
+     plugins: [previte()],
    });
    ```
 
 3. Update `package.json`:
    - Replace `react`, `react-dom` → `preact`
-   - Replace `next` → `viact`, `@viact/vite-plugin`, `@viact/adapter-node` (or target adapter)
-   - Update scripts: `dev` → `viact dev`, `build` → `viact build`, `start` → `viact preview` or `node dist/server/server.js`
+   - Replace `next` → `previte`, `@previte/vite-plugin`, `@previte/adapter-node` (or target adapter)
+   - Update scripts: `dev` → `previte dev`, `build` → `previte build`, `start` → `previte preview` or `node dist/server/server.js`
 4. Remove Next.js config files: `next.config.*`, `next-env.d.ts`, `.next/`
 5. If `tsconfig.json` has `"jsx": "preserve"`, change to `"jsx": "react-jsx"` and add `"jsxImportSource": "preact"`.
 
@@ -131,10 +131,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 }
 ```
 
-**Viact:**
+**Previte:**
 
 ```tsx
-import type { ShellProps } from "viact";
+import type { ShellProps } from "previte";
 
 export function Shell({ children }: ShellProps) {
   return (
@@ -151,7 +151,7 @@ export function head() {
 
 Key differences:
 
-- Viact shells do NOT render `<html>`, `<head>`, or `<body>` — the framework owns the HTML document.
+- Previte shells do NOT render `<html>`, `<head>`, or `<body>` — the framework owns the HTML document.
 - Use `class` not `className`.
 - Register in `defineApp({ shells: { main: "./shells/main.tsx" } })`.
 
@@ -178,10 +178,10 @@ export async function generateMetadata() {
 }
 ```
 
-**Viact:**
+**Previte:**
 
 ```tsx
-import type { LoaderArgs, RouteComponentProps } from "viact";
+import type { LoaderArgs, RouteComponentProps } from "previte";
 
 export async function loader(_args: LoaderArgs) {
   const res = await fetch("https://api.example.com/data");
@@ -219,7 +219,7 @@ export default function Counter() {
 }
 ```
 
-**Viact:**
+**Previte:**
 
 ```tsx
 import { useState } from "preact/hooks";
@@ -232,7 +232,7 @@ export function Counter() {
 
 Key transforms:
 
-- Remove `"use client"` directive — not needed in viact
+- Remove `"use client"` directive — not needed in previte
 - `import { ... } from "react"` → `import { ... } from "preact/hooks"` or `import { ... } from "preact/compat"`
 - `import { ... } from "react-dom"` → `import { ... } from "preact/compat"`
 
@@ -249,10 +249,10 @@ export async function GET(request: NextRequest) {
 }
 ```
 
-**Viact (`src/api/users.ts`):**
+**Previte (`src/api/users.ts`):**
 
 ```ts
-import type { BaseRouteArgs } from "viact";
+import type { BaseRouteArgs } from "previte";
 
 export function GET({ request }: BaseRouteArgs) {
   const users = await getUsers();
@@ -284,10 +284,10 @@ export function middleware(request: NextRequest) {
 export const config = { matcher: ["/dashboard/:path*"] };
 ```
 
-**Viact (`src/middleware/auth.ts`):**
+**Previte (`src/middleware/auth.ts`):**
 
 ```ts
-import type { MiddlewareFn } from "viact";
+import type { MiddlewareFn } from "previte";
 
 export const middleware: MiddlewareFn = async ({ request }) => {
   const session = request.headers.get("cookie")?.includes("session");
@@ -315,7 +315,7 @@ Key transforms:
 Build `src/routes.ts` mapping every migrated page:
 
 ```ts
-import { defineApp, group, route } from "viact";
+import { defineApp, group, route } from "previte";
 
 export const app = defineApp({
   shells: {
@@ -355,7 +355,7 @@ Choose render modes based on the Next.js original:
 import Link from "next/link";
 <Link href="/about">About</Link>
 
-// Viact — just use <a>, the client router intercepts it
+// Previte — just use <a>, the client router intercepts it
 <a href="/about">About</a>
 ```
 
@@ -366,7 +366,7 @@ import Link from "next/link";
 import Image from "next/image";
 <Image src="/photo.jpg" width={500} height={300} alt="Photo" />
 
-// Viact
+// Previte
 <img src="/photo.jpg" width={500} height={300} alt="Photo" />
 ```
 
@@ -378,13 +378,13 @@ import { useRouter } from "next/navigation";
 const router = useRouter();
 router.push("/dashboard");
 
-// Viact
-import { useNavigate } from "viact";
+// Previte
+import { useNavigate } from "previte";
 const navigate = useNavigate();
 navigate("/dashboard");
 ```
 
-#### Server Actions → Viact actions
+#### Server Actions → Previte actions
 
 ```tsx
 // Next.js
@@ -394,7 +394,7 @@ async function createPost(formData: FormData) {
   revalidatePath("/posts");
 }
 
-// Viact — action export in route module
+// Previte — action export in route module
 export async function action({ request }: ActionArgs) {
   const form = await request.formData();
   await db.insert({ title: form.get("title") });
@@ -410,7 +410,7 @@ import { cookies, headers } from "next/headers";
 const session = cookies().get("session");
 const ua = headers().get("user-agent");
 
-// Viact — available in loader args
+// Previte — available in loader args
 export async function loader({ request }: LoaderArgs) {
   const cookies = request.headers.get("cookie");
   const ua = request.headers.get("user-agent");
@@ -427,13 +427,13 @@ export async function loader({ request }: LoaderArgs) {
 3. Search for remaining `className` → replace with `class`.
 4. Search for remaining `react` imports → replace with `preact` equivalents.
 5. Remove `next.config.*`, `next-env.d.ts`, `.next/` directory.
-6. Run the dev server (`viact dev`) and fix any remaining issues.
+6. Run the dev server (`previte dev`) and fix any remaining issues.
 
 ## Dependency Mapping
 
-| Next.js package | Viact equivalent                                     |
+| Next.js package | Previte equivalent                                     |
 | --------------- | ---------------------------------------------------- |
-| `next`          | `viact`, `@viact/vite-plugin`, `@viact/adapter-node` |
+| `next`          | `previte`, `@previte/vite-plugin`, `@previte/adapter-node` |
 | `react`         | `preact`                                             |
 | `react-dom`     | `preact`                                             |
 | `@next/font`    | CSS `@font-face` or `fontsource` packages            |
@@ -455,16 +455,16 @@ resolve: {
 }
 ```
 
-Note: The viact Vite plugin sets these aliases automatically. Only add manual aliases if a dependency doesn't resolve correctly.
+Note: The previte Vite plugin sets these aliases automatically. Only add manual aliases if a dependency doesn't resolve correctly.
 
 ## Rules
 
 1. Always read the Next.js source before converting — understand what each file does.
 2. Migrate in phases: setup → shells → routes → API → middleware → manifest → cleanup.
-3. Prefer the simplest viact equivalent. Don't over-engineer the migration.
+3. Prefer the simplest previte equivalent. Don't over-engineer the migration.
 4. Identify React libraries that need `preact/compat` aliasing and flag them.
-5. After migration, run `viact dev` to verify. Fix errors iteratively.
-6. If a Next.js feature has no viact equivalent, explain the gap and suggest alternatives.
+5. After migration, run `previte dev` to verify. Fix errors iteratively.
+6. If a Next.js feature has no previte equivalent, explain the gap and suggest alternatives.
 7. Use Preact idioms: `class` not `className`, no `React` import needed, `preact/hooks` for hooks.
 
 $ARGUMENTS

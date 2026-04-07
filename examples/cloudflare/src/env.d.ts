@@ -1,6 +1,6 @@
-import "viact";
+import "previte";
 
-declare module "viact" {
+declare module "previte" {
   interface Register {
     context: {
       env: Env;

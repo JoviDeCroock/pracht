@@ -1,6 +1,6 @@
 # Data Loading
 
-Viact provides a unified data loading model that works across all rendering modes.
+Previte provides a unified data loading model that works across all rendering modes.
 Loaders fetch data and client hooks provide reactive access.
 
 ---
@@ -12,7 +12,7 @@ and returns serializable data that flows into the route component.
 
 ```typescript
 // src/routes/dashboard.tsx
-import type { LoaderArgs, RouteComponentProps } from "viact";
+import type { LoaderArgs, RouteComponentProps } from "previte";
 
 export async function loader({ request, params, context, signal }: LoaderArgs) {
   const user = await getUser(request);
@@ -45,19 +45,19 @@ export function Component({ data }: RouteComponentProps<typeof loader>) {
 | SSR request       | Server, every request                                      |
 | ISG initial       | Build machine, then server on revalidation                 |
 | SPA               | Server, during client navigation fetch                     |
-| Client navigation | Server (fetched as JSON via `x-viact-route-state-request`) |
+| Client navigation | Server (fetched as JSON via `x-previte-route-state-request`) |
 
 Loaders **never** run in the browser. This keeps server secrets (DB connections,
 API keys) safe.
 
 ### Error handling
 
-Throw `ViactHttpError` for structured error responses:
+Throw `PreviteHttpError` for structured error responses:
 
 ```typescript
 export async function loader({ params }: LoaderArgs) {
   const post = await getPost(params.slug);
-  if (!post) throw new ViactHttpError(404, "Post not found");
+  if (!post) throw new PreviteHttpError(404, "Post not found");
   return { post };
 }
 ```
@@ -119,7 +119,7 @@ export function Component() {
 Declarative form submission:
 
 ```typescript
-import { Form } from "viact";
+import { Form } from "previte";
 
 export function Component() {
   return (

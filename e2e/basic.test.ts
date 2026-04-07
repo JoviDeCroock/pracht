@@ -11,7 +11,7 @@ test("home page renders SSR HTML with loader data", async ({ page }) => {
 
   // Shell renders
   await expect(page.locator(".public-shell")).toBeVisible();
-  await expect(page.locator("header")).toContainText("Viact");
+  await expect(page.locator("header")).toContainText("Previte");
   await expect(page.locator("footer")).toContainText("Preact-first");
 
   // Route component renders with loader data
@@ -23,7 +23,7 @@ test("home page HTML includes hydration state", async ({ request }) => {
   const response = await request.get("/");
   const html = await response.text();
 
-  expect(html).toContain('id="viact-state" type="application/json"');
+  expect(html).toContain('id="previte-state" type="application/json"');
   expect(html).toContain('"routeId":"home"');
   expect(html).toContain("Hybrid route manifest");
 });
@@ -40,7 +40,7 @@ test("home page has correct head metadata", async ({ request }) => {
   const response = await request.get("/");
   const html = await response.text();
 
-  expect(html).toContain("<title>Viact Example</title>");
+  expect(html).toContain("<title>Previte Example</title>");
   expect(html).toContain('name="viewport"');
 });
 
@@ -84,7 +84,7 @@ test("dashboard form posts to API route and keeps the current route hydrated", a
   await context.addCookies([{ name: "session", value: "abc123", domain: "localhost", path: "/" }]);
 
   await page.goto("/dashboard");
-  await page.waitForFunction(() => (window as any).__VIACT_ROUTER_READY__);
+  await page.waitForFunction(() => (window as any).__PREVITE_ROUTER_READY__);
 
   await page.evaluate(() => {
     (window as any).__ACTION_TOKEN__ = true;
@@ -110,16 +110,16 @@ test("settings returns SPA shell without SSR content", async ({ page, context })
   const response = await page.goto("/settings");
   expect(response?.status()).toBe(200);
 
-  // SPA mode: viact-root should be empty in the initial HTML
+  // SPA mode: previte-root should be empty in the initial HTML
   const html = await response?.text();
-  expect(html).toContain('<div id="viact-root"></div>');
+  expect(html).toContain('<div id="previte-root"></div>');
 });
 
 test("settings hydrates correctly on a direct authenticated load", async ({ page, context }) => {
   await context.addCookies([{ name: "session", value: "abc123", domain: "localhost", path: "/" }]);
 
   await page.goto("/settings");
-  await page.waitForFunction(() => (window as any).__VIACT_ROUTER_READY__);
+  await page.waitForFunction(() => (window as any).__PREVITE_ROUTER_READY__);
 
   await expect(page.locator("h1")).toContainText("Settings");
   await expect(page.locator("li")).toHaveCount(3);
@@ -131,7 +131,7 @@ test("settings hydrates correctly on a direct authenticated load", async ({ page
 
 test("route state request returns JSON", async ({ request }) => {
   const response = await request.get("/", {
-    headers: { "x-viact-route-state-request": "1" },
+    headers: { "x-previte-route-state-request": "1" },
   });
 
   expect(response.status()).toBe(200);
@@ -159,7 +159,7 @@ test("unmatched route returns 404", async ({ request }) => {
 test("clicking a link navigates without full page reload", async ({ page }) => {
   await page.goto("/");
   // Wait for hydration
-  await page.waitForFunction(() => (window as any).__VIACT_ROUTER_READY__);
+  await page.waitForFunction(() => (window as any).__PREVITE_ROUTER_READY__);
 
   // Capture a page-level reference to detect full reloads
   await page.evaluate(() => {
@@ -187,7 +187,7 @@ test("client-side navigation updates shell when crossing shell boundaries", asyn
   await context.addCookies([{ name: "session", value: "abc123", domain: "localhost", path: "/" }]);
 
   await page.goto("/dashboard");
-  await page.waitForFunction(() => (window as any).__VIACT_ROUTER_READY__);
+  await page.waitForFunction(() => (window as any).__PREVITE_ROUTER_READY__);
 
   // We're in the app shell
   await expect(page.locator(".app-shell")).toBeVisible();
@@ -210,7 +210,7 @@ test("client-side navigation updates shell when crossing shell boundaries", asyn
 
 test("back button works with client-side navigation", async ({ page }) => {
   await page.goto("/");
-  await page.waitForFunction(() => (window as any).__VIACT_ROUTER_READY__);
+  await page.waitForFunction(() => (window as any).__PREVITE_ROUTER_READY__);
 
   await page.evaluate(() => {
     (window as any).__NAV_TOKEN__ = true;
@@ -235,7 +235,7 @@ test("back button works with client-side navigation", async ({ page }) => {
 
 test("same-shell navigation preserves shell and updates route content", async ({ page }) => {
   await page.goto("/");
-  await page.waitForFunction(() => (window as any).__VIACT_ROUTER_READY__);
+  await page.waitForFunction(() => (window as any).__PREVITE_ROUTER_READY__);
 
   // Verify we're on home in public shell
   await expect(page.locator(".public-shell")).toBeVisible();
@@ -272,13 +272,13 @@ test("product page SSR HTML contains params from useParams", async ({ request })
 
 test("client-side navigation to product page renders useParams correctly", async ({ page }) => {
   await page.goto("/");
-  await page.waitForFunction(() => (window as any).__VIACT_ROUTER_READY__);
+  await page.waitForFunction(() => (window as any).__PREVITE_ROUTER_READY__);
 
   await page.evaluate(() => {
     (window as any).__NAV_TOKEN__ = true;
   });
 
-  await page.evaluate(() => (window as any).__VIACT_NAVIGATE__("/products/1"));
+  await page.evaluate(() => (window as any).__PREVITE_NAVIGATE__("/products/1"));
   await page.waitForURL("/products/1");
 
   await expect(page.locator(".product-id")).toContainText("Product ID: 1");
@@ -334,7 +334,7 @@ test("page hydrates without console errors", async ({ page }) => {
 
   await page.goto("/");
   // Wait for hydration to complete
-  await page.waitForFunction(() => (window as any).__VIACT_ROUTER_READY__);
+  await page.waitForFunction(() => (window as any).__PREVITE_ROUTER_READY__);
 
   // Filter out known non-critical warnings
   const criticalErrors = errors.filter((e) => !e.includes("[vite]") && !e.includes("404"));

@@ -1,4 +1,4 @@
-import type { ShellProps } from "viact";
+import type { ShellProps } from "previte";
 
 export function Shell({ children }: ShellProps) {
   return (
@@ -17,6 +17,6 @@ export function Shell({ children }: ShellProps) {
 
 export function head() {
   return {
-    title: "Viact App",
+    title: "Previte App",
   };
 }

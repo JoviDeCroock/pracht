@@ -50,20 +50,20 @@ importers:
 
   examples/basic:
     dependencies:
-      '@viact/adapter-node':
+      '@previte/adapter-node':
         specifier: workspace:*
         version: link:../../packages/adapter-node
-      '@viact/adapter-vercel':
+      '@previte/adapter-vercel':
         specifier: workspace:*
         version: link:../../packages/adapter-vercel
-      viact:
+      previte:
         specifier: workspace:*
         version: link:../../packages/framework
     devDependencies:
-      '@viact/cli':
+      '@previte/cli':
         specifier: workspace:*
         version: link:../../packages/cli
-      '@viact/vite-plugin':
+      '@previte/vite-plugin':
         specifier: workspace:*
         version: link:../../packages/vite-plugin
       preact:
@@ -78,17 +78,17 @@ importers:
 
   examples/cloudflare:
     dependencies:
-      '@viact/adapter-cloudflare':
+      '@previte/adapter-cloudflare':
         specifier: workspace:*
         version: link:../../packages/adapter-cloudflare
-      viact:
+      previte:
         specifier: workspace:*
         version: link:../../packages/framework
     devDependencies:
-      '@viact/cli':
+      '@previte/cli':
         specifier: workspace:*
         version: link:../../packages/cli
-      '@viact/vite-plugin':
+      '@previte/vite-plugin':
         specifier: workspace:*
         version: link:../../packages/vite-plugin
       preact:
@@ -106,20 +106,20 @@ importers:
 
   examples/docs:
     dependencies:
-      '@viact/adapter-cloudflare':
+      '@previte/adapter-cloudflare':
         specifier: workspace:*
         version: link:../../packages/adapter-cloudflare
-      viact:
+      previte:
         specifier: workspace:*
         version: link:../../packages/framework
       wrangler:
         specifier: ^4.80.0
         version: 4.80.0
     devDependencies:
-      '@viact/cli':
+      '@previte/cli':
         specifier: workspace:*
         version: link:../../packages/cli
-      '@viact/vite-plugin':
+      '@previte/vite-plugin':
         specifier: workspace:*
         version: link:../../packages/vite-plugin
       marked:
@@ -137,17 +137,17 @@ importers:
 
   examples/pages-router:
     dependencies:
-      '@viact/adapter-node':
+      '@previte/adapter-node':
         specifier: workspace:*
         version: link:../../packages/adapter-node
-      viact:
+      previte:
         specifier: workspace:*
         version: link:../../packages/framework
     devDependencies:
-      '@viact/cli':
+      '@previte/cli':
         specifier: workspace:*
         version: link:../../packages/cli
-      '@viact/vite-plugin':
+      '@previte/vite-plugin':
         specifier: workspace:*
         version: link:../../packages/vite-plugin
       preact:
@@ -162,25 +162,25 @@ importers:
 
   packages/adapter-cloudflare:
     dependencies:
-      viact:
+      previte:
         specifier: workspace:*
         version: link:../framework
 
   packages/adapter-node:
     dependencies:
-      viact:
+      previte:
         specifier: workspace:*
         version: link:../framework
 
   packages/adapter-vercel:
     dependencies:
-      viact:
+      previte:
         specifier: workspace:*
         version: link:../framework
 
   packages/cli:
     dependencies:
-      viact:
+      previte:
         specifier: workspace:*
         version: link:../framework
 
@@ -206,13 +206,13 @@ importers:
       '@preact/preset-vite':
         specifier: ^2.10.5
         version: 2.10.5(@babel/core@7.29.0)(preact@10.29.1)(rollup@4.60.1)(vite@8.0.3(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@22.19.17)(esbuild@0.27.3))
-      '@viact/adapter-cloudflare':
+      '@previte/adapter-cloudflare':
         specifier: workspace:*
         version: link:../adapter-cloudflare
-      '@viact/adapter-vercel':
+      '@previte/adapter-vercel':
         specifier: workspace:*
         version: link:../adapter-vercel
-      viact:
+      previte:
         specifier: workspace:*
         version: link:../framework
       vite:

@@ -15,7 +15,7 @@ next:
 Shell modules live in `src/shells/` and export a `Shell` component:
 
 ```ts [src/shells/app.tsx]
-import type { ShellProps } from "viact";
+import type { ShellProps } from "previte";
 
 export function Shell({ children }: ShellProps) {
   return (
@@ -83,4 +83,4 @@ export const app = defineApp({
 
 ## Client-Side Navigation
 
-When navigating between routes that share the same shell, viact preserves the shell and only re-renders the route content. When crossing shell boundaries, the full page tree is re-rendered.
+When navigating between routes that share the same shell, previte preserves the shell and only re-renders the route content. When crossing shell boundaries, the full page tree is re-rendered.

@@ -1,6 +1,6 @@
 ---
 title: Routing
-lead: viact uses a hybrid routing model: route modules live as files by convention, but their wiring — shells, middleware, render modes, and URL patterns — is declared explicitly in a single <code>src/routes.ts</code> manifest.
+lead: previte uses a hybrid routing model: route modules live as files by convention, but their wiring — shells, middleware, render modes, and URL patterns — is declared explicitly in a single <code>src/routes.ts</code> manifest.
 breadcrumb: Routing
 prev:
   href: /docs/getting-started
@@ -15,7 +15,7 @@ next:
 The manifest is the central source of truth for your app's routing. Define it in `src/routes.ts` using `defineApp`, `route`, and `group`:
 
 ```ts [src/routes.ts]
-import { defineApp, group, route, timeRevalidate } from "viact";
+import { defineApp, group, route, timeRevalidate } from "previte";
 
 export const app = defineApp({
   shells: {
@@ -43,7 +43,7 @@ export const app = defineApp({
 
 ### Why explicit over file-based?
 
-File-based routing (Next.js, SvelteKit) couples URL structure to directory structure. This forces awkward nesting for layout groups and makes middleware assignment implicit. viact's hybrid approach:
+File-based routing (Next.js, SvelteKit) couples URL structure to directory structure. This forces awkward nesting for layout groups and makes middleware assignment implicit. previte's hybrid approach:
 
 - Route modules live in `src/routes/` (discoverable by convention)
 - Route _wiring_ is explicit in `src/routes.ts` (auditable, type-checked)
@@ -114,7 +114,7 @@ route("/docs/*", "./routes/docs.tsx");
 Shells are Preact layout components that wrap route content. They are **decoupled from URL structure** — a flat URL like `/settings` can use the `app` shell without nesting under `/app/settings`.
 
 ```ts [src/shells/app.tsx]
-import type { ShellProps } from "viact";
+import type { ShellProps } from "previte";
 
 export function Shell({ children }: ShellProps) {
   return (
@@ -141,7 +141,7 @@ export function head() {
 Middleware runs server-side before the loader. It can redirect, modify context, or throw errors.
 
 ```ts [src/middleware/auth.ts]
-import type { MiddlewareFn } from "viact";
+import type { MiddlewareFn } from "previte";
 
 export const middleware: MiddlewareFn = async ({ request }) => {
   const session = await getSession(request);
@@ -170,16 +170,16 @@ group({ pathPrefix: "/admin", shell: "admin", middleware: ["auth"] }, [
 
 ## Pages Router (Auto-Discovery)
 
-For projects that prefer file-system routing — especially when migrating from Next.js — viact offers an optional pages-based routing mode. Instead of writing a route manifest, set `pagesDir` and viact auto-discovers routes from the file system.
+For projects that prefer file-system routing — especially when migrating from Next.js — previte offers an optional pages-based routing mode. Instead of writing a route manifest, set `pagesDir` and previte auto-discovers routes from the file system.
 
 ### Setup
 
 ```ts [vite.config.ts]
 import { defineConfig } from "vite";
-import { viact } from "@viact/vite-plugin";
+import { previte } from "@previte/vite-plugin";
 
 export default defineConfig({
-  plugins: [viact({ pagesDir: "/src/pages" })],
+  plugins: [previte({ pagesDir: "/src/pages" })],
 });
 ```
 
@@ -202,7 +202,7 @@ When `pagesDir` is set, the `appFile` option is ignored. The plugin scans the pa
 If `pages/_app.tsx` exists, it is registered as a shell named `"pages"` and all discovered routes are automatically wrapped in it:
 
 ```tsx [src/pages/_app.tsx]
-import type { ShellProps } from "viact";
+import type { ShellProps } from "previte";
 
 export function Shell({ children }: ShellProps) {
   return (
@@ -229,7 +229,7 @@ export default function About() {
 Valid values: `"ssr"` | `"ssg"` | `"isg"` | `"spa"`. The default is `"ssr"`, overridable globally via `pagesDefaultRender`:
 
 ```ts [vite.config.ts]
-viact({ pagesDir: "/src/pages", pagesDefaultRender: "ssg" });
+previte({ pagesDir: "/src/pages", pagesDefaultRender: "ssg" });
 ```
 
 ### Route Priority
@@ -241,7 +241,7 @@ Routes are sorted: static routes first, then dynamic (`:param`), then catch-all 
 When you outgrow auto-discovery and want full manifest control, eject with a one-time codegen:
 
 ```ts
-import { generateRoutesFile } from "@viact/vite-plugin/pages-router";
+import { generateRoutesFile } from "@previte/vite-plugin/pages-router";
 
 generateRoutesFile("src/pages", "src/routes.ts", {
   pagesDir: "src/pages",
@@ -249,4 +249,4 @@ generateRoutesFile("src/pages", "src/routes.ts", {
 });
 ```
 
-Then remove `pagesDir` from your viact config. The generated `src/routes.ts` is a standard manifest you can customize freely.
+Then remove `pagesDir` from your previte config. The generated `src/routes.ts` is a standard manifest you can customize freely.

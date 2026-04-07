@@ -1,10 +1,10 @@
-import type { ShellProps } from "viact";
+import type { ShellProps } from "previte";
 
 export function Shell({ children }: ShellProps) {
   return (
     <div class="public-shell">
       <header>
-        <strong>Viact</strong>
+        <strong>Previte</strong>
         <nav>
           <a href="/">Home</a>
           <a href="/pricing">Pricing</a>
@@ -19,6 +19,6 @@ export function Shell({ children }: ShellProps) {
 export function head() {
   return {
     meta: [{ content: "width=device-width, initial-scale=1", name: "viewport" }],
-    title: "Viact Example",
+    title: "Previte Example",
   };
 }

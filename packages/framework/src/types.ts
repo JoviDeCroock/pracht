@@ -7,7 +7,7 @@ import type { ComponentChildren, FunctionComponent } from "preact";
  *
  * ```ts
  * // src/env.d.ts
- * declare module "viact" {
+ * declare module "previte" {
  *   interface Register {
  *     context: { env: Env; executionContext: ExecutionContext };
  *   }
@@ -100,14 +100,14 @@ export interface GroupDefinition {
 
 export type RouteTreeNode = RouteDefinition | GroupDefinition;
 
-export interface ViactAppConfig {
+export interface PreviteAppConfig {
   shells?: Record<string, string>;
   middleware?: Record<string, string>;
   api?: ApiConfig;
   routes: RouteTreeNode[];
 }
 
-export interface ViactApp {
+export interface PreviteApp {
   shells: Record<string, string>;
   middleware: Record<string, string>;
   api: ApiConfig;
@@ -142,7 +142,7 @@ export interface ResolvedRoute extends Omit<RouteMeta, "middleware"> {
   segments: RouteSegment[];
 }
 
-export interface ResolvedViactApp extends Omit<ViactApp, "routes"> {
+export interface ResolvedPreviteApp extends Omit<PreviteApp, "routes"> {
   routes: ResolvedRoute[];
   apiRoutes: ResolvedApiRoute[];
 }
@@ -248,12 +248,12 @@ export interface ModuleRegistry {
   dataModules?: Record<string, ModuleImporter<DataModule>>;
 }
 
-export class ViactHttpError extends Error {
+export class PreviteHttpError extends Error {
   readonly status: number;
 
   constructor(status: number, message: string) {
     super(message);
-    this.name = "ViactHttpError";
+    this.name = "PreviteHttpError";
     this.status = status;
   }
 }

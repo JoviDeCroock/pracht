@@ -1,6 +1,6 @@
-# Viact — Vision & MVP
+# Previte — Vision & MVP
 
-Viact is a full-stack Preact framework built on Vite. It draws routing and rendering
+Previte is a full-stack Preact framework built on Vite. It draws routing and rendering
 
 ---
 
@@ -132,12 +132,12 @@ SSR and SSG, deployed to Node. Thoroughly tested with Playwright E2E tests.
    - `ShellModule` type — layout wrapper with head contribution
    - `MiddlewareModule` type — server-side request interceptor
    - Router: `matchAppRoute()` segment-based matching
-   - Server renderer: `handleViactRequest()` → full HTML with hydration state
+   - Server renderer: `handlePreviteRequest()` → full HTML with hydration state
    - Client runtime: `startApp()`, hydration, client-side navigation
    - Hooks: `useRouteData()`, `useRevalidateRoute()`, `useSubmitAction()`, `<Form>`
 
 2. **`packages/vite-plugin`** — Vite integration
-   - Virtual modules: `virtual:viact/client`, `virtual:viact/server`
+   - Virtual modules: `virtual:previte/client`, `virtual:previte/server`
    - Multi-environment build (client + ssr)
    - `import.meta.glob()` module registry generation
    - SSG prerendering at build time (concurrent, configurable)
@@ -150,9 +150,9 @@ SSR and SSG, deployed to Node. Thoroughly tested with Playwright E2E tests.
    - ISG time-window revalidation
 
 4. **`packages/cli`** — developer tooling (instant local DX)
-   - `viact dev` — one command, instant Vite dev server with HMR
-   - `viact build` — production build with clear output
-   - `viact preview` — preview production build locally
+   - `previte dev` — one command, instant Vite dev server with HMR
+   - `previte build` — production build with clear output
+   - `previte preview` — preview production build locally
    - Zero config to start — sensible defaults, override when needed
    - Fast feedback loop: save a file → see the change instantly
 
@@ -183,21 +183,21 @@ SSR and SSG, deployed to Node. Thoroughly tested with Playwright E2E tests.
 - `adapter-vercel` with serverless + edge functions
 - ISG webhook revalidation
 - Claude Code commands for scaffolding, debugging, and deploying
-- `create-viact` starter CLI
+- `create-previte` starter CLI
 
 ## Phase 3 — Polish
 
 - ~~Error overlay in dev~~ ✓
 - ~~Route-level code splitting optimizations~~ ✓ (modulepreload hints, vendor chunks, jsManifest)
 - ~~Advanced prefetching strategies~~ ✓ (hover/viewport/intent with TTL cache)
-- ~~Documentation website (self-hosted on viact)~~ ✓ (expanded to 11 pages)
+- ~~Documentation website (self-hosted on previte)~~ ✓ (expanded to 11 pages)
 
 ---
 
 ## Monorepo Structure
 
 ```
-viact/
+previte/
   packages/
     framework/        # Core: routing, rendering, runtime, types
     vite-plugin/      # Vite integration, virtual modules, build
@@ -205,7 +205,7 @@ viact/
     adapter-cloudflare/  # Cloudflare Workers adapter
     adapter-vercel/      # Vercel Edge adapter
     cli/              # Dev/build/preview commands
-    create-viact/     # (Phase 2) Starter scaffolding
+    create-previte/     # (Phase 2) Starter scaffolding
   example/            # Working example app
   docs/               # Architecture and design docs
   e2e/                # Playwright end-to-end tests

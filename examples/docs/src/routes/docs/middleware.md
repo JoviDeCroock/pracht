@@ -15,7 +15,7 @@ next:
 Middleware modules live in `src/middleware/` and export a `middleware` function:
 
 ```ts [src/middleware/auth.ts]
-import type { MiddlewareFn } from "viact";
+import type { MiddlewareFn } from "previte";
 
 export const middleware: MiddlewareFn = async ({ request }) => {
   const session = await getSession(request);

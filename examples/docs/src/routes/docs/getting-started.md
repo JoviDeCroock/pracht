@@ -1,6 +1,6 @@
 ---
 title: Getting Started
-lead: Get a viact app running in under a minute. This guide covers project creation, development, and your first production build.
+lead: Get a previte app running in under a minute. This guide covers project creation, development, and your first production build.
 breadcrumb: Getting Started
 next:
   href: /docs/routing
@@ -9,20 +9,20 @@ next:
 
 ## Create a Project
 
-The fastest way to start is with `create-viact`. It scaffolds a working app with routing, a shell, an API route, and your choice of deployment adapter.
+The fastest way to start is with `create-previte`. It scaffolds a working app with routing, a shell, an API route, and your choice of deployment adapter.
 
 ```sh
 # pnpm
-pnpm create viact my-app
+pnpm create previte my-app
 
 # npm
-npm create viact@latest my-app
+npm create previte@latest my-app
 
 # yarn
-yarn create viact my-app
+yarn create previte my-app
 
 # bun
-bunx create-viact my-app
+bunx create-previte my-app
 ```
 
 The CLI will ask you to choose an adapter (Node.js, Cloudflare Workers, or Vercel). You can change this later in your `vite.config.ts`.
@@ -40,7 +40,7 @@ my-app/
     routes/home.tsx    # First page component + loader
     shells/public.tsx  # Layout wrapper
     api/health.ts      # Sample API endpoint
-  vite.config.ts       # Vite + viact plugin config
+  vite.config.ts       # Vite + previte plugin config
   package.json
 ```
 

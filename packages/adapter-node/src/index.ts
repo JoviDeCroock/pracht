@@ -3,16 +3,16 @@ import { readFile } from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { dirname, join } from "node:path";
 
-import type { ViactAdapter } from "@viact/vite-plugin";
+import type { PreviteAdapter } from "@previte/vite-plugin";
 import {
   applyDefaultSecurityHeaders,
-  handleViactRequest,
-  type HandleViactRequestOptions,
+  handlePreviteRequest,
+  type HandlePreviteRequestOptions,
   type ISGManifestEntry,
   type ModuleRegistry,
   type ResolvedApiRoute,
-  type ViactApp,
-} from "viact";
+  type PreviteApp,
+} from "previte";
 
 export interface NodeAdapterContextArgs {
   request: Request;
@@ -21,7 +21,7 @@ export interface NodeAdapterContextArgs {
 }
 
 export interface NodeAdapterOptions<TContext = unknown> {
-  app: ViactApp;
+  app: PreviteApp;
   registry?: ModuleRegistry;
   staticDir?: string;
   viteManifest?: unknown;
@@ -77,7 +77,7 @@ export function createNodeRequestHandler<TContext = unknown>(
         const headers = applyDefaultSecurityHeaders(
           new Headers({
             "content-type": "text/html; charset=utf-8",
-            "x-viact-isg": isStale ? "stale" : "fresh",
+            "x-previte-isg": isStale ? "stale" : "fresh",
           }),
         );
         headers.forEach((value, key) => {
@@ -100,7 +100,7 @@ export function createNodeRequestHandler<TContext = unknown>(
       ? await options.createContext({ request, req, res })
       : undefined;
 
-    const response = await handleViactRequest({
+    const response = await handlePreviteRequest({
       app: options.app,
       context,
       registry: options.registry,
@@ -109,7 +109,7 @@ export function createNodeRequestHandler<TContext = unknown>(
       clientEntryUrl: options.clientEntryUrl,
       cssManifest: options.cssManifest,
       jsManifest: options.jsManifest,
-    } satisfies HandleViactRequestOptions<TContext>);
+    } satisfies HandlePreviteRequestOptions<TContext>);
 
     // Cache ISG responses on first render
     if (
@@ -139,7 +139,7 @@ async function regenerateISGPage<TContext>(
   const url = new URL(pathname, "http://localhost");
   const request = new Request(url, { method: "GET" });
 
-  const response = await handleViactRequest({
+  const response = await handlePreviteRequest({
     app: options.app,
     registry: options.registry,
     request,
@@ -163,7 +163,7 @@ export function createNodeServerEntryModule(options: NodeServerEntryModuleOption
     'import { createServer } from "node:http";',
     'import { dirname, resolve } from "node:path";',
     'import { fileURLToPath, pathToFileURL } from "node:url";',
-    'import { createNodeRequestHandler } from "@viact/adapter-node";',
+    'import { createNodeRequestHandler } from "@previte/adapter-node";',
     "",
     "const serverDir = dirname(fileURLToPath(import.meta.url));",
     'const staticDir = resolve(serverDir, "../client");',
@@ -188,7 +188,7 @@ export function createNodeServerEntryModule(options: NodeServerEntryModuleOption
     "  const server = createServer(handler);",
     `  const port = Number(process.env.PORT ?? ${port});`,
     "  server.listen(port, () => {",
-    "    console.log(`viact node server listening on http://localhost:${port}`);",
+    "    console.log(`previte node server listening on http://localhost:${port}`);",
     "  });",
     "}",
     "",
@@ -287,17 +287,17 @@ function getFirstHeaderValue(value: string | string[] | undefined): string | und
 const BODYLESS_METHODS = new Set(["GET", "HEAD"]);
 
 /**
- * Create a viact adapter for Node.js.
+ * Create a previte adapter for Node.js.
  *
  * ```ts
- * import { nodeAdapter } from "@viact/adapter-node";
- * viact({ adapter: nodeAdapter() })
+ * import { nodeAdapter } from "@previte/adapter-node";
+ * previte({ adapter: nodeAdapter() })
  * ```
  */
-export function nodeAdapter(options: NodeServerEntryModuleOptions = {}): ViactAdapter {
+export function nodeAdapter(options: NodeServerEntryModuleOptions = {}): PreviteAdapter {
   return {
     id: "node",
-    serverImports: 'import { resolveApp, resolveApiRoutes } from "viact";',
+    serverImports: 'import { resolveApp, resolveApiRoutes } from "previte";',
     createServerEntryModule() {
       return createNodeServerEntryModule(options);
     },

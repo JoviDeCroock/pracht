@@ -1,6 +1,6 @@
 # Routing
 
-Viact uses hybrid routing: route modules live as files, but wiring is explicit
+Previte uses hybrid routing: route modules live as files, but wiring is explicit
 in a manifest. This gives you file-based discoverability with full control over
 shells, middleware, and render modes.
 
@@ -11,7 +11,7 @@ shells, middleware, and render modes.
 Define your app's routes in `src/routes.ts`:
 
 ```typescript
-import { defineApp, group, route, timeRevalidate } from "viact";
+import { defineApp, group, route, timeRevalidate } from "previte";
 
 export const app = defineApp({
   shells: {
@@ -217,8 +217,8 @@ This keeps route files flat while grouping URLs logically.
 ## Pages Router (Auto-Discovery)
 
 For projects that prefer file-system routing (especially when migrating from
-Next.js), viact offers an optional pages-based routing mode. Instead of writing
-a route manifest in `src/routes.ts`, you set a `pagesDir` option and viact
+Next.js), previte offers an optional pages-based routing mode. Instead of writing
+a route manifest in `src/routes.ts`, you set a `pagesDir` option and previte
 auto-discovers routes from the file system.
 
 ### Setup
@@ -226,10 +226,10 @@ auto-discovers routes from the file system.
 ```typescript
 // vite.config.ts
 import { defineConfig } from "vite";
-import { viact } from "@viact/vite-plugin";
+import { previte } from "@previte/vite-plugin";
 
 export default defineConfig({
-  plugins: [viact({ pagesDir: "/src/pages" })],
+  plugins: [previte({ pagesDir: "/src/pages" })],
 });
 ```
 
@@ -255,7 +255,7 @@ routes are automatically wrapped in it:
 
 ```tsx
 // src/pages/_app.tsx
-import type { ShellProps } from "viact";
+import type { ShellProps } from "previte";
 
 export function Shell({ children }: ShellProps) {
   return (
@@ -284,13 +284,13 @@ Valid values: `"ssr"` | `"ssg"` | `"isg"` | `"spa"`. The default is `"ssr"`,
 overridable globally via `pagesDefaultRender`:
 
 ```typescript
-viact({ pagesDir: "/src/pages", pagesDefaultRender: "ssg" });
+previte({ pagesDir: "/src/pages", pagesDefaultRender: "ssg" });
 ```
 
 ### Route Priority
 
 Routes are sorted: static routes first, then dynamic (`:param`), then catch-all
-(`*`). This matches Next.js resolution order and viact's linear-scan matching.
+(`*`). This matches Next.js resolution order and previte's linear-scan matching.
 
 ### HMR Behavior
 
@@ -304,7 +304,7 @@ To stop using auto-discovery and customize the manifest directly, use the
 `generateRoutesFile` export from the plugin:
 
 ```typescript
-import { generateRoutesFile } from "@viact/vite-plugin/pages-router";
+import { generateRoutesFile } from "@previte/vite-plugin/pages-router";
 
 generateRoutesFile("src/pages", "src/routes.ts", {
   pagesDir: "src/pages",
@@ -312,5 +312,5 @@ generateRoutesFile("src/pages", "src/routes.ts", {
 });
 ```
 
-Then remove `pagesDir` from your viact config. The generated file includes
+Then remove `pagesDir` from your previte config. The generated file includes
 a header comment explaining how to use it directly.

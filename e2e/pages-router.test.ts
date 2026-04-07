@@ -11,11 +11,11 @@ test("home page renders with loader data via pages router", async ({ page }) => 
 
   // Shell renders
   await expect(page.locator(".pages-shell")).toBeVisible();
-  await expect(page.locator("header")).toContainText("Viact Pages");
+  await expect(page.locator("header")).toContainText("Previte Pages");
   await expect(page.locator("footer")).toContainText("File-system routing");
 
   // Route component renders with loader data
-  await expect(page.locator("h1")).toContainText("Welcome to viact with file-system routing");
+  await expect(page.locator("h1")).toContainText("Welcome to previte with file-system routing");
 });
 
 test("about page renders as static page", async ({ page }) => {
@@ -63,7 +63,7 @@ test("dynamic route works with different slugs", async ({ page }) => {
 
 test("client-side navigation works between pages", async ({ page }) => {
   await page.goto("/");
-  await page.waitForFunction(() => (window as any).__VIACT_ROUTER_READY__);
+  await page.waitForFunction(() => (window as any).__PREVITE_ROUTER_READY__);
 
   await page.evaluate(() => {
     (window as any).__NAV_TOKEN__ = true;
@@ -82,7 +82,7 @@ test("client-side navigation works between pages", async ({ page }) => {
 
 test("client-side navigation to dynamic route", async ({ page }) => {
   await page.goto("/");
-  await page.waitForFunction(() => (window as any).__VIACT_ROUTER_READY__);
+  await page.waitForFunction(() => (window as any).__PREVITE_ROUTER_READY__);
 
   await page.evaluate(() => {
     (window as any).__NAV_TOKEN__ = true;
@@ -105,8 +105,8 @@ test("pages include hydration state", async ({ request }) => {
   const response = await request.get("/");
   const html = await response.text();
 
-  expect(html).toContain('id="viact-state" type="application/json"');
-  expect(html).toContain("Welcome to viact with file-system routing");
+  expect(html).toContain('id="previte-state" type="application/json"');
+  expect(html).toContain("Welcome to previte with file-system routing");
 });
 
 // ---------------------------------------------------------------------------
@@ -115,7 +115,7 @@ test("pages include hydration state", async ({ request }) => {
 
 test("route state request returns JSON for pages", async ({ request }) => {
   const response = await request.get("/", {
-    headers: { "x-viact-route-state-request": "1" },
+    headers: { "x-previte-route-state-request": "1" },
   });
 
   expect(response.status()).toBe(200);

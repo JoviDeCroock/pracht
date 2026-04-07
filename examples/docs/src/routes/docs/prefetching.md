@@ -1,6 +1,6 @@
 ---
 title: Prefetching
-lead: viact prefetches route data before navigation so page transitions feel instant. Prefetching is automatic for server-rendered routes and can be configured per route.
+lead: previte prefetches route data before navigation so page transitions feel instant. Prefetching is automatic for server-rendered routes and can be configured per route.
 breadcrumb: Prefetching
 prev:
   href: /docs/adapters
@@ -12,7 +12,7 @@ next:
 
 ## How It Works
 
-After hydration, viact sets up document-level listeners that watch for user interaction with internal links. When a prefetch is triggered, the route's server data (the same JSON payload used during client-side navigation) is fetched in the background and cached. When the user actually clicks the link, the cached data is used immediately — no second network request.
+After hydration, previte sets up document-level listeners that watch for user interaction with internal links. When a prefetch is triggered, the route's server data (the same JSON payload used during client-side navigation) is fetched in the background and cached. When the user actually clicks the link, the cached data is used immediately — no second network request.
 
 Prefetched data is held in a 30-second TTL cache. Stale entries are discarded and re-fetched on the next interaction.
 
@@ -45,7 +45,7 @@ You don't need to configure anything for most apps. The defaults are:
 Override the default strategy with the `prefetch` field on a route:
 
 ```ts [src/routes.ts]
-import { defineApp, route, group } from "viact";
+import { defineApp, route, group } from "previte";
 
 export const app = defineApp({
   routes: [
@@ -71,7 +71,7 @@ export const app = defineApp({
 
 ## Viewport Prefetching
 
-When a route uses `"viewport"`, viact observes all `<a>` elements pointing to that route via an `IntersectionObserver` with a 200px root margin. As soon as the link scrolls near the viewport, the route data is prefetched. Each link is only observed once — after the first intersection, it is unobserved to avoid redundant work.
+When a route uses `"viewport"`, previte observes all `<a>` elements pointing to that route via an `IntersectionObserver` with a 200px root margin. As soon as the link scrolls near the viewport, the route data is prefetched. Each link is only observed once — after the first intersection, it is unobserved to avoid redundant work.
 
 After client-side navigation updates the DOM, a `MutationObserver` re-scans for new viewport-prefetch links automatically.
 

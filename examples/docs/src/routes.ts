@@ -1,4 +1,4 @@
-import { defineApp, group, route } from "viact";
+import { defineApp, group, route } from "previte";
 
 export const app = defineApp({
   shells: {

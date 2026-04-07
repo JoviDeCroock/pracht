@@ -1,5 +1,5 @@
-import { useLocation } from "viact";
-import type { ShellProps } from "viact";
+import { useLocation } from "previte";
+import type { ShellProps } from "previte";
 import "../styles/global.css";
 
 const NAV = [
@@ -83,7 +83,7 @@ export function Shell({ children }: ShellProps) {
         <div class="inner">
           <a href="/" class="logo">
             <div class="logo-mark">v</div>
-            viact
+            previte
           </a>
           <nav class="header-nav">
             <a href="/docs/getting-started" class={docsActive ? "active" : ""}>
@@ -92,7 +92,7 @@ export function Shell({ children }: ShellProps) {
           </nav>
           <div class="header-right">
             <a
-              href="https://github.com/JoviDeCroock/viact"
+              href="https://github.com/JoviDeCroock/previte"
               class="github-link"
               target="_blank"
               rel="noopener"
@@ -126,13 +126,13 @@ export function Shell({ children }: ShellProps) {
 
 export function head() {
   return {
-    title: "Docs — viact",
+    title: "Docs — previte",
     meta: [
       { name: "viewport", content: "width=device-width, initial-scale=1" },
       {
         name: "description",
         content:
-          "viact documentation — routing, rendering modes, data loading, and deployment adapters.",
+          "previte documentation — routing, rendering modes, data loading, and deployment adapters.",
       },
     ],
   };

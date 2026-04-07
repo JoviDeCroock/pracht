@@ -6,7 +6,7 @@ import { resolve } from "node:path";
 import { expect, test } from "@playwright/test";
 import { parse as parseJsonc } from "jsonc-parser";
 
-test("viact build emits a deployable Cloudflare Worker setup", async () => {
+test("previte build emits a deployable Cloudflare Worker setup", async () => {
   test.setTimeout(120_000);
 
   const repoRoot = resolve(fileURLToPath(new URL(".", import.meta.url)), "..");
@@ -17,7 +17,7 @@ test("viact build emits a deployable Cloudflare Worker setup", async () => {
 
   rmSync(distDir, { force: true, recursive: true });
 
-  execFileSync(process.execPath, ["../../packages/cli/bin/viact.js", "build"], {
+  execFileSync(process.execPath, ["../../packages/cli/bin/previte.js", "build"], {
     cwd: exampleDir,
     env: {
       ...process.env,

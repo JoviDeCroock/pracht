@@ -1,6 +1,6 @@
 ---
 title: Rendering Modes
-lead: viact supports four rendering modes configured per route. Each route declares how and when its HTML is generated — giving you the right performance and freshness trade-off for every page in one app.
+lead: previte supports four rendering modes configured per route. Each route declares how and when its HTML is generated — giving you the right performance and freshness trade-off for every page in one app.
 breadcrumb: Rendering Modes
 prev:
   href: /docs/routing
@@ -73,7 +73,7 @@ After the initial load, client-side navigation takes over — subsequent navigat
 ## ISG — Incremental Static Generation
 
 ```ts
-import { timeRevalidate } from "viact";
+import { timeRevalidate } from "previte";
 
 route("/pricing", "./routes/pricing.tsx", {
   render: "isg",
@@ -89,7 +89,7 @@ ISG generates HTML at build time (like SSG) but regenerates it after a configura
 ### Webhook revalidation (Phase 2)
 
 ```ts
-import { webhookRevalidate } from "viact";
+import { webhookRevalidate } from "previte";
 
 {
   revalidate: webhookRevalidate({ key: "pricing-update" });
@@ -145,7 +145,7 @@ export const app = defineApp({
 After the initial page load — regardless of render mode — the client router handles all navigation. Route transitions use the same flow:
 
 1. Client matches the new route
-2. Fetches loader data as JSON via `x-viact-route-state-request` header
+2. Fetches loader data as JSON via `x-previte-route-state-request` header
 3. Updates the component tree with new data
 4. Pushes to browser history
 

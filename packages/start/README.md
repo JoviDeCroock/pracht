@@ -1,11 +1,11 @@
-# create-viact
+# create-previte
 
-Interactive starter CLI for bootstrapping a new viact app.
+Interactive starter CLI for bootstrapping a new previte app.
 
 ## Quickstart
 
 ```bash
-npm create viact@latest my-app
+npm create previte@latest my-app
 cd my-app
 npm install
 npm run dev
@@ -21,9 +21,9 @@ npm run dev
 ## Usage
 
 ```bash
-node ./packages/start/bin/create-viact.js
-node ./packages/start/bin/create-viact.js my-app --adapter=node --skip-install
-node ./packages/start/bin/create-viact.js my-app --adapter=vercel --skip-install
+node ./packages/start/bin/create-previte.js
+node ./packages/start/bin/create-previte.js my-app --adapter=node --skip-install
+node ./packages/start/bin/create-previte.js my-app --adapter=vercel --skip-install
 ```
 
 ## Generated Files
@@ -41,17 +41,17 @@ Cloudflare scaffolds also include:
 
 ## Generated Scripts
 
-- `dev` -> `viact dev`
-- `build` -> `viact build`
-- `preview` -> `viact preview`
+- `dev` -> `previte dev`
+- `build` -> `previte build`
+- `preview` -> `previte preview`
 
 Cloudflare starters also include:
 
-- `deploy` -> `viact build && wrangler deploy`
+- `deploy` -> `previte build && wrangler deploy`
 
 Vercel starters also include:
 
-- `deploy` -> `viact build && vercel deploy --prebuilt`
+- `deploy` -> `previte build && vercel deploy --prebuilt`
 
 Node starters can be run in production with:
 

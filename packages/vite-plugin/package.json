@@ -1,5 +1,5 @@
 {
-  "name": "@viact/vite-plugin",
+  "name": "@previte/vite-plugin",
   "version": "0.0.0",
   "files": [
     "dist"
@@ -20,9 +20,9 @@
   },
   "dependencies": {
     "@preact/preset-vite": "^2.10.5",
-    "@viact/adapter-cloudflare": "workspace:*",
-    "@viact/adapter-vercel": "workspace:*",
-    "viact": "workspace:*"
+    "@previte/adapter-cloudflare": "workspace:*",
+    "@previte/adapter-vercel": "workspace:*",
+    "previte": "workspace:*"
   },
   "peerDependencies": {
     "@cloudflare/vite-plugin": "^1.0.0",

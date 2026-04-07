@@ -1,4 +1,4 @@
-import type { MiddlewareFn } from "viact";
+import type { MiddlewareFn } from "previte";
 
 // ⚠️ NOT FOR PRODUCTION — This is a minimal example only.
 // A real implementation should:

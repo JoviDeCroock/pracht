@@ -1,4 +1,4 @@
-import type { ShellProps } from "viact";
+import type { ShellProps } from "previte";
 import "../styles/global.css";
 
 export function Shell({ children }: ShellProps) {
@@ -8,14 +8,14 @@ export function Shell({ children }: ShellProps) {
         <div class="inner">
           <a href="/" class="logo">
             <div class="logo-mark">v</div>
-            viact
+            previte
           </a>
           <nav class="header-nav">
             <a href="/docs/routing">Docs</a>
           </nav>
           <div class="header-right">
             <a
-              href="https://github.com/JoviDeCroock/viact"
+              href="https://github.com/JoviDeCroock/previte"
               class="github-link"
               target="_blank"
               rel="noopener"
@@ -31,11 +31,11 @@ export function Shell({ children }: ShellProps) {
       {children}
       <footer class="site-footer">
         <div class="inner">
-          <span class="footer-copy">viact — Preact-first. Vite-native. Explicit routing.</span>
+          <span class="footer-copy">previte — Preact-first. Vite-native. Explicit routing.</span>
           <div class="footer-links">
             <a href="/docs/routing">Docs</a>
             <a href="/docs/adapters">Adapters</a>
-            <a href="https://github.com/JoviDeCroock/viact" target="_blank" rel="noopener">
+            <a href="https://github.com/JoviDeCroock/previte" target="_blank" rel="noopener">
               GitHub
             </a>
           </div>
@@ -47,7 +47,7 @@ export function Shell({ children }: ShellProps) {
 
 export function head() {
   return {
-    title: "viact — Preact-first. Vite-native. Explicit routing.",
+    title: "previte — Preact-first. Vite-native. Explicit routing.",
     meta: [
       { name: "viewport", content: "width=device-width, initial-scale=1" },
       {
@@ -55,7 +55,7 @@ export function head() {
         content:
           "The Preact framework with explicit routing, per-route render modes (SSG/SSR/ISG/SPA), and thin deployment adapters for Cloudflare, Vercel, and Node.js.",
       },
-      { property: "og:title", content: "viact — Build with Preact. Deploy everywhere." },
+      { property: "og:title", content: "previte — Build with Preact. Deploy everywhere." },
       {
         property: "og:description",
         content: "Explicit routing. Per-route render modes. Edge-ready.",

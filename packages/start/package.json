@@ -1,8 +1,8 @@
 {
-  "name": "create-viact",
+  "name": "create-previte",
   "version": "0.0.0",
   "bin": {
-    "create-viact": "./bin/create-viact.js"
+    "create-previte": "./bin/create-previte.js"
   },
   "files": [
     "bin",

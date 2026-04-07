@@ -1,4 +1,4 @@
-import type { LoaderArgs, RouteComponentProps, RouteParams } from "viact";
+import type { LoaderArgs, RouteComponentProps, RouteParams } from "previte";
 
 const PRODUCTS = [
   { id: "1", name: "Widget", price: "$9.99" },

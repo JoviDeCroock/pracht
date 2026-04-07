@@ -1,5 +1,5 @@
-import { useParams } from "viact";
-import type { LoaderArgs, RouteComponentProps } from "viact";
+import { useParams } from "previte";
+import type { LoaderArgs, RouteComponentProps } from "previte";
 
 const PRODUCTS: Record<string, { name: string; price: number }> = {
   "1": { name: "Widget", price: 9.99 },

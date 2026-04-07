@@ -2,21 +2,21 @@ import { h } from "preact";
 import { describe, expect, it } from "vitest";
 
 import {
-  ViactHttpError,
+  PreviteHttpError,
   defineApp,
-  handleViactRequest,
+  handlePreviteRequest,
   resolveApiRoutes,
   route,
   useParams,
 } from "../src/index.ts";
 
-describe("handleViactRequest rejects non-GET on page routes", () => {
+describe("handlePreviteRequest rejects non-GET on page routes", () => {
   it("returns 405 for POST to a page route", async () => {
     const app = defineApp({
       routes: [route("/", "./routes/home.tsx")],
     });
 
-    const response = await handleViactRequest({
+    const response = await handlePreviteRequest({
       app,
       registry: {
         routeModules: {
@@ -34,7 +34,7 @@ describe("handleViactRequest rejects non-GET on page routes", () => {
   });
 });
 
-describe("handleViactRequest API middleware", () => {
+describe("handlePreviteRequest API middleware", () => {
   it("runs configured API middleware before handlers", async () => {
     const app = defineApp({
       api: {
@@ -46,7 +46,7 @@ describe("handleViactRequest API middleware", () => {
       routes: [route("/", "./routes/home.tsx")],
     });
 
-    const response = await handleViactRequest({
+    const response = await handlePreviteRequest({
       apiRoutes: resolveApiRoutes(["/src/api/health.ts"]),
       app,
       registry: {
@@ -71,7 +71,7 @@ describe("handleViactRequest API middleware", () => {
   });
 });
 
-describe("handleViactRequest with separate data modules", () => {
+describe("handlePreviteRequest with separate data modules", () => {
   it("resolves loader from a separate dataModule via loaderFile", async () => {
     const app = defineApp({
       routes: [
@@ -83,7 +83,7 @@ describe("handleViactRequest with separate data modules", () => {
       ],
     });
 
-    const response = await handleViactRequest({
+    const response = await handlePreviteRequest({
       app,
       registry: {
         routeModules: {
@@ -116,7 +116,7 @@ describe("handleViactRequest with separate data modules", () => {
       ],
     });
 
-    const response = await handleViactRequest({
+    const response = await handlePreviteRequest({
       app,
       registry: {
         routeModules: {
@@ -144,7 +144,7 @@ describe("handleViactRequest with separate data modules", () => {
       routes: [route("/home", "./routes/home.tsx", { render: "ssr" })],
     });
 
-    const response = await handleViactRequest({
+    const response = await handlePreviteRequest({
       app,
       registry: {
         routeModules: {
@@ -174,7 +174,7 @@ describe("useParams", () => {
       return h("span", { class: "params-id" }, params.id ?? "none");
     }
 
-    const response = await handleViactRequest({
+    const response = await handlePreviteRequest({
       app,
       registry: {
         routeModules: {
@@ -203,7 +203,7 @@ describe("useParams", () => {
       return h("span", null, `keys:${keys.length}`);
     }
 
-    const response = await handleViactRequest({
+    const response = await handlePreviteRequest({
       app,
       registry: {
         routeModules: {
@@ -221,13 +221,13 @@ describe("useParams", () => {
   });
 });
 
-describe("handleViactRequest ErrorBoundary", () => {
+describe("handlePreviteRequest ErrorBoundary", () => {
   it("renders the route error boundary for loader failures", async () => {
     const app = defineApp({
       routes: [route("/posts/:slug", "./routes/post.tsx")],
     });
 
-    const response = await handleViactRequest({
+    const response = await handlePreviteRequest({
       app,
       registry: {
         routeModules: {
@@ -235,7 +235,7 @@ describe("handleViactRequest ErrorBoundary", () => {
             Component: () => h("main", null, "post"),
             ErrorBoundary: ({ error }) => h("p", null, `Error: ${error.message}`),
             loader: async () => {
-              throw new ViactHttpError(404, "Post not found");
+              throw new PreviteHttpError(404, "Post not found");
             },
           }),
         },
@@ -252,7 +252,7 @@ describe("handleViactRequest ErrorBoundary", () => {
       routes: [route("/posts/:slug", "./routes/post.tsx")],
     });
 
-    const response = await handleViactRequest({
+    const response = await handlePreviteRequest({
       app,
       registry: {
         routeModules: {
@@ -260,14 +260,14 @@ describe("handleViactRequest ErrorBoundary", () => {
             Component: () => h("main", null, "post"),
             ErrorBoundary: ({ error }) => h("p", null, `Error: ${error.message}`),
             loader: async () => {
-              throw new ViactHttpError(404, "Post not found");
+              throw new PreviteHttpError(404, "Post not found");
             },
           }),
         },
       },
       request: new Request("http://localhost/posts/missing", {
         headers: {
-          "x-viact-route-state-request": "1",
+          "x-previte-route-state-request": "1",
         },
       }),
     });
@@ -276,7 +276,7 @@ describe("handleViactRequest ErrorBoundary", () => {
     await expect(response.json()).resolves.toEqual({
       error: {
         message: "Post not found",
-        name: "ViactHttpError",
+        name: "PreviteHttpError",
         status: 404,
       },
     });

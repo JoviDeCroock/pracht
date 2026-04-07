@@ -1,6 +1,6 @@
 ---
 title: Migrating from Next.js
-lead: A practical guide to moving your Next.js App Router project to viact. Covers routing, data loading, rendering modes, middleware, layouts, and API routes — with side-by-side code examples.
+lead: A practical guide to moving your Next.js App Router project to previte. Covers routing, data loading, rendering modes, middleware, layouts, and API routes — with side-by-side code examples.
 breadcrumb: Migrate from Next.js
 prev:
   href: /docs/recipes/testing
@@ -9,9 +9,9 @@ prev:
 
 ## Overview
 
-Next.js and viact share many of the same concepts — server rendering, file-based conventions, loaders, middleware — but viact takes a more explicit approach. This guide walks through the key differences so you can migrate incrementally.
+Next.js and previte share many of the same concepts — server rendering, file-based conventions, loaders, middleware — but previte takes a more explicit approach. This guide walks through the key differences so you can migrate incrementally.
 
-| Concept         | Next.js (App Router)                  | viact                                    |
+| Concept         | Next.js (App Router)                  | previte                                    |
 | --------------- | ------------------------------------- | ---------------------------------------- |
 | UI library      | React                                 | Preact                                   |
 | Bundler         | Turbopack / Webpack                   | Vite                                     |
@@ -31,14 +31,14 @@ Preact is API-compatible with React for the vast majority of components. The mai
 
 1. **Replace imports** — `react` → `preact` and `react-dom` → `preact/compat`
 2. **`className` → `class`** — Preact supports both, but `class` is idiomatic
-3. **No Server Components** — viact uses loaders for server-side data, not `async` components
+3. **No Server Components** — previte uses loaders for server-side data, not `async` components
 4. **Hooks** — Import from `preact/hooks` instead of `react`
 
 ```tsx
 // Next.js
 import { useState } from "react";
 
-// viact
+// previte
 import { useState } from "preact/hooks";
 ```
 
@@ -51,7 +51,7 @@ import { useState } from "preact/hooks";
 
 ### File-system → Manifest
 
-Next.js derives routes from the file system. viact uses an explicit `src/routes.ts` manifest:
+Next.js derives routes from the file system. previte uses an explicit `src/routes.ts` manifest:
 
 ```
 # Next.js file structure
@@ -63,8 +63,8 @@ app/
 ```
 
 ```ts [src/routes.ts]
-// viact equivalent
-import { defineApp, group, route } from "viact";
+// previte equivalent
+import { defineApp, group, route } from "previte";
 
 export const app = defineApp({
   shells: {
@@ -86,7 +86,7 @@ export const app = defineApp({
 
 ### Dynamic Routes
 
-| Next.js            | viact           |
+| Next.js            | previte           |
 | ------------------ | --------------- |
 | `[slug]` folder    | `:slug` in path |
 | `[...slug]` folder | `*` catch-all   |
@@ -96,7 +96,7 @@ export const app = defineApp({
 
 ## Layouts → Shells
 
-Next.js uses `layout.tsx` files that nest based on folder structure. viact uses **named shells** that are explicitly assigned to routes or groups.
+Next.js uses `layout.tsx` files that nest based on folder structure. previte uses **named shells** that are explicitly assigned to routes or groups.
 
 ```tsx
 // Next.js — app/layout.tsx
@@ -110,8 +110,8 @@ export default function RootLayout({ children }) {
 ```
 
 ```tsx [src/shells/public.tsx]
-// viact — named shell
-import type { ShellProps } from "viact";
+// previte — named shell
+import type { ShellProps } from "previte";
 
 export function Shell({ children }: ShellProps) {
   return (
@@ -134,7 +134,7 @@ export function head() {
 
 ### Server Components → Loaders
 
-Next.js uses async Server Components that `fetch` data inline. viact separates data fetching into `loader` functions:
+Next.js uses async Server Components that `fetch` data inline. previte separates data fetching into `loader` functions:
 
 ```tsx
 // Next.js — app/blog/[slug]/page.tsx
@@ -149,9 +149,9 @@ export default async function BlogPost({ params }) {
 ```
 
 ```tsx [src/routes/blog-post.tsx]
-// viact
-import type { LoaderArgs, RouteComponentProps } from "viact";
-import { useRouteData } from "viact/client";
+// previte
+import type { LoaderArgs, RouteComponentProps } from "previte";
+import { useRouteData } from "previte/client";
 
 export async function loader({ params }: LoaderArgs) {
   const post = await db.posts.find(params.slug);
@@ -170,7 +170,7 @@ export default function BlogPost() {
 
 ### Server Actions → Actions
 
-Next.js Server Actions become viact `action` exports:
+Next.js Server Actions become previte `action` exports:
 
 ```tsx
 // Next.js
@@ -182,9 +182,9 @@ async function createPost(formData: FormData) {
 ```
 
 ```tsx [src/routes/new-post.tsx]
-// viact
-import type { ActionArgs } from "viact";
-import { Form } from "viact/client";
+// previte
+import type { ActionArgs } from "previte";
+import { Form } from "previte/client";
 
 export async function action({ request }: ActionArgs) {
   const form = await request.formData();
@@ -206,7 +206,7 @@ export default function NewPost() {
 
 ## Head Metadata
 
-Next.js uses a `metadata` export or `generateMetadata` function. viact uses a `head` export:
+Next.js uses a `metadata` export or `generateMetadata` function. previte uses a `head` export:
 
 ```tsx
 // Next.js
@@ -218,8 +218,8 @@ export async function generateMetadata({ params }) {
 ```
 
 ```tsx [src/routes/about.tsx]
-// viact
-import type { HeadArgs } from "viact";
+// previte
+import type { HeadArgs } from "previte";
 
 export function head({ data }: HeadArgs) {
   return {
@@ -233,9 +233,9 @@ export function head({ data }: HeadArgs) {
 
 ## Rendering Modes
 
-Next.js controls caching with `export const dynamic` and `revalidate`. viact sets rendering mode per-route in the manifest:
+Next.js controls caching with `export const dynamic` and `revalidate`. previte sets rendering mode per-route in the manifest:
 
-| Next.js                              | viact                                    | When to use                     |
+| Next.js                              | previte                                    | When to use                     |
 | ------------------------------------ | ---------------------------------------- | ------------------------------- |
 | `dynamic = "force-static"`           | `render: "ssg"`                          | Content known at build time     |
 | `dynamic = "force-dynamic"`          | `render: "ssr"`                          | Personalized or real-time data  |
@@ -243,7 +243,7 @@ Next.js controls caching with `export const dynamic` and `revalidate`. viact set
 | Client component with `"use client"` | `render: "spa"`                          | Client-only UI (dashboards)     |
 
 ```ts [src/routes.ts]
-import { route, timeRevalidate } from "viact";
+import { route, timeRevalidate } from "previte";
 
 route("/pricing", "./routes/pricing.tsx", {
   render: "isg",
@@ -255,7 +255,7 @@ route("/pricing", "./routes/pricing.tsx", {
 
 ## Middleware
 
-Next.js uses a single `middleware.ts` file at the project root with path matching. viact uses **named middleware** assigned per-route or per-group:
+Next.js uses a single `middleware.ts` file at the project root with path matching. previte uses **named middleware** assigned per-route or per-group:
 
 ```ts
 // Next.js — middleware.ts
@@ -270,8 +270,8 @@ export const config = { matcher: ["/dashboard/:path*", "/settings/:path*"] };
 ```
 
 ```ts [src/middleware/auth.ts]
-// viact — named middleware
-import type { MiddlewareFn } from "viact";
+// previte — named middleware
+import type { MiddlewareFn } from "previte";
 
 export const middleware: MiddlewareFn = async ({ request }) => {
   const session = await getSession(request);
@@ -306,7 +306,7 @@ export async function GET() {
 ```
 
 ```ts [src/api/posts.ts]
-// viact — src/api/posts.ts
+// previte — src/api/posts.ts
 export async function GET() {
   const posts = await db.posts.list();
   return Response.json(posts);
@@ -315,7 +315,7 @@ export async function GET() {
 
 The main differences:
 
-- viact uses standard `Response` instead of `NextResponse`
+- previte uses standard `Response` instead of `NextResponse`
 - Files live in `src/api/` instead of `app/api/`
 - No need for route segment config — middleware is applied via `defineApp({ api: { middleware } })`
 
@@ -323,30 +323,30 @@ The main differences:
 
 ## Deployment
 
-Next.js is optimized for Vercel. viact uses **adapters** to deploy anywhere:
+Next.js is optimized for Vercel. previte uses **adapters** to deploy anywhere:
 
 ```ts [vite.config.ts]
-import { viact } from "@viact/vite-plugin";
-import { node } from "@viact/adapter-node";
-// or: import { cloudflare } from "@viact/adapter-cloudflare";
-// or: import { vercel } from "@viact/adapter-vercel";
+import { previte } from "@previte/vite-plugin";
+import { node } from "@previte/adapter-node";
+// or: import { cloudflare } from "@previte/adapter-cloudflare";
+// or: import { vercel } from "@previte/adapter-vercel";
 
 export default {
-  plugins: [viact({ adapter: node() })],
+  plugins: [previte({ adapter: node() })],
 };
 ```
 
 | Target             | Adapter                     | Notes                                |
 | ------------------ | --------------------------- | ------------------------------------ |
-| Node.js            | `@viact/adapter-node`       | Express-compatible, ISG revalidation |
-| Cloudflare Workers | `@viact/adapter-cloudflare` | KV, D1, R2 bindings via context      |
-| Vercel             | `@viact/adapter-vercel`     | Edge Functions, Build Output API v3  |
+| Node.js            | `@previte/adapter-node`       | Express-compatible, ISG revalidation |
+| Cloudflare Workers | `@previte/adapter-cloudflare` | KV, D1, R2 bindings via context      |
+| Vercel             | `@previte/adapter-vercel`     | Edge Functions, Build Output API v3  |
 
 ---
 
 ## Migration Checklist
 
-1. **Scaffold a viact project** — `npm create viact@latest`
+1. **Scaffold a previte project** — `npm create previte@latest`
 2. **Move components** — Update imports from `react` to `preact/hooks`, `class` instead of `className`
 3. **Create the route manifest** — Map your `app/` folder structure to `src/routes.ts`
 4. **Convert layouts to shells** — Extract `layout.tsx` files into named shell components
@@ -355,4 +355,4 @@ export default {
 7. **Move middleware** — Split your single `middleware.ts` into named middleware files
 8. **Move API routes** — Copy `app/api/` handlers to `src/api/`, replace `NextResponse` with `Response`
 9. **Choose an adapter** — Pick your deployment target in `vite.config.ts`
-10. **Test** — Run `viact dev` and verify each route renders correctly
+10. **Test** — Run `previte dev` and verify each route renders correctly

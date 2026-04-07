@@ -4,7 +4,7 @@ import type {
   GroupMeta,
   ResolvedApiRoute,
   ResolvedRoute,
-  ResolvedViactApp,
+  ResolvedPreviteApp,
   RouteConfig,
   RouteDefinition,
   RouteMatch,
@@ -13,8 +13,8 @@ import type {
   RouteSegment,
   RouteTreeNode,
   TimeRevalidatePolicy,
-  ViactApp,
-  ViactAppConfig,
+  PreviteApp,
+  PreviteAppConfig,
 } from "./types.ts";
 
 interface InheritedRouteConfig {
@@ -69,7 +69,7 @@ export function group(meta: GroupMeta, routes: RouteTreeNode[]): GroupDefinition
   };
 }
 
-export function defineApp(config: ViactAppConfig): ViactApp {
+export function defineApp(config: PreviteAppConfig): PreviteApp {
   return {
     shells: config.shells ?? {},
     middleware: config.middleware ?? {},
@@ -78,7 +78,7 @@ export function defineApp(config: ViactAppConfig): ViactApp {
   };
 }
 
-export function resolveApp(app: ViactApp): ResolvedViactApp {
+export function resolveApp(app: PreviteApp): ResolvedPreviteApp {
   const routes: ResolvedRoute[] = [];
   const inherited: InheritedRouteConfig = {
     pathPrefix: "/",
@@ -99,7 +99,7 @@ export function resolveApp(app: ViactApp): ResolvedViactApp {
 }
 
 export function matchAppRoute(
-  app: ViactApp | ResolvedViactApp,
+  app: PreviteApp | ResolvedPreviteApp,
   pathname: string,
 ): RouteMatch | undefined {
   const resolved = isResolvedApp(app) ? app : resolveApp(app);
@@ -121,7 +121,7 @@ export function matchAppRoute(
 }
 
 function flattenRouteNode(
-  app: ViactApp,
+  app: PreviteApp,
   node: RouteTreeNode,
   inherited: InheritedRouteConfig,
   routes: ResolvedRoute[],
@@ -163,7 +163,7 @@ function flattenRouteNode(
   });
 }
 
-function isResolvedApp(app: ViactApp | ResolvedViactApp): app is ResolvedViactApp {
+function isResolvedApp(app: PreviteApp | ResolvedPreviteApp): app is ResolvedPreviteApp {
   return app.routes.length === 0 || "segments" in app.routes[0];
 }
 

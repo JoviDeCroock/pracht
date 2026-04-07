@@ -1,6 +1,6 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "viact-example-cloudflare",
+  "name": "previte-example-cloudflare",
   "main": "dist/server/server.js",
   "compatibility_date": "2026-04-06",
   "assets": {

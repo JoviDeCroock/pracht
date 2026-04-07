@@ -1,11 +1,11 @@
-import type { ViactAdapter } from "@viact/vite-plugin";
+import type { PreviteAdapter } from "@previte/vite-plugin";
 import {
-  handleViactRequest,
-  type HandleViactRequestOptions,
+  handlePreviteRequest,
+  type HandlePreviteRequestOptions,
   type ModuleRegistry,
   type ResolvedApiRoute,
-  type ViactApp,
-} from "viact";
+  type PreviteApp,
+} from "previte";
 
 export interface VercelExecutionContext {
   waitUntil?(promise: Promise<unknown>): void;
@@ -23,7 +23,7 @@ export interface VercelAdapterOptions<
   TVercelContext extends VercelExecutionContext = VercelExecutionContext,
   TContext = TVercelContext,
 > {
-  app: ViactApp;
+  app: PreviteApp;
   registry?: ModuleRegistry;
   apiRoutes?: ResolvedApiRoute[];
   clientEntryUrl?: string;
@@ -42,20 +42,20 @@ export function createVercelEdgeHandler<
   TContext = TVercelContext,
 >(options: VercelAdapterOptions<TVercelContext, TContext>) {
   return async (request: Request, context: TVercelContext): Promise<Response> => {
-    const viactContext = options.createContext
+    const previteContext = options.createContext
       ? await options.createContext({ request, context })
       : (context as unknown as TContext);
 
-    return handleViactRequest({
+    return handlePreviteRequest({
       app: options.app,
       registry: options.registry,
       request,
-      context: viactContext,
+      context: previteContext,
       apiRoutes: options.apiRoutes,
       clientEntryUrl: options.clientEntryUrl,
       cssManifest: options.cssManifest,
       jsManifest: options.jsManifest,
-    } satisfies HandleViactRequestOptions<TContext>);
+    } satisfies HandlePreviteRequestOptions<TContext>);
   };
 }
 
@@ -70,7 +70,7 @@ export function createVercelServerEntryModule(
     `export const vercelRegions = ${JSON.stringify(regions ?? null)};`,
     "",
     "export default async function handle(request, context) {",
-    "  return handleViactRequest({",
+    "  return handlePreviteRequest({",
     "    app: resolvedApp,",
     "    registry,",
     "    request,",
@@ -86,17 +86,17 @@ export function createVercelServerEntryModule(
 }
 
 /**
- * Create a viact adapter for Vercel Edge Functions.
+ * Create a previte adapter for Vercel Edge Functions.
  *
  * ```ts
- * import { vercelAdapter } from "@viact/adapter-vercel";
- * viact({ adapter: vercelAdapter() })
+ * import { vercelAdapter } from "@previte/adapter-vercel";
+ * previte({ adapter: vercelAdapter() })
  * ```
  */
-export function vercelAdapter(options: VercelServerEntryModuleOptions = {}): ViactAdapter {
+export function vercelAdapter(options: VercelServerEntryModuleOptions = {}): PreviteAdapter {
   return {
     id: "vercel",
-    serverImports: 'import { handleViactRequest, resolveApp, resolveApiRoutes } from "viact";',
+    serverImports: 'import { handlePreviteRequest, resolveApp, resolveApiRoutes } from "previte";',
     createServerEntryModule() {
       return createVercelServerEntryModule(options);
     },

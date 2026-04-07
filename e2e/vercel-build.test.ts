@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 
 import { expect, test } from "@playwright/test";
 
-test("viact build emits a deployable Vercel Build Output setup", async () => {
+test("previte build emits a deployable Vercel Build Output setup", async () => {
   test.setTimeout(120_000);
 
   const repoRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
@@ -20,12 +20,12 @@ test("viact build emits a deployable Vercel Build Output setup", async () => {
   rmSync(distDir, { force: true, recursive: true });
   rmSync(vercelDir, { force: true, recursive: true });
 
-  execFileSync(process.execPath, ["../../packages/cli/bin/viact.js", "build"], {
+  execFileSync(process.execPath, ["../../packages/cli/bin/previte.js", "build"], {
     cwd: exampleDir,
     env: {
       ...process.env,
       NODE_OPTIONS: "--experimental-strip-types",
-      VIACT_ADAPTER: "vercel",
+      PREVITE_ADAPTER: "vercel",
     },
     stdio: "pipe",
   });

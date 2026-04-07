@@ -5,9 +5,9 @@ plus the Cloudflare and Vercel deployment build outputs.
 
 The first pass of the scaffold focuses on the shared package boundaries:
 
-- `viact` for the manifest, routing, and runtime contracts
-- `@viact/vite-plugin` for virtual module generation
-- `@viact/adapter-node` for Node request/response bridging
-- `@viact/adapter-cloudflare` for Cloudflare Worker output
-- `@viact/adapter-vercel` for Vercel Build Output API output
-- `@viact/cli` for the command surface
+- `previte` for the manifest, routing, and runtime contracts
+- `@previte/vite-plugin` for virtual module generation
+- `@previte/adapter-node` for Node request/response bridging
+- `@previte/adapter-cloudflare` for Cloudflare Worker output
+- `@previte/adapter-vercel` for Vercel Build Output API output
+- `@previte/cli` for the command surface

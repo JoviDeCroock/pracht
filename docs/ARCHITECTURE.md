@@ -1,7 +1,7 @@
-# Viact Architecture
+# Previte Architecture
 
 This document describes the core architecture, abstractions, and design decisions
-behind viact. It serves as the source of truth for contributors and AI agents
+behind previte. It serves as the source of truth for contributors and AI agents
 working on the framework.
 
 The current repo scaffold and package boundaries are tracked in
@@ -42,7 +42,7 @@ The current repo scaffold and package boundaries are tracked in
 The route manifest is the central configuration. Users define it in `src/routes.ts`:
 
 ```typescript
-import { defineApp, group, route, timeRevalidate } from "viact";
+import { defineApp, group, route, timeRevalidate } from "previte";
 
 export const app = defineApp({
   shells: {
@@ -79,7 +79,7 @@ export const app = defineApp({
 
 Pure file-based routing (Next.js, SvelteKit) couples URL structure to directory
 structure. This forces awkward nesting for layout groups and makes middleware
-assignment implicit via `_middleware.ts` files. Viact's hybrid approach:
+assignment implicit via `_middleware.ts` files. Previte's hybrid approach:
 
 - Route modules live in `src/routes/` (discoverable by convention)
 - Route _wiring_ is explicit in `src/routes.ts` (auditable, type-checked)
@@ -88,7 +88,7 @@ assignment implicit via `_middleware.ts` files. Viact's hybrid approach:
 
 ### 2. Route Modules
 
-Viact supports two styles for wiring data loading to routes. Both can coexist
+Previte supports two styles for wiring data loading to routes. Both can coexist
 in the same app.
 
 #### Style A: Inline (loader in the route file)
@@ -163,7 +163,7 @@ Shells are Preact layout components that wrap route content:
 
 ```typescript
 // src/shells/public.tsx
-import type { ShellProps } from "viact";
+import type { ShellProps } from "previte";
 
 export function Shell({ children }: ShellProps) {
   return (
@@ -177,7 +177,7 @@ export function Shell({ children }: ShellProps) {
 
 export function head() {
   return {
-    title: "Viact App",
+    title: "Previte App",
     meta: [{ name: "viewport", content: "width=device-width, initial-scale=1" }],
   };
 }
@@ -193,7 +193,7 @@ Server-side functions that run before loaders:
 
 ```typescript
 // src/middleware/auth.ts
-import type { MiddlewareFn } from "viact";
+import type { MiddlewareFn } from "previte";
 
 export const middleware: MiddlewareFn = async ({ request }) => {
   const session = await getSession(request);
@@ -260,7 +260,7 @@ Build starts
   → Execute loader for each path
   → Render to HTML string
   → Write to dist/client/<path>/index.html
-  → Generate viact-route-manifest.json for runtime
+  → Generate previte-route-manifest.json for runtime
 ```
 
 ### Client Navigation
@@ -268,7 +268,7 @@ Build starts
 ```
 User clicks <a> or calls navigate()
   → Client router matches new route
-  → Fetch route state via GET with x-viact-route-state-request header
+  → Fetch route state via GET with x-previte-route-state-request header
   → Server runs loader, returns JSON (no HTML rendering)
   → Client updates component tree with new data
   → Update URL via history.pushState
@@ -281,23 +281,23 @@ Secrets in loader code stay server-side. The client only receives serialized dat
 
 ## Build Pipeline
 
-Viact uses Vite's multi-environment build:
+Previte uses Vite's multi-environment build:
 
 ### Environments
 
 1. **client** — browser JavaScript + CSS
-   - Entry: `virtual:viact/client`
+   - Entry: `virtual:previte/client`
    - Output: `dist/client/assets/` (hashed filenames)
    - Produces: `.vite/manifest.json` for asset injection
 
 2. **ssr** — server bundle
-   - Entry: `virtual:viact/server`
+   - Entry: `virtual:previte/server`
    - Output: `dist/ssr/` or `dist/server/`
    - Produces: route manifest JSON, ISG manifest JSON
    - Contains: loader/shell/middleware code
 
 3. **platform** (adapter-specific) — entry module
-   - Entry: `virtual:viact/node-server` or `virtual:viact/cloudflare-worker`
+   - Entry: `virtual:previte/node-server` or `virtual:previte/cloudflare-worker`
    - Wraps the SSR bundle with platform-specific request handling
 
 ### Build Outputs
@@ -311,8 +311,8 @@ dist/
     about/index.html
     blog/hello/index.html
   server/
-    viact-route-manifest.json  # Route metadata for runtime
-    viact-isg-manifest.json    # ISG revalidation config
+    previte-route-manifest.json  # Route metadata for runtime
+    previte-isg-manifest.json    # ISG revalidation config
     server.js                  # Platform entry module
 ```
 
@@ -321,14 +321,14 @@ dist/
 ## Adapter Pattern
 
 Adapters are thin layers that translate between a platform's native request
-handling and viact's Web Request/Response interface.
+handling and previte's Web Request/Response interface.
 
 An adapter must:
 
 1. **Convert** platform request → `Request`
 2. **Serve** static assets from the client build
 3. **Load** Vite manifests for asset tag injection
-4. **Delegate** to the framework's `handleViactRequest()` for dynamic routes
+4. **Delegate** to the framework's `handlePreviteRequest()` for dynamic routes
 5. **Implement** ISG revalidation using platform-appropriate storage
 6. **Generate** a platform entry module via the Vite plugin
 
@@ -338,21 +338,21 @@ See [docs/ADAPTERS.md](ADAPTERS.md) for per-platform details.
 
 ## Custom Vite Plugins
 
-Viact builds on Vite, and users can bring their own Vite plugins alongside the
-viact plugin. Add them in `vite.config.ts`:
+Previte builds on Vite, and users can bring their own Vite plugins alongside the
+previte plugin. Add them in `vite.config.ts`:
 
 ```typescript
 import { defineConfig } from "vite";
-import { viact } from "@viact/vite-plugin";
+import { previte } from "@previte/vite-plugin";
 import mdx from "@mdx-js/rollup";
 import tailwindcss from "@tailwindcss/vite";
 
 export default defineConfig({
-  plugins: [viact(), mdx(), tailwindcss()],
+  plugins: [previte(), mdx(), tailwindcss()],
 });
 ```
 
-User plugins run alongside viact's plugin with no special integration needed.
+User plugins run alongside previte's plugin with no special integration needed.
 They participate in the full Vite pipeline — transforms, virtual modules, dev
 server middleware, build hooks — for both client and SSR builds.
 
@@ -368,9 +368,9 @@ server middleware, build hooks — for both client and SSR builds.
 
 ### Plugin ordering
 
-Viact's plugin uses `enforce: "pre"` to resolve virtual modules before other
+Previte's plugin uses `enforce: "pre"` to resolve virtual modules before other
 plugins. User plugins run at normal priority by default. If a plugin needs to
-run before viact (e.g. to transform source before viact sees it), set
+run before previte (e.g. to transform source before previte sees it), set
 `enforce: "pre"` on that plugin as well — Vite respects declaration order within
 the same enforcement level.
 
@@ -386,7 +386,7 @@ details.
 
 ## Type Safety
 
-Viact provides end-to-end type inference from loader to component:
+Previte provides end-to-end type inference from loader to component:
 
 ```typescript
 export async function loader({ params }: LoaderArgs) {
@@ -411,7 +411,7 @@ Server-rendered HTML includes a non-executable JSON script tag with serialized
 state:
 
 ```html
-<script id="viact-state" type="application/json">
+<script id="previte-state" type="application/json">
   {"url":"/dashboard","routeId":"dashboard","data":{...}}
 </script>
 ```

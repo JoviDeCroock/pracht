@@ -153,7 +153,7 @@ export function generatePagesManifestSource(
     (f) => basename(f, extname(f)) === "_app" && PAGE_EXTENSIONS.has(extname(f)),
   );
 
-  const lines: string[] = ['import { defineApp, group, route } from "viact";', ""];
+  const lines: string[] = ['import { defineApp, group, route } from "previte";', ""];
 
   const routeEntries: string[] = [];
 
@@ -230,8 +230,8 @@ export function generateRoutesFile(
     "export const app = defineApp(",
   );
   const source = [
-    "// Auto-generated from pages/ directory by @viact/vite-plugin.",
-    "// Customize this file and remove `pagesDir` from viact config to use it directly.",
+    "// Auto-generated from pages/ directory by @previte/vite-plugin.",
+    "// Customize this file and remove `pagesDir` from previte config to use it directly.",
     "",
     manifestSource,
   ].join("\n");

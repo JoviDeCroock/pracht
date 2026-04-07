@@ -1,4 +1,4 @@
-# viact
+# previte
 
 Preact-first full-stack framework on Vite with an explicit route manifest, per-route rendering modes, and deploy adapters for Node.js, Cloudflare, and Vercel.
 
@@ -14,14 +14,14 @@ pnpm e2e
 ## Create An App
 
 ```bash
-npm create viact@latest my-app
+npm create previte@latest my-app
 ```
 
 The starter gives you:
 
-- `viact dev` for local SSR + HMR
-- `viact build` for client/server output plus SSG/ISG prerendering
-- `viact preview` for a production smoke test
+- `previte dev` for local SSR + HMR
+- `previte build` for client/server output plus SSG/ISG prerendering
+- `previte preview` for a production smoke test
 - `dist/server/server.js` as the generated Node server entry when targeting Node
 
 ## Repo Map

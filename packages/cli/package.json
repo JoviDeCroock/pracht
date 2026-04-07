@@ -1,11 +1,11 @@
 {
-  "name": "@viact/cli",
+  "name": "@previte/cli",
   "version": "0.0.0",
   "bin": {
-    "viact": "./bin/viact.js"
+    "previte": "./bin/previte.js"
   },
   "type": "module",
   "dependencies": {
-    "viact": "workspace:*"
+    "previte": "workspace:*"
   }
 }

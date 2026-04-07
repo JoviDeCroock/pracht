@@ -5,14 +5,14 @@ import { fileURLToPath } from "node:url";
 
 import { expect, test } from "@playwright/test";
 
-test("viact build emits a deployable Node server entry", async () => {
+test("previte build emits a deployable Node server entry", async () => {
   test.setTimeout(120_000);
 
   const repoRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
   const fixtureDir = resolve(repoRoot, "examples/basic");
   const tempRoot = resolve(repoRoot, ".tmp");
   mkdirSync(tempRoot, { recursive: true });
-  const tempDir = mkdtempSync(resolve(tempRoot, "viact-node-build-"));
+  const tempDir = mkdtempSync(resolve(tempRoot, "previte-node-build-"));
   const exampleDir = resolve(tempDir, "project");
   const distDir = resolve(exampleDir, "dist");
   const serverEntryPath = resolve(exampleDir, "dist/server/server.js");
@@ -27,12 +27,12 @@ test("viact build emits a deployable Node server entry", async () => {
   });
   rmSync(distDir, { force: true, recursive: true });
 
-  execFileSync(process.execPath, [resolve(repoRoot, "packages/cli/bin/viact.js"), "build"], {
+  execFileSync(process.execPath, [resolve(repoRoot, "packages/cli/bin/previte.js"), "build"], {
     cwd: exampleDir,
     env: {
       ...process.env,
       NODE_OPTIONS: "--experimental-strip-types",
-      VIACT_ADAPTER: "node",
+      PREVITE_ADAPTER: "node",
     },
     stdio: "pipe",
   });
@@ -60,7 +60,7 @@ test("viact build emits a deployable Node server entry", async () => {
     const homeResponse = await fetch(`http://127.0.0.1:${port}/`);
     expect(homeResponse.status).toBe(200);
     await expect(homeResponse.text()).resolves.toContain(
-      "Viact starts with an explicit app manifest.",
+      "Previte starts with an explicit app manifest.",
     );
 
     // Dynamic SSG routes should be prerendered as static HTML files

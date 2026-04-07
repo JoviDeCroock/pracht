@@ -1,4 +1,4 @@
-import type { RouteComponentProps } from "viact";
+import type { RouteComponentProps } from "previte";
 import { CodeBlock } from "../components/CodeBlock";
 
 export async function loader() {
@@ -6,7 +6,7 @@ export async function loader() {
 }
 
 export function head() {
-  return { title: "viact — Preact-first. Vite-native. Explicit routing." };
+  return { title: "previte — Preact-first. Vite-native. Explicit routing." };
 }
 
 const FEATURES = [
@@ -90,7 +90,7 @@ export function Component({ data }: RouteComponentProps<typeof loader>) {
           </h1>
 
           <p class="hero-sub">
-            <strong>viact</strong> is a Preact framework with <strong>explicit routing</strong>,
+            <strong>previte</strong> is a Preact framework with <strong>explicit routing</strong>,
             per-route render modes, and thin adapters for Cloudflare, Vercel, and Node.js.
           </p>
 
@@ -107,7 +107,7 @@ export function Component({ data }: RouteComponentProps<typeof loader>) {
             <p class="hero-code-label">src/routes.ts</p>
             <CodeBlock
               filename="routes.ts"
-              code={`import { defineApp, group, route, timeRevalidate } from "viact";
+              code={`import { defineApp, group, route, timeRevalidate } from "previte";
 
 export const app = defineApp({
   shells: {
@@ -136,7 +136,7 @@ export const app = defineApp({
       {/* ─── Features ─────────────────────────────────────────── */}
       <section class="section">
         <div class="section-inner">
-          <p class="section-eyebrow">Why viact</p>
+          <p class="section-eyebrow">Why previte</p>
           <h2 class="section-title">Everything you need, nothing you don't</h2>
           <p class="section-sub">
             A focused framework that gives you the primitives to build fast, maintainable Preact
@@ -201,7 +201,7 @@ export const app = defineApp({
           <div>
             <CodeBlock
               filename="routes/dashboard.tsx"
-              code={`import type { LoaderArgs, RouteComponentProps } from "viact";
+              code={`import type { LoaderArgs, RouteComponentProps } from "previte";
 
 export async function loader({ request, context }: LoaderArgs) {
   const user = await getUser(request);
@@ -230,12 +230,12 @@ export function Component({ data }: RouteComponentProps<typeof loader>) {
           <p class="section-eyebrow">Get Started</p>
           <h2 class="section-title">Ready to build?</h2>
           <p class="section-sub" style="margin:0 auto;">
-            Install viact and the Vite plugin, wire up your adapter, and ship to Cloudflare Workers
+            Install previte and the Vite plugin, wire up your adapter, and ship to Cloudflare Workers
             or Vercel in minutes.
           </p>
           <div class="install-block">
             <span class="install-prompt">$</span>
-            <span>npm create viact@latest my-app</span>
+            <span>npm create previte@latest my-app</span>
           </div>
           <div class="docs-links">
             {[

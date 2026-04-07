@@ -1,4 +1,4 @@
-import type { BaseRouteArgs } from "viact";
+import type { BaseRouteArgs } from "previte";
 
 export async function GET({ context }: BaseRouteArgs) {
   const cached = await context.env.MY_KV.get("health:last-check");

@@ -1,16 +1,16 @@
 {
-  "name": "@viact/example-basic",
+  "name": "@previte/example-basic",
   "version": "0.0.0",
   "private": true,
   "type": "module",
   "dependencies": {
-    "@viact/adapter-node": "workspace:*",
-    "@viact/adapter-vercel": "workspace:*",
-    "viact": "workspace:*"
+    "@previte/adapter-node": "workspace:*",
+    "@previte/adapter-vercel": "workspace:*",
+    "previte": "workspace:*"
   },
   "devDependencies": {
-    "@viact/cli": "workspace:*",
-    "@viact/vite-plugin": "workspace:*",
+    "@previte/cli": "workspace:*",
+    "@previte/vite-plugin": "workspace:*",
     "preact": "^10.26.9",
     "preact-render-to-string": "^6.5.13",
     "vite": "^8.0.0"

@@ -12,7 +12,7 @@ next:
 
 ## Architecture
 
-Auth in viact follows a simple pattern: middleware checks the session before any loader runs. If there's no valid session, redirect to login. Loaders can read the authenticated user. API routes handle login/logout mutations.
+Auth in previte follows a simple pattern: middleware checks the session before any loader runs. If there's no valid session, redirect to login. Loaders can read the authenticated user. API routes handle login/logout mutations.
 
 - **Middleware** — gate access, redirect unauthenticated users
 - **Loaders** — read session data, pass user to components
@@ -78,7 +78,7 @@ async function sign(data: string): Promise<string> {
 This middleware redirects unauthenticated users to the login page. Apply it to any route group that requires auth.
 
 ```ts [src/middleware/auth.ts]
-import type { MiddlewareFn } from "viact";
+import type { MiddlewareFn } from "previte";
 import { getSession } from "../server/session";
 
 export const middleware: MiddlewareFn = async ({ request }) => {
@@ -136,8 +136,8 @@ async function verifyCredentials(email: string, password: string) {
 ```
 
 ```ts [src/routes/login.tsx]
-import type { LoaderArgs, RouteComponentProps } from "viact";
-import { Form } from "viact";
+import type { LoaderArgs, RouteComponentProps } from "previte";
+import { Form } from "previte";
 
 export async function loader({ url }: LoaderArgs) {
   return { redirect: url.searchParams.get("redirect") ?? "/dashboard" };
@@ -197,7 +197,7 @@ Trigger logout from anywhere with a form:
 Behind the auth middleware, loaders can safely read user info from the headers set by middleware:
 
 ```ts [src/routes/dashboard.tsx]
-import type { LoaderArgs, RouteComponentProps } from "viact";
+import type { LoaderArgs, RouteComponentProps } from "previte";
 
 export async function loader({ request }: LoaderArgs) {
   const userId = request.headers.get("x-user-id")!;
@@ -224,7 +224,7 @@ export function Component({ data }: RouteComponentProps<typeof loader>) {
 ## 6. Wire It Up
 
 ```ts [src/routes.ts]
-import { defineApp, group, route } from "viact";
+import { defineApp, group, route } from "previte";
 
 export const app = defineApp({
   shells: {

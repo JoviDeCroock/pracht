@@ -1,5 +1,5 @@
 /**
- * Vite plugin that transforms .md files into viact route modules.
+ * Vite plugin that transforms .md files into previte route modules.
  *
  * Markdown files with frontmatter become full route components:
  *   - `title` → head() export
@@ -239,7 +239,7 @@ function buildDocPage(fm: Frontmatter, contentHtml: string): string {
   // Breadcrumb
   const crumb = fm.breadcrumb || fm.title;
   parts.push(
-    `<div class="breadcrumb"><a href="/">viact</a><span class="breadcrumb-sep">/</span><span>${esc(crumb)}</span></div>`,
+    `<div class="breadcrumb"><a href="/">previte</a><span class="breadcrumb-sep">/</span><span>${esc(crumb)}</span></div>`,
   );
 
   // Title
@@ -282,7 +282,7 @@ export function markdown(): Plugin {
   const marked = new Marked({ renderer: createRenderer() });
 
   return {
-    name: "viact-md",
+    name: "previte-md",
     enforce: "pre",
 
     transform(code, id) {
@@ -297,7 +297,7 @@ export function markdown(): Plugin {
         .replace(/<\/table>/g, "</table></div>");
       const pageHtml = buildDocPage(frontmatter, contentHtml);
 
-      const headTitle = frontmatter.title ? `${frontmatter.title} \u2014 viact docs` : "viact docs";
+      const headTitle = frontmatter.title ? `${frontmatter.title} \u2014 previte docs` : "previte docs";
 
       const output = [
         `import { h } from "preact";`,

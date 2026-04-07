@@ -12,7 +12,7 @@ next:
 
 ## Strategy Overview
 
-Viact doesn't ship a built-in i18n library — instead it gives you the primitives to wire any translation approach. The recommended pattern:
+Previte doesn't ship a built-in i18n library — instead it gives you the primitives to wire any translation approach. The recommended pattern:
 
 1. **Middleware** detects the locale from the URL, cookie, or `Accept-Language` header.
 2. **Loaders** load the right translation strings for the matched locale.
@@ -27,7 +27,7 @@ Keep translation files as plain JSON or TypeScript objects. A simple flat-key st
 ```ts [src/i18n/en.ts]
 export default {
   "home.title": "Welcome to My App",
-  "home.subtitle": "Built with viact",
+  "home.subtitle": "Built with previte",
   "nav.home": "Home",
   "nav.about": "About",
   "nav.pricing": "Pricing",
@@ -37,7 +37,7 @@ export default {
 ```ts [src/i18n/fr.ts]
 export default {
   "home.title": "Bienvenue sur Mon App",
-  "home.subtitle": "Construit avec viact",
+  "home.subtitle": "Construit avec previte",
   "nav.home": "Accueil",
   "nav.about": "\u00C0 propos",
   "nav.pricing": "Tarifs",
@@ -68,7 +68,7 @@ Create middleware that detects the locale and makes it available to loaders. You
 The cleanest approach for SEO — each locale has its own URL namespace like `/fr/about` or `/en/about`.
 
 ```ts [src/middleware/i18n.ts]
-import type { MiddlewareFn } from "viact";
+import type { MiddlewareFn } from "previte";
 import { supportedLocales, defaultLocale } from "../i18n";
 
 export const middleware: MiddlewareFn = async ({ request, url }) => {
@@ -101,7 +101,7 @@ export const middleware: MiddlewareFn = async ({ request, url }) => {
 If you prefer clean URLs without a locale prefix, store the preference in a cookie:
 
 ```ts [src/middleware/i18n.ts]
-import type { MiddlewareFn } from "viact";
+import type { MiddlewareFn } from "previte";
 import { supportedLocales, defaultLocale } from "../i18n";
 
 export const middleware: MiddlewareFn = async ({ request }) => {
@@ -120,7 +120,7 @@ export const middleware: MiddlewareFn = async ({ request }) => {
 Read the locale set by middleware and return the translated content:
 
 ```ts [src/routes/home.tsx]
-import type { LoaderArgs, RouteComponentProps } from "viact";
+import type { LoaderArgs, RouteComponentProps } from "previte";
 import { t } from "../i18n";
 
 export async function loader({ request }: LoaderArgs) {
@@ -157,7 +157,7 @@ export function Component({ data }: RouteComponentProps<typeof loader>) {
 Use `group` with `pathPrefix` to create locale-scoped route groups:
 
 ```ts [src/routes.ts]
-import { defineApp, group, route } from "viact";
+import { defineApp, group, route } from "previte";
 
 const localizedRoutes = [
   route("/", "./routes/home.tsx", { render: "ssr" }),
@@ -188,7 +188,7 @@ export const app = defineApp({
 A simple component that links to the same page in a different locale:
 
 ```ts [src/components/LanguageSwitcher.tsx]
-import { useLocation } from "viact";
+import { useLocation } from "previte";
 import { supportedLocales } from "../i18n";
 
 const labels: Record<string, string> = { en: "English", fr: "Fran\u00E7ais" };

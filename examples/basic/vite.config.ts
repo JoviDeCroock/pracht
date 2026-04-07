@@ -1,21 +1,21 @@
 import { defineConfig } from "vite";
-import { viact } from "@viact/vite-plugin";
+import { previte } from "@previte/vite-plugin";
 
 async function resolveAdapter() {
-  if (process.env.VIACT_ADAPTER === "vercel") {
-    const { vercelAdapter } = await import("@viact/adapter-vercel");
+  if (process.env.PREVITE_ADAPTER === "vercel") {
+    const { vercelAdapter } = await import("@previte/adapter-vercel");
     return vercelAdapter();
   }
 
-  if (process.env.VIACT_ADAPTER === "node") {
-    const { nodeAdapter } = await import("@viact/adapter-node");
+  if (process.env.PREVITE_ADAPTER === "node") {
+    const { nodeAdapter } = await import("@previte/adapter-node");
     return nodeAdapter();
   }
 
-  const { cloudflareAdapter } = await import("@viact/adapter-cloudflare");
+  const { cloudflareAdapter } = await import("@previte/adapter-cloudflare");
   return cloudflareAdapter();
 }
 
 export default defineConfig(async () => ({
-  plugins: [viact({ adapter: await resolveAdapter() })],
+  plugins: [previte({ adapter: await resolveAdapter() })],
 }));

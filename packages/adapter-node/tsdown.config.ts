@@ -4,5 +4,5 @@ export default defineConfig({
   entry: ["src/index.ts"],
   format: "esm",
   dts: true,
-  external: ["viact", "@viact/vite-plugin", /^node:/],
+  external: ["previte", "@previte/vite-plugin", /^node:/],
 });

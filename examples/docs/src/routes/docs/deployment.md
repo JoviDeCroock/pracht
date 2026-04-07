@@ -1,6 +1,6 @@
 ---
 title: Deployment
-lead: viact apps deploy anywhere via platform adapters. Each adapter handles request conversion, asset serving, and ISG storage for its runtime.
+lead: previte apps deploy anywhere via platform adapters. Each adapter handles request conversion, asset serving, and ISG storage for its runtime.
 breadcrumb: Deployment
 prev:
   href: /docs/cli
@@ -15,17 +15,17 @@ next:
 The default adapter. Generates a standalone Node.js server with static file serving and ISG support.
 
 ```ts [vite.config.ts]
-import { viact } from "@viact/vite-plugin";
+import { previte } from "@previte/vite-plugin";
 
 export default defineConfig({
-  plugins: [viact()],
+  plugins: [previte()],
   // adapter defaults to "node"
 });
 ```
 
 ```sh
 # Build and run
-viact build
+previte build
 node dist/server/server.js
 ```
 
@@ -36,16 +36,16 @@ node dist/server/server.js
 Deploys as a Cloudflare Worker with static assets served via the `ASSETS` binding.
 
 ```ts [vite.config.ts]
-import { cloudflareAdapter } from "@viact/adapter-cloudflare";
+import { cloudflareAdapter } from "@previte/adapter-cloudflare";
 
 export default defineConfig({
-  plugins: [viact({ adapter: cloudflareAdapter() })],
+  plugins: [previte({ adapter: cloudflareAdapter() })],
 });
 ```
 
 ```sh
 # Build and deploy
-viact build
+previte build
 wrangler deploy
 ```
 
@@ -58,16 +58,16 @@ Configure bindings (KV, D1, R2) in `wrangler.jsonc`. They are available via `con
 Deploys as a Vercel Edge Function with static assets served from the CDN.
 
 ```ts [vite.config.ts]
-import { vercelAdapter } from "@viact/adapter-vercel";
+import { vercelAdapter } from "@previte/adapter-vercel";
 
 export default defineConfig({
-  plugins: [viact({ adapter: vercelAdapter() })],
+  plugins: [previte({ adapter: vercelAdapter() })],
 });
 ```
 
 ```sh
 # Build and deploy
-viact build
+previte build
 vercel deploy --prebuilt
 ```
 

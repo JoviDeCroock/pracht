@@ -1,18 +1,18 @@
 {
-  "name": "@viact/example-cloudflare",
+  "name": "@previte/example-cloudflare",
   "version": "0.0.0",
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "viact dev"
+    "dev": "previte dev"
   },
   "dependencies": {
-    "@viact/adapter-cloudflare": "workspace:*",
-    "viact": "workspace:*"
+    "@previte/adapter-cloudflare": "workspace:*",
+    "previte": "workspace:*"
   },
   "devDependencies": {
-    "@viact/cli": "workspace:*",
-    "@viact/vite-plugin": "workspace:*",
+    "@previte/cli": "workspace:*",
+    "@previte/vite-plugin": "workspace:*",
     "preact": "^10.26.9",
     "preact-render-to-string": "^6.5.13",
     "vite": "^8.0.0",

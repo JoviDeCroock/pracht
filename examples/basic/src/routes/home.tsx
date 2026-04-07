@@ -1,4 +1,4 @@
-import type { LoaderArgs, RouteComponentProps } from "viact";
+import type { LoaderArgs, RouteComponentProps } from "previte";
 
 export async function loader(_args: LoaderArgs) {
   return {
@@ -9,7 +9,7 @@ export async function loader(_args: LoaderArgs) {
 export function Component({ data }: RouteComponentProps<typeof loader>) {
   return (
     <section>
-      <h1>Viact starts with an explicit app manifest.</h1>
+      <h1>Previte starts with an explicit app manifest.</h1>
       <ul>
         {data.highlights.map((highlight) => (
           <li key={highlight}>{highlight}</li>

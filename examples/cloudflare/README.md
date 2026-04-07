@@ -1,14 +1,14 @@
 # Cloudflare Example
 
-This example is wired to Viact's Cloudflare build target.
+This example is wired to Previte's Cloudflare build target.
 
 ## Commands
 
-- `pnpm viact dev` starts the app with the regular Viact/Vite development server.
-- `pnpm viact build` creates:
+- `pnpm previte dev` starts the app with the regular Previte/Vite development server.
+- `pnpm previte build` creates:
   - `dist/client/` for static assets and prerendered HTML
   - `dist/server/server.js` as the Worker bundle
-- `pnpm viact preview` previews the production build locally.
+- `pnpm previte preview` previews the production build locally.
 
 ## Deploy
 

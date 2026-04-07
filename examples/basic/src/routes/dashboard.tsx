@@ -1,4 +1,4 @@
-import { Form, useRevalidate, type LoaderArgs, type RouteComponentProps } from "viact";
+import { Form, useRevalidate, type LoaderArgs, type RouteComponentProps } from "previte";
 
 export async function loader({ request }: LoaderArgs) {
   const hasSession = request.headers.get("cookie")?.includes("session=") ?? false;

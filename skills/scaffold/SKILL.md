@@ -2,8 +2,8 @@
 name: scaffold
 version: 1.0.0
 description: |
-  Viact code scaffolding. Generates routes, shells, middleware, and API route
-  modules with correct types, exports, and manifest wiring. Knows viact
+  Previte code scaffolding. Generates routes, shells, middleware, and API route
+  modules with correct types, exports, and manifest wiring. Knows previte
   conventions (Preact idioms, render modes, route manifest).
   Use when asked to "scaffold", "generate a route", "create a new page",
   "add middleware", "add an API route", or "create a shell".
@@ -17,9 +17,9 @@ allowed-tools:
   - AskUserQuestion
 ---
 
-# Viact Scaffold
+# Previte Scaffold
 
-Generate viact framework modules with correct types, exports, and manifest wiring.
+Generate previte framework modules with correct types, exports, and manifest wiring.
 
 The user will describe what they want to create. Parse their request and generate the appropriate module(s). Always ask if anything is ambiguous (e.g. render mode, shell assignment).
 
@@ -37,7 +37,7 @@ The user will describe what they want to create. Parse their request and generat
 ### Route
 
 ```tsx
-import type { LoaderArgs, RouteComponentProps } from "viact";
+import type { LoaderArgs, RouteComponentProps } from "previte";
 
 export async function loader(_args: LoaderArgs) {
   return {
@@ -58,12 +58,12 @@ export function Component({ data }: RouteComponentProps<typeof loader>) {
 - Include `ErrorBoundary` only if requested.
 - Include `getStaticPaths` only for SSG/ISG routes with dynamic segments.
 - Use `RouteComponentProps<typeof loader>` for typed `data` prop.
-- Import `Form` from `"viact"` when adding actions.
+- Import `Form` from `"previte"` when adding actions.
 
 ### Shell
 
 ```tsx
-import type { ShellProps } from "viact";
+import type { ShellProps } from "previte";
 
 export function Shell({ children }: ShellProps) {
   return (
@@ -82,7 +82,7 @@ export function head() {
 ### Middleware
 
 ```ts
-import type { MiddlewareFn } from "viact";
+import type { MiddlewareFn } from "previte";
 
 export const middleware: MiddlewareFn = async ({ request }) => {
   // Return void to continue, { redirect: "/path" } to redirect,
@@ -93,7 +93,7 @@ export const middleware: MiddlewareFn = async ({ request }) => {
 ### API Route
 
 ```ts
-import type { BaseRouteArgs } from "viact";
+import type { BaseRouteArgs } from "previte";
 
 export function GET({ params, url }: BaseRouteArgs) {
   return Response.json({
@@ -118,7 +118,7 @@ After creating module files, **always update `src/routes.ts`** to register the n
 
 Available render modes: `"ssr"` (default), `"ssg"` (static at build), `"isg"` (incremental static with `revalidate: timeRevalidate(seconds)`), `"spa"` (client-only).
 
-Import `timeRevalidate` from `"viact"` when using ISG.
+Import `timeRevalidate` from `"previte"` when using ISG.
 
 ## Rules
 

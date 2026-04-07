@@ -17,11 +17,11 @@ import type {
   RouteModule,
   RouteParams,
   ShellModule,
-  ViactHttpError,
-  ViactApp,
+  PreviteHttpError,
+  PreviteApp,
 } from "./types.ts";
 
-export interface ViactHydrationState<TData = unknown> {
+export interface PreviteHydrationState<TData = unknown> {
   url: string;
   routeId: string;
   data: TData;
@@ -38,8 +38,8 @@ export interface StartAppOptions<TData = unknown> {
   initialData?: TData;
 }
 
-export interface HandleViactRequestOptions<TContext = unknown> {
-  app: ViactApp;
+export interface HandlePreviteRequestOptions<TContext = unknown> {
+  app: PreviteApp;
   request: Request;
   context?: TContext;
   registry?: ModuleRegistry;
@@ -60,15 +60,15 @@ export interface FormProps extends Omit<JSX.HTMLAttributes<HTMLFormElement>, "ac
 
 declare global {
   interface Window {
-    __VIACT_STATE__?: ViactHydrationState;
-    __VIACT_NAVIGATE__?: (to: string, options?: { replace?: boolean }) => Promise<void>;
+    __PREVITE_STATE__?: PreviteHydrationState;
+    __PREVITE_NAVIGATE__?: (to: string, options?: { replace?: boolean }) => Promise<void>;
   }
 }
 
 const SAFE_METHODS = new Set(["GET", "HEAD"]);
-const HYDRATION_STATE_ELEMENT_ID = "viact-state";
+const HYDRATION_STATE_ELEMENT_ID = "previte-state";
 
-interface ViactRuntimeValue {
+interface PreviteRuntimeValue {
   data: unknown;
   params: RouteParams;
   routeId: string;
@@ -76,9 +76,9 @@ interface ViactRuntimeValue {
   setData: (data: unknown) => void;
 }
 
-const RouteDataContext = createContext<ViactRuntimeValue | undefined>(undefined);
+const RouteDataContext = createContext<PreviteRuntimeValue | undefined>(undefined);
 
-export function ViactRuntimeProvider<TData>({
+export function PreviteRuntimeProvider<TData>({
   children,
   data,
   params = {} as RouteParams,
@@ -128,13 +128,13 @@ export function startApp<TData = unknown>(options: StartAppOptions<TData> = {}):
   return readHydrationState<TData>()?.data;
 }
 
-export function readHydrationState<TData = unknown>(): ViactHydrationState<TData> | undefined {
+export function readHydrationState<TData = unknown>(): PreviteHydrationState<TData> | undefined {
   if (typeof window === "undefined") {
     return undefined;
   }
 
-  if (window.__VIACT_STATE__) {
-    return window.__VIACT_STATE__ as ViactHydrationState<TData>;
+  if (window.__PREVITE_STATE__) {
+    return window.__PREVITE_STATE__ as PreviteHydrationState<TData>;
   }
 
   const element = document.getElementById(HYDRATION_STATE_ELEMENT_ID);
@@ -148,8 +148,8 @@ export function readHydrationState<TData = unknown>(): ViactHydrationState<TData
   }
 
   try {
-    const state = JSON.parse(raw) as ViactHydrationState<TData>;
-    window.__VIACT_STATE__ = state as ViactHydrationState;
+    const state = JSON.parse(raw) as PreviteHydrationState<TData>;
+    window.__PREVITE_STATE__ = state as PreviteHydrationState;
     return state;
   } catch {
     return undefined;
@@ -184,7 +184,7 @@ export function useRevalidate() {
     }
 
     const path = runtime?.url || window.location.pathname + window.location.search;
-    const result = await fetchViactRouteState(path);
+    const result = await fetchPreviteRouteState(path);
 
     if (result.type === "redirect") {
       await navigateToClientLocation(result.location);
@@ -249,9 +249,9 @@ export type RouteStateResult =
   | { type: "redirect"; location: string }
   | { type: "error"; error: SerializedRouteError };
 
-export async function fetchViactRouteState(url: string): Promise<RouteStateResult> {
+export async function fetchPreviteRouteState(url: string): Promise<RouteStateResult> {
   const response = await fetch(url, {
-    headers: { "x-viact-route-state-request": "1", "Cache-Control": "no-cache" },
+    headers: { "x-previte-route-state-request": "1", "Cache-Control": "no-cache" },
     redirect: "manual",
   });
 
@@ -281,8 +281,8 @@ export async function fetchViactRouteState(url: string): Promise<RouteStateResul
   };
 }
 
-export async function handleViactRequest<TContext>(
-  options: HandleViactRequestOptions<TContext>,
+export async function handlePreviteRequest<TContext>(
+  options: HandlePreviteRequestOptions<TContext>,
 ): Promise<Response> {
   const url = new URL(options.request.url);
   const registry = options.registry ?? {};
@@ -358,7 +358,7 @@ export async function handleViactRequest<TContext>(
     );
   }
 
-  const isRouteStateRequest = options.request.headers.get("x-viact-route-state-request") === "1";
+  const isRouteStateRequest = options.request.headers.get("x-previte-route-state-request") === "1";
 
   if (!SAFE_METHODS.has(options.request.method)) {
     return withDefaultSecurityHeaders(
@@ -471,7 +471,7 @@ export async function handleViactRequest<TContext>(
       : h(Component, componentProps);
 
     const tree = h(
-      ViactRuntimeProvider as any,
+      PreviteRuntimeProvider as any,
       {
         data,
         params: match.params,
@@ -517,7 +517,7 @@ export async function handleViactRequest<TContext>(
 // ---------------------------------------------------------------------------
 
 function resolvePageCssUrls(
-  options: HandleViactRequestOptions<unknown>,
+  options: HandlePreviteRequestOptions<unknown>,
   shellFile: string | undefined,
   routeFile: string,
 ): string[] {
@@ -541,7 +541,7 @@ function resolvePageCssUrls(
 }
 
 function resolvePageJsUrls(
-  options: HandleViactRequestOptions<unknown>,
+  options: HandlePreviteRequestOptions<unknown>,
   shellFile: string | undefined,
   routeFile: string,
 ): string[] {
@@ -574,8 +574,8 @@ async function navigateToClientLocation(
 
   const targetUrl = new URL(location, window.location.href);
   const target = targetUrl.pathname + targetUrl.search + targetUrl.hash;
-  if (targetUrl.origin === window.location.origin && window.__VIACT_NAVIGATE__) {
-    await window.__VIACT_NAVIGATE__(target, options);
+  if (targetUrl.origin === window.location.origin && window.__PREVITE_NAVIGATE__) {
+    await window.__PREVITE_NAVIGATE__(target, options);
     return;
   }
 
@@ -587,12 +587,12 @@ async function navigateToClientLocation(
   window.location.href = targetUrl.toString();
 }
 
-function isViactHttpError(error: unknown): error is ViactHttpError {
-  return error instanceof Error && error.name === "ViactHttpError" && "status" in error;
+function isPreviteHttpError(error: unknown): error is PreviteHttpError {
+  return error instanceof Error && error.name === "PreviteHttpError" && "status" in error;
 }
 
 function normalizeRouteError(error: unknown): SerializedRouteError {
-  if (isViactHttpError(error)) {
+  if (isPreviteHttpError(error)) {
     return {
       message: error.message,
       name: error.name,
@@ -625,7 +625,7 @@ function deserializeRouteError(error: SerializedRouteError): Error {
 async function renderRouteErrorResponse<TContext>(options: {
   error: unknown;
   isRouteStateRequest: boolean;
-  options: HandleViactRequestOptions<TContext>;
+  options: HandlePreviteRequestOptions<TContext>;
   routeArgs: BaseRouteArgs<TContext>;
   routeId: string;
   routeModule: RouteModule | undefined;
@@ -691,7 +691,7 @@ async function renderRouteErrorResponse<TContext>(options: {
     ? h(Shell, null, h(ErrorBoundary, { error: errorValue }))
     : h(ErrorBoundary, { error: errorValue });
   const tree = h(
-    ViactRuntimeProvider as any,
+    PreviteRuntimeProvider as any,
     {
       data: null,
       routeId: options.routeId,
@@ -830,7 +830,7 @@ async function mergeHeadMetadata(
 function buildHtmlDocument(options: {
   head: HeadMetadata;
   body: string;
-  hydrationState: ViactHydrationState;
+  hydrationState: PreviteHydrationState;
   clientEntryUrl?: string;
   cssUrls?: string[];
   modulePreloadUrls?: string[];
@@ -888,7 +888,7 @@ function buildHtmlDocument(options: {
     ${modulePreloadTags}
   </head>
   <body>
-    <div id="viact-root">${body}</div>
+    <div id="previte-root">${body}</div>
     ${stateScript}
     ${entryScript}
   </body>
@@ -972,7 +972,7 @@ export interface PrerenderAppResult {
 }
 
 export interface PrerenderAppOptions {
-  app: ViactApp;
+  app: PreviteApp;
   registry?: ModuleRegistry;
   clientEntryUrl?: string;
   /** Per-source-file CSS map produced by the vite plugin (preferred over cssUrls). */
@@ -1002,7 +1002,7 @@ export async function prerenderApp(
       const url = new URL(pathname, "http://localhost");
       const request = new Request(url, { method: "GET" });
 
-      const response = await handleViactRequest({
+      const response = await handlePreviteRequest({
         app: options.app,
         request,
         registry: options.registry,

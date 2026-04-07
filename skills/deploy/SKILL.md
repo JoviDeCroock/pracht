@@ -2,7 +2,7 @@
 name: deploy
 version: 1.0.0
 description: |
-  Viact deployment guide. Walks through adapter configuration, building, and
+  Previte deployment guide. Walks through adapter configuration, building, and
   deploying to Node.js, Cloudflare Workers, or Vercel. Handles wrangler config,
   Docker, preview, and production checklist.
   Use when asked to "deploy", "set up deployment", "configure adapter",
@@ -17,9 +17,9 @@ allowed-tools:
   - AskUserQuestion
 ---
 
-# Viact Deploy
+# Previte Deploy
 
-Guided adapter setup and deployment for viact applications.
+Guided adapter setup and deployment for previte applications.
 
 ## Step 1: Determine the target
 
@@ -30,9 +30,9 @@ Ask the user where they want to deploy if not already clear from their message.
 
 | Adapter            | Package                     | Status |
 | ------------------ | --------------------------- | ------ |
-| Node.js            | `@viact/adapter-node`       | Stable |
-| Cloudflare Workers | `@viact/adapter-cloudflare` | Stable |
-| Vercel             | `@viact/adapter-vercel`     | Stable |
+| Node.js            | `@previte/adapter-node`       | Stable |
+| Cloudflare Workers | `@previte/adapter-cloudflare` | Stable |
+| Vercel             | `@previte/adapter-vercel`     | Stable |
 
 ---
 
@@ -40,18 +40,18 @@ Ask the user where they want to deploy if not already clear from their message.
 
 ### Setup
 
-1. Ensure `@viact/adapter-node` is installed.
+1. Ensure `@previte/adapter-node` is installed.
 2. In `vite.config.ts`:
    ```ts
-   import { viact } from "@viact/vite-plugin";
-   import { nodeAdapter } from "@viact/adapter-node";
-   export default { plugins: [viact({ adapter: nodeAdapter() })] };
+   import { previte } from "@previte/vite-plugin";
+   import { nodeAdapter } from "@previte/adapter-node";
+   export default { plugins: [previte({ adapter: nodeAdapter() })] };
    ```
 
 ### Build
 
 ```bash
-viact build
+previte build
 ```
 
 Produces:
@@ -72,7 +72,7 @@ Port 3000 by default. For production: reverse proxy (nginx, Caddy), process mana
 ### Preview
 
 ```bash
-viact preview
+previte preview
 ```
 
 ### Docker
@@ -92,18 +92,18 @@ CMD ["node", "dist/server/server.js"]
 
 ### Setup
 
-1. Ensure `@viact/adapter-cloudflare` is installed.
+1. Ensure `@previte/adapter-cloudflare` is installed.
 2. In `vite.config.ts`:
    ```ts
-   import { viact } from "@viact/vite-plugin";
-   import { cloudflareAdapter } from "@viact/adapter-cloudflare";
-   export default { plugins: [viact({ adapter: cloudflareAdapter() })] };
+   import { previte } from "@previte/vite-plugin";
+   import { cloudflareAdapter } from "@previte/adapter-cloudflare";
+   export default { plugins: [previte({ adapter: cloudflareAdapter() })] };
    ```
 
 ### Build & Deploy
 
 ```bash
-viact build
+previte build
 npx wrangler deploy
 ```
 
@@ -111,7 +111,7 @@ npx wrangler deploy
 
 ```json
 {
-  "name": "my-viact-app",
+  "name": "my-previte-app",
   "main": "dist/server/server.js",
   "compatibility_date": "2024-01-01",
   "assets": { "directory": "dist/client" }
@@ -130,7 +130,7 @@ export async function loader({ context }: LoaderArgs) {
 ### Custom Assets Binding
 
 ```ts
-viact({ adapter: cloudflareAdapter({ assetsBinding: "STATIC" }) });
+previte({ adapter: cloudflareAdapter({ assetsBinding: "STATIC" }) });
 ```
 
 ---
@@ -139,18 +139,18 @@ viact({ adapter: cloudflareAdapter({ assetsBinding: "STATIC" }) });
 
 ### Setup
 
-1. Ensure `@viact/adapter-vercel` is installed.
+1. Ensure `@previte/adapter-vercel` is installed.
 2. In `vite.config.ts`:
    ```ts
-   import { viact } from "@viact/vite-plugin";
-   import { vercelAdapter } from "@viact/adapter-vercel";
-   export default { plugins: [viact({ adapter: vercelAdapter() })] };
+   import { previte } from "@previte/vite-plugin";
+   import { vercelAdapter } from "@previte/adapter-vercel";
+   export default { plugins: [previte({ adapter: vercelAdapter() })] };
    ```
 
 ### Build & Deploy
 
 ```bash
-viact build
+previte build
 npx vercel deploy --prebuilt
 ```
 
@@ -160,19 +160,19 @@ Produces: `.vercel/output/config.json`, `.vercel/output/static/`, `.vercel/outpu
 
 ## Deployment Checklist
 
-1. **Build**: Run `viact build` and verify `dist/` output.
+1. **Build**: Run `previte build` and verify `dist/` output.
 2. **Environment variables**: Ensure secrets/config needed by loaders are available at runtime.
 3. **Static assets**: Verify `dist/client/` contains prerendered HTML for SSG/ISG routes.
 4. **ISG routes**: Confirm the ISG manifest exists if using incremental static generation.
-5. **API routes**: Test API endpoints work in the production build (`viact preview`).
+5. **API routes**: Test API endpoints work in the production build (`previte preview`).
 6. **Middleware**: Verify auth/redirect middleware behaves correctly in production.
 
 ## Rules
 
 1. Read `vite.config.ts` and `package.json` before giving advice.
-2. Run `viact build` to verify the build succeeds before deploying.
-3. Use `viact preview` to smoke-test before pushing to production.
-4. If the user needs an adapter that isn't installed, help them add it (`pnpm add @viact/adapter-*`).
+2. Run `previte build` to verify the build succeeds before deploying.
+3. Use `previte preview` to smoke-test before pushing to production.
+4. If the user needs an adapter that isn't installed, help them add it (`pnpm add @previte/adapter-*`).
 5. Don't push to production without the user's explicit confirmation.
 
 $ARGUMENTS
