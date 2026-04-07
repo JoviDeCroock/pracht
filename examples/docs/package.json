@@ -17,6 +17,7 @@
     "@preact/preset-vite": "^2.9.4",
     "@viact/cli": "workspace:*",
     "@viact/vite-plugin": "workspace:*",
+    "marked": "^18.0.0",
     "preact": "^10.26.9",
     "preact-render-to-string": "^6.5.13",
     "vite": "^8.0.0"

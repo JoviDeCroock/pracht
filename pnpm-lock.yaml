@@ -60,6 +60,9 @@ importers:
       '@preact/preset-vite':
         specifier: ^2.9.4
         version: 2.10.5(@babel/core@7.29.0)(preact@10.29.1)(rollup@4.60.1)(vite@8.0.3(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@22.19.17)(esbuild@0.27.3))
+      '@viact/cli':
+        specifier: workspace:*
+        version: link:../../packages/cli
       '@viact/vite-plugin':
         specifier: workspace:*
         version: link:../../packages/vite-plugin
@@ -85,6 +88,9 @@ importers:
       '@preact/preset-vite':
         specifier: ^2.9.4
         version: 2.10.5(@babel/core@7.29.0)(preact@10.29.1)(rollup@4.60.1)(vite@8.0.3(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@22.19.17)(esbuild@0.27.3))
+      '@viact/cli':
+        specifier: workspace:*
+        version: link:../../packages/cli
       '@viact/vite-plugin':
         specifier: workspace:*
         version: link:../../packages/vite-plugin
@@ -119,6 +125,9 @@ importers:
       '@viact/vite-plugin':
         specifier: workspace:*
         version: link:../../packages/vite-plugin
+      marked:
+        specifier: ^18.0.0
+        version: 18.0.0
       preact:
         specifier: ^10.26.9
         version: 10.29.1
@@ -1918,6 +1927,11 @@ packages:
 
   magic-string@0.30.21:
     resolution: {integrity: sha512-vd2F4YUyEXKGcLHoq+TEyCjxueSeHnFxyyjNp80yg0XV4vUhnDer/lvvlqM/arB5bXQN5K2/3oinyCRyx8T2CQ==}
+
+  marked@18.0.0:
+    resolution: {integrity: sha512-2e7Qiv/HJSXj8rDEpgTvGKsP8yYtI9xXHKDnrftrmnrJPaFNM7VRb2YCzWaX4BP1iCJ/XPduzDJZMFoqTCcIMA==}
+    engines: {node: '>= 20'}
+    hasBin: true
 
   merge2@1.4.1:
     resolution: {integrity: sha512-8q7VEgMJW4J8tcfVPy8g09NcQwZdbwFEqhe/WZkoIzjn/3TGDwtOCYtXGxA3O8tPzpczCCDgv+P2P5y00ZJOOg==}
@@ -3953,6 +3967,8 @@ snapshots:
   magic-string@0.30.21:
     dependencies:
       '@jridgewell/sourcemap-codec': 1.5.5
+
+  marked@18.0.0: {}
 
   merge2@1.4.1: {}
 

@@ -9,67 +9,67 @@ export const app = defineApp({
     group({ shell: "home" }, [route("/", "./routes/home.tsx", { id: "home", render: "ssg" })]),
     group({ shell: "docs" }, [
       route("/docs", "./routes/docs/index.tsx", { id: "docs-index", render: "ssr" }),
-      route("/docs/getting-started", "./routes/docs/getting-started.tsx", {
+      route("/docs/getting-started", "./routes/docs/getting-started.md", {
         id: "getting-started",
         render: "ssg",
       }),
-      route("/docs/routing", "./routes/docs/routing.tsx", {
+      route("/docs/routing", "./routes/docs/routing.md", {
         id: "routing",
         render: "ssg",
       }),
-      route("/docs/rendering", "./routes/docs/rendering.tsx", {
+      route("/docs/rendering", "./routes/docs/rendering.md", {
         id: "rendering",
         render: "ssg",
       }),
-      route("/docs/data-loading", "./routes/docs/data-loading.tsx", {
+      route("/docs/data-loading", "./routes/docs/data-loading.md", {
         id: "data-loading",
         render: "ssg",
       }),
-      route("/docs/api-routes", "./routes/docs/api-routes.tsx", {
+      route("/docs/api-routes", "./routes/docs/api-routes.md", {
         id: "api-routes",
         render: "ssg",
       }),
-      route("/docs/middleware", "./routes/docs/middleware.tsx", {
+      route("/docs/middleware", "./routes/docs/middleware.md", {
         id: "middleware",
         render: "ssg",
       }),
-      route("/docs/shells", "./routes/docs/shells.tsx", {
+      route("/docs/shells", "./routes/docs/shells.md", {
         id: "shells",
         render: "ssg",
       }),
-      route("/docs/cli", "./routes/docs/cli.tsx", {
+      route("/docs/cli", "./routes/docs/cli.md", {
         id: "cli",
         render: "ssg",
       }),
-      route("/docs/deployment", "./routes/docs/deployment.tsx", {
+      route("/docs/deployment", "./routes/docs/deployment.md", {
         id: "deployment",
         render: "ssg",
       }),
-      route("/docs/adapters", "./routes/docs/adapters.tsx", {
+      route("/docs/adapters", "./routes/docs/adapters.md", {
         id: "adapters",
         render: "ssg",
       }),
-      route("/docs/prefetching", "./routes/docs/prefetching.tsx", {
+      route("/docs/prefetching", "./routes/docs/prefetching.md", {
         id: "prefetching",
         render: "ssg",
       }),
-      route("/docs/performance", "./routes/docs/performance.tsx", {
+      route("/docs/performance", "./routes/docs/performance.md", {
         id: "performance",
         render: "ssg",
       }),
-      route("/docs/recipes/i18n", "./routes/docs/recipes-i18n.tsx", {
+      route("/docs/recipes/i18n", "./routes/docs/recipes-i18n.md", {
         id: "recipes-i18n",
         render: "ssg",
       }),
-      route("/docs/recipes/auth", "./routes/docs/recipes-auth.tsx", {
+      route("/docs/recipes/auth", "./routes/docs/recipes-auth.md", {
         id: "recipes-auth",
         render: "ssg",
       }),
-      route("/docs/recipes/forms", "./routes/docs/recipes-forms.tsx", {
+      route("/docs/recipes/forms", "./routes/docs/recipes-forms.md", {
         id: "recipes-forms",
         render: "ssg",
       }),
-      route("/docs/recipes/testing", "./routes/docs/recipes-testing.tsx", {
+      route("/docs/recipes/testing", "./routes/docs/recipes-testing.md", {
         id: "recipes-testing",
         render: "ssg",
       }),
