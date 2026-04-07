@@ -8,6 +8,12 @@ import { createCloudflareServerEntryModule } from "@viact/adapter-cloudflare";
 import { createNodeServerEntryModule } from "@viact/adapter-node";
 import { createVercelServerEntryModule } from "@viact/adapter-vercel";
 
+import {
+  type PagesRouterOptions,
+  generateAndWriteRoutes,
+  resolvePagesOptions,
+} from "./pages-router";
+
 export const VIACT_CLIENT_MODULE_ID = "virtual:viact/client";
 export const VIACT_SERVER_MODULE_ID = "virtual:viact/server";
 
@@ -41,11 +47,13 @@ export interface ViactPluginOptions {
   cloudflareAssetsBinding?: string;
   vercelFunctionName?: string;
   vercelRegions?: string | string[];
+  /** Enable file-system routing from a pages directory (like Next.js pages router). */
+  pages?: PagesRouterOptions | boolean;
 }
 
 export type ViactAdapter = "node" | "cloudflare" | "vercel";
 
-type ResolvedViactPluginOptions = Omit<Required<ViactPluginOptions>, "vercelRegions"> & {
+type ResolvedViactPluginOptions = Omit<Required<ViactPluginOptions>, "vercelRegions" | "pages"> & {
   vercelRegions: string | string[] | undefined;
 };
 
@@ -63,6 +71,18 @@ const DEFAULTS: ResolvedViactPluginOptions = {
 };
 
 export function viact(options: ViactPluginOptions = {}): Plugin[] {
+  const pagesOptions = options.pages ? resolvePagesOptions(options.pages) : null;
+
+  // When pages router is enabled, override appFile and directories to match pages dir
+  if (pagesOptions) {
+    options = {
+      ...options,
+      appFile: pagesOptions.outFile,
+      routesDir: pagesOptions.dir,
+      shellsDir: pagesOptions.dir,
+    };
+  }
+
   const resolved = resolveOptions(options);
   let root = process.cwd();
 
@@ -92,6 +112,9 @@ export function viact(options: ViactPluginOptions = {}): Plugin[] {
 
     configResolved(config) {
       root = config.root;
+      if (pagesOptions) {
+        generateAndWriteRoutes(root, pagesOptions);
+      }
     },
 
     resolveId(id) {
@@ -111,6 +134,17 @@ export function viact(options: ViactPluginOptions = {}): Plugin[] {
     },
 
     configureServer(server) {
+      if (pagesOptions) {
+        const pagesAbsDir = resolve(server.config.root, pagesOptions.dir.slice(1));
+        const onChange = (path: string) => {
+          if (path.startsWith(pagesAbsDir)) {
+            generateAndWriteRoutes(server.config.root, pagesOptions);
+          }
+        };
+        server.watcher.on("add", onChange);
+        server.watcher.on("unlink", onChange);
+      }
+
       return () => {
         server.middlewares.use(createDevSSRMiddleware(server, resolved));
       };
@@ -119,6 +153,13 @@ export function viact(options: ViactPluginOptions = {}): Plugin[] {
     handleHotUpdate({ file, server }) {
       const root = server.config.root;
       const relative = file.startsWith(root) ? file.slice(root.length) : file;
+
+      // Pages router: regenerate routes when a page file changes (e.g. render mode updated)
+      if (pagesOptions && relative.startsWith(pagesOptions.dir)) {
+        generateAndWriteRoutes(root, pagesOptions);
+        // The write to the generated file triggers the appFile restart below
+        return [];
+      }
 
       // App manifest changed — restart server (route definitions may have changed)
       if (relative === resolved.appFile) {
@@ -406,9 +447,10 @@ async function nodeToWebRequest(req: IncomingMessage): Promise<Request> {
 }
 
 function resolveOptions(options: ViactPluginOptions): ResolvedViactPluginOptions {
+  const { pages: _pages, ...rest } = options;
   return {
     ...DEFAULTS,
-    ...options,
+    ...rest,
   };
 }
 
