@@ -45,9 +45,7 @@ const NAV = [
   },
   {
     label: "Reference",
-    links: [
-      { href: "/docs/adapters", icon: "🌐", title: "Adapters" },
-    ],
+    links: [{ href: "/docs/adapters", icon: "🌐", title: "Adapters" }],
   },
 ];
 

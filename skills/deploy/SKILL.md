@@ -28,11 +28,11 @@ Ask the user where they want to deploy if not already clear from their message.
 
 ## Supported Adapters
 
-| Adapter | Package | Status |
-|---------|---------|--------|
-| Node.js | `@viact/adapter-node` | Stable |
+| Adapter            | Package                     | Status |
+| ------------------ | --------------------------- | ------ |
+| Node.js            | `@viact/adapter-node`       | Stable |
 | Cloudflare Workers | `@viact/adapter-cloudflare` | Stable |
-| Vercel | `@viact/adapter-vercel` | Stable |
+| Vercel             | `@viact/adapter-vercel`     | Stable |
 
 ---
 
@@ -55,6 +55,7 @@ viact build
 ```
 
 Produces:
+
 - `dist/client/` — static assets (JS, CSS, prerendered HTML)
 - `dist/server/server.js` — Node server entry
 - `dist/server/isg-manifest.json` — ISG revalidation config (if ISG routes exist)
@@ -128,7 +129,7 @@ export async function loader({ context }: LoaderArgs) {
 ### Custom Assets Binding
 
 ```ts
-viact({ adapter: "cloudflare", cloudflareAssetsBinding: "STATIC" })
+viact({ adapter: "cloudflare", cloudflareAssetsBinding: "STATIC" });
 ```
 
 ---

@@ -20,21 +20,22 @@ import { defineApp, group, route, timeRevalidate } from "viact";
 export const app = defineApp({
   shells: {
     public: "./shells/public.tsx",
-    app:    "./shells/app.tsx",
+    app: "./shells/app.tsx",
   },
   middleware: {
     auth: "./middleware/auth.ts",
   },
   routes: [
     group({ shell: "public" }, [
-      route("/",        "./routes/home.tsx",    { render: "ssg" }),
+      route("/", "./routes/home.tsx", { render: "ssg" }),
       route("/pricing", "./routes/pricing.tsx", {
-        render: "isg", revalidate: timeRevalidate(3600),
+        render: "isg",
+        revalidate: timeRevalidate(3600),
       }),
     ]),
     group({ shell: "app", middleware: ["auth"] }, [
       route("/dashboard", "./routes/dashboard.tsx", { render: "ssr" }),
-      route("/settings",  "./routes/settings.tsx",  { render: "spa" }),
+      route("/settings", "./routes/settings.tsx", { render: "spa" }),
     ]),
   ],
 });
@@ -45,7 +46,7 @@ export const app = defineApp({
 File-based routing (Next.js, SvelteKit) couples URL structure to directory structure. This forces awkward nesting for layout groups and makes middleware assignment implicit. viact's hybrid approach:
 
 - Route modules live in `src/routes/` (discoverable by convention)
-- Route *wiring* is explicit in `src/routes.ts` (auditable, type-checked)
+- Route _wiring_ is explicit in `src/routes.ts` (auditable, type-checked)
 - Shells and middleware are named references (reusable across groups)
 - URL structure is independent of file system layout
 
@@ -55,28 +56,28 @@ File-based routing (Next.js, SvelteKit) couples URL structure to directory struc
 
 ### defineApp(config)
 
-| Field | Type | Description |
-|-------|------|-------------|
-| shells | Record\<string, string\> | Named shell modules — key is the name, value is the file path |
-| middleware | Record\<string, string\> | Named middleware modules |
-| routes | (RouteDefinition \| GroupDefinition)[] | The route tree |
+| Field      | Type                                   | Description                                                   |
+| ---------- | -------------------------------------- | ------------------------------------------------------------- |
+| shells     | Record\<string, string\>               | Named shell modules — key is the name, value is the file path |
+| middleware | Record\<string, string\>               | Named middleware modules                                      |
+| routes     | (RouteDefinition \| GroupDefinition)[] | The route tree                                                |
 
 ### route(path, file, meta?)
 
-| Param | Type | Description |
-|-------|------|-------------|
-| path | string | URL pattern, e.g. `/blog/:slug` |
-| file | string | Relative path to the route module |
-| meta | RouteMeta | Optional render mode, shell, middleware, revalidation |
+| Param | Type      | Description                                           |
+| ----- | --------- | ----------------------------------------------------- |
+| path  | string    | URL pattern, e.g. `/blog/:slug`                       |
+| file  | string    | Relative path to the route module                     |
+| meta  | RouteMeta | Optional render mode, shell, middleware, revalidation |
 
 ### group(meta, routes)
 
 Groups routes with shared configuration. Properties cascade to children; a route's own meta overrides the group's.
 
-| Param | Type | Description |
-|-------|------|-------------|
-| meta | GroupMeta | Shell, middleware, render mode, pathPrefix to inherit |
-| routes | RouteDefinition[] | Routes in this group |
+| Param  | Type              | Description                                           |
+| ------ | ----------------- | ----------------------------------------------------- |
+| meta   | GroupMeta         | Shell, middleware, render mode, pathPrefix to inherit |
+| routes | RouteDefinition[] | Routes in this group                                  |
 
 ---
 
@@ -85,24 +86,24 @@ Groups routes with shared configuration. Properties cascade to children; a route
 ### Static paths
 
 ```ts
-route("/about", "./routes/about.tsx")
+route("/about", "./routes/about.tsx");
 // Matches /about exactly
 ```
 
 ### Dynamic segments
 
 ```ts
-route("/blog/:slug", "./routes/blog-post.tsx")
+route("/blog/:slug", "./routes/blog-post.tsx");
 // /blog/hello-world → params.slug = "hello-world"
 
-route("/users/:userId/posts/:postId", "./routes/user-post.tsx")
+route("/users/:userId/posts/:postId", "./routes/user-post.tsx");
 // Multiple dynamic segments
 ```
 
 ### Catch-all segments
 
 ```ts
-route("/docs/*", "./routes/docs.tsx")
+route("/docs/*", "./routes/docs.tsx");
 // Matches /docs/a/b/c — catch-all available in params
 ```
 
@@ -159,8 +160,8 @@ Groups can add a URL prefix to all child routes, keeping route files flat while 
 
 ```ts
 group({ pathPrefix: "/admin", shell: "admin", middleware: ["auth"] }, [
-  route("/",       "./routes/admin/index.tsx"),   // → /admin
-  route("/users",  "./routes/admin/users.tsx"),   // → /admin/users
+  route("/", "./routes/admin/index.tsx"), // → /admin
+  route("/users", "./routes/admin/users.tsx"), // → /admin/users
   route("/settings", "./routes/admin/settings.tsx"), // → /admin/settings
-])
+]);
 ```

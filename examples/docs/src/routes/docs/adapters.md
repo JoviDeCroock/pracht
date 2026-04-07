@@ -72,9 +72,9 @@ The `env` object is passed through to your loaders and actions via the context:
 // src/routes/dashboard.tsx
 export async function loader({ context }: LoaderArgs) {
   // context.env is the Cloudflare env object
-  const user = await context.env.DB.prepare(
-    "SELECT * FROM users WHERE id = ?"
-  ).bind(userId).first();
+  const user = await context.env.DB.prepare("SELECT * FROM users WHERE id = ?")
+    .bind(userId)
+    .first();
   return { user };
 }
 ```
@@ -155,15 +155,15 @@ Adapters inject platform-specific values into loaders and actions via a context 
 createContext: ({ request }) => ({
   db: pool,
   ip: request.headers.get("x-forwarded-for"),
-})
+});
 
 // Cloudflare: expose env bindings
 createContext: ({ request, env, executionContext }) => ({
-  db: env.DB,        // D1 binding
-  kv: env.CACHE,     // KV binding
-  r2: env.STORAGE,   // R2 binding
+  db: env.DB, // D1 binding
+  kv: env.CACHE, // KV binding
+  r2: env.STORAGE, // R2 binding
   waitUntil: executionContext.waitUntil.bind(executionContext),
-})
+});
 ```
 
 The context object is available as `args.context` in every loader, action, middleware, and API route handler.

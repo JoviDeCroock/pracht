@@ -22,12 +22,12 @@ Prefetched data is held in a 30-second TTL cache. Stale entries are discarded an
 
 Each route can declare a `prefetch` strategy in its route meta:
 
-| Strategy | Trigger | Best For |
-|----------|---------|----------|
-| `"intent"` | Mouse hover or keyboard focus (50ms debounce) | Most routes — low overhead, high hit rate |
-| `"viewport"` | Link scrolls into view (IntersectionObserver) | Navigation menus, link-heavy pages |
-| `"hover"` | Same as intent (hover + focus) | Alias for intent |
-| `"none"` | Disabled | SPA routes, rarely visited pages |
+| Strategy     | Trigger                                       | Best For                                  |
+| ------------ | --------------------------------------------- | ----------------------------------------- |
+| `"intent"`   | Mouse hover or keyboard focus (50ms debounce) | Most routes — low overhead, high hit rate |
+| `"viewport"` | Link scrolls into view (IntersectionObserver) | Navigation menus, link-heavy pages        |
+| `"hover"`    | Same as intent (hover + focus)                | Alias for intent                          |
+| `"none"`     | Disabled                                      | SPA routes, rarely visited pages          |
 
 ---
 

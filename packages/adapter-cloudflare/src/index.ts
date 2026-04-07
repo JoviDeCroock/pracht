@@ -91,7 +91,7 @@ export function createCloudflareServerEntryModule(
     "    return null;",
     "  }",
     "",
-    '  // Route state requests must be handled by the framework (returns JSON), not static assets',
+    "  // Route state requests must be handled by the framework (returns JSON), not static assets",
     '  if (request.headers.get("x-viact-route-state-request") === "1") {',
     "    return null;",
     "  }",
@@ -156,7 +156,11 @@ async function maybeServeAsset(
   // Vary on the route-state header so the CDN caches HTML and JSON responses separately
   const headers = new Headers(response.headers);
   headers.append("Vary", "x-viact-route-state-request");
-  return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
 }
 
 function isFetcher(value: unknown): value is CloudflareFetcher {

@@ -41,9 +41,7 @@ Shells can contribute to `<head>` by exporting a `head` function. Shell metadata
 export function head() {
   return {
     title: "My App",
-    meta: [
-      { name: "viewport", content: "width=device-width, initial-scale=1" },
-    ],
+    meta: [{ name: "viewport", content: "width=device-width, initial-scale=1" }],
   };
 }
 

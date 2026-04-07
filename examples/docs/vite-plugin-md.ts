@@ -17,14 +17,44 @@ import { Marked, Renderer } from "marked";
 // ── Inline highlight (same tokenizer as utils/highlight.ts) ──────────────────
 
 const KEYWORDS = new Set([
-  "import", "export", "from", "as", "default",
-  "const", "let", "var",
-  "function", "async", "await", "return",
-  "type", "interface", "class", "extends", "implements", "new",
-  "if", "else", "for", "while", "of", "in", "break", "continue",
-  "throw", "try", "catch", "finally",
-  "null", "undefined", "true", "false", "void",
-  "typeof", "instanceof", "keyof",
+  "import",
+  "export",
+  "from",
+  "as",
+  "default",
+  "const",
+  "let",
+  "var",
+  "function",
+  "async",
+  "await",
+  "return",
+  "type",
+  "interface",
+  "class",
+  "extends",
+  "implements",
+  "new",
+  "if",
+  "else",
+  "for",
+  "while",
+  "of",
+  "in",
+  "break",
+  "continue",
+  "throw",
+  "try",
+  "catch",
+  "finally",
+  "null",
+  "undefined",
+  "true",
+  "false",
+  "void",
+  "typeof",
+  "instanceof",
+  "keyof",
 ]);
 
 function esc(s: string): string {
@@ -55,8 +85,14 @@ function highlight(code: string): string {
       const q = code[i];
       let j = i + 1;
       while (j < n) {
-        if (code[j] === "\\" && j + 1 < n) { j += 2; continue; }
-        if (code[j] === q) { j++; break; }
+        if (code[j] === "\\" && j + 1 < n) {
+          j += 2;
+          continue;
+        }
+        if (code[j] === q) {
+          j++;
+          break;
+        }
         j++;
       }
       out.push(`<span class="str">${esc(code.slice(i, j))}</span>`);
@@ -202,7 +238,9 @@ function buildDocPage(fm: Frontmatter, contentHtml: string): string {
 
   // Breadcrumb
   const crumb = fm.breadcrumb || fm.title;
-  parts.push(`<div class="breadcrumb"><a href="/">viact</a><span class="breadcrumb-sep">/</span><span>${esc(crumb)}</span></div>`);
+  parts.push(
+    `<div class="breadcrumb"><a href="/">viact</a><span class="breadcrumb-sep">/</span><span>${esc(crumb)}</span></div>`,
+  );
 
   // Title
   parts.push(`<h1 class="doc-title">${esc(fm.title)}</h1>`);
@@ -219,12 +257,16 @@ function buildDocPage(fm: Frontmatter, contentHtml: string): string {
   if (fm.prev || fm.next) {
     parts.push('<div class="doc-nav">');
     if (fm.prev) {
-      parts.push(`<a href="${fm.prev.href}" class="doc-nav-card prev"><div class="doc-nav-dir">Previous</div><div class="doc-nav-title">\u2190 ${esc(fm.prev.title)}</div></a>`);
+      parts.push(
+        `<a href="${fm.prev.href}" class="doc-nav-card prev"><div class="doc-nav-dir">Previous</div><div class="doc-nav-title">\u2190 ${esc(fm.prev.title)}</div></a>`,
+      );
     } else {
       parts.push("<div></div>");
     }
     if (fm.next) {
-      parts.push(`<a href="${fm.next.href}" class="doc-nav-card next"><div class="doc-nav-dir">Next</div><div class="doc-nav-title">${esc(fm.next.title)} \u2192</div></a>`);
+      parts.push(
+        `<a href="${fm.next.href}" class="doc-nav-card next"><div class="doc-nav-dir">Next</div><div class="doc-nav-title">${esc(fm.next.title)} \u2192</div></a>`,
+      );
     } else {
       parts.push("<div></div>");
     }
@@ -250,15 +292,12 @@ export function markdown(): Plugin {
       let contentHtml = marked.parse(body) as string;
 
       // Wrap tables with doc-table styling
-      contentHtml = contentHtml.replace(
-        /<table>/g,
-        '<div class="doc-table-wrap"><table class="doc-table">'
-      ).replace(/<\/table>/g, "</table></div>");
+      contentHtml = contentHtml
+        .replace(/<table>/g, '<div class="doc-table-wrap"><table class="doc-table">')
+        .replace(/<\/table>/g, "</table></div>");
       const pageHtml = buildDocPage(frontmatter, contentHtml);
 
-      const headTitle = frontmatter.title
-        ? `${frontmatter.title} \u2014 viact docs`
-        : "viact docs";
+      const headTitle = frontmatter.title ? `${frontmatter.title} \u2014 viact docs` : "viact docs";
 
       const output = [
         `import { h } from "preact";`,

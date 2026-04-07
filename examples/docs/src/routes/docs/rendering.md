@@ -12,19 +12,19 @@ next:
 
 ## Overview
 
-| Mode | HTML generated | Loader runs | Best for |
-|------|---------------|-------------|----------|
-| SSG | Build time | Build time | Marketing pages, docs, blogs |
-| SSR | Every request | Every request | Personalized, dynamic pages |
-| ISG | Build + revalidation | Build + on stale | Pricing, catalogs, semi-static |
-| SPA | Client only | Client navigation | Auth-gated dashboards, admin UI |
+| Mode | HTML generated       | Loader runs       | Best for                        |
+| ---- | -------------------- | ----------------- | ------------------------------- |
+| SSG  | Build time           | Build time        | Marketing pages, docs, blogs    |
+| SSR  | Every request        | Every request     | Personalized, dynamic pages     |
+| ISG  | Build + revalidation | Build + on stale  | Pricing, catalogs, semi-static  |
+| SPA  | Client only          | Client navigation | Auth-gated dashboards, admin UI |
 
 ---
 
 ## SSG — Static Site Generation
 
 ```ts
-route("/about", "./routes/about.tsx", { render: "ssg" })
+route("/about", "./routes/about.tsx", { render: "ssg" });
 ```
 
 HTML is generated at build time. The loader runs once during the build, and the output is written to `dist/client/about/index.html`. No server required for this route — it's served as a static file from your CDN.
@@ -55,7 +55,7 @@ The build calls `prerender()` to enumerate all paths, then runs the loader and r
 ## SSR — Server-Side Rendering
 
 ```ts
-route("/dashboard", "./routes/dashboard.tsx", { render: "ssr" })
+route("/dashboard", "./routes/dashboard.tsx", { render: "ssr" });
 ```
 
 HTML is generated fresh on every request. The loader runs server-side, the component renders to a string, and the full HTML response includes the serialized hydration state.
@@ -78,7 +78,7 @@ import { timeRevalidate } from "viact";
 route("/pricing", "./routes/pricing.tsx", {
   render: "isg",
   revalidate: timeRevalidate(3600), // revalidate every hour
-})
+});
 ```
 
 ISG generates HTML at build time (like SSG) but regenerates it after a configurable time window. On the first request after the window expires, the stale page is served immediately while a new version regenerates in the background — stale-while-revalidate.
@@ -91,7 +91,9 @@ ISG generates HTML at build time (like SSG) but regenerates it after a configura
 ```ts
 import { webhookRevalidate } from "viact";
 
-{ revalidate: webhookRevalidate({ key: "pricing-update" }) }
+{
+  revalidate: webhookRevalidate({ key: "pricing-update" });
+}
 // POST to the revalidation endpoint to trigger regeneration
 ```
 
@@ -100,7 +102,7 @@ import { webhookRevalidate } from "viact";
 ## SPA — Single Page Application
 
 ```ts
-route("/settings", "./routes/settings.tsx", { render: "spa" })
+route("/settings", "./routes/settings.tsx", { render: "spa" });
 ```
 
 No server-side rendering. The server returns a minimal HTML shell, and the component renders entirely in the browser. The loader runs during client-side navigation only.
@@ -121,14 +123,16 @@ The real power is mixing modes in a single app without separate deployments or f
 export const app = defineApp({
   routes: [
     group({ shell: "public" }, [
-      route("/",        "...", { render: "ssg" }),           // Static
-      route("/pricing", "...", { render: "isg",             // Revalidating
-        revalidate: timeRevalidate(3600) }),
-      route("/login",   "...", { render: "ssr" }),           // Dynamic
+      route("/", "...", { render: "ssg" }), // Static
+      route("/pricing", "...", {
+        render: "isg", // Revalidating
+        revalidate: timeRevalidate(3600),
+      }),
+      route("/login", "...", { render: "ssr" }), // Dynamic
     ]),
     group({ shell: "app", middleware: ["auth"] }, [
-      route("/dashboard", "...", { render: "ssr" }),         // Personalized
-      route("/settings",  "...", { render: "spa" }),         // Client-only
+      route("/dashboard", "...", { render: "ssr" }), // Personalized
+      route("/settings", "...", { render: "spa" }), // Client-only
     ]),
   ],
 });

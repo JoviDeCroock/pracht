@@ -14,10 +14,10 @@ next:
 
 API routes live in `src/api/`. The file path maps to the URL:
 
-| File | URL |
-|------|-----|
-| `src/api/health.ts` | `/api/health` |
-| `src/api/users.ts` | `/api/users` |
+| File                    | URL              |
+| ----------------------- | ---------------- |
+| `src/api/health.ts`     | `/api/health`    |
+| `src/api/users.ts`      | `/api/users`     |
 | `src/api/users/[id].ts` | `/api/users/:id` |
 
 ---

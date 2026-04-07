@@ -372,13 +372,15 @@ function createDevSSRMiddleware(
       if (isRouteState) {
         res.statusCode = 500;
         res.setHeader("content-type", "application/json; charset=utf-8");
-        res.end(JSON.stringify({
-          error: {
-            message: error instanceof Error ? error.message : String(error),
-            name: error instanceof Error ? error.name : "Error",
-            status: 500,
-          },
-        }));
+        res.end(
+          JSON.stringify({
+            error: {
+              message: error instanceof Error ? error.message : String(error),
+              name: error instanceof Error ? error.name : "Error",
+              status: 500,
+            },
+          }),
+        );
         return;
       }
 

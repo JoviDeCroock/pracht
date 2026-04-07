@@ -165,9 +165,7 @@ import { handleViactRequest, resolveApp } from "viact";
 const app = resolveApp({
   shells: { main: "./shells/main.tsx" },
   middleware: {},
-  routes: [
-    { path: "/", file: "./routes/home.tsx", shell: "main", render: "ssr" },
-  ],
+  routes: [{ path: "/", file: "./routes/home.tsx", shell: "main", render: "ssr" }],
 });
 
 const registry = {

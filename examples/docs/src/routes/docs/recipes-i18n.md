@@ -107,9 +107,7 @@ import { supportedLocales, defaultLocale } from "../i18n";
 export const middleware: MiddlewareFn = async ({ request }) => {
   const cookies = request.headers.get("cookie") ?? "";
   const match = cookies.match(/locale=(\w+)/);
-  const locale = match && supportedLocales.includes(match[1])
-    ? match[1]
-    : defaultLocale;
+  const locale = match && supportedLocales.includes(match[1]) ? match[1] : defaultLocale;
 
   request.headers.set("x-locale", locale);
 };

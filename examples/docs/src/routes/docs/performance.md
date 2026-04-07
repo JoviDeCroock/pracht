@@ -15,8 +15,8 @@ On the server, viact knows which route and shell are being rendered. It uses thi
 
 ```html
 <!-- Automatically injected for the matched route -->
-<link rel="modulepreload" href="/assets/home-Bx7kZ3.js">
-<link rel="modulepreload" href="/assets/vendor-D9fK2a.js">
+<link rel="modulepreload" href="/assets/home-Bx7kZ3.js" />
+<link rel="modulepreload" href="/assets/vendor-D9fK2a.js" />
 ```
 
 ---
@@ -58,11 +58,11 @@ The overlay auto-reloads when you save a fix — it listens for Vite's HMR full-
 
 None of these optimizations require configuration. A standard viact app automatically gets:
 
-| Optimization | What It Does |
-|-------------|-------------|
-| Route code splitting | Each route is a separate JS chunk, loaded on demand |
-| Modulepreload hints | Browser starts downloading route JS before client entry runs |
-| Vendor extraction | Preact is cached once, shared across routes |
-| Per-page CSS | Only CSS for the matched route/shell is included |
-| Intent prefetching | Route data is fetched on hover/focus before click |
-| Dev error overlay | Framework-aware errors with auto-reload on fix |
+| Optimization         | What It Does                                                 |
+| -------------------- | ------------------------------------------------------------ |
+| Route code splitting | Each route is a separate JS chunk, loaded on demand          |
+| Modulepreload hints  | Browser starts downloading route JS before client entry runs |
+| Vendor extraction    | Preact is cached once, shared across routes                  |
+| Per-page CSS         | Only CSS for the matched route/shell is included             |
+| Intent prefetching   | Route data is fetched on hover/focus before click            |
+| Dev error overlay    | Framework-aware errors with auto-reload on fix               |

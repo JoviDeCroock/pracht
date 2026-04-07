@@ -15,9 +15,7 @@ export interface ErrorOverlayOptions {
 export function buildErrorOverlayHtml(options: ErrorOverlayOptions): string {
   const { message, stack, routeId, file } = options;
 
-  const stackHtml = stack
-    ? `<pre class="stack">${escapeHtml(stack)}</pre>`
-    : "";
+  const stackHtml = stack ? `<pre class="stack">${escapeHtml(stack)}</pre>` : "";
 
   const routeHtml = routeId
     ? `<div class="meta"><span class="label">Route</span> <span class="value">${escapeHtml(routeId)}</span></div>`

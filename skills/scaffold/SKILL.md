@@ -25,12 +25,12 @@ The user will describe what they want to create. Parse their request and generat
 
 ## What You Can Scaffold
 
-| Kind | Directory | Key exports | Example |
-|------|-----------|-------------|---------|
-| Route | `src/routes/` | `loader`, `action`, `head`, `Component`, `ErrorBoundary`, `prerender` | `src/routes/blog.tsx` |
-| Shell | `src/shells/` | `Shell`, `head` | `src/shells/marketing.tsx` |
-| Middleware | `src/middleware/` | `middleware` | `src/middleware/rate-limit.ts` |
-| API route | `src/api/` | Named HTTP method handlers (`GET`, `POST`, `PUT`, `PATCH`, `DELETE`) | `src/api/users/[id].ts` |
+| Kind       | Directory         | Key exports                                                           | Example                        |
+| ---------- | ----------------- | --------------------------------------------------------------------- | ------------------------------ |
+| Route      | `src/routes/`     | `loader`, `action`, `head`, `Component`, `ErrorBoundary`, `prerender` | `src/routes/blog.tsx`          |
+| Shell      | `src/shells/`     | `Shell`, `head`                                                       | `src/shells/marketing.tsx`     |
+| Middleware | `src/middleware/` | `middleware`                                                          | `src/middleware/rate-limit.ts` |
+| API route  | `src/api/`        | Named HTTP method handlers (`GET`, `POST`, `PUT`, `PATCH`, `DELETE`)  | `src/api/users/[id].ts`        |
 
 ## Templates
 
@@ -40,7 +40,9 @@ The user will describe what they want to create. Parse their request and generat
 import type { LoaderArgs, RouteComponentProps } from "viact";
 
 export async function loader(_args: LoaderArgs) {
-  return { /* loader data */ };
+  return {
+    /* loader data */
+  };
 }
 
 export function head() {
@@ -94,7 +96,9 @@ export const middleware: MiddlewareFn = async ({ request }) => {
 import type { BaseRouteArgs } from "viact";
 
 export function GET({ params, url }: BaseRouteArgs) {
-  return Response.json({ /* response data */ });
+  return Response.json({
+    /* response data */
+  });
 }
 ```
 

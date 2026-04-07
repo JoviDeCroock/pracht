@@ -68,8 +68,8 @@ Middleware from groups and routes is combined. A route inside a group with `["au
 
 ## Middleware Results
 
-| Return | Effect |
-|--------|--------|
-| `undefined` / `void` | Continue to the next middleware or loader |
-| `{ redirect: "/path" }` | HTTP 302 redirect |
-| `{ response: new Response(...) }` | Short-circuit with a custom response |
+| Return                            | Effect                                    |
+| --------------------------------- | ----------------------------------------- |
+| `undefined` / `void`              | Continue to the next middleware or loader |
+| `{ redirect: "/path" }`           | HTTP 302 redirect                         |
+| `{ response: new Response(...) }` | Short-circuit with a custom response      |

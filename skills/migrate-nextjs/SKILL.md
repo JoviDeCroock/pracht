@@ -45,29 +45,29 @@ Ask the user to confirm the migration scope if the project is large (>20 routes)
 
 ## Concept Mapping
 
-| Next.js | Viact | Notes |
-|---------|-------|-------|
-| `app/page.tsx` | `src/routes/*.tsx` + `route()` in manifest | File is a module; wiring is explicit |
-| `app/layout.tsx` | `src/shells/*.tsx` + `shells` in `defineApp` | Shells are named, not directory-nested |
-| `app/loading.tsx` | No direct equivalent | Use Suspense in component if needed |
-| `app/error.tsx` | `ErrorBoundary` export in route module | Same concept, different wiring |
-| `app/not-found.tsx` | 404 route: `route("*", "./routes/not-found.tsx")` | Catch-all at end of routes array |
-| `middleware.ts` | `src/middleware/*.ts` + `middleware` in `defineApp` | Named, applied per route/group |
-| `app/api/*/route.ts` | `src/api/*.ts` with `GET`/`POST` exports | Auto-discovered, no manifest entry |
-| `generateStaticParams` | `prerender()` export | Returns `string[]` of paths |
-| `generateMetadata` | `head()` export | Returns `{ title, meta }` |
-| Server Components | `loader()` export | Data fetching moves to loader; component is always a Preact component |
-| `"use server"` actions | `action()` export | Returns data/redirect/revalidation hints |
-| `useRouter()` (next/navigation) | `useNavigate()` from viact | Client-side navigation |
-| `useSearchParams()` | `useRouteData()` or parse from loader args | Loaders receive `url` with searchParams |
-| `useParams()` | `useRouteData()` or `params` in loader | Params flow through loader data |
-| `next/link` `<Link>` | Plain `<a>` tags | Viact client router intercepts `<a>` clicks automatically |
-| `next/image` | Standard `<img>` | Use `vite-imagetools` plugin if optimization needed |
-| `next/head` or Metadata API | `head()` export on route/shell | Per-route and per-shell head merging |
-| `className` | `class` | Preact uses `class` attribute |
-| `React.useState` etc. | `import { useState } from "preact/hooks"` | Preact hooks API is compatible |
-| `React.useEffect` | `import { useEffect } from "preact/hooks"` | Same API |
-| `import React from "react"` | Remove — no import needed | Viact's Vite plugin handles JSX automatically |
+| Next.js                         | Viact                                               | Notes                                                                 |
+| ------------------------------- | --------------------------------------------------- | --------------------------------------------------------------------- |
+| `app/page.tsx`                  | `src/routes/*.tsx` + `route()` in manifest          | File is a module; wiring is explicit                                  |
+| `app/layout.tsx`                | `src/shells/*.tsx` + `shells` in `defineApp`        | Shells are named, not directory-nested                                |
+| `app/loading.tsx`               | No direct equivalent                                | Use Suspense in component if needed                                   |
+| `app/error.tsx`                 | `ErrorBoundary` export in route module              | Same concept, different wiring                                        |
+| `app/not-found.tsx`             | 404 route: `route("*", "./routes/not-found.tsx")`   | Catch-all at end of routes array                                      |
+| `middleware.ts`                 | `src/middleware/*.ts` + `middleware` in `defineApp` | Named, applied per route/group                                        |
+| `app/api/*/route.ts`            | `src/api/*.ts` with `GET`/`POST` exports            | Auto-discovered, no manifest entry                                    |
+| `generateStaticParams`          | `prerender()` export                                | Returns `string[]` of paths                                           |
+| `generateMetadata`              | `head()` export                                     | Returns `{ title, meta }`                                             |
+| Server Components               | `loader()` export                                   | Data fetching moves to loader; component is always a Preact component |
+| `"use server"` actions          | `action()` export                                   | Returns data/redirect/revalidation hints                              |
+| `useRouter()` (next/navigation) | `useNavigate()` from viact                          | Client-side navigation                                                |
+| `useSearchParams()`             | `useRouteData()` or parse from loader args          | Loaders receive `url` with searchParams                               |
+| `useParams()`                   | `useRouteData()` or `params` in loader              | Params flow through loader data                                       |
+| `next/link` `<Link>`            | Plain `<a>` tags                                    | Viact client router intercepts `<a>` clicks automatically             |
+| `next/image`                    | Standard `<img>`                                    | Use `vite-imagetools` plugin if optimization needed                   |
+| `next/head` or Metadata API     | `head()` export on route/shell                      | Per-route and per-shell head merging                                  |
+| `className`                     | `class`                                             | Preact uses `class` attribute                                         |
+| `React.useState` etc.           | `import { useState } from "preact/hooks"`           | Preact hooks API is compatible                                        |
+| `React.useEffect`               | `import { useEffect } from "preact/hooks"`          | Same API                                                              |
+| `import React from "react"`     | Remove — no import needed                           | Viact's Vite plugin handles JSX automatically                         |
 
 ## Migration Procedure
 
@@ -83,6 +83,7 @@ Ask the user to confirm the migration scope if the project is large (>20 routes)
      api/               # API routes
    ```
 2. Create `vite.config.ts`:
+
    ```ts
    import { defineConfig } from "vite";
    import { viact } from "@viact/vite-plugin";
@@ -91,6 +92,7 @@ Ask the user to confirm the migration scope if the project is large (>20 routes)
      plugins: [viact()],
    });
    ```
+
 3. Update `package.json`:
    - Replace `react`, `react-dom` → `preact`
    - Replace `next` → `viact`, `@viact/vite-plugin`, `@viact/adapter-node` (or target adapter)
@@ -103,6 +105,7 @@ Ask the user to confirm the migration scope if the project is large (>20 routes)
 For each `layout.tsx`:
 
 **Next.js:**
+
 ```tsx
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -114,6 +117,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 ```
 
 **Viact:**
+
 ```tsx
 import type { ShellProps } from "viact";
 
@@ -131,6 +135,7 @@ export function head() {
 ```
 
 Key differences:
+
 - Viact shells do NOT render `<html>`, `<head>`, or `<body>` — the framework owns the HTML document.
 - Use `class` not `className`.
 - Register in `defineApp({ shells: { main: "./shells/main.tsx" } })`.
@@ -140,6 +145,7 @@ Key differences:
 For each `page.tsx`:
 
 **Next.js (Server Component with data):**
+
 ```tsx
 async function getData() {
   const res = await fetch("https://api.example.com/data");
@@ -158,6 +164,7 @@ export async function generateMetadata() {
 ```
 
 **Viact:**
+
 ```tsx
 import type { LoaderArgs, RouteComponentProps } from "viact";
 
@@ -176,6 +183,7 @@ export function Component({ data }: RouteComponentProps<typeof loader>) {
 ```
 
 Key transforms:
+
 - Server-side data fetching → `loader()` export
 - `generateMetadata` → `head()` export
 - `export default function Page` → `export function Component`
@@ -185,6 +193,7 @@ Key transforms:
 ### Phase 4: Convert client components
 
 **Next.js:**
+
 ```tsx
 "use client";
 import { useState } from "react";
@@ -196,6 +205,7 @@ export default function Counter() {
 ```
 
 **Viact:**
+
 ```tsx
 import { useState } from "preact/hooks";
 
@@ -206,6 +216,7 @@ export function Counter() {
 ```
 
 Key transforms:
+
 - Remove `"use client"` directive — not needed in viact
 - `import { ... } from "react"` → `import { ... } from "preact/hooks"` or `import { ... } from "preact/compat"`
 - `import { ... } from "react-dom"` → `import { ... } from "preact/compat"`
@@ -213,6 +224,7 @@ Key transforms:
 ### Phase 5: Convert API routes
 
 **Next.js (`app/api/users/route.ts`):**
+
 ```ts
 import { NextRequest, NextResponse } from "next/server";
 
@@ -223,6 +235,7 @@ export async function GET(request: NextRequest) {
 ```
 
 **Viact (`src/api/users.ts`):**
+
 ```ts
 import type { BaseRouteArgs } from "viact";
 
@@ -233,6 +246,7 @@ export function GET({ request }: BaseRouteArgs) {
 ```
 
 Key transforms:
+
 - `NextRequest` → standard `Request` (via `BaseRouteArgs`)
 - `NextResponse.json()` → `Response.json()` (Web standard)
 - Dynamic segments: `app/api/users/[id]/route.ts` → `src/api/users/[id].ts`
@@ -241,6 +255,7 @@ Key transforms:
 ### Phase 6: Convert middleware
 
 **Next.js (`middleware.ts`):**
+
 ```ts
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
@@ -255,6 +270,7 @@ export const config = { matcher: ["/dashboard/:path*"] };
 ```
 
 **Viact (`src/middleware/auth.ts`):**
+
 ```ts
 import type { MiddlewareFn } from "viact";
 
@@ -266,13 +282,13 @@ export const middleware: MiddlewareFn = async ({ request }) => {
 ```
 
 Then apply it in the manifest:
+
 ```ts
-group({ middleware: ["auth"] }, [
-  route("/dashboard", "./routes/dashboard.tsx", { render: "ssr" }),
-])
+group({ middleware: ["auth"] }, [route("/dashboard", "./routes/dashboard.tsx", { render: "ssr" })]);
 ```
 
 Key transforms:
+
 - Path matching moves from `config.matcher` to manifest group/route assignment
 - `NextResponse.redirect()` → `return { redirect: "/path" }`
 - `NextResponse.next()` → `return` (void)
@@ -307,6 +323,7 @@ export const app = defineApp({
 ```
 
 Choose render modes based on the Next.js original:
+
 - Static pages (no data fetching, or `generateStaticParams`) → `"ssg"`
 - Dynamic pages (`cookies()`, `headers()`, per-request data) → `"ssr"`
 - ISR pages (`revalidate` option) → `"isg"` with `timeRevalidate(seconds)`
@@ -315,6 +332,7 @@ Choose render modes based on the Next.js original:
 ### Phase 8: Handle common patterns
 
 #### `next/link` → plain `<a>`
+
 ```tsx
 // Next.js
 import Link from "next/link";
@@ -325,6 +343,7 @@ import Link from "next/link";
 ```
 
 #### `next/image` → `<img>`
+
 ```tsx
 // Next.js
 import Image from "next/image";
@@ -335,6 +354,7 @@ import Image from "next/image";
 ```
 
 #### `useRouter` → navigation
+
 ```tsx
 // Next.js
 import { useRouter } from "next/navigation";
@@ -348,6 +368,7 @@ navigate("/dashboard");
 ```
 
 #### Server Actions → Viact actions
+
 ```tsx
 // Next.js
 "use server";
@@ -365,6 +386,7 @@ export async function action({ request }: ActionArgs) {
 ```
 
 #### `cookies()` / `headers()` → loader args
+
 ```tsx
 // Next.js
 import { cookies, headers } from "next/headers";
@@ -375,7 +397,9 @@ const ua = headers().get("user-agent");
 export async function loader({ request }: LoaderArgs) {
   const cookies = request.headers.get("cookie");
   const ua = request.headers.get("user-agent");
-  return { /* ... */ };
+  return {
+    /* ... */
+  };
 }
 ```
 
@@ -390,15 +414,15 @@ export async function loader({ request }: LoaderArgs) {
 
 ## Dependency Mapping
 
-| Next.js package | Viact equivalent |
-|----------------|------------------|
-| `next` | `viact`, `@viact/vite-plugin`, `@viact/adapter-node` |
-| `react` | `preact` |
-| `react-dom` | `preact` |
-| `@next/font` | CSS `@font-face` or `fontsource` packages |
-| `@next/mdx` | `@mdx-js/rollup` (Vite plugin) |
-| `next-auth` | Direct integration in middleware/loaders |
-| `next/og` | `@vercel/og` or custom solution |
+| Next.js package | Viact equivalent                                     |
+| --------------- | ---------------------------------------------------- |
+| `next`          | `viact`, `@viact/vite-plugin`, `@viact/adapter-node` |
+| `react`         | `preact`                                             |
+| `react-dom`     | `preact`                                             |
+| `@next/font`    | CSS `@font-face` or `fontsource` packages            |
+| `@next/mdx`     | `@mdx-js/rollup` (Vite plugin)                       |
+| `next-auth`     | Direct integration in middleware/loaders             |
+| `next/og`       | `@vercel/og` or custom solution                      |
 
 ## React Library Compatibility
 

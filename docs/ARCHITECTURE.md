@@ -169,7 +169,7 @@ route("/dashboard", {
   loader: "./server/dashboard-loader.ts",
   action: "./server/dashboard-action.ts",
   render: "ssr",
-})
+});
 ```
 
 When a separate file is specified, it takes precedence over inline exports in

@@ -4,21 +4,48 @@
  */
 
 const KEYWORDS = new Set([
-  "import", "export", "from", "as", "default",
-  "const", "let", "var",
-  "function", "async", "await", "return",
-  "type", "interface", "class", "extends", "implements", "new",
-  "if", "else", "for", "while", "of", "in", "break", "continue",
-  "throw", "try", "catch", "finally",
-  "null", "undefined", "true", "false", "void",
-  "typeof", "instanceof", "keyof",
+  "import",
+  "export",
+  "from",
+  "as",
+  "default",
+  "const",
+  "let",
+  "var",
+  "function",
+  "async",
+  "await",
+  "return",
+  "type",
+  "interface",
+  "class",
+  "extends",
+  "implements",
+  "new",
+  "if",
+  "else",
+  "for",
+  "while",
+  "of",
+  "in",
+  "break",
+  "continue",
+  "throw",
+  "try",
+  "catch",
+  "finally",
+  "null",
+  "undefined",
+  "true",
+  "false",
+  "void",
+  "typeof",
+  "instanceof",
+  "keyof",
 ]);
 
 function esc(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
 export function highlight(code: string): string {
@@ -50,8 +77,14 @@ export function highlight(code: string): string {
       const q = code[i];
       let j = i + 1;
       while (j < n) {
-        if (code[j] === "\\" && j + 1 < n) { j += 2; continue; }
-        if (code[j] === q) { j++; break; }
+        if (code[j] === "\\" && j + 1 < n) {
+          j += 2;
+          continue;
+        }
+        if (code[j] === q) {
+          j++;
+          break;
+        }
         j++;
       }
       out.push(`<span class="str">${esc(code.slice(i, j))}</span>`);

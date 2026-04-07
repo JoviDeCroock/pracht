@@ -25,8 +25,8 @@ Or with custom options:
 ```ts
 viact({
   pages: {
-    dir: "/src/pages",        // directory to scan (default: "/src/pages")
-    defaultRender: "ssg",     // fallback render mode (default: "ssr")
+    dir: "/src/pages", // directory to scan (default: "/src/pages")
+    defaultRender: "ssg", // fallback render mode (default: "ssr")
     outFile: "/src/routes.generated.ts", // generated file path (default)
   },
 });
@@ -34,14 +34,14 @@ viact({
 
 ## File Conventions
 
-| File                       | Route           |
-| -------------------------- | --------------- |
-| `pages/index.tsx`          | `/`             |
-| `pages/about.tsx`          | `/about`        |
-| `pages/blog/index.tsx`     | `/blog`         |
-| `pages/blog/[slug].tsx`    | `/blog/:slug`   |
-| `pages/[...all].tsx`       | `/*` (catch-all)|
-| `pages/_app.tsx`           | Shell (layout)  |
+| File                    | Route            |
+| ----------------------- | ---------------- |
+| `pages/index.tsx`       | `/`              |
+| `pages/about.tsx`       | `/about`         |
+| `pages/blog/index.tsx`  | `/blog`          |
+| `pages/blog/[slug].tsx` | `/blog/:slug`    |
+| `pages/[...all].tsx`    | `/*` (catch-all) |
+| `pages/_app.tsx`        | Shell (layout)   |
 
 - Only **one** `_app.tsx` is supported, at the root of the pages directory
 - Files prefixed with `_` (other than `_app`) are ignored
@@ -160,7 +160,11 @@ The viact pages router uses the same file conventions as Next.js, making migrati
    ```tsx
    // Next.js
    export default function App({ Component, pageProps }) {
-     return <Layout><Component {...pageProps} /></Layout>;
+     return (
+       <Layout>
+         <Component {...pageProps} />
+       </Layout>
+     );
    }
 
    // viact
@@ -171,11 +175,11 @@ The viact pages router uses the same file conventions as Next.js, making migrati
 
 3. **Replace data fetching**:
 
-   | Next.js                | viact                                              |
-   | ---------------------- | -------------------------------------------------- |
-   | `getServerSideProps`   | `export async function loader()` (render is `"ssr"` by default) |
-   | `getStaticProps`       | `export async function loader()` + `export const render = "ssg"` |
-   | `getStaticPaths`       | `export function prerender()` (returns param list)  |
+   | Next.js              | viact                                                            |
+   | -------------------- | ---------------------------------------------------------------- |
+   | `getServerSideProps` | `export async function loader()` (render is `"ssr"` by default)  |
+   | `getStaticProps`     | `export async function loader()` + `export const render = "ssg"` |
+   | `getStaticPaths`     | `export function prerender()` (returns param list)               |
 
 4. **Replace `useRouter`** with viact's routing:
 
@@ -195,11 +199,11 @@ The viact pages router uses the same file conventions as Next.js, making migrati
    ```tsx
    // Next.js
    import Link from "next/link";
-   <Link href="/about">About</Link>
+   <Link href="/about">About</Link>;
 
    // viact
    import { Link } from "viact";
-   <Link href="/about">About</Link>
+   <Link href="/about">About</Link>;
    ```
 
 6. **Replace `next/head`** with the `head()` export:
@@ -207,7 +211,9 @@ The viact pages router uses the same file conventions as Next.js, making migrati
    ```tsx
    // Next.js
    import Head from "next/head";
-   <Head><title>Page Title</title></Head>
+   <Head>
+     <title>Page Title</title>
+   </Head>;
 
    // viact
    export function head() {

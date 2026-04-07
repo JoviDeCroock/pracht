@@ -1,7 +1,13 @@
 import { h } from "preact";
 import { describe, expect, it } from "vitest";
 
-import { ViactHttpError, defineApp, handleViactRequest, resolveApiRoutes, route } from "../src/index.ts";
+import {
+  ViactHttpError,
+  defineApp,
+  handleViactRequest,
+  resolveApiRoutes,
+  route,
+} from "../src/index.ts";
 
 describe("handleViactRequest actions", () => {
   it("translates redirect envelopes into HTTP redirects with headers", async () => {

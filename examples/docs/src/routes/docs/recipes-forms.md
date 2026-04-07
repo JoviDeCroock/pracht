@@ -211,7 +211,7 @@ export async function action({ request }: ActionArgs) {
 
   return {
     ok: true,
-    revalidate: ["route:self"],  // Re-runs this route's loader
+    revalidate: ["route:self"], // Re-runs this route's loader
   };
 }
 ```
