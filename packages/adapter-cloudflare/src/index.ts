@@ -1,3 +1,5 @@
+import { readdirSync } from "node:fs";
+import { resolve } from "node:path";
 import type { PrachtAdapter } from "@pracht/vite-plugin";
 import {
   handlePrachtRequest,
@@ -42,15 +44,17 @@ export interface CloudflareAdapterOptions<
 export interface CloudflareServerEntryModuleOptions {
   assetsBinding?: string;
   /**
-   * Path to a worker entrypoint file (e.g. "/src/worker.ts") that exports
-   * additional Cloudflare primitives such as DurableObject classes, Workflow
-   * classes, or event handlers (`scheduled`, `queue`, `tail`, `email`, `trace`).
-   *
-   * Named exports are re-exported from the generated entry so Cloudflare can
-   * discover them.  Known event-handler exports are merged into the default
-   * `{ fetch, scheduled, … }` object.
+   * Directory containing DurableObject class files (e.g. "/src/durable-objects").
+   * Every `.ts` / `.js` file in this directory is re-exported from the worker
+   * entry so Cloudflare can discover the classes.
    */
-  workerEntrypoint?: string;
+  durableObjectsDir?: string;
+  /**
+   * Directory containing Workflow class files (e.g. "/src/workflows").
+   * Every `.ts` / `.js` file in this directory is re-exported from the worker
+   * entry so Cloudflare can discover the classes.
+   */
+  workflowsDir?: string;
 }
 
 export function createCloudflareFetchHandler<
@@ -91,23 +95,25 @@ export function createCloudflareFetchHandler<
 
 export function createCloudflareServerEntryModule(
   options: CloudflareServerEntryModuleOptions = {},
+  context?: { root: string },
 ): string {
   const assetsBinding = options.assetsBinding ?? "ASSETS";
-  const workerEntrypoint = options.workerEntrypoint;
+  const root = context?.root ?? process.cwd();
 
   const lines = [
     `export const cloudflareAssetsBinding = ${JSON.stringify(assetsBinding)};`,
     "",
   ];
 
-  // Re-export named exports (DurableObject classes, Workflow classes, etc.)
-  if (workerEntrypoint) {
-    lines.push(
-      `import * as __userWorker from ${JSON.stringify(workerEntrypoint)};`,
-      `export * from ${JSON.stringify(workerEntrypoint)};`,
-      "",
-    );
+  // Re-export all files in durableObjectsDir and workflowsDir so Cloudflare
+  // discovers the classes as top-level named exports of the worker entry.
+  for (const dir of [options.durableObjectsDir, options.workflowsDir]) {
+    if (!dir) continue;
+    for (const file of scanDirectory(root, dir)) {
+      lines.push(`export * from ${JSON.stringify(file)};`);
+    }
   }
+  lines.push("");
 
   lines.push(
     "async function maybeServePrachtAsset(request, env) {",
@@ -151,26 +157,24 @@ export function createCloudflareServerEntryModule(
     "  });",
     "}",
     "",
+    "export default { fetch };",
+    "",
   );
 
-  // Build the default export — merge pracht's fetch with user event handlers
-  if (workerEntrypoint) {
-    lines.push(
-      "export default {",
-      "  fetch,",
-      "  ...(typeof __userWorker.scheduled === 'function' ? { scheduled: __userWorker.scheduled } : {}),",
-      "  ...(typeof __userWorker.queue === 'function' ? { queue: __userWorker.queue } : {}),",
-      "  ...(typeof __userWorker.tail === 'function' ? { tail: __userWorker.tail } : {}),",
-      "  ...(typeof __userWorker.email === 'function' ? { email: __userWorker.email } : {}),",
-      "  ...(typeof __userWorker.trace === 'function' ? { trace: __userWorker.trace } : {}),",
-      "};",
-      "",
-    );
-  } else {
-    lines.push("export default { fetch };", "");
-  }
-
   return lines.join("\n");
+}
+
+/** Scan a directory (relative to project root) and return source-root-relative paths. */
+function scanDirectory(root: string, dir: string): string[] {
+  const abs = resolve(root, dir.replace(/^\//, ""));
+  try {
+    return readdirSync(abs)
+      .filter((f) => /\.(ts|js|tsx|jsx)$/.test(f) && !f.startsWith("_"))
+      .sort()
+      .map((f) => `${dir}/${f}`);
+  } catch {
+    return [];
+  }
 }
 
 async function maybeServeAsset(
@@ -220,8 +224,8 @@ export function cloudflareAdapter(options: CloudflareServerEntryModuleOptions = 
   return {
     id: "cloudflare",
     serverImports: 'import { handlePrachtRequest, resolveApp, resolveApiRoutes } from "@pracht/core";',
-    createServerEntryModule() {
-      return createCloudflareServerEntryModule(options);
+    createServerEntryModule(context) {
+      return createCloudflareServerEntryModule(options, context);
     },
   };
 }

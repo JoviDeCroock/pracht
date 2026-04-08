@@ -166,13 +166,13 @@ export async function GET({ context }: BaseRouteArgs) {
 }
 ```
 
-### DurableObjects, Workflows, and cron jobs
+### DurableObjects and Workflows
 
 Cloudflare Workers can export additional primitives beyond the `fetch` handler —
-DurableObject classes, Workflow classes, and event handlers like `scheduled`
-(cron), `queue`, `tail`, `email`, and `trace`.
+DurableObject classes and Workflow classes need to be top-level named exports so
+Cloudflare can discover them.
 
-Use the `workerEntrypoint` option to point at a file that exports these:
+Point the adapter at the directories that contain these classes:
 
 ```typescript
 // vite.config.ts
@@ -183,7 +183,8 @@ export default defineConfig({
   plugins: [
     pracht({
       adapter: cloudflareAdapter({
-        workerEntrypoint: "/src/worker.ts",
+        durableObjectsDir: "/src/durable-objects",
+        workflowsDir: "/src/workflows",
       }),
     }),
   ],
@@ -191,25 +192,30 @@ export default defineConfig({
 ```
 
 ```typescript
-// src/worker.ts
+// src/durable-objects/counter.ts
 import { DurableObject } from "cloudflare:workers";
 
-// Named exports become top-level exports of the worker bundle
-export class MyDurableObject extends DurableObject {
+export class Counter extends DurableObject {
   async fetch(request: Request) {
     return new Response("Hello from DO");
   }
 }
+```
 
-// Event handler exports are merged into the default export alongside fetch
-export async function scheduled(event, env, ctx) {
-  // cron job logic
+```typescript
+// src/workflows/onboarding.ts
+import { WorkflowEntrypoint } from "cloudflare:workers";
+
+export class OnboardingWorkflow extends WorkflowEntrypoint {
+  async run(event, step) {
+    // workflow logic
+  }
 }
 ```
 
-The adapter re-exports all named exports (so Cloudflare discovers DurableObject
-and Workflow classes) and merges recognised event-handler exports (`scheduled`,
-`queue`, `tail`, `email`, `trace`) into the default `{ fetch, … }` object.
+Every `.ts` / `.js` file in the configured directories is automatically
+re-exported (`export * from "..."`) from the generated worker entry, so
+Cloudflare picks up the classes without any manual wiring.
 
 ### Entry module
 

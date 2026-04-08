@@ -47,7 +47,7 @@ export interface PrachtAdapter {
    * `virtual:pracht/server` module.  This is where the adapter wires up its
    * request handler or default export.
    */
-  createServerEntryModule(): string;
+  createServerEntryModule(context?: { root: string }): string;
 }
 
 function createDefaultNodeAdapter(): PrachtAdapter {
@@ -345,7 +345,7 @@ export function createPrachtServerModuleSource(
   ];
 
   if (adapter) {
-    source.push(adapter.createServerEntryModule());
+    source.push(adapter.createServerEntryModule({ root: buildOptions.root ?? process.cwd() }));
   }
 
   return source.join("\n");
