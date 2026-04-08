@@ -166,6 +166,51 @@ export async function GET({ context }: BaseRouteArgs) {
 }
 ```
 
+### DurableObjects, Workflows, and cron jobs
+
+Cloudflare Workers can export additional primitives beyond the `fetch` handler —
+DurableObject classes, Workflow classes, and event handlers like `scheduled`
+(cron), `queue`, `tail`, `email`, and `trace`.
+
+Use the `workerEntrypoint` option to point at a file that exports these:
+
+```typescript
+// vite.config.ts
+import { pracht } from "@pracht/vite-plugin";
+import { cloudflareAdapter } from "@pracht/adapter-cloudflare";
+
+export default defineConfig({
+  plugins: [
+    pracht({
+      adapter: cloudflareAdapter({
+        workerEntrypoint: "/src/worker.ts",
+      }),
+    }),
+  ],
+});
+```
+
+```typescript
+// src/worker.ts
+import { DurableObject } from "cloudflare:workers";
+
+// Named exports become top-level exports of the worker bundle
+export class MyDurableObject extends DurableObject {
+  async fetch(request: Request) {
+    return new Response("Hello from DO");
+  }
+}
+
+// Event handler exports are merged into the default export alongside fetch
+export async function scheduled(event, env, ctx) {
+  // cron job logic
+}
+```
+
+The adapter re-exports all named exports (so Cloudflare discovers DurableObject
+and Workflow classes) and merges recognised event-handler exports (`scheduled`,
+`queue`, `tail`, `email`, `trace`) into the default `{ fetch, … }` object.
+
 ### Entry module
 
 ```javascript

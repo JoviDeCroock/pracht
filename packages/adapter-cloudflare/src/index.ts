@@ -41,6 +41,16 @@ export interface CloudflareAdapterOptions<
 
 export interface CloudflareServerEntryModuleOptions {
   assetsBinding?: string;
+  /**
+   * Path to a worker entrypoint file (e.g. "/src/worker.ts") that exports
+   * additional Cloudflare primitives such as DurableObject classes, Workflow
+   * classes, or event handlers (`scheduled`, `queue`, `tail`, `email`, `trace`).
+   *
+   * Named exports are re-exported from the generated entry so Cloudflare can
+   * discover them.  Known event-handler exports are merged into the default
+   * `{ fetch, scheduled, … }` object.
+   */
+  workerEntrypoint?: string;
 }
 
 export function createCloudflareFetchHandler<
@@ -83,10 +93,23 @@ export function createCloudflareServerEntryModule(
   options: CloudflareServerEntryModuleOptions = {},
 ): string {
   const assetsBinding = options.assetsBinding ?? "ASSETS";
+  const workerEntrypoint = options.workerEntrypoint;
 
-  return [
+  const lines = [
     `export const cloudflareAssetsBinding = ${JSON.stringify(assetsBinding)};`,
     "",
+  ];
+
+  // Re-export named exports (DurableObject classes, Workflow classes, etc.)
+  if (workerEntrypoint) {
+    lines.push(
+      `import * as __userWorker from ${JSON.stringify(workerEntrypoint)};`,
+      `export * from ${JSON.stringify(workerEntrypoint)};`,
+      "",
+    );
+  }
+
+  lines.push(
     "async function maybeServePrachtAsset(request, env) {",
     '  if (request.method !== "GET" && request.method !== "HEAD") {',
     "    return null;",
@@ -128,9 +151,26 @@ export function createCloudflareServerEntryModule(
     "  });",
     "}",
     "",
-    "export default { fetch };",
-    "",
-  ].join("\n");
+  );
+
+  // Build the default export — merge pracht's fetch with user event handlers
+  if (workerEntrypoint) {
+    lines.push(
+      "export default {",
+      "  fetch,",
+      "  ...(typeof __userWorker.scheduled === 'function' ? { scheduled: __userWorker.scheduled } : {}),",
+      "  ...(typeof __userWorker.queue === 'function' ? { queue: __userWorker.queue } : {}),",
+      "  ...(typeof __userWorker.tail === 'function' ? { tail: __userWorker.tail } : {}),",
+      "  ...(typeof __userWorker.email === 'function' ? { email: __userWorker.email } : {}),",
+      "  ...(typeof __userWorker.trace === 'function' ? { trace: __userWorker.trace } : {}),",
+      "};",
+      "",
+    );
+  } else {
+    lines.push("export default { fetch };", "");
+  }
+
+  return lines.join("\n");
 }
 
 async function maybeServeAsset(
