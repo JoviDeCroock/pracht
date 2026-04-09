@@ -40,6 +40,11 @@ describe("create-pracht", () => {
     expect(routes).toContain('route("/", "./routes/home.tsx"');
     expect(existsSync(join(targetDir, "wrangler.jsonc"))).toBe(false);
 
+    const gitignore = await readFile(join(targetDir, ".gitignore"), "utf-8");
+    expect(gitignore).toContain("node_modules");
+    expect(gitignore).toContain("dist");
+    expect(gitignore).toContain(".wrangler");
+
     const tsconfig = await readFile(join(targetDir, "tsconfig.json"), "utf-8");
     expect(tsconfig).toMatchInlineSnapshot(`
       "{
