@@ -1,17 +1,19 @@
 import { readFileSync, writeFileSync } from "node:fs";
 
+import { defineCommand } from "citty";
+import consola from "consola";
+
 import {
   ensureTrailingNewline,
   parseApiMethods,
   parseCommaList,
   parseFlags,
-  printGenerateHelp,
   quote,
   requireEnumOption,
   requireOptionalString,
   requirePositiveIntegerOption,
   requireStringOption,
-} from "../cli.js";
+} from "../utils.js";
 import {
   extractRegistryEntries,
   insertArrayItem,
@@ -30,33 +32,55 @@ import {
   resolveScopedFile,
   writeGeneratedFile,
 } from "../project.js";
+import type { ProjectConfig } from "../project.js";
+import type { ParsedFlags } from "../utils.js";
 
-export async function generateCommand(args) {
-  const [kind, ...rest] = args;
-  if (!kind || kind === "--help" || kind === "-h") {
-    printGenerateHelp();
-    return;
-  }
+export const generateCommand = defineCommand({
+  meta: {
+    name: "generate",
+    description: "Scaffold framework files",
+  },
+  args: {
+    kind: {
+      type: "positional",
+      description: "What to generate: route, shell, middleware, api",
+      required: false,
+    },
+  },
+  run({ args, rawArgs }) {
+    const kind = args.kind;
+    if (!kind) {
+      consola.info("Usage: pracht generate <route|shell|middleware|api> [flags]");
+      return;
+    }
 
-  const options = parseFlags(rest);
-  const project = readProjectConfig(process.cwd());
-  const result = runGenerate(kind, options, project);
+    const rest = rawArgs.slice(1);
+    const options = parseFlags(rest);
+    const project = readProjectConfig(process.cwd());
+    const result = runGenerate(kind, options, project);
 
-  if (options.json) {
-    console.log(JSON.stringify({ ok: true, ...result }, null, 2));
-    return;
-  }
+    if (options.json) {
+      console.log(JSON.stringify({ ok: true, ...result }, null, 2));
+      return;
+    }
 
-  console.log(`Created ${result.kind}:`);
-  for (const file of result.created) {
-    console.log(`  ${file}`);
-  }
-  for (const file of result.updated) {
-    console.log(`  updated ${file}`);
-  }
+    consola.success(`Created ${result.kind}:`);
+    for (const file of result.created) {
+      consola.info(`  ${file}`);
+    }
+    for (const file of result.updated) {
+      consola.info(`  updated ${file}`);
+    }
+  },
+});
+
+interface GenerateResult {
+  created: string[];
+  kind: string;
+  updated: string[];
 }
 
-function runGenerate(kind, options, project) {
+function runGenerate(kind: string, options: ParsedFlags, project: ProjectConfig): GenerateResult {
   if (kind === "route") {
     return generateRoute(options, project);
   }
@@ -73,7 +97,7 @@ function runGenerate(kind, options, project) {
   throw new Error(`Unknown generate kind: ${kind}`);
 }
 
-function generateRoute(options, project) {
+function generateRoute(options: ParsedFlags, project: ProjectConfig): GenerateResult {
   const routePath = normalizeRoutePathString(requireStringOption(options, "path"));
   const render = requireEnumOption(options, "render", ["spa", "ssr", "ssg", "isg"], "ssr");
   const includeLoader = Boolean(options.loader);
@@ -182,7 +206,15 @@ function generatePagesRoute({
   render,
   routePath,
   title,
-}) {
+}: {
+  includeErrorBoundary: boolean;
+  includeLoader: boolean;
+  includeStaticPaths: boolean;
+  project: ProjectConfig;
+  render: string;
+  routePath: string;
+  title: string;
+}): GenerateResult {
   const routeFile = resolvePagesRouteModulePath(project, routePath, ".tsx");
   writeGeneratedFile(
     routeFile.absolutePath,
@@ -203,7 +235,7 @@ function generatePagesRoute({
   };
 }
 
-function generateShell(options, project) {
+function generateShell(options: ParsedFlags, project: ProjectConfig): GenerateResult {
   if (project.mode === "pages") {
     throw new Error(
       "Pages router apps use a single `_app` shell. `pracht generate shell` is only available for manifest apps.",
@@ -232,7 +264,7 @@ function generateShell(options, project) {
   };
 }
 
-function generateMiddleware(options, project) {
+function generateMiddleware(options: ParsedFlags, project: ProjectConfig): GenerateResult {
   if (project.mode === "pages") {
     throw new Error(
       "Pages router apps do not use manifest middleware registration. `pracht generate middleware` is only available for manifest apps.",
@@ -261,7 +293,7 @@ function generateMiddleware(options, project) {
   };
 }
 
-function generateApi(options, project) {
+function generateApi(options: ParsedFlags, project: ProjectConfig): GenerateResult {
   const endpointPath = normalizeApiPath(requireStringOption(options, "path"));
   const methods = parseApiMethods(options.methods);
   const apiFile = resolveApiModulePath(project, endpointPath);
@@ -280,10 +312,16 @@ function buildManifestRouteModuleSource({
   includeStaticPaths,
   routePath,
   title,
-}) {
+}: {
+  includeErrorBoundary: boolean;
+  includeLoader: boolean;
+  includeStaticPaths: boolean;
+  routePath: string;
+  title: string;
+}): string {
   const params = dynamicParamNames(routePath);
-  const imports = [];
-  const sections = [];
+  const imports: string[] = [];
+  const sections: string[] = [];
 
   if (includeLoader) {
     imports.push("LoaderArgs", "RouteComponentProps");
@@ -359,10 +397,17 @@ function buildPagesRouteModuleSource({
   render,
   routePath,
   title,
-}) {
+}: {
+  includeErrorBoundary: boolean;
+  includeLoader: boolean;
+  includeStaticPaths: boolean;
+  render: string;
+  routePath: string;
+  title: string;
+}): string {
   const params = dynamicParamNames(routePath);
-  const imports = [];
-  const sections = [];
+  const imports: string[] = [];
+  const sections: string[] = [];
 
   if (includeLoader) {
     imports.push("LoaderArgs", "RouteComponentProps");
@@ -431,7 +476,7 @@ function buildPagesRouteModuleSource({
   return `${sections.join("\n")}\n`;
 }
 
-function buildShellModuleSource(name) {
+function buildShellModuleSource(name: string): string {
   const title = titleCase(name);
   return [
     'import type { ShellProps } from "@pracht/core";',
@@ -451,7 +496,7 @@ function buildShellModuleSource(name) {
   ].join("\n");
 }
 
-function buildMiddlewareModuleSource() {
+function buildMiddlewareModuleSource(): string {
   return [
     'import type { MiddlewareFn } from "@pracht/core";',
     "",
@@ -462,7 +507,13 @@ function buildMiddlewareModuleSource() {
   ].join("\n");
 }
 
-function buildApiRouteSource({ endpointPath, methods }) {
+function buildApiRouteSource({
+  endpointPath,
+  methods,
+}: {
+  endpointPath: string;
+  methods: string[];
+}): string {
   const methodLines = methods.flatMap((method, index) => {
     const lines = buildApiMethodSource(method, methods, endpointPath);
     if (index === methods.length - 1) return lines;
@@ -472,7 +523,7 @@ function buildApiRouteSource({ endpointPath, methods }) {
   return ['import type { BaseRouteArgs } from "@pracht/core";', "", ...methodLines, ""].join("\n");
 }
 
-function buildApiMethodSource(method, methods, endpointPath) {
+function buildApiMethodSource(method: string, methods: string[], endpointPath: string): string[] {
   if (method === "DELETE" || method === "HEAD") {
     return [
       `export function ${method}(_args: BaseRouteArgs) {`,
@@ -509,22 +560,22 @@ function buildApiMethodSource(method, methods, endpointPath) {
   ];
 }
 
-function normalizeRoutePathString(value) {
+function normalizeRoutePathString(value: string): string {
   if (!value || value === "/") return "/";
   const normalized = `/${value}`.replace(/\/+/g, "/");
   return normalized !== "/" && normalized.endsWith("/") ? normalized.slice(0, -1) : normalized;
 }
 
-function normalizeApiPath(value) {
+function normalizeApiPath(value: string): string {
   const normalized = normalizeRoutePathString(value).replace(/^\/api(?=\/|$)/, "");
   return normalized || "/";
 }
 
-function hasDynamicSegments(routePath) {
+function hasDynamicSegments(routePath: string): boolean {
   return routePath.split("/").some((segment) => segment.startsWith(":") || segment === "*");
 }
 
-function dynamicParamNames(routePath) {
+function dynamicParamNames(routePath: string): string[] {
   return routePath
     .split("/")
     .filter(Boolean)
@@ -533,10 +584,10 @@ function dynamicParamNames(routePath) {
       if (segment === "*") return "slug";
       return null;
     })
-    .filter(Boolean);
+    .filter((v): v is string => v != null);
 }
 
-function routeIdFromPath(routePath) {
+function routeIdFromPath(routePath: string): string {
   if (routePath === "/") return "index";
   return routePath
     .split("/")
@@ -545,13 +596,13 @@ function routeIdFromPath(routePath) {
     .join("-");
 }
 
-function titleFromPath(routePath) {
+function titleFromPath(routePath: string): string {
   if (routePath === "/") return "Home";
   const lastSegment = routePath.split("/").filter(Boolean).at(-1) ?? "Page";
   return titleCase(lastSegment.replace(/^:/, "").replace(/\*/g, "slug"));
 }
 
-function titleCase(value) {
+function titleCase(value: string): string {
   return value
     .split(/[-_/]/)
     .filter(Boolean)
@@ -559,7 +610,7 @@ function titleCase(value) {
     .join(" ");
 }
 
-function buildStaticPathsStub(params) {
+function buildStaticPathsStub(params: string[]): string {
   if (params.length === 0) {
     return "{}";
   }
@@ -567,6 +618,6 @@ function buildStaticPathsStub(params) {
   return `{ ${params.map((name) => `${name}: ${quote(`example-${name}`)}`).join(", ")} }`;
 }
 
-function escapeJsxText(value) {
+function escapeJsxText(value: string): string {
   return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
 }

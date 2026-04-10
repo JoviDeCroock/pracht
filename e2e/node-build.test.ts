@@ -7,7 +7,7 @@ import { expect, test } from "@playwright/test";
 
 const repoRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const fixtureDir = resolve(repoRoot, "examples/basic");
-const cliEntry = resolve(repoRoot, "packages/cli/bin/pracht.js");
+const cliEntry = resolve(repoRoot, "packages/cli/dist/index.mjs");
 
 test("pracht build emits a deployable Node server entry", async () => {
   test.setTimeout(120_000);

@@ -20,7 +20,7 @@ test("pracht build emits a deployable Vercel Build Output setup", async () => {
   rmSync(distDir, { force: true, recursive: true });
   rmSync(vercelDir, { force: true, recursive: true });
 
-  execFileSync(process.execPath, ["../../packages/cli/bin/pracht.js", "build"], {
+  execFileSync(process.execPath, ["../../packages/cli/dist/index.mjs", "build"], {
     cwd: exampleDir,
     env: {
       ...process.env,

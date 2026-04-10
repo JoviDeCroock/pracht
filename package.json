@@ -4,12 +4,12 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "pnpm -r --filter='./packages/*' --filter='!@pracht/cli' run build",
+    "build": "pnpm -r --filter='./packages/*' run build",
     "check": "pnpm build && pnpm typecheck && pnpm test",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "prepare": "playwright install chromium",
-    "pracht": "node ./packages/cli/bin/pracht.js",
+    "pracht": "node ./packages/cli/dist/index.mjs",
     "format": "oxfmt --write .",
     "format:check": "oxfmt --check .",
     "lint": "oxlint . --fix",
@@ -17,8 +17,8 @@
     "version": "changeset version",
     "release": "pnpm build && changeset publish",
     "e2e": "playwright test",
-    "dev:example": "cd examples/cloudflare && node ../../packages/cli/bin/pracht.js dev",
-    "build:example": "cd examples/cloudflare && node ../../packages/cli/bin/pracht.js build"
+    "dev:example": "cd examples/cloudflare && node ../../packages/cli/dist/index.mjs dev",
+    "build:example": "cd examples/cloudflare && node ../../packages/cli/dist/index.mjs build"
   },
   "devDependencies": {
     "@changesets/changelog-github": "^0.6.0",

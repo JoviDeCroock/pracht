@@ -6,7 +6,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-const cliPath = fileURLToPath(new URL("../bin/pracht.js", import.meta.url));
+const cliPath = fileURLToPath(new URL("../dist/index.mjs", import.meta.url));
 const repoRoot = resolve(dirname(cliPath), "../../..");
 const repoTempRoot = resolve(dirname(cliPath), "../test/.tmp");
 const coreImportPath = resolve(repoRoot, "packages/framework/src/index.ts");

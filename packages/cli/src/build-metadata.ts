@@ -3,6 +3,13 @@ import { resolve } from "node:path";
 
 const MANIFEST_PATHS = ["dist/client/.vite/manifest.json", "dist/.vite/manifest.json"];
 
+interface ManifestEntry {
+  css?: string[];
+  file: string;
+  imports?: string[];
+  src?: string;
+}
+
 export function readClientBuildAssets(root = process.cwd()) {
   const manifestPath = MANIFEST_PATHS.map((candidate) => resolve(root, candidate)).find((path) =>
     existsSync(path),
@@ -11,21 +18,21 @@ export function readClientBuildAssets(root = process.cwd()) {
   if (!manifestPath) {
     return {
       clientEntryUrl: null,
-      cssManifest: {},
-      jsManifest: {},
+      cssManifest: {} as Record<string, string[]>,
+      jsManifest: {} as Record<string, string[]>,
     };
   }
 
   const rawManifest = readFileSync(manifestPath, "utf-8");
-  const manifest = JSON.parse(rawManifest);
+  const manifest: Record<string, ManifestEntry> = JSON.parse(rawManifest);
   const clientEntry = manifest["virtual:pracht/client"];
 
-  function collectTransitiveDeps(key) {
-    const css = new Set();
-    const js = new Set();
-    const visited = new Set();
+  function collectTransitiveDeps(key: string) {
+    const css = new Set<string>();
+    const js = new Set<string>();
+    const visited = new Set<string>();
 
-    function collect(currentKey) {
+    function collect(currentKey: string) {
       if (visited.has(currentKey)) return;
       visited.add(currentKey);
 
@@ -50,8 +57,8 @@ export function readClientBuildAssets(root = process.cwd()) {
     };
   }
 
-  const cssManifest = {};
-  const jsManifest = {};
+  const cssManifest: Record<string, string[]> = {};
+  const jsManifest: Record<string, string[]> = {};
 
   for (const [key, entry] of Object.entries(manifest)) {
     if (!entry.src) continue;

@@ -1,9 +1,9 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-import { createServer } from "vite";
+import { defineCommand } from "citty";
+import consola from "consola";
 
-import { handleCliError, parseFlags, printInspectHelp, requireOptionalString } from "../cli.js";
 import { readClientBuildAssets } from "../build-metadata.js";
 import { HTTP_METHODS } from "../constants.js";
 import { readProjectConfig, resolveProjectPath } from "../project.js";
@@ -11,30 +11,78 @@ import { readProjectConfig, resolveProjectPath } from "../project.js";
 const INSPECT_TARGETS = new Set(["routes", "api", "build", "all"]);
 const METHOD_ORDER = [...HTTP_METHODS];
 
-export async function inspectCommand(args) {
-  const options = parseFlags(args);
-  const target = requireOptionalString(options, "target") ?? options._[0] ?? "all";
+export const inspectCommand = defineCommand({
+  meta: {
+    name: "inspect",
+    description: "Inspect resolved app graph",
+  },
+  args: {
+    target: {
+      type: "positional",
+      description: "What to inspect: routes, api, build, or all",
+      required: false,
+    },
+    json: {
+      type: "boolean",
+      description: "Output results as JSON",
+      default: false,
+    },
+  },
+  async run({ args }) {
+    const target = args.target || "all";
 
-  if (options.help || target === "help") {
-    printInspectHelp();
-    return;
-  }
+    if (!INSPECT_TARGETS.has(target)) {
+      throw new Error(`Unknown inspect target: ${target}`);
+    }
 
-  if (!INSPECT_TARGETS.has(target)) {
-    handleCliError(new Error(`Unknown inspect target: ${target}`), { json: !!options.json });
-  }
+    const report = await runInspect(process.cwd(), { target });
 
-  const report = await runInspect(process.cwd(), { target });
+    if (args.json) {
+      console.log(JSON.stringify(report, null, 2));
+      return;
+    }
 
-  if (options.json) {
-    console.log(JSON.stringify(report, null, 2));
-    return;
-  }
+    printInspectReport(report);
+  },
+});
 
-  printInspectReport(report);
+interface InspectReport {
+  mode: string;
+  routes?: SerializedRoute[];
+  api?: ApiRoute[];
+  build?: BuildInfo;
 }
 
-export async function runInspect(root, { target = "all" } = {}) {
+interface SerializedRoute {
+  file: string;
+  id: string;
+  loaderFile: string | null;
+  middleware: string[];
+  path: string;
+  render: string | null;
+  revalidate: unknown;
+  shell: string | null;
+  shellFile: string | null;
+}
+
+interface ApiRoute {
+  file: string;
+  methods: string[];
+  path: string;
+}
+
+interface BuildInfo {
+  adapterTarget: string;
+  clientEntryUrl: string | null;
+  cssManifest: Record<string, string[]>;
+  jsManifest: Record<string, string[]>;
+}
+
+export async function runInspect(
+  root: string,
+  { target = "all" }: { target?: string } = {},
+): Promise<InspectReport> {
+  const { createServer } = await import("vite");
   const project = readProjectConfig(root);
 
   if (!project.configFile) {
@@ -66,7 +114,7 @@ export async function runInspect(root, { target = "all" } = {}) {
 
   try {
     const serverModule = await server.ssrLoadModule("virtual:pracht/server");
-    const report = {
+    const report: InspectReport = {
       mode: project.mode,
     };
 
@@ -76,7 +124,7 @@ export async function runInspect(root, { target = "all" } = {}) {
 
     if (target === "api" || target === "all") {
       report.api = await Promise.all(
-        serverModule.apiRoutes.map(async (route) => ({
+        serverModule.apiRoutes.map(async (route: { file: string; path: string }) => ({
           file: route.file,
           methods: await detectApiMethods(server, root, route.file),
           path: route.path,
@@ -100,7 +148,19 @@ export async function runInspect(root, { target = "all" } = {}) {
   }
 }
 
-function serializeRoutes(routes) {
+interface RawRoute {
+  file: string;
+  id: string;
+  loaderFile?: string;
+  middleware: string[];
+  path: string;
+  render?: string;
+  revalidate?: unknown;
+  shell?: string;
+  shellFile?: string;
+}
+
+function serializeRoutes(routes: RawRoute[]): SerializedRoute[] {
   return routes.map((route) => ({
     file: route.file,
     id: route.id,
@@ -114,11 +174,14 @@ function serializeRoutes(routes) {
   }));
 }
 
-async function detectApiMethods(server, root, file) {
+async function detectApiMethods(
+  server: { ssrLoadModule(id: string): Promise<Record<string, unknown>> },
+  root: string,
+  file: string,
+): Promise<string[]> {
   const resolvedFile = resolve(root, `.${file}`);
   const source = readFileSync(resolvedFile, "utf-8");
 
-  // Use module evaluation first so re-exported handlers are reflected too.
   try {
     const module = await server.ssrLoadModule(file);
     return METHOD_ORDER.filter((method) => typeof module[method] === "function");
@@ -129,35 +192,35 @@ async function detectApiMethods(server, root, file) {
   }
 }
 
-function printInspectReport(report) {
-  console.log(`Pracht inspect (${report.mode} mode)`);
+function printInspectReport(report: InspectReport): void {
+  consola.box(`Pracht inspect (${report.mode} mode)`);
 
   if (report.routes) {
-    console.log("\nRoutes");
+    consola.log("\nRoutes");
     for (const route of report.routes) {
-      console.log(
+      consola.info(
         `  ${route.path}  id=${route.id}  render=${route.render ?? "n/a"}  file=${route.file}`,
       );
     }
   }
 
   if (report.api) {
-    console.log("\nAPI");
+    consola.log("\nAPI");
     if (report.api.length === 0) {
-      console.log("  No API routes found.");
+      consola.info("  No API routes found.");
     } else {
       for (const route of report.api) {
         const methods = route.methods.length > 0 ? route.methods.join(",") : "none";
-        console.log(`  ${route.path}  methods=${methods}  file=${route.file}`);
+        consola.info(`  ${route.path}  methods=${methods}  file=${route.file}`);
       }
     }
   }
 
   if (report.build) {
-    console.log("\nBuild");
-    console.log(`  adapterTarget=${report.build.adapterTarget}`);
-    console.log(`  clientEntryUrl=${report.build.clientEntryUrl ?? "null"}`);
-    console.log(`  cssManifestKeys=${Object.keys(report.build.cssManifest).length}`);
-    console.log(`  jsManifestKeys=${Object.keys(report.build.jsManifest).length}`);
+    consola.log("\nBuild");
+    consola.info(`  adapterTarget=${report.build.adapterTarget}`);
+    consola.info(`  clientEntryUrl=${report.build.clientEntryUrl ?? "null"}`);
+    consola.info(`  cssManifestKeys=${Object.keys(report.build.cssManifest).length}`);
+    consola.info(`  jsManifestKeys=${Object.keys(report.build.jsManifest).length}`);
   }
 }

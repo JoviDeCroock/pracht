@@ -10,6 +10,7 @@ import {
   readProjectConfig,
   resolveProjectPath,
 } from "./project.js";
+import type { ProjectConfig } from "./project.js";
 
 const CONFIG_FILE_NAMES = new Set([
   "vite.config.ts",
@@ -23,7 +24,26 @@ const CONFIG_FILE_NAMES = new Set([
 const MODULE_SOURCE_RE = /\.(ts|tsx|js|jsx)$/;
 const PAGE_SOURCE_RE = /\.(ts|tsx|js|jsx|md|mdx)$/;
 
-export function runDoctor(root) {
+interface Check {
+  message: string;
+  status: "ok" | "warning" | "error";
+}
+
+export interface DoctorReport {
+  checks: Check[];
+  configFile: string | null;
+  mode: string;
+  ok: boolean;
+}
+
+export interface VerificationReport extends DoctorReport {
+  changedFiles: string[];
+  frameworkFiles: string[];
+  requestedScope: string;
+  scope: string;
+}
+
+export function runDoctor(root: string): DoctorReport {
   const report = runVerification(root);
 
   return {
@@ -34,9 +54,12 @@ export function runDoctor(root) {
   };
 }
 
-export function runVerification(root, options = {}) {
+export function runVerification(
+  root: string,
+  options: { changed?: boolean } = {},
+): VerificationReport {
   const project = readProjectConfig(root);
-  const checks = [];
+  const checks: Check[] = [];
   const packageJsonPath = resolve(project.root, "package.json");
   const configDisplayPath = project.configFile
     ? displayPath(root, project.configFile)
@@ -45,7 +68,7 @@ export function runVerification(root, options = {}) {
 
   collectConfigChecks(project, checks, configDisplayPath);
 
-  let changedInfo = {
+  let changedInfo: { files: string[]; warning: string | null } = {
     files: [],
     warning: null,
   };
@@ -92,7 +115,7 @@ export function runVerification(root, options = {}) {
   };
 }
 
-function collectConfigChecks(project, checks, configDisplayPath) {
+function collectConfigChecks(project: ProjectConfig, checks: Check[], configDisplayPath: string) {
   if (!project.configFile) {
     checks.push(createCheck("error", "Missing vite config."));
   } else {
@@ -106,7 +129,11 @@ function collectConfigChecks(project, checks, configDisplayPath) {
   }
 }
 
-function collectManifestVerification(project, checks, { changedFiles, scope }) {
+function collectManifestVerification(
+  project: ProjectConfig,
+  checks: Check[],
+  { changedFiles, scope }: { changedFiles: string[]; scope: string },
+) {
   const manifestPath = resolveProjectPath(project.root, project.appFile);
   if (!existsSync(manifestPath)) {
     checks.push(createCheck("error", `App manifest is missing at ${project.appFile}.`));
@@ -187,11 +214,11 @@ function collectManifestVerification(project, checks, { changedFiles, scope }) {
 }
 
 function collectChangedManifestModuleChecks(
-  project,
-  checks,
-  manifestPath,
-  relativeModules,
-  changedFiles,
+  project: ProjectConfig,
+  checks: Check[],
+  manifestPath: string,
+  relativeModules: string[],
+  changedFiles: string[],
 ) {
   const manifestDir = dirname(manifestPath);
   const referencedModules = new Set(relativeModules.map(normalizePath));
@@ -241,7 +268,11 @@ function collectChangedManifestModuleChecks(
   }
 }
 
-function collectPagesVerification(project, checks, { changedFiles, scope }) {
+function collectPagesVerification(
+  project: ProjectConfig,
+  checks: Check[],
+  { changedFiles, scope }: { changedFiles: string[]; scope: string },
+) {
   const pagesDir = resolveProjectPath(project.root, project.pagesDir);
   if (!existsSync(pagesDir)) {
     checks.push(createCheck("error", `Pages directory is missing at ${project.pagesDir}.`));
@@ -250,7 +281,7 @@ function collectPagesVerification(project, checks, { changedFiles, scope }) {
 
   const pages = scanPagesDirectory(pagesDir);
   const routes = pages.filter((page) => page.kind === "route");
-  const duplicates = collectDuplicateRoutePaths(routes).map((entry) => ({
+  const duplicates = collectDuplicateRoutePaths(routes as PageRoute[]).map((entry) => ({
     ...entry,
     files: entry.files.map((file) => displayPath(project.root, file)),
   }));
@@ -298,7 +329,12 @@ function collectPagesVerification(project, checks, { changedFiles, scope }) {
   }
 }
 
-function collectChangedPagesChecks(project, checks, pagesDir, changedFiles) {
+function collectChangedPagesChecks(
+  project: ProjectConfig,
+  checks: Check[],
+  pagesDir: string,
+  changedFiles: string[],
+) {
   for (const file of changedFiles) {
     if (!isWithinDirectory(file, pagesDir)) continue;
     if (!PAGE_SOURCE_RE.test(file)) continue;
@@ -344,7 +380,11 @@ function collectChangedPagesChecks(project, checks, pagesDir, changedFiles) {
   }
 }
 
-function collectApiVerification(project, checks, { changedFiles, scope }) {
+function collectApiVerification(
+  project: ProjectConfig,
+  checks: Check[],
+  { changedFiles, scope }: { changedFiles: string[]; scope: string },
+) {
   const apiDir = resolveProjectPath(project.root, project.apiDir);
   const changedApiFiles = changedFiles.filter((file) => isWithinDirectory(file, apiDir));
   if (scope === "changed" && changedApiFiles.length === 0) {
@@ -364,7 +404,7 @@ function collectApiVerification(project, checks, { changedFiles, scope }) {
   }
 
   const apiFiles = listFilesRecursively(apiDir).filter((file) => MODULE_SOURCE_RE.test(file));
-  const routeMap = new Map();
+  const routeMap = new Map<string, string[]>();
 
   for (const file of apiFiles) {
     const routePath = resolveApiRoutePath(apiDir, file);
@@ -422,14 +462,14 @@ function collectApiVerification(project, checks, { changedFiles, scope }) {
   }
 }
 
-function collectPackageChecks(project, checks, packageJsonPath) {
+function collectPackageChecks(project: ProjectConfig, checks: Check[], packageJsonPath: string) {
   if (!existsSync(packageJsonPath)) {
     checks.push(createCheck("warning", "No package.json found in the current app root."));
     return;
   }
 
   const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf-8"));
-  const deps = {
+  const deps: Record<string, string> = {
     ...packageJson.dependencies,
     ...packageJson.devDependencies,
   };
@@ -455,7 +495,7 @@ function collectPackageChecks(project, checks, packageJsonPath) {
   }
 }
 
-function collectChangedFiles(root) {
+function collectChangedFiles(root: string): { files: string[]; warning: string | null } {
   try {
     const repoRoot = execFileSync("git", ["rev-parse", "--show-toplevel"], {
       cwd: root,
@@ -469,7 +509,7 @@ function collectChangedFiles(root) {
       cwd: repoRoot,
       encoding: "utf-8",
     });
-    const files = new Set();
+    const files = new Set<string>();
 
     for (const line of output.split(/\r?\n/).filter(Boolean)) {
       const record = line.slice(3);
@@ -496,7 +536,12 @@ function collectChangedFiles(root) {
   }
 }
 
-function addChangedFile(files, repoRoot, prefix, repoRelativePath) {
+function addChangedFile(
+  files: Set<string>,
+  repoRoot: string,
+  prefix: string,
+  repoRelativePath: string,
+) {
   if (prefix && !repoRelativePath.startsWith(prefix)) {
     return;
   }
@@ -509,7 +554,11 @@ function addChangedFile(files, repoRoot, prefix, repoRelativePath) {
   files.add(resolve(repoRoot, projectRelativePath));
 }
 
-function filterFrameworkFiles(project, files, packageJsonPath) {
+function filterFrameworkFiles(
+  project: ProjectConfig,
+  files: string[],
+  packageJsonPath: string,
+): string[] {
   const appFile = resolveProjectPath(project.root, project.appFile);
   const routesDir = resolveProjectPath(project.root, project.routesDir);
   const shellsDir = resolveProjectPath(project.root, project.shellsDir);
@@ -532,7 +581,7 @@ function filterFrameworkFiles(project, files, packageJsonPath) {
   });
 }
 
-function requiresFullVerification(project, changedFiles) {
+function requiresFullVerification(project: ProjectConfig, changedFiles: string[]): boolean {
   const packageJsonPath = resolve(project.root, "package.json");
   const appFile = resolveProjectPath(project.root, project.appFile);
 
@@ -545,13 +594,28 @@ function requiresFullVerification(project, changedFiles) {
   });
 }
 
-function scanPagesDirectory(pagesDir) {
+type PageInfo = PageRoute | PageShell | PageIgnored;
+interface PageRoute {
+  file: string;
+  kind: "route";
+  routePath: string;
+}
+interface PageShell {
+  file: string;
+  kind: "shell";
+}
+interface PageIgnored {
+  file: string;
+  kind: "ignored";
+}
+
+function scanPagesDirectory(pagesDir: string): PageInfo[] {
   return listFilesRecursively(pagesDir)
     .filter((file) => PAGE_SOURCE_RE.test(file))
     .map((file) => describePagesFile(pagesDir, file));
 }
 
-function describePagesFile(pagesDir, file) {
+function describePagesFile(pagesDir: string, file: string): PageInfo {
   const relativePath = relative(pagesDir, file).replace(/\\/g, "/");
   const routePath = relativePath.replace(/\.(tsx?|jsx?|mdx?)$/, "");
   const name = basename(routePath);
@@ -580,8 +644,8 @@ function describePagesFile(pagesDir, file) {
   };
 }
 
-function collectDuplicateRoutePaths(routes) {
-  const routeMap = new Map();
+function collectDuplicateRoutePaths(routes: PageRoute[]): { files: string[]; path: string }[] {
+  const routeMap = new Map<string, string[]>();
 
   for (const route of routes) {
     const files = routeMap.get(route.routePath) ?? [];
@@ -594,7 +658,7 @@ function collectDuplicateRoutePaths(routes) {
     .map(([path, files]) => ({ files, path }));
 }
 
-function resolveApiRoutePath(apiDir, file) {
+function resolveApiRoutePath(apiDir: string, file: string): string {
   let relativePath = relative(apiDir, file).replace(/\\/g, "/");
   relativePath = relativePath.replace(/\.(ts|tsx|js|jsx)$/, "");
 
@@ -609,7 +673,7 @@ function resolveApiRoutePath(apiDir, file) {
   return normalizeRoutePath(relativePath ? `/api/${relativePath}` : "/api");
 }
 
-function toModuleSpecifier(fromDir, filePath) {
+function toModuleSpecifier(fromDir: string, filePath: string): string {
   const relativePath = relative(fromDir, filePath).replace(/\\/g, "/");
   if (relativePath.startsWith(".")) {
     return relativePath;
@@ -617,7 +681,7 @@ function toModuleSpecifier(fromDir, filePath) {
   return `./${relativePath}`;
 }
 
-function normalizeRoutePath(path) {
+function normalizeRoutePath(path: string): string {
   if (!path || path === "/") {
     return "/";
   }
@@ -627,15 +691,15 @@ function normalizeRoutePath(path) {
   return collapsed.length > 1 && collapsed.endsWith("/") ? collapsed.slice(0, -1) : collapsed;
 }
 
-function isWithinDirectory(filePath, directoryPath) {
+function isWithinDirectory(filePath: string, directoryPath: string): boolean {
   const relativePath = relative(directoryPath, filePath);
   return relativePath === "" || (!relativePath.startsWith("..") && !relativePath.startsWith("../"));
 }
 
-function normalizePath(value) {
+function normalizePath(value: string): string {
   return value.replace(/\\/g, "/");
 }
 
-function createCheck(status, message) {
+function createCheck(status: Check["status"], message: string): Check {
   return { message, status };
 }

@@ -12,7 +12,7 @@ const distDir = resolve(exampleDir, "dist");
 
 function buildCloudflareExample() {
   rmSync(distDir, { force: true, recursive: true });
-  execFileSync(process.execPath, ["../../packages/cli/bin/pracht.js", "build"], {
+  execFileSync(process.execPath, ["../../packages/cli/dist/index.mjs", "build"], {
     cwd: exampleDir,
     env: {
       ...process.env,

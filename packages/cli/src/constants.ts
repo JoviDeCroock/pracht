@@ -1,4 +1,4 @@
-export const DEFAULT_SECURITY_HEADERS = {
+export const DEFAULT_SECURITY_HEADERS: Record<string, string> = {
   "permissions-policy":
     "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()",
   "referrer-policy": "strict-origin-when-cross-origin",
@@ -17,6 +17,6 @@ export const PROJECT_DEFAULTS = {
   routesDir: "/src/routes",
   serverDir: "/src/server",
   shellsDir: "/src/shells",
-};
+} as const;
 
 export const HTTP_METHODS = new Set(["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]);

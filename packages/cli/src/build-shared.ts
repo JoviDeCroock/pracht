@@ -5,7 +5,10 @@ import { DEFAULT_SECURITY_HEADERS, VERSION } from "./constants.js";
 
 const ROUTE_STATE_REQUEST_HEADER = "x-pracht-route-state-request";
 
-export function setDefaultSecurityHeaders(res, headers = {}) {
+export function setDefaultSecurityHeaders(
+  res: { setHeader(key: string, value: string): void },
+  headers: Record<string, string> = {},
+): void {
   for (const [key, value] of Object.entries({
     ...DEFAULT_SECURITY_HEADERS,
     ...headers,
@@ -14,7 +17,19 @@ export function setDefaultSecurityHeaders(res, headers = {}) {
   }
 }
 
-export function writeVercelBuildOutput({ functionName, regions, root, staticRoutes, isgRoutes }) {
+export function writeVercelBuildOutput({
+  functionName,
+  regions,
+  root,
+  staticRoutes,
+  isgRoutes,
+}: {
+  functionName?: string;
+  isgRoutes: string[];
+  regions?: string[];
+  root: string;
+  staticRoutes: string[];
+}): string {
   const outputDir = join(root, ".vercel/output");
   const staticDir = join(outputDir, "static");
   const functionDir = join(outputDir, "functions", `${functionName || "render"}.func`);
@@ -38,9 +53,17 @@ export function writeVercelBuildOutput({ functionName, regions, root, staticRout
   return ".vercel/output";
 }
 
-function createVercelOutputConfig({ functionName, staticRoutes, isgRoutes }) {
+function createVercelOutputConfig({
+  functionName,
+  staticRoutes,
+  isgRoutes,
+}: {
+  functionName?: string;
+  isgRoutes: string[];
+  staticRoutes: string[];
+}) {
   const target = `/${functionName || "render"}`;
-  const routes = [
+  const routes: Record<string, unknown>[] = [
     {
       dest: target,
       has: [{ type: "header", key: ROUTE_STATE_REQUEST_HEADER, value: "1" }],
@@ -89,8 +112,8 @@ function createVercelOutputConfig({ functionName, staticRoutes, isgRoutes }) {
   };
 }
 
-function createVercelFunctionConfig({ regions }) {
-  const config = {
+function createVercelFunctionConfig({ regions }: { regions?: string[] }) {
+  const config: Record<string, unknown> = {
     entrypoint: "server.js",
     runtime: "edge",
   };
@@ -102,11 +125,11 @@ function createVercelFunctionConfig({ regions }) {
   return config;
 }
 
-function sortStaticRoutes(routes) {
+function sortStaticRoutes(routes: string[]): string[] {
   return [...new Set(routes)].sort((left, right) => right.length - left.length);
 }
 
-function routeToRouteExpression(route) {
+function routeToRouteExpression(route: string): string {
   if (route === "/") {
     return "^/$";
   }
@@ -114,7 +137,7 @@ function routeToRouteExpression(route) {
   return `^${escapeRegex(route)}/?$`;
 }
 
-function routeToStaticHtmlPath(route) {
+function routeToStaticHtmlPath(route: string): string {
   if (route === "/") {
     return "/index.html";
   }
@@ -122,6 +145,6 @@ function routeToStaticHtmlPath(route) {
   return `${route}/index.html`;
 }
 
-function escapeRegex(value) {
+function escapeRegex(value: string): string {
   return value.replace(/[|\\{}()[\]^$+*?.-]/g, "\\$&");
 }

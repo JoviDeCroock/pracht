@@ -11,13 +11,22 @@
     "directory": "packages/cli"
   },
   "bin": {
-    "pracht": "./bin/pracht.js"
+    "pracht": "./dist/index.mjs"
   },
+  "files": [
+    "dist"
+  ],
   "type": "module",
   "publishConfig": {
     "provenance": true
   },
+  "scripts": {
+    "build": "tsdown",
+    "prepublishOnly": "npm run build"
+  },
   "dependencies": {
-    "@pracht/core": "workspace:*"
+    "@pracht/core": "workspace:*",
+    "citty": "^0.2.2",
+    "consola": "^3.4.2"
   }
 }
