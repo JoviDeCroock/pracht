@@ -3,8 +3,8 @@ title: CLI
 lead: The <code>@pracht/cli</code> package provides development, build, scaffolding, and doctor commands for your app.
 breadcrumb: CLI
 prev:
-  href: /docs/shells
-  title: Shells
+  href: /docs/styling
+  title: Styling
 next:
   href: /docs/deployment
   title: Deployment

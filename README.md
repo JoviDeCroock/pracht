@@ -44,6 +44,7 @@ The starter gives you:
 - `docs/ROUTING.md` for the manifest and matching model
 - `docs/RENDERING_MODES.md` for SSR, SSG, ISG, and SPA behavior
 - `docs/DATA_LOADING.md` for loaders, actions, forms, and client hooks
+- `docs/STYLING.md` for the recommended styling approaches (CSS Modules, Tailwind) and current CSS-in-JS limitations
 - `docs/ADAPTERS.md` for Node, Cloudflare, and Vercel deployment paths
 - `packages/start/README.md` for starter CLI details
 - `examples/basic` and `examples/cloudflare` for working apps

@@ -9,6 +9,7 @@ import {
   IconPlug,
   IconShield,
   IconLayout,
+  IconPalette,
   IconTerminal2,
   IconCloud,
   IconGauge,
@@ -38,6 +39,7 @@ const NAV = [
       { href: "/docs/api-routes", Icon: IconPlug, title: "API Routes" },
       { href: "/docs/middleware", Icon: IconShield, title: "Middleware" },
       { href: "/docs/shells", Icon: IconLayout, title: "Shells" },
+      { href: "/docs/styling", Icon: IconPalette, title: "Styling" },
     ],
   },
   {

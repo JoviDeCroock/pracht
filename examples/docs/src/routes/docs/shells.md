@@ -6,8 +6,8 @@ prev:
   href: /docs/middleware
   title: Middleware
 next:
-  href: /docs/cli
-  title: CLI
+  href: /docs/styling
+  title: Styling
 ---
 
 ## Defining a Shell
