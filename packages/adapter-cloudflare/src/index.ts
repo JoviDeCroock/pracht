@@ -8,6 +8,8 @@ import {
   type PrachtApp,
 } from "@pracht/core";
 
+type HeadersManifest = Record<string, Record<string, string>>;
+
 export interface CloudflareFetcher {
   fetch(input: Request | URL | string): Promise<Response>;
 }
@@ -37,6 +39,7 @@ export interface CloudflareAdapterOptions<
   cssManifest?: Record<string, string[]>;
   jsManifest?: Record<string, string[]>;
   assetsBinding?: string;
+  headersManifest?: HeadersManifest;
   createContext?: (args: CloudflareContextArgs<TEnv>) => TContext | Promise<TContext>;
 }
 
@@ -58,7 +61,12 @@ export function createCloudflareFetchHandler<
     env: TEnv,
     executionContext: CloudflareExecutionContext,
   ): Promise<Response> => {
-    const assetResponse = await maybeServeAsset(request, env, assetsBinding);
+    const assetResponse = await maybeServeAsset(
+      request,
+      env,
+      assetsBinding,
+      options.headersManifest ?? {},
+    );
     if (assetResponse) {
       return assetResponse;
     }
@@ -88,6 +96,28 @@ export function createCloudflareServerEntryModule(
   return [
     `export const cloudflareAssetsBinding = ${JSON.stringify(assetsBinding)};`,
     "",
+    "let headersManifestPromise;",
+    "async function readPrachtHeadersManifest(request, assets) {",
+    "  if (!headersManifestPromise) {",
+    "    const manifestUrl = new URL('/_pracht/headers.json', request.url);",
+    "    headersManifestPromise = assets.fetch(manifestUrl).then(async (response) => {",
+    "      if (!response.ok) return {};",
+    "      return response.json();",
+    "    }).catch(() => ({}));",
+    "  }",
+    "  return headersManifestPromise;",
+    "}",
+    "",
+    "function applyPrachtHeadersManifest(headers, headersManifest, pathname) {",
+    "  const withoutIndex = pathname.replace(/\\/index\\.html$/, '') || '/';",
+    "  const withoutSlash = pathname.replace(/\\/$/, '') || '/';",
+    "  const routeHeaders = headersManifest[pathname] ?? headersManifest[withoutSlash] ?? headersManifest[withoutIndex];",
+    "  if (!routeHeaders) return;",
+    "  for (const [key, value] of Object.entries(routeHeaders)) {",
+    "    headers.set(key, value);",
+    "  }",
+    "}",
+    "",
     "async function maybeServePrachtAsset(request, env) {",
     '  if (request.method !== "GET" && request.method !== "HEAD") {',
     "    return null;",
@@ -109,6 +139,9 @@ export function createCloudflareServerEntryModule(
     "  const headers = new Headers(response.headers);",
     "  headers.append('Vary', 'x-pracht-route-state-request');",
     "  applyDefaultSecurityHeaders(headers);",
+    "  if ((headers.get('content-type') ?? '').includes('text/html')) {",
+    "    applyPrachtHeadersManifest(headers, await readPrachtHeadersManifest(request, assets), new URL(request.url).pathname);",
+    "  }",
     "  return new Response(response.body, { status: response.status, statusText: response.statusText, headers });",
     "}",
     "",
@@ -139,6 +172,7 @@ async function maybeServeAsset(
   request: Request,
   env: Record<string, unknown>,
   assetsBinding: string,
+  headersManifest: HeadersManifest = {},
 ): Promise<Response | null> {
   if (request.method !== "GET" && request.method !== "HEAD") {
     return null;
@@ -160,11 +194,30 @@ async function maybeServeAsset(
   const headers = new Headers(response.headers);
   headers.append("Vary", "x-pracht-route-state-request");
   applyDefaultSecurityHeaders(headers);
+  if ((headers.get("content-type") ?? "").includes("text/html")) {
+    applyHeadersManifest(headers, headersManifest, new URL(request.url).pathname);
+  }
   return new Response(response.body, {
     status: response.status,
     statusText: response.statusText,
     headers,
   });
+}
+
+function applyHeadersManifest(
+  headers: Headers,
+  headersManifest: HeadersManifest,
+  pathname: string,
+): void {
+  const withoutIndex = pathname.replace(/\/index\.html$/, "") || "/";
+  const withoutSlash = pathname.replace(/\/$/, "") || "/";
+  const routeHeaders =
+    headersManifest[pathname] ?? headersManifest[withoutSlash] ?? headersManifest[withoutIndex];
+  if (!routeHeaders) return;
+
+  for (const [key, value] of Object.entries(routeHeaders)) {
+    headers.set(key, value);
+  }
 }
 
 function isFetcher(value: unknown): value is CloudflareFetcher {

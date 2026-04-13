@@ -14,7 +14,14 @@ export function setDefaultSecurityHeaders(res, headers = {}) {
   }
 }
 
-export function writeVercelBuildOutput({ functionName, regions, root, staticRoutes, isgRoutes }) {
+export function writeVercelBuildOutput({
+  functionName,
+  headersManifest = {},
+  regions,
+  root,
+  staticRoutes,
+  isgRoutes,
+}) {
   const outputDir = join(root, ".vercel/output");
   const staticDir = join(outputDir, "static");
   const functionDir = join(outputDir, "functions", `${functionName || "render"}.func`);
@@ -26,7 +33,11 @@ export function writeVercelBuildOutput({ functionName, regions, root, staticRout
 
   writeFileSync(
     join(outputDir, "config.json"),
-    `${JSON.stringify(createVercelOutputConfig({ functionName, staticRoutes, isgRoutes }), null, 2)}\n`,
+    `${JSON.stringify(
+      createVercelOutputConfig({ functionName, headersManifest, staticRoutes, isgRoutes }),
+      null,
+      2,
+    )}\n`,
     "utf-8",
   );
   writeFileSync(
@@ -38,7 +49,7 @@ export function writeVercelBuildOutput({ functionName, regions, root, staticRout
   return ".vercel/output";
 }
 
-function createVercelOutputConfig({ functionName, staticRoutes, isgRoutes }) {
+function createVercelOutputConfig({ functionName, headersManifest, staticRoutes, isgRoutes }) {
   const target = `/${functionName || "render"}`;
   const routes = [
     {
@@ -65,22 +76,33 @@ function createVercelOutputConfig({ functionName, staticRoutes, isgRoutes }) {
   routes.push({ handle: "filesystem" });
   routes.push({ dest: target, src: "/(.*)" });
 
+  const headers = [
+    {
+      headers: [
+        {
+          key: "permissions-policy",
+          value:
+            "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()",
+        },
+        { key: "referrer-policy", value: "strict-origin-when-cross-origin" },
+        { key: "x-content-type-options", value: "nosniff" },
+        { key: "x-frame-options", value: "SAMEORIGIN" },
+      ],
+      source: "/(.*)",
+    },
+  ];
+
+  for (const route of sortStaticRoutes(staticRoutes)) {
+    const routeHeaders = headersManifest[route];
+    if (!routeHeaders) continue;
+    headers.push({
+      headers: Object.entries(routeHeaders).map(([key, value]) => ({ key, value })),
+      source: routeToHeaderSource(route),
+    });
+  }
+
   return {
-    headers: [
-      {
-        headers: [
-          {
-            key: "permissions-policy",
-            value:
-              "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()",
-          },
-          { key: "referrer-policy", value: "strict-origin-when-cross-origin" },
-          { key: "x-content-type-options", value: "nosniff" },
-          { key: "x-frame-options", value: "SAMEORIGIN" },
-        ],
-        source: "/(.*)",
-      },
-    ],
+    headers,
     framework: {
       version: VERSION,
     },
@@ -120,6 +142,10 @@ function routeToStaticHtmlPath(route) {
   }
 
   return `${route}/index.html`;
+}
+
+function routeToHeaderSource(route) {
+  return route === "/" ? "/" : route;
 }
 
 function escapeRegex(value) {

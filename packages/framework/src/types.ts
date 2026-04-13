@@ -200,6 +200,13 @@ export interface HeadArgs<
   data: LoaderData<TLoader>;
 }
 
+export interface HeadersArgs<
+  TLoader extends LoaderLike = undefined,
+  TContext = any,
+> extends BaseRouteArgs<TContext> {
+  data: LoaderData<TLoader>;
+}
+
 export interface RouteComponentProps<TLoader extends LoaderLike = undefined> {
   data: LoaderData<TLoader>;
   params: RouteParams;
@@ -220,6 +227,7 @@ export type LoaderFn<TContext = any, TData = unknown> = (
 export interface RouteModule<TContext = any, TLoader extends LoaderLike = undefined> {
   loader?: LoaderFn<TContext>;
   head?: (args: HeadArgs<TLoader, TContext>) => MaybePromise<HeadMetadata>;
+  headers?: (args: HeadersArgs<TLoader, TContext>) => MaybePromise<HeadersInit>;
   Component?: FunctionComponent<RouteComponentProps<TLoader>>;
   default?: FunctionComponent<RouteComponentProps<TLoader>>;
   ErrorBoundary?: FunctionComponent<ErrorBoundaryProps>;
@@ -230,6 +238,7 @@ export interface ShellModule<TContext = any> {
   Shell: FunctionComponent<ShellProps>;
   Loading?: FunctionComponent;
   head?: (args: BaseRouteArgs<TContext>) => MaybePromise<HeadMetadata>;
+  headers?: (args: BaseRouteArgs<TContext>) => MaybePromise<HeadersInit>;
 }
 
 export type MiddlewareResult<TContext = any> =

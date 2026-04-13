@@ -519,8 +519,9 @@ export async function handlePrachtRequest<TContext>(
       ? await resolveRegistryModule<ShellModule>(registry.shellModules, match.route.shellFile)
       : undefined;
 
-    // --- Merge head metadata ---
+    // --- Merge document metadata ---
     const head = await mergeHeadMetadata(shellModule, routeModule, routeArgs, data);
+    const documentHeaders = await mergeDocumentHeaders(shellModule, routeModule, routeArgs, data);
 
     const cssUrls = resolvePageCssUrls(options, match.route.shellFile, match.route.file);
     const modulePreloadUrls = resolvePageJsUrls(options, match.route.shellFile, match.route.file);
@@ -560,6 +561,8 @@ export async function handlePrachtRequest<TContext>(
           cssUrls,
           modulePreloadUrls,
         }),
+        200,
+        documentHeaders,
       );
     }
 
@@ -605,6 +608,8 @@ export async function handlePrachtRequest<TContext>(
         cssUrls,
         modulePreloadUrls,
       }),
+      200,
+      documentHeaders,
     );
   } catch (error: unknown) {
     return renderRouteErrorResponse({
@@ -969,6 +974,12 @@ async function renderRouteErrorResponse<TContext>(options: {
         )
       : undefined);
   const head = shellModule?.head ? await shellModule.head(options.routeArgs) : {};
+  const documentHeaders = await mergeDocumentHeaders(
+    shellModule,
+    undefined,
+    options.routeArgs,
+    undefined,
+  );
   const cssUrls = resolvePageCssUrls(
     options.options,
     options.shellFile,
@@ -1013,6 +1024,7 @@ async function renderRouteErrorResponse<TContext>(options: {
       modulePreloadUrls,
     }),
     routeErrorWithDiagnostics.status,
+    documentHeaders,
   );
 }
 
@@ -1126,6 +1138,34 @@ async function mergeHeadMetadata(
   };
 }
 
+async function mergeDocumentHeaders(
+  shellModule: ShellModule | undefined,
+  routeModule: RouteModule | undefined,
+  routeArgs: BaseRouteArgs<unknown>,
+  data: unknown,
+): Promise<Headers> {
+  const headers = new Headers();
+  const shellHeaders = shellModule?.headers ? await shellModule.headers(routeArgs) : undefined;
+  if (shellHeaders) {
+    applyHeaders(headers, shellHeaders);
+  }
+
+  const routeHeaders = routeModule?.headers
+    ? await routeModule.headers({ ...routeArgs, data } as any)
+    : undefined;
+  if (routeHeaders) {
+    applyHeaders(headers, routeHeaders);
+  }
+
+  return headers;
+}
+
+function applyHeaders(headers: Headers, init: HeadersInit): void {
+  new Headers(init).forEach((value, key) => {
+    headers.set(key, value);
+  });
+}
+
 function buildHtmlDocument(options: {
   head: HeadMetadata;
   body: string;
@@ -1194,11 +1234,12 @@ function buildHtmlDocument(options: {
 </html>`;
 }
 
-function htmlResponse(html: string, status = 200): Response {
-  const headers = applySecurityAndRouteHeaders(
-    new Headers({ "content-type": "text/html; charset=utf-8" }),
-    { isRouteStateRequest: false },
-  );
+function htmlResponse(html: string, status = 200, initHeaders?: HeadersInit): Response {
+  const headers = new Headers({ "content-type": "text/html; charset=utf-8" });
+  if (initHeaders) {
+    applyHeaders(headers, initHeaders);
+  }
+  applySecurityAndRouteHeaders(headers, { isRouteStateRequest: false });
   return new Response(html, { status, headers });
 }
 
@@ -1304,6 +1345,7 @@ function serializeJsonForHtml(value: unknown): string {
 export interface PrerenderResult {
   path: string;
   html: string;
+  headers?: Record<string, string>;
 }
 
 export interface ISGManifestEntry {
@@ -1378,13 +1420,17 @@ export async function prerenderApp(
         }
 
         const html = await response.text();
-        return { item, html };
+        return { headers: Object.fromEntries(response.headers), html, item };
       }),
     );
 
     for (const result of batchResults) {
       if (!result) continue;
-      results.push({ path: result.item.pathname, html: result.html });
+      results.push({
+        path: result.item.pathname,
+        html: result.html,
+        headers: result.headers,
+      });
       if (result.item.render === "isg" && result.item.revalidate) {
         isgManifest[result.item.pathname] = { revalidate: result.item.revalidate };
       }

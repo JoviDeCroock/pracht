@@ -42,6 +42,7 @@ test("pracht build emits a deployable Node server entry", async () => {
 
     const homeResponse = await fetch(`http://127.0.0.1:${port}/`);
     expect(homeResponse.status).toBe(200);
+    expect(homeResponse.headers.get("x-pracht-shell")).toBe("public");
     const homeHtml = await homeResponse.text();
     expect(homeHtml).toContain("Pracht starts with an explicit app manifest.");
     expect(homeHtml).not.toContain("/@pracht/client.js");
@@ -67,6 +68,7 @@ test("pracht build emits a deployable Node server entry", async () => {
       headers: { cookie: "session=1" },
     });
     expect(dashboardResponse.status).toBe(200);
+    expect(dashboardResponse.headers.get("x-pracht-shell")).toBe("app");
     const dashboardHtml = await dashboardResponse.text();
     expect(dashboardHtml).toContain("Ada Lovelace");
     expect(dashboardHtml).not.toContain("/@pracht/client.js");
@@ -77,6 +79,7 @@ test("pracht build emits a deployable Node server entry", async () => {
 
     const pricingResponse = await fetch(`http://127.0.0.1:${port}/pricing`);
     expect(pricingResponse.status).toBe(200);
+    expect(pricingResponse.headers.get("x-pracht-shell")).toBe("public");
     expect(pricingResponse.headers.get("vary")).toContain("x-pracht-route-state-request");
 
     const routeStateResponse = await fetch(`http://127.0.0.1:${port}/pricing`, {
@@ -84,6 +87,7 @@ test("pracht build emits a deployable Node server entry", async () => {
     });
     expect(routeStateResponse.status).toBe(200);
     expect(routeStateResponse.headers.get("content-type")).toContain("application/json");
+    expect(routeStateResponse.headers.get("x-pracht-shell")).toBeNull();
     expect(routeStateResponse.headers.get("vary")).toContain("x-pracht-route-state-request");
     expect(routeStateResponse.headers.get("cache-control")).toBe("no-store");
     await expect(routeStateResponse.json()).resolves.toEqual({

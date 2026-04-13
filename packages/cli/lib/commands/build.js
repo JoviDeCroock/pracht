@@ -60,6 +60,9 @@ export async function buildCommand() {
       registry: serverMod.registry,
       withISGManifest: true,
     });
+    const headersManifest = Object.fromEntries(
+      pages.map((page) => [page.path, page.headers ?? {}]),
+    );
 
     if (pages.length > 0) {
       console.log(`\n  Prerendering ${pages.length} SSG/ISG route(s)...\n`);
@@ -73,6 +76,17 @@ export async function buildCommand() {
         writeFileSync(filePath, page.html, "utf-8");
         console.log(`    ${page.path} → ${filePath.replace(root + "/", "")}`);
       }
+    }
+
+    if (Object.keys(headersManifest).length > 0) {
+      const headersManifestJson = `${JSON.stringify(headersManifest, null, 2)}\n`;
+      writeFileSync(
+        resolve(root, "dist/server/headers-manifest.json"),
+        headersManifestJson,
+        "utf-8",
+      );
+      mkdirSync(resolve(clientDir, "_pracht"), { recursive: true });
+      writeFileSync(resolve(clientDir, "_pracht/headers.json"), headersManifestJson, "utf-8");
     }
 
     if (Object.keys(isgManifest).length > 0) {
@@ -92,6 +106,7 @@ export async function buildCommand() {
       const outputPath = writeVercelBuildOutput({
         functionName: serverMod.vercelFunctionName,
         isgRoutes: Object.keys(isgManifest),
+        headersManifest,
         regions: serverMod.vercelRegions,
         root,
         staticRoutes: pages.map((page) => page.path).filter((path) => !(path in isgManifest)),

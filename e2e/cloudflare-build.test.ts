@@ -47,6 +47,7 @@ test("pracht build emits a deployable Cloudflare Worker setup", async () => {
   const workerSource = readFileSync(serverEntryPath, "utf-8");
   expect(workerSource).toContain("cloudflareAssetsBinding");
   expect(workerSource).toContain('buildTarget = "cloudflare"');
+  expect(workerSource).toContain("_pracht/headers.json");
   expect(workerSource).toContain("server_default as default");
 });
 
@@ -59,8 +60,12 @@ test("prerendered SSG pages include client JS and working framework context", as
 
   // The home route is render: "ssg" — it should be prerendered as a static HTML file
   const htmlPath = resolve(distDir, "client/index.html");
+  const headersPath = resolve(distDir, "client/_pracht/headers.json");
   expect(existsSync(htmlPath)).toBe(true);
+  expect(existsSync(headersPath)).toBe(true);
   const html = readFileSync(htmlPath, "utf-8");
+  const headers = JSON.parse(readFileSync(headersPath, "utf-8"));
+  expect(headers["/"]["x-pracht-shell"]).toBe("public");
 
   // Must include the client entry script for hydration
   expect(html).toMatch(/<script type="module" src="\/assets\/client-[^"]+\.js"><\/script>/);

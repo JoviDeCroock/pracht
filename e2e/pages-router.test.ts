@@ -8,6 +8,7 @@ test("home page renders with loader data via pages router", async ({ page }) => 
   const response = await page.goto("/");
   expect(response?.status()).toBe(200);
   expect(response?.headers()["content-type"]).toContain("text/html");
+  expect(response?.headers()["x-pracht-router"]).toBe("pages");
 
   // Shell renders
   await expect(page.locator(".pages-shell")).toBeVisible();
@@ -131,6 +132,7 @@ test("route state request returns JSON for pages", async ({ request }) => {
   });
 
   expect(response.status()).toBe(200);
+  expect(response.headers()["x-pracht-router"]).toBeUndefined();
   const json = await response.json();
   expect(json.data.message).toContain("file-system routing");
 });

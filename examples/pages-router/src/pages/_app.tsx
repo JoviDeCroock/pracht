@@ -25,3 +25,9 @@ export function head() {
     title: "Pracht Pages Router",
   };
 }
+
+export function headers() {
+  return {
+    "x-pracht-router": "pages",
+  };
+}

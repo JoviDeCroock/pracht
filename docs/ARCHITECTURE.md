@@ -108,6 +108,11 @@ export function head({ data }: HeadArgs<typeof loader>) {
   return { title: `Dashboard — ${data.user.name}` };
 }
 
+// Server: document response headers
+export function headers({ data }: HeadersArgs<typeof loader>) {
+  return { "cache-control": data.isPublic ? "public, max-age=60" : "no-store" };
+}
+
 // Client + SSR: the page component
 export default function Dashboard({ data }: RouteComponentProps<typeof loader>) {
   const liveData = useRouteData<typeof loader>();
@@ -146,8 +151,8 @@ export default function Dashboard({ data }: RouteComponentProps) {
 
 A named `Component` export is also supported for compatibility. Function-valued
 default exports are treated as the page component; named exports such as
-`loader`, `head`, `ErrorBoundary`, and `getStaticPaths` keep their framework
-roles.
+`loader`, `head`, `headers`, `ErrorBoundary`, and `getStaticPaths` keep their
+framework roles.
 
 Wired in the manifest via the `RouteConfig` object form:
 
@@ -184,6 +189,12 @@ export function head() {
   return {
     title: "Pracht App",
     meta: [{ name: "viewport", content: "width=device-width, initial-scale=1" }],
+  };
+}
+
+export function headers() {
+  return {
+    "content-security-policy": "default-src 'self'",
   };
 }
 ```
@@ -249,7 +260,7 @@ Browser request
   → Run middleware chain
   → Execute loader
   → Render Preact component tree to string
-  → Merge head metadata (shell + route)
+  → Merge head metadata and document headers (shell + route)
   → Inject escaped hydration state into a JSON script tag
   → Inject asset tags from Vite manifest
   → Return HTML Response

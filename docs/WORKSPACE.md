@@ -32,7 +32,8 @@ described in `VISION_MVP.md`.
 - **Server rendering** — `handlePrachtRequest()` executes the full request
   lifecycle: API route check → middleware chain → loader → Preact
   `renderToString` → HTML document assembly with hydration state
-  (`window.__PRACHT_STATE__`), head metadata merging, and client entry injection.
+  (`window.__PRACHT_STATE__`), head metadata/header merging, and client entry
+  injection.
 - **Render modes** — SSR, SSG, and ISG routes render server-side; SPA routes
   keep the route component client-only but now render their matched shell
   immediately, optionally with a shell `Loading` fallback. Route-state JSON

@@ -15,6 +15,8 @@ import {
 
 const ROUTE_STATE_REQUEST_HEADER = "x-pracht-route-state-request";
 
+type HeadersManifest = Record<string, Record<string, string>>;
+
 const MIME_TYPES: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
   ".js": "application/javascript",
@@ -67,6 +69,7 @@ export interface NodeAdapterOptions<TContext = unknown> {
   cssUrls?: string[];
   cssManifest?: Record<string, string[]>;
   jsManifest?: Record<string, string[]>;
+  headersManifest?: HeadersManifest;
   createContext?: (args: NodeAdapterContextArgs) => TContext | Promise<TContext>;
   /**
    * Whether to trust proxy headers (`Forwarded`, `X-Forwarded-Proto`,
@@ -95,6 +98,7 @@ export function createNodeRequestHandler<TContext = unknown>(
   options: NodeAdapterOptions<TContext>,
 ) {
   const isgManifest = options.isgManifest ?? {};
+  const headersManifest = options.headersManifest ?? {};
   const staticDir = options.staticDir;
   const trustProxy = options.trustProxy ?? false;
 
@@ -126,6 +130,9 @@ export function createNodeRequestHandler<TContext = unknown>(
             "cache-control": staticResult.cacheControl,
           }),
         );
+        if (staticResult.contentType.includes("text/html")) {
+          applyHeadersManifest(headers, headersManifest, url.pathname);
+        }
         headers.forEach((value, key) => {
           res.setHeader(key, value);
         });
@@ -159,10 +166,11 @@ export function createNodeRequestHandler<TContext = unknown>(
           new Headers({
             "content-type": "text/html; charset=utf-8",
             "cache-control": "public, max-age=0, must-revalidate",
-            "x-pracht-isg": isStale ? "stale" : "fresh",
             vary: ROUTE_STATE_REQUEST_HEADER,
           }),
         );
+        applyHeadersManifest(headers, headersManifest, url.pathname);
+        headers.set("x-pracht-isg", isStale ? "stale" : "fresh");
         headers.forEach((value, key) => {
           res.setHeader(key, value);
         });
@@ -256,12 +264,17 @@ export function createNodeServerEntryModule(options: NodeServerEntryModuleOption
     "const isgManifest = existsSync(isgManifestPath)",
     '  ? JSON.parse(readFileSync(isgManifestPath, "utf-8"))',
     "  : {};",
+    'const headersManifestPath = resolve(serverDir, "headers-manifest.json");',
+    "const headersManifest = existsSync(headersManifestPath)",
+    '  ? JSON.parse(readFileSync(headersManifestPath, "utf-8"))',
+    "  : {};",
     "",
     "export const handler = createNodeRequestHandler({",
     "  app: resolvedApp,",
     "  registry,",
     "  staticDir,",
     "  isgManifest,",
+    "  headersManifest,",
     "  apiRoutes,",
     "  clientEntryUrl: clientEntryUrl ?? undefined,",
     "  cssManifest,",
@@ -428,6 +441,34 @@ async function writeWebResponse(res: ServerResponse, response: Response): Promis
 
   const body = Buffer.from(await response.arrayBuffer());
   res.end(body);
+}
+
+function applyHeadersManifest(
+  headers: Headers,
+  headersManifest: HeadersManifest,
+  pathname: string,
+): void {
+  const routeHeaders = getManifestHeaders(headersManifest, pathname);
+  if (!routeHeaders) return;
+
+  for (const [key, value] of Object.entries(routeHeaders)) {
+    headers.set(key, value);
+  }
+}
+
+function getManifestHeaders(
+  headersManifest: HeadersManifest,
+  pathname: string,
+): Record<string, string> | undefined {
+  const withoutIndex = pathname.replace(/\/index\.html$/, "") || "/";
+  const withoutSlash = pathname.replace(/\/$/, "") || "/";
+
+  return (
+    headersManifest[pathname] ??
+    headersManifest[withoutSlash] ??
+    headersManifest[withoutIndex] ??
+    undefined
+  );
 }
 
 function getFirstHeaderValue(value: string | string[] | undefined): string | undefined {

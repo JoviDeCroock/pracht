@@ -367,6 +367,89 @@ describe("handlePrachtRequest cache variance", () => {
   });
 });
 
+describe("handlePrachtRequest document headers", () => {
+  it("merges shell and route headers for document responses", async () => {
+    const app = defineApp({
+      routes: [route("/pricing", "./routes/pricing.tsx", { render: "ssr", shell: "public" })],
+      shells: {
+        public: "./shells/public.tsx",
+      },
+    });
+
+    const response = await handlePrachtRequest({
+      app,
+      registry: {
+        routeModules: {
+          "./routes/pricing.tsx": async () => ({
+            Component: ({ data }) => h("main", null, (data as { plan: string }).plan),
+            headers: ({ data }) => ({
+              "x-plan": (data as { plan: string }).plan,
+              "x-scope": "route",
+            }),
+            loader: async () => ({ plan: "MVP" }),
+          }),
+        },
+        shellModules: {
+          "./shells/public.tsx": async () => ({
+            headers: () => ({
+              "content-security-policy": "default-src 'self'",
+              "x-scope": "shell",
+              "x-shell": "public",
+            }),
+            Shell: ({ children }) => h("section", null, children),
+          }),
+        },
+      },
+      request: new Request("http://localhost/pricing"),
+    });
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-security-policy")).toBe("default-src 'self'");
+    expect(response.headers.get("x-shell")).toBe("public");
+    expect(response.headers.get("x-plan")).toBe("MVP");
+    expect(response.headers.get("x-scope")).toBe("route");
+    expect(response.headers.get("vary")).toContain("x-pracht-route-state-request");
+  });
+
+  it("does not apply document headers to route-state JSON responses", async () => {
+    const app = defineApp({
+      routes: [route("/pricing", "./routes/pricing.tsx", { render: "ssr", shell: "public" })],
+      shells: {
+        public: "./shells/public.tsx",
+      },
+    });
+
+    const response = await handlePrachtRequest({
+      app,
+      registry: {
+        routeModules: {
+          "./routes/pricing.tsx": async () => ({
+            Component: ({ data }) => h("main", null, (data as { plan: string }).plan),
+            headers: () => ({ "x-route": "pricing" }),
+            loader: async () => ({ plan: "MVP" }),
+          }),
+        },
+        shellModules: {
+          "./shells/public.tsx": async () => ({
+            headers: () => ({ "x-shell": "public" }),
+            Shell: ({ children }) => h("section", null, children),
+          }),
+        },
+      },
+      request: new Request("http://localhost/pricing", {
+        headers: {
+          "x-pracht-route-state-request": "1",
+        },
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("x-route")).toBeNull();
+    expect(response.headers.get("x-shell")).toBeNull();
+    await expect(response.json()).resolves.toEqual({ data: { plan: "MVP" } });
+  });
+});
+
 describe("handlePrachtRequest SPA shell fallback", () => {
   it("renders shell chrome and loading UI for SPA routes without serializing loader data", async () => {
     const app = defineApp({
@@ -440,6 +523,40 @@ describe("prerenderApp", () => {
     expect(page.html).toContain('<link rel="modulepreload" href="/assets/public-abc123.js">');
     expect(page.html).toContain('<link rel="modulepreload" href="/assets/pricing-abc123.js">');
     expect(page.html).toContain('<link rel="modulepreload" href="/assets/vendor-abc123.js">');
+  });
+
+  it("preserves document headers on prerendered pages", async () => {
+    const app = defineApp({
+      routes: [route("/pricing", "./routes/pricing.tsx", { render: "ssg", shell: "public" })],
+      shells: {
+        public: "./shells/public.tsx",
+      },
+    });
+
+    const [page] = await prerenderApp({
+      app,
+      registry: {
+        routeModules: {
+          "/src/routes/pricing.tsx": async () => ({
+            Component: ({ data }) => h("main", null, (data as { plan: string }).plan),
+            headers: ({ data }) => ({ "x-plan": (data as { plan: string }).plan }),
+            loader: async () => ({ plan: "MVP" }),
+          }),
+        },
+        shellModules: {
+          "/src/shells/public.tsx": async () => ({
+            headers: () => ({ "content-security-policy": "default-src 'self'" }),
+            Shell: ({ children }) => h("section", null, children),
+          }),
+        },
+      },
+    });
+
+    expect(page.path).toBe("/pricing");
+    expect(page.headers).toMatchObject({
+      "content-security-policy": "default-src 'self'",
+      "x-plan": "MVP",
+    });
   });
 
   it("renders multiple static paths concurrently", async () => {

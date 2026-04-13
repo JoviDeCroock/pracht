@@ -22,3 +22,9 @@ export function head() {
     title: "Pracht Example",
   };
 }
+
+export function headers() {
+  return {
+    "x-pracht-shell": "public",
+  };
+}

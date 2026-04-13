@@ -42,6 +42,7 @@ export type {
   GroupMeta,
   HeadArgs,
   HeadMetadata,
+  HeadersArgs,
   HttpMethod,
   LoaderArgs,
   LoaderData,

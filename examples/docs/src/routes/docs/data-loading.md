@@ -37,8 +37,8 @@ export default function Dashboard({ data }: RouteComponentProps<typeof loader>) 
 ```
 
 The route component can be a function default export or a named `Component`
-export. Named route exports such as `loader`, `head`, `ErrorBoundary`, and
-`getStaticPaths` remain separate special exports.
+export. Named route exports such as `loader`, `head`, `headers`,
+`ErrorBoundary`, and `getStaticPaths` remain separate special exports.
 
 ### LoaderArgs
 
@@ -100,6 +100,22 @@ export function head({ data }: HeadArgs<typeof loader>) {
   };
 }
 ```
+
+---
+
+## Document Headers
+
+The `headers` export controls HTTP headers for the route's document response. It receives the same data-aware arguments as `head`:
+
+```ts
+export function headers({ data }: HeadersArgs<typeof loader>) {
+  return {
+    "content-security-policy": `default-src 'self'; img-src 'self' ${data.cdnOrigin}`,
+  };
+}
+```
+
+Headers merge with the shell's `headers` export. Route-level headers override shell headers with the same name. They apply to HTML document responses, including prerendered SSG/ISG HTML, but not API routes or route-state JSON fetches.
 
 ---
 

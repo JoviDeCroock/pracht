@@ -28,3 +28,9 @@ export function head() {
     title: "Pracht App",
   };
 }
+
+export function headers() {
+  return {
+    "x-pracht-shell": "app",
+  };
+}

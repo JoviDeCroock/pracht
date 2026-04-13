@@ -26,6 +26,8 @@ For page routes, adapters must preserve the distinction between document
 requests and route-state fetches (`x-pracht-route-state-request: 1`). Cached or
 prerendered HTML should never satisfy a route-state fetch, and HTML responses
 should vary on that header when both representations can exist for the same URL.
+Prerendered HTML also carries route and shell document headers from the build
+header manifest so static responses match dynamic document responses.
 
 ---
 
@@ -112,6 +114,8 @@ When enabled, header precedence is:
   headers. Hashed assets under `/assets/` get `Cache-Control: public,
 max-age=31536000, immutable`; HTML and other files get `public, max-age=0,
 must-revalidate`. Clean URLs (e.g. `/about`) resolve to `about/index.html`.
+Prerendered HTML receives route and shell document headers from
+`dist/server/headers-manifest.json`.
 - **ISG revalidation**: checks `pracht-isg-manifest.json` for time revalidation
   metadata. Compares file mtime against revalidation window. Regenerates stale
   pages and writes updated HTML to disk. Route-state requests bypass the cached
@@ -133,6 +137,7 @@ export const handler = createNodeRequestHandler({
   registry,
   staticDir,
   isgManifest,
+  headersManifest,
   apiRoutes,
   clientEntryUrl,
   cssManifest,
@@ -161,6 +166,8 @@ the executable production server entry.
 - **Asset serving**: uses `env.ASSETS.fetch()` binding for static files
   (Cloudflare handles caching and CDN distribution). Static responses inherit
   the same default security headers applied to dynamic responses.
+  Prerendered HTML also receives route and shell document headers from
+  `dist/client/_pracht/headers.json`.
 - **Default request context**: generated worker entries pass `{ env,
 executionContext }` to pracht so loaders, actions, and middleware can access
   bindings without extra wiring.
@@ -260,7 +267,8 @@ export default {
   correct even without native Vercel ISR integration yet.
 - **Static security headers**: the generated `config.json` includes a `headers`
   section that applies the same baseline security headers to all responses,
-  including static assets served by Vercel's CDN.
+  including static assets served by Vercel's CDN. Static prerendered routes also
+  get route and shell document headers from the prerender header manifest.
 
 ### Entry module
 

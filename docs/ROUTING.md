@@ -174,10 +174,20 @@ export function Shell({ children }: ShellProps) {
 export function head() {
   return { title: "My App" };
 }
+
+// Optional: shell-level document headers
+export function headers() {
+  return { "content-security-policy": "default-src 'self'" };
+}
 ```
 
 Shell head metadata is merged with route-level head. Route head takes precedence
 for conflicting keys (e.g. `title`).
+
+Shell document headers are merged with route-level `headers` exports. Route
+headers take precedence for matching names. These headers apply to HTML
+document responses, including prerendered SSG/ISG HTML, but not API routes or
+route-state JSON fetches.
 
 ---
 
@@ -271,6 +281,10 @@ export function Shell({ children }: ShellProps) {
       <main>{children}</main>
     </div>
   );
+}
+
+export function headers() {
+  return { "content-security-policy": "default-src 'self'" };
 }
 ```
 

@@ -49,6 +49,19 @@ test("pracht build emits a deployable Vercel Build Output setup", async () => {
       expect.objectContaining({ src: "/(.*)", dest: "/render" }),
     ]),
   );
+  expect(config.headers).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        source: "/",
+        headers: expect.arrayContaining([
+          {
+            key: "x-pracht-shell",
+            value: "public",
+          },
+        ]),
+      }),
+    ]),
+  );
 
   const functionConfig = JSON.parse(readFileSync(functionConfigPath, "utf-8"));
   expect(functionConfig).toMatchObject({

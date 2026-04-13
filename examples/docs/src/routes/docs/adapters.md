@@ -23,6 +23,8 @@ Platform request (Node / CF / Vercel)
   → Convert Web Response back to platform response
 ```
 
+Adapters also preserve route and shell document headers for prerendered HTML so static SSG/ISG responses match dynamic document responses.
+
 ---
 
 ## Cloudflare Workers
@@ -62,6 +64,8 @@ dist/
   server/
     server.js      // Worker bundle
 ```
+
+Prerendered HTML receives document headers from the generated `_pracht/headers.json` asset.
 
 Keep your `wrangler.jsonc` in the project root so you can add bindings without the build overwriting them.
 
@@ -104,6 +108,8 @@ pracht({ adapter: vercelAdapter() })
 "@pracht/adapter-vercel": "*"
 ```
 
+Static prerendered routes receive document headers through the generated Build Output `headers` config.
+
 ### Build output
 
 ```
@@ -127,6 +133,8 @@ npx vercel deploy --prebuilt
 ## Node.js
 
 Run pracht as a standard Node.js HTTP server. The adapter handles static file serving, ISG stale-while-revalidate, request translation, and the generated `dist/server/server.js` entry boots the production server directly.
+
+Prerendered HTML receives document headers from `dist/server/headers-manifest.json`.
 
 ### Setup
 

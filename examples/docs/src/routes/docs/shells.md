@@ -56,6 +56,22 @@ export function head() {
 
 ---
 
+## Shell Document Headers
+
+Shells can contribute HTTP headers to page documents by exporting a `headers` function:
+
+```ts
+export function headers() {
+  return {
+    "content-security-policy": "default-src 'self'",
+  };
+}
+```
+
+Shell headers merge with route-level `headers` exports. Route headers override shell headers with the same name. These headers apply to HTML document responses and prerendered SSG/ISG HTML, not API routes or route-state JSON fetches.
+
+---
+
 ## Assigning Shells
 
 Register shells by name in `defineApp`, then reference them in routes or groups:
