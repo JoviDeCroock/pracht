@@ -1,5 +1,21 @@
 # @pracht/core
 
+## 0.2.3
+
+### Patch Changes
+
+- [#81](https://github.com/JoviDeCroock/pracht/pull/81) [`5bee2ae`](https://github.com/JoviDeCroock/pracht/commit/5bee2ae11264e844ef106e87de961285ef9d5fe6) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Fix production asset metadata wiring so built SSR and prerendered pages use hashed client entries and modulepreload hints consistently.
+
+- [#82](https://github.com/JoviDeCroock/pracht/pull/82) [`fbf5070`](https://github.com/JoviDeCroock/pracht/commit/fbf5070cca17d05f2a661c1f27232ab7e5011317) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Normalize module paths once via `normalizeModulePath` instead of duplicating `./` and `/` stripping across manifest and registry lookups. Adds a cached suffix index for O(1) manifest resolution.
+
+- [#81](https://github.com/JoviDeCroock/pracht/pull/81) [`5bee2ae`](https://github.com/JoviDeCroock/pracht/commit/5bee2ae11264e844ef106e87de961285ef9d5fe6) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Performance optimizations for SSR runtime and Node adapter
+
+  - Cache `preact-render-to-string` dynamic import to avoid repeated async resolution per request
+  - Replace O(n) suffix matching in module registry and CSS/JS manifest lookups with pre-built WeakMap indexes for O(1) resolution
+  - Parallelize SSG prerendering with batched concurrency (10 pages at a time)
+  - Switch Node adapter from sync fs operations (statSync, writeFileSync, existsSync) to async equivalents to avoid blocking the event loop
+  - Reduce Response object allocations by combining security and route header application into a single pass
+
 ## 0.2.2
 
 ### Patch Changes

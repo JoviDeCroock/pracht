@@ -1,5 +1,13 @@
 # @pracht/example-docs
 
+## 0.0.6
+
+### Patch Changes
+
+- Updated dependencies [[`5bee2ae`](https://github.com/JoviDeCroock/pracht/commit/5bee2ae11264e844ef106e87de961285ef9d5fe6), [`fbf5070`](https://github.com/JoviDeCroock/pracht/commit/fbf5070cca17d05f2a661c1f27232ab7e5011317), [`5bee2ae`](https://github.com/JoviDeCroock/pracht/commit/5bee2ae11264e844ef106e87de961285ef9d5fe6)]:
+  - @pracht/core@0.2.3
+  - @pracht/adapter-cloudflare@0.0.6
+
 ## 0.0.5
 
 ### Patch Changes

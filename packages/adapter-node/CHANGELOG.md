@@ -1,5 +1,20 @@
 # @pracht/adapter-node
 
+## 0.1.4
+
+### Patch Changes
+
+- [#81](https://github.com/JoviDeCroock/pracht/pull/81) [`5bee2ae`](https://github.com/JoviDeCroock/pracht/commit/5bee2ae11264e844ef106e87de961285ef9d5fe6) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Performance optimizations for SSR runtime and Node adapter
+
+  - Cache `preact-render-to-string` dynamic import to avoid repeated async resolution per request
+  - Replace O(n) suffix matching in module registry and CSS/JS manifest lookups with pre-built WeakMap indexes for O(1) resolution
+  - Parallelize SSG prerendering with batched concurrency (10 pages at a time)
+  - Switch Node adapter from sync fs operations (statSync, writeFileSync, existsSync) to async equivalents to avoid blocking the event loop
+  - Reduce Response object allocations by combining security and route header application into a single pass
+
+- Updated dependencies [[`5bee2ae`](https://github.com/JoviDeCroock/pracht/commit/5bee2ae11264e844ef106e87de961285ef9d5fe6), [`fbf5070`](https://github.com/JoviDeCroock/pracht/commit/fbf5070cca17d05f2a661c1f27232ab7e5011317), [`5bee2ae`](https://github.com/JoviDeCroock/pracht/commit/5bee2ae11264e844ef106e87de961285ef9d5fe6)]:
+  - @pracht/core@0.2.3
+
 ## 0.1.3
 
 ### Patch Changes

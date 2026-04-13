@@ -1,6 +1,6 @@
 {
   "name": "@pracht/adapter-node",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "homepage": "https://github.com/JoviDeCroock/pracht/tree/main/packages/adapter-node",
   "bugs": {
     "url": "https://github.com/JoviDeCroock/pracht/issues"

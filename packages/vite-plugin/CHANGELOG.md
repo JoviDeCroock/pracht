@@ -1,5 +1,18 @@
 # @pracht/vite-plugin
 
+## 0.1.4
+
+### Patch Changes
+
+- [#81](https://github.com/JoviDeCroock/pracht/pull/81) [`5bee2ae`](https://github.com/JoviDeCroock/pracht/commit/5bee2ae11264e844ef106e87de961285ef9d5fe6) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Fix production asset metadata wiring so built SSR and prerendered pages use hashed client entries and modulepreload hints consistently.
+
+- [#87](https://github.com/JoviDeCroock/pracht/pull/87) [`2170fc5`](https://github.com/JoviDeCroock/pracht/commit/2170fc5e0f29de57a47954e0b5d19427d807b728) Thanks [@kinngh](https://github.com/kinngh)! - Allow dev SSR page routes to handle dotted query strings by checking only the URL pathname before handing static assets to Vite.
+
+- Updated dependencies [[`5bee2ae`](https://github.com/JoviDeCroock/pracht/commit/5bee2ae11264e844ef106e87de961285ef9d5fe6), [`fbf5070`](https://github.com/JoviDeCroock/pracht/commit/fbf5070cca17d05f2a661c1f27232ab7e5011317), [`5bee2ae`](https://github.com/JoviDeCroock/pracht/commit/5bee2ae11264e844ef106e87de961285ef9d5fe6)]:
+  - @pracht/core@0.2.3
+  - @pracht/adapter-cloudflare@0.0.6
+  - @pracht/adapter-vercel@0.0.6
+
 ## 0.1.3
 
 ### Patch Changes
