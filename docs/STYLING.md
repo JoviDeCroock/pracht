@@ -33,7 +33,7 @@ Runtime CSS-in-JS libraries (styled-components, Emotion, goober in runtime
 mode, etc.) work, but with caveats:
 
 - On **SPA** / **CSR** routes they are fine — styles are injected by the
-  library on the client after hydration.
+  library on the client during first render.
 - On **SSR** / **SSG** / **ISG** routes the framework currently has no way to
   collect runtime-generated styles and inline them into the critical path.
   Users will see a flash of unstyled content before hydration finishes and the
