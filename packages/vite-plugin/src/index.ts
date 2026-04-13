@@ -48,6 +48,18 @@ export interface PrachtAdapter {
    * request handler or default export.
    */
   createServerEntryModule(): string;
+  /**
+   * Additional Vite plugins the adapter needs (e.g. `@cloudflare/vite-plugin`).
+   * Returned plugins are appended to the plugin array returned by `pracht()`.
+   */
+  vitePlugins?(): Plugin[] | Promise<Plugin[]>;
+  /**
+   * If true, the adapter owns dev-server request handling and the vite-plugin
+   * will not install its own SSR middleware. Used when the adapter contributes
+   * a Vite plugin that runs the dev server in a platform-specific runtime
+   * (e.g. Cloudflare workerd via `@cloudflare/vite-plugin`).
+   */
+  ownsDevServer?: boolean;
 }
 
 function createDefaultNodeAdapter(): PrachtAdapter {
@@ -206,7 +218,7 @@ export async function pracht(options: PrachtPluginOptions = {}): Promise<Plugin[
         });
       }
 
-      if (resolved.adapter.id === "cloudflare") return;
+      if (resolved.adapter.ownsDevServer) return;
       return () => {
         server.middlewares.use(createDevSSRMiddleware(server, resolved));
       };
@@ -250,17 +262,9 @@ export async function pracht(options: PrachtPluginOptions = {}): Promise<Plugin[
 
   const plugins: Plugin[] = [...preact(), prachtPlugin];
 
-  if (resolved.adapter.id === "cloudflare") {
-    const { cloudflare } = (await import("@cloudflare/vite-plugin")) as {
-      cloudflare: (opts?: { config?: { main?: string } }) => Plugin[];
-    };
-    plugins.push(
-      ...cloudflare({
-        config: {
-          main: "virtual:pracht/server",
-        },
-      }),
-    );
+  const adapterPlugins = await resolved.adapter.vitePlugins?.();
+  if (adapterPlugins?.length) {
+    plugins.push(...adapterPlugins);
   }
 
   return plugins;

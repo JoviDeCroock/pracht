@@ -29,6 +29,9 @@ export default defineConfig({
 
 ## Peer Dependencies
 
-- `vite@^8.0.0`
-- `@cloudflare/vite-plugin@^1.0.0` (optional, for Cloudflare targets)
-- `wrangler@^4.81.0` (optional, for Cloudflare targets)
+- `vite@^7.0.0 || ^8.0.0`
+
+Target-specific Vite plugins (e.g. `@cloudflare/vite-plugin`) are pulled in by
+the adapter package you install (`@pracht/adapter-cloudflare`,
+`@pracht/adapter-vercel`, etc.). The default path uses `@pracht/adapter-node`,
+which ships as a dependency of this package.

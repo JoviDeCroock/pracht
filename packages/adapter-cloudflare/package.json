@@ -28,6 +28,11 @@
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
+    "@cloudflare/vite-plugin": "^1.0.0",
     "@pracht/core": "workspace:*"
+  },
+  "peerDependencies": {
+    "vite": "^7.0.0 || ^8.0.0",
+    "wrangler": "^4.81.0"
   }
 }

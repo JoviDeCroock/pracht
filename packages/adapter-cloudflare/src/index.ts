@@ -1,4 +1,5 @@
 import type { PrachtAdapter } from "@pracht/vite-plugin";
+import type { Plugin } from "vite";
 import {
   applyDefaultSecurityHeaders,
   handlePrachtRequest,
@@ -182,10 +183,21 @@ function isFetcher(value: unknown): value is CloudflareFetcher {
 export function cloudflareAdapter(options: CloudflareServerEntryModuleOptions = {}): PrachtAdapter {
   return {
     id: "cloudflare",
+    ownsDevServer: true,
     serverImports:
       'import { applyDefaultSecurityHeaders, handlePrachtRequest, resolveApp, resolveApiRoutes } from "@pracht/core";',
     createServerEntryModule() {
       return createCloudflareServerEntryModule(options);
+    },
+    async vitePlugins(): Promise<Plugin[]> {
+      const { cloudflare } = (await import("@cloudflare/vite-plugin")) as {
+        cloudflare: (opts?: { config?: { main?: string } }) => Plugin[];
+      };
+      return cloudflare({
+        config: {
+          main: "virtual:pracht/server",
+        },
+      });
     },
   };
 }

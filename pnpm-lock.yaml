@@ -168,9 +168,18 @@ importers:
 
   packages/adapter-cloudflare:
     dependencies:
+      '@cloudflare/vite-plugin':
+        specifier: ^1.0.0
+        version: 1.31.1(vite@8.0.3(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@22.19.17)(esbuild@0.27.3))(workerd@1.20260405.1)(wrangler@4.81.0)
       '@pracht/core':
         specifier: workspace:*
         version: link:../framework
+      vite:
+        specifier: ^7.0.0 || ^8.0.0
+        version: 8.0.3(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@22.19.17)(esbuild@0.27.3)
+      wrangler:
+        specifier: ^4.81.0
+        version: 4.81.0
 
   packages/adapter-node:
     dependencies:
@@ -206,27 +215,21 @@ importers:
 
   packages/vite-plugin:
     dependencies:
-      '@cloudflare/vite-plugin':
-        specifier: ^1.0.0
-        version: 1.31.1(vite@8.0.3(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@22.19.17)(esbuild@0.27.3))(workerd@1.20260405.1)(wrangler@4.81.0)
-      '@pracht/adapter-cloudflare':
+      '@pracht/adapter-node':
         specifier: workspace:*
-        version: link:../adapter-cloudflare
-      '@pracht/adapter-vercel':
-        specifier: workspace:*
-        version: link:../adapter-vercel
+        version: link:../adapter-node
       '@pracht/core':
         specifier: workspace:*
         version: link:../framework
       '@preact/preset-vite':
         specifier: ^2.10.5
         version: 2.10.5(@babel/core@7.29.0)(preact@10.29.1)(rollup@4.60.1)(vite@8.0.3(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@22.19.17)(esbuild@0.27.3))
+      '@prefresh/vite':
+        specifier: ^2.0.0
+        version: 2.4.12(preact@10.29.1)(vite@8.0.3(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@22.19.17)(esbuild@0.27.3))
       vite:
-        specifier: ^8.0.0
+        specifier: ^7.0.0 || ^8.0.0
         version: 8.0.3(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@22.19.17)(esbuild@0.27.3)
-      wrangler:
-        specifier: ^4.81.0
-        version: 4.81.0
 
 packages:
 
