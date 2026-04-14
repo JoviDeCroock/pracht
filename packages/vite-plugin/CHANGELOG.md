@@ -1,5 +1,13 @@
 # @pracht/vite-plugin
 
+## 0.2.1
+
+### Patch Changes
+
+- Updated dependencies [[`f36f102`](https://github.com/JoviDeCroock/pracht/commit/f36f102eb9494ec8ea1db3fe20219ad95ccab257)]:
+  - @pracht/adapter-node@0.1.5
+  - @pracht/core@0.2.4
+
 ## 0.2.0
 
 ### Minor Changes
