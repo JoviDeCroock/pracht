@@ -178,7 +178,7 @@ export function createNodeRequestHandler<TContext = unknown>(
 
         // Background regeneration if stale
         if (isStale) {
-          regenerateISGPage(options, url.pathname, htmlPath).catch((err) => {
+          regenerateISGPage(options, url.pathname, htmlPath, { request, req, res }).catch((err) => {
             console.error(`ISG regeneration failed for ${url.pathname}:`, err);
           });
         }
@@ -228,12 +228,17 @@ async function regenerateISGPage<TContext>(
   options: NodeAdapterOptions<TContext>,
   pathname: string,
   htmlPath: string,
+  contextArgs?: NodeAdapterContextArgs,
 ): Promise<void> {
-  const url = new URL(pathname, "http://localhost");
-  const request = new Request(url, { method: "GET" });
+  const request = createISGRegenerationRequest(pathname, contextArgs?.request);
+  const context =
+    options.createContext && contextArgs
+      ? await options.createContext({ ...contextArgs, request })
+      : undefined;
 
   const response = await handlePrachtRequest({
     app: options.app,
+    context,
     registry: options.registry,
     request,
     clientEntryUrl: options.clientEntryUrl,
@@ -246,6 +251,16 @@ async function regenerateISGPage<TContext>(
     await mkdir(dirname(htmlPath), { recursive: true });
     await writeFile(htmlPath, html, "utf-8");
   }
+}
+
+function createISGRegenerationRequest(pathname: string, originalRequest?: Request): Request {
+  const baseUrl = originalRequest ? new URL(originalRequest.url) : new URL("http://localhost");
+  const regenerationUrl = new URL(pathname, baseUrl);
+
+  return new Request(regenerationUrl, {
+    method: "GET",
+    headers: originalRequest ? new Headers(originalRequest.headers) : undefined,
+  });
 }
 
 export function createNodeServerEntryModule(options: NodeServerEntryModuleOptions = {}): string {

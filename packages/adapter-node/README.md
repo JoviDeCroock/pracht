@@ -21,4 +21,4 @@ node dist/server/server.js
 - Converts Node.js HTTP requests to standard Web Requests
 - Serves static files from `dist/client/`
 - Loads the Vite manifest for asset injection
-- Supports ISG time-window revalidation
+- Supports ISG time-window revalidation with background regeneration that reuses `createContext()`
