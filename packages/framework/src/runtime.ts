@@ -301,7 +301,18 @@ export async function fetchPrachtRouteState(url: string): Promise<RouteStateResu
     };
   }
 
-  const json = (await response.json()) as { data?: unknown; error?: SerializedRouteError };
+  const json = (await response.json()) as {
+    data?: unknown;
+    error?: SerializedRouteError;
+    redirect?: string;
+  };
+  if (json.redirect) {
+    return {
+      location: json.redirect,
+      type: "redirect",
+    };
+  }
+
   if (!response.ok) {
     if (json.error) {
       return {
@@ -474,7 +485,7 @@ export async function handlePrachtRequest<TContext>(
       url,
     });
     if (middlewareResult.response) {
-      return withRouteResponseHeaders(middlewareResult.response, { isRouteStateRequest });
+      return normalizePageResponse(middlewareResult.response, { isRouteStateRequest });
     }
 
     routeArgs = {
@@ -503,7 +514,7 @@ export async function handlePrachtRequest<TContext>(
 
     // Allow loaders to return a Response directly (e.g. for redirects)
     if (loaderResult instanceof Response) {
-      return withRouteResponseHeaders(loaderResult, { isRouteStateRequest });
+      return normalizePageResponse(loaderResult, { isRouteStateRequest });
     }
 
     const data = loaderResult;
@@ -872,6 +883,36 @@ function jsonErrorResponse(
     status: routeError.status,
     headers,
   });
+}
+
+function jsonRedirectResponse(
+  location: string,
+  options: { headers?: HeadersInit; isRouteStateRequest: boolean },
+): Response {
+  const headers = new Headers(options.headers);
+  headers.set("content-type", "application/json; charset=utf-8");
+  const response = new Response(JSON.stringify({ redirect: location }), {
+    status: 200,
+    headers,
+  });
+  return withRouteResponseHeaders(response, { isRouteStateRequest: options.isRouteStateRequest });
+}
+
+function normalizePageResponse(
+  response: Response,
+  options: { isRouteStateRequest: boolean },
+): Response {
+  if (options.isRouteStateRequest && response.status >= 300 && response.status < 400) {
+    const location = response.headers.get("location");
+    if (location) {
+      return jsonRedirectResponse(location, {
+        headers: response.headers,
+        isRouteStateRequest: true,
+      });
+    }
+  }
+
+  return withRouteResponseHeaders(response, options);
 }
 
 function renderApiErrorResponse<TContext>(options: {

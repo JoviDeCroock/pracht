@@ -68,6 +68,64 @@ test("dashboard redirects to / without session cookie", async ({ page }) => {
   expect(response?.status()).toBe(200);
 });
 
+test("client navigation to a protected route no-ops when middleware redirects back to the current page", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page.waitForFunction(() => (window as any).__PRACHT_ROUTER_READY__);
+
+  await page.evaluate(() => {
+    (window as any).__NAV_TOKEN__ = true;
+    const link = document.createElement("a");
+    link.href = "/dashboard";
+    link.id = "protected-dashboard-link";
+    link.textContent = "Dashboard";
+    document.body.appendChild(link);
+  });
+
+  await page.click("#protected-dashboard-link", { timeout: 1_000 });
+
+  await expect(page).toHaveURL("/");
+  await expect(page.locator("h1")).toContainText("explicit app manifest");
+
+  const tokenSurvived = await page.evaluate(() => (window as any).__NAV_TOKEN__ === true);
+  expect(tokenSurvived).toBe(true);
+});
+
+test("client redirects preserve hash fragments instead of swallowing them as current-page no-ops", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page.waitForFunction(() => (window as any).__PRACHT_ROUTER_READY__);
+
+  await page.evaluate(() => {
+    (window as any).__NAV_TOKEN__ = true;
+    const originalFetch = window.fetch.bind(window);
+    window.fetch = async (input, init) => {
+      if (input === "/dashboard") {
+        return new Response(JSON.stringify({ redirect: "/#install" }), {
+          status: 200,
+          headers: { "content-type": "application/json; charset=utf-8" },
+        });
+      }
+
+      return originalFetch(input, init);
+    };
+
+    const link = document.createElement("a");
+    link.href = "/dashboard";
+    link.id = "hash-redirect-link";
+    link.textContent = "Dashboard";
+    document.body.appendChild(link);
+  });
+
+  await page.click("#hash-redirect-link", { timeout: 1_000 });
+
+  await expect(page).toHaveURL(/\/#install$/);
+  const tokenSurvived = await page.evaluate(() => (window as any).__NAV_TOKEN__ === true);
+  expect(tokenSurvived).toBe(true);
+});
+
 test("dashboard renders with session cookie", async ({ page, context }) => {
   await context.addCookies([{ name: "session", value: "abc123", domain: "localhost", path: "/" }]);
 

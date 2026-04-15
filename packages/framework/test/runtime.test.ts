@@ -365,6 +365,41 @@ describe("handlePrachtRequest cache variance", () => {
     expect(response.headers.get("cache-control")).toBe("no-store");
     await expect(response.json()).resolves.toEqual({ data: { plan: "MVP" } });
   });
+
+  it("encodes middleware redirects as JSON for route-state requests", async () => {
+    const app = defineApp({
+      middleware: {
+        auth: "./middleware/auth.ts",
+      },
+      routes: [route("/dashboard", "./routes/dashboard.tsx", { middleware: ["auth"] })],
+    });
+
+    const response = await handlePrachtRequest({
+      app,
+      registry: {
+        middlewareModules: {
+          "./middleware/auth.ts": async () => ({
+            middleware: async () => ({ redirect: "/" }),
+          }),
+        },
+        routeModules: {
+          "./routes/dashboard.tsx": async () => ({
+            Component: () => h("main", null, "dashboard"),
+          }),
+        },
+      },
+      request: new Request("http://localhost/dashboard", {
+        headers: {
+          "x-pracht-route-state-request": "1",
+        },
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toContain("application/json");
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    await expect(response.json()).resolves.toEqual({ redirect: "/" });
+  });
 });
 
 describe("handlePrachtRequest document headers", () => {

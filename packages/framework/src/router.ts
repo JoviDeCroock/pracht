@@ -148,6 +148,39 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
     );
   }
 
+  function resolveRedirectTarget(location: string): {
+    documentUrl?: string;
+    externalUrl?: string;
+    internalPath?: string;
+    isCurrentLocation: boolean;
+  } {
+    const targetUrl = new URL(location, window.location.href);
+    const fullInternalTarget = targetUrl.pathname + targetUrl.search + targetUrl.hash;
+    const internalPath = targetUrl.pathname + targetUrl.search;
+    const currentPath = window.location.pathname + window.location.search + window.location.hash;
+    const isCurrentLocation =
+      targetUrl.origin === window.location.origin && fullInternalTarget === currentPath;
+
+    if (targetUrl.origin !== window.location.origin) {
+      return {
+        externalUrl: targetUrl.toString(),
+        isCurrentLocation: false,
+      };
+    }
+
+    if (targetUrl.hash) {
+      return {
+        documentUrl: targetUrl.toString(),
+        isCurrentLocation,
+      };
+    }
+
+    return {
+      internalPath,
+      isCurrentLocation,
+    };
+  }
+
   // ------------------------------------------------------------------
   // Navigate to a new pathname
   // ------------------------------------------------------------------
@@ -177,7 +210,27 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
       const result = await statePromise;
       if (result.type === "redirect") {
         if (result.location) {
-          await navigate(result.location, opts);
+          const redirect = resolveRedirectTarget(result.location);
+          if (redirect.externalUrl) {
+            window.location.href = redirect.externalUrl;
+            return;
+          }
+
+          if (redirect.isCurrentLocation) {
+            return;
+          }
+
+          if (redirect.documentUrl) {
+            window.location.href = redirect.documentUrl;
+            return;
+          }
+
+          if (redirect.internalPath) {
+            await navigate(redirect.internalPath, opts);
+            return;
+          }
+
+          window.location.href = result.location;
           return;
         }
         window.location.href = to;

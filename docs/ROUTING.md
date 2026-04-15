@@ -214,6 +214,10 @@ group({ middleware: ["auth"] }, [route("/dashboard", () => import("./routes/dash
 Middleware from groups stacks — a route inside a group with `["auth"]` that also
 specifies `middleware: ["rateLimit"]` will run both `auth` then `rateLimit`.
 
+Client-side navigations honor same-origin middleware redirects too. If a redirect
+lands on the page the user is already on, the router treats it as a no-op
+instead of forcing a reload loop.
+
 ---
 
 ## Path Prefix Groups
