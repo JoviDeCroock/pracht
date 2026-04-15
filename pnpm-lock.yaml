@@ -168,9 +168,9 @@ importers:
 
   examples/showcase:
     dependencies:
-      '@pracht/adapter-node':
+      '@pracht/adapter-vercel':
         specifier: workspace:*
-        version: link:../../packages/adapter-node
+        version: link:../../packages/adapter-vercel
       '@pracht/core':
         specifier: workspace:*
         version: link:../../packages/framework

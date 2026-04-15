@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "dependencies": {
-    "@pracht/adapter-node": "workspace:*",
+    "@pracht/adapter-vercel": "workspace:*",
     "@pracht/core": "workspace:*"
   },
   "devDependencies": {

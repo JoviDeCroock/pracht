@@ -18,9 +18,9 @@ All six routes live in one `routes.ts` manifest, one build output, one deploymen
 ## Run it
 
 ```bash
-pnpm pracht dev        # start dev server
-pnpm pracht build      # production build
-node dist/server/server.js  # run production
+pnpm pracht dev          # start dev server
+pnpm pracht build        # production build → .vercel/output/
+npx vercel deploy --prebuilt  # deploy to Vercel
 ```
 
 ## Key files
