@@ -10,7 +10,10 @@ import {
   stripServerOnlyExportsForClient,
 } from "./client-module-transform.ts";
 
+import type { RenderMode } from "@pracht/core";
 import { generatePagesManifestSource, scanPagesDirectory } from "./pages-router.ts";
+
+export type { RenderMode };
 
 export const PRACHT_CLIENT_MODULE_ID = "virtual:pracht/client";
 export const PRACHT_SERVER_MODULE_ID = "virtual:pracht/server";
@@ -111,8 +114,6 @@ function createDefaultNodeAdapter(): PrachtAdapter {
     },
   };
 }
-
-export type RenderMode = "spa" | "ssr" | "ssg" | "isg";
 
 export interface PrachtPluginOptions {
   appFile?: string;
@@ -290,10 +291,6 @@ export async function pracht(options: PrachtPluginOptions = {}): Promise<Plugin[
   return plugins;
 }
 
-// ---------------------------------------------------------------------------
-// Virtual module source generators
-// ---------------------------------------------------------------------------
-
 export function createPrachtClientModuleSource(
   options: PrachtPluginOptions = {},
   buildOptions: { root?: string } = {},
@@ -431,10 +428,6 @@ export function createPrachtRegistryModuleSource(options: PrachtPluginOptions = 
   ].join("\n");
 }
 
-// ---------------------------------------------------------------------------
-// Pages mode: inline app source generation
-// ---------------------------------------------------------------------------
-
 function generatePagesAppInlineSource(
   options: ResolvedPrachtPluginOptions,
   root = process.cwd(),
@@ -448,10 +441,6 @@ function generatePagesAppInlineSource(
   });
   return source;
 }
-
-// ---------------------------------------------------------------------------
-// Dev SSR middleware
-// ---------------------------------------------------------------------------
 
 function createDevSSRMiddleware(
   server: ViteDevServer,

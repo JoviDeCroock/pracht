@@ -1,10 +1,6 @@
 import { readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { basename, extname, join, relative } from "node:path";
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
 export interface ScannedPage {
   absolutePath: string;
   relativePath: string;
@@ -19,10 +15,6 @@ export interface PagesRouterOptions {
   pagesDir: string;
   pagesDefaultRender?: string;
 }
-
-// ---------------------------------------------------------------------------
-// Scanner
-// ---------------------------------------------------------------------------
 
 const PAGE_EXTENSIONS = new Set([".tsx", ".ts", ".jsx", ".js", ".md", ".mdx"]);
 const SHELL_EXTENSIONS = new Set([".tsx", ".ts", ".jsx", ".js"]);
@@ -75,15 +67,8 @@ function scan(dir: string, root: string, pages: ScannedPage[]): void {
   }
 }
 
-// ---------------------------------------------------------------------------
-// File path → route path
-// ---------------------------------------------------------------------------
-
 export function filePathToRoutePath(relativePath: string): string {
-  // Strip extension
   let route = relativePath.replace(/\.(tsx?|jsx?|mdx?)$/, "");
-
-  // Normalize separators
   route = route.replace(/\\/g, "/");
 
   // _app is not a route
@@ -102,10 +87,6 @@ export function filePathToRoutePath(relativePath: string): string {
   return `/${route}`;
 }
 
-// ---------------------------------------------------------------------------
-// Sorting — static first, dynamic, catch-all last
-// ---------------------------------------------------------------------------
-
 export function sortRoutes(pages: ScannedPage[]): ScannedPage[] {
   return [...pages]
     .filter((p) => p.routePath !== "__shell__")
@@ -123,10 +104,6 @@ export function sortRoutes(pages: ScannedPage[]): ScannedPage[] {
     });
 }
 
-// ---------------------------------------------------------------------------
-// Render mode extraction (lightweight static analysis)
-// ---------------------------------------------------------------------------
-
 const RENDER_MODE_RE = /export\s+const\s+RENDER_MODE\s*=\s*["'](\w+)["']/;
 
 function extractRenderMode(source: string): string | undefined {
@@ -134,9 +111,6 @@ function extractRenderMode(source: string): string | undefined {
   return match ? match[1] : undefined;
 }
 
-// ---------------------------------------------------------------------------
-// Manifest generation
-// ---------------------------------------------------------------------------
 
 export function generatePagesManifestSource(
   pages: ScannedPage[],
@@ -151,7 +125,6 @@ export function generatePagesManifestSource(
   // Only used for ejected files; virtual modules must use plain strings.
   const useImport = options.useImportSyntax ?? false;
 
-  // Check if _app exists by scanning for it
   const allFiles = scanAllFiles(pagesDir);
   const appFile = allFiles.find(
     (f) => basename(f, extname(f)) === "_app" && SHELL_EXTENSIONS.has(extname(f)),
@@ -223,10 +196,6 @@ function scanAllFiles(dir: string): string[] {
   }
   return results;
 }
-
-// ---------------------------------------------------------------------------
-// Physical routes file generation (CLI eject)
-// ---------------------------------------------------------------------------
 
 export function generateRoutesFile(
   pagesDir: string,
