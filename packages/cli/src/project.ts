@@ -56,7 +56,7 @@ export function resolveRouteModulePath(
   routePath: string,
   extension: string,
 ): { absolutePath: string; relativePath: string } {
-  const segments = segmentsFromRoutePath(routePath);
+  const segments = segmentsFromPath(routePath);
   const relativePath =
     segments.length === 0 ? `index${extension}` : `${segments.join("/")}${extension}`;
   const absolutePath = resolve(resolveProjectPath(project.root, project.routesDir), relativePath);
@@ -68,7 +68,7 @@ export function resolvePagesRouteModulePath(
   routePath: string,
   extension: string,
 ): { absolutePath: string; relativePath: string } {
-  const segments = segmentsFromRoutePath(routePath);
+  const segments = segmentsFromPath(routePath);
   const relativePath =
     segments.length === 0 ? `index${extension}` : `${segments.join("/")}${extension}`;
   const absolutePath = resolve(resolveProjectPath(project.root, project.pagesDir), relativePath);
@@ -79,7 +79,7 @@ export function resolveApiModulePath(
   project: ProjectConfig,
   endpointPath: string,
 ): { absolutePath: string; relativePath: string } {
-  const segments = segmentsFromApiPath(endpointPath);
+  const segments = segmentsFromPath(endpointPath);
   const relativePath = segments.length === 0 ? "index.ts" : `${segments.join("/")}.ts`;
   const absolutePath = resolve(resolveProjectPath(project.root, project.apiDir), relativePath);
   return { absolutePath, relativePath };
@@ -148,19 +148,8 @@ function normalizeConfigPath(value: string): string {
   return value.startsWith("/") ? value : `/${value}`;
 }
 
-function segmentsFromRoutePath(routePath: string): string[] {
-  return routePath
-    .split("/")
-    .filter(Boolean)
-    .map((segment) => {
-      if (segment.startsWith(":")) return `[${segment.slice(1)}]`;
-      if (segment === "*") return "[...slug]";
-      return segment;
-    });
-}
-
-function segmentsFromApiPath(endpointPath: string): string[] {
-  return endpointPath
+function segmentsFromPath(path: string): string[] {
+  return path
     .split("/")
     .filter(Boolean)
     .map((segment) => {

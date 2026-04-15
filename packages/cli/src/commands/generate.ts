@@ -361,19 +361,16 @@ function generateApi(args: ApiArgs, project: ProjectConfig): GenerateResult {
   };
 }
 
-function buildManifestRouteModuleSource({
-  includeErrorBoundary,
-  includeLoader,
-  includeStaticPaths,
-  routePath,
-  title,
-}: {
+interface RouteModuleParts {
   includeErrorBoundary: boolean;
   includeLoader: boolean;
   includeStaticPaths: boolean;
   routePath: string;
   title: string;
-}): string {
+}
+
+function buildRouteModuleSections(opts: RouteModuleParts): string[] {
+  const { includeErrorBoundary, includeLoader, includeStaticPaths, routePath, title } = opts;
   const params = dynamicParamNames(routePath);
   const imports: string[] = [];
   const sections: string[] = [];
@@ -408,8 +405,6 @@ function buildManifestRouteModuleSource({
     );
   }
 
-  sections.push("export function head() {", `  return { title: ${quote(title)} };`, "}", "");
-
   if (includeLoader) {
     sections.push(
       "export function Component({ data }: RouteComponentProps<typeof loader>) {",
@@ -441,92 +436,35 @@ function buildManifestRouteModuleSource({
       "}",
     );
   }
+
+  return sections;
+}
+
+function buildManifestRouteModuleSource(opts: RouteModuleParts): string {
+  const sections = buildRouteModuleSections(opts);
+
+  // Insert head() before the Component export (after loader/getStaticPaths)
+  const componentIdx = sections.findIndex((s) => s.startsWith("export function Component"));
+  const insertAt = componentIdx === -1 ? sections.length : componentIdx;
+  sections.splice(
+    insertAt,
+    0,
+    "export function head() {",
+    `  return { title: ${quote(opts.title)} };`,
+    "}",
+    "",
+  );
 
   return `${sections.join("\n")}\n`;
 }
 
-function buildPagesRouteModuleSource({
-  includeErrorBoundary,
-  includeLoader,
-  includeStaticPaths,
-  render,
-  routePath,
-  title,
-}: {
-  includeErrorBoundary: boolean;
-  includeLoader: boolean;
-  includeStaticPaths: boolean;
-  render: string;
-  routePath: string;
-  title: string;
-}): string {
-  const params = dynamicParamNames(routePath);
-  const imports: string[] = [];
-  const sections: string[] = [];
+function buildPagesRouteModuleSource(opts: RouteModuleParts & { render: string }): string {
+  const sections = buildRouteModuleSections(opts);
 
-  if (includeLoader) {
-    imports.push("LoaderArgs", "RouteComponentProps");
-  }
-  if (includeErrorBoundary) {
-    imports.push("ErrorBoundaryProps");
-  }
-
-  if (imports.length > 0) {
-    sections.push(`import type { ${imports.join(", ")} } from "@pracht/core";`);
-    sections.push("");
-  }
-
-  sections.push(`export const RENDER_MODE = ${quote(render)};`, "");
-
-  if (includeLoader) {
-    sections.push(
-      "export async function loader(_args: LoaderArgs) {",
-      `  return { message: ${quote(`Welcome to ${title}.`)} };`,
-      "}",
-      "",
-    );
-  }
-
-  if (includeStaticPaths) {
-    sections.push(
-      "export function getStaticPaths() {",
-      `  return [${buildStaticPathsStub(params)}];`,
-      "}",
-      "",
-    );
-  }
-
-  if (includeLoader) {
-    sections.push(
-      "export function Component({ data }: RouteComponentProps<typeof loader>) {",
-      "  return (",
-      "    <section>",
-      `      <h1>${escapeJsxText(title)}</h1>`,
-      "      <p>{data.message}</p>",
-      "    </section>",
-      "  );",
-      "}",
-    );
-  } else {
-    sections.push(
-      "export function Component() {",
-      "  return (",
-      "    <section>",
-      `      <h1>${escapeJsxText(title)}</h1>`,
-      "    </section>",
-      "  );",
-      "}",
-    );
-  }
-
-  if (includeErrorBoundary) {
-    sections.push(
-      "",
-      "export function ErrorBoundary({ error }: ErrorBoundaryProps) {",
-      "  return <p>{error.message}</p>;",
-      "}",
-    );
-  }
+  // Insert RENDER_MODE before the first exported declaration (after imports)
+  const firstExportIdx = sections.findIndex((s) => s.startsWith("export"));
+  const insertAt = firstExportIdx === -1 ? sections.length : firstExportIdx;
+  sections.splice(insertAt, 0, `export const RENDER_MODE = ${quote(opts.render)};`, "");
 
   return `${sections.join("\n")}\n`;
 }
