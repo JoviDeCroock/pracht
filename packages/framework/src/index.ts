@@ -22,7 +22,6 @@ export {
   useLocation,
   useParams,
   useRevalidate,
-  useRevalidateRoute,
   useRouteData,
   PrachtRuntimeProvider,
 } from "./runtime.ts";

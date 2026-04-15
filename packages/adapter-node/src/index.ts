@@ -66,7 +66,6 @@ export interface NodeAdapterOptions<TContext = unknown> {
   isgManifest?: Record<string, ISGManifestEntry>;
   apiRoutes?: ResolvedApiRoute[];
   clientEntryUrl?: string;
-  cssUrls?: string[];
   cssManifest?: Record<string, string[]>;
   jsManifest?: Record<string, string[]>;
   headersManifest?: HeadersManifest;
@@ -117,8 +116,7 @@ export function createNodeRequestHandler<TContext = unknown>(
     const url = new URL(request.url);
     const isRouteStateRequest = request.headers.get(ROUTE_STATE_REQUEST_HEADER) === "1";
 
-    // --- Serve static assets from the client build directory ---
-    // Skip index.html resolution for ISG routes (handled below with staleness logic).
+    // Skip index.html for ISG routes — those go through the staleness check below.
     if (staticDir && request.method === "GET") {
       const staticResult = await resolveStaticFile(staticDir, url.pathname, isgManifest);
       if (staticResult) {
@@ -141,7 +139,6 @@ export function createNodeRequestHandler<TContext = unknown>(
       }
     }
 
-    // --- ISG stale-while-revalidate for GET requests ---
     if (
       staticDir &&
       request.method === "GET" &&
@@ -356,8 +353,6 @@ function resolveOrigin(
   if (!trustProxy) {
     return { protocol: socketProtocol, host: socketHost };
   }
-
-  // --- Trusted proxy path ---
 
   // 1. RFC 7239 `Forwarded` header (highest precedence)
   const forwarded = getFirstHeaderValue(req.headers.forwarded);

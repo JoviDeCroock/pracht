@@ -75,7 +75,7 @@ specified in the config, it takes precedence over inline exports.
 
 - **Head**: `export function head(args)` — per-route `<head>` metadata merged with
   shell-level head.
-- **Client hooks**: `useRouteData()`, `useRevalidateRoute()`, `<Form>` component.
+- **Client hooks**: `useRouteData()`, `useRevalidate()`, `<Form>` component.
 
 ### API Routes
 
@@ -131,7 +131,7 @@ SSR and SSG, deployed to Node. Thoroughly tested with Playwright E2E tests.
    - Router: `matchAppRoute()` segment-based matching
    - Server renderer: `handlePrachtRequest()` → full HTML with hydration state
    - Client runtime: `startApp()`, hydration, client-side navigation
-   - Hooks: `useRouteData()`, `useRevalidateRoute()`, `<Form>`
+   - Hooks: `useRouteData()`, `useRevalidate()`, `<Form>`
 
 2. **`packages/vite-plugin`** — Vite integration
    - Virtual modules: `virtual:pracht/client`, `virtual:pracht/server`

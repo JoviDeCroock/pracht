@@ -290,7 +290,7 @@ export default async function handle(request, context) {
     context,
     apiRoutes,
     clientEntryUrl: clientEntryUrl ?? undefined,
-    cssUrls,
+    cssManifest,
   });
 }
 ```

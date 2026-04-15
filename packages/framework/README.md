@@ -37,7 +37,7 @@ metadata for the failure phase and matched framework files when available.
 - `startApp()` — client-side hydration and runtime
 - `useLocation()` — access the current pathname and search string separately
 - `useRouteData()` — access loader data inside a route component
-- `useRevalidateRoute()` — trigger a revalidation of the current route's data
+- `useRevalidate()` — trigger a revalidation of the current route's data
 - `<Form>` — progressive enhancement form component
 
 ### Types
