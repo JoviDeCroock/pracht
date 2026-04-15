@@ -1,5 +1,11 @@
 # @pracht/core
 
+## 0.2.5
+
+### Patch Changes
+
+- [`628a3e2`](https://github.com/JoviDeCroock/pracht/commit/628a3e27c78ffd11d8ab3ee34da8e77e5e7a7a3e) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Add MIT license metadata and LICENSE files to all published packages.
+
 ## 0.2.4
 
 ### Patch Changes
