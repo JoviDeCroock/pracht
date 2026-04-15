@@ -238,7 +238,7 @@ function gooberPlugin(): PrachtPlugin {
     afterRender: () => {
       // Collect critical CSS and inject into <head>
       const css = extractCss();
-      return css ? `<style id="_goober">${css}</style>` : undefined;
+      return css ? { head: `<style id="_goober">${css}</style>` } : undefined;
     },
   };
 }
@@ -250,7 +250,7 @@ export const app = defineApp({
 ```
 
 - **`beforeRender`** runs immediately before `renderToStringAsync()`.
-- **`afterRender`** runs immediately after. Returning a string injects it into `<head>`.
+- **`afterRender`** runs immediately after. Return `{ head: "..." }` to inject markup into `<head>`.
 - Plugins run in array order; all `beforeRender` hooks fire, then render, then all `afterRender` hooks.
 - Both hooks support async (returning a Promise).
 - Plugins do not run for route-state JSON requests (client navigations), only for HTML renders.

@@ -70,6 +70,7 @@ export type {
   ShellModule,
   ShellProps,
   TimeRevalidatePolicy,
+  AfterRenderResult,
   PrachtApp,
   PrachtAppConfig,
   PrachtPlugin,

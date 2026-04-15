@@ -57,8 +57,8 @@ async function runPluginHooks(
     const fn = plugin[hook];
     if (!fn) continue;
     const result = await fn();
-    if (hook === "afterRender" && typeof result === "string") {
-      headResults.push(result);
+    if (hook === "afterRender" && result && typeof result === "object" && result.head) {
+      headResults.push(result.head);
     }
   }
   if (hook === "afterRender") return headResults;
