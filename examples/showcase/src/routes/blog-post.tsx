@@ -1,6 +1,12 @@
 import type { LoaderArgs, RouteComponentProps, RouteParams } from "@pracht/core";
 
-const POSTS: Record<string, { title: string; date: string; body: string }> = {
+interface Post {
+  title: string;
+  date: string;
+  body: string;
+}
+
+const POSTS: Record<string, Post> = {
   "why-pracht": {
     title: "Why we built Pracht",
     date: "2026-04-10",
@@ -63,7 +69,7 @@ export function Component({ data }: RouteComponentProps<typeof loader>) {
       ))}
       <footer>
         <a href="/blog/why-pracht">Why we built Pracht</a>
-        {" · "}
+        <span class="sep">&middot;</span>
         <a href="/blog/per-route-rendering">Per-route rendering explained</a>
       </footer>
     </article>

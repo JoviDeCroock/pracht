@@ -1,6 +1,13 @@
 import { Form, useRevalidate, type LoaderArgs, type RouteComponentProps } from "@pracht/core";
 
-const PROJECTS = [
+interface Project {
+  id: string;
+  name: string;
+  status: string;
+  deploys: number;
+}
+
+const PROJECTS: Project[] = [
   { id: "1", name: "Marketing site", status: "live", deploys: 42 },
   { id: "2", name: "API v2", status: "building", deploys: 18 },
   { id: "3", name: "Mobile app", status: "live", deploys: 7 },
@@ -18,9 +25,7 @@ export async function loader({ request }: LoaderArgs) {
 }
 
 export function head({ data }: RouteComponentProps<typeof loader>) {
-  return {
-    title: `Dashboard — ${data.user}`,
-  };
+  return { title: `Dashboard — ${data.user}` };
 }
 
 export function Component({ data }: RouteComponentProps<typeof loader>) {
@@ -30,7 +35,7 @@ export function Component({ data }: RouteComponentProps<typeof loader>) {
     <section class="dashboard">
       <h1>Welcome back, {data.user}</h1>
       <p class="dashboard-stat">
-        {data.projects.length} projects · {data.totalDeploys} deploys
+        {data.projects.length} projects &middot; {data.totalDeploys} deploys
       </p>
 
       <div class="project-list">
@@ -38,7 +43,7 @@ export function Component({ data }: RouteComponentProps<typeof loader>) {
           <a key={project.id} href={`/app/projects/${project.id}`} class="project-card">
             <strong>{project.name}</strong>
             <span class={`status status-${project.status}`}>{project.status}</span>
-            <span>{project.deploys} deploys</span>
+            <span class="deploys">{project.deploys} deploys</span>
           </a>
         ))}
       </div>

@@ -1,13 +1,19 @@
 import { useState } from "preact/hooks";
 import type { LoaderArgs, RouteComponentProps } from "@pracht/core";
 
+interface Preferences {
+  theme: string;
+  emailNotifications: boolean;
+  deployAlerts: boolean;
+}
+
 export async function loader(_args: LoaderArgs) {
   return {
     preferences: {
       theme: "system",
       emailNotifications: true,
       deployAlerts: true,
-    },
+    } satisfies Preferences,
   };
 }
 
@@ -17,8 +23,8 @@ export function head() {
 
 export function Component({ data }: RouteComponentProps<typeof loader>) {
   const [theme, setTheme] = useState(data.preferences.theme);
-  const [emails, setEmails] = useState(data.preferences.emailNotifications);
-  const [deploys, setDeploys] = useState(data.preferences.deployAlerts);
+  const [emails, setEmails] = useState<boolean>(data.preferences.emailNotifications);
+  const [deploys, setDeploys] = useState<boolean>(data.preferences.deployAlerts);
   const [saved, setSaved] = useState(false);
 
   function handleSave() {
@@ -58,7 +64,7 @@ export function Component({ data }: RouteComponentProps<typeof loader>) {
         </label>
       </fieldset>
 
-      <button type="button" onClick={handleSave}>
+      <button type="button" class={saved ? "btn-saved" : ""} onClick={handleSave}>
         {saved ? "Saved!" : "Save preferences"}
       </button>
     </section>

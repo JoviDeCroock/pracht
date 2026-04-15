@@ -1,16 +1,22 @@
 import type { ShellProps } from "@pracht/core";
+import "../styles/global.css";
 
 export function Shell({ children }: ShellProps) {
   return (
     <div class="app-layout">
       <aside class="sidebar">
-        <strong class="sidebar-logo">Launchpad</strong>
+        <div class="sidebar-logo">
+          <span class="logo-mark" style="width:20px;height:20px;font-size:9px">
+            L
+          </span>
+          Launchpad
+        </div>
         <nav>
           <a href="/app">Dashboard</a>
           <a href="/app/settings">Settings</a>
         </nav>
         <a href="/" class="sidebar-back">
-          Back to site
+          &larr; Back to site
         </a>
       </aside>
       <main class="app-main">{children}</main>
@@ -27,9 +33,7 @@ export function Loading() {
 }
 
 export function head() {
-  return {
-    title: "Launchpad — App",
-  };
+  return { title: "Launchpad — App" };
 }
 
 export function headers() {
