@@ -1,25 +1,9 @@
 import { cpSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { DEFAULT_SECURITY_HEADERS, VERSION } from "./constants.js";
+import { VERSION } from "./constants.js";
 
 const ROUTE_STATE_REQUEST_HEADER = "x-pracht-route-state-request";
-
-interface HeaderSettable {
-  setHeader(key: string, value: string): void;
-}
-
-export function setDefaultSecurityHeaders(
-  res: HeaderSettable,
-  headers: Record<string, string> = {},
-): void {
-  for (const [key, value] of Object.entries({
-    ...DEFAULT_SECURITY_HEADERS,
-    ...headers,
-  })) {
-    res.setHeader(key, value);
-  }
-}
 
 interface VercelBuildOutputOptions {
   functionName?: string;
