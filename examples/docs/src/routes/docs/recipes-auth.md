@@ -323,3 +323,44 @@ This is a pure header check — it doesn't issue or validate tokens. Pair it wit
 ### 3. Token-based CSRF
 
 Only reach for per-request CSRF tokens if your cookies must be `SameSite=None` (e.g. you embed the app in a third-party iframe). For first-party apps, the two layers above are sufficient.
+
+---
+
+## Bearer tokens instead of cookies
+
+If your auth uses a short-lived bearer token kept on the client (e.g. returned
+from an OAuth token endpoint) rather than a session cookie, the token must be
+attached to every client-initiated route-state fetch — not just the initial
+SSR request. Use `configureClient()` at the top of `src/routes.ts` so the
+framework's own navigation, revalidation, prefetch, and `<Form>` fetches all
+forward it:
+
+```ts [src/routes.ts]
+import { configureClient, defineApp } from "@pracht/core";
+import { getToken } from "./auth/token";
+
+configureClient({
+  fetch: (input, init) => {
+    const token = getToken();
+    return fetch(input, {
+      ...init,
+      headers: {
+        ...(init?.headers as Record<string, string> | undefined),
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+    });
+  },
+});
+
+export const app = defineApp({ /* ... */ });
+```
+
+Loaders then read the header the same way on either the first SSR render or
+subsequent client navigations:
+
+```ts
+export async function loader({ request }: LoaderArgs) {
+  const token = request.headers.get("authorization")?.replace(/^Bearer /, "");
+  // ...
+}
+```
