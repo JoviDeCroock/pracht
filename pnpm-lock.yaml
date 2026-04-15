@@ -166,6 +166,31 @@ importers:
         specifier: ^8.0.0
         version: 8.0.3(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@22.19.17)(esbuild@0.27.3)
 
+  examples/showcase:
+    dependencies:
+      '@pracht/adapter-node':
+        specifier: workspace:*
+        version: link:../../packages/adapter-node
+      '@pracht/core':
+        specifier: workspace:*
+        version: link:../../packages/framework
+    devDependencies:
+      '@pracht/cli':
+        specifier: workspace:*
+        version: link:../../packages/cli
+      '@pracht/vite-plugin':
+        specifier: workspace:*
+        version: link:../../packages/vite-plugin
+      preact:
+        specifier: ^10.26.9
+        version: 10.29.1
+      preact-render-to-string:
+        specifier: ^6.5.13
+        version: 6.6.7(preact@10.29.1)
+      vite:
+        specifier: ^8.0.0
+        version: 8.0.3(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@22.19.17)(esbuild@0.27.3)
+
   packages/adapter-cloudflare:
     dependencies:
       '@cloudflare/vite-plugin':
