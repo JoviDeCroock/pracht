@@ -58,6 +58,7 @@ export function route(
     path: normalizeRoutePath(path),
     file: resolveModuleRef(component),
     loaderFile: resolveModuleRef(loader),
+    hasLoader: !!loader,
     ...routeMeta,
   };
 }
@@ -175,6 +176,7 @@ function flattenRouteNode(
     path: fullPath,
     file: node.file,
     loaderFile: node.loaderFile,
+    hasLoader: node.loaderFile ? true : node.hasLoader,
     shell,
     shellFile: shell ? app.shells[shell] : undefined,
     render: node.render ?? inherited.render,

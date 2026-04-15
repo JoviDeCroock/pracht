@@ -9,12 +9,17 @@ import { getCachedRouteState, setupPrefetching } from "./prefetch.ts";
 import type { ModuleWarmFn } from "./prefetch.ts";
 import type { ResolvedPrachtApp, RouteMatch, RouteParams } from "./types.ts";
 import {
-  deserializeRouteError,
   fetchPrachtRouteState,
   parseSafeNavigationUrl,
+  routeNeedsServerFetch,
+} from "./runtime-client-fetch.ts";
+import {
+  deserializeRouteError,
   PrachtRuntimeProvider,
+  type SerializedRouteError,
+  type PrachtHydrationState,
 } from "./runtime.ts";
-import type { SerializedRouteError, PrachtHydrationState } from "./runtime.ts";
+import type { RouteStateResult } from "./runtime-client-fetch.ts";
 
 interface RouteRenderState {
   Shell: FunctionComponent | null;
@@ -241,8 +246,13 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
     }
 
     // Start route-state fetch and module imports in parallel
-    const statePromise =
-      getCachedRouteState(target.requestUrl) ?? fetchPrachtRouteState(target.requestUrl);
+    let statePromise: Promise<RouteStateResult>;
+    if (routeNeedsServerFetch(match.route)) {
+      statePromise =
+        getCachedRouteState(target.requestUrl) ?? fetchPrachtRouteState(target.requestUrl);
+    } else {
+      statePromise = Promise.resolve({ type: "data" as const, data: undefined });
+    }
     const routeModPromise = startRouteImport(match);
     const shellModPromise = startShellImport(match);
 

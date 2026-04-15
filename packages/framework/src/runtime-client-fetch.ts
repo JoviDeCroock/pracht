@@ -1,5 +1,6 @@
 import { ROUTE_STATE_REQUEST_HEADER } from "./runtime-constants.ts";
 import type { SerializedRouteError } from "./runtime-errors.ts";
+import type { ResolvedRoute } from "./types.ts";
 
 export type RouteStateResult =
   | { type: "data"; data: unknown }
@@ -29,6 +30,11 @@ export function parseSafeNavigationUrl(location: string, base: string | URL): UR
     return null;
   }
   return targetUrl;
+}
+
+export function routeNeedsServerFetch(route: ResolvedRoute): boolean {
+  if (route.hasLoader === false && route.middlewareFiles.length === 0) return false;
+  return true;
 }
 
 export function buildRouteStateUrl(url: string): string {

@@ -1,11 +1,13 @@
 import { matchAppRoute } from "./app.ts";
-import { fetchPrachtRouteState } from "./runtime.ts";
-import type { RouteStateResult } from "./runtime.ts";
-import type { ResolvedPrachtApp, PrefetchStrategy, RouteMatch } from "./types.ts";
+import { fetchPrachtRouteState, routeNeedsServerFetch } from "./runtime-client-fetch.ts";
+import type { RouteStateResult } from "./runtime-client-fetch.ts";
+import type { ResolvedPrachtApp, ResolvedRoute, PrefetchStrategy, RouteMatch } from "./types.ts";
 
 export type ModuleWarmFn = (match: RouteMatch) => void;
 
 const CACHE_TTL_MS = 30_000;
+const EMPTY_ROUTE_STATE: RouteStateResult = { type: "data", data: undefined };
+const EMPTY_ROUTE_STATE_PROMISE: Promise<RouteStateResult> = Promise.resolve(EMPTY_ROUTE_STATE);
 
 interface CacheEntry {
   promise: Promise<RouteStateResult>;
@@ -24,7 +26,9 @@ export function getCachedRouteState(url: string): Promise<RouteStateResult> | nu
   return entry.promise;
 }
 
-export function prefetchRouteState(url: string): Promise<RouteStateResult> {
+export function prefetchRouteState(url: string, route?: ResolvedRoute): Promise<RouteStateResult> {
+  if (route && !routeNeedsServerFetch(route)) return EMPTY_ROUTE_STATE_PROMISE;
+
   const cached = getCachedRouteState(url);
   if (cached) return cached;
 
@@ -85,12 +89,10 @@ export function setupPrefetching(app: ResolvedPrachtApp, warmModules?: ModuleWar
 
       if (hoverTimer) clearTimeout(hoverTimer);
       hoverTimer = setTimeout(() => {
-        prefetchRouteState(href);
-        if (warmModules) {
-          const pathname = getRoutePathname(href);
-          const m = pathname ? matchAppRoute(app, pathname) : undefined;
-          if (m) warmModules(m);
-        }
+        const pathname = getRoutePathname(href);
+        const m = pathname ? matchAppRoute(app, pathname) : undefined;
+        prefetchRouteState(href, m?.route);
+        if (warmModules && m) warmModules(m);
       }, 50);
     },
     true,
@@ -121,12 +123,10 @@ export function setupPrefetching(app: ResolvedPrachtApp, warmModules?: ModuleWar
       const strategy = getPrefetchStrategy(href);
       if (strategy !== "hover" && strategy !== "intent") return;
 
-      prefetchRouteState(href);
-      if (warmModules) {
-        const pathname = getRoutePathname(href);
-        const m = pathname ? matchAppRoute(app, pathname) : undefined;
-        if (m) warmModules(m);
-      }
+      const pathname = getRoutePathname(href);
+      const m = pathname ? matchAppRoute(app, pathname) : undefined;
+      prefetchRouteState(href, m?.route);
+      if (warmModules && m) warmModules(m);
     },
     true,
   );
@@ -141,12 +141,10 @@ export function setupPrefetching(app: ResolvedPrachtApp, warmModules?: ModuleWar
         const anchor = entry.target as HTMLAnchorElement;
         const href = getInternalHref(anchor);
         if (!href) continue;
-        prefetchRouteState(href);
-        if (warmModules) {
-          const pathname = getRoutePathname(href);
-          const m = pathname ? matchAppRoute(app, pathname) : undefined;
-          if (m) warmModules(m);
-        }
+        const pathname = getRoutePathname(href);
+        const m = pathname ? matchAppRoute(app, pathname) : undefined;
+        prefetchRouteState(href, m?.route);
+        if (warmModules && m) warmModules(m);
         observer.unobserve(anchor);
       }
     },
