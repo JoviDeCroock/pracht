@@ -1,6 +1,6 @@
 ---
 title: Prefetching
-lead: pracht prefetches route data before navigation so page transitions feel instant. Prefetching is automatic for server-rendered routes and can be configured per route.
+lead: pracht prefetches route data before navigation so page transitions feel instant. Prefetching is automatic by default and can be configured per route.
 breadcrumb: Prefetching
 prev:
   href: /docs/adapters
@@ -27,16 +27,14 @@ Each route can declare a `prefetch` strategy in its route meta:
 | `"intent"`   | Mouse hover or keyboard focus (50ms debounce) | Most routes — low overhead, high hit rate |
 | `"viewport"` | Link scrolls into view (IntersectionObserver) | Navigation menus, link-heavy pages        |
 | `"hover"`    | Same as intent (hover + focus)                | Alias for intent                          |
-| `"none"`     | Disabled                                      | SPA routes, rarely visited pages          |
+| `"none"`     | Disabled                                      | Rarely visited pages                      |
 
 ---
 
 ## Defaults
 
-You don't need to configure anything for most apps. The defaults are:
-
-- **SSR, SSG, ISG routes** — `"intent"` (prefetch on hover/focus)
-- **SPA routes** — `"none"` (SPA routes already fetch data on load, so prefetching the server payload has no benefit)
+You don't need to configure anything for most apps. The default for all routes
+is `"intent"` (prefetch on hover/focus).
 
 ---
 

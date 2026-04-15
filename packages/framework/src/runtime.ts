@@ -290,7 +290,7 @@ export type RouteStateResult =
 
 export async function fetchPrachtRouteState(url: string): Promise<RouteStateResult> {
   const response = await fetch(url, {
-    headers: { [ROUTE_STATE_REQUEST_HEADER]: "1" },
+    headers: { [ROUTE_STATE_REQUEST_HEADER]: "1", "Cache-Control": "no-cache" },
     redirect: "manual",
   });
 
@@ -523,14 +523,7 @@ export async function handlePrachtRequest<TContext>(
 
     // --- Route state request (client navigation): return JSON ---
     if (isRouteStateRequest) {
-      const routeStateHeaders: Record<string, string> = {};
-      const renderMode = match.route.render;
-      if (renderMode === "spa" || renderMode === "ssg" || renderMode === "isg") {
-        routeStateHeaders["cache-control"] = "private, max-age=30";
-      }
-      return withRouteResponseHeaders(Response.json({ data }, { headers: routeStateHeaders }), {
-        isRouteStateRequest: true,
-      });
+      return withRouteResponseHeaders(Response.json({ data }), { isRouteStateRequest: true });
     }
 
     // --- Load shell module ---
