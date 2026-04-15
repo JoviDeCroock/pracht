@@ -171,6 +171,7 @@ export interface RouteMeta {
   middleware?: string[];
   revalidate?: RouteRevalidate;
   prefetch?: PrefetchStrategy;
+  hasLoader?: boolean;
 }
 
 export interface GroupMeta {

@@ -93,7 +93,7 @@ describe("generatePagesManifestSource", () => {
     });
 
     expect(source).not.toContain("shells:");
-    expect(source).toContain('route("/", "./index.mdx", { render: "ssr" })');
+    expect(source).toContain('route("/", "./index.mdx", { render: "ssr", hasLoader: false })');
   });
 });
 

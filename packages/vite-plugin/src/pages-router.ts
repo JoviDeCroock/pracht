@@ -9,6 +9,7 @@ export interface ScannedPage {
   isCatchAll: boolean;
   isDynamic: boolean;
   renderMode?: string;
+  hasLoader?: boolean;
 }
 
 export interface PagesRouterOptions {
@@ -54,6 +55,7 @@ function scan(dir: string, root: string, pages: ScannedPage[]): void {
     const routePath = filePathToRoutePath(rel);
     const source = readFileSync(abs, "utf-8");
     const renderMode = extractRenderMode(source);
+    const hasLoader = detectLoaderExport(source);
 
     pages.push({
       absolutePath: abs,
@@ -63,6 +65,7 @@ function scan(dir: string, root: string, pages: ScannedPage[]): void {
       isCatchAll: routePath.split("/").includes("*"),
       isDynamic: routePath.split("/").some((segment) => segment.startsWith(":")),
       renderMode,
+      hasLoader,
     });
   }
 }
@@ -136,6 +139,12 @@ function extractRenderMode(source: string): string | undefined {
   return match ? match[1] : undefined;
 }
 
+const LOADER_EXPORT_RE = /export\s+(?:async\s+)?(?:function|const)\s+loader\b/;
+
+function detectLoaderExport(source: string): boolean {
+  return LOADER_EXPORT_RE.test(source);
+}
+
 export function generatePagesManifestSource(
   pages: ScannedPage[],
   options: PagesRouterOptions & { pagesDirPrefix?: string; useImportSyntax?: boolean },
@@ -166,8 +175,12 @@ export function generatePagesManifestSource(
     const fileRef = useImport
       ? `() => import(${JSON.stringify(filePath)})`
       : JSON.stringify(filePath);
+    const metaParts = [
+      `render: ${JSON.stringify(render)}`,
+      `hasLoader: ${page.hasLoader ? "true" : "false"}`,
+    ];
     routeEntries.push(
-      `    route(${JSON.stringify(page.routePath)}, ${fileRef}, { render: ${JSON.stringify(render)} })`,
+      `    route(${JSON.stringify(page.routePath)}, ${fileRef}, { ${metaParts.join(", ")} })`,
     );
   }
 
