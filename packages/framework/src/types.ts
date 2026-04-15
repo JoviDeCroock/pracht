@@ -39,7 +39,9 @@ export type RouteRevalidate = TimeRevalidatePolicy;
 
 export type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "HEAD" | "OPTIONS";
 
-export type ApiRouteArgs<TContext = RegisteredContext> = BaseRouteArgs<TContext>;
+export type ApiRouteArgs<TContext = RegisteredContext> = Omit<BaseRouteArgs<TContext>, "route"> & {
+  route: ResolvedApiRoute;
+};
 
 export type ApiRouteHandler<TContext = RegisteredContext> = (
   args: ApiRouteArgs<TContext>,

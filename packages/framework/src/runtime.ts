@@ -1,8 +1,8 @@
 import { createContext, h } from "preact";
-import type { ComponentChildren, JSX } from "preact";
+import type { ComponentChildren, FunctionComponent, JSX } from "preact";
 import { useContext, useEffect, useMemo, useState } from "preact/hooks";
 
-import { matchApiRoute, matchAppRoute } from "./app.ts";
+import { buildPathFromSegments, matchApiRoute, matchAppRoute, resolveApp } from "./app.ts";
 import type {
   ApiRouteArgs,
   ApiRouteModule,
@@ -68,10 +68,8 @@ export interface HandlePrachtRequestOptions<TContext = unknown> {
   /** Expose raw server error details in rendered HTML and route-state JSON. */
   debugErrors?: boolean;
   clientEntryUrl?: string;
-  /** Per-source-file CSS map produced by the vite plugin (preferred over cssUrls). */
+  /** Per-source-file CSS map produced by the vite plugin. */
   cssManifest?: Record<string, string[]>;
-  /** @deprecated Pass cssManifest instead for per-page CSS resolution. */
-  cssUrls?: string[];
   /** Per-source-file JS chunk map produced by the vite plugin for modulepreload hints. */
   jsManifest?: Record<string, string[]>;
   apiRoutes?: ResolvedApiRoute[];
@@ -132,8 +130,6 @@ export function PrachtRuntimeProvider<TData>({
   stateVersion?: number;
   url: string;
 }) {
-  // TODO: make signal with getter to reduce
-  // re-renders caused by the framework itself.
   const [routeDataState, setRouteDataState] = useState({
     data,
     stateVersion,
@@ -199,13 +195,9 @@ export function readHydrationState<TData = unknown>(): PrachtHydrationState<TDat
     return undefined;
   }
 
-  try {
-    const state = JSON.parse(raw) as PrachtHydrationState<TData>;
-    window.__PRACHT_STATE__ = state as PrachtHydrationState;
-    return state;
-  } catch {
-    return undefined;
-  }
+  const state = JSON.parse(raw) as PrachtHydrationState<TData>;
+  window.__PRACHT_STATE__ = state as PrachtHydrationState;
+  return state;
 }
 
 export function useRouteData<TData = unknown>(): TData {
@@ -252,9 +244,6 @@ export function useRevalidate() {
     return result.data;
   };
 }
-
-/** @deprecated Use useRevalidate instead. */
-export const useRevalidateRoute = useRevalidate;
 
 export function Form(props: FormProps) {
   const { onSubmit, method, ...rest } = props;
@@ -370,7 +359,6 @@ export async function handlePrachtRequest<TContext>(
     options.request.headers.get(ROUTE_STATE_REQUEST_HEADER) === "1" || hasDataParam;
   const exposeDiagnostics = shouldExposeServerErrors(options);
 
-  // --- API route dispatch (before page routes) ---
   if (options.apiRoutes?.length) {
     const apiMatch = matchApiRoute(options.apiRoutes, url.pathname);
     if (apiMatch) {
@@ -422,7 +410,7 @@ export async function handlePrachtRequest<TContext>(
           context: middlewareResult.context,
           signal: AbortSignal.timeout(30_000),
           url,
-          route: apiMatch.route as any,
+          route: apiMatch.route,
         };
 
         return withDefaultSecurityHeaders(await handler(apiRouteArgs));
@@ -559,19 +547,16 @@ export async function handlePrachtRequest<TContext>(
       context: middlewareResult.context,
     };
 
-    // --- Load route module ---
     currentPhase = "render";
     routeModule = await routeModulePromise;
     if (!routeModule) {
       throw new Error("Route module not found");
     }
 
-    // --- Resolve loader from separate data module or route module ---
     currentPhase = "loader";
     const { loader, loaderFile: resolvedLoaderFile } = await dataFunctionsPromise;
     loaderFile = resolvedLoaderFile;
 
-    // --- Execute loader ---
     const loaderResult = loader ? await loader(routeArgs) : undefined;
 
     // Allow loaders to return a Response directly (e.g. for redirects)
@@ -581,18 +566,15 @@ export async function handlePrachtRequest<TContext>(
 
     const data = loaderResult;
 
-    // --- Route state request (client navigation): return JSON ---
     if (isRouteStateRequest) {
       return withRouteResponseHeaders(Response.json({ data }), { isRouteStateRequest: true });
     }
 
-    // --- Load shell module ---
     // Shell import was kicked off up front; this await is usually already
     // resolved by the time we get here (it runs in parallel with the loader).
     currentPhase = "render";
     shellModule = await shellModulePromise;
 
-    // --- Merge document metadata ---
     // head and document headers are independent; run them concurrently.
     const [head, documentHeaders] = await Promise.all([
       mergeHeadMetadata(shellModule, routeModule, routeArgs, data),
@@ -602,13 +584,12 @@ export async function handlePrachtRequest<TContext>(
     const cssUrls = resolvePageCssUrls(options, match.route.shellFile, match.route.file);
     const modulePreloadUrls = resolvePageJsUrls(options, match.route.shellFile, match.route.file);
 
-    // --- SPA mode: render shell chrome / loading state, but keep route component client-only ---
     if (match.route.render === "spa") {
       let body = "";
 
       if (shellModule?.Shell || shellModule?.Loading) {
-        const Shell = shellModule?.Shell as any;
-        const Loading = shellModule?.Loading as any;
+        const Shell = shellModule?.Shell as FunctionComponent | undefined;
+        const Loading = shellModule?.Loading as FunctionComponent | undefined;
         const loadingTree =
           Shell != null
             ? h(Shell, null, Loading ? h(Loading, null) : null)
@@ -643,23 +624,23 @@ export async function handlePrachtRequest<TContext>(
       );
     }
 
-    // --- SSR / SSG / ISG: render Preact tree to string ---
     const DefaultComponent =
       typeof routeModule.default === "function" ? routeModule.default : undefined;
-    const Component = (routeModule.Component ?? DefaultComponent) as any;
+    const Component = (routeModule.Component ?? DefaultComponent) as FunctionComponent | undefined;
     if (!Component) {
       throw new Error("Route has no Component or default export");
     }
 
-    const Shell = shellModule?.Shell;
+    const Shell = shellModule?.Shell as FunctionComponent<Record<string, unknown>> | undefined;
+    const Comp = Component as FunctionComponent<Record<string, unknown>>;
     const componentProps = { data, params: match.params };
 
     const componentTree = Shell
-      ? h(Shell, null, h(Component, componentProps))
-      : h(Component, componentProps);
+      ? h(Shell, null, h(Comp, componentProps))
+      : h(Comp, componentProps);
 
     const tree = h(
-      PrachtRuntimeProvider as any,
+      PrachtRuntimeProvider as FunctionComponent<Record<string, unknown>>,
       {
         data,
         params: match.params,
@@ -706,27 +687,16 @@ export async function handlePrachtRequest<TContext>(
 }
 
 function parseLocation(value: string): Location {
-  try {
-    const url = new URL(value, "http://pracht.local");
-    return {
-      pathname: url.pathname,
-      search: url.search,
-    };
-  } catch {
-    return {
-      pathname: value || "/",
-      search: "",
-    };
-  }
+  const url = new URL(value, "http://pracht.local");
+  return {
+    pathname: url.pathname,
+    search: url.search,
+  };
 }
 
 function getRequestPath(url: URL): string {
   return `${url.pathname}${url.search}`;
 }
-
-// ---------------------------------------------------------------------------
-// Internal helpers
-// ---------------------------------------------------------------------------
 
 /** Strip leading `./` and `/` so all module paths share one canonical form. */
 function normalizeModulePath(path: string): string {
@@ -774,25 +744,30 @@ function resolveManifestEntries(
   return undefined;
 }
 
+function resolvePageUrlsFromManifest(
+  manifest: Record<string, string[]>,
+  shellFile: string | undefined,
+  routeFile: string,
+): string[] {
+  const urls = new Set<string>();
+  const add = (file: string): void => {
+    const entries = resolveManifestEntries(manifest, file);
+    if (entries) {
+      for (const url of entries) urls.add(url);
+    }
+  };
+  if (shellFile) add(shellFile);
+  add(routeFile);
+  return [...urls];
+}
+
 function resolvePageCssUrls(
   options: HandlePrachtRequestOptions<unknown>,
   shellFile: string | undefined,
   routeFile: string,
 ): string[] {
-  if (!options.cssManifest) return options.cssUrls ?? [];
-
-  const css = new Set<string>();
-
-  function addFromManifest(file: string): void {
-    const entries = resolveManifestEntries(options.cssManifest!, file);
-    if (entries) {
-      for (const c of entries) css.add(c);
-    }
-  }
-
-  if (shellFile) addFromManifest(shellFile);
-  addFromManifest(routeFile);
-  return [...css];
+  if (!options.cssManifest) return [];
+  return resolvePageUrlsFromManifest(options.cssManifest, shellFile, routeFile);
 }
 
 function resolvePageJsUrls(
@@ -801,19 +776,7 @@ function resolvePageJsUrls(
   routeFile: string,
 ): string[] {
   if (!options.jsManifest) return [];
-
-  const js = new Set<string>();
-
-  function addFromManifest(file: string): void {
-    const entries = resolveManifestEntries(options.jsManifest!, file);
-    if (entries) {
-      for (const j of entries) js.add(j);
-    }
-  }
-
-  if (shellFile) addFromManifest(shellFile);
-  addFromManifest(routeFile);
-  return [...js];
+  return resolvePageUrlsFromManifest(options.jsManifest, shellFile, routeFile);
 }
 
 async function navigateToClientLocation(
@@ -946,7 +909,7 @@ function normalizeRouteError(
   };
 }
 
-function deserializeRouteError(error: SerializedRouteError): Error {
+export function deserializeRouteError(error: SerializedRouteError): Error {
   const result = new Error(error.message);
   result.name = error.name;
   (result as Error & { diagnostics?: PrachtRuntimeDiagnostics; status?: number }).status =
@@ -1118,21 +1081,13 @@ async function renderRouteErrorResponse<TContext>(options: {
   );
   const renderToString = await getRenderToStringAsync();
 
-  const ErrorBoundary = options.routeModule.ErrorBoundary as any;
-  const Shell = shellModule?.Shell;
+  const ErrorBoundary = options.routeModule.ErrorBoundary as unknown as FunctionComponent<{ error: Error }>;
+  const Shell = shellModule?.Shell as unknown as FunctionComponent<{ children?: ComponentChildren }> | undefined;
   const errorValue = deserializeRouteError(routeErrorWithDiagnostics);
   const componentTree = Shell
     ? h(Shell, null, h(ErrorBoundary, { error: errorValue }))
     : h(ErrorBoundary, { error: errorValue });
-  const tree = h(
-    PrachtRuntimeProvider as any,
-    {
-      data: null,
-      routeId: options.routeId,
-      url: options.requestPath,
-    },
-    componentTree,
-  );
+  const tree = h(PrachtRuntimeProvider as unknown as FunctionComponent<{ data: null; routeId: string; url: string; children?: ComponentChildren }>, { data: null, routeId: options.routeId, url: options.requestPath }, componentTree);
   const body = await renderToString(tree);
 
   return htmlResponse(
@@ -1492,10 +1447,6 @@ function serializeJsonForHtml(value: unknown): string {
     .replace(/\u2029/g, "\\u2029");
 }
 
-// ---------------------------------------------------------------------------
-// SSG Prerendering
-// ---------------------------------------------------------------------------
-
 export interface PrerenderResult {
   path: string;
   html: string;
@@ -1515,12 +1466,10 @@ export interface PrerenderAppOptions {
   app: PrachtApp;
   registry?: ModuleRegistry;
   clientEntryUrl?: string;
-  /** Per-source-file CSS map produced by the vite plugin (preferred over cssUrls). */
+  /** Per-source-file CSS map produced by the vite plugin. */
   cssManifest?: Record<string, string[]>;
   /** Per-source-file JS map produced by the vite plugin for modulepreload hints. */
   jsManifest?: Record<string, string[]>;
-  /** @deprecated Pass cssManifest instead for per-page CSS resolution. */
-  cssUrls?: string[];
 }
 
 export async function prerenderApp(options: PrerenderAppOptions): Promise<PrerenderResult[]>;
@@ -1530,7 +1479,6 @@ export async function prerenderApp(
 export async function prerenderApp(
   options: PrerenderAppOptions & { withISGManifest?: boolean },
 ): Promise<PrerenderResult[] | PrerenderAppResult> {
-  const { resolveApp } = await import("./app.ts");
   const resolved = resolveApp(options.app);
   const results: PrerenderResult[] = [];
   const isgManifest: Record<string, ISGManifestEntry> = {};
@@ -1620,7 +1568,6 @@ async function collectSSGPaths(
     return [];
   }
 
-  const { buildPathFromSegments } = await import("./app.ts");
   const paramSets = await routeModule.getStaticPaths();
   return paramSets.map((params) => buildPathFromSegments(route.segments, params));
 }

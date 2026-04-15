@@ -300,10 +300,6 @@ export function buildPathFromSegments(segments: RouteSegment[], params: RoutePar
   return normalizeRoutePath("/" + parts.join("/"));
 }
 
-// ---------------------------------------------------------------------------
-// API Routes — file-based auto-discovery
-// ---------------------------------------------------------------------------
-
 /**
  * Convert a list of file paths from `import.meta.glob` into resolved API routes.
  *

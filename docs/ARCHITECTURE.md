@@ -406,6 +406,37 @@ details.
 
 ---
 
+## Module Dependency Structure (`packages/framework/src`)
+
+The internal module graph within the framework package is acyclic:
+
+```
+types.ts        — pure types, no internal deps
+    ↑
+app.ts          — route manifest, matching, SSG path building
+    ↑
+runtime.ts      — SSR handler, prerendering, client hooks (static import of app.ts)
+    ↑
+prefetch.ts     — prefetch cache, strategy wiring (imports runtime + app)
+    ↑
+router.ts       — client router, hydration bootstrap (imports runtime + prefetch + hydration)
+
+hydration.ts    — Preact options hooks for tracking hydration (no internal deps)
+forwardRef.ts   — forwardRef helper (no internal deps)
+error-overlay.ts — dev error page HTML (no internal deps)
+```
+
+**Important:** `runtime.ts` imports `resolveApp` and `buildPathFromSegments` directly from
+`app.ts` via a static import. Earlier versions used `await import("./app.ts")` dynamic
+imports inside `prerenderApp` and `collectSSGPaths` — these were a defensive workaround
+against a perceived circular dependency that never actually existed (since `app.ts` only
+imports from `types.ts`). The dynamic imports have been replaced with static imports.
+
+The only intentional dynamic import in `runtime.ts` is `preact-render-to-string`, which
+is lazy-loaded to keep the SSR-only dependency out of the client bundle.
+
+---
+
 ## Type Safety
 
 Pracht provides end-to-end type inference from loader to component:

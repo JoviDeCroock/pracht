@@ -5,10 +5,6 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { markHydrating, useIsHydrated, _resetForTesting } from "../src/hydration.ts";
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
 let scratch: HTMLDivElement;
 
 function setupScratch() {
@@ -25,10 +21,6 @@ async function flush(): Promise<void> {
   await new Promise<void>((r) => requestAnimationFrame(() => r()));
   await new Promise<void>((r) => setTimeout(r, 0));
 }
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 describe("useIsHydrated", () => {
   beforeEach(() => {

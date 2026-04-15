@@ -1,19 +1,19 @@
 import { createContext, h } from "preact";
 import { hydrate, render } from "preact";
 import { useContext, useMemo, useState } from "preact/hooks";
-import type { FunctionComponent, VNode } from "preact";
+import type { FunctionComponent } from "preact";
 
 import { matchAppRoute } from "./app.ts";
 import { markHydrating } from "./hydration.ts";
 import { getCachedRouteState, setupPrefetching } from "./prefetch.ts";
 import type { ModuleWarmFn } from "./prefetch.ts";
-import type { ResolvedPrachtApp, RouteMatch, RouteParams } from "./types.ts";
-import { fetchPrachtRouteState, PrachtRuntimeProvider } from "./runtime.ts";
+import type { ResolvedPrachtApp, RouteMatch, RouteModule, RouteParams, ShellModule } from "./types.ts";
+import { deserializeRouteError, fetchPrachtRouteState, PrachtRuntimeProvider } from "./runtime.ts";
 import type { SerializedRouteError, PrachtHydrationState } from "./runtime.ts";
 
 interface RouteRenderState {
   Shell: FunctionComponent | null;
-  Component: FunctionComponent<any>;
+  Component: FunctionComponent;
   componentProps: Record<string, unknown>;
   data: unknown;
   params: RouteParams;
@@ -29,7 +29,7 @@ declare global {
   }
 }
 
-type ModuleMap = Record<string, () => Promise<any>>;
+type ModuleMap = Record<string, () => Promise<unknown>>;
 
 export type NavigateFn = (to: string, options?: { replace?: boolean }) => Promise<void>;
 
@@ -57,13 +57,9 @@ export interface InitClientRouterOptions {
 export async function initClientRouter(options: InitClientRouterOptions): Promise<void> {
   const { app, routeModules, shellModules, root, findModuleKey } = options;
 
-  // ------------------------------------------------------------------
-  // Module cache — avoids re-importing the same shell/route chunk
-  // ------------------------------------------------------------------
+  const moduleCache = new Map<string, Promise<unknown>>();
 
-  const moduleCache = new Map<string, Promise<any>>();
-
-  function loadModule(modules: ModuleMap, key: string): Promise<any> {
+  function loadModule(modules: ModuleMap, key: string): Promise<unknown> {
     let cached = moduleCache.get(key);
     if (!cached) {
       cached = modules[key]();
@@ -72,22 +68,18 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
     return cached;
   }
 
-  function startRouteImport(match: RouteMatch): Promise<any> | null {
+  function startRouteImport(match: RouteMatch): Promise<unknown> | null {
     const routeKey = findModuleKey(routeModules, match.route.file);
     if (!routeKey) return null;
     return loadModule(routeModules, routeKey);
   }
 
-  function startShellImport(match: RouteMatch): Promise<any> | null {
+  function startShellImport(match: RouteMatch): Promise<unknown> | null {
     if (!match.route.shellFile) return null;
     const shellKey = findModuleKey(shellModules, match.route.shellFile);
     if (!shellKey) return null;
     return loadModule(shellModules, shellKey);
   }
-
-  // ------------------------------------------------------------------
-  // Resolve route state (data object, not VNodes)
-  // ------------------------------------------------------------------
 
   let updateRouteState: ((state: RouteRenderState) => void) | null = null;
   let routeStateVersion = 0;
@@ -99,14 +91,14 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
 
     const { Shell, Component, componentProps, data, params, routeId, url, version } = routeState;
     const componentTree = Shell
-      ? h(Shell as any, null, h(Component as any, componentProps))
-      : h(Component as any, componentProps);
+      ? h(Shell as FunctionComponent<Record<string, unknown>>, null, h(Component as FunctionComponent<Record<string, unknown>>, componentProps))
+      : h(Component as FunctionComponent<Record<string, unknown>>, componentProps);
 
     return h(
-      NavigateContext.Provider as any,
+      NavigateContext.Provider as FunctionComponent<Record<string, unknown>>,
       { value: navigateValue },
       h(
-        PrachtRuntimeProvider as any,
+        PrachtRuntimeProvider as FunctionComponent<Record<string, unknown>>,
         { data, params, routeId, stateVersion: version, url },
         componentTree,
       ),
@@ -218,10 +210,6 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
     };
   }
 
-  // ------------------------------------------------------------------
-  // Navigate to a new pathname
-  // ------------------------------------------------------------------
-
   async function navigate(
     to: string,
     opts?: { replace?: boolean; _popstate?: boolean },
@@ -298,7 +286,6 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
       return;
     }
 
-    // Update browser history
     if (!opts?._popstate) {
       if (opts?.replace) {
         history.replaceState(null, "", target.browserUrl);
@@ -307,7 +294,7 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
       }
     }
 
-    // Update route state — module imports started above are already in-flight
+    // Module imports started above are already in-flight
     const routeState = await resolveRouteState(
       match,
       state,
@@ -322,26 +309,6 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
       window.location.href = target.browserUrl;
     }
   }
-
-  // ------------------------------------------------------------------
-  // Dev-mode hydration mismatch monitor (Preact options.__m hook)
-  // ------------------------------------------------------------------
-
-  if ((import.meta as any).env?.DEV) {
-    const prev = (options as any).__m;
-    (options as any).__m = (vnode: VNode, s: string) => {
-      const component =
-        typeof vnode.type === "function" ? vnode.type.displayName || vnode.type.name : vnode.type;
-      const message = `Hydration mismatch in <${component || "Unknown"}>: ${s}`;
-      console.warn(`[pracht] ${message}`);
-      appendHydrationWarning(message);
-      if (prev) prev(vnode, s);
-    };
-  }
-
-  // ------------------------------------------------------------------
-  // Initial hydration — includes NavigateContext so useNavigate works
-  // ------------------------------------------------------------------
 
   const initialTarget = resolveBrowserRouteTarget(options.initialState.url);
   const initialRequestUrl = initialTarget?.requestUrl ?? options.initialState.url;
@@ -422,10 +389,6 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
     }
   }
 
-  // ------------------------------------------------------------------
-  // Global click interception for <a> elements
-  // ------------------------------------------------------------------
-
   document.addEventListener("click", (e: MouseEvent) => {
     const anchor = (e.target as Element).closest?.("a");
     if (!anchor) return;
@@ -460,10 +423,6 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
     navigate(url.pathname + url.search + url.hash);
   });
 
-  // ------------------------------------------------------------------
-  // Back / forward navigation
-  // ------------------------------------------------------------------
-
   window.addEventListener("popstate", () => {
     navigate(window.location.pathname + window.location.search + window.location.hash, {
       _popstate: true,
@@ -473,82 +432,11 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
   window.__PRACHT_NAVIGATE__ = navigate;
   window.__PRACHT_ROUTER_READY__ = true;
 
-  // Start prefetching after hydration is complete
   const warmModules: ModuleWarmFn = (match) => {
     startRouteImport(match);
     startShellImport(match);
   };
   setupPrefetching(app, warmModules);
-}
-
-// ---------------------------------------------------------------------------
-// Dev-only: in-page hydration mismatch warning banner
-// ---------------------------------------------------------------------------
-
-const HYDRATION_BANNER_ID = "__pracht_hydration_warnings__";
-
-function appendHydrationWarning(message: string): void {
-  let container = document.getElementById(HYDRATION_BANNER_ID);
-  if (!container) {
-    container = document.createElement("div");
-    container.id = HYDRATION_BANNER_ID;
-    Object.assign(container.style, {
-      position: "fixed",
-      bottom: "0",
-      left: "0",
-      right: "0",
-      maxHeight: "30vh",
-      overflow: "auto",
-      background: "#2d1b00",
-      borderTop: "2px solid #f0ad4e",
-      color: "#ffc107",
-      fontFamily: "ui-monospace, Consolas, monospace",
-      fontSize: "13px",
-      padding: "12px 16px",
-      zIndex: "2147483647",
-    });
-
-    const header = document.createElement("div");
-    Object.assign(header.style, {
-      display: "flex",
-      justifyContent: "space-between",
-      alignItems: "center",
-      marginBottom: "8px",
-    });
-    header.innerHTML = '<strong style="color:#f0ad4e">⚠ Hydration Mismatches</strong>';
-
-    const close = document.createElement("button");
-    close.textContent = "×";
-    Object.assign(close.style, {
-      background: "none",
-      border: "none",
-      color: "#f0ad4e",
-      fontSize: "18px",
-      cursor: "pointer",
-    });
-    close.onclick = () => container!.remove();
-    header.appendChild(close);
-
-    container.appendChild(header);
-    document.body.appendChild(container);
-  }
-
-  const entry = document.createElement("div");
-  entry.textContent = message;
-  Object.assign(entry.style, { padding: "2px 0" });
-  container.appendChild(entry);
-}
-
-function deserializeRouteError(error: SerializedRouteError): Error {
-  const result = new Error(error.message);
-  result.name = error.name;
-  (
-    result as Error & { diagnostics?: SerializedRouteError["diagnostics"]; status?: number }
-  ).status = error.status;
-  (
-    result as Error & { diagnostics?: SerializedRouteError["diagnostics"]; status?: number }
-  ).diagnostics = error.diagnostics;
-  return result;
 }
 
 function resolveBrowserRouteTarget(to: string): BrowserRouteTarget | null {
