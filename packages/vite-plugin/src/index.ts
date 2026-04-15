@@ -153,7 +153,10 @@ export async function pracht(options: PrachtPluginOptions = {}): Promise<Plugin[
     name: "pracht",
     enforce: "pre",
 
-    config() {
+    config(_config, env) {
+      const isEdge = resolved.adapter.id === "vercel" || resolved.adapter.id === "cloudflare";
+      const isSSRBuild = env.isSsrBuild;
+
       return {
         appType: "custom" as const,
         build: {
@@ -170,6 +173,13 @@ export async function pracht(options: PrachtPluginOptions = {}): Promise<Plugin[
             },
           },
         },
+        ...(isEdge && isSSRBuild
+          ? {
+              ssr: {
+                noExternal: true,
+              },
+            }
+          : {}),
       };
     },
 
