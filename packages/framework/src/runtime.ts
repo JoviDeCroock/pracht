@@ -93,6 +93,7 @@ const SAFE_METHODS = new Set(["GET", "HEAD"]);
 const HYDRATION_STATE_ELEMENT_ID = "pracht-state";
 const ROUTE_STATE_REQUEST_HEADER = "x-pracht-route-state-request";
 const ROUTE_STATE_CACHE_CONTROL = "no-store";
+const EMPTY_ROUTE_PARAMS = {} as RouteParams;
 
 // Cached dynamic import — keeps preact-render-to-string out of the client bundle
 // while avoiding repeated async resolution on each SSR request.
@@ -119,7 +120,7 @@ const RouteDataContext = createContext<PrachtRuntimeValue | undefined>(undefined
 export function PrachtRuntimeProvider<TData>({
   children,
   data,
-  params = {} as RouteParams,
+  params = EMPTY_ROUTE_PARAMS,
   routeId,
   stateVersion = 0,
   url,
