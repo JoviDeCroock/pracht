@@ -367,6 +367,55 @@ describe("handlePrachtRequest cache variance", () => {
     await expect(response.json()).resolves.toEqual({ data: { plan: "MVP" } });
   });
 
+  it("treats _data=1 query parameter as a route-state request", async () => {
+    const app = defineApp({
+      routes: [route("/pricing", "./routes/pricing.tsx", { render: "ssr" })],
+    });
+
+    const response = await handlePrachtRequest({
+      app,
+      registry: {
+        routeModules: {
+          "./routes/pricing.tsx": async () => ({
+            Component: ({ data }) => h("main", null, (data as { plan: string }).plan),
+            loader: async () => ({ plan: "MVP" }),
+          }),
+        },
+      },
+      request: new Request("http://localhost/pricing?_data=1"),
+    });
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toContain("application/json");
+    await expect(response.json()).resolves.toEqual({ data: { plan: "MVP" } });
+  });
+
+  it("strips _data param from the URL passed to loaders", async () => {
+    let capturedUrl: URL | undefined;
+    const app = defineApp({
+      routes: [route("/pricing", "./routes/pricing.tsx", { render: "ssr" })],
+    });
+
+    const response = await handlePrachtRequest({
+      app,
+      registry: {
+        routeModules: {
+          "./routes/pricing.tsx": async () => ({
+            Component: () => h("main", null, "test"),
+            loader: async (args: { url: URL }) => {
+              capturedUrl = args.url;
+              return {};
+            },
+          }),
+        },
+      },
+      request: new Request("http://localhost/pricing?_data=1"),
+    });
+
+    expect(response.status).toBe(200);
+    expect(capturedUrl?.searchParams.has("_data")).toBe(false);
+  });
+
   it("encodes middleware redirects as JSON for route-state requests", async () => {
     const app = defineApp({
       middleware: {
@@ -520,6 +569,63 @@ describe("handlePrachtRequest SPA shell fallback", () => {
     expect(html).toContain("Loading settings...");
     expect(html).toContain('"pending":true');
     expect(html).not.toContain("secret-user");
+  });
+
+  it("emits a preload link for route state when an SPA route has a loader", async () => {
+    const app = defineApp({
+      shells: { app: "./shells/app.tsx" },
+      routes: [route("/settings", "./routes/settings.tsx", { render: "spa", shell: "app" })],
+    });
+
+    const response = await handlePrachtRequest({
+      app,
+      registry: {
+        routeModules: {
+          "./routes/settings.tsx": async () => ({
+            Component: ({ data }) => h("main", null, `Hello ${(data as any).user}`),
+            loader: async () => ({ user: "secret-user" }),
+          }),
+        },
+        shellModules: {
+          "./shells/app.tsx": async () => ({
+            Shell: ({ children }) => h("div", { class: "app-shell" }, children),
+          }),
+        },
+      },
+      request: new Request("http://localhost/settings"),
+    });
+
+    const html = await response.text();
+    expect(html).toContain(
+      '<link rel="preload" as="fetch" href="/settings?_data=1" crossorigin="anonymous">',
+    );
+  });
+
+  it("does not emit a preload link for SPA routes without a loader", async () => {
+    const app = defineApp({
+      shells: { app: "./shells/app.tsx" },
+      routes: [route("/settings", "./routes/settings.tsx", { render: "spa", shell: "app" })],
+    });
+
+    const response = await handlePrachtRequest({
+      app,
+      registry: {
+        routeModules: {
+          "./routes/settings.tsx": async () => ({
+            Component: () => h("main", null, "No loader"),
+          }),
+        },
+        shellModules: {
+          "./shells/app.tsx": async () => ({
+            Shell: ({ children }) => h("div", { class: "app-shell" }, children),
+          }),
+        },
+      },
+      request: new Request("http://localhost/settings"),
+    });
+
+    const html = await response.text();
+    expect(html).not.toContain("preload");
   });
 });
 

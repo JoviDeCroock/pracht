@@ -82,12 +82,9 @@ describe("initClientRouter", () => {
     });
 
     expect(fetchSpy).toHaveBeenCalledWith(
-      "/settings",
+      "/settings?_data=1",
       expect.objectContaining({
-        headers: expect.objectContaining({
-          "Cache-Control": "no-cache",
-          "x-pracht-route-state-request": "1",
-        }),
+        headers: {},
         redirect: "manual",
       }),
     );

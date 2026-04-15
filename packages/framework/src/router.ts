@@ -358,8 +358,8 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
     };
 
     if (initialMatch.route.render === "spa" && options.initialState.pending) {
-      // Kick off the data fetch in parallel with shell hydration
-      const dataPromise = fetchPrachtRouteState(initialRequestUrl);
+      // Use query parameter URL to match the <link rel="preload"> tag from SSR
+      const dataPromise = fetchPrachtRouteState(initialRequestUrl, { useDataParam: true });
 
       const pendingState = await resolveSpaPendingState(
         initialMatch,

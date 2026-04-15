@@ -302,9 +302,15 @@ export type RouteStateResult =
   | { type: "redirect"; location: string }
   | { type: "error"; error: SerializedRouteError };
 
-export async function fetchPrachtRouteState(url: string): Promise<RouteStateResult> {
-  const response = await fetch(url, {
-    headers: { [ROUTE_STATE_REQUEST_HEADER]: "1", "Cache-Control": "no-cache" },
+export async function fetchPrachtRouteState(
+  url: string,
+  options?: { useDataParam?: boolean },
+): Promise<RouteStateResult> {
+  const fetchUrl = options?.useDataParam ? buildRouteStateUrl(url) : url;
+  const response = await fetch(fetchUrl, {
+    headers: options?.useDataParam
+      ? {}
+      : { [ROUTE_STATE_REQUEST_HEADER]: "1", "Cache-Control": "no-cache" },
     redirect: "manual",
   });
 
@@ -345,13 +351,23 @@ export async function fetchPrachtRouteState(url: string): Promise<RouteStateResu
   };
 }
 
+function buildRouteStateUrl(url: string): string {
+  const separator = url.includes("?") ? "&" : "?";
+  return `${url}${separator}_data=1`;
+}
+
 export async function handlePrachtRequest<TContext>(
   options: HandlePrachtRequestOptions<TContext>,
 ): Promise<Response> {
   const url = new URL(options.request.url);
+  const hasDataParam = url.searchParams.get("_data") === "1";
+  if (hasDataParam) {
+    url.searchParams.delete("_data");
+  }
   const requestPath = getRequestPath(url);
   const registry = options.registry ?? {};
-  const isRouteStateRequest = options.request.headers.get(ROUTE_STATE_REQUEST_HEADER) === "1";
+  const isRouteStateRequest =
+    options.request.headers.get(ROUTE_STATE_REQUEST_HEADER) === "1" || hasDataParam;
   const exposeDiagnostics = shouldExposeServerErrors(options);
 
   // --- API route dispatch (before page routes) ---
@@ -587,6 +603,7 @@ export async function handlePrachtRequest<TContext>(
           clientEntryUrl: options.clientEntryUrl,
           cssUrls,
           modulePreloadUrls,
+          routeStatePreloadUrl: loader ? buildRouteStateUrl(requestPath) : undefined,
         }),
         200,
         documentHeaders,
@@ -1249,6 +1266,7 @@ function buildHtmlDocument(options: {
   clientEntryUrl?: string;
   cssUrls?: string[];
   modulePreloadUrls?: string[];
+  routeStatePreloadUrl?: string;
 }): string {
   const {
     head,
@@ -1257,6 +1275,7 @@ function buildHtmlDocument(options: {
     clientEntryUrl,
     cssUrls = [],
     modulePreloadUrls = [],
+    routeStatePreloadUrl,
   } = options;
 
   const titleTag = head.title ? `<title>${escapeHtml(head.title)}</title>` : "";
@@ -1287,6 +1306,10 @@ function buildHtmlDocument(options: {
     .map((url) => `<link rel="modulepreload" href="${escapeHtml(url)}">`)
     .join("\n    ");
 
+  const routeStatePreloadTag = routeStatePreloadUrl
+    ? `<link rel="preload" as="fetch" href="${escapeHtml(routeStatePreloadUrl)}" crossorigin="anonymous">`
+    : "";
+
   const stateScript = `<script id="${HYDRATION_STATE_ELEMENT_ID}" type="application/json">${serializeJsonForHtml(hydrationState)}</script>`;
   const entryScript = clientEntryUrl
     ? `<script type="module" src="${escapeHtml(clientEntryUrl)}"></script>`
@@ -1301,6 +1324,7 @@ function buildHtmlDocument(options: {
     ${linkTags}
     ${cssTags}
     ${modulePreloadTags}
+    ${routeStatePreloadTag}
   </head>
   <body>
     <div id="pracht-root">${body}</div>
