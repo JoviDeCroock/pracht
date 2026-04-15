@@ -1,15 +1,26 @@
 import { createContext, h } from "preact";
 import { hydrate, render } from "preact";
-import { useContext } from "preact/hooks";
-import type { VNode } from "preact";
+import { useContext, useMemo, useState } from "preact/hooks";
+import type { FunctionComponent, VNode } from "preact";
 
 import { matchAppRoute } from "./app.ts";
 import { markHydrating } from "./hydration.ts";
 import { getCachedRouteState, setupPrefetching } from "./prefetch.ts";
 import type { ModuleWarmFn } from "./prefetch.ts";
-import type { ResolvedPrachtApp, RouteMatch } from "./types.ts";
+import type { ResolvedPrachtApp, RouteMatch, RouteParams } from "./types.ts";
 import { fetchPrachtRouteState, PrachtRuntimeProvider } from "./runtime.ts";
 import type { SerializedRouteError, PrachtHydrationState } from "./runtime.ts";
+
+interface RouteRenderState {
+  Shell: FunctionComponent | null;
+  Component: FunctionComponent<any>;
+  componentProps: Record<string, unknown>;
+  data: unknown;
+  params: RouteParams;
+  routeId: string;
+  url: string;
+  version: number;
+}
 
 declare global {
   interface Window {
@@ -75,20 +86,52 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
   }
 
   // ------------------------------------------------------------------
-  // Build a Preact VNode tree for a matched route
+  // Resolve route state (data object, not VNodes)
   // ------------------------------------------------------------------
 
-  async function buildRouteTree(
+  let updateRouteState: ((state: RouteRenderState) => void) | null = null;
+  let routeStateVersion = 0;
+
+  function RouterRoot({ initialState }: { initialState: RouteRenderState }) {
+    const [routeState, setRouteState] = useState(initialState);
+    updateRouteState = setRouteState;
+    const navigateValue = useMemo(() => navigate, []);
+
+    const { Shell, Component, componentProps, data, params, routeId, url, version } = routeState;
+    const componentTree = Shell
+      ? h(Shell as any, null, h(Component as any, componentProps))
+      : h(Component as any, componentProps);
+
+    return h(
+      NavigateContext.Provider as any,
+      { value: navigateValue },
+      h(
+        PrachtRuntimeProvider as any,
+        { data, params, routeId, stateVersion: version, url },
+        componentTree,
+      ),
+    );
+  }
+
+  function applyRouteState(routeState: RouteRenderState): void {
+    if (updateRouteState) {
+      updateRouteState(routeState);
+      return;
+    }
+
+    render(h(RouterRoot, { initialState: routeState }), root);
+  }
+
+  async function resolveRouteState(
     match: RouteMatch,
     state: { data: unknown; error?: SerializedRouteError | null },
-    currentUrl: string,
     routeModPromise?: Promise<any> | null,
     shellModPromise?: Promise<any> | null,
-  ): Promise<VNode<any> | null> {
+  ): Promise<RouteRenderState | null> {
     const routeMod = await (routeModPromise ?? startRouteImport(match));
     if (!routeMod) return null;
 
-    let Shell: any = null;
+    let Shell: FunctionComponent | null = null;
     const resolvedShell = await (shellModPromise ?? startShellImport(match));
     if (resolvedShell) {
       Shell = resolvedShell.Shell;
@@ -97,63 +140,47 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
     const DefaultComponent = typeof routeMod.default === "function" ? routeMod.default : undefined;
     const Component = (
       state.error ? routeMod.ErrorBoundary : (routeMod.Component ?? DefaultComponent)
-    ) as any;
+    ) as FunctionComponent<any>;
     if (!Component) return null;
 
-    const props: Record<string, unknown> = state.error
+    const componentProps: Record<string, unknown> = state.error
       ? { error: deserializeRouteError(state.error) }
       : { data: state.data, params: match.params };
-    const componentTree = Shell ? h(Shell, null, h(Component, props)) : h(Component, props);
 
-    return h(
-      NavigateContext.Provider as any,
-      { value: navigate },
-      h(
-        PrachtRuntimeProvider as any,
-        {
-          data: state.data,
-          params: match.params,
-          routeId: match.route.id ?? "",
-          url: currentUrl,
-        },
-        componentTree,
-      ),
-    );
+    return {
+      Shell,
+      Component,
+      componentProps,
+      data: state.data,
+      params: match.params,
+      routeId: match.route.id ?? "",
+      url: match.pathname,
+      version: ++routeStateVersion,
+    };
   }
 
-  async function buildSpaPendingTree(
+  async function resolveSpaPendingState(
     match: RouteMatch,
-    currentUrl: string,
     shellModPromise?: Promise<any> | null,
-  ): Promise<VNode<any> | null> {
+  ): Promise<RouteRenderState | null> {
     const resolvedShell = await (shellModPromise ?? startShellImport(match));
     if (!resolvedShell) return null;
 
-    const Shell = resolvedShell.Shell as any;
-    const Loading = resolvedShell.Loading as any;
-    const componentTree =
-      Shell != null
-        ? h(Shell, null, Loading ? h(Loading, null) : null)
-        : Loading
-          ? h(Loading, null)
-          : null;
+    const Shell = (resolvedShell.Shell as FunctionComponent) ?? null;
+    const Loading = resolvedShell.Loading as FunctionComponent | null;
 
-    if (!componentTree) return null;
+    if (!Shell && !Loading) return null;
 
-    return h(
-      NavigateContext.Provider as any,
-      { value: navigate },
-      h(
-        PrachtRuntimeProvider as any,
-        {
-          data: undefined,
-          params: match.params,
-          routeId: match.route.id ?? "",
-          url: currentUrl,
-        },
-        componentTree,
-      ),
-    );
+    return {
+      Shell,
+      Component: Loading ?? (() => null),
+      componentProps: {},
+      data: undefined,
+      params: match.params,
+      routeId: match.route.id ?? "",
+      url: match.pathname,
+      version: ++routeStateVersion,
+    };
   }
 
   function resolveRedirectTarget(location: string): {
@@ -278,16 +305,10 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
       }
     }
 
-    // Render — module imports started above are already in-flight
-    const tree = await buildRouteTree(
-      match,
-      state,
-      target.requestUrl,
-      routeModPromise,
-      shellModPromise,
-    );
-    if (tree) {
-      render(tree, root);
+    // Update route state — module imports started above are already in-flight
+    const routeState = await resolveRouteState(match, state, routeModPromise, shellModPromise);
+    if (routeState) {
+      applyRouteState(routeState);
       window.scrollTo(0, 0);
     } else {
       window.location.href = target.browserUrl;
@@ -332,13 +353,9 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
       // Kick off the data fetch in parallel with shell hydration
       const dataPromise = fetchPrachtRouteState(initialRequestUrl);
 
-      const pendingTree = await buildSpaPendingTree(
-        initialMatch,
-        initialRequestUrl,
-        initialShellPromise,
-      );
-      if (pendingTree) {
-        hydrate(pendingTree, root);
+      const pendingState = await resolveSpaPendingState(initialMatch, initialShellPromise);
+      if (pendingState) {
+        hydrate(h(RouterRoot, { initialState: pendingState }), root);
       }
 
       try {
@@ -363,21 +380,30 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
         window.location.href = initialBrowserUrl;
         return;
       }
-    }
 
-    const tree = await buildRouteTree(
-      initialMatch,
-      state,
-      initialRequestUrl,
-      undefined,
-      initialShellPromise,
-    );
-    if (tree) {
-      if (initialMatch.route.render === "spa") {
-        render(tree, root);
-      } else {
-        markHydrating();
-        hydrate(tree, root);
+      const resolvedState = await resolveRouteState(
+        initialMatch,
+        state,
+        undefined,
+        initialShellPromise,
+      );
+      if (resolvedState) {
+        applyRouteState(resolvedState);
+      }
+    } else {
+      const initialRouteState = await resolveRouteState(
+        initialMatch,
+        state,
+        undefined,
+        initialShellPromise,
+      );
+      if (initialRouteState) {
+        if (initialMatch.route.render === "spa") {
+          render(h(RouterRoot, { initialState: initialRouteState }), root);
+        } else {
+          markHydrating();
+          hydrate(h(RouterRoot, { initialState: initialRouteState }), root);
+        }
       }
     }
   }
