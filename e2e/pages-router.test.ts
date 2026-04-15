@@ -24,7 +24,7 @@ test("about page renders as static page", async ({ page }) => {
 
   await expect(page.locator(".pages-shell")).toBeVisible();
   await expect(page.locator("h1")).toContainText("About");
-  await expect(page.locator("p")).toContainText("static page rendered with SSG");
+  await expect(page.locator("section p").first()).toContainText("static page rendered with SSG");
 });
 
 // ---------------------------------------------------------------------------
@@ -79,6 +79,26 @@ test("client-side navigation works between pages", async ({ page }) => {
   expect(tokenSurvived).toBe(true);
 
   await expect(page.locator("h1")).toContainText("About");
+});
+
+test("client-side navigation preserves query strings and exposes search separately", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page.waitForFunction(() => (window as any).__PRACHT_ROUTER_READY__);
+
+  await page.evaluate(() => {
+    (window as any).__NAV_TOKEN__ = true;
+  });
+
+  await page.evaluate(() => (window as any).__PRACHT_NAVIGATE__("/about?tab=details"));
+  await page.waitForURL("/about?tab=details");
+
+  const tokenSurvived = await page.evaluate(() => (window as any).__NAV_TOKEN__ === true);
+  expect(tokenSurvived).toBe(true);
+
+  await expect(page.locator(".location-pathname")).toContainText("/about");
+  await expect(page.locator(".location-search")).toContainText("?tab=details");
 });
 
 test("client-side navigation to dynamic route", async ({ page }) => {

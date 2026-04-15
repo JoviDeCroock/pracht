@@ -22,6 +22,12 @@ type ModuleMap = Record<string, () => Promise<any>>;
 
 export type NavigateFn = (to: string, options?: { replace?: boolean }) => Promise<void>;
 
+interface BrowserRouteTarget {
+  browserUrl: string;
+  pathname: string;
+  requestUrl: string;
+}
+
 const NavigateContext = createContext<NavigateFn>(async () => {});
 
 export function useNavigate(): NavigateFn {
@@ -75,6 +81,7 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
   async function buildRouteTree(
     match: RouteMatch,
     state: { data: unknown; error?: SerializedRouteError | null },
+    currentUrl: string,
     routeModPromise?: Promise<any> | null,
     shellModPromise?: Promise<any> | null,
   ): Promise<VNode<any> | null> {
@@ -107,7 +114,7 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
           data: state.data,
           params: match.params,
           routeId: match.route.id ?? "",
-          url: match.pathname,
+          url: currentUrl,
         },
         componentTree,
       ),
@@ -116,6 +123,7 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
 
   async function buildSpaPendingTree(
     match: RouteMatch,
+    currentUrl: string,
     shellModPromise?: Promise<any> | null,
   ): Promise<VNode<any> | null> {
     const resolvedShell = await (shellModPromise ?? startShellImport(match));
@@ -141,7 +149,7 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
           data: undefined,
           params: match.params,
           routeId: match.route.id ?? "",
-          url: match.pathname,
+          url: currentUrl,
         },
         componentTree,
       ),
@@ -156,15 +164,22 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
     to: string,
     opts?: { replace?: boolean; _popstate?: boolean },
   ): Promise<void> {
-    const match = matchAppRoute(app, to);
-    if (!match) {
-      // No client route — fall back to full page load
+    const target = resolveBrowserRouteTarget(to);
+    if (!target) {
       window.location.href = to;
       return;
     }
 
+    const match = matchAppRoute(app, target.pathname);
+    if (!match) {
+      // No client route — fall back to full page load
+      window.location.href = target.browserUrl;
+      return;
+    }
+
     // Start route-state fetch and module imports in parallel
-    const statePromise = getCachedRouteState(to) ?? fetchPrachtRouteState(to);
+    const statePromise =
+      getCachedRouteState(target.requestUrl) ?? fetchPrachtRouteState(target.requestUrl);
     const routeModPromise = startRouteImport(match);
     const shellModPromise = startShellImport(match);
 
@@ -180,7 +195,7 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
           await navigate(result.location, opts);
           return;
         }
-        window.location.href = to;
+        window.location.href = target.browserUrl;
         return;
       }
 
@@ -197,26 +212,32 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
       }
     } catch {
       // Network error — full page load as fallback
-      window.location.href = to;
+      window.location.href = target.browserUrl;
       return;
     }
 
     // Update browser history
     if (!opts?._popstate) {
       if (opts?.replace) {
-        history.replaceState(null, "", to);
+        history.replaceState(null, "", target.browserUrl);
       } else {
-        history.pushState(null, "", to);
+        history.pushState(null, "", target.browserUrl);
       }
     }
 
     // Render — module imports started above are already in-flight
-    const tree = await buildRouteTree(match, state, routeModPromise, shellModPromise);
+    const tree = await buildRouteTree(
+      match,
+      state,
+      target.requestUrl,
+      routeModPromise,
+      shellModPromise,
+    );
     if (tree) {
       render(tree, root);
       window.scrollTo(0, 0);
     } else {
-      window.location.href = to;
+      window.location.href = target.browserUrl;
     }
   }
 
@@ -240,7 +261,10 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
   // Initial hydration — includes NavigateContext so useNavigate works
   // ------------------------------------------------------------------
 
-  const initialMatch = matchAppRoute(app, options.initialState.url);
+  const initialTarget = resolveBrowserRouteTarget(options.initialState.url);
+  const initialRequestUrl = initialTarget?.requestUrl ?? options.initialState.url;
+  const initialBrowserUrl = initialTarget?.browserUrl ?? options.initialState.url;
+  const initialMatch = matchAppRoute(app, initialTarget?.pathname ?? options.initialState.url);
   if (initialMatch) {
     const initialShellPromise =
       initialMatch.route.render === "spa" && options.initialState.pending
@@ -253,9 +277,13 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
 
     if (initialMatch.route.render === "spa" && options.initialState.pending) {
       // Kick off the data fetch in parallel with shell hydration
-      const dataPromise = fetchPrachtRouteState(options.initialState.url);
+      const dataPromise = fetchPrachtRouteState(initialRequestUrl);
 
-      const pendingTree = await buildSpaPendingTree(initialMatch, initialShellPromise);
+      const pendingTree = await buildSpaPendingTree(
+        initialMatch,
+        initialRequestUrl,
+        initialShellPromise,
+      );
       if (pendingTree) {
         hydrate(pendingTree, root);
       }
@@ -279,12 +307,18 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
           };
         }
       } catch {
-        window.location.href = options.initialState.url;
+        window.location.href = initialBrowserUrl;
         return;
       }
     }
 
-    const tree = await buildRouteTree(initialMatch, state, undefined, initialShellPromise);
+    const tree = await buildRouteTree(
+      initialMatch,
+      state,
+      initialRequestUrl,
+      undefined,
+      initialShellPromise,
+    );
     if (tree) {
       if (initialMatch.route.render === "spa") {
         render(tree, root);
@@ -330,7 +364,7 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
     if (url.origin !== window.location.origin) return;
 
     e.preventDefault();
-    navigate(url.pathname + url.search);
+    navigate(url.pathname + url.search + url.hash);
   });
 
   // ------------------------------------------------------------------
@@ -338,7 +372,7 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
   // ------------------------------------------------------------------
 
   window.addEventListener("popstate", () => {
-    navigate(window.location.pathname + window.location.search, {
+    navigate(window.location.pathname + window.location.search + window.location.hash, {
       _popstate: true,
     });
   });
@@ -422,4 +456,25 @@ function deserializeRouteError(error: SerializedRouteError): Error {
     result as Error & { diagnostics?: SerializedRouteError["diagnostics"]; status?: number }
   ).diagnostics = error.diagnostics;
   return result;
+}
+
+function resolveBrowserRouteTarget(to: string): BrowserRouteTarget | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  try {
+    const url = new URL(to, window.location.href);
+    if (url.origin !== window.location.origin) {
+      return null;
+    }
+
+    return {
+      browserUrl: url.pathname + url.search + url.hash,
+      pathname: url.pathname,
+      requestUrl: url.pathname + url.search,
+    };
+  } catch {
+    return null;
+  }
 }

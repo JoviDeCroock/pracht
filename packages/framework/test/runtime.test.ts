@@ -8,6 +8,7 @@ import {
   prerenderApp,
   resolveApiRoutes,
   route,
+  useLocation,
   useParams,
 } from "../src/index.ts";
 
@@ -646,6 +647,35 @@ describe("useParams", () => {
     expect(response.status).toBe(200);
     const html = await response.text();
     expect(html).toContain("keys:0");
+  });
+});
+
+describe("useLocation", () => {
+  it("provides pathname and search separately during SSR", async () => {
+    const app = defineApp({
+      routes: [route("/about", "./routes/about.tsx", { render: "ssr" })],
+    });
+
+    function LocationDisplay() {
+      const { pathname, search } = useLocation();
+      return h("span", null, `${pathname}|${search}`);
+    }
+
+    const response = await handlePrachtRequest({
+      app,
+      registry: {
+        routeModules: {
+          "./routes/about.tsx": async () => ({
+            Component: () => h("main", null, h(LocationDisplay, null)),
+          }),
+        },
+      },
+      request: new Request("http://localhost/about?tab=team"),
+    });
+
+    expect(response.status).toBe(200);
+    const html = await response.text();
+    expect(html).toContain("/about|?tab=team");
   });
 });
 

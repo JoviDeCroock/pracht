@@ -36,6 +36,14 @@ export function prefetchRouteState(url: string): Promise<RouteStateResult> {
 export function setupPrefetching(app: ResolvedPrachtApp, warmModules?: ModuleWarmFn): void {
   let hoverTimer: ReturnType<typeof setTimeout> | null = null;
 
+  function getRoutePathname(url: string): string | null {
+    try {
+      return new URL(url, window.location.origin).pathname;
+    } catch {
+      return null;
+    }
+  }
+
   function getInternalHref(anchor: HTMLAnchorElement): string | null {
     const href = anchor.getAttribute("href");
     if (!href || href.startsWith("#")) return null;
@@ -52,7 +60,10 @@ export function setupPrefetching(app: ResolvedPrachtApp, warmModules?: ModuleWar
   }
 
   function getPrefetchStrategy(pathname: string): PrefetchStrategy {
-    const match = matchAppRoute(app, pathname);
+    const routePathname = getRoutePathname(pathname);
+    if (!routePathname) return "none";
+
+    const match = matchAppRoute(app, routePathname);
     if (!match) return "none";
     // Use route-level config, or default based on render mode
     if (match.route.prefetch) return match.route.prefetch;
@@ -78,7 +89,8 @@ export function setupPrefetching(app: ResolvedPrachtApp, warmModules?: ModuleWar
       hoverTimer = setTimeout(() => {
         prefetchRouteState(href);
         if (warmModules) {
-          const m = matchAppRoute(app, href);
+          const pathname = getRoutePathname(href);
+          const m = pathname ? matchAppRoute(app, pathname) : undefined;
           if (m) warmModules(m);
         }
       }, 50);
@@ -113,7 +125,8 @@ export function setupPrefetching(app: ResolvedPrachtApp, warmModules?: ModuleWar
 
       prefetchRouteState(href);
       if (warmModules) {
-        const m = matchAppRoute(app, href);
+        const pathname = getRoutePathname(href);
+        const m = pathname ? matchAppRoute(app, pathname) : undefined;
         if (m) warmModules(m);
       }
     },
@@ -132,7 +145,8 @@ export function setupPrefetching(app: ResolvedPrachtApp, warmModules?: ModuleWar
         if (!href) continue;
         prefetchRouteState(href);
         if (warmModules) {
-          const m = matchAppRoute(app, href);
+          const pathname = getRoutePathname(href);
+          const m = pathname ? matchAppRoute(app, pathname) : undefined;
           if (m) warmModules(m);
         }
         observer.unobserve(anchor);
