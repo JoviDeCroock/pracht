@@ -398,6 +398,62 @@ The client updates the component tree in-place.
 
 ---
 
+## Server pipeline parallelism
+
+Every request handled by `handlePrachtRequest` runs through a common pipeline.
+Steps that don't depend on each other are kicked off concurrently so the
+critical path is bounded by the slowest independent step, not their sum.
+
+```
+request arrives
+│
+├─► middleware chain          ──┐
+│     resolve all middleware    │
+│     modules in parallel;      │
+│     execute sequentially      │
+│     (context may chain)       │
+│                               │
+├─► route module import ────────┤   all four kick off together
+│                               │
+├─► shell module import ────────┤
+│                               │
+└─► data-module import ─────────┘   (separate loader file, if any)
+          │
+          ▼
+   await middleware ─► context
+          │
+          ▼
+   await route module + loader
+          │
+          ▼
+   execute loader(args)        ◄── the one serial gate; loader needs
+          │                         the merged context
+          ▼
+   await shell module (usually already resolved)
+          │
+          ▼
+   merge head + headers (run in parallel; shell/route halves also
+   run in parallel inside each merge)
+          │
+          ▼
+   render HTML
+```
+
+**Important properties:**
+
+- Middleware **execution** order is preserved. Only module imports are
+  parallelized — the chain is still left-to-right so context mutations
+  compose deterministically.
+- `head` / `headers` exports on shell and route run concurrently. If both
+  have side effects, both still run even if one throws. The merge order
+  (shell first, then route takes precedence) is unchanged.
+- If middleware short-circuits with a redirect or `Response`, the route /
+  shell / data module imports that were already in flight are discarded.
+  Their rejections are suppressed to avoid unhandled-rejection warnings;
+  real errors still surface when those promises are awaited downstream.
+
+---
+
 ## Module loading during navigation
 
 ```

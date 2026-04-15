@@ -490,8 +490,18 @@ export async function handlePrachtRequest<TContext>(
   let currentPhase: PrachtRuntimeDiagnosticPhase = "middleware";
 
   try {
-    // --- Middleware chain ---
-    const middlewareResult = await runMiddlewareChain({
+    // Kick off every piece of the pipeline that doesn't depend on the
+    // middleware chain's result up front, so they run concurrently with
+    // middleware rather than waiting in line:
+    //
+    //   • route module import                          (needs only match.route.file)
+    //   • shell module import                          (needs only match.route.shellFile)
+    //   • data-module resolution (separate loader file) (needs routeModule)
+    //
+    // Only the loader itself still waits for middleware, because it
+    // receives the merged context. This removes one serial await from
+    // every request (typically the shell module load after the loader).
+    const middlewarePromise = runMiddlewareChain({
       context: routeArgs.context,
       middlewareFiles: match.route.middlewareFiles,
       params: match.params,
@@ -500,6 +510,30 @@ export async function handlePrachtRequest<TContext>(
       route: match.route,
       url,
     });
+
+    const routeModulePromise = resolveRegistryModule<RouteModule>(
+      registry.routeModules,
+      match.route.file,
+    );
+
+    const shellModulePromise: Promise<ShellModule | undefined> = match.route.shellFile
+      ? resolveRegistryModule<ShellModule>(registry.shellModules, match.route.shellFile)
+      : Promise.resolve(undefined);
+
+    const dataFunctionsPromise = routeModulePromise.then((mod) =>
+      resolveDataFunctions(match.route, mod, registry),
+    );
+
+    // Suppress unhandled-rejection warnings for in-flight promises that we
+    // may not reach (e.g. middleware short-circuits with a response). Each
+    // promise is still awaited via the original reference below, so real
+    // errors still surface through the existing try/catch.
+    routeModulePromise.catch(() => {});
+    shellModulePromise.catch(() => {});
+    dataFunctionsPromise.catch(() => {});
+
+    // --- Middleware chain ---
+    const middlewareResult = await middlewarePromise;
     if (middlewareResult.response) {
       return normalizePageResponse(middlewareResult.response, { isRouteStateRequest });
     }
@@ -511,18 +545,14 @@ export async function handlePrachtRequest<TContext>(
 
     // --- Load route module ---
     currentPhase = "render";
-    routeModule = await resolveRegistryModule<RouteModule>(registry.routeModules, match.route.file);
+    routeModule = await routeModulePromise;
     if (!routeModule) {
       throw new Error("Route module not found");
     }
 
     // --- Resolve loader from separate data module or route module ---
     currentPhase = "loader";
-    const { loader, loaderFile: resolvedLoaderFile } = await resolveDataFunctions(
-      match.route,
-      routeModule,
-      registry,
-    );
+    const { loader, loaderFile: resolvedLoaderFile } = await dataFunctionsPromise;
     loaderFile = resolvedLoaderFile;
 
     // --- Execute loader ---
@@ -541,14 +571,17 @@ export async function handlePrachtRequest<TContext>(
     }
 
     // --- Load shell module ---
+    // Shell import was kicked off up front; this await is usually already
+    // resolved by the time we get here (it runs in parallel with the loader).
     currentPhase = "render";
-    shellModule = match.route.shellFile
-      ? await resolveRegistryModule<ShellModule>(registry.shellModules, match.route.shellFile)
-      : undefined;
+    shellModule = await shellModulePromise;
 
     // --- Merge document metadata ---
-    const head = await mergeHeadMetadata(shellModule, routeModule, routeArgs, data);
-    const documentHeaders = await mergeDocumentHeaders(shellModule, routeModule, routeArgs, data);
+    // head and document headers are independent; run them concurrently.
+    const [head, documentHeaders] = await Promise.all([
+      mergeHeadMetadata(shellModule, routeModule, routeArgs, data),
+      mergeDocumentHeaders(shellModule, routeModule, routeArgs, data),
+    ]);
 
     const cssUrls = resolvePageCssUrls(options, match.route.shellFile, match.route.file);
     const modulePreloadUrls = resolvePageJsUrls(options, match.route.shellFile, match.route.file);
@@ -1117,11 +1150,23 @@ async function runMiddlewareChain<TContext>(options: {
 > {
   let context = options.context;
 
-  for (const mwFile of options.middlewareFiles) {
-    const mwModule = await resolveRegistryModule<MiddlewareModule>(
-      options.registry.middlewareModules,
-      mwFile,
-    );
+  // Kick off module resolution for every middleware in parallel. Execution
+  // below still runs sequentially — middleware may mutate context and the
+  // ordering is part of the public contract — but the imports themselves
+  // have no inter-dependency, so waiting for them one-by-one is pure
+  // latency for no benefit. On cold starts where middleware ships as its
+  // own chunks this can meaningfully reduce TTFB.
+  const modulePromises = options.middlewareFiles.map((mwFile) =>
+    resolveRegistryModule<MiddlewareModule>(options.registry.middlewareModules, mwFile),
+  );
+  // Suppress unhandled-rejection warnings for promises that may not be
+  // awaited if an earlier middleware short-circuits with a response.
+  for (const p of modulePromises) {
+    p.catch(() => {});
+  }
+
+  for (const modulePromise of modulePromises) {
+    const mwModule = await modulePromise;
     if (!mwModule?.middleware) continue;
 
     const result = await mwModule.middleware({
@@ -1203,8 +1248,14 @@ async function mergeHeadMetadata(
   routeArgs: BaseRouteArgs<unknown>,
   data: unknown,
 ): Promise<HeadMetadata> {
-  const shellHead = shellModule?.head ? await shellModule.head(routeArgs) : {};
-  const routeHead = routeModule?.head ? await routeModule.head({ ...routeArgs, data } as any) : {};
+  // Shell and route `head` exports are independent — run them concurrently.
+  // Merge order (shell first, then route) is preserved below.
+  const [shellHead, routeHead] = await Promise.all([
+    shellModule?.head ? shellModule.head(routeArgs) : Promise.resolve({} as HeadMetadata),
+    routeModule?.head
+      ? routeModule.head({ ...routeArgs, data } as any)
+      : Promise.resolve({} as HeadMetadata),
+  ]);
 
   return {
     title: routeHead.title ?? shellHead.title,
@@ -1221,14 +1272,17 @@ async function mergeDocumentHeaders(
   data: unknown,
 ): Promise<Headers> {
   const headers = new Headers();
-  const shellHeaders = shellModule?.headers ? await shellModule.headers(routeArgs) : undefined;
+  // Shell and route `headers` exports are independent — run concurrently.
+  // Apply order (shell first, then route) still gives route precedence.
+  const [shellHeaders, routeHeaders] = await Promise.all([
+    shellModule?.headers ? shellModule.headers(routeArgs) : Promise.resolve(undefined),
+    routeModule?.headers
+      ? routeModule.headers({ ...routeArgs, data } as any)
+      : Promise.resolve(undefined),
+  ]);
   if (shellHeaders) {
     applyHeaders(headers, shellHeaders);
   }
-
-  const routeHeaders = routeModule?.headers
-    ? await routeModule.headers({ ...routeArgs, data } as any)
-    : undefined;
   if (routeHeaders) {
     applyHeaders(headers, routeHeaders);
   }

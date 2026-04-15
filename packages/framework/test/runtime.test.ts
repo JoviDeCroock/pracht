@@ -1140,3 +1140,158 @@ describe("handlePrachtRequest ErrorBoundary", () => {
     });
   });
 });
+
+describe("handlePrachtRequest pipeline parallelism", () => {
+  function defer<T>() {
+    let resolve!: (value: T) => void;
+    const promise = new Promise<T>((r) => {
+      resolve = r;
+    });
+    return { promise, resolve };
+  }
+
+  async function drainMicrotasks() {
+    // Yield to the event loop twice so any already-scheduled promise chains
+    // have a chance to advance to their first await point.
+    await new Promise((r) => setImmediate(r));
+    await new Promise((r) => setImmediate(r));
+  }
+
+  it("resolves middleware module imports in parallel even though execution stays ordered", async () => {
+    const app = defineApp({
+      middleware: {
+        a: "./middleware/a.ts",
+        b: "./middleware/b.ts",
+        c: "./middleware/c.ts",
+      },
+      routes: [
+        route("/", "./routes/home.tsx", {
+          middleware: ["a", "b", "c"],
+          render: "ssr",
+        }),
+      ],
+    });
+
+    const importStarted: Record<string, boolean> = { a: false, b: false, c: false };
+    const gates = {
+      a: defer<void>(),
+      b: defer<void>(),
+      c: defer<void>(),
+    };
+    const executionOrder: string[] = [];
+
+    const makeMiddleware = (id: "a" | "b" | "c") => async () => {
+      importStarted[id] = true;
+      await gates[id].promise;
+      return {
+        middleware: async ({ context }: { context: Record<string, boolean> }) => {
+          executionOrder.push(id);
+          return { context: { ...context, [`${id}-ran`]: true } };
+        },
+      };
+    };
+
+    const responsePromise = handlePrachtRequest({
+      app,
+      registry: {
+        middlewareModules: {
+          "./middleware/a.ts": makeMiddleware("a"),
+          "./middleware/b.ts": makeMiddleware("b"),
+          "./middleware/c.ts": makeMiddleware("c"),
+        },
+        routeModules: {
+          "./routes/home.tsx": async () => ({
+            Component: () => h("main", null, "ok"),
+          }),
+        },
+      },
+      request: new Request("http://localhost/"),
+    });
+
+    await drainMicrotasks();
+
+    // Under the parallelized chain, every middleware's dynamic-import function
+    // has been kicked off before any of them resolve. Under the old serial
+    // code only `a` would have started here.
+    expect(importStarted).toEqual({ a: true, b: true, c: true });
+
+    // Resolve gates out-of-order to prove execution is still left-to-right.
+    gates.c.resolve();
+    gates.b.resolve();
+    gates.a.resolve();
+
+    const response = await responsePromise;
+    expect(response.status).toBe(200);
+    expect(executionOrder).toEqual(["a", "b", "c"]);
+  });
+
+  it("starts route and shell module imports in parallel with the middleware chain", async () => {
+    const app = defineApp({
+      middleware: {
+        auth: "./middleware/auth.ts",
+      },
+      shells: {
+        app: "./shells/app.tsx",
+      },
+      routes: [
+        route("/", "./routes/home.tsx", {
+          middleware: ["auth"],
+          render: "ssr",
+          shell: "app",
+        }),
+      ],
+    });
+
+    let middlewareStarted = false;
+    let routeModuleImportStarted = false;
+    let shellModuleImportStarted = false;
+    const mwGate = defer<void>();
+
+    const response = handlePrachtRequest({
+      app,
+      registry: {
+        middlewareModules: {
+          "./middleware/auth.ts": async () => ({
+            middleware: async ({ context }: { context: Record<string, unknown> }) => {
+              middlewareStarted = true;
+              await mwGate.promise;
+              return { context };
+            },
+          }),
+        },
+        routeModules: {
+          "./routes/home.tsx": async () => {
+            routeModuleImportStarted = true;
+            return {
+              Component: () => h("main", null, "ok"),
+            };
+          },
+        },
+        shellModules: {
+          "./shells/app.tsx": async () => {
+            shellModuleImportStarted = true;
+            return {
+              Shell: ({ children }: { children: unknown }) => h("div", null, children as any),
+            };
+          },
+        },
+      },
+      request: new Request("http://localhost/"),
+    });
+
+    await drainMicrotasks();
+
+    // While middleware is still blocked on its gate, the route and shell
+    // module importers have already been invoked. Under the old serial
+    // pipeline, neither would have been touched yet — the route import
+    // waited for middleware to resolve, and the shell import waited for the
+    // loader.
+    expect(middlewareStarted).toBe(true);
+    expect(routeModuleImportStarted).toBe(true);
+    expect(shellModuleImportStarted).toBe(true);
+
+    mwGate.resolve();
+    const res = await response;
+    expect(res.status).toBe(200);
+  });
+});
