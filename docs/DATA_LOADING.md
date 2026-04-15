@@ -75,6 +75,49 @@ For SPA routes, the initial HTML can still include the matched shell and an
 optional shell `Loading` export so the page is not blank before the route-state
 request resolves.
 
+### Forwarding headers from the client
+
+Pracht's client runtime issues its own fetches for:
+
+- Navigation route-state fetches
+- `useRevalidate()` calls
+- Prefetching (hover / viewport / intent)
+- `<Form>` submissions
+
+By default these fetches only set framework headers (e.g.
+`x-pracht-route-state-request`). If a loader needs to read a header that the
+browser does not attach automatically — most commonly `Authorization: Bearer …`
+from a client-held token — install a custom fetch with `configureClient()`:
+
+```ts
+// src/routes.ts
+import { configureClient, defineApp } from "@pracht/core";
+
+configureClient({
+  fetch: (input, init) =>
+    fetch(input, {
+      ...init,
+      credentials: "include",
+      headers: {
+        ...(init?.headers as Record<string, string> | undefined),
+        Authorization: `Bearer ${getToken()}`,
+      },
+    }),
+});
+
+export const app = defineApp({ /* ... */ });
+```
+
+Because `src/routes.ts` is imported by the generated client entry before
+`initClientRouter` runs, the configuration is in place before the first
+client fetch. On the server, loaders can then read the header from
+`request.headers.get("authorization")` on both the initial SSR request and
+every subsequent client-triggered route-state fetch.
+
+Cookies (used by the session-based auth recipe) continue to flow by default
+for same-origin deployments; set `credentials: "include"` as shown above only
+if you serve loaders from a cross-origin host.
+
 ### Error handling
 
 Throw `PrachtHttpError` for structured error responses:

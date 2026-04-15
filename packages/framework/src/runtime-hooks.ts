@@ -27,7 +27,11 @@ import {
 } from "./runtime-context.ts";
 import { clearPrefetchCache } from "./prefetch-cache.ts";
 import { deserializeRouteError } from "./runtime-errors.ts";
-import { fetchPrachtRouteState, navigateToClientLocation } from "./runtime-client-fetch.ts";
+import {
+  fetchPrachtRouteState,
+  getConfiguredClientFetch,
+  navigateToClientLocation,
+} from "./runtime-client-fetch.ts";
 import type {
   LinkPrefetchStrategy,
   LoaderData,
@@ -198,7 +202,8 @@ export function Form(props: FormProps) {
         formData,
       );
       try {
-        const response = await fetch(actionUrl, {
+        const clientFetch = getConfiguredClientFetch();
+        const response = await clientFetch(actionUrl, {
           method: formMethod,
           body: formData,
           redirect: "manual",
