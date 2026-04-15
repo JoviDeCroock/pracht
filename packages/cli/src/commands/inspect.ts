@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { defineCommand } from "citty";
@@ -85,9 +85,7 @@ async function runInspect(root: string, { target = "all" } = {}): Promise<Inspec
 
   if (project.mode === "manifest") {
     const manifestPath = resolveProjectPath(project.root, project.appFile);
-    try {
-      readFileSync(manifestPath, "utf-8");
-    } catch {
+    if (!existsSync(manifestPath)) {
       throw new Error(`App manifest is missing at ${project.appFile}.`);
     }
   }
