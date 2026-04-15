@@ -3,7 +3,9 @@ import { describe, expect, it } from "vitest";
 import {
   defineApp,
   group,
+  matchApiRoute,
   matchAppRoute,
+  resolveApiRoutes,
   resolveApp,
   route,
   timeRevalidate,
@@ -126,5 +128,26 @@ describe("matchAppRoute", () => {
 
     expect(match?.route.file).toBe("./routes/post.tsx");
     expect(match?.params).toEqual({ slug: "hello world" });
+  });
+});
+
+describe("API route matching", () => {
+  it("sorts static api routes ahead of dynamic routes", () => {
+    const routes = resolveApiRoutes(["/src/api/users/[id].ts", "/src/api/users/me.ts"]);
+
+    expect(routes[0]?.file).toBe("/src/api/users/me.ts");
+    expect(routes[1]?.file).toBe("/src/api/users/[id].ts");
+  });
+
+  it("prefers static api routes over dynamic params during matching", () => {
+    const routes = resolveApiRoutes(["/src/api/users/[id].ts", "/src/api/users/me.ts"]);
+
+    const staticMatch = matchApiRoute(routes, "/api/users/me");
+    const dynamicMatch = matchApiRoute(routes, "/api/users/42");
+
+    expect(staticMatch?.route.file).toBe("/src/api/users/me.ts");
+    expect(staticMatch?.params).toEqual({});
+    expect(dynamicMatch?.route.file).toBe("/src/api/users/[id].ts");
+    expect(dynamicMatch?.params).toEqual({ id: "42" });
   });
 });

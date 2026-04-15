@@ -314,30 +314,32 @@ export function buildPathFromSegments(segments: RouteSegment[], params: RoutePar
 export function resolveApiRoutes(files: string[], apiDir: string = "/src/api"): ResolvedApiRoute[] {
   const normalizedDir = apiDir.replace(/\/$/, "");
 
-  return files.map((file) => {
-    // Strip the apiDir prefix and file extension
-    let relative = file;
-    if (relative.startsWith(normalizedDir)) {
-      relative = relative.slice(normalizedDir.length);
-    }
-    relative = relative.replace(/\.(ts|tsx|js|jsx)$/, "");
+  return files
+    .map((file) => {
+      // Strip the apiDir prefix and file extension
+      let relative = file;
+      if (relative.startsWith(normalizedDir)) {
+        relative = relative.slice(normalizedDir.length);
+      }
+      relative = relative.replace(/\.(ts|tsx|js|jsx)$/, "");
 
-    // index files map to the parent directory
-    if (relative.endsWith("/index")) {
-      relative = relative.slice(0, -"/index".length) || "/";
-    }
+      // index files map to the parent directory
+      if (relative.endsWith("/index")) {
+        relative = relative.slice(0, -"/index".length) || "/";
+      }
 
-    // Convert [param] to :param for consistency with page routes
-    relative = relative.replace(/\[([^\]]+)\]/g, ":$1");
+      // Convert [param] to :param for consistency with page routes
+      relative = relative.replace(/\[([^\]]+)\]/g, ":$1");
 
-    const path = normalizeRoutePath(`/api${relative}`);
+      const path = normalizeRoutePath(`/api${relative}`);
 
-    return {
-      path,
-      file,
-      segments: parseRouteSegments(path),
-    };
-  });
+      return {
+        path,
+        file,
+        segments: parseRouteSegments(path),
+      };
+    })
+    .sort(compareResolvedApiRoutes);
 }
 
 export function matchApiRoute(
@@ -378,4 +380,30 @@ function createRouteId(path: string): string {
     })
     .join("-")
     .replace(/[^a-zA-Z0-9-]/g, "-");
+}
+
+function compareResolvedApiRoutes(left: ResolvedApiRoute, right: ResolvedApiRoute): number {
+  const length = Math.max(left.segments.length, right.segments.length);
+
+  for (let index = 0; index < length; index += 1) {
+    const leftSegment = left.segments[index];
+    const rightSegment = right.segments[index];
+
+    if (!leftSegment) return 1;
+    if (!rightSegment) return -1;
+
+    const leftScore = getRouteSegmentSpecificity(leftSegment);
+    const rightScore = getRouteSegmentSpecificity(rightSegment);
+    if (leftScore !== rightScore) {
+      return rightScore - leftScore;
+    }
+  }
+
+  return left.path.localeCompare(right.path);
+}
+
+function getRouteSegmentSpecificity(segment: RouteSegment): number {
+  if (segment.type === "static") return 3;
+  if (segment.type === "param") return 2;
+  return 1;
 }
