@@ -1934,7 +1934,7 @@ describe("handlePrachtRequest plugins", () => {
       },
       afterRender: () => {
         calls.push("after");
-        return "<style>.critical { color: red }</style>";
+        return { head: "<style>.critical { color: red }</style>" };
       },
     };
 
@@ -1971,7 +1971,7 @@ describe("handlePrachtRequest plugins", () => {
         },
         afterRender: () => {
           calls.push("first-after");
-          return "<style>.a{}</style>";
+          return { head: "<style>.a{}</style>" };
         },
       },
       {
@@ -1981,7 +1981,7 @@ describe("handlePrachtRequest plugins", () => {
         },
         afterRender: () => {
           calls.push("second-after");
-          return "<style>.b{}</style>";
+          return { head: "<style>.b{}</style>" };
         },
       },
     ];
@@ -2019,7 +2019,7 @@ describe("handlePrachtRequest plugins", () => {
       },
       afterRender: () => {
         calls.push("after");
-        return "<style>.spa { display: block }</style>";
+        return { head: "<style>.spa { display: block }</style>" };
       },
     };
 
@@ -2097,7 +2097,7 @@ describe("handlePrachtRequest plugins", () => {
       },
       afterRender: async () => {
         await new Promise((r) => setTimeout(r, 5));
-        return '<meta name="plugin" content="async">';
+        return { head: '<meta name="plugin" content="async">' };
       },
     };
 
