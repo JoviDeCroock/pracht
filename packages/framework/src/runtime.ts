@@ -635,9 +635,7 @@ export async function handlePrachtRequest<TContext>(
     const Comp = Component as FunctionComponent<Record<string, unknown>>;
     const componentProps = { data, params: match.params };
 
-    const componentTree = Shell
-      ? h(Shell, null, h(Comp, componentProps))
-      : h(Comp, componentProps);
+    const componentTree = Shell ? h(Shell, null, h(Comp, componentProps)) : h(Comp, componentProps);
 
     const tree = h(
       PrachtRuntimeProvider as FunctionComponent<Record<string, unknown>>,
@@ -1081,13 +1079,26 @@ async function renderRouteErrorResponse<TContext>(options: {
   );
   const renderToString = await getRenderToStringAsync();
 
-  const ErrorBoundary = options.routeModule.ErrorBoundary as unknown as FunctionComponent<{ error: Error }>;
-  const Shell = shellModule?.Shell as unknown as FunctionComponent<{ children?: ComponentChildren }> | undefined;
+  const ErrorBoundary = options.routeModule.ErrorBoundary as unknown as FunctionComponent<{
+    error: Error;
+  }>;
+  const Shell = shellModule?.Shell as unknown as
+    | FunctionComponent<{ children?: ComponentChildren }>
+    | undefined;
   const errorValue = deserializeRouteError(routeErrorWithDiagnostics);
   const componentTree = Shell
     ? h(Shell, null, h(ErrorBoundary, { error: errorValue }))
     : h(ErrorBoundary, { error: errorValue });
-  const tree = h(PrachtRuntimeProvider as unknown as FunctionComponent<{ data: null; routeId: string; url: string; children?: ComponentChildren }>, { data: null, routeId: options.routeId, url: options.requestPath }, componentTree);
+  const tree = h(
+    PrachtRuntimeProvider as unknown as FunctionComponent<{
+      data: null;
+      routeId: string;
+      url: string;
+      children?: ComponentChildren;
+    }>,
+    { data: null, routeId: options.routeId, url: options.requestPath },
+    componentTree,
+  );
   const body = await renderToString(tree);
 
   return htmlResponse(

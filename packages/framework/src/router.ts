@@ -7,7 +7,13 @@ import { matchAppRoute } from "./app.ts";
 import { markHydrating } from "./hydration.ts";
 import { getCachedRouteState, setupPrefetching } from "./prefetch.ts";
 import type { ModuleWarmFn } from "./prefetch.ts";
-import type { ResolvedPrachtApp, RouteMatch, RouteModule, RouteParams, ShellModule } from "./types.ts";
+import type {
+  ResolvedPrachtApp,
+  RouteMatch,
+  RouteModule,
+  RouteParams,
+  ShellModule,
+} from "./types.ts";
 import { deserializeRouteError, fetchPrachtRouteState, PrachtRuntimeProvider } from "./runtime.ts";
 import type { SerializedRouteError, PrachtHydrationState } from "./runtime.ts";
 
@@ -91,7 +97,11 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
 
     const { Shell, Component, componentProps, data, params, routeId, url, version } = routeState;
     const componentTree = Shell
-      ? h(Shell as FunctionComponent<Record<string, unknown>>, null, h(Component as FunctionComponent<Record<string, unknown>>, componentProps))
+      ? h(
+          Shell as FunctionComponent<Record<string, unknown>>,
+          null,
+          h(Component as FunctionComponent<Record<string, unknown>>, componentProps),
+        )
       : h(Component as FunctionComponent<Record<string, unknown>>, componentProps);
 
     return h(

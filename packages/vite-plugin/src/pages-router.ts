@@ -111,7 +111,6 @@ function extractRenderMode(source: string): string | undefined {
   return match ? match[1] : undefined;
 }
 
-
 export function generatePagesManifestSource(
   pages: ScannedPage[],
   options: PagesRouterOptions & { pagesDirPrefix?: string; useImportSyntax?: boolean },
