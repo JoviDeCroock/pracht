@@ -27,6 +27,14 @@ test("about page renders as static page", async ({ page }) => {
   await expect(page.locator("section p").first()).toContainText("static page rendered with SSG");
 });
 
+test("@-prefixed static routes render in dev", async ({ page }) => {
+  const response = await page.goto("/@alice");
+
+  expect(response?.status()).toBe(200);
+  await expect(page.locator(".pages-shell")).toBeVisible();
+  await expect(page.locator("h1")).toContainText("@alice");
+});
+
 // ---------------------------------------------------------------------------
 // _app.tsx shell wraps all pages
 // ---------------------------------------------------------------------------
@@ -56,6 +64,22 @@ test("dynamic route works with different slugs", async ({ page }) => {
 
   await expect(page.locator("h1")).toContainText("Blog: my first post");
   await expect(page.locator("code")).toContainText("my-first-post");
+});
+
+test("dotted dynamic routes render in dev", async ({ page }) => {
+  const response = await page.goto("/blog/release-1.2.3");
+
+  expect(response?.status()).toBe(200);
+  await expect(page.locator("h1")).toContainText("Blog: release 1.2.3");
+  await expect(page.locator("code")).toContainText("release-1.2.3");
+});
+
+test("asset-looking dynamic routes still render as pages in dev", async ({ page }) => {
+  const response = await page.goto("/blog/openapi.json");
+
+  expect(response?.status()).toBe(200);
+  await expect(page.locator("h1")).toContainText("Blog: openapi.json");
+  await expect(page.locator("code")).toContainText("openapi.json");
 });
 
 // ---------------------------------------------------------------------------
@@ -184,6 +208,19 @@ test("route state request returns JSON for pages", async ({ request }) => {
   expect(response.headers()["x-pracht-router"]).toBeUndefined();
   const json = await response.json();
   expect(json.data.message).toContain("file-system routing");
+});
+
+test("route state _data requests work for dotted slugs in dev", async ({ request }) => {
+  const response = await request.get("/blog/openapi.json?_data=1");
+
+  expect(response.status()).toBe(200);
+  expect(response.headers()["content-type"]).toContain("application/json");
+
+  const json = await response.json();
+  expect(json.data).toMatchObject({
+    slug: "openapi.json",
+    title: "Blog: openapi.json",
+  });
 });
 
 // ---------------------------------------------------------------------------

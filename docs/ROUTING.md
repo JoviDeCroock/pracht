@@ -380,6 +380,11 @@ Routes are sorted: static routes first, then dynamic (`:param`), then catch-all
 - **File add/remove** in pages dir: dev server restarts (new routes need
   new globs)
 
+During `pracht dev`, resolved routes take precedence over filename heuristics.
+That means URLs such as `/blog/release-1.2.3`, `/blog/openapi.json`, and
+`/@alice` still render through the framework when they exist as routes. Only
+Vite's reserved dev-internal paths are bypassed directly.
+
 ### Ejecting to Explicit Manifest
 
 To stop using auto-discovery and customize the manifest directly, use the
