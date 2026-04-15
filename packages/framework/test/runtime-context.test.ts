@@ -54,15 +54,12 @@ describe("PrachtRuntimeProvider", () => {
       const [, setTick] = useState(0);
       bump = () => setTick((tick) => tick + 1);
 
-      return h(
-        PrachtRuntimeProvider,
-        {
-          data: { user: "Ada" },
-          routeId: "dashboard",
-          url: "/dashboard",
-        },
-        h(Blocker, null, h(Consumer, null)),
-      );
+      return h(PrachtRuntimeProvider, {
+        children: h(Blocker, null, h(Consumer, null)),
+        data: { user: "Ada" },
+        routeId: "dashboard",
+        url: "/dashboard",
+      });
     }
 
     render(h(App, null), scratch);
