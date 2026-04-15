@@ -2,6 +2,8 @@
 
 A fictional project management tool ("Launchpad") that demonstrates why per-route render modes matter in a real product.
 
+Deployed at https://showcase-ten-eosin.vercel.app
+
 ## The story
 
 | Route | Mode | Why |
