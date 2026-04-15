@@ -262,8 +262,14 @@ directory and generates the route manifest automatically.
 | `pages/blog/index.tsx`  | `/blog`                |
 | `pages/blog/[slug].tsx` | `/blog/:slug`          |
 | `pages/[...path].tsx`   | `/*`                   |
+| `pages/guide.mdx`       | `/guide`               |
+| `pages/docs/intro.md`   | `/docs/intro`          |
 | `pages/_app.tsx`        | _(shell, not a route)_ |
 | `pages/_anything.tsx`   | _(ignored)_            |
+
+Markdown and MDX pages are routed the same way as `.tsx` pages. If you want to
+render `.mdx` files, add the corresponding Vite transform plugin such as
+`@mdx-js/rollup` alongside `pracht()`.
 
 ### Shell via `_app.tsx`
 

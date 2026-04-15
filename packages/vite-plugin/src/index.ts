@@ -382,19 +382,19 @@ export function createPrachtRegistryModuleSource(options: PrachtPluginOptions = 
   const isPagesMode = !!resolved.pagesDir;
 
   const routeGlob = isPagesMode
-    ? `${resolved.pagesDir}/**/*.{ts,tsx,js,jsx,md}`
-    : `${resolved.routesDir}/**/*.{ts,tsx,js,jsx,md}`;
+    ? `${resolved.pagesDir}/**/*.{ts,tsx,js,jsx,md,mdx}`
+    : `${resolved.routesDir}/**/*.{ts,tsx,js,jsx,md,mdx}`;
 
   const shellGlob = isPagesMode
     ? `${resolved.pagesDir}/**/_app.{ts,tsx,js,jsx}`
-    : `${resolved.shellsDir}/**/*.{ts,tsx,js,jsx,md}`;
+    : `${resolved.shellsDir}/**/*.{ts,tsx,js,jsx,md,mdx}`;
 
   return [
     `export const routeModules = import.meta.glob(${JSON.stringify(routeGlob)});`,
     `export const shellModules = import.meta.glob(${JSON.stringify(shellGlob)});`,
-    `export const middlewareModules = import.meta.glob(${JSON.stringify(`${resolved.middlewareDir}/**/*.{ts,tsx,js,jsx,md}`)});`,
-    `export const apiModules = import.meta.glob(${JSON.stringify(`${resolved.apiDir}/**/*.{ts,js}`)});`,
-    `export const dataModules = import.meta.glob(${JSON.stringify(`${resolved.serverDir}/**/*.{ts,js}`)});`,
+    `export const middlewareModules = import.meta.glob(${JSON.stringify(`${resolved.middlewareDir}/**/*.{ts,tsx,js,jsx}`)});`,
+    `export const apiModules = import.meta.glob(${JSON.stringify(`${resolved.apiDir}/**/*.{ts,js,tsx,jsx}`)});`,
+    `export const dataModules = import.meta.glob(${JSON.stringify(`${resolved.serverDir}/**/*.{ts,js,tsx,jsx}`)});`,
     "",
     "export const registry = {",
     "  routeModules,",

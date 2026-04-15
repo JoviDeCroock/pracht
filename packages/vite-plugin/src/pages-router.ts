@@ -24,7 +24,8 @@ export interface PagesRouterOptions {
 // Scanner
 // ---------------------------------------------------------------------------
 
-const PAGE_EXTENSIONS = new Set([".tsx", ".ts", ".jsx", ".js"]);
+const PAGE_EXTENSIONS = new Set([".tsx", ".ts", ".jsx", ".js", ".md", ".mdx"]);
+const SHELL_EXTENSIONS = new Set([".tsx", ".ts", ".jsx", ".js"]);
 
 export function scanPagesDirectory(pagesDir: string): ScannedPage[] {
   const pages: ScannedPage[] = [];
@@ -153,7 +154,7 @@ export function generatePagesManifestSource(
   // Check if _app exists by scanning for it
   const allFiles = scanAllFiles(pagesDir);
   const appFile = allFiles.find(
-    (f) => basename(f, extname(f)) === "_app" && PAGE_EXTENSIONS.has(extname(f)),
+    (f) => basename(f, extname(f)) === "_app" && SHELL_EXTENSIONS.has(extname(f)),
   );
 
   const lines: string[] = ['import { defineApp, group, route } from "@pracht/core";', ""];
