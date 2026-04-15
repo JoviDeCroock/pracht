@@ -125,6 +125,7 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
   async function resolveRouteState(
     match: RouteMatch,
     state: { data: unknown; error?: SerializedRouteError | null },
+    currentUrl: string,
     routeModPromise?: Promise<any> | null,
     shellModPromise?: Promise<any> | null,
   ): Promise<RouteRenderState | null> {
@@ -154,13 +155,14 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
       data: state.data,
       params: match.params,
       routeId: match.route.id ?? "",
-      url: match.pathname,
+      url: currentUrl,
       version: ++routeStateVersion,
     };
   }
 
   async function resolveSpaPendingState(
     match: RouteMatch,
+    currentUrl: string,
     shellModPromise?: Promise<any> | null,
   ): Promise<RouteRenderState | null> {
     const resolvedShell = await (shellModPromise ?? startShellImport(match));
@@ -178,7 +180,7 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
       data: undefined,
       params: match.params,
       routeId: match.route.id ?? "",
-      url: match.pathname,
+      url: currentUrl,
       version: ++routeStateVersion,
     };
   }
@@ -306,7 +308,13 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
     }
 
     // Update route state — module imports started above are already in-flight
-    const routeState = await resolveRouteState(match, state, routeModPromise, shellModPromise);
+    const routeState = await resolveRouteState(
+      match,
+      state,
+      target.requestUrl,
+      routeModPromise,
+      shellModPromise,
+    );
     if (routeState) {
       applyRouteState(routeState);
       window.scrollTo(0, 0);
@@ -353,7 +361,11 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
       // Kick off the data fetch in parallel with shell hydration
       const dataPromise = fetchPrachtRouteState(initialRequestUrl);
 
-      const pendingState = await resolveSpaPendingState(initialMatch, initialShellPromise);
+      const pendingState = await resolveSpaPendingState(
+        initialMatch,
+        initialRequestUrl,
+        initialShellPromise,
+      );
       if (pendingState) {
         hydrate(h(RouterRoot, { initialState: pendingState }), root);
       }
@@ -384,6 +396,7 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
       const resolvedState = await resolveRouteState(
         initialMatch,
         state,
+        initialRequestUrl,
         undefined,
         initialShellPromise,
       );
@@ -394,6 +407,7 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
       const initialRouteState = await resolveRouteState(
         initialMatch,
         state,
+        initialRequestUrl,
         undefined,
         initialShellPromise,
       );
