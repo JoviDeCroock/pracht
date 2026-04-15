@@ -40,10 +40,29 @@ import type {
   HttpMethod,
   ModuleRegistry,
   PrachtApp,
+  PrachtPlugin,
   ResolvedApiRoute,
   RouteModule,
   ShellModule,
 } from "./types.ts";
+
+async function runPluginHooks(plugins: PrachtPlugin[], hook: "beforeRender"): Promise<void>;
+async function runPluginHooks(plugins: PrachtPlugin[], hook: "afterRender"): Promise<string[]>;
+async function runPluginHooks(
+  plugins: PrachtPlugin[],
+  hook: "beforeRender" | "afterRender",
+): Promise<string[] | void> {
+  const headResults: string[] = [];
+  for (const plugin of plugins) {
+    const fn = plugin[hook];
+    if (!fn) continue;
+    const result = await fn();
+    if (hook === "afterRender" && typeof result === "string") {
+      headResults.push(result);
+    }
+  }
+  if (hook === "afterRender") return headResults;
+}
 
 export interface HandlePrachtRequestOptions<TContext = unknown> {
   app: PrachtApp;
@@ -332,14 +351,18 @@ export async function handlePrachtRequest<TContext>(
 
         if (loadingTree) {
           const renderFn = await getRenderToStringAsync();
+          await runPluginHooks(options.app.plugins, "beforeRender");
           body = await renderFn(loadingTree);
         }
       }
+
+      const pluginHeadContent = await runPluginHooks(options.app.plugins, "afterRender");
 
       return htmlResponse(
         buildHtmlDocument({
           head,
           body,
+          pluginHeadContent,
           hydrationState: {
             url: requestPath,
             routeId: match.route.id ?? "",
@@ -381,12 +404,15 @@ export async function handlePrachtRequest<TContext>(
       componentTree,
     );
     const renderToString = await getRenderToStringAsync();
+    await runPluginHooks(options.app.plugins, "beforeRender");
     const ssrContent = await renderToString(tree);
+    const pluginHeadContent = await runPluginHooks(options.app.plugins, "afterRender");
 
     return htmlResponse(
       buildHtmlDocument({
         head,
         body: ssrContent,
+        pluginHeadContent,
         hydrationState: {
           url: requestPath,
           routeId: match.route.id ?? "",

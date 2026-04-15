@@ -220,7 +220,42 @@ export const middleware: MiddlewareFn = async ({ request }) => {
 Middleware is named in the manifest and applied per route or group. It can
 redirect, set context, or throw errors.
 
-### 5. Module Registry
+### 5. Plugins
+
+Plugins hook into the server render lifecycle, enabling CSS-in-JS libraries,
+head managers, and similar tools that need to run code around rendering:
+
+```typescript
+import type { PrachtPlugin } from "@pracht/core";
+
+function gooberPlugin(): PrachtPlugin {
+  return {
+    name: "goober",
+    beforeRender: () => {
+      // Clear the style sheet before each render
+      extractCss(); // resets goober's internal buffer
+    },
+    afterRender: () => {
+      // Collect critical CSS and inject into <head>
+      const css = extractCss();
+      return css ? `<style id="_goober">${css}</style>` : undefined;
+    },
+  };
+}
+
+export const app = defineApp({
+  plugins: [gooberPlugin()],
+  routes: [...],
+});
+```
+
+- **`beforeRender`** runs immediately before `renderToStringAsync()`.
+- **`afterRender`** runs immediately after. Returning a string injects it into `<head>`.
+- Plugins run in array order; all `beforeRender` hooks fire, then render, then all `afterRender` hooks.
+- Both hooks support async (returning a Promise).
+- Plugins do not run for route-state JSON requests (client navigations), only for HTML renders.
+
+### 6. Module Registry
 
 The Vite plugin generates a module registry at build time using `import.meta.glob()`.
 This maps normalized file paths to lazy module importers:
@@ -236,7 +271,7 @@ const routeModules = {
 This avoids hand-maintained import maps and enables code splitting — each route
 is a separate chunk loaded on demand.
 
-### 6. Router
+### 7. Router
 
 Segment-based URL matching:
 
@@ -259,10 +294,11 @@ Browser request
   → Match route from manifest
   → Run middleware chain
   → Execute loader
+  → Run plugin beforeRender hooks
   → Render Preact component tree to string
+  → Run plugin afterRender hooks (collect head injections)
   → Merge head metadata and document headers (shell + route)
-  → Inject escaped hydration state into a JSON script tag
-  → Inject asset tags from Vite manifest
+  → Inject plugin head content, escaped hydration state, asset tags
   → Return HTML Response
   → Browser hydrates, client router takes over
 ```
