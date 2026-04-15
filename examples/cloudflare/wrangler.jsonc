@@ -9,4 +9,8 @@
     "run_worker_first": true,
   },
   "kv_namespaces": [{ "binding": "MY_KV", "id": "abc123" }],
+  "durable_objects": {
+    "bindings": [{ "name": "COUNTER", "class_name": "Counter" }],
+  },
+  "migrations": [{ "tag": "v1", "new_classes": ["Counter"] }],
 }

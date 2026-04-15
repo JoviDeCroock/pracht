@@ -44,8 +44,14 @@ export interface CloudflareAdapterOptions<
   createContext?: (args: CloudflareContextArgs<TEnv>) => TContext | Promise<TContext>;
 }
 
+export interface CloudflareWorkerExport {
+  from: string;
+  names: string[];
+}
+
 export interface CloudflareServerEntryModuleOptions {
   assetsBinding?: string;
+  exports?: CloudflareWorkerExport[];
 }
 
 export function createCloudflareFetchHandler<
@@ -165,6 +171,10 @@ export function createCloudflareServerEntryModule(
     "}",
     "",
     "export default { fetch };",
+    "",
+    ...(options.exports ?? []).map(
+      (exp) => `export { ${exp.names.join(", ")} } from ${JSON.stringify(exp.from)};`,
+    ),
     "",
   ].join("\n");
 }
