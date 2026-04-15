@@ -89,7 +89,7 @@ test("pracht build emits a deployable Node server entry", async () => {
     expect(routeStateResponse.headers.get("content-type")).toContain("application/json");
     expect(routeStateResponse.headers.get("x-pracht-shell")).toBeNull();
     expect(routeStateResponse.headers.get("vary")).toContain("x-pracht-route-state-request");
-    expect(routeStateResponse.headers.get("cache-control")).toBe("no-store");
+    expect(routeStateResponse.headers.get("cache-control")).toBe("private, max-age=30");
     await expect(routeStateResponse.json()).resolves.toEqual({
       data: {
         plan: "MVP",

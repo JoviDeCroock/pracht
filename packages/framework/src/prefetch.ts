@@ -67,8 +67,6 @@ export function setupPrefetching(app: ResolvedPrachtApp, warmModules?: ModuleWar
     if (!match) return "none";
     // Use route-level config, or default based on render mode
     if (match.route.prefetch) return match.route.prefetch;
-    // SPA routes fetch on load anyway — no benefit from prefetch
-    if (match.route.render === "spa") return "none";
     return "intent";
   }
 
