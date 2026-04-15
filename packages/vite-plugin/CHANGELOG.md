@@ -1,5 +1,17 @@
 # @pracht/vite-plugin
 
+## 0.2.3
+
+### Patch Changes
+
+- [#104](https://github.com/JoviDeCroock/pracht/pull/104) [`f7b5366`](https://github.com/JoviDeCroock/pracht/commit/f7b5366cead40f2237d55e6027dc4bfb7f8b324f) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Bundle all dependencies into the server entry for edge adapters (Vercel, Cloudflare) by setting `ssr.noExternal: true` during SSR builds, fixing "unsupported modules" errors on Vercel Edge Functions.
+
+- [#95](https://github.com/JoviDeCroock/pracht/pull/95) [`8b3a4ff`](https://github.com/JoviDeCroock/pracht/commit/8b3a4ff5f1e8d00391ddac9860d28a79df3ba380) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Fix pages-router auto-discovery for `.md` and `.mdx` page files and broaden the generated registry globs for script-based server modules.
+
+- Updated dependencies [[`f7b5366`](https://github.com/JoviDeCroock/pracht/commit/f7b5366cead40f2237d55e6027dc4bfb7f8b324f), [`d284596`](https://github.com/JoviDeCroock/pracht/commit/d284596fe00c3c74d56e7dc040ea1e8c9961eb99), [`2c95189`](https://github.com/JoviDeCroock/pracht/commit/2c95189209b4b09f862194078f7d2ced15f22dde), [`9219fd7`](https://github.com/JoviDeCroock/pracht/commit/9219fd7fa0a9be35595234c0f5baea0d6d6605d9)]:
+  - @pracht/core@0.2.6
+  - @pracht/adapter-node@0.1.7
+
 ## 0.2.2
 
 ### Patch Changes

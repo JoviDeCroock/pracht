@@ -1,5 +1,17 @@
 # @pracht/core
 
+## 0.2.6
+
+### Patch Changes
+
+- [#104](https://github.com/JoviDeCroock/pracht/pull/104) [`f7b5366`](https://github.com/JoviDeCroock/pracht/commit/f7b5366cead40f2237d55e6027dc4bfb7f8b324f) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Fix a client-side navigation loop when middleware redirects a protected route
+  back to the page the user is already viewing. Internal redirect handling now
+  short-circuits current-page redirects and preserves external redirects.
+
+- [#99](https://github.com/JoviDeCroock/pracht/pull/99) [`d284596`](https://github.com/JoviDeCroock/pracht/commit/d284596fe00c3c74d56e7dc040ea1e8c9961eb99) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Fix client-side query-string navigation so internal links keep using the client router, and expose `search` separately from `pathname` in `useLocation()`.
+
+- [#102](https://github.com/JoviDeCroock/pracht/pull/102) [`2c95189`](https://github.com/JoviDeCroock/pracht/commit/2c95189209b4b09f862194078f7d2ced15f22dde) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Fix auto-discovered API route precedence so static routes are matched before dynamic parameter routes.
+
 ## 0.2.5
 
 ### Patch Changes
