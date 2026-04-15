@@ -121,31 +121,44 @@ export function PrachtRuntimeProvider<TData>({
   data,
   params = {} as RouteParams,
   routeId,
+  stateVersion = 0,
   url,
 }: {
   children: ComponentChildren;
   data: TData;
   params?: RouteParams;
   routeId: string;
+  stateVersion?: number;
   url: string;
 }) {
   // TODO: make signal with getter to reduce
   // re-renders caused by the framework itself.
-  const [routeData, setRouteData] = useState<TData>(data);
+  const [routeDataState, setRouteDataState] = useState({
+    data,
+    stateVersion,
+  });
+  const routeData = routeDataState.stateVersion === stateVersion ? routeDataState.data : data;
 
   useEffect(() => {
-    setRouteData(data);
-  }, [data, routeId, url]);
+    setRouteDataState({
+      data,
+      stateVersion,
+    });
+  }, [data, routeId, stateVersion, url]);
 
   const context = useMemo(
     () => ({
       data: routeData,
       params,
       routeId,
-      setData: setRouteData as (data: unknown) => void,
+      setData: (nextData: unknown) =>
+        setRouteDataState({
+          data: nextData as TData,
+          stateVersion,
+        }),
       url,
     }),
-    [routeData, params, routeId, url],
+    [routeData, params, routeId, stateVersion, url],
   );
 
   return h(RouteDataContext.Provider, {
