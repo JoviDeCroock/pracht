@@ -5,7 +5,7 @@
   "license": "MIT",
   "type": "module",
   "scripts": {
-    "build": "pnpm -r --filter='./packages/*' --filter='!@pracht/cli' run build",
+    "build": "pnpm -r --filter='./packages/*' run build",
     "check": "pnpm build && pnpm typecheck && pnpm test",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",

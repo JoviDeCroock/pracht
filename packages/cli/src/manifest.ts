@@ -1,4 +1,4 @@
-export function ensureCoreNamedImport(source, name) {
+export function ensureCoreNamedImport(source: string, name: string): string {
   const match = source.match(/import\s*\{([^}]+)\}\s*from\s*["']@pracht\/core["'];?/);
   if (!match) {
     return `import { ${name} } from "@pracht/core";\n${source}`;
@@ -15,7 +15,7 @@ export function ensureCoreNamedImport(source, name) {
   return source.replace(match[0], `import { ${names.join(", ")} } from "@pracht/core";`);
 }
 
-export function upsertObjectEntry(source, key, entry) {
+export function upsertObjectEntry(source: string, key: string, entry: string): string {
   const property = findNamedBlock(source, key, "{", "}");
   if (!property) {
     const routesMatch = source.match(/^(\s*)routes\s*:/m);
@@ -31,7 +31,7 @@ export function upsertObjectEntry(source, key, entry) {
   return insertBlockEntry(source, property, entry);
 }
 
-export function insertArrayItem(source, key, item) {
+export function insertArrayItem(source: string, key: string, item: string): string {
   const property = findNamedBlock(source, key, "[", "]");
   if (!property) {
     throw new Error(`Could not find "${key}" in the app manifest.`);
@@ -40,7 +40,7 @@ export function insertArrayItem(source, key, item) {
   return insertBlockEntry(source, property, item);
 }
 
-export function toManifestModulePath(manifestPath, targetFilePath) {
+export function toManifestModulePath(manifestPath: string, targetFilePath: string): string {
   const relativePath = targetFilePath
     .replaceAll("\\", "/")
     .replace(manifestPath.replaceAll("\\", "/").replace(/\/[^/]+$/, ""), "")
@@ -49,11 +49,14 @@ export function toManifestModulePath(manifestPath, targetFilePath) {
   return relativePath.startsWith(".") ? relativePath : `./${relativePath}`;
 }
 
-export function extractRegistryEntries(source, key) {
+export function extractRegistryEntries(
+  source: string,
+  key: string,
+): { name: string; path: string }[] {
   const block = findNamedBlock(source, key, "{", "}");
   if (!block) return [];
   const inner = source.slice(block.openIndex + 1, block.closeIndex);
-  const entries = [];
+  const entries: { name: string; path: string }[] = [];
   const pattern =
     /([A-Za-z0-9_-]+)\s*:\s*(?:(["'`])([^"'`]+)\2|\(\)\s*=>\s*import\(\s*(["'`])([^"'`]+)\4\s*\))/g;
 
@@ -64,15 +67,21 @@ export function extractRegistryEntries(source, key) {
   return entries;
 }
 
-export function extractRelativeModulePaths(source) {
-  const results = new Set();
+export function extractRelativeModulePaths(source: string): Set<string> {
+  const results = new Set<string>();
   for (const match of source.matchAll(/["'`]((?:\.\.\/|\.\/)[^"'`]+)["'`]/g)) {
     results.add(match[1]);
   }
   return results;
 }
 
-function insertBlockEntry(source, block, entry) {
+interface BlockLocation {
+  closeIndex: number;
+  indent: string;
+  openIndex: number;
+}
+
+function insertBlockEntry(source: string, block: BlockLocation, entry: string): string {
   const inner = source.slice(block.openIndex + 1, block.closeIndex);
   const closingIndent = block.indent;
   const childIndent = `${closingIndent}  `;
@@ -87,7 +96,12 @@ function insertBlockEntry(source, block, entry) {
   return `${source.slice(0, block.closeIndex)}${insertPrefix}\n${indentMultiline(entry, childIndent)}\n${closingIndent}${source.slice(block.closeIndex)}`;
 }
 
-function findNamedBlock(source, key, openChar, closeChar) {
+function findNamedBlock(
+  source: string,
+  key: string,
+  openChar: string,
+  closeChar: string,
+): BlockLocation | null {
   const pattern = new RegExp(`^([ \\t]*)${key}\\s*:\\s*\\${openChar}`, "m");
   const match = source.match(pattern);
   if (!match || match.index == null) {
@@ -103,9 +117,14 @@ function findNamedBlock(source, key, openChar, closeChar) {
   };
 }
 
-function findMatchingDelimiter(source, openIndex, openChar, closeChar) {
+function findMatchingDelimiter(
+  source: string,
+  openIndex: number,
+  openChar: string,
+  closeChar: string,
+): number {
   let depth = 0;
-  let quoteChar = null;
+  let quoteChar: string | null = null;
   let escaping = false;
 
   for (let index = openIndex; index < source.length; index += 1) {
@@ -139,7 +158,7 @@ function findMatchingDelimiter(source, openIndex, openChar, closeChar) {
   throw new Error(`Could not find matching ${closeChar} for ${openChar}.`);
 }
 
-function indentMultiline(value, indent) {
+function indentMultiline(value: string, indent: string): string {
   return value
     .split("\n")
     .map((line) => `${indent}${line}`)

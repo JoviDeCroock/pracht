@@ -18,7 +18,11 @@
   "publishConfig": {
     "provenance": true
   },
+  "scripts": {
+    "build": "tsdown"
+  },
   "dependencies": {
-    "@pracht/core": "workspace:*"
+    "@pracht/core": "workspace:*",
+    "citty": "^0.1.6"
   }
 }

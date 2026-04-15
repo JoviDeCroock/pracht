@@ -1,17 +1,15 @@
 import { readFileSync, writeFileSync } from "node:fs";
 
+import { defineCommand } from "citty";
+
 import {
   ensureTrailingNewline,
   parseApiMethods,
   parseCommaList,
-  parseFlags,
-  printGenerateHelp,
   quote,
-  requireEnumOption,
-  requireOptionalString,
-  requirePositiveIntegerOption,
-  requireStringOption,
-} from "../cli.js";
+  requireEnum,
+  requirePositiveInteger,
+} from "../utils.js";
 import {
   extractRegistryEntries,
   insertArrayItem,
@@ -29,20 +27,103 @@ import {
   resolveRouteModulePath,
   resolveScopedFile,
   writeGeneratedFile,
+  type ProjectConfig,
 } from "../project.js";
 
-export async function generateCommand(args) {
-  const [kind, ...rest] = args;
-  if (!kind || kind === "--help" || kind === "-h") {
-    printGenerateHelp();
-    return;
-  }
+interface GenerateResult {
+  created: string[];
+  kind: string;
+  updated: string[];
+}
 
-  const options = parseFlags(rest);
-  const project = readProjectConfig(process.cwd());
-  const result = runGenerate(kind, options, project);
+const routeCommand = defineCommand({
+  meta: {
+    name: "route",
+    description: "Scaffold a route module",
+  },
+  args: {
+    path: { type: "string", required: true, description: "Route path (e.g. /dashboard)" },
+    render: { type: "string", description: "Render mode: ssr, spa, ssg, or isg" },
+    shell: { type: "string", description: "Shell name" },
+    middleware: { type: "string", description: "Middleware names (comma-separated)" },
+    loader: { type: "boolean", description: "Include loader" },
+    "error-boundary": { type: "boolean", description: "Include error boundary" },
+    "static-paths": { type: "boolean", description: "Include static paths" },
+    title: { type: "string", description: "Page title" },
+    revalidate: { type: "string", description: "ISG revalidation seconds" },
+    json: { type: "boolean", description: "Output as JSON" },
+  },
+  async run({ args }) {
+    const project = readProjectConfig(process.cwd());
+    const result = generateRoute(args, project);
+    outputResult(result, Boolean(args.json));
+  },
+});
 
-  if (options.json) {
+const shellCommand = defineCommand({
+  meta: {
+    name: "shell",
+    description: "Scaffold a shell component",
+  },
+  args: {
+    name: { type: "string", required: true, description: "Shell name" },
+    json: { type: "boolean", description: "Output as JSON" },
+  },
+  async run({ args }) {
+    const project = readProjectConfig(process.cwd());
+    const result = generateShell(args.name, project);
+    outputResult(result, Boolean(args.json));
+  },
+});
+
+const middlewareCommand = defineCommand({
+  meta: {
+    name: "middleware",
+    description: "Scaffold a middleware function",
+  },
+  args: {
+    name: { type: "string", required: true, description: "Middleware name" },
+    json: { type: "boolean", description: "Output as JSON" },
+  },
+  async run({ args }) {
+    const project = readProjectConfig(process.cwd());
+    const result = generateMiddleware(args.name, project);
+    outputResult(result, Boolean(args.json));
+  },
+});
+
+const apiCommand = defineCommand({
+  meta: {
+    name: "api",
+    description: "Scaffold an API route",
+  },
+  args: {
+    path: { type: "string", required: true, description: "API endpoint path" },
+    methods: { type: "string", description: "HTTP methods (comma-separated, e.g. GET,POST)" },
+    json: { type: "boolean", description: "Output as JSON" },
+  },
+  async run({ args }) {
+    const project = readProjectConfig(process.cwd());
+    const result = generateApi(args, project);
+    outputResult(result, Boolean(args.json));
+  },
+});
+
+export default defineCommand({
+  meta: {
+    name: "generate",
+    description: "Scaffold framework files",
+  },
+  subCommands: {
+    route: routeCommand,
+    shell: shellCommand,
+    middleware: middlewareCommand,
+    api: apiCommand,
+  },
+});
+
+function outputResult(result: GenerateResult, json: boolean): void {
+  if (json) {
     console.log(JSON.stringify({ ok: true, ...result }, null, 2));
     return;
   }
@@ -56,36 +137,31 @@ export async function generateCommand(args) {
   }
 }
 
-function runGenerate(kind, options, project) {
-  if (kind === "route") {
-    return generateRoute(options, project);
-  }
-  if (kind === "shell") {
-    return generateShell(options, project);
-  }
-  if (kind === "middleware") {
-    return generateMiddleware(options, project);
-  }
-  if (kind === "api") {
-    return generateApi(options, project);
-  }
-
-  throw new Error(`Unknown generate kind: ${kind}`);
+interface RouteArgs {
+  "error-boundary"?: boolean;
+  loader?: boolean;
+  middleware?: string;
+  path: string;
+  render?: string;
+  revalidate?: string;
+  shell?: string;
+  "static-paths"?: boolean;
+  title?: string;
 }
 
-function generateRoute(options, project) {
-  const routePath = normalizeRoutePathString(requireStringOption(options, "path"));
-  const render = requireEnumOption(options, "render", ["spa", "ssr", "ssg", "isg"], "ssr");
-  const includeLoader = Boolean(options.loader);
-  const includeErrorBoundary = Boolean(options["error-boundary"]);
-  const middleware = parseCommaList(options.middleware);
+function generateRoute(args: RouteArgs, project: ProjectConfig): GenerateResult {
+  const routePath = normalizeRoutePathString(args.path);
+  const render = requireEnum(args.render, "render", ["spa", "ssr", "ssg", "isg"], "ssr");
+  const includeLoader = Boolean(args.loader);
+  const includeErrorBoundary = Boolean(args["error-boundary"]);
+  const middleware = parseCommaList(args.middleware);
   const includeStaticPaths =
-    Boolean(options["static-paths"]) ||
+    Boolean(args["static-paths"]) ||
     (hasDynamicSegments(routePath) && (render === "ssg" || render === "isg"));
-  const title = requireOptionalString(options, "title") ?? titleFromPath(routePath);
+  const title = args.title ?? titleFromPath(routePath);
 
   if (project.mode === "pages") {
-    if (options.shell) {
+    if (args.shell) {
       throw new Error("`pracht generate route --shell` is only available for manifest apps.");
     }
     if (middleware.length > 0) {
@@ -113,7 +189,7 @@ function generateRoute(options, project) {
     extractRegistryEntries(manifestSource, "middleware").map((entry) => entry.name),
   );
 
-  const shellName = requireOptionalString(options, "shell");
+  const shellName = args.shell;
   if (shellName && !registeredShells.has(shellName)) {
     throw new Error(`Shell "${shellName}" is not registered in ${project.appFile}.`);
   }
@@ -152,7 +228,7 @@ function generateRoute(options, project) {
     meta.push(`middleware: [${middleware.map((item) => quote(item)).join(", ")}]`);
   }
   if (render === "isg") {
-    const seconds = requirePositiveIntegerOption(options, "revalidate", 3600);
+    const seconds = requirePositiveInteger(args.revalidate, "revalidate", 3600);
     meta.push(`revalidate: timeRevalidate(${seconds})`);
   }
 
@@ -182,7 +258,15 @@ function generatePagesRoute({
   render,
   routePath,
   title,
-}) {
+}: {
+  includeErrorBoundary: boolean;
+  includeLoader: boolean;
+  includeStaticPaths: boolean;
+  project: ProjectConfig;
+  render: string;
+  routePath: string;
+  title: string;
+}): GenerateResult {
   const routeFile = resolvePagesRouteModulePath(project, routePath, ".tsx");
   writeGeneratedFile(
     routeFile.absolutePath,
@@ -203,14 +287,13 @@ function generatePagesRoute({
   };
 }
 
-function generateShell(options, project) {
+function generateShell(name: string, project: ProjectConfig): GenerateResult {
   if (project.mode === "pages") {
     throw new Error(
       "Pages router apps use a single `_app` shell. `pracht generate shell` is only available for manifest apps.",
     );
   }
 
-  const name = requireStringOption(options, "name");
   const manifestPath = resolveProjectPath(project.root, project.appFile);
   assertFileExists(manifestPath, `App manifest not found at ${project.appFile}.`);
 
@@ -232,14 +315,13 @@ function generateShell(options, project) {
   };
 }
 
-function generateMiddleware(options, project) {
+function generateMiddleware(name: string, project: ProjectConfig): GenerateResult {
   if (project.mode === "pages") {
     throw new Error(
       "Pages router apps do not use manifest middleware registration. `pracht generate middleware` is only available for manifest apps.",
     );
   }
 
-  const name = requireStringOption(options, "name");
   const manifestPath = resolveProjectPath(project.root, project.appFile);
   assertFileExists(manifestPath, `App manifest not found at ${project.appFile}.`);
 
@@ -261,9 +343,14 @@ function generateMiddleware(options, project) {
   };
 }
 
-function generateApi(options, project) {
-  const endpointPath = normalizeApiPath(requireStringOption(options, "path"));
-  const methods = parseApiMethods(options.methods);
+interface ApiArgs {
+  methods?: string;
+  path: string;
+}
+
+function generateApi(args: ApiArgs, project: ProjectConfig): GenerateResult {
+  const endpointPath = normalizeApiPath(args.path);
+  const methods = parseApiMethods(args.methods);
   const apiFile = resolveApiModulePath(project, endpointPath);
   writeGeneratedFile(apiFile.absolutePath, buildApiRouteSource({ endpointPath, methods }));
 
@@ -280,10 +367,16 @@ function buildManifestRouteModuleSource({
   includeStaticPaths,
   routePath,
   title,
-}) {
+}: {
+  includeErrorBoundary: boolean;
+  includeLoader: boolean;
+  includeStaticPaths: boolean;
+  routePath: string;
+  title: string;
+}): string {
   const params = dynamicParamNames(routePath);
-  const imports = [];
-  const sections = [];
+  const imports: string[] = [];
+  const sections: string[] = [];
 
   if (includeLoader) {
     imports.push("LoaderArgs", "RouteComponentProps");
@@ -359,10 +452,17 @@ function buildPagesRouteModuleSource({
   render,
   routePath,
   title,
-}) {
+}: {
+  includeErrorBoundary: boolean;
+  includeLoader: boolean;
+  includeStaticPaths: boolean;
+  render: string;
+  routePath: string;
+  title: string;
+}): string {
   const params = dynamicParamNames(routePath);
-  const imports = [];
-  const sections = [];
+  const imports: string[] = [];
+  const sections: string[] = [];
 
   if (includeLoader) {
     imports.push("LoaderArgs", "RouteComponentProps");
@@ -431,7 +531,7 @@ function buildPagesRouteModuleSource({
   return `${sections.join("\n")}\n`;
 }
 
-function buildShellModuleSource(name) {
+function buildShellModuleSource(name: string): string {
   const title = titleCase(name);
   return [
     'import type { ShellProps } from "@pracht/core";',
@@ -451,7 +551,7 @@ function buildShellModuleSource(name) {
   ].join("\n");
 }
 
-function buildMiddlewareModuleSource() {
+function buildMiddlewareModuleSource(): string {
   return [
     'import type { MiddlewareFn } from "@pracht/core";',
     "",
@@ -462,7 +562,13 @@ function buildMiddlewareModuleSource() {
   ].join("\n");
 }
 
-function buildApiRouteSource({ endpointPath, methods }) {
+function buildApiRouteSource({
+  endpointPath,
+  methods,
+}: {
+  endpointPath: string;
+  methods: string[];
+}): string {
   const methodLines = methods.flatMap((method, index) => {
     const lines = buildApiMethodSource(method, methods, endpointPath);
     if (index === methods.length - 1) return lines;
@@ -472,7 +578,7 @@ function buildApiRouteSource({ endpointPath, methods }) {
   return ['import type { BaseRouteArgs } from "@pracht/core";', "", ...methodLines, ""].join("\n");
 }
 
-function buildApiMethodSource(method, methods, endpointPath) {
+function buildApiMethodSource(method: string, methods: string[], endpointPath: string): string[] {
   if (method === "DELETE" || method === "HEAD") {
     return [
       `export function ${method}(_args: BaseRouteArgs) {`,
@@ -509,22 +615,22 @@ function buildApiMethodSource(method, methods, endpointPath) {
   ];
 }
 
-function normalizeRoutePathString(value) {
+function normalizeRoutePathString(value: string): string {
   if (!value || value === "/") return "/";
   const normalized = `/${value}`.replace(/\/+/g, "/");
   return normalized !== "/" && normalized.endsWith("/") ? normalized.slice(0, -1) : normalized;
 }
 
-function normalizeApiPath(value) {
+function normalizeApiPath(value: string): string {
   const normalized = normalizeRoutePathString(value).replace(/^\/api(?=\/|$)/, "");
   return normalized || "/";
 }
 
-function hasDynamicSegments(routePath) {
+function hasDynamicSegments(routePath: string): boolean {
   return routePath.split("/").some((segment) => segment.startsWith(":") || segment === "*");
 }
 
-function dynamicParamNames(routePath) {
+function dynamicParamNames(routePath: string): string[] {
   return routePath
     .split("/")
     .filter(Boolean)
@@ -533,10 +639,10 @@ function dynamicParamNames(routePath) {
       if (segment === "*") return "slug";
       return null;
     })
-    .filter(Boolean);
+    .filter((s): s is string => s !== null);
 }
 
-function routeIdFromPath(routePath) {
+function routeIdFromPath(routePath: string): string {
   if (routePath === "/") return "index";
   return routePath
     .split("/")
@@ -545,13 +651,13 @@ function routeIdFromPath(routePath) {
     .join("-");
 }
 
-function titleFromPath(routePath) {
+function titleFromPath(routePath: string): string {
   if (routePath === "/") return "Home";
   const lastSegment = routePath.split("/").filter(Boolean).at(-1) ?? "Page";
   return titleCase(lastSegment.replace(/^:/, "").replace(/\*/g, "slug"));
 }
 
-function titleCase(value) {
+function titleCase(value: string): string {
   return value
     .split(/[-_/]/)
     .filter(Boolean)
@@ -559,7 +665,7 @@ function titleCase(value) {
     .join(" ");
 }
 
-function buildStaticPathsStub(params) {
+function buildStaticPathsStub(params: string[]): string {
   if (params.length === 0) {
     return "{}";
   }
@@ -567,6 +673,6 @@ function buildStaticPathsStub(params) {
   return `{ ${params.map((name) => `${name}: ${quote(`example-${name}`)}`).join(", ")} }`;
 }
 
-function escapeJsxText(value) {
+function escapeJsxText(value: string): string {
   return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
 }

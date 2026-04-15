@@ -1,16 +1,33 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, dirname, relative, resolve } from "node:path";
 
-import { ensureTrailingNewline } from "./cli.js";
+import { ensureTrailingNewline } from "./utils.js";
 import { PROJECT_DEFAULTS } from "./constants.js";
 
-export function readProjectConfig(root) {
+export interface ProjectConfig {
+  apiDir: string;
+  appFile: string;
+  configFile: string | null;
+  hasPrachtPlugin: boolean;
+  middlewareDir: string;
+  mode: "manifest" | "pages";
+  pagesDefaultRender: string;
+  pagesDir: string;
+  rawConfig: string;
+  root: string;
+  routesDir: string;
+  serverDir: string;
+  shellsDir: string;
+}
+
+export function readProjectConfig(root: string): ProjectConfig {
   const configFile = findConfigFile(root);
   const rawConfig = configFile ? readFileSync(configFile, "utf-8") : "";
-  const config = {
+  const config: Record<string, unknown> = {
     ...PROJECT_DEFAULTS,
     configFile,
     hasPrachtPlugin: /\bpracht\s*\(/.test(rawConfig),
+    mode: "manifest" as const,
     rawConfig,
     root,
   };
@@ -23,18 +40,22 @@ export function readProjectConfig(root) {
   }
 
   config.mode = config.pagesDir ? "pages" : "manifest";
-  return config;
+  return config as unknown as ProjectConfig;
 }
 
-export function resolveProjectPath(root, configPath) {
+export function resolveProjectPath(root: string, configPath: string): string {
   return resolve(root, `.${configPath}`);
 }
 
-export function resolveScopedFile(root, configDir, fileName) {
+export function resolveScopedFile(root: string, configDir: string, fileName: string): string {
   return resolve(resolveProjectPath(root, configDir), fileName);
 }
 
-export function resolveRouteModulePath(project, routePath, extension) {
+export function resolveRouteModulePath(
+  project: ProjectConfig,
+  routePath: string,
+  extension: string,
+): { absolutePath: string; relativePath: string } {
   const segments = segmentsFromRoutePath(routePath);
   const relativePath =
     segments.length === 0 ? `index${extension}` : `${segments.join("/")}${extension}`;
@@ -42,7 +63,11 @@ export function resolveRouteModulePath(project, routePath, extension) {
   return { absolutePath, relativePath };
 }
 
-export function resolvePagesRouteModulePath(project, routePath, extension) {
+export function resolvePagesRouteModulePath(
+  project: ProjectConfig,
+  routePath: string,
+  extension: string,
+): { absolutePath: string; relativePath: string } {
   const segments = segmentsFromRoutePath(routePath);
   const relativePath =
     segments.length === 0 ? `index${extension}` : `${segments.join("/")}${extension}`;
@@ -50,18 +75,21 @@ export function resolvePagesRouteModulePath(project, routePath, extension) {
   return { absolutePath, relativePath };
 }
 
-export function resolveApiModulePath(project, endpointPath) {
+export function resolveApiModulePath(
+  project: ProjectConfig,
+  endpointPath: string,
+): { absolutePath: string; relativePath: string } {
   const segments = segmentsFromApiPath(endpointPath);
   const relativePath = segments.length === 0 ? "index.ts" : `${segments.join("/")}.ts`;
   const absolutePath = resolve(resolveProjectPath(project.root, project.apiDir), relativePath);
   return { absolutePath, relativePath };
 }
 
-export function displayPath(root, filePath) {
+export function displayPath(root: string, filePath: string): string {
   return relative(root, filePath) || ".";
 }
 
-export function writeGeneratedFile(filePath, source) {
+export function writeGeneratedFile(filePath: string, source: string): void {
   if (existsSync(filePath)) {
     throw new Error(`Refusing to overwrite existing file ${filePath}.`);
   }
@@ -70,14 +98,14 @@ export function writeGeneratedFile(filePath, source) {
   writeFileSync(filePath, ensureTrailingNewline(source), "utf-8");
 }
 
-export function assertFileExists(filePath, message) {
+export function assertFileExists(filePath: string, message: string): void {
   if (!existsSync(filePath)) {
     throw new Error(message);
   }
 }
 
-export function listFilesRecursively(dir) {
-  const files = [];
+export function listFilesRecursively(dir: string): string[] {
+  const files: string[] = [];
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const fullPath = resolve(dir, entry.name);
     if (entry.isDirectory()) {
@@ -89,11 +117,11 @@ export function listFilesRecursively(dir) {
   return files;
 }
 
-export function hasPagesAppShell(filePath) {
+export function hasPagesAppShell(filePath: string): boolean {
   return /^_app\.(ts|tsx|js|jsx)$/.test(basename(filePath));
 }
 
-function findConfigFile(root) {
+function findConfigFile(root: string): string | null {
   for (const name of [
     "vite.config.ts",
     "vite.config.mts",
@@ -108,19 +136,19 @@ function findConfigFile(root) {
   return null;
 }
 
-function readQuotedConfigValue(source, key) {
+function readQuotedConfigValue(source: string, key: string): string | null {
   if (!source) return null;
   const pattern = new RegExp(`${key}\\s*:\\s*(["'\\\`])([^"'\\\`]+)\\1`);
   const match = source.match(pattern);
   return match ? match[2] : null;
 }
 
-function normalizeConfigPath(value) {
+function normalizeConfigPath(value: string): string {
   if (!value) return value;
   return value.startsWith("/") ? value : `/${value}`;
 }
 
-function segmentsFromRoutePath(routePath) {
+function segmentsFromRoutePath(routePath: string): string[] {
   return routePath
     .split("/")
     .filter(Boolean)
@@ -131,7 +159,7 @@ function segmentsFromRoutePath(routePath) {
     });
 }
 
-function segmentsFromApiPath(endpointPath) {
+function segmentsFromApiPath(endpointPath: string): string[] {
   return endpointPath
     .split("/")
     .filter(Boolean)

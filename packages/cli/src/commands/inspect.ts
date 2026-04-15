@@ -1,40 +1,76 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-import { createServer } from "vite";
+import { defineCommand } from "citty";
+import { createServer, type ViteDevServer } from "vite";
 
-import { handleCliError, parseFlags, printInspectHelp, requireOptionalString } from "../cli.js";
+import { handleCliError } from "../utils.js";
 import { readClientBuildAssets } from "../build-metadata.js";
-import { HTTP_METHODS } from "../constants.js";
+import { HTTP_METHODS, type HttpMethod } from "../constants.js";
 import { readProjectConfig, resolveProjectPath } from "../project.js";
 
 const INSPECT_TARGETS = new Set(["routes", "api", "build", "all"]);
-const METHOD_ORDER = [...HTTP_METHODS];
+const METHOD_ORDER: HttpMethod[] = [...HTTP_METHODS];
 
-export async function inspectCommand(args) {
-  const options = parseFlags(args);
-  const target = requireOptionalString(options, "target") ?? options._[0] ?? "all";
+export default defineCommand({
+  meta: {
+    name: "inspect",
+    description: "Inspect resolved app graph",
+  },
+  args: {
+    target: {
+      type: "positional",
+      description: "Inspect target: routes, api, build, or all",
+      required: false,
+    },
+    json: {
+      type: "boolean",
+      description: "Output as JSON",
+    },
+  },
+  async run({ args }) {
+    const target = args.target || "all";
 
-  if (options.help || target === "help") {
-    printInspectHelp();
-    return;
-  }
+    if (!INSPECT_TARGETS.has(target)) {
+      handleCliError(new Error(`Unknown inspect target: ${target}`), {
+        json: Boolean(args.json),
+      });
+    }
 
-  if (!INSPECT_TARGETS.has(target)) {
-    handleCliError(new Error(`Unknown inspect target: ${target}`), { json: !!options.json });
-  }
+    const report = await runInspect(process.cwd(), { target });
 
-  const report = await runInspect(process.cwd(), { target });
+    if (args.json) {
+      console.log(JSON.stringify(report, null, 2));
+      return;
+    }
 
-  if (options.json) {
-    console.log(JSON.stringify(report, null, 2));
-    return;
-  }
+    printInspectReport(report);
+  },
+});
 
-  printInspectReport(report);
+interface InspectReport {
+  api?: { file: string; methods: string[]; path: string }[];
+  build?: {
+    adapterTarget: string;
+    clientEntryUrl: string | null;
+    cssManifest: Record<string, string[]>;
+    jsManifest: Record<string, string[]>;
+  };
+  mode: string;
+  routes?: {
+    file: string;
+    id: string;
+    loaderFile: string | null;
+    middleware: string[];
+    path: string;
+    render: string | null;
+    revalidate: unknown;
+    shell: string | null;
+    shellFile: string | null;
+  }[];
 }
 
-export async function runInspect(root, { target = "all" } = {}) {
+async function runInspect(root: string, { target = "all" } = {}): Promise<InspectReport> {
   const project = readProjectConfig(root);
 
   if (!project.configFile) {
@@ -66,7 +102,7 @@ export async function runInspect(root, { target = "all" } = {}) {
 
   try {
     const serverModule = await server.ssrLoadModule("virtual:pracht/server");
-    const report = {
+    const report: InspectReport = {
       mode: project.mode,
     };
 
@@ -76,7 +112,7 @@ export async function runInspect(root, { target = "all" } = {}) {
 
     if (target === "api" || target === "all") {
       report.api = await Promise.all(
-        serverModule.apiRoutes.map(async (route) => ({
+        serverModule.apiRoutes.map(async (route: { file: string; path: string }) => ({
           file: route.file,
           methods: await detectApiMethods(server, root, route.file),
           path: route.path,
@@ -100,7 +136,19 @@ export async function runInspect(root, { target = "all" } = {}) {
   }
 }
 
-function serializeRoutes(routes) {
+interface RouteEntry {
+  file: string;
+  id: string;
+  loaderFile?: string;
+  middleware: string[];
+  path: string;
+  render?: string;
+  revalidate?: unknown;
+  shell?: string;
+  shellFile?: string;
+}
+
+function serializeRoutes(routes: RouteEntry[]) {
   return routes.map((route) => ({
     file: route.file,
     id: route.id,
@@ -114,11 +162,14 @@ function serializeRoutes(routes) {
   }));
 }
 
-async function detectApiMethods(server, root, file) {
+async function detectApiMethods(
+  server: ViteDevServer,
+  root: string,
+  file: string,
+): Promise<string[]> {
   const resolvedFile = resolve(root, `.${file}`);
   const source = readFileSync(resolvedFile, "utf-8");
 
-  // Use module evaluation first so re-exported handlers are reflected too.
   try {
     const module = await server.ssrLoadModule(file);
     return METHOD_ORDER.filter((method) => typeof module[method] === "function");
@@ -129,7 +180,7 @@ async function detectApiMethods(server, root, file) {
   }
 }
 
-function printInspectReport(report) {
+function printInspectReport(report: InspectReport): void {
   console.log(`Pracht inspect (${report.mode} mode)`);
 
   if (report.routes) {
