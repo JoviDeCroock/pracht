@@ -99,6 +99,7 @@ function isAllowedHeadAttribute(
 export function buildHtmlDocument(options: {
   head: HeadMetadata;
   body: string;
+  pluginHeadContent?: string[];
   hydrationState: PrachtHydrationState;
   clientEntryUrl?: string;
   cssUrls?: string[];
@@ -108,6 +109,7 @@ export function buildHtmlDocument(options: {
   const {
     head,
     body,
+    pluginHeadContent = [],
     hydrationState,
     clientEntryUrl,
     cssUrls = [],
@@ -154,6 +156,8 @@ export function buildHtmlDocument(options: {
     ? `<script type="module" src="${escapeHtml(clientEntryUrl)}"></script>`
     : "";
 
+  const pluginTags = pluginHeadContent.join("\n    ");
+
   return `<!DOCTYPE html>
 <html${head.lang ? ` lang="${escapeHtml(head.lang)}"` : ""}>
   <head>
@@ -163,6 +167,7 @@ export function buildHtmlDocument(options: {
     ${linkTags}
     ${scriptTags}
     ${cssTags}
+    ${pluginTags}
     ${modulePreloadTags}
     ${routeStatePreloadTag}
   </head>

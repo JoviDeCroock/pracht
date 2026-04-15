@@ -110,6 +110,7 @@ export type {
   TimeRevalidatePolicy,
   PrachtApp,
   PrachtAppConfig,
+  PrachtPlugin,
 } from "./types.ts";
 export type {
   FormProps,

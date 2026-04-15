@@ -240,10 +240,17 @@ export interface GroupDefinition {
 
 export type RouteTreeNode = RouteDefinition | GroupDefinition;
 
+export interface PrachtPlugin {
+  name: string;
+  beforeRender?: () => MaybePromise<void>;
+  afterRender?: () => MaybePromise<string | void>;
+}
+
 export interface PrachtAppConfig {
   shells?: Record<string, ModuleRef>;
   middleware?: Record<string, ModuleRef>;
   api?: ApiConfig;
+  plugins?: PrachtPlugin[];
   routes: RouteTreeNode[];
   /**
    * Enable the View Transitions API for every client navigation by default.
@@ -258,6 +265,7 @@ export interface PrachtApp {
   shells: Record<string, string>;
   middleware: Record<string, string>;
   api: ApiConfig;
+  plugins: PrachtPlugin[];
   routes: RouteTreeNode[];
   viewTransitions?: boolean;
 }

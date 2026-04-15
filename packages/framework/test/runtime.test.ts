@@ -1,6 +1,7 @@
 import { h } from "preact";
 import { describe, expect, it } from "vitest";
 
+import type { PrachtPlugin } from "../src/index.ts";
 import {
   Link,
   PrachtHttpError,
@@ -1920,5 +1921,231 @@ describe("handlePrachtRequest pipeline parallelism", () => {
     mwGate.resolve();
     const res = await response;
     expect(res.status).toBe(200);
+  });
+});
+
+describe("handlePrachtRequest plugins", () => {
+  it("calls beforeRender and afterRender hooks during SSR", async () => {
+    const calls: string[] = [];
+    const plugin: PrachtPlugin = {
+      name: "test-plugin",
+      beforeRender: () => {
+        calls.push("before");
+      },
+      afterRender: () => {
+        calls.push("after");
+        return "<style>.critical { color: red }</style>";
+      },
+    };
+
+    const app = defineApp({
+      plugins: [plugin],
+      routes: [route("/", "./routes/home.tsx", { render: "ssr" })],
+    });
+
+    const response = await handlePrachtRequest({
+      app,
+      registry: {
+        routeModules: {
+          "./routes/home.tsx": async () => ({
+            Component: () => h("main", null, "Home"),
+          }),
+        },
+      },
+      request: new Request("http://localhost/"),
+    });
+
+    expect(response.status).toBe(200);
+    expect(calls).toEqual(["before", "after"]);
+    const html = await response.text();
+    expect(html).toContain("<style>.critical { color: red }</style>");
+  });
+
+  it("runs multiple plugins in order", async () => {
+    const calls: string[] = [];
+    const plugins: PrachtPlugin[] = [
+      {
+        name: "first",
+        beforeRender: () => {
+          calls.push("first-before");
+        },
+        afterRender: () => {
+          calls.push("first-after");
+          return "<style>.a{}</style>";
+        },
+      },
+      {
+        name: "second",
+        beforeRender: () => {
+          calls.push("second-before");
+        },
+        afterRender: () => {
+          calls.push("second-after");
+          return "<style>.b{}</style>";
+        },
+      },
+    ];
+
+    const app = defineApp({
+      plugins,
+      routes: [route("/", "./routes/home.tsx", { render: "ssr" })],
+    });
+
+    const response = await handlePrachtRequest({
+      app,
+      registry: {
+        routeModules: {
+          "./routes/home.tsx": async () => ({
+            Component: () => h("main", null, "Home"),
+          }),
+        },
+      },
+      request: new Request("http://localhost/"),
+    });
+
+    expect(response.status).toBe(200);
+    expect(calls).toEqual(["first-before", "second-before", "first-after", "second-after"]);
+    const html = await response.text();
+    expect(html).toContain("<style>.a{}</style>");
+    expect(html).toContain("<style>.b{}</style>");
+  });
+
+  it("runs plugins for SPA shell rendering", async () => {
+    const calls: string[] = [];
+    const plugin: PrachtPlugin = {
+      name: "spa-plugin",
+      beforeRender: () => {
+        calls.push("before");
+      },
+      afterRender: () => {
+        calls.push("after");
+        return "<style>.spa { display: block }</style>";
+      },
+    };
+
+    const app = defineApp({
+      plugins: [plugin],
+      shells: { app: "./shells/app.tsx" },
+      routes: [route("/settings", "./routes/settings.tsx", { render: "spa", shell: "app" })],
+    });
+
+    const response = await handlePrachtRequest({
+      app,
+      registry: {
+        routeModules: {
+          "./routes/settings.tsx": async () => ({
+            Component: () => h("main", null, "Settings"),
+          }),
+        },
+        shellModules: {
+          "./shells/app.tsx": async () => ({
+            Shell: ({ children }) => h("div", { class: "shell" }, children),
+            Loading: () => h("p", null, "Loading..."),
+          }),
+        },
+      },
+      request: new Request("http://localhost/settings"),
+    });
+
+    expect(response.status).toBe(200);
+    expect(calls).toEqual(["before", "after"]);
+    const html = await response.text();
+    expect(html).toContain("<style>.spa { display: block }</style>");
+  });
+
+  it("does not run plugins for route-state JSON requests", async () => {
+    const calls: string[] = [];
+    const plugin: PrachtPlugin = {
+      name: "test-plugin",
+      beforeRender: () => {
+        calls.push("before");
+      },
+      afterRender: () => {
+        calls.push("after");
+      },
+    };
+
+    const app = defineApp({
+      plugins: [plugin],
+      routes: [route("/", "./routes/home.tsx", { render: "ssr" })],
+    });
+
+    const response = await handlePrachtRequest({
+      app,
+      registry: {
+        routeModules: {
+          "./routes/home.tsx": async () => ({
+            Component: () => h("main", null, "Home"),
+            loader: async () => ({ name: "test" }),
+          }),
+        },
+      },
+      request: new Request("http://localhost/", {
+        headers: { "x-pracht-route-state-request": "1" },
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(calls).toEqual([]);
+  });
+
+  it("supports async plugin hooks", async () => {
+    const plugin: PrachtPlugin = {
+      name: "async-plugin",
+      beforeRender: async () => {
+        await new Promise((r) => setTimeout(r, 5));
+      },
+      afterRender: async () => {
+        await new Promise((r) => setTimeout(r, 5));
+        return '<meta name="plugin" content="async">';
+      },
+    };
+
+    const app = defineApp({
+      plugins: [plugin],
+      routes: [route("/", "./routes/home.tsx", { render: "ssr" })],
+    });
+
+    const response = await handlePrachtRequest({
+      app,
+      registry: {
+        routeModules: {
+          "./routes/home.tsx": async () => ({
+            Component: () => h("main", null, "Home"),
+          }),
+        },
+      },
+      request: new Request("http://localhost/"),
+    });
+
+    expect(response.status).toBe(200);
+    const html = await response.text();
+    expect(html).toContain('<meta name="plugin" content="async">');
+  });
+
+  it("afterRender returning void does not inject content", async () => {
+    const plugin: PrachtPlugin = {
+      name: "noop-plugin",
+      afterRender: () => {},
+    };
+
+    const app = defineApp({
+      plugins: [plugin],
+      routes: [route("/", "./routes/home.tsx", { render: "ssr" })],
+    });
+
+    const response = await handlePrachtRequest({
+      app,
+      registry: {
+        routeModules: {
+          "./routes/home.tsx": async () => ({
+            Component: () => h("main", null, "Home"),
+          }),
+        },
+      },
+      request: new Request("http://localhost/"),
+    });
+
+    expect(response.status).toBe(200);
   });
 });
