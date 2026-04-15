@@ -67,6 +67,8 @@ request resolves.
 Throw `PrachtHttpError` for structured error responses:
 
 ```typescript
+import { PrachtHttpError } from "@pracht/core";
+
 export async function loader({ params }: LoaderArgs) {
   const post = await getPost(params.slug);
   if (!post) throw new PrachtHttpError(404, "Post not found");
@@ -76,6 +78,64 @@ export async function loader({ params }: LoaderArgs) {
 
 If the route defines an `ErrorBoundary`, it catches the error and renders
 the fallback UI. Otherwise, the error bubbles to the shell or global handler.
+
+#### ErrorBoundary
+
+Export an `ErrorBoundary` from any route module to catch errors from its loader
+or component:
+
+```typescript
+import type { ErrorBoundaryProps } from "@pracht/core";
+
+export function ErrorBoundary({ error }: ErrorBoundaryProps) {
+  return (
+    <div>
+      <h1>{error.status ?? 500}</h1>
+      <p>{error.message}</p>
+    </div>
+  );
+}
+```
+
+Error boundaries compose: a route boundary catches route-level errors, while
+a shell boundary catches errors from any route inside that shell. If a route
+has no boundary, the error bubbles up to the shell, then to the global handler.
+
+#### Custom 404 pages
+
+Throw `PrachtHttpError(404)` in a loader to trigger the route's error boundary
+with a 404 status. For a catch-all 404 page, add a wildcard route at the end
+of your manifest:
+
+```typescript
+export const app = defineApp({
+  routes: [
+    // ... your routes
+    route("/:path*", () => import("./routes/not-found.tsx"), { render: "ssr" }),
+  ],
+});
+```
+
+```typescript
+// src/routes/not-found.tsx
+import { PrachtHttpError } from "@pracht/core";
+
+export function loader() {
+  throw new PrachtHttpError(404, "Page not found");
+}
+
+export function ErrorBoundary() {
+  return (
+    <div>
+      <h1>404</h1>
+      <p>This page doesn't exist.</p>
+      <a href="/">Go home</a>
+    </div>
+  );
+}
+```
+
+#### Error sanitization
 
 Unexpected 5xx errors are sanitized by default in both SSR HTML and
 `x-pracht-route-state-request` JSON responses, including the hydration payload.
@@ -108,6 +168,85 @@ export function head({ data }: HeadArgs<typeof loader>) {
 
 Head metadata merges with the shell's head. Route-level values override shell
 values for `title`. Arrays (`meta`, `link`) are concatenated.
+
+### SEO & Open Graph
+
+Use the `meta` array to set Open Graph and other SEO tags. The `head` export
+has full access to loader data, so these can be dynamic per page:
+
+```typescript
+export function head({ data }: HeadArgs<typeof loader>) {
+  return {
+    title: `${data.product.name} — My Store`,
+    meta: [
+      { name: "description", content: data.product.description },
+      // Open Graph
+      { property: "og:title", content: data.product.name },
+      { property: "og:description", content: data.product.description },
+      { property: "og:image", content: data.product.imageUrl },
+      { property: "og:type", content: "product" },
+      { property: "og:url", content: `https://mystore.com/products/${data.product.slug}` },
+      // Twitter Card
+      { name: "twitter:card", content: "summary_large_image" },
+      { name: "twitter:title", content: data.product.name },
+      { name: "twitter:description", content: data.product.description },
+      { name: "twitter:image", content: data.product.imageUrl },
+    ],
+    link: [
+      { rel: "canonical", href: `https://mystore.com/products/${data.product.slug}` },
+    ],
+  };
+}
+```
+
+### Structured data (JSON-LD)
+
+For structured data, include a `script` entry with `type: "application/ld+json"`:
+
+```typescript
+export function head({ data }: HeadArgs<typeof loader>) {
+  return {
+    title: data.article.title,
+    meta: [
+      { property: "og:type", content: "article" },
+      { property: "og:title", content: data.article.title },
+    ],
+    script: [
+      {
+        type: "application/ld+json",
+        children: JSON.stringify({
+          "@context": "https://schema.org",
+          "@type": "Article",
+          headline: data.article.title,
+          datePublished: data.article.publishedAt,
+          author: { "@type": "Person", name: data.article.author },
+        }),
+      },
+    ],
+  };
+}
+```
+
+### Shell-level defaults
+
+Shells can also export `head` to set site-wide defaults. Route-level `title`
+overrides the shell's `title`; `meta` and `link` arrays are concatenated:
+
+```typescript
+// src/shells/public.tsx
+export function head() {
+  return {
+    title: "My Site",
+    meta: [
+      { name: "description", content: "Default site description" },
+      { property: "og:site_name", content: "My Site" },
+    ],
+    link: [
+      { rel: "icon", href: "/favicon.svg" },
+    ],
+  };
+}
+```
 
 ---
 

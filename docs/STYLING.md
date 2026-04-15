@@ -45,6 +45,90 @@ server, and keep CSS-in-JS for client-only views if you really want it.
 
 ---
 
+## CSS Modules walkthrough
+
+CSS Modules scope class names to their file by default. Import the module and
+reference classes from the resulting object:
+
+```css
+/* src/routes/home.module.css */
+.hero {
+  padding: 4rem 2rem;
+  text-align: center;
+}
+
+.title {
+  font-size: 2.5rem;
+  font-weight: 700;
+}
+```
+
+```typescript
+// src/routes/home.tsx
+import styles from "./home.module.css";
+
+export default function Home() {
+  return (
+    <section class={styles.hero}>
+      <h1 class={styles.title}>Welcome</h1>
+    </section>
+  );
+}
+```
+
+Vite generates unique class names at build time (e.g. `_hero_1a2b3`), so
+styles never collide across routes. The framework automatically injects only
+the CSS files used by the current route and its shell.
+
+---
+
+## Tailwind CSS setup
+
+Install Tailwind's Vite plugin and add it alongside the pracht plugin:
+
+```bash
+pnpm add -D @tailwindcss/vite tailwindcss
+```
+
+```typescript
+// vite.config.ts
+import { defineConfig } from "vite";
+import { pracht } from "@pracht/vite-plugin";
+import tailwindcss from "@tailwindcss/vite";
+
+export default defineConfig({
+  plugins: [pracht({ /* ... */ }), tailwindcss()],
+});
+```
+
+Import Tailwind in your global CSS or shell:
+
+```css
+/* src/styles/global.css */
+@import "tailwindcss";
+```
+
+Tailwind classes work in any route regardless of render mode — the generated
+stylesheet is a static asset that the framework includes in the HTML.
+
+---
+
+## CSS-in-JS trade-offs for SSR
+
+Runtime CSS-in-JS libraries (styled-components, Emotion, goober) generate
+styles in JavaScript at render time. This creates a fundamental SSR problem:
+
+1. Server renders HTML without the matching `<style>` tags
+2. Browser paints the unstyled HTML
+3. Client-side JavaScript runs and injects styles
+4. Browser repaints — visible flash of unstyled content (FOUC)
+
+This hurts both Core Web Vitals (CLS) and perceived quality. For SPA routes
+(client-only), CSS-in-JS works fine since there's no server HTML to mismatch.
+For server-rendered routes (SSR/SSG/ISG), use build-time CSS instead.
+
+---
+
 ## Future work
 
 First-class support for CSS-in-JS with server-side extraction is contingent on

@@ -99,7 +99,11 @@ import { timeRevalidate } from "@pracht/core";
 The adapter checks the file's mtime (Node) or cache timestamp (Cloudflare)
 against the revalidation window. If stale, it triggers regeneration.
 
-### Webhook-based revalidation (Phase 2)
+### Webhook-based revalidation
+
+> **Not yet available.** `webhookRevalidate` is planned but not exported from
+> `@pracht/core` today. The API below shows the intended design — it will ship
+> in a future release. Use `timeRevalidate` for now.
 
 ```typescript
 import { webhookRevalidate } from "@pracht/core";

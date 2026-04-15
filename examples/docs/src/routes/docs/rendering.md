@@ -86,7 +86,10 @@ ISG generates HTML at build time (like SSG) but regenerates it after a configura
 > [!INFO]
 > ISG revalidation is implemented at the adapter level. The Node adapter uses file `mtime`; Cloudflare uses a cache timestamp in KV.
 
-### Webhook revalidation (Phase 2)
+### Webhook revalidation
+
+> [!WARNING]
+> `webhookRevalidate` is planned but **not yet exported** from `@pracht/core`. The snippet below shows the intended API — it will ship in a future release. Use `timeRevalidate` for now.
 
 ```ts
 import { webhookRevalidate } from "@pracht/core";

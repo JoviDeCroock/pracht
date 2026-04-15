@@ -15,6 +15,10 @@ export const app = defineApp({
         id: "getting-started",
         render: "ssg",
       }),
+      route("/docs/why-pracht", () => import("./routes/docs/why-pracht.md"), {
+        id: "why-pracht",
+        render: "ssg",
+      }),
       route("/docs/routing", () => import("./routes/docs/routing.md"), {
         id: "routing",
         render: "ssg",

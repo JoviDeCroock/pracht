@@ -66,8 +66,11 @@ export. Named route exports such as `loader`, `head`, `headers`,
 
 ### Error handling
 
+Throw `PrachtHttpError` for structured error responses. Pair it with an `ErrorBoundary` export to render a fallback UI:
+
 ```ts
 import { PrachtHttpError } from "@pracht/core";
+import type { ErrorBoundaryProps } from "@pracht/core";
 
 export async function loader({ params }: LoaderArgs) {
   const post = await getPost(params.slug);
@@ -75,11 +78,46 @@ export async function loader({ params }: LoaderArgs) {
   return { post };
 }
 
-// Optional: render an error boundary for this route
 export function ErrorBoundary({ error }: ErrorBoundaryProps) {
-  return <p>Error: {error.message}</p>;
+  return (
+    <div>
+      <h1>{error.status ?? 500}</h1>
+      <p>{error.message}</p>
+    </div>
+  );
 }
 ```
+
+Error boundaries compose — a route boundary catches route-level errors, a shell boundary catches errors from any route in that shell, and uncaught errors bubble to the global handler.
+
+#### Custom 404 page
+
+Add a catch-all route at the end of your manifest to handle unmatched URLs:
+
+```ts
+route("/:path*", "./routes/not-found.tsx", { render: "ssr" })
+```
+
+```ts [src/routes/not-found.tsx]
+import { PrachtHttpError } from "@pracht/core";
+
+export function loader() {
+  throw new PrachtHttpError(404, "Page not found");
+}
+
+export function ErrorBoundary() {
+  return (
+    <div>
+      <h1>404</h1>
+      <p>This page doesn't exist.</p>
+      <a href="/">Go home</a>
+    </div>
+  );
+}
+```
+
+> [!NOTE]
+> Unexpected 5xx errors are sanitized by default — only `PrachtHttpError` messages are shown to users. Pass `debugErrors: true` to `handlePrachtRequest()` to see full error details during development.
 
 ---
 
@@ -97,6 +135,72 @@ export function head({ data }: HeadArgs<typeof loader>) {
       { property: "og:image", content: data.post.coverUrl },
     ],
     link: [{ rel: "canonical", href: `https://example.com/blog/${data.post.slug}` }],
+  };
+}
+```
+
+### SEO & Open Graph
+
+Use the `meta` array to set Open Graph, Twitter Card, and other SEO tags. Because `head` receives loader data, every tag can be dynamic per page:
+
+```ts
+export function head({ data }: HeadArgs<typeof loader>) {
+  return {
+    title: `${data.product.name} — My Store`,
+    meta: [
+      { name: "description", content: data.product.description },
+      { property: "og:title", content: data.product.name },
+      { property: "og:description", content: data.product.description },
+      { property: "og:image", content: data.product.imageUrl },
+      { property: "og:type", content: "product" },
+      { property: "og:url", content: `https://mystore.com/products/${data.product.slug}` },
+      { name: "twitter:card", content: "summary_large_image" },
+      { name: "twitter:title", content: data.product.name },
+      { name: "twitter:image", content: data.product.imageUrl },
+    ],
+    link: [
+      { rel: "canonical", href: `https://mystore.com/products/${data.product.slug}` },
+    ],
+  };
+}
+```
+
+### Structured data (JSON-LD)
+
+Include a `script` entry with `type: "application/ld+json"` for search engine structured data:
+
+```ts
+export function head({ data }: HeadArgs<typeof loader>) {
+  return {
+    title: data.article.title,
+    meta: [{ property: "og:type", content: "article" }],
+    script: [
+      {
+        type: "application/ld+json",
+        children: JSON.stringify({
+          "@context": "https://schema.org",
+          "@type": "Article",
+          headline: data.article.title,
+          datePublished: data.article.publishedAt,
+          author: { "@type": "Person", name: data.article.author },
+        }),
+      },
+    ],
+  };
+}
+```
+
+### Shell-level defaults
+
+Shells can also export `head` to set site-wide defaults. Route-level `title` overrides the shell's `title`; `meta` and `link` arrays are concatenated:
+
+```ts
+// src/shells/public.tsx
+export function head() {
+  return {
+    title: "My Site",
+    meta: [{ property: "og:site_name", content: "My Site" }],
+    link: [{ rel: "icon", href: "/favicon.svg" }],
   };
 }
 ```

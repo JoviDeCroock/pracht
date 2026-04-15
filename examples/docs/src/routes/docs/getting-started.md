@@ -3,8 +3,8 @@ title: Getting Started
 lead: Get a pracht app running in under a minute. This guide covers project creation, development, and your first production build.
 breadcrumb: Getting Started
 next:
-  href: /docs/routing
-  title: Routing
+  href: /docs/why-pracht
+  title: Why Pracht?
 ---
 
 ## Create a Project

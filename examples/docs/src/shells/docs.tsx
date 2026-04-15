@@ -20,6 +20,7 @@ import {
   IconTriangle,
   IconRefresh,
   IconBrandGithub,
+  IconSparkles,
 } from "@tabler/icons-preact";
 import "../styles/global.css";
 
@@ -28,6 +29,7 @@ const NAV = [
     label: "Getting Started",
     links: [
       { href: "/docs/getting-started", Icon: IconRocket, title: "Quick Start" },
+      { href: "/docs/why-pracht", Icon: IconSparkles, title: "Why Pracht?" },
       { href: "/docs/routing", Icon: IconSitemap, title: "Routing" },
     ],
   },

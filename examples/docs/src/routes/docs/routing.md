@@ -3,8 +3,8 @@ title: Routing
 lead: pracht uses a hybrid routing model: route modules live as files by convention, but their wiring — shells, middleware, render modes, and URL patterns — is declared explicitly in a single <code>src/routes.ts</code> manifest.
 breadcrumb: Routing
 prev:
-  href: /docs/getting-started
-  title: Getting Started
+  href: /docs/why-pracht
+  title: Why Pracht?
 next:
   href: /docs/rendering
   title: Rendering Modes
