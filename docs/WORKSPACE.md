@@ -47,9 +47,6 @@ described in `VISION_MVP.md`.
   page.
 - **Middleware** — Named middleware from the manifest runs before loaders and can
   redirect, return a Response, or augment the context.
-- **Actions** — POST/PUT/PATCH/DELETE requests are routed to the route module's
-  `action` export. Action envelopes support JSON results, redirects, custom
-  headers, and client-side revalidation of the current route.
 - **Vite plugin** — Generates `virtual:pracht/client` (hydration entry) and
   `virtual:pracht/server` (resolved app + module registry + API routes +
   adapter-targeted server entry) virtual modules. The `configureServer` hook
@@ -76,8 +73,8 @@ described in `VISION_MVP.md`.
   `handlePrachtRequest()`, and implements ISG stale-while-revalidate with
   background regeneration.
 - **Cloudflare adapter** — Serves `env.ASSETS` when available, falls back to
-  `handlePrachtRequest()`, and gives loaders/actions access to `env` and the
-  `executionContext` through `args.context`.
+  `handlePrachtRequest()`, and gives loaders, API routes, and middleware access
+  to `env` and the `executionContext` through `args.context`.
 - **Vercel adapter** — Emits an Edge-compatible handler, copies the build into
   `.vercel/output/static` and `.vercel/output/functions/render.func`, rewrites
   clean SSG URLs to static HTML, and routes ISG plus dynamic requests to the

@@ -97,7 +97,7 @@ The starter gives you:
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — framework internals
 - [docs/ROUTING.md](docs/ROUTING.md) — manifest and matching model
 - [docs/RENDERING_MODES.md](docs/RENDERING_MODES.md) — SSR, SSG, ISG, SPA behavior
-- [docs/DATA_LOADING.md](docs/DATA_LOADING.md) — loaders, actions, forms, client hooks
+- [docs/DATA_LOADING.md](docs/DATA_LOADING.md) — loaders, forms, client hooks
 - [docs/STYLING.md](docs/STYLING.md) — CSS Modules, Tailwind, CSS-in-JS limitations
 - [docs/ADAPTERS.md](docs/ADAPTERS.md) — Node, Cloudflare, Vercel deployment paths
 - [packages/start/README.md](packages/start/README.md) — starter CLI details

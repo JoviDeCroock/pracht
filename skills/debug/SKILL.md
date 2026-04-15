@@ -3,7 +3,7 @@ name: debug
 version: 1.1.0
 description: |
   Pracht framework-aware debugging. Systematically investigates route matching,
-  loader/action errors, rendering issues, middleware, API routes, HMR, and build
+  loader/API route errors, rendering issues, middleware, API routes, HMR, and build
   problems. Uses pracht's architecture knowledge to find root causes fast.
   Use when asked to "debug this", "fix this bug", "why is this broken",
   "blank page", "hydration mismatch", or "404 on my route".
@@ -46,11 +46,11 @@ Work through these in order, stopping when you find the root cause:
 - For dynamic segments, verify bracket syntax: `route("/users/:id", ...)` in manifest, `[id].ts` in filenames.
 - Grep for the route path across the manifest and check `matchAppRoute()` logic if needed.
 
-### 2. Loader / action errors
+### 2. Loader / API route errors
 
-- Read the route module's `loader` or `action` function.
+- Read the route module's `loader` function or the matching API route handler.
 - Check that `loader` returns serializable data (no functions, no circular refs).
-- Check that `action` returns `ActionEnvelope` shape (`{ data, ok, revalidate, redirect }`) or plain data.
+- Check that API route handlers return `Response` objects and branch on `request.method` when using a default export.
 - Look for unhandled promise rejections or thrown errors.
 - Verify `LoaderArgs` destructuring matches what the framework provides: `{ request, params, context, signal, url, route }`.
 
@@ -106,7 +106,7 @@ Work through these in order, stopping when you find the root cause:
 | --------------------- | ----------------------------------------------------- |
 | `src/routes.ts`       | App manifest — all route/shell/middleware definitions |
 | `vite.config.ts`      | Vite config with `pracht()` plugin                    |
-| `src/routes/*.tsx`    | Route modules (loader, action, Component)             |
+| `src/routes/*.tsx`    | Route modules (loader, Component)                     |
 | `src/shells/*.tsx`    | Shell layout components                               |
 | `src/middleware/*.ts` | Server-side middleware                                |
 | `src/api/*.ts`        | API route handlers                                    |

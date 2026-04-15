@@ -55,29 +55,27 @@ Two styles, both fully supported — pick whichever fits your mental model:
 
 - **Loaders**: `export function loader(args)` — runs at build (SSG), request (SSR),
   or client navigation time. Returns typed, serializable data.
-- **Form**: A component that allows poting to one of our API-Routes
+- **Form**: A component that allows posting to one of our API routes
 
 **Separate files (manifest-wired):**
 
-- Loader and action live in dedicated server files (e.g. `src/server/`).
+- Loader logic can live in a dedicated server file (e.g. `src/server/`).
 - Wired via the route config object in `routes.ts`:
   ```typescript
   route("/dashboard", {
     component: "./routes/dashboard.tsx",
     loader: "./server/dashboard-loader.ts",
-    action: "./server/dashboard-action.ts",
     render: "ssr",
   });
   ```
 - Route files become pure components — no server code mixed in.
 
-Both styles can coexist in the same app. When a separate `loader`/`action` file
-is specified in the config, it takes precedence over inline exports.
+Both styles can coexist in the same app. When a separate `loader` file is
+specified in the config, it takes precedence over inline exports.
 
 - **Head**: `export function head(args)` — per-route `<head>` metadata merged with
   shell-level head.
-- **Client hooks**: `useRouteData()`, `useRevalidateRoute()`, `useSubmitAction()`,
-  `<Form>` component.
+- **Client hooks**: `useRouteData()`, `useRevalidateRoute()`, `<Form>` component.
 
 ### API Routes
 
@@ -127,13 +125,13 @@ SSR and SSG, deployed to Node. Thoroughly tested with Playwright E2E tests.
 
 1. **`packages/framework`** — core exports
    - `defineApp()`, `route()`, `group()` — route manifest API
-   - `RouteModule` type — loader, action, head, default/Component, errorBoundary
+   - `RouteModule` type — loader, head, default/Component, errorBoundary
    - `ShellModule` type — layout wrapper with head contribution
    - `MiddlewareModule` type — server-side request interceptor
    - Router: `matchAppRoute()` segment-based matching
    - Server renderer: `handlePrachtRequest()` → full HTML with hydration state
    - Client runtime: `startApp()`, hydration, client-side navigation
-   - Hooks: `useRouteData()`, `useRevalidateRoute()`, `useSubmitAction()`, `<Form>`
+   - Hooks: `useRouteData()`, `useRevalidateRoute()`, `<Form>`
 
 2. **`packages/vite-plugin`** — Vite integration
    - Virtual modules: `virtual:pracht/client`, `virtual:pracht/server`
@@ -155,7 +153,7 @@ SSR and SSG, deployed to Node. Thoroughly tested with Playwright E2E tests.
    - Zero config to start — sensible defaults, override when needed
    - Fast feedback loop: save a file → see the change instantly
 
-5. **Example app** — demonstrates SSR + SSG routes, shells, loaders, actions
+5. **Example app** — demonstrates SSR + SSG routes, shells, loaders, and forms
 
 6. **E2E tests** — Playwright tests proving:
    - SSR renders correct HTML on the server

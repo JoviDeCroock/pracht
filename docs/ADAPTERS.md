@@ -169,8 +169,8 @@ the executable production server entry.
   Prerendered HTML also receives route and shell document headers from
   `dist/client/_pracht/headers.json`.
 - **Default request context**: generated worker entries pass `{ env,
-executionContext }` to pracht so loaders, actions, and middleware can access
-  bindings without extra wiring.
+ executionContext }` to pracht so loaders, API routes, and middleware can
+  access bindings without extra wiring.
 - **Build output**: `pracht({ adapter: cloudflareAdapter() })` makes `pracht build`
   emit a Worker bundle in `dist/server/server.js`. You own a `wrangler.jsonc`
   in your project root that points at the output — this lets you add KV, D1,
@@ -199,7 +199,7 @@ deploys. During dev, the adapter automatically overrides the entry to
 pracht's virtual server module via `@cloudflare/vite-plugin` — no extra
 files needed.
 
-Bindings are available via `context.env` in loaders, actions, and API routes:
+Bindings are available via `context.env` in loaders, middleware, and API routes:
 
 ```typescript
 // src/api/items.ts
@@ -356,8 +356,8 @@ At the runtime level, an adapter also typically needs to:
 
 ### Context factory pattern
 
-The context factory lets adapters inject platform-specific values into loaders
-and actions:
+The context factory lets adapters inject platform-specific values into loaders,
+middleware, and API routes:
 
 ```typescript
 // Node: inject database pool
@@ -374,4 +374,4 @@ createContext: ({ request, env, executionContext }) => ({
 });
 ```
 
-This context is available in every loader, action, and middleware as `args.context`.
+This context is available in every loader, middleware, and API route as `args.context`.

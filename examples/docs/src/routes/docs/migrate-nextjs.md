@@ -17,7 +17,7 @@ Next.js and pracht share many of the same concepts — server rendering, file-ba
 | Bundler         | Turbopack / Webpack                   | Vite                                     |
 | Routing         | File-system conventions               | Explicit manifest (`src/routes.ts`)      |
 | Layouts         | `layout.tsx` nesting                  | Named shells                             |
-| Data fetching   | `async` Server Components, `fetch`    | `loader` / `action` exports              |
+| Data fetching   | `async` Server Components, `fetch`    | `loader` exports + API routes            |
 | Rendering modes | Per-segment (`dynamic`, `revalidate`) | Per-route (`ssg`, `ssr`, `isg`, `spa`)   |
 | Middleware      | Single `middleware.ts` at root        | Named middleware, per-route or per-group |
 | API routes      | `app/api/**/route.ts`                 | `src/api/**/*.ts`                        |
@@ -130,7 +130,7 @@ export function head() {
 
 ---
 
-## Data Fetching → Loaders & Actions
+## Data Fetching → Loaders & API Routes
 
 ### Server Components → Loaders
 
@@ -168,9 +168,10 @@ export default function BlogPost() {
 }
 ```
 
-### Server Actions → Actions
+### Server Actions → API Routes
 
-Next.js Server Actions become pracht `action` exports:
+Next.js Server Actions map cleanly to pracht API routes plus `<Form>` or
+client-side `fetch` calls:
 
 ```tsx
 // Next.js
@@ -181,20 +182,27 @@ async function createPost(formData: FormData) {
 }
 ```
 
-```tsx [src/routes/new-post.tsx]
+```ts [src/api/posts.ts]
 // pracht
-import type { ActionArgs } from "@pracht/core";
-import { Form } from "pracht/client";
+import type { ApiRouteArgs } from "@pracht/core";
 
-export async function action({ request }: ActionArgs) {
+export async function POST({ request }: ApiRouteArgs) {
   const form = await request.formData();
   await db.posts.create({ title: form.get("title") });
-  return { redirect: "/blog" };
+  return new Response(null, {
+    status: 303,
+    headers: { location: "/blog" },
+  });
 }
+```
+
+```tsx [src/routes/new-post.tsx]
+// pracht
+import { Form } from "@pracht/core";
 
 export default function NewPost() {
   return (
-    <Form method="post">
+    <Form method="post" action="/api/posts">
       <input name="title" />
       <button type="submit">Create</button>
     </Form>
@@ -351,7 +359,7 @@ export default {
 3. **Create the route manifest** — Map your `app/` folder structure to `src/routes.ts`
 4. **Convert layouts to shells** — Extract `layout.tsx` files into named shell components
 5. **Extract data fetching into loaders** — Move `async` component logic into `loader` exports
-6. **Convert Server Actions to actions** — Replace `"use server"` functions with `action` exports
+6. **Convert Server Actions to API routes** — Replace `"use server"` functions with API route handlers plus `<Form>` or `fetch`
 7. **Move middleware** — Split your single `middleware.ts` into named middleware files
 8. **Move API routes** — Copy `app/api/` handlers to `src/api/`, replace `NextResponse` with `Response`
 9. **Choose an adapter** — Pick your deployment target in `vite.config.ts`

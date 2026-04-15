@@ -72,7 +72,7 @@ For pages router projects, you can **skip manual manifest wiring entirely** (Pha
 | `generateStaticParams`          | `getStaticPaths()` export                                       | Returns `RouteParams[]` of param objects                              |
 | `generateMetadata`              | `head()` export                                                 | Returns `{ title, meta }`                                             |
 | Server Components               | `loader()` export                                               | Data fetching moves to loader; component is always a Preact component |
-| `"use server"` actions          | `action()` export                                               | Returns data/redirect/revalidation hints                              |
+| `"use server"` actions          | API routes + `<Form>` / `fetch`                                 | Mutations move to `src/api/*`; return `Response` objects              |
 | `useRouter()` (next/navigation) | `useNavigate()` from pracht                                     | Client-side navigation                                                |
 | `useSearchParams()`             | `useRouteData()` or parse from loader args                      | Loaders receive `url` with searchParams                               |
 | `useParams()`                   | `useRouteData()` or `params` in loader                          | Params flow through loader data                                       |
@@ -386,7 +386,7 @@ const navigate = useNavigate();
 navigate("/dashboard");
 ```
 
-#### Server Actions → Pracht actions
+#### Server Actions → API routes
 
 ```tsx
 // Next.js
@@ -396,11 +396,14 @@ async function createPost(formData: FormData) {
   revalidatePath("/posts");
 }
 
-// Pracht — action export in route module
-export async function action({ request }: ActionArgs) {
+// Pracht — API route handler
+export async function POST({ request }: ApiRouteArgs) {
   const form = await request.formData();
   await db.insert({ title: form.get("title") });
-  return { ok: true, revalidate: ["route:self"] };
+  return new Response(null, {
+    status: 303,
+    headers: { location: "/posts" },
+  });
 }
 ```
 
