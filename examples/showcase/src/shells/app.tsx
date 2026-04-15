@@ -15,8 +15,8 @@ export function Shell({ children }: ShellProps) {
           <a href="/app">Dashboard</a>
           <a href="/app/settings">Settings</a>
         </nav>
-        <a href="/" class="sidebar-back">
-          &larr; Back to site
+        <a href="/api/auth/logout" class="sidebar-back">
+          &larr; Sign out
         </a>
       </aside>
       <main class="app-main">{children}</main>
