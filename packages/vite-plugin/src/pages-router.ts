@@ -1,5 +1,6 @@
 import { readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { basename, extname, join, relative } from "node:path";
+import { detectLoaderExport } from "./route-loader-hints.ts";
 
 export interface ScannedPage {
   absolutePath: string;
@@ -112,12 +113,6 @@ const RENDER_MODE_RE = /export\s+const\s+RENDER_MODE\s*=\s*["'](\w+)["']/;
 function extractRenderMode(source: string): string | undefined {
   const match = RENDER_MODE_RE.exec(source);
   return match ? match[1] : undefined;
-}
-
-const LOADER_EXPORT_RE = /export\s+(?:async\s+)?(?:function|const)\s+loader\b/;
-
-function detectLoaderExport(source: string): boolean {
-  return LOADER_EXPORT_RE.test(source);
 }
 
 export function generatePagesManifestSource(

@@ -151,6 +151,10 @@ export async function pracht(options: PrachtPluginOptions = {}): Promise<Plugin[
       if (dirs.some((dir) => relative.startsWith(dir))) {
         const serverMod = server.moduleGraph.getModuleById(PRACHT_SERVER_MODULE_ID);
         if (serverMod) server.moduleGraph.invalidateModule(serverMod);
+        if (relative.startsWith(resolved.routesDir)) {
+          const clientMod = server.moduleGraph.getModuleById(PRACHT_CLIENT_MODULE_ID);
+          if (clientMod) server.moduleGraph.invalidateModule(clientMod);
+        }
       }
     },
   };

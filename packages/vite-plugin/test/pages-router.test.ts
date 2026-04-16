@@ -44,6 +44,52 @@ describe("scanPagesDirectory", () => {
     ]);
     expect(pages.find((page) => page.routePath === "/guide")?.renderMode).toBe("ssg");
   });
+
+  it("detects loader exports declared through named re-exports", () => {
+    const pagesDir = makeTempPagesDir();
+
+    writeFileSync(
+      join(pagesDir, "index.tsx"),
+      [
+        "const loader = async () => ({ ok: true });",
+        "export { loader };",
+        "export default function Home() {",
+        "  return null;",
+        "}",
+        "",
+      ].join("\n"),
+    );
+    writeFileSync(
+      join(pagesDir, "about.tsx"),
+      [
+        'export { loader } from "./_shared";',
+        "export default function About() {",
+        "  return null;",
+        "}",
+        "",
+      ].join("\n"),
+    );
+    writeFileSync(
+      join(pagesDir, "docs.tsx"),
+      [
+        'export * from "./_shared";',
+        "export default function Docs() {",
+        "  return null;",
+        "}",
+        "",
+      ].join("\n"),
+    );
+    writeFileSync(
+      join(pagesDir, "_shared.ts"),
+      ["export async function loader() {", "  return { ok: true };", "}", ""].join("\n"),
+    );
+
+    const pages = scanPagesDirectory(pagesDir);
+
+    expect(pages.find((page) => page.routePath === "/")?.hasLoader).toBe(true);
+    expect(pages.find((page) => page.routePath === "/about")?.hasLoader).toBe(true);
+    expect(pages.find((page) => page.routePath === "/docs")?.hasLoader).toBe(true);
+  });
 });
 
 describe("generatePagesManifestSource", () => {

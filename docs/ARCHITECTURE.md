@@ -284,11 +284,12 @@ Build starts
 ```
 User clicks <a> or calls navigate()
   → Client router matches new route
-  → In parallel:
+  → If the route has a loader or middleware, in parallel:
       ├─ Fetch route state via GET with x-pracht-route-state-request header
       ├─ Import route module chunk
       └─ Import shell module chunk (if applicable)
-  → Server runs loader, returns JSON (no HTML rendering)
+  → Otherwise, import the route/shell modules only and skip the server fetch
+  → Server runs middleware + loader when needed and returns JSON (no HTML rendering)
   → Client updates component tree with new data + loaded modules
   → Update URL via history.pushState
 ```

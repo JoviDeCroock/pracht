@@ -9,16 +9,16 @@ over the wire.
 
 ## Key: What is a route-state request?
 
-All client-side navigation uses a single shared pattern regardless of the
-rendering mode of the target route. The browser sends a normal `GET` request
-with the extra header:
+Most client-side navigations use a shared route-state pattern. When the target
+route has a loader or middleware, the browser sends a normal `GET` request with
+the extra header:
 
 ```
 x-pracht-route-state-request: 1
 ```
 
-The server detects this, skips HTML rendering, runs the loader, and returns a
-small JSON envelope:
+The server detects this, skips HTML rendering, runs middleware plus the loader,
+and returns a small JSON envelope:
 
 ```json
 { "data": { ... } }
@@ -27,6 +27,9 @@ small JSON envelope:
 The `Vary: x-pracht-route-state-request` response header tells caches to keep
 the HTML and JSON variants separate. JSON responses default to
 `Cache-Control: no-store`.
+
+If the target route has neither a loader nor middleware, client navigation can
+skip the route-state request entirely and only load the route/shell modules.
 
 ---
 

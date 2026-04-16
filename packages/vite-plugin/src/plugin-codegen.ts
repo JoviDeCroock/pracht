@@ -1,4 +1,4 @@
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import { PRACHT_CLIENT_MODULE_QUERY } from "./client-module-query.ts";
 import { generatePagesManifestSource, scanPagesDirectory } from "./pages-router.ts";
 import { CLIENT_BROWSER_PATH, readClientBuildAssets } from "./plugin-assets.ts";
@@ -7,6 +7,7 @@ import {
   type PrachtPluginOptions,
   type ResolvedPrachtPluginOptions,
 } from "./plugin-options.ts";
+import { createRouteLoaderHints } from "./route-loader-hints.ts";
 
 export function createPrachtClientModuleSource(
   options: PrachtPluginOptions = {},
@@ -14,6 +15,7 @@ export function createPrachtClientModuleSource(
 ): string {
   const resolved = resolveOptions(options);
   const isPagesMode = !!resolved.pagesDir;
+  const routeLoaderHints = createRouteLoaderHintsForVirtualModules(resolved, buildOptions.root);
 
   const appImport = isPagesMode
     ? generatePagesAppInlineSource(resolved, buildOptions.root)
@@ -31,11 +33,14 @@ export function createPrachtClientModuleSource(
     'import { resolveApp, initClientRouter, readHydrationState } from "@pracht/core";',
     appImport,
     "",
+    `const routeLoaderHints = ${JSON.stringify(routeLoaderHints)};`,
     `const routeModules = import.meta.glob(${JSON.stringify(routeGlob)}, { query: ${JSON.stringify(PRACHT_CLIENT_MODULE_QUERY)} });`,
     `const shellModules = import.meta.glob(${JSON.stringify(shellGlob)}, { query: ${JSON.stringify(PRACHT_CLIENT_MODULE_QUERY)} });`,
     "",
     "const resolvedApp = resolveApp(app);",
+    "applyRouteLoaderHints(resolvedApp, routeLoaderHints);",
     "",
+    ...createApplyRouteLoaderHintsSource(),
     "function normalizeModuleKey(key) {",
     '  return key.split("?")[0];',
     "}",
@@ -76,6 +81,7 @@ export function createPrachtServerModuleSource(
   const resolved = resolveOptions(options);
   const isPagesMode = !!resolved.pagesDir;
   const registrySource = createPrachtRegistryModuleSource(resolved);
+  const routeLoaderHints = createRouteLoaderHintsForVirtualModules(resolved, buildOptions.root);
   const clientBuild = buildOptions.isBuild
     ? readClientBuildAssets(buildOptions.root)
     : { clientEntryUrl: null, cssManifest: {}, jsManifest: {} };
@@ -97,9 +103,12 @@ export function createPrachtServerModuleSource(
     prachtImports,
     appImport,
     "",
+    `const routeLoaderHints = ${JSON.stringify(routeLoaderHints)};`,
+    ...createApplyRouteLoaderHintsSource(),
     registrySource,
     "",
     "export const resolvedApp = resolveApp(app);",
+    "applyRouteLoaderHints(resolvedApp, routeLoaderHints);",
     `export const apiRoutes = resolveApiRoutes(Object.keys(apiModules), ${JSON.stringify(resolved.apiDir)});`,
     `export const buildTarget = ${JSON.stringify(adapter?.id ?? "node")};`,
     `export const clientEntryUrl = ${JSON.stringify(clientBuild.clientEntryUrl ?? CLIENT_BROWSER_PATH)};`,
@@ -114,6 +123,45 @@ export function createPrachtServerModuleSource(
   }
 
   return source.join("\n");
+}
+
+function createApplyRouteLoaderHintsSource(): string[] {
+  return [
+    "function applyRouteLoaderHints(resolvedApp, routeLoaderHints) {",
+    "  for (const route of resolvedApp.routes) {",
+    "    const hint = routeLoaderHints[route.file];",
+    "    if (hint === true) {",
+    "      route.hasLoader = true;",
+    "    } else if (typeof route.hasLoader === 'undefined' && typeof hint === 'boolean') {",
+    "      route.hasLoader = hint;",
+    "    }",
+    "  }",
+    "}",
+    "",
+  ];
+}
+
+function createRouteLoaderHintsForVirtualModules(
+  options: ResolvedPrachtPluginOptions,
+  root = process.cwd(),
+): Record<string, boolean> {
+  if (options.pagesDir) {
+    const pages = scanPagesDirectory(resolve(root, options.pagesDir.slice(1)));
+    const hints: Record<string, boolean> = {};
+    for (const page of pages) {
+      const key = `${options.pagesDir}/${page.relativePath.replace(/\\/g, "/")}`;
+      hints[key] = !!page.hasLoader;
+    }
+    return hints;
+  }
+
+  const appFileAbs = resolve(root, options.appFile.slice(1));
+  const appFileDir = dirname(appFileAbs);
+  const routesDirAbs = resolve(root, options.routesDir.slice(1));
+  return createRouteLoaderHints(routesDirAbs, {
+    appFileDir,
+    rootRelativePrefix: options.routesDir,
+  });
 }
 
 export function createPrachtRegistryModuleSource(options: PrachtPluginOptions = {}): string {
