@@ -64,6 +64,55 @@ export default function Home() {
     expect(transformed).toContain("../shared");
     expect(transformed).toContain("function Home");
   });
+
+  it("does not strip export declarations that appear inside string/template literals", () => {
+    const source = [
+      "import { CodeBlock } from '../components';",
+      "",
+      "export default function Home() {",
+      "  return (",
+      "    <CodeBlock",
+      "      code={`",
+      "export async function loader() {",
+      "  return {};",
+      "}",
+      "",
+      "export function head() {",
+      "  return { title: 'x' };",
+      "}",
+      "`}",
+      "    />",
+      "  );",
+      "}",
+      "",
+    ].join("\n");
+
+    const transformed = stripServerOnlyExportsForClient(source);
+
+    // The template literal must still be terminated — i.e. the closing backtick
+    // is still present.  Previously the regex matched `export ... function` inside
+    // the template and stripped through the first `}` it found, removing the
+    // closing backtick and producing an unterminated string.
+    expect(transformed).toContain("`}");
+    expect(transformed).toContain("export async function loader");
+    expect(transformed).toContain("export function head");
+    expect(transformed).toContain("function Home");
+  });
+
+  it("does not strip export specifiers that appear inside string/template literals", () => {
+    const source = [
+      "const docs = `export { loader } from './foo';`;",
+      "",
+      "export default function Home() {",
+      "  return docs;",
+      "}",
+      "",
+    ].join("\n");
+
+    const transformed = stripServerOnlyExportsForClient(source);
+
+    expect(transformed).toContain("export { loader } from './foo';");
+  });
 });
 
 describe("client route module build", () => {

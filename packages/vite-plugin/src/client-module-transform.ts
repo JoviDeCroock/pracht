@@ -32,16 +32,17 @@ export function stripPrachtClientModuleQuery(id: string): string {
 }
 
 export function stripServerOnlyExportsForClient(code: string): string {
-  const withoutDeclarations = removeRanges(code, collectServerOnlyDeclarationRanges(code));
+  const masked = maskStringsAndComments(code);
+  const withoutDeclarations = removeRanges(code, collectServerOnlyDeclarationRanges(code, masked));
   const withoutSpecifiers = removeServerOnlyExportSpecifiers(withoutDeclarations);
   return removeUnusedImports(withoutSpecifiers);
 }
 
-function collectServerOnlyDeclarationRanges(code: string): Range[] {
+function collectServerOnlyDeclarationRanges(code: string, masked: string): Range[] {
   const ranges: Range[] = [];
 
   const functionRe = /\bexport\s+(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\b/g;
-  for (const match of code.matchAll(functionRe)) {
+  for (const match of masked.matchAll(functionRe)) {
     const name = match[1];
     if (!SERVER_ONLY_EXPORTS.has(name)) continue;
     ranges.push({
@@ -51,7 +52,7 @@ function collectServerOnlyDeclarationRanges(code: string): Range[] {
   }
 
   const variableRe = /\bexport\s+(?:const|let|var)\s+([A-Za-z_$][\w$]*)\b/g;
-  for (const match of code.matchAll(variableRe)) {
+  for (const match of masked.matchAll(variableRe)) {
     const name = match[1];
     if (!SERVER_ONLY_EXPORTS.has(name)) continue;
     ranges.push({
@@ -64,35 +65,48 @@ function collectServerOnlyDeclarationRanges(code: string): Range[] {
 }
 
 function removeServerOnlyExportSpecifiers(code: string): string {
-  return code.replace(
-    /\bexport\s+(type\s+)?\{([^}]*)\}(\s+from\s+["'][^"']+["'])?\s*;?/g,
-    (statement, typeKeyword: string | undefined, specifierList: string, fromClause = "") => {
-      if (typeKeyword) return statement;
+  const masked = maskStringsAndComments(code);
+  const pattern = /\bexport\s+(type\s+)?\{([^}]*)\}(\s+from\s+["'][^"']+["'])?\s*;?/g;
+  const edits: Array<{ start: number; end: number; replacement: string }> = [];
 
-      const remaining = specifierList
-        .split(",")
-        .map((specifier) => specifier.trim())
-        .filter(Boolean)
-        .filter((specifier) => {
-          const [localName, exportedName = localName] = specifier.split(/\s+as\s+/);
-          return (
-            !SERVER_ONLY_EXPORTS.has(localName.trim()) &&
-            !SERVER_ONLY_EXPORTS.has(exportedName.trim())
-          );
-        });
+  for (const match of masked.matchAll(pattern)) {
+    const start = match.index ?? 0;
+    const end = start + match[0].length;
+    const statement = code.slice(start, end);
+    const typeKeyword = match[1];
+    const specifierList = match[2];
+    const fromClause = match[3] ?? "";
 
-      if (remaining.length === 0) return "";
+    if (typeKeyword) continue;
 
-      return `export { ${remaining.join(", ")} }${fromClause};`;
-    },
-  );
+    const remaining = specifierList
+      .split(",")
+      .map((specifier) => specifier.trim())
+      .filter(Boolean)
+      .filter((specifier) => {
+        const [localName, exportedName = localName] = specifier.split(/\s+as\s+/);
+        return (
+          !SERVER_ONLY_EXPORTS.has(localName.trim()) &&
+          !SERVER_ONLY_EXPORTS.has(exportedName.trim())
+        );
+      });
+
+    const replacement =
+      remaining.length === 0 ? "" : `export { ${remaining.join(", ")} }${fromClause};`;
+    if (replacement !== statement) {
+      edits.push({ start, end, replacement });
+    }
+  }
+
+  return applyEdits(code, edits);
 }
 
 function removeUnusedImports(code: string): string {
-  const imports = collectImportRanges(code);
+  const masked = maskStringsAndComments(code);
+  const imports = collectImportRanges(code, masked);
   if (imports.length === 0) return code;
 
-  const codeWithoutImports = removeRanges(code, imports);
+  const maskedWithoutImports = removeRanges(masked, imports);
   const removable = imports.filter((range) => {
     const statement = code.slice(range.start, range.end);
     if (isSideEffectImport(statement) || isTypeOnlyImport(statement)) return false;
@@ -100,18 +114,18 @@ function removeUnusedImports(code: string): string {
     const localNames = getImportLocalNames(statement);
     return (
       localNames.length > 0 &&
-      localNames.every((name) => !isIdentifierUsed(codeWithoutImports, name))
+      localNames.every((name) => !isIdentifierUsed(maskedWithoutImports, name))
     );
   });
 
   return removeRanges(code, removable);
 }
 
-function collectImportRanges(code: string): Range[] {
+function collectImportRanges(code: string, masked: string): Range[] {
   const ranges: Range[] = [];
   const importRe = /\bimport\s/g;
 
-  for (const match of code.matchAll(importRe)) {
+  for (const match of masked.matchAll(importRe)) {
     const start = match.index ?? 0;
     const end = findStatementEnd(code, start);
     const statement = code.slice(start, end);
@@ -122,6 +136,38 @@ function collectImportRanges(code: string): Range[] {
   }
 
   return ranges;
+}
+
+function applyEdits(
+  code: string,
+  edits: Array<{ start: number; end: number; replacement: string }>,
+): string {
+  if (edits.length === 0) return code;
+  return [...edits]
+    .sort((a, b) => b.start - a.start)
+    .reduce(
+      (current, edit) => current.slice(0, edit.start) + edit.replacement + current.slice(edit.end),
+      code,
+    );
+}
+
+function maskStringsAndComments(code: string): string {
+  let out = "";
+  let i = 0;
+  while (i < code.length) {
+    const skipped = skipIgnoredJavaScript(code, i);
+    if (skipped !== i) {
+      // Preserve length and newlines so match indices and line numbers stay aligned.
+      for (let j = i; j < skipped; j += 1) {
+        out += code[j] === "\n" ? "\n" : " ";
+      }
+      i = skipped;
+    } else {
+      out += code[i];
+      i += 1;
+    }
+  }
+  return out;
 }
 
 function isImportDeclaration(statement: string): boolean {

@@ -9,7 +9,7 @@ export default defineConfig({
     {
       name: "basic",
       testMatch:
-        /basic\.test\.ts|node-build\.test\.ts|cloudflare-build\.test\.ts|vercel-build\.test\.ts/,
+        /basic\.test\.ts|node-build\.test\.ts|cloudflare-build\.test\.ts|vercel-build\.test\.ts|client-bundle-strip\.test\.ts/,
       use: {
         baseURL: "http://localhost:3100",
       },

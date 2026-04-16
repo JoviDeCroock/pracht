@@ -33,6 +33,9 @@ jobs:
       - name: Build
         run: pnpm build
 
+      - name: Build examples/docs
+        run: pnpm --filter @pracht/example-docs build
+
       - name: Cache build output
         uses: actions/cache/save@668228422ae6a00e4ad889ee87cd7109ec5666a7
         with:

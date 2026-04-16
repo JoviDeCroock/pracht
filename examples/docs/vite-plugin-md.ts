@@ -286,7 +286,10 @@ export function markdown(): Plugin {
     enforce: "pre",
 
     transform(code, id) {
-      if (!id.endsWith(".md")) return;
+      // Strip query suffix (e.g. `?pracht-client`) before checking extension —
+      // Vite adds queries for glob-imported client variants.
+      const path = id.split("?")[0];
+      if (!path.endsWith(".md")) return;
 
       const { frontmatter, body } = parseFrontmatter(code);
       let contentHtml = marked.parse(body) as string;
