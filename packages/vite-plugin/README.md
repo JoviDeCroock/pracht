@@ -29,7 +29,7 @@ export default defineConfig({
 
 ## Peer Dependencies
 
-- `vite@^7.0.0 || ^8.0.0`
+- `vite@^8.0.0`
 
 Target-specific Vite plugins (e.g. `@cloudflare/vite-plugin`) are pulled in by
 the adapter package you install (`@pracht/adapter-cloudflare`,

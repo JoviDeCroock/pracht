@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build } from "vite";
+import { parseAst } from "vite";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { pracht } from "../src/index.ts";
@@ -23,6 +24,10 @@ function readBuiltJs(root: string): string {
     .filter((file) => file.endsWith(".js"))
     .map((file) => readFileSync(join(assetsDir, file), "utf-8"))
     .join("\n");
+}
+
+function expectValidModuleSource(code: string): void {
+  expect(() => parseAst(code, { lang: "tsx" })).not.toThrow();
 }
 
 afterEach(() => {
@@ -113,10 +118,94 @@ export default function Home() {
 
     expect(transformed).toContain("export { loader } from './foo';");
   });
+
+  it("handles typed server-only function signatures without corrupting the module", () => {
+    const source = `
+import serverOnly from "../server-only";
+
+export function loader(): { ok: boolean } {
+  return { ok: !!serverOnly };
+}
+
+export default function Page() {
+  return <main>ok</main>;
+}
+`;
+
+    const transformed = stripServerOnlyExportsForClient(source);
+
+    expect(transformed).not.toContain("../server-only");
+    expect(transformed).not.toContain("function loader");
+    expect(transformed).toContain("function Page");
+    expectValidModuleSource(transformed);
+  });
+
+  it("keeps client exports when server-only declarators share the same export statement", () => {
+    const source = `
+import serverOnly from "../server-only";
+
+export const loader = () => serverOnly(), shared = 1;
+
+export default function Page() {
+  return <main>{shared}</main>;
+}
+`;
+
+    const transformed = stripServerOnlyExportsForClient(source);
+
+    expect(transformed).not.toContain("../server-only");
+    expect(transformed).toMatch(/export\s+const\s+shared\s*=\s*1/);
+    expect(transformed).toContain("shared");
+    expectValidModuleSource(transformed);
+  });
+
+  it("removes local server-only re-exports and their dead imports", () => {
+    const source = `
+import serverOnly from "../server-only";
+
+const loader = () => serverOnly();
+
+export { loader };
+
+export default function Page() {
+  return <main>ok</main>;
+}
+`;
+
+    const transformed = stripServerOnlyExportsForClient(source);
+
+    expect(transformed).not.toContain("../server-only");
+    expect(transformed).not.toContain("export { loader");
+    expect(transformed).not.toContain("const loader");
+    expectValidModuleSource(transformed);
+  });
+
+  it("parses transformed markdown route modules through the post-transform client path", () => {
+    const source = `
+import { h } from "preact";
+
+export function head() {
+  return { title: "docs" };
+}
+
+export function Component() {
+  return h("div", null, "docs");
+}
+`;
+
+    const transformed = stripServerOnlyExportsForClient(
+      source,
+      "/src/routes/docs/page.md?pracht-client",
+    );
+
+    expect(transformed).not.toContain("function head");
+    expect(transformed).toContain("function Component");
+    expectValidModuleSource(transformed);
+  });
 });
 
 describe("client route module build", () => {
-  it("excludes imports used only by inline loaders from browser bundles", async () => {
+  it("excludes imports used only by typed inline loaders from browser bundles", async () => {
     const root = makeTempProject();
     mkdirSync(join(root, "src", "pages"), { recursive: true });
 
@@ -126,8 +215,8 @@ describe("client route module build", () => {
 import serverOnly from "../server-only";
 import { shared } from "../shared";
 
-export async function loader() {
-  return serverOnly();
+export function loader(): { ok: string } {
+  return { ok: serverOnly() };
 }
 
 export default function Home() {

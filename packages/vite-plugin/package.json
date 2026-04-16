@@ -39,6 +39,6 @@
     "@prefresh/vite": "^2.0.0"
   },
   "peerDependencies": {
-    "vite": "^7.0.0 || ^8.0.0"
+    "vite": "^8.0.0"
   }
 }

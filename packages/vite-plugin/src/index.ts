@@ -211,10 +211,6 @@ export async function pracht(options: PrachtPluginOptions = {}): Promise<Plugin[
     },
 
     transform(code, id) {
-      if (isPrachtClientModuleId(id)) {
-        return { code: stripServerOnlyExportsForClient(code), map: null };
-      }
-
       // Transform () => import("./path") to "./path" in the app manifest file.
       // This lets users write import() for IDE click-to-navigate while keeping
       // the framework's string-based file resolution intact.
@@ -280,7 +276,20 @@ export async function pracht(options: PrachtPluginOptions = {}): Promise<Plugin[
     },
   };
 
-  const plugins: Plugin[] = [...preact(), prachtPlugin];
+  const clientModuleTransformPlugin: Plugin = {
+    name: "pracht:client-module-transform",
+    enforce: "post",
+
+    transform(code, id) {
+      if (!isPrachtClientModuleId(id)) return null;
+
+      const transformed = stripServerOnlyExportsForClient(code, id);
+      if (transformed === code) return null;
+      return { code: transformed, map: null };
+    },
+  };
+
+  const plugins: Plugin[] = [...preact(), prachtPlugin, clientModuleTransformPlugin];
 
   const adapterPlugins = await resolved.adapter.vitePlugins?.();
   if (adapterPlugins?.length) {

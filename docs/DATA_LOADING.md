@@ -57,7 +57,9 @@ API keys) safe.
 For inline loaders, pracht also loads a client-transformed copy of the route
 module in the browser. Server-only route exports such as `loader`, `head`,
 `headers`, and `getStaticPaths` are omitted from that client module, along with
-imports that were only referenced by those exports.
+imports that were only referenced by those exports. This stripping happens as a
+Vite 8 post-transform pass on Rolldown/Oxc ASTs so it still works after user
+plugins turn Markdown/MDX or TypeScript route files into JavaScript.
 
 Framework-generated route-state responses add `Vary: x-pracht-route-state-request`
 so caches keep HTML and JSON variants separate. Those JSON responses also default
