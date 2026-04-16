@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 const MANIFEST_PATHS = ["dist/client/.vite/manifest.json", "dist/.vite/manifest.json"];
+const PRACHT_CLIENT_MODULE_QUERY = "pracht-client";
 
 interface ViteManifestEntry {
   css?: string[];
@@ -70,11 +71,12 @@ export function readClientBuildAssets(root: string = process.cwd()): ClientBuild
     if (!entry.src) continue;
 
     const deps = collectTransitiveDeps(key);
+    const manifestKey = stripPrachtClientModuleQuery(entry.src);
     if (deps.css.length > 0) {
-      cssManifest[key] = deps.css.map((file) => `/${file}`);
+      cssManifest[manifestKey] = deps.css.map((file) => `/${file}`);
     }
     if (deps.js.length > 0) {
-      jsManifest[key] = deps.js.map((file) => `/${file}`);
+      jsManifest[manifestKey] = deps.js.map((file) => `/${file}`);
     }
   }
 
@@ -83,4 +85,17 @@ export function readClientBuildAssets(root: string = process.cwd()): ClientBuild
     cssManifest,
     jsManifest,
   };
+}
+
+function stripPrachtClientModuleQuery(id: string): string {
+  const queryStart = id.indexOf("?");
+  if (queryStart === -1) return id;
+
+  const path = id.slice(0, queryStart);
+  const query = id
+    .slice(queryStart + 1)
+    .split("&")
+    .filter((part) => part !== PRACHT_CLIENT_MODULE_QUERY);
+
+  return query.length > 0 ? `${path}?${query.join("&")}` : path;
 }

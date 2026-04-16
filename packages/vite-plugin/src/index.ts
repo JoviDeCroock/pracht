@@ -1,8 +1,14 @@
+import preact from "@preact/preset-vite";
 import { existsSync, readFileSync } from "node:fs";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { resolve } from "node:path";
-import preact from "@preact/preset-vite";
 import type { Connect, Plugin, ViteDevServer } from "vite";
+import {
+  PRACHT_CLIENT_MODULE_QUERY,
+  isPrachtClientModuleId,
+  stripPrachtClientModuleQuery,
+  stripServerOnlyExportsForClient,
+} from "./client-module-transform.ts";
 
 import { generatePagesManifestSource, scanPagesDirectory } from "./pages-router.ts";
 
@@ -205,6 +211,10 @@ export async function pracht(options: PrachtPluginOptions = {}): Promise<Plugin[
     },
 
     transform(code, id) {
+      if (isPrachtClientModuleId(id)) {
+        return { code: stripServerOnlyExportsForClient(code), map: null };
+      }
+
       // Transform () => import("./path") to "./path" in the app manifest file.
       // This lets users write import() for IDE click-to-navigate while keeping
       // the framework's string-based file resolution intact.
@@ -307,16 +317,21 @@ export function createPrachtClientModuleSource(
     'import { resolveApp, initClientRouter, readHydrationState } from "@pracht/core";',
     appImport,
     "",
-    `const routeModules = import.meta.glob(${JSON.stringify(routeGlob)});`,
-    `const shellModules = import.meta.glob(${JSON.stringify(shellGlob)});`,
+    `const routeModules = import.meta.glob(${JSON.stringify(routeGlob)}, { query: ${JSON.stringify(PRACHT_CLIENT_MODULE_QUERY)} });`,
+    `const shellModules = import.meta.glob(${JSON.stringify(shellGlob)}, { query: ${JSON.stringify(PRACHT_CLIENT_MODULE_QUERY)} });`,
     "",
     "const resolvedApp = resolveApp(app);",
+    "",
+    "function normalizeModuleKey(key) {",
+    '  return key.split("?")[0];',
+    "}",
     "",
     "function findModuleKey(modules, file) {",
     "  if (file in modules) return file;",
     '  const suffix = file.replace(/^\\.\\//,"");',
     "  for (const key of Object.keys(modules)) {",
-    '    if (key.endsWith("/" + suffix) || key.endsWith(suffix)) return key;',
+    "    const normalizedKey = normalizeModuleKey(key);",
+    '    if (normalizedKey.endsWith("/" + suffix) || normalizedKey.endsWith(suffix)) return key;',
     "  }",
     "  return null;",
     "}",
@@ -632,11 +647,12 @@ function readClientBuildAssets(root = process.cwd()): {
   for (const [key, entry] of Object.entries(manifest)) {
     if (!entry.src) continue;
     const deps = collectTransitiveDeps(key);
+    const manifestKey = stripPrachtClientModuleQuery(entry.src);
     if (deps.css.length > 0) {
-      cssManifest[key] = deps.css.map((f) => `/${f}`);
+      cssManifest[manifestKey] = deps.css.map((f) => `/${f}`);
     }
     if (deps.js.length > 0) {
-      jsManifest[key] = deps.js.map((f) => `/${f}`);
+      jsManifest[manifestKey] = deps.js.map((f) => `/${f}`);
     }
   }
 

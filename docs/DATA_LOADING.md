@@ -54,6 +54,11 @@ export. Named route exports such as `loader`, `head`, `headers`,
 Loaders **never** run in the browser. This keeps server secrets (DB connections,
 API keys) safe.
 
+For inline loaders, pracht also loads a client-transformed copy of the route
+module in the browser. Server-only route exports such as `loader`, `head`,
+`headers`, and `getStaticPaths` are omitted from that client module, along with
+imports that were only referenced by those exports.
+
 Framework-generated route-state responses add `Vary: x-pracht-route-state-request`
 so caches keep HTML and JSON variants separate. Those JSON responses also default
 to `Cache-Control: no-store` unless your app sets a stricter policy explicitly.
