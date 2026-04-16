@@ -716,6 +716,14 @@ function visitNode(
         );
       }
       return;
+    case "MetaProperty":
+      return;
+    case "LabeledStatement":
+      visitNode(node.body as OxcNode, scopeStack, topLevelBindingNames, references, excludedNames);
+      return;
+    case "BreakStatement":
+    case "ContinueStatement":
+      return;
     case "Property":
       if (node.computed) {
         visitNode(node.key as OxcNode, scopeStack, topLevelBindingNames, references, excludedNames);
