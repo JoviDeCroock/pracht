@@ -12,7 +12,9 @@ This example is wired to Pracht's Cloudflare build target.
 ## Deploy
 
 The `wrangler.jsonc` in this directory is yours to edit — add KV, D1, R2,
-cron triggers, or any other Cloudflare bindings as needed. After building:
+cron triggers, or any other Cloudflare bindings as needed. Re-export Durable
+Objects, Workflows, or Queues from `src/cloudflare.ts` so Wrangler can discover
+them from the generated Worker entry. After building:
 
 ```bash
 pnpm dlx wrangler deploy

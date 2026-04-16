@@ -44,6 +44,9 @@ export interface CloudflareAdapterOptions<
   createContext?: (args: CloudflareContextArgs<TEnv>) => TContext | Promise<TContext>;
 }
 
+/**
+ * @deprecated Use `workerExportsFrom` and re-export worker primitives from a dedicated module.
+ */
 export interface CloudflareWorkerExport {
   from: string;
   names: string[];
@@ -51,6 +54,10 @@ export interface CloudflareWorkerExport {
 
 export interface CloudflareServerEntryModuleOptions {
   assetsBinding?: string;
+  workerExportsFrom?: string;
+  /**
+   * @deprecated Use `workerExportsFrom` and re-export the primitives from a dedicated module instead.
+   */
   exports?: CloudflareWorkerExport[];
 }
 
@@ -98,7 +105,18 @@ export function createCloudflareFetchHandler<
 export function createCloudflareServerEntryModule(
   options: CloudflareServerEntryModuleOptions = {},
 ): string {
+  if (options.workerExportsFrom && options.exports?.length) {
+    throw new Error(
+      '[pracht] cloudflareAdapter options "workerExportsFrom" and "exports" cannot be used together.',
+    );
+  }
+
   const assetsBinding = options.assetsBinding ?? "ASSETS";
+  const workerExports = options.workerExportsFrom
+    ? [`export * from ${JSON.stringify(options.workerExportsFrom)};`]
+    : (options.exports ?? []).map(
+        (exp) => `export { ${exp.names.join(", ")} } from ${JSON.stringify(exp.from)};`,
+      );
 
   return [
     `export const cloudflareAssetsBinding = ${JSON.stringify(assetsBinding)};`,
@@ -172,9 +190,7 @@ export function createCloudflareServerEntryModule(
     "",
     "export default { fetch };",
     "",
-    ...(options.exports ?? []).map(
-      (exp) => `export { ${exp.names.join(", ")} } from ${JSON.stringify(exp.from)};`,
-    ),
+    ...workerExports,
     "",
   ].join("\n");
 }
@@ -240,7 +256,7 @@ function isFetcher(value: unknown): value is CloudflareFetcher {
  *
  * ```ts
  * import { cloudflareAdapter } from "@pracht/adapter-cloudflare";
- * pracht({ adapter: cloudflareAdapter() })
+ * pracht({ adapter: cloudflareAdapter({ workerExportsFrom: "/src/cloudflare.ts" }) })
  * ```
  */
 export function cloudflareAdapter(options: CloudflareServerEntryModuleOptions = {}): PrachtAdapter {

@@ -185,21 +185,26 @@ the executable production server entry.
 ### Exporting Cloudflare primitives (Workflows, Durable Objects, etc.)
 
 Wrangler requires named exports from the worker entry for Workflows, Durable
-Objects, Queues, and other Cloudflare primitives. Use the `exports` option to
-re-export them from your source files:
+Objects, Queues, and other Cloudflare primitives. Use the
+`workerExportsFrom` option to point the adapter at a dedicated module that
+re-exports them:
 
 ```typescript
 cloudflareAdapter({
-  exports: [
-    { from: "/src/workers/counter.ts", names: ["Counter"] },
-    { from: "/src/workers/my-workflow.ts", names: ["MyWorkflow"] },
-  ],
+  workerExportsFrom: "/src/cloudflare.ts",
 });
 ```
 
-This generates `export { Counter } from "/src/workers/counter.ts"` (etc.) in the
-built worker entry, which is what Wrangler needs to discover and register the
-classes. Pair this with the corresponding `wrangler.jsonc` bindings:
+```typescript
+// src/cloudflare.ts
+export { Counter } from "./workers/counter.ts";
+export { MyWorkflow } from "./workers/my-workflow.ts";
+```
+
+This generates `export * from "/src/cloudflare.ts"` in the built worker entry,
+which is what Wrangler needs to discover and register the classes. Keep the
+module focused on Cloudflare primitives so the generated worker entry stays
+explicit. Pair this with the corresponding `wrangler.jsonc` bindings:
 
 ```jsonc
 {
@@ -208,6 +213,11 @@ classes. Pair this with the corresponding `wrangler.jsonc` bindings:
   },
 }
 ```
+
+The older `exports` array is still accepted as a deprecated fallback, but
+`workerExportsFrom` is the recommended path because it keeps Cloudflare-specific
+exports in one user-owned module instead of duplicating names and file paths in
+`vite.config.ts`.
 
 ### Using Cloudflare bindings in dev
 

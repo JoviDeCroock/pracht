@@ -6,7 +6,7 @@ export default defineConfig({
   plugins: [
     pracht({
       adapter: cloudflareAdapter({
-        exports: [{ from: "/src/workers/counter.ts", names: ["Counter"] }],
+        workerExportsFrom: "/src/cloudflare.ts",
       }),
     }),
   ],

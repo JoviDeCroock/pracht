@@ -50,6 +50,9 @@ wrangler deploy
 ```
 
 Configure bindings (KV, D1, R2) in `wrangler.jsonc`. They are available via `context.env` in loaders and API routes.
+For Durable Objects, Workflows, and other worker primitives, re-export them
+from a dedicated module and pass that module via
+`cloudflareAdapter({ workerExportsFrom: "/src/cloudflare.ts" })`.
 
 ---
 

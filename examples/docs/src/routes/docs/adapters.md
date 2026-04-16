@@ -69,6 +69,34 @@ Prerendered HTML receives document headers from the generated `_pracht/headers.j
 
 Keep your `wrangler.jsonc` in the project root so you can add bindings without the build overwriting them.
 
+### Exporting Durable Objects and other primitives
+
+Wrangler discovers Durable Objects, Workflows, Queues, and similar primitives
+from named exports on the Worker entry. Point the adapter at a dedicated module
+that re-exports them:
+
+```ts [vite.config.ts]
+import { defineConfig } from "vite";
+import { pracht } from "@pracht/vite-plugin";
+import { cloudflareAdapter } from "@pracht/adapter-cloudflare";
+
+export default defineConfig({
+  plugins: [
+    pracht({
+      adapter: cloudflareAdapter({
+        workerExportsFrom: "/src/cloudflare.ts",
+      }),
+    }),
+  ],
+});
+```
+
+```ts [src/cloudflare.ts]
+export { Counter } from "./workers/counter.ts";
+```
+
+Keep the matching bindings and migrations in `wrangler.jsonc`.
+
 ### Accessing Cloudflare bindings
 
 The `env` object is passed through to your loaders and API routes via the context:

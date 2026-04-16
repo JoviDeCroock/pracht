@@ -50,7 +50,7 @@ test("pracht build emits a deployable Cloudflare Worker setup", async () => {
   expect(workerSource).toContain("_pracht/headers.json");
   expect(workerSource).toContain("server_default as default");
 
-  // Cloudflare primitives configured via `exports` must be re-exported
+  // Cloudflare primitives configured via `workerExportsFrom` must be re-exported
   expect(workerSource).toContain("Counter");
 });
 
