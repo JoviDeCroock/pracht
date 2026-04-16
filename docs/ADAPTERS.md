@@ -334,6 +334,10 @@ export default async function handle(request) {
     // Optional: set to true when the adapter's Vite plugin runs the dev server
     // itself (pracht will skip installing its own SSR middleware).
     ownsDevServer: true,
+    // Optional: set to true when targeting an edge runtime that cannot resolve
+    // dependencies from node_modules at runtime. Forces Vite to bundle all
+    // dependencies into the SSR output (ssr.noExternal = true).
+    edge: true,
   };
 }
 ```

@@ -52,7 +52,7 @@ export async function pracht(options: PrachtPluginOptions = {}): Promise<Plugin[
     enforce: "pre",
 
     config(_config, env) {
-      const isEdge = resolved.adapter.id === "vercel" || resolved.adapter.id === "cloudflare";
+      const isEdge = resolved.adapter.edge === true;
       const isSSRBuild = env.isSsrBuild;
 
       return {

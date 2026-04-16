@@ -237,6 +237,7 @@ export function cloudflareAdapter(options: CloudflareServerEntryModuleOptions = 
   return {
     id: "cloudflare",
     ownsDevServer: true,
+    edge: true,
     serverImports:
       'import { applyDefaultSecurityHeaders, handlePrachtRequest, resolveApp, resolveApiRoutes } from "@pracht/core";',
     createServerEntryModule() {

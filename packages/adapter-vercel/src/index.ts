@@ -96,6 +96,7 @@ export function createVercelServerEntryModule(
 export function vercelAdapter(options: VercelServerEntryModuleOptions = {}): PrachtAdapter {
   return {
     id: "vercel",
+    edge: true,
     serverImports:
       'import { handlePrachtRequest, resolveApp, resolveApiRoutes } from "@pracht/core";',
     createServerEntryModule() {

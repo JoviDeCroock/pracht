@@ -32,6 +32,13 @@ export interface PrachtAdapter {
    * (e.g. Cloudflare workerd via `@cloudflare/vite-plugin`).
    */
   ownsDevServer?: boolean;
+  /**
+   * If true, the adapter targets an edge runtime that cannot resolve
+   * dependencies from `node_modules` at runtime. The Vite plugin will set
+   * `ssr.noExternal = true` for SSR builds so all dependencies are bundled
+   * into the server output.
+   */
+  edge?: boolean;
 }
 
 export function createDefaultNodeAdapter(): PrachtAdapter {
