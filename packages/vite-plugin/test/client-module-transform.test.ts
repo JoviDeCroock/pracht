@@ -5,7 +5,11 @@ import { fileURLToPath } from "node:url";
 import { build, parseAst } from "vite";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { pracht } from "../src/index.ts";
+import {
+  createPrachtClientModuleSource,
+  createPrachtServerModuleSource,
+  pracht,
+} from "../src/index.ts";
 import { stripServerOnlyExportsForClient } from "../src/client-module-transform.ts";
 
 const tempDirs: string[] = [];
@@ -395,6 +399,48 @@ export function Component() {
 });
 
 describe("client route module build", () => {
+  it("embeds route loader hints for manifest routes", () => {
+    const root = makeTempProject();
+    mkdirSync(join(root, "src", "routes"), { recursive: true });
+
+    writeFileSync(join(root, "src", "routes.ts"), "export const app = {};\n");
+    writeFileSync(
+      join(root, "src", "routes", "index.tsx"),
+      [
+        'export { loader } from "./shared";',
+        "export default function Home() { return null; }",
+        "",
+      ].join("\n"),
+    );
+    writeFileSync(join(root, "src", "routes", "shared.ts"), "export async function loader() {}\n");
+    writeFileSync(
+      join(root, "src", "routes", "about.tsx"),
+      "export default function About() { return null; }\n",
+    );
+
+    const clientSource = createPrachtClientModuleSource(
+      {
+        appFile: "/src/routes.ts",
+        routesDir: "/src/routes",
+      },
+      { root },
+    );
+    const serverSource = createPrachtServerModuleSource(
+      {
+        appFile: "/src/routes.ts",
+        routesDir: "/src/routes",
+      },
+      { root },
+    );
+
+    expect(clientSource).toContain('"./routes/index.tsx":true');
+    expect(clientSource).toContain('"/src/routes/index.tsx":true');
+    expect(clientSource).toContain('"./routes/about.tsx":false');
+    expect(clientSource).toContain('"/src/routes/about.tsx":false');
+    expect(serverSource).toContain('"./routes/index.tsx":true');
+    expect(serverSource).toContain('"./routes/about.tsx":false');
+  });
+
   it("excludes imports used only by typed inline loaders from browser bundles", async () => {
     const root = makeTempProject();
     mkdirSync(join(root, "src", "pages"), { recursive: true });
