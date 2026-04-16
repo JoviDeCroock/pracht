@@ -53,6 +53,11 @@ export default defineCommand({
       }
     }
 
+    const publicDir = resolve(root, "public");
+    if (existsSync(publicDir)) {
+      cpSync(publicDir, clientDir, { recursive: true });
+    }
+
     if (existsSync(serverEntry)) {
       const serverMod = await import(serverEntry);
       const { prerenderApp } = serverMod;

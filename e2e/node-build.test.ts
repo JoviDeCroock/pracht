@@ -1,5 +1,13 @@
 import { execFileSync, spawn } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -112,6 +120,31 @@ test("pracht build emits a deployable Node server entry", async () => {
     await waitForExit(server);
     rmSync(tempDir, { force: true, recursive: true });
   }
+});
+
+test("public/ folder assets are copied to dist/client/", async () => {
+  test.setTimeout(120_000);
+
+  const { exampleDir, tempDir } = createTempExampleDir("pracht-public-dir-");
+  const distDir = resolve(exampleDir, "dist");
+
+  rmSync(distDir, { force: true, recursive: true });
+
+  const publicDir = resolve(exampleDir, "public");
+  mkdirSync(publicDir, { recursive: true });
+  writeFileSync(resolve(publicDir, "robots.txt"), "User-agent: *\nAllow: /\n", "utf-8");
+  mkdirSync(resolve(publicDir, "icons"), { recursive: true });
+  writeFileSync(resolve(publicDir, "icons/favicon.ico"), "fake-ico", "utf-8");
+
+  buildExample(exampleDir, { PRACHT_ADAPTER: "node" });
+
+  expect(existsSync(resolve(exampleDir, "dist/client/robots.txt"))).toBe(true);
+  expect(readFileSync(resolve(exampleDir, "dist/client/robots.txt"), "utf-8")).toContain(
+    "User-agent",
+  );
+  expect(existsSync(resolve(exampleDir, "dist/client/icons/favicon.ico"))).toBe(true);
+
+  rmSync(tempDir, { force: true, recursive: true });
 });
 
 function createTempExampleDir(prefix: string): { exampleDir: string; tempDir: string } {
