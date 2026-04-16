@@ -1,35 +1,15 @@
 import { parseAst } from "vite";
 
+import {
+  analyzeRetainedStatements,
+  type OxcNode,
+  type RetainedStatement,
+} from "./client-module-scope-analysis.ts";
+
 const CLIENT_MODULE_QUERY = "pracht-client";
 const SERVER_ONLY_EXPORTS = new Set(["loader", "head", "headers", "getStaticPaths"]);
-const JSX_COMPONENT_RE = /^[A-Z]/;
-const SKIPPED_KEYS = new Set([
-  "attributes",
-  "decorators",
-  "end",
-  "exportKind",
-  "importKind",
-  "optional",
-  "phase",
-  "raw",
-  "returnType",
-  "start",
-  "superTypeArguments",
-  "type",
-  "typeAnnotation",
-  "typeArguments",
-  "typeParameters",
-  "value",
-]);
 
 type RolldownLang = "js" | "jsx" | "ts" | "tsx";
-
-type OxcNode = {
-  end: number;
-  start: number;
-  type: string;
-  [key: string]: any;
-};
 
 type StatementState = {
   node: OxcNode;
@@ -139,7 +119,12 @@ function removeServerOnlyExports(
         const declaredNames = new Set(collectBindingNamesFromPattern(declarator.id as OxcNode));
         enqueueDependencies(
           candidates,
-          collectVariableDeclaratorDependencies(declarator, initialBindingNames, declaredNames),
+          collectVariableDeclaratorDependencies(
+            declarator,
+            declaration.kind as string,
+            initialBindingNames,
+            declaredNames,
+          ),
         );
         state.removedDeclarators.add(index);
       }
@@ -195,9 +180,8 @@ function pruneDeadBindings(
     changed = false;
 
     const bindings = collectTopLevelBindings(states, initialBindingNames);
-    const topLevelBindingNames = new Set(bindings.keys());
     const exportedNames = collectExportedBindingNames(states);
-    const referencedNames = collectProgramReferences(states, topLevelBindingNames);
+    const referencedNames = collectProgramReferences(states);
 
     const pendingNames = Array.from(candidates);
     for (const name of pendingNames) {
@@ -299,6 +283,7 @@ function collectTopLevelBindings(
         declaratorIndex: index,
         dependencies: collectVariableDeclaratorDependencies(
           declarator,
+          declaration.kind as string,
           dependencyBindingNames,
           names,
         ),
@@ -414,69 +399,8 @@ function collectExportedBindingNames(states: StatementState[]): Set<string> {
   return names;
 }
 
-function collectProgramReferences(
-  states: StatementState[],
-  topLevelBindingNames: Set<string>,
-): Set<string> {
-  const references = new Set<string>();
-  const scopeStack: Array<Set<string>> = [];
-
-  for (const state of states) {
-    if (state.removed) continue;
-
-    const statement = state.node;
-    if (statement.type === "ImportDeclaration") continue;
-
-    if (statement.type === "ExportNamedDeclaration") {
-      visitExportNamedDeclaration(statement, state, scopeStack, topLevelBindingNames, references);
-      continue;
-    }
-
-    if (statement.type === "ExportDefaultDeclaration") {
-      visitExportDefaultDeclaration(statement, scopeStack, topLevelBindingNames, references);
-      continue;
-    }
-
-    visitNode(statement, scopeStack, topLevelBindingNames, references);
-  }
-
-  return references;
-}
-
-function visitExportNamedDeclaration(
-  statement: OxcNode,
-  state: StatementState,
-  scopeStack: Array<Set<string>>,
-  topLevelBindingNames: Set<string>,
-  references: Set<string>,
-): void {
-  const declaration = statement.declaration as OxcNode | null;
-  if (!declaration) return;
-
-  if (declaration.type === "VariableDeclaration") {
-    for (const index of getRemainingDeclaratorIndices(state)) {
-      visitVariableDeclarator(
-        declaration.declarations[index] as OxcNode,
-        scopeStack,
-        topLevelBindingNames,
-        references,
-      );
-    }
-    return;
-  }
-
-  visitNode(declaration, scopeStack, topLevelBindingNames, references);
-}
-
-function visitExportDefaultDeclaration(
-  statement: OxcNode,
-  scopeStack: Array<Set<string>>,
-  topLevelBindingNames: Set<string>,
-  references: Set<string>,
-): void {
-  const declaration = statement.declaration as OxcNode;
-  if (declaration.type === "Identifier") return;
-  visitNode(declaration, scopeStack, topLevelBindingNames, references);
+function collectProgramReferences(states: StatementState[]): Set<string> {
+  return analyzeRetainedStatements(normalizeRetainedStatements(states)).referencedTopLevelNames;
 }
 
 function removeBinding(states: StatementState[], binding: BindingInfo): void {
@@ -626,19 +550,19 @@ function getRemainingSpecifierIndices(state: StatementState): number[] {
 
 function collectVariableDeclaratorDependencies(
   declarator: OxcNode,
+  declarationKind: string,
   topLevelBindingNames: Set<string>,
   excludedNames: Set<string>,
 ): Set<string> {
-  const dependencies = new Set<string>();
-  visitPattern(declarator.id as OxcNode, [], topLevelBindingNames, dependencies);
-  visitNode(
-    declarator.init as OxcNode | null,
-    [],
-    topLevelBindingNames,
-    dependencies,
-    excludedNames,
-  );
-  return dependencies;
+  const declaration: OxcNode = {
+    declarations: [declarator],
+    end: declarator.end,
+    kind: declarationKind,
+    start: declarator.start,
+    type: "VariableDeclaration",
+  };
+
+  return collectTopLevelReferences(declaration, topLevelBindingNames, excludedNames);
 }
 
 function collectTopLevelReferences(
@@ -646,624 +570,70 @@ function collectTopLevelReferences(
   topLevelBindingNames: Set<string>,
   excludedNames: Set<string>,
 ): Set<string> {
-  const references = new Set<string>();
-  visitNode(node, [], topLevelBindingNames, references, excludedNames);
-  return references;
-}
-
-function visitNode(
-  node: OxcNode | null | undefined,
-  scopeStack: Array<Set<string>>,
-  topLevelBindingNames: Set<string>,
-  references: Set<string>,
-  excludedNames = new Set<string>(),
-): void {
-  if (!node) return;
-  if (node.type.startsWith("TS")) return;
-
-  switch (node.type) {
-    case "Identifier":
-      addReference(
-        node.name as string,
-        scopeStack,
-        topLevelBindingNames,
-        references,
-        excludedNames,
-      );
-      return;
-    case "JSXIdentifier":
-      if (JSX_COMPONENT_RE.test(node.name as string)) {
-        addReference(
-          node.name as string,
-          scopeStack,
-          topLevelBindingNames,
-          references,
-          excludedNames,
-        );
-      }
-      return;
-    case "ArrowFunctionExpression":
-    case "FunctionDeclaration":
-    case "FunctionExpression":
-      visitFunctionLike(node, scopeStack, topLevelBindingNames, references, excludedNames);
-      return;
-    case "VariableDeclaration":
-      for (const declarator of node.declarations as OxcNode[]) {
-        visitVariableDeclarator(
-          declarator,
-          scopeStack,
-          topLevelBindingNames,
-          references,
-          excludedNames,
-        );
-      }
-      return;
-    case "MemberExpression":
-      visitNode(
-        node.object as OxcNode,
-        scopeStack,
-        topLevelBindingNames,
-        references,
-        excludedNames,
-      );
-      if (node.computed) {
-        visitNode(
-          node.property as OxcNode,
-          scopeStack,
-          topLevelBindingNames,
-          references,
-          excludedNames,
-        );
-      }
-      return;
-    case "MetaProperty":
-      return;
-    case "LabeledStatement":
-      visitNode(node.body as OxcNode, scopeStack, topLevelBindingNames, references, excludedNames);
-      return;
-    case "BreakStatement":
-    case "ContinueStatement":
-      return;
-    case "Property":
-      if (node.computed) {
-        visitNode(node.key as OxcNode, scopeStack, topLevelBindingNames, references, excludedNames);
-      }
-      if (node.shorthand) {
-        visitNode(
-          node.value as OxcNode,
-          scopeStack,
-          topLevelBindingNames,
-          references,
-          excludedNames,
-        );
-      } else {
-        visitNode(
-          node.value as OxcNode,
-          scopeStack,
-          topLevelBindingNames,
-          references,
-          excludedNames,
-        );
-      }
-      return;
-    case "BlockStatement":
-      visitBlockStatement(node, scopeStack, topLevelBindingNames, references, excludedNames);
-      return;
-    case "ObjectPattern":
-    case "ArrayPattern":
-    case "AssignmentPattern":
-    case "RestElement":
-      visitPattern(node, scopeStack, topLevelBindingNames, references, excludedNames);
-      return;
-    case "CatchClause":
-      visitCatchClause(node, scopeStack, topLevelBindingNames, references, excludedNames);
-      return;
-    case "ForStatement":
-      visitForStatement(node, scopeStack, topLevelBindingNames, references, excludedNames);
-      return;
-    case "ForInStatement":
-    case "ForOfStatement":
-      visitForInOrOfStatement(node, scopeStack, topLevelBindingNames, references, excludedNames);
-      return;
-    case "ClassDeclaration":
-    case "ClassExpression":
-      visitClassLike(node, scopeStack, topLevelBindingNames, references, excludedNames);
-      return;
-    case "SwitchStatement":
-      visitSwitchStatement(node, scopeStack, topLevelBindingNames, references, excludedNames);
-      return;
-    case "JSXElement":
-      visitNode(
-        node.openingElement as OxcNode,
-        scopeStack,
-        topLevelBindingNames,
-        references,
-        excludedNames,
-      );
-      for (const child of node.children as OxcNode[]) {
-        visitNode(child, scopeStack, topLevelBindingNames, references, excludedNames);
-      }
-      return;
-    case "JSXFragment":
-      for (const child of node.children as OxcNode[]) {
-        visitNode(child, scopeStack, topLevelBindingNames, references, excludedNames);
-      }
-      return;
-    case "JSXOpeningElement":
-      visitNode(node.name as OxcNode, scopeStack, topLevelBindingNames, references, excludedNames);
-      for (const attribute of node.attributes as OxcNode[]) {
-        visitNode(attribute, scopeStack, topLevelBindingNames, references, excludedNames);
-      }
-      return;
-    case "JSXClosingElement":
-      visitNode(node.name as OxcNode, scopeStack, topLevelBindingNames, references, excludedNames);
-      return;
-    case "JSXAttribute":
-      visitNode(
-        node.value as OxcNode | null,
-        scopeStack,
-        topLevelBindingNames,
-        references,
-        excludedNames,
-      );
-      return;
-    case "JSXExpressionContainer":
-      visitNode(
-        node.expression as OxcNode,
-        scopeStack,
-        topLevelBindingNames,
-        references,
-        excludedNames,
-      );
-      return;
-    case "JSXMemberExpression":
-      visitNode(
-        node.object as OxcNode,
-        scopeStack,
-        topLevelBindingNames,
-        references,
-        excludedNames,
-      );
-      return;
-    case "MethodDefinition":
-    case "PropertyDefinition":
-      if (node.computed) {
-        visitNode(node.key as OxcNode, scopeStack, topLevelBindingNames, references, excludedNames);
-      }
-      visitNode(
-        node.value as OxcNode | null,
-        scopeStack,
-        topLevelBindingNames,
-        references,
-        excludedNames,
-      );
-      return;
-    case "ImportDeclaration":
-      return;
-    case "ExportNamedDeclaration":
-      if (node.declaration) {
-        visitNode(
-          node.declaration as OxcNode,
-          scopeStack,
-          topLevelBindingNames,
-          references,
-          excludedNames,
-        );
-      }
-      return;
-    case "ExportDefaultDeclaration":
-      if ((node.declaration as OxcNode).type !== "Identifier") {
-        visitNode(
-          node.declaration as OxcNode,
-          scopeStack,
-          topLevelBindingNames,
-          references,
-          excludedNames,
-        );
-      }
-      return;
-    default:
-      for (const [key, value] of Object.entries(node)) {
-        if (SKIPPED_KEYS.has(key)) continue;
-        if (key === "id" || key === "implements" || key === "superTypeArguments") continue;
-        visitUnknownValue(value, scopeStack, topLevelBindingNames, references, excludedNames);
-      }
-  }
-}
-
-function visitUnknownValue(
-  value: unknown,
-  scopeStack: Array<Set<string>>,
-  topLevelBindingNames: Set<string>,
-  references: Set<string>,
-  excludedNames: Set<string>,
-): void {
-  if (Array.isArray(value)) {
-    for (const item of value) {
-      visitUnknownValue(item, scopeStack, topLevelBindingNames, references, excludedNames);
-    }
-    return;
-  }
-
-  if (!isNode(value)) return;
-  visitNode(value, scopeStack, topLevelBindingNames, references, excludedNames);
-}
-
-function visitVariableDeclarator(
-  declarator: OxcNode,
-  scopeStack: Array<Set<string>>,
-  topLevelBindingNames: Set<string>,
-  references: Set<string>,
-  excludedNames = new Set<string>(),
-): void {
-  visitPattern(
-    declarator.id as OxcNode,
-    scopeStack,
-    topLevelBindingNames,
-    references,
+  return analyzeRetainedStatements([{ node }], {
     excludedNames,
-  );
-  visitNode(
-    declarator.init as OxcNode | null,
-    scopeStack,
-    topLevelBindingNames,
-    references,
-    excludedNames,
-  );
+    knownTopLevelNames: topLevelBindingNames,
+  }).referencedTopLevelNames;
 }
 
-function visitFunctionLike(
-  node: OxcNode,
-  scopeStack: Array<Set<string>>,
-  topLevelBindingNames: Set<string>,
-  references: Set<string>,
-  excludedNames: Set<string>,
-): void {
-  const scope = new Set<string>();
-  const functionName = getIdentifierName(node.id as OxcNode | null);
-  if (functionName) {
-    scope.add(functionName);
+function normalizeRetainedStatements(states: StatementState[]): RetainedStatement[] {
+  return states
+    .map((state) => normalizeRetainedStatement(state))
+    .filter((state): state is RetainedStatement => state !== null);
+}
+
+function normalizeRetainedStatement(state: StatementState): RetainedStatement | null {
+  if (state.removed) return null;
+
+  const statement = state.node;
+  if (statement.type === "ImportDeclaration" && state.removedSpecifiers.size > 0) {
+    return {
+      node: {
+        ...statement,
+        specifiers: getRemainingSpecifierIndices(state).map(
+          (index) => statement.specifiers[index] as OxcNode,
+        ),
+      },
+    };
   }
-  for (const param of node.params as OxcNode[]) {
-    for (const name of collectBindingNamesFromPattern(param)) {
-      scope.add(name);
+
+  if (
+    statement.type === "ExportNamedDeclaration" &&
+    !statement.declaration &&
+    state.removedSpecifiers.size > 0
+  ) {
+    return {
+      node: {
+        ...statement,
+        specifiers: getRemainingSpecifierIndices(state).map(
+          (index) => statement.specifiers[index] as OxcNode,
+        ),
+      },
+    };
+  }
+
+  const declaration = getStatementDeclaration(statement);
+  if (declaration?.type === "VariableDeclaration" && state.removedDeclarators.size > 0) {
+    const retainedDeclaration: OxcNode = {
+      ...declaration,
+      declarations: getRemainingDeclaratorIndices(state).map(
+        (index) => declaration.declarations[index] as OxcNode,
+      ),
+    };
+
+    if (statement.type === "ExportNamedDeclaration") {
+      return {
+        node: {
+          ...statement,
+          declaration: retainedDeclaration,
+        },
+      };
     }
-  }
-  for (const name of collectFunctionScopedVarBindings(node.body as OxcNode | null)) {
-    scope.add(name);
-  }
 
-  scopeStack.push(scope);
-  for (const param of node.params as OxcNode[]) {
-    visitPattern(param, scopeStack, topLevelBindingNames, references, excludedNames);
-  }
-  visitNode(node.body as OxcNode, scopeStack, topLevelBindingNames, references, excludedNames);
-  scopeStack.pop();
-}
-
-function visitBlockStatement(
-  node: OxcNode,
-  scopeStack: Array<Set<string>>,
-  topLevelBindingNames: Set<string>,
-  references: Set<string>,
-  excludedNames: Set<string>,
-): void {
-  const scope = collectBlockScopeBindings(node.body as OxcNode[]);
-  scopeStack.push(scope);
-  for (const statement of node.body as OxcNode[]) {
-    visitNode(statement, scopeStack, topLevelBindingNames, references, excludedNames);
-  }
-  scopeStack.pop();
-}
-
-function visitCatchClause(
-  node: OxcNode,
-  scopeStack: Array<Set<string>>,
-  topLevelBindingNames: Set<string>,
-  references: Set<string>,
-  excludedNames: Set<string>,
-): void {
-  const scope = new Set<string>();
-  if (node.param) {
-    for (const name of collectBindingNamesFromPattern(node.param as OxcNode)) {
-      scope.add(name);
-    }
-  }
-  for (const name of collectBlockScopeBindings((node.body as OxcNode).body as OxcNode[])) {
-    scope.add(name);
+    return { node: retainedDeclaration };
   }
 
-  scopeStack.push(scope);
-  if (node.param) {
-    visitPattern(
-      node.param as OxcNode,
-      scopeStack,
-      topLevelBindingNames,
-      references,
-      excludedNames,
-    );
-  }
-  visitNode(node.body as OxcNode, scopeStack, topLevelBindingNames, references, excludedNames);
-  scopeStack.pop();
-}
-
-function visitForStatement(
-  node: OxcNode,
-  scopeStack: Array<Set<string>>,
-  topLevelBindingNames: Set<string>,
-  references: Set<string>,
-  excludedNames: Set<string>,
-): void {
-  const init = node.init as OxcNode | null;
-  if (init?.type === "VariableDeclaration" && init.kind !== "var") {
-    const scope = new Set(collectBindingNamesFromDeclaration(init));
-    scopeStack.push(scope);
-    visitNode(init, scopeStack, topLevelBindingNames, references, excludedNames);
-    visitNode(
-      node.test as OxcNode | null,
-      scopeStack,
-      topLevelBindingNames,
-      references,
-      excludedNames,
-    );
-    visitNode(
-      node.update as OxcNode | null,
-      scopeStack,
-      topLevelBindingNames,
-      references,
-      excludedNames,
-    );
-    visitNode(node.body as OxcNode, scopeStack, topLevelBindingNames, references, excludedNames);
-    scopeStack.pop();
-    return;
-  }
-
-  visitNode(init, scopeStack, topLevelBindingNames, references, excludedNames);
-  visitNode(
-    node.test as OxcNode | null,
-    scopeStack,
-    topLevelBindingNames,
-    references,
-    excludedNames,
-  );
-  visitNode(
-    node.update as OxcNode | null,
-    scopeStack,
-    topLevelBindingNames,
-    references,
-    excludedNames,
-  );
-  visitNode(node.body as OxcNode, scopeStack, topLevelBindingNames, references, excludedNames);
-}
-
-function visitForInOrOfStatement(
-  node: OxcNode,
-  scopeStack: Array<Set<string>>,
-  topLevelBindingNames: Set<string>,
-  references: Set<string>,
-  excludedNames: Set<string>,
-): void {
-  const left = node.left as OxcNode | null;
-  if (left?.type === "VariableDeclaration" && left.kind !== "var") {
-    const scope = new Set(collectBindingNamesFromDeclaration(left));
-    scopeStack.push(scope);
-    visitNode(left, scopeStack, topLevelBindingNames, references, excludedNames);
-    visitNode(node.right as OxcNode, scopeStack, topLevelBindingNames, references, excludedNames);
-    visitNode(node.body as OxcNode, scopeStack, topLevelBindingNames, references, excludedNames);
-    scopeStack.pop();
-    return;
-  }
-
-  visitNode(left, scopeStack, topLevelBindingNames, references, excludedNames);
-  visitNode(node.right as OxcNode, scopeStack, topLevelBindingNames, references, excludedNames);
-  visitNode(node.body as OxcNode, scopeStack, topLevelBindingNames, references, excludedNames);
-}
-
-function visitSwitchStatement(
-  node: OxcNode,
-  scopeStack: Array<Set<string>>,
-  topLevelBindingNames: Set<string>,
-  references: Set<string>,
-  excludedNames: Set<string>,
-): void {
-  visitNode(
-    node.discriminant as OxcNode,
-    scopeStack,
-    topLevelBindingNames,
-    references,
-    excludedNames,
-  );
-
-  const scope = collectSwitchScopeBindings(node.cases as OxcNode[]);
-  scopeStack.push(scope);
-  for (const switchCase of node.cases as OxcNode[]) {
-    visitNode(
-      switchCase.test as OxcNode | null,
-      scopeStack,
-      topLevelBindingNames,
-      references,
-      excludedNames,
-    );
-    for (const statement of switchCase.consequent as OxcNode[]) {
-      visitNode(statement, scopeStack, topLevelBindingNames, references, excludedNames);
-    }
-  }
-  scopeStack.pop();
-}
-
-function visitClassLike(
-  node: OxcNode,
-  scopeStack: Array<Set<string>>,
-  topLevelBindingNames: Set<string>,
-  references: Set<string>,
-  excludedNames: Set<string>,
-): void {
-  visitNode(
-    node.superClass as OxcNode | null,
-    scopeStack,
-    topLevelBindingNames,
-    references,
-    excludedNames,
-  );
-
-  const scope = new Set<string>();
-  const name = getIdentifierName(node.id as OxcNode | null);
-  if (name) {
-    scope.add(name);
-  }
-
-  scopeStack.push(scope);
-  visitNode(node.body as OxcNode, scopeStack, topLevelBindingNames, references, excludedNames);
-  scopeStack.pop();
-}
-
-function visitPattern(
-  node: OxcNode | null | undefined,
-  scopeStack: Array<Set<string>>,
-  topLevelBindingNames: Set<string>,
-  references: Set<string>,
-  excludedNames = new Set<string>(),
-): void {
-  if (!node) return;
-  if (node.type.startsWith("TS")) return;
-
-  switch (node.type) {
-    case "AssignmentPattern":
-      visitNode(node.right as OxcNode, scopeStack, topLevelBindingNames, references, excludedNames);
-      visitPattern(
-        node.left as OxcNode,
-        scopeStack,
-        topLevelBindingNames,
-        references,
-        excludedNames,
-      );
-      return;
-    case "ObjectPattern":
-      for (const property of node.properties as OxcNode[]) {
-        if (property.type === "Property") {
-          if (property.computed) {
-            visitNode(
-              property.key as OxcNode,
-              scopeStack,
-              topLevelBindingNames,
-              references,
-              excludedNames,
-            );
-          }
-          visitPattern(
-            property.value as OxcNode,
-            scopeStack,
-            topLevelBindingNames,
-            references,
-            excludedNames,
-          );
-          continue;
-        }
-        visitPattern(
-          property.argument as OxcNode,
-          scopeStack,
-          topLevelBindingNames,
-          references,
-          excludedNames,
-        );
-      }
-      return;
-    case "ArrayPattern":
-      for (const element of node.elements as Array<OxcNode | null>) {
-        visitPattern(element, scopeStack, topLevelBindingNames, references, excludedNames);
-      }
-      return;
-    case "RestElement":
-      visitPattern(
-        node.argument as OxcNode,
-        scopeStack,
-        topLevelBindingNames,
-        references,
-        excludedNames,
-      );
-      return;
-    default:
-      return;
-  }
-}
-
-function collectBlockScopeBindings(statements: OxcNode[]): Set<string> {
-  const names = new Set<string>();
-
-  for (const statement of statements) {
-    const declaration = getStatementDeclaration(statement);
-    if (!declaration) continue;
-    if (declaration.type === "VariableDeclaration" && declaration.kind === "var") {
-      continue;
-    }
-    for (const name of collectBindingNamesFromDeclaration(declaration)) {
-      names.add(name);
-    }
-  }
-
-  return names;
-}
-
-function collectFunctionScopedVarBindings(node: OxcNode | null | undefined): Set<string> {
-  const names = new Set<string>();
-  collectFunctionScopedVarBindingsInto(node, names);
-  return names;
-}
-
-function collectFunctionScopedVarBindingsInto(
-  node: OxcNode | null | undefined,
-  names: Set<string>,
-): void {
-  if (!node) return;
-  if (node.type.startsWith("TS")) return;
-
-  switch (node.type) {
-    case "ArrowFunctionExpression":
-    case "FunctionDeclaration":
-    case "FunctionExpression":
-    case "ClassDeclaration":
-    case "ClassExpression":
-      return;
-    case "VariableDeclaration":
-      if (node.kind === "var") {
-        for (const declarator of node.declarations as OxcNode[]) {
-          for (const name of collectBindingNamesFromPattern(declarator.id as OxcNode)) {
-            names.add(name);
-          }
-        }
-      }
-      return;
-    default:
-      for (const [key, value] of Object.entries(node)) {
-        if (SKIPPED_KEYS.has(key)) continue;
-        if (key === "id" || key === "implements" || key === "superTypeArguments") continue;
-        collectFunctionScopedVarBindingsFromUnknown(value, names);
-      }
-  }
-}
-
-function collectFunctionScopedVarBindingsFromUnknown(value: unknown, names: Set<string>): void {
-  if (Array.isArray(value)) {
-    for (const item of value) {
-      collectFunctionScopedVarBindingsFromUnknown(item, names);
-    }
-    return;
-  }
-
-  if (!isNode(value)) return;
-  collectFunctionScopedVarBindingsInto(value, names);
-}
-
-function collectSwitchScopeBindings(cases: OxcNode[]): Set<string> {
-  const statements: OxcNode[] = [];
-
-  for (const switchCase of cases) {
-    for (const statement of switchCase.consequent as OxcNode[]) {
-      statements.push(statement);
-    }
-  }
-
-  return collectBlockScopeBindings(statements);
+  return { node: statement };
 }
 
 function getStatementDeclaration(statement: OxcNode): OxcNode | null {
@@ -1330,23 +700,6 @@ function collectBindingNamesFromPattern(pattern: OxcNode | null | undefined): st
   }
 }
 
-function addReference(
-  name: string,
-  scopeStack: Array<Set<string>>,
-  topLevelBindingNames: Set<string>,
-  references: Set<string>,
-  excludedNames: Set<string>,
-): void {
-  if (excludedNames.has(name)) return;
-  if (!topLevelBindingNames.has(name)) return;
-  if (isShadowed(name, scopeStack)) return;
-  references.add(name);
-}
-
-function isShadowed(name: string, scopeStack: Array<Set<string>>): boolean {
-  return scopeStack.some((scope) => scope.has(name));
-}
-
 function enqueueDependencies(target: Set<string>, dependencies: Iterable<string>): void {
   for (const name of dependencies) {
     target.add(name);
@@ -1372,8 +725,4 @@ function getRolldownLang(id: string): RolldownLang {
   if (/\.mdx?$/i.test(path)) return "jsx";
   if (/\.(c|m)?js$/i.test(path)) return "js";
   return "tsx";
-}
-
-function isNode(value: unknown): value is OxcNode {
-  return !!value && typeof value === "object" && "type" in value;
 }
