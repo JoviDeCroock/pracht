@@ -1,5 +1,28 @@
 # @pracht/vite-plugin
 
+## 0.2.4
+
+### Patch Changes
+
+- [#119](https://github.com/JoviDeCroock/pracht/pull/119) [`4aa3c64`](https://github.com/JoviDeCroock/pracht/commit/4aa3c64c5b1df2d029a135e48b9f49a90cc74700) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Refine client-module stripping with a dedicated scope analyzer so dead server-only imports drop correctly across additional syntax patterns such as loop scopes, catch bindings, labels, `import.meta`, and JSX/component references.
+
+- [#116](https://github.com/JoviDeCroock/pracht/pull/116) [`411da18`](https://github.com/JoviDeCroock/pracht/commit/411da18d0fa8bbc20270729584c6677376be7f24) Thanks [@kinngh](https://github.com/kinngh)! - Strip server-only route and shell exports from client module imports so inline loaders can statically import server-only dependencies without evaluating them in browser bundles.
+
+- [#118](https://github.com/JoviDeCroock/pracht/pull/118) [`e7cffbc`](https://github.com/JoviDeCroock/pracht/commit/e7cffbc1061255833a64b0ba8ec9b909d0bb67c8) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Fix the client-module transform so it no longer matches `export` / `import` patterns inside string or template literals. Previously, source containing code-block strings (e.g. documentation pages embedding `export async function loader` inside a ` ` template) had those fragments stripped, breaking the surrounding string and producing "Unterminated string" build errors.
+
+- [#118](https://github.com/JoviDeCroock/pracht/pull/118) [`e7cffbc`](https://github.com/JoviDeCroock/pracht/commit/e7cffbc1061255833a64b0ba8ec9b909d0bb67c8) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Preserve import/export attributes during partial client-module stripping rewrites
+  and correctly prune dead server-only imports when names are shadowed by loop,
+  switch, catch, parameter, label, or hoisted `var` bindings, or when matching
+  identifiers only appear inside meta-property syntax such as `import.meta` and
+  `new.target`.
+
+- [#119](https://github.com/JoviDeCroock/pracht/pull/119) [`4aa3c64`](https://github.com/JoviDeCroock/pracht/commit/4aa3c64c5b1df2d029a135e48b9f49a90cc74700) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Fix client-module stripping so imports referenced through TypeScript expression
+  wrappers such as `as`, non-null (`!`), and `satisfies` are preserved in the
+  browser bundle instead of being pruned as dead code.
+- Updated dependencies [[`f0ed41e`](https://github.com/JoviDeCroock/pracht/commit/f0ed41e4b886e751fbdfd29ae10f880c3aa364d4), [`49732fc`](https://github.com/JoviDeCroock/pracht/commit/49732fc78a776cbaabe9579e5a7f2fb154497479), [`d88c9e4`](https://github.com/JoviDeCroock/pracht/commit/d88c9e4b8347c4d3ecacdbc5f7674ee38af0092e), [`7ee2a93`](https://github.com/JoviDeCroock/pracht/commit/7ee2a936357a0f0b4ff7f5a7f6f3206b070f3890), [`00c4014`](https://github.com/JoviDeCroock/pracht/commit/00c401410b13c2d904c0beafc4da62dfb8f0f91e), [`f0ed41e`](https://github.com/JoviDeCroock/pracht/commit/f0ed41e4b886e751fbdfd29ae10f880c3aa364d4)]:
+  - @pracht/core@0.2.7
+  - @pracht/adapter-node@0.1.8
+
 ## 0.2.3
 
 ### Patch Changes

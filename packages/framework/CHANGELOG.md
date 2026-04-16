@@ -1,5 +1,29 @@
 # @pracht/core
 
+## 0.2.7
+
+### Patch Changes
+
+- [#105](https://github.com/JoviDeCroock/pracht/pull/105) [`f0ed41e`](https://github.com/JoviDeCroock/pracht/commit/f0ed41e4b886e751fbdfd29ae10f880c3aa364d4) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Memoize client context values more consistently so unchanged route state does not trigger avoidable context fan-out during rerenders.
+
+- [#107](https://github.com/JoviDeCroock/pracht/pull/107) [`49732fc`](https://github.com/JoviDeCroock/pracht/commit/49732fc78a776cbaabe9579e5a7f2fb154497479) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Enable intent prefetching for SPA routes without browser-caching route-state responses.
+
+- [#113](https://github.com/JoviDeCroock/pracht/pull/113) [`d88c9e4`](https://github.com/JoviDeCroock/pracht/commit/d88c9e4b8347c4d3ecacdbc5f7674ee38af0092e) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Parallelize independent work in the server request pipeline. Middleware module
+  imports now resolve concurrently (execution order is still preserved), and the
+  route module, shell module, and separate-file loader module imports are kicked
+  off alongside the middleware chain instead of waiting for it. The shell/route
+  `head` and `headers` exports also run concurrently inside each merge step.
+
+  No API changes. Observable effect: lower TTFB on cold starts where modules
+  ship as separate chunks, and lower end-to-end request latency whenever shell
+  or head/headers work was previously waiting for the loader.
+
+- [#110](https://github.com/JoviDeCroock/pracht/pull/110) [`7ee2a93`](https://github.com/JoviDeCroock/pracht/commit/7ee2a936357a0f0b4ff7f5a7f6f3206b070f3890) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Preload route state for SPA routes with loaders via `<link rel="preload">`, reducing the JS-to-data waterfall on initial page load.
+
+- [#115](https://github.com/JoviDeCroock/pracht/pull/115) [`00c4014`](https://github.com/JoviDeCroock/pracht/commit/00c401410b13c2d904c0beafc4da62dfb8f0f91e) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Remove deprecated `cssUrls` option from `HandlePrachtRequestOptions` and `PrerenderAppOptions` (superseded by `cssManifest`), and remove the deprecated `useRevalidateRoute` alias (use `useRevalidate` instead). The `NodeAdapterOptions.cssUrls` field, which was never forwarded to the framework, is also removed.
+
+- [#105](https://github.com/JoviDeCroock/pracht/pull/105) [`f0ed41e`](https://github.com/JoviDeCroock/pracht/commit/f0ed41e4b886e751fbdfd29ae10f880c3aa364d4) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Replace per-navigation render() with a stateful RouterRoot component that lets Preact diff the vnode tree naturally across route transitions
+
 ## 0.2.6
 
 ### Patch Changes

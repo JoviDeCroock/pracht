@@ -1,6 +1,6 @@
 {
   "name": "@pracht/vite-plugin",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "license": "MIT",
   "homepage": "https://github.com/JoviDeCroock/pracht/tree/main/packages/vite-plugin",
   "bugs": {
