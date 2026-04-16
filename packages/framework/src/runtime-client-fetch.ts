@@ -6,6 +6,31 @@ export type RouteStateResult =
   | { type: "redirect"; location: string }
   | { type: "error"; error: SerializedRouteError };
 
+const SAFE_NAVIGATION_PROTOCOLS = new Set(["http:", "https:"]);
+
+/**
+ * Parse a possibly-server-supplied redirect target against a base URL and
+ * return it only if it uses a safe navigation scheme (`http:` or `https:`).
+ *
+ * `javascript:`, `data:`, `vbscript:`, `blob:`, `file:` and similar schemes
+ * can execute script or bypass same-origin assumptions when assigned to
+ * `window.location.href` — a server-controlled redirect (from a loader,
+ * middleware, form action response, or API route) must never be able to
+ * trigger them. Returns `null` for unsafe or unparseable inputs.
+ */
+export function parseSafeNavigationUrl(location: string, base: string | URL): URL | null {
+  let targetUrl: URL;
+  try {
+    targetUrl = new URL(location, base);
+  } catch {
+    return null;
+  }
+  if (!SAFE_NAVIGATION_PROTOCOLS.has(targetUrl.protocol)) {
+    return null;
+  }
+  return targetUrl;
+}
+
 export function buildRouteStateUrl(url: string): string {
   const separator = url.includes("?") ? "&" : "?";
   return `${url}${separator}_data=1`;
@@ -68,7 +93,12 @@ export async function navigateToClientLocation(
     return;
   }
 
-  const targetUrl = new URL(location, window.location.href);
+  const targetUrl = parseSafeNavigationUrl(location, window.location.href);
+  if (!targetUrl) {
+    console.error(`[pracht] refused to navigate to unsafe URL: ${location}`);
+    return;
+  }
+
   const target = targetUrl.pathname + targetUrl.search + targetUrl.hash;
   if (targetUrl.origin === window.location.origin && window.__PRACHT_NAVIGATE__) {
     await window.__PRACHT_NAVIGATE__(target, options);

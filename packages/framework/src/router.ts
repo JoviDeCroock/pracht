@@ -8,7 +8,12 @@ import { markHydrating } from "./hydration.ts";
 import { getCachedRouteState, setupPrefetching } from "./prefetch.ts";
 import type { ModuleWarmFn } from "./prefetch.ts";
 import type { ResolvedPrachtApp, RouteMatch, RouteParams } from "./types.ts";
-import { deserializeRouteError, fetchPrachtRouteState, PrachtRuntimeProvider } from "./runtime.ts";
+import {
+  deserializeRouteError,
+  fetchPrachtRouteState,
+  parseSafeNavigationUrl,
+  PrachtRuntimeProvider,
+} from "./runtime.ts";
 import type { SerializedRouteError, PrachtHydrationState } from "./runtime.ts";
 
 interface RouteRenderState {
@@ -186,8 +191,12 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
     externalUrl?: string;
     internalPath?: string;
     isCurrentLocation: boolean;
+    unsafe?: boolean;
   } {
-    const targetUrl = new URL(location, window.location.href);
+    const targetUrl = parseSafeNavigationUrl(location, window.location.href);
+    if (!targetUrl) {
+      return { isCurrentLocation: false, unsafe: true };
+    }
     const fullInternalTarget = targetUrl.pathname + targetUrl.search + targetUrl.hash;
     const internalPath = targetUrl.pathname + targetUrl.search;
     const currentPath = window.location.pathname + window.location.search + window.location.hash;
@@ -247,6 +256,10 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
       if (result.type === "redirect") {
         if (result.location) {
           const redirect = resolveRedirectTarget(result.location);
+          if (redirect.unsafe) {
+            console.error(`[pracht] refused to navigate to unsafe URL: ${result.location}`);
+            return;
+          }
           if (redirect.externalUrl) {
             window.location.href = redirect.externalUrl;
             return;
@@ -266,7 +279,7 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
             return;
           }
 
-          window.location.href = result.location;
+          window.location.href = target.browserUrl;
           return;
         }
         window.location.href = target.browserUrl;
@@ -344,7 +357,12 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
       try {
         const result = await dataPromise;
         if (result.type === "redirect") {
-          window.location.href = result.location;
+          const safeRedirect = parseSafeNavigationUrl(result.location, window.location.href);
+          if (!safeRedirect) {
+            console.error(`[pracht] refused to navigate to unsafe URL: ${result.location}`);
+            return;
+          }
+          window.location.href = safeRedirect.toString();
           return;
         }
 

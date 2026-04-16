@@ -433,4 +433,8 @@ export {
   type PrachtHydrationState,
   type StartAppOptions,
 } from "./runtime-hooks.ts";
-export { fetchPrachtRouteState, type RouteStateResult } from "./runtime-client-fetch.ts";
+export {
+  fetchPrachtRouteState,
+  parseSafeNavigationUrl,
+  type RouteStateResult,
+} from "./runtime-client-fetch.ts";
