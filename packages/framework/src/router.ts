@@ -7,13 +7,7 @@ import { matchAppRoute } from "./app.ts";
 import { markHydrating } from "./hydration.ts";
 import { getCachedRouteState, setupPrefetching } from "./prefetch.ts";
 import type { ModuleWarmFn } from "./prefetch.ts";
-import type {
-  ResolvedPrachtApp,
-  RouteMatch,
-  RouteModule,
-  RouteParams,
-  ShellModule,
-} from "./types.ts";
+import type { ResolvedPrachtApp, RouteMatch, RouteParams } from "./types.ts";
 import { deserializeRouteError, fetchPrachtRouteState, PrachtRuntimeProvider } from "./runtime.ts";
 import type { SerializedRouteError, PrachtHydrationState } from "./runtime.ts";
 
