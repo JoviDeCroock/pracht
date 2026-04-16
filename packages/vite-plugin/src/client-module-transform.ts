@@ -567,8 +567,15 @@ function renderImportDeclaration(code: string, statement: OxcNode, state: Statem
     );
   }
 
-  const importPrefix = statement.importKind === "type" ? "import type " : "import ";
-  return `${importPrefix}${clauseParts.join(", ")} from ${code.slice(statement.source.start, statement.source.end)};`;
+  const importPrefix = ["import"];
+  if (statement.importKind === "type") {
+    importPrefix.push("type");
+  }
+  if (typeof statement.phase === "string" && statement.phase.length > 0) {
+    importPrefix.push(statement.phase);
+  }
+
+  return `${importPrefix.join(" ")} ${clauseParts.join(", ")} from ${code.slice(statement.source.start, statement.end)}`;
 }
 
 function renderExportSpecifiers(code: string, statement: OxcNode, state: StatementState): string {
@@ -577,10 +584,11 @@ function renderExportSpecifiers(code: string, statement: OxcNode, state: Stateme
   );
   if (remaining.length === 0) return "";
 
+  const exportPrefix = statement.exportKind === "type" ? "export type" : "export";
   const sourceSuffix = statement.source
-    ? ` from ${code.slice(statement.source.start, statement.source.end)}`
-    : "";
-  return `export { ${remaining.map((specifier) => code.slice(specifier.start, specifier.end)).join(", ")} }${sourceSuffix};`;
+    ? ` from ${code.slice(statement.source.start, statement.end)}`
+    : ";";
+  return `${exportPrefix} { ${remaining.map((specifier) => code.slice(specifier.start, specifier.end)).join(", ")} }${sourceSuffix}`;
 }
 
 function renderVariableDeclaration(
@@ -742,9 +750,19 @@ function visitNode(
     case "CatchClause":
       visitCatchClause(node, scopeStack, topLevelBindingNames, references, excludedNames);
       return;
+    case "ForStatement":
+      visitForStatement(node, scopeStack, topLevelBindingNames, references, excludedNames);
+      return;
+    case "ForInStatement":
+    case "ForOfStatement":
+      visitForInOrOfStatement(node, scopeStack, topLevelBindingNames, references, excludedNames);
+      return;
     case "ClassDeclaration":
     case "ClassExpression":
       visitClassLike(node, scopeStack, topLevelBindingNames, references, excludedNames);
+      return;
+    case "SwitchStatement":
+      visitSwitchStatement(node, scopeStack, topLevelBindingNames, references, excludedNames);
       return;
     case "JSXElement":
       visitNode(
@@ -903,10 +921,8 @@ function visitFunctionLike(
       scope.add(name);
     }
   }
-  if (node.body?.type === "BlockStatement") {
-    for (const name of collectDirectBindings(node.body.body as OxcNode[])) {
-      scope.add(name);
-    }
+  for (const name of collectFunctionScopedVarBindings(node.body as OxcNode | null)) {
+    scope.add(name);
   }
 
   scopeStack.push(scope);
@@ -924,7 +940,7 @@ function visitBlockStatement(
   references: Set<string>,
   excludedNames: Set<string>,
 ): void {
-  const scope = collectDirectBindings(node.body as OxcNode[]);
+  const scope = collectBlockScopeBindings(node.body as OxcNode[]);
   scopeStack.push(scope);
   for (const statement of node.body as OxcNode[]) {
     visitNode(statement, scopeStack, topLevelBindingNames, references, excludedNames);
@@ -945,7 +961,7 @@ function visitCatchClause(
       scope.add(name);
     }
   }
-  for (const name of collectDirectBindings((node.body as OxcNode).body as OxcNode[])) {
+  for (const name of collectBlockScopeBindings((node.body as OxcNode).body as OxcNode[])) {
     scope.add(name);
   }
 
@@ -960,6 +976,110 @@ function visitCatchClause(
     );
   }
   visitNode(node.body as OxcNode, scopeStack, topLevelBindingNames, references, excludedNames);
+  scopeStack.pop();
+}
+
+function visitForStatement(
+  node: OxcNode,
+  scopeStack: Array<Set<string>>,
+  topLevelBindingNames: Set<string>,
+  references: Set<string>,
+  excludedNames: Set<string>,
+): void {
+  const init = node.init as OxcNode | null;
+  if (init?.type === "VariableDeclaration" && init.kind !== "var") {
+    const scope = new Set(collectBindingNamesFromDeclaration(init));
+    scopeStack.push(scope);
+    visitNode(init, scopeStack, topLevelBindingNames, references, excludedNames);
+    visitNode(
+      node.test as OxcNode | null,
+      scopeStack,
+      topLevelBindingNames,
+      references,
+      excludedNames,
+    );
+    visitNode(
+      node.update as OxcNode | null,
+      scopeStack,
+      topLevelBindingNames,
+      references,
+      excludedNames,
+    );
+    visitNode(node.body as OxcNode, scopeStack, topLevelBindingNames, references, excludedNames);
+    scopeStack.pop();
+    return;
+  }
+
+  visitNode(init, scopeStack, topLevelBindingNames, references, excludedNames);
+  visitNode(
+    node.test as OxcNode | null,
+    scopeStack,
+    topLevelBindingNames,
+    references,
+    excludedNames,
+  );
+  visitNode(
+    node.update as OxcNode | null,
+    scopeStack,
+    topLevelBindingNames,
+    references,
+    excludedNames,
+  );
+  visitNode(node.body as OxcNode, scopeStack, topLevelBindingNames, references, excludedNames);
+}
+
+function visitForInOrOfStatement(
+  node: OxcNode,
+  scopeStack: Array<Set<string>>,
+  topLevelBindingNames: Set<string>,
+  references: Set<string>,
+  excludedNames: Set<string>,
+): void {
+  const left = node.left as OxcNode | null;
+  if (left?.type === "VariableDeclaration" && left.kind !== "var") {
+    const scope = new Set(collectBindingNamesFromDeclaration(left));
+    scopeStack.push(scope);
+    visitNode(left, scopeStack, topLevelBindingNames, references, excludedNames);
+    visitNode(node.right as OxcNode, scopeStack, topLevelBindingNames, references, excludedNames);
+    visitNode(node.body as OxcNode, scopeStack, topLevelBindingNames, references, excludedNames);
+    scopeStack.pop();
+    return;
+  }
+
+  visitNode(left, scopeStack, topLevelBindingNames, references, excludedNames);
+  visitNode(node.right as OxcNode, scopeStack, topLevelBindingNames, references, excludedNames);
+  visitNode(node.body as OxcNode, scopeStack, topLevelBindingNames, references, excludedNames);
+}
+
+function visitSwitchStatement(
+  node: OxcNode,
+  scopeStack: Array<Set<string>>,
+  topLevelBindingNames: Set<string>,
+  references: Set<string>,
+  excludedNames: Set<string>,
+): void {
+  visitNode(
+    node.discriminant as OxcNode,
+    scopeStack,
+    topLevelBindingNames,
+    references,
+    excludedNames,
+  );
+
+  const scope = collectSwitchScopeBindings(node.cases as OxcNode[]);
+  scopeStack.push(scope);
+  for (const switchCase of node.cases as OxcNode[]) {
+    visitNode(
+      switchCase.test as OxcNode | null,
+      scopeStack,
+      topLevelBindingNames,
+      references,
+      excludedNames,
+    );
+    for (const statement of switchCase.consequent as OxcNode[]) {
+      visitNode(statement, scopeStack, topLevelBindingNames, references, excludedNames);
+    }
+  }
   scopeStack.pop();
 }
 
@@ -1059,18 +1179,83 @@ function visitPattern(
   }
 }
 
-function collectDirectBindings(statements: OxcNode[]): Set<string> {
+function collectBlockScopeBindings(statements: OxcNode[]): Set<string> {
   const names = new Set<string>();
 
   for (const statement of statements) {
     const declaration = getStatementDeclaration(statement);
     if (!declaration) continue;
+    if (declaration.type === "VariableDeclaration" && declaration.kind === "var") {
+      continue;
+    }
     for (const name of collectBindingNamesFromDeclaration(declaration)) {
       names.add(name);
     }
   }
 
   return names;
+}
+
+function collectFunctionScopedVarBindings(node: OxcNode | null | undefined): Set<string> {
+  const names = new Set<string>();
+  collectFunctionScopedVarBindingsInto(node, names);
+  return names;
+}
+
+function collectFunctionScopedVarBindingsInto(
+  node: OxcNode | null | undefined,
+  names: Set<string>,
+): void {
+  if (!node) return;
+  if (node.type.startsWith("TS")) return;
+
+  switch (node.type) {
+    case "ArrowFunctionExpression":
+    case "FunctionDeclaration":
+    case "FunctionExpression":
+    case "ClassDeclaration":
+    case "ClassExpression":
+      return;
+    case "VariableDeclaration":
+      if (node.kind === "var") {
+        for (const declarator of node.declarations as OxcNode[]) {
+          for (const name of collectBindingNamesFromPattern(declarator.id as OxcNode)) {
+            names.add(name);
+          }
+        }
+      }
+      return;
+    default:
+      for (const [key, value] of Object.entries(node)) {
+        if (SKIPPED_KEYS.has(key)) continue;
+        if (key === "id" || key === "implements" || key === "superTypeArguments") continue;
+        collectFunctionScopedVarBindingsFromUnknown(value, names);
+      }
+  }
+}
+
+function collectFunctionScopedVarBindingsFromUnknown(value: unknown, names: Set<string>): void {
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      collectFunctionScopedVarBindingsFromUnknown(item, names);
+    }
+    return;
+  }
+
+  if (!isNode(value)) return;
+  collectFunctionScopedVarBindingsInto(value, names);
+}
+
+function collectSwitchScopeBindings(cases: OxcNode[]): Set<string> {
+  const statements: OxcNode[] = [];
+
+  for (const switchCase of cases) {
+    for (const statement of switchCase.consequent as OxcNode[]) {
+      statements.push(statement);
+    }
+  }
+
+  return collectBlockScopeBindings(statements);
 }
 
 function getStatementDeclaration(statement: OxcNode): OxcNode | null {

@@ -159,6 +159,42 @@ export default function Page() {
     expectValidModuleSource(transformed);
   });
 
+  it("preserves import attributes when pruning unused import specifiers", () => {
+    const source = `
+import { loaderDep, shared } from "./data.json" with { type: "json" };
+
+export function loader() {
+  return loaderDep;
+}
+
+export default function Page() {
+  return <div>{shared}</div>;
+}
+`;
+
+    const transformed = stripServerOnlyExportsForClient(source);
+
+    expect(transformed).toContain('import { shared } from "./data.json" with { type: "json" };');
+    expect(transformed).not.toContain("loaderDep");
+    expectValidModuleSource(transformed);
+  });
+
+  it("preserves re-export attributes when pruning server-only specifiers", () => {
+    const source = `
+export { loader, shared } from "./data.json" with { type: "json" };
+
+export default function Page() {
+  return <div>ok</div>;
+}
+`;
+
+    const transformed = stripServerOnlyExportsForClient(source);
+
+    expect(transformed).toContain('export { shared } from "./data.json" with { type: "json" };');
+    expect(transformed).not.toContain("export { loader");
+    expectValidModuleSource(transformed);
+  });
+
   it("removes local server-only re-exports and their dead imports", () => {
     const source = `
 import serverOnly from "../server-only";
@@ -177,6 +213,78 @@ export default function Page() {
     expect(transformed).not.toContain("../server-only");
     expect(transformed).not.toContain("export { loader");
     expect(transformed).not.toContain("const loader");
+    expectValidModuleSource(transformed);
+  });
+
+  it("drops dead imports when loop header bindings shadow the server-only name", () => {
+    const source = `
+import serverOnly from "../server-only";
+
+export function loader() {
+  return serverOnly();
+}
+
+export default function Page() {
+  for (const serverOnly of [1]) {
+    console.log(serverOnly);
+  }
+  return <div />;
+}
+`;
+
+    const transformed = stripServerOnlyExportsForClient(source);
+
+    expect(transformed).not.toContain("../server-only");
+    expect(transformed).toContain("for (const serverOnly of [1])");
+    expectValidModuleSource(transformed);
+  });
+
+  it("drops dead imports when hoisted var bindings shadow the server-only name", () => {
+    const source = `
+import serverOnly from "../server-only";
+
+export function loader() {
+  return serverOnly();
+}
+
+export default function Page() {
+  if (true) {
+    var serverOnly = 1;
+  }
+  return <div>{serverOnly}</div>;
+}
+`;
+
+    const transformed = stripServerOnlyExportsForClient(source);
+
+    expect(transformed).not.toContain("../server-only");
+    expect(transformed).toContain("var serverOnly = 1");
+    expectValidModuleSource(transformed);
+  });
+
+  it("drops dead imports when switch cases introduce lexical shadowing", () => {
+    const source = `
+import serverOnly from "../server-only";
+
+export function loader() {
+  return serverOnly();
+}
+
+export default function Page() {
+  switch (1) {
+    case 1:
+      const serverOnly = 1;
+      return <div>{serverOnly}</div>;
+    default:
+      return <div />;
+  }
+}
+`;
+
+    const transformed = stripServerOnlyExportsForClient(source);
+
+    expect(transformed).not.toContain("../server-only");
+    expect(transformed).toContain("const serverOnly = 1");
     expectValidModuleSource(transformed);
   });
 
