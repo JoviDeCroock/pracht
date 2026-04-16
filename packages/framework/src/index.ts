@@ -16,7 +16,6 @@ export {
   applyDefaultSecurityHeaders,
   Form,
   handlePrachtRequest,
-  prerenderApp,
   readHydrationState,
   startApp,
   useLocation,
@@ -25,6 +24,7 @@ export {
   useRouteData,
   PrachtRuntimeProvider,
 } from "./runtime.ts";
+export { prerenderApp } from "./prerender.ts";
 export { initClientRouter, useNavigate } from "./router.ts";
 export { PrachtHttpError } from "./types.ts";
 export type {
@@ -76,16 +76,18 @@ export type {
 export type {
   FormProps,
   HandlePrachtRequestOptions,
-  ISGManifestEntry,
   Location,
   PrachtRuntimeDiagnosticPhase,
   PrachtRuntimeDiagnostics,
-  PrerenderAppOptions,
-  PrerenderAppResult,
-  PrerenderResult,
   RouteStateResult,
   SerializedRouteError,
   StartAppOptions,
   PrachtHydrationState,
 } from "./runtime.ts";
+export type {
+  ISGManifestEntry,
+  PrerenderAppOptions,
+  PrerenderAppResult,
+  PrerenderResult,
+} from "./prerender.ts";
 export type { InitClientRouterOptions, NavigateFn } from "./router.ts";

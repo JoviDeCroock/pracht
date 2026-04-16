@@ -1,57 +1,31 @@
 import { parseAst } from "vite";
 
+import { getRolldownLang } from "./client-module-query.ts";
 import {
-  analyzeRetainedStatements,
-  type OxcNode,
-  type RetainedStatement,
-} from "./client-module-scope-analysis.ts";
+  collectBindingNamesFromDeclaration,
+  createStatementStates,
+  getRemainingDeclaratorIndices,
+  getRemainingSpecifierIndices,
+  normalizeRetainedStatements,
+  type BindingInfo,
+  type StatementState,
+} from "./client-module-transform-state.ts";
+import { renderProgram } from "./client-module-transform-render.ts";
+import { analyzeRetainedStatements } from "./client-module-scope-analysis.ts";
+import {
+  collectBindingNamesFromPattern,
+  getIdentifierName,
+  getStatementDeclaration,
+} from "./scope-analysis-helpers.ts";
+import type { OxcNode } from "./scope-analysis-types.ts";
 
-const CLIENT_MODULE_QUERY = "pracht-client";
+export {
+  PRACHT_CLIENT_MODULE_QUERY,
+  isPrachtClientModuleId,
+  stripPrachtClientModuleQuery,
+} from "./client-module-query.ts";
+
 const SERVER_ONLY_EXPORTS = new Set(["loader", "head", "headers", "getStaticPaths"]);
-
-type RolldownLang = "js" | "jsx" | "ts" | "tsx";
-
-type StatementState = {
-  node: OxcNode;
-  removed: boolean;
-  removedDeclarators: Set<number>;
-  removedSpecifiers: Set<number>;
-};
-
-type BindingInfo = {
-  declaratorIndex?: number;
-  dependencies: Set<string>;
-  kind: "class" | "function" | "import" | "variable";
-  names: Set<string>;
-  node: OxcNode;
-  specifierIndex?: number;
-  statementIndex: number;
-};
-
-export const PRACHT_CLIENT_MODULE_QUERY = `?${CLIENT_MODULE_QUERY}`;
-
-export function isPrachtClientModuleId(id: string): boolean {
-  const queryStart = id.indexOf("?");
-  if (queryStart === -1) return false;
-
-  return id
-    .slice(queryStart + 1)
-    .split("&")
-    .includes(CLIENT_MODULE_QUERY);
-}
-
-export function stripPrachtClientModuleQuery(id: string): string {
-  const queryStart = id.indexOf("?");
-  if (queryStart === -1) return id;
-
-  const path = id.slice(0, queryStart);
-  const query = id
-    .slice(queryStart + 1)
-    .split("&")
-    .filter((part) => part !== CLIENT_MODULE_QUERY);
-
-  return query.length > 0 ? `${path}?${query.join("&")}` : path;
-}
 
 export function stripServerOnlyExportsForClient(
   code: string,
@@ -66,15 +40,6 @@ export function stripServerOnlyExportsForClient(
 
   pruneDeadBindings(states, initialBindingNames, candidates);
   return renderProgram(code, states);
-}
-
-function createStatementStates(program: OxcNode): StatementState[] {
-  return (program.body as OxcNode[]).map((node) => ({
-    node,
-    removed: false,
-    removedDeclarators: new Set<number>(),
-    removedSpecifiers: new Set<number>(),
-  }));
 }
 
 function removeServerOnlyExports(
@@ -424,130 +389,6 @@ function removeBinding(states: StatementState[], binding: BindingInfo): void {
   state.removed = true;
 }
 
-function renderProgram(code: string, states: StatementState[]): string {
-  let cursor = 0;
-  let out = "";
-
-  for (const state of states) {
-    const statement = state.node;
-    out += code.slice(cursor, statement.start);
-    out += renderStatement(code, state);
-    cursor = statement.end;
-  }
-
-  out += code.slice(cursor);
-  return out;
-}
-
-function renderStatement(code: string, state: StatementState): string {
-  if (state.removed) return "";
-
-  const statement = state.node;
-  const declaration = getStatementDeclaration(statement);
-
-  if (statement.type === "ImportDeclaration" && state.removedSpecifiers.size > 0) {
-    return renderImportDeclaration(code, statement, state);
-  }
-
-  if (
-    statement.type === "ExportNamedDeclaration" &&
-    !statement.declaration &&
-    state.removedSpecifiers.size > 0
-  ) {
-    return renderExportSpecifiers(code, statement, state);
-  }
-
-  if (declaration?.type === "VariableDeclaration" && state.removedDeclarators.size > 0) {
-    return renderVariableDeclaration(code, statement, declaration, state);
-  }
-
-  return code.slice(statement.start, statement.end);
-}
-
-function renderImportDeclaration(code: string, statement: OxcNode, state: StatementState): string {
-  const remaining = getRemainingSpecifierIndices(state).map(
-    (index) => statement.specifiers[index] as OxcNode,
-  );
-  if (remaining.length === 0) return "";
-
-  const defaultSpecifier = remaining.find(
-    (specifier) => specifier.type === "ImportDefaultSpecifier",
-  );
-  const namespaceSpecifier = remaining.find(
-    (specifier) => specifier.type === "ImportNamespaceSpecifier",
-  );
-  const namedSpecifiers = remaining.filter((specifier) => specifier.type === "ImportSpecifier");
-  const clauseParts: string[] = [];
-
-  if (defaultSpecifier) {
-    clauseParts.push(code.slice(defaultSpecifier.start, defaultSpecifier.end));
-  }
-  if (namespaceSpecifier) {
-    clauseParts.push(code.slice(namespaceSpecifier.start, namespaceSpecifier.end));
-  }
-  if (namedSpecifiers.length > 0) {
-    clauseParts.push(
-      `{ ${namedSpecifiers.map((specifier) => code.slice(specifier.start, specifier.end)).join(", ")} }`,
-    );
-  }
-
-  const importPrefix = ["import"];
-  if (statement.importKind === "type") {
-    importPrefix.push("type");
-  }
-  if (typeof statement.phase === "string" && statement.phase.length > 0) {
-    importPrefix.push(statement.phase);
-  }
-
-  return `${importPrefix.join(" ")} ${clauseParts.join(", ")} from ${code.slice(statement.source.start, statement.end)}`;
-}
-
-function renderExportSpecifiers(code: string, statement: OxcNode, state: StatementState): string {
-  const remaining = getRemainingSpecifierIndices(state).map(
-    (index) => statement.specifiers[index] as OxcNode,
-  );
-  if (remaining.length === 0) return "";
-
-  const exportPrefix = statement.exportKind === "type" ? "export type" : "export";
-  const sourceSuffix = statement.source
-    ? ` from ${code.slice(statement.source.start, statement.end)}`
-    : ";";
-  return `${exportPrefix} { ${remaining.map((specifier) => code.slice(specifier.start, specifier.end)).join(", ")} }${sourceSuffix}`;
-}
-
-function renderVariableDeclaration(
-  code: string,
-  statement: OxcNode,
-  declaration: OxcNode,
-  state: StatementState,
-): string {
-  const remaining = getRemainingDeclaratorIndices(state).map(
-    (index) => declaration.declarations[index] as OxcNode,
-  );
-  if (remaining.length === 0) return "";
-
-  const prefix = statement.type === "ExportNamedDeclaration" ? "export " : "";
-  return `${prefix}${declaration.kind as string} ${remaining.map((item) => code.slice(item.start, item.end)).join(", ")};`;
-}
-
-function getRemainingDeclaratorIndices(state: StatementState): number[] {
-  const declaration = getStatementDeclaration(state.node);
-  if (!declaration || declaration.type !== "VariableDeclaration") return [];
-
-  return declaration.declarations
-    .map((_item: unknown, index: number) => index)
-    .filter((index: number) => !state.removedDeclarators.has(index));
-}
-
-function getRemainingSpecifierIndices(state: StatementState): number[] {
-  const statement = state.node;
-  if (!("specifiers" in statement) || !Array.isArray(statement.specifiers)) return [];
-
-  return statement.specifiers
-    .map((_item: unknown, index: number) => index)
-    .filter((index: number) => !state.removedSpecifiers.has(index));
-}
-
 function collectVariableDeclaratorDependencies(
   declarator: OxcNode,
   declarationKind: string,
@@ -576,153 +417,8 @@ function collectTopLevelReferences(
   }).referencedTopLevelNames;
 }
 
-function normalizeRetainedStatements(states: StatementState[]): RetainedStatement[] {
-  return states
-    .map((state) => normalizeRetainedStatement(state))
-    .filter((state): state is RetainedStatement => state !== null);
-}
-
-function normalizeRetainedStatement(state: StatementState): RetainedStatement | null {
-  if (state.removed) return null;
-
-  const statement = state.node;
-  if (statement.type === "ImportDeclaration" && state.removedSpecifiers.size > 0) {
-    return {
-      node: {
-        ...statement,
-        specifiers: getRemainingSpecifierIndices(state).map(
-          (index) => statement.specifiers[index] as OxcNode,
-        ),
-      },
-    };
-  }
-
-  if (
-    statement.type === "ExportNamedDeclaration" &&
-    !statement.declaration &&
-    state.removedSpecifiers.size > 0
-  ) {
-    return {
-      node: {
-        ...statement,
-        specifiers: getRemainingSpecifierIndices(state).map(
-          (index) => statement.specifiers[index] as OxcNode,
-        ),
-      },
-    };
-  }
-
-  const declaration = getStatementDeclaration(statement);
-  if (declaration?.type === "VariableDeclaration" && state.removedDeclarators.size > 0) {
-    const retainedDeclaration: OxcNode = {
-      ...declaration,
-      declarations: getRemainingDeclaratorIndices(state).map(
-        (index) => declaration.declarations[index] as OxcNode,
-      ),
-    };
-
-    if (statement.type === "ExportNamedDeclaration") {
-      return {
-        node: {
-          ...statement,
-          declaration: retainedDeclaration,
-        },
-      };
-    }
-
-    return { node: retainedDeclaration };
-  }
-
-  return { node: statement };
-}
-
-function getStatementDeclaration(statement: OxcNode): OxcNode | null {
-  if (statement.type === "ExportNamedDeclaration") {
-    return (statement.declaration as OxcNode | null) ?? null;
-  }
-
-  if (
-    statement.type === "ExportDefaultDeclaration" &&
-    ((statement.declaration as OxcNode).type === "FunctionDeclaration" ||
-      (statement.declaration as OxcNode).type === "ClassDeclaration")
-  ) {
-    return statement.declaration as OxcNode;
-  }
-
-  if (
-    statement.type === "FunctionDeclaration" ||
-    statement.type === "ClassDeclaration" ||
-    statement.type === "VariableDeclaration"
-  ) {
-    return statement;
-  }
-
-  return null;
-}
-
-function collectBindingNamesFromDeclaration(declaration: OxcNode): string[] {
-  if (declaration.type === "FunctionDeclaration" || declaration.type === "ClassDeclaration") {
-    return declaration.id ? [(declaration.id as OxcNode).name as string] : [];
-  }
-
-  if (declaration.type === "VariableDeclaration") {
-    return (declaration.declarations as OxcNode[]).flatMap((declarator) =>
-      collectBindingNamesFromPattern(declarator.id as OxcNode),
-    );
-  }
-
-  return [];
-}
-
-function collectBindingNamesFromPattern(pattern: OxcNode | null | undefined): string[] {
-  if (!pattern) return [];
-
-  switch (pattern.type) {
-    case "Identifier":
-      return [pattern.name as string];
-    case "AssignmentPattern":
-      return collectBindingNamesFromPattern(pattern.left as OxcNode);
-    case "RestElement":
-      return collectBindingNamesFromPattern(pattern.argument as OxcNode);
-    case "ObjectPattern":
-      return (pattern.properties as OxcNode[]).flatMap((property) => {
-        if (property.type === "Property") {
-          return collectBindingNamesFromPattern(property.value as OxcNode);
-        }
-        return collectBindingNamesFromPattern(property.argument as OxcNode);
-      });
-    case "ArrayPattern":
-      return (pattern.elements as Array<OxcNode | null>).flatMap((element) =>
-        collectBindingNamesFromPattern(element),
-      );
-    default:
-      return [];
-  }
-}
-
 function enqueueDependencies(target: Set<string>, dependencies: Iterable<string>): void {
   for (const name of dependencies) {
     target.add(name);
   }
-}
-
-function getIdentifierName(node: OxcNode | null | undefined): string | null {
-  if (!node) return null;
-  if (node.type === "Identifier" || node.type === "JSXIdentifier") {
-    return node.name as string;
-  }
-  if (node.type === "Literal" && typeof node.value === "string") {
-    return node.value as string;
-  }
-  return null;
-}
-
-function getRolldownLang(id: string): RolldownLang {
-  const path = stripPrachtClientModuleQuery(id).split("?")[0];
-  if (/\.(c|m)?tsx$/i.test(path)) return "tsx";
-  if (/\.(c|m)?ts$/i.test(path)) return "ts";
-  if (/\.(c|m)?jsx$/i.test(path)) return "jsx";
-  if (/\.mdx?$/i.test(path)) return "jsx";
-  if (/\.(c|m)?js$/i.test(path)) return "js";
-  return "tsx";
 }
