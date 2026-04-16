@@ -38,6 +38,7 @@ export async function pracht(options: PrachtPluginOptions = {}): Promise<Plugin[
   const resolved = resolveOptions(options);
   const isPagesMode = !!resolved.pagesDir;
   let root = process.cwd();
+  let routeFileDirs: string[] = [];
 
   if (isPagesMode && options.appFile) {
     console.warn(
@@ -84,6 +85,7 @@ export async function pracht(options: PrachtPluginOptions = {}): Promise<Plugin[
     configResolved(config) {
       root = config.root;
       isBuild = config.command === "build";
+      routeFileDirs = computeRouteFileDirs(root, resolved);
     },
 
     resolveId(id) {
@@ -157,8 +159,11 @@ export async function pracht(options: PrachtPluginOptions = {}): Promise<Plugin[
     name: "pracht:client-module-transform",
     enforce: "post",
 
-    transform(code, id) {
-      if (!isPrachtClientModuleId(id)) return null;
+    transform(code, id, transformOptions) {
+      const shouldStrip =
+        isPrachtClientModuleId(id) ||
+        (!transformOptions?.ssr && isRouteOrShellFile(id, routeFileDirs));
+      if (!shouldStrip) return null;
 
       const transformed = stripServerOnlyExportsForClient(code, id);
       if (transformed === code) return null;
@@ -195,4 +200,33 @@ function invalidateVirtualModules(server: import("vite").ViteDevServer): void {
   const serverMod = server.moduleGraph.getModuleById(PRACHT_SERVER_MODULE_ID);
   if (clientMod) server.moduleGraph.invalidateModule(clientMod);
   if (serverMod) server.moduleGraph.invalidateModule(serverMod);
+}
+
+const ROUTE_FILE_EXTENSIONS = new Set([".ts", ".tsx", ".js", ".jsx", ".md", ".mdx"]);
+
+function computeRouteFileDirs(root: string, resolved: ResolvedPrachtPluginOptions): string[] {
+  const dirs = resolved.pagesDir ? [resolved.pagesDir] : [resolved.routesDir, resolved.shellsDir];
+  return dirs.map((dir) => toPosixPath(resolve(root, dir.replace(/^\//, "")))).map(withTrailingSep);
+}
+
+function isRouteOrShellFile(id: string, dirs: string[]): boolean {
+  if (dirs.length === 0) return false;
+  const queryStart = id.indexOf("?");
+  const path = queryStart === -1 ? id : id.slice(0, queryStart);
+  // Skip virtual modules and non-file ids.
+  if (path.startsWith("\0") || path.startsWith("virtual:")) return false;
+  const extIndex = path.lastIndexOf(".");
+  if (extIndex === -1) return false;
+  const ext = path.slice(extIndex);
+  if (!ROUTE_FILE_EXTENSIONS.has(ext)) return false;
+  const normalized = toPosixPath(path);
+  return dirs.some((dir) => normalized.startsWith(dir));
+}
+
+function toPosixPath(p: string): string {
+  return p.replace(/\\/g, "/");
+}
+
+function withTrailingSep(p: string): string {
+  return p.endsWith("/") ? p : `${p}/`;
 }

@@ -454,4 +454,94 @@ export default function Home() {
 
     expect(output).not.toContain("SERVER_ONLY_META_MARKER");
   });
+
+  it("strips server-only exports from route files in the client environment even without the pracht-client query", async () => {
+    // Regression: before the fix, stripping ran only when the module id
+    // carried the `?pracht-client` query added by the import.meta.glob
+    // registry. A client component that imported a route module directly
+    // (no query) slipped past the transform and exposed the loader.
+    const plugins = await pracht({ pagesDir: "/src/pages" });
+    const transformPlugin = plugins.find((p) => p.name === "pracht:client-module-transform");
+    if (!transformPlugin || typeof transformPlugin.transform !== "function") {
+      throw new Error("pracht:client-module-transform plugin is missing a transform hook");
+    }
+    // Bring the plugin out of its "not yet configured" state so it knows
+    // where the pages dir is on disk.
+    const configResolved = findPrachtConfigResolved(plugins);
+    configResolved({ root: "/project", command: "build" } as never);
+
+    const routeFileId = "/project/src/pages/index.tsx";
+    const source = [
+      "export function loader() {",
+      '  return "SERVER_ONLY_LOADER_MARKER";',
+      "}",
+      "export function head() {",
+      '  return { title: "x" };',
+      "}",
+      "export default function Home() {",
+      '  return "ok";',
+      "}",
+      "",
+    ].join("\n");
+
+    // Client transform — no ?pracht-client query. Must strip.
+    const clientResult = await callTransform(transformPlugin.transform, source, routeFileId, {
+      ssr: false,
+    });
+    expect(clientResult).not.toBeNull();
+    expect(clientResult).not.toContain("SERVER_ONLY_LOADER_MARKER");
+    expect(clientResult).not.toContain("function loader");
+    expect(clientResult).not.toContain("function head");
+    expect(clientResult).toContain("function Home");
+
+    // SSR transform — must NOT strip (server needs the loader).
+    const ssrResult = await callTransform(transformPlugin.transform, source, routeFileId, {
+      ssr: true,
+    });
+    expect(ssrResult).toBeNull();
+
+    // Non-route file in the client environment — must NOT be touched.
+    const componentResult = await callTransform(
+      transformPlugin.transform,
+      source,
+      "/project/src/components/sidebar.tsx",
+      { ssr: false },
+    );
+    expect(componentResult).toBeNull();
+  });
 });
+
+type TransformHook = Parameters<typeof Object.getPrototypeOf>[0];
+
+function findPrachtConfigResolved(plugins: readonly unknown[]): (config: unknown) => void {
+  for (const plugin of plugins) {
+    if (
+      plugin &&
+      typeof plugin === "object" &&
+      (plugin as { name?: string }).name === "pracht" &&
+      typeof (plugin as { configResolved?: unknown }).configResolved === "function"
+    ) {
+      return (plugin as { configResolved: (config: unknown) => void }).configResolved;
+    }
+  }
+  throw new Error("pracht plugin not found");
+}
+
+async function callTransform(
+  transform: unknown,
+  code: string,
+  id: string,
+  options: { ssr: boolean },
+): Promise<string | null> {
+  const handler =
+    typeof transform === "function" ? transform : (transform as { handler: TransformHook }).handler;
+  const result = await (handler as (c: string, i: string, o: { ssr: boolean }) => unknown).call(
+    {} as never,
+    code,
+    id,
+    options,
+  );
+  if (result === null || result === undefined) return null;
+  if (typeof result === "string") return result;
+  return (result as { code: string }).code;
+}
