@@ -123,8 +123,7 @@ export function shouldBypassDevSSR(
     matchAppRoute?: (app: ResolvedPrachtApp, pathname: string) => unknown;
   } = {},
 ): boolean {
-  const url =
-    typeof requestUrl === "string" ? new URL(requestUrl, "http://localhost") : requestUrl;
+  const url = typeof requestUrl === "string" ? new URL(requestUrl, "http://localhost") : requestUrl;
   const pathname = url.pathname;
 
   if (isReservedDevPath(pathname)) {
