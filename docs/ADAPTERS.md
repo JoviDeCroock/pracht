@@ -214,11 +214,6 @@ explicit. Pair this with the corresponding `wrangler.jsonc` bindings:
 }
 ```
 
-The older `exports` array is still accepted as a deprecated fallback, but
-`workerExportsFrom` is the recommended path because it keeps Cloudflare-specific
-exports in one user-owned module instead of duplicating names and file paths in
-`vite.config.ts`.
-
 ### Using Cloudflare bindings in dev
 
 The adapter handles everything — just declare bindings in `wrangler.jsonc`:

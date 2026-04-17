@@ -11,20 +11,9 @@ describe("createCloudflareServerEntryModule", () => {
     expect(source).toContain('export * from "/src/cloudflare.ts";');
   });
 
-  it("rejects mixing workerExportsFrom with deprecated named exports", () => {
-    expect(() =>
-      createCloudflareServerEntryModule({
-        workerExportsFrom: "/src/cloudflare.ts",
-        exports: [{ from: "/src/workers/counter.ts", names: ["Counter"] }],
-      }),
-    ).toThrow(/workerExportsFrom/);
-  });
+  it("omits worker primitive re-exports when no module is configured", () => {
+    const source = createCloudflareServerEntryModule();
 
-  it("keeps deprecated named exports working", () => {
-    const source = createCloudflareServerEntryModule({
-      exports: [{ from: "/src/workers/counter.ts", names: ["Counter"] }],
-    });
-
-    expect(source).toContain('export { Counter } from "/src/workers/counter.ts";');
+    expect(source).not.toContain("export * from");
   });
 });
