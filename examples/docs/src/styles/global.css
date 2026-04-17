@@ -90,6 +90,7 @@ a:hover {
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   border-bottom: 1px solid var(--border-l);
+  view-transition-name: header;
 }
 
 .site-header .inner {
@@ -810,6 +811,7 @@ code:not(.code-block code) {
   top: 56px;
   height: calc(100vh - 56px);
   overflow-y: auto;
+  view-transition-name: sidebar;
 }
 
 .sidebar-section {
@@ -878,6 +880,7 @@ code:not(.code-block code) {
   min-width: 0;
   padding: 44px 0 80px 44px;
   border-left: 1px solid var(--border-l);
+  view-transition-name: doc-content;
 }
 
 @media (max-width: 768px) {
@@ -1115,4 +1118,42 @@ code:not(.code-block code) {
 
 .doc-nav-card.next {
   text-align: right;
+}
+
+/* ============================================================
+   VIEW TRANSITIONS
+   ============================================================ */
+
+::view-transition-group(header),
+::view-transition-group(sidebar) {
+  animation-duration: 0s;
+}
+
+@keyframes vt-slide-up-in {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+}
+
+@keyframes vt-fade-out {
+  to {
+    opacity: 0;
+  }
+}
+
+::view-transition-old(doc-content) {
+  animation: 120ms ease-out both vt-fade-out;
+}
+
+::view-transition-new(doc-content) {
+  animation: 200ms ease-out 60ms both vt-slide-up-in;
+}
+
+::view-transition-old(root) {
+  animation-duration: 120ms;
+}
+
+::view-transition-new(root) {
+  animation-duration: 200ms;
 }

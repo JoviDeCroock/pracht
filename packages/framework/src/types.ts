@@ -40,6 +40,7 @@ export interface BuildHrefOptions {
 
 export interface NavigateOptions {
   replace?: boolean;
+  viewTransition?: boolean;
 }
 
 export interface HrefRouteDefinition {
@@ -180,6 +181,7 @@ export interface RouteMeta {
   revalidate?: RouteRevalidate;
   prefetch?: PrefetchStrategy;
   hasLoader?: boolean;
+  viewTransition?: boolean;
 }
 
 export interface GroupMeta {

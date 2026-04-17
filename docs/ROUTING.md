@@ -123,6 +123,7 @@ interface RouteMeta {
   render?: "spa" | "ssr" | "ssg" | "isg";
   middleware?: string[]; // Named middleware from defineApp.middleware
   revalidate?: RouteRevalidate; // ISG revalidation policy
+  viewTransition?: boolean; // Opt out of View Transitions for this route (default: true)
 }
 ```
 
@@ -372,6 +373,58 @@ group({ pathPrefix: "/admin", shell: "admin", middleware: ["auth"] }, [
 ```
 
 This keeps route files flat while grouping URLs logically.
+
+---
+
+## View Transitions
+
+Pracht automatically wraps client-side route swaps in
+[`document.startViewTransition()`](https://developer.mozilla.org/en-US/docs/Web/API/View_Transitions_API)
+when the browser supports it. This gives apps smooth cross-route animations for
+free — no extra JavaScript required.
+
+### How it works
+
+- After the initial hydration, every client navigation (link click, back/forward,
+  `useNavigate()`, or Form redirect) runs inside a view transition.
+- If the browser does not support the API, the route swap happens directly with
+  no visual difference from before.
+- `prefers-reduced-motion: reduce` is respected — transitions are skipped
+  automatically.
+
+### Per-route opt-out
+
+Set `viewTransition: false` in the route meta to disable transitions for a
+specific route (useful for heavy pages like data tables):
+
+```typescript
+route("/reports", () => import("./routes/reports.tsx"), {
+  render: "ssr",
+  viewTransition: false,
+});
+```
+
+### Per-navigation opt-out
+
+Pass `viewTransition: false` when calling `useNavigate()`:
+
+```typescript
+const navigate = useNavigate();
+navigate("/reports", { viewTransition: false });
+```
+
+### Customizing animations with CSS
+
+Use `view-transition-name` in your stylesheets to animate specific elements
+across navigations:
+
+```css
+.hero-image {
+  view-transition-name: hero;
+}
+```
+
+The framework handles the transition lifecycle; visual customization is pure CSS.
 
 ---
 

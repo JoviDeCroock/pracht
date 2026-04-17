@@ -1,4 +1,4 @@
-import { createContext, h } from "preact";
+import { createContext, h, options as preactOptions } from "preact";
 import { hydrate, render } from "preact";
 import { useContext, useMemo, useState } from "preact/hooks";
 import type { FunctionComponent } from "preact";
@@ -24,6 +24,16 @@ import {
 import { deserializeRouteError, type SerializedRouteError } from "./runtime-errors.ts";
 import { type PrachtHydrationState, PrachtRuntimeProvider } from "./runtime-context.ts";
 import type { RouteStateResult } from "./runtime-client-fetch.ts";
+
+function flushSync<T>(callback: () => T): T {
+  const prevDebounce = preactOptions.debounceRendering;
+  preactOptions.debounceRendering = (cb) => cb();
+  try {
+    return callback();
+  } finally {
+    preactOptions.debounceRendering = prevDebounce;
+  }
+}
 
 interface RouteRenderState {
   Shell: FunctionComponent | null;
@@ -246,6 +256,20 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
     };
   }
 
+  const prefersReducedMotion =
+    typeof window !== "undefined" && typeof window.matchMedia === "function"
+      ? window.matchMedia("(prefers-reduced-motion: reduce)")
+      : null;
+
+  function shouldUseViewTransition(
+    route: { viewTransition?: boolean },
+    opts?: { viewTransition?: boolean },
+  ): boolean {
+    if (opts?.viewTransition === false || route.viewTransition === false) return false;
+    if (prefersReducedMotion?.matches) return false;
+    return typeof document !== "undefined" && "startViewTransition" in document;
+  }
+
   async function navigate(to: string | RouteTarget, opts?: InternalNavigateOptions): Promise<void> {
     const navigationId = ++latestNavigationId;
     activeNavigationAbort?.abort();
@@ -364,8 +388,15 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
     if (navigationId !== latestNavigationId) return;
 
     if (routeState) {
-      applyRouteState(routeState);
-      window.scrollTo(0, 0);
+      if (shouldUseViewTransition(match.route, opts)) {
+        (document as any).startViewTransition(() => {
+          flushSync(() => applyRouteState(routeState));
+          window.scrollTo(0, 0);
+        });
+      } else {
+        applyRouteState(routeState);
+        window.scrollTo(0, 0);
+      }
     } else {
       window.location.href = target.browserUrl;
     }
