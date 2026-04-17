@@ -1,4 +1,4 @@
-import { createContext, h } from "preact";
+import { createContext, h, options as preactOptions } from "preact";
 import { hydrate, render } from "preact";
 import { useContext, useMemo, useState } from "preact/hooks";
 import type { FunctionComponent } from "preact";
@@ -15,6 +15,16 @@ import {
   PrachtRuntimeProvider,
 } from "./runtime.ts";
 import type { SerializedRouteError, PrachtHydrationState } from "./runtime.ts";
+
+function flushSync<T>(callback: () => T): T {
+  const prevDebounce = preactOptions.debounceRendering;
+  preactOptions.debounceRendering = (cb) => cb();
+  try {
+    return callback();
+  } finally {
+    preactOptions.debounceRendering = prevDebounce;
+  }
+}
 
 interface RouteRenderState {
   Shell: FunctionComponent | null;
@@ -36,7 +46,12 @@ declare global {
 
 type ModuleMap = Record<string, () => Promise<unknown>>;
 
-export type NavigateFn = (to: string, options?: { replace?: boolean }) => Promise<void>;
+export interface NavigateOptions {
+  replace?: boolean;
+  viewTransition?: boolean;
+}
+
+export type NavigateFn = (to: string, options?: NavigateOptions) => Promise<void>;
 
 interface BrowserRouteTarget {
   browserUrl: string;
@@ -223,9 +238,23 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
     };
   }
 
+  const prefersReducedMotion =
+    typeof window !== "undefined" && typeof window.matchMedia === "function"
+      ? window.matchMedia("(prefers-reduced-motion: reduce)")
+      : null;
+
+  function shouldUseViewTransition(
+    route: { viewTransition?: boolean },
+    opts?: { viewTransition?: boolean },
+  ): boolean {
+    if (opts?.viewTransition === false || route.viewTransition === false) return false;
+    if (prefersReducedMotion?.matches) return false;
+    return typeof document !== "undefined" && "startViewTransition" in document;
+  }
+
   async function navigate(
     to: string,
-    opts?: { replace?: boolean; _popstate?: boolean },
+    opts?: NavigateOptions & { _popstate?: boolean },
   ): Promise<void> {
     const target = resolveBrowserRouteTarget(to);
     if (!target) {
@@ -320,8 +349,15 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
       shellModPromise,
     );
     if (routeState) {
-      applyRouteState(routeState);
-      window.scrollTo(0, 0);
+      if (shouldUseViewTransition(match.route, opts)) {
+        (document as any).startViewTransition(() => {
+          flushSync(() => applyRouteState(routeState));
+          window.scrollTo(0, 0);
+        });
+      } else {
+        applyRouteState(routeState);
+        window.scrollTo(0, 0);
+      }
     } else {
       window.location.href = target.browserUrl;
     }
