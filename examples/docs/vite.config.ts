@@ -9,7 +9,7 @@ import { llmsTxt } from "./vite-plugin-llms-txt";
 
 const SITE_ORIGIN = "https://pracht.dev";
 const routesFile = fileURLToPath(new URL("./src/routes.ts", import.meta.url));
-const skillsDir = fileURLToPath(new URL("./public/skills", import.meta.url));
+const skillsDir = fileURLToPath(new URL("../../skills", import.meta.url));
 
 export default defineConfig({
   plugins: [
