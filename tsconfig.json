@@ -9,7 +9,7 @@
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "strict": true,
     "skipLibCheck": true,
-    "types": ["node"],
+    "types": ["node", "vite/client"],
     "jsx": "react-jsx",
     "jsxImportSource": "preact",
     "baseUrl": ".",
