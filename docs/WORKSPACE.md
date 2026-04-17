@@ -90,7 +90,9 @@ described in `VISION_MVP.md`.
   integration required — plugins participate in the full Vite pipeline for both
   client and SSR builds.
 
-- **Claude Code skills** — Three repo-local skills in `skills/`:
+- **Claude Code skills** — Three repo-local skills in `examples/docs/public/skills/`
+  (served as static assets at `/skills/<name>/SKILL.md` and indexed via
+  `/.well-known/agent-skills/index.json`):
   - `/scaffold` — wraps `pracht generate route|shell|middleware|api` and only
     falls back to manual wiring when the CLI flags are insufficient.
   - `/debug` — framework-aware debugging plus `pracht verify` for fast changed

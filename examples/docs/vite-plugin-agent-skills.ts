@@ -2,13 +2,11 @@
  * Vite plugin that publishes an Agent Skills Discovery index
  * (https://github.com/cloudflare/agent-skills-discovery-rfc).
  *
- * Reads SKILL.md files from a directory, computes SHA-256 digests, and
- * exposes two things:
- *   - /skills/<name>/SKILL.md — the skill source, served as a public asset
- *   - /.well-known/agent-skills/index.json — the discovery manifest that
- *     points at each /skills/<name>/SKILL.md URL
- *
- * In dev, the same paths are served from the dev middleware.
+ * The SKILL.md sources live under the docs example's public folder
+ * (so Vite serves them as ordinary static assets in dev and copies them
+ * to `dist/client/` during build). This plugin only needs to compute
+ * SHA-256 digests and emit the discovery manifest at
+ * `/.well-known/agent-skills/index.json`.
  */
 
 import { createHash } from "node:crypto";
@@ -18,7 +16,8 @@ import { join } from "node:path";
 import type { Plugin } from "vite";
 
 export interface AgentSkillsPluginOptions {
-  // Directory containing one folder per skill (each with a SKILL.md).
+  // Directory containing one folder per skill (each with a SKILL.md). Should
+  // be inside the Vite public folder so SKILL.md files are served as static assets.
   skillsDir: string;
   // Site origin without trailing slash, e.g. https://pracht.dev
   origin: string;
@@ -84,29 +83,20 @@ function parseDescription(source: string): string | undefined {
   return collected.join(" ").trim() || undefined;
 }
 
-function buildFiles(
+function buildIndex(
   origin: string,
   schemaUrl: string,
   publicPrefix: string,
   skills: SkillEntry[],
-): { fileName: string; source: string }[] {
-  const files: { fileName: string; source: string }[] = [];
-  const items = skills.map((skill) => {
-    const fileName = `${publicPrefix}/${skill.name}/SKILL.md`;
-    const sha256 = createHash("sha256").update(skill.source).digest("hex");
-    files.push({ fileName, source: skill.source });
-    return {
-      name: skill.name,
-      type: "claude-skill",
-      description: skill.description,
-      url: `${origin}/${fileName}`,
-      sha256,
-    };
-  });
-
-  const json = JSON.stringify({ $schema: schemaUrl, skills: items }, null, 2) + "\n";
-  files.push({ fileName: INDEX_PATH, source: json });
-  return files;
+): string {
+  const items = skills.map((skill) => ({
+    name: skill.name,
+    type: "claude-skill",
+    description: skill.description,
+    url: `${origin}/${publicPrefix}/${skill.name}/SKILL.md`,
+    sha256: createHash("sha256").update(skill.source).digest("hex"),
+  }));
+  return JSON.stringify({ $schema: schemaUrl, skills: items }, null, 2) + "\n";
 }
 
 function normalizePrefix(value: string | undefined): string {
@@ -118,7 +108,7 @@ export function agentSkills(options: AgentSkillsPluginOptions): Plugin {
   const origin = options.origin.replace(/\/$/, "");
   const schemaUrl = options.schemaUrl ?? DEFAULT_SCHEMA;
   const publicPrefix = normalizePrefix(options.publicPrefix);
-  const generate = () => buildFiles(origin, schemaUrl, publicPrefix, readSkills(options.skillsDir));
+  const generate = () => buildIndex(origin, schemaUrl, publicPrefix, readSkills(options.skillsDir));
 
   return {
     name: "pracht-agent-skills",
@@ -126,29 +116,13 @@ export function agentSkills(options: AgentSkillsPluginOptions): Plugin {
       return env.command === "serve" || (env.command === "build" && !env.isSsrBuild);
     },
     configureServer(server) {
-      server.middlewares.use((req, res, next) => {
-        const url = req.url ?? "/";
-        if (url === `/${INDEX_PATH}`) {
-          const { source } = generate().find((f) => f.fileName === INDEX_PATH)!;
-          res.setHeader("content-type", "application/json; charset=utf-8");
-          res.end(source);
-          return;
-        }
-        const skillMatch = url.match(new RegExp(`^/${publicPrefix}/([^/]+)/SKILL\\.md$`));
-        if (skillMatch) {
-          const file = generate().find((f) => f.fileName.endsWith(`/${skillMatch[1]}/SKILL.md`));
-          if (!file) return next();
-          res.setHeader("content-type", "text/markdown; charset=utf-8");
-          res.end(file.source);
-          return;
-        }
-        next();
+      server.middlewares.use(`/${INDEX_PATH}`, (_req, res) => {
+        res.setHeader("content-type", "application/json; charset=utf-8");
+        res.end(generate());
       });
     },
     generateBundle() {
-      for (const file of generate()) {
-        this.emitFile({ type: "asset", fileName: file.fileName, source: file.source });
-      }
+      this.emitFile({ type: "asset", fileName: INDEX_PATH, source: generate() });
     },
   };
 }
