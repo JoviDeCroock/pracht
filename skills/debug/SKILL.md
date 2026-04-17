@@ -57,7 +57,7 @@ Work through these in order, stopping when you find the root cause:
 ### 3. Rendering issues
 
 - **Blank page**: Check if the route has `render: "spa"` (no SSR content expected) vs `"ssr"`.
-- **Hydration mismatch**: Compare server-rendered HTML vs client component output. Common causes:
+- **Hydration mismatch**: In dev, pracht surfaces a fixed-position red banner at the top of the page listing each mismatched component (via Preact's `options.__m` hook). Compare server-rendered HTML vs client component output. Common causes:
   - Date/time rendering differences
   - Browser-only APIs used during SSR (`window`, `document`, `localStorage`)
   - Conditional rendering based on client state

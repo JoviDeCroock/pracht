@@ -4,6 +4,7 @@ import { useContext, useMemo, useState } from "preact/hooks";
 import type { FunctionComponent } from "preact";
 
 import { matchAppRoute } from "./app.ts";
+import { installHydrationMismatchWarning } from "./hydration-mismatch.ts";
 import { markHydrating } from "./hydration.ts";
 import { getCachedRouteState, setupPrefetching } from "./prefetch.ts";
 import type { ModuleWarmFn } from "./prefetch.ts";
@@ -61,6 +62,10 @@ export interface InitClientRouterOptions {
 
 export async function initClientRouter(options: InitClientRouterOptions): Promise<void> {
   const { app, routeModules, shellModules, root, findModuleKey } = options;
+
+  if (import.meta.env?.DEV) {
+    installHydrationMismatchWarning();
+  }
 
   const moduleCache = new Map<string, Promise<unknown>>();
 
