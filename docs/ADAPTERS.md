@@ -382,7 +382,9 @@ At the runtime level, an adapter also typically needs to:
 
 1. **Accept a platform request** and convert it to a Web `Request` object
 2. **Check for static assets** -- serve files from `dist/client/` with appropriate
-   headers (content-type, cache-control with immutable for hashed assets)
+   headers (content-type, cache-control with immutable for hashed assets). Skip
+   asset serving when the request has `Accept: text/markdown` so routes that
+   export a `markdown` source can respond from the framework.
 3. **Check for prerendered pages** -- SSG and ISG routes have HTML files on disk.
    For ISG, implement staleness checking.
 4. **Delegate dynamic requests** to `handlePrachtRequest()` from `pracht`

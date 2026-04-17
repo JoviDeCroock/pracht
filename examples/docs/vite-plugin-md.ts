@@ -307,6 +307,8 @@ export function markdown(): Plugin {
       const output = [
         `import { h } from "preact";`,
         ``,
+        `export const markdown = ${JSON.stringify(code)};`,
+        ``,
         `export function head() {`,
         `  return { title: ${JSON.stringify(headTitle)} };`,
         `}`,

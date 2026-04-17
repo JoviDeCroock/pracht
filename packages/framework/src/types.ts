@@ -234,6 +234,10 @@ export interface RouteModule<TContext = any, TLoader extends LoaderLike = undefi
   default?: FunctionComponent<RouteComponentProps<TLoader>>;
   ErrorBoundary?: FunctionComponent<ErrorBoundaryProps>;
   getStaticPaths?: () => MaybePromise<RouteParams[]>;
+  // Raw markdown served when a client requests `Accept: text/markdown`
+  // (Markdown-for-Agents). The runtime returns this string with
+  // `Content-Type: text/markdown` instead of rendering the component.
+  markdown?: string;
 }
 
 export interface ShellModule<TContext = any> {

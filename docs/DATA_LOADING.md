@@ -27,8 +27,13 @@ export default function Dashboard({ data }: RouteComponentProps<typeof loader>) 
 ```
 
 The route component can be a function default export or a named `Component`
-export. Named route exports such as `loader`, `head`, `headers`,
+export. Named route exports such as `loader`, `head`, `headers`, `markdown`,
 `ErrorBoundary`, and `getStaticPaths` remain separate special exports.
+
+A `markdown` string export opts the route into Markdown-for-Agents content
+negotiation: when a request arrives with `Accept: text/markdown`, the runtime
+returns the raw markdown source with `Content-Type: text/markdown` instead of
+rendering the component.
 
 ### LoaderArgs
 

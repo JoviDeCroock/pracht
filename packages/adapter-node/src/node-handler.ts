@@ -77,8 +77,9 @@ export function createNodeRequestHandler<TContext = unknown>(
     }
     const url = new URL(request.url);
     const isRouteStateRequest = request.headers.get(ROUTE_STATE_REQUEST_HEADER) === "1";
+    const wantsMarkdown = (request.headers.get("accept") ?? "").includes("text/markdown");
 
-    if (staticDir && request.method === "GET") {
+    if (staticDir && request.method === "GET" && !wantsMarkdown) {
       const staticResult = await resolveStaticFile(staticDir, url.pathname, isgManifest);
       if (staticResult) {
         await serveStaticFile(res, staticResult, headersManifest, url.pathname);
@@ -90,6 +91,7 @@ export function createNodeRequestHandler<TContext = unknown>(
       staticDir &&
       request.method === "GET" &&
       !isRouteStateRequest &&
+      !wantsMarkdown &&
       url.pathname in isgManifest
     ) {
       const served = await serveISGEntry(

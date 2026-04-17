@@ -32,6 +32,7 @@ import {
   renderRouteErrorResponse,
 } from "./runtime-response.ts";
 import { withRouteResponseHeaders } from "./runtime-headers.ts";
+import { markdownResponse, prefersMarkdown } from "./runtime-negotiation.ts";
 import type {
   ApiRouteArgs,
   ApiRouteModule,
@@ -265,6 +266,16 @@ export async function handlePrachtRequest<TContext>(
     routeModule = await routeModulePromise;
     if (!routeModule) {
       throw new Error("Route module not found");
+    }
+
+    // Markdown-for-Agents negotiation: if the route exposes raw markdown and
+    // the client prefers `text/markdown`, skip render and return the source.
+    if (
+      !isRouteStateRequest &&
+      typeof routeModule.markdown === "string" &&
+      prefersMarkdown(options.request.headers.get("accept"))
+    ) {
+      return markdownResponse(routeModule.markdown);
     }
 
     currentPhase = "loader";

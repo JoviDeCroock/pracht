@@ -133,6 +133,12 @@ export function createCloudflareServerEntryModule(
     "    return null;",
     "  }",
     "",
+    "  // Markdown negotiation: let the framework serve markdown source for",
+    "  // routes that export it instead of the prerendered HTML.",
+    '  if ((request.headers.get("accept") ?? "").includes("text/markdown")) {',
+    "    return null;",
+    "  }",
+    "",
     `  const assets = env?.[${JSON.stringify(assetsBinding)}];`,
     '  if (!assets || typeof assets.fetch !== "function") {',
     "    return null;",
@@ -187,6 +193,12 @@ async function maybeServeAsset(
 
   // Route state requests must be handled by the framework (returns JSON), not static assets
   if (request.headers.get("x-pracht-route-state-request") === "1") {
+    return null;
+  }
+
+  // Markdown negotiation: let the framework serve raw markdown for routes
+  // that export it, instead of the prerendered HTML asset.
+  if ((request.headers.get("accept") ?? "").includes("text/markdown")) {
     return null;
   }
 
