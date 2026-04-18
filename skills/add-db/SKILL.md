@@ -116,12 +116,14 @@ pattern is:
 
 ## Step 5: `drizzle.config.ts`
 
+### Non-D1 providers (Postgres, MySQL, Turso, PlanetScale, Neon, local SQLite)
+
 ```ts
 import { defineConfig } from "drizzle-kit";
 
 export default defineConfig({
   schema: "./src/db/schema.ts",
-  out: "./drizzle",
+  out: "./drizzle/migrations",
   dialect: "postgresql", // or "sqlite" / "mysql"
   dbCredentials: {
     url: process.env.DATABASE_URL!,
@@ -129,12 +131,29 @@ export default defineConfig({
 });
 ```
 
-For D1 use `dialect: "sqlite"` and the wrangler D1 driver path; refer to
-Drizzle's D1 docs and surface that link for the user.
+### Cloudflare D1
+
+D1 has no TCP endpoint, so drizzle-kit can only *generate* migrations. It
+cannot apply them — applying goes through `wrangler` (Step 6):
+
+```ts
+import { defineConfig } from "drizzle-kit";
+
+export default defineConfig({
+  schema: "./src/db/schema.ts",
+  out: "./drizzle/migrations",
+  dialect: "sqlite",
+});
+```
+
+If you want `drizzle-kit studio` against D1, add a `driver: "d1-http"` block
+with Cloudflare account/database/API-token credentials (see Drizzle's D1
+docs). Otherwise omit `dbCredentials` entirely — `drizzle-kit generate`
+doesn't need them.
 
 ## Step 6: Scripts
 
-Add to `package.json`:
+### Non-D1 providers
 
 ```json
 {
@@ -146,6 +165,27 @@ Add to `package.json`:
   }
 }
 ```
+
+### Cloudflare D1
+
+`drizzle-kit migrate` does not work against D1 (no TCP). Apply migrations
+via `wrangler d1 migrations apply <db-name>`, split into local vs remote so
+you can iterate safely against the miniflare D1 before touching production:
+
+```json
+{
+  "scripts": {
+    "db:generate":      "drizzle-kit generate",
+    "db:migrate:local": "wrangler d1 migrations apply <db-name> --local",
+    "db:migrate:remote": "wrangler d1 migrations apply <db-name> --remote",
+    "db:studio":        "drizzle-kit studio"
+  }
+}
+```
+
+Replace `<db-name>` with the `database_name` from `wrangler.toml`/`.jsonc`.
+Omit `db:push` for D1 — the migrations-apply flow is the only supported
+path.
 
 ## Step 7: Use in a loader
 
@@ -167,21 +207,35 @@ Note: explicit projection — never spread DB rows into loader return values
 
 ## Step 8: Bindings & env vars
 
-- For Cloudflare adapters: add the binding to `wrangler.toml`:
+- For Cloudflare adapters with D1: add the binding to `wrangler.toml`.
+  `migrations_dir` must match the `out` in `drizzle.config.ts` so wrangler
+  finds the SQL drizzle-kit emits:
   ```toml
   [[d1_databases]]
   binding = "DB"
   database_name = "my-app"
   database_id = "<id>"
+  migrations_dir = "drizzle/migrations"
   ```
 - For Node/Vercel: document `DATABASE_URL` in `.env.example`. Add `.env*` to
   `.gitignore` if missing.
 
 ## Step 9: Verify
 
+Non-D1:
+
 ```bash
 pnpm db:generate
 pnpm db:push   # or db:migrate after creating one
+```
+
+D1:
+
+```bash
+pnpm db:generate
+pnpm db:migrate:local   # apply to miniflare D1
+# when happy:
+pnpm db:migrate:remote  # apply to production D1
 ```
 
 Then run the project's existing tests:
@@ -199,5 +253,11 @@ pnpm test
 4. Add `.env*` to `.gitignore` if a connection string is involved.
 5. Recommend a migration workflow (`db:migrate`) over `db:push` for
    anything beyond local dev.
+6. For D1, apply migrations with `wrangler d1 migrations apply`, not
+   `drizzle-kit migrate` — D1 exposes no TCP endpoint and drizzle-kit will
+   silently fail to connect. Split into `db:migrate:local` and
+   `db:migrate:remote` so the local miniflare DB can be iterated without
+   touching production. Ensure `migrations_dir` in `wrangler.toml` matches
+   `out` in `drizzle.config.ts`.
 
 $ARGUMENTS
