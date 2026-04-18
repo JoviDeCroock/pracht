@@ -129,7 +129,8 @@ export function createCloudflareServerEntryModule(
     "  }",
     "",
     "  // Route state requests must be handled by the framework (returns JSON), not static assets",
-    '  if (request.headers.get("x-pracht-route-state-request") === "1") {',
+    "  const url = new URL(request.url);",
+    '  if (request.headers.get("x-pracht-route-state-request") === "1" || url.searchParams.get("_data") === "1") {',
     "    return null;",
     "  }",
     "",
@@ -151,7 +152,7 @@ export function createCloudflareServerEntryModule(
     "  headers.append('Vary', 'x-pracht-route-state-request');",
     "  applyDefaultSecurityHeaders(headers);",
     "  if ((headers.get('content-type') ?? '').includes('text/html')) {",
-    "    applyPrachtHeadersManifest(headers, await readPrachtHeadersManifest(request, assets), new URL(request.url).pathname);",
+    "    applyPrachtHeadersManifest(headers, await readPrachtHeadersManifest(request, assets), url.pathname);",
     "  }",
     "  return new Response(response.body, { status: response.status, statusText: response.statusText, headers });",
     "}",
@@ -192,7 +193,11 @@ async function maybeServeAsset(
   }
 
   // Route state requests must be handled by the framework (returns JSON), not static assets
-  if (request.headers.get("x-pracht-route-state-request") === "1") {
+  const url = new URL(request.url);
+  if (
+    request.headers.get("x-pracht-route-state-request") === "1" ||
+    url.searchParams.get("_data") === "1"
+  ) {
     return null;
   }
 
@@ -214,7 +219,7 @@ async function maybeServeAsset(
   headers.append("Vary", "x-pracht-route-state-request");
   applyDefaultSecurityHeaders(headers);
   if ((headers.get("content-type") ?? "").includes("text/html")) {
-    applyHeadersManifest(headers, headersManifest, new URL(request.url).pathname);
+    applyHeadersManifest(headers, headersManifest, url.pathname);
   }
   return new Response(response.body, {
     status: response.status,

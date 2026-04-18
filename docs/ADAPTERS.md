@@ -23,11 +23,12 @@ Every adapter implements this same flow. The differences are in how static files
 are served and how ISG revalidation state is tracked.
 
 For page routes, adapters must preserve the distinction between document
-requests and route-state fetches (`x-pracht-route-state-request: 1`). Cached or
-prerendered HTML should never satisfy a route-state fetch, and HTML responses
-should vary on that header when both representations can exist for the same URL.
-Prerendered HTML also carries route and shell document headers from the build
-header manifest so static responses match dynamic document responses.
+requests and route-state fetches (`x-pracht-route-state-request: 1` or
+`?_data=1`). Cached or prerendered HTML should never satisfy a route-state
+fetch, and HTML responses should vary on that header when both
+representations can exist for the same URL. Prerendered HTML also carries
+route and shell document headers from the build header manifest so static
+responses match dynamic document responses.
 
 ---
 
@@ -79,12 +80,26 @@ The adapter factory calls the entry module generator internally to create a virt
 | `viteManifest`  | `ViteManifest`       | Client asset manifest for injection                             |
 | `createContext` | `(args) => TContext` | App-level context factory                                       |
 | `trustProxy`    | `boolean`            | Honor forwarded headers for URL construction (default: `false`) |
+| `canonicalOrigin` | `string`           | Fixed public origin for `request.url`; ignores request Host values |
 
 ### Trusted proxy configuration
 
-By default the Node adapter derives the request URL from the socket: protocol
-is inferred from TLS state, and host from the `Host` header. Forwarded headers
-(`Forwarded`, `X-Forwarded-Proto`, `X-Forwarded-Host`) are **ignored**.
+Set `canonicalOrigin` to pin `request.url` to your known public origin and
+avoid depending on `Host` / forwarded host headers at all:
+
+```typescript
+createNodeRequestHandler({
+  app: resolvedApp,
+  registry,
+  staticDir,
+  canonicalOrigin: "https://app.example.com",
+});
+```
+
+Without `canonicalOrigin`, the Node adapter derives the request URL from the
+socket: protocol is inferred from TLS state, and host from the `Host` header.
+Forwarded headers (`Forwarded`, `X-Forwarded-Proto`, `X-Forwarded-Host`) are
+**ignored** unless `trustProxy: true` is enabled.
 
 Set `trustProxy: true` when the Node server sits behind a trusted reverse proxy
 (nginx, Cloudflare, a load balancer, etc.) that sets forwarded headers:
@@ -104,9 +119,9 @@ When enabled, header precedence is:
 2. **`X-Forwarded-Proto`** / **`X-Forwarded-Host`**
 3. Socket-derived values (fallback)
 
-> **Security note:** enabling `trustProxy` without a proxy that overwrites
-> these headers exposes the app to host-header poisoning — any client can set
-> arbitrary forwarded values. Only enable this when you control the proxy layer.
+> **Security note:** `canonicalOrigin` is the safest option when your app uses
+> `request.url` to build absolute URLs. If you rely on `trustProxy`, only
+> enable it behind a proxy that overwrites forwarded headers.
 
 ### Features
 
@@ -118,8 +133,10 @@ Prerendered HTML receives route and shell document headers from
 `dist/server/headers-manifest.json`.
 - **ISG revalidation**: checks `pracht-isg-manifest.json` for time revalidation
   metadata. Compares file mtime against revalidation window. Regenerates stale
-  pages and writes updated HTML to disk. Route-state requests bypass the cached
-  HTML path so client navigation still reaches `handlePrachtRequest()`.
+  pages and writes updated HTML to disk. Route-state requests (`x-pracht-route-state-request`
+  and `?_data=1`) bypass the cached HTML path so client navigation still reaches
+  `handlePrachtRequest()`. Background regeneration uses a clean HTML request
+  instead of replaying the triggering user's cookies/authorization headers.
 - **Vite manifest**: reads `.vite/manifest.json` to inject correct `<script>` and
   `<link>` tags into server-rendered HTML.
 
@@ -291,9 +308,9 @@ export default {
 - **Clean URL routing**: prerendered SSG pages are copied into
   `.vercel/output/static` and exposed through `config.json` rewrites so `/about`
   resolves to `/about/index.html`.
-- **Route-state bypass**: Vercel build output adds a header-based rule so
-  `x-pracht-route-state-request: 1` requests go to the edge function before any
-  static SSG rewrite can serve cached HTML.
+- **Route-state bypass**: Vercel build output adds rules for both
+  `x-pracht-route-state-request: 1` and `?_data=1`, so route-state requests go
+  to the edge function before any static SSG rewrite can serve cached HTML.
 - **Dynamic fallback**: SSR, API, and ISG routes are routed to the generated edge
   function. ISG paths currently bypass the static fallback so freshness stays
   correct even without native Vercel ISR integration yet.

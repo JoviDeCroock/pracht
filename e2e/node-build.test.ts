@@ -105,6 +105,34 @@ test("pracht build emits a deployable Node server entry", async () => {
       },
     });
 
+    const homeHeaderRouteStateResponse = await fetch(`http://127.0.0.1:${port}/`, {
+      headers: { "x-pracht-route-state-request": "1" },
+    });
+    expect(homeHeaderRouteStateResponse.status).toBe(200);
+    expect(homeHeaderRouteStateResponse.headers.get("content-type")).toContain("application/json");
+    await expect(homeHeaderRouteStateResponse.json()).resolves.toEqual({
+      data: {
+        highlights: [
+          "Hybrid route manifest",
+          "Per-route rendering modes",
+          "Thin deployment adapters",
+        ],
+      },
+    });
+
+    const homeQueryRouteStateResponse = await fetch(`http://127.0.0.1:${port}/?_data=1`);
+    expect(homeQueryRouteStateResponse.status).toBe(200);
+    expect(homeQueryRouteStateResponse.headers.get("content-type")).toContain("application/json");
+    await expect(homeQueryRouteStateResponse.json()).resolves.toEqual({
+      data: {
+        highlights: [
+          "Hybrid route manifest",
+          "Per-route rendering modes",
+          "Thin deployment adapters",
+        ],
+      },
+    });
+
     // Hashed assets should have immutable cache headers
     const assetMatch = homeHtml.match(/"(\/assets\/[^"]+)"/);
     expect(assetMatch).toBeTruthy();

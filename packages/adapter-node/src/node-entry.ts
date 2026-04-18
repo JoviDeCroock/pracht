@@ -1,10 +1,12 @@
 import type { PrachtAdapter } from "@pracht/vite-plugin";
 
 export interface NodeServerEntryModuleOptions {
+  canonicalOrigin?: string;
   port?: number;
 }
 
 export function createNodeServerEntryModule(options: NodeServerEntryModuleOptions = {}): string {
+  const canonicalOrigin = options.canonicalOrigin ?? null;
   const port = options.port ?? 3000;
 
   return [
@@ -35,6 +37,7 @@ export function createNodeServerEntryModule(options: NodeServerEntryModuleOption
     "  clientEntryUrl: clientEntryUrl ?? undefined,",
     "  cssManifest,",
     "  jsManifest,",
+    `  canonicalOrigin: ${JSON.stringify(canonicalOrigin ?? undefined)},`,
     "});",
     "",
     "const entryHref = process.argv[1] ? pathToFileURL(process.argv[1]).href : null;",

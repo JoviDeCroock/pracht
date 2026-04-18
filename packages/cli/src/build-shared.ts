@@ -67,6 +67,11 @@ function createVercelOutputConfig({
       has: [{ type: "header", key: ROUTE_STATE_REQUEST_HEADER, value: "1" }],
       src: "/(.*)",
     },
+    {
+      dest: target,
+      has: [{ type: "query", key: "_data", value: "1" }],
+      src: "/(.*)",
+    },
   ];
 
   for (const route of sortStaticRoutes(staticRoutes)) {

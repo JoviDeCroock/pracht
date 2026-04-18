@@ -16,4 +16,10 @@ describe("createCloudflareServerEntryModule", () => {
 
     expect(source).not.toContain("export * from");
   });
+
+  it("bypasses static assets for the _data route-state transport", () => {
+    const source = createCloudflareServerEntryModule();
+
+    expect(source).toContain('url.searchParams.get("_data") === "1"');
+  });
 });

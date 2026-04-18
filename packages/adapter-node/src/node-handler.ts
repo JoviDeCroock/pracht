@@ -37,12 +37,21 @@ export interface NodeAdapterOptions<TContext = unknown> {
   headersManifest?: HeadersManifest;
   createContext?: (args: NodeAdapterContextArgs) => TContext | Promise<TContext>;
   /**
+   * Canonical public origin for request URL construction. When set, the Node
+   * adapter ignores `Host` / forwarded host headers and always builds
+   * `request.url` against this origin.
+   */
+  canonicalOrigin?: string;
+  /**
    * Whether to trust proxy headers (`Forwarded`, `X-Forwarded-Proto`,
    * `X-Forwarded-Host`) when constructing the request URL.
    *
-   * When **false** (the default), the request URL is derived from the socket:
-   * protocol is inferred from TLS state, and host from the `Host` header.
-   * Forwarded headers are ignored, preventing host-header poisoning.
+   * When `canonicalOrigin` is set, it takes precedence and these headers are
+   * ignored for URL construction.
+   *
+   * When **false** (the default) and no `canonicalOrigin` is set, the request
+   * URL is derived from the socket: protocol is inferred from TLS state, and
+   * host from the `Host` header. Forwarded headers are ignored.
    *
    * When **true**, forwarded headers are honored with the following precedence:
    *   1. RFC 7239 `Forwarded` header (`proto=` and `host=` directives)
@@ -62,11 +71,12 @@ export function createNodeRequestHandler<TContext = unknown>(
   const headersManifest = options.headersManifest ?? {};
   const staticDir = options.staticDir;
   const trustProxy = options.trustProxy ?? false;
+  const canonicalOrigin = options.canonicalOrigin;
 
   return async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
     let request: Request;
     try {
-      request = await createWebRequest(req, trustProxy);
+      request = await createWebRequest(req, { canonicalOrigin, trustProxy });
     } catch (err) {
       if (err instanceof Error && err.message === "Request body too large") {
         res.statusCode = 413;
@@ -76,10 +86,10 @@ export function createNodeRequestHandler<TContext = unknown>(
       throw err;
     }
     const url = new URL(request.url);
-    const isRouteStateRequest = request.headers.get(ROUTE_STATE_REQUEST_HEADER) === "1";
+    const isTransportRouteStateRequest = isRouteStateRequest(url, request.headers);
     const wantsMarkdown = (request.headers.get("accept") ?? "").includes("text/markdown");
 
-    if (staticDir && request.method === "GET" && !wantsMarkdown) {
+    if (staticDir && request.method === "GET" && !wantsMarkdown && !isTransportRouteStateRequest) {
       const staticResult = await resolveStaticFile(staticDir, url.pathname, isgManifest);
       if (staticResult) {
         await serveStaticFile(res, staticResult, headersManifest, url.pathname);
@@ -90,7 +100,7 @@ export function createNodeRequestHandler<TContext = unknown>(
     if (
       staticDir &&
       request.method === "GET" &&
-      !isRouteStateRequest &&
+      !isTransportRouteStateRequest &&
       !wantsMarkdown &&
       url.pathname in isgManifest
     ) {
@@ -124,7 +134,7 @@ export function createNodeRequestHandler<TContext = unknown>(
     if (
       staticDir &&
       request.method === "GET" &&
-      !isRouteStateRequest &&
+      !isTransportRouteStateRequest &&
       url.pathname in isgManifest &&
       response.status === 200 &&
       response.headers.get("content-type")?.includes("text/html") &&
@@ -252,4 +262,8 @@ function isISGResponseCacheable(response: Response): boolean {
     if (name === "cookie" || name === "authorization") return false;
   }
   return true;
+}
+
+function isRouteStateRequest(url: URL, headers: Headers): boolean {
+  return headers.get(ROUTE_STATE_REQUEST_HEADER) === "1" || url.searchParams.get("_data") === "1";
 }

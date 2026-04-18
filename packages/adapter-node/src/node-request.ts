@@ -5,10 +5,10 @@ const MAX_BODY_SIZE = 1024 * 1024; // 1 MB
 
 export async function createWebRequest(
   req: IncomingMessage,
-  trustProxy: boolean,
+  options: { trustProxy: boolean; canonicalOrigin?: string },
 ): Promise<Request> {
-  const { protocol, host } = resolveOrigin(req, trustProxy);
-  const url = new URL(req.url ?? "/", `${protocol}://${host}`);
+  const baseUrl = resolveRequestBase(req, options);
+  const url = new URL(req.url ?? "/", baseUrl);
   const method = req.method ?? "GET";
   const headers = createHeaders(req.headers);
   const init: RequestInit = {
@@ -46,17 +46,34 @@ export async function writeWebResponse(res: ServerResponse, response: Response):
 }
 
 /**
- * Derive the request protocol and host from the incoming message.
+ * Derive the request base URL from the incoming message.
  *
- * When `trustProxy` is false (default), the protocol is inferred from the
- * socket's TLS state and the host from the HTTP `Host` header.  Forwarded
- * headers are ignored entirely.
+ * When `canonicalOrigin` is provided, it wins and request URL construction no
+ * longer depends on `Host` / forwarded host headers. This is the safest option
+ * for apps that generate absolute URLs from `request.url`.
  *
- * When `trustProxy` is true, the following precedence applies:
+ * Otherwise, when `trustProxy` is false (default), the protocol is inferred
+ * from the socket's TLS state and the host from the HTTP `Host` header.
+ * Forwarded headers are ignored entirely.
+ *
+ * When `trustProxy` is true, the following precedence applies for the derived
+ * host/protocol:
  *   1. RFC 7239 `Forwarded` header (`proto=` / `host=` directives)
  *   2. `X-Forwarded-Proto` / `X-Forwarded-Host`
  *   3. Socket-derived values (fallback)
  */
+function resolveRequestBase(
+  req: IncomingMessage,
+  options: { trustProxy: boolean; canonicalOrigin?: string },
+): URL {
+  if (options.canonicalOrigin) {
+    return new URL(options.canonicalOrigin);
+  }
+
+  const { protocol, host } = resolveOrigin(req, options.trustProxy);
+  return new URL(`${protocol}://${host}`);
+}
+
 function resolveOrigin(
   req: IncomingMessage,
   trustProxy: boolean,

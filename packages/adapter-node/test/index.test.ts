@@ -46,7 +46,7 @@ afterEach(async () => {
 });
 
 describe("createNodeRequestHandler", () => {
-  it("reuses createContext during stale ISG regeneration", async () => {
+  it("reuses createContext during stale ISG regeneration with a clean request", async () => {
     const staticDir = makeTempDir();
     const htmlDir = join(staticDir, "isg");
     const htmlPath = join(htmlDir, "index.html");
@@ -106,9 +106,9 @@ describe("createNodeRequestHandler", () => {
     expect(response.headers.get("x-pracht-isg")).toBe("stale");
     await expect(response.text()).resolves.toContain("stale");
 
-    await waitFor(() => readFileSync(htmlPath, "utf-8").includes("acme"));
+    await waitFor(() => readFileSync(htmlPath, "utf-8").includes("missing"));
 
-    expect(createContextCalls).toEqual(["acme"]);
-    expect(readFileSync(htmlPath, "utf-8")).toContain("acme");
+    expect(createContextCalls).toEqual(["missing"]);
+    expect(readFileSync(htmlPath, "utf-8")).toContain("missing");
   });
 });

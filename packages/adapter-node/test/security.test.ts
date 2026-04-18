@@ -1,8 +1,11 @@
+import type { IncomingMessage } from "node:http";
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
+import { createISGRegenerationRequest } from "../src/node-isg.ts";
+import { createWebRequest } from "../src/node-request.ts";
 import { resolveStaticFile } from "../src/node-static.ts";
 
 const tempDirs: string[] = [];
@@ -45,5 +48,51 @@ describe("resolveStaticFile symlink protection", () => {
     const result = await resolveStaticFile(staticDir, "/app.js");
     expect(result).not.toBeNull();
     expect(result?.filePath).toBe(join(staticDir, "app.js"));
+  });
+});
+
+describe("createWebRequest canonicalOrigin", () => {
+  it("pins request.url to canonicalOrigin instead of Host / forwarded headers", async () => {
+    const request = await createWebRequest(
+      {
+        headers: {
+          forwarded: 'for=1.2.3.4;proto=https;host="evil.example"',
+          host: "still-evil.example",
+        },
+        method: "GET",
+        req: undefined,
+        socket: {},
+        url: "/dashboard?tab=1",
+        async *[Symbol.asyncIterator]() {},
+      } as unknown as IncomingMessage,
+      {
+        canonicalOrigin: "https://app.example.com",
+        trustProxy: true,
+      },
+    );
+
+    expect(request.url).toBe("https://app.example.com/dashboard?tab=1");
+  });
+});
+
+describe("createISGRegenerationRequest", () => {
+  it("drops user-specific headers before regenerating shared HTML", () => {
+    const request = createISGRegenerationRequest(
+      "/pricing",
+      new Request("https://app.example.com/pricing", {
+        headers: {
+          accept: "application/json",
+          "accept-language": "fr",
+          authorization: "Bearer secret",
+          cookie: "session=123",
+        },
+      }),
+    );
+
+    expect(request.url).toBe("https://app.example.com/pricing");
+    expect(request.headers.get("accept")).toBe("text/html");
+    expect(request.headers.get("accept-language")).toBeNull();
+    expect(request.headers.get("authorization")).toBeNull();
+    expect(request.headers.get("cookie")).toBeNull();
   });
 });

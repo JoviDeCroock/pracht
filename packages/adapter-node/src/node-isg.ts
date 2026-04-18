@@ -32,12 +32,17 @@ export async function regenerateISGPage<TContext>(
   }
 }
 
-function createISGRegenerationRequest(pathname: string, originalRequest?: Request): Request {
+/**
+ * ISG regeneration writes shared HTML to disk, so it must never inherit
+ * per-request headers like cookies, authorization, locale, or experiment
+ * buckets from the user who happened to trigger the stale render.
+ */
+export function createISGRegenerationRequest(pathname: string, originalRequest?: Request): Request {
   const baseUrl = originalRequest ? new URL(originalRequest.url) : new URL("http://localhost");
   const regenerationUrl = new URL(pathname, baseUrl);
 
   return new Request(regenerationUrl, {
     method: "GET",
-    headers: originalRequest ? new Headers(originalRequest.headers) : undefined,
+    headers: { accept: "text/html" },
   });
 }
