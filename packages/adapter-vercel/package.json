@@ -1,6 +1,6 @@
 {
   "name": "@pracht/adapter-vercel",
-  "version": "0.0.10",
+  "version": "0.0.11",
   "license": "MIT",
   "homepage": "https://github.com/JoviDeCroock/pracht/tree/main/packages/adapter-vercel",
   "bugs": {

@@ -1,5 +1,46 @@
 # @pracht/adapter-cloudflare
 
+## 0.2.0
+
+### Minor Changes
+
+- [#92](https://github.com/JoviDeCroock/pracht/pull/92) [`410f6db`](https://github.com/JoviDeCroock/pracht/commit/410f6dbf2645899e9b5e4e0194c27e13879b8763) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Add a `workerExportsFrom` option so Cloudflare primitives (Workflows, Durable
+  Objects, Queues, etc.) can be re-exported from a dedicated user-owned module
+  instead of duplicating names and file paths in `vite.config.ts`.
+
+### Patch Changes
+
+- [#120](https://github.com/JoviDeCroock/pracht/pull/120) [`92e5f73`](https://github.com/JoviDeCroock/pracht/commit/92e5f7346d37138957ee44ae9f315185e0b22e03) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Add an `edge` flag to `PrachtAdapter`. Adapters that target edge runtimes (where `node_modules` cannot be resolved at runtime) set `edge: true`, and the Vite plugin reads it to enable `ssr.noExternal` for SSR builds. The built-in Cloudflare and Vercel adapters opt in; custom edge adapters can do the same instead of the plugin hard-coding adapter ids.
+
+- [#127](https://github.com/JoviDeCroock/pracht/pull/127) [`caae3cb`](https://github.com/JoviDeCroock/pracht/commit/caae3cb53e0b6136ef78c3ac189a0d0ab82e4df7) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Add Markdown-for-Agents content negotiation.
+
+  Route modules can now export a `markdown: string` alongside their `Component`.
+  When a request arrives with `Accept: text/markdown` (or markdown ranked above
+  `text/html` via q-values), the runtime returns the raw markdown source with
+  `Content-Type: text/markdown; charset=utf-8` and `Vary: Accept`, bypassing
+  the component render pipeline.
+
+  The Cloudflare and Node adapters skip static-asset serving for these
+  requests so SSG routes fall through to the framework, where the markdown
+  source is read from the route module instead of the prerendered HTML.
+
+- [#132](https://github.com/JoviDeCroock/pracht/pull/132) [`30d867f`](https://github.com/JoviDeCroock/pracht/commit/30d867f4a4cd41107a1ed60c607afe0d51848c3b) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Follow-up security hardening after the main audit fixes.
+
+  - `@pracht/adapter-node` now supports `canonicalOrigin` so apps can pin
+    `request.url` to a known public origin instead of depending on untrusted
+    `Host` values. The adapter also treats both `x-pracht-route-state-request`
+    and `?_data=1` as route-state transports before any static/ISG HTML serving,
+    and ISG regeneration now uses a clean HTML request instead of replaying the
+    triggering user's cookies or authorization headers.
+  - `@pracht/adapter-cloudflare` now bypasses static asset serving for both
+    route-state transports (`x-pracht-route-state-request` and `?_data=1`).
+  - `@pracht/cli` now emits a Vercel Build Output rule that sends `?_data=1`
+    requests to the render function before static rewrites can serve prerendered
+    HTML.
+
+- Updated dependencies [[`caae3cb`](https://github.com/JoviDeCroock/pracht/commit/caae3cb53e0b6136ef78c3ac189a0d0ab82e4df7), [`8f662c0`](https://github.com/JoviDeCroock/pracht/commit/8f662c0b78b1911a7534ffd7aa4e919cf22a3a42), [`901ef5b`](https://github.com/JoviDeCroock/pracht/commit/901ef5b7958e4066d5382f836d098bded8bfe320), [`015e987`](https://github.com/JoviDeCroock/pracht/commit/015e987a2de471980fab557e3dbf3d52937ad0ac)]:
+  - @pracht/core@0.3.0
+
 ## 0.1.4
 
 ### Patch Changes

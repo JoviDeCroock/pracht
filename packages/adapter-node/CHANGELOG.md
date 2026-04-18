@@ -1,5 +1,91 @@
 # @pracht/adapter-node
 
+## 0.1.9
+
+### Patch Changes
+
+- [#127](https://github.com/JoviDeCroock/pracht/pull/127) [`caae3cb`](https://github.com/JoviDeCroock/pracht/commit/caae3cb53e0b6136ef78c3ac189a0d0ab82e4df7) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Add Markdown-for-Agents content negotiation.
+
+  Route modules can now export a `markdown: string` alongside their `Component`.
+  When a request arrives with `Accept: text/markdown` (or markdown ranked above
+  `text/html` via q-values), the runtime returns the raw markdown source with
+  `Content-Type: text/markdown; charset=utf-8` and `Vary: Accept`, bypassing
+  the component render pipeline.
+
+  The Cloudflare and Node adapters skip static-asset serving for these
+  requests so SSG routes fall through to the framework, where the markdown
+  source is read from the route module instead of the prerendered HTML.
+
+- [#124](https://github.com/JoviDeCroock/pracht/pull/124) [`8f662c0`](https://github.com/JoviDeCroock/pracht/commit/8f662c0b78b1911a7534ffd7aa4e919cf22a3a42) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Internal refactor: split several large modules into smaller, focused files to improve maintainability. Public APIs are unchanged.
+
+- [#132](https://github.com/JoviDeCroock/pracht/pull/132) [`30d867f`](https://github.com/JoviDeCroock/pracht/commit/30d867f4a4cd41107a1ed60c607afe0d51848c3b) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Follow-up security hardening after the main audit fixes.
+
+  - `@pracht/adapter-node` now supports `canonicalOrigin` so apps can pin
+    `request.url` to a known public origin instead of depending on untrusted
+    `Host` values. The adapter also treats both `x-pracht-route-state-request`
+    and `?_data=1` as route-state transports before any static/ISG HTML serving,
+    and ISG regeneration now uses a clean HTML request instead of replaying the
+    triggering user's cookies or authorization headers.
+  - `@pracht/adapter-cloudflare` now bypasses static asset serving for both
+    route-state transports (`x-pracht-route-state-request` and `?_data=1`).
+  - `@pracht/cli` now emits a Vercel Build Output rule that sends `?_data=1`
+    requests to the render function before static rewrites can serve prerendered
+    HTML.
+
+- [#131](https://github.com/JoviDeCroock/pracht/pull/131) [`015e987`](https://github.com/JoviDeCroock/pracht/commit/015e987a2de471980fab557e3dbf3d52937ad0ac) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Security hardening across request handling, redirects, and build output.
+
+  **Framework (`@pracht/core`)**
+
+  - **Middleware/loader redirects are now validated.** `javascript:`, `data:`,
+    `vbscript:`, `blob:`, and `file:` targets are refused server-side (they
+    were already refused on the client) and CR/LF in the `Location` value
+    throws instead of producing a split response. Non-safe-method redirects
+    now default to **303 See Other** rather than 302 so browsers don't
+    resend the POST body to the redirect target. `MiddlewareResult`'s
+    `redirect` form now accepts an optional `status` override.
+  - **CSRF protection for mutating API routes.** Non-GET API requests are
+    rejected with 403 unless the browser signals a same-origin/same-site
+    fetch (`Sec-Fetch-Site`) or the `Origin` header matches the request
+    URL's origin. Opt out per-app via `defineApp({ api: { requireSameOrigin: false } })`.
+  - **`_data=1` route-state bypass is now gated.** The query-param form of
+    the route-state endpoint now requires `Sec-Fetch-Site: same-origin`/
+    `same-site` (or a matching `Origin`). The explicit
+    `x-pracht-route-state-request` header is still accepted unconditionally
+    (CORS-protected).
+  - **Catch-all path traversal at build time is closed.**
+    `buildPathFromSegments` now percent-encodes catch-all components
+    individually and explicitly neutralises `.` / `..` segments, so a
+    `getStaticPaths` returning `{ "*": "../../etc/passwd" }` can no longer
+    escape `dist/client/` at SSG/ISG write time.
+  - **`headers()` values are validated for CR/LF.** `applyHeaders` now
+    throws a consistent framework error on response-splitting attempts,
+    regardless of adapter-specific Headers implementation behaviour.
+  - **`debugErrors` is ignored in production.** When `NODE_ENV=production`,
+    `debugErrors: true` is refused (with a one-shot console warning) so a
+    misconfigured deploy cannot leak stack traces and module paths.
+
+  **Adapter (`@pracht/adapter-node`)**
+
+  - **Symlinks are no longer followed by the static server.** `resolveStaticFile`
+    now uses `lstat` and rejects files whose inode is a symlink, preventing
+    a malicious build artifact from exposing files outside `dist/client/`.
+  - **ISG cache is path-contained.** The on-disk write path is now
+    `resolve()`-checked against the static root, rejecting any URL path
+    that would escape via `..`, encoded separators, or NUL bytes.
+  - **ISG skips the on-disk cache when the response is user-specific.**
+    Responses that set `Cache-Control: no-store`/`private`, `Set-Cookie`,
+    or a `Vary` covering `cookie`/`authorization`/`*` are served through
+    but not written to disk, closing a per-user cache-poisoning window.
+
+  **Packaging**
+
+  - `@pracht/cli` now has an explicit `files` allowlist so future
+    workdir additions can't accidentally ship in the npm tarball.
+  - `create-pracht`'s bin entry is now executable in the repository.
+
+- Updated dependencies [[`caae3cb`](https://github.com/JoviDeCroock/pracht/commit/caae3cb53e0b6136ef78c3ac189a0d0ab82e4df7), [`8f662c0`](https://github.com/JoviDeCroock/pracht/commit/8f662c0b78b1911a7534ffd7aa4e919cf22a3a42), [`901ef5b`](https://github.com/JoviDeCroock/pracht/commit/901ef5b7958e4066d5382f836d098bded8bfe320), [`015e987`](https://github.com/JoviDeCroock/pracht/commit/015e987a2de471980fab557e3dbf3d52937ad0ac)]:
+  - @pracht/core@0.3.0
+
 ## 0.1.8
 
 ### Patch Changes

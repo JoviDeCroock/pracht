@@ -1,5 +1,30 @@
 # @pracht/vite-plugin
 
+## 0.3.0
+
+### Minor Changes
+
+- [#120](https://github.com/JoviDeCroock/pracht/pull/120) [`92e5f73`](https://github.com/JoviDeCroock/pracht/commit/92e5f7346d37138957ee44ae9f315185e0b22e03) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Add an `edge` flag to `PrachtAdapter`. Adapters that target edge runtimes (where `node_modules` cannot be resolved at runtime) set `edge: true`, and the Vite plugin reads it to enable `ssr.noExternal` for SSR builds. The built-in Cloudflare and Vercel adapters opt in; custom edge adapters can do the same instead of the plugin hard-coding adapter ids.
+
+### Patch Changes
+
+- [#124](https://github.com/JoviDeCroock/pracht/pull/124) [`8f662c0`](https://github.com/JoviDeCroock/pracht/commit/8f662c0b78b1911a7534ffd7aa4e919cf22a3a42) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Internal refactor: split several large modules into smaller, focused files to improve maintainability. Public APIs are unchanged.
+
+- [#123](https://github.com/JoviDeCroock/pracht/pull/123) [`594407d`](https://github.com/JoviDeCroock/pracht/commit/594407da2eb1a0fa0d56693dcfd720a0ebb21daa) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Strip server-only exports from route and shell files in the client environment
+  even when they are imported without the `?pracht-client` query.
+
+  Previously, the transform ran only for ids that carried the query added by the
+  `import.meta.glob` registry. A client module that imported a route file
+  directly (e.g. `import Foo from "../routes/foo.tsx"`) bypassed the registry
+  and exposed `loader`, `head`, `headers`, and `getStaticPaths` in the browser
+  bundle. The transform now also triggers for any `.ts/.tsx/.js/.jsx/.md/.mdx`
+  file inside the configured `routesDir`, `shellsDir`, or `pagesDir` whenever
+  Vite is processing the file for a non-SSR environment.
+
+- Updated dependencies [[`caae3cb`](https://github.com/JoviDeCroock/pracht/commit/caae3cb53e0b6136ef78c3ac189a0d0ab82e4df7), [`8f662c0`](https://github.com/JoviDeCroock/pracht/commit/8f662c0b78b1911a7534ffd7aa4e919cf22a3a42), [`901ef5b`](https://github.com/JoviDeCroock/pracht/commit/901ef5b7958e4066d5382f836d098bded8bfe320), [`30d867f`](https://github.com/JoviDeCroock/pracht/commit/30d867f4a4cd41107a1ed60c607afe0d51848c3b), [`015e987`](https://github.com/JoviDeCroock/pracht/commit/015e987a2de471980fab557e3dbf3d52937ad0ac)]:
+  - @pracht/core@0.3.0
+  - @pracht/adapter-node@0.1.9
+
 ## 0.2.4
 
 ### Patch Changes
