@@ -32,8 +32,38 @@ export function isPrachtHttpError(error: unknown): error is PrachtHttpError {
   return error instanceof Error && error.name === "PrachtHttpError" && "status" in error;
 }
 
+let warnedAboutProductionDebugErrors = false;
+
+/**
+ * `debugErrors: true` opts into surfacing stack traces, module paths,
+ * and middleware names in error responses. That is great in dev and
+ * dangerous in production — a misconfigured deploy would leak internals
+ * to the public. When `NODE_ENV === "production"` we refuse to honor
+ * the flag and emit a single console warning so the misconfiguration
+ * is visible in logs.
+ */
 export function shouldExposeServerErrors(options: { debugErrors?: boolean }): boolean {
-  return options.debugErrors === true;
+  if (options.debugErrors !== true) return false;
+
+  const env =
+    typeof process !== "undefined" && process.env
+      ? process.env.NODE_ENV
+      : typeof globalThis !== "undefined" &&
+          (globalThis as { process?: { env?: { NODE_ENV?: string } } }).process
+        ? (globalThis as { process?: { env?: { NODE_ENV?: string } } }).process?.env?.NODE_ENV
+        : undefined;
+
+  if (env === "production") {
+    if (!warnedAboutProductionDebugErrors) {
+      warnedAboutProductionDebugErrors = true;
+      console.warn(
+        "[pracht] debugErrors is ignored in production builds. Remove it to silence this warning.",
+      );
+    }
+    return false;
+  }
+
+  return true;
 }
 
 export function createSerializedRouteError(

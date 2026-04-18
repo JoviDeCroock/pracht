@@ -1,3 +1,5 @@
+import { parseSafeNavigationUrl } from "./runtime-client-fetch.ts";
+import { SAFE_METHODS } from "./runtime-constants.ts";
 import { applyHeaders, withDefaultSecurityHeaders } from "./runtime-headers.ts";
 import { resolveRegistryModule } from "./runtime-manifest.ts";
 import type {
@@ -9,6 +11,44 @@ import type {
   RouteModule,
   ShellModule,
 } from "./types.ts";
+
+const DEFAULT_REDIRECT_STATUS_SAFE = 302;
+const DEFAULT_REDIRECT_STATUS_UNSAFE = 303;
+
+/**
+ * Build a safe redirect response from middleware/loader output. Rejects
+ * non-http(s) schemes (no `javascript:`/`data:`/etc.) and CR/LF injection
+ * against the `Location` header. When status is omitted, non-GET/HEAD
+ * requests default to 303 so the browser does not resend the body to the
+ * redirect target; safe methods default to 302.
+ *
+ * The original `target` string is preserved on success (relative paths
+ * stay relative) — we only parse it to validate scheme, not to rewrite
+ * it. Both the original input and its resolved URL must be CR/LF-free.
+ */
+export function buildRedirectResponse(
+  target: string,
+  options: { baseUrl: string | URL; method?: string; status?: number },
+): Response {
+  if (/[\r\n]/.test(target)) {
+    throw new Error("Refused redirect target containing CR/LF");
+  }
+  const safeUrl = parseSafeNavigationUrl(target, options.baseUrl);
+  if (!safeUrl) {
+    throw new Error("Refused unsafe redirect target");
+  }
+
+  const method = (options.method ?? "GET").toUpperCase();
+  const defaultStatus = SAFE_METHODS.has(method)
+    ? DEFAULT_REDIRECT_STATUS_SAFE
+    : DEFAULT_REDIRECT_STATUS_UNSAFE;
+  const status = options.status ?? defaultStatus;
+
+  return new Response(null, {
+    status,
+    headers: { location: target },
+  });
+}
 
 export async function runMiddlewareChain<TContext>(options: {
   context: TContext;
@@ -56,11 +96,13 @@ export async function runMiddlewareChain<TContext>(options: {
       return { response: withDefaultSecurityHeaders(result) };
     }
     if ("redirect" in result) {
+      const status = "status" in result ? result.status : undefined;
       return {
         response: withDefaultSecurityHeaders(
-          new Response(null, {
-            status: 302,
-            headers: { location: result.redirect },
+          buildRedirectResponse(result.redirect, {
+            baseUrl: options.request.url,
+            method: options.request.method,
+            status,
           }),
         ),
       };

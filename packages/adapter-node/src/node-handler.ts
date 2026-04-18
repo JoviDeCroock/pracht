@@ -1,6 +1,6 @@
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve, sep } from "node:path";
 
 import {
   applyDefaultSecurityHeaders,
@@ -127,15 +127,15 @@ export function createNodeRequestHandler<TContext = unknown>(
       !isRouteStateRequest &&
       url.pathname in isgManifest &&
       response.status === 200 &&
-      response.headers.get("content-type")?.includes("text/html")
+      response.headers.get("content-type")?.includes("text/html") &&
+      isISGResponseCacheable(response)
     ) {
       const html = await response.clone().text();
-      const htmlPath =
-        url.pathname === "/"
-          ? join(staticDir, "index.html")
-          : join(staticDir, url.pathname, "index.html");
-      await mkdir(dirname(htmlPath), { recursive: true });
-      await writeFile(htmlPath, html, "utf-8");
+      const htmlPath = resolveContainedPath(staticDir, url.pathname);
+      if (htmlPath) {
+        await mkdir(dirname(htmlPath), { recursive: true });
+        await writeFile(htmlPath, html, "utf-8");
+      }
     }
 
     await writeWebResponse(res, response);
@@ -174,8 +174,8 @@ async function serveISGEntry<TContext>(
   headersManifest: HeadersManifest,
   contextArgs: NodeAdapterContextArgs,
 ): Promise<boolean> {
-  const htmlPath =
-    pathname === "/" ? join(staticDir, "index.html") : join(staticDir, pathname, "index.html");
+  const htmlPath = resolveContainedPath(staticDir, pathname);
+  if (!htmlPath) return false;
 
   const fileStat = await stat(htmlPath).catch(() => null);
   if (!fileStat?.isFile()) return false;
@@ -205,5 +205,51 @@ async function serveISGEntry<TContext>(
     });
   }
 
+  return true;
+}
+
+/**
+ * Resolve a URL pathname to `<staticDir>/<pathname>/index.html` while
+ * ensuring the result stays inside `staticDir`. Returns `null` when the
+ * pathname would escape the root (`..`, encoded separators, NUL bytes,
+ * etc.), which the caller treats as a miss. Also rejects NUL — Node
+ * filesystem APIs throw on these but it's clearer to bail early.
+ */
+function resolveContainedPath(staticDir: string, pathname: string): string | null {
+  if (pathname.includes("\0")) return null;
+
+  const rootResolved = resolve(staticDir);
+  const candidate =
+    pathname === "/"
+      ? join(rootResolved, "index.html")
+      : join(rootResolved, pathname, "index.html");
+  const resolved = resolve(candidate);
+
+  if (resolved !== rootResolved && !resolved.startsWith(rootResolved + sep)) {
+    return null;
+  }
+  return resolved;
+}
+
+/**
+ * An ISG response is safe to cache on disk only when it doesn't depend
+ * on request-specific state (cookies, auth) that the cached copy would
+ * lose. `Cache-Control: private` / `no-store`, any `Set-Cookie`, and a
+ * `Vary` that implies per-request output (cookie, authorization) all
+ * signal "don't cache this across users".
+ */
+function isISGResponseCacheable(response: Response): boolean {
+  const cacheControl = response.headers.get("cache-control")?.toLowerCase() ?? "";
+  if (/\b(no-store|private)\b/.test(cacheControl)) return false;
+
+  if (response.headers.get("set-cookie")) return false;
+
+  const vary = response.headers.get("vary")?.toLowerCase() ?? "";
+  if (!vary) return true;
+  if (vary.includes("*")) return false;
+  const varied = vary.split(",").map((s) => s.trim());
+  for (const name of varied) {
+    if (name === "cookie" || name === "authorization") return false;
+  }
   return true;
 }

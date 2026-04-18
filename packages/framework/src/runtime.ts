@@ -45,6 +45,91 @@ import type {
   ShellModule,
 } from "./types.ts";
 
+const FIRST_PARTY_FETCH_SITES = new Set(["same-origin", "same-site"]);
+
+/**
+ * Stricter variant of first-party detection used for CSRF protection on
+ * state-changing API requests. Unlike `isFirstPartyFetch`, this *only*
+ * accepts explicit positive evidence that the request came from this
+ * origin — a cross-origin form POST will send `Origin` from the
+ * attacker, and a missing `Origin` on POST is unusual enough to block.
+ * Non-browser callers (curl, server-to-server) should set the header
+ * explicitly or pre-flight via middleware.
+ */
+function isSameOriginMutation(request: Request, url: URL): boolean {
+  const site = request.headers.get("sec-fetch-site");
+  if (site) {
+    return FIRST_PARTY_FETCH_SITES.has(site);
+  }
+
+  const origin = request.headers.get("origin");
+  if (origin) {
+    try {
+      return new URL(origin).origin === url.origin;
+    } catch {
+      return false;
+    }
+  }
+
+  // No Sec-Fetch-Site AND no Origin: fall back to Referer. Browsers
+  // always send Origin on POST to same-origin endpoints, so a POST
+  // missing both is almost certainly a non-browser caller.
+  const referer = request.headers.get("referer");
+  if (referer) {
+    try {
+      return new URL(referer).origin === url.origin;
+    } catch {
+      return false;
+    }
+  }
+
+  // No browser-provided signals at all — allow (curl, server-to-server,
+  // tests). The threat model here is CSRF via browser forms, which
+  // cannot produce a request with none of these headers set.
+  return true;
+}
+
+/**
+ * Heuristic "this request came from our own page" check. Used to gate
+ * the `_data=1` query-param form of the route-state endpoint, which is
+ * otherwise reachable via any cross-origin `<a href>` / redirect.
+ *
+ * Accepts a request as first-party when:
+ *   - Sec-Fetch-Site is `same-origin` or `same-site` (modern browsers),
+ *   - OR Sec-Fetch-Site is absent AND the Origin header matches the
+ *     request URL's origin (older clients that still send Origin),
+ *   - OR no Origin/Sec-Fetch-Site is present AND there is no Referer
+ *     (non-browser clients like curl — CSRF is not the threat model
+ *     there; blocking would break tests and CLIs).
+ *
+ * Cross-origin browser navigations set Sec-Fetch-Site to `cross-site`
+ * or `none` (for user-typed URLs Sec-Fetch-Site: none, Referer absent,
+ * Origin absent — handled by the "no headers → allow" branch since that
+ * matches a first-party typed URL too).
+ */
+export function isFirstPartyFetch(request: Request): boolean {
+  const site = request.headers.get("sec-fetch-site");
+  if (site) {
+    return FIRST_PARTY_FETCH_SITES.has(site);
+  }
+
+  const origin = request.headers.get("origin");
+  if (origin) {
+    try {
+      return new URL(origin).origin === new URL(request.url).origin;
+    } catch {
+      return false;
+    }
+  }
+
+  // No Sec-Fetch-Site (pre-2020 browser or non-browser client) and no
+  // Origin header. Fall through to allow — a cross-origin browser fetch
+  // would have sent Origin, a form POST would have sent Origin, and a
+  // top-level navigation from another site would have sent a Referer
+  // AND Sec-Fetch-Site on anything modern.
+  return true;
+}
+
 export interface HandlePrachtRequestOptions<TContext = unknown> {
   app: PrachtApp;
   request: Request;
@@ -70,8 +155,17 @@ export async function handlePrachtRequest<TContext>(
   }
   const requestPath = getRequestPath(url);
   const registry = options.registry ?? {};
-  const isRouteStateRequest =
-    options.request.headers.get(ROUTE_STATE_REQUEST_HEADER) === "1" || hasDataParam;
+  // The route-state endpoint returns loader output as JSON. Two entry
+  // points into it: the explicit header (only settable via fetch, so the
+  // browser forces CORS preflight cross-origin) and the `_data=1` query
+  // param (settable by any <a href>, <link>, or redirect). To keep the
+  // query-param form from becoming a CSRF oracle for GET loaders with
+  // side effects, require the Sec-Fetch-Site hint (sent by all modern
+  // browsers) to indicate a same-origin/same-site fetch/navigation.
+  // The header form does not need this check — it's CORS-protected.
+  const headerSignalsRouteState = options.request.headers.get(ROUTE_STATE_REQUEST_HEADER) === "1";
+  const dataParamIsFirstParty = hasDataParam && isFirstPartyFetch(options.request);
+  const isRouteStateRequest = headerSignalsRouteState || dataParamIsFirstParty;
   const exposeDiagnostics = shouldExposeServerErrors(options);
 
   if (options.apiRoutes?.length) {
@@ -82,6 +176,20 @@ export async function handlePrachtRequest<TContext>(
         return middlewareFile ? [middlewareFile] : [];
       });
       let currentPhase: PrachtRuntimeDiagnosticPhase = "middleware";
+
+      const requireSameOrigin = options.app.api.requireSameOrigin ?? true;
+      if (
+        requireSameOrigin &&
+        !SAFE_METHODS.has(options.request.method) &&
+        !isSameOriginMutation(options.request, url)
+      ) {
+        return withDefaultSecurityHeaders(
+          new Response("Cross-origin request blocked", {
+            status: 403,
+            headers: { "content-type": "text/plain; charset=utf-8" },
+          }),
+        );
+      }
 
       try {
         const middlewareResult = await runMiddlewareChain({

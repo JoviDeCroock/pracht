@@ -293,11 +293,32 @@ export function buildPathFromSegments(segments: RouteSegment[], params: RoutePar
   const parts = segments.map((segment) => {
     if (segment.type === "static") return segment.value;
     if (segment.type === "param") return encodeURIComponent(params[segment.name] ?? "");
-    // catchall
-    return params["*"] ?? "";
+    // Catchall: encode each component individually so `/` is preserved
+    // but traversal sequences (`..`, backslashes, percent-encoded
+    // separators, NULs, CR/LF) can't escape the route. Without this,
+    // a `getStaticPaths` returning `{ "*": "../../etc/passwd" }` would
+    // feed the raw string into `path.join` at SSG/ISG write time and
+    // land outside `dist/client/`.
+    const raw = params["*"] ?? "";
+    return raw
+      .split("/")
+      .map((part) => encodeCatchAllSegment(part))
+      .join("/");
   });
 
   return normalizeRoutePath("/" + parts.join("/"));
+}
+
+/**
+ * Encode a single path segment for a catch-all route. `encodeURIComponent`
+ * leaves unreserved characters (including `.`) intact, so `..` would
+ * round-trip unchanged and still resolve as parent-dir in `path.join`.
+ * Explicitly percent-encode `.` / `..` segments to neutralise them.
+ */
+function encodeCatchAllSegment(part: string): string {
+  if (part === ".") return "%2E";
+  if (part === "..") return "%2E%2E";
+  return encodeURIComponent(part);
 }
 
 /**

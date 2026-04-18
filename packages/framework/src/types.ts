@@ -90,6 +90,14 @@ export interface GroupMeta {
 
 export interface ApiConfig {
   middleware?: string[];
+  /**
+   * When `true` (the default), state-changing API requests
+   * (POST/PUT/PATCH/DELETE) are rejected unless the browser signals a
+   * same-origin/same-site fetch (Sec-Fetch-Site) or the request Origin
+   * matches the request URL's origin. Set to `false` to opt out if you
+   * build your own CSRF protection into middleware.
+   */
+  requireSameOrigin?: boolean;
 }
 
 export interface RouteConfig extends RouteMeta {
@@ -250,7 +258,7 @@ export interface ShellModule<TContext = any> {
 export type MiddlewareResult<TContext = any> =
   | void
   | Response
-  | { redirect: string }
+  | { redirect: string; status?: number }
   | { context: Partial<TContext> };
 
 export type MiddlewareFn<TContext = any> = (

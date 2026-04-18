@@ -14,6 +14,13 @@
   "bin": {
     "pracht": "./bin/pracht.js"
   },
+  "files": [
+    "bin",
+    "dist",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
   "type": "module",
   "publishConfig": {
     "provenance": true

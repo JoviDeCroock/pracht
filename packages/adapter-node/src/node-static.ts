@@ -1,4 +1,4 @@
-import { stat } from "node:fs/promises";
+import { lstat } from "node:fs/promises";
 import { extname, join } from "node:path";
 import type { ISGManifestEntry } from "@pracht/core";
 
@@ -62,8 +62,8 @@ export async function resolveStaticFile(
     return null; // Directory traversal
   }
 
-  const exactStat = await stat(exactPath).catch(() => null);
-  if (exactStat?.isFile()) {
+  const exactStat = await lstat(exactPath).catch(() => null);
+  if (exactStat?.isFile() && !exactStat.isSymbolicLink()) {
     const ext = extname(exactPath);
     return {
       filePath: exactPath,
@@ -84,8 +84,8 @@ export async function resolveStaticFile(
     return null;
   }
 
-  const indexStat = await stat(indexPath).catch(() => null);
-  if (indexStat?.isFile()) {
+  const indexStat = await lstat(indexPath).catch(() => null);
+  if (indexStat?.isFile() && !indexStat.isSymbolicLink()) {
     return {
       filePath: indexPath,
       contentType: "text/html; charset=utf-8",
