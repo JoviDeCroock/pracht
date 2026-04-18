@@ -112,10 +112,21 @@ export interface GroupDefinition {
 
 export type RouteTreeNode = RouteDefinition | GroupDefinition;
 
+export interface AfterRenderResult {
+  head?: string;
+}
+
+export interface PrachtPlugin {
+  name: string;
+  beforeRender?: () => MaybePromise<void>;
+  afterRender?: () => MaybePromise<AfterRenderResult | void>;
+}
+
 export interface PrachtAppConfig {
   shells?: Record<string, ModuleRef>;
   middleware?: Record<string, ModuleRef>;
   api?: ApiConfig;
+  plugins?: PrachtPlugin[];
   routes: RouteTreeNode[];
 }
 
@@ -123,6 +134,7 @@ export interface PrachtApp {
   shells: Record<string, string>;
   middleware: Record<string, string>;
   api: ApiConfig;
+  plugins: PrachtPlugin[];
   routes: RouteTreeNode[];
 }
 

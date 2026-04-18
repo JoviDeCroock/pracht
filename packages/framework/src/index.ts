@@ -70,8 +70,10 @@ export type {
   ShellModule,
   ShellProps,
   TimeRevalidatePolicy,
+  AfterRenderResult,
   PrachtApp,
   PrachtAppConfig,
+  PrachtPlugin,
 } from "./types.ts";
 export type {
   FormProps,
