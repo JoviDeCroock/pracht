@@ -90,15 +90,17 @@ described in `VISION_MVP.md`.
   integration required — plugins participate in the full Vite pipeline for both
   client and SSR builds.
 
-- **Claude Code skills** — Three repo-local skills in `skills/`:
-  - `/scaffold` — wraps `pracht generate route|shell|middleware|api` and only
-    falls back to manual wiring when the CLI flags are insufficient.
-  - `/debug` — framework-aware debugging plus `pracht verify` for fast changed
-    scope checks and `pracht doctor` for project-wide wiring validation (route
-    matching, loader errors, hydration mismatches, middleware, API routes,
-    build issues).
-  - `/deploy` — guided adapter setup and deployment for Node.js, Cloudflare,
-    and Vercel (build, configure, deploy checklist).
+- **Claude Code skills** — Repo-local skills in `skills/` (see
+  [skills/README.md](../skills/README.md) for the full index). Two audiences:
+  - **Framework-author**: `/scaffold`, `/debug`, `/deploy`, `/migrate-nextjs`.
+  - **End-user audits**: `/audit-loaders`, `/audit-shells`, `/audit-auth`,
+    `/audit-csrf`, `/audit-headers`, `/audit-secrets`, `/audit-redirects`,
+    `/audit-deps`, `/audit-bundles`, `/audit-seo`, `/audit-a11y`,
+    `/tune-render-mode`, `/pre-deploy`.
+  - **End-user testing scaffolds**: `/scaffold-tests`, `/scaffold-e2e`,
+    `/test-api`.
+  - **End-user app primitives**: `/add-auth`, `/add-db`, `/add-i18n`,
+    `/add-observability`.
 
 ## Later (Phase 2 remaining)
 
