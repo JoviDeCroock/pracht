@@ -31,9 +31,6 @@ each.
 
 ### Forms
 
-```bash
-```
-
 Grep for `<Form ` across `src/`. For each occurrence:
 - Capture `method` (default is `get` — only `post`/`put`/`patch`/`delete` are
   CSRF-relevant).

@@ -3,8 +3,9 @@ name: audit-shells
 version: 1.0.0
 description: |
   Audit pracht shells for composition bugs: missing `Loading()` on SPA-using
-  shells, accidental `<html>`/`<head>`/`<body>` rendering, broken error
-  bubbling, unused shells, and shells that swallow children.
+  shells, accidental `<html>`/`<head>`/`<body>` rendering, shells that swallow
+  children, unused shells, and misplaced `ErrorBoundary` exports (which belong
+  on routes, not shells).
   Use when asked to "audit shells", "check shell composition", "find unused
   shells", or "is my layout structured correctly".
 allowed-tools:
@@ -62,11 +63,20 @@ client-only data fetch. Without it, users see blank content during navigation.
 - Flag shells whose `head()` returns `undefined` unconditionally — delete the
   export.
 
-### 2e. Error boundary chain
+### 2e. Misplaced `ErrorBoundary` export
 
-Errors bubble route → shell → global handler. Flag shells that:
-- Have an `ErrorBoundary` export but never re-throw or render fallback UI.
-- Catch errors and `return null` (silent failure).
+`ErrorBoundary` is a **route** module export, not a shell one (see
+`ShellModule` in `packages/framework/src/types.ts`). Flag any shell that
+exports `ErrorBoundary` — it will be ignored silently. Recommend moving the
+boundary into the route module(s) that should own the fallback.
+
+### 2f. `headers()` export
+
+Shells may export `headers()` to contribute response headers (merged with
+route `headers()`). Optional, but if present:
+- Verify the return shape is a plain `HeadersInit`.
+- Flag shells whose `headers()` returns `undefined` unconditionally — delete
+  the export.
 
 ## Step 3: Coverage and waste
 
@@ -82,16 +92,17 @@ Errors bubble route → shell → global handler. Flag shells that:
 | Shell | File | Used by | Issue | Severity |
 | ----- | ---- | ------- | ----- | -------- |
 
-Severities: `error` (document tags, missing children), `warn` (no Loading on
-SPA routes, broken ErrorBoundary), `info` (unused, single-use).
+Severities: `error` (document tags, missing children, misplaced
+`ErrorBoundary` export), `warn` (no `Loading` on SPA routes, empty
+`headers()`), `info` (unused, single-use).
 
 ## Rules
 
 1. Source of truth is `pracht inspect routes --json` — it shows resolved
    shell-per-route after group inheritance.
 2. Read the shell source — do not infer from names.
-3. Distinguish `Loading()` (SPA-only fallback) from `ErrorBoundary` (error
-   surface). Both are independent shell exports.
+3. `Loading()` is a shell export (SPA-only fallback). `ErrorBoundary` is a
+   **route** export — shells that declare it are buggy, not valid.
 4. Recommend deletions for unused shells; do not delete automatically.
 5. When in doubt about render mode interaction, cross-reference with
    `tune-render-mode`.

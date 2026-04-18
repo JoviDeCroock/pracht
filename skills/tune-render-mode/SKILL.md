@@ -10,6 +10,7 @@ description: |
 allowed-tools:
   - Bash
   - Read
+  - Edit
   - Grep
   - Glob
 ---

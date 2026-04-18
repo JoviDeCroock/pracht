@@ -86,8 +86,25 @@ export const middleware: MiddlewareFn = async ({ request, route }) => {
 };
 ```
 
-Wire it as the **first** middleware in `defineApp({ middleware })` so it
-covers everything.
+Register it in `defineApp({ middleware: { observability: "./..." } })` (the
+top-level `middleware` field is a *registry* keyed by name — not an ordered
+chain). To actually wrap requests, place `"observability"` first in every
+chain that should cover them:
+
+```ts
+defineApp({
+  middleware: { observability: "./middleware/observability.ts", auth: "./middleware/auth.ts" },
+  api: { middleware: ["observability"] },           // all API routes
+  routes: [
+    group({ middleware: ["observability"] }, [      // all pages
+      group({ middleware: ["auth"] }, [ /* protected routes */ ]),
+    ]),
+  ],
+});
+```
+
+Ordering lives in these `middleware: [...]` arrays — always place
+observability first so it spans the rest of the chain.
 
 ### OpenTelemetry path
 
@@ -183,8 +200,9 @@ prefer that over a custom beacon if you've gone the Sentry route.
 
 1. Confirm adapter compatibility before installing the SDK package
    (Sentry has separate packages per runtime).
-2. Observability middleware must be the FIRST middleware in the chain to
-   wrap everything.
+2. Top-level `middleware` in `defineApp` is a name→path *registry*, not an
+   ordered chain. Place `"observability"` first in every `group({
+   middleware: [...] })` and in `api.middleware` so it wraps the rest.
 3. Web Vitals only matter for SSR/SSG/ISG routes that hydrate; SPA-only
    routes still benefit but the values reflect the post-bootstrap state.
 4. Sample traces (≤ 10%) in production; full sampling in dev.
