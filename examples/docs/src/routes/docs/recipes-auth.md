@@ -258,3 +258,68 @@ export const app = defineApp({
 - For OAuth flows, handle the callback in an API route (`src/api/auth/callback.ts`) that sets the session cookie and redirects.
 - For role-based access, extend the middleware to check permissions and return a `403` or redirect.
 - Never store passwords or secrets in loader data — it gets serialized to the client. Only return what the component needs.
+
+---
+
+## CSRF Protection
+
+Session cookies are the ambient credential a CSRF attack abuses: a malicious site submits a form to your API and the browser attaches the cookie automatically. Pracht does not ship CSRF middleware — the defense depends on your cookie strategy and threat model. Pick the layers you want:
+
+### 1. `SameSite` on the session cookie (primary defense)
+
+The session cookie in the snippet above already sets `SameSite=Lax`. That blocks cross-site `POST`/`PUT`/`PATCH`/`DELETE` submissions in every modern browser and is enough for most apps. Use `SameSite=Strict` if you don't need inbound links from other sites to arrive authenticated.
+
+```ts
+`session=${payload}.${signature}; Path=/; HttpOnly; SameSite=Lax; Max-Age=604800`;
+```
+
+### 2. Origin check middleware (defense in depth)
+
+For extra hardening — or if you run older browsers where `SameSite` is unreliable — add a middleware that rejects unsafe-method requests whose `Origin` header does not match the request's own origin:
+
+```ts [src/middleware/origin-check.ts]
+import type { MiddlewareFn } from "@pracht/core";
+
+const UNSAFE = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+const ALLOWED = new Set<string>([
+  // add trusted cross-origin callers here (e.g. "https://admin.example.com")
+]);
+
+export const middleware: MiddlewareFn = ({ request, url }) => {
+  if (!UNSAFE.has(request.method)) return;
+
+  const origin = request.headers.get("origin");
+  if (origin === null) {
+    // No Origin header: either a non-browser client or an attacker dodging
+    // the check. Sec-Fetch-Site tells us when the browser itself marked the
+    // request as same-origin or user-initiated.
+    const site = request.headers.get("sec-fetch-site");
+    if (site === "same-origin" || site === "none") return;
+    return new Response("Forbidden: missing Origin", { status: 403 });
+  }
+
+  if (origin === url.origin) return;
+  if (ALLOWED.has(origin)) return;
+
+  return new Response(`Forbidden: origin ${origin} not allowed`, { status: 403 });
+};
+```
+
+Wire it to the whole API (or just mutation groups) in `routes.ts`:
+
+```ts
+defineApp({
+  middleware: {
+    auth: "./middleware/auth.ts",
+    originCheck: "./middleware/origin-check.ts",
+  },
+  api: { middleware: ["originCheck"] },
+  routes: [...],
+});
+```
+
+This is a pure header check — it doesn't issue or validate tokens. Pair it with `SameSite` cookies; skip synchronizer tokens unless you explicitly need them (e.g. you allow `SameSite=None` for embedding).
+
+### 3. Token-based CSRF
+
+Only reach for per-request CSRF tokens if your cookies must be `SameSite=None` (e.g. you embed the app in a third-party iframe). For first-party apps, the two layers above are sufficient.
