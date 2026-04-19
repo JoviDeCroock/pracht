@@ -1,5 +1,13 @@
 # @pracht/example-showcase
 
+## 0.0.5
+
+### Patch Changes
+
+- Updated dependencies [[`f8c5c1f`](https://github.com/JoviDeCroock/pracht/commit/f8c5c1fe1a7c7b5d7accd8028e8c12929a218081)]:
+  - @pracht/core@0.4.0
+  - @pracht/adapter-vercel@0.0.12
+
 ## 0.0.4
 
 ### Patch Changes
