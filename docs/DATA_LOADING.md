@@ -383,6 +383,9 @@ export default async function handler({ params, request, context }: ApiRouteArgs
 API routes:
 
 - Live in `src/api/` with file-based path mapping
+- Support dynamic params (`src/api/users/[id].ts` → `/api/users/:id`) and
+  catch-alls (`src/api/files/[...path].ts` → `/api/files/*`, accessible via
+  `params["*"]`)
 - Export named HTTP method handlers (`GET`, `POST`, `PUT`, `PATCH`, `DELETE`)
   or one default handler that branches on `args.request.method`
 - Return `Response` objects directly

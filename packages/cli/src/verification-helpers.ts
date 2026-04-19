@@ -58,6 +58,7 @@ export function resolveApiRoutePath(apiDir: string, file: string): string {
     relativePath = relativePath.replace(/\/index$/, "");
   }
 
+  relativePath = relativePath.replace(/\[\.\.\.[^\]]+\]/g, "*");
   relativePath = relativePath.replace(/\[([^\]]+)\]/g, ":$1");
 
   return normalizeRoutePath(relativePath ? `/api/${relativePath}` : "/api");

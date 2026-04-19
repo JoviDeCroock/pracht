@@ -150,4 +150,28 @@ describe("API route matching", () => {
     expect(dynamicMatch?.route.file).toBe("/src/api/users/[id].ts");
     expect(dynamicMatch?.params).toEqual({ id: "42" });
   });
+
+  it("resolves catch-all api routes to a wildcard path", () => {
+    const [route] = resolveApiRoutes(["/src/api/files/[...path].ts"]);
+
+    expect(route?.path).toBe("/api/files/*");
+  });
+
+  it("matches catch-all api routes and exposes the rest as a param", () => {
+    const routes = resolveApiRoutes([
+      "/src/api/files/[...path].ts",
+      "/src/api/files/readme.ts",
+      "/src/api/files/[id].ts",
+    ]);
+
+    const staticMatch = matchApiRoute(routes, "/api/files/readme");
+    const dynamicMatch = matchApiRoute(routes, "/api/files/42");
+    const catchAllMatch = matchApiRoute(routes, "/api/files/docs/getting-started");
+
+    expect(staticMatch?.route.file).toBe("/src/api/files/readme.ts");
+    expect(dynamicMatch?.route.file).toBe("/src/api/files/[id].ts");
+    expect(dynamicMatch?.params).toEqual({ id: "42" });
+    expect(catchAllMatch?.route.file).toBe("/src/api/files/[...path].ts");
+    expect(catchAllMatch?.params).toEqual({ "*": "docs/getting-started" });
+  });
 });

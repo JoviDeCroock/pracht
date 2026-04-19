@@ -23,7 +23,9 @@ described in `VISION_MVP.md`.
   matching.
 - **API routes** — File-based auto-discovery from `src/api/`. Files are globbed
   by the Vite plugin and resolved to URL paths (e.g. `src/api/health.ts` →
-  `/api/health`, `src/api/users/[id].ts` → `/api/users/:id`). Modules export
+  `/api/health`, `src/api/users/[id].ts` → `/api/users/:id`,
+  `src/api/files/[...path].ts` → `/api/files/*`, exposed on `params` as `"*"`).
+  Modules export
   named HTTP method handlers (`GET`, `POST`, etc.) or one default handler that
   branches on `request.method` and returns `Response` objects directly. API
   routes are dispatched before page routes in `handlePrachtRequest()`. Missing

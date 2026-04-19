@@ -326,6 +326,7 @@ function encodeCatchAllSegment(part: string): string {
  *
  * Example: `"/src/api/health.ts"` → path `/api/health`
  *          `"/src/api/users/[id].ts"` → path `/api/users/:id`
+ *          `"/src/api/files/[...path].ts"` → path `/api/files/*`
  *          `"/src/api/index.ts"` → path `/api`
  */
 export function resolveApiRoutes(files: string[], apiDir: string = "/src/api"): ResolvedApiRoute[] {
@@ -345,7 +346,7 @@ export function resolveApiRoutes(files: string[], apiDir: string = "/src/api"): 
         relative = relative.slice(0, -"/index".length) || "/";
       }
 
-      // Convert [param] to :param for consistency with page routes
+      relative = relative.replace(/\[\.\.\.[^\]]+\]/g, "*");
       relative = relative.replace(/\[([^\]]+)\]/g, ":$1");
 
       const path = normalizeRoutePath(`/api${relative}`);
