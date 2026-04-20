@@ -14,6 +14,7 @@ export { useIsHydrated } from "./hydration.ts";
 export { Suspense, lazy } from "preact-suspense";
 export {
   applyDefaultSecurityHeaders,
+  configureClient,
   Form,
   handlePrachtRequest,
   readHydrationState,
@@ -74,9 +75,11 @@ export type {
   PrachtAppConfig,
 } from "./types.ts";
 export type {
+  ConfigureClientOptions,
   FormProps,
   HandlePrachtRequestOptions,
   Location,
+  PrachtClientFetch,
   PrachtRuntimeDiagnosticPhase,
   PrachtRuntimeDiagnostics,
   RouteStateResult,

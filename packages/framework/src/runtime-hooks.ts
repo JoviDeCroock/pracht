@@ -8,7 +8,11 @@ import {
   SAFE_METHODS,
 } from "./runtime-constants.ts";
 import { deserializeRouteError, type SerializedRouteError } from "./runtime-errors.ts";
-import { fetchPrachtRouteState, navigateToClientLocation } from "./runtime-client-fetch.ts";
+import {
+  fetchPrachtRouteState,
+  getConfiguredClientFetch,
+  navigateToClientLocation,
+} from "./runtime-client-fetch.ts";
 import type { RouteParams } from "./types.ts";
 
 export interface PrachtHydrationState<TData = unknown> {
@@ -198,7 +202,8 @@ export function Form(props: FormProps) {
       }
 
       event.preventDefault();
-      const response = await fetch(props.action ?? form.action, {
+      const clientFetch = getConfiguredClientFetch();
+      const response = await clientFetch(props.action ?? form.action, {
         method: formMethod,
         body: new FormData(form),
         redirect: "manual",

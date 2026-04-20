@@ -553,7 +553,10 @@ export {
   type StartAppOptions,
 } from "./runtime-hooks.ts";
 export {
+  configureClient,
   fetchPrachtRouteState,
   parseSafeNavigationUrl,
+  type ConfigureClientOptions,
+  type PrachtClientFetch,
   type RouteStateResult,
 } from "./runtime-client-fetch.ts";
