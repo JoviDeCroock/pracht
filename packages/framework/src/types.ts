@@ -79,6 +79,7 @@ export interface RouteMeta {
   middleware?: string[];
   revalidate?: RouteRevalidate;
   prefetch?: PrefetchStrategy;
+  viewTransition?: boolean;
 }
 
 export interface GroupMeta {

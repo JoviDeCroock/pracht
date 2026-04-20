@@ -9,6 +9,7 @@ import {
 } from "./runtime-constants.ts";
 import { deserializeRouteError, type SerializedRouteError } from "./runtime-errors.ts";
 import { fetchPrachtRouteState, navigateToClientLocation } from "./runtime-client-fetch.ts";
+import type { NavigateFn } from "./router.ts";
 import type { RouteParams } from "./types.ts";
 
 export interface PrachtHydrationState<TData = unknown> {
@@ -36,7 +37,7 @@ export interface Location {
 declare global {
   interface Window {
     __PRACHT_STATE__?: PrachtHydrationState;
-    __PRACHT_NAVIGATE__?: (to: string, options?: { replace?: boolean }) => Promise<void>;
+    __PRACHT_NAVIGATE__?: NavigateFn;
   }
 }
 

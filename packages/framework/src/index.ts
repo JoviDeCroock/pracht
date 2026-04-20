@@ -90,4 +90,4 @@ export type {
   PrerenderAppResult,
   PrerenderResult,
 } from "./prerender.ts";
-export type { InitClientRouterOptions, NavigateFn } from "./router.ts";
+export type { InitClientRouterOptions, NavigateFn, NavigateOptions } from "./router.ts";
