@@ -20,12 +20,12 @@ export function createPrachtClientModuleSource(
     : `import { app } from ${JSON.stringify(resolved.appFile)};`;
 
   const routeGlob = isPagesMode
-    ? `${resolved.pagesDir}/**/*.{ts,tsx,js,jsx,md,mdx}`
-    : `${resolved.routesDir}/**/*.{ts,tsx,js,jsx,md,mdx}`;
+    ? `${resolved.pagesDir}/**/*.{ts,tsx,tsrx,js,jsx,md,mdx}`
+    : `${resolved.routesDir}/**/*.{ts,tsx,tsrx,js,jsx,md,mdx}`;
 
   const shellGlob = isPagesMode
-    ? `${resolved.pagesDir}/**/_app.{ts,tsx,js,jsx}`
-    : `${resolved.shellsDir}/**/*.{ts,tsx,js,jsx,md,mdx}`;
+    ? `${resolved.pagesDir}/**/_app.{ts,tsx,tsrx,js,jsx}`
+    : `${resolved.shellsDir}/**/*.{ts,tsx,tsrx,js,jsx,md,mdx}`;
 
   return [
     'import { resolveApp, initClientRouter, readHydrationState } from "@pracht/core";',
@@ -135,12 +135,12 @@ export function createPrachtRegistryModuleSource(options: PrachtPluginOptions = 
   const isPagesMode = !!resolved.pagesDir;
 
   const routeGlob = isPagesMode
-    ? `${resolved.pagesDir}/**/*.{ts,tsx,js,jsx,md,mdx}`
-    : `${resolved.routesDir}/**/*.{ts,tsx,js,jsx,md,mdx}`;
+    ? `${resolved.pagesDir}/**/*.{ts,tsx,tsrx,js,jsx,md,mdx}`
+    : `${resolved.routesDir}/**/*.{ts,tsx,tsrx,js,jsx,md,mdx}`;
 
   const shellGlob = isPagesMode
-    ? `${resolved.pagesDir}/**/_app.{ts,tsx,js,jsx}`
-    : `${resolved.shellsDir}/**/*.{ts,tsx,js,jsx,md,mdx}`;
+    ? `${resolved.pagesDir}/**/_app.{ts,tsx,tsrx,js,jsx}`
+    : `${resolved.shellsDir}/**/*.{ts,tsx,tsrx,js,jsx,md,mdx}`;
 
   return [
     `export const routeModules = import.meta.glob(${JSON.stringify(routeGlob)});`,

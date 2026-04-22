@@ -39,6 +39,12 @@
     "@prefresh/vite": "^2.0.0"
   },
   "peerDependencies": {
+    "@tsrx/vite-plugin-preact": "^0.0.3",
     "vite": "^8.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@tsrx/vite-plugin-preact": {
+      "optional": true
+    }
   }
 }

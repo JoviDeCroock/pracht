@@ -22,7 +22,7 @@ export function scanPagesDirectory(pagesDir: string): PagesFile[] {
 
 export function describePagesFile(pagesDir: string, file: string): PagesFile {
   const relativePath = relative(pagesDir, file).replace(/\\/g, "/");
-  const routePath = relativePath.replace(/\.(tsx?|jsx?|mdx?)$/, "");
+  const routePath = relativePath.replace(/\.(tsx?|tsrx|jsx?|mdx?)$/, "");
   const name = basename(routePath);
 
   if (hasPagesAppShell(file)) {

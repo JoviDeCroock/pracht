@@ -15,6 +15,7 @@ described in `VISION_MVP.md`.
 | `packages/cli`                | `@pracht/cli`                | `pracht dev`, `build`, `verify`, the `generate` subcommands, and `doctor`                                    |
 | `examples/cloudflare`         | `@pracht/example-cloudflare` | Cloudflare-targeted example app with SSG, ISG, SSR, SPA routes, auth middleware, and API routes              |
 | `examples/docs`               | `@pracht/example-docs`       | Documentation website built with pracht + Cloudflare adapter; all routes SSG-prerendered; dark design system |
+| `examples/tsrx`               | `@pracht/example-tsrx`       | Mixed `.tsrx` (TSRX/Ripple-flavoured Preact) and `.tsx` routes via `@tsrx/vite-plugin-preact`                |
 
 ## What Exists Today
 
@@ -93,6 +94,12 @@ described in `VISION_MVP.md`.
   image tools, PWA, etc.) alongside `pracht()` in `vite.config.ts`. No special
   integration required — plugins participate in the full Vite pipeline for both
   client and SSR builds.
+- **TSRX support** — `pracht({ tsrx: true })` opts in to `.tsrx` route and shell
+  modules via the optional peer dependency
+  [`@tsrx/vite-plugin-preact`](https://github.com/Ripple-TS/ripple). The plugin
+  is registered ahead of pracht's transform pipeline; route/shell discovery
+  globs and the client-only export-stripping pass both recognise the `.tsrx`
+  extension. See `examples/tsrx/` for a working app.
 
 - **Claude Code skills** — Repo-local skills in `skills/` (see
   [skills/README.md](../skills/README.md) for the full index). Two audiences:

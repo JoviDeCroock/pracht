@@ -68,7 +68,7 @@ describe("createPrachtRegistryModuleSource", () => {
       pagesDir: "/src/pages",
     });
 
-    expect(source).toContain("/src/pages/**/*.{ts,tsx,js,jsx,md,mdx}");
+    expect(source).toContain("/src/pages/**/*.{ts,tsx,tsrx,js,jsx,md,mdx}");
     expect(source).toContain("/src/api/**/*.{ts,js,tsx,jsx}");
     expect(source).toContain("/src/server/**/*.{ts,js,tsx,jsx}");
     expect(source).toContain("/src/middleware/**/*.{ts,tsx,js,jsx}");

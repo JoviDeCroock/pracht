@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import type { Plugin } from "vite";
 import {
   isPrachtClientModuleId,
+  stripPrachtClientModuleQuery,
   stripServerOnlyExportsForClient,
 } from "./client-module-transform.ts";
 
@@ -23,11 +24,12 @@ import {
   resolveOptions,
   type PrachtPluginOptions,
   type ResolvedPrachtPluginOptions,
+  type TsrxOptions,
 } from "./plugin-options.ts";
 
 export type { RenderMode };
 export type { PrachtAdapter } from "./plugin-adapter.ts";
-export type { PrachtPluginOptions };
+export type { PrachtPluginOptions, TsrxOptions } from "./plugin-options.ts";
 export {
   createPrachtClientModuleSource,
   createPrachtServerModuleSource,
@@ -179,12 +181,55 @@ export async function pracht(options: PrachtPluginOptions = {}): Promise<Plugin[
 
   const plugins: Plugin[] = [...preact(), prachtPlugin, clientModuleTransformPlugin];
 
+  const tsrxPlugin = await loadTsrxPlugin(resolved.tsrx);
+  if (tsrxPlugin) {
+    plugins.unshift(tsrxPlugin);
+  }
+
   const adapterPlugins = await resolved.adapter.vitePlugins?.();
   if (adapterPlugins?.length) {
     plugins.push(...adapterPlugins);
   }
 
   return plugins;
+}
+
+async function loadTsrxPlugin(tsrx: false | TsrxOptions): Promise<Plugin | null> {
+  if (!tsrx) return null;
+
+  let mod: typeof import("@tsrx/vite-plugin-preact");
+  try {
+    mod = await import("@tsrx/vite-plugin-preact");
+  } catch (error) {
+    throw new Error(
+      "[pracht] `tsrx` is enabled but `@tsrx/vite-plugin-preact` could not be loaded. " +
+        "Install it with `pnpm add -D @tsrx/vite-plugin-preact` (or your package manager equivalent).",
+      { cause: error },
+    );
+  }
+
+  const plugin = mod.tsrxPreact(tsrx);
+
+  // The upstream plugin only matches `/\.tsrx$/`, so it skips ids carrying our
+  // `?pracht-client` query suffix. Wrap `transform` to delegate with the bare
+  // path so the same compilation runs for the client variant of route modules.
+  type TransformFn = (this: unknown, code: string, id: string, options?: unknown) => unknown;
+  const upstreamTransform = plugin.transform as TransformFn | undefined;
+  if (typeof upstreamTransform === "function") {
+    const wrappedTransform: TransformFn = function (this, code, id, options) {
+      if (isPrachtClientModuleId(id)) {
+        const stripped = stripPrachtClientModuleQuery(id);
+        const path = stripped.split("?")[0];
+        if (path.endsWith(".tsrx")) {
+          return upstreamTransform.call(this, code, stripped, options);
+        }
+      }
+      return upstreamTransform.call(this, code, id, options);
+    };
+    (plugin as { transform: TransformFn }).transform = wrappedTransform;
+  }
+
+  return plugin;
 }
 
 function watchPagesDirectory(
@@ -214,7 +259,7 @@ function invalidateVirtualModules(server: import("vite").ViteDevServer): void {
   if (serverMod) server.moduleGraph.invalidateModule(serverMod);
 }
 
-const ROUTE_FILE_EXTENSIONS = new Set([".ts", ".tsx", ".js", ".jsx", ".md", ".mdx"]);
+const ROUTE_FILE_EXTENSIONS = new Set([".ts", ".tsx", ".js", ".jsx", ".md", ".mdx", ".tsrx"]);
 
 function computeRouteFileDirs(root: string, resolved: ResolvedPrachtPluginOptions): string[] {
   const dirs = resolved.pagesDir ? [resolved.pagesDir] : [resolved.routesDir, resolved.shellsDir];

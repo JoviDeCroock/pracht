@@ -16,8 +16,8 @@ export interface PagesRouterOptions {
   pagesDefaultRender?: string;
 }
 
-const PAGE_EXTENSIONS = new Set([".tsx", ".ts", ".jsx", ".js", ".md", ".mdx"]);
-const SHELL_EXTENSIONS = new Set([".tsx", ".ts", ".jsx", ".js"]);
+const PAGE_EXTENSIONS = new Set([".tsx", ".tsrx", ".ts", ".jsx", ".js", ".md", ".mdx"]);
+const SHELL_EXTENSIONS = new Set([".tsx", ".tsrx", ".ts", ".jsx", ".js"]);
 
 export function scanPagesDirectory(pagesDir: string): ScannedPage[] {
   const pages: ScannedPage[] = [];
@@ -68,7 +68,7 @@ function scan(dir: string, root: string, pages: ScannedPage[]): void {
 }
 
 export function filePathToRoutePath(relativePath: string): string {
-  let route = relativePath.replace(/\.(tsx?|jsx?|mdx?)$/, "");
+  let route = relativePath.replace(/\.(tsx?|tsrx|jsx?|mdx?)$/, "");
   route = route.replace(/\\/g, "/");
 
   // _app is not a route
