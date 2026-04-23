@@ -283,9 +283,6 @@ importers:
       '@prefresh/vite':
         specifier: ^2.0.0
         version: 2.4.12(preact@10.29.1)(vite@8.0.3(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@22.19.17)(esbuild@0.27.3))
-      '@tsrx/vite-plugin-preact':
-        specifier: ^0.0.3
-        version: 0.0.3(preact@10.29.1)(vite@8.0.3(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@22.19.17)(esbuild@0.27.3))
       vite:
         specifier: ^8.0.0
         version: 8.0.3(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@22.19.17)(esbuild@0.27.3)

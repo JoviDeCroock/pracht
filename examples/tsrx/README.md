@@ -3,22 +3,21 @@
 Demonstrates `.tsrx` route modules — TSRX/Ripple-flavoured Preact components —
 running side by side with regular `.tsx` routes inside a Pracht app.
 
-The integration is opt-in via the `tsrx: true` plugin option:
+There is no special pracht option to enable this: install
+[`@tsrx/vite-plugin-preact`](https://github.com/Ripple-TS/ripple) and add it to
+your Vite `plugins` array alongside `pracht()`. Pracht's route/shell globs and
+server-only export stripping both recognise `.tsrx` automatically.
 
 ```ts
 // vite.config.ts
 import { defineConfig } from "vite";
 import { pracht } from "@pracht/vite-plugin";
+import { tsrxPreact } from "@tsrx/vite-plugin-preact";
 
 export default defineConfig({
-  plugins: [pracht({ tsrx: true })],
+  plugins: [tsrxPreact(), pracht()],
 });
 ```
-
-`tsrx: true` loads
-[`@tsrx/vite-plugin-preact`](https://github.com/Ripple-TS/ripple) under the
-hood; pass an options object instead of `true` to forward
-`jsxImportSource` / `suspenseSource` to the underlying plugin.
 
 ## Layout
 

@@ -29,37 +29,29 @@ export default defineConfig({
 
 ## TSRX (`.tsrx`) Support
 
-`.tsrx` modules — TSRX/Ripple-flavoured Preact components — are supported via
-[`@tsrx/vite-plugin-preact`](https://github.com/Ripple-TS/ripple). Install the
-plugin alongside `@pracht/vite-plugin` and opt in:
-
-```bash
-npm install -D @tsrx/vite-plugin-preact
-```
+`.tsrx` modules — TSRX/Ripple-flavoured Preact components — are supported out
+of the box. Bring your own
+[`@tsrx/vite-plugin-preact`](https://github.com/Ripple-TS/ripple) and add it to
+your `plugins` array alongside `pracht()`:
 
 ```ts
 // vite.config.ts
 import { defineConfig } from "vite";
 import { pracht } from "@pracht/vite-plugin";
+import { tsrxPreact } from "@tsrx/vite-plugin-preact";
 
 export default defineConfig({
-  plugins: [pracht({ tsrx: true })],
+  plugins: [tsrxPreact(), pracht()],
 });
 ```
 
-You can also pass options forwarded to the underlying `tsrxPreact()` plugin:
-
-```ts
-pracht({ tsrx: { jsxImportSource: "preact", suspenseSource: "preact-suspense" } });
-```
-
-Routes and shells written as `.tsrx` files are auto-discovered exactly like
-`.tsx` files (both manifest- and pages-router modes).
+The pracht plugin globs `.tsrx` files alongside `.tsx` for routes and shells
+(both manifest- and pages-router modes), and its server-only export stripping
+pass treats them the same way — no separate pracht option is required.
 
 ## Peer Dependencies
 
 - `vite@^8.0.0`
-- `@tsrx/vite-plugin-preact@^0.0.3` (optional, only required when `tsrx: true`)
 
 Target-specific Vite plugins (e.g. `@cloudflare/vite-plugin`) are pulled in by
 the adapter package you install (`@pracht/adapter-cloudflare`,
