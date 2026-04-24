@@ -7,9 +7,10 @@ import {
   HYDRATION_STATE_ELEMENT_ID,
   SAFE_METHODS,
 } from "./runtime-constants.ts";
+import { clearPrefetchCache } from "./prefetch.ts";
 import { deserializeRouteError, type SerializedRouteError } from "./runtime-errors.ts";
 import { fetchPrachtRouteState, navigateToClientLocation } from "./runtime-client-fetch.ts";
-import type { RouteParams } from "./types.ts";
+import type { LoaderData, LoaderLike, RouteParams } from "./types.ts";
 
 export interface PrachtHydrationState<TData = unknown> {
   url: string;
@@ -135,8 +136,10 @@ export function readHydrationState<TData = unknown>(): PrachtHydrationState<TDat
   return state;
 }
 
-export function useRouteData<TData = unknown>(): TData {
-  return useContext(RouteDataContext)?.data as TData;
+export function useRouteData<TLoader extends LoaderLike>(): LoaderData<TLoader>;
+export function useRouteData<TData = unknown>(): TData;
+export function useRouteData(): unknown {
+  return useContext(RouteDataContext)?.data;
 }
 
 export function useLocation(): Location {
@@ -198,6 +201,7 @@ export function Form(props: FormProps) {
       }
 
       event.preventDefault();
+      clearPrefetchCache();
       const response = await fetch(props.action ?? form.action, {
         method: formMethod,
         body: new FormData(form),
