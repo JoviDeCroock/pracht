@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
-import { basename, dirname, relative, resolve } from "node:path";
+import { basename, dirname, isAbsolute, relative, resolve } from "node:path";
 
 import { ensureTrailingNewline } from "./utils.js";
 import { PROJECT_DEFAULTS } from "./constants.js";
@@ -48,7 +48,11 @@ export function resolveProjectPath(root: string, configPath: string): string {
 }
 
 export function resolveScopedFile(root: string, configDir: string, fileName: string): string {
-  return resolve(resolveProjectPath(root, configDir), fileName);
+  assertSafePathSegment(fileName.replace(/\.(ts|tsx|js|jsx)$/, ""));
+  const baseDir = resolveProjectPath(root, configDir);
+  const filePath = resolve(baseDir, fileName);
+  assertInsideDirectory(baseDir, filePath);
+  return filePath;
 }
 
 export function resolveRouteModulePath(
@@ -59,7 +63,9 @@ export function resolveRouteModulePath(
   const segments = segmentsFromPath(routePath);
   const relativePath =
     segments.length === 0 ? `index${extension}` : `${segments.join("/")}${extension}`;
-  const absolutePath = resolve(resolveProjectPath(project.root, project.routesDir), relativePath);
+  const baseDir = resolveProjectPath(project.root, project.routesDir);
+  const absolutePath = resolve(baseDir, relativePath);
+  assertInsideDirectory(baseDir, absolutePath);
   return { absolutePath, relativePath };
 }
 
@@ -71,7 +77,9 @@ export function resolvePagesRouteModulePath(
   const segments = segmentsFromPath(routePath);
   const relativePath =
     segments.length === 0 ? `index${extension}` : `${segments.join("/")}${extension}`;
-  const absolutePath = resolve(resolveProjectPath(project.root, project.pagesDir), relativePath);
+  const baseDir = resolveProjectPath(project.root, project.pagesDir);
+  const absolutePath = resolve(baseDir, relativePath);
+  assertInsideDirectory(baseDir, absolutePath);
   return { absolutePath, relativePath };
 }
 
@@ -81,12 +89,14 @@ export function resolveApiModulePath(
 ): { absolutePath: string; relativePath: string } {
   const segments = segmentsFromPath(endpointPath);
   const relativePath = segments.length === 0 ? "index.ts" : `${segments.join("/")}.ts`;
-  const absolutePath = resolve(resolveProjectPath(project.root, project.apiDir), relativePath);
+  const baseDir = resolveProjectPath(project.root, project.apiDir);
+  const absolutePath = resolve(baseDir, relativePath);
+  assertInsideDirectory(baseDir, absolutePath);
   return { absolutePath, relativePath };
 }
 
 export function displayPath(root: string, filePath: string): string {
-  return relative(root, filePath) || ".";
+  return (relative(root, filePath) || ".").replace(/\\/g, "/");
 }
 
 export function writeGeneratedFile(filePath: string, source: string): void {
@@ -153,8 +163,34 @@ function segmentsFromPath(path: string): string[] {
     .split("/")
     .filter(Boolean)
     .map((segment) => {
-      if (segment.startsWith(":")) return `[${segment.slice(1)}]`;
+      assertSafePathSegment(segment);
+      if (segment.startsWith(":")) {
+        const name = segment.endsWith("*") ? segment.slice(1, -1) : segment.slice(1);
+        assertSafePathSegment(name);
+        return segment.endsWith("*") ? `[...${name || "slug"}]` : `[${name}]`;
+      }
       if (segment === "*") return "[...slug]";
       return segment;
     });
+}
+
+function assertSafePathSegment(segment: string): void {
+  if (
+    !segment ||
+    segment === "." ||
+    segment === ".." ||
+    segment.includes("/") ||
+    segment.includes("\\") ||
+    segment.includes("\0")
+  ) {
+    throw new Error(`Unsafe path segment: ${JSON.stringify(segment)}.`);
+  }
+}
+
+function assertInsideDirectory(baseDir: string, filePath: string): void {
+  const relativePath = relative(baseDir, filePath);
+  if (relativePath === "" || (!relativePath.startsWith("..") && !isAbsolute(relativePath))) {
+    return;
+  }
+  throw new Error(`Refusing to write outside ${baseDir}.`);
 }

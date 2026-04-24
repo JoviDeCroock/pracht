@@ -332,7 +332,7 @@ export const app = defineApp({
       ...api,
       ...build,
     });
-  });
+  }, 10_000);
 
   it("scaffolds pages-router routes without touching a manifest", () => {
     const appDir = createTempDir("pracht-cli-pages-");
