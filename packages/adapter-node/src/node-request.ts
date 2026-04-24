@@ -1,4 +1,6 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
 
 const BODYLESS_METHODS = new Set(["GET", "HEAD"]);
 const MAX_BODY_SIZE = 1024 * 1024; // 1 MB
@@ -41,8 +43,7 @@ export async function writeWebResponse(res: ServerResponse, response: Response):
     return;
   }
 
-  const body = Buffer.from(await response.arrayBuffer());
-  res.end(body);
+  await pipeline(Readable.fromWeb(response.body as never), res);
 }
 
 /**

@@ -1,5 +1,5 @@
-import { lstat } from "node:fs/promises";
-import { extname, join } from "node:path";
+import { lstat, realpath } from "node:fs/promises";
+import { extname, resolve, sep } from "node:path";
 import type { ISGManifestEntry } from "@pracht/core";
 
 export type HeadersManifest = Record<string, Record<string, string>>;
@@ -57,13 +57,13 @@ export async function resolveStaticFile(
   pathname: string,
   isgManifest: Record<string, ISGManifestEntry> = {},
 ): Promise<StaticFileResult | null> {
-  const exactPath = join(staticDir, pathname);
-  if (!exactPath.startsWith(staticDir + "/") && exactPath !== staticDir) {
-    return null; // Directory traversal
-  }
+  const staticRoot = resolve(staticDir);
+  const exactPath = resolveUrlPath(staticRoot, pathname);
+  if (!exactPath) return null;
 
   const exactStat = await lstat(exactPath).catch(() => null);
   if (exactStat?.isFile() && !exactStat.isSymbolicLink()) {
+    if (!(await realPathIsInside(staticRoot, exactPath))) return null;
     const ext = extname(exactPath);
     return {
       filePath: exactPath,
@@ -78,14 +78,15 @@ export async function resolveStaticFile(
   }
 
   const indexPath =
-    pathname === "/" ? join(staticDir, "index.html") : join(staticDir, pathname, "index.html");
+    pathname === "/"
+      ? resolve(staticRoot, "index.html")
+      : resolveUrlPath(staticRoot, pathname, "index.html");
 
-  if (!indexPath.startsWith(staticDir + "/")) {
-    return null;
-  }
+  if (!indexPath) return null;
 
   const indexStat = await lstat(indexPath).catch(() => null);
   if (indexStat?.isFile() && !indexStat.isSymbolicLink()) {
+    if (!(await realPathIsInside(staticRoot, indexPath))) return null;
     return {
       filePath: indexPath,
       contentType: "text/html; charset=utf-8",
@@ -122,4 +123,24 @@ function getManifestHeaders(
     headersManifest[withoutIndex] ??
     undefined
   );
+}
+
+function resolveUrlPath(staticRoot: string, pathname: string, suffix?: string): string | null {
+  if (pathname.includes("\0") || pathname.includes("\\")) return null;
+  const candidate = suffix
+    ? resolve(staticRoot, `.${pathname}`, suffix)
+    : resolve(staticRoot, `.${pathname}`);
+  return pathIsInside(staticRoot, candidate) ? candidate : null;
+}
+
+function pathIsInside(root: string, candidate: string): boolean {
+  return candidate === root || candidate.startsWith(root.endsWith(sep) ? root : `${root}${sep}`);
+}
+
+async function realPathIsInside(staticRoot: string, candidate: string): Promise<boolean> {
+  const [rootReal, candidateReal] = await Promise.all([
+    realpath(staticRoot).catch(() => staticRoot),
+    realpath(candidate).catch(() => null),
+  ]);
+  return candidateReal !== null && pathIsInside(resolve(rootReal), resolve(candidateReal));
 }
