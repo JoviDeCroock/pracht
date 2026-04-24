@@ -12,12 +12,88 @@ export function escapeHtml(str: string): string {
 }
 
 export function serializeJsonForHtml(value: unknown): string {
-  return JSON.stringify(value)
+  return escapeScriptText(JSON.stringify(value) ?? "null");
+}
+
+export function escapeScriptText(value: string): string {
+  return value
     .replace(/</g, "\\u003c")
     .replace(/>/g, "\\u003e")
     .replace(/&/g, "\\u0026")
     .replace(/\u2028/g, "\\u2028")
     .replace(/\u2029/g, "\\u2029");
+}
+
+const SAFE_ATTRIBUTE_NAME_RE = /^[A-Za-z_:][A-Za-z0-9:._-]*$/;
+const GLOBAL_HEAD_ATTRIBUTE_PREFIXES = ["data-", "aria-"];
+const META_ATTRIBUTES = new Set([
+  "charset",
+  "content",
+  "http-equiv",
+  "itemprop",
+  "media",
+  "name",
+  "property",
+]);
+const LINK_ATTRIBUTES = new Set([
+  "as",
+  "blocking",
+  "color",
+  "crossorigin",
+  "disabled",
+  "fetchpriority",
+  "href",
+  "hreflang",
+  "imagesizes",
+  "imagesrcset",
+  "integrity",
+  "media",
+  "referrerpolicy",
+  "rel",
+  "sizes",
+  "title",
+  "type",
+]);
+const SCRIPT_ATTRIBUTES = new Set([
+  "async",
+  "blocking",
+  "class",
+  "crossorigin",
+  "defer",
+  "fetchpriority",
+  "id",
+  "integrity",
+  "nomodule",
+  "nonce",
+  "referrerpolicy",
+  "src",
+  "type",
+]);
+
+function renderAttributes(
+  attributes: Record<string, string | undefined>,
+  allowedAttributes: ReadonlySet<string>,
+): string {
+  return Object.entries(attributes)
+    .filter(([key, value]) => isAllowedHeadAttribute(key, value, allowedAttributes))
+    .map(([key, value]) => `${key}="${escapeHtml(value ?? "")}"`)
+    .join(" ");
+}
+
+function isAllowedHeadAttribute(
+  key: string,
+  value: string | undefined,
+  allowedAttributes: ReadonlySet<string>,
+): boolean {
+  if (key === "children" || typeof value === "undefined" || !SAFE_ATTRIBUTE_NAME_RE.test(key)) {
+    return false;
+  }
+  const normalized = key.toLowerCase();
+  if (normalized.startsWith("on")) return false;
+  return (
+    allowedAttributes.has(normalized) ||
+    GLOBAL_HEAD_ATTRIBUTE_PREFIXES.some((prefix) => normalized.startsWith(prefix))
+  );
 }
 
 export function buildHtmlDocument(options: {
@@ -42,21 +118,23 @@ export function buildHtmlDocument(options: {
   const titleTag = head.title ? `<title>${escapeHtml(head.title)}</title>` : "";
 
   const metaTags = (head.meta ?? [])
-    .map(
-      (m) =>
-        `<meta ${Object.entries(m)
-          .map(([k, v]) => `${k}="${escapeHtml(v)}"`)
-          .join(" ")}>`,
-    )
+    .map((m) => renderAttributes(m, META_ATTRIBUTES))
+    .filter(Boolean)
+    .map((attrs) => `<meta ${attrs}>`)
     .join("\n    ");
 
   const linkTags = (head.link ?? [])
-    .map(
-      (l) =>
-        `<link ${Object.entries(l)
-          .map(([k, v]) => `${k}="${escapeHtml(v)}"`)
-          .join(" ")}>`,
-    )
+    .map((l) => renderAttributes(l, LINK_ATTRIBUTES))
+    .filter(Boolean)
+    .map((attrs) => `<link ${attrs}>`)
+    .join("\n    ");
+
+  const scriptTags = (head.script ?? [])
+    .map((script) => {
+      const attrs = renderAttributes(script, SCRIPT_ATTRIBUTES);
+      const children = script.children ? escapeScriptText(script.children) : "";
+      return attrs ? `<script ${attrs}>${children}</script>` : `<script>${children}</script>`;
+    })
     .join("\n    ");
 
   const cssTags = cssUrls
@@ -83,6 +161,7 @@ export function buildHtmlDocument(options: {
     ${titleTag}
     ${metaTags}
     ${linkTags}
+    ${scriptTags}
     ${cssTags}
     ${modulePreloadTags}
     ${routeStatePreloadTag}

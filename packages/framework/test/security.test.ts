@@ -169,6 +169,18 @@ describe("_data=1 route-state bypass is gated by Sec-Fetch-Site", () => {
     expect(response.headers.get("content-type") ?? "").toContain("text/html");
   });
 
+  it("serves HTML (not JSON) when _data=1 comes from a same-site sibling origin", async () => {
+    const response = await handlePrachtRequest({
+      app,
+      registry,
+      request: new Request("http://localhost/?_data=1", {
+        headers: { "sec-fetch-site": "same-site" },
+      }),
+    });
+
+    expect(response.headers.get("content-type") ?? "").toContain("text/html");
+  });
+
   it("honors _data=1 when Sec-Fetch-Site is same-origin", async () => {
     const response = await handlePrachtRequest({
       app,
@@ -191,6 +203,18 @@ describe("_data=1 route-state bypass is gated by Sec-Fetch-Site", () => {
     });
 
     expect(response.headers.get("content-type") ?? "").toContain("application/json");
+  });
+
+  it("serves HTML when _data=1 has only a cross-origin Referer", async () => {
+    const response = await handlePrachtRequest({
+      app,
+      registry,
+      request: new Request("http://localhost/?_data=1", {
+        headers: { referer: "https://attacker.example/link" },
+      }),
+    });
+
+    expect(response.headers.get("content-type") ?? "").toContain("text/html");
   });
 
   it("always honors the explicit route-state header", async () => {
@@ -240,6 +264,20 @@ describe("API CSRF / same-origin enforcement", () => {
       request: new Request("http://localhost/api/delete", {
         method: "POST",
         headers: { origin: "https://evil.example" },
+      }),
+    });
+
+    expect(response.status).toBe(403);
+  });
+
+  it("blocks a POST with Sec-Fetch-Site: same-site", async () => {
+    const response = await handlePrachtRequest({
+      app,
+      apiRoutes,
+      registry,
+      request: new Request("http://localhost/api/delete", {
+        method: "POST",
+        headers: { "sec-fetch-site": "same-site" },
       }),
     });
 

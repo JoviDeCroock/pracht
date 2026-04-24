@@ -92,10 +92,11 @@ export interface ApiConfig {
   middleware?: string[];
   /**
    * When `true` (the default), state-changing API requests
-   * (POST/PUT/PATCH/DELETE) are rejected unless the browser signals a
-   * same-origin/same-site fetch (Sec-Fetch-Site) or the request Origin
-   * matches the request URL's origin. Set to `false` to opt out if you
-   * build your own CSRF protection into middleware.
+   * (POST/PUT/PATCH/DELETE) are rejected unless the browser signals an
+   * exact same-origin fetch (`Sec-Fetch-Site: same-origin`) or the request
+   * Origin/Referer matches the request URL's origin. `same-site` is not
+   * accepted by default because sibling subdomains can be attacker-controlled.
+   * Set to `false` to opt out if you build your own CSRF protection into middleware.
    */
   requireSameOrigin?: boolean;
 }
@@ -146,7 +147,7 @@ export interface ParamRouteSegment {
 
 export interface CatchAllRouteSegment {
   type: "catchall";
-  name: "*";
+  name: string;
 }
 
 export type RouteSegment = StaticRouteSegment | ParamRouteSegment | CatchAllRouteSegment;
@@ -186,11 +187,18 @@ export interface LoaderArgs<TContext = RegisteredContext> extends BaseRouteArgs<
 
 export interface MiddlewareArgs<TContext = RegisteredContext> extends BaseRouteArgs<TContext> {}
 
+export type HeadAttributes = Record<string, string | undefined>;
+
+export interface HeadScriptDescriptor extends HeadAttributes {
+  children?: string;
+}
+
 export interface HeadMetadata {
   title?: string;
   lang?: string;
-  meta?: Array<Record<string, string>>;
-  link?: Array<Record<string, string>>;
+  meta?: HeadAttributes[];
+  link?: HeadAttributes[];
+  script?: HeadScriptDescriptor[];
 }
 
 export type MaybePromise<T> = T | Promise<T>;
@@ -223,7 +231,7 @@ export interface RouteComponentProps<TLoader extends LoaderLike = undefined> {
 }
 
 export interface ErrorBoundaryProps {
-  error: Error;
+  error: Error & { diagnostics?: unknown; status?: number };
 }
 
 export interface ShellProps {

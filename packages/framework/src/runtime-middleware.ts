@@ -135,6 +135,7 @@ export async function mergeHeadMetadata(
     lang: routeHead.lang ?? shellHead.lang,
     meta: [...(shellHead.meta ?? []), ...(routeHead.meta ?? [])],
     link: [...(shellHead.link ?? []), ...(routeHead.link ?? [])],
+    script: [...(shellHead.script ?? []), ...(routeHead.script ?? [])],
   };
 }
 
