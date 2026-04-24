@@ -204,7 +204,14 @@ function matchRouteSegments(
     const currentSegment = routeSegments[routeIndex];
 
     if (currentSegment.type === "catchall") {
-      params[currentSegment.name] = targetSegments.slice(targetIndex).join("/");
+      try {
+        params[currentSegment.name] = targetSegments
+          .slice(targetIndex)
+          .map(decodeURIComponent)
+          .join("/");
+      } catch {
+        return null;
+      }
       return params;
     }
 
@@ -238,6 +245,13 @@ function parseRouteSegments(path: string): RouteSegment[] {
       return {
         type: "catchall",
         name: "*",
+      } as const;
+    }
+
+    if (segment.startsWith(":") && segment.endsWith("*")) {
+      return {
+        type: "catchall",
+        name: segment.slice(1, -1) || "*",
       } as const;
     }
 
@@ -299,7 +313,7 @@ export function buildPathFromSegments(segments: RouteSegment[], params: RoutePar
     // a `getStaticPaths` returning `{ "*": "../../etc/passwd" }` would
     // feed the raw string into `path.join` at SSG/ISG write time and
     // land outside `dist/client/`.
-    const raw = params["*"] ?? "";
+    const raw = params[segment.name] ?? params["*"] ?? "";
     return raw
       .split("/")
       .map((part) => encodeCatchAllSegment(part))

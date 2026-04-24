@@ -32,6 +32,8 @@ export interface PrerenderAppOptions {
   cssManifest?: Record<string, string[]>;
   /** Per-source-file JS map produced by the vite plugin for modulepreload hints. */
   jsManifest?: Record<string, string[]>;
+  /** Maximum number of pages rendered concurrently. Defaults to 10. */
+  concurrency?: number;
 }
 
 export async function prerenderApp(options: PrerenderAppOptions): Promise<PrerenderResult[]>;
@@ -59,9 +61,13 @@ export async function prerenderApp(
     }
   }
 
-  const CONCURRENCY = 10;
-  for (let i = 0; i < work.length; i += CONCURRENCY) {
-    const batch = work.slice(i, i + CONCURRENCY);
+  const concurrency = options.concurrency ?? 10;
+  if (!Number.isInteger(concurrency) || concurrency <= 0) {
+    throw new Error("prerenderApp({ concurrency }) expects a positive integer.");
+  }
+
+  for (let i = 0; i < work.length; i += concurrency) {
+    const batch = work.slice(i, i + concurrency);
     const batchResults = await Promise.all(
       batch.map(async (item) => {
         const url = new URL(item.pathname, "http://localhost");

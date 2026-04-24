@@ -14,6 +14,7 @@ import {
   isServerModule,
 } from "./plugin-assets.ts";
 import {
+  clearPagesAppSourceCache,
   createPrachtClientModuleSource,
   createPrachtServerModuleSource,
 } from "./plugin-codegen.ts";
@@ -108,8 +109,9 @@ export async function pracht(options: PrachtPluginOptions = {}): Promise<Plugin[
       // Transform () => import("./path") to "./path" in the app manifest file.
       // This lets users write import() for IDE click-to-navigate while keeping
       // the framework's string-based file resolution intact.
-      const appFileAbs = resolve(root, resolved.appFile.slice(1));
-      if (id !== appFileAbs) return null;
+      const appFileAbs = resolveConfigPath(root, resolved.appFile);
+      const normalizedId = toPosixPath(id.split("?")[0]);
+      if (normalizedId !== appFileAbs) return null;
 
       const transformed = code.replace(/\(\)\s*=>\s*import\(\s*(['"])([^'"]+)\1\s*\)/g, "$1$2$1");
       if (transformed === code) return null;
@@ -128,10 +130,14 @@ export async function pracht(options: PrachtPluginOptions = {}): Promise<Plugin[
     },
 
     handleHotUpdate({ file, server }) {
-      const serverRoot = server.config.root;
-      const relative = file.startsWith(serverRoot) ? file.slice(serverRoot.length) : file;
+      const serverRoot = toPosixPath(server.config.root);
+      const normalizedFile = toPosixPath(file);
+      const relative = normalizedFile.startsWith(serverRoot)
+        ? normalizedFile.slice(serverRoot.length)
+        : normalizedFile;
 
       if (isPagesMode && relative.startsWith(resolved.pagesDir)) {
+        clearPagesAppSourceCache();
         invalidateVirtualModules(server);
         return;
       }
@@ -186,12 +192,18 @@ function watchPagesDirectory(
   resolved: ResolvedPrachtPluginOptions,
   root: string,
 ): void {
-  const abs = resolve(root, resolved.pagesDir.slice(1));
+  const abs = resolveConfigPath(root, resolved.pagesDir);
   server.watcher.on("add", (f: string) => {
-    if (f.startsWith(abs)) server.restart();
+    if (toPosixPath(f).startsWith(toPosixPath(abs))) {
+      clearPagesAppSourceCache();
+      server.restart();
+    }
   });
   server.watcher.on("unlink", (f: string) => {
-    if (f.startsWith(abs)) server.restart();
+    if (toPosixPath(f).startsWith(toPosixPath(abs))) {
+      clearPagesAppSourceCache();
+      server.restart();
+    }
   });
 }
 
@@ -206,7 +218,7 @@ const ROUTE_FILE_EXTENSIONS = new Set([".ts", ".tsx", ".js", ".jsx", ".md", ".md
 
 function computeRouteFileDirs(root: string, resolved: ResolvedPrachtPluginOptions): string[] {
   const dirs = resolved.pagesDir ? [resolved.pagesDir] : [resolved.routesDir, resolved.shellsDir];
-  return dirs.map((dir) => toPosixPath(resolve(root, dir.replace(/^\//, "")))).map(withTrailingSep);
+  return dirs.map((dir) => resolveConfigPath(root, dir)).map(withTrailingSep);
 }
 
 function isRouteOrShellFile(id: string, dirs: string[]): boolean {
@@ -221,6 +233,15 @@ function isRouteOrShellFile(id: string, dirs: string[]): boolean {
   if (!ROUTE_FILE_EXTENSIONS.has(ext)) return false;
   const normalized = toPosixPath(path);
   return dirs.some((dir) => normalized.startsWith(dir));
+}
+
+function resolveConfigPath(root: string, configPath: string): string {
+  const normalizedRoot = toPosixPath(root).replace(/\/$/, "");
+  const relativePath = configPath.replace(/^\//, "");
+  if (normalizedRoot.startsWith("/") && !/^[A-Za-z]:\//.test(normalizedRoot)) {
+    return `${normalizedRoot}/${relativePath}`;
+  }
+  return toPosixPath(resolve(root, relativePath));
 }
 
 function toPosixPath(p: string): string {
