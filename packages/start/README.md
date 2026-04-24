@@ -16,7 +16,8 @@ npm run dev
 - Prompts for the target folder.
 - Detects the active package manager from the current environment.
 - Lets the user choose between the Node.js, Cloudflare, and Vercel adapters.
-- Scaffolds a minimal app with a route manifest, shell, home route, sample API route, and runnable project README.
+- Scaffolds a minimal app with a route manifest or pages router, shell, home route, sample API route, runnable project README, and agent instructions.
+- `--dry-run` uses pinned fallback versions and does not require npm registry access.
 
 ## Usage
 

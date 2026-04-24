@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdir, readdir, stat, symlink, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readdir, stat, symlink, writeFile } from "node:fs/promises";
 import { basename, dirname, resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
 
@@ -10,6 +10,16 @@ export class ValidationError extends Error {
     this.code = 2;
   }
 }
+
+const FALLBACK_VERSION_RANGES = {
+  "@pracht/adapter-cloudflare": "^0.2.1",
+  "@pracht/adapter-node": "^0.1.10",
+  "@pracht/adapter-vercel": "^0.0.12",
+  "@pracht/cli": "^1.3.0",
+  "@pracht/core": "^0.4.0",
+  "@pracht/vite-plugin": "^0.3.1",
+  vercel: "latest",
+};
 
 async function fetchLatestVersion(packageName) {
   const res = await fetch(`https://registry.npmjs.org/${packageName}/latest`);
@@ -87,6 +97,7 @@ export async function run(argv = process.argv.slice(2)) {
       adapter: ADAPTERS[resolvedAdapter],
       packageManager,
       projectName: toPackageName(basename(targetDir)),
+      resolveRemoteVersions: false,
       router: resolvedRouter,
     });
 
@@ -132,6 +143,7 @@ export async function run(argv = process.argv.slice(2)) {
       adapter: ADAPTERS[resolvedAdapter],
       packageManager,
       projectName: toPackageName(basename(targetDir)),
+      resolveRemoteVersions: false,
       router: resolvedRouter,
     });
 
@@ -172,7 +184,15 @@ export async function scaffoldProject({ adapter, packageManager, router = "manif
     await writeFile(filePath, content, "utf-8");
   }
 
-  await symlink("AGENTS.md", resolve(targetDir, "CLAUDE.md"));
+  try {
+    await symlink("AGENTS.md", resolve(targetDir, "CLAUDE.md"));
+  } catch (error) {
+    if (error && typeof error === "object" && ["EPERM", "EINVAL"].includes(error.code)) {
+      await copyFile(resolve(targetDir, "AGENTS.md"), resolve(targetDir, "CLAUDE.md"));
+    } else {
+      throw error;
+    }
+  }
 }
 
 export function getPackageManager(userAgent = process.env.npm_config_user_agent ?? "") {
@@ -365,14 +385,28 @@ function normalizeAdapter(value) {
   return null;
 }
 
-async function resolveVersions(packageNames) {
+async function resolveVersions(packageNames, { remote = true } = {}) {
   const entries = await Promise.all(
-    packageNames.map(async (name) => [name, `^${await fetchLatestVersion(name)}`]),
+    packageNames.map(async (name) => {
+      const fallback = FALLBACK_VERSION_RANGES[name] ?? "latest";
+      if (!remote) return [name, fallback];
+      try {
+        return [name, `^${await fetchLatestVersion(name)}`];
+      } catch {
+        return [name, fallback];
+      }
+    }),
   );
   return Object.fromEntries(entries);
 }
 
-async function buildProjectFiles({ adapter, packageManager, projectName, router }) {
+async function buildProjectFiles({
+  adapter,
+  packageManager,
+  projectName,
+  resolveRemoteVersions = true,
+  router,
+}) {
   const packagesToResolve = [
     "@pracht/cli",
     "@pracht/vite-plugin",
@@ -383,7 +417,7 @@ async function buildProjectFiles({ adapter, packageManager, projectName, router 
     packagesToResolve.push("vercel");
   }
 
-  const versions = await resolveVersions(packagesToResolve);
+  const versions = await resolveVersions(packagesToResolve, { remote: resolveRemoteVersions });
 
   const files = {
     ".gitignore": "dist\nnode_modules\n.wrangler\n.vercel\n",
@@ -607,9 +641,18 @@ function createPagesHomeRoute(adapter) {
 function createBaseTSConfig(_adapter) {
   const config = {
     compilerOptions: {
+      allowImportingTsExtensions: true,
       jsx: "react-jsx",
       jsxImportSource: "preact",
-      lib: ["ES2022"],
+      lib: ["ES2022", "DOM", "DOM.Iterable"],
+      module: "ESNext",
+      moduleResolution: "Bundler",
+      noEmit: true,
+      skipLibCheck: true,
+      strict: true,
+      target: "ES2022",
+      types: ["vite/client"],
+      verbatimModuleSyntax: true,
     },
   };
   return JSON.stringify(config, null, 4);
@@ -687,10 +730,10 @@ function createAgentInstructions({ adapter, packageManager, router }) {
   lines.push("");
   lines.push("Use the CLI to generate new files:");
   lines.push("");
-  lines.push("- `pracht generate route <name>` — add a route");
-  lines.push("- `pracht generate shell <name>` — add a shell");
-  lines.push("- `pracht generate middleware <name>` — add middleware");
-  lines.push("- `pracht generate api <name>` — add an API route");
+  lines.push("- `pracht generate route --path /about` — add a route");
+  lines.push("- `pracht generate shell --name app` — add a shell");
+  lines.push("- `pracht generate middleware --name auth` — add middleware");
+  lines.push("- `pracht generate api --path /health --methods GET` — add an API route");
   lines.push("- `pracht doctor` — check project health");
 
   lines.push("");

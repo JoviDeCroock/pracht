@@ -54,11 +54,24 @@ describe("create-pracht", () => {
     expect(tsconfig).toMatchInlineSnapshot(`
       "{
           "compilerOptions": {
+              "allowImportingTsExtensions": true,
               "jsx": "react-jsx",
               "jsxImportSource": "preact",
               "lib": [
-                  "ES2022"
-              ]
+                  "ES2022",
+                  "DOM",
+                  "DOM.Iterable"
+              ],
+              "module": "ESNext",
+              "moduleResolution": "Bundler",
+              "noEmit": true,
+              "skipLibCheck": true,
+              "strict": true,
+              "target": "ES2022",
+              "types": [
+                  "vite/client"
+              ],
+              "verbatimModuleSyntax": true
           }
       }"
     `);
@@ -95,11 +108,24 @@ describe("create-pracht", () => {
     expect(tsconfig).toMatchInlineSnapshot(`
       "{
           "compilerOptions": {
+              "allowImportingTsExtensions": true,
               "jsx": "react-jsx",
               "jsxImportSource": "preact",
               "lib": [
-                  "ES2022"
-              ]
+                  "ES2022",
+                  "DOM",
+                  "DOM.Iterable"
+              ],
+              "module": "ESNext",
+              "moduleResolution": "Bundler",
+              "noEmit": true,
+              "skipLibCheck": true,
+              "strict": true,
+              "target": "ES2022",
+              "types": [
+                  "vite/client"
+              ],
+              "verbatimModuleSyntax": true
           }
       }"
     `);
@@ -144,11 +170,24 @@ describe("create-pracht", () => {
     expect(tsconfig).toMatchInlineSnapshot(`
       "{
           "compilerOptions": {
+              "allowImportingTsExtensions": true,
               "jsx": "react-jsx",
               "jsxImportSource": "preact",
               "lib": [
-                  "ES2022"
-              ]
+                  "ES2022",
+                  "DOM",
+                  "DOM.Iterable"
+              ],
+              "module": "ESNext",
+              "moduleResolution": "Bundler",
+              "noEmit": true,
+              "skipLibCheck": true,
+              "strict": true,
+              "target": "ES2022",
+              "types": [
+                  "vite/client"
+              ],
+              "verbatimModuleSyntax": true
           }
       }"
     `);
