@@ -212,9 +212,10 @@ navigation — including navigating _to_ SSR routes.
 ```
 
 **Key insight:** Client navigation to an SSG route fetches _fresh_ loader data
-from the server as JSON. The static HTML is only for the initial document load
-(and crawlers). This means data shown during navigation may be newer than the
-pre-built HTML.
+from the server as JSON when an adapter runtime is available. The static HTML is
+only for the initial document load (and crawlers). This means data shown during
+navigation may be newer than the pre-built HTML. On a purely static host with no
+route-state runtime, the client falls back to a full document navigation.
 
 ---
 
@@ -482,7 +483,7 @@ request arrives
 SSR / SPA navigation — loader throws PrachtHttpError(404):
 
   ── GET /blog/missing (route-state) ──►
-  ◄── 200 application/json { error: { status: 404, message: "Not found" } } ──
+  ◄── 404 application/json { error: { status: 404, message: "Not found" } } ──
 
   Client: render ErrorBoundary({ error }) instead of Component
 

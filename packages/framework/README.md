@@ -28,8 +28,8 @@ Route modules may export the page as a function default export or as a named
 `handlePrachtRequest()` sanitizes unexpected 5xx errors by default so raw server
 messages do not leak into SSR HTML or route-state JSON. Explicit
 `PrachtHttpError` 4xx messages are preserved. Pass `debugErrors: true` to expose
-raw details intentionally during debugging; `@pracht/core` does not infer this
-from environment variables. Debug responses also attach `error.diagnostics`
+raw details intentionally during debugging; the flag is ignored when
+`NODE_ENV=production`. Debug responses also attach `error.diagnostics`
 metadata for the failure phase and matched framework files when available.
 
 ### Client

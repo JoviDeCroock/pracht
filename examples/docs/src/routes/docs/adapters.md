@@ -18,7 +18,7 @@ Every adapter follows the same request flow:
 Platform request (Node / CF / Vercel)
   → Convert to Web Request
   → Is this a static asset?  → Yes: serve from dist/client/
-  → Is this a prerendered page?  → Yes: serve static HTML (check ISG staleness)
+  → Is this a prerendered page?  → Yes: serve static HTML (Node checks ISG staleness)
   → Delegate to handlePrachtRequest()
   → Convert Web Response back to platform response
 ```
@@ -29,7 +29,7 @@ Adapters also preserve route and shell document headers for prerendered HTML so 
 
 ## Cloudflare Workers
 
-Deploy to Cloudflare's global edge network. Static assets are served from the `ASSETS` binding, and dynamic routes are handled by the Worker.
+Deploy to Cloudflare's global edge network. Static assets are served from the `ASSETS` binding, and dynamic routes are handled by the Worker. Runtime ISG revalidation is not implemented for Cloudflare yet; ISG routes are prerendered at build time and served as static assets, and `pracht build` warns when this combination is used.
 
 ### Setup
 
@@ -244,7 +244,7 @@ At the runtime level, an adapter also typically needs to:
 
 1. Accept a platform request and convert it to a Web `Request`
 2. Check for static assets -- serve files from `dist/client/` with appropriate headers
-3. Check for prerendered pages -- serve SSG/ISG HTML (with staleness checking for ISG)
+3. Check for prerendered pages -- serve SSG/ISG HTML (with staleness checking for ISG when the platform supports it)
 4. Delegate dynamic requests to `handlePrachtRequest()` from `pracht`
 5. Convert the Web `Response` back to the platform's response format
 6. Provide a context factory for platform-specific values

@@ -1,7 +1,8 @@
 # Basic Example
 
 This example uses the Node adapter by default. Set `PRACHT_ADAPTER=vercel`
-before building to emit Vercel's `.vercel/output/` directory instead.
+before building to emit Vercel's `.vercel/output/` directory, or
+`PRACHT_ADAPTER=cloudflare` to build the Cloudflare Worker output.
 
 ## Commands
 

@@ -45,4 +45,4 @@ export default defineConfig({
 ```
 
 All four render modes (SSR, SSG, ISG, SPA) work with the pages router — export
-a `config` object from any page to opt into a specific mode.
+a `RENDER_MODE` constant from any page to opt into a specific mode.

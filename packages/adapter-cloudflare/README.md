@@ -1,6 +1,6 @@
 # @pracht/adapter-cloudflare
 
-Cloudflare Workers adapter for pracht. Handles requests in the Workers `fetch` event, serves static assets via `env.ASSETS`, and supports ISG revalidation through KV.
+Cloudflare Workers adapter for pracht. Handles requests in the Workers `fetch` event and serves static assets via `env.ASSETS`.
 
 ## Install
 
@@ -53,5 +53,5 @@ Keep the matching bindings and migrations in `wrangler.jsonc`.
 
 - Converts Cloudflare Worker requests to standard Web Requests
 - Static asset serving via `env.ASSETS`
-- KV-based ISG revalidation
+- SSG/ISG prerendered asset serving (runtime ISG revalidation is not implemented yet; builds warn when ISG routes target Cloudflare)
 - Execution context passing for Cloudflare-specific APIs

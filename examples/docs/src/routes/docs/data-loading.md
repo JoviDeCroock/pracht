@@ -53,13 +53,13 @@ export. Named route exports such as `loader`, `head`, `headers`,
 
 ### When loaders run
 
-| Scenario          | Loader runs on                             |
-| ----------------- | ------------------------------------------ |
-| SSG build         | Build machine, once per path               |
-| SSR request       | Server, every request                      |
-| ISG initial       | Build machine, then server on revalidation |
-| SPA               | Server, during client navigation fetch     |
-| Client navigation | Server (fetched as JSON)                   |
+| Scenario          | Loader runs on                                                   |
+| ----------------- | ---------------------------------------------------------------- |
+| SSG build         | Build machine, once per path                                     |
+| SSR request       | Server, every request                                            |
+| ISG initial       | Build machine, then adapter runtime where supported              |
+| SPA               | Server, during client navigation fetch                           |
+| Client navigation | Server (fetched as JSON)                                         |
 
 > [!NOTE]
 > Loaders **never** run in the browser. Database connections, API keys, and secrets in loader code stay server-side permanently.
@@ -117,7 +117,7 @@ export function ErrorBoundary() {
 ```
 
 > [!NOTE]
-> Unexpected 5xx errors are sanitized by default — only `PrachtHttpError` messages are shown to users. Pass `debugErrors: true` to `handlePrachtRequest()` to see full error details during development.
+> Unexpected 5xx errors are sanitized by default — only `PrachtHttpError` messages are shown to users. Pass `debugErrors: true` to `handlePrachtRequest()` to see full error details during development; it is ignored when `NODE_ENV=production`.
 
 ---
 

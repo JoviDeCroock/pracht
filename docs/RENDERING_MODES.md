@@ -23,8 +23,10 @@ route("/about", () => import("./routes/about.tsx"), { render: "ssg" });
 ```
 
 HTML is generated at build time. The loader runs once during the build, and the
-output is written to `dist/client/about/index.html`. No server needed for this
-route — it's served as a static file.
+output is written to `dist/client/about/index.html`. No server is needed for the
+initial document request — it's served as a static file. Client-side navigation
+uses the route-state JSON endpoint when an adapter runtime is available, and
+falls back to full document navigation on purely static hosts.
 
 ### Dynamic SSG paths
 
@@ -49,7 +51,7 @@ The build calls `getStaticPaths()` to enumerate params, constructs full paths
 from the route pattern, then runs the loader and renderer for each.
 Output: `dist/client/blog/hello-world/index.html`, etc.
 
-Prerendering runs concurrently (default: 6 parallel renders).
+Prerendering runs concurrently (default: 10 parallel renders). Tune it with `pracht({ prerenderConcurrency })` in your Vite config when CI needs more or less parallelism.
 
 ---
 
@@ -82,9 +84,7 @@ route("/pricing", () => import("./routes/pricing.tsx"), {
 });
 ```
 
-ISG generates HTML at build time (like SSG) but regenerates it after a
-configurable time window. On the first request after the window expires,
-the stale page is served while a new version is generated in the background.
+ISG generates HTML at build time (like SSG) and, on adapters with persistent platform state, regenerates it after a configurable time window. The Node adapter serves the stale page while a new version is generated in the background.
 
 ### Time-based revalidation
 
@@ -96,8 +96,18 @@ import { timeRevalidate } from "@pracht/core";
 } // seconds
 ```
 
-The adapter checks the file's mtime (Node) or cache timestamp (Cloudflare)
-against the revalidation window. If stale, it triggers regeneration.
+The Node adapter checks the file's mtime against the revalidation window. If
+stale, it serves the stale HTML immediately and triggers regeneration.
+
+> **Cloudflare note:** The Cloudflare adapter currently does not implement
+> runtime ISG revalidation. ISG routes are prerendered at build time and served
+> as static assets on Cloudflare. Use SSG/SSR on Cloudflare, or deploy ISG
+> routes to Node until a Cloudflare cache/KV-backed design lands.
+>
+> **Vercel note:** Vercel is serverless. Pracht prerenders ISG routes at build
+> time and routes ISG paths through the Edge Function rather than relying on
+> process-local cache state. Use SSG for static output or SSR for per-request
+> freshness on Vercel.
 
 ### Webhook-based revalidation
 

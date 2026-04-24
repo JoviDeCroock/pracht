@@ -26,11 +26,11 @@ runs axe-core against the result.
 
 ## Step 1: Boot the app
 
-Prefer `pracht preview` (production build) — production HTML is what users
+Prefer the production build/runtime (`node dist/server/server.js` for Node targets, or the target platform's local preview) — production HTML is what users
 actually receive. Fall back to `pracht dev` only if the user can't build.
 
 ```bash
-pracht build && pracht preview &
+pracht build && node dist/server/server.js &
 ```
 
 Or, if `BASE_URL` is set, target the deployed app.
@@ -129,7 +129,7 @@ For the top 3 issues, propose concrete patches:
 
 ## Rules
 
-1. Run against `pracht preview` if at all possible — minified production
+1. Run against the production build/runtime if at all possible — minified production
    markup is what real users hit.
 2. axe with WCAG 2.1 AA + best-practice tags is the default; ask before
    downgrading.

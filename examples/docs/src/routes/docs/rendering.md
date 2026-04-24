@@ -48,7 +48,7 @@ export function Component({ data }) {
 }
 ```
 
-The build calls `getStaticPaths()` to enumerate params, constructs full paths from the route pattern, then runs the loader and renderer for each. Prerendering runs concurrently (default: 6 parallel renders).
+The build calls `getStaticPaths()` to enumerate params, constructs full paths from the route pattern, then runs the loader and renderer for each. Prerendering runs concurrently (default: 10 parallel renders), configurable with `pracht({ prerenderConcurrency })`.
 
 ---
 
@@ -81,10 +81,10 @@ route("/pricing", "./routes/pricing.tsx", {
 });
 ```
 
-ISG generates HTML at build time (like SSG) but regenerates it after a configurable time window. On the first request after the window expires, the stale page is served immediately while a new version regenerates in the background — stale-while-revalidate.
+ISG generates HTML at build time (like SSG) and, on adapters with persistent platform state, regenerates it after a configurable time window. The Node adapter serves the stale page immediately while a new version regenerates in the background — stale-while-revalidate.
 
 > [!INFO]
-> ISG revalidation is implemented at the adapter level. The Node adapter uses file `mtime`; Cloudflare uses a cache timestamp in KV.
+> ISG revalidation is implemented at the adapter level. The Node adapter uses file `mtime`. Cloudflare currently serves prerendered ISG HTML as static assets and does not perform runtime revalidation yet. Vercel routes ISG paths through the Edge Function instead of relying on process-local cache state; use SSG for static output or SSR for per-request freshness on Vercel.
 
 ### Webhook revalidation
 

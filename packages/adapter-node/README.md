@@ -19,6 +19,6 @@ node dist/server/server.js
 ## Features
 
 - Converts Node.js HTTP requests to standard Web Requests
-- Serves static files from `dist/client/`
+- Serves static files from `dist/client/` with streaming, immutable hashed-asset caching, and `ETag` / `Last-Modified` revalidation
 - Loads the Vite manifest for asset injection
 - Supports ISG time-window revalidation with background regeneration that reuses `createContext()`

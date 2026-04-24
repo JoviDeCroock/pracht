@@ -4,7 +4,7 @@ version: 1.0.0
 description: |
   Scaffold Playwright end-to-end tests for a pracht app: install Playwright,
   generate `playwright.config.ts` that boots `pracht dev` (or `pracht
-  preview`), and emit a smoke test for every route in the manifest that
+  production runtime), and emit a smoke test for every route in the manifest that
   asserts 200, head/title, no console errors, and basic navigation.
   Use when asked to "scaffold E2E", "set up Playwright", "add browser tests",
   or "create smoke tests for my routes".
@@ -29,7 +29,7 @@ Ask the user (default: `dev`):
 
 1. **`pracht dev`** — fast, HMR, but can mask production-only bugs (different
    bundling, different SSG/ISG flow).
-2. **`pracht preview`** — preview production build; slower, closer to prod.
+2. **Production runtime** — `node dist/server/server.js` for Node targets or the platform's local preview; slower, closer to prod.
 3. **External URL** — user provides `BASE_URL`; tests do not boot the server.
 
 ## Step 2: Install
@@ -61,7 +61,7 @@ export default defineConfig({
   webServer: process.env.BASE_URL
     ? undefined
     : {
-        command: "pnpm dev", // or "pnpm preview" — choose at scaffold time
+        command: "pnpm dev", // or a production-runtime command — choose at scaffold time
         url: `http://localhost:${PORT}`,
         reuseExistingServer: !process.env.CI,
         timeout: 120_000,
@@ -159,7 +159,7 @@ If specs fail on first run, report. Common first-run failures:
    `src/routes/**`.
 2. Skip dynamic-segment routes unless example params are provided.
 3. Never overwrite an existing `playwright.config.ts` without diffing first.
-4. Use `webServer` to boot `pracht dev` / `pracht preview` so CI works
+4. Use `webServer` to boot `pracht dev` or the production runtime so CI works
    out-of-the-box.
 5. Console-error capture is mandatory — silent JS errors are the most common
    pracht hydration regression.
