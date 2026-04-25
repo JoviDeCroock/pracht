@@ -319,7 +319,7 @@ Pracht uses Vite's multi-environment build:
    - Contains: loader/shell/middleware code
 
 3. **platform** (adapter-specific) — entry module
-   - Entry: `virtual:pracht/node-server` or `virtual:pracht/cloudflare-worker`
+   - Entry: `virtual:pracht/server`
    - Wraps the SSR bundle with platform-specific request handling
 
 ### Build Outputs
@@ -351,7 +351,7 @@ An adapter must:
 2. **Serve** static assets from the client build
 3. **Load** Vite manifests for asset tag injection
 4. **Delegate** to the framework's `handlePrachtRequest()` for dynamic routes
-5. **Implement** ISG revalidation using platform-appropriate storage
+5. **Implement** ISG revalidation only when the platform has appropriate persistent storage/cache semantics; otherwise document the fallback clearly
 6. **Generate** a platform entry module via the Vite plugin
 
 See [docs/ADAPTERS.md](ADAPTERS.md) for per-platform details.

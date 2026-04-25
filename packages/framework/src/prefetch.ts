@@ -1,18 +1,29 @@
 import { matchAppRoute } from "./app.ts";
-import { fetchPrachtRouteState } from "./runtime.ts";
-import type { RouteStateResult } from "./runtime.ts";
+import { fetchPrachtRouteState } from "./runtime-client-fetch.ts";
+import type { RouteStateResult } from "./runtime-client-fetch.ts";
 import type { ResolvedPrachtApp, PrefetchStrategy, RouteMatch } from "./types.ts";
 
 export type ModuleWarmFn = (match: RouteMatch) => void;
 
 const CACHE_TTL_MS = 30_000;
+const MAX_PREFETCH_CACHE_ENTRIES = 100;
+const MAX_MATCH_CACHE_ENTRIES = 250;
 
 interface CacheEntry {
   promise: Promise<RouteStateResult>;
   timestamp: number;
 }
 
+interface MatchCacheEntry {
+  match: RouteMatch | null;
+  strategy: PrefetchStrategy;
+}
+
 const prefetchCache = new Map<string, CacheEntry>();
+
+export function clearPrefetchCache(): void {
+  prefetchCache.clear();
+}
 
 export function getCachedRouteState(url: string): Promise<RouteStateResult> | null {
   const entry = prefetchCache.get(url);
@@ -21,6 +32,10 @@ export function getCachedRouteState(url: string): Promise<RouteStateResult> | nu
     prefetchCache.delete(url);
     return null;
   }
+
+  // Refresh insertion order so the map acts as a small LRU cache.
+  prefetchCache.delete(url);
+  prefetchCache.set(url, entry);
   return entry.promise;
 }
 
@@ -28,13 +43,17 @@ export function prefetchRouteState(url: string): Promise<RouteStateResult> {
   const cached = getCachedRouteState(url);
   if (cached) return cached;
 
+  sweepPrefetchCache();
   const promise = fetchPrachtRouteState(url);
   prefetchCache.set(url, { promise, timestamp: Date.now() });
+  trimMapToSize(prefetchCache, MAX_PREFETCH_CACHE_ENTRIES);
   return promise;
 }
 
 export function setupPrefetching(app: ResolvedPrachtApp, warmModules?: ModuleWarmFn): void {
   let hoverTimer: ReturnType<typeof setTimeout> | null = null;
+  const observedViewportAnchors = new WeakSet<HTMLAnchorElement>();
+  const matchCache = new Map<string, MatchCacheEntry>();
 
   function getRoutePathname(url: string): string | null {
     try {
@@ -59,15 +78,28 @@ export function setupPrefetching(app: ResolvedPrachtApp, warmModules?: ModuleWar
     return url.pathname + url.search;
   }
 
-  function getPrefetchStrategy(pathname: string): PrefetchStrategy {
-    const routePathname = getRoutePathname(pathname);
-    if (!routePathname) return "none";
+  function getMatchEntry(href: string): MatchCacheEntry {
+    const cached = matchCache.get(href);
+    if (cached) {
+      matchCache.delete(href);
+      matchCache.set(href, cached);
+      return cached;
+    }
 
-    const match = matchAppRoute(app, routePathname);
-    if (!match) return "none";
-    // Use route-level config, or default based on render mode
-    if (match.route.prefetch) return match.route.prefetch;
-    return "intent";
+    const routePathname = getRoutePathname(href);
+    const match = routePathname ? (matchAppRoute(app, routePathname) ?? null) : null;
+    const strategy = match ? (match.route.prefetch ?? "intent") : "none";
+    const entry = { match, strategy };
+    matchCache.set(href, entry);
+    trimMapToSize(matchCache, MAX_MATCH_CACHE_ENTRIES);
+    return entry;
+  }
+
+  function prefetchHref(href: string): void {
+    prefetchRouteState(href);
+    if (!warmModules) return;
+    const match = getMatchEntry(href).match;
+    if (match) warmModules(match);
   }
 
   // Hover / focus prefetching (intent-based)
@@ -80,17 +112,12 @@ export function setupPrefetching(app: ResolvedPrachtApp, warmModules?: ModuleWar
       const href = getInternalHref(anchor);
       if (!href) return;
 
-      const strategy = getPrefetchStrategy(href);
+      const strategy = getMatchEntry(href).strategy;
       if (strategy !== "hover" && strategy !== "intent") return;
 
       if (hoverTimer) clearTimeout(hoverTimer);
       hoverTimer = setTimeout(() => {
-        prefetchRouteState(href);
-        if (warmModules) {
-          const pathname = getRoutePathname(href);
-          const m = pathname ? matchAppRoute(app, pathname) : undefined;
-          if (m) warmModules(m);
-        }
+        prefetchHref(href);
       }, 50);
     },
     true,
@@ -118,15 +145,10 @@ export function setupPrefetching(app: ResolvedPrachtApp, warmModules?: ModuleWar
       const href = getInternalHref(anchor);
       if (!href) return;
 
-      const strategy = getPrefetchStrategy(href);
+      const strategy = getMatchEntry(href).strategy;
       if (strategy !== "hover" && strategy !== "intent") return;
 
-      prefetchRouteState(href);
-      if (warmModules) {
-        const pathname = getRoutePathname(href);
-        const m = pathname ? matchAppRoute(app, pathname) : undefined;
-        if (m) warmModules(m);
-      }
+      prefetchHref(href);
     },
     true,
   );
@@ -141,35 +163,59 @@ export function setupPrefetching(app: ResolvedPrachtApp, warmModules?: ModuleWar
         const anchor = entry.target as HTMLAnchorElement;
         const href = getInternalHref(anchor);
         if (!href) continue;
-        prefetchRouteState(href);
-        if (warmModules) {
-          const pathname = getRoutePathname(href);
-          const m = pathname ? matchAppRoute(app, pathname) : undefined;
-          if (m) warmModules(m);
-        }
+        prefetchHref(href);
         observer.unobserve(anchor);
       }
     },
     { rootMargin: "200px" },
   );
 
-  // Observe existing viewport-prefetch links and re-observe on DOM changes
-  function observeViewportLinks(): void {
-    const anchors = document.querySelectorAll<HTMLAnchorElement>("a[href]");
-    for (const anchor of anchors) {
-      const href = getInternalHref(anchor);
-      if (!href) continue;
-      const strategy = getPrefetchStrategy(href);
-      if (strategy !== "viewport") continue;
-      observer.observe(anchor);
+  function observeAnchor(anchor: HTMLAnchorElement): void {
+    if (observedViewportAnchors.has(anchor)) return;
+    const href = getInternalHref(anchor);
+    if (!href) return;
+    const strategy = getMatchEntry(href).strategy;
+    if (strategy !== "viewport") return;
+    observedViewportAnchors.add(anchor);
+    observer.observe(anchor);
+  }
+
+  function observeViewportLinks(root: ParentNode): void {
+    if (root instanceof HTMLAnchorElement) {
+      observeAnchor(root);
+    }
+    for (const anchor of root.querySelectorAll<HTMLAnchorElement>("a[href]")) {
+      observeAnchor(anchor);
     }
   }
 
-  observeViewportLinks();
+  observeViewportLinks(document.body);
 
-  // Re-observe after client-side navigation updates the DOM
-  const mutationObserver = new MutationObserver(() => {
-    observeViewportLinks();
+  // Observe only newly-added DOM subtrees instead of re-scanning the whole document.
+  const mutationObserver = new MutationObserver((records) => {
+    for (const record of records) {
+      for (const node of record.addedNodes) {
+        if (node instanceof HTMLElement || node instanceof DocumentFragment) {
+          observeViewportLinks(node);
+        }
+      }
+    }
   });
   mutationObserver.observe(document.body, { childList: true, subtree: true });
+}
+
+function sweepPrefetchCache(now = Date.now()): void {
+  for (const [url, entry] of prefetchCache) {
+    if (now - entry.timestamp > CACHE_TTL_MS) {
+      prefetchCache.delete(url);
+    }
+  }
+}
+
+function trimMapToSize<TKey, TValue>(map: Map<TKey, TValue>, maxEntries: number): void {
+  while (map.size > maxEntries) {
+    const first = map.keys().next();
+    if (first.done) return;
+    map.delete(first.value);
+  }
 }

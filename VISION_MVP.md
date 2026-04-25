@@ -96,14 +96,14 @@ Platform adapters export a request handler shaped for their runtime:
 | Adapter              | Runtime           | Notes                                |
 | -------------------- | ----------------- | ------------------------------------ |
 | `adapter-node`       | Node.js `http`    | Static file serving, ISG mtime check |
-| `adapter-cloudflare` | Workers `fetch`   | `env.ASSETS`, KV, execution context  |
+| `adapter-cloudflare` | Workers `fetch`   | `env.ASSETS`, bindings, no runtime ISG yet |
 | `adapter-vercel`     | Serverless / Edge | Build Output API v3 + edge handler   |
 
 Each adapter:
 
 - Converts platform request → Web `Request`
 - Loads Vite manifests for asset injection
-- Implements ISG revalidation for its platform's storage
+- Implements ISG revalidation only when the platform has appropriate persistent storage/cache semantics, and documents/warns otherwise
 - Generates a platform-specific entry module via the Vite plugin
 
 ### Skills (Claude Code)
@@ -149,7 +149,7 @@ SSR and SSG, deployed to Node. Thoroughly tested with Playwright E2E tests.
 4. **`packages/cli`** — developer tooling (instant local DX)
    - `pracht dev` — one command, instant Vite dev server with HMR
    - `pracht build` — production build with clear output
-   - `pracht preview` — preview production build locally
+   - Node targets run the production build with `node dist/server/server.js`; Cloudflare and Vercel use their platform CLIs
    - Zero config to start — sensible defaults, override when needed
    - Fast feedback loop: save a file → see the change instantly
 
@@ -200,7 +200,7 @@ pracht/
     adapter-node/     # Node.js server adapter
     adapter-cloudflare/  # Cloudflare Workers adapter
     adapter-vercel/      # Vercel Edge adapter
-    cli/              # Dev/build/preview commands
+    cli/              # Dev/build/generate/inspect/verify/doctor commands
     create-pracht/     # (Phase 2) Starter scaffolding
   example/            # Working example app
   docs/               # Architecture and design docs

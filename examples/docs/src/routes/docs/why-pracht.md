@@ -43,7 +43,7 @@ Other frameworks typically default to one mode globally (SSR in Next.js, SSG in 
 
 ### Multi-adapter deployment
 
-One codebase deploys to Node.js, Cloudflare Workers, or Vercel with a one-line adapter swap. Adapters handle platform-specific concerns (static file serving, ISG cache invalidation, KV/D1/R2 bindings) so your application code stays portable.
+One codebase deploys to Node.js, Cloudflare Workers, or Vercel with a one-line adapter swap. Adapters handle platform-specific concerns (static file serving, request conversion, edge bindings, and Node ISG cache invalidation) so your application code stays portable.
 
 ---
 

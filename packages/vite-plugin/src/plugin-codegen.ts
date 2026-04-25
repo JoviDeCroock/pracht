@@ -37,17 +37,30 @@ export function createPrachtClientModuleSource(
     "const resolvedApp = resolveApp(app);",
     "",
     "function normalizeModuleKey(key) {",
-    '  return key.split("?")[0];',
+    '  return key.split("?")[0].replace(/^\\.?\\//, "");',
+    "}",
+    "",
+    "const moduleKeyIndexes = new WeakMap();",
+    "function getModuleKeyIndex(modules) {",
+    "  let index = moduleKeyIndexes.get(modules);",
+    "  if (index) return index;",
+    "  index = new Map();",
+    "  for (const key of Object.keys(modules)) {",
+    "    const normalized = normalizeModuleKey(key);",
+    "    if (!normalized) continue;",
+    "    if (!index.has(normalized)) index.set(normalized, key);",
+    '    for (let i = normalized.indexOf("/"); i !== -1; i = normalized.indexOf("/", i + 1)) {',
+    "      const suffix = normalized.slice(i + 1);",
+    "      if (suffix && !index.has(suffix)) index.set(suffix, key);",
+    "    }",
+    "  }",
+    "  moduleKeyIndexes.set(modules, index);",
+    "  return index;",
     "}",
     "",
     "function findModuleKey(modules, file) {",
     "  if (file in modules) return file;",
-    '  const suffix = file.replace(/^\\.\\//,"");',
-    "  for (const key of Object.keys(modules)) {",
-    "    const normalizedKey = normalizeModuleKey(key);",
-    '    if (normalizedKey.endsWith("/" + suffix) || normalizedKey.endsWith(suffix)) return key;',
-    "  }",
-    "  return null;",
+    "  return getModuleKeyIndex(modules).get(normalizeModuleKey(file)) ?? null;",
     "}",
     "",
     "const state = readHydrationState();",
@@ -105,6 +118,7 @@ export function createPrachtServerModuleSource(
     `export const clientEntryUrl = ${JSON.stringify(clientBuild.clientEntryUrl ?? CLIENT_BROWSER_PATH)};`,
     `export const cssManifest = ${JSON.stringify(clientBuild.cssManifest)};`,
     `export const jsManifest = ${JSON.stringify(clientBuild.jsManifest)};`,
+    `export const prerenderConcurrency = ${JSON.stringify(resolved.prerenderConcurrency)};`,
     "export { prerenderApp };",
     "",
   ];
@@ -145,16 +159,31 @@ export function createPrachtRegistryModuleSource(options: PrachtPluginOptions = 
   ].join("\n");
 }
 
+const pagesAppSourceCache = new Map<string, string>();
+
+export function clearPagesAppSourceCache(): void {
+  pagesAppSourceCache.clear();
+}
+
 function generatePagesAppInlineSource(
   options: ResolvedPrachtPluginOptions,
   root = process.cwd(),
 ): string {
   const absPagesDir = resolve(root, options.pagesDir.slice(1));
+  const cacheKey = JSON.stringify({
+    absPagesDir,
+    pagesDefaultRender: options.pagesDefaultRender,
+    pagesDirPrefix: options.pagesDir,
+  });
+  const cached = pagesAppSourceCache.get(cacheKey);
+  if (cached) return cached;
+
   const pages = scanPagesDirectory(absPagesDir);
   const source = generatePagesManifestSource(pages, {
     pagesDir: absPagesDir,
     pagesDefaultRender: options.pagesDefaultRender,
     pagesDirPrefix: options.pagesDir,
   });
+  pagesAppSourceCache.set(cacheKey, source);
   return source;
 }

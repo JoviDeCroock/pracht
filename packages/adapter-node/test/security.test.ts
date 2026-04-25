@@ -39,6 +39,18 @@ describe("resolveStaticFile symlink protection", () => {
     expect(result).toBeNull();
   });
 
+  it("refuses to serve files through a symlinked parent directory", async () => {
+    const root = makeTempDir();
+    const outside = makeTempDir();
+    const staticDir = join(root, "client");
+    mkdirSync(staticDir, { recursive: true });
+    writeFileSync(join(outside, "secret.txt"), "TOP-SECRET", "utf-8");
+    symlinkSync(outside, join(staticDir, "linked-dir"), "dir");
+
+    const result = await resolveStaticFile(staticDir, "/linked-dir/secret.txt");
+    expect(result).toBeNull();
+  });
+
   it("still serves regular files inside the static root", async () => {
     const root = makeTempDir();
     const staticDir = join(root, "client");

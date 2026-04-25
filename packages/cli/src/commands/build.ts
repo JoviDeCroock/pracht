@@ -1,5 +1,6 @@
 import { cpSync, existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 
 import { defineCommand } from "citty";
 import { build as viteBuild } from "vite";
@@ -32,7 +33,10 @@ export default defineCommand({
       root,
       build: {
         outDir: "dist/server",
-        ssr: "virtual:pracht/server",
+        rollupOptions: {
+          input: "virtual:pracht/server",
+        },
+        ssr: true,
       },
     });
 
@@ -59,7 +63,7 @@ export default defineCommand({
     }
 
     if (existsSync(serverEntry)) {
-      const serverMod = await import(serverEntry);
+      const serverMod = await import(pathToFileURL(serverEntry).href);
       const { prerenderApp } = serverMod;
       const { clientEntryUrl, cssManifest, jsManifest } = readClientBuildAssets(root);
 
@@ -70,6 +74,7 @@ export default defineCommand({
         jsManifest,
         registry: serverMod.registry,
         withISGManifest: true,
+        concurrency: serverMod.prerenderConcurrency,
       });
       const headersManifest: Record<string, Record<string, string>> = Object.fromEntries(
         pages.map((page: { path: string; headers?: Record<string, string> }) => [
@@ -112,6 +117,11 @@ export default defineCommand({
       }
 
       if (serverMod.buildTarget === "cloudflare") {
+        if (Object.keys(isgManifest).length > 0) {
+          console.warn(
+            "\n  Warning: Cloudflare adapter currently serves prerendered ISG HTML as static assets and does not perform runtime revalidation. Use SSR/SSG on Cloudflare, or deploy ISG routes to Node until Cloudflare ISG support is added.\n",
+          );
+        }
         console.log("\n  Cloudflare worker → dist/server/server.js\n");
         console.log("  Deploy with: wrangler deploy\n");
       }

@@ -1,4 +1,4 @@
-import { relative } from "node:path";
+import { isAbsolute, relative } from "node:path";
 
 export const CONFIG_FILE_NAMES = new Set([
   "vite.config.ts",
@@ -23,7 +23,7 @@ export function createCheck(status: Check["status"], message: string): Check {
 
 export function isWithinDirectory(filePath: string, directoryPath: string): boolean {
   const relativePath = relative(directoryPath, filePath);
-  return relativePath === "" || (!relativePath.startsWith("..") && !relativePath.startsWith("../"));
+  return relativePath === "" || (!relativePath.startsWith("..") && !isAbsolute(relativePath));
 }
 
 export function normalizePath(value: string): string {

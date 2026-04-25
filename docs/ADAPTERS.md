@@ -137,6 +137,8 @@ Prerendered HTML receives route and shell document headers from
   and `?_data=1`) bypass the cached HTML path so client navigation still reaches
   `handlePrachtRequest()`. Background regeneration uses a clean HTML request
   instead of replaying the triggering user's cookies/authorization headers.
+  Static and ISG files are streamed, and static responses support `ETag` /
+  `Last-Modified` conditional revalidation.
 - **Vite manifest**: reads `.vite/manifest.json` to inject correct `<script>` and
   `<link>` tags into server-rendered HTML.
 
@@ -185,8 +187,11 @@ the executable production server entry.
   the same default security headers applied to dynamic responses.
   Prerendered HTML also receives route and shell document headers from
   `dist/client/_pracht/headers.json`.
+- **ISG caveat**: runtime ISG revalidation is not implemented for Cloudflare
+  yet. ISG routes are prerendered at build time and then served as static
+  assets. `pracht build` warns when a Cloudflare build contains ISG routes.
 - **Default request context**: generated worker entries pass `{ env,
- executionContext }` to pracht so loaders, API routes, and middleware can
+  executionContext }` to pracht so loaders, API routes, and middleware can
   access bindings without extra wiring.
 - **Build output**: `pracht({ adapter: cloudflareAdapter() })` makes `pracht build`
   emit a Worker bundle in `dist/server/server.js`. You own a `wrangler.jsonc`

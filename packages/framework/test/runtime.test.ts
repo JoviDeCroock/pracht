@@ -452,6 +452,63 @@ describe("handlePrachtRequest cache variance", () => {
   });
 });
 
+describe("handlePrachtRequest head metadata", () => {
+  it("renders JSON-LD scripts and ignores unsafe attribute names", async () => {
+    const app = defineApp({
+      routes: [route("/article", "./routes/article.tsx", { render: "ssr" })],
+    });
+
+    const response = await handlePrachtRequest({
+      app,
+      registry: {
+        routeModules: {
+          "./routes/article.tsx": async () => ({
+            Component: () => h("main", null, "article"),
+            head: () => ({
+              link: [
+                {
+                  href: "/article",
+                  onload: "alert(1)",
+                  rel: "canonical",
+                  'x onclick="alert(1)': "bad",
+                },
+              ],
+              meta: [
+                {
+                  content: "safe",
+                  name: "description",
+                  "bad name": "dropped",
+                },
+              ],
+              script: [
+                {
+                  children: JSON.stringify({
+                    "@context": "https://schema.org",
+                    headline: "</script><script>alert(1)</script>",
+                  }),
+                  onload: "alert(1)",
+                  type: "application/ld+json",
+                },
+              ],
+            }),
+          }),
+        },
+      },
+      request: new Request("http://localhost/article"),
+    });
+
+    const html = await response.text();
+    expect(html).toContain('<meta content="safe" name="description">');
+    expect(html).toContain('<link href="/article" rel="canonical">');
+    expect(html).toContain('<script type="application/ld+json">');
+    expect(html).toContain("\\u003c/script\\u003e");
+    expect(html).not.toContain("bad name");
+    expect(html).not.toContain("onclick");
+    expect(html).not.toContain("onload");
+    expect(html).not.toContain("</script><script>");
+  });
+});
+
 describe("handlePrachtRequest document headers", () => {
   it("merges shell and route headers for document responses", async () => {
     const app = defineApp({

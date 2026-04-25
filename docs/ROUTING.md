@@ -41,7 +41,7 @@ Module references accept two forms — both are fully supported:
 - **`() => import("./path")`** — enables IDE ctrl+click navigation (recommended)
 - **`"./path"`** — plain string, shorter syntax
 
-The vite plugin transforms import functions to strings at build time, so both produce identical runtime behavior.
+The Vite plugin transforms import functions to strings at build/dev time, so both produce identical behavior when the app runs through `@pracht/vite-plugin`. Direct framework-only tests/scripts should use string refs or run the same transform.
 
 ### `defineApp(config)`
 

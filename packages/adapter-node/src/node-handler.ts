@@ -1,6 +1,8 @@
-import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { createReadStream } from "node:fs";
+import { mkdir, stat, writeFile } from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { dirname, join, resolve, sep } from "node:path";
+import { pipeline } from "node:stream/promises";
 
 import {
   applyDefaultSecurityHeaders,
@@ -64,6 +66,8 @@ export interface NodeAdapterOptions<TContext = unknown> {
   trustProxy?: boolean;
 }
 
+let warnedAboutMissingCanonicalOrigin = false;
+
 export function createNodeRequestHandler<TContext = unknown>(
   options: NodeAdapterOptions<TContext>,
 ) {
@@ -72,6 +76,17 @@ export function createNodeRequestHandler<TContext = unknown>(
   const staticDir = options.staticDir;
   const trustProxy = options.trustProxy ?? false;
   const canonicalOrigin = options.canonicalOrigin;
+
+  if (
+    !canonicalOrigin &&
+    process.env.NODE_ENV === "production" &&
+    !warnedAboutMissingCanonicalOrigin
+  ) {
+    warnedAboutMissingCanonicalOrigin = true;
+    console.warn(
+      "[pracht] @pracht/adapter-node is deriving request.url from Host headers. Set nodeAdapter({ canonicalOrigin }) in production to avoid host-header poisoning.",
+    );
+  }
 
   return async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
     let request: Request;
@@ -89,22 +104,28 @@ export function createNodeRequestHandler<TContext = unknown>(
     const isTransportRouteStateRequest = isRouteStateRequest(url, request.headers);
     const wantsMarkdown = (request.headers.get("accept") ?? "").includes("text/markdown");
 
-    if (staticDir && request.method === "GET" && !wantsMarkdown && !isTransportRouteStateRequest) {
+    if (
+      staticDir &&
+      isStaticAssetMethod(request.method) &&
+      !wantsMarkdown &&
+      !isTransportRouteStateRequest
+    ) {
       const staticResult = await resolveStaticFile(staticDir, url.pathname, isgManifest);
       if (staticResult) {
-        await serveStaticFile(res, staticResult, headersManifest, url.pathname);
+        await serveStaticFile(request, res, staticResult, headersManifest, url.pathname);
         return;
       }
     }
 
     if (
       staticDir &&
-      request.method === "GET" &&
+      isStaticAssetMethod(request.method) &&
       !isTransportRouteStateRequest &&
       !wantsMarkdown &&
       url.pathname in isgManifest
     ) {
       const served = await serveISGEntry(
+        request,
         res,
         options,
         staticDir,
@@ -153,29 +174,43 @@ export function createNodeRequestHandler<TContext = unknown>(
 }
 
 async function serveStaticFile(
+  request: Request,
   res: ServerResponse,
   staticResult: { filePath: string; contentType: string; cacheControl: string },
   headersManifest: HeadersManifest,
   pathname: string,
 ): Promise<void> {
-  const body = await readFile(staticResult.filePath);
-  res.statusCode = 200;
+  const fileStat = await stat(staticResult.filePath);
   const headers = applyDefaultSecurityHeaders(
     new Headers({
       "content-type": staticResult.contentType,
       "cache-control": staticResult.cacheControl,
+      etag: createWeakEtag(fileStat),
+      "last-modified": fileStat.mtime.toUTCString(),
     }),
   );
   if (staticResult.contentType.includes("text/html")) {
     applyHeadersManifest(headers, headersManifest, pathname);
   }
-  headers.forEach((value, key) => {
-    res.setHeader(key, value);
-  });
-  res.end(body);
+
+  if (isNotModified(request, headers)) {
+    res.statusCode = 304;
+    writeNodeHeaders(res, headers);
+    res.end();
+    return;
+  }
+
+  res.statusCode = 200;
+  writeNodeHeaders(res, headers);
+  if (request.method === "HEAD") {
+    res.end();
+    return;
+  }
+  await pipeline(createReadStream(staticResult.filePath), res);
 }
 
 async function serveISGEntry<TContext>(
+  request: Request,
   res: ServerResponse,
   options: NodeAdapterOptions<TContext>,
   staticDir: string,
@@ -193,21 +228,31 @@ async function serveISGEntry<TContext>(
   const ageMs = Date.now() - fileStat.mtimeMs;
   const isStale = entry.revalidate.kind === "time" && ageMs > entry.revalidate.seconds * 1000;
 
-  const html = await readFile(htmlPath, "utf-8");
-  res.statusCode = 200;
   const headers = applyDefaultSecurityHeaders(
     new Headers({
       "content-type": "text/html; charset=utf-8",
       "cache-control": "public, max-age=0, must-revalidate",
+      etag: createWeakEtag(fileStat),
+      "last-modified": fileStat.mtime.toUTCString(),
       vary: ROUTE_STATE_REQUEST_HEADER,
     }),
   );
   applyHeadersManifest(headers, headersManifest, pathname);
   headers.set("x-pracht-isg", isStale ? "stale" : "fresh");
-  headers.forEach((value, key) => {
-    res.setHeader(key, value);
-  });
-  res.end(html);
+
+  if (isNotModified(request, headers)) {
+    res.statusCode = 304;
+    writeNodeHeaders(res, headers);
+    res.end();
+  } else {
+    res.statusCode = 200;
+    writeNodeHeaders(res, headers);
+    if (request.method === "HEAD") {
+      res.end();
+    } else {
+      await pipeline(createReadStream(htmlPath), res);
+    }
+  }
 
   if (isStale) {
     regenerateISGPage(options, pathname, htmlPath, contextArgs).catch((err) => {
@@ -232,7 +277,7 @@ function resolveContainedPath(staticDir: string, pathname: string): string | nul
   const candidate =
     pathname === "/"
       ? join(rootResolved, "index.html")
-      : join(rootResolved, pathname, "index.html");
+      : resolve(rootResolved, `.${pathname}`, "index.html");
   const resolved = resolve(candidate);
 
   if (resolved !== rootResolved && !resolved.startsWith(rootResolved + sep)) {
@@ -266,4 +311,41 @@ function isISGResponseCacheable(response: Response): boolean {
 
 function isRouteStateRequest(url: URL, headers: Headers): boolean {
   return headers.get(ROUTE_STATE_REQUEST_HEADER) === "1" || url.searchParams.get("_data") === "1";
+}
+
+function isStaticAssetMethod(method: string): boolean {
+  return method === "GET" || method === "HEAD";
+}
+
+function writeNodeHeaders(res: ServerResponse, headers: Headers): void {
+  headers.forEach((value, key) => {
+    res.setHeader(key, value);
+  });
+}
+
+function createWeakEtag(fileStat: { mtimeMs: number; size: number }): string {
+  return `W/"${fileStat.size.toString(16)}-${Math.floor(fileStat.mtimeMs).toString(16)}"`;
+}
+
+function isNotModified(request: Request, headers: Headers): boolean {
+  const etag = headers.get("etag");
+  const ifNoneMatch = request.headers.get("if-none-match");
+  if (etag && ifNoneMatch) {
+    const candidates = ifNoneMatch.split(",").map((value) => value.trim());
+    if (candidates.includes("*") || candidates.includes(etag)) {
+      return true;
+    }
+  }
+
+  const lastModified = headers.get("last-modified");
+  const ifModifiedSince = request.headers.get("if-modified-since");
+  if (lastModified && ifModifiedSince) {
+    const modifiedTime = Date.parse(lastModified);
+    const sinceTime = Date.parse(ifModifiedSince);
+    if (!Number.isNaN(modifiedTime) && !Number.isNaN(sinceTime) && modifiedTime <= sinceTime) {
+      return true;
+    }
+  }
+
+  return false;
 }

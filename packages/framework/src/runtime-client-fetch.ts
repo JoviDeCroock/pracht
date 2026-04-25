@@ -38,7 +38,7 @@ export function buildRouteStateUrl(url: string): string {
 
 export async function fetchPrachtRouteState(
   url: string,
-  options?: { useDataParam?: boolean },
+  options?: { signal?: AbortSignal; useDataParam?: boolean },
 ): Promise<RouteStateResult> {
   const fetchUrl = options?.useDataParam ? buildRouteStateUrl(url) : url;
   const response = await fetch(fetchUrl, {
@@ -46,6 +46,7 @@ export async function fetchPrachtRouteState(
       ? {}
       : { [ROUTE_STATE_REQUEST_HEADER]: "1", "Cache-Control": "no-cache" },
     redirect: "manual",
+    signal: options?.signal,
   });
 
   if (response.type === "opaqueredirect" || (response.status >= 300 && response.status < 400)) {

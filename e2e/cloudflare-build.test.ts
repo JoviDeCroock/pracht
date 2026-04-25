@@ -1,4 +1,4 @@
-import { execFileSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, rmSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
@@ -10,16 +10,21 @@ const repoRoot = resolve(fileURLToPath(new URL(".", import.meta.url)), "..");
 const exampleDir = resolve(repoRoot, "examples/cloudflare");
 const distDir = resolve(exampleDir, "dist");
 
-function buildCloudflareExample() {
+function buildCloudflareExample(): string {
   rmSync(distDir, { force: true, recursive: true });
-  execFileSync(process.execPath, ["../../packages/cli/bin/pracht.js", "build"], {
+  const result = spawnSync(process.execPath, ["../../packages/cli/bin/pracht.js", "build"], {
     cwd: exampleDir,
+    encoding: "utf-8",
     env: {
       ...process.env,
       NODE_OPTIONS: "--experimental-strip-types",
     },
-    stdio: "pipe",
+    stdio: ["ignore", "pipe", "pipe"],
   });
+  if (result.status !== 0) {
+    throw new Error(result.stderr || result.stdout || "Cloudflare example build failed");
+  }
+  return `${result.stdout}${result.stderr}`;
 }
 
 test("pracht build emits a deployable Cloudflare Worker setup", async () => {
@@ -28,7 +33,7 @@ test("pracht build emits a deployable Cloudflare Worker setup", async () => {
   const wranglerPath = resolve(exampleDir, "wrangler.jsonc");
   const serverEntryPath = resolve(exampleDir, "dist/server/server.js");
 
-  buildCloudflareExample();
+  const output = buildCloudflareExample();
 
   // wrangler.jsonc is user-owned (checked into the project), not generated
   expect(existsSync(wranglerPath)).toBe(true);
@@ -49,6 +54,7 @@ test("pracht build emits a deployable Cloudflare Worker setup", async () => {
   expect(workerSource).toContain('buildTarget = "cloudflare"');
   expect(workerSource).toContain("_pracht/headers.json");
   expect(workerSource).toContain("server_default as default");
+  expect(output).toContain("Cloudflare adapter currently serves prerendered ISG HTML");
 
   // Cloudflare primitives configured via `workerExportsFrom` must be re-exported
   expect(workerSource).toContain("Counter");

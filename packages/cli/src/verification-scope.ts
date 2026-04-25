@@ -32,10 +32,10 @@ export function collectChangedFiles(root: string): { files: string[]; warning: s
 
       if (record.includes(" -> ")) {
         const [from, to] = record.split(" -> ");
-        addChangedFile(files, repoRoot, prefix, from);
-        addChangedFile(files, repoRoot, prefix, to);
+        addChangedFile(files, root, prefix, from);
+        addChangedFile(files, root, prefix, to);
       } else {
-        addChangedFile(files, repoRoot, prefix, record);
+        addChangedFile(files, root, prefix, record);
       }
     }
 
@@ -53,7 +53,7 @@ export function collectChangedFiles(root: string): { files: string[]; warning: s
 
 function addChangedFile(
   files: Set<string>,
-  repoRoot: string,
+  projectRoot: string,
   prefix: string,
   repoRelativePath: string,
 ): void {
@@ -66,7 +66,7 @@ function addChangedFile(
     return;
   }
 
-  files.add(resolve(repoRoot, projectRelativePath));
+  files.add(resolve(projectRoot, projectRelativePath));
 }
 
 export function filterFrameworkFiles(

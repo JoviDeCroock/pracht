@@ -93,6 +93,8 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
 
   let updateRouteState: ((state: RouteRenderState) => void) | null = null;
   let routeStateVersion = 0;
+  let latestNavigationId = 0;
+  let activeNavigationAbort: AbortController | null = null;
 
   function RouterRoot({ initialState }: { initialState: RouteRenderState }) {
     const [routeState, setRouteState] = useState(initialState);
@@ -232,6 +234,11 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
     to: string,
     opts?: { replace?: boolean; _popstate?: boolean },
   ): Promise<void> {
+    const navigationId = ++latestNavigationId;
+    activeNavigationAbort?.abort();
+    const abortController = new AbortController();
+    activeNavigationAbort = abortController;
+
     const target = resolveBrowserRouteTarget(to);
     if (!target) {
       window.location.href = to;
@@ -247,7 +254,8 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
 
     // Start route-state fetch and module imports in parallel
     const statePromise =
-      getCachedRouteState(target.requestUrl) ?? fetchPrachtRouteState(target.requestUrl);
+      getCachedRouteState(target.requestUrl) ??
+      fetchPrachtRouteState(target.requestUrl, { signal: abortController.signal });
     const routeModPromise = startRouteImport(match);
     const shellModPromise = startShellImport(match);
 
@@ -258,6 +266,7 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
     };
     try {
       const result = await statePromise;
+      if (navigationId !== latestNavigationId) return;
       if (result.type === "redirect") {
         if (result.location) {
           const redirect = resolveRedirectTarget(result.location);
@@ -303,10 +312,13 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
         };
       }
     } catch {
+      if (abortController.signal.aborted || navigationId !== latestNavigationId) return;
       // Network error — full page load as fallback
       window.location.href = target.browserUrl;
       return;
     }
+
+    if (navigationId !== latestNavigationId) return;
 
     if (!opts?._popstate) {
       if (opts?.replace) {
@@ -324,6 +336,8 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
       routeModPromise,
       shellModPromise,
     );
+    if (navigationId !== latestNavigationId) return;
+
     if (routeState) {
       applyRouteState(routeState);
       window.scrollTo(0, 0);

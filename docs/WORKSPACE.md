@@ -10,7 +10,7 @@ described in `VISION_MVP.md`.
 | `packages/framework`          | `pracht`                     | Core manifest API, route resolution, API routes, SSR rendering, client runtime                               |
 | `packages/vite-plugin`        | `@pracht/vite-plugin`        | Virtual modules, `import.meta.glob()` registries, API route auto-discovery, HMR, dev SSR middleware          |
 | `packages/adapter-node`       | `@pracht/adapter-node`       | Node `IncomingMessage`/`ServerResponse` bridge, ISG stale-while-revalidate                                   |
-| `packages/adapter-cloudflare` | `@pracht/adapter-cloudflare` | Cloudflare Workers fetch handler and generated worker entry source                                           |
+| `packages/adapter-cloudflare` | `@pracht/adapter-cloudflare` | Cloudflare Workers fetch handler, generated worker entry source, and static asset handoff (no runtime ISG revalidation yet) |
 | `packages/adapter-vercel`     | `@pracht/adapter-vercel`     | Vercel Edge handler and Build Output API entry source                                                        |
 | `packages/cli`                | `@pracht/cli`                | `pracht dev`, `build`, `verify`, the `generate` subcommands, and `doctor`                                    |
 | `examples/cloudflare`         | `@pracht/example-cloudflare` | Cloudflare-targeted example app with SSG, ISG, SSR, SPA routes, auth middleware, and API routes              |
@@ -76,7 +76,9 @@ described in `VISION_MVP.md`.
   background regeneration.
 - **Cloudflare adapter** — Serves `env.ASSETS` when available, falls back to
   `handlePrachtRequest()`, and gives loaders, API routes, and middleware access
-  to `env` and the `executionContext` through `args.context`.
+  to `env` and the `executionContext` through `args.context`. Runtime ISG
+  revalidation is intentionally not implemented yet; Cloudflare builds warn when
+  ISG routes are present.
 - **Vercel adapter** — Emits an Edge-compatible handler, copies the build into
   `.vercel/output/static` and `.vercel/output/functions/render.func`, rewrites
   clean SSG URLs to static HTML, and routes ISG plus dynamic requests to the

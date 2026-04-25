@@ -24,15 +24,13 @@ export default defineConfig({
   ],
   webServer: [
     {
-      command:
-        "cd examples/cloudflare && PORT=3100 NODE_OPTIONS='--experimental-strip-types' node ../../packages/cli/bin/pracht.js dev",
+      command: "node e2e/start-dev-server.mjs examples/cloudflare 3100",
       port: 3100,
       reuseExistingServer: !process.env.CI,
       timeout: 15_000,
     },
     {
-      command:
-        "cd examples/pages-router && PORT=3101 NODE_OPTIONS='--experimental-strip-types' node ../../packages/cli/bin/pracht.js dev",
+      command: "node e2e/start-dev-server.mjs examples/pages-router 3101",
       port: 3101,
       reuseExistingServer: !process.env.CI,
       timeout: 15_000,

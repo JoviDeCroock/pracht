@@ -13,7 +13,7 @@ npm install @pracht/vite-plugin
 ```ts
 // vite.config.ts
 import { defineConfig } from "vite";
-import pracht from "@pracht/vite-plugin";
+import { pracht } from "@pracht/vite-plugin";
 
 export default defineConfig({
   plugins: [pracht()],
@@ -24,7 +24,7 @@ export default defineConfig({
 
 - Generates virtual modules (`virtual:pracht/client`, `virtual:pracht/server`) from your route manifest
 - Builds client and SSR bundles via Vite's multi-environment mode
-- Pre-renders SSG and ISG routes at build time
+- Pre-renders SSG and ISG routes at build time (`prerenderConcurrency` controls parallelism)
 - Provides HMR during development
 
 ## Peer Dependencies

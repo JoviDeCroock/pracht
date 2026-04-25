@@ -1,6 +1,6 @@
 ---
 title: Deployment
-lead: pracht apps deploy anywhere via platform adapters. Each adapter handles request conversion, asset serving, and ISG storage for its runtime.
+lead: pracht apps deploy anywhere via platform adapters. Each adapter handles request conversion and asset serving for its runtime; Node also supports runtime ISG revalidation.
 breadcrumb: Deployment
 prev:
   href: /docs/cli

@@ -5,7 +5,7 @@
   "license": "MIT",
   "type": "module",
   "scripts": {
-    "build": "pnpm -r --filter='./packages/*' run build",
+    "build": "pnpm -r --filter @pracht/core --filter @pracht/vite-plugin --filter @pracht/adapter-node --filter @pracht/adapter-cloudflare --filter @pracht/adapter-vercel --filter @pracht/cli --filter create-pracht run build",
     "check": "pnpm build && pnpm typecheck && pnpm test",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",

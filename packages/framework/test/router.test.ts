@@ -93,6 +93,7 @@ describe("matchAppRoute", () => {
         revalidate: timeRevalidate(60),
       }),
       route("/docs/*", "./routes/docs.tsx", { render: "ssr" }),
+      route("/:path*", "./routes/not-found.tsx", { render: "ssr" }),
     ],
   });
 
@@ -115,6 +116,13 @@ describe("matchAppRoute", () => {
 
     expect(match?.route.file).toBe("./routes/docs.tsx");
     expect(match?.params).toEqual({ "*": "guides/intro" });
+  });
+
+  it("matches named catch-all routes", () => {
+    const match = matchAppRoute(app, "/missing/deep/path");
+
+    expect(match?.route.file).toBe("./routes/not-found.tsx");
+    expect(match?.params).toEqual({ path: "missing/deep/path" });
   });
 
   it("returns null for malformed percent-encoded dynamic params", () => {

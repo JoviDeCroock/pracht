@@ -7,13 +7,13 @@ async function resolveAdapter() {
     return vercelAdapter();
   }
 
-  if (process.env.PRACHT_ADAPTER === "node") {
-    const { nodeAdapter } = await import("@pracht/adapter-node");
-    return nodeAdapter();
+  if (process.env.PRACHT_ADAPTER === "cloudflare") {
+    const { cloudflareAdapter } = await import("@pracht/adapter-cloudflare");
+    return cloudflareAdapter();
   }
 
-  const { cloudflareAdapter } = await import("@pracht/adapter-cloudflare");
-  return cloudflareAdapter();
+  const { nodeAdapter } = await import("@pracht/adapter-node");
+  return nodeAdapter();
 }
 
 export default defineConfig(async () => ({

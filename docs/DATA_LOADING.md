@@ -52,7 +52,7 @@ rendering the component.
 | ----------------- | ----------------------------------------------------------------- |
 | SSG build         | Build machine, once per path                                      |
 | SSR request       | Server, every request                                             |
-| ISG initial       | Build machine, then server on revalidation                        |
+| ISG initial       | Build machine, then adapter runtime where supported              |
 | SPA               | Server, during route-state fetches; initial HTML stays shell-only |
 | Client navigation | Server (fetched as JSON via `x-pracht-route-state-request`)       |
 
@@ -89,7 +89,7 @@ export async function loader({ params }: LoaderArgs) {
 ```
 
 If the route defines an `ErrorBoundary`, it catches the error and renders
-the fallback UI. Otherwise, the error bubbles to the shell or global handler.
+the fallback UI. Otherwise, the sanitized framework/global handler responds.
 
 #### ErrorBoundary
 
@@ -153,9 +153,9 @@ Unexpected 5xx errors are sanitized by default in both SSR HTML and
 `x-pracht-route-state-request` JSON responses, including the hydration payload.
 Throw `PrachtHttpError` for expected client-facing failures; 4xx messages stay
 intact. If you need raw server error details while debugging, pass
-`debugErrors: true` to `handlePrachtRequest()`. `@pracht/core` does not infer
-this from `NODE_ENV` or other environment variables. When debug errors are
-enabled, serialized route and API failures also include `error.diagnostics`
+`debugErrors: true` to `handlePrachtRequest()`. For safety, `debugErrors` is
+ignored when `NODE_ENV=production`. When debug errors are enabled outside
+production, serialized route and API failures also include `error.diagnostics`
 with framework metadata such as `phase`, `routeId`, `routePath`, `routeFile`,
 `loaderFile`, `shellFile`, `middlewareFiles`, and `status`.
 
