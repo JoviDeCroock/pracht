@@ -1,5 +1,15 @@
 # @pracht/core
 
+## 0.5.0
+
+### Minor Changes
+
+- [#126](https://github.com/JoviDeCroock/pracht/pull/126) [`49d6348`](https://github.com/JoviDeCroock/pracht/commit/49d6348bc984464cdb0e8c54c5ef9ba5cdec911e) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Surface a visible in-page banner when Preact reports a hydration mismatch in dev mode. The banner is wired up by `initClientRouter` via Preact's `options.__m` hook, includes the offending component name, chains to any pre-existing hook, and is fully removed in production builds via `import.meta.env.DEV`.
+
+### Patch Changes
+
+- [#137](https://github.com/JoviDeCroock/pracht/pull/137) [`ac32c2c`](https://github.com/JoviDeCroock/pracht/commit/ac32c2cb9ce5e86a38cde1167269e368f41dea0e) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Harden same-origin request checks and HTML head rendering, improve client prefetch/navigation behavior, fix cross-platform path handling, stream and conditionally revalidate Node static responses, de-document Cloudflare runtime ISG revalidation, and align starter/docs with the current CLI/runtime behavior.
+
 ## 0.4.0
 
 ### Minor Changes
