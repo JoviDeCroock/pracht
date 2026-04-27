@@ -191,6 +191,34 @@ importers:
         specifier: ^8.0.0
         version: 8.0.3(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@22.19.17)(esbuild@0.27.3)
 
+  examples/tsrx:
+    dependencies:
+      '@pracht/adapter-node':
+        specifier: workspace:*
+        version: link:../../packages/adapter-node
+      '@pracht/core':
+        specifier: workspace:*
+        version: link:../../packages/framework
+    devDependencies:
+      '@pracht/cli':
+        specifier: workspace:*
+        version: link:../../packages/cli
+      '@pracht/vite-plugin':
+        specifier: workspace:*
+        version: link:../../packages/vite-plugin
+      '@tsrx/vite-plugin-preact':
+        specifier: ^0.0.3
+        version: 0.0.3(preact@10.29.1)(vite@8.0.3(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@22.19.17)(esbuild@0.27.3))
+      preact:
+        specifier: ^10.26.9
+        version: 10.29.1
+      preact-render-to-string:
+        specifier: ^6.5.13
+        version: 6.6.7(preact@10.29.1)
+      vite:
+        specifier: ^8.0.0
+        version: 8.0.3(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@22.19.17)(esbuild@0.27.3)
+
   packages/adapter-cloudflare:
     dependencies:
       '@cloudflare/vite-plugin':
@@ -1601,6 +1629,11 @@ packages:
   '@speed-highlight/core@1.2.15':
     resolution: {integrity: sha512-BMq1K3DsElxDWawkX6eLg9+CKJrTVGCBAWVuHXVUV2u0s2711qiChLSId6ikYPfxhdYocLNt3wWwSvDiTvFabw==}
 
+  '@sveltejs/acorn-typescript@1.0.9':
+    resolution: {integrity: sha512-lVJX6qEgs/4DOcRTpo56tmKzVPtoWAaVbL4hfO7t7NVwl9AAXzQR6cihesW1BmNMPl+bK6dreu2sOKBP2Q9CIA==}
+    peerDependencies:
+      acorn: ^8.9.0
+
   '@tabler/icons-preact@3.41.1':
     resolution: {integrity: sha512-H27Fzpk3lgj/AC4waJ/YGFPrvrR5MXeLbPhl23V6GWWC8uJ27rU7DVVVNI6hFoKVjpl+KlkmH2SUPissy5LJ+w==}
     peerDependencies:
@@ -1608,6 +1641,19 @@ packages:
 
   '@tabler/icons@3.41.1':
     resolution: {integrity: sha512-OaRnVbRmH2nHtFeg+RmMJ/7m2oBIF9XCJAUD5gQnMrpK9f05ydj8MZrAf3NZQqOXyxGN1UBL0D5IKLLEUfr74Q==}
+
+  '@tsrx/core@0.0.8':
+    resolution: {integrity: sha512-QDgfWmjiDpFV8YJU2LQracvO9bTWQcLrvhPf5/i5NrpksO+XOXt+uZUY+l4GUce8lyu2Q1Llqz65EMzAzXLbVA==}
+
+  '@tsrx/preact@0.0.3':
+    resolution: {integrity: sha512-OgbypbFLbLm/WJwSaRyUgR3Ew/qJGKhwzru9YHu8lj1DZNUf/NNiboiWlmfOahrg/r8MijSnUQKJH0Ubw3IeSg==}
+    peerDependencies:
+      preact: '>=10'
+
+  '@tsrx/vite-plugin-preact@0.0.3':
+    resolution: {integrity: sha512-0b0FEAema2TqmgguF/foiv/1jsMpiajylyK7seq9q3QLf+4evepupR0eDtD+xQV9Zt/rJ5A3g50qbCiSVaW6zg==}
+    peerDependencies:
+      vite: '*'
 
   '@tybys/wasm-util@0.10.1':
     resolution: {integrity: sha512-9tTaPJLSiejZKx+Bmog4uSubteqTvFrVrURwkmHixBo0G4seD0zUxp98E1DzUBJxLQ3NPwXrGKDiVjwx/DpPsg==}
@@ -1617,6 +1663,9 @@ packages:
 
   '@types/deep-eql@4.0.2':
     resolution: {integrity: sha512-c9h9dVVMigMPc4bwTvC5dxqtqJZwQPePsWjPlpSOnojbor6pGqdk541lfA7AqFQr5pB1BRdq0juY9db81BwyFw==}
+
+  '@types/estree-jsx@1.0.5':
+    resolution: {integrity: sha512-52CcUVNFyfb1A2ALocQw/Dd1BQFNmSdkuC3BkZ6iqhdMfQz7JWOFRuJFloOzjk+6WijU56m9oKXFAXc7o3Towg==}
 
   '@types/estree@1.0.8':
     resolution: {integrity: sha512-dWHzHa2WqEXI/O1E9OjrocMTKJl2mSrEolh1Iomrv6U+JuNwaHXsXx9bLu5gG7BUWFIN0skIQJQ/L1rIex4X6w==}
@@ -1658,6 +1707,11 @@ packages:
 
   '@vitest/utils@3.2.4':
     resolution: {integrity: sha512-fB2V0JFrQSMsCo9HiSq3Ezpdv4iYaXRG1Sx8edX3MwxfyNn83mKiGzOcH+Fkxt4MHxr3y42fQi1oeAInqgX2QA==}
+
+  acorn@8.16.0:
+    resolution: {integrity: sha512-UVJyE9MttOsBQIDKw1skb9nAwQuR5wuGD3+82K6JgJlm/Y+KI92oNsMNGZCYdDsVtRHSak0pcV5Dno5+4jh9sw==}
+    engines: {node: '>=0.4.0'}
+    hasBin: true
 
   ansi-colors@4.1.3:
     resolution: {integrity: sha512-/6w/C21Pm1A7aZitlI5Ni/2J6FFQN8i1Cvz3kHABAAbw93v/NlvKdVOqz7CCWz/3iv/JplRSEEZ83XION15ovw==}
@@ -1883,6 +1937,14 @@ packages:
     engines: {node: '>=4'}
     hasBin: true
 
+  esrap@2.2.5:
+    resolution: {integrity: sha512-/yLB1538mag+dn0wsePTe8C0rDIjUOaJpMs2McodSzmM2msWcZsBSdRtg6HOBt0A/r82BN+Md3pgwSc/uWt2Ig==}
+    peerDependencies:
+      '@typescript-eslint/types': ^8.2.0
+    peerDependenciesMeta:
+      '@typescript-eslint/types':
+        optional: true
+
   estree-walker@2.0.2:
     resolution: {integrity: sha512-Rfkk/Mp/DL7JVje3u18FxFujQlTNR2q6QfMSMB7AvCBx91NGj/ba3kCfza0f6dVDbw7YlRf/nDrn7pQrCCyQ/w==}
 
@@ -1997,6 +2059,9 @@ packages:
 
   is-potential-custom-element-name@1.0.1:
     resolution: {integrity: sha512-bCYeRA2rVibKZd+s2625gGnGF/t7DSqDs4dP7CrLA1m7jKWz6pps0LpYLJN8Q64HtmPKJ1hrN3nzPNKFEKOUiQ==}
+
+  is-reference@3.0.3:
+    resolution: {integrity: sha512-ixkJoqQvAP88E6wLydLGGqCJsrFUnqoH6HnaczB8XmDH1oaWU+xxdptvikTgaEhtZ53Ky6YXiBuUI2WXLMCwjw==}
 
   is-subdir@1.2.0:
     resolution: {integrity: sha512-2AT6j+gXe/1ueqbW6fLZJiIw3F8iXGJtt0yDrZaBhAZEG1raiTxKWU+IPqMCzQAXOUCKdA4UDMgacKH25XG2Cw==}
@@ -3885,12 +3950,47 @@ snapshots:
 
   '@speed-highlight/core@1.2.15': {}
 
+  '@sveltejs/acorn-typescript@1.0.9(acorn@8.16.0)':
+    dependencies:
+      acorn: 8.16.0
+
   '@tabler/icons-preact@3.41.1(preact@10.29.1)':
     dependencies:
       '@tabler/icons': 3.41.1
       preact: 10.29.1
 
   '@tabler/icons@3.41.1': {}
+
+  '@tsrx/core@0.0.8':
+    dependencies:
+      '@jridgewell/sourcemap-codec': 1.5.5
+      '@sveltejs/acorn-typescript': 1.0.9(acorn@8.16.0)
+      '@types/estree': 1.0.8
+      '@types/estree-jsx': 1.0.5
+      acorn: 8.16.0
+      esrap: 2.2.5
+      is-reference: 3.0.3
+      magic-string: 0.30.21
+      zimmerframe: 1.1.4
+    transitivePeerDependencies:
+      - '@typescript-eslint/types'
+
+  '@tsrx/preact@0.0.3(preact@10.29.1)':
+    dependencies:
+      '@tsrx/core': 0.0.8
+      esrap: 2.2.5
+      preact: 10.29.1
+      zimmerframe: 1.1.4
+    transitivePeerDependencies:
+      - '@typescript-eslint/types'
+
+  '@tsrx/vite-plugin-preact@0.0.3(preact@10.29.1)(vite@8.0.3(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@22.19.17)(esbuild@0.27.3))':
+    dependencies:
+      '@tsrx/preact': 0.0.3(preact@10.29.1)
+      vite: 8.0.3(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@22.19.17)(esbuild@0.27.3)
+    transitivePeerDependencies:
+      - '@typescript-eslint/types'
+      - preact
 
   '@tybys/wasm-util@0.10.1':
     dependencies:
@@ -3903,6 +4003,10 @@ snapshots:
       assertion-error: 2.0.1
 
   '@types/deep-eql@4.0.2': {}
+
+  '@types/estree-jsx@1.0.5':
+    dependencies:
+      '@types/estree': 1.0.8
 
   '@types/estree@1.0.8': {}
 
@@ -3955,6 +4059,8 @@ snapshots:
       '@vitest/pretty-format': 3.2.4
       loupe: 3.2.1
       tinyrainbow: 2.0.0
+
+  acorn@8.16.0: {}
 
   ansi-colors@4.1.3: {}
 
@@ -4187,6 +4293,10 @@ snapshots:
 
   esprima@4.0.1: {}
 
+  esrap@2.2.5:
+    dependencies:
+      '@jridgewell/sourcemap-codec': 1.5.5
+
   estree-walker@2.0.2: {}
 
   estree-walker@3.0.3:
@@ -4290,6 +4400,10 @@ snapshots:
   is-number@7.0.0: {}
 
   is-potential-custom-element-name@1.0.1: {}
+
+  is-reference@3.0.3:
+    dependencies:
+      '@types/estree': 1.0.8
 
   is-subdir@1.2.0:
     dependencies:

@@ -1,0 +1,18 @@
+{
+  "name": "@pracht/example-tsrx",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@pracht/adapter-node": "workspace:*",
+    "@pracht/core": "workspace:*"
+  },
+  "devDependencies": {
+    "@pracht/cli": "workspace:*",
+    "@pracht/vite-plugin": "workspace:*",
+    "@tsrx/vite-plugin-preact": "^0.0.3",
+    "preact": "^10.26.9",
+    "preact-render-to-string": "^6.5.13",
+    "vite": "^8.0.0"
+  }
+}

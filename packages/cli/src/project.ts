@@ -128,7 +128,7 @@ export function listFilesRecursively(dir: string): string[] {
 }
 
 export function hasPagesAppShell(filePath: string): boolean {
-  return /^_app\.(ts|tsx|js|jsx)$/.test(basename(filePath));
+  return /^_app\.(ts|tsx|tsrx|js|jsx)$/.test(basename(filePath));
 }
 
 function findConfigFile(root: string): string | null {

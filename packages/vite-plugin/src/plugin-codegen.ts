@@ -19,20 +19,34 @@ export function createPrachtClientModuleSource(
     ? generatePagesAppInlineSource(resolved, buildOptions.root)
     : `import { app } from ${JSON.stringify(resolved.appFile)};`;
 
-  const routeGlob = isPagesMode
-    ? `${resolved.pagesDir}/**/*.{ts,tsx,js,jsx,md,mdx}`
-    : `${resolved.routesDir}/**/*.{ts,tsx,js,jsx,md,mdx}`;
+  // Main route/shell globs. `.tsrx` is globbed separately *without* the
+  // `?pracht-client` query suffix — the upstream `@tsrx/vite-plugin-preact`
+  // plugin only matches ids by bare `.tsrx` extension, and the server-only
+  // export stripping pass already catches these files via the route/shell
+  // directory check during client builds.
+  const dirPrefix = isPagesMode ? resolved.pagesDir : resolved.routesDir;
+  const routeGlob = `${dirPrefix}/**/*.{ts,tsx,js,jsx,md,mdx}`;
+  const routeTsrxGlob = `${dirPrefix}/**/*.tsrx`;
 
   const shellGlob = isPagesMode
     ? `${resolved.pagesDir}/**/_app.{ts,tsx,js,jsx}`
     : `${resolved.shellsDir}/**/*.{ts,tsx,js,jsx,md,mdx}`;
+  const shellTsrxGlob = isPagesMode
+    ? `${resolved.pagesDir}/**/_app.tsrx`
+    : `${resolved.shellsDir}/**/*.tsrx`;
 
   return [
     'import { resolveApp, initClientRouter, readHydrationState } from "@pracht/core";',
     appImport,
     "",
-    `const routeModules = import.meta.glob(${JSON.stringify(routeGlob)}, { query: ${JSON.stringify(PRACHT_CLIENT_MODULE_QUERY)} });`,
-    `const shellModules = import.meta.glob(${JSON.stringify(shellGlob)}, { query: ${JSON.stringify(PRACHT_CLIENT_MODULE_QUERY)} });`,
+    `const routeModules = {`,
+    `  ...import.meta.glob(${JSON.stringify(routeGlob)}, { query: ${JSON.stringify(PRACHT_CLIENT_MODULE_QUERY)} }),`,
+    `  ...import.meta.glob(${JSON.stringify(routeTsrxGlob)}),`,
+    `};`,
+    `const shellModules = {`,
+    `  ...import.meta.glob(${JSON.stringify(shellGlob)}, { query: ${JSON.stringify(PRACHT_CLIENT_MODULE_QUERY)} }),`,
+    `  ...import.meta.glob(${JSON.stringify(shellTsrxGlob)}),`,
+    `};`,
     "",
     "const resolvedApp = resolveApp(app);",
     "",
@@ -135,12 +149,12 @@ export function createPrachtRegistryModuleSource(options: PrachtPluginOptions = 
   const isPagesMode = !!resolved.pagesDir;
 
   const routeGlob = isPagesMode
-    ? `${resolved.pagesDir}/**/*.{ts,tsx,js,jsx,md,mdx}`
-    : `${resolved.routesDir}/**/*.{ts,tsx,js,jsx,md,mdx}`;
+    ? `${resolved.pagesDir}/**/*.{ts,tsx,tsrx,js,jsx,md,mdx}`
+    : `${resolved.routesDir}/**/*.{ts,tsx,tsrx,js,jsx,md,mdx}`;
 
   const shellGlob = isPagesMode
-    ? `${resolved.pagesDir}/**/_app.{ts,tsx,js,jsx}`
-    : `${resolved.shellsDir}/**/*.{ts,tsx,js,jsx,md,mdx}`;
+    ? `${resolved.pagesDir}/**/_app.{ts,tsx,tsrx,js,jsx}`
+    : `${resolved.shellsDir}/**/*.{ts,tsx,tsrx,js,jsx,md,mdx}`;
 
   return [
     `export const routeModules = import.meta.glob(${JSON.stringify(routeGlob)});`,

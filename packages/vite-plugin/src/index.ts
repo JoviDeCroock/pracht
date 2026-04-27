@@ -27,7 +27,7 @@ import {
 
 export type { RenderMode };
 export type { PrachtAdapter } from "./plugin-adapter.ts";
-export type { PrachtPluginOptions };
+export type { PrachtPluginOptions } from "./plugin-options.ts";
 export {
   createPrachtClientModuleSource,
   createPrachtServerModuleSource,
@@ -214,7 +214,7 @@ function invalidateVirtualModules(server: import("vite").ViteDevServer): void {
   if (serverMod) server.moduleGraph.invalidateModule(serverMod);
 }
 
-const ROUTE_FILE_EXTENSIONS = new Set([".ts", ".tsx", ".js", ".jsx", ".md", ".mdx"]);
+const ROUTE_FILE_EXTENSIONS = new Set([".ts", ".tsx", ".js", ".jsx", ".md", ".mdx", ".tsrx"]);
 
 function computeRouteFileDirs(root: string, resolved: ResolvedPrachtPluginOptions): string[] {
   const dirs = resolved.pagesDir ? [resolved.pagesDir] : [resolved.routesDir, resolved.shellsDir];
