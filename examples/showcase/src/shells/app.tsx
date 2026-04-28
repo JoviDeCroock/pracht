@@ -15,9 +15,11 @@ export function Shell({ children }: ShellProps) {
           <a href="/app">Dashboard</a>
           <a href="/app/settings">Settings</a>
         </nav>
-        <a href="/api/auth/logout" class="sidebar-back">
-          &larr; Sign out
-        </a>
+        <form action="/api/auth/logout" method="post" class="sidebar-back-form">
+          <button type="submit" class="sidebar-back">
+            &larr; Sign out
+          </button>
+        </form>
       </aside>
       <main class="app-main">{children}</main>
     </div>

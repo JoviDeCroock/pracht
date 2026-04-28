@@ -142,6 +142,8 @@ Prerendered HTML receives route and shell document headers from
   `Last-Modified` conditional revalidation.
 - **Vite manifest**: reads `.vite/manifest.json` to inject correct `<script>` and
   `<link>` tags into server-rendered HTML.
+- **Response headers**: preserves multiple `Set-Cookie` headers from framework
+  responses by writing them as an array to Node's `ServerResponse`.
 
 ### Generated entry options
 

@@ -1,5 +1,5 @@
 import { cpSync, existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import { defineCommand } from "citty";
@@ -86,10 +86,7 @@ export default defineCommand({
       if (pages.length > 0) {
         console.log(`\n  Prerendering ${pages.length} SSG/ISG route(s)...\n`);
         for (const page of pages) {
-          const filePath =
-            page.path === "/"
-              ? join(clientDir, "index.html")
-              : join(clientDir, page.path, "index.html");
+          const filePath = resolvePrerenderOutputPath(clientDir, page.path);
 
           mkdirSync(dirname(filePath), { recursive: true });
           writeFileSync(filePath, page.html, "utf-8");
@@ -145,3 +142,27 @@ export default defineCommand({
     console.log("\n  Build complete.\n");
   },
 });
+
+export function resolvePrerenderOutputPath(clientDir: string, routePath: string): string {
+  if (routePath.includes("\0")) {
+    throw new Error(`Refusing to write prerendered route "${routePath}" with a NUL byte.`);
+  }
+
+  const root = resolve(clientDir);
+  const filePath =
+    routePath === "/" ? resolve(root, "index.html") : resolve(root, `.${routePath}`, "index.html");
+  const relativePath = relative(root, filePath);
+
+  if (
+    relativePath === "" ||
+    relativePath === ".." ||
+    relativePath.startsWith(`..${sep}`) ||
+    isAbsolute(relativePath)
+  ) {
+    throw new Error(
+      `Refusing to write prerendered route "${routePath}" outside dist/client (${filePath}).`,
+    );
+  }
+
+  return filePath;
+}

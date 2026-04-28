@@ -34,9 +34,7 @@ export async function writeWebResponse(res: ServerResponse, response: Response):
   res.statusCode = response.status;
   res.statusMessage = response.statusText;
 
-  response.headers.forEach((value, key) => {
-    res.setHeader(key, value);
-  });
+  writeNodeResponseHeaders(res, response.headers);
 
   if (!response.body) {
     res.end();
@@ -44,6 +42,26 @@ export async function writeWebResponse(res: ServerResponse, response: Response):
   }
 
   await pipeline(Readable.fromWeb(response.body as never), res);
+}
+
+export function writeNodeResponseHeaders(res: ServerResponse, headers: Headers): void {
+  const setCookieHeaders = getSetCookieHeaders(headers);
+
+  headers.forEach((value, key) => {
+    if (key.toLowerCase() === "set-cookie" && setCookieHeaders.length > 0) {
+      return;
+    }
+    res.setHeader(key, value);
+  });
+
+  if (setCookieHeaders.length > 0) {
+    res.setHeader("set-cookie", setCookieHeaders);
+  }
+}
+
+function getSetCookieHeaders(headers: Headers): string[] {
+  const getSetCookie = (headers as Headers & { getSetCookie?: () => string[] }).getSetCookie;
+  return typeof getSetCookie === "function" ? getSetCookie.call(headers) : [];
 }
 
 /**

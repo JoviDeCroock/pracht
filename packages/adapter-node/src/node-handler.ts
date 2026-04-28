@@ -15,7 +15,7 @@ import {
 } from "@pracht/core";
 
 import { regenerateISGPage } from "./node-isg.ts";
-import { createWebRequest, writeWebResponse } from "./node-request.ts";
+import { createWebRequest, writeNodeResponseHeaders, writeWebResponse } from "./node-request.ts";
 import { applyHeadersManifest, resolveStaticFile, type HeadersManifest } from "./node-static.ts";
 
 const ROUTE_STATE_REQUEST_HEADER = "x-pracht-route-state-request";
@@ -325,9 +325,7 @@ function isStaticAssetMethod(method: string): boolean {
 }
 
 function writeNodeHeaders(res: ServerResponse, headers: Headers): void {
-  headers.forEach((value, key) => {
-    res.setHeader(key, value);
-  });
+  writeNodeResponseHeaders(res, headers);
 }
 
 function createWeakEtag(fileStat: { mtimeMs: number; size: number }): string {

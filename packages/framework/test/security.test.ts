@@ -111,21 +111,28 @@ describe("applyHeaders / assertSafeHeaderValue", () => {
   });
 });
 
-describe("buildPathFromSegments catch-all encoding", () => {
+describe("buildPathFromSegments dynamic param safety", () => {
   const app = defineApp({
-    routes: [route("/docs/*", "./routes/docs.tsx")],
+    routes: [route("/blog/:slug", "./routes/post.tsx"), route("/docs/*", "./routes/docs.tsx")],
   });
   const resolved = resolveApp(app);
+  const paramRoute = resolved.routes.find((r) => r.path === "/blog/:slug")!;
   const catchAllRoute = resolved.routes.find((r) => r.path === "/docs/*")!;
 
-  it("encodes traversal sequences in catch-all params", () => {
-    const result = buildPathFromSegments(catchAllRoute.segments, {
-      "*": "../../etc/passwd",
-    });
-    // Each `..` and separator becomes percent-encoded, so path.join cannot
-    // resolve the result back up the tree.
-    expect(result).not.toContain("..");
-    expect(result).toContain("%2E%2E");
+  it("rejects dot segments in normal dynamic params", () => {
+    expect(() =>
+      buildPathFromSegments(paramRoute.segments, {
+        slug: "..",
+      }),
+    ).toThrow(/unsafe dynamic route param segment/i);
+  });
+
+  it("rejects traversal sequences in catch-all params", () => {
+    expect(() =>
+      buildPathFromSegments(catchAllRoute.segments, {
+        "*": "../../etc/passwd",
+      }),
+    ).toThrow(/unsafe dynamic route param segment/i);
   });
 
   it("encodes backslashes and NUL bytes in catch-all", () => {
@@ -141,6 +148,26 @@ describe("buildPathFromSegments catch-all encoding", () => {
       "*": "guides/deep/topic",
     });
     expect(result).toBe("/docs/guides/deep/topic");
+  });
+});
+
+// Static route dot segments would be copied directly into prerender output
+// paths, so reject them before SSG/ISG can write files.
+describe("static route path segment validation", () => {
+  it("rejects dot segments in static route paths", () => {
+    const app = defineApp({
+      routes: [route("/safe/../escape", "./routes/escape.tsx", { render: "ssg" })],
+    });
+
+    expect(() => resolveApp(app)).toThrow(/unsafe static route segment/i);
+  });
+
+  it("rejects raw backslashes in static route paths", () => {
+    const app = defineApp({
+      routes: [route("/safe\\..\\escape", "./routes/escape.tsx", { render: "ssg" })],
+    });
+
+    expect(() => resolveApp(app)).toThrow(/unsafe static route segment/i);
   });
 });
 

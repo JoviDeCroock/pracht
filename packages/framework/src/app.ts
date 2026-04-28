@@ -262,6 +262,7 @@ function parseRouteSegments(path: string): RouteSegment[] {
       } as const;
     }
 
+    assertSafeStaticRouteSegment(segment);
     return {
       type: "static",
       value: segment,
@@ -271,6 +272,16 @@ function parseRouteSegments(path: string): RouteSegment[] {
 
 function splitPathSegments(path: string): string[] {
   return normalizeRoutePath(path).split("/").filter(Boolean);
+}
+
+function assertSafeStaticRouteSegment(segment: string): void {
+  if (segment === "." || segment === "..") {
+    throw new Error(`Unsafe static route segment "${segment}" is not allowed.`);
+  }
+
+  if (segment.includes("\0") || /[\r\n\\]/.test(segment)) {
+    throw new Error(`Unsafe static route segment "${segment}" contains a forbidden character.`);
+  }
 }
 
 function mergeRoutePaths(prefix: string, path?: string): string {
@@ -306,17 +317,13 @@ function normalizeRoutePath(path: string): string {
 export function buildPathFromSegments(segments: RouteSegment[], params: RouteParams): string {
   const parts = segments.map((segment) => {
     if (segment.type === "static") return segment.value;
-    if (segment.type === "param") return encodeURIComponent(params[segment.name] ?? "");
-    // Catchall: encode each component individually so `/` is preserved
-    // but traversal sequences (`..`, backslashes, percent-encoded
-    // separators, NULs, CR/LF) can't escape the route. Without this,
-    // a `getStaticPaths` returning `{ "*": "../../etc/passwd" }` would
-    // feed the raw string into `path.join` at SSG/ISG write time and
-    // land outside `dist/client/`.
+    if (segment.type === "param") return encodeDynamicPathSegment(params[segment.name] ?? "");
+    // Catch-all routes preserve `/` between captured components, but each
+    // component is encoded as its own filesystem-safe URL segment.
     const raw = params[segment.name] ?? params["*"] ?? "";
     return raw
       .split("/")
-      .map((part) => encodeCatchAllSegment(part))
+      .map((part) => encodeDynamicPathSegment(part))
       .join("/");
   });
 
@@ -324,14 +331,15 @@ export function buildPathFromSegments(segments: RouteSegment[], params: RoutePar
 }
 
 /**
- * Encode a single path segment for a catch-all route. `encodeURIComponent`
- * leaves unreserved characters (including `.`) intact, so `..` would
- * round-trip unchanged and still resolve as parent-dir in `path.join`.
- * Explicitly percent-encode `.` / `..` segments to neutralise them.
+ * Encode one dynamic URL path segment for SSG/ISG output. `encodeURIComponent`
+ * leaves unreserved characters (including `.`) intact, and even percent-encoded
+ * dot segments are normalized by URL parsers. Reject exact `.` / `..` segments
+ * instead of allowing them to reach filesystem output path construction.
  */
-function encodeCatchAllSegment(part: string): string {
-  if (part === ".") return "%2E";
-  if (part === "..") return "%2E%2E";
+function encodeDynamicPathSegment(part: string): string {
+  if (part === "." || part === "..") {
+    throw new Error(`Unsafe dynamic route param segment "${part}" is not allowed.`);
+  }
   return encodeURIComponent(part);
 }
 

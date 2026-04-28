@@ -1,11 +1,17 @@
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
-import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import {
+  createServer,
+  request as httpRequest,
+  type IncomingMessage,
+  type RequestOptions,
+  type ServerResponse,
+} from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { once } from "node:events";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { defineApp, route, timeRevalidate } from "@pracht/core";
+import { defineApp, resolveApiRoutes, route, timeRevalidate } from "@pracht/core";
 
 import { createNodeRequestHandler, createNodeServerEntryModule } from "../src/index.ts";
 
@@ -16,6 +22,17 @@ function makeTempDir(): string {
   const dir = mkdtempSync(join(tmpdir(), "pracht-adapter-node-"));
   tempDirs.push(dir);
   return dir;
+}
+
+function requestRaw(options: RequestOptions): Promise<IncomingMessage> {
+  return new Promise((resolveRequest, reject) => {
+    const req = httpRequest(options, (res) => {
+      res.resume();
+      res.on("end", () => resolveRequest(res));
+    });
+    req.on("error", reject);
+    req.end();
+  });
 }
 
 async function waitFor(predicate: () => boolean, timeoutMs = 2_000): Promise<void> {
@@ -96,6 +113,52 @@ describe("createNodeRequestHandler", () => {
 
     expect(response.status).toBe(413);
     await expect(response.text()).resolves.toBe("Payload Too Large");
+  });
+
+  it("preserves multiple Set-Cookie headers from framework responses", async () => {
+    const app = defineApp({
+      routes: [],
+    });
+    const handler = createNodeRequestHandler({
+      apiRoutes: resolveApiRoutes(["/src/api/cookies.ts"]),
+      app,
+      registry: {
+        apiModules: {
+          "/src/api/cookies.ts": async () => ({
+            GET: async () => {
+              const headers = new Headers();
+              headers.append("set-cookie", "session=abc; Path=/; HttpOnly");
+              headers.append("set-cookie", "csrf=def; Path=/; SameSite=Lax");
+              return new Response("ok", { headers });
+            },
+          }),
+        },
+      },
+    });
+
+    const server = createServer((req: IncomingMessage, res: ServerResponse) => {
+      void handler(req, res);
+    });
+    servers.add(server);
+
+    server.listen(0, "127.0.0.1");
+    await once(server, "listening");
+    const address = server.address();
+    if (!address || typeof address === "string") {
+      throw new Error("Expected TCP server address");
+    }
+
+    const response = await requestRaw({
+      hostname: "127.0.0.1",
+      path: "/api/cookies",
+      port: address.port,
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers["set-cookie"]).toEqual([
+      "session=abc; Path=/; HttpOnly",
+      "csrf=def; Path=/; SameSite=Lax",
+    ]);
   });
 
   it("reuses createContext during stale ISG regeneration with a clean request", async () => {

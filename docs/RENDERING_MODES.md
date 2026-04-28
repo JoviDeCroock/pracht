@@ -51,6 +51,11 @@ The build calls `getStaticPaths()` to enumerate params, constructs full paths
 from the route pattern, then runs the loader and renderer for each.
 Output: `dist/client/blog/hello-world/index.html`, etc.
 
+Dynamic params are percent-encoded before output paths are written, and exact
+`.` / `..` dynamic param segments are rejected. Static route patterns cannot
+contain raw dot segments or backslashes. The CLI also verifies every
+prerendered file resolves inside `dist/client/` before writing.
+
 Prerendering runs concurrently (default: 10 parallel renders). Tune it with `pracht({ prerenderConcurrency })` in your Vite config when CI needs more or less parallelism.
 
 ---
