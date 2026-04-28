@@ -1,7 +1,7 @@
 import { h } from "preact";
 import type { FunctionComponent } from "preact";
 
-import { matchApiRoute, matchAppRoute } from "./app.ts";
+import { matchApiRoute, matchAppRoute, resolveApp } from "./app.ts";
 import { ROUTE_STATE_REQUEST_HEADER, SAFE_METHODS } from "./runtime-constants.ts";
 import {
   buildRuntimeDiagnostics,
@@ -39,8 +39,10 @@ import type {
   BaseRouteArgs,
   HttpMethod,
   ModuleRegistry,
+  HrefRouteDefinition,
   PrachtApp,
   ResolvedApiRoute,
+  ResolvedPrachtApp,
   RouteModule,
   ShellModule,
 } from "./types.ts";
@@ -163,6 +165,7 @@ export async function handlePrachtRequest<TContext>(
   }
   const requestPath = getRequestPath(url);
   const registry = options.registry ?? {};
+  const resolvedApp = getResolvedApp(options.app);
   // The route-state endpoint returns loader output as JSON. Two entry
   // points into it: the explicit header (only settable via fetch, so the
   // browser forces CORS preflight cross-origin) and the `_data=1` query
@@ -257,7 +260,7 @@ export async function handlePrachtRequest<TContext>(
     }
   }
 
-  const match = matchAppRoute(options.app, url.pathname);
+  const match = matchAppRoute(resolvedApp, url.pathname);
 
   if (!match) {
     if (isRouteStateRequest) {
@@ -435,21 +438,29 @@ export async function handlePrachtRequest<TContext>(
 
     if (match.route.render === "spa") {
       let body = "";
+      const Shell = shellModule?.Shell as FunctionComponent | undefined;
+      const Loading = shellModule?.Loading as FunctionComponent | undefined;
+      const loadingTree =
+        Shell != null
+          ? h(Shell, null, Loading ? h(Loading, null) : null)
+          : Loading
+            ? h(Loading, null)
+            : null;
 
-      if (shellModule?.Shell || shellModule?.Loading) {
-        const Shell = shellModule?.Shell as FunctionComponent | undefined;
-        const Loading = shellModule?.Loading as FunctionComponent | undefined;
-        const loadingTree =
-          Shell != null
-            ? h(Shell, null, Loading ? h(Loading, null) : null)
-            : Loading
-              ? h(Loading, null)
-              : null;
-
-        if (loadingTree) {
-          const renderFn = await getRenderToStringAsync();
-          body = await renderFn(loadingTree);
-        }
+      if (loadingTree) {
+        const tree = h(
+          PrachtRuntimeProvider as FunctionComponent<Record<string, unknown>>,
+          {
+            data: null,
+            params: match.params,
+            routeId: match.route.id ?? "",
+            routes: resolvedApp.routes,
+            url: requestPath,
+          },
+          loadingTree,
+        );
+        const renderFn = await getRenderToStringAsync();
+        body = await renderFn(tree);
       }
 
       return htmlResponse(
@@ -492,6 +503,7 @@ export async function handlePrachtRequest<TContext>(
         data,
         params: match.params,
         routeId: match.route.id ?? "",
+        routes: resolvedApp.routes,
         url: requestPath,
       },
       componentTree,
@@ -537,6 +549,25 @@ function getRequestPath(url: URL): string {
   return `${url.pathname}${url.search}`;
 }
 
+function getResolvedApp(app: PrachtApp): ResolvedPrachtApp {
+  const routes = (app as { routes: readonly unknown[] }).routes;
+  if (routes.length === 0 || isHrefRouteDefinition(routes[0])) {
+    return app as unknown as ResolvedPrachtApp;
+  }
+
+  return resolveApp(app);
+}
+
+function isHrefRouteDefinition(value: unknown): value is HrefRouteDefinition {
+  return Boolean(
+    value &&
+    typeof value === "object" &&
+    "path" in value &&
+    "segments" in value &&
+    Array.isArray((value as { segments?: unknown }).segments),
+  );
+}
+
 // Public runtime surface — re-exported so `./runtime.ts` remains the
 // single import entry for the framework's runtime API.
 export { applyDefaultSecurityHeaders } from "./runtime-headers.ts";
@@ -548,6 +579,7 @@ export {
 } from "./runtime-errors.ts";
 export {
   Form,
+  Link,
   PrachtRuntimeProvider,
   readHydrationState,
   startApp,
@@ -556,6 +588,7 @@ export {
   useRevalidate,
   useRouteData,
   type FormProps,
+  type LinkProps,
   type Location,
   type PrachtHydrationState,
   type StartAppOptions,

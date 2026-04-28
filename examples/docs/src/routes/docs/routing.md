@@ -109,6 +109,43 @@ route("/docs/*", "./routes/docs.tsx");
 
 ---
 
+## Typed Routes and Links
+
+Run `pracht typegen` to generate a type-safe route map from the same resolved app graph used by `pracht inspect routes --json`:
+
+```bash
+pracht typegen
+```
+
+This writes `src/pracht-routes.d.ts` for route id and param types plus `src/pracht-routes.ts` for an adapter-agnostic `href()` helper.
+
+```tsx
+import { Link, useNavigate } from "@pracht/core";
+import { href } from "../pracht-routes";
+
+export function ProductActions({ id }: { id: string }) {
+  const navigate = useNavigate();
+
+  return (
+    <>
+      <Link route="product" params={{ id }} search={{ ref: "home" }}>
+        View product
+      </Link>
+      <button onClick={() => void navigate({ route: "product", params: { id } })}>
+        Open product
+      </button>
+      <a href={href("product", { params: { id }, search: { tab: "details" } })}>
+        Details
+      </a>
+    </>
+  );
+}
+```
+
+Explicit `id` fields are preferred for stable public APIs. Routes without ids use generated ids, and params are inferred from `:param`, `*`, and `:name*` segments. `pracht typegen --check` is useful in CI to catch stale generated files.
+
+---
+
 ## Shells
 
 Shells are Preact layout components that wrap route content. They are **decoupled from URL structure** — a flat URL like `/settings` can use the `app` shell without nesting under `/app/settings`.

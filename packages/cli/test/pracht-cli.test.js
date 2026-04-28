@@ -351,6 +351,51 @@ export const app = defineApp({
     });
   }, 30_000);
 
+  it("generates typed route declarations and href helpers for manifest apps", () => {
+    const appDir = createRepoTempDir("pracht-cli-typegen-manifest-");
+    writeTypedManifestApp(appDir);
+
+    const result = JSON.parse(runCli(["typegen", "--json"], { cwd: appDir }).stdout);
+    const declaration = readFileSync(join(appDir, "src/pracht-routes.d.ts"), "utf-8");
+    const runtime = readFileSync(join(appDir, "src/pracht-routes.ts"), "utf-8");
+
+    expect(result).toMatchObject({
+      check: false,
+      files: ["src/pracht-routes.d.ts", "src/pracht-routes.ts"],
+      mode: "manifest",
+      ok: true,
+      routes: 2,
+    });
+    expect(declaration).toContain('"home": {');
+    expect(declaration).toContain("params: Record<never, never>;");
+    expect(declaration).toContain('"product": {');
+    expect(declaration).toContain('params: { "id": string; };');
+    expect(runtime).toContain('id: "product"');
+    expect(runtime).toContain('path: "/products/:id"');
+    expect(runtime).toContain("export const href = createHref(routes);");
+
+    const check = JSON.parse(runCli(["typegen", "--check", "--json"], { cwd: appDir }).stdout);
+    expect(check).toMatchObject({ check: true, ok: true, routes: 2 });
+
+    writeProjectFile(appDir, "src/pracht-routes.d.ts", "stale\n");
+    const stale = runCliStatus(["typegen", "--check", "--json"], { cwd: appDir });
+    expect(stale.status).toBe(1);
+    expect(JSON.parse(stale.stderr)).toMatchObject({ ok: false });
+  }, 30_000);
+
+  it("generates typed route declarations for pages-router apps", () => {
+    const appDir = createRepoTempDir("pracht-cli-typegen-pages-");
+    writeInspectablePagesApp(appDir);
+
+    const result = JSON.parse(runCli(["typegen", "--json"], { cwd: appDir }).stdout);
+    const declaration = readFileSync(join(appDir, "src/pracht-routes.d.ts"), "utf-8");
+
+    expect(result).toMatchObject({ mode: "pages", ok: true, routes: 2 });
+    expect(declaration).toContain('"index": {');
+    expect(declaration).toContain('"blog-slug": {');
+    expect(declaration).toContain('params: { "slug": string; };');
+  }, 30_000);
+
   it("scaffolds pages-router routes without touching a manifest", () => {
     const appDir = createTempDir("pracht-cli-pages-");
     writePagesApp(appDir);
@@ -467,6 +512,101 @@ export const app = defineApp({
   routes: [],
 });
 `,
+  );
+}
+
+function writeTypedManifestApp(appDir) {
+  const vitePluginImport = pathToFileURL(vitePluginImportPath).href;
+
+  writeProjectFile(
+    appDir,
+    "package.json",
+    JSON.stringify(
+      {
+        name: "fixture-typegen-app",
+        private: true,
+        type: "module",
+      },
+      null,
+      2,
+    ),
+  );
+  writeProjectFile(
+    appDir,
+    "vite.config.ts",
+    `import { defineConfig } from "vite";
+import { pracht } from ${JSON.stringify(vitePluginImport)};
+
+export default defineConfig({
+  plugins: [pracht()],
+  resolve: {
+    alias: {
+      "@pracht/adapter-node": ${JSON.stringify(nodeAdapterImportPath)},
+      "@pracht/core": ${JSON.stringify(coreImportPath)},
+    },
+  },
+});
+`,
+  );
+  writeProjectFile(
+    appDir,
+    "src/routes.ts",
+    `import { defineApp, route } from "@pracht/core";
+
+export const app = defineApp({
+  routes: [
+    route("/", "./routes/home.tsx", { id: "home", render: "ssg" }),
+    route("/products/:id", "./routes/product.tsx", { id: "product", render: "ssr" }),
+  ],
+});
+`,
+  );
+  writeProjectFile(appDir, "src/routes/home.tsx", "export function Component() { return null; }\n");
+  writeProjectFile(
+    appDir,
+    "src/routes/product.tsx",
+    "export function Component() { return null; }\n",
+  );
+}
+
+function writeInspectablePagesApp(appDir) {
+  const vitePluginImport = pathToFileURL(vitePluginImportPath).href;
+
+  writeProjectFile(
+    appDir,
+    "package.json",
+    JSON.stringify(
+      {
+        name: "fixture-typegen-pages-app",
+        private: true,
+        type: "module",
+      },
+      null,
+      2,
+    ),
+  );
+  writeProjectFile(
+    appDir,
+    "vite.config.ts",
+    `import { defineConfig } from "vite";
+import { pracht } from ${JSON.stringify(vitePluginImport)};
+
+export default defineConfig({
+  plugins: [pracht({ pagesDir: "/src/pages" })],
+  resolve: {
+    alias: {
+      "@pracht/adapter-node": ${JSON.stringify(nodeAdapterImportPath)},
+      "@pracht/core": ${JSON.stringify(coreImportPath)},
+    },
+  },
+});
+`,
+  );
+  writeProjectFile(appDir, "src/pages/index.tsx", "export function Component() { return null; }\n");
+  writeProjectFile(
+    appDir,
+    "src/pages/blog/[slug].tsx",
+    "export function Component() { return null; }\n",
   );
 }
 

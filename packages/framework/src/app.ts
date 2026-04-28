@@ -1,18 +1,24 @@
 import type {
   ApiRouteMatch,
+  BuildHrefOptions,
   GroupDefinition,
   GroupMeta,
+  HrefArgs,
+  HrefFn,
+  HrefRouteDefinition,
   ModuleRef,
   ResolvedApiRoute,
   ResolvedRoute,
   ResolvedPrachtApp,
   RouteConfig,
   RouteDefinition,
+  RouteId,
   RouteMatch,
   RouteMeta,
   RouteParams,
   RouteSegment,
   RouteTreeNode,
+  SearchParamsInput,
   TimeRevalidatePolicy,
   PrachtApp,
   PrachtAppConfig,
@@ -314,7 +320,10 @@ function normalizeRoutePath(path: string): string {
   return collapsed.length > 1 && collapsed.endsWith("/") ? collapsed.slice(0, -1) : collapsed;
 }
 
-export function buildPathFromSegments(segments: RouteSegment[], params: RouteParams): string {
+export function buildPathFromSegments(
+  segments: readonly RouteSegment[],
+  params: RouteParams,
+): string {
   const parts = segments.map((segment) => {
     if (segment.type === "static") return segment.value;
     if (segment.type === "param") return encodeDynamicPathSegment(params[segment.name] ?? "");
@@ -328,6 +337,102 @@ export function buildPathFromSegments(segments: RouteSegment[], params: RoutePar
   });
 
   return normalizeRoutePath("/" + parts.join("/"));
+}
+
+export function buildHref<TRoute extends RouteId>(
+  routes: readonly HrefRouteDefinition[],
+  routeId: TRoute,
+  ...args: HrefArgs<TRoute>
+): string {
+  return buildHrefUntyped(routes, String(routeId), args[0] as BuildHrefOptions | undefined);
+}
+
+export function createHref(routes: readonly HrefRouteDefinition[]): HrefFn {
+  return ((routeId: string, options?: BuildHrefOptions) =>
+    buildHrefUntyped(routes, routeId, options)) as HrefFn;
+}
+
+function buildHrefUntyped(
+  routes: readonly HrefRouteDefinition[],
+  routeId: string,
+  options: BuildHrefOptions = {},
+): string {
+  const route = routes.find((candidate) => candidate.id === routeId);
+  if (!route) {
+    throw new Error(`Unknown pracht route id: ${routeId}.`);
+  }
+
+  const segments = route.segments ?? parseRouteSegments(route.path);
+  const params = normalizeHrefParams(segments, options.params ?? {});
+  const path = buildPathFromSegments(segments, params);
+  return `${path}${serializeSearch(options.search)}${serializeHash(options.hash)}`;
+}
+
+function normalizeHrefParams(
+  segments: readonly RouteSegment[],
+  params: Record<string, unknown>,
+): RouteParams {
+  const expected = new Set(
+    segments
+      .filter((segment) => segment.type === "param" || segment.type === "catchall")
+      .map((segment) => segment.name),
+  );
+
+  for (const name of expected) {
+    if (params[name] == null) {
+      throw new Error(`Missing route param: ${name}.`);
+    }
+  }
+
+  for (const name of Object.keys(params)) {
+    if (!expected.has(name)) {
+      throw new Error(`Unexpected route param: ${name}.`);
+    }
+  }
+
+  const normalized: RouteParams = {};
+  for (const name of expected) {
+    normalized[name] = String(params[name]);
+  }
+  return normalized;
+}
+
+function serializeSearch(search: SearchParamsInput | undefined): string {
+  if (search == null) return "";
+
+  if (typeof search === "string") {
+    if (!search) return "";
+    return search.startsWith("?") ? search : `?${search}`;
+  }
+
+  const params = search instanceof URLSearchParams ? search : objectToSearchParams(search);
+  const serialized = params.toString();
+  return serialized ? `?${serialized}` : "";
+}
+
+function objectToSearchParams(search: Record<string, unknown>): URLSearchParams {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(search)) {
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        appendSearchValue(params, key, item);
+      }
+      continue;
+    }
+
+    appendSearchValue(params, key, value);
+  }
+  return params;
+}
+
+function appendSearchValue(params: URLSearchParams, key: string, value: unknown): void {
+  if (value == null) return;
+  params.append(key, String(value));
+}
+
+function serializeHash(hash: string | undefined): string {
+  if (!hash) return "";
+  return hash.startsWith("#") ? hash : `#${hash}`;
 }
 
 /**

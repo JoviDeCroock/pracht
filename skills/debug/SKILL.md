@@ -46,7 +46,15 @@ Work through these in order, stopping when you find the root cause:
 - For dynamic segments, verify bracket syntax: `route("/users/:id", ...)` in manifest, `[id].ts` in filenames.
 - Grep for the route path across the manifest and check `matchAppRoute()` logic if needed.
 
-### 2. Loader / API route errors
+### 2. Typed route/link issues
+
+- If `<Link route="...">`, `href("...")`, or route-object `useNavigate()` fails to typecheck, run `pracht typegen --check` to detect stale generated files.
+- Run `pracht inspect routes --json` and confirm the route id exists. If it is a fallback id, remember path changes can rename it.
+- Check generated `src/pracht-routes.d.ts` for inferred params. `:id`, `*`, and `:path*` params are required; extra params should fail at typecheck time.
+- If runtime navigation throws `Unknown pracht route id`, ensure `pracht typegen` was run and the component is rendered inside the pracht route tree.
+- For unexpected URLs, reproduce with `href(routeId, options)` and compare against the route's resolved path and params.
+
+### 3. Loader / API route errors
 
 - Read the route module's `loader` function or the matching API route handler.
 - Check that `loader` returns serializable data (no functions, no circular refs).
@@ -54,7 +62,7 @@ Work through these in order, stopping when you find the root cause:
 - Look for unhandled promise rejections or thrown errors.
 - Verify `LoaderArgs` destructuring matches what the framework provides: `{ request, params, context, signal, url, route }`.
 
-### 3. Rendering issues
+### 4. Rendering issues
 
 - **Blank page**: Check if the route has `render: "spa"` (no SSR content expected) vs `"ssr"`.
 - **Hydration mismatch**: In dev, pracht surfaces a fixed-position red banner at the top of the page listing each mismatched component (via Preact's `options.__m` hook). Compare server-rendered HTML vs client component output. Common causes:
@@ -64,7 +72,7 @@ Work through these in order, stopping when you find the root cause:
 - **Missing shell**: Verify the shell is registered in `defineApp({ shells: { ... } })` and assigned to the route/group.
 - **404 page**: Route not matched — check manifest wiring (step 1).
 
-### 4. Middleware issues
+### 5. Middleware issues
 
 - Verify middleware is registered in `defineApp({ middleware: { ... } })`.
 - Verify middleware is applied to the route/group: `middleware: ["name"]`.
@@ -75,7 +83,7 @@ Work through these in order, stopping when you find the root cause:
   - `{ context: { ... } }` → augment context
 - Middleware runs server-side only, before loaders.
 
-### 5. API route issues
+### 6. API route issues
 
 - API routes live in `src/api/` and are auto-discovered (no manifest entry needed).
 - For machine-readable API inventory, run `pracht inspect api --json`.
@@ -85,14 +93,14 @@ Work through these in order, stopping when you find the root cause:
 - Default handlers receive the same route args and can branch on `request.method`.
 - Handlers must return `Response` objects.
 
-### 6. Vite plugin / HMR issues
+### 7. Vite plugin / HMR issues
 
 - Check `vite.config.ts` — is `pracht()` plugin included?
 - Virtual modules: `virtual:pracht/client` (hydration), `virtual:pracht/server` (SSR).
 - HMR: changes to `src/routes.ts` trigger full reload; changes to route/shell/middleware/API files invalidate the server module.
 - If HMR seems broken, check that the file is in one of the watched directories (`src/routes/`, `src/shells/`, `src/middleware/`, `src/api/`).
 
-### 7. Build / deployment issues
+### 8. Build / deployment issues
 
 - `pracht build` runs client + server builds, then prerenders SSG/ISG routes.
 - `pracht inspect build --json` reports the resolved adapter target plus client/CSS/JS manifests from the latest build output.

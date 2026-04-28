@@ -23,6 +23,98 @@ export type RenderMode = "spa" | "ssr" | "ssg" | "isg";
 
 export type RouteParams = Record<string, string>;
 
+export type RouteParamInput = string | number | boolean;
+export type SearchParamPrimitive = string | number | boolean;
+export type SearchParamValue =
+  | SearchParamPrimitive
+  | null
+  | undefined
+  | readonly (SearchParamPrimitive | null | undefined)[];
+export type SearchParamsInput = string | URLSearchParams | Record<string, SearchParamValue>;
+
+export interface BuildHrefOptions {
+  params?: Record<string, RouteParamInput>;
+  search?: SearchParamsInput;
+  hash?: string;
+}
+
+export interface NavigateOptions {
+  replace?: boolean;
+}
+
+export interface HrefRouteDefinition {
+  id?: string;
+  path: string;
+  segments?: readonly RouteSegment[];
+}
+
+type RegisteredRouteMap = Register extends { routes: infer TRoutes }
+  ? TRoutes extends Record<string, unknown>
+    ? TRoutes
+    : {}
+  : {};
+
+type HasRegisteredRoutes = keyof RegisteredRouteMap extends never ? false : true;
+type EmptyRouteParams = Record<never, never>;
+type IsEmptyRouteParams<TParams> = keyof TParams extends never ? true : false;
+
+export type RouteId = HasRegisteredRoutes extends true
+  ? Extract<keyof RegisteredRouteMap, string>
+  : string;
+
+export type RouteParamsFor<TRoute extends RouteId> = HasRegisteredRoutes extends true
+  ? TRoute extends keyof RegisteredRouteMap
+    ? RegisteredRouteMap[TRoute] extends { params: infer TParams }
+      ? TParams extends Record<string, unknown>
+        ? TParams
+        : EmptyRouteParams
+      : EmptyRouteParams
+    : never
+  : Record<string, RouteParamInput>;
+
+export type RouteSearchFor<TRoute extends RouteId> = HasRegisteredRoutes extends true
+  ? TRoute extends keyof RegisteredRouteMap
+    ? RegisteredRouteMap[TRoute] extends { search: infer TSearch }
+      ? TSearch
+      : SearchParamsInput
+    : never
+  : SearchParamsInput;
+
+type TypedHrefOptions<TRoute extends RouteId> =
+  IsEmptyRouteParams<RouteParamsFor<TRoute>> extends true
+    ? {
+        params?: never;
+        search?: RouteSearchFor<TRoute>;
+        hash?: string;
+      }
+    : {
+        params: RouteParamsFor<TRoute>;
+        search?: RouteSearchFor<TRoute>;
+        hash?: string;
+      };
+
+export type HrefOptions<TRoute extends RouteId = RouteId> = HasRegisteredRoutes extends true
+  ? TRoute extends RouteId
+    ? TypedHrefOptions<TRoute>
+    : never
+  : BuildHrefOptions;
+
+export type HrefArgs<TRoute extends RouteId = RouteId> = HasRegisteredRoutes extends true
+  ? TRoute extends RouteId
+    ? IsEmptyRouteParams<RouteParamsFor<TRoute>> extends true
+      ? [options?: TypedHrefOptions<TRoute>]
+      : [options: TypedHrefOptions<TRoute>]
+    : never
+  : [options?: BuildHrefOptions];
+
+export type RouteTarget<TRoute extends RouteId = RouteId> = HasRegisteredRoutes extends true
+  ? TRoute extends RouteId
+    ? { route: TRoute } & TypedHrefOptions<TRoute>
+    : never
+  : { route: string } & BuildHrefOptions;
+
+export type HrefFn = <TRoute extends RouteId>(route: TRoute, ...args: HrefArgs<TRoute>) => string;
+
 /**
  * A reference to a module file — either a plain string path or a lazy import
  * function. Using `() => import("./path")` enables IDE click-to-navigate.

@@ -20,9 +20,11 @@ described in `VISION_MVP.md`.
 
 ## What Exists Today
 
-- **Route manifest** — `defineApp()`, `route()`, `group()`, `resolveApp()`, and
-  `matchAppRoute()` are fully implemented with dynamic-segment and catch-all
-  matching.
+- **Route manifest** — `defineApp()`, `route()`, `group()`, `resolveApp()`,
+  `matchAppRoute()`, and typed href helpers are fully implemented with
+  dynamic-segment and catch-all matching. `buildHref()`/`createHref()` build
+  adapter-agnostic URLs from resolved route ids, and `<Link route="...">` plus
+  route-object `useNavigate()` keep client navigation on the same route map.
 - **API routes** — File-based auto-discovery from `src/api/`. Files are globbed
   by the Vite plugin and resolved to URL paths (e.g. `src/api/health.ts` →
   `/api/health`, `src/api/users/[id].ts` → `/api/users/:id`,
@@ -67,6 +69,8 @@ described in `VISION_MVP.md`.
   `pracht verify` runs fast framework-aware checks with optional `--changed`
   and `--json` output, `pracht inspect [routes|api|build] --json` emits the
   resolved route graph, API handlers, and build metadata for agents/tools,
+  `pracht typegen` emits `src/pracht-routes.d.ts` and `src/pracht-routes.ts`
+  from the resolved route graph for typed links and href helpers,
   `pracht generate route|shell|middleware|api` scaffolds framework-native
   files, and `pracht doctor` validates app wiring across the whole project.
 - **Package builds** — `tsdown` compiles `pracht`, `@pracht/vite-plugin`,

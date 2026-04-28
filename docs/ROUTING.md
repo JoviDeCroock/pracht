@@ -124,6 +124,53 @@ Matches `/docs/a/b/c` — the catch-all value is available in params.
 
 ---
 
+## Typed Routes and Links
+
+Generate a type-safe route map from the same resolved app graph used by
+`pracht inspect routes --json`:
+
+```bash
+pracht typegen
+```
+
+This writes `src/pracht-routes.d.ts` for module augmentation and
+`src/pracht-routes.ts` for a runtime `href()` helper. Route ids come from
+explicit `id` fields and fall back to generated ids such as `index`,
+`blog-slug`, or `docs-splat`.
+
+```tsx
+import { Link, useNavigate } from "@pracht/core";
+import { href } from "../pracht-routes";
+
+export function ProductActions({ id }: { id: string }) {
+  const navigate = useNavigate();
+
+  return (
+    <>
+      <Link route="product" params={{ id }} search={{ ref: "home" }}>
+        View product
+      </Link>
+      <button onClick={() => void navigate({ route: "product", params: { id } })}>
+        Open product
+      </button>
+      <a href={href("product", { params: { id }, search: { tab: "details" } })}>
+        Details
+      </a>
+    </>
+  );
+}
+```
+
+Generated types infer required params from `:param`, `*`, and `:name*`
+segments, so missing or extra params fail at compile time. Search params are
+currently typed as `SearchParamsInput` (`string`, `URLSearchParams`, or an
+object of primitive values/arrays); route-specific search schemas can be added
+later through route metadata without changing the runtime helper shape.
+
+Use `pracht typegen --check` in CI to fail when generated route files are stale.
+
+---
+
 ## Route Resolution
 
 At build time, the route tree (including groups) is flattened into a linear array

@@ -118,6 +118,35 @@ test("client-side navigation to dynamic route", async ({ page }) => {
   await expect(page.locator("h1")).toContainText("Blog: Hello World");
 });
 
+test("typed Link, href helper, and route-object navigation work in pages-router apps", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page.waitForFunction(() => (window as any).__PRACHT_ROUTER_READY__);
+
+  await expect(page.locator('a[href="/blog/hello-world?ref=typed-link"]')).toContainText(
+    "Read typed blog post",
+  );
+  await expect(page.locator('a[href="/about?tab=details"]')).toContainText("About via href()");
+
+  await page.evaluate(() => {
+    (window as any).__NAV_TOKEN__ = true;
+  });
+
+  await page.click('a[href="/blog/hello-world?ref=typed-link"]');
+  await page.waitForURL("/blog/hello-world?ref=typed-link");
+  await expect(page.locator("h1")).toContainText("Blog: Hello World");
+
+  await page.goBack();
+  await page.waitForURL("/");
+  await page.click("#typed-blog-button");
+  await page.waitForURL("/blog/my-first-post");
+  await expect(page.locator("h1")).toContainText("Blog: my first post");
+
+  const tokenSurvived = await page.evaluate(() => (window as any).__NAV_TOKEN__ === true);
+  expect(tokenSurvived).toBe(true);
+});
+
 // ---------------------------------------------------------------------------
 // Hydration state
 // ---------------------------------------------------------------------------

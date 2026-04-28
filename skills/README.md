@@ -54,12 +54,16 @@ action-oriented body. Invoke a skill in Claude Code with `/<skill-name>`.
 | `/add-db`             | Wire Drizzle ORM (D1, PlanetScale, Neon, Postgres, ...).          |
 | `/add-i18n`           | Add locale routing and translation primitives.                    |
 | `/add-observability`  | Wire Sentry / OpenTelemetry plus Web Vitals.                      |
+| `/typed-routes`       | Generate and adopt route-id based typed links/navigation.         |
 
 ## Conventions
 
 - Use `pracht inspect routes --json`, `pracht inspect api --json`, and
   `pracht inspect build --json` as the source of truth instead of globbing
   `src/`. The resolved graph already accounts for groups and inheritance.
+- Use `pracht typegen` to refresh `src/pracht-routes.d.ts` and
+  `src/pracht-routes.ts` after route ids or paths change; use
+  `pracht typegen --check` in verification/CI.
 - Audit skills produce a report; they never auto-fix.
 - Add/scaffold skills generate files but never overwrite an existing config
   without diffing first.
