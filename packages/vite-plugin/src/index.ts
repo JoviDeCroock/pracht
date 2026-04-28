@@ -1,6 +1,6 @@
 import preact from "@preact/preset-vite";
 import { resolve } from "node:path";
-import type { Plugin } from "vite";
+import type { Plugin, UserConfig } from "vite";
 import {
   isPrachtClientModuleId,
   stripServerOnlyExportsForClient,
@@ -179,14 +179,82 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
     },
   };
 
+  const optimizeDepsEntriesPlugin: Plugin = {
+    name: "pracht:optimize-deps-entries",
+    enforce: "post",
+
+    config(config) {
+      return withPrachtOptimizeDepsEntries(config, createPrachtOptimizeDepsEntries(resolved));
+    },
+  };
+
   const plugins: Plugin[] = [...preact(), prachtPlugin, clientModuleTransformPlugin];
 
   const adapterPlugins = resolved.adapter.vitePlugins?.();
   if (adapterPlugins?.length) {
     plugins.push(...adapterPlugins);
   }
+  plugins.push(optimizeDepsEntriesPlugin);
 
   return plugins;
+}
+
+function withPrachtOptimizeDepsEntries(config: UserConfig, prachtEntries: string[]): UserConfig {
+  const environments = Object.fromEntries(
+    Object.entries(config.environments ?? {}).map(([name, environment]) => [
+      name,
+      {
+        optimizeDeps: {
+          entries: mergeOptimizeDepsEntries(environment.optimizeDeps?.entries, prachtEntries),
+        },
+      },
+    ]),
+  );
+
+  return {
+    optimizeDeps: {
+      entries: mergeOptimizeDepsEntries(config.optimizeDeps?.entries, prachtEntries),
+    },
+    ...(Object.keys(environments).length > 0 ? { environments } : {}),
+  };
+}
+
+function createPrachtOptimizeDepsEntries(resolved: ResolvedPrachtPluginOptions): string[] {
+  const scriptExtensions = "{ts,tsx,js,jsx}";
+  const routeExtensions = "{ts,tsx,js,jsx,md,mdx,tsrx}";
+  const entries = resolved.pagesDir
+    ? [
+        `${toOptimizeDepsEntry(resolved.pagesDir)}/**/*.${routeExtensions}`,
+        `${toOptimizeDepsEntry(resolved.middlewareDir)}/**/*.${scriptExtensions}`,
+        `${toOptimizeDepsEntry(resolved.apiDir)}/**/*.{ts,js,tsx,jsx}`,
+        `${toOptimizeDepsEntry(resolved.serverDir)}/**/*.{ts,js,tsx,jsx}`,
+      ]
+    : [
+        toOptimizeDepsEntry(resolved.appFile),
+        `${toOptimizeDepsEntry(resolved.routesDir)}/**/*.${routeExtensions}`,
+        `${toOptimizeDepsEntry(resolved.shellsDir)}/**/*.${routeExtensions}`,
+        `${toOptimizeDepsEntry(resolved.middlewareDir)}/**/*.${scriptExtensions}`,
+        `${toOptimizeDepsEntry(resolved.apiDir)}/**/*.{ts,js,tsx,jsx}`,
+        `${toOptimizeDepsEntry(resolved.serverDir)}/**/*.{ts,js,tsx,jsx}`,
+      ];
+
+  return [...new Set(entries.filter(Boolean))];
+}
+
+function mergeOptimizeDepsEntries(
+  userEntries: string | string[] | undefined,
+  prachtEntries: string[],
+): string[] {
+  const normalizedUserEntries = Array.isArray(userEntries)
+    ? userEntries
+    : userEntries
+      ? [userEntries]
+      : [];
+  return [...new Set([...normalizedUserEntries, ...prachtEntries])];
+}
+
+function toOptimizeDepsEntry(path: string): string {
+  return toPosixPath(path).replace(/^\.\//, "").replace(/^\//, "").replace(/\/$/, "");
 }
 
 function watchPagesDirectory(

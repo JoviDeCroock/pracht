@@ -1,9 +1,10 @@
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { ConfigEnv, UserConfig } from "vite";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { createPrachtRegistryModuleSource } from "../src/index.ts";
+import { createPrachtRegistryModuleSource, pracht } from "../src/index.ts";
 import { generatePagesManifestSource, scanPagesDirectory } from "../src/pages-router.ts";
 
 const tempDirs: string[] = [];
@@ -93,6 +94,40 @@ describe("generatePagesManifestSource", () => {
 
     expect(source).not.toContain("shells:");
     expect(source).toContain('route("/", "./index.mdx", { render: "ssr" })');
+  });
+});
+
+describe("pracht plugin config", () => {
+  it("adds framework dynamic modules to optimize-deps entries", async () => {
+    const plugins = await pracht();
+    const plugin = plugins.find((candidate) => candidate.name === "pracht:optimize-deps-entries");
+    const config = plugin?.config;
+    expect(typeof config).toBe("function");
+
+    const result = (config as (config: UserConfig, env: ConfigEnv) => UserConfig)(
+      {
+        optimizeDeps: { entries: "custom-entry.ts" },
+        environments: {
+          worker: { optimizeDeps: { entries: "virtual:pracht/server" } },
+        },
+      },
+      { command: "serve", isSsrBuild: false, mode: "development" },
+    );
+
+    const expectedPrachtEntries = [
+      "src/routes.ts",
+      "src/routes/**/*.{ts,tsx,js,jsx,md,mdx,tsrx}",
+      "src/shells/**/*.{ts,tsx,js,jsx,md,mdx,tsrx}",
+      "src/middleware/**/*.{ts,tsx,js,jsx}",
+      "src/api/**/*.{ts,js,tsx,jsx}",
+      "src/server/**/*.{ts,js,tsx,jsx}",
+    ];
+
+    expect(result.optimizeDeps?.entries).toEqual(["custom-entry.ts", ...expectedPrachtEntries]);
+    expect(result.environments?.worker.optimizeDeps?.entries).toEqual([
+      "virtual:pracht/server",
+      ...expectedPrachtEntries,
+    ]);
   });
 });
 

@@ -179,6 +179,7 @@ export function head() {
         rel: "stylesheet",
         href: "https://fonts.googleapis.com/css2?family=Inter:wght@400;450;500;550;600;650;700&display=swap",
       },
+      ...(import.meta.env.DEV ? [{ rel: "stylesheet", href: "/src/styles/global.css" }] : []),
     ],
   };
 }
