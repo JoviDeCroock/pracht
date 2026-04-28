@@ -5,6 +5,9 @@ breadcrumb: Performance
 prev:
   href: /docs/prefetching
   title: Prefetching
+next:
+  href: /docs/llms
+  title: LLM Content Negotiation
 ---
 
 ## Route-Level Code Splitting

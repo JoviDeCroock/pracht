@@ -56,6 +56,7 @@ const NAV = [
     links: [
       { href: "/docs/prefetching", Icon: IconBolt, title: "Prefetching" },
       { href: "/docs/performance", Icon: IconGauge, title: "Performance" },
+      { href: "/docs/llms", Icon: IconSparkles, title: "LLM Content" },
     ],
   },
   {
