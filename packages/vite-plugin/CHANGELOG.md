@@ -1,5 +1,25 @@
 # @pracht/vite-plugin
 
+## 0.4.0
+
+### Minor Changes
+
+- [`0bd717f`](https://github.com/JoviDeCroock/pracht/commit/0bd717f280bc69a65efa6c4cb3142140ec88c9ac) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Make `pracht()` fully synchronous by requiring adapter `vitePlugins()` hooks to return plugin arrays synchronously. The Cloudflare adapter now imports `@cloudflare/vite-plugin` statically and returns its workerd integration without an async dynamic import.
+
+- [#136](https://github.com/JoviDeCroock/pracht/pull/136) [`440d456`](https://github.com/JoviDeCroock/pracht/commit/440d456d8ee68fac87f35334a5741282484fd79c) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Recognise `.tsrx` (TSRX/Ripple-flavoured Preact) modules in route and shell discovery. Users bring their own `@tsrx/vite-plugin-preact` and register it alongside `pracht()` in the Vite `plugins` array; pracht adds `.tsrx` to its route/shell globs and to the server-only export-stripping pass (via the directory check) so discovery, SSR, SSG, and client hydration all work without further configuration. `.tsrx` globs are emitted without the `?pracht-client` query suffix so the upstream plugin matches them by extension.
+
+### Patch Changes
+
+- [`0bd717f`](https://github.com/JoviDeCroock/pracht/commit/0bd717f280bc69a65efa6c4cb3142140ec88c9ac) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Tighten framework and deployment DX after the framework review: add shell-level error boundaries and clearer debug errors without route boundaries, fix pages-router route specificity and `.tsrx` server discovery, correct the dev error overlay import, expose generated-entry context factories for built-in adapters, add configurable Node/dev request body limits, fix CLI version reporting, refresh starter defaults, and align docs/onboarding examples with the current package names and adapter APIs.
+
+- [`8dab5bf`](https://github.com/JoviDeCroock/pracht/commit/8dab5bfb029929ca76b76d91432c996497f74c5c) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Pre-scan Pracht route, shell, middleware, API, and server modules in dev dependency optimization, including adapter-owned environments, so cold starts do not discover route dependencies mid-request.
+
+- [`e7be45d`](https://github.com/JoviDeCroock/pracht/commit/e7be45da86eb8d04d2e5dc6c1c76547c2491cd2d) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Tighten prerender path safety by rejecting dynamic dot segments and unsafe static route segments, and by bounding SSG/ISG writes to `dist/client`. Deduplicate the default Node adapter entry generation and preserve multiple `Set-Cookie` headers in Node responses.
+
+- Updated dependencies [[`0bd717f`](https://github.com/JoviDeCroock/pracht/commit/0bd717f280bc69a65efa6c4cb3142140ec88c9ac), [`e7be45d`](https://github.com/JoviDeCroock/pracht/commit/e7be45da86eb8d04d2e5dc6c1c76547c2491cd2d)]:
+  - @pracht/core@0.6.0
+  - @pracht/adapter-node@0.2.0
+
 ## 0.3.2
 
 ### Patch Changes
