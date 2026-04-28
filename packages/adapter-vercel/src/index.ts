@@ -35,6 +35,8 @@ export interface VercelAdapterOptions<
 export interface VercelServerEntryModuleOptions {
   functionName?: string;
   regions?: string | string[];
+  /** Vite-resolvable module path exporting `createContext(args)`. */
+  createContextFrom?: string;
 }
 
 export function createVercelEdgeHandler<
@@ -64,17 +66,25 @@ export function createVercelServerEntryModule(
 ): string {
   const functionName = options.functionName ?? "render";
   const regions = options.regions;
+  const contextImport = options.createContextFrom
+    ? `import { createContext as createPrachtContext } from ${JSON.stringify(options.createContextFrom)};`
+    : "const createPrachtContext = undefined;";
 
   return [
+    contextImport,
     `export const vercelFunctionName = ${JSON.stringify(functionName)};`,
     `export const vercelRegions = ${JSON.stringify(regions ?? null)};`,
     "",
     "export default async function handle(request, context) {",
+    "  const prachtContext = createPrachtContext",
+    "    ? await createPrachtContext({ request, context })",
+    "    : context;",
+    "",
     "  return handlePrachtRequest({",
     "    app: resolvedApp,",
     "    registry,",
     "    request,",
-    "    context,",
+    "    context: prachtContext,",
     "    apiRoutes,",
     "    clientEntryUrl: clientEntryUrl ?? undefined,",
     "    cssManifest,",

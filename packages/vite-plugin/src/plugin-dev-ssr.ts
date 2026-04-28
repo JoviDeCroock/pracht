@@ -3,9 +3,13 @@ import type { Connect, ViteDevServer } from "vite";
 import { CLIENT_BROWSER_PATH, PRACHT_SERVER_MODULE_ID } from "./plugin-assets.ts";
 
 const BODYLESS_METHODS = new Set(["GET", "HEAD"]);
-const MAX_BODY_SIZE = 1024 * 1024; // 1 MB
+const DEFAULT_MAX_BODY_SIZE = 1024 * 1024; // 1 MiB
 
-export function createDevSSRMiddleware(server: ViteDevServer): Connect.NextHandleFunction {
+export function createDevSSRMiddleware(
+  server: ViteDevServer,
+  options: { maxBodySize?: number } = {},
+): Connect.NextHandleFunction {
+  const maxBodySize = options.maxBodySize ?? DEFAULT_MAX_BODY_SIZE;
   return async (req: IncomingMessage, res: ServerResponse, next: Connect.NextFunction) => {
     const url = req.url ?? "/";
     const pathname = new URL(url, "http://localhost").pathname;
@@ -24,7 +28,7 @@ export function createDevSSRMiddleware(server: ViteDevServer): Connect.NextHandl
 
       let webRequest: Request;
       try {
-        webRequest = await nodeToWebRequest(req);
+        webRequest = await nodeToWebRequest(req, maxBodySize);
       } catch (err) {
         if (err instanceof Error && err.message === "Request body too large") {
           res.statusCode = 413;
@@ -93,7 +97,7 @@ async function handleDevError(
   }
 
   try {
-    const { buildErrorOverlayHtml } = await server.ssrLoadModule("pracht/error-overlay");
+    const { buildErrorOverlayHtml } = await server.ssrLoadModule("@pracht/core/error-overlay");
     let html = buildErrorOverlayHtml({
       message: error instanceof Error ? error.message : String(error),
       stack: error instanceof Error ? error.stack : undefined,
@@ -107,7 +111,7 @@ async function handleDevError(
   }
 }
 
-async function nodeToWebRequest(req: IncomingMessage): Promise<Request> {
+async function nodeToWebRequest(req: IncomingMessage, maxBodySize: number): Promise<Request> {
   // Dev server is always a direct connection — never trust forwarded headers.
   // Protocol is always plain HTTP (Vite's dev server does not use TLS), and
   // host comes from the standard Host header which is safe for direct clients.
@@ -134,8 +138,7 @@ async function nodeToWebRequest(req: IncomingMessage): Promise<Request> {
     for await (const chunk of req) {
       const buf = typeof chunk === "string" ? Buffer.from(chunk) : chunk;
       totalSize += buf.byteLength;
-      if (totalSize > MAX_BODY_SIZE) {
-        req.destroy();
+      if (totalSize > maxBodySize) {
         throw new Error("Request body too large");
       }
       chunks.push(buf);

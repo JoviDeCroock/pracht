@@ -24,7 +24,7 @@ export interface PrachtAdapter {
    * Additional Vite plugins the adapter needs (e.g. `@cloudflare/vite-plugin`).
    * Returned plugins are appended to the plugin array returned by `pracht()`.
    */
-  vitePlugins?(): Plugin[] | Promise<Plugin[]>;
+  vitePlugins?(): Plugin[];
   /**
    * If true, the adapter owns dev-server request handling and the vite-plugin
    * will not install its own SSR middleware. Used when the adapter contributes
@@ -59,12 +59,17 @@ export function createDefaultNodeAdapter(): PrachtAdapter {
         "const isgManifest = existsSync(isgManifestPath)",
         '  ? JSON.parse(readFileSync(isgManifestPath, "utf-8"))',
         "  : {};",
+        'const headersManifestPath = resolve(serverDir, "headers-manifest.json");',
+        "const headersManifest = existsSync(headersManifestPath)",
+        '  ? JSON.parse(readFileSync(headersManifestPath, "utf-8"))',
+        "  : {};",
         "",
         "export const handler = createNodeRequestHandler({",
         "  app: resolvedApp,",
         "  registry,",
         "  staticDir,",
         "  isgManifest,",
+        "  headersManifest,",
         "  apiRoutes,",
         "  clientEntryUrl: clientEntryUrl ?? undefined,",
         "  cssManifest,",

@@ -35,7 +35,7 @@ export {
 } from "./plugin-codegen.ts";
 export { PRACHT_CLIENT_MODULE_ID, PRACHT_SERVER_MODULE_ID };
 
-export async function pracht(options: PrachtPluginOptions = {}): Promise<Plugin[]> {
+export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
   const resolved = resolveOptions(options);
   const isPagesMode = !!resolved.pagesDir;
   let root = process.cwd();
@@ -125,7 +125,9 @@ export async function pracht(options: PrachtPluginOptions = {}): Promise<Plugin[
 
       if (resolved.adapter.ownsDevServer) return;
       return () => {
-        server.middlewares.use(createDevSSRMiddleware(server));
+        server.middlewares.use(
+          createDevSSRMiddleware(server, { maxBodySize: resolved.maxBodySize }),
+        );
       };
     },
 
@@ -179,7 +181,7 @@ export async function pracht(options: PrachtPluginOptions = {}): Promise<Plugin[
 
   const plugins: Plugin[] = [...preact(), prachtPlugin, clientModuleTransformPlugin];
 
-  const adapterPlugins = await resolved.adapter.vitePlugins?.();
+  const adapterPlugins = resolved.adapter.vitePlugins?.();
   if (adapterPlugins?.length) {
     plugins.push(...adapterPlugins);
   }

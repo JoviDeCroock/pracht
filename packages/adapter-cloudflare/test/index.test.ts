@@ -3,6 +3,18 @@ import { describe, expect, it } from "vitest";
 import { createCloudflareServerEntryModule } from "../src/index.ts";
 
 describe("createCloudflareServerEntryModule", () => {
+  it("imports an app createContext module when configured", () => {
+    const source = createCloudflareServerEntryModule({
+      createContextFrom: "/src/server/context.ts",
+    });
+
+    expect(source).toContain(
+      'import { createContext as createPrachtContext } from "/src/server/context.ts";',
+    );
+    expect(source).toContain("await createPrachtContext({ request, env, executionContext })");
+    expect(source).toContain("context,");
+  });
+
   it("re-exports Cloudflare primitives from a dedicated module", () => {
     const source = createCloudflareServerEntryModule({
       workerExportsFrom: "/src/cloudflare.ts",

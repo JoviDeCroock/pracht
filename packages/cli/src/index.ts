@@ -2,6 +2,11 @@ import { defineCommand, runMain } from "citty";
 
 import { VERSION } from "./constants.js";
 
+if (process.argv.includes("--version") || process.argv.includes("-v")) {
+  console.log(VERSION);
+  process.exit(0);
+}
+
 const main = defineCommand({
   meta: {
     name: "pracht",

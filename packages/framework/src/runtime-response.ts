@@ -151,23 +151,6 @@ export async function renderRouteErrorResponse<TContext>(options: {
       }
     : routeError;
 
-  if (!options.routeModule?.ErrorBoundary) {
-    if (options.isRouteStateRequest) {
-      return jsonErrorResponse(routeErrorWithDiagnostics, { isRouteStateRequest: true });
-    }
-
-    const message =
-      routeErrorWithDiagnostics.status >= 500
-        ? "Internal Server Error"
-        : routeErrorWithDiagnostics.message;
-    return withDefaultSecurityHeaders(
-      new Response(message, {
-        status: routeErrorWithDiagnostics.status,
-        headers: { "content-type": "text/plain; charset=utf-8" },
-      }),
-    );
-  }
-
   if (options.isRouteStateRequest) {
     return jsonErrorResponse(routeErrorWithDiagnostics, { isRouteStateRequest: true });
   }
@@ -180,6 +163,24 @@ export async function renderRouteErrorResponse<TContext>(options: {
           options.shellFile,
         )
       : undefined);
+  const ErrorBoundary = options.routeModule?.ErrorBoundary ?? shellModule?.ErrorBoundary;
+
+  if (!ErrorBoundary) {
+    const message =
+      routeErrorWithDiagnostics.status >= 500 && !exposeDetails
+        ? "Internal Server Error"
+        : routeErrorWithDiagnostics.message;
+    const diagnostics =
+      exposeDetails && routeErrorWithDiagnostics.diagnostics
+        ? `\n\n${JSON.stringify(routeErrorWithDiagnostics.diagnostics, null, 2)}`
+        : "";
+    return withDefaultSecurityHeaders(
+      new Response(`${message}${diagnostics}`, {
+        status: routeErrorWithDiagnostics.status,
+        headers: { "content-type": "text/plain; charset=utf-8" },
+      }),
+    );
+  }
   const head = shellModule?.head ? await shellModule.head(options.routeArgs) : {};
   const documentHeaders = await mergeDocumentHeaders(
     shellModule,
@@ -199,7 +200,7 @@ export async function renderRouteErrorResponse<TContext>(options: {
   );
   const renderToString = await getRenderToStringAsync();
 
-  const ErrorBoundary = options.routeModule.ErrorBoundary as unknown as FunctionComponent<{
+  const Boundary = ErrorBoundary as unknown as FunctionComponent<{
     error: Error;
   }>;
   const Shell = shellModule?.Shell as unknown as
@@ -207,8 +208,8 @@ export async function renderRouteErrorResponse<TContext>(options: {
     | undefined;
   const errorValue = deserializeRouteError(routeErrorWithDiagnostics);
   const componentTree = Shell
-    ? h(Shell, null, h(ErrorBoundary, { error: errorValue }))
-    : h(ErrorBoundary, { error: errorValue });
+    ? h(Shell, null, h(Boundary, { error: errorValue }))
+    : h(Boundary, { error: errorValue });
   const tree = h(
     PrachtRuntimeProvider as unknown as FunctionComponent<{
       data: null;

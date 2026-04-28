@@ -3,11 +3,11 @@ import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 
 const BODYLESS_METHODS = new Set(["GET", "HEAD"]);
-const MAX_BODY_SIZE = 1024 * 1024; // 1 MB
+export const DEFAULT_MAX_BODY_SIZE = 1024 * 1024; // 1 MiB
 
 export async function createWebRequest(
   req: IncomingMessage,
-  options: { trustProxy: boolean; canonicalOrigin?: string },
+  options: { trustProxy: boolean; canonicalOrigin?: string; maxBodySize?: number },
 ): Promise<Request> {
   const baseUrl = resolveRequestBase(req, options);
   const url = new URL(req.url ?? "/", baseUrl);
@@ -19,7 +19,7 @@ export async function createWebRequest(
   };
 
   if (!BODYLESS_METHODS.has(method.toUpperCase())) {
-    const body = await readRequestBody(req);
+    const body = await readRequestBody(req, options.maxBodySize ?? DEFAULT_MAX_BODY_SIZE);
     if (body.byteLength > 0) {
       const exactBody = new Uint8Array(body.byteLength);
       exactBody.set(body);
@@ -147,15 +147,14 @@ function createHeaders(headers: IncomingMessage["headers"]): Headers {
   return result;
 }
 
-async function readRequestBody(req: IncomingMessage): Promise<Uint8Array> {
+async function readRequestBody(req: IncomingMessage, maxBodySize: number): Promise<Uint8Array> {
   const chunks: Uint8Array[] = [];
   let totalSize = 0;
 
   for await (const chunk of req) {
     const buf = typeof chunk === "string" ? Buffer.from(chunk) : chunk;
     totalSize += buf.byteLength;
-    if (totalSize > MAX_BODY_SIZE) {
-      req.destroy();
+    if (totalSize > maxBodySize) {
       throw new Error("Request body too large");
     }
     chunks.push(buf);

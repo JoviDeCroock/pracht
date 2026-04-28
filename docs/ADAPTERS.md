@@ -81,6 +81,7 @@ The adapter factory calls the entry module generator internally to create a virt
 | `createContext` | `(args) => TContext` | App-level context factory                                       |
 | `trustProxy`    | `boolean`            | Honor forwarded headers for URL construction (default: `false`) |
 | `canonicalOrigin` | `string`           | Fixed public origin for `request.url`; ignores request Host values |
+| `maxBodySize`   | `number`             | Maximum request body size in bytes (default: 1 MiB)             |
 
 ### Trusted proxy configuration
 
@@ -141,6 +142,19 @@ Prerendered HTML receives route and shell document headers from
   `Last-Modified` conditional revalidation.
 - **Vite manifest**: reads `.vite/manifest.json` to inject correct `<script>` and
   `<link>` tags into server-rendered HTML.
+
+### Generated entry options
+
+When using `nodeAdapter()` in `vite.config.ts`, generated entries can import a context factory and tune body limits:
+
+```typescript
+nodeAdapter({
+  createContextFrom: "/src/server/context.ts",
+  maxBodySize: 10 * 1024 * 1024,
+});
+```
+
+The context module must export `createContext(args)`. Node passes `{ request, req, res }`.
 
 ### Entry module
 
@@ -265,6 +279,19 @@ export async function GET({ context }: BaseRouteArgs) {
 }
 ```
 
+### Generated entry options
+
+When using `cloudflareAdapter()` in `vite.config.ts`, generated entries can import a context factory:
+
+```typescript
+cloudflareAdapter({
+  createContextFrom: "/src/server/context.ts",
+  workerExportsFrom: "/src/cloudflare.ts",
+});
+```
+
+The context module must export `createContext(args)`. Cloudflare passes `{ request, env, executionContext }`.
+
 ### Entry module
 
 ```javascript
@@ -324,6 +351,20 @@ export default {
   including static assets served by Vercel's CDN. Static prerendered routes also
   get route and shell document headers from the prerender header manifest.
 
+### Generated entry options
+
+When using `vercelAdapter()` in `vite.config.ts`, generated entries can import a context factory:
+
+```typescript
+vercelAdapter({
+  createContextFrom: "/src/server/context.ts",
+  functionName: "render",
+  regions: ["iad1"],
+});
+```
+
+The context module must export `createContext(args)`. Vercel passes `{ request, context }`.
+
 ### Entry module
 
 ```javascript
@@ -357,6 +398,7 @@ A custom adapter exports a factory function that returns a `PrachtAdapter` objec
 
 ```typescript
 import type { PrachtAdapter } from "@pracht/vite-plugin";
+import { myPlatformVitePlugin } from "my-platform-vite-plugin";
 
 export function myAdapter(options?: MyOptions): PrachtAdapter {
   return {
@@ -381,8 +423,9 @@ export default async function handle(request) {
 `;
     },
     // Optional: contribute extra Vite plugins (e.g. a platform-specific runtime).
-    async vitePlugins() {
-      const { myPlatformVitePlugin } = await import("my-platform-vite-plugin");
+    // This hook is synchronous so pracht can return its complete Vite plugin
+    // array synchronously from vite.config.ts.
+    vitePlugins() {
       return myPlatformVitePlugin({ entry: "virtual:pracht/server" });
     },
     // Optional: set to true when the adapter's Vite plugin runs the dev server

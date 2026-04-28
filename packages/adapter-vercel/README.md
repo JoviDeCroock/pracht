@@ -1,6 +1,6 @@
 # @pracht/adapter-vercel
 
-Vercel adapter for pracht. Supports serverless and edge function deployment via the Build Output API v3.
+Vercel Edge adapter for pracht. Emits Vercel Build Output API v3 output with an Edge Function entry.
 
 ## Install
 
@@ -25,5 +25,19 @@ pracht build && vercel deploy --prebuilt
 ## Features
 
 - Build Output API v3 integration
-- Serverless function support
-- Edge function support
+- Edge Function runtime support
+- Static SSG rewrites with route-state bypasses for client navigation
+
+## Context factory
+
+Generated entries can import an app-level context factory:
+
+```ts
+import { vercelAdapter } from "@pracht/adapter-vercel";
+
+pracht({
+  adapter: vercelAdapter({ createContextFrom: "/src/server/context.ts" }),
+});
+```
+
+`/src/server/context.ts` should export `createContext({ request, context })`.

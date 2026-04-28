@@ -259,6 +259,7 @@ export interface RouteModule<TContext = any, TLoader extends LoaderLike = undefi
 export interface ShellModule<TContext = any> {
   Shell: FunctionComponent<ShellProps>;
   Loading?: FunctionComponent;
+  ErrorBoundary?: FunctionComponent<ErrorBoundaryProps>;
   head?: (args: BaseRouteArgs<TContext>) => MaybePromise<HeadMetadata>;
   headers?: (args: BaseRouteArgs<TContext>) => MaybePromise<HeadersInit>;
 }

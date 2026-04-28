@@ -7,11 +7,12 @@ described in `VISION_MVP.md`.
 
 | Path                          | Package                      | Current role                                                                                                 |
 | ----------------------------- | ---------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| `packages/framework`          | `pracht`                     | Core manifest API, route resolution, API routes, SSR rendering, client runtime                               |
+| `packages/framework`          | `@pracht/core`               | Core manifest API, route resolution, API routes, SSR rendering, client runtime                               |
 | `packages/vite-plugin`        | `@pracht/vite-plugin`        | Virtual modules, `import.meta.glob()` registries, API route auto-discovery, HMR, dev SSR middleware          |
 | `packages/adapter-node`       | `@pracht/adapter-node`       | Node `IncomingMessage`/`ServerResponse` bridge, ISG stale-while-revalidate                                   |
 | `packages/adapter-cloudflare` | `@pracht/adapter-cloudflare` | Cloudflare Workers fetch handler, generated worker entry source, and static asset handoff (no runtime ISG revalidation yet) |
 | `packages/adapter-vercel`     | `@pracht/adapter-vercel`     | Vercel Edge handler and Build Output API entry source                                                        |
+| `packages/preact-worker-facets` | `@pracht/preact-worker-facets` | Experimental Cloudflare Dynamic Worker + Durable Object facets runtime for inert, stateful Preact components |
 | `packages/cli`                | `@pracht/cli`                | `pracht dev`, `build`, `verify`, the `generate` subcommands, and `doctor`                                    |
 | `examples/cloudflare`         | `@pracht/example-cloudflare` | Cloudflare-targeted example app with SSG, ISG, SSR, SPA routes, auth middleware, and API routes              |
 | `examples/docs`               | `@pracht/example-docs`       | Documentation website built with pracht + Cloudflare adapter; all routes SSG-prerendered; dark design system |
@@ -84,6 +85,12 @@ described in `VISION_MVP.md`.
   `.vercel/output/static` and `.vercel/output/functions/render.func`, rewrites
   clean SSG URLs to static HTML, and routes ISG plus dynamic requests to the
   generated edge function.
+- **Preact Worker facets prototype** — `@pracht/preact-worker-facets` provides
+  experimental helpers for running Preact-style component modules inside
+  Cloudflare Dynamic Workers. A supervisor Durable Object owns auth, source
+  hashes, TTL cleanup, and facet resets; the Dynamic Worker exports a facet
+  Durable Object whose isolated SQLite storage persists hook state while the
+  browser renders only an inert JSON tree.
 - **E2E tests** — Playwright tests cover SSR rendering, loader data, head
   metadata, middleware redirects, auth-gated routes, SPA mode, route-state JSON,
   404 handling, hydration, client-side navigation, API routes (GET, POST, 405,

@@ -1,12 +1,12 @@
 <p align="center">
-  <a href="https://github.com/JoviDeCroock/viact">
+  <a href="https://github.com/JoviDeCroock/pracht">
     <img src="./assets/banner.svg" alt="pracht — Full-stack Preact, per route." width="720">
   </a>
 </p>
 
 <p align="center">
   <a href="https://www.npmjs.com/package/@pracht/core"><img src="https://img.shields.io/npm/v/@pracht/core?color=8b5cf6&label=%40pracht%2Fcore" alt="npm version"></a>
-  <a href="https://github.com/JoviDeCroock/viact/actions/workflows/ci.yml"><img src="https://github.com/JoviDeCroock/viact/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
+  <a href="https://github.com/JoviDeCroock/pracht/actions/workflows/ci.yml"><img src="https://github.com/JoviDeCroock/pracht/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
 </p>
 
 # pracht
@@ -101,6 +101,7 @@ The starter gives you:
 - [docs/STYLING.md](docs/STYLING.md) — CSS Modules, Tailwind, CSS-in-JS limitations
 - [docs/ADAPTERS.md](docs/ADAPTERS.md) — Node, Cloudflare, Vercel deployment paths
 - [packages/start/README.md](packages/start/README.md) — starter CLI details
+- [packages/preact-worker-facets/README.md](packages/preact-worker-facets/README.md) — experimental Cloudflare Dynamic Worker facets runtime for Preact components
 - [examples/basic](examples/basic), [examples/cloudflare](examples/cloudflare), [examples/docs](examples/docs) — working apps
 
 ## Contributing

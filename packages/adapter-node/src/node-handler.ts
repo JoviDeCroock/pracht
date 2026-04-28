@@ -64,6 +64,8 @@ export interface NodeAdapterOptions<TContext = unknown> {
    * (e.g. nginx, Cloudflare, a load balancer) that sets these headers.
    */
   trustProxy?: boolean;
+  /** Maximum request body size in bytes. Defaults to 1 MiB. */
+  maxBodySize?: number;
 }
 
 let warnedAboutMissingCanonicalOrigin = false;
@@ -76,6 +78,11 @@ export function createNodeRequestHandler<TContext = unknown>(
   const staticDir = options.staticDir;
   const trustProxy = options.trustProxy ?? false;
   const canonicalOrigin = options.canonicalOrigin;
+  const maxBodySize = options.maxBodySize;
+
+  if (maxBodySize !== undefined && (!Number.isInteger(maxBodySize) || maxBodySize <= 0)) {
+    throw new Error("nodeAdapter({ maxBodySize }) expects a positive integer number of bytes.");
+  }
 
   if (
     !canonicalOrigin &&
@@ -91,7 +98,7 @@ export function createNodeRequestHandler<TContext = unknown>(
   return async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
     let request: Request;
     try {
-      request = await createWebRequest(req, { canonicalOrigin, trustProxy });
+      request = await createWebRequest(req, { canonicalOrigin, trustProxy, maxBodySize });
     } catch (err) {
       if (err instanceof Error && err.message === "Request body too large") {
         res.statusCode = 413;

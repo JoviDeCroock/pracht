@@ -78,16 +78,25 @@ vercel deploy --prebuilt
 
 ## Custom Context
 
-All adapters support a `createContext` option that enriches the context passed to loaders, API routes, and middleware:
+Generated adapter entries can import a context factory that enriches the context passed to loaders, API routes, and middleware:
 
-```ts
-createNodeRequestHandler({
-  app: resolvedApp,
-  createContext: async ({ request }) => {
-    const session = await getSession(request);
-    return { session };
-  },
+```ts [vite.config.ts]
+import { nodeAdapter } from "@pracht/adapter-node";
+
+export default defineConfig({
+  plugins: [
+    pracht({
+      adapter: nodeAdapter({ createContextFrom: "/src/server/context.ts" }),
+    }),
+  ],
 });
+```
+
+```ts [src/server/context.ts]
+export async function createContext({ request }: { request: Request }) {
+  const session = await getSession(request);
+  return { session };
+}
 
 // In a loader:
 export async function loader({ context }: LoaderArgs) {

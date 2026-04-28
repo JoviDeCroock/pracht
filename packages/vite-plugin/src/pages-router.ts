@@ -60,8 +60,8 @@ function scan(dir: string, root: string, pages: ScannedPage[]): void {
       relativePath: rel,
       routePath,
       isIndex: name === "index",
-      isCatchAll: name.startsWith("[..."),
-      isDynamic: name.startsWith("[") && !name.startsWith("[..."),
+      isCatchAll: routePath.split("/").includes("*"),
+      isDynamic: routePath.split("/").some((segment) => segment.startsWith(":")),
       renderMode,
     });
   }
@@ -88,20 +88,45 @@ export function filePathToRoutePath(relativePath: string): string {
 }
 
 export function sortRoutes(pages: ScannedPage[]): ScannedPage[] {
-  return [...pages]
-    .filter((p) => p.routePath !== "__shell__")
-    .sort((a, b) => {
-      // Catch-all always last
-      if (a.isCatchAll && !b.isCatchAll) return 1;
-      if (!a.isCatchAll && b.isCatchAll) return -1;
+  return [...pages].filter((p) => p.routePath !== "__shell__").sort(comparePagesBySpecificity);
+}
 
-      // Dynamic after static
-      if (a.isDynamic && !b.isDynamic) return 1;
-      if (!a.isDynamic && b.isDynamic) return -1;
+function comparePagesBySpecificity(left: ScannedPage, right: ScannedPage): number {
+  const leftSegments = splitRoutePath(left.routePath);
+  const rightSegments = splitRoutePath(right.routePath);
+  const length = Math.max(leftSegments.length, rightSegments.length);
 
-      // Alphabetical within same category
-      return a.routePath.localeCompare(b.routePath);
-    });
+  for (let index = 0; index < length; index += 1) {
+    const leftSegment = leftSegments[index];
+    const rightSegment = rightSegments[index];
+
+    // Exact routes should win over deeper catch-all routes that can also
+    // match the same URL (e.g. `/docs` before `/docs/*`).
+    if (!leftSegment) return -1;
+    if (!rightSegment) return 1;
+
+    const leftScore = getRouteSegmentSpecificity(leftSegment);
+    const rightScore = getRouteSegmentSpecificity(rightSegment);
+    if (leftScore !== rightScore) {
+      return rightScore - leftScore;
+    }
+
+    if (leftScore === 3 && leftSegment !== rightSegment) {
+      return leftSegment.localeCompare(rightSegment);
+    }
+  }
+
+  return left.routePath.localeCompare(right.routePath);
+}
+
+function splitRoutePath(routePath: string): string[] {
+  return routePath.split("/").filter(Boolean);
+}
+
+function getRouteSegmentSpecificity(segment: string): number {
+  if (segment === "*") return 1;
+  if (segment.startsWith(":")) return 2;
+  return 3;
 }
 
 const RENDER_MODE_RE = /export\s+const\s+RENDER_MODE\s*=\s*["'](\w+)["']/;

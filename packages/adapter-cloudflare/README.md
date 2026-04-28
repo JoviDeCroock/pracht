@@ -55,3 +55,18 @@ Keep the matching bindings and migrations in `wrangler.jsonc`.
 - Static asset serving via `env.ASSETS`
 - SSG/ISG prerendered asset serving (runtime ISG revalidation is not implemented yet; builds warn when ISG routes target Cloudflare)
 - Execution context passing for Cloudflare-specific APIs
+- Generated-entry context factories via `cloudflareAdapter({ createContextFrom })`
+
+## Context factory
+
+Generated entries can import an app-level context factory:
+
+```ts
+import { cloudflareAdapter } from "@pracht/adapter-cloudflare";
+
+pracht({
+  adapter: cloudflareAdapter({ createContextFrom: "/src/server/context.ts" }),
+});
+```
+
+`/src/server/context.ts` should export `createContext({ request, env, executionContext })`.

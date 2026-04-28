@@ -187,22 +187,25 @@ node dist/server/server.js
 
 ## Context Factory
 
-Adapters inject platform-specific values into loaders and API routes via a context factory. This is where you connect database clients, environment bindings, and other platform resources:
+Adapters inject platform-specific values into loaders and API routes via a context factory. With generated entries, point the adapter at a module that exports `createContext`:
 
-```ts
+```ts [vite.config.ts]
+nodeAdapter({ createContextFrom: "/src/server/context.ts" });
+cloudflareAdapter({ createContextFrom: "/src/server/context.ts" });
+vercelAdapter({ createContextFrom: "/src/server/context.ts" });
+```
+
+```ts [src/server/context.ts]
 // Node: inject a database pool
-createContext: ({ request }) => ({
-  db: pool,
-  ip: request.headers.get("x-forwarded-for"),
-});
+export function createContext({ request }: { request: Request }) {
+  return {
+    db: pool,
+    ip: request.headers.get("x-forwarded-for"),
+  };
+}
 
-// Cloudflare: expose env bindings
-createContext: ({ request, env, executionContext }) => ({
-  db: env.DB, // D1 binding
-  kv: env.CACHE, // KV binding
-  r2: env.STORAGE, // R2 binding
-  waitUntil: executionContext.waitUntil.bind(executionContext),
-});
+// Cloudflare receives { request, env, executionContext }.
+// Vercel receives { request, context }.
 ```
 
 The context object is available as `args.context` in every loader, middleware, and API route handler.

@@ -15,6 +15,8 @@ export interface PrachtPluginOptions {
   pagesDefaultRender?: RenderMode;
   /** Maximum number of SSG/ISG pages rendered concurrently during `pracht build`. */
   prerenderConcurrency?: number;
+  /** Maximum request body size (bytes) accepted by the dev SSR middleware. Defaults to 1 MiB. */
+  maxBodySize?: number;
 }
 
 export type ResolvedPrachtPluginOptions = Required<PrachtPluginOptions>;
@@ -30,6 +32,7 @@ const DEFAULTS: ResolvedPrachtPluginOptions = {
   pagesDir: "",
   pagesDefaultRender: "ssr",
   prerenderConcurrency: 10,
+  maxBodySize: 1024 * 1024,
 };
 
 export function resolveOptions(options: PrachtPluginOptions): ResolvedPrachtPluginOptions {
@@ -39,6 +42,9 @@ export function resolveOptions(options: PrachtPluginOptions): ResolvedPrachtPlug
   };
   if (!Number.isInteger(resolved.prerenderConcurrency) || resolved.prerenderConcurrency <= 0) {
     throw new Error("pracht({ prerenderConcurrency }) expects a positive integer.");
+  }
+  if (!Number.isInteger(resolved.maxBodySize) || resolved.maxBodySize <= 0) {
+    throw new Error("pracht({ maxBodySize }) expects a positive integer number of bytes.");
   }
   return resolved;
 }

@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { defineApp, route, timeRevalidate } from "@pracht/core";
 
-import { createNodeRequestHandler } from "../src/index.ts";
+import { createNodeRequestHandler, createNodeServerEntryModule } from "../src/index.ts";
 
 const tempDirs: string[] = [];
 const servers = new Set<ReturnType<typeof createServer>>();
@@ -45,7 +45,59 @@ afterEach(async () => {
   }
 });
 
+describe("createNodeServerEntryModule", () => {
+  it("can import an app createContext module and configure the body limit", () => {
+    const source = createNodeServerEntryModule({
+      createContextFrom: "/src/server/context.ts",
+      maxBodySize: 10 * 1024 * 1024,
+    });
+
+    expect(source).toContain(
+      'import { createContext as createPrachtContext } from "/src/server/context.ts";',
+    );
+    expect(source).toContain("createContext: createPrachtContext");
+    expect(source).toContain("maxBodySize: 10485760");
+  });
+});
+
 describe("createNodeRequestHandler", () => {
+  it("rejects request bodies above the configured limit", async () => {
+    const app = defineApp({
+      routes: [route("/upload", "./routes/upload.tsx", { render: "ssr" })],
+    });
+    const handler = createNodeRequestHandler({
+      app,
+      maxBodySize: 4,
+      registry: {
+        routeModules: {
+          "./routes/upload.tsx": async () => ({
+            Component: () => "ok",
+          }),
+        },
+      },
+    });
+
+    const server = createServer((req: IncomingMessage, res: ServerResponse) => {
+      void handler(req, res);
+    });
+    servers.add(server);
+
+    server.listen(0, "127.0.0.1");
+    await once(server, "listening");
+    const address = server.address();
+    if (!address || typeof address === "string") {
+      throw new Error("Expected TCP server address");
+    }
+
+    const response = await fetch(`http://127.0.0.1:${address.port}/upload`, {
+      body: "too-large",
+      method: "POST",
+    });
+
+    expect(response.status).toBe(413);
+    await expect(response.text()).resolves.toBe("Payload Too Large");
+  });
+
   it("reuses createContext during stale ISG regeneration with a clean request", async () => {
     const staticDir = makeTempDir();
     const htmlDir = join(staticDir, "isg");

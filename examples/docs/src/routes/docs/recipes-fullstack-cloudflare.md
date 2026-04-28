@@ -110,15 +110,19 @@ npx wrangler d1 migrations apply my-app-db --remote
 Create a types file so your loaders and API routes get autocomplete:
 
 ```ts [src/env.d.ts]
+import "@pracht/core";
+
 interface Env {
   DB: D1Database;
   CACHE: KVNamespace;
 }
 
-declare module "pracht" {
-  interface PrachtContext {
-    env: Env;
-    executionContext: ExecutionContext;
+declare module "@pracht/core" {
+  interface Register {
+    context: {
+      env: Env;
+      executionContext: ExecutionContext;
+    };
   }
 }
 ```
@@ -128,7 +132,7 @@ declare module "pracht" {
 ## 5. Query D1 in Loaders
 
 ```ts [src/routes/posts.tsx]
-import type { LoaderArgs, RouteComponentProps } from "pracht";
+import type { LoaderArgs, RouteComponentProps } from "@pracht/core";
 
 interface Post {
   id: number;
@@ -168,7 +172,7 @@ export function Component({ data }: RouteComponentProps<typeof loader>) {
 ## 6. Mutations via API Routes
 
 ```ts [src/api/posts.ts]
-import type { ApiRouteArgs } from "pracht";
+import type { ApiRouteArgs } from "@pracht/core";
 
 export async function POST({ request, context }: ApiRouteArgs) {
   const form = await request.formData();
@@ -193,7 +197,7 @@ export async function POST({ request, context }: ApiRouteArgs) {
 Use a form to submit:
 
 ```tsx [src/routes/posts/new.tsx]
-import { Form } from "pracht";
+import { Form } from "@pracht/core";
 
 export function Component() {
   return (
@@ -219,7 +223,7 @@ export function Component() {
 KV is great for caching expensive queries or storing configuration:
 
 ```ts [src/routes/dashboard.tsx]
-import type { LoaderArgs } from "pracht";
+import type { LoaderArgs } from "@pracht/core";
 
 export async function loader({ context }: LoaderArgs) {
   // Check KV cache first

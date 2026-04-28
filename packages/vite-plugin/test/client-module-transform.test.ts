@@ -34,7 +34,7 @@ async function buildTempProject(root: string): Promise<void> {
     root,
     configFile: false,
     logLevel: "silent",
-    plugins: await pracht({ pagesDir: "/src/pages" }),
+    plugins: pracht({ pagesDir: "/src/pages" }),
     resolve: {
       alias: [
         {
@@ -463,7 +463,7 @@ export default function Home() {
     // carried the `?pracht-client` query added by the import.meta.glob
     // registry. A client component that imported a route module directly
     // (no query) slipped past the transform and exposed the loader.
-    const plugins = await pracht({ pagesDir: "/src/pages" });
+    const plugins = pracht({ pagesDir: "/src/pages" });
     const transformPlugin = plugins.find((p) => p.name === "pracht:client-module-transform");
     if (!transformPlugin || typeof transformPlugin.transform !== "function") {
       throw new Error("pracht:client-module-transform plugin is missing a transform hook");

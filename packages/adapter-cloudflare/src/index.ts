@@ -1,5 +1,6 @@
 import type { PrachtAdapter } from "@pracht/vite-plugin";
 import type { Plugin } from "vite";
+import { cloudflare } from "@cloudflare/vite-plugin";
 import {
   applyDefaultSecurityHeaders,
   handlePrachtRequest,
@@ -47,6 +48,8 @@ export interface CloudflareAdapterOptions<
 export interface CloudflareServerEntryModuleOptions {
   assetsBinding?: string;
   workerExportsFrom?: string;
+  /** Vite-resolvable module path exporting `createContext(args)`. */
+  createContextFrom?: string;
 }
 
 export function createCloudflareFetchHandler<
@@ -97,8 +100,12 @@ export function createCloudflareServerEntryModule(
   const workerExports = options.workerExportsFrom
     ? [`export * from ${JSON.stringify(options.workerExportsFrom)};`]
     : [];
+  const contextImport = options.createContextFrom
+    ? `import { createContext as createPrachtContext } from ${JSON.stringify(options.createContextFrom)};`
+    : "const createPrachtContext = undefined;";
 
   return [
+    contextImport,
     `export const cloudflareAssetsBinding = ${JSON.stringify(assetsBinding)};`,
     "",
     "let headersManifestPromise;",
@@ -163,11 +170,15 @@ export function createCloudflareServerEntryModule(
     "    return assetResponse;",
     "  }",
     "",
+    "  const context = createPrachtContext",
+    "    ? await createPrachtContext({ request, env, executionContext })",
+    "    : { env, executionContext };",
+    "",
     "  return handlePrachtRequest({",
     "    app: resolvedApp,",
     "    registry,",
     "    request,",
-    "    context: { env, executionContext },",
+    "    context,",
     "    apiRoutes,",
     "    clientEntryUrl: clientEntryUrl ?? undefined,",
     "    cssManifest,",
@@ -266,10 +277,7 @@ export function cloudflareAdapter(options: CloudflareServerEntryModuleOptions = 
     createServerEntryModule() {
       return createCloudflareServerEntryModule(options);
     },
-    async vitePlugins(): Promise<Plugin[]> {
-      const { cloudflare } = (await import("@cloudflare/vite-plugin")) as {
-        cloudflare: (opts?: { config?: { main?: string } }) => Plugin[];
-      };
+    vitePlugins(): Plugin[] {
       return cloudflare({
         config: {
           main: "virtual:pracht/server",

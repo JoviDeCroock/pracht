@@ -90,10 +90,14 @@ npx dotenv -e .env.local -- npx tsx scripts/migrate.ts
 ## 4. Type Your Context
 
 ```ts [src/env.d.ts]
-declare module "pracht" {
-  interface PrachtContext {
-    // Vercel's edge context is available here
-    // Add any custom context from createContext
+import "@pracht/core";
+
+declare module "@pracht/core" {
+  interface Register {
+    context: {
+      // Vercel's edge context is available here.
+      // Add custom values returned from createContext.
+    };
   }
 }
 ```
@@ -106,7 +110,7 @@ declare module "pracht" {
 
 ```ts [src/routes/posts.tsx]
 import { sql } from "@vercel/postgres";
-import type { LoaderArgs, RouteComponentProps } from "pracht";
+import type { LoaderArgs, RouteComponentProps } from "@pracht/core";
 
 interface Post {
   id: number;
@@ -149,7 +153,7 @@ export function Component({ data }: RouteComponentProps<typeof loader>) {
 
 ```ts [src/api/posts.ts]
 import { sql } from "@vercel/postgres";
-import type { ApiRouteArgs } from "pracht";
+import type { ApiRouteArgs } from "@pracht/core";
 
 export async function POST({ request }: ApiRouteArgs) {
   const form = await request.formData();
@@ -176,7 +180,7 @@ export async function POST({ request }: ApiRouteArgs) {
 Use a form to submit:
 
 ```tsx [src/routes/posts/new.tsx]
-import { Form } from "pracht";
+import { Form } from "@pracht/core";
 
 export function Component() {
   return (
@@ -206,7 +210,7 @@ pnpm add @vercel/kv
 ```ts [src/routes/dashboard.tsx]
 import { kv } from "@vercel/kv";
 import { sql } from "@vercel/postgres";
-import type { LoaderArgs } from "pracht";
+import type { LoaderArgs } from "@pracht/core";
 
 export async function loader(_args: LoaderArgs) {
   // Check Redis cache first
@@ -258,5 +262,5 @@ Or connect your Git repository in the Vercel dashboard for automatic deployments
 
 - Use `render: "ssr"` for any route that reads from Postgres — data changes per request.
 - The `sql` template tag from `@vercel/postgres` automatically parameterizes queries — it's safe against SQL injection by default.
-- Vercel is serverless: pracht prerenders ISG routes at build time, then routes ISG paths through the Edge Function instead of relying on process-local cache state. Use `render: "ssg"` for fully static pages or `render: "ssr"` for per-request freshness.
+- Pracht's Vercel adapter targets Edge Functions: pracht prerenders ISG routes at build time, then routes ISG paths through the Edge Function instead of relying on process-local cache state. Use `render: "ssg"` for fully static pages or `render: "ssr"` for per-request freshness.
 - Vercel Edge Functions have a 25MB size limit and a 30-second execution timeout. Keep loaders fast and move heavy work to background jobs.

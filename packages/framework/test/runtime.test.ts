@@ -903,6 +903,104 @@ describe("handlePrachtRequest ErrorBoundary", () => {
     await expect(response.text()).resolves.toContain("Error: Post not found");
   });
 
+  it("renders the shell error boundary when a route boundary is absent", async () => {
+    const app = defineApp({
+      shells: {
+        app: "./shells/app.tsx",
+      },
+      routes: [route("/posts/:slug", "./routes/post.tsx", { shell: "app" })],
+    });
+
+    const response = await handlePrachtRequest({
+      app,
+      registry: {
+        routeModules: {
+          "./routes/post.tsx": async () => ({
+            Component: () => h("main", null, "post"),
+            loader: async () => {
+              throw new PrachtHttpError(404, "Post not found");
+            },
+          }),
+        },
+        shellModules: {
+          "./shells/app.tsx": async () => ({
+            ErrorBoundary: ({ error }) => h("p", null, `Shell error: ${error.message}`),
+            Shell: ({ children }) => h("section", null, children),
+          }),
+        },
+      },
+      request: new Request("http://localhost/posts/missing"),
+    });
+
+    expect(response.status).toBe(404);
+    const html = await response.text();
+    expect(html).toContain("<section><p>Shell error: Post not found</p></section>");
+  });
+
+  it("prefers route error boundaries over shell error boundaries", async () => {
+    const app = defineApp({
+      shells: {
+        app: "./shells/app.tsx",
+      },
+      routes: [route("/posts/:slug", "./routes/post.tsx", { shell: "app" })],
+    });
+
+    const response = await handlePrachtRequest({
+      app,
+      registry: {
+        routeModules: {
+          "./routes/post.tsx": async () => ({
+            Component: () => h("main", null, "post"),
+            ErrorBoundary: ({ error }) => h("p", null, `Route error: ${error.message}`),
+            loader: async () => {
+              throw new PrachtHttpError(404, "Post not found");
+            },
+          }),
+        },
+        shellModules: {
+          "./shells/app.tsx": async () => ({
+            ErrorBoundary: ({ error }) => h("p", null, `Shell error: ${error.message}`),
+            Shell: ({ children }) => h("section", null, children),
+          }),
+        },
+      },
+      request: new Request("http://localhost/posts/missing"),
+    });
+
+    expect(response.status).toBe(404);
+    const html = await response.text();
+    expect(html).toContain("Route error: Post not found");
+    expect(html).not.toContain("Shell error");
+  });
+
+  it("exposes debug details in plain SSR errors when no boundary is available", async () => {
+    const app = defineApp({
+      routes: [route("/posts/:slug", "./routes/post.tsx")],
+    });
+
+    const response = await handlePrachtRequest({
+      app,
+      debugErrors: true,
+      registry: {
+        routeModules: {
+          "./routes/post.tsx": async () => ({
+            Component: () => h("main", null, "post"),
+            loader: async () => {
+              throw new Error("plain debug details");
+            },
+          }),
+        },
+      },
+      request: new Request("http://localhost/posts/missing"),
+    });
+
+    expect(response.status).toBe(500);
+    const body = await response.text();
+    expect(body).toContain("plain debug details");
+    expect(body).toContain('"phase": "loader"');
+    expect(body).toContain('"routeFile": "./routes/post.tsx"');
+  });
+
   it("sanitizes unexpected 5xx loader failures in SSR output and hydration state", async () => {
     const app = defineApp({
       routes: [route("/posts/:slug", "./routes/post.tsx")],

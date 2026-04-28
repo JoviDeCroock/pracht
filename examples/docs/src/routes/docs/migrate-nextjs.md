@@ -335,12 +335,12 @@ Next.js is optimized for Vercel. pracht uses **adapters** to deploy anywhere:
 
 ```ts [vite.config.ts]
 import { pracht } from "@pracht/vite-plugin";
-import { node } from "@pracht/adapter-node";
-// or: import { cloudflare } from "@pracht/adapter-cloudflare";
-// or: import { vercel } from "@pracht/adapter-vercel";
+import { nodeAdapter } from "@pracht/adapter-node";
+// or: import { cloudflareAdapter } from "@pracht/adapter-cloudflare";
+// or: import { vercelAdapter } from "@pracht/adapter-vercel";
 
 export default {
-  plugins: [pracht({ adapter: node() })],
+  plugins: [pracht({ adapter: nodeAdapter() })],
 };
 ```
 

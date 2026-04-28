@@ -12,12 +12,12 @@ export class ValidationError extends Error {
 }
 
 const FALLBACK_VERSION_RANGES = {
-  "@pracht/adapter-cloudflare": "^0.2.1",
-  "@pracht/adapter-node": "^0.1.10",
-  "@pracht/adapter-vercel": "^0.0.12",
-  "@pracht/cli": "^1.3.0",
-  "@pracht/core": "^0.4.0",
-  "@pracht/vite-plugin": "^0.3.1",
+  "@pracht/adapter-cloudflare": "^0.2.2",
+  "@pracht/adapter-node": "^0.1.11",
+  "@pracht/adapter-vercel": "^0.0.13",
+  "@pracht/cli": "^1.3.1",
+  "@pracht/core": "^0.5.0",
+  "@pracht/vite-plugin": "^0.3.2",
   vercel: "latest",
 };
 

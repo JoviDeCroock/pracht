@@ -176,7 +176,7 @@ SSR and SSG, deployed to Node. Thoroughly tested with Playwright E2E tests.
 
 - API routes (`src/api/`)
 - `adapter-cloudflare` with Workers, KV, ISG
-- `adapter-vercel` with serverless + edge functions
+- `adapter-vercel` with Vercel Edge Functions
 - ISG webhook revalidation
 - Claude Code commands for scaffolding, debugging, and deploying
 - `create-pracht` starter CLI

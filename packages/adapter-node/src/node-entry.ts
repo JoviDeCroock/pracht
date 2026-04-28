@@ -3,11 +3,18 @@ import type { PrachtAdapter } from "@pracht/vite-plugin";
 export interface NodeServerEntryModuleOptions {
   canonicalOrigin?: string;
   port?: number;
+  /** Vite-resolvable module path exporting `createContext(args)`. */
+  createContextFrom?: string;
+  /** Maximum request body size in bytes. Defaults to 1 MiB. */
+  maxBodySize?: number;
 }
 
 export function createNodeServerEntryModule(options: NodeServerEntryModuleOptions = {}): string {
   const canonicalOrigin = options.canonicalOrigin ?? null;
   const port = options.port ?? 3000;
+  const contextImport = options.createContextFrom
+    ? `import { createContext as createPrachtContext } from ${JSON.stringify(options.createContextFrom)};`
+    : "const createPrachtContext = undefined;";
 
   return [
     'import { existsSync, readFileSync } from "node:fs";',
@@ -15,6 +22,7 @@ export function createNodeServerEntryModule(options: NodeServerEntryModuleOption
     'import { dirname, resolve } from "node:path";',
     'import { fileURLToPath, pathToFileURL } from "node:url";',
     'import { createNodeRequestHandler } from "@pracht/adapter-node";',
+    contextImport,
     "",
     "const serverDir = dirname(fileURLToPath(import.meta.url));",
     'const staticDir = resolve(serverDir, "../client");',
@@ -38,6 +46,8 @@ export function createNodeServerEntryModule(options: NodeServerEntryModuleOption
     "  cssManifest,",
     "  jsManifest,",
     `  canonicalOrigin: ${JSON.stringify(canonicalOrigin ?? undefined)},`,
+    "  createContext: createPrachtContext,",
+    `  maxBodySize: ${JSON.stringify(options.maxBodySize ?? undefined)},`,
     "});",
     "",
     "const entryHref = process.argv[1] ? pathToFileURL(process.argv[1]).href : null;",

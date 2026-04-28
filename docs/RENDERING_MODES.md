@@ -104,10 +104,10 @@ stale, it serves the stale HTML immediately and triggers regeneration.
 > as static assets on Cloudflare. Use SSG/SSR on Cloudflare, or deploy ISG
 > routes to Node until a Cloudflare cache/KV-backed design lands.
 >
-> **Vercel note:** Vercel is serverless. Pracht prerenders ISG routes at build
-> time and routes ISG paths through the Edge Function rather than relying on
-> process-local cache state. Use SSG for static output or SSR for per-request
-> freshness on Vercel.
+> **Vercel note:** Pracht's Vercel adapter targets Edge Functions. Pracht
+> prerenders ISG routes at build time and routes ISG paths through the Edge
+> Function rather than relying on process-local cache state. Use SSG for static
+> output or SSR for per-request freshness on Vercel.
 
 ### Webhook-based revalidation
 

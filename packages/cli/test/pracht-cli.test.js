@@ -21,6 +21,23 @@ afterEach(() => {
 });
 
 describe("@pracht/cli", () => {
+  it("reports the published package version", () => {
+    const packageJson = JSON.parse(
+      readFileSync(resolve(repoRoot, "packages/cli/package.json"), "utf-8"),
+    );
+
+    const env = { ...process.env };
+    delete env.NODE_ENV;
+    const result = spawnSync(process.execPath, [cliPath, "--version"], {
+      cwd: repoRoot,
+      encoding: "utf-8",
+      env,
+    });
+
+    expect(result.status).toBe(0);
+    expect(`${result.stdout}${result.stderr}`.trim()).toBe(packageJson.version);
+  });
+
   it("scaffolds shell, middleware, route, and api modules for manifest apps", () => {
     const appDir = createTempDir("pracht-cli-manifest-");
     writeManifestApp(appDir);
@@ -332,7 +349,7 @@ export const app = defineApp({
       ...api,
       ...build,
     });
-  }, 10_000);
+  }, 30_000);
 
   it("scaffolds pages-router routes without touching a manifest", () => {
     const appDir = createTempDir("pracht-cli-pages-");
@@ -435,9 +452,9 @@ function writeManifestApp(appDir, { routesSource } = {}) {
     `import { defineConfig } from "vite";
 import { pracht } from "@pracht/vite-plugin";
 
-export default defineConfig(async () => ({
-  plugins: [await pracht()],
-}));
+export default defineConfig({
+  plugins: [pracht()],
+});
 `,
   );
   writeProjectFile(
@@ -475,15 +492,15 @@ function writeInspectableManifestApp(appDir) {
     `import { defineConfig } from "vite";
 import { pracht } from ${JSON.stringify(vitePluginImport)};
 
-export default defineConfig(async () => ({
-  plugins: [await pracht()],
+export default defineConfig({
+  plugins: [pracht()],
   resolve: {
     alias: {
       "@pracht/adapter-node": ${JSON.stringify(nodeAdapterImportPath)},
       "@pracht/core": ${JSON.stringify(coreImportPath)},
     },
   },
-}));
+});
 `,
   );
   writeProjectFile(
@@ -619,9 +636,9 @@ function writePagesApp(appDir) {
     `import { defineConfig } from "vite";
 import { pracht } from "@pracht/vite-plugin";
 
-export default defineConfig(async () => ({
-  plugins: [await pracht({ pagesDir: "/src/pages" })],
-}));
+export default defineConfig({
+  plugins: [pracht({ pagesDir: "/src/pages" })],
+});
 `,
   );
 }

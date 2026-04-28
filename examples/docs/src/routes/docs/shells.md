@@ -72,6 +72,22 @@ Shell headers merge with route-level `headers` exports. Route headers override s
 
 ---
 
+## Shell Error Boundary
+
+Shells can export `ErrorBoundary` to provide a shared fallback for routes that do not define their own boundary:
+
+```tsx
+import type { ErrorBoundaryProps } from "@pracht/core";
+
+export function ErrorBoundary({ error }: ErrorBoundaryProps) {
+  return <p>Something went wrong: {error.message}</p>;
+}
+```
+
+Route-level `ErrorBoundary` exports take precedence over the shell boundary.
+
+---
+
 ## Assigning Shells
 
 Register shells by name in `defineApp`, then reference them in routes or groups:

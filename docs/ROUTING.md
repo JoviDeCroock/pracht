@@ -189,6 +189,10 @@ headers take precedence for matching names. These headers apply to HTML
 document responses, including prerendered SSG/ISG HTML, but not API routes or
 route-state JSON fetches.
 
+Shells can also export `ErrorBoundary` to provide a shared fallback for routes
+inside that shell. A route-level `ErrorBoundary` takes precedence when both are
+present.
+
 ---
 
 ## Middleware

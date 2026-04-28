@@ -8,6 +8,7 @@ import {
   readdirSync,
   rmSync,
 } from "node:fs";
+import { createServer } from "node:net";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -99,7 +100,7 @@ test("built Node server serves .tsrx and .tsx routes", async () => {
   buildExample(exampleDir);
   expect(existsSync(serverEntryPath)).toBe(true);
 
-  const port = 4421;
+  const port = await getAvailablePort();
   const server = spawn(process.execPath, [serverEntryPath], {
     cwd: exampleDir,
     env: {
@@ -183,6 +184,23 @@ function collectJsSource(dir: string): string {
     pieces.push(readFileSync(resolve(parent, entry.name), "utf-8"));
   }
   return pieces.join("\n");
+}
+
+async function getAvailablePort(): Promise<number> {
+  const server = createServer();
+  await new Promise<void>((resolveListen, rejectListen) => {
+    server.once("error", rejectListen);
+    server.listen(0, "127.0.0.1", () => resolveListen());
+  });
+
+  const address = server.address();
+  if (!address || typeof address === "string") {
+    throw new Error("Expected TCP server address");
+  }
+
+  const port = address.port;
+  await new Promise<void>((resolveClose) => server.close(() => resolveClose()));
+  return port;
 }
 
 async function waitForServer(url: string): Promise<void> {

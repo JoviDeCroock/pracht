@@ -44,6 +44,40 @@ describe("scanPagesDirectory", () => {
     ]);
     expect(pages.find((page) => page.routePath === "/guide")?.renderMode).toBe("ssg");
   });
+
+  it("sorts nested dynamic folders after static routes", () => {
+    const pagesDir = makeTempPagesDir();
+    mkdirSync(join(pagesDir, "[slug]"), { recursive: true });
+    mkdirSync(join(pagesDir, "docs", "[slug]"), { recursive: true });
+
+    writeFileSync(join(pagesDir, "about.tsx"), "export function Component() { return null; }\n");
+    writeFileSync(
+      join(pagesDir, "[slug]", "index.tsx"),
+      "export function Component() { return null; }\n",
+    );
+    writeFileSync(
+      join(pagesDir, "docs", "intro.tsx"),
+      "export function Component() { return null; }\n",
+    );
+    writeFileSync(
+      join(pagesDir, "docs", "[slug]", "index.tsx"),
+      "export function Component() { return null; }\n",
+    );
+    writeFileSync(
+      join(pagesDir, "[...path].tsx"),
+      "export function Component() { return null; }\n",
+    );
+
+    const pages = scanPagesDirectory(pagesDir);
+
+    expect(pages.map((page) => page.routePath)).toEqual([
+      "/about",
+      "/docs/intro",
+      "/docs/:slug",
+      "/:slug",
+      "/*",
+    ]);
+  });
 });
 
 describe("generatePagesManifestSource", () => {
@@ -68,7 +102,8 @@ describe("createPrachtRegistryModuleSource", () => {
       pagesDir: "/src/pages",
     });
 
-    expect(source).toContain("/src/pages/**/*.{ts,tsx,tsrx,js,jsx,md,mdx}");
+    expect(source).toContain("/src/pages/**/*.{ts,tsx,js,jsx,md,mdx}");
+    expect(source).toContain("/src/pages/**/*.tsrx");
     expect(source).toContain("/src/api/**/*.{ts,js,tsx,jsx}");
     expect(source).toContain("/src/server/**/*.{ts,js,tsx,jsx}");
     expect(source).toContain("/src/middleware/**/*.{ts,tsx,js,jsx}");
