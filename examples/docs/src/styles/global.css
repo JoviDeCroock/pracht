@@ -214,6 +214,7 @@ a:hover {
    CODE BLOCKS
    ============================================================ */
 .code-block {
+  max-width: 100%;
   background: #0d0d17;
   border: 1px solid rgba(255, 255, 255, 0.06);
   border-radius: var(--r-lg);
@@ -620,6 +621,49 @@ code:not(.code-block code) {
   font-size: 12.5px;
   color: var(--text-3);
   line-height: 1.65;
+}
+
+/* ============================================================
+   HOME PAGE — DATA LOADING
+   ============================================================ */
+.data-loading-section {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 64px;
+  align-items: center;
+}
+
+.data-loading-section > * {
+  min-width: 0;
+}
+
+.data-loading-title {
+  margin-bottom: 16px;
+}
+
+.data-loading-copy {
+  color: var(--text-3);
+  line-height: 1.75;
+  margin-bottom: 16px;
+}
+
+.data-loading-copy-last {
+  margin-bottom: 24px;
+}
+
+.data-loading-link {
+  display: inline-flex;
+}
+
+.data-loading-code {
+  min-width: 0;
+}
+
+@media (max-width: 768px) {
+  .data-loading-section {
+    grid-template-columns: 1fr;
+    gap: 32px;
+  }
 }
 
 /* ============================================================

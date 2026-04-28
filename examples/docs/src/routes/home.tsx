@@ -224,29 +224,24 @@ export const app = defineApp({
 
       {/* ─── How it works ──────────────────────────────────────── */}
       <section class="section">
-        <div
-          class="section-inner"
-          style="display:grid;grid-template-columns:1fr 1fr;gap:64px;align-items:center;"
-        >
+        <div class="section-inner data-loading-section">
           <div>
             <p class="section-eyebrow">Data Loading</p>
-            <h2 class="section-title" style="margin-bottom:16px;">
-              Loaders stay on the server
-            </h2>
-            <p style="color:var(--text-3);line-height:1.75;margin-bottom:16px;">
+            <h2 class="section-title data-loading-title">Loaders stay on the server</h2>
+            <p class="data-loading-copy">
               Loader functions run server-side only — during the build for SSG, on each request for
               SSR. Secrets, database connections, and API keys never reach the client bundle.
             </p>
-            <p style="color:var(--text-3);line-height:1.75;margin-bottom:24px;">
+            <p class="data-loading-copy data-loading-copy-last">
               After hydration, client navigation fetches only the loader data as JSON — the
               component tree updates without a full page reload.
             </p>
-            <a href="/docs/data-loading" class="btn btn-secondary" style="display:inline-flex;">
+            <a href="/docs/data-loading" class="btn btn-secondary data-loading-link">
               Data loading guide
               <IconArrowRight size={14} stroke={2} />
             </a>
           </div>
-          <div>
+          <div class="data-loading-code">
             <CodeBlock
               filename="routes/dashboard.tsx"
               code={`import type { LoaderArgs, RouteComponentProps } from "@pracht/core";
