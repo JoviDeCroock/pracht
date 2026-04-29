@@ -4,7 +4,6 @@
 "@pracht/adapter-vercel": patch
 "@pracht/cli": patch
 "@pracht/core": patch
-"@pracht/preact-ssr-precompile": patch
 "@pracht/vite-plugin": patch
 "create-pracht": patch
 ---
