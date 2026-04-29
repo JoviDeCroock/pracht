@@ -51,6 +51,35 @@ async function compilePrecompiledJsx(source: string): Promise<string> {
   return result.code;
 }
 
+type RenderFn<TProps> = (props: TProps) => VNode;
+
+async function expectPrecompiledRenderMatches<TProps>(
+  source: string,
+  propsCases: TProps[],
+  options: { expectedHtml?: string[]; expectCodeIncludes?: string[] } = {},
+): Promise<string> {
+  const normal = await importCode(await compileNormalJsx(source));
+  const precompiledCode = await compilePrecompiledJsx(source);
+  const precompiled = await importCode(precompiledCode);
+
+  for (const snippet of options.expectCodeIncludes ?? ["jsxTemplate"]) {
+    expect(precompiledCode).toContain(snippet);
+  }
+
+  const renderNormal = normal.view as RenderFn<TProps>;
+  const renderPrecompiled = precompiled.view as RenderFn<TProps>;
+
+  for (const [index, props] of propsCases.entries()) {
+    const precompiledHtml = renderToString(renderPrecompiled(props));
+    expect(precompiledHtml).toBe(renderToString(renderNormal(props)));
+    if (options.expectedHtml?.[index] != null) {
+      expect(precompiledHtml).toBe(options.expectedHtml[index]);
+    }
+  }
+
+  return precompiledCode;
+}
+
 describe("preactSsrPrecompile", () => {
   it("precompiles safe DOM subtrees and preserves Preact SSR output", async () => {
     const source = `
@@ -158,6 +187,177 @@ export function getCount() {
 
     expect(renderToString(view())).toBe('<div draggable="false" aria-hidden="false">x</div>');
     expect(getCount()).toBe(2);
+  });
+
+  it("matches upstream attribute casing, literal, and escaping cases", async () => {
+    const source = `
+export function view(props) {
+  return (
+    <div
+      htmlFor="field"
+      className="card"
+      acceptCharset="utf-8"
+      httpEquiv="refresh"
+      tabIndex={-1}
+      data-count={100}
+      title={'a&<"b'}
+    >
+      {'"a&<"'}
+      <label className={props.labelClass}>{props.label}</label>
+    </div>
+  );
+}
+`;
+
+    await expectPrecompiledRenderMatches(
+      source,
+      [{ label: "Name & <value>", labelClass: "label&main" }],
+      {
+        expectedHtml: [
+          '<div for="field" class="card" accept-charset="utf-8" http-equiv="refresh" tabindex="-1" data-count="100" title="a&amp;&lt;&quot;b">&quot;a&amp;&lt;&quot;<label class="label&amp;main">Name &amp; &lt;value></label></div>',
+        ],
+      },
+    );
+  });
+
+  it("matches upstream boolean and dynamic attribute cases", async () => {
+    const source = `
+export function view(props) {
+  return (
+    <section>
+      <input type="checkbox" checked={props.checked} required={true} disabled={false} />
+      <div f-client-nav={props.clientNav} draggable={props.draggable} aria-hidden={props.hidden}>x</div>
+    </section>
+  );
+}
+`;
+
+    await expectPrecompiledRenderMatches(
+      source,
+      [
+        { checked: false, clientNav: false, draggable: false, hidden: true },
+        { checked: true, clientNav: true, draggable: true, hidden: false },
+      ],
+      {
+        expectedHtml: [
+          '<section><input type="checkbox" required/><div draggable="false" aria-hidden="true">x</div></section>',
+          '<section><input type="checkbox" checked required/><div f-client-nav draggable="true" aria-hidden="false">x</div></section>',
+        ],
+      },
+    );
+  });
+
+  it("falls back for upstream spread and dangerouslySetInnerHTML cases", async () => {
+    const source = `
+export function view(props) {
+  return (
+    <main>
+      <div foo="1" {...props.spread} bar="2">hello</div>
+      <div dangerouslySetInnerHTML={{ __html: props.html }} />
+    </main>
+  );
+}
+`;
+
+    const precompiledCode = await expectPrecompiledRenderMatches(
+      source,
+      [{ html: "<span>raw&ok</span>", spread: { baz: "3", children: undefined } }],
+      {
+        expectedHtml: [
+          '<main><div foo="1" baz="3" bar="2">hello</div><div><span>raw&ok</span></div></main>',
+        ],
+        expectCodeIncludes: ["...props.spread"],
+      },
+    );
+
+    expect(precompiledCode).toContain("dangerouslySetInnerHTML");
+  });
+
+  it("matches upstream component children and JSX attribute cases", async () => {
+    const source = `
+function Foo(props) {
+  return <article data-kind={props.kind}>{props.children}</article>;
+}
+function Bar(props) {
+  return <strong>{props.children}</strong>;
+}
+export function view(props) {
+  return (
+    <Foo kind="wrap" bar={<div>hello</div>}>
+      <span>hello</span>foo<Bar>{props.name}</Bar>
+    </Foo>
+  );
+}
+`;
+
+    const precompiledCode = await expectPrecompiledRenderMatches(
+      source,
+      [{ name: "Jovi & team" }],
+      {
+        expectedHtml: [
+          '<article data-kind="wrap"><span>hello</span>foo<strong>Jovi &amp; team</strong></article>',
+        ],
+        expectCodeIncludes: ["jsxTemplate", "_jsx(Foo"],
+      },
+    );
+
+    expect(precompiledCode).toContain("bar: _jsxTemplate");
+  });
+
+  it("matches upstream fragment and whitespace normalization cases", async () => {
+    const source = `
+function Foo(props) {
+  return <div>{props.children}</div>;
+}
+export function view(props) {
+  return (
+    <Foo>
+      <>
+        foo
+        <span />
+        {props.value}
+      </>
+    </Foo>
+  );
+}
+`;
+
+    await expectPrecompiledRenderMatches(source, [{ value: "&bar" }], {
+      expectedHtml: ["<div>foo<span></span>&amp;bar</div>"],
+    });
+  });
+
+  it("honors upstream skip element and dynamic prop options", async () => {
+    const source = `
+export function view(props) {
+  return <div className="outer"><img id="hero" className="image" src={props.src} /><a href={props.href}>link</a></div>;
+}
+`;
+
+    const transformed = transformPreactSsrJsx(source, "precompiled.jsx", {
+      dynamicProps: ["class", "className"],
+      skipElements: ["a", "img"],
+    });
+    expect(transformed).toBeTruthy();
+    expect(transformed).toContain('_jsxAttr("class"');
+    expect(transformed).toContain('_jsx("img"');
+    expect(transformed).toContain('_jsx("a"');
+
+    const normal = await importCode(await compileNormalJsx(source));
+    const compiled = await transformWithOxc(transformed ?? source, "precompiled.jsx", {
+      lang: "jsx",
+      jsx: {
+        runtime: "automatic",
+        importSource: "preact",
+      },
+      sourcemap: false,
+    });
+    const precompiled = await importCode(compiled.code);
+    const props = { href: "/home?x=<y>", src: "/hero.png" };
+
+    expect(renderToString((precompiled.view as RenderFn<typeof props>)(props))).toBe(
+      renderToString((normal.view as RenderFn<typeof props>)(props)),
+    );
   });
 
   it("plugin transform runs only for SSR by default", async () => {
