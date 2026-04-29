@@ -2,6 +2,7 @@ import { h } from "preact";
 import { describe, expect, it } from "vitest";
 
 import {
+  Link,
   PrachtHttpError,
   defineApp,
   handlePrachtRequest,
@@ -901,6 +902,34 @@ describe("handlePrachtRequest ErrorBoundary", () => {
 
     expect(response.status).toBe(404);
     await expect(response.text()).resolves.toContain("Error: Post not found");
+  });
+
+  it("allows route links inside error boundaries", async () => {
+    const app = defineApp({
+      routes: [
+        route("/", "./routes/home.tsx", { id: "home" }),
+        route("/posts/:slug", "./routes/post.tsx", { id: "post" }),
+      ],
+    });
+
+    const response = await handlePrachtRequest({
+      app,
+      registry: {
+        routeModules: {
+          "./routes/post.tsx": async () => ({
+            Component: () => h("main", null, "post"),
+            ErrorBoundary: () => h(Link, { route: "home" }, "Back home"),
+            loader: async () => {
+              throw new PrachtHttpError(404, "Post not found");
+            },
+          }),
+        },
+      },
+      request: new Request("http://localhost/posts/missing"),
+    });
+
+    expect(response.status).toBe(404);
+    await expect(response.text()).resolves.toContain('<a href="/">Back home</a>');
   });
 
   it("renders the shell error boundary when a route boundary is absent", async () => {

@@ -538,6 +538,7 @@ export async function handlePrachtRequest<TContext>(
       routeArgs,
       routeId: match.route.id ?? "",
       routeModule,
+      routes: resolvedApp.routes,
       shellFile: match.route.shellFile,
       shellModule,
       requestPath,

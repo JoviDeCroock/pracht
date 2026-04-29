@@ -366,10 +366,13 @@ export const app = defineApp({
       ok: true,
       routes: 2,
     });
+    expect(declaration).toContain(
+      'import type { RouteParamInput, SearchParamsInput } from "@pracht/core";',
+    );
     expect(declaration).toContain('"home": {');
     expect(declaration).toContain("params: Record<never, never>;");
     expect(declaration).toContain('"product": {');
-    expect(declaration).toContain('params: { "id": string; };');
+    expect(declaration).toContain('params: { "id": RouteParamInput; };');
     expect(runtime).toContain('id: "product"');
     expect(runtime).toContain('path: "/products/:id"');
     expect(runtime).toContain("export const href = createHref(routes);");
@@ -393,7 +396,7 @@ export const app = defineApp({
     expect(result).toMatchObject({ mode: "pages", ok: true, routes: 2 });
     expect(declaration).toContain('"index": {');
     expect(declaration).toContain('"blog-slug": {');
-    expect(declaration).toContain('params: { "slug": string; };');
+    expect(declaration).toContain('params: { "slug": RouteParamInput; };');
   }, 30_000);
 
   it("scaffolds pages-router routes without touching a manifest", () => {
