@@ -1,5 +1,14 @@
 # @pracht/cli
 
+## 1.3.3
+
+### Patch Changes
+
+- [`64242a9`](https://github.com/JoviDeCroock/pracht/commit/64242a9dd01348c29e08e22b54581ebce28208d6) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Add npm package descriptions and keywords so Pracht packages are easier to discover in registries and AI-assisted tooling.
+
+- Updated dependencies [[`64242a9`](https://github.com/JoviDeCroock/pracht/commit/64242a9dd01348c29e08e22b54581ebce28208d6)]:
+  - @pracht/core@0.6.1
+
 ## 1.3.2
 
 ### Patch Changes
