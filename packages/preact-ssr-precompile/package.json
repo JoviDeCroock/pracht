@@ -1,0 +1,59 @@
+{
+  "name": "@pracht/preact-ssr-precompile",
+  "version": "0.1.0",
+  "description": "Experimental Vite/Rolldown plugin that precompiles safe Preact JSX for faster server-side rendering.",
+  "keywords": [
+    "pracht",
+    "preact",
+    "ssr",
+    "server-rendering",
+    "jsx",
+    "precompile",
+    "vite",
+    "rolldown",
+    "performance",
+    "plugin"
+  ],
+  "license": "MIT",
+  "homepage": "https://github.com/JoviDeCroock/pracht/tree/main/packages/preact-ssr-precompile",
+  "bugs": {
+    "url": "https://github.com/JoviDeCroock/pracht/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/JoviDeCroock/pracht",
+    "directory": "packages/preact-ssr-precompile"
+  },
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.mts",
+      "default": "./dist/index.mjs"
+    }
+  },
+  "publishConfig": {
+    "provenance": true
+  },
+  "scripts": {
+    "build": "tsdown",
+    "bench": "pnpm run build && node bench/render-to-string.mjs",
+    "prepublishOnly": "npm run build"
+  },
+  "peerDependencies": {
+    "preact": "^10.26.0",
+    "preact-render-to-string": "^6.5.13",
+    "vite": "^8.0.0"
+  },
+  "peerDependenciesMeta": {
+    "vite": {
+      "optional": true
+    }
+  },
+  "dependencies": {
+    "rolldown": "1.0.0-rc.12",
+    "rolldown-string": "^0.3.0"
+  }
+}

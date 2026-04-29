@@ -1,3 +1,4 @@
+import { preactSsrPrecompile } from "@pracht/preact-ssr-precompile";
 import preact from "@preact/preset-vite";
 import { resolve } from "node:path";
 import type { Plugin, UserConfig } from "vite";
@@ -188,7 +189,16 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
     },
   };
 
-  const plugins: Plugin[] = [...preact(), prachtPlugin, clientModuleTransformPlugin];
+  const precompilePlugin = resolved.precompileSsrJsx
+    ? preactSsrPrecompile(resolved.precompileSsrJsx === true ? {} : resolved.precompileSsrJsx)
+    : null;
+
+  const plugins: Plugin[] = [
+    ...(precompilePlugin ? [precompilePlugin] : []),
+    ...preact(),
+    prachtPlugin,
+    clientModuleTransformPlugin,
+  ];
 
   const adapterPlugins = resolved.adapter.vitePlugins?.();
   if (adapterPlugins?.length) {

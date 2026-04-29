@@ -35,6 +35,7 @@
   "dependencies": {
     "@pracht/adapter-node": "workspace:*",
     "@pracht/core": "workspace:*",
+    "@pracht/preact-ssr-precompile": "workspace:*",
     "@preact/preset-vite": "^2.10.5",
     "@prefresh/vite": "^2.0.0"
   },

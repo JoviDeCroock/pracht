@@ -1,4 +1,5 @@
 import type { RenderMode } from "@pracht/core";
+import type { PreactSsrPrecompileOptions } from "@pracht/preact-ssr-precompile";
 import { createDefaultNodeAdapter, type PrachtAdapter } from "./plugin-adapter.ts";
 
 export interface PrachtPluginOptions {
@@ -17,6 +18,11 @@ export interface PrachtPluginOptions {
   prerenderConcurrency?: number;
   /** Maximum request body size (bytes) accepted by the dev SSR middleware. Defaults to 1 MiB. */
   maxBodySize?: number;
+  /**
+   * Opt into precompiling safe Preact JSX DOM subtrees for SSR/SSG server bundles.
+   * Client bundles keep the normal Preact JSX transform for hydration.
+   */
+  precompileSsrJsx?: boolean | PreactSsrPrecompileOptions;
 }
 
 export type ResolvedPrachtPluginOptions = Required<PrachtPluginOptions>;
@@ -33,6 +39,7 @@ const DEFAULTS: ResolvedPrachtPluginOptions = {
   pagesDefaultRender: "ssr",
   prerenderConcurrency: 10,
   maxBodySize: 1024 * 1024,
+  precompileSsrJsx: false,
 };
 
 export function resolveOptions(options: PrachtPluginOptions): ResolvedPrachtPluginOptions {
