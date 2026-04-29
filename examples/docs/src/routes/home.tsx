@@ -139,12 +139,12 @@ export function Component(_props: RouteComponentProps<typeof loader>) {
           </p>
 
           <div class="hero-actions">
-            <a href="/docs/routing" class="btn btn-primary">
+            <a href="/docs/getting-started" class="btn btn-primary">
               Read the docs
               <IconArrowRight size={14} stroke={2} />
             </a>
-            <a href="/docs/adapters" class="btn btn-secondary">
-              View Adapters
+            <a href="/docs/demo-comparison" class="btn btn-secondary">
+              See the demo comparison
             </a>
           </div>
 

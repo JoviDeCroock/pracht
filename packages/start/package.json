@@ -1,6 +1,18 @@
 {
   "name": "create-pracht",
   "version": "0.2.4",
+  "description": "Interactive and scriptable starter CLI for creating full-stack Preact apps with Pracht.",
+  "keywords": [
+    "pracht",
+    "preact",
+    "create",
+    "starter",
+    "scaffold",
+    "vite",
+    "ssr",
+    "cloudflare",
+    "vercel"
+  ],
   "license": "MIT",
   "homepage": "https://github.com/JoviDeCroock/pracht/tree/main/packages/start",
   "bugs": {

@@ -1,6 +1,19 @@
 {
   "name": "@pracht/vite-plugin",
   "version": "0.4.0",
+  "description": "Vite plugin for Pracht apps with virtual modules, dev SSR, prerendering, route inspection, and multi-adapter builds.",
+  "keywords": [
+    "pracht",
+    "preact",
+    "vite",
+    "vite-plugin",
+    "ssr",
+    "ssg",
+    "prerender",
+    "routing",
+    "cloudflare",
+    "vercel"
+  ],
   "license": "MIT",
   "homepage": "https://github.com/JoviDeCroock/pracht/tree/main/packages/vite-plugin",
   "bugs": {

@@ -14,6 +14,7 @@ export function Shell({ children }: ShellProps) {
             <a href="/">Home</a>
             <a href="/blog/why-pracht">Blog</a>
             <a href="/pricing">Pricing</a>
+            <a href="/agents">Agents</a>
             <form action="/api/auth/login" method="post">
               <button type="submit" class="btn-signin">
                 Sign in

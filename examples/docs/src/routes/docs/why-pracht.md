@@ -6,8 +6,8 @@ prev:
   href: /docs/getting-started
   title: Getting Started
 next:
-  href: /docs/routing
-  title: Routing
+  href: /docs/demo-comparison
+  title: The Pracht Demo
 ---
 
 ## Design philosophy
@@ -46,6 +46,10 @@ Other frameworks typically default to one mode globally (SSR in Next.js, SSG in 
 One codebase deploys to Node.js, Cloudflare Workers, or Vercel with a one-line adapter swap. Adapters handle platform-specific concerns (static file serving, request conversion, edge bindings, and Node ISG cache invalidation) so your application code stays portable.
 
 ---
+
+## Want the compelling product demo?
+
+Read [The Pracht Demo](/docs/demo-comparison) for a Launchpad SaaS walkthrough that compares pracht against common framework tradeoffs: SSG marketing, SSG blog posts, ISG pricing, SSR dashboards, and SPA settings in one app.
 
 ## Compared to...
 

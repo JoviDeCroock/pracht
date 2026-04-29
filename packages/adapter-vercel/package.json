@@ -1,6 +1,19 @@
 {
   "name": "@pracht/adapter-vercel",
   "version": "0.1.0",
+  "description": "Vercel Edge adapter for deploying Pracht apps with Build Output API support.",
+  "keywords": [
+    "pracht",
+    "preact",
+    "vercel",
+    "edge",
+    "adapter",
+    "build-output-api",
+    "ssr",
+    "ssg",
+    "vite",
+    "framework"
+  ],
   "license": "MIT",
   "homepage": "https://github.com/JoviDeCroock/pracht/tree/main/packages/adapter-vercel",
   "bugs": {

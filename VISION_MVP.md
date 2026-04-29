@@ -163,30 +163,10 @@ SSR and SSG, deployed to Node. Thoroughly tested with Playwright E2E tests.
    - Shells wrap routes correctly
    - Hydration completes without errors
 
-### Phase 1 Non-Goals
+## TODO
 
-- API routes (Phase 2)
-- Cloudflare / Vercel adapters (Phase 2)
-- Claude Code skills (Phase 2)
-- ISG webhook revalidation (Phase 2)
-
----
-
-## Phase 2 — Expand
-
-- API routes (`src/api/`)
-- `adapter-cloudflare` with Workers, KV, ISG
-- `adapter-vercel` with Vercel Edge Functions
+- CF and Vercel ISG
 - ISG webhook revalidation
-- Claude Code commands for scaffolding, debugging, and deploying
-- `create-pracht` starter CLI
-
-## Phase 3 — Polish
-
-- ~~Error overlay in dev~~ ✓
-- ~~Route-level code splitting optimizations~~ ✓ (modulepreload hints, vendor chunks, jsManifest)
-- ~~Advanced prefetching strategies~~ ✓ (hover/viewport/intent with TTL cache)
-- ~~Documentation website (self-hosted on pracht)~~ ✓ (expanded to 11 pages)
 
 ---
 

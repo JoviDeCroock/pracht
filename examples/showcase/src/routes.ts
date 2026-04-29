@@ -26,6 +26,10 @@ export const app = defineApp({
         render: "isg",
         revalidate: timeRevalidate(3600),
       }),
+      route("/agents", () => import("./routes/agents.tsx"), {
+        id: "agents",
+        render: "ssg",
+      }),
     ]),
 
     // Authenticated app — personalized, interactive

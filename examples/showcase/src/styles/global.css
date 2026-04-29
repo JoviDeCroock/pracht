@@ -1037,3 +1037,156 @@ button:hover,
     padding: 40px 16px 60px;
   }
 }
+
+/* ============================================================
+   AGENT BRIEFING PAGE
+   ============================================================ */
+
+.agent-page {
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 64px 24px 88px;
+}
+
+.agent-hero {
+  text-align: center;
+  padding: 36px 0 48px;
+}
+
+.agent-hero h1 {
+  font-size: clamp(34px, 6vw, 56px);
+  font-weight: 750;
+  letter-spacing: -1.5px;
+  line-height: 1.08;
+  margin-bottom: 20px;
+}
+
+.agent-hero p {
+  max-width: 680px;
+  margin: 0 auto;
+  color: var(--text-3);
+  font-size: 17px;
+  line-height: 1.75;
+}
+
+.agent-actions {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 28px;
+}
+
+.agent-terminal {
+  overflow: hidden;
+  border: 1px solid rgba(139, 92, 246, 0.22);
+  border-radius: var(--r-lg);
+  background: #0d0d17;
+  box-shadow: 0 0 44px rgba(139, 92, 246, 0.1);
+}
+
+.agent-terminal pre {
+  margin: 0;
+  padding: 20px 22px;
+  overflow-x: auto;
+  color: #e2e8f0;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.75;
+}
+
+.agent-terminal .kw {
+  color: #c4b5fd;
+}
+.agent-terminal .fn {
+  color: #93c5fd;
+}
+.agent-terminal .str {
+  color: #86efac;
+}
+.agent-terminal .cmt {
+  color: #64748b;
+  font-style: italic;
+}
+.agent-terminal .prop {
+  color: #fcd34d;
+}
+
+.agent-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.agent-card,
+.agent-briefing {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.015));
+  border: 1px solid var(--border-l);
+  border-radius: var(--r-lg);
+}
+
+.agent-card {
+  padding: 22px;
+}
+
+.agent-card h2 {
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 650;
+  margin-bottom: 8px;
+}
+
+.agent-card p {
+  color: var(--text-3);
+  font-size: 13.5px;
+  line-height: 1.7;
+}
+
+.agent-briefing {
+  display: grid;
+  grid-template-columns: 0.9fr 1.1fr;
+  gap: 24px;
+  margin-top: 18px;
+  padding: 24px;
+}
+
+.agent-briefing .eyebrow {
+  color: var(--accent-l);
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin-bottom: 8px;
+}
+
+.agent-briefing h2 {
+  font-size: 24px;
+  line-height: 1.2;
+  letter-spacing: -0.5px;
+  margin-bottom: 10px;
+}
+
+.agent-briefing p,
+.agent-briefing li {
+  color: var(--text-3);
+  font-size: 13.5px;
+  line-height: 1.7;
+}
+
+.agent-briefing ul {
+  display: grid;
+  gap: 8px;
+  padding-left: 20px;
+}
+
+.agent-briefing li::marker {
+  color: var(--accent-l);
+}
+
+@media (max-width: 760px) {
+  .agent-grid,
+  .agent-briefing {
+    grid-template-columns: 1fr;
+  }
+}

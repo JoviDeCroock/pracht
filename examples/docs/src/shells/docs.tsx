@@ -21,6 +21,7 @@ import {
   IconRefresh,
   IconBrandGithub,
   IconSparkles,
+  IconPresentationAnalytics,
 } from "@tabler/icons-preact";
 import "../styles/global.css";
 
@@ -30,6 +31,7 @@ const NAV = [
     links: [
       { href: "/docs/getting-started", Icon: IconRocket, title: "Quick Start" },
       { href: "/docs/why-pracht", Icon: IconSparkles, title: "Why Pracht?" },
+      { href: "/docs/demo-comparison", Icon: IconPresentationAnalytics, title: "Demo Comparison" },
       { href: "/docs/routing", Icon: IconSitemap, title: "Routing" },
     ],
   },
