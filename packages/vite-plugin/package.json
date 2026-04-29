@@ -1,6 +1,6 @@
 {
   "name": "@pracht/vite-plugin",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Vite plugin for Pracht apps with virtual modules, dev SSR, prerendering, route inspection, and multi-adapter builds.",
   "keywords": [
     "pracht",

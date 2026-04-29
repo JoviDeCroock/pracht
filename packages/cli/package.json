@@ -1,6 +1,6 @@
 {
   "name": "@pracht/cli",
-  "version": "1.3.2",
+  "version": "1.3.3",
   "description": "CLI for developing, building, validating, inspecting, and scaffolding Pracht apps.",
   "keywords": [
     "pracht",

@@ -1,5 +1,11 @@
 # create-pracht
 
+## 0.2.5
+
+### Patch Changes
+
+- [`64242a9`](https://github.com/JoviDeCroock/pracht/commit/64242a9dd01348c29e08e22b54581ebce28208d6) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Add npm package descriptions and keywords so Pracht packages are easier to discover in registries and AI-assisted tooling.
+
 ## 0.2.4
 
 ### Patch Changes
