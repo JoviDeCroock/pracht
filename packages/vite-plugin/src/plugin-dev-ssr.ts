@@ -1,5 +1,6 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { Connect, ViteDevServer } from "vite";
+import type { ResolvedApiRoute, ResolvedPrachtApp } from "@pracht/core";
 import { CLIENT_BROWSER_PATH, PRACHT_SERVER_MODULE_ID } from "./plugin-assets.ts";
 
 const BODYLESS_METHODS = new Set(["GET", "HEAD"]);
@@ -12,19 +13,24 @@ export function createDevSSRMiddleware(
   const maxBodySize = options.maxBodySize ?? DEFAULT_MAX_BODY_SIZE;
   return async (req: IncomingMessage, res: ServerResponse, next: Connect.NextFunction) => {
     const url = req.url ?? "/";
-    const pathname = new URL(url, "http://localhost").pathname;
-
-    // Let Vite handle assets by pathname. Query params may contain dotted
-    // domains or tokens, but they should not opt the route out of SSR.
-    if (pathname.includes(".") || pathname.startsWith("/node_modules/")) {
-      return next();
-    }
+    const requestUrl = new URL(url, "http://localhost");
 
     try {
       const [framework, serverMod] = await Promise.all([
         server.ssrLoadModule("@pracht/core"),
         server.ssrLoadModule(PRACHT_SERVER_MODULE_ID),
       ]);
+
+      if (
+        shouldBypassDevSSR(requestUrl, req, {
+          app: serverMod.resolvedApp,
+          apiRoutes: serverMod.apiRoutes,
+          matchApiRoute: framework.matchApiRoute,
+          matchAppRoute: framework.matchAppRoute,
+        })
+      ) {
+        return next();
+      }
 
       let webRequest: Request;
       try {
@@ -110,6 +116,160 @@ async function handleDevError(
     next(error);
   }
 }
+
+export function shouldBypassDevSSR(
+  requestUrl: URL | string,
+  req: Pick<IncomingMessage, "headers" | "method">,
+  options: {
+    app?: ResolvedPrachtApp;
+    apiRoutes?: ResolvedApiRoute[];
+    matchApiRoute?: (routes: ResolvedApiRoute[], pathname: string) => unknown;
+    matchAppRoute?: (app: ResolvedPrachtApp, pathname: string) => unknown;
+  } = {},
+): boolean {
+  const url = typeof requestUrl === "string" ? new URL(requestUrl, "http://localhost") : requestUrl;
+  const pathname = url.pathname;
+
+  if (isReservedDevPath(pathname)) {
+    return true;
+  }
+
+  if (isRouteStateRequest(url, req)) {
+    return false;
+  }
+
+  const isApiRequest = pathname === "/api" || pathname.startsWith("/api/");
+  if (isApiRequest) {
+    return false;
+  }
+
+  const method = (req.method ?? "GET").toUpperCase();
+  if (method !== "GET" && method !== "HEAD") {
+    return false;
+  }
+
+  const fetchDest = readRequestHeader(req.headers["sec-fetch-dest"]).toLowerCase();
+  const hasRouteMatch = matchesResolvedRoute(pathname, options);
+
+  if (hasRouteMatch && !NON_DOCUMENT_FETCH_DESTINATIONS.has(fetchDest)) {
+    return false;
+  }
+
+  if (NON_DOCUMENT_FETCH_DESTINATIONS.has(fetchDest)) {
+    return true;
+  }
+
+  const accept = readRequestHeader(req.headers.accept).toLowerCase();
+  if (accept.includes("text/html") || accept.includes("application/xhtml+xml")) {
+    return false;
+  }
+
+  return hasKnownAssetExtension(pathname);
+}
+
+function matchesResolvedRoute(
+  pathname: string,
+  options: {
+    app?: ResolvedPrachtApp;
+    apiRoutes?: ResolvedApiRoute[];
+    matchApiRoute?: (routes: ResolvedApiRoute[], pathname: string) => unknown;
+    matchAppRoute?: (app: ResolvedPrachtApp, pathname: string) => unknown;
+  },
+): boolean {
+  if (options.app && options.matchAppRoute && options.matchAppRoute(options.app, pathname)) {
+    return true;
+  }
+
+  if (
+    options.apiRoutes?.length &&
+    options.matchApiRoute &&
+    options.matchApiRoute(options.apiRoutes, pathname)
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
+function isRouteStateRequest(url: URL, req: Pick<IncomingMessage, "headers" | "method">): boolean {
+  return (
+    req.headers["x-pracht-route-state-request"] === "1" || url.searchParams.get("_data") === "1"
+  );
+}
+
+function readRequestHeader(value: string | string[] | undefined): string {
+  if (Array.isArray(value)) {
+    return value.join(", ");
+  }
+
+  return value ?? "";
+}
+
+function hasKnownAssetExtension(pathname: string): boolean {
+  const fileName = pathname.split("/").pop() ?? "";
+  const extensionIndex = fileName.lastIndexOf(".");
+  if (extensionIndex <= 0) {
+    return false;
+  }
+
+  const extension = fileName.slice(extensionIndex).toLowerCase();
+  return DEV_ASSET_EXTENSIONS.has(extension);
+}
+
+function isReservedDevPath(pathname: string): boolean {
+  return (
+    pathname === CLIENT_BROWSER_PATH ||
+    pathname === "/@vite/client" ||
+    pathname === "/@react-refresh" ||
+    pathname.startsWith("/@vite/") ||
+    pathname.startsWith("/@id/") ||
+    pathname.startsWith("/@fs/") ||
+    pathname.startsWith("/__vite_")
+  );
+}
+
+const NON_DOCUMENT_FETCH_DESTINATIONS = new Set([
+  "audio",
+  "embed",
+  "font",
+  "image",
+  "manifest",
+  "object",
+  "paintworklet",
+  "report",
+  "script",
+  "serviceworker",
+  "sharedworker",
+  "style",
+  "track",
+  "video",
+  "worker",
+]);
+
+const DEV_ASSET_EXTENSIONS = new Set([
+  ".avif",
+  ".bmp",
+  ".cjs",
+  ".css",
+  ".gif",
+  ".ico",
+  ".jpeg",
+  ".jpg",
+  ".js",
+  ".json",
+  ".map",
+  ".mjs",
+  ".pdf",
+  ".png",
+  ".svg",
+  ".txt",
+  ".wasm",
+  ".webmanifest",
+  ".webp",
+  ".woff",
+  ".woff2",
+  ".xml",
+]);
 
 async function nodeToWebRequest(req: IncomingMessage, maxBodySize: number): Promise<Request> {
   // Dev server is always a direct connection — never trust forwarded headers.
