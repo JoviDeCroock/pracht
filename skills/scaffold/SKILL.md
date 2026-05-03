@@ -35,6 +35,7 @@ pracht generate api --path /health --methods GET,POST
 
 - Add `--json` when another agent/tool needs machine-readable output.
 - Use `pracht inspect routes --json` or `pracht inspect api --json` to confirm current wiring before manual edits when the existing graph matters.
+- If the app has typed routes (`src/pracht-routes.ts` / `.d.ts`) or the user asks for typed links, run `pracht typegen` after adding or renaming routes.
 - If the CLI can express the request, do not reimplement the scaffold by hand.
 - Only edit files manually when the CLI cannot cover the requested shape.
 
@@ -143,6 +144,7 @@ Import `timeRevalidate` from `"@pracht/core"` when using ISG.
 3. Place files in the conventional directories (`src/routes/`, `src/shells/`, `src/middleware/`, `src/api/`).
 4. Keep generated code minimal — only include exports the user actually needs.
 5. Use Preact idioms: `class` not `className`, functional components, `import type` for type-only imports.
-6. After scaffolding, summarize what was created and how it was wired.
+6. When route ids/paths change in a typed-routes app, run `pracht typegen` and include the generated route files.
+7. After scaffolding, summarize what was created and how it was wired.
 
 $ARGUMENTS

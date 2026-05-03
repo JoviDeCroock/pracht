@@ -2,6 +2,7 @@ import { createContext, h } from "preact";
 import type { ComponentChildren, JSX } from "preact";
 import { useContext, useEffect, useMemo, useState } from "preact/hooks";
 
+import { buildHref } from "./app.ts";
 import {
   EMPTY_ROUTE_PARAMS,
   HYDRATION_STATE_ELEMENT_ID,
@@ -10,7 +11,14 @@ import {
 import { clearPrefetchCache } from "./prefetch.ts";
 import { deserializeRouteError, type SerializedRouteError } from "./runtime-errors.ts";
 import { fetchPrachtRouteState, navigateToClientLocation } from "./runtime-client-fetch.ts";
-import type { LoaderData, LoaderLike, RouteParams } from "./types.ts";
+import type {
+  HrefRouteDefinition,
+  LoaderData,
+  LoaderLike,
+  RouteId,
+  RouteParams,
+  RouteTarget,
+} from "./types.ts";
 
 export interface PrachtHydrationState<TData = unknown> {
   url: string;
@@ -29,15 +37,22 @@ export interface FormProps extends Omit<JSX.HTMLAttributes<HTMLFormElement>, "ac
   method?: string;
 }
 
+export type LinkProps<TRoute extends RouteId = RouteId> = Omit<
+  JSX.HTMLAttributes<HTMLAnchorElement>,
+  "href"
+> &
+  RouteTarget<TRoute>;
+
 export interface Location {
   pathname: string;
   search: string;
 }
 
 declare global {
+  var __PRACHT_ROUTE_DEFINITIONS__: readonly HrefRouteDefinition[] | undefined;
+
   interface Window {
     __PRACHT_STATE__?: PrachtHydrationState;
-    __PRACHT_NAVIGATE__?: (to: string, options?: { replace?: boolean }) => Promise<void>;
   }
 }
 
@@ -45,6 +60,7 @@ interface PrachtRuntimeValue {
   data: unknown;
   params: RouteParams;
   routeId: string;
+  routes?: readonly HrefRouteDefinition[];
   url: string;
   setData: (data: unknown) => void;
 }
@@ -56,6 +72,7 @@ export function PrachtRuntimeProvider<TData>({
   data,
   params = EMPTY_ROUTE_PARAMS,
   routeId,
+  routes,
   stateVersion = 0,
   url,
 }: {
@@ -63,9 +80,12 @@ export function PrachtRuntimeProvider<TData>({
   data: TData;
   params?: RouteParams;
   routeId: string;
+  routes?: readonly HrefRouteDefinition[];
   stateVersion?: number;
   url: string;
 }) {
+  registerRuntimeRoutes(routes);
+
   const [routeDataState, setRouteDataState] = useState({
     data,
     stateVersion,
@@ -84,6 +104,7 @@ export function PrachtRuntimeProvider<TData>({
       data: routeData,
       params,
       routeId,
+      routes,
       setData: (nextData: unknown) =>
         setRouteDataState({
           data: nextData as TData,
@@ -91,7 +112,7 @@ export function PrachtRuntimeProvider<TData>({
         }),
       url,
     }),
-    [routeData, params, routeId, stateVersion, url],
+    [routeData, params, routeId, routes, stateVersion, url],
   );
 
   return h(RouteDataContext.Provider, {
@@ -176,6 +197,30 @@ export function useRevalidate() {
     runtime?.setData(result.data);
     return result.data;
   };
+}
+
+export function Link<TRoute extends RouteId>(props: LinkProps<TRoute>) {
+  const runtime = useContext(RouteDataContext);
+  const routes = runtime?.routes ?? globalThis.__PRACHT_ROUTE_DEFINITIONS__;
+  if (!routes) {
+    throw new Error("<Link route=...> must render inside a pracht route tree.");
+  }
+
+  const { route, params, search, hash, ...anchorProps } = props as LinkProps<RouteId> & {
+    hash?: string;
+    params?: Record<string, string | number | boolean>;
+    search?: unknown;
+  };
+
+  return h("a", {
+    ...anchorProps,
+    href: buildHref(routes, route, { params, search, hash } as never),
+  } as JSX.HTMLAttributes<HTMLAnchorElement>);
+}
+
+function registerRuntimeRoutes(routes: readonly HrefRouteDefinition[] | undefined): void {
+  if (!routes) return;
+  globalThis.__PRACHT_ROUTE_DEFINITIONS__ = routes;
 }
 
 export function Form(props: FormProps) {

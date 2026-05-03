@@ -48,7 +48,7 @@ export default defineCommand({
   },
 });
 
-interface InspectReport {
+export interface InspectReport {
   api?: { file: string; methods: string[]; path: string }[];
   build?: {
     adapterTarget: string;
@@ -70,7 +70,7 @@ interface InspectReport {
   }[];
 }
 
-async function runInspect(root: string, { target = "all" } = {}): Promise<InspectReport> {
+export async function runInspect(root: string, { target = "all" } = {}): Promise<InspectReport> {
   const project = readProjectConfig(root);
 
   if (!project.configFile) {

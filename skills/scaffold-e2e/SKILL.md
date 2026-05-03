@@ -159,9 +159,10 @@ If specs fail on first run, report. Common first-run failures:
    `src/routes/**`.
 2. Skip dynamic-segment routes unless example params are provided.
 3. Never overwrite an existing `playwright.config.ts` without diffing first.
-4. Use `webServer` to boot `pracht dev` or the production runtime so CI works
+4. If the app uses typed routes, run `pracht typegen --check` before generating specs and prefer imported `href()` for test URLs in app-owned route fixtures.
+5. Use `webServer` to boot `pracht dev` or the production runtime so CI works
    out-of-the-box.
-5. Console-error capture is mandatory — silent JS errors are the most common
+6. Console-error capture is mandatory — silent JS errors are the most common
    pracht hydration regression.
 
 $ARGUMENTS

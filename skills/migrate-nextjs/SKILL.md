@@ -73,10 +73,10 @@ For pages router projects, you can **skip manual manifest wiring entirely** (Pha
 | `generateMetadata`              | `head()` export                                                 | Returns `{ title, meta }`                                             |
 | Server Components               | `loader()` export                                               | Data fetching moves to loader; component is always a Preact component |
 | `"use server"` actions          | API routes + `<Form>` / `fetch`                                 | Mutations move to `src/api/*`; return `Response` objects              |
-| `useRouter()` (next/navigation) | `useNavigate()` from pracht                                     | Client-side navigation                                                |
+| `useRouter()` (next/navigation) | `useNavigate()` from pracht                                     | Accepts paths or typed route targets after `pracht typegen`           |
 | `useSearchParams()`             | `useRouteData()` or parse from loader args                      | Loaders receive `url` with searchParams                               |
 | `useParams()`                   | `useRouteData()` or `params` in loader                          | Params flow through loader data                                       |
-| `next/link` `<Link>`            | Plain `<a>` tags                                                | Pracht client router intercepts `<a>` clicks automatically            |
+| `next/link` `<Link>`            | `<Link route="...">` or plain `<a>`                            | Prefer typed `<Link>` for known app routes after `pracht typegen`; plain anchors still work |
 | `next/image`                    | Standard `<img>`                                                | Use `vite-imagetools` plugin if optimization needed                   |
 | `next/head` or Metadata API     | `head()` export on route/shell                                  | Per-route and per-shell head merging                                  |
 | `className`                     | `class`                                                         | Preact uses `class` attribute                                         |
@@ -350,14 +350,23 @@ Choose render modes based on the Next.js original:
 
 ### Phase 8: Handle common patterns
 
-#### `next/link` → plain `<a>`
+#### `next/link` → typed `<Link>` or plain `<a>`
+
+After manifest wiring is in place, run `pracht typegen` and prefer route-id based links for known app routes:
 
 ```tsx
 // Next.js
 import Link from "next/link";
-<Link href="/about">About</Link>
+<Link href={`/products/${id}`}>Product</Link>
 
-// Pracht — just use <a>, the client router intercepts it
+// Pracht
+import { Link } from "@pracht/core";
+<Link route="product" params={{ id }}>Product</Link>
+```
+
+Plain anchors still work for simple, external, or user-provided URLs because the client router intercepts same-origin `<a>` clicks:
+
+```tsx
 <a href="/about">About</a>
 ```
 
@@ -384,6 +393,9 @@ router.push("/dashboard");
 import { useNavigate } from "@pracht/core";
 const navigate = useNavigate();
 navigate("/dashboard");
+
+// After `pracht typegen`, prefer route ids for known routes
+navigate({ route: "dashboard" });
 ```
 
 #### Server Actions → API routes
@@ -432,7 +444,8 @@ export async function loader({ request }: LoaderArgs) {
 3. Search for remaining `className` → replace with `class`.
 4. Search for remaining `react` imports → replace with `preact` equivalents.
 5. Remove `next.config.*`, `next-env.d.ts`, `.next/` directory.
-6. Run the dev server (`pracht dev`) and fix any remaining issues.
+6. Run `pracht typegen` if route ids/paths changed or if you converted links/navigation to typed route ids.
+7. Run the dev server (`pracht dev`) and fix any remaining issues.
 
 ## Dependency Mapping
 

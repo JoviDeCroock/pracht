@@ -44,6 +44,13 @@ pracht doctor --json
 pracht verify --json
 ```
 
+If the app uses generated typed routes (`src/pracht-routes.ts` or
+`src/pracht-routes.d.ts` exists), also run:
+
+```bash
+pracht typegen --check
+```
+
 These catch app-graph wiring problems independent of the adapter. Resolve all
 `status: "error"` entries before continuing.
 
@@ -111,8 +118,9 @@ Produce a checklist with pass/fail per item, grouped by `Framework`,
 3. For Cloudflare/Vercel-edge, the Node-only API check is non-negotiable; a
    single `Buffer` reference will crash the worker on a code path that may
    never hit in dev.
-4. Do not deploy on the user's behalf. End the skill at the verdict.
-5. If `pracht doctor` reports errors, do not run any other checks until those
+4. If the app does not use generated typed route files yet, note that `pracht typegen --check` is optional; if it does, stale generated files block deployment.
+5. Do not deploy on the user's behalf. End the skill at the verdict.
+6. If `pracht doctor` reports errors, do not run any other checks until those
    are resolved — they will produce noisy false positives.
 
 $ARGUMENTS

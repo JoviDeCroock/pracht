@@ -3,12 +3,19 @@ import { hydrate, render } from "preact";
 import { useContext, useMemo, useState } from "preact/hooks";
 import type { FunctionComponent } from "preact";
 
-import { matchAppRoute } from "./app.ts";
+import { buildHref, matchAppRoute } from "./app.ts";
 import { installHydrationMismatchWarning } from "./hydration-mismatch.ts";
 import { markHydrating } from "./hydration.ts";
 import { getCachedRouteState, setupPrefetching } from "./prefetch.ts";
 import type { ModuleWarmFn } from "./prefetch.ts";
-import type { ResolvedPrachtApp, RouteMatch, RouteParams } from "./types.ts";
+import type {
+  NavigateOptions,
+  ResolvedPrachtApp,
+  RouteId,
+  RouteMatch,
+  RouteParams,
+  RouteTarget,
+} from "./types.ts";
 import {
   deserializeRouteError,
   fetchPrachtRouteState,
@@ -37,7 +44,14 @@ declare global {
 
 type ModuleMap = Record<string, () => Promise<unknown>>;
 
-export type NavigateFn = (to: string, options?: { replace?: boolean }) => Promise<void>;
+export interface NavigateFn {
+  (to: string, options?: NavigateOptions): Promise<void>;
+  <TRoute extends RouteId>(to: RouteTarget<TRoute>, options?: NavigateOptions): Promise<void>;
+}
+
+interface InternalNavigateOptions extends NavigateOptions {
+  _popstate?: boolean;
+}
 
 interface BrowserRouteTarget {
   browserUrl: string;
@@ -115,7 +129,7 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
       { value: navigateValue },
       h(
         PrachtRuntimeProvider as FunctionComponent<Record<string, unknown>>,
-        { data, params, routeId, stateVersion: version, url },
+        { data, params, routeId, routes: app.routes, stateVersion: version, url },
         componentTree,
       ),
     );
@@ -231,18 +245,17 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
     };
   }
 
-  async function navigate(
-    to: string,
-    opts?: { replace?: boolean; _popstate?: boolean },
-  ): Promise<void> {
+  async function navigate(to: string | RouteTarget, opts?: InternalNavigateOptions): Promise<void> {
     const navigationId = ++latestNavigationId;
     activeNavigationAbort?.abort();
     const abortController = new AbortController();
     activeNavigationAbort = abortController;
 
-    const target = resolveBrowserRouteTarget(to);
+    const navigationTarget =
+      typeof to === "string" ? to : buildHref(app.routes, to.route, to as never);
+    const target = resolveBrowserRouteTarget(navigationTarget);
     if (!target) {
-      window.location.href = to;
+      window.location.href = navigationTarget;
       return;
     }
 

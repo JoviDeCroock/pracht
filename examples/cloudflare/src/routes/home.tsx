@@ -1,9 +1,27 @@
+import { Link, useNavigate } from "@pracht/core";
 import type { LoaderArgs, RouteComponentProps } from "@pracht/core";
+import { href } from "../pracht-routes";
 
 export async function loader(_args: LoaderArgs) {
   return {
     highlights: ["Hybrid route manifest", "Per-route rendering modes", "Thin deployment adapters"],
   };
+}
+
+function TypedProductButton() {
+  const navigate = useNavigate();
+
+  return (
+    <button
+      id="typed-product-button"
+      type="button"
+      onClick={() => {
+        void navigate({ route: "product", params: { id: "2" }, search: { ref: "typed-button" } });
+      }}
+    >
+      Open typed product
+    </button>
+  );
 }
 
 export function Component({ data }: RouteComponentProps<typeof loader>) {
@@ -15,6 +33,15 @@ export function Component({ data }: RouteComponentProps<typeof loader>) {
           <li key={highlight}>{highlight}</li>
         ))}
       </ul>
+      <p>
+        <Link route="product" params={{ id: "1" }} search={{ ref: "typed-link" }}>
+          View typed product
+        </Link>
+      </p>
+      <p>
+        <a href={href("pricing", { search: { ref: "typed-helper" } })}>Pricing via href()</a>
+      </p>
+      <TypedProductButton />
     </section>
   );
 }

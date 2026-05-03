@@ -19,7 +19,13 @@ import { resolvePageCssUrls, resolvePageJsUrls } from "./runtime-manifest.ts";
 import { mergeDocumentHeaders } from "./runtime-middleware.ts";
 import { PrachtRuntimeProvider } from "./runtime-hooks.ts";
 import { resolveRegistryModule } from "./runtime-manifest.ts";
-import type { BaseRouteArgs, ResolvedApiRoute, RouteModule, ShellModule } from "./types.ts";
+import type {
+  BaseRouteArgs,
+  HrefRouteDefinition,
+  ResolvedApiRoute,
+  RouteModule,
+  ShellModule,
+} from "./types.ts";
 
 let _renderToStringAsync: typeof import("preact-render-to-string").renderToStringAsync | undefined;
 export async function getRenderToStringAsync() {
@@ -129,6 +135,7 @@ export async function renderRouteErrorResponse<TContext>(options: {
   routeArgs: BaseRouteArgs<TContext>;
   routeId: string;
   routeModule: RouteModule | undefined;
+  routes?: readonly HrefRouteDefinition[];
   shellFile: string | undefined;
   shellModule: ShellModule | undefined;
   requestPath: string;
@@ -214,10 +221,11 @@ export async function renderRouteErrorResponse<TContext>(options: {
     PrachtRuntimeProvider as unknown as FunctionComponent<{
       data: null;
       routeId: string;
+      routes?: readonly HrefRouteDefinition[];
       url: string;
       children?: ComponentChildren;
     }>,
-    { data: null, routeId: options.routeId, url: options.requestPath },
+    { data: null, routeId: options.routeId, routes: options.routes, url: options.requestPath },
     componentTree,
   );
   const body = await renderToString(tree);

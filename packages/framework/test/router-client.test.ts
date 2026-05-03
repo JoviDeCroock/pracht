@@ -5,11 +5,13 @@ import { useState } from "preact/hooks";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  Link,
   defineApp,
   initClientRouter,
   resolveApp,
   route,
   useLocation,
+  useNavigate,
   useRouteData,
 } from "../src/index.ts";
 
@@ -49,6 +51,7 @@ describe("initClientRouter", () => {
     vi.restoreAllMocks();
     delete window.__PRACHT_NAVIGATE__;
     delete window.__PRACHT_ROUTER_READY__;
+    delete globalThis.__PRACHT_ROUTE_DEFINITIONS__;
   });
 
   it("renders shell-less SPA routes after the pending bootstrap fetch resolves", async () => {
@@ -89,6 +92,71 @@ describe("initClientRouter", () => {
       }),
     );
     expect(root.textContent).toContain("Hello Jovi");
+  });
+
+  it("renders typed links and navigates by route target objects", async () => {
+    function Home() {
+      const navigate = useNavigate();
+      return h(
+        "main",
+        null,
+        h(Link, { route: "product", params: { id: "1" }, search: { ref: "home" } }, "Product"),
+        h(
+          "button",
+          {
+            id: "go-product",
+            onClick: () => navigate({ route: "product", params: { id: "2" } }),
+          },
+          "Go product",
+        ),
+      );
+    }
+
+    function Product() {
+      const data = useRouteData<{ label: string }>();
+      return h("main", null, data.label);
+    }
+
+    const app = resolveApp(
+      defineApp({
+        routes: [
+          route("/", "./routes/home.tsx", { id: "home", render: "ssr" }),
+          route("/products/:id", "./routes/product.tsx", { id: "product", render: "ssr" }),
+        ],
+      }),
+    );
+
+    root.innerHTML =
+      '<main><a href="/products/1?ref=home">Product</a><button id="go-product">Go product</button></main>';
+    fetchSpy.mockResolvedValue(createJsonResponse({ data: { label: "Product 2" } }));
+
+    await initClientRouter({
+      app,
+      routeModules: {
+        "./routes/home.tsx": async () => ({ default: Home }),
+        "./routes/product.tsx": async () => ({ default: Product }),
+      },
+      shellModules: {},
+      initialState: {
+        data: null,
+        routeId: "home",
+        url: "/",
+      },
+      root,
+      findModuleKey: (_modules, file) => file,
+    });
+
+    expect(root.querySelector("a")?.getAttribute("href")).toBe("/products/1?ref=home");
+
+    root.querySelector<HTMLButtonElement>("#go-product")?.click();
+    await flush();
+
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "/products/2",
+      expect.objectContaining({ redirect: "manual" }),
+    );
+    expect(window.location.pathname).toBe("/products/2");
+    expect(root.textContent).toContain("Product 2");
   });
 
   it("preserves same-shell instances without exposing stale route data to useRouteData()", async () => {

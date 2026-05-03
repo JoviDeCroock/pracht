@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  buildHref,
+  createHref,
   defineApp,
   group,
   matchApiRoute,
@@ -81,6 +83,53 @@ describe("route() with RouteConfig object", () => {
       render: "ssg",
     });
     expect(resolved.routes[0].loaderFile).toBeUndefined();
+  });
+});
+
+describe("typed route href helpers", () => {
+  const app = resolveApp(
+    defineApp({
+      routes: [
+        route("/", "./routes/home.tsx", { id: "home" }),
+        route("/products/:id", "./routes/product.tsx", { id: "product" }),
+        route("/docs/*", "./routes/docs.tsx", { id: "docs" }),
+      ],
+    }),
+  );
+
+  it("builds hrefs for static, dynamic, and catch-all routes", () => {
+    expect(buildHref(app.routes, "home")).toBe("/");
+    expect(buildHref(app.routes, "product", { params: { id: "hello world" } })).toBe(
+      "/products/hello%20world",
+    );
+    expect(buildHref(app.routes, "docs", { params: { "*": "guides/intro" } })).toBe(
+      "/docs/guides/intro",
+    );
+  });
+
+  it("serializes search params and hash fragments", () => {
+    expect(
+      buildHref(app.routes, "product", {
+        params: { id: 42 },
+        search: { ref: "home", tag: ["new", "sale"], empty: null },
+        hash: "details",
+      }),
+    ).toBe("/products/42?ref=home&tag=new&tag=sale#details");
+  });
+
+  it("throws for unknown, missing, and extra params", () => {
+    expect(() => buildHref(app.routes, "missing")).toThrow(/Unknown pracht route id/);
+    expect(() => buildHref(app.routes, "product")).toThrow(/Missing route param: id/);
+    expect(() => buildHref(app.routes, "product", { params: { id: "1", extra: "x" } })).toThrow(
+      /Unexpected route param: extra/,
+    );
+  });
+
+  it("creates reusable href helpers", () => {
+    const href = createHref(app.routes);
+    expect(href("product", { params: { id: "1" }, search: "tab=details" })).toBe(
+      "/products/1?tab=details",
+    );
   });
 });
 

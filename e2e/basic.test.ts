@@ -350,6 +350,38 @@ test("client-side navigation to product page renders useParams correctly", async
   expect(tokenSurvived).toBe(true);
 });
 
+test("typed Link, href helper, and route-object navigation work in manifest apps", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page.waitForFunction(() => (window as any).__PRACHT_ROUTER_READY__);
+
+  await expect(page.locator('a[href="/products/1?ref=typed-link"]')).toContainText(
+    "View typed product",
+  );
+  await expect(page.locator('a[href="/pricing?ref=typed-helper"]')).toContainText(
+    "Pricing via href()",
+  );
+
+  await page.evaluate(() => {
+    (window as any).__NAV_TOKEN__ = true;
+  });
+
+  await page.click('a[href="/products/1?ref=typed-link"]');
+  await page.waitForURL("/products/1?ref=typed-link");
+  await expect(page.locator(".product-id")).toContainText("Product ID: 1");
+
+  await page.goBack();
+  await page.waitForURL("/");
+  await page.click("#typed-product-button");
+  await page.waitForURL("/products/2?ref=typed-button");
+  await expect(page.locator(".product-id")).toContainText("Product ID: 2");
+  await expect(page.locator("h1")).toContainText("Gadget");
+
+  const tokenSurvived = await page.evaluate(() => (window as any).__NAV_TOKEN__ === true);
+  expect(tokenSurvived).toBe(true);
+});
+
 // ---------------------------------------------------------------------------
 // API Routes
 // ---------------------------------------------------------------------------
