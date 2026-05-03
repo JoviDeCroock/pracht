@@ -16,6 +16,7 @@
     "paths": {
       "@pracht/core": ["./packages/framework/src/index.ts"],
       "@pracht/vite-plugin": ["./packages/vite-plugin/src/index.ts"],
+      "@pracht/preact-ssr-precompile": ["./packages/preact-ssr-precompile/src/index.ts"],
       "@pracht/adapter-node": ["./packages/adapter-node/src/index.ts"],
       "@pracht/adapter-cloudflare": ["./packages/adapter-cloudflare/src/index.ts"],
       "@pracht/adapter-vercel": ["./packages/adapter-vercel/src/index.ts"]

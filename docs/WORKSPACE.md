@@ -9,6 +9,7 @@ described in `VISION_MVP.md`.
 | ----------------------------- | ---------------------------- | ------------------------------------------------------------------------------------------------------------ |
 | `packages/framework`          | `@pracht/core`               | Core manifest API, route resolution, API routes, SSR rendering, client runtime                               |
 | `packages/vite-plugin`        | `@pracht/vite-plugin`        | Virtual modules, `import.meta.glob()` registries, API route auto-discovery, HMR, dev SSR middleware          |
+| `packages/preact-ssr-precompile` | `@pracht/preact-ssr-precompile` | Experimental Rolldown/Vite plugin that precompiles safe Preact JSX DOM subtrees into server-only `jsxTemplate()` calls |
 | `packages/adapter-node`       | `@pracht/adapter-node`       | Node `IncomingMessage`/`ServerResponse` bridge, ISG stale-while-revalidate                                   |
 | `packages/adapter-cloudflare` | `@pracht/adapter-cloudflare` | Cloudflare Workers fetch handler, generated worker entry source, and static asset handoff (no runtime ISG revalidation yet) |
 | `packages/adapter-vercel`     | `@pracht/adapter-vercel`     | Vercel Edge handler and Build Output API entry source                                                        |
@@ -55,9 +56,11 @@ described in `VISION_MVP.md`.
   redirect, return a Response, or augment the context.
 - **Vite plugin** — Generates `virtual:pracht/client` (hydration entry) and
   `virtual:pracht/server` (resolved app + module registry + API routes +
-  adapter-targeted server entry) virtual modules. The `configureServer` hook
-  adds SSR middleware to the Vite dev server. The `handleHotUpdate` hook
-  invalidates virtual modules when route/shell/middleware/API files change and
+  adapter-targeted server entry) virtual modules. The `precompileSsrJsx` option
+  opt-ins SSR/SSG server bundles to `@pracht/preact-ssr-precompile` while
+  leaving client hydration bundles on the normal Preact JSX transform. The
+  `configureServer` hook adds SSR middleware to the Vite dev server. The
+  `handleHotUpdate` hook invalidates virtual modules when route/shell/middleware/API files change and
   triggers full reload when the app manifest (`src/routes.ts`) changes.
 - **Client hydration** — The generated client module matches the current route,
   lazy-loads the route and shell modules via `import.meta.glob()`, and calls
@@ -74,9 +77,9 @@ described in `VISION_MVP.md`.
   `pracht generate route|shell|middleware|api` scaffolds framework-native
   files, and `pracht doctor` validates app wiring across the whole project.
 - **Package builds** — `tsdown` compiles `pracht`, `@pracht/vite-plugin`,
-  `@pracht/adapter-node`, `@pracht/adapter-cloudflare`, and
-  `@pracht/adapter-vercel` from TypeScript to ESM (`dist/index.mjs` +
-  `.d.mts`). The CLI remains plain JS.
+  `@pracht/preact-ssr-precompile`, `@pracht/adapter-node`,
+  `@pracht/adapter-cloudflare`, and `@pracht/adapter-vercel` from TypeScript to
+  ESM (`dist/index.mjs` + `.d.mts`). The CLI remains plain JS.
 - **Node adapter** — Translates Node requests to Web `Request` objects, calls
   `handlePrachtRequest()`, and implements ISG stale-while-revalidate with
   background regeneration.

@@ -338,6 +338,20 @@ dist/
     server.js                  # Platform entry module
 ```
 
+### Optional server JSX precompile
+
+`pracht({ precompileSsrJsx: true })` inserts `@pracht/preact-ssr-precompile`
+before the normal Preact Vite preset for SSR transforms. The transform rewrites
+safe native DOM JSX into `preact/jsx-runtime` `jsxTemplate()` calls, matching the
+hidden runtime path used by Deno's JSX precompile transform. `preact-render-to-string`
+then concatenates the static template strings and only renders dynamic VNodes,
+avoiding many VNode/props allocations for SSR-heavy pages.
+
+The option is server-only and opt-in: client builds keep normal JSX so hydration
+still receives an ordinary VNode tree. The transform is conservative and falls
+back for components, spreads, custom elements, `dangerouslySetInnerHTML`, and
+HTML elements with special Preact SSR behavior.
+
 ---
 
 ## Adapter Pattern

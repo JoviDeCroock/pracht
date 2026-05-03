@@ -27,6 +27,35 @@ export default defineConfig({
 - Pre-renders SSG and ISG routes at build time (`prerenderConcurrency` controls parallelism)
 - Provides HMR during development
 
+## Optional Preact SSR JSX precompile
+
+Pracht can opt into the experimental `@pracht/preact-ssr-precompile` transform for
+SSR and SSG server bundles:
+
+```ts
+export default defineConfig({
+  plugins: [pracht({ precompileSsrJsx: true })],
+});
+```
+
+The transform turns safe native HTML JSX subtrees into `jsxTemplate()` calls that
+`preact-render-to-string` can concatenate directly. Client bundles still use the
+normal Preact JSX transform so hydration receives a normal VNode tree.
+
+Pass an options object to tune the transform:
+
+```ts
+pracht({
+  precompileSsrJsx: {
+    skipElements: ["canvas"],
+    dynamicProps: ["data-client"],
+  },
+});
+```
+
+Keep it opt-in for now: it is best suited to SSR-heavy pages with large static
+DOM subtrees and should be benchmarked against your app before enabling broadly.
+
 ## TSRX (`.tsrx`) Support
 
 `.tsrx` modules — TSRX/Ripple-flavoured Preact components — are supported out

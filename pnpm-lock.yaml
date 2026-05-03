@@ -40,7 +40,7 @@ importers:
         version: 6.6.7(preact@10.29.1)
       tsdown:
         specifier: ^0.21.7
-        version: 0.21.7(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(typescript@5.9.3)
+        version: 0.21.7(typescript@5.9.3)
       typescript:
         specifier: ^5.8.3
         version: 5.9.3
@@ -208,7 +208,7 @@ importers:
         version: link:../../packages/vite-plugin
       '@tsrx/vite-plugin-preact':
         specifier: ^0.0.3
-        version: 0.0.3(preact@10.29.1)(vite@8.0.3(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@22.19.17)(esbuild@0.27.3))
+        version: 0.0.3(preact@10.29.1)(vite@8.0.3(@types/node@22.19.17)(esbuild@0.27.3))
       preact:
         specifier: ^10.26.9
         version: 10.29.1
@@ -223,7 +223,7 @@ importers:
     dependencies:
       '@cloudflare/vite-plugin':
         specifier: ^1.0.0
-        version: 1.31.1(vite@8.0.3(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@22.19.17)(esbuild@0.27.3))(workerd@1.20260405.1)(wrangler@4.81.0)
+        version: 1.31.1(vite@8.0.3(@types/node@22.19.17)(esbuild@0.27.3))(workerd@1.20260405.1)(wrangler@4.81.0)
       '@pracht/core':
         specifier: workspace:*
         version: link:../framework
@@ -267,6 +267,24 @@ importers:
         specifier: ^0.2.0
         version: 0.2.0(preact@10.29.1)
 
+  packages/preact-ssr-precompile:
+    dependencies:
+      preact:
+        specifier: ^10.26.0
+        version: 10.29.1
+      preact-render-to-string:
+        specifier: ^6.5.13
+        version: 6.6.7(preact@10.29.1)
+      rolldown:
+        specifier: ^1.0.0-rc.12
+        version: 1.0.0-rc.12(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)
+      rolldown-string:
+        specifier: ^0.3.0
+        version: 0.3.0(rolldown@1.0.0-rc.12(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2))
+      vite:
+        specifier: ^8.0.0
+        version: 8.0.3(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@22.19.17)(esbuild@0.27.3)
+
   packages/start: {}
 
   packages/vite-plugin:
@@ -277,12 +295,15 @@ importers:
       '@pracht/core':
         specifier: workspace:*
         version: link:../framework
+      '@pracht/preact-ssr-precompile':
+        specifier: workspace:*
+        version: link:../preact-ssr-precompile
       '@preact/preset-vite':
         specifier: ^2.10.5
-        version: 2.10.5(@babel/core@7.29.0)(preact@10.29.1)(rollup@4.60.1)(vite@8.0.3(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@22.19.17)(esbuild@0.27.3))
+        version: 2.10.5(@babel/core@7.29.0)(preact@10.29.1)(rollup@4.60.1)(vite@8.0.3(@types/node@22.19.17)(esbuild@0.27.3))
       '@prefresh/vite':
         specifier: ^2.0.0
-        version: 2.4.12(preact@10.29.1)(vite@8.0.3(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@22.19.17)(esbuild@0.27.3))
+        version: 2.4.12(preact@10.29.1)(vite@8.0.3(@types/node@22.19.17)(esbuild@0.27.3))
       vite:
         specifier: ^8.0.0
         version: 8.0.3(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@22.19.17)(esbuild@0.27.3)
@@ -2433,6 +2454,15 @@ packages:
       vue-tsc:
         optional: true
 
+  rolldown-string@0.3.0:
+    resolution: {integrity: sha512-qGhBPNSv/27uzFBQdO+Cs4YAXC/1PKznD7Jz5Fl7NIAIlteuTPBTBWBhCpJ2AFTqLsoKvvUr7wSjqSUip0Fkpg==}
+    engines: {node: '>=20.19.0'}
+    peerDependencies:
+      rolldown: '*'
+    peerDependenciesMeta:
+      rolldown:
+        optional: true
+
   rolldown@1.0.0-rc.12:
     resolution: {integrity: sha512-yP4USLIMYrwpPHEFB5JGH1uxhcslv6/hL0OyvTuY+3qlOSJvZ7ntYnoWpehBxufkgN0cvXxppuTu5hHa/zPh+A==}
     engines: {node: ^20.19.0 || >=22.12.0}
@@ -3224,7 +3254,7 @@ snapshots:
     optionalDependencies:
       workerd: 1.20260405.1
 
-  '@cloudflare/vite-plugin@1.31.1(vite@8.0.3(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@22.19.17)(esbuild@0.27.3))(workerd@1.20260405.1)(wrangler@4.81.0)':
+  '@cloudflare/vite-plugin@1.31.1(vite@8.0.3(@types/node@22.19.17)(esbuild@0.27.3))(workerd@1.20260405.1)(wrangler@4.81.0)':
     dependencies:
       '@cloudflare/unenv-preset': 2.16.0(unenv@2.0.0-rc.24)(workerd@1.20260405.1)
       miniflare: 4.20260405.0
@@ -3763,19 +3793,19 @@ snapshots:
 
   '@poppinss/exception@1.2.3': {}
 
-  '@preact/preset-vite@2.10.5(@babel/core@7.29.0)(preact@10.29.1)(rollup@4.60.1)(vite@8.0.3(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@22.19.17)(esbuild@0.27.3))':
+  '@preact/preset-vite@2.10.5(@babel/core@7.29.0)(preact@10.29.1)(rollup@4.60.1)(vite@8.0.3(@types/node@22.19.17)(esbuild@0.27.3))':
     dependencies:
       '@babel/core': 7.29.0
       '@babel/plugin-transform-react-jsx': 7.28.6(@babel/core@7.29.0)
       '@babel/plugin-transform-react-jsx-development': 7.27.1(@babel/core@7.29.0)
-      '@prefresh/vite': 2.4.12(preact@10.29.1)(vite@8.0.3(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@22.19.17)(esbuild@0.27.3))
+      '@prefresh/vite': 2.4.12(preact@10.29.1)(vite@8.0.3(@types/node@22.19.17)(esbuild@0.27.3))
       '@rollup/pluginutils': 5.3.0(rollup@4.60.1)
       babel-plugin-transform-hook-names: 1.0.2(@babel/core@7.29.0)
       debug: 4.4.3
       magic-string: 0.30.21
       picocolors: 1.1.1
       vite: 8.0.3(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@22.19.17)(esbuild@0.27.3)
-      vite-prerender-plugin: 0.5.13(vite@8.0.3(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@22.19.17)(esbuild@0.27.3))
+      vite-prerender-plugin: 0.5.13(vite@8.0.3(@types/node@22.19.17)(esbuild@0.27.3))
       zimmerframe: 1.1.4
     transitivePeerDependencies:
       - preact
@@ -3790,7 +3820,7 @@ snapshots:
 
   '@prefresh/utils@1.2.1': {}
 
-  '@prefresh/vite@2.4.12(preact@10.29.1)(vite@8.0.3(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@22.19.17)(esbuild@0.27.3))':
+  '@prefresh/vite@2.4.12(preact@10.29.1)(vite@8.0.3(@types/node@22.19.17)(esbuild@0.27.3))':
     dependencies:
       '@babel/core': 7.29.0
       '@prefresh/babel-plugin': 0.5.3
@@ -3984,7 +4014,7 @@ snapshots:
     transitivePeerDependencies:
       - '@typescript-eslint/types'
 
-  '@tsrx/vite-plugin-preact@0.0.3(preact@10.29.1)(vite@8.0.3(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@22.19.17)(esbuild@0.27.3))':
+  '@tsrx/vite-plugin-preact@0.0.3(preact@10.29.1)(vite@8.0.3(@types/node@22.19.17)(esbuild@0.27.3))':
     dependencies:
       '@tsrx/preact': 0.0.3(preact@10.29.1)
       vite: 8.0.3(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@22.19.17)(esbuild@0.27.3)
@@ -4732,7 +4762,7 @@ snapshots:
 
   reusify@1.1.0: {}
 
-  rolldown-plugin-dts@0.23.2(rolldown@1.0.0-rc.12(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2))(typescript@5.9.3):
+  rolldown-plugin-dts@0.23.2(rolldown@1.0.0-rc.12)(typescript@5.9.3):
     dependencies:
       '@babel/generator': 8.0.0-rc.3
       '@babel/helper-validator-identifier': 8.0.0-rc.3
@@ -4749,6 +4779,12 @@ snapshots:
       typescript: 5.9.3
     transitivePeerDependencies:
       - oxc-resolver
+
+  rolldown-string@0.3.0(rolldown@1.0.0-rc.12(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)):
+    dependencies:
+      magic-string: 0.30.21
+    optionalDependencies:
+      rolldown: 1.0.0-rc.12(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)
 
   rolldown@1.0.0-rc.12(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2):
     dependencies:
@@ -4940,7 +4976,7 @@ snapshots:
 
   tree-kill@1.2.2: {}
 
-  tsdown@0.21.7(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(typescript@5.9.3):
+  tsdown@0.21.7(typescript@5.9.3):
     dependencies:
       ansis: 4.2.0
       cac: 7.0.0
@@ -4951,13 +4987,13 @@ snapshots:
       obug: 2.1.1
       picomatch: 4.0.4
       rolldown: 1.0.0-rc.12(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)
-      rolldown-plugin-dts: 0.23.2(rolldown@1.0.0-rc.12(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2))(typescript@5.9.3)
+      rolldown-plugin-dts: 0.23.2(rolldown@1.0.0-rc.12)(typescript@5.9.3)
       semver: 7.7.4
       tinyexec: 1.0.4
       tinyglobby: 0.2.15
       tree-kill: 1.2.2
       unconfig-core: 7.5.0
-      unrun: 0.2.34(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)
+      unrun: 0.2.34
     optionalDependencies:
       typescript: 5.9.3
     transitivePeerDependencies:
@@ -4991,7 +5027,7 @@ snapshots:
 
   universalify@0.1.2: {}
 
-  unrun@0.2.34(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2):
+  unrun@0.2.34:
     dependencies:
       rolldown: 1.0.0-rc.12(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)
     transitivePeerDependencies:
@@ -5025,7 +5061,7 @@ snapshots:
       - tsx
       - yaml
 
-  vite-prerender-plugin@0.5.13(vite@8.0.3(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@22.19.17)(esbuild@0.27.3)):
+  vite-prerender-plugin@0.5.13(vite@8.0.3(@types/node@22.19.17)(esbuild@0.27.3)):
     dependencies:
       kolorist: 1.8.0
       magic-string: 0.30.21

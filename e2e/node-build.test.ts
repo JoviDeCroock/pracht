@@ -4,8 +4,10 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
 import { resolve } from "node:path";
@@ -150,6 +152,65 @@ test("pracht build emits a deployable Node server entry", async () => {
   }
 });
 
+test("precompileSsrJsx opt-in precompiles server JSX and keeps the app deployable", async () => {
+  test.setTimeout(120_000);
+
+  const { exampleDir, tempDir } = createTempExampleDir("pracht-precompile-ssr-jsx-");
+  const viteConfigPath = resolve(exampleDir, "vite.config.ts");
+  const distDir = resolve(exampleDir, "dist");
+
+  const viteConfig = readFileSync(viteConfigPath, "utf-8");
+  writeFileSync(
+    viteConfigPath,
+    viteConfig.replace(
+      "pracht({ adapter: await resolveAdapter() })",
+      "pracht({ adapter: await resolveAdapter(), precompileSsrJsx: true })",
+    ),
+    "utf-8",
+  );
+
+  rmSync(distDir, { force: true, recursive: true });
+  buildExample(exampleDir, { PRACHT_ADAPTER: "node" });
+
+  const serverBundle = readTextFiles(resolve(exampleDir, "dist/server"));
+  const clientBundle = readTextFiles(resolve(exampleDir, "dist/client/assets"));
+
+  expect(serverBundle).toContain("jsxTemplate");
+  expect(serverBundle).toContain("$$_tpl_");
+  expect(clientBundle).not.toContain("$$_tpl_");
+
+  const serverEntryPath = resolve(exampleDir, "dist/server/server.js");
+  const port = 4318;
+  const server = spawn(process.execPath, [serverEntryPath], {
+    cwd: exampleDir,
+    env: {
+      ...process.env,
+      PORT: String(port),
+    },
+    stdio: "pipe",
+  });
+
+  try {
+    await waitForServer(`http://127.0.0.1:${port}/`);
+
+    const homeResponse = await fetch(`http://127.0.0.1:${port}/`);
+    expect(homeResponse.status).toBe(200);
+    const homeHtml = await homeResponse.text();
+    expect(homeHtml).toContain("Pracht starts with an explicit app manifest.");
+    expect(homeHtml).toContain("Hybrid route manifest");
+
+    const dashboardResponse = await fetch(`http://127.0.0.1:${port}/dashboard`, {
+      headers: { cookie: "session=1" },
+    });
+    expect(dashboardResponse.status).toBe(200);
+    expect(await dashboardResponse.text()).toContain("Ada Lovelace");
+  } finally {
+    server.kill("SIGTERM");
+    await waitForExit(server);
+    rmSync(tempDir, { force: true, recursive: true });
+  }
+});
+
 test("public/ folder assets are copied to dist/client/", async () => {
   test.setTimeout(120_000);
 
@@ -203,6 +264,20 @@ function buildExample(exampleDir: string, env: Record<string, string>): void {
     },
     stdio: "pipe",
   });
+}
+
+function readTextFiles(dir: string): string {
+  let text = "";
+  for (const entry of readdirSync(dir)) {
+    const path = resolve(dir, entry);
+    const stats = statSync(path);
+    if (stats.isDirectory()) {
+      text += readTextFiles(path);
+    } else if (/\.(?:js|mjs|html|json)$/.test(entry)) {
+      text += `\n${readFileSync(path, "utf-8")}`;
+    }
+  }
+  return text;
 }
 
 async function waitForServer(url: string): Promise<void> {
