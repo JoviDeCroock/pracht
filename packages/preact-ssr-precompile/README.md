@@ -137,4 +137,5 @@ pnpm --filter @pracht/preact-ssr-precompile bench
 The benchmark compiles the same Preact component twice — once with the normal
 automatic JSX transform and once through this precompile transform — then renders
 each version with `preact-render-to-string` and reports ops/sec and speedup.
-Tune the loop size with `BENCH_ITERATIONS=100000`.
+Tune the loop size with `BENCH_ITERATIONS=100000` and the warmup count with
+`BENCH_WARMUP=5000`.

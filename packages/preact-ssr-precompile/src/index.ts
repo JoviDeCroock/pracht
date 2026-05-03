@@ -128,7 +128,11 @@ function transformPreactSsrMagicString(
   let program: NodeLike;
   try {
     program = parseProgram(id, s.original);
-  } catch {
+  } catch (error) {
+    // Bail out so the next plugin (e.g. @preact/preset-vite) can surface the
+    // real parser diagnostics. Warn so silent skips are still discoverable.
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn(`[preact-ssr-precompile] Skipping ${id}: ${message}`);
     return false;
   }
 
@@ -156,6 +160,7 @@ class TransformContext {
   private templateIndex = 0;
   private readonly takenNames: Set<string>;
   private readonly templates: Array<{ name: string; strings: string[] }> = [];
+  private readonly usedHelpers = new Set<"jsx" | "jsxTemplate" | "jsxAttr" | "jsxEscape">();
 
   constructor(code: string, options: TransformPreactSsrJsxOptions, takenNames: Set<string>) {
     this.takenNames = takenNames;
@@ -176,12 +181,18 @@ class TransformContext {
   }
 
   renderPrelude(): string {
-    const imports = [
-      `jsx as ${this.jsxIdent}`,
-      `jsxTemplate as ${this.jsxTemplateIdent}`,
-      `jsxAttr as ${this.jsxAttrIdent}`,
-      `jsxEscape as ${this.jsxEscapeIdent}`,
+    const importMap: Array<["jsx" | "jsxTemplate" | "jsxAttr" | "jsxEscape", string]> = [
+      ["jsx", this.jsxIdent],
+      ["jsxTemplate", this.jsxTemplateIdent],
+      ["jsxAttr", this.jsxAttrIdent],
+      ["jsxEscape", this.jsxEscapeIdent],
     ];
+    const imports = importMap
+      .filter(([helper]) => this.usedHelpers.has(helper))
+      .map(([helper, alias]) => `${helper} as ${alias}`);
+
+    if (imports.length === 0 && this.templates.length === 0) return "";
+
     const lines = [
       `import { ${imports.join(", ")} } from ${JSON.stringify(`${this.importSource}/jsx-runtime`)};`,
     ];
@@ -287,7 +298,6 @@ class TransformContext {
     if (!rawAttrName) return;
 
     const attrName = normalizeHtmlAttrName(rawAttrName);
-    if (rawAttrName === "dangerouslySetInnerHTML") return;
 
     if (this.dynamicProps.has(rawAttrName) || attrName === "key" || attrName === "ref") {
       strings.push("");
@@ -354,6 +364,7 @@ class TransformContext {
         }
 
         strings.push("");
+        this.usedHelpers.add("jsxEscape");
         dynamics.push(`${this.jsxEscapeIdent}(${this.renderExpression(expr)})`);
         continue;
       }
@@ -370,11 +381,8 @@ class TransformContext {
   }
 
   private serializeJsxToCall(node: NodeLike): string {
-    if (node.type === "JSXFragment") {
-      const children = this.serializeChildrenToExpression(getNodeArray(node.children));
-      return `${this.jsxIdent}(Fragment, ${children ? `{ children: ${children} }` : "null"})`;
-    }
-
+    // JSXFragments are always routed through the template path in serializeJsx,
+    // so this method is only ever called with JSXElement nodes.
     const opening = node.openingElement as NodeLike;
     const isComponent = isComponentElementName(opening.name as NodeLike);
     const typeExpr = jsxElementNameToExpression(opening.name as NodeLike, this.code, isComponent);
@@ -410,6 +418,7 @@ class TransformContext {
     const propsExpr = props.length > 0 ? `{ ${props.join(", ")} }` : "null";
     const args = [typeExpr, propsExpr];
     if (keyExpr) args.push(keyExpr);
+    this.usedHelpers.add("jsx");
     return `${this.jsxIdent}(${args.join(", ")})`;
   }
 
@@ -488,6 +497,7 @@ class TransformContext {
 
   private jsxAttrCall(attrName: string, expression: string): string {
     const serializedName = JSON.stringify(attrName);
+    this.usedHelpers.add("jsxAttr");
     const attr = isAriaOrEnumerated(attrName)
       ? `((value) => typeof value === "boolean" ? ${this.jsxAttrIdent}(${serializedName}, String(value)) : ${this.jsxAttrIdent}(${serializedName}, value))(${expression})`
       : `${this.jsxAttrIdent}(${serializedName}, ${expression})`;
@@ -497,6 +507,7 @@ class TransformContext {
   private genTemplate(strings: string[], dynamics: string[]): string {
     const templateName = uniqueName(`$$_tpl_${++this.templateIndex}`, this.takenNames);
     this.templates.push({ name: templateName, strings });
+    this.usedHelpers.add("jsxTemplate");
     return `${this.jsxTemplateIdent}(${[templateName, ...dynamics].join(", ")})`;
   }
 
@@ -779,6 +790,9 @@ function getParseOptions(
   };
 }
 
+// Cheap heuristic to skip parsing files that obviously contain no JSX. May
+// produce false positives (e.g. `f(x<Y)` in TypeScript generics or comparisons);
+// those fall through to parseProgram, which either re-parses as TSX or bails.
 function looksLikeJSX(code: string): boolean {
   return /<>|<\/[A-Za-z]|<[A-Za-z]/.test(code);
 }

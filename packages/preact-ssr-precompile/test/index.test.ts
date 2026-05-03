@@ -1,5 +1,6 @@
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { VNode } from "preact";
 import { renderToString } from "preact-render-to-string";
@@ -8,10 +9,8 @@ import { afterAll, describe, expect, it } from "vitest";
 
 import { preactSsrPrecompile, transformPreactSsrJsx } from "../src/index.ts";
 
-const repoTempDir = resolve(".tmp-preact-ssr-precompile-tests");
+const repoTempDir = mkdtempSync(join(tmpdir(), "preact-ssr-precompile-tests-"));
 let moduleIndex = 0;
-
-mkdirSync(repoTempDir, { recursive: true });
 
 afterAll(() => {
   rmSync(repoTempDir, { force: true, recursive: true });

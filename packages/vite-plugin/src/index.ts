@@ -190,7 +190,10 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
   };
 
   const precompilePlugin = resolved.precompileSsrJsx
-    ? preactSsrPrecompile(resolved.precompileSsrJsx === true ? {} : resolved.precompileSsrJsx)
+    ? preactSsrPrecompile({
+        ...(resolved.precompileSsrJsx === true ? {} : resolved.precompileSsrJsx),
+        ssrOnly: true,
+      })
     : null;
 
   const plugins: Plugin[] = [
