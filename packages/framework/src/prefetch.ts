@@ -1,13 +1,15 @@
 import { matchAppRoute } from "./app.ts";
-import { fetchPrachtRouteState } from "./runtime-client-fetch.ts";
+import { fetchPrachtRouteState, routeNeedsServerFetch } from "./runtime-client-fetch.ts";
 import type { RouteStateResult } from "./runtime-client-fetch.ts";
-import type { ResolvedPrachtApp, PrefetchStrategy, RouteMatch } from "./types.ts";
+import type { ResolvedPrachtApp, ResolvedRoute, PrefetchStrategy, RouteMatch } from "./types.ts";
 
 export type ModuleWarmFn = (match: RouteMatch) => void;
 
 const CACHE_TTL_MS = 30_000;
 const MAX_PREFETCH_CACHE_ENTRIES = 100;
 const MAX_MATCH_CACHE_ENTRIES = 250;
+const EMPTY_ROUTE_STATE: RouteStateResult = { type: "data", data: undefined };
+const EMPTY_ROUTE_STATE_PROMISE: Promise<RouteStateResult> = Promise.resolve(EMPTY_ROUTE_STATE);
 
 interface CacheEntry {
   promise: Promise<RouteStateResult>;
@@ -39,7 +41,9 @@ export function getCachedRouteState(url: string): Promise<RouteStateResult> | nu
   return entry.promise;
 }
 
-export function prefetchRouteState(url: string): Promise<RouteStateResult> {
+export function prefetchRouteState(url: string, route?: ResolvedRoute): Promise<RouteStateResult> {
+  if (route && !routeNeedsServerFetch(route)) return EMPTY_ROUTE_STATE_PROMISE;
+
   const cached = getCachedRouteState(url);
   if (cached) return cached;
 
@@ -96,10 +100,9 @@ export function setupPrefetching(app: ResolvedPrachtApp, warmModules?: ModuleWar
   }
 
   function prefetchHref(href: string): void {
-    prefetchRouteState(href);
-    if (!warmModules) return;
     const match = getMatchEntry(href).match;
-    if (match) warmModules(match);
+    prefetchRouteState(href, match?.route);
+    if (warmModules && match) warmModules(match);
   }
 
   // Hover / focus prefetching (intent-based)

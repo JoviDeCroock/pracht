@@ -1,5 +1,6 @@
 import { readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { basename, extname, join, relative } from "node:path";
+import { detectLoaderExport } from "./route-loader-hints.ts";
 
 export interface ScannedPage {
   absolutePath: string;
@@ -9,6 +10,7 @@ export interface ScannedPage {
   isCatchAll: boolean;
   isDynamic: boolean;
   renderMode?: string;
+  hasLoader?: boolean;
 }
 
 export interface PagesRouterOptions {
@@ -54,6 +56,7 @@ function scan(dir: string, root: string, pages: ScannedPage[]): void {
     const routePath = filePathToRoutePath(rel);
     const source = readFileSync(abs, "utf-8");
     const renderMode = extractRenderMode(source);
+    const hasLoader = detectLoaderExport(source);
 
     pages.push({
       absolutePath: abs,
@@ -63,6 +66,7 @@ function scan(dir: string, root: string, pages: ScannedPage[]): void {
       isCatchAll: routePath.split("/").includes("*"),
       isDynamic: routePath.split("/").some((segment) => segment.startsWith(":")),
       renderMode,
+      hasLoader,
     });
   }
 }
@@ -166,8 +170,12 @@ export function generatePagesManifestSource(
     const fileRef = useImport
       ? `() => import(${JSON.stringify(filePath)})`
       : JSON.stringify(filePath);
+    const metaParts = [
+      `render: ${JSON.stringify(render)}`,
+      `hasLoader: ${page.hasLoader ? "true" : "false"}`,
+    ];
     routeEntries.push(
-      `    route(${JSON.stringify(page.routePath)}, ${fileRef}, { render: ${JSON.stringify(render)} })`,
+      `    route(${JSON.stringify(page.routePath)}, ${fileRef}, { ${metaParts.join(", ")} })`,
     );
   }
 
