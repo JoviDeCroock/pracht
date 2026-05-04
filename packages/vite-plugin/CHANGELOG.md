@@ -1,5 +1,21 @@
 # @pracht/vite-plugin
 
+## 0.4.2
+
+### Patch Changes
+
+- [#140](https://github.com/JoviDeCroock/pracht/pull/140) [`6e7cb43`](https://github.com/JoviDeCroock/pracht/commit/6e7cb435cda4483566653da25bafa7fa0bcd10e0) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Add the `precompileSsrJsx` opt-in flag to the Pracht Vite plugin and document/benchmark the Preact SSR JSX precompile transform.
+
+- [#146](https://github.com/JoviDeCroock/pracht/pull/146) [`5938cb5`](https://github.com/JoviDeCroock/pracht/commit/5938cb56dd053fc8725efae0b7392dd65866b37b) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Skip route-state network requests for routes without loaders or middleware,
+  including manifest routes with inline loaders detected from route modules.
+
+- [#143](https://github.com/JoviDeCroock/pracht/pull/143) [`2de2f26`](https://github.com/JoviDeCroock/pracht/commit/2de2f26e22a7a35acf2fd90cfb7757a7b255e05c) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Fix dev-mode route handling so resolved app routes stay framework-owned even when the path includes dotted segments, asset-like filenames, or `@`-prefixed static handles. Route-state `_data=1` requests now also avoid the static-asset bypass.
+
+- Updated dependencies [[`6e7cb43`](https://github.com/JoviDeCroock/pracht/commit/6e7cb435cda4483566653da25bafa7fa0bcd10e0), [`5578791`](https://github.com/JoviDeCroock/pracht/commit/5578791b3abd6c808f5af78d88224667f483b32c), [`5938cb5`](https://github.com/JoviDeCroock/pracht/commit/5938cb56dd053fc8725efae0b7392dd65866b37b), [`97594bd`](https://github.com/JoviDeCroock/pracht/commit/97594bd57b14fd5b527de647ba254b77f77912ca)]:
+  - @pracht/preact-ssr-precompile@0.1.1
+  - @pracht/core@0.7.0
+  - @pracht/adapter-node@0.2.2
+
 ## 0.4.1
 
 ### Patch Changes
