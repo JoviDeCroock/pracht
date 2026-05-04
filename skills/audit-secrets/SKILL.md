@@ -16,10 +16,10 @@ allowed-tools:
 
 # Pracht Audit Secrets
 
-Pracht serializes loader return values into `window.__PRACHT_STATE__` and
-hydrates the client from them. Anything a loader returns ends up readable in
-the browser. The Vite plugin also strips server-only exports from route files,
-but it cannot save you from a value that flows into the return.
+Pracht serializes loader return values into the `pracht-state` JSON script and
+hydrates the client from them. Anything a loader returns ends up readable in the
+browser. The Vite plugin also strips server-only exports from route files, but
+it cannot save you from a value that flows into the return.
 
 ## Step 1: Identify "secret-shaped" identifiers
 
@@ -67,9 +67,9 @@ client bundle. Flag those imports.
 Check for accidental exposure outside loaders:
 
 - `head()` returns: rare, but a `meta` value containing a token leaks into HTML.
-- `headers()` returns: less risky (response headers stay on the server side
-  of the request), but flag values that look like secrets — they may be
-  echoed to the browser as cache keys or correlation IDs.
+- `headers()` returns: flag values that look like secrets. For SSG/ISG pages,
+  document headers can be copied into `dist/client/_pracht/headers.json`, which
+  is public client output and may be replayed on static responses.
 - `<Form>` `action` URLs containing tokens in the query string.
 - `prefetchRouteState(url)` calls with sensitive query params.
 - Inline `<script>` content emitted from custom shells.
@@ -77,6 +77,7 @@ Check for accidental exposure outside loaders:
 ## Step 5: `.env` discipline
 
 - Confirm `.env*` is in `.gitignore`.
+- Confirm generated starters preserve `!.env.example` if they ignore `.env*`.
 - Grep tracked files for likely committed secrets (long random strings near
   identifier names from step 1).
 - Confirm any client-side env access uses `import.meta.env.VITE_*` — anything

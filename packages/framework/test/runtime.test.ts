@@ -9,6 +9,7 @@ import {
   prerenderApp,
   resolveApiRoutes,
   route,
+  timeRevalidate,
   useLocation,
   useParams,
 } from "../src/index.ts";
@@ -757,6 +758,70 @@ describe("prerenderApp", () => {
       "content-security-policy": "default-src 'self'",
       "x-plan": "MVP",
     });
+  });
+
+  it.each([
+    ["authorization", "Bearer secret"],
+    ["proxy-authenticate", 'Basic realm="proxy"'],
+    ["set-cookie", "session=abc; Path=/; HttpOnly"],
+    ["www-authenticate", 'Basic realm="admin"'],
+    ["x-api-key", "secret"],
+  ])("rejects %s document headers on SSG pages", async (name, value) => {
+    const app = defineApp({
+      routes: [route("/pricing", "./routes/pricing.tsx", { render: "ssg" })],
+    });
+
+    await expect(
+      prerenderApp({
+        app,
+        registry: {
+          routeModules: {
+            "/src/routes/pricing.tsx": async () => ({
+              Component: () => h("main", null, "Pricing"),
+              headers: () => ({ [name]: value }),
+            }),
+          },
+        },
+      }),
+    ).rejects.toThrow(
+      `Refusing to prerender SSG route "/pricing" because its document headers include "${name}"`,
+    );
+  });
+
+  it("rejects dangerous shell document headers on ISG pages", async () => {
+    const app = defineApp({
+      routes: [
+        route("/pricing", "./routes/pricing.tsx", {
+          render: "isg",
+          revalidate: timeRevalidate(60),
+          shell: "public",
+        }),
+      ],
+      shells: {
+        public: "./shells/public.tsx",
+      },
+    });
+
+    await expect(
+      prerenderApp({
+        app,
+        registry: {
+          routeModules: {
+            "/src/routes/pricing.tsx": async () => ({
+              Component: () => h("main", null, "Pricing"),
+            }),
+          },
+          shellModules: {
+            "/src/shells/public.tsx": async () => ({
+              headers: () => ({ "set-cookie": "shared=1; Path=/" }),
+              Shell: ({ children }) => h("section", null, children),
+            }),
+          },
+        },
+      }),
+    ).rejects.toThrow(
+      'Refusing to prerender ISG route "/pricing" because its document headers include "set-cookie"',
+    );
   });
 
   it("renders multiple static paths concurrently", async () => {

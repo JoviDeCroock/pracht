@@ -3,8 +3,8 @@ title: Forms & Validation
 lead: Handle form submissions with progressive enhancement using pracht's <code>&lt;Form&gt;</code> component and API routes. Forms work without JavaScript and upgrade to fetch-based submissions when JS is available.
 breadcrumb: Forms
 prev:
-  href: /docs/recipes/auth
-  title: Authentication
+  href: /docs/recipes/csp
+  title: Content Security Policy
 next:
   href: /docs/recipes/testing
   title: Testing

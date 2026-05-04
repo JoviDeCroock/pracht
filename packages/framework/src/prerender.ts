@@ -36,6 +36,16 @@ export interface PrerenderAppOptions {
   concurrency?: number;
 }
 
+const DANGEROUS_PRERENDER_HEADER_NAMES = new Set([
+  "authorization",
+  "proxy-authenticate",
+  "proxy-authorization",
+  "set-cookie",
+  "www-authenticate",
+]);
+const SECRET_SHAPED_PRERENDER_HEADER_RE =
+  /^x-.*(?:api[-_]?key|client[-_]?secret|credential|jwt[-_]?secret|password|private[-_]?key|refresh[-_]?token|secret|session[-_]?secret|token|webhook[-_]?secret)(?:$|[-_])/i;
+
 export async function prerenderApp(options: PrerenderAppOptions): Promise<PrerenderResult[]>;
 export async function prerenderApp(
   options: PrerenderAppOptions & { withISGManifest: true },
@@ -89,6 +99,8 @@ export async function prerenderApp(
           return null;
         }
 
+        assertSafePrerenderHeaders(response.headers, item);
+
         const html = await response.text();
         return { headers: Object.fromEntries(response.headers), html, item };
       }),
@@ -112,6 +124,29 @@ export async function prerenderApp(
   }
 
   return results;
+}
+
+function assertSafePrerenderHeaders(
+  headers: Headers,
+  item: { pathname: string; render: string },
+): void {
+  const dangerous = [...headers.keys()].filter(isDangerousPrerenderHeader);
+  if (dangerous.length === 0) return;
+
+  const names = dangerous.map((name) => `"${name}"`).join(", ");
+  throw new Error(
+    `Refusing to prerender ${item.render.toUpperCase()} route "${item.pathname}" because its document headers include ${names}. ` +
+      "SSG/ISG document headers are serialized into public static output and replayed for every visitor. " +
+      "Move cookies/authentication headers to API routes, loaders, middleware responses, or SSR-only routes.",
+  );
+}
+
+function isDangerousPrerenderHeader(name: string): boolean {
+  const normalized = name.toLowerCase();
+  return (
+    DANGEROUS_PRERENDER_HEADER_NAMES.has(normalized) ||
+    SECRET_SHAPED_PRERENDER_HEADER_RE.test(normalized)
+  );
 }
 
 async function collectSSGPaths(route: ResolvedRoute, registry?: ModuleRegistry): Promise<string[]> {

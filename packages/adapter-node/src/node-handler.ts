@@ -84,18 +84,14 @@ export function createNodeRequestHandler<TContext = unknown>(
     throw new Error("nodeAdapter({ maxBodySize }) expects a positive integer number of bytes.");
   }
 
-  if (
-    !canonicalOrigin &&
-    process.env.NODE_ENV === "production" &&
-    !warnedAboutMissingCanonicalOrigin
-  ) {
-    warnedAboutMissingCanonicalOrigin = true;
-    console.warn(
-      "[pracht] @pracht/adapter-node is deriving request.url from Host headers. Set nodeAdapter({ canonicalOrigin }) in production to avoid host-header poisoning.",
-    );
-  }
-
   return async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
+    if (!canonicalOrigin && shouldWarnAboutMissingCanonicalOrigin(staticDir)) {
+      warnedAboutMissingCanonicalOrigin = true;
+      console.warn(
+        "[pracht] @pracht/adapter-node is deriving request.url from Host headers. Set nodeAdapter({ canonicalOrigin }) for deployed Node apps to avoid host-header poisoning.",
+      );
+    }
+
     let request: Request;
     try {
       request = await createWebRequest(req, { canonicalOrigin, trustProxy, maxBodySize });
@@ -178,6 +174,12 @@ export function createNodeRequestHandler<TContext = unknown>(
 
     await writeWebResponse(res, response);
   };
+}
+
+function shouldWarnAboutMissingCanonicalOrigin(staticDir: string | undefined): boolean {
+  if (warnedAboutMissingCanonicalOrigin) return false;
+  if (process.env.NODE_ENV === "production") return true;
+  return typeof staticDir === "string" && staticDir.length > 0;
 }
 
 async function serveStaticFile(

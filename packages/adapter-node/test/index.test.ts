@@ -9,7 +9,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { once } from "node:events";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { defineApp, resolveApiRoutes, route, timeRevalidate } from "@pracht/core";
 
@@ -48,6 +48,8 @@ async function waitFor(predicate: () => boolean, timeoutMs = 2_000): Promise<voi
 }
 
 afterEach(async () => {
+  vi.restoreAllMocks();
+
   for (const server of servers) {
     server.close();
     await once(server, "close");
@@ -78,6 +80,33 @@ describe("createNodeServerEntryModule", () => {
 });
 
 describe("createNodeRequestHandler", () => {
+  it("warns for deployed Node handlers without a canonical origin", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const staticDir = makeTempDir();
+
+    const handler = createNodeRequestHandler({
+      app: defineApp({ routes: [] }),
+      staticDir,
+    });
+
+    const server = createServer((req: IncomingMessage, res: ServerResponse) => {
+      void handler(req, res);
+    });
+    servers.add(server);
+
+    server.listen(0, "127.0.0.1");
+    await once(server, "listening");
+    const address = server.address();
+    if (!address || typeof address === "string") {
+      throw new Error("Expected TCP server address");
+    }
+
+    await fetch(`http://127.0.0.1:${address.port}/missing`);
+
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("canonicalOrigin"));
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("host-header poisoning"));
+  });
+
   it("rejects request bodies above the configured limit", async () => {
     const app = defineApp({
       routes: [route("/upload", "./routes/upload.tsx", { render: "ssr" })],
