@@ -192,6 +192,7 @@ function flattenRouteNode(
       return middlewareFile ? [middlewareFile] : [];
     }),
     revalidate: node.revalidate,
+    search: node.search,
     segments: parseRouteSegments(fullPath),
   });
 }
