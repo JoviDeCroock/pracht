@@ -1,5 +1,18 @@
 # @pracht/core
 
+## 0.7.0
+
+### Minor Changes
+
+- [#139](https://github.com/JoviDeCroock/pracht/pull/139) [`97594bd`](https://github.com/JoviDeCroock/pracht/commit/97594bd57b14fd5b527de647ba254b77f77912ca) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Add typed route href helpers, `<Link route="...">`, route-object `useNavigate()`, and `pracht typegen` for generated route id/param declarations.
+
+### Patch Changes
+
+- [#144](https://github.com/JoviDeCroock/pracht/pull/144) [`5578791`](https://github.com/JoviDeCroock/pracht/commit/5578791b3abd6c808f5af78d88224667f483b32c) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Reject dangerous document headers during SSG/ISG prerendering, warn when Node deployments do not configure `canonicalOrigin`, and make create-pracht starters ignore local env files.
+
+- [#146](https://github.com/JoviDeCroock/pracht/pull/146) [`5938cb5`](https://github.com/JoviDeCroock/pracht/commit/5938cb56dd053fc8725efae0b7392dd65866b37b) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Skip route-state network requests for routes without loaders or middleware,
+  including manifest routes with inline loaders detected from route modules.
+
 ## 0.6.1
 
 ### Patch Changes

@@ -1,6 +1,6 @@
 {
   "name": "create-pracht",
-  "version": "0.2.5",
+  "version": "0.2.6",
   "description": "Interactive and scriptable starter CLI for creating full-stack Preact apps with Pracht.",
   "keywords": [
     "pracht",
