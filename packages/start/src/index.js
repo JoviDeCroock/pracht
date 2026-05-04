@@ -420,7 +420,7 @@ async function buildProjectFiles({
   const versions = await resolveVersions(packagesToResolve, { remote: resolveRemoteVersions });
 
   const files = {
-    ".gitignore": "dist\nnode_modules\n.wrangler\n.vercel\n",
+    ".gitignore": "dist\nnode_modules\n.wrangler\n.vercel\n.env*\n!.env.example\n.dev.vars\n",
     "README.md": createReadme({ adapter, packageManager, projectName, router }),
     "package.json": createPackageJson({ adapter, projectName, versions }),
     "src/api/health.ts": createHealthRoute(adapter),

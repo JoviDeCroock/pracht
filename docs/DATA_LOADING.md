@@ -280,6 +280,16 @@ shell headers with the same name. They apply to HTML document responses,
 including prerendered SSG/ISG HTML, but not API routes or route-state JSON
 fetches.
 
+SSG/ISG document headers are written into the prerender header manifest so
+adapters can replay them for static HTML. Pracht rejects dangerous headers such
+as `Set-Cookie`, `Authorization`, `Proxy-Authenticate`, `WWW-Authenticate`, and
+secret-shaped custom `x-*` headers during SSG/ISG prerendering because those
+values would become public static output or be replayed across visitors. Use API
+routes, middleware `Response`s, or SSR-only routes for cookies and
+authentication headers.
+
+See [docs/CSP.md](CSP.md) for a Content Security Policy recipe.
+
 ---
 
 ## Client Hooks

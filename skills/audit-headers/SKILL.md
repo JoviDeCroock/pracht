@@ -77,15 +77,35 @@ Generate a starter CSP from observed origins:
 2. Group by directive: `default-src`, `script-src`, `style-src`, `img-src`,
    `font-src`, `connect-src`, `frame-src`.
 3. Always include `'self'` per directive.
-4. For inline styles/scripts pracht emits (hydration state script), recommend
-   nonce-based CSP — pracht injects `__PRACHT_STATE__` inline, so
-   `'unsafe-inline'` for `script-src` is the easy path; nonces require
-   wiring through render.
+4. Account for framework-emitted scripts: pracht injects hydration state in
+   `<script id="pracht-state" type="application/json">` and injects a module
+   client entry. Prefer a CSP that keeps executable scripts tight; do not jump
+   to `'unsafe-inline'` unless the app truly emits executable inline scripts and
+   the tradeoff is documented.
 
 Output a draft CSP and explain what each origin is for. Do not hand the user
 a CSP that breaks their site — present as draft.
 
-## Step 5: Cross-origin isolation (optional)
+## Step 5: Prerendered header manifest safety
+
+For SSG/ISG output, inspect `dist/client/_pracht/headers.json` after build and
+the route/shell `headers()` exports that feed it. This file is part of the
+public client output, so every value in it must be safe to publish and replay on
+static responses.
+
+Flag as `error` if prerendered headers include:
+
+- `set-cookie`
+- `authorization`
+- `proxy-authorization`
+- `www-authenticate`
+- `proxy-authenticate`
+- custom secret-shaped names such as `x-*-token`, `x-*-secret`, or `x-*-key`
+
+Flag as `warn` when a route-specific header is user-specific but could be
+replayed across users from static output.
+
+## Step 6: Cross-origin isolation (optional)
 
 If the user mentions `SharedArrayBuffer`, WASM threading, or high-precision
 timers, recommend:
@@ -96,7 +116,7 @@ timers, recommend:
 
 Otherwise leave these unset — they break embedded third-party content.
 
-## Step 6: Report
+## Step 7: Report
 
 Two outputs:
 
@@ -104,6 +124,7 @@ Two outputs:
 2. **Recommendations**, in priority order:
    - `error`: Routes with no security headers at all.
    - `warn`: Missing HSTS in production-grade apps.
+   - `warn`: User-specific headers in prerendered static output.
    - `info`: CSP draft, COOP/COEP suggestions.
 
 Show the exact code change required (e.g., where to insert
@@ -119,6 +140,7 @@ Show the exact code change required (e.g., where to insert
 4. For SSG/ISG output, default headers must be applied at the adapter layer
    (Cloudflare/Vercel headers config, or a Node middleware) — flag if the
    adapter does not do this for static responses.
-5. Do not auto-edit. Headers are policy; surface gaps, propose patches.
+5. Treat prerender header manifests as public artifacts.
+6. Do not auto-edit. Headers are policy; surface gaps, propose patches.
 
 $ARGUMENTS

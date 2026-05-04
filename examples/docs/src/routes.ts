@@ -83,6 +83,10 @@ export const app = defineApp({
         id: "recipes-auth",
         render: "ssg",
       }),
+      route("/docs/recipes/csp", () => import("./routes/docs/recipes-csp.md"), {
+        id: "recipes-csp",
+        render: "ssg",
+      }),
       route("/docs/recipes/forms", () => import("./routes/docs/recipes-forms.md"), {
         id: "recipes-forms",
         render: "ssg",

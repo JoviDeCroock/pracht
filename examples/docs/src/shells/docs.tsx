@@ -66,6 +66,7 @@ const NAV = [
     links: [
       { href: "/docs/recipes/i18n", Icon: IconWorld, title: "i18n" },
       { href: "/docs/recipes/auth", Icon: IconLock, title: "Authentication" },
+      { href: "/docs/recipes/csp", Icon: IconShield, title: "CSP" },
       { href: "/docs/recipes/forms", Icon: IconForms, title: "Forms" },
       { href: "/docs/recipes/testing", Icon: IconTestPipe, title: "Testing" },
       {

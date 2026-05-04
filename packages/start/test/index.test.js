@@ -32,12 +32,16 @@ describe("create-pracht", () => {
     });
 
     const packageJson = await readFile(join(targetDir, "package.json"), "utf-8");
+    const gitignore = await readFile(join(targetDir, ".gitignore"), "utf-8");
     const routes = await readFile(join(targetDir, "src/routes.ts"), "utf-8");
 
     expect(packageJson).toMatch(/"@pracht\/cli": "\^\d+\.\d+\.\d+"/);
     expect(packageJson).toMatch(/"@pracht\/adapter-node": "\^\d+\.\d+\.\d+"/);
     expect(packageJson).toContain('"start": "node dist/server/server.js"');
     expect(packageJson).not.toContain("wrangler");
+    expect(gitignore).toContain(".env*");
+    expect(gitignore).toContain("!.env.example");
+    expect(gitignore).toContain(".dev.vars");
     expect(routes).toContain('route("/", "./routes/home.tsx"');
     expect(existsSync(join(targetDir, "wrangler.jsonc"))).toBe(false);
 

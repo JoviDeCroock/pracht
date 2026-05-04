@@ -100,7 +100,10 @@ createNodeRequestHandler({
 Without `canonicalOrigin`, the Node adapter derives the request URL from the
 socket: protocol is inferred from TLS state, and host from the `Host` header.
 Forwarded headers (`Forwarded`, `X-Forwarded-Proto`, `X-Forwarded-Host`) are
-**ignored** unless `trustProxy: true` is enabled.
+**ignored** unless `trustProxy: true` is enabled. Built Node apps warn when no
+`canonicalOrigin` is configured, because app code that reads `request.url` can
+otherwise inherit attacker-controlled `Host` values in misconfigured
+deployments.
 
 Set `trustProxy: true` when the Node server sits behind a trusted reverse proxy
 (nginx, Cloudflare, a load balancer, etc.) that sets forwarded headers:
@@ -131,7 +134,10 @@ When enabled, header precedence is:
 max-age=31536000, immutable`; HTML and other files get `public, max-age=0,
 must-revalidate`. Clean URLs (e.g. `/about`) resolve to `about/index.html`.
 Prerendered HTML receives route and shell document headers from
-`dist/server/headers-manifest.json`.
+`dist/server/headers-manifest.json`. SSG/ISG prerendering rejects dangerous
+document headers such as `Set-Cookie`, `Authorization`, `Proxy-Authenticate`,
+`WWW-Authenticate`, and secret-shaped custom `x-*` headers before they can enter
+that manifest.
 - **ISG revalidation**: checks `pracht-isg-manifest.json` for time revalidation
   metadata. Compares file mtime against revalidation window. Regenerates stale
   pages and writes updated HTML to disk. Route-state requests (`x-pracht-route-state-request`
@@ -352,6 +358,9 @@ export default {
   section that applies the same baseline security headers to all responses,
   including static assets served by Vercel's CDN. Static prerendered routes also
   get route and shell document headers from the prerender header manifest.
+  SSG/ISG prerendering rejects dangerous document headers such as `Set-Cookie`,
+  `Authorization`, `Proxy-Authenticate`, `WWW-Authenticate`, and secret-shaped
+  custom `x-*` headers before they can enter that manifest.
 
 ### Generated entry options
 

@@ -6,8 +6,8 @@ prev:
   href: /docs/recipes/i18n
   title: i18n
 next:
-  href: /docs/recipes/forms
-  title: Forms
+  href: /docs/recipes/csp
+  title: Content Security Policy
 ---
 
 ## Architecture
