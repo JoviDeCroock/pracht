@@ -7,7 +7,7 @@ prev:
   title: Getting Started
 next:
   href: /docs/demo-comparison
-  title: The Pracht Demo
+  title: Launchpad walkthrough
 ---
 
 ## Design philosophy
@@ -47,9 +47,9 @@ One codebase deploys to Node.js, Cloudflare Workers, or Vercel with a one-line a
 
 ---
 
-## Want the compelling product demo?
+## See it in a real app
 
-Read [The Pracht Demo](/docs/demo-comparison) for a Launchpad SaaS walkthrough that compares pracht against common framework tradeoffs: SSG marketing, SSG blog posts, ISG pricing, SSR dashboards, and SPA settings in one app.
+Read the [Launchpad walkthrough](/docs/demo-comparison) for a worked example that uses every render mode in one codebase: SSG marketing, SSG blog posts, ISG pricing, SSR dashboards, and SPA settings, all behind shared shells and auth middleware.
 
 ## Compared to...
 
