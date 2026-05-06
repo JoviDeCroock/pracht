@@ -1,5 +1,6 @@
 import { options } from "preact";
 import { useEffect, useState } from "preact/hooks";
+import { Suspense } from "preact-suspense";
 
 // Preact internal flag on vnode.__u. Set by the hydrate() diff path on every
 // vnode that is actually hydrating against existing DOM. Fresh mounts and
@@ -10,6 +11,13 @@ const MODE_HYDRATE = 1 << 5;
 let _hydrating = false;
 let _suspensionCount = 0;
 let _hydrated = false;
+
+// preact-suspense >=0.3 installs its options.__e patch lazily inside the
+// Suspense constructor. Construct one throwaway instance now so its patch
+// runs before we capture the chain below — otherwise our wrapper would sit
+// behind preact-suspense's, which short-circuits on Suspense ancestors and
+// would never let our suspension counter see hydration promises.
+new (Suspense as any)({});
 
 // options.__e (_catchError) — count thrown promises that belong to the
 // initial hydration pass. We must NOT count promises thrown from vnodes that

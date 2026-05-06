@@ -264,8 +264,8 @@ importers:
         specifier: ^6.0.0
         version: 6.6.7(preact@10.29.1)
       preact-suspense:
-        specifier: ^0.2.0
-        version: 0.2.0(preact@10.29.1)
+        specifier: ^0.3.0
+        version: 0.3.0(preact@10.29.1)
 
   packages/preact-ssr-precompile:
     dependencies:
@@ -2390,8 +2390,8 @@ packages:
     peerDependencies:
       preact: '>=10 || >= 11.0.0-0'
 
-  preact-suspense@0.2.0:
-    resolution: {integrity: sha512-AyBb6lJa1+JbbDaGyBDxxJx+P/MG0nw3X/z2rZaF5h5qU6MX8TBGWxWOG/h50ob7fMkKX9+or2Qp8Mvlda3G9w==}
+  preact-suspense@0.3.0:
+    resolution: {integrity: sha512-mKcwdDwvpEtRQ8dG8eNN2//GRxP84bI6q+j4D+WVkF8fSc7Aikk3sAhCj6SpGG8gyFUxE+Nu5ej6vqzPFqe8dg==}
     peerDependencies:
       preact: ^10.0.0
 
@@ -4731,7 +4731,7 @@ snapshots:
     dependencies:
       preact: 10.29.1
 
-  preact-suspense@0.2.0(preact@10.29.1):
+  preact-suspense@0.3.0(preact@10.29.1):
     dependencies:
       preact: 10.29.1
 
