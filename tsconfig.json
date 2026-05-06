@@ -15,6 +15,10 @@
     "baseUrl": ".",
     "paths": {
       "@pracht/core": ["./packages/framework/src/index.ts"],
+      "@pracht/core/browser": ["./packages/framework/src/browser.ts"],
+      "@pracht/core/client": ["./packages/framework/src/client.ts"],
+      "@pracht/core/manifest": ["./packages/framework/src/manifest.ts"],
+      "@pracht/core/server": ["./packages/framework/src/server.ts"],
       "@pracht/vite-plugin": ["./packages/vite-plugin/src/index.ts"],
       "@pracht/preact-ssr-precompile": ["./packages/preact-ssr-precompile/src/index.ts"],
       "@pracht/adapter-node": ["./packages/adapter-node/src/index.ts"],
