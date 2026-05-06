@@ -4,7 +4,6 @@ import type {
   GroupDefinition,
   GroupMeta,
   HrefArgs,
-  HrefFn,
   HrefRouteDefinition,
   ModuleRef,
   ResolvedApiRoute,
@@ -347,11 +346,6 @@ export function buildHref<TRoute extends RouteId>(
   ...args: HrefArgs<TRoute>
 ): string {
   return buildHrefUntyped(routes, String(routeId), args[0] as BuildHrefOptions | undefined);
-}
-
-export function createHref(routes: readonly HrefRouteDefinition[]): HrefFn {
-  return ((routeId: string, options?: BuildHrefOptions) =>
-    buildHrefUntyped(routes, routeId, options)) as HrefFn;
 }
 
 function buildHrefUntyped(

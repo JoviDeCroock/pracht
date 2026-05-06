@@ -114,7 +114,11 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
       const normalizedId = toPosixPath(id.split("?")[0]);
       if (normalizedId !== appFileAbs) return null;
 
-      const transformed = code.replace(/\(\)\s*=>\s*import\(\s*(['"])([^'"]+)\1\s*\)/g, "$1$2$1");
+      const withStringModuleRefs = code.replace(
+        /\(\)\s*=>\s*import\(\s*(['"])([^'"]+)\1\s*\)/g,
+        "$1$2$1",
+      );
+      const transformed = rewriteManifestCoreImports(withStringModuleRefs);
       if (transformed === code) return null;
       return { code: transformed, map: null };
     },
@@ -214,6 +218,29 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
   plugins.push(optimizeDepsEntriesPlugin);
 
   return plugins;
+}
+
+const MANIFEST_CORE_IMPORTS = new Set(["defineApp", "group", "route", "timeRevalidate"]);
+
+function rewriteManifestCoreImports(code: string): string {
+  return code.replace(
+    /import\s+(type\s+)?\{([^}]+)\}\s+from\s+(['"])@pracht\/core\3/g,
+    (match, typeKeyword: string | undefined, specifiers: string, quote: string) => {
+      const valueImports = specifiers
+        .split(",")
+        .map((specifier) => specifier.trim())
+        .filter(Boolean)
+        .filter((specifier) => !specifier.startsWith("type "))
+        .map((specifier) => specifier.split(/\s+as\s+/)[0]?.trim())
+        .filter(Boolean);
+
+      if (!typeKeyword && valueImports.some((specifier) => !MANIFEST_CORE_IMPORTS.has(specifier))) {
+        return match;
+      }
+
+      return `import ${typeKeyword ?? ""}{${specifiers}} from ${quote}@pracht/core/manifest${quote}`;
+    },
+  );
 }
 
 function withPrachtOptimizeDepsEntries(config: UserConfig, prachtEntries: string[]): UserConfig {

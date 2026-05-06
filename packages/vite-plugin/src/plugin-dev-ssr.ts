@@ -17,7 +17,7 @@ export function createDevSSRMiddleware(
 
     try {
       const [framework, serverMod] = await Promise.all([
-        server.ssrLoadModule("@pracht/core"),
+        server.ssrLoadModule("@pracht/core/server"),
         server.ssrLoadModule(PRACHT_SERVER_MODULE_ID),
       ]);
 

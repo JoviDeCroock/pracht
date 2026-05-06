@@ -430,16 +430,34 @@ types.ts        — pure types, no internal deps
     ↑
 app.ts          — route manifest, matching, SSG path building
     ↑
-runtime.ts      — SSR handler, prerendering, client hooks (static import of app.ts)
+runtime-context.ts — hydration state reader and Preact runtime provider
     ↑
-prefetch.ts     — prefetch cache, strategy wiring (imports runtime + app)
+runtime-hooks.ts — public browser hooks/components (Link, Form, useRevalidate, etc.)
     ↑
-router.ts       — client router, hydration bootstrap (imports runtime + prefetch + hydration)
+runtime.ts      — SSR handler and prerendering (static import of app.ts)
+    ↑
+prefetch-cache.ts — bounded route-state cache shared by navigation, forms, and prefetching
+    ↑
+prefetch.ts     — prefetch strategy wiring, loaded by the client router after hydration
+    ↑
+router.ts       — client router, hydration bootstrap (imports runtime-context + prefetch-cache)
 
 hydration.ts    — Preact options hooks for tracking hydration (no internal deps)
+href.ts         — createHref helper layered on buildHref
 forwardRef.ts   — forwardRef helper (no internal deps)
 error-overlay.ts — dev error page HTML (no internal deps)
 ```
+
+The published core package also exposes small browser-oriented entries:
+
+- `@pracht/core/client` is used by `virtual:pracht/client` and contains only
+  the client router bootstrap surface.
+- `@pracht/core/manifest` is used for manifest helper imports after Vite has
+  transformed route module references to strings.
+- `@pracht/core/server` is used by generated server entries and adapters so
+  edge worker builds do not resolve server imports through the browser condition.
+- The root `@pracht/core` export has a browser condition that points at a
+  client-safe public entry for route and shell modules.
 
 **Important:** `runtime.ts` imports `resolveApp` and `buildPathFromSegments` directly from
 `app.ts` via a static import. Earlier versions used `await import("./app.ts")` dynamic
@@ -449,6 +467,11 @@ imports from `types.ts`). The dynamic imports have been replaced with static imp
 
 The only intentional dynamic import in `runtime.ts` is `preact-render-to-string`, which
 is lazy-loaded to keep the SSR-only dependency out of the client bundle.
+
+The client router intentionally dynamic-imports `prefetch.ts` after router
+initialization. Navigation keeps the small shared cache available synchronously,
+but the listener and `IntersectionObserver` setup no longer sits on the critical
+hydration path.
 
 ---
 

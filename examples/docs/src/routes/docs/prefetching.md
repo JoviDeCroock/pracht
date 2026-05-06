@@ -12,7 +12,12 @@ next:
 
 ## How It Works
 
-After hydration, pracht sets up document-level listeners that watch for user interaction with internal links. When a prefetch is triggered, the route's server data (the same JSON payload used during client-side navigation) is fetched in the background and cached. When the user actually clicks the link, the cached data is used immediately — no second network request.
+After hydration, pracht loads the prefetch setup and registers document-level
+listeners that watch for user interaction with internal links. When a prefetch
+is triggered, the route's server data (the same JSON payload used during
+client-side navigation) is fetched in the background and cached. When the user
+actually clicks the link, the cached data is used immediately — no second
+network request.
 
 Prefetched data is held in a small client-side LRU cache with a 30-second TTL. Stale entries are discarded and re-fetched on the next interaction.
 

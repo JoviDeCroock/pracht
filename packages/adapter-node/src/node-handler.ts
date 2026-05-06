@@ -12,7 +12,7 @@ import {
   type ModuleRegistry,
   type ResolvedApiRoute,
   type PrachtApp,
-} from "@pracht/core";
+} from "@pracht/core/server";
 
 import { regenerateISGPage } from "./node-isg.ts";
 import { createWebRequest, writeNodeResponseHeaders, writeWebResponse } from "./node-request.ts";

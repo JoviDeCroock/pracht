@@ -10,7 +10,7 @@ import {
   type PrachtRuntimeDiagnosticPhase,
 } from "./runtime-errors.ts";
 import { withDefaultSecurityHeaders } from "./runtime-headers.ts";
-import { PrachtRuntimeProvider } from "./runtime-hooks.ts";
+import { PrachtRuntimeProvider } from "./runtime-context.ts";
 import { buildHtmlDocument, htmlResponse } from "./runtime-html.ts";
 import {
   resolvePageCssUrls,

@@ -1,6 +1,6 @@
 import { lstat, realpath } from "node:fs/promises";
 import { extname, resolve, sep } from "node:path";
-import type { ISGManifestEntry } from "@pracht/core";
+import type { ISGManifestEntry } from "@pracht/core/server";
 
 export type HeadersManifest = Record<string, Record<string, string>>;
 

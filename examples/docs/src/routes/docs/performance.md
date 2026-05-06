@@ -32,6 +32,18 @@ Preact, preact/hooks, and preact-suspense are extracted into a shared `vendor` c
 - Route chunks stay small — they only contain route-specific code.
 - Deploying a route change doesn't invalidate the vendor cache.
 
+## Core Runtime Splitting
+
+The generated client entry imports a lean browser bootstrap from `@pracht/core/client`.
+Route and shell modules still import the normal `@pracht/core` API, but browser
+builds resolve that public API through a client-safe entry so server-only
+runtime code is not part of the default browser graph.
+
+Prefetch listener setup is also loaded after the router is initialized. The
+small route-state cache remains available synchronously for navigation and
+forms, while the hover/focus and viewport observers move out of the hydration
+critical path.
+
 ---
 
 ## CSS Per Page
@@ -66,6 +78,7 @@ None of these optimizations require configuration. A standard pracht app automat
 | Route code splitting | Each route is a separate JS chunk, loaded on demand          |
 | Modulepreload hints  | Browser starts downloading route JS before client entry runs |
 | Vendor extraction    | Preact is cached once, shared across routes                  |
+| Core runtime splitting | Server runtime and prefetch setup stay off the critical path |
 | Per-page CSS         | Only CSS for the matched route/shell is included             |
 | Intent prefetching   | Route data is fetched on hover/focus before click            |
 | Dev error overlay    | Framework-aware errors with auto-reload on fix               |
