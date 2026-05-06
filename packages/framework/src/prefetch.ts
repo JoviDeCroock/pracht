@@ -1,45 +1,25 @@
 import { matchAppRoute } from "./app.ts";
+import {
+  cacheRouteState,
+  clearPrefetchCache,
+  EMPTY_ROUTE_STATE_PROMISE,
+  getCachedRouteState,
+  trimMapToSize,
+} from "./prefetch-cache.ts";
 import { fetchPrachtRouteState, routeNeedsServerFetch } from "./runtime-client-fetch.ts";
 import type { RouteStateResult } from "./runtime-client-fetch.ts";
 import type { ResolvedPrachtApp, ResolvedRoute, PrefetchStrategy, RouteMatch } from "./types.ts";
 
 export type ModuleWarmFn = (match: RouteMatch) => void;
 
-const CACHE_TTL_MS = 30_000;
-const MAX_PREFETCH_CACHE_ENTRIES = 100;
 const MAX_MATCH_CACHE_ENTRIES = 250;
-const EMPTY_ROUTE_STATE: RouteStateResult = { type: "data", data: undefined };
-const EMPTY_ROUTE_STATE_PROMISE: Promise<RouteStateResult> = Promise.resolve(EMPTY_ROUTE_STATE);
-
-interface CacheEntry {
-  promise: Promise<RouteStateResult>;
-  timestamp: number;
-}
 
 interface MatchCacheEntry {
   match: RouteMatch | null;
   strategy: PrefetchStrategy;
 }
 
-const prefetchCache = new Map<string, CacheEntry>();
-
-export function clearPrefetchCache(): void {
-  prefetchCache.clear();
-}
-
-export function getCachedRouteState(url: string): Promise<RouteStateResult> | null {
-  const entry = prefetchCache.get(url);
-  if (!entry) return null;
-  if (Date.now() - entry.timestamp > CACHE_TTL_MS) {
-    prefetchCache.delete(url);
-    return null;
-  }
-
-  // Refresh insertion order so the map acts as a small LRU cache.
-  prefetchCache.delete(url);
-  prefetchCache.set(url, entry);
-  return entry.promise;
-}
+export { clearPrefetchCache, getCachedRouteState };
 
 export function prefetchRouteState(url: string, route?: ResolvedRoute): Promise<RouteStateResult> {
   if (route && !routeNeedsServerFetch(route)) return EMPTY_ROUTE_STATE_PROMISE;
@@ -47,10 +27,8 @@ export function prefetchRouteState(url: string, route?: ResolvedRoute): Promise<
   const cached = getCachedRouteState(url);
   if (cached) return cached;
 
-  sweepPrefetchCache();
   const promise = fetchPrachtRouteState(url);
-  prefetchCache.set(url, { promise, timestamp: Date.now() });
-  trimMapToSize(prefetchCache, MAX_PREFETCH_CACHE_ENTRIES);
+  cacheRouteState(url, promise);
   return promise;
 }
 
@@ -205,20 +183,4 @@ export function setupPrefetching(app: ResolvedPrachtApp, warmModules?: ModuleWar
     }
   });
   mutationObserver.observe(document.body, { childList: true, subtree: true });
-}
-
-function sweepPrefetchCache(now = Date.now()): void {
-  for (const [url, entry] of prefetchCache) {
-    if (now - entry.timestamp > CACHE_TTL_MS) {
-      prefetchCache.delete(url);
-    }
-  }
-}
-
-function trimMapToSize<TKey, TValue>(map: Map<TKey, TValue>, maxEntries: number): void {
-  while (map.size > maxEntries) {
-    const first = map.keys().next();
-    if (first.done) return;
-    map.delete(first.value);
-  }
 }

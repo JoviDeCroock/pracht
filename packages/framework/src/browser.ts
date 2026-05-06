@@ -3,9 +3,7 @@ export {
   buildPathFromSegments,
   defineApp,
   group,
-  matchApiRoute,
   matchAppRoute,
-  resolveApiRoutes,
   resolveApp,
   route,
   timeRevalidate,
@@ -15,21 +13,20 @@ export { forwardRef } from "./forwardRef.ts";
 export { useIsHydrated } from "./hydration.ts";
 export { Suspense, lazy } from "preact-suspense";
 export {
-  applyDefaultSecurityHeaders,
   Form,
   Link,
-  handlePrachtRequest,
+  PrachtRuntimeProvider,
   readHydrationState,
   startApp,
   useLocation,
   useParams,
   useRevalidate,
   useRouteData,
-  PrachtRuntimeProvider,
-} from "./runtime.ts";
-export { prerenderApp } from "./prerender.ts";
+} from "./runtime-hooks.ts";
+export { fetchPrachtRouteState, parseSafeNavigationUrl } from "./runtime-client-fetch.ts";
 export { initClientRouter, useNavigate } from "./router.ts";
 export { PrachtHttpError } from "./types.ts";
+
 export type {
   ApiConfig,
   ApiRouteArgs,
@@ -94,20 +91,11 @@ export type {
 } from "./types.ts";
 export type {
   FormProps,
-  HandlePrachtRequestOptions,
   LinkProps,
   Location,
-  PrachtRuntimeDiagnosticPhase,
-  PrachtRuntimeDiagnostics,
-  RouteStateResult,
-  SerializedRouteError,
-  StartAppOptions,
   PrachtHydrationState,
-} from "./runtime.ts";
-export type {
-  ISGManifestEntry,
-  PrerenderAppOptions,
-  PrerenderAppResult,
-  PrerenderResult,
-} from "./prerender.ts";
+  StartAppOptions,
+} from "./runtime-hooks.ts";
+export type { RouteStateResult } from "./runtime-client-fetch.ts";
+export type { SerializedRouteError } from "./runtime-errors.ts";
 export type { InitClientRouterOptions, NavigateFn } from "./router.ts";

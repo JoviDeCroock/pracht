@@ -6,7 +6,7 @@ import type { FunctionComponent } from "preact";
 import { buildHref, matchAppRoute } from "./app.ts";
 import { installHydrationMismatchWarning } from "./hydration-mismatch.ts";
 import { markHydrating } from "./hydration.ts";
-import { getCachedRouteState, setupPrefetching } from "./prefetch.ts";
+import { getCachedRouteState } from "./prefetch-cache.ts";
 import type { ModuleWarmFn } from "./prefetch.ts";
 import type {
   NavigateOptions,
@@ -21,12 +21,8 @@ import {
   parseSafeNavigationUrl,
   routeNeedsServerFetch,
 } from "./runtime-client-fetch.ts";
-import {
-  deserializeRouteError,
-  PrachtRuntimeProvider,
-  type SerializedRouteError,
-  type PrachtHydrationState,
-} from "./runtime.ts";
+import { deserializeRouteError, type SerializedRouteError } from "./runtime-errors.ts";
+import { type PrachtHydrationState, PrachtRuntimeProvider } from "./runtime-context.ts";
 import type { RouteStateResult } from "./runtime-client-fetch.ts";
 
 interface RouteRenderState {
@@ -501,7 +497,9 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
     startRouteImport(match);
     startShellImport(match);
   };
-  setupPrefetching(app, warmModules);
+  void import("./prefetch.ts").then(({ setupPrefetching }) => {
+    setupPrefetching(app, warmModules);
+  });
 }
 
 function resolveBrowserRouteTarget(to: string): BrowserRouteTarget | null {

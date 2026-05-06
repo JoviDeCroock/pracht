@@ -45,7 +45,7 @@ export interface PrachtAdapter {
 export function createDefaultNodeAdapter(): PrachtAdapter {
   return {
     id: "node",
-    serverImports: 'import { resolveApp, resolveApiRoutes } from "@pracht/core";',
+    serverImports: 'import { resolveApp, resolveApiRoutes } from "@pracht/core/server";',
     createServerEntryModule() {
       return createNodeServerEntryModule();
     },

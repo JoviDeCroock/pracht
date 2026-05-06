@@ -31,7 +31,24 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.mts",
+      "browser": "./dist/browser.mjs",
       "default": "./dist/index.mjs"
+    },
+    "./browser": {
+      "types": "./dist/browser.d.mts",
+      "default": "./dist/browser.mjs"
+    },
+    "./client": {
+      "types": "./dist/client.d.mts",
+      "default": "./dist/client.mjs"
+    },
+    "./manifest": {
+      "types": "./dist/manifest.d.mts",
+      "default": "./dist/manifest.mjs"
+    },
+    "./server": {
+      "types": "./dist/server.d.mts",
+      "default": "./dist/server.mjs"
     },
     "./error-overlay": {
       "types": "./dist/error-overlay.d.mts",

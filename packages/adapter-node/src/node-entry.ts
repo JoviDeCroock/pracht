@@ -73,7 +73,7 @@ export function createNodeServerEntryModule(options: NodeServerEntryModuleOption
 export function nodeAdapter(options: NodeServerEntryModuleOptions = {}): PrachtAdapter {
   return {
     id: "node",
-    serverImports: 'import { resolveApp, resolveApiRoutes } from "@pracht/core";',
+    serverImports: 'import { resolveApp, resolveApiRoutes } from "@pracht/core/server";',
     createServerEntryModule() {
       return createNodeServerEntryModule(options);
     },

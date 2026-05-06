@@ -79,7 +79,11 @@ described in `VISION_MVP.md`.
 - **Package builds** — `tsdown` compiles `pracht`, `@pracht/vite-plugin`,
   `@pracht/preact-ssr-precompile`, `@pracht/adapter-node`,
   `@pracht/adapter-cloudflare`, and `@pracht/adapter-vercel` from TypeScript to
-  ESM (`dist/index.mjs` + `.d.mts`). The CLI remains plain JS.
+  ESM (`dist/index.mjs` + `.d.mts`). `@pracht/core` also publishes browser,
+  client, manifest, and server subpath entries so the Vite plugin can keep
+  server-only runtime code and route-only browser helpers out of the critical
+  client bootstrap graph while generated server modules avoid the browser export
+  condition. The CLI remains plain JS.
 - **Node adapter** — Translates Node requests to Web `Request` objects, calls
   `handlePrachtRequest()`, and implements ISG stale-while-revalidate with
   background regeneration.

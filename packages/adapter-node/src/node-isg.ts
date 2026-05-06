@@ -1,6 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
-import { handlePrachtRequest } from "@pracht/core";
+import { handlePrachtRequest } from "@pracht/core/server";
 import type { NodeAdapterContextArgs, NodeAdapterOptions } from "./node-handler.ts";
 
 export async function regenerateISGPage<TContext>(

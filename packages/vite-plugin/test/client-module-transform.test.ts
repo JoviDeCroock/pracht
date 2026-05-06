@@ -42,6 +42,14 @@ async function buildTempProject(root: string): Promise<void> {
     resolve: {
       alias: [
         {
+          find: "@pracht/core/client",
+          replacement: resolve(repoRoot, "packages/framework/src/client.ts"),
+        },
+        {
+          find: "@pracht/core/manifest",
+          replacement: resolve(repoRoot, "packages/framework/src/manifest.ts"),
+        },
+        {
           find: "@pracht/core",
           replacement: resolve(repoRoot, "packages/framework/src/index.ts"),
         },
@@ -399,6 +407,36 @@ export function Component() {
 });
 
 describe("client route module build", () => {
+  it("uses lean core entries for generated client and manifest code", async () => {
+    const root = makeTempProject();
+    mkdirSync(join(root, "src"), { recursive: true });
+    const plugins = pracht({ appFile: "/src/routes.ts" });
+    const configResolved = findPrachtConfigResolved(plugins);
+    configResolved({ root, command: "build" } as never);
+
+    const clientSource = createPrachtClientModuleSource({ appFile: "/src/routes.ts" }, { root });
+    expect(clientSource).toContain(
+      'import { resolveApp, initClientRouter, readHydrationState } from "@pracht/core/client";',
+    );
+
+    const transform = findPrachtTransform(plugins);
+    const transformed = await callTransform(
+      transform,
+      [
+        'import { defineApp, group, route, timeRevalidate } from "@pracht/core";',
+        "export const app = defineApp({",
+        '  routes: [group({ shell: "public" }, [route("/", () => import("./routes/home.tsx"), { revalidate: timeRevalidate(60) })])],',
+        "});",
+        "",
+      ].join("\n"),
+      join(root, "src", "routes.ts"),
+      { ssr: false },
+    );
+
+    expect(transformed).toContain('from "@pracht/core/manifest"');
+    expect(transformed).toContain('route("/", "./routes/home.tsx"');
+  });
+
   it("embeds route loader hints for manifest routes", () => {
     const root = makeTempProject();
     mkdirSync(join(root, "src", "routes"), { recursive: true });
@@ -574,6 +612,20 @@ function findPrachtConfigResolved(plugins: readonly unknown[]): (config: unknown
     }
   }
   throw new Error("pracht plugin not found");
+}
+
+function findPrachtTransform(plugins: readonly unknown[]): unknown {
+  for (const plugin of plugins) {
+    if (
+      plugin &&
+      typeof plugin === "object" &&
+      (plugin as { name?: string }).name === "pracht" &&
+      typeof (plugin as { transform?: unknown }).transform === "function"
+    ) {
+      return (plugin as { transform: unknown }).transform;
+    }
+  }
+  throw new Error("pracht transform hook not found");
 }
 
 async function callTransform(

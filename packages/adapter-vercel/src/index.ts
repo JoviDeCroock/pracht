@@ -5,7 +5,7 @@ import {
   type ModuleRegistry,
   type ResolvedApiRoute,
   type PrachtApp,
-} from "@pracht/core";
+} from "@pracht/core/server";
 
 export interface VercelExecutionContext {
   waitUntil?(promise: Promise<unknown>): void;
@@ -108,7 +108,7 @@ export function vercelAdapter(options: VercelServerEntryModuleOptions = {}): Pra
     id: "vercel",
     edge: true,
     serverImports:
-      'import { handlePrachtRequest, resolveApp, resolveApiRoutes } from "@pracht/core";',
+      'import { handlePrachtRequest, resolveApp, resolveApiRoutes } from "@pracht/core/server";',
     createServerEntryModule() {
       return createVercelServerEntryModule(options);
     },

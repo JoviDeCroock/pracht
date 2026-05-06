@@ -1,36 +1,24 @@
-import { createContext, h } from "preact";
-import type { ComponentChildren, JSX } from "preact";
-import { useContext, useEffect, useMemo, useState } from "preact/hooks";
+import { h } from "preact";
+import type { JSX } from "preact";
+import { useContext } from "preact/hooks";
 
 import { buildHref } from "./app.ts";
+import { SAFE_METHODS } from "./runtime-constants.ts";
 import {
-  EMPTY_ROUTE_PARAMS,
-  HYDRATION_STATE_ELEMENT_ID,
-  SAFE_METHODS,
-} from "./runtime-constants.ts";
-import { clearPrefetchCache } from "./prefetch.ts";
-import { deserializeRouteError, type SerializedRouteError } from "./runtime-errors.ts";
+  PrachtRuntimeProvider,
+  readHydrationState,
+  RouteDataContext,
+  startApp,
+  type PrachtHydrationState,
+  type StartAppOptions,
+} from "./runtime-context.ts";
+import { clearPrefetchCache } from "./prefetch-cache.ts";
+import { deserializeRouteError } from "./runtime-errors.ts";
 import { fetchPrachtRouteState, navigateToClientLocation } from "./runtime-client-fetch.ts";
-import type {
-  HrefRouteDefinition,
-  LoaderData,
-  LoaderLike,
-  RouteId,
-  RouteParams,
-  RouteTarget,
-} from "./types.ts";
+import type { LoaderData, LoaderLike, RouteId, RouteParams, RouteTarget } from "./types.ts";
 
-export interface PrachtHydrationState<TData = unknown> {
-  url: string;
-  routeId: string;
-  data: TData;
-  error?: SerializedRouteError | null;
-  pending?: boolean;
-}
-
-export interface StartAppOptions<TData = unknown> {
-  initialData?: TData;
-}
+export { PrachtRuntimeProvider, readHydrationState, startApp };
+export type { PrachtHydrationState, StartAppOptions };
 
 export interface FormProps extends Omit<JSX.HTMLAttributes<HTMLFormElement>, "action" | "method"> {
   action?: string;
@@ -46,115 +34,6 @@ export type LinkProps<TRoute extends RouteId = RouteId> = Omit<
 export interface Location {
   pathname: string;
   search: string;
-}
-
-declare global {
-  var __PRACHT_ROUTE_DEFINITIONS__: readonly HrefRouteDefinition[] | undefined;
-
-  interface Window {
-    __PRACHT_STATE__?: PrachtHydrationState;
-  }
-}
-
-interface PrachtRuntimeValue {
-  data: unknown;
-  params: RouteParams;
-  routeId: string;
-  routes?: readonly HrefRouteDefinition[];
-  url: string;
-  setData: (data: unknown) => void;
-}
-
-const RouteDataContext = createContext<PrachtRuntimeValue | undefined>(undefined);
-
-export function PrachtRuntimeProvider<TData>({
-  children,
-  data,
-  params = EMPTY_ROUTE_PARAMS,
-  routeId,
-  routes,
-  stateVersion = 0,
-  url,
-}: {
-  children: ComponentChildren;
-  data: TData;
-  params?: RouteParams;
-  routeId: string;
-  routes?: readonly HrefRouteDefinition[];
-  stateVersion?: number;
-  url: string;
-}) {
-  registerRuntimeRoutes(routes);
-
-  const [routeDataState, setRouteDataState] = useState({
-    data,
-    stateVersion,
-  });
-  const routeData = routeDataState.stateVersion === stateVersion ? routeDataState.data : data;
-
-  useEffect(() => {
-    setRouteDataState({
-      data,
-      stateVersion,
-    });
-  }, [data, routeId, stateVersion, url]);
-
-  const context = useMemo(
-    () => ({
-      data: routeData,
-      params,
-      routeId,
-      routes,
-      setData: (nextData: unknown) =>
-        setRouteDataState({
-          data: nextData as TData,
-          stateVersion,
-        }),
-      url,
-    }),
-    [routeData, params, routeId, routes, stateVersion, url],
-  );
-
-  return h(RouteDataContext.Provider, {
-    value: context,
-    children,
-  });
-}
-
-export function startApp<TData = unknown>(options: StartAppOptions<TData> = {}): TData | undefined {
-  if (typeof window === "undefined") {
-    return options.initialData;
-  }
-
-  if (typeof options.initialData !== "undefined") {
-    return options.initialData;
-  }
-
-  return readHydrationState<TData>()?.data;
-}
-
-export function readHydrationState<TData = unknown>(): PrachtHydrationState<TData> | undefined {
-  if (typeof window === "undefined") {
-    return undefined;
-  }
-
-  if (window.__PRACHT_STATE__) {
-    return window.__PRACHT_STATE__ as PrachtHydrationState<TData>;
-  }
-
-  const element = document.getElementById(HYDRATION_STATE_ELEMENT_ID);
-  if (!(element instanceof HTMLScriptElement)) {
-    return undefined;
-  }
-
-  const raw = element.textContent;
-  if (!raw) {
-    return undefined;
-  }
-
-  const state = JSON.parse(raw) as PrachtHydrationState<TData>;
-  window.__PRACHT_STATE__ = state as PrachtHydrationState;
-  return state;
 }
 
 export function useRouteData<TLoader extends LoaderLike>(): LoaderData<TLoader>;
@@ -216,11 +95,6 @@ export function Link<TRoute extends RouteId>(props: LinkProps<TRoute>) {
     ...anchorProps,
     href: buildHref(routes, route, { params, search, hash } as never),
   } as JSX.HTMLAttributes<HTMLAnchorElement>);
-}
-
-function registerRuntimeRoutes(routes: readonly HrefRouteDefinition[] | undefined): void {
-  if (!routes) return;
-  globalThis.__PRACHT_ROUTE_DEFINITIONS__ = routes;
 }
 
 export function Form(props: FormProps) {

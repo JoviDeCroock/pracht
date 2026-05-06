@@ -8,7 +8,7 @@ import {
   type ModuleRegistry,
   type ResolvedApiRoute,
   type PrachtApp,
-} from "@pracht/core";
+} from "@pracht/core/server";
 
 type HeadersManifest = Record<string, Record<string, string>>;
 
@@ -273,7 +273,7 @@ export function cloudflareAdapter(options: CloudflareServerEntryModuleOptions = 
     ownsDevServer: true,
     edge: true,
     serverImports:
-      'import { applyDefaultSecurityHeaders, handlePrachtRequest, resolveApp, resolveApiRoutes } from "@pracht/core";',
+      'import { applyDefaultSecurityHeaders, handlePrachtRequest, resolveApp, resolveApiRoutes } from "@pracht/core/server";',
     createServerEntryModule() {
       return createCloudflareServerEntryModule(options);
     },
