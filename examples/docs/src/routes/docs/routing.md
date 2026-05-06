@@ -4,7 +4,7 @@ lead: pracht uses a hybrid routing model: route modules live as files by convent
 breadcrumb: Routing
 prev:
   href: /docs/demo-comparison
-  title: The Pracht Demo
+  title: Launchpad walkthrough
 next:
   href: /docs/rendering
   title: Rendering Modes

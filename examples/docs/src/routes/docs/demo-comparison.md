@@ -1,6 +1,6 @@
 ---
-title: The Killer Pracht Demo
-lead: A product + agent demo that plays directly into pracht's strengths: explicit app graphs, per-route rendering, server-only loaders, Markdown negotiation, and deploy-anywhere adapters.
+title: A full pracht app, end to end
+lead: A walkthrough of Launchpad — a realistic SaaS example that uses every render mode, both shells, auth middleware, and Markdown content negotiation in one codebase.
 breadcrumb: Demo Comparison
 prev:
   href: /docs/why-pracht
@@ -10,43 +10,25 @@ next:
   title: Routing
 ---
 
-## The positioning
+The pieces of pracht are easier to understand once you see them composed in a real app. Launchpad is a fictional product-management SaaS we use as a reference. It has the surfaces every real product has — marketing pages, a blog, pricing, an authenticated dashboard, project pages, settings, and a Markdown briefing for agents — and each one picks the render mode that fits.
 
-Pracht should not be demoed as "another meta-framework." Demo it as **the full-stack Preact framework with an app graph humans and agents can understand**.
+The showcase is deployed at [showcase-ten-eosin.vercel.app](https://showcase-ten-eosin.vercel.app/) — open it in one tab and follow along here. The same code lives in `examples/showcase`.
 
-The strongest parts of pracht are unusually demo-friendly:
+## What Launchpad covers
 
-| Strength | Why it is compelling |
-| --- | --- |
-| **Preact-first** | Small runtime, familiar JSX/hooks, fast hydration, less JavaScript by default. |
-| **Explicit route manifest** | The app graph is visible in one file: URL, component, shell, middleware, render mode, route ID. |
-| **Per-route rendering** | A real product can mix SSG, SSR, ISG, and SPA without splitting apps or reshaping folders. |
-| **Server-owned data loading** | Loaders stay server-side across SSR, SSG, ISG, SPA route-state requests, and client navigation. |
-| **Named shells and middleware** | Layout and auth policy are reusable app concepts, not hidden folder conventions. |
-| **Vite-native** | Fast dev loop, normal Vite plugins, multi-environment builds. |
-| **Deploy-anywhere adapters** | The same app targets Node, Cloudflare Workers, and Vercel through thin adapters. |
-| **Agent-readable content** | Routes can serve HTML to browsers and Markdown to tools from the same canonical URL. |
-| **Inspectable CLI** | `pracht inspect ... --json`, `pracht verify`, and `pracht doctor` make the framework automation-friendly. |
+| Route | Render mode | Why this mode |
+| --- | --- | --- |
+| `/` | SSG | Landing page should be instant and CDN-cheap. |
+| `/blog/:slug` | SSG | SEO content is generated at build time with `getStaticPaths()`. |
+| `/pricing` | ISG | Pricing is fast like static, but revalidates hourly so edits go live without a rebuild. |
+| `/agents` | SSG + Markdown | Humans see a polished page; agents request the same URL with `Accept: text/markdown`. |
+| `/app` | SSR + auth | Personalized dashboard needs request-time data. |
+| `/app/projects/:projectId` | SSR + auth | Project detail needs fresh, protected data per request. |
+| `/app/settings` | SPA + auth shell | Heavily interactive, no SEO requirement, paints inside the app shell. |
 
-That gives us a sharper story than "here is a blog." The demo should show a realistic app, then show an agent successfully modifying it because pracht made the important facts explicit.
+Most apps land somewhere on this matrix. The point of the example is that you don't split into multiple projects to get there.
 
----
-
-## The demo app: Launchpad
-
-Launchpad is a fictional product management SaaS. It has the surfaces every real app has: marketing, blog, pricing, authenticated dashboard, project pages, settings, API routes, and now an agent briefing page.
-
-| Route | Mode | Product reason | Pracht strength |
-| --- | --- | --- | --- |
-| `/` | **SSG** | Landing page should be instant and CDN-cheap. | Static generation is one route option, not a separate site. |
-| `/blog/:slug` | **SSG** | SEO content is generated with `getStaticPaths()`. | Dynamic static routes stay explicit. |
-| `/pricing` | **ISG** | Pricing is fast like static but can revalidate hourly. | Freshness policy lives next to the route. |
-| `/agents` | **SSG + Markdown** | Humans see a polished briefing; agents can request source Markdown. | One canonical URL, two representations. |
-| `/app` | **SSR + auth** | Personalized dashboard needs request-time data. | Middleware and server loaders are visible. |
-| `/app/projects/:projectId` | **SSR + auth** | Project detail needs fresh, protected data. | Dynamic params and auth are obvious. |
-| `/app/settings` | **SPA + auth shell** | Interactive settings do not need SEO. | Shell paints immediately; route UI is client-only. |
-
-## The reveal: one file explains the whole product
+## The whole app in one file
 
 ```ts [examples/showcase/src/routes.ts]
 import { defineApp, group, route, timeRevalidate } from "@pracht/core";
@@ -78,126 +60,83 @@ export const app = defineApp({
 });
 ```
 
-In most frameworks, a reviewer or an AI agent has to infer behavior from folders, route segment conventions, config files, and special exports. In pracht, the app graph is a source artifact.
+A few things worth pointing out:
 
-That is the hook.
+- **Render mode is right next to the route.** You can read off which pages are static, which revalidate, which need a server, and which are client-only.
+- **Shells are reusable layouts.** Marketing pages share one chrome; the authenticated app shares another. Switching a route between them is a one-word change.
+- **Middleware is opt-in per group.** Auth applies to the `/app/*` block and nowhere else. There's no implicit inheritance to trace through.
+- **No file-system magic.** The URL → component mapping is in the manifest, not in folder names.
 
----
+If you'd rather work with file conventions, the [pages router](/docs/routing#pages-router) gives you that on top of the same primitives.
 
-## The agent angle: Pracht is easy to operate on
+## Serving Markdown to tools from the same URL
 
-Agents are good when the system exposes structure. Pracht exposes structure in ways that are useful:
-
-1. **The manifest is a planning surface.** An agent can answer "which routes are authenticated?" or "which pages are static?" by reading `src/routes.ts`.
-2. **Render modes are safe edits.** Changing a route from SSR to ISG is a small config edit plus any required revalidation policy.
-3. **Server code has a known home.** Loaders are the place for data access; route components receive typed data.
-4. **Markdown negotiation removes scraping.** A route can export `markdown`, and agents can ask the same URL for `Accept: text/markdown`.
-5. **CLI output can be machine-readable.** `pracht inspect routes --json` gives tools a stable app graph.
-
-The new showcase route `/agents` demonstrates this directly. It renders a polished browser page, but the same route exports an agent briefing:
+The `/agents` route is a regular page in a browser. It's also a Markdown document for anything that asks for one:
 
 ```sh
-# Human version
-curl https://showcase.example/agents
+# Browser-style request
+curl https://showcase-ten-eosin.vercel.app/agents
 
-# Agent version
-curl -H "Accept: text/markdown" https://showcase.example/agents
+# Anything that prefers Markdown
+curl -H "Accept: text/markdown" https://showcase-ten-eosin.vercel.app/agents
 ```
+
+The route exports `markdown` next to its component:
 
 ```tsx [examples/showcase/src/routes/agents.tsx]
-export const markdown = `# Launchpad Agent Briefing
+export const markdown = `# Launchpad
 
-## Why Pracht works well with agents
+Launchpad is a product-management SaaS used as the reference example for pracht.
 
-- The route manifest is explicit.
-- Render modes are strings agents can inspect and change safely.
-- Loaders stay server-side.
-- Markdown content negotiation avoids scraping.
-- CLI inspection commands expose the app graph as JSON.
+- Marketing, blog, and pricing pages are statically generated.
+- The dashboard and project pages are server-rendered behind auth.
+- Settings is a single-page app inside the authenticated shell.
 `;
+
+export default function Agents() {
+  // ...regular Preact component
+}
 ```
 
-## The live demo script
+This is useful well beyond AI tooling. Documentation crawlers, search indexers, and internal scripts can all consume the same URL without scraping HTML.
 
-### 1. Start with the product, not the framework
+## Things to try in the example
 
-Open Launchpad. Show that it looks like a normal SaaS site, not a framework toy.
+If you've cloned the showcase locally:
 
 ```sh
 cd examples/showcase
 pnpm pracht dev
 ```
 
-Then click through:
+A few exercises that exercise different parts of the framework:
 
-- `/` — SSG marketing.
-- `/blog/why-pracht` — SSG dynamic content.
-- `/pricing` — ISG with hourly revalidation.
-- `/agents` — SSG human page with Markdown content negotiation.
-- Sign in — SSR authenticated app.
-- `/app/settings` — SPA inside the same protected app shell.
+1. **Add a public `/security` page.** Use the marketing shell, render mode `"ssg"`, and export `markdown` so it's available to tools. It's a single entry in the manifest.
+2. **Tighten or relax the pricing cache.** Change `timeRevalidate(3600)` on `/pricing` to a different window. No folder migration, no second build target.
+3. **Inspect the app graph from the CLI.** `pnpm pracht inspect routes --json` prints the resolved manifest. Useful for codemods, audits, or just answering "which routes are auth-protected?".
+4. **Move `/app/settings` from SPA to SSR.** As long as its loader is server-safe, it's a one-word change.
 
-### 2. Show the manifest
+## How this compares to convention-heavy frameworks
 
-Open `examples/showcase/src/routes.ts` and say:
+The Launchpad layout is meant to make a few framework tradeoffs concrete. The questions on the left come up in code review and architecture discussions all the time:
 
-> Everything we just saw is represented here. Not hidden in folder names. Not scattered across route conventions. The app graph is explicit.
-
-### 3. Give an agent a real task
-
-Use a task that would be annoying in a convention-heavy framework:
-
-> Add a public `/security` page. It should use the marketing shell, be SSG, export Markdown for agents, and link from the header. Then run the framework checks.
-
-The reason this demo works: the agent can copy the `/agents` pattern, add one route to the manifest, and verify it. The route behavior is not implicit.
-
-### 4. Ask the agent to explain the app
-
-Prompt:
-
-> Inspect the Launchpad route manifest and tell me which routes are static, which are personalized, which are auth-protected, and which can be served to agents as Markdown.
-
-Expected answer should be precise because the information is in one place.
-
-### 5. Ask the agent to tune performance
-
-Prompt:
-
-> Pricing currently changes daily. Confirm whether its render mode is appropriate, and adjust the revalidation window to 24 hours.
-
-Expected patch: `timeRevalidate(86400)` on `/pricing`, not a folder migration.
-
----
-
-## Comparison: what the demo makes obvious
-
-| Question | Convention-heavy answer | Pracht answer |
+| Question | Convention-heavy answer | pracht answer |
 | --- | --- | --- |
-| "What renders at build time?" | Inspect files, exports, route segment config, build settings. | Read `render: "ssg"` and `render: "isg"` in the manifest. |
-| "What is behind auth?" | Follow nested layouts, middleware files, or loader redirects. | Read `group({ middleware: ["auth"] })`. |
-| "Can this page become static?" | Maybe; depends on framework rules and nearby files. | Change the route mode if the loader supports it. |
-| "Can an agent consume this page?" | Usually scrape HTML or rely on external docs. | Request Markdown from the same URL when the route exports `markdown`. |
-| "Can we deploy somewhere else?" | Depends on framework/platform coupling. | Swap adapters; app code stays portable. |
+| What renders at build time? | Inspect files, exports, route segment config, and build settings. | Read `render: "ssg"` and `render: "isg"` in the manifest. |
+| What is behind auth? | Trace nested layouts, middleware files, or loader redirects. | Read `group({ middleware: ["auth"] })`. |
+| Can this page become static? | Maybe, depending on framework rules and surrounding files. | Change the route's render mode if its loader supports it. |
+| Can a tool consume this page as data? | Usually scrape HTML or maintain a parallel docs site. | Request Markdown from the same URL when the route exports `markdown`. |
+| Can we deploy somewhere else? | Often coupled to the framework's host. | Swap the [adapter](/docs/adapters); app code stays portable. |
 
-## The blog thesis
+## When this shape fits your app
 
-A compelling blog post can be framed like this:
+The Launchpad layout is a good template for products that have:
 
-> Modern apps are not one rendering strategy. They are a graph of surfaces with different freshness, privacy, SEO, and interactivity needs. Pracht makes that graph explicit — for humans, for code review, and for agents.
+- A public, SEO-driven surface (marketing, blog, docs, pricing).
+- An authenticated app behind it with both server-rendered and client-only views.
+- A need to expose structured content to tools, crawlers, or agents.
+- A deployment target that may change (Node today, Workers or Vercel later).
 
-Suggested title options:
+If your app only does one of these — for example, it's a pure content site, or a single-page app with no marketing surface — pracht still works, but the multi-mode story is less of a draw. The [Why Pracht?](/docs/why-pracht) page covers those tradeoffs head-on.
 
-- **Pracht: the Preact framework with an app graph agents can read**
-- **Stop hiding your rendering strategy in folders**
-- **One Preact app, four render modes, zero guessing**
-- **The full-stack framework that makes AI code changes boring**
-
-## Why this should compel people
-
-The demo is exciting because it connects three current needs:
-
-1. **Performance:** Preact-first and per-route rendering keep JavaScript and server work low.
-2. **Clarity:** Explicit routing makes architecture review easy.
-3. **Automation:** Agents can inspect, explain, and safely modify the app because the important facts are structured.
-
-That is a differentiated story. Pracht is not just smaller. It is more legible.
+When you're ready to build, [Routing](/docs/routing) goes through the manifest in detail.
