@@ -84,11 +84,12 @@ export function t(locale: string, key: TranslationKey): string {
 import type { MiddlewareFn } from "@pracht/core";
 import { defaultLocale, supportedLocales } from "../i18n";
 
-export const middleware: MiddlewareFn = ({ request, url }) => {
+export const middleware: MiddlewareFn = ({ request, url }, next) => {
   const segments = url.pathname.split("/").filter(Boolean);
   const maybe = segments[0] ?? "";
   const locale = (supportedLocales as readonly string[]).includes(maybe) ? maybe : defaultLocale;
   request.headers.set("x-locale", locale);
+  return next();
 };
 ```
 
@@ -98,12 +99,13 @@ export const middleware: MiddlewareFn = ({ request, url }) => {
 import type { MiddlewareFn } from "@pracht/core";
 import { defaultLocale, supportedLocales } from "../i18n";
 
-export const middleware: MiddlewareFn = ({ request }) => {
+export const middleware: MiddlewareFn = ({ request }, next) => {
   const cookie = request.headers.get("cookie") ?? "";
   const m = cookie.match(/locale=([^;]+)/);
   const requested = m?.[1] ?? defaultLocale;
   const locale = (supportedLocales as readonly string[]).includes(requested) ? requested : defaultLocale;
   request.headers.set("x-locale", locale);
+  return next();
 };
 ```
 
@@ -113,11 +115,12 @@ export const middleware: MiddlewareFn = ({ request }) => {
 import type { MiddlewareFn } from "@pracht/core";
 import { defaultLocale, supportedLocales } from "../i18n";
 
-export const middleware: MiddlewareFn = ({ request }) => {
+export const middleware: MiddlewareFn = ({ request }, next) => {
   const header = request.headers.get("accept-language") ?? "";
   const preferred = header.split(",").map(p => p.split(";")[0]?.trim().toLowerCase().slice(0, 2));
   const match = preferred.find(p => (supportedLocales as readonly string[]).includes(p));
   request.headers.set("x-locale", match ?? defaultLocale);
+  return next();
 };
 ```
 
