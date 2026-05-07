@@ -202,20 +202,10 @@ export async function handlePrachtRequest<TContext>(
         );
       }
 
-      try {
-        const middlewareResult = await runMiddlewareChain({
-          context: (options.context ?? {}) as TContext,
-          middlewareFiles: apiMiddlewareFiles,
-          params: apiMatch.params,
-          registry,
-          request: options.request,
-          route: apiMatch.route,
-          url,
-        });
-        if (middlewareResult.response) {
-          return middlewareResult.response;
-        }
+      const requestSignal = AbortSignal.timeout(30_000);
+      const apiContext = (options.context ?? {}) as TContext;
 
+      const apiTerminal = async (): Promise<Response> => {
         currentPhase = "api";
         const apiModule = await resolveRegistryModule<ApiRouteModule>(
           registry.apiModules,
@@ -230,24 +220,37 @@ export async function handlePrachtRequest<TContext>(
         const handler = apiModule[method] ?? apiModule.default;
 
         if (!handler) {
-          return withDefaultSecurityHeaders(
-            new Response("Method not allowed", {
-              status: 405,
-              headers: { "content-type": "text/plain; charset=utf-8" },
-            }),
-          );
+          return new Response("Method not allowed", {
+            status: 405,
+            headers: { "content-type": "text/plain; charset=utf-8" },
+          });
         }
 
         const apiRouteArgs: ApiRouteArgs<TContext> = {
           request: options.request,
           params: apiMatch.params,
-          context: middlewareResult.context,
-          signal: AbortSignal.timeout(30_000),
+          context: apiContext,
+          signal: requestSignal,
           url,
           route: apiMatch.route,
         };
 
-        return withDefaultSecurityHeaders(await handler(apiRouteArgs));
+        return handler(apiRouteArgs);
+      };
+
+      try {
+        const response = await runMiddlewareChain({
+          context: apiContext,
+          middlewareFiles: apiMiddlewareFiles,
+          params: apiMatch.params,
+          registry,
+          request: options.request,
+          route: apiMatch.route,
+          signal: requestSignal,
+          url,
+          terminal: apiTerminal,
+        });
+        return withDefaultSecurityHeaders(response);
       } catch (error: unknown) {
         return renderApiErrorResponse({
           error,
@@ -314,11 +317,13 @@ export async function handlePrachtRequest<TContext>(
     );
   }
 
-  let routeArgs: BaseRouteArgs<TContext> = {
+  const requestSignal = AbortSignal.timeout(30_000);
+  const pageContext = (options.context ?? {}) as TContext;
+  const routeArgs: BaseRouteArgs<TContext> = {
     request: options.request,
     params: match.params,
-    context: (options.context ?? {}) as TContext,
-    signal: AbortSignal.timeout(30_000),
+    context: pageContext,
+    signal: requestSignal,
     url,
     route: match.route,
   };
@@ -337,18 +342,7 @@ export async function handlePrachtRequest<TContext>(
     //   • data-module resolution (separate loader file) (needs routeModule)
     //
     // Only the loader itself still waits for middleware, because it
-    // receives the merged context. This removes one serial await from
-    // every request (typically the shell module load after the loader).
-    const middlewarePromise = runMiddlewareChain({
-      context: routeArgs.context,
-      middlewareFiles: match.route.middlewareFiles,
-      params: match.params,
-      registry,
-      request: options.request,
-      route: match.route,
-      url,
-    });
-
+    // receives the (potentially middleware-mutated) context.
     const routeModulePromise = resolveRegistryModule<RouteModule>(
       registry.routeModules,
       match.route.file,
@@ -370,164 +364,173 @@ export async function handlePrachtRequest<TContext>(
     shellModulePromise.catch(() => {});
     dataFunctionsPromise.catch(() => {});
 
-    // --- Middleware chain ---
-    const middlewareResult = await middlewarePromise;
-    if (middlewareResult.response) {
-      return normalizePageResponse(middlewareResult.response, { isRouteStateRequest });
-    }
-
-    routeArgs = {
-      ...routeArgs,
-      context: middlewareResult.context,
-    };
-
-    currentPhase = "render";
-    routeModule = await routeModulePromise;
-    if (!routeModule) {
-      throw new Error("Route module not found");
-    }
-
-    // Markdown-for-Agents negotiation: if the route exposes raw markdown and
-    // the client prefers `text/markdown`, skip render and return the source.
-    if (
-      !isRouteStateRequest &&
-      typeof routeModule.markdown === "string" &&
-      prefersMarkdown(options.request.headers.get("accept"))
-    ) {
-      return markdownResponse(routeModule.markdown);
-    }
-
-    currentPhase = "loader";
-    const { loader, loaderFile: resolvedLoaderFile } = await dataFunctionsPromise;
-    loaderFile = resolvedLoaderFile;
-
-    const loaderResult = loader ? await loader(routeArgs) : undefined;
-
-    // Allow loaders to return a Response directly (e.g. for redirects)
-    if (loaderResult instanceof Response) {
-      return normalizePageResponse(loaderResult, { isRouteStateRequest });
-    }
-
-    const data = loaderResult;
-
-    if (isRouteStateRequest) {
-      return withRouteResponseHeaders(Response.json({ data }), { isRouteStateRequest: true });
-    }
-
-    // Shell import was kicked off up front; this await is usually already
-    // resolved by the time we get here (it runs in parallel with the loader).
-    currentPhase = "render";
-    shellModule = await shellModulePromise;
-
-    // head and document headers are independent; run them concurrently.
-    const [head, documentHeaders] = await Promise.all([
-      mergeHeadMetadata(shellModule, routeModule, routeArgs, data),
-      mergeDocumentHeaders(shellModule, routeModule, routeArgs, data),
-    ]);
-
-    const cssUrls = resolvePageCssUrls(
-      options.cssManifest,
-      match.route.shellFile,
-      match.route.file,
-    );
-    const modulePreloadUrls = resolvePageJsUrls(
-      options.jsManifest,
-      match.route.shellFile,
-      match.route.file,
-    );
-
-    if (match.route.render === "spa") {
-      let body = "";
-      const Shell = shellModule?.Shell as FunctionComponent | undefined;
-      const Loading = shellModule?.Loading as FunctionComponent | undefined;
-      const loadingTree =
-        Shell != null
-          ? h(Shell, null, Loading ? h(Loading, null) : null)
-          : Loading
-            ? h(Loading, null)
-            : null;
-
-      if (loadingTree) {
-        const tree = h(
-          PrachtRuntimeProvider as FunctionComponent<Record<string, unknown>>,
-          {
-            data: null,
-            params: match.params,
-            routeId: match.route.id ?? "",
-            routes: resolvedApp.routes,
-            url: requestPath,
-          },
-          loadingTree,
-        );
-        const renderFn = await getRenderToStringAsync();
-        body = await renderFn(tree);
+    const pageTerminal = async (): Promise<Response> => {
+      currentPhase = "render";
+      routeModule = await routeModulePromise;
+      if (!routeModule) {
+        throw new Error("Route module not found");
       }
+
+      // Markdown-for-Agents negotiation: if the route exposes raw markdown
+      // and the client prefers `text/markdown`, skip render and return the
+      // source.
+      if (
+        !isRouteStateRequest &&
+        typeof routeModule.markdown === "string" &&
+        prefersMarkdown(options.request.headers.get("accept"))
+      ) {
+        return markdownResponse(routeModule.markdown);
+      }
+
+      currentPhase = "loader";
+      const { loader, loaderFile: resolvedLoaderFile } = await dataFunctionsPromise;
+      loaderFile = resolvedLoaderFile;
+
+      const loaderResult = loader ? await loader(routeArgs) : undefined;
+
+      // Allow loaders to return a Response directly (e.g. for redirects)
+      if (loaderResult instanceof Response) {
+        return loaderResult;
+      }
+
+      const data = loaderResult;
+
+      if (isRouteStateRequest) {
+        return Response.json({ data });
+      }
+
+      // Shell import was kicked off up front; this await is usually already
+      // resolved by the time we get here (it runs in parallel with the loader).
+      currentPhase = "render";
+      shellModule = await shellModulePromise;
+
+      // head and document headers are independent; run them concurrently.
+      const [head, documentHeaders] = await Promise.all([
+        mergeHeadMetadata(shellModule, routeModule, routeArgs, data),
+        mergeDocumentHeaders(shellModule, routeModule, routeArgs, data),
+      ]);
+
+      const cssUrls = resolvePageCssUrls(
+        options.cssManifest,
+        match.route.shellFile,
+        match.route.file,
+      );
+      const modulePreloadUrls = resolvePageJsUrls(
+        options.jsManifest,
+        match.route.shellFile,
+        match.route.file,
+      );
+
+      if (match.route.render === "spa") {
+        let body = "";
+        const Shell = shellModule?.Shell as FunctionComponent | undefined;
+        const Loading = shellModule?.Loading as FunctionComponent | undefined;
+        const loadingTree =
+          Shell != null
+            ? h(Shell, null, Loading ? h(Loading, null) : null)
+            : Loading
+              ? h(Loading, null)
+              : null;
+
+        if (loadingTree) {
+          const tree = h(
+            PrachtRuntimeProvider as FunctionComponent<Record<string, unknown>>,
+            {
+              data: null,
+              params: match.params,
+              routeId: match.route.id ?? "",
+              routes: resolvedApp.routes,
+              url: requestPath,
+            },
+            loadingTree,
+          );
+          const renderFn = await getRenderToStringAsync();
+          body = await renderFn(tree);
+        }
+
+        return htmlResponse(
+          buildHtmlDocument({
+            head,
+            body,
+            hydrationState: {
+              url: requestPath,
+              routeId: match.route.id ?? "",
+              data: null,
+              error: null,
+              pending: true,
+            },
+            clientEntryUrl: options.clientEntryUrl,
+            cssUrls,
+            modulePreloadUrls,
+            routeStatePreloadUrl: loader ? buildRouteStateUrl(requestPath) : undefined,
+          }),
+          200,
+          documentHeaders,
+        );
+      }
+
+      const DefaultComponent =
+        typeof routeModule.default === "function" ? routeModule.default : undefined;
+      const Component = (routeModule.Component ?? DefaultComponent) as
+        | FunctionComponent
+        | undefined;
+      if (!Component) {
+        throw new Error("Route has no Component or default export");
+      }
+
+      const Shell = shellModule?.Shell as FunctionComponent<Record<string, unknown>> | undefined;
+      const Comp = Component as FunctionComponent<Record<string, unknown>>;
+      const componentProps = { data, params: match.params };
+
+      const componentTree = Shell
+        ? h(Shell, null, h(Comp, componentProps))
+        : h(Comp, componentProps);
+
+      const tree = h(
+        PrachtRuntimeProvider as FunctionComponent<Record<string, unknown>>,
+        {
+          data,
+          params: match.params,
+          routeId: match.route.id ?? "",
+          routes: resolvedApp.routes,
+          url: requestPath,
+        },
+        componentTree,
+      );
+      const renderToString = await getRenderToStringAsync();
+      const ssrContent = await renderToString(tree);
 
       return htmlResponse(
         buildHtmlDocument({
           head,
-          body,
+          body: ssrContent,
           hydrationState: {
             url: requestPath,
             routeId: match.route.id ?? "",
-            data: null,
+            data,
             error: null,
-            pending: true,
           },
           clientEntryUrl: options.clientEntryUrl,
           cssUrls,
           modulePreloadUrls,
-          routeStatePreloadUrl: loader ? buildRouteStateUrl(requestPath) : undefined,
         }),
         200,
         documentHeaders,
       );
-    }
+    };
 
-    const DefaultComponent =
-      typeof routeModule.default === "function" ? routeModule.default : undefined;
-    const Component = (routeModule.Component ?? DefaultComponent) as FunctionComponent | undefined;
-    if (!Component) {
-      throw new Error("Route has no Component or default export");
-    }
-
-    const Shell = shellModule?.Shell as FunctionComponent<Record<string, unknown>> | undefined;
-    const Comp = Component as FunctionComponent<Record<string, unknown>>;
-    const componentProps = { data, params: match.params };
-
-    const componentTree = Shell ? h(Shell, null, h(Comp, componentProps)) : h(Comp, componentProps);
-
-    const tree = h(
-      PrachtRuntimeProvider as FunctionComponent<Record<string, unknown>>,
-      {
-        data,
-        params: match.params,
-        routeId: match.route.id ?? "",
-        routes: resolvedApp.routes,
-        url: requestPath,
-      },
-      componentTree,
-    );
-    const renderToString = await getRenderToStringAsync();
-    const ssrContent = await renderToString(tree);
-
-    return htmlResponse(
-      buildHtmlDocument({
-        head,
-        body: ssrContent,
-        hydrationState: {
-          url: requestPath,
-          routeId: match.route.id ?? "",
-          data,
-          error: null,
-        },
-        clientEntryUrl: options.clientEntryUrl,
-        cssUrls,
-        modulePreloadUrls,
-      }),
-      200,
-      documentHeaders,
-    );
+    const response = await runMiddlewareChain({
+      context: pageContext,
+      middlewareFiles: match.route.middlewareFiles,
+      params: match.params,
+      registry,
+      request: options.request,
+      route: match.route,
+      signal: requestSignal,
+      url,
+      terminal: pageTerminal,
+    });
+    return normalizePageResponse(response, { isRouteStateRequest });
   } catch (error: unknown) {
     return renderRouteErrorResponse({
       error,

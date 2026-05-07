@@ -12,20 +12,45 @@ next:
 
 ## Defining Middleware
 
-Middleware modules live in `src/middleware/` and export a `middleware` function:
+Middleware wraps the rest of the request — loaders, API handlers, and any
+inner middleware — using a `next()` function. Modules live in
+`src/middleware/` and export a `middleware` function:
 
 ```ts [src/middleware/auth.ts]
-import type { MiddlewareFn } from "@pracht/core";
+import { redirect, type MiddlewareFn } from "@pracht/core";
 
-export const middleware: MiddlewareFn = async ({ request }) => {
+export const middleware: MiddlewareFn = async ({ request }, next) => {
   const session = await getSession(request);
 
-  // Redirect unauthenticated users
+  // Short-circuit: return without calling next()
   if (!session) {
-    return { redirect: "/login" };
+    return redirect("/login", { request });
   }
 
-  // Return void to continue to the loader
+  // Continue to the rest of the chain (and the loader/handler)
+  return next();
+};
+```
+
+Calling `await next()` runs the rest of the request and resolves to the final
+`Response`. That means middleware can wrap try/catch/finally around the whole
+request — useful for logging, tracing, and timing:
+
+```ts [src/middleware/trace.ts]
+import type { MiddlewareFn } from "@pracht/core";
+
+export const middleware: MiddlewareFn = async ({ request }, next) => {
+  const span = startSpan({ url: request.url, method: request.method });
+  try {
+    const response = await next();
+    span.setAttribute("status", response.status);
+    return response;
+  } catch (err) {
+    span.recordError(err);
+    throw err;
+  } finally {
+    span.end();
+  }
 };
 ```
 
@@ -68,11 +93,30 @@ Middleware from groups and routes is combined. A route inside a group with `["au
 
 ## Middleware Results
 
-| Return                            | Effect                                    |
-| --------------------------------- | ----------------------------------------- |
-| `undefined` / `void`              | Continue to the next middleware or loader |
-| `{ redirect: "/path" }`           | HTTP 302 redirect                         |
-| `{ response: new Response(...) }` | Short-circuit with a custom response      |
+Middleware always returns a `Response`. There are two ways to produce one:
+
+| Return                | Effect                                                                |
+| --------------------- | --------------------------------------------------------------------- |
+| `return next()`       | Continue to the next middleware (or loader/handler) and return its response |
+| `return redirect(...)` | Short-circuit with a redirect; pass `{ request }` for method-aware 302/303 defaults |
+| `return new Response(...)` | Short-circuit with any custom response                          |
+
+If middleware returns without calling `next()`, the rest of the chain — and
+the loader/handler — is skipped.
+
+### Mutating context
+
+Middleware can read and mutate `args.context` directly. Earlier middleware
+sets values, later middleware (and the loader/API handler) sees them:
+
+```ts
+export const middleware: MiddlewareFn = async ({ context, request }, next) => {
+  (context as { user?: User }).user = await getSession(request);
+  return next();
+};
+```
+
+The `context` object is shared by reference — there's no merge step.
 
 ---
 

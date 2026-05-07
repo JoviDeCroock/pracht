@@ -22,6 +22,7 @@ import {
   IconBrandGithub,
   IconSparkles,
   IconPresentationAnalytics,
+  IconActivity,
 } from "@tabler/icons-preact";
 import "../styles/global.css";
 
@@ -69,6 +70,7 @@ const NAV = [
       { href: "/docs/recipes/csp", Icon: IconShield, title: "CSP" },
       { href: "/docs/recipes/forms", Icon: IconForms, title: "Forms" },
       { href: "/docs/recipes/testing", Icon: IconTestPipe, title: "Testing" },
+      { href: "/docs/recipes/logging", Icon: IconActivity, title: "Logging" },
       {
         href: "/docs/recipes/fullstack-cloudflare",
         Icon: IconCloud,

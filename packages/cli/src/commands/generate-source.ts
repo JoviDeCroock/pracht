@@ -62,8 +62,8 @@ export function buildMiddlewareModuleSource(): string {
   return [
     'import type { MiddlewareFn } from "@pracht/core";',
     "",
-    "export const middleware: MiddlewareFn = async (_args) => {",
-    "  return;",
+    "export const middleware: MiddlewareFn = async (_args, next) => {",
+    "  return next();",
     "};",
     "",
   ].join("\n");

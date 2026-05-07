@@ -205,20 +205,24 @@ pattern that forces URL structure to mirror component hierarchy.
 
 ### 4. Middleware
 
-Server-side functions that run before loaders:
+Server-side wrap-around functions that surround loaders and API handlers via
+a `next()` callback:
 
 ```typescript
 // src/middleware/auth.ts
-import type { MiddlewareFn } from "@pracht/core";
+import { redirect, type MiddlewareFn } from "@pracht/core";
 
-export const middleware: MiddlewareFn = async ({ request }) => {
+export const middleware: MiddlewareFn = async ({ request }, next) => {
   const session = await getSession(request);
-  if (!session) return { redirect: "/login" };
+  if (!session) return redirect("/login", { request });
+  return next();
 };
 ```
 
 Middleware is named in the manifest and applied per route or group. It can
-redirect, set context, or throw errors.
+short-circuit with a Response, mutate `args.context`, or wrap the rest of
+the request in `try / catch / finally` for logging and tracing. See
+[ROUTING.md](./ROUTING.md#middleware) for the full contract.
 
 ### 5. Module Registry
 

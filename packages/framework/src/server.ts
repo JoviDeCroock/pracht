@@ -17,6 +17,7 @@ export {
   PrachtRuntimeProvider,
 } from "./runtime.ts";
 export { prerenderApp } from "./prerender.ts";
+export { redirect, type RedirectOptions } from "./runtime-middleware.ts";
 export { PrachtHttpError } from "./types.ts";
 
 export type {
@@ -48,7 +49,7 @@ export type {
   MiddlewareArgs,
   MiddlewareFn,
   MiddlewareModule,
-  MiddlewareResult,
+  MiddlewareNext,
   ModuleImporter,
   ModuleRef,
   NavigateOptions,

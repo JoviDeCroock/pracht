@@ -278,12 +278,13 @@ export const config = { matcher: ["/dashboard/:path*", "/settings/:path*"] };
 ```
 
 ```ts [src/middleware/auth.ts]
-// pracht — named middleware
-import type { MiddlewareFn } from "@pracht/core";
+// pracht — named, wrap-around middleware
+import { redirect, type MiddlewareFn } from "@pracht/core";
 
-export const middleware: MiddlewareFn = async ({ request }) => {
+export const middleware: MiddlewareFn = async ({ request }, next) => {
   const session = await getSession(request);
-  if (!session) return { redirect: "/login" };
+  if (!session) return redirect("/login", { request });
+  return next();
 };
 ```
 

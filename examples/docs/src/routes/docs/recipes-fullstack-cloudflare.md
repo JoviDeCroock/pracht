@@ -3,8 +3,8 @@ title: Full-Stack Cloudflare
 lead: Build a full-stack app on Cloudflare with D1 (SQLite), KV, and R2. This recipe covers project setup, database migrations, and wiring bindings into your loaders and API routes.
 breadcrumb: Full-Stack Cloudflare
 prev:
-  href: /docs/recipes/testing
-  title: Testing
+  href: /docs/recipes/logging
+  title: Logging
 next:
   href: /docs/recipes/fullstack-vercel
   title: Full-Stack Vercel

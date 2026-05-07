@@ -68,10 +68,10 @@ Create middleware that detects the locale and makes it available to loaders. You
 The cleanest approach for SEO — each locale has its own URL namespace like `/fr/about` or `/en/about`.
 
 ```ts [src/middleware/i18n.ts]
-import type { MiddlewareFn } from "@pracht/core";
+import { redirect, type MiddlewareFn } from "@pracht/core";
 import { supportedLocales, defaultLocale } from "../i18n";
 
-export const middleware: MiddlewareFn = async ({ request, url }) => {
+export const middleware: MiddlewareFn = async ({ request, url }, next) => {
   // Extract locale from first URL segment: /fr/about -> "fr"
   const segments = url.pathname.split("/").filter(Boolean);
   const maybeLocale = segments[0];
@@ -79,7 +79,7 @@ export const middleware: MiddlewareFn = async ({ request, url }) => {
   if (supportedLocales.includes(maybeLocale)) {
     // Locale found in URL — pass it through via headers
     request.headers.set("x-locale", maybeLocale);
-    return;
+    return next();
   }
 
   // No locale in URL — detect from Accept-Language or default
@@ -92,7 +92,7 @@ export const middleware: MiddlewareFn = async ({ request, url }) => {
   const locale = preferred ?? defaultLocale;
 
   // Redirect to prefixed URL
-  return { redirect: `/${locale}${url.pathname}` };
+  return redirect(`/${locale}${url.pathname}`, { request });
 };
 ```
 
@@ -104,12 +104,13 @@ If you prefer clean URLs without a locale prefix, store the preference in a cook
 import type { MiddlewareFn } from "@pracht/core";
 import { supportedLocales, defaultLocale } from "../i18n";
 
-export const middleware: MiddlewareFn = async ({ request }) => {
+export const middleware: MiddlewareFn = async ({ request }, next) => {
   const cookies = request.headers.get("cookie") ?? "";
   const match = cookies.match(/locale=(\w+)/);
   const locale = match && supportedLocales.includes(match[1]) ? match[1] : defaultLocale;
 
   request.headers.set("x-locale", locale);
+  return next();
 };
 ```
 

@@ -287,12 +287,12 @@ export const config = { matcher: ["/dashboard/:path*"] };
 **Pracht (`src/middleware/auth.ts`):**
 
 ```ts
-import type { MiddlewareFn } from "@pracht/core";
+import { redirect, type MiddlewareFn } from "@pracht/core";
 
-export const middleware: MiddlewareFn = async ({ request }) => {
+export const middleware: MiddlewareFn = async ({ request }, next) => {
   const session = request.headers.get("cookie")?.includes("session");
-  if (!session) return { redirect: "/login" };
-  // Return void to continue
+  if (!session) return redirect("/login", { request });
+  return next();
 };
 ```
 
@@ -307,8 +307,10 @@ group({ middleware: ["auth"] }, [
 Key transforms:
 
 - Path matching moves from `config.matcher` to manifest group/route assignment
-- `NextResponse.redirect()` → `return { redirect: "/path" }`
-- `NextResponse.next()` → `return` (void)
+- `NextResponse.redirect()` → `return redirect("/path", { request })`
+- `NextResponse.next()` → `return next()`
+- Pracht middleware is **wrap-around** (Hono/Koa/Astro shape), so you can
+  also `await next()` and observe the response — useful for tracing.
 
 ### Phase 7: Wire the route manifest
 

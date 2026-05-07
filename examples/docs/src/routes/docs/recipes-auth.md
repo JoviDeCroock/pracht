@@ -78,19 +78,20 @@ async function sign(data: string): Promise<string> {
 This middleware redirects unauthenticated users to the login page. Apply it to any route group that requires auth.
 
 ```ts [src/middleware/auth.ts]
-import type { MiddlewareFn } from "@pracht/core";
+import { redirect, type MiddlewareFn } from "@pracht/core";
 import { getSession } from "../server/session";
 
-export const middleware: MiddlewareFn = async ({ request }) => {
+export const middleware: MiddlewareFn = async ({ request }, next) => {
   const session = await getSession(request);
   if (!session) {
     const loginUrl = `/login?redirect=${encodeURIComponent(new URL(request.url).pathname)}`;
-    return { redirect: loginUrl };
+    return redirect(loginUrl, { request });
   }
 
   // Pass user info downstream via a header (loaders can read it)
   request.headers.set("x-user-id", session.userId);
   request.headers.set("x-user-email", session.email);
+  return next();
 };
 ```
 
@@ -285,8 +286,8 @@ const ALLOWED = new Set<string>([
   // add trusted cross-origin callers here (e.g. "https://admin.example.com")
 ]);
 
-export const middleware: MiddlewareFn = ({ request, url }) => {
-  if (!UNSAFE.has(request.method)) return;
+export const middleware: MiddlewareFn = ({ request, url }, next) => {
+  if (!UNSAFE.has(request.method)) return next();
 
   const origin = request.headers.get("origin");
   if (origin === null) {
@@ -294,12 +295,12 @@ export const middleware: MiddlewareFn = ({ request, url }) => {
     // the check. Sec-Fetch-Site tells us when the browser itself marked the
     // request as same-origin or user-initiated.
     const site = request.headers.get("sec-fetch-site");
-    if (site === "same-origin" || site === "none") return;
+    if (site === "same-origin" || site === "none") return next();
     return new Response("Forbidden: missing Origin", { status: 403 });
   }
 
-  if (origin === url.origin) return;
-  if (ALLOWED.has(origin)) return;
+  if (origin === url.origin) return next();
+  if (ALLOWED.has(origin)) return next();
 
   return new Response(`Forbidden: origin ${origin} not allowed`, { status: 403 });
 };

@@ -357,15 +357,12 @@ export interface ShellModule<TContext = any> {
   headers?: (args: BaseRouteArgs<TContext>) => MaybePromise<HeadersInit>;
 }
 
-export type MiddlewareResult<TContext = any> =
-  | void
-  | Response
-  | { redirect: string; status?: number }
-  | { context: Partial<TContext> };
+export type MiddlewareNext = () => Promise<Response>;
 
 export type MiddlewareFn<TContext = any> = (
   args: MiddlewareArgs<TContext>,
-) => MaybePromise<MiddlewareResult<TContext>>;
+  next: MiddlewareNext,
+) => MaybePromise<Response>;
 
 export interface MiddlewareModule<TContext = any> {
   middleware: MiddlewareFn<TContext>;

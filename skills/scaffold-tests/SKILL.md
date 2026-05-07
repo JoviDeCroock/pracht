@@ -141,17 +141,42 @@ import { describe, it, expect } from "vitest";
 import { middleware } from "./<middleware-file>";
 
 describe("<name> middleware", () => {
+  const ok = new Response("ok", { status: 200 });
+  const next = async () => ok;
+
   it("redirects unauthenticated requests", async () => {
     const request = new Request("http://localhost/dashboard");
-    const result = await middleware({
-      request,
-      params: {},
-      context: {} as never,
-      url: new URL(request.url),
-      signal: AbortSignal.timeout(5000),
-      route: {} as never,
+    const response = await middleware(
+      {
+        request,
+        params: {},
+        context: {} as never,
+        url: new URL(request.url),
+        signal: AbortSignal.timeout(5000),
+        route: {} as never,
+      },
+      next,
+    );
+    expect(response.status).toBe(302);
+    expect(response.headers.get("location")).toMatch(/^\/login/);
+  });
+
+  it("calls through when authenticated", async () => {
+    const request = new Request("http://localhost/dashboard", {
+      headers: { cookie: "session=valid" },
     });
-    expect(result).toEqual({ redirect: expect.stringMatching(/^\/login/) });
+    const response = await middleware(
+      {
+        request,
+        params: {},
+        context: {} as never,
+        url: new URL(request.url),
+        signal: AbortSignal.timeout(5000),
+        route: {} as never,
+      },
+      next,
+    );
+    expect(response).toBe(ok);
   });
 });
 ```
