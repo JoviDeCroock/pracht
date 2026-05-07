@@ -25,6 +25,7 @@ export {
 } from "./runtime-hooks.ts";
 export { fetchPrachtRouteState, parseSafeNavigationUrl } from "./runtime-client-fetch.ts";
 export { initClientRouter, useNavigate } from "./router.ts";
+export { redirect, type RedirectOptions } from "./runtime-middleware.ts";
 export { PrachtHttpError } from "./types.ts";
 
 export type {
@@ -56,7 +57,7 @@ export type {
   MiddlewareArgs,
   MiddlewareFn,
   MiddlewareModule,
-  MiddlewareResult,
+  MiddlewareNext,
   ModuleImporter,
   ModuleRef,
   NavigateOptions,

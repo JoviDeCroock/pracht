@@ -182,19 +182,21 @@ Shell document headers merge with route-level `headers` exports. Route headers t
 
 ## Middleware
 
-Middleware runs server-side before the loader. It can redirect, modify context, or throw errors.
+Middleware wraps the rest of the request — loaders, API handlers, and inner
+middleware — using a `next()` callback. It can redirect, mutate context,
+short-circuit, or wrap the handler in `try / catch / finally`.
 
 ```ts [src/middleware/auth.ts]
-import type { MiddlewareFn } from "@pracht/core";
+import { redirect, type MiddlewareFn } from "@pracht/core";
 
-export const middleware: MiddlewareFn = async ({ request }) => {
+export const middleware: MiddlewareFn = async ({ request }, next) => {
   const session = await getSession(request);
-  if (!session) return { redirect: "/login" };
-  // Return void to continue to the loader
+  if (!session) return redirect("/login", { request });
+  return next();
 };
 ```
 
-Middleware stacks within groups — a route inside a group with `["auth"]` that also declares `["rateLimit"]` runs both in order.
+Middleware stacks within groups — a route inside a group with `["auth"]` that also declares `["rateLimit"]` runs both in order. See [Middleware](/docs/middleware) for the full guide.
 
 ---
 

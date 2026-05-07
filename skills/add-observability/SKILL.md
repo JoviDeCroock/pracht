@@ -78,13 +78,20 @@ import { initObservability } from "../server/observability";
 
 initObservability();
 
-export const middleware: MiddlewareFn = async ({ request, route }) => {
-  return await Sentry.startSpan(
-    { name: `${request.method} ${route?.path ?? new URL(request.url).pathname}`, op: "http.server" },
-    async () => undefined,
+export const middleware: MiddlewareFn = async ({ request, route }, next) => {
+  return Sentry.startSpan(
+    {
+      name: `${request.method} ${route?.path ?? new URL(request.url).pathname}`,
+      op: "http.server",
+    },
+    () => next(),
   );
 };
 ```
+
+Pracht middleware is wrap-around: `await next()` invokes the rest of the
+request and resolves to the final `Response`, so the span naturally covers
+the loader/handler and ends when they finish.
 
 Register it in `defineApp({ middleware: { observability: "./..." } })` (the
 top-level `middleware` field is a *registry* keyed by name — not an ordered

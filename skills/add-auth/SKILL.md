@@ -98,21 +98,22 @@ Notes:
 `src/middleware/auth.ts`:
 
 ```ts
-import type { MiddlewareFn } from "@pracht/core";
+import { redirect, type MiddlewareFn } from "@pracht/core";
 import { getSession } from "../server/session";
 
-export const middleware: MiddlewareFn = async ({ request, url }) => {
+export const middleware: MiddlewareFn = async ({ request, url }, next) => {
   const session = await getSession(request);
   if (!session) {
-    const next = encodeURIComponent(url.pathname + url.search);
-    return { redirect: `/login?redirect=${next}` };
+    const target = encodeURIComponent(url.pathname + url.search);
+    return redirect(`/login?redirect=${target}`, { request });
   }
   request.headers.set("x-user-id", session.userId);
   request.headers.set("x-user-email", session.email);
+  return next();
 };
 ```
 
-This is a **Gate** (returns `redirect` on failure). Cross-reference
+This is a **Gate** (short-circuits with a redirect on failure). Cross-reference
 `audit-auth` for the distinction between Gate and Augmenter.
 
 ## Step 4: Login / logout API routes

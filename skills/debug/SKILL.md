@@ -76,12 +76,14 @@ Work through these in order, stopping when you find the root cause:
 
 - Verify middleware is registered in `defineApp({ middleware: { ... } })`.
 - Verify middleware is applied to the route/group: `middleware: ["name"]`.
-- Check middleware return values:
-  - `void` / `undefined` → continue to loader
-  - `{ redirect: "/path" }` → redirect
-  - `Response` object → short-circuit
-  - `{ context: { ... } }` → augment context
-- Middleware runs server-side only, before loaders.
+- Middleware is wrap-around: it must always return a `Response`, either by
+  calling `await next()` (to continue down the chain) or short-circuiting.
+- Common bugs:
+  - Forgetting `return next()` → `Middleware "..." did not return a Response`
+  - Calling `next()` twice → `Middleware "..." called next() multiple times`
+  - Mutating a non-object `context` → mutations don't propagate; always pass
+    an object as the request context.
+- Middleware runs server-side only, wrapping loaders and API handlers.
 
 ### 6. API route issues
 

@@ -130,8 +130,8 @@ export function Shell({ children }: ShellProps) {
       "src/middleware/auth.ts",
       `import type { MiddlewareFn } from "@pracht/core";
 
-export const middleware: MiddlewareFn = async () => {
-  return;
+export const middleware: MiddlewareFn = async (_args, next) => {
+  return next();
 };
 `,
     );
@@ -706,8 +706,8 @@ export function Shell({ children }: ShellProps) {
     "src/middleware/auth.ts",
     `import type { MiddlewareFn } from "@pracht/core";
 
-export const middleware: MiddlewareFn = async () => {
-  return;
+export const middleware: MiddlewareFn = async (_args, next) => {
+  return next();
 };
 `,
   );

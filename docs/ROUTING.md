@@ -244,17 +244,62 @@ present.
 
 ## Middleware
 
-Middleware runs server-side before the loader. It can redirect, modify context,
-or throw errors.
+Middleware wraps the rest of the request — loaders, API handlers, and any
+inner middleware — using a `next()` function. It can redirect, mutate
+context, short-circuit with a custom Response, or wrap the inner handler in
+`try / catch / finally`.
 
 ```typescript
 // src/middleware/auth.ts
-export const middleware: MiddlewareFn = async ({ request }) => {
+import { redirect, type MiddlewareFn } from "@pracht/core";
+
+export const middleware: MiddlewareFn = async ({ request }, next) => {
   const session = await getSession(request);
-  if (!session) return { redirect: "/login" };
-  // Returning void continues to the loader
+  if (!session) return redirect("/login", { request });
+  return next();
 };
 ```
+
+Calling `await next()` runs the rest of the chain (and the loader/handler)
+and resolves to the final `Response`. Middleware that returns without
+calling `next()` short-circuits the request — the loader/handler never
+runs.
+
+### Mutating context
+
+Middleware can read and mutate `args.context` directly. Earlier middleware
+sets values, later middleware (and the loader/API handler) sees them on the
+same object:
+
+```ts
+export const middleware: MiddlewareFn = async ({ context, request }, next) => {
+  (context as { user?: User }).user = await getSession(request);
+  return next();
+};
+```
+
+### try / catch / finally
+
+Because middleware wraps the handler, request-scoped logging, tracing, and
+timing all live in a single middleware:
+
+```ts
+export const middleware: MiddlewareFn = async ({ context, request }, next) => {
+  const span = startSpan({ url: request.url });
+  let response: Response | undefined;
+  try {
+    response = await next();
+    return response;
+  } catch (err) {
+    span.recordError(err);
+    throw err;
+  } finally {
+    span.end({ status: response?.status ?? 500 });
+  }
+};
+```
+
+### Applying middleware
 
 Apply middleware to routes or groups:
 

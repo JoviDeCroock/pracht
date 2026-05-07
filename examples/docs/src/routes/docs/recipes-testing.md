@@ -6,8 +6,8 @@ prev:
   href: /docs/recipes/forms
   title: Forms
 next:
-  href: /docs/recipes/fullstack-cloudflare
-  title: Full-Stack Cloudflare
+  href: /docs/recipes/logging
+  title: Logging
 ---
 
 ## Recommended Setup
@@ -119,40 +119,55 @@ describe("contact API route", () => {
 
 ## Testing Middleware
 
-Middleware functions can be tested in isolation. They either return `void` (continue) or an object with `redirect`.
+Middleware always returns a `Response`. To test it in isolation, pass a fake
+`next` that resolves to a sentinel response — then assert on whether the
+middleware short-circuited (returned its own response) or called through
+(returned the sentinel).
 
 ```ts [src/middleware/auth.test.ts]
 import { describe, it, expect } from "vitest";
 import { middleware } from "./auth";
 
 describe("auth middleware", () => {
+  const ok = new Response("ok", { status: 200 });
+  const next = async () => ok;
+
   it("redirects when no session cookie is present", async () => {
     const request = new Request("http://localhost/dashboard");
-    const result = await middleware({
-      request,
-      url: new URL(request.url),
-      params: {},
-      signal: AbortSignal.timeout(5000),
-    });
+    const response = await middleware(
+      {
+        request,
+        url: new URL(request.url),
+        params: {},
+        context: {},
+        signal: AbortSignal.timeout(5000),
+        route: { path: "/dashboard" } as any,
+      },
+      next,
+    );
 
-    expect(result).toEqual({
-      redirect: expect.stringContaining("/login"),
-    });
+    expect(response.status).toBe(302);
+    expect(response.headers.get("location")).toMatch(/\/login/);
   });
 
-  it("continues when session is valid", async () => {
+  it("continues to the handler when session is valid", async () => {
     const request = new Request("http://localhost/dashboard", {
       headers: { cookie: "session=valid-token-here" },
     });
 
-    const result = await middleware({
-      request,
-      url: new URL(request.url),
-      params: {},
-      signal: AbortSignal.timeout(5000),
-    });
+    const response = await middleware(
+      {
+        request,
+        url: new URL(request.url),
+        params: {},
+        context: {},
+        signal: AbortSignal.timeout(5000),
+        route: { path: "/dashboard" } as any,
+      },
+      next,
+    );
 
-    expect(result).toBeUndefined();
+    expect(response).toBe(ok);
   });
 });
 ```

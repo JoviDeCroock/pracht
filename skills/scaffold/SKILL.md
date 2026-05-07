@@ -97,12 +97,18 @@ export function head() {
 
 ### Middleware
 
-```ts
-import type { MiddlewareFn } from "@pracht/core";
+Middleware wraps the rest of the request via `next()`:
 
-export const middleware: MiddlewareFn = async ({ request }) => {
-  // Return void to continue, { redirect: "/path" } to redirect,
-  // a Response to short-circuit, or { context: { ... } } to augment context.
+```ts
+import { redirect, type MiddlewareFn } from "@pracht/core";
+
+export const middleware: MiddlewareFn = async ({ context, request }, next) => {
+  // Mutate context, validate auth, etc.
+  // - Call `return next()` to continue
+  // - Return `redirect("/path", { request })` to short-circuit with a redirect
+  // - Return any `Response` to short-circuit
+  // - Wrap `await next()` in try/catch/finally for tracing/logging
+  return next();
 };
 ```
 

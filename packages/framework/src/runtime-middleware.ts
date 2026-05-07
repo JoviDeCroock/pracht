@@ -1,10 +1,11 @@
 import { parseSafeNavigationUrl } from "./runtime-client-fetch.ts";
 import { SAFE_METHODS } from "./runtime-constants.ts";
-import { applyHeaders, withDefaultSecurityHeaders } from "./runtime-headers.ts";
+import { applyHeaders } from "./runtime-headers.ts";
 import { resolveRegistryModule } from "./runtime-manifest.ts";
 import type {
   BaseRouteArgs,
   HeadMetadata,
+  MiddlewareArgs,
   MiddlewareModule,
   ModuleRegistry,
   ResolvedApiRoute,
@@ -14,6 +15,16 @@ import type {
 
 const DEFAULT_REDIRECT_STATUS_SAFE = 302;
 const DEFAULT_REDIRECT_STATUS_UNSAFE = 303;
+const REDIRECT_VALIDATION_BASE = "https://invalid.pracht.local/";
+
+export type RedirectOptions =
+  | number
+  | {
+      baseUrl?: string | URL;
+      method?: string;
+      request?: Request;
+      status?: number;
+    };
 
 /**
  * Build a safe redirect response from middleware/loader output. Rejects
@@ -50,6 +61,46 @@ export function buildRedirectResponse(
   });
 }
 
+/**
+ * Convenience helper for middleware (and loaders/handlers) to short-circuit
+ * with a redirect Response. Validates the target's scheme and rejects
+ * CR/LF injection. Pass the current request (or method) when the default
+ * status should follow HTTP method safety: safe methods default to 302,
+ * unsafe methods default to 303.
+ *
+ * ```ts
+ * export const middleware: MiddlewareFn = async ({ request }, next) => {
+ *   if (!hasSession(request)) return redirect("/login", { request });
+ *   return next();
+ * };
+ * ```
+ */
+export function redirect(target: string, options: RedirectOptions = {}): Response {
+  if (typeof options === "number") {
+    return buildRedirectResponse(target, {
+      baseUrl: REDIRECT_VALIDATION_BASE,
+      status: options,
+    });
+  }
+
+  return buildRedirectResponse(target, {
+    baseUrl: options.baseUrl ?? options.request?.url ?? REDIRECT_VALIDATION_BASE,
+    method: options.method ?? options.request?.method,
+    status: options.status,
+  });
+}
+
+/**
+ * Run the middleware chain wrap-around-style. Each middleware receives
+ * `next` and may call it at most once. Calling `next()` invokes the rest
+ * of the chain (downstream middleware then `terminal`) and resolves to
+ * the final `Response`. A middleware that returns without calling `next()`
+ * short-circuits with whatever Response it returned.
+ *
+ * Module imports are kicked off concurrently up front; execution stays
+ * sequential because middleware may mutate `args.context` and ordering
+ * is part of the public contract.
+ */
 export async function runMiddlewareChain<TContext>(options: {
   context: TContext;
   middlewareFiles: string[];
@@ -57,11 +108,15 @@ export async function runMiddlewareChain<TContext>(options: {
   registry: ModuleRegistry;
   request: Request;
   route: BaseRouteArgs<TContext>["route"] | ResolvedApiRoute;
+  signal: AbortSignal;
   url: URL;
-}): Promise<
-  { context: TContext; response?: undefined } | { response: Response; context?: undefined }
-> {
-  let context = options.context;
+  terminal: () => Promise<Response>;
+}): Promise<Response> {
+  const { middlewareFiles, terminal } = options;
+
+  if (middlewareFiles.length === 0) {
+    return terminal();
+  }
 
   // Kick off module resolution for every middleware in parallel. Execution
   // below still runs sequentially — middleware may mutate context and the
@@ -69,50 +124,53 @@ export async function runMiddlewareChain<TContext>(options: {
   // have no inter-dependency, so waiting for them one-by-one is pure
   // latency for no benefit. On cold starts where middleware ships as its
   // own chunks this can meaningfully reduce TTFB.
-  const modulePromises = options.middlewareFiles.map((mwFile) =>
+  const modulePromises = middlewareFiles.map((mwFile) =>
     resolveRegistryModule<MiddlewareModule>(options.registry.middlewareModules, mwFile),
   );
   // Suppress unhandled-rejection warnings for promises that may not be
-  // awaited if an earlier middleware short-circuits with a response.
+  // awaited if an earlier middleware short-circuits without calling next().
   for (const p of modulePromises) {
     p.catch(() => {});
   }
 
-  for (const modulePromise of modulePromises) {
-    const mwModule = await modulePromise;
-    if (!mwModule?.middleware) continue;
+  const dispatch = async (i: number): Promise<Response> => {
+    if (i >= middlewareFiles.length) {
+      return terminal();
+    }
+    const mwModule = await modulePromises[i];
+    if (!mwModule?.middleware) {
+      return dispatch(i + 1);
+    }
 
-    const result = await mwModule.middleware({
+    let calledNext = false;
+    const next = (): Promise<Response> => {
+      if (calledNext) {
+        throw new Error(`Middleware "${middlewareFiles[i]}" called next() multiple times`);
+      }
+      calledNext = true;
+      return dispatch(i + 1);
+    };
+
+    const args: MiddlewareArgs<TContext> = {
       request: options.request,
       params: options.params,
-      context,
-      signal: AbortSignal.timeout(30_000),
+      context: options.context,
+      signal: options.signal,
       url: options.url,
       route: options.route as BaseRouteArgs<TContext>["route"],
-    });
+    };
 
-    if (!result) continue;
-    if (result instanceof Response) {
-      return { response: withDefaultSecurityHeaders(result) };
+    const response = await mwModule.middleware(args, next);
+    if (!(response instanceof Response)) {
+      throw new Error(
+        `Middleware "${middlewareFiles[i]}" did not return a Response. ` +
+          "Middleware must return the result of next() or a short-circuit Response.",
+      );
     }
-    if ("redirect" in result) {
-      const status = "status" in result ? result.status : undefined;
-      return {
-        response: withDefaultSecurityHeaders(
-          buildRedirectResponse(result.redirect, {
-            baseUrl: options.request.url,
-            method: options.request.method,
-            status,
-          }),
-        ),
-      };
-    }
-    if ("context" in result) {
-      context = { ...context, ...result.context } as TContext;
-    }
-  }
+    return response;
+  };
 
-  return { context };
+  return dispatch(0);
 }
 
 export async function mergeHeadMetadata(

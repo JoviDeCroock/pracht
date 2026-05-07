@@ -4,6 +4,7 @@ import {
   buildPathFromSegments,
   defineApp,
   handlePrachtRequest,
+  redirect,
   resolveApiRoutes,
   resolveApp,
   route,
@@ -64,8 +65,33 @@ describe("buildRedirectResponse", () => {
   });
 });
 
+describe("redirect helper", () => {
+  it("defaults to 302 without request method context", () => {
+    expect(redirect("/login").status).toBe(302);
+  });
+
+  it("defaults to 303 for unsafe methods when method is provided", () => {
+    expect(redirect("/login", { method: "POST" }).status).toBe(303);
+  });
+
+  it("defaults to 303 for unsafe methods when request is provided", () => {
+    const response = redirect("/login", {
+      request: new Request("http://localhost/dashboard", { method: "POST" }),
+    });
+    expect(response.status).toBe(303);
+  });
+
+  it("honors explicit numeric status overrides", () => {
+    expect(redirect("/login", 307).status).toBe(307);
+  });
+
+  it("honors explicit option status overrides", () => {
+    expect(redirect("/login", { method: "POST", status: 307 }).status).toBe(307);
+  });
+});
+
 describe("middleware redirect integration", () => {
-  it("rejects javascript: returned from middleware", async () => {
+  it("rejects javascript: returned from middleware via the redirect() helper", async () => {
     const app = defineApp({
       middleware: { auth: "./middleware/auth.ts" },
       routes: [route("/dashboard", "./routes/dashboard.tsx", { middleware: ["auth"] })],
@@ -76,7 +102,7 @@ describe("middleware redirect integration", () => {
       registry: {
         middlewareModules: {
           "./middleware/auth.ts": async () => ({
-            middleware: async () => ({ redirect: "javascript:alert(1)" }),
+            middleware: async () => redirect("javascript:alert(1)"),
           }),
         },
         routeModules: {
@@ -86,8 +112,8 @@ describe("middleware redirect integration", () => {
       request: new Request("http://localhost/dashboard"),
     });
 
-    // Framework responds with 500 (route error) rather than honoring the
-    // unsafe scheme.
+    // The redirect() helper throws on unsafe schemes, which surfaces as a
+    // route error (500) rather than honoring the dangerous Location.
     expect(response.status).toBeGreaterThanOrEqual(500);
     expect(response.headers.get("location")).toBeNull();
   });

@@ -28,7 +28,7 @@ boundary. This skill audits the **server-side** decision to redirect at all.
 
 Grep for every redirect-issuing site:
 
-- Middleware returning `{ redirect: ... }`.
+- Middleware returning `redirect(...)` (or any 3xx `Response` with a `Location`).
 - Loaders that throw a redirect or return a `Response` with `302`/`303`/`307`/`308`.
 - API handlers building responses with a `location` header.
 - `useNavigate()(value)` and `<a href={value}>` where `value` is dynamic.
@@ -81,7 +81,7 @@ For each `open`/`risky` finding, propose a fix snippet, e.g.:
 ```ts
 const raw = url.searchParams.get("redirect") ?? "/dashboard";
 const safe = raw.startsWith("/") && !raw.startsWith("//") ? raw : "/dashboard";
-return { redirect: safe };
+return redirect(safe, { request });
 ```
 
 ## Step 5: Cross-check with the client guard

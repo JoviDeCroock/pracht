@@ -7,6 +7,7 @@ import {
   defineApp,
   handlePrachtRequest,
   prerenderApp,
+  redirect,
   resolveApiRoutes,
   route,
   timeRevalidate,
@@ -79,9 +80,10 @@ describe("handlePrachtRequest API middleware", () => {
         },
         middlewareModules: {
           "./middleware/api-auth.ts": async () => ({
-            middleware: async () => ({
-              context: { allowed: true },
-            }),
+            middleware: async ({ context }, next) => {
+              (context as { allowed?: boolean }).allowed = true;
+              return next();
+            },
           }),
         },
       },
@@ -90,6 +92,266 @@ describe("handlePrachtRequest API middleware", () => {
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({ allowed: true });
+  });
+
+  it("uses 303 for API middleware redirects on unsafe methods", async () => {
+    const app = defineApp({
+      api: {
+        middleware: ["apiAuth"],
+      },
+      middleware: {
+        apiAuth: "./middleware/api-auth.ts",
+      },
+      routes: [route("/", "./routes/home.tsx")],
+    });
+
+    const response = await handlePrachtRequest({
+      apiRoutes: resolveApiRoutes(["/src/api/submit.ts"]),
+      app,
+      registry: {
+        apiModules: {
+          "/src/api/submit.ts": async () => ({
+            POST: async () => Response.json({ ok: true }),
+          }),
+        },
+        middlewareModules: {
+          "./middleware/api-auth.ts": async () => ({
+            middleware: async ({ request }) => redirect("/login", { request }),
+          }),
+        },
+      },
+      request: new Request("http://localhost/api/submit", {
+        method: "POST",
+      }),
+    });
+
+    expect(response.status).toBe(303);
+    expect(response.headers.get("location")).toBe("/login");
+  });
+});
+
+describe("middleware wrap-around contract", () => {
+  it("middleware that returns next() observes the terminal response", async () => {
+    const app = defineApp({
+      middleware: { trace: "./middleware/trace.ts" },
+      routes: [route("/", "./routes/home.tsx", { middleware: ["trace"], render: "ssr" })],
+    });
+
+    let observedStatus: number | undefined;
+    const response = await handlePrachtRequest({
+      app,
+      registry: {
+        middlewareModules: {
+          "./middleware/trace.ts": async () => ({
+            middleware: async (_args, next) => {
+              const res = await next();
+              observedStatus = res.status;
+              return res;
+            },
+          }),
+        },
+        routeModules: {
+          "./routes/home.tsx": async () => ({
+            Component: () => h("main", null, "ok"),
+          }),
+        },
+      },
+      request: new Request("http://localhost/"),
+    });
+
+    expect(response.status).toBe(200);
+    expect(observedStatus).toBe(200);
+  });
+
+  it("middleware can wrap try/catch/finally around next()", async () => {
+    const app = defineApp({
+      middleware: { wrap: "./middleware/wrap.ts" },
+      routes: [route("/", "./routes/home.tsx", { middleware: ["wrap"], render: "ssr" })],
+    });
+
+    const events: string[] = [];
+    const response = await handlePrachtRequest({
+      app,
+      debugErrors: true,
+      registry: {
+        middlewareModules: {
+          "./middleware/wrap.ts": async () => ({
+            middleware: async (_args, next) => {
+              events.push("start");
+              try {
+                return await next();
+              } catch (err) {
+                events.push(`catch:${(err as Error).message}`);
+                throw err;
+              } finally {
+                events.push("finally");
+              }
+            },
+          }),
+        },
+        routeModules: {
+          "./routes/home.tsx": async () => ({
+            Component: () => h("main", null, "ok"),
+            loader: async () => {
+              throw new Error("boom");
+            },
+          }),
+        },
+      },
+      request: new Request("http://localhost/"),
+    });
+
+    expect(response.status).toBe(500);
+    expect(events).toEqual(["start", "catch:boom", "finally"]);
+  });
+
+  it("middleware that does not call next() short-circuits the chain", async () => {
+    const app = defineApp({
+      middleware: { gate: "./middleware/gate.ts" },
+      routes: [route("/dashboard", "./routes/dashboard.tsx", { middleware: ["gate"] })],
+    });
+
+    let loaderRan = false;
+    const response = await handlePrachtRequest({
+      app,
+      registry: {
+        middlewareModules: {
+          "./middleware/gate.ts": async () => ({
+            middleware: async () =>
+              new Response("nope", { status: 401, headers: { "content-type": "text/plain" } }),
+          }),
+        },
+        routeModules: {
+          "./routes/dashboard.tsx": async () => ({
+            Component: () => h("main", null, "dashboard"),
+            loader: async () => {
+              loaderRan = true;
+              return null;
+            },
+          }),
+        },
+      },
+      request: new Request("http://localhost/dashboard"),
+    });
+
+    expect(response.status).toBe(401);
+    expect(loaderRan).toBe(false);
+  });
+
+  it("throws when middleware calls next() multiple times", async () => {
+    const app = defineApp({
+      middleware: { bad: "./middleware/bad.ts" },
+      routes: [route("/", "./routes/home.tsx", { middleware: ["bad"], render: "ssr" })],
+    });
+
+    const response = await handlePrachtRequest({
+      app,
+      debugErrors: true,
+      registry: {
+        middlewareModules: {
+          "./middleware/bad.ts": async () => ({
+            middleware: async (_args, next) => {
+              await next();
+              return next();
+            },
+          }),
+        },
+        routeModules: {
+          "./routes/home.tsx": async () => ({
+            Component: () => h("main", null, "ok"),
+          }),
+        },
+      },
+      request: new Request("http://localhost/", {
+        headers: { "x-pracht-route-state-request": "1" },
+      }),
+    });
+
+    expect(response.status).toBe(500);
+    const body = await response.json();
+    expect((body as { error: { message: string } }).error.message).toMatch(
+      /next\(\) multiple times/,
+    );
+  });
+
+  it("throws when middleware does not return a Response", async () => {
+    const app = defineApp({
+      middleware: { bad: "./middleware/bad.ts" },
+      routes: [route("/", "./routes/home.tsx", { middleware: ["bad"], render: "ssr" })],
+    });
+
+    const response = await handlePrachtRequest({
+      app,
+      debugErrors: true,
+      registry: {
+        middlewareModules: {
+          "./middleware/bad.ts": async () => ({
+            middleware: async () => undefined as unknown as Response,
+          }),
+        },
+        routeModules: {
+          "./routes/home.tsx": async () => ({
+            Component: () => h("main", null, "ok"),
+          }),
+        },
+      },
+      request: new Request("http://localhost/", {
+        headers: { "x-pracht-route-state-request": "1" },
+      }),
+    });
+
+    expect(response.status).toBe(500);
+    const body = await response.json();
+    expect((body as { error: { message: string } }).error.message).toMatch(
+      /did not return a Response/,
+    );
+  });
+
+  it("middleware sees mutations from earlier middleware in the chain", async () => {
+    const app = defineApp({
+      middleware: {
+        first: "./middleware/first.ts",
+        second: "./middleware/second.ts",
+      },
+      routes: [
+        route("/dashboard", "./routes/dashboard.tsx", {
+          middleware: ["first", "second"],
+          render: "ssr",
+        }),
+      ],
+    });
+
+    let observed: { user?: string; trace?: string } = {};
+    const response = await handlePrachtRequest({
+      app,
+      context: {} as { user?: string; trace?: string },
+      registry: {
+        middlewareModules: {
+          "./middleware/first.ts": async () => ({
+            middleware: async ({ context }, next) => {
+              (context as { user?: string }).user = "jovi";
+              return next();
+            },
+          }),
+          "./middleware/second.ts": async () => ({
+            middleware: async ({ context }, next) => {
+              (context as { trace?: string }).trace = "abc";
+              observed = { ...(context as { user?: string; trace?: string }) };
+              return next();
+            },
+          }),
+        },
+        routeModules: {
+          "./routes/dashboard.tsx": async () => ({
+            Component: () => h("main", null, "dashboard"),
+          }),
+        },
+      },
+      request: new Request("http://localhost/dashboard"),
+    });
+
+    expect(response.status).toBe(200);
+    expect(observed).toEqual({ user: "jovi", trace: "abc" });
   });
 });
 
@@ -431,7 +693,7 @@ describe("handlePrachtRequest cache variance", () => {
       registry: {
         middlewareModules: {
           "./middleware/auth.ts": async () => ({
-            middleware: async () => ({ redirect: "/" }),
+            middleware: async ({ request }) => redirect("/", { request }),
           }),
         },
         routeModules: {
@@ -1190,7 +1452,10 @@ describe("handlePrachtRequest ErrorBoundary", () => {
         },
         middlewareModules: {
           "./middleware/auth.ts": async () => ({
-            middleware: async () => ({ context: { user: "jovi" } }),
+            middleware: async ({ context }, next) => {
+              (context as { user?: string }).user = "jovi";
+              return next();
+            },
           }),
         },
         routeModules: {
@@ -1539,9 +1804,13 @@ describe("handlePrachtRequest pipeline parallelism", () => {
       importStarted[id] = true;
       await gates[id].promise;
       return {
-        middleware: async ({ context }: { context: Record<string, boolean> }) => {
+        middleware: async (
+          { context }: { context: Record<string, boolean> },
+          next: () => Promise<Response>,
+        ) => {
           executionOrder.push(id);
-          return { context: { ...context, [`${id}-ran`]: true } };
+          context[`${id}-ran`] = true;
+          return next();
         },
       };
     };
@@ -1607,10 +1876,13 @@ describe("handlePrachtRequest pipeline parallelism", () => {
       registry: {
         middlewareModules: {
           "./middleware/auth.ts": async () => ({
-            middleware: async ({ context }: { context: Record<string, unknown> }) => {
+            middleware: async (
+              _args: { context: Record<string, unknown> },
+              next: () => Promise<Response>,
+            ) => {
               middlewareStarted = true;
               await mwGate.promise;
-              return { context };
+              return next();
             },
           }),
         },
