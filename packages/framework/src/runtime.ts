@@ -12,6 +12,7 @@ import {
 import { withDefaultSecurityHeaders } from "./runtime-headers.ts";
 import { PrachtRuntimeProvider } from "./runtime-context.ts";
 import { buildHtmlDocument, htmlResponse } from "./runtime-html.ts";
+import { getAppSpeculationRules } from "./runtime-speculation.ts";
 import {
   resolvePageCssUrls,
   resolvePageJsUrls,
@@ -463,6 +464,7 @@ export async function handlePrachtRequest<TContext>(
             cssUrls,
             modulePreloadUrls,
             routeStatePreloadUrl: loader ? buildRouteStateUrl(requestPath) : undefined,
+            speculationRules: getAppSpeculationRules(resolvedApp),
           }),
           200,
           documentHeaders,
@@ -513,6 +515,7 @@ export async function handlePrachtRequest<TContext>(
           clientEntryUrl: options.clientEntryUrl,
           cssUrls,
           modulePreloadUrls,
+          speculationRules: getAppSpeculationRules(resolvedApp),
         }),
         200,
         documentHeaders,

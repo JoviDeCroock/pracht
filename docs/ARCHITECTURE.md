@@ -446,6 +446,10 @@ prefetch.ts     — prefetch strategy wiring, loaded by the client router after 
     ↑
 router.ts       — client router, hydration bootstrap (imports runtime-context + prefetch-cache)
 
+runtime-speculation.ts — builds the `<script type="speculationrules">` payload from
+                         opted-in routes; consumed by runtime-html.ts (server) and
+                         router.ts / prefetch.ts (browser, to skip prerender routes)
+
 hydration.ts    — Preact options hooks for tracking hydration (no internal deps)
 href.ts         — createHref helper layered on buildHref
 forwardRef.ts   — forwardRef helper (no internal deps)

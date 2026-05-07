@@ -8,6 +8,7 @@ import {
 } from "./prefetch-cache.ts";
 import { fetchPrachtRouteState, routeNeedsServerFetch } from "./runtime-client-fetch.ts";
 import type { RouteStateResult } from "./runtime-client-fetch.ts";
+import { normalizeSpeculation } from "./runtime-speculation.ts";
 import type { ResolvedPrachtApp, ResolvedRoute, PrefetchStrategy, RouteMatch } from "./types.ts";
 
 export type ModuleWarmFn = (match: RouteMatch) => void;
@@ -70,7 +71,12 @@ export function setupPrefetching(app: ResolvedPrachtApp, warmModules?: ModuleWar
 
     const routePathname = getRoutePathname(href);
     const match = routePathname ? (matchAppRoute(app, routePathname) ?? null) : null;
-    const strategy = match ? (match.route.prefetch ?? "intent") : "none";
+    // Routes that opted into `prerender` speculation rules are handled by
+    // the browser end-to-end (full document prerender + click activation).
+    // Suppress JS prefetch for them so we don't double-fetch route state.
+    const spec = match ? normalizeSpeculation(match.route.speculation) : null;
+    const strategy: PrefetchStrategy =
+      spec?.mode === "prerender" ? "none" : match ? (match.route.prefetch ?? "intent") : "none";
     const entry = { match, strategy };
     matchCache.set(href, entry);
     trimMapToSize(matchCache, MAX_MATCH_CACHE_ENTRIES);
