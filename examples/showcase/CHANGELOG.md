@@ -1,5 +1,13 @@
 # @pracht/example-showcase
 
+## 0.0.10
+
+### Patch Changes
+
+- Updated dependencies [[`39860bd`](https://github.com/JoviDeCroock/pracht/commit/39860bd31e8559916d8f81ffa6122ac4cf1cffd1), [`39860bd`](https://github.com/JoviDeCroock/pracht/commit/39860bd31e8559916d8f81ffa6122ac4cf1cffd1), [`51d0de1`](https://github.com/JoviDeCroock/pracht/commit/51d0de12bcda8a1cadd3749f56f03bac2e95c3a6), [`f4763b1`](https://github.com/JoviDeCroock/pracht/commit/f4763b13dc85c7310d9a737b77b708c03a61b57c)]:
+  - @pracht/core@0.8.0
+  - @pracht/adapter-vercel@0.1.3
+
 ## 0.0.9
 
 ### Patch Changes
