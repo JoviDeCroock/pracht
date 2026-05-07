@@ -63,7 +63,7 @@
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
-    "preact-suspense": "^0.2.0"
+    "preact-suspense": "^0.3.0"
   },
   "peerDependencies": {
     "preact": "^10.0.0",
