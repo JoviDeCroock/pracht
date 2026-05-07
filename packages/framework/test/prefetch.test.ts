@@ -29,6 +29,11 @@ function createApp(): ResolvedPrachtApp {
           render: "ssr",
           prefetch: "none",
         }),
+        route("/static-doc", "./routes/static-doc.tsx", {
+          id: "static-doc",
+          render: "ssr",
+          hydration: "none",
+        }),
       ],
     }),
   );
@@ -125,6 +130,16 @@ describe("prefetch strategies", () => {
 
     expect(fetchSpy).toHaveBeenCalledTimes(1);
     expect(fetchSpy.mock.calls[0][0]).toBe("/quiet");
+  });
+
+  it("does not prefetch route state for no-hydration routes", () => {
+    const anchor = addAnchor("/static-doc", { "data-pracht-prefetch": "intent" });
+    setupPrefetching(createApp());
+
+    hover(anchor);
+    vi.advanceTimersByTime(60);
+
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 
   it('prefetches "render" links immediately when scanned', () => {

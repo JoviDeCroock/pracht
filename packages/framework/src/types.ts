@@ -227,6 +227,32 @@ export type PrefetchStrategy = "none" | "hover" | "viewport" | "intent";
  */
 export type LinkPrefetchStrategy = PrefetchStrategy | "render";
 
+/**
+ * Browser-native speculation rules. Emitted as `<script type="speculationrules">`
+ * in the SSR/SSG HTML. Complements the JS-based `prefetch` strategies — those
+ * fetch route-state JSON for SPA navigation; this opts the browser into HTML
+ * prefetch or full prerender so a click can swap to an already-rendered document.
+ *
+ * - `prefetch`: browser fetches the page HTML on intent (default eagerness
+ *   `moderate` — ~hover/touchstart). Useful for full-page navigations and
+ *   middle-click / new-tab opens.
+ * - `prerender`: browser fully renders the page (running its JS) in the
+ *   background; click navigates instantly. The SPA click handler skips
+ *   prerender-marked routes so the browser can activate the prerendered
+ *   document instead of intercepting the click. Default eagerness
+ *   `conservative` (touchstart / mousedown).
+ */
+export type SpeculationMode = "prefetch" | "prerender";
+
+export type SpeculationEagerness = "immediate" | "eager" | "moderate" | "conservative";
+
+export interface SpeculationConfig {
+  mode: SpeculationMode;
+  eagerness?: SpeculationEagerness;
+}
+
+export type SpeculationOption = SpeculationMode | SpeculationConfig;
+
 export interface RouteMeta {
   id?: string;
   shell?: string;
@@ -235,6 +261,7 @@ export interface RouteMeta {
   middleware?: string[];
   revalidate?: RouteRevalidate;
   prefetch?: PrefetchStrategy;
+  speculation?: SpeculationOption;
   hasLoader?: boolean;
 }
 
@@ -244,6 +271,7 @@ export interface GroupMeta {
   hydration?: HydrationMode;
   middleware?: string[];
   pathPrefix?: string;
+  speculation?: SpeculationOption;
 }
 
 export interface ApiConfig {

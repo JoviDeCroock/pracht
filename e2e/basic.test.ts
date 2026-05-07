@@ -44,6 +44,27 @@ test("home page has correct head metadata", async ({ request }) => {
   expect(html).toContain('name="viewport"');
 });
 
+test("home page emits a speculationrules script with opted-in routes", async ({ request }) => {
+  const response = await request.get("/");
+  const html = await response.text();
+
+  const match = html.match(/<script type="speculationrules">([\s\S]*?)<\/script>/);
+  expect(match).not.toBeNull();
+
+  const decoded = (match?.[1] ?? "")
+    .replace(/\\u003c/g, "<")
+    .replace(/\\u003e/g, ">")
+    .replace(/\\u0026/g, "&");
+  const rules = JSON.parse(decoded) as {
+    prefetch?: Array<{ where: { href_matches: string[] }; eagerness: string }>;
+    prerender?: Array<{ where: { href_matches: string[] }; eagerness: string }>;
+  };
+
+  const prefetchHrefs = rules.prefetch?.flatMap((r) => r.where.href_matches) ?? [];
+  expect(prefetchHrefs).toEqual(expect.arrayContaining(["/", "/pricing", "/products/:id"]));
+  expect(rules.prefetch?.[0].eagerness).toBe("moderate");
+});
+
 // ---------------------------------------------------------------------------
 // SSR: Pricing page (render: "isg" — served via SSR in dev)
 // ---------------------------------------------------------------------------

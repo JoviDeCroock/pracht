@@ -10,15 +10,21 @@ export const app = defineApp({
   },
   routes: [
     group({ shell: "public" }, [
-      route("/", () => import("./routes/home.tsx"), { id: "home", render: "ssg" }),
+      route("/", () => import("./routes/home.tsx"), {
+        id: "home",
+        render: "ssg",
+        speculation: "prefetch",
+      }),
       route("/pricing", () => import("./routes/pricing.tsx"), {
         id: "pricing",
         render: "isg",
         revalidate: timeRevalidate(3600),
+        speculation: "prefetch",
       }),
       route("/products/:id", () => import("./routes/products/[id].tsx"), {
         id: "product",
         render: "ssr",
+        speculation: "prefetch",
       }),
       route("/slow", () => import("./routes/slow.tsx"), { id: "slow", render: "ssr" }),
       route("/long", () => import("./routes/long.tsx"), { id: "long", render: "ssr" }),

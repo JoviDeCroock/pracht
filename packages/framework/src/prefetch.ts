@@ -2,6 +2,7 @@ import { matchAppRoute } from "./app.ts";
 import { clearPrefetchCache, getCachedRouteState, trimMapToSize } from "./prefetch-cache.ts";
 import { prefetchRouteState } from "./prefetch-api.ts";
 import { PREFETCH_ATTRIBUTE } from "./runtime-constants.ts";
+import { normalizeSpeculation, supportsSpeculationRules } from "./runtime-speculation.ts";
 import type { ModuleWarmFn } from "./prefetch-api.ts";
 import type {
   LinkPrefetchStrategy,
@@ -33,6 +34,7 @@ export function setupPrefetching(app: ResolvedPrachtApp, warmModules?: ModuleWar
   let hoverTimer: ReturnType<typeof setTimeout> | null = null;
   const processedAnchors = new WeakSet<HTMLAnchorElement>();
   const matchCache = new Map<string, MatchCacheEntry>();
+  const browserSupportsSpeculationRules = supportsSpeculationRules();
 
   function getRoutePathname(url: string): string | null {
     try {
@@ -71,8 +73,15 @@ export function setupPrefetching(app: ResolvedPrachtApp, warmModules?: ModuleWar
     // prefetching route-state JSON or client modules for them is wasted work.
     const isFullDocumentRoute =
       match?.route.hydration === "islands" || match?.route.hydration === "none";
+    // Routes that opted into `prerender` speculation rules are handled by
+    // the browser end-to-end (full document prerender + click activation).
+    // Suppress JS prefetch for them so we don't double-fetch route state.
+    const spec = match ? normalizeSpeculation(match.route.speculation) : null;
+    const isBrowserPrerenderedRoute = browserSupportsSpeculationRules && spec?.mode === "prerender";
     const strategy: PrefetchStrategy =
-      match && !isFullDocumentRoute ? (match.route.prefetch ?? "intent") : "none";
+      match && !isFullDocumentRoute && !isBrowserPrerenderedRoute
+        ? (match.route.prefetch ?? "intent")
+        : "none";
     const entry = { match, strategy };
     matchCache.set(href, entry);
     trimMapToSize(matchCache, MAX_MATCH_CACHE_ENTRIES);
@@ -86,6 +95,15 @@ export function setupPrefetching(app: ResolvedPrachtApp, warmModules?: ModuleWar
   function getAnchorStrategy(anchor: HTMLAnchorElement, href: string): LinkPrefetchStrategy {
     const entry = getMatchEntry(href);
     if (!entry.match) return "none";
+    if (entry.match.route.hydration === "islands" || entry.match.route.hydration === "none") {
+      return "none";
+    }
+    if (
+      browserSupportsSpeculationRules &&
+      normalizeSpeculation(entry.match.route.speculation)?.mode === "prerender"
+    ) {
+      return "none";
+    }
     const override = anchor.getAttribute(PREFETCH_ATTRIBUTE);
     if (override && LINK_PREFETCH_STRATEGIES.has(override)) {
       return override as LinkPrefetchStrategy;
