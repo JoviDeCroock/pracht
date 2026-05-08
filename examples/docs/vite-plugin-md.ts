@@ -215,17 +215,21 @@ function createRenderer(): Renderer {
     return '<div class="doc-sep"></div>';
   };
 
-  renderer.blockquote = function ({ text }: { text: string }) {
+  renderer.blockquote = function ({ tokens }: { tokens: import("marked").Tokens.Generic[] }) {
+    // In marked v18 the blockquote callback receives the unparsed inline
+    // markdown as `text`; we have to render the child tokens ourselves to
+    // get HTML (otherwise `**bold**` and `` `code` `` come out raw).
+    const inner = this.parser.parse(tokens);
     // Support GitHub-style alerts: > [!NOTE] or > [!INFO]
-    const noteMatch = text.match(/^\s*<p>\[!(NOTE|INFO|TIP|WARNING)\]\s*/);
+    const noteMatch = inner.match(/^\s*<p>\[!(NOTE|INFO|TIP|WARNING)\]\s*/);
     if (noteMatch) {
       const type = noteMatch[1].toLowerCase();
       const cssClass = type === "info" ? "callout-info" : "callout-note";
       const icon = type === "info" ? "\u2139\uFE0F" : "\uD83D\uDCA1";
-      const content = text.replace(/^\s*<p>\[!(NOTE|INFO|TIP|WARNING)\]\s*/, "<p>");
+      const content = inner.replace(/^\s*<p>\[!(NOTE|INFO|TIP|WARNING)\]\s*/, "<p>");
       return `<div class="callout ${cssClass}"><span class="callout-icon">${icon}</span><span>${content}</span></div>`;
     }
-    return `<blockquote>${text}</blockquote>`;
+    return `<blockquote>${inner}</blockquote>`;
   };
 
   return renderer;
