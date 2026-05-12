@@ -5,21 +5,29 @@ on:
     branches:
       - main
 
+concurrency: ${{ github.workflow }}-${{ github.ref }}
+
 jobs:
   release:
     name: Release
+    outputs:
+      has_changesets: ${{ steps.changesets.outputs.hasChangesets }}
+      should_publish: ${{ steps.publish-check.outputs.should_publish }}
     permissions:
       contents: write
-      id-token: write
       issues: read
       pull-requests: write
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
 
       - name: Install pnpm
         uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+        with:
+          version: 10.28.1
 
       - name: Install Node.js
         uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
@@ -29,18 +37,94 @@ jobs:
           registry-url: "https://registry.npmjs.org"
 
       - name: Install dependencies
-        run: pnpm install --ignore-scripts
+        run: pnpm install --frozen-lockfile --ignore-scripts
 
       - name: Install npm
-        run: npm install -g npm@11.11.0
+        run: npm install -g npm@11.11.1
+
+      - name: Create Release Pull Request
+        id: changesets
+        uses: changesets/action@6a0a831ff30acef54f2c6aa1cbbc1096b066edaf # v1.7.0
+        with:
+          version: pnpm run version
+          commitMode: github-api
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check whether any package still needs publishing
+        if: steps.changesets.outputs.hasChangesets == 'false'
+        id: publish-check
+        shell: bash
+        run: |
+          SHOULD_PUBLISH=false
+
+          while IFS= read -r SPEC; do
+            echo "Checking whether ${SPEC} is already on npm"
+            if npm view "${SPEC}" version >/dev/null 2>&1; then
+              continue
+            fi
+
+            SHOULD_PUBLISH=true
+            echo "${SPEC} still needs publishing"
+          done < <(node --input-type=module <<'NODE'
+          import { readdirSync, readFileSync } from "node:fs";
+          import { join } from "node:path";
+
+          for (const entry of readdirSync("packages", { withFileTypes: true })) {
+            if (!entry.isDirectory()) continue;
+
+            const packageJson = JSON.parse(
+              readFileSync(join("packages", entry.name, "package.json"), "utf8"),
+            );
+
+            if (!packageJson.private) {
+              console.log(`${packageJson.name}@${packageJson.version}`);
+            }
+          }
+          NODE
+          )
+
+          echo "should_publish=${SHOULD_PUBLISH}" >> "$GITHUB_OUTPUT"
+
+  publish:
+    name: Publish
+    needs: release
+    if: needs.release.outputs.should_publish == 'true'
+    permissions:
+      contents: write
+      id-token: write
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+        with:
+          version: 10.28.1
+
+      - name: Install Node.js
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
+        with:
+          node-version: 22
+          cache: pnpm
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Install npm
+        run: npm install -g npm@11.11.1
 
       - name: Build
         run: pnpm build
 
-      - name: Publish/Create PR
+      - name: Publish packages
         uses: changesets/action@6a0a831ff30acef54f2c6aa1cbbc1096b066edaf # v1.7.0
         with:
-          version: pnpm run version
-          publish: pnpm changeset publish
+          publish: pnpm exec changeset publish
+          commitMode: github-api
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
