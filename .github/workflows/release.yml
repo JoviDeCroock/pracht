@@ -51,40 +51,10 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Check whether any package still needs publishing
+      - name: Check for unpublished package versions
         if: steps.changesets.outputs.hasChangesets == 'false'
         id: publish-check
-        shell: bash
-        run: |
-          SHOULD_PUBLISH=false
-
-          while IFS= read -r SPEC; do
-            echo "Checking whether ${SPEC} is already on npm"
-            if npm view "${SPEC}" version >/dev/null 2>&1; then
-              continue
-            fi
-
-            SHOULD_PUBLISH=true
-            echo "${SPEC} still needs publishing"
-          done < <(node --input-type=module <<'NODE'
-          import { readdirSync, readFileSync } from "node:fs";
-          import { join } from "node:path";
-
-          for (const entry of readdirSync("packages", { withFileTypes: true })) {
-            if (!entry.isDirectory()) continue;
-
-            const packageJson = JSON.parse(
-              readFileSync(join("packages", entry.name, "package.json"), "utf8"),
-            );
-
-            if (!packageJson.private) {
-              console.log(`${packageJson.name}@${packageJson.version}`);
-            }
-          }
-          NODE
-          )
-
-          echo "should_publish=${SHOULD_PUBLISH}" >> "$GITHUB_OUTPUT"
+        run: node .github/scripts/has-unpublished-packages.mjs
 
   publish:
     name: Publish
