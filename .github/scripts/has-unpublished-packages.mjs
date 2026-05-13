@@ -2,11 +2,7 @@ import { appendFileSync } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 
-const ignoredDirectories = new Set([
-  ".git",
-  "dist",
-  "node_modules",
-]);
+const ignoredDirectories = new Set([".git", "dist", "node_modules"]);
 
 async function findPackageManifests(directory) {
   const entries = await readdir(directory, { withFileTypes: true });
@@ -17,7 +13,7 @@ async function findPackageManifests(directory) {
 
     if (entry.isDirectory()) {
       if (!ignoredDirectories.has(entry.name)) {
-        manifests.push(...await findPackageManifests(fullPath));
+        manifests.push(...(await findPackageManifests(fullPath)));
       }
     } else if (entry.isFile() && entry.name === "package.json") {
       const pkg = JSON.parse(await readFile(fullPath, "utf8"));
@@ -32,31 +28,26 @@ async function findPackageManifests(directory) {
 }
 
 async function hasPublishedVersion(pkg) {
-  const response = await fetch(
-    `https://registry.npmjs.org/${encodeURIComponent(pkg.name)}`,
-    { headers: { accept: "application/vnd.npm.install-v1+json" } },
-  );
+  const response = await fetch(`https://registry.npmjs.org/${encodeURIComponent(pkg.name)}`, {
+    headers: { accept: "application/vnd.npm.install-v1+json" },
+  });
 
   if (response.status === 404) {
     return false;
   }
 
   if (!response.ok) {
-    throw new Error(
-      `Failed to query ${pkg.name}: ${response.status} ${response.statusText}`,
-    );
+    throw new Error(`Failed to query ${pkg.name}: ${response.status} ${response.statusText}`);
   }
 
   const metadata = await response.json();
-  return Object.prototype.hasOwnProperty.call(
-    metadata.versions ?? {},
-    pkg.version,
-  );
+  return Object.prototype.hasOwnProperty.call(metadata.versions ?? {}, pkg.version);
 }
 
 async function main() {
-  const packages = (await findPackageManifests(process.cwd()))
-    .sort((a, b) => a.name.localeCompare(b.name));
+  const packages = (await findPackageManifests(process.cwd())).sort((a, b) =>
+    a.name.localeCompare(b.name),
+  );
   let hasUnpublished = false;
 
   for (const pkg of packages) {
@@ -70,10 +61,10 @@ async function main() {
     }
   }
 
-  const output = [
-    `has_unpublished=${String(hasUnpublished)}`,
-    `should_publish=${String(hasUnpublished)}`,
-  ].join("\n") + "\n";
+  const output =
+    [`has_unpublished=${String(hasUnpublished)}`, `should_publish=${String(hasUnpublished)}`].join(
+      "\n",
+    ) + "\n";
 
   if (process.env.GITHUB_OUTPUT) {
     appendFileSync(process.env.GITHUB_OUTPUT, output);
@@ -82,7 +73,7 @@ async function main() {
   }
 }
 
-main().catch(error => {
+main().catch((error) => {
   console.error(error);
   process.exit(1);
 });
