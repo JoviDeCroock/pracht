@@ -83,7 +83,9 @@ pracht inspect build --json
 
 Generate `src/pracht-routes.d.ts` and `src/pracht-routes.ts` from the resolved
 route graph for typed `<Link>`, route-object `useNavigate()`, and `href()`
-helpers. Use `--check` in CI to fail when generated files are stale.
+helpers. Route metadata can include a typegen-only `search` schema so generated
+helpers also type query-string keys and values. Use `--check` in CI to fail
+when generated files are stale.
 
 ```bash
 pracht typegen

@@ -60,6 +60,13 @@ interface BrowserRouteTarget {
   requestUrl: string;
 }
 
+interface UntypedRouteTarget {
+  hash?: string;
+  params?: Record<string, unknown>;
+  route: string;
+  search?: unknown;
+}
+
 const NavigateContext = createContext<NavigateFn>(async () => {});
 
 export function useNavigate(): NavigateFn {
@@ -246,14 +253,17 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
     };
   }
 
-  async function navigate(to: string | RouteTarget, opts?: InternalNavigateOptions): Promise<void> {
+  async function navigate(
+    to: string | UntypedRouteTarget,
+    opts?: InternalNavigateOptions,
+  ): Promise<void> {
     const navigationId = ++latestNavigationId;
     activeNavigationAbort?.abort();
     const abortController = new AbortController();
     activeNavigationAbort = abortController;
 
     const navigationTarget =
-      typeof to === "string" ? to : buildHref(app.routes, to.route, to as never);
+      typeof to === "string" ? to : buildHref(app.routes, to.route as RouteId, to as never);
     const target = resolveBrowserRouteTarget(navigationTarget);
     if (!target) {
       window.location.href = navigationTarget;

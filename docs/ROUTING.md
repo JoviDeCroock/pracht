@@ -168,10 +168,33 @@ export function ProductActions({ id }: { id: string }) {
 ```
 
 Generated types infer required params from `:param`, `*`, and `:name*`
-segments, so missing or extra params fail at compile time. Search params are
-currently typed as `SearchParamsInput` (`string`, `URLSearchParams`, or an
-object of primitive values/arrays); route-specific search schemas can be added
-later through route metadata without changing the runtime helper shape.
+segments, so missing or extra params fail at compile time.
+
+Routes can also declare a typegen-only search param schema in route metadata:
+
+```typescript
+route("/products", "./routes/products.tsx", {
+  id: "products",
+  render: "ssr",
+  search: {
+    q: "string",
+    page: "number?",
+    inStock: "boolean?",
+    tag: ["string?"],
+    view: { type: "string", optional: true },
+  },
+});
+```
+
+`string`, `number`, and `boolean` describe the values accepted by `href()`,
+`<Link>`, and route-object `useNavigate()`. Add `?` or `optional: true` for
+optional query keys, and wrap a token in an array for repeated values. The
+runtime URL builder still serializes these values as normal query strings, and
+loaders still read incoming requests through `url.searchParams`; this schema
+does not perform runtime parsing or validation.
+
+Routes without a search schema continue to accept `SearchParamsInput` (`string`,
+`URLSearchParams`, or an object of primitive values/arrays).
 
 Use `pracht typegen --check` in CI to fail when generated route files are stale.
 

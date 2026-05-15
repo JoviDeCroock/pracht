@@ -142,7 +142,27 @@ export function ProductActions({ id }: { id: string }) {
 }
 ```
 
-Explicit `id` fields are preferred for stable public APIs. Routes without ids use generated ids, and params are inferred from `:param`, `*`, and `:name*` segments. `pracht typegen --check` is useful in CI to catch stale generated files.
+Explicit `id` fields are preferred for stable public APIs. Routes without ids use generated ids, and params are inferred from `:param`, `*`, and `:name*` segments.
+
+Route metadata can declare a typegen-only search param schema:
+
+```ts
+route("/products", "./routes/products.tsx", {
+  id: "products",
+  render: "ssr",
+  search: {
+    q: "string",
+    page: "number?",
+    inStock: "boolean?",
+    tag: ["string?"],
+    view: { type: "string", optional: true },
+  },
+});
+```
+
+`string`, `number`, and `boolean` describe values accepted by `href()`, `<Link>`, and route-object `useNavigate()`. Add `?` or `optional: true` for optional query keys, and wrap a token in an array for repeated values. Loaders still read incoming requests through `url.searchParams`; the schema does not perform runtime parsing or validation.
+
+Routes without a search schema continue to accept `SearchParamsInput`. `pracht typegen --check` is useful in CI to catch stale generated files.
 
 ---
 

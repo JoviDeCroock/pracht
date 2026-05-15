@@ -94,7 +94,7 @@ export function Link<TRoute extends RouteId>(props: LinkProps<TRoute>) {
   return h("a", {
     ...anchorProps,
     href: buildHref(routes, route, { params, search, hash } as never),
-  } as JSX.HTMLAttributes<HTMLAnchorElement>);
+  } as unknown as JSX.HTMLAttributes<HTMLAnchorElement>);
 }
 
 export function Form(props: FormProps) {

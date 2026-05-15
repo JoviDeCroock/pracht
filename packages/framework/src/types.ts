@@ -31,6 +31,17 @@ export type SearchParamValue =
   | undefined
   | readonly (SearchParamPrimitive | null | undefined)[];
 export type SearchParamsInput = string | URLSearchParams | Record<string, SearchParamValue>;
+export type RouteSearchParamKind = "string" | "number" | "boolean";
+export type RouteSearchParamToken = RouteSearchParamKind | `${RouteSearchParamKind}?`;
+export type RouteSearchParamDescriptor =
+  | RouteSearchParamToken
+  | readonly [RouteSearchParamToken]
+  | {
+      type: RouteSearchParamKind;
+      optional?: boolean;
+      array?: boolean;
+    };
+export type RouteSearchSchema = Record<string, RouteSearchParamDescriptor>;
 
 export interface BuildHrefOptions {
   params?: Record<string, RouteParamInput>;
@@ -57,6 +68,18 @@ type RegisteredRouteMap = Register extends { routes: infer TRoutes }
 type HasRegisteredRoutes = keyof RegisteredRouteMap extends never ? false : true;
 type EmptyRouteParams = Record<never, never>;
 type IsEmptyRouteParams<TParams> = keyof TParams extends never ? true : false;
+type RequiredKeys<TValue> = {
+  [TKey in keyof TValue]-?: {} extends Pick<TValue, TKey> ? never : TKey;
+}[keyof TValue];
+type HasRequiredSearch<TSearch> = [TSearch] extends [never]
+  ? false
+  : SearchParamsInput extends TSearch
+    ? false
+    : TSearch extends object
+      ? RequiredKeys<TSearch> extends never
+        ? false
+        : true
+      : false;
 
 export type RouteId = HasRegisteredRoutes extends true
   ? Extract<keyof RegisteredRouteMap, string>
@@ -80,18 +103,21 @@ export type RouteSearchFor<TRoute extends RouteId> = HasRegisteredRoutes extends
     : never
   : SearchParamsInput;
 
-type TypedHrefOptions<TRoute extends RouteId> =
+type TypedHrefOptions<TRoute extends RouteId> = (IsEmptyRouteParams<
+  RouteParamsFor<TRoute>
+> extends true
+  ? { params?: never }
+  : { params: RouteParamsFor<TRoute> }) &
+  (HasRequiredSearch<RouteSearchFor<TRoute>> extends true
+    ? { search: RouteSearchFor<TRoute> }
+    : { search?: RouteSearchFor<TRoute> }) & {
+    hash?: string;
+  };
+
+type HasRequiredHrefOptions<TRoute extends RouteId> =
   IsEmptyRouteParams<RouteParamsFor<TRoute>> extends true
-    ? {
-        params?: never;
-        search?: RouteSearchFor<TRoute>;
-        hash?: string;
-      }
-    : {
-        params: RouteParamsFor<TRoute>;
-        search?: RouteSearchFor<TRoute>;
-        hash?: string;
-      };
+    ? HasRequiredSearch<RouteSearchFor<TRoute>>
+    : true;
 
 export type HrefOptions<TRoute extends RouteId = RouteId> = HasRegisteredRoutes extends true
   ? TRoute extends RouteId
@@ -101,9 +127,9 @@ export type HrefOptions<TRoute extends RouteId = RouteId> = HasRegisteredRoutes 
 
 export type HrefArgs<TRoute extends RouteId = RouteId> = HasRegisteredRoutes extends true
   ? TRoute extends RouteId
-    ? IsEmptyRouteParams<RouteParamsFor<TRoute>> extends true
-      ? [options?: TypedHrefOptions<TRoute>]
-      : [options: TypedHrefOptions<TRoute>]
+    ? HasRequiredHrefOptions<TRoute> extends true
+      ? [options: TypedHrefOptions<TRoute>]
+      : [options?: TypedHrefOptions<TRoute>]
     : never
   : [options?: BuildHrefOptions];
 
@@ -172,6 +198,7 @@ export interface RouteMeta {
   revalidate?: RouteRevalidate;
   prefetch?: PrefetchStrategy;
   hasLoader?: boolean;
+  search?: RouteSearchSchema;
 }
 
 export interface GroupMeta {

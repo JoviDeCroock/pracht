@@ -153,7 +153,7 @@ function buildDeclarationSource(routes: RouteEntry[]): string {
     lines.push(`      ${JSON.stringify(route.id)}: {`);
     lines.push(`        path: ${JSON.stringify(route.path)};`);
     lines.push(`        params: ${formatParamsType(inferRouteParams(route.path))};`);
-    lines.push("        search: SearchParamsInput;");
+    lines.push(`        search: ${formatSearchType(route)};`);
     lines.push("      };");
   }
 
@@ -221,6 +221,94 @@ function formatParamsType(params: string[]): string {
 
   const properties = params.map((param) => `${JSON.stringify(param)}: RouteParamInput;`).join(" ");
   return `{ ${properties} }`;
+}
+
+interface SearchParamInfo {
+  array: boolean;
+  kind: "string" | "number" | "boolean";
+  optional: boolean;
+}
+
+function formatSearchType(route: RouteEntry): string {
+  if (route.search == null) {
+    return "SearchParamsInput";
+  }
+
+  if (!isPlainObject(route.search)) {
+    throw new Error(`Route ${route.path} search schema must be an object.`);
+  }
+
+  const properties = Object.entries(route.search).map(([name, descriptor]) => {
+    const param = parseSearchParamDescriptor(route.path, name, descriptor);
+    const optional = param.optional ? "?" : "";
+    const type = param.array ? `readonly ${param.kind}[]` : param.kind;
+    return `${JSON.stringify(name)}${optional}: ${type};`;
+  });
+
+  if (properties.length === 0) {
+    return "Record<never, never>";
+  }
+
+  return `{ ${properties.join(" ")} }`;
+}
+
+function parseSearchParamDescriptor(
+  routePath: string,
+  name: string,
+  descriptor: unknown,
+): SearchParamInfo {
+  if (typeof descriptor === "string") {
+    return parseSearchParamToken(routePath, name, descriptor, { array: false });
+  }
+
+  if (Array.isArray(descriptor)) {
+    if (descriptor.length !== 1 || typeof descriptor[0] !== "string") {
+      throw new Error(
+        `Route ${routePath} search param "${name}" array schema must contain one type token.`,
+      );
+    }
+    return parseSearchParamToken(routePath, name, descriptor[0], { array: true });
+  }
+
+  if (isPlainObject(descriptor)) {
+    const type = descriptor.type;
+    if (typeof type !== "string") {
+      throw new Error(`Route ${routePath} search param "${name}" object schema needs a type.`);
+    }
+    const param = parseSearchParamToken(routePath, name, type, {
+      array: descriptor.array === true,
+    });
+    return {
+      ...param,
+      optional: descriptor.optional === true,
+    };
+  }
+
+  throw new Error(`Route ${routePath} search param "${name}" has an invalid schema.`);
+}
+
+function parseSearchParamToken(
+  routePath: string,
+  name: string,
+  token: string,
+  options: { array: boolean },
+): SearchParamInfo {
+  const optional = token.endsWith("?");
+  const kind = optional ? token.slice(0, -1) : token;
+  if (kind !== "string" && kind !== "number" && kind !== "boolean") {
+    throw new Error(
+      `Route ${routePath} search param "${name}" uses unsupported type "${token}". Use string, number, or boolean.`,
+    );
+  }
+  return {
+    array: options.array,
+    kind,
+    optional,
+  };
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function resolveOutputPath(root: string, outputPath: string): string {

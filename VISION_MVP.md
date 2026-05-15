@@ -28,7 +28,7 @@ Pracht is a full-stack Preact framework built on Vite. It draws routing and rend
 - **Hybrid file-based routing**: route modules live in `src/routes/`, wired via an
   explicit `src/routes.ts` manifest using `defineApp()`, `route()`, `group()`.
 - **Dynamic segments**: `:param` syntax, catch-all segments.
-- **Typed route links**: `pracht typegen` emits route id/param types and href helpers for `<Link>`, `useNavigate()`, and code outside components.
+- **Typed route links**: `pracht typegen` emits route id/param/search types and href helpers for `<Link>`, `useNavigate()`, and code outside components.
 - **Shells**: named layout wrappers (e.g. `public`, `app`) decoupled from URL
   structure; assigned per route or group.
 - **Middleware**: named middleware defined in `src/middleware/`, applied per route

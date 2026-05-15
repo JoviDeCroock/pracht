@@ -108,8 +108,26 @@ fixtures, and other non-component code.
 - `:path*` requires `params: { path: string }`.
 - Routes with no dynamic segments should omit `params`.
 - Missing and extra params should fail at typecheck time.
-- `search` currently accepts `string`, `URLSearchParams`, or an object of
-  primitive values/arrays; route-specific search schemas can be added later.
+- Routes without a search schema accept `string`, `URLSearchParams`, or an object
+  of primitive values/arrays.
+- Route metadata can declare a typegen-only `search` schema:
+  ```ts
+  route("/products", "./routes/products.tsx", {
+    id: "products",
+    search: {
+      q: "string",
+      page: "number?",
+      inStock: "boolean?",
+      tag: ["string?"],
+      view: { type: "string", optional: true },
+    },
+  });
+  ```
+- `string`, `number`, and `boolean` describe values accepted by `<Link>`,
+  `useNavigate()`, and `href()`. Add `?` or `optional: true` for optional query
+  keys, and wrap a token in an array for repeated values.
+- Search schemas are not runtime validators. Loaders still read incoming query
+  strings through `url.searchParams`.
 
 ## Step 5: Verify
 

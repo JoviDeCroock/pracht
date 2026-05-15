@@ -65,6 +65,7 @@ export interface InspectReport {
     path: string;
     render: string | null;
     revalidate: unknown;
+    search?: unknown;
     shell: string | null;
     shellFile: string | null;
   }[];
@@ -142,22 +143,42 @@ interface RouteEntry {
   path: string;
   render?: string;
   revalidate?: unknown;
+  search?: unknown;
   shell?: string;
   shellFile?: string;
 }
 
 function serializeRoutes(routes: RouteEntry[]) {
-  return routes.map((route) => ({
-    file: route.file,
-    id: route.id,
-    loaderFile: route.loaderFile ?? null,
-    middleware: route.middleware,
-    path: route.path,
-    render: route.render ?? null,
-    revalidate: route.revalidate ?? null,
-    shell: route.shell ?? null,
-    shellFile: route.shellFile ?? null,
-  }));
+  return routes.map((route) => {
+    const serialized: {
+      file: string;
+      id: string;
+      loaderFile: string | null;
+      middleware: string[];
+      path: string;
+      render: string | null;
+      revalidate: unknown;
+      search?: unknown;
+      shell: string | null;
+      shellFile: string | null;
+    } = {
+      file: route.file,
+      id: route.id,
+      loaderFile: route.loaderFile ?? null,
+      middleware: route.middleware,
+      path: route.path,
+      render: route.render ?? null,
+      revalidate: route.revalidate ?? null,
+      shell: route.shell ?? null,
+      shellFile: route.shellFile ?? null,
+    };
+
+    if (route.search != null) {
+      serialized.search = route.search;
+    }
+
+    return serialized;
+  });
 }
 
 async function detectApiMethods(

@@ -364,7 +364,7 @@ export const app = defineApp({
       files: ["src/pracht-routes.d.ts", "src/pracht-routes.ts"],
       mode: "manifest",
       ok: true,
-      routes: 2,
+      routes: 3,
     });
     expect(declaration).toContain(
       'import type { RouteParamInput, SearchParamsInput } from "@pracht/core";',
@@ -373,12 +373,16 @@ export const app = defineApp({
     expect(declaration).toContain("params: Record<never, never>;");
     expect(declaration).toContain('"product": {');
     expect(declaration).toContain('params: { "id": RouteParamInput; };');
+    expect(declaration).toContain('"search": {');
+    expect(declaration).toContain(
+      'search: { "q": string; "page"?: number; "exact"?: boolean; "tag"?: readonly string[]; "view"?: string; };',
+    );
     expect(runtime).toContain('id: "product"');
     expect(runtime).toContain('path: "/products/:id"');
     expect(runtime).toContain("export const href = createHref(routes);");
 
     const check = JSON.parse(runCli(["typegen", "--check", "--json"], { cwd: appDir }).stdout);
-    expect(check).toMatchObject({ check: true, ok: true, routes: 2 });
+    expect(check).toMatchObject({ check: true, ok: true, routes: 3 });
 
     writeProjectFile(appDir, "src/pracht-routes.d.ts", "stale\n");
     const stale = runCliStatus(["typegen", "--check", "--json"], { cwd: appDir });
@@ -560,6 +564,17 @@ export const app = defineApp({
   routes: [
     route("/", "./routes/home.tsx", { id: "home", render: "ssg" }),
     route("/products/:id", "./routes/product.tsx", { id: "product", render: "ssr" }),
+    route("/search", "./routes/search.tsx", {
+      id: "search",
+      render: "ssr",
+      search: {
+        q: "string",
+        page: "number?",
+        exact: "boolean?",
+        tag: ["string?"],
+        view: { type: "string", optional: true },
+      },
+    }),
   ],
 });
 `,
@@ -568,6 +583,11 @@ export const app = defineApp({
   writeProjectFile(
     appDir,
     "src/routes/product.tsx",
+    "export function Component() { return null; }\n",
+  );
+  writeProjectFile(
+    appDir,
+    "src/routes/search.tsx",
     "export function Component() { return null; }\n",
   );
 }
