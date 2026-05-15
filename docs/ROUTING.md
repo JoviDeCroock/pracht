@@ -91,8 +91,13 @@ interface RouteMeta {
   render?: "spa" | "ssr" | "ssg" | "isg";
   middleware?: string[]; // Named middleware from defineApp.middleware
   revalidate?: RouteRevalidate; // ISG revalidation policy
+  prefetch?: "none" | "hover" | "viewport" | "intent"; // JS prefetch strategy
+  speculation?: "prefetch" | "prerender" | { mode; eagerness };
 }
 ```
+
+See [Speculation Rules](#speculation-rules) for `speculation` semantics and how
+it composes with the JS-based `prefetch` strategy.
 
 ---
 
@@ -452,3 +457,60 @@ generateRoutesFile("src/pages", "src/routes.ts", {
 
 Then remove `pagesDir` from your pracht config. The generated file includes
 a header comment explaining how to use it directly.
+
+---
+
+## Speculation Rules
+
+Per-route opt-in for the browser-native [Speculation Rules API]. When set,
+pracht emits a single `<script type="speculationrules">` block in the SSR/SSG
+HTML that lists every opted-in route as a URLPattern under `href_matches`.
+
+```typescript
+defineApp({
+  routes: [
+    // Browser fetches the HTML on intent (default eagerness "moderate").
+    route("/", () => import("./routes/home.tsx"), { speculation: "prefetch" }),
+
+    // Browser fully prerenders in the background (default "conservative").
+    // The SPA click handler skips this route so the browser activates the
+    // prerendered document on click — instant page swap.
+    route("/pricing", () => import("./routes/pricing.tsx"), {
+      speculation: "prerender",
+    }),
+
+    // Group inheritance + per-route override
+    group({ pathPrefix: "/docs", speculation: "prefetch" }, [
+      route("/intro", () => import("./routes/docs/intro.tsx")),
+      route("/heavy", () => import("./routes/docs/heavy.tsx"), {
+        speculation: { mode: "prerender", eagerness: "moderate" },
+      }),
+    ]),
+  ],
+});
+```
+
+### How it composes with `prefetch`
+
+`prefetch` (`"hover" | "viewport" | "intent"`) controls the framework's JS-side
+prefetch — it warms the route-state JSON cache and route module imports so
+SPA navigation completes without a network round-trip.
+
+`speculation` is the browser-side analogue. It is most useful for:
+
+1. **`prerender` on landing/marketing pages** — clicks become instant by
+   activating an already-rendered document.
+2. **`prefetch` for full-page navigations and middle-click / new-tab opens** —
+   the browser fills its HTTP cache with the page HTML.
+
+Routes flagged for `prerender` are excluded from JS hover-prefetch to avoid
+double-fetching. Set both fields explicitly when you want JS prefetch to keep
+running alongside speculation `prefetch`.
+
+### Browser support
+
+Chromium-based browsers (Chrome 109+, Edge). Firefox and Safari ignore the
+script — the JS `prefetch` strategy continues to work as the cross-browser
+fallback.
+
+[Speculation Rules API]: https://developer.mozilla.org/docs/Web/API/Speculation_Rules_API

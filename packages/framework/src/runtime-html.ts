@@ -1,6 +1,7 @@
 import { HYDRATION_STATE_ELEMENT_ID } from "./runtime-constants.ts";
 import { applyHeaders, applySecurityAndRouteHeaders } from "./runtime-headers.ts";
 import type { PrachtHydrationState } from "./runtime-hooks.ts";
+import type { SpeculationRulesDocument } from "./runtime-speculation.ts";
 import type { HeadMetadata } from "./types.ts";
 
 export function escapeHtml(str: string): string {
@@ -104,6 +105,7 @@ export function buildHtmlDocument(options: {
   cssUrls?: string[];
   modulePreloadUrls?: string[];
   routeStatePreloadUrl?: string;
+  speculationRules?: SpeculationRulesDocument | null;
 }): string {
   const {
     head,
@@ -113,6 +115,7 @@ export function buildHtmlDocument(options: {
     cssUrls = [],
     modulePreloadUrls = [],
     routeStatePreloadUrl,
+    speculationRules,
   } = options;
 
   const titleTag = head.title ? `<title>${escapeHtml(head.title)}</title>` : "";
@@ -149,6 +152,10 @@ export function buildHtmlDocument(options: {
     ? `<link rel="preload" as="fetch" href="${escapeHtml(routeStatePreloadUrl)}" crossorigin="anonymous">`
     : "";
 
+  const speculationRulesTag = speculationRules
+    ? `<script type="speculationrules">${serializeJsonForHtml(speculationRules)}</script>`
+    : "";
+
   const stateScript = `<script id="${HYDRATION_STATE_ELEMENT_ID}" type="application/json">${serializeJsonForHtml(hydrationState)}</script>`;
   const entryScript = clientEntryUrl
     ? `<script type="module" src="${escapeHtml(clientEntryUrl)}"></script>`
@@ -165,6 +172,7 @@ export function buildHtmlDocument(options: {
     ${cssTags}
     ${modulePreloadTags}
     ${routeStatePreloadTag}
+    ${speculationRulesTag}
   </head>
   <body>
     <div id="pracht-root">${body}</div>

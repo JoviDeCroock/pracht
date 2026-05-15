@@ -773,6 +773,71 @@ describe("handlePrachtRequest head metadata", () => {
   });
 });
 
+describe("handlePrachtRequest speculation rules", () => {
+  it("emits a speculationrules script for opted-in routes", async () => {
+    const app = defineApp({
+      routes: [
+        route("/", "./routes/home.tsx", { render: "ssr", speculation: "prefetch" }),
+        route("/article/:slug", "./routes/article.tsx", {
+          render: "ssr",
+          speculation: "prerender",
+        }),
+        route("/contact", "./routes/contact.tsx", { render: "ssr" }),
+      ],
+    });
+
+    const response = await handlePrachtRequest({
+      app,
+      registry: {
+        routeModules: {
+          "./routes/home.tsx": async () => ({ Component: () => h("main", null, "home") }),
+          "./routes/article.tsx": async () => ({ Component: () => h("main", null, "article") }),
+          "./routes/contact.tsx": async () => ({ Component: () => h("main", null, "contact") }),
+        },
+      },
+      request: new Request("http://localhost/"),
+    });
+
+    const html = await response.text();
+    const match = html.match(/<script type="speculationrules">([\s\S]*?)<\/script>/);
+    expect(match).not.toBeNull();
+
+    const rules = JSON.parse(
+      (match?.[1] ?? "")
+        .replace(/\\u003c/g, "<")
+        .replace(/\\u003e/g, ">")
+        .replace(/\\u0026/g, "&"),
+    ) as Record<string, Array<{ where: { href_matches: string[] } }>>;
+
+    expect(rules.prefetch?.[0].where.href_matches).toEqual(["/"]);
+    expect(rules.prerender?.[0].where.href_matches).toEqual(["/article/:slug"]);
+    // The opt-out route is not present in any rule
+    const allHrefs = [...(rules.prefetch ?? []), ...(rules.prerender ?? [])].flatMap(
+      (rule) => rule.where.href_matches,
+    );
+    expect(allHrefs).not.toContain("/contact");
+  });
+
+  it("omits the speculationrules script when no route opts in", async () => {
+    const app = defineApp({
+      routes: [route("/", "./routes/home.tsx", { render: "ssr" })],
+    });
+
+    const response = await handlePrachtRequest({
+      app,
+      registry: {
+        routeModules: {
+          "./routes/home.tsx": async () => ({ Component: () => h("main", null, "home") }),
+        },
+      },
+      request: new Request("http://localhost/"),
+    });
+
+    const html = await response.text();
+    expect(html).not.toContain('type="speculationrules"');
+  });
+});
+
 describe("handlePrachtRequest document headers", () => {
   it("merges shell and route headers for document responses", async () => {
     const app = defineApp({

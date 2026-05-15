@@ -8,6 +8,7 @@ import { installHydrationMismatchWarning } from "./hydration-mismatch.ts";
 import { markHydrating } from "./hydration.ts";
 import { getCachedRouteState } from "./prefetch-cache.ts";
 import type { ModuleWarmFn } from "./prefetch.ts";
+import { normalizeSpeculation } from "./runtime-speculation.ts";
 import type {
   NavigateOptions,
   ResolvedPrachtApp,
@@ -479,6 +480,16 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
 
     // Skip external origins
     if (url.origin !== window.location.origin) return;
+
+    // If the destination route opted into `prerender` speculation rules, let
+    // the browser perform a normal navigation so it can activate the
+    // prerendered document. Intercepting here would cancel the activation
+    // and force a redundant SPA fetch of the route-state JSON.
+    const targetMatch = matchAppRoute(app, url.pathname);
+    if (targetMatch) {
+      const spec = normalizeSpeculation(targetMatch.route.speculation);
+      if (spec?.mode === "prerender") return;
+    }
 
     e.preventDefault();
     navigate(url.pathname + url.search + url.hash);
