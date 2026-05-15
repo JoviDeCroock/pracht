@@ -10,7 +10,7 @@ export async function createWebRequest(
   options: { trustProxy: boolean; canonicalOrigin?: string; maxBodySize?: number },
 ): Promise<Request> {
   const baseUrl = resolveRequestBase(req, options);
-  const url = new URL(req.url ?? "/", baseUrl);
+  const url = new URL(normalizeRequestTarget(req.url, options), baseUrl);
   const method = req.method ?? "GET";
   const headers = createHeaders(req.headers);
   const init: RequestInit = {
@@ -28,6 +28,29 @@ export async function createWebRequest(
   }
 
   return new Request(url, init);
+}
+
+function normalizeRequestTarget(
+  rawTarget: string | undefined,
+  options: { canonicalOrigin?: string },
+): string {
+  const target = rawTarget ?? "/";
+
+  if (!options.canonicalOrigin) {
+    return target;
+  }
+
+  if (target.startsWith("//")) {
+    const networkPathUrl = new URL(`https:${target}`);
+    return `${networkPathUrl.pathname}${networkPathUrl.search}${networkPathUrl.hash}`;
+  }
+
+  if (/^[a-zA-Z][a-zA-Z\d+.-]*:\/\//.test(target)) {
+    const absoluteUrl = new URL(target);
+    return `${absoluteUrl.pathname}${absoluteUrl.search}${absoluteUrl.hash}`;
+  }
+
+  return target;
 }
 
 export async function writeWebResponse(res: ServerResponse, response: Response): Promise<void> {
