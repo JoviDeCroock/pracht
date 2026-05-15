@@ -371,17 +371,6 @@ export async function handlePrachtRequest<TContext>(
         throw new Error("Route module not found");
       }
 
-      // Markdown-for-Agents negotiation: if the route exposes raw markdown
-      // and the client prefers `text/markdown`, skip render and return the
-      // source.
-      if (
-        !isRouteStateRequest &&
-        typeof routeModule.markdown === "string" &&
-        prefersMarkdown(options.request.headers.get("accept"))
-      ) {
-        return markdownResponse(routeModule.markdown);
-      }
-
       currentPhase = "loader";
       const { loader, loaderFile: resolvedLoaderFile } = await dataFunctionsPromise;
       loaderFile = resolvedLoaderFile;
@@ -409,6 +398,16 @@ export async function handlePrachtRequest<TContext>(
         mergeHeadMetadata(shellModule, routeModule, routeArgs, data),
         mergeDocumentHeaders(shellModule, routeModule, routeArgs, data),
       ]);
+
+      // Markdown-for-Agents negotiation must run after loader + header
+      // resolution so auth redirects/401s and cache policies still apply.
+      if (
+        !isRouteStateRequest &&
+        typeof routeModule.markdown === "string" &&
+        prefersMarkdown(options.request.headers.get("accept"))
+      ) {
+        return markdownResponse(routeModule.markdown, documentHeaders);
+      }
 
       const cssUrls = resolvePageCssUrls(
         options.cssManifest,
