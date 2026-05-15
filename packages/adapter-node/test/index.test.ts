@@ -190,7 +190,7 @@ describe("createNodeRequestHandler", () => {
     ]);
   });
 
-  it("reuses createContext during stale ISG regeneration with a clean request", async () => {
+  it("does not reuse createContext during stale ISG regeneration", async () => {
     const staticDir = makeTempDir();
     const htmlDir = join(staticDir, "isg");
     const htmlPath = join(htmlDir, "index.html");
@@ -252,7 +252,7 @@ describe("createNodeRequestHandler", () => {
 
     await waitFor(() => readFileSync(htmlPath, "utf-8").includes("missing"));
 
-    expect(createContextCalls).toEqual(["missing"]);
+    expect(createContextCalls).toEqual([]);
     expect(readFileSync(htmlPath, "utf-8")).toContain("missing");
   });
 });

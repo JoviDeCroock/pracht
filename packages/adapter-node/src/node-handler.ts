@@ -264,9 +264,11 @@ async function serveISGEntry<TContext>(
   }
 
   if (isStale) {
-    regenerateISGPage(options, pathname, htmlPath, contextArgs).catch((err) => {
-      console.error(`ISG regeneration failed for ${pathname}:`, err);
-    });
+    regenerateISGPage(options, pathname, htmlPath, { request: contextArgs.request }).catch(
+      (err) => {
+        console.error(`ISG regeneration failed for ${pathname}:`, err);
+      },
+    );
   }
 
   return true;
