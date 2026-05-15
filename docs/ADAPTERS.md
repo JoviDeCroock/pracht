@@ -145,7 +145,8 @@ that manifest.
   pages and writes updated HTML to disk. Route-state requests (`x-pracht-route-state-request`
   and `?_data=1`) bypass the cached HTML path so client navigation still reaches
   `handlePrachtRequest()`. Background regeneration uses a clean HTML request
-  instead of replaying the triggering user's cookies/authorization headers.
+  instead of replaying the triggering user's cookies/authorization headers, and
+  skips app `createContext()` to avoid per-request context in shared ISG output.
   Static and ISG files are streamed, and static responses support `ETag` /
   `Last-Modified` conditional revalidation.
 - **Vite manifest**: reads `.vite/manifest.json` to inject correct `<script>` and

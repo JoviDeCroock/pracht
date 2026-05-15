@@ -3,21 +3,21 @@ import { dirname } from "node:path";
 import { handlePrachtRequest } from "@pracht/core/server";
 import type { NodeAdapterContextArgs, NodeAdapterOptions } from "./node-handler.ts";
 
+export interface ISGRegenerationContextArgs {
+  request?: NodeAdapterContextArgs["request"];
+}
+
 export async function regenerateISGPage<TContext>(
   options: NodeAdapterOptions<TContext>,
   pathname: string,
   htmlPath: string,
-  contextArgs?: NodeAdapterContextArgs,
+  contextArgs?: ISGRegenerationContextArgs,
 ): Promise<void> {
   const request = createISGRegenerationRequest(pathname, contextArgs?.request);
-  const context =
-    options.createContext && contextArgs
-      ? await options.createContext({ ...contextArgs, request })
-      : undefined;
 
   const response = await handlePrachtRequest({
     app: options.app,
-    context,
+    context: undefined,
     registry: options.registry,
     request,
     clientEntryUrl: options.clientEntryUrl,
