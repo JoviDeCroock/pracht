@@ -63,6 +63,12 @@ Defines a single route:
 | `file` | `ModuleRef` | Module reference — `() => import("./path")` or string  |
 | `meta` | `RouteMeta` | Optional: render mode, shell, middleware, revalidation |
 
+> [!IMPORTANT]
+> Function module refs must use the exact inline form `() => import("./path")`
+> in your app manifest so the Vite plugin can rewrite them to string paths.
+> If a function ref reaches runtime, Pracht throws an error instead of
+> silently resolving it to prevent fail-open route or middleware behavior.
+
 ### `group(meta, routes)`
 
 Groups routes with shared configuration:
