@@ -72,16 +72,17 @@ export function route(
  * Resolve a ModuleRef to a string file path.
  * When the vite plugin is active, import functions are transformed to strings
  * at build time, so this typically receives strings. When called without the
- * transform (e.g. in tests), functions pass through as empty strings.
+ * transform, unresolved function refs are rejected.
  */
 function resolveModuleRef(ref: ModuleRef): string;
 function resolveModuleRef(ref: ModuleRef | undefined): string | undefined;
 function resolveModuleRef(ref: ModuleRef | undefined): string | undefined {
   if (ref === undefined) return undefined;
   if (typeof ref === "string") return ref;
-  // Function refs are transformed to strings by the vite plugin.
-  // Without the plugin, we can't extract the path — return empty string.
-  return "";
+  throw new Error(
+    "Invalid ModuleRef: expected a string path, but received a function at runtime. " +
+      'Use a plain string path (e.g. "./routes/home.tsx"), or ensure the Vite plugin rewrites inline `() => import("./file")` refs in the app manifest.',
+  );
 }
 
 export function group(meta: GroupMeta, routes: RouteTreeNode[]): GroupDefinition {
