@@ -569,3 +569,34 @@ This means a lazy component inside a Suspense boundary that resolves during
 hydration will see `false` on its first render (because `_hydrated` hasn't
 been flipped yet) and `true` after its effect runs — the same false-to-true
 transition as the rest of the tree.
+
+### Dev-only hydration warnings (`hydration-mismatch.ts`)
+
+In development the client router calls `installHydrationMismatchWarning()`
+which wraps three Preact options to surface common hydration bugs in a single
+visible banner:
+
+- `options.__m` (mismatch) — Preact already calls this when the
+  server-rendered HTML and client vnode disagree. The wrapper appends a list
+  item with the offending component name.
+- `options.__e` (catchError) + `options.__c` (commit) — together they detect
+  Suspense boundaries that resolve **during** hydration but render a number
+  of top-level DOM nodes other than 1. Preact-suspense's hydration path
+  assumes the resolved subtree replaces the server HTML in-place; if the
+  resolved component returns 0 nodes (e.g. `null`) or >1 (a `Fragment` with
+  multiple roots), sibling DOM offsets drift and subsequent updates can bind
+  to the wrong nodes. The wrapper captures each suspending vnode (filtered
+  by the `MODE_HYDRATE` flag, mirroring `hydration.ts`), waits for the
+  post-resolve commit, walks `vnode.__c.__v.__k` to count DOM-bearing
+  descendants, and warns when the count isn't exactly 1. Reads always go
+  through the component instance's current vnode rather than the captured
+  reference, so intermediate wrapper components between the Suspense
+  boundary and the suspending vnode are handled correctly. The reported
+  component name drills past preact-suspense's `Lazy` wrapper (identified
+  by its `displayName === "Lazy"`) so the warning names the resolved user
+  component instead of the wrapper. See
+  [preact issue #4442](https://github.com/preactjs/preact/issues/4442) for
+  background.
+
+The banner is only installed when `import.meta.env.DEV` is true, so the
+overhead — and the wrappers themselves — never ship to production builds.
