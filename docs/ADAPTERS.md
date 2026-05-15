@@ -86,7 +86,9 @@ The adapter factory calls the entry module generator internally to create a virt
 ### Trusted proxy configuration
 
 Set `canonicalOrigin` to pin `request.url` to your known public origin and
-avoid depending on `Host` / forwarded host headers at all:
+avoid depending on `Host` / forwarded host headers at all. Absolute-form
+(`http://...`) and network-path (`//...`) request targets are normalized to
+path/query/hash before resolving against the canonical origin:
 
 ```typescript
 createNodeRequestHandler({

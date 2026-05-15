@@ -85,6 +85,48 @@ describe("createWebRequest canonicalOrigin", () => {
 
     expect(request.url).toBe("https://app.example.com/dashboard?tab=1");
   });
+
+  it("strips absolute-form request targets down to path when canonicalOrigin is set", async () => {
+    const request = await createWebRequest(
+      {
+        headers: {
+          host: "app.example.com",
+        },
+        method: "GET",
+        req: undefined,
+        socket: {},
+        url: "http://evil.example/reset?token=abs",
+        async *[Symbol.asyncIterator]() {},
+      } as unknown as IncomingMessage,
+      {
+        canonicalOrigin: "https://app.example.com",
+        trustProxy: false,
+      },
+    );
+
+    expect(request.url).toBe("https://app.example.com/reset?token=abs");
+  });
+
+  it("strips network-path request targets down to path when canonicalOrigin is set", async () => {
+    const request = await createWebRequest(
+      {
+        headers: {
+          host: "app.example.com",
+        },
+        method: "GET",
+        req: undefined,
+        socket: {},
+        url: "//evil.example/reset?token=network",
+        async *[Symbol.asyncIterator]() {},
+      } as unknown as IncomingMessage,
+      {
+        canonicalOrigin: "https://app.example.com",
+        trustProxy: false,
+      },
+    );
+
+    expect(request.url).toBe("https://app.example.com/reset?token=network");
+  });
 });
 
 describe("createISGRegenerationRequest", () => {
