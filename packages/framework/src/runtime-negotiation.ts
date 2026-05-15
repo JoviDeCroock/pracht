@@ -40,11 +40,9 @@ export function prefersMarkdown(accept: string | null): boolean {
   return md.quality >= html.quality;
 }
 
-export function markdownResponse(source: string): Response {
-  const headers = new Headers({
-    "content-type": "text/markdown; charset=utf-8",
-    "cache-control": "public, max-age=0, must-revalidate",
-  });
+export function markdownResponse(source: string, initHeaders?: HeadersInit): Response {
+  const headers = new Headers(initHeaders);
+  headers.set("content-type", "text/markdown; charset=utf-8");
   appendVaryHeader(headers, "Accept");
   applyDefaultSecurityHeaders(headers);
   return new Response(source, { status: 200, headers });

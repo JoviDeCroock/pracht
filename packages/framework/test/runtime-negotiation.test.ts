@@ -98,4 +98,37 @@ describe("handlePrachtRequest markdown negotiation", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")?.includes("text/html")).toBe(true);
   });
+
+  it("runs loader and preserves document headers before returning markdown", async () => {
+    let loaderCalls = 0;
+    const response = await handlePrachtRequest({
+      app,
+      registry: {
+        routeModules: {
+          "./routes/home.md": async () => ({
+            markdown: "# Home\n",
+            loader: () => {
+              loaderCalls += 1;
+              return { ok: true };
+            },
+            headers: () => ({
+              "cache-control": "private, no-store",
+              "x-route-headers": "yes",
+            }),
+            Component: () => null,
+          }),
+        },
+      },
+      request: new Request("http://localhost/", {
+        headers: { accept: "text/markdown" },
+      }),
+    });
+
+    expect(loaderCalls).toBe(1);
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toBe("text/markdown; charset=utf-8");
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
+    expect(response.headers.get("x-route-headers")).toBe("yes");
+    expect(await response.text()).toBe("# Home\n");
+  });
 });

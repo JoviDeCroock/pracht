@@ -32,8 +32,9 @@ export. Named route exports such as `loader`, `head`, `headers`, `markdown`,
 
 A `markdown` string export opts the route into Markdown-for-Agents content
 negotiation: when a request arrives with `Accept: text/markdown`, the runtime
-returns the raw markdown source with `Content-Type: text/markdown` instead of
-rendering the component.
+still executes middleware, the route loader, and document header resolution
+first, then returns the raw markdown source with `Content-Type: text/markdown`
+instead of rendering the component.
 
 ### LoaderArgs
 
