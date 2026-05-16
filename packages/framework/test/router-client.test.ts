@@ -5,6 +5,7 @@ import { useState } from "preact/hooks";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  Form,
   Link,
   defineApp,
   initClientRouter,
@@ -228,5 +229,151 @@ describe("initClientRouter", () => {
       label: "start",
       pathname: "/next",
     });
+  });
+});
+
+describe("navigate() URL-scheme safety", () => {
+  let root: HTMLDivElement;
+  let fetchSpy: ReturnType<typeof vi.fn>;
+  let hrefSpy: ReturnType<typeof vi.fn>;
+
+  beforeEach(async () => {
+    document.body.innerHTML = "";
+    root = document.createElement("div");
+    document.body.appendChild(root);
+    history.replaceState(null, "", "/");
+    window.scrollTo = vi.fn();
+    fetchSpy = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ data: null }), {
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    hrefSpy = vi.fn();
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: {
+        ...window.location,
+        get href() {
+          return "http://localhost/";
+        },
+        set href(v: string) {
+          hrefSpy(v);
+        },
+        replace: vi.fn(),
+        assign: vi.fn(),
+        origin: "http://localhost",
+        pathname: "/",
+        search: "",
+        hash: "",
+      },
+    });
+
+    const app = resolveApp(
+      defineApp({ routes: [route("/", "./routes/home.tsx", { render: "ssr" })] }),
+    );
+    await initClientRouter({
+      app,
+      routeModules: { "./routes/home.tsx": async () => ({ default: () => null }) },
+      shellModules: {},
+      initialState: { data: null, routeId: "home", url: "/" },
+      root,
+      findModuleKey: (_mods, file) => file,
+    });
+  });
+
+  afterEach(() => {
+    render(null, root);
+    root.remove();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+    delete window.__PRACHT_NAVIGATE__;
+    delete window.__PRACHT_ROUTER_READY__;
+    delete globalThis.__PRACHT_ROUTE_DEFINITIONS__;
+  });
+
+  it("refuses javascript: URLs passed directly to __PRACHT_NAVIGATE__", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    await window.__PRACHT_NAVIGATE__!("javascript:alert(1)");
+    expect(hrefSpy).not.toHaveBeenCalledWith(expect.stringContaining("javascript:"));
+    expect(consoleError).toHaveBeenCalledWith(
+      expect.stringMatching(/refused.*unsafe|unsafe.*url/i),
+    );
+    consoleError.mockRestore();
+  });
+
+  it("refuses data: URLs passed directly to __PRACHT_NAVIGATE__", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    await window.__PRACHT_NAVIGATE__!("data:text/html,<script>alert(1)</script>");
+    expect(hrefSpy).not.toHaveBeenCalledWith(expect.stringContaining("data:"));
+    expect(consoleError).toHaveBeenCalledWith(
+      expect.stringMatching(/refused.*unsafe|unsafe.*url/i),
+    );
+    consoleError.mockRestore();
+  });
+});
+
+describe("Form opaque-redirect safety", () => {
+  let root: HTMLDivElement;
+  let fetchSpy: ReturnType<typeof vi.fn>;
+  let hrefSpy: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    document.body.innerHTML = "";
+    root = document.createElement("div");
+    document.body.appendChild(root);
+    fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+
+    hrefSpy = vi.fn();
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: {
+        ...window.location,
+        get href() {
+          return "http://localhost/";
+        },
+        set href(v: string) {
+          hrefSpy(v);
+        },
+        replace: vi.fn(),
+        assign: vi.fn(),
+        origin: "http://localhost",
+        pathname: "/",
+        search: "",
+        hash: "",
+      },
+    });
+  });
+
+  afterEach(() => {
+    render(null, root);
+    root.remove();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+    delete window.__PRACHT_NAVIGATE__;
+    delete window.__PRACHT_ROUTER_READY__;
+    delete globalThis.__PRACHT_ROUTE_DEFINITIONS__;
+  });
+
+  it("does not assign javascript: action URL to window.location.href on opaque redirect", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    // Simulate a redirect response with no Location header; the Form's status
+    // check (>= 300 && < 400) covers both real opaqueredirects and plain 3xx.
+    fetchSpy.mockResolvedValue(new Response(null, { status: 302 }));
+
+    render(h(Form, { action: "javascript:alert(1)", method: "post" }), root);
+    const form = root.querySelector("form")!;
+
+    const submitEvent = new Event("submit", { bubbles: true, cancelable: true });
+    form.dispatchEvent(submitEvent);
+
+    // Allow microtasks to flush
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(hrefSpy).not.toHaveBeenCalledWith(expect.stringContaining("javascript:"));
+    consoleError.mockRestore();
   });
 });

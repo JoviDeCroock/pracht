@@ -129,11 +129,7 @@ export function Form(props: FormProps) {
 
       if (response.type === "opaqueredirect" || (response.status >= 300 && response.status < 400)) {
         const location = response.headers.get("location");
-        if (location) {
-          await navigateToClientLocation(location);
-          return;
-        }
-        window.location.href = props.action ?? form.action;
+        await navigateToClientLocation(location ?? props.action ?? form.action);
       }
     },
   } as JSX.HTMLAttributes<HTMLFormElement>);
