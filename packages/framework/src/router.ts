@@ -256,7 +256,12 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
       typeof to === "string" ? to : buildHref(app.routes, to.route, to as never);
     const target = resolveBrowserRouteTarget(navigationTarget);
     if (!target) {
-      window.location.href = navigationTarget;
+      const safeUrl = parseSafeNavigationUrl(navigationTarget, window.location.href);
+      if (safeUrl) {
+        window.location.href = safeUrl.toString();
+      } else if (navigationTarget) {
+        console.error(`[pracht] refused to navigate to unsafe URL: ${navigationTarget}`);
+      }
       return;
     }
 
