@@ -1,6 +1,6 @@
 {
   "name": "@pracht/adapter-cloudflare",
-  "version": "0.3.3",
+  "version": "0.3.4",
   "description": "Cloudflare Workers adapter for deploying Pracht apps with Vite, static assets, loaders, and API routes.",
   "keywords": [
     "pracht",

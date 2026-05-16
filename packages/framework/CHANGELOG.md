@@ -1,5 +1,27 @@
 # @pracht/core
 
+## 0.8.1
+
+### Patch Changes
+
+- [#162](https://github.com/JoviDeCroock/pracht/pull/162) [`9b089c6`](https://github.com/JoviDeCroock/pracht/commit/9b089c65a51ff724737fffce18f6b08259cfb76e) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Fail closed when unresolved function-based `ModuleRef` values reach runtime.
+
+  `defineApp`/`route` now throw an explicit error for function module refs that were not rewritten by the Vite manifest transform, preventing empty-path fallback that could bypass middleware resolution.
+
+- [#161](https://github.com/JoviDeCroock/pracht/pull/161) [`a1c44ab`](https://github.com/JoviDeCroock/pracht/commit/a1c44ab966bcf1afafc33d26d846a1f91a15011e) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Fix Markdown-for-Agents negotiation so route loaders and document headers still run before returning markdown responses, preventing loader auth/header bypass.
+
+- [#164](https://github.com/JoviDeCroock/pracht/pull/164) [`c656bbd`](https://github.com/JoviDeCroock/pracht/commit/c656bbd622f73567f38c02e4346039d2595568b7) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - fix(security): close two defense-in-depth gaps in client-side URL navigation
+
+  `navigate()` (exposed as `window.__PRACHT_NAVIGATE__`) was assigning non-same-origin URL strings directly to `window.location.href` without scheme validation. A `javascript:` URL has origin `"null"`, so `resolveBrowserRouteTarget` returned null and the raw string reached the sink. Now gated by `parseSafeNavigationUrl` — unsafe schemes are refused and logged; valid `http:`/`https:` external URLs continue to work.
+
+  `Form`'s opaque-redirect fallback (`window.location.href = props.action ?? form.action`) bypassed `navigateToClientLocation` and its scheme guard. Collapsed into a single `navigateToClientLocation(location ?? props.action ?? form.action)` call so the safe-navigation path is always taken, and same-origin targets get SPA navigation instead of a full page reload.
+
+- [#158](https://github.com/JoviDeCroock/pracht/pull/158) [`b3be9a0`](https://github.com/JoviDeCroock/pracht/commit/b3be9a0563f3f66df1f18cc91929b9191b834646) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Warn in dev when a Suspense boundary resolves during hydration and the
+  resolved component renders 0 or >1 top-level DOM nodes. Such returns cause
+  sibling offset drift in preact-suspense's in-place hydration swap (see
+  preact issue [#4442](https://github.com/JoviDeCroock/pracht/issues/4442)). The warning is appended to the existing hydration
+  mismatch banner and is stripped from production builds.
+
 ## 0.8.0
 
 ### Minor Changes
