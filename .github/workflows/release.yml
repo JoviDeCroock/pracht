@@ -60,6 +60,9 @@ jobs:
     name: Publish
     needs: release
     if: needs.release.outputs.should_publish == 'true'
+    environment:
+      name: npm
+      url: https://www.npmjs.com/org/pracht
     permissions:
       contents: write
       id-token: write
