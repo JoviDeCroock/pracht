@@ -82,14 +82,10 @@ function runGit(args) {
 }
 
 function hasLocalGitTag(tagName) {
-  const result = spawnSync(
-    "git",
-    ["rev-parse", "--verify", "--quiet", `refs/tags/${tagName}`],
-    {
-      cwd: root,
-      stdio: "ignore",
-    }
-  );
+  const result = spawnSync("git", ["rev-parse", "--verify", "--quiet", `refs/tags/${tagName}`], {
+    cwd: root,
+    stdio: "ignore",
+  });
   return result.status === 0;
 }
 
