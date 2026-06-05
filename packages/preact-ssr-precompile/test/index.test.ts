@@ -165,7 +165,7 @@ export function view(props) {
     );
   });
 
-  it("evaluates dynamic ARIA/enumerated attributes once", async () => {
+  it("evaluates dynamic stringified boolean attributes once", async () => {
     const source = `
 let count = 0;
 function next() {
@@ -173,7 +173,7 @@ function next() {
   return false;
 }
 export function view() {
-  return <div draggable={next()} aria-hidden={next()}>x</div>;
+  return <div draggable={next()} aria-hidden={next()} data-active={next()}>x</div>;
 }
 export function getCount() {
   return count;
@@ -184,8 +184,10 @@ export function getCount() {
     const view = precompiled.view as () => VNode;
     const getCount = precompiled.getCount as () => number;
 
-    expect(renderToString(view())).toBe('<div draggable="false" aria-hidden="false">x</div>');
-    expect(getCount()).toBe(2);
+    expect(renderToString(view())).toBe(
+      '<div draggable="false" aria-hidden="false" data-active="false">x</div>',
+    );
+    expect(getCount()).toBe(3);
   });
 
   it("matches upstream attribute casing, literal, and escaping cases", async () => {
@@ -225,7 +227,7 @@ export function view(props) {
   return (
     <section>
       <input type="checkbox" checked={props.checked} required={true} disabled={false} />
-      <div f-client-nav={props.clientNav} draggable={props.draggable} aria-hidden={props.hidden}>x</div>
+      <div data-static data-disabled={false} f-client-nav={props.clientNav} data-enabled={props.enabled} draggable={props.draggable} aria-hidden={props.hidden}>x</div>
     </section>
   );
 }
@@ -234,16 +236,73 @@ export function view(props) {
     await expectPrecompiledRenderMatches(
       source,
       [
-        { checked: false, clientNav: false, draggable: false, hidden: true },
-        { checked: true, clientNav: true, draggable: true, hidden: false },
+        { checked: false, clientNav: false, draggable: false, enabled: false, hidden: true },
+        { checked: true, clientNav: true, draggable: true, enabled: true, hidden: false },
       ],
       {
         expectedHtml: [
-          '<section><input type="checkbox" required/><div draggable="false" aria-hidden="true">x</div></section>',
-          '<section><input type="checkbox" checked required/><div f-client-nav draggable="true" aria-hidden="false">x</div></section>',
+          '<section><input type="checkbox" required/><div data-static="true" data-disabled="false" data-enabled="false" draggable="false" aria-hidden="true">x</div></section>',
+          '<section><input type="checkbox" checked required/><div data-static="true" data-disabled="false" f-client-nav data-enabled="true" draggable="true" aria-hidden="false">x</div></section>',
         ],
       },
     );
+  });
+
+  it("matches upstream namespace, member tag, key, and ref cases", async () => {
+    const source = `
+const ctx = {
+  Provider(props) {
+    return <section>{props.children}</section>;
+  },
+};
+function Foo(props) {
+  return <article>{props.children}</article>;
+}
+export function view(props) {
+  return (
+    <main>
+      <a xlink:href={props.href} xmlLang="en">link</a>
+      <foo:bar baz="qux">namespaced</foo:bar>
+      <ctx.Provider value={null}><span key="child-key" ref={props.refValue}>member</span></ctx.Provider>
+      <Foo key={props.keyValue}>component</Foo>
+    </main>
+  );
+}
+`;
+
+    const precompiledCode = await expectPrecompiledRenderMatches(
+      source,
+      [{ href: "/docs?q=<x>", keyValue: "component-key", refValue: "ignored" }],
+      {
+        expectedHtml: [
+          '<main><a xlink:href="/docs?q=&lt;x>" xml:lang="en">link</a><foo:bar baz="qux">namespaced</foo:bar><section><span>member</span></section><article>component</article></main>',
+        ],
+        expectCodeIncludes: [
+          '_jsx("foo:bar"',
+          "_jsx(ctx.Provider",
+          '_jsxAttr("key"',
+          '_jsxAttr("ref"',
+        ],
+      },
+    );
+
+    expect(precompiledCode).toContain("_jsx(Foo");
+  });
+
+  it("matches upstream static child merging cases for component fallbacks", async () => {
+    const source = `
+function Foo(props) {
+  return <section>{props.children}</section>;
+}
+export function view() {
+  return <Foo>foo{" "}bar{' '}{2}{true}{false}baz<div />qux</Foo>;
+}
+`;
+
+    await expectPrecompiledRenderMatches(source, [{}], {
+      expectedHtml: ["<section>foo bar 2baz<div></div>qux</section>"],
+      expectCodeIncludes: ["_jsx(Foo", "jsxTemplate"],
+    });
   });
 
   it("falls back for upstream spread and dangerouslySetInnerHTML cases", async () => {
@@ -357,6 +416,24 @@ export function view(props) {
     expect(renderToString((precompiled.view as RenderFn<typeof props>)(props))).toBe(
       renderToString((normal.view as RenderFn<typeof props>)(props)),
     );
+  });
+
+  it("honors upstream import source option and avoids generated name collisions", () => {
+    const source = `
+const _jsxTemplate = "taken";
+const $$_tpl_1 = "taken";
+export const view = <div>hello</div>;
+`;
+
+    const transformed = transformPreactSsrJsx(source, "precompiled.jsx", {
+      importSource: "custom-preact",
+    });
+
+    expect(transformed).toBeTruthy();
+    expect(transformed).toContain('from "custom-preact/jsx-runtime"');
+    expect(transformed).toContain("jsxTemplate as _jsxTemplate_1");
+    expect(transformed).toContain("const $$_tpl_1_1");
+    expect(transformed).toContain("_jsxTemplate_1($$_tpl_1_1)");
   });
 
   it("plugin transform runs only for SSR by default", async () => {
