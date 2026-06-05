@@ -478,7 +478,7 @@ class TransformContext {
   private appendStaticAttribute(strings: string[], attrName: string, value: unknown): void {
     if (value == null) return;
 
-    if (isAriaOrEnumerated(attrName) && typeof value === "boolean") {
+    if (isStringifiedBooleanAttr(attrName) && typeof value === "boolean") {
       strings[strings.length - 1] +=
         ` ${encodeEntities(attrName)}=${JSON.stringify(String(value))}`;
       return;
@@ -498,7 +498,7 @@ class TransformContext {
   private jsxAttrCall(attrName: string, expression: string): string {
     const serializedName = JSON.stringify(attrName);
     this.usedHelpers.add("jsxAttr");
-    const attr = isAriaOrEnumerated(attrName)
+    const attr = isStringifiedBooleanAttr(attrName)
       ? `((value) => typeof value === "boolean" ? ${this.jsxAttrIdent}(${serializedName}, String(value)) : ${this.jsxAttrIdent}(${serializedName}, value))(${expression})`
       : `${this.jsxAttrIdent}(${serializedName}, ${expression})`;
     return `((attr) => attr ? " " + attr : "")(${attr})`;
@@ -650,8 +650,9 @@ function encodeEntities(value: string): string {
   return out;
 }
 
-function isAriaOrEnumerated(name: string): boolean {
-  return name.startsWith("aria-") || HTML_ENUMERATED_ATTRS.has(name);
+function isStringifiedBooleanAttr(name: string): boolean {
+  // Mirrors preact-render-to-string: aria-* and data-* boolean values render as strings.
+  return name.charCodeAt(4) === 45 || HTML_ENUMERATED_ATTRS.has(name);
 }
 
 function insertPrelude(s: RolldownString, program: NodeLike, prelude: string): void {

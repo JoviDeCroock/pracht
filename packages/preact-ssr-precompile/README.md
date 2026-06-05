@@ -101,8 +101,8 @@ SSR semantics, including:
 - `textarea`, `select`, and `option`.
 
 Dynamic children are wrapped in `jsxEscape()`. Dynamic attributes are serialized
-with `jsxAttr()`, with extra handling for ARIA and enumerated boolean attributes
-so output matches `preact-render-to-string`.
+with `jsxAttr()`, with extra handling for `aria-*`, `data-*`, and enumerated
+boolean attributes so output matches `preact-render-to-string`.
 
 ## Options
 
