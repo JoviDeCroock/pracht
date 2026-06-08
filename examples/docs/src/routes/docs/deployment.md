@@ -76,6 +76,42 @@ vercel deploy --prebuilt
 
 ---
 
+## Void
+
+Deploys a Pracht-owned Worker and static assets through Void.
+
+```ts [vite.config.ts]
+import { voidAdapter } from "@pracht/adapter-void";
+
+export default defineConfig({
+  plugins: [pracht({ adapter: voidAdapter() })],
+});
+```
+
+```json [void.json]
+{
+  "$schema": "./node_modules/void/schema.json",
+  "worker": {
+    "compatibility_date": "2026-02-24",
+    "compatibility_flags": ["nodejs_compat"]
+  }
+}
+```
+
+```sh
+# Build and deploy existing output
+pracht build
+void deploy --skip-build
+```
+
+Void can infer and provision D1, KV, R2, and AI bindings from source usage.
+Pracht loaders and API routes receive those bindings as `context.env`; the
+adapter also wraps requests so `void/db`, `void/kv`, `void/storage`, and
+`void/env` resolve default bindings. Void-managed auth routes are not automatic
+because Pracht still owns routing.
+
+---
+
 ## Custom Context
 
 Generated adapter entries can import a context factory that enriches the context passed to loaders, API routes, and middleware:

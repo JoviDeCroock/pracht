@@ -1,0 +1,57 @@
+{
+  "name": "@pracht/adapter-void",
+  "version": "0.1.0",
+  "description": "Void adapter for deploying Pracht apps as Cloudflare Worker output packaged by void deploy.",
+  "keywords": [
+    "pracht",
+    "preact",
+    "void",
+    "voidzero",
+    "cloudflare",
+    "workers",
+    "adapter",
+    "edge",
+    "ssr",
+    "ssg",
+    "api-routes",
+    "vite"
+  ],
+  "license": "MIT",
+  "homepage": "https://github.com/JoviDeCroock/pracht/tree/main/packages/adapter-void",
+  "bugs": {
+    "url": "https://github.com/JoviDeCroock/pracht/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/JoviDeCroock/pracht",
+    "directory": "packages/adapter-void"
+  },
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.mts",
+      "default": "./dist/index.mjs"
+    }
+  },
+  "publishConfig": {
+    "provenance": true
+  },
+  "scripts": {
+    "build": "tsdown",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "@pracht/adapter-cloudflare": "workspace:*"
+  },
+  "devDependencies": {
+    "void": "0.9.0"
+  },
+  "peerDependencies": {
+    "vite": "^7.0.0 || ^8.0.0",
+    "void": "^0.9.0",
+    "wrangler": "^4.81.0"
+  }
+}

@@ -1,21 +1,18 @@
 {
-  "name": "@pracht/example-basic",
-  "version": "0.0.19",
+  "name": "@pracht/example-void",
+  "version": "0.0.0",
   "private": true,
   "type": "module",
   "dependencies": {
-    "@pracht/adapter-cloudflare": "workspace:*",
-    "@pracht/adapter-node": "workspace:*",
-    "@pracht/adapter-vercel": "workspace:*",
     "@pracht/adapter-void": "workspace:*",
-    "@pracht/core": "workspace:*"
+    "@pracht/core": "workspace:*",
+    "void": "0.9.0"
   },
   "devDependencies": {
     "@pracht/cli": "workspace:*",
     "@pracht/vite-plugin": "workspace:*",
     "preact": "^10.26.9",
     "preact-render-to-string": "^6.5.13",
-    "vite": "^8.0.0",
-    "void": "0.9.0"
+    "vite": "^8.0.0"
   }
 }

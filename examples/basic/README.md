@@ -2,7 +2,8 @@
 
 This example uses the Node adapter by default. Set `PRACHT_ADAPTER=vercel`
 before building to emit Vercel's `.vercel/output/` directory, or
-`PRACHT_ADAPTER=cloudflare` to build the Cloudflare Worker output.
+`PRACHT_ADAPTER=cloudflare` to build the Cloudflare Worker output. Set
+`PRACHT_ADAPTER=void` to build the Worker output used by `void deploy --skip-build`.
 
 ## Commands
 

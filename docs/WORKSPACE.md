@@ -13,6 +13,7 @@ described in `VISION_MVP.md`.
 | `packages/adapter-node`       | `@pracht/adapter-node`       | Node `IncomingMessage`/`ServerResponse` bridge, ISG stale-while-revalidate                                   |
 | `packages/adapter-cloudflare` | `@pracht/adapter-cloudflare` | Cloudflare Workers fetch handler, generated worker entry source, and static asset handoff (no runtime ISG revalidation yet) |
 | `packages/adapter-vercel`     | `@pracht/adapter-vercel`     | Vercel Edge handler and Build Output API entry source                                                        |
+| `packages/adapter-void`       | `@pracht/adapter-void`       | Void deploy target that emits Cloudflare Worker-compatible output and uses `void deploy --skip-build`        |
 | `packages/preact-worker-facets` | `@pracht/preact-worker-facets` | Experimental Cloudflare Dynamic Worker + Durable Object facets runtime for inert, stateful Preact components |
 | `packages/cli`                | `@pracht/cli`                | `pracht dev`, `build`, `verify`, the `generate` subcommands, and `doctor`                                    |
 | `examples/cloudflare`         | `@pracht/example-cloudflare` | Cloudflare-targeted example app with SSG, ISG, SSR, SPA routes, auth middleware, and API routes              |
@@ -95,6 +96,12 @@ described in `VISION_MVP.md`.
   to `env` and the `executionContext` through `args.context`. Runtime ISG
   revalidation is intentionally not implemented yet; Cloudflare builds warn when
   ISG routes are present.
+- **Void adapter** — Reuses the Cloudflare Worker runtime shape with a `void`
+  build target so `pracht build` emits `dist/client/` plus `dist/server/server.js`
+  for `void deploy --skip-build`. The generated entry wraps Pracht requests in
+  Void's runtime env context so `void/db`, `void/kv`, `void/storage`, and
+  `void/env` can resolve default bindings during loaders and API routes.
+  Void-managed auth routes are not automatic because Pracht still owns routing.
 - **Vercel adapter** — Emits an Edge-compatible handler, copies the build into
   `.vercel/output/static` and `.vercel/output/functions/render.func`, rewrites
   clean SSG URLs to static HTML, and routes ISG plus dynamic requests to the

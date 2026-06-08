@@ -193,32 +193,38 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
       );
     }
 
-    if (serverMod.buildTarget === "cloudflare") {
+    if (serverMod.buildTarget === "cloudflare" || serverMod.buildTarget === "void") {
       if (Object.keys(isgManifest).length > 0) {
+        const targetName = serverMod.buildTarget === "void" ? "Void" : "Cloudflare";
         console.warn(
-          "\n  Warning: Cloudflare adapter currently serves prerendered ISG HTML as static assets and does not perform runtime revalidation. Use SSR/SSG on Cloudflare, or deploy ISG routes to Node until Cloudflare ISG support is added.\n",
+          `\n  Warning: ${targetName} adapter currently serves prerendered ISG HTML as static assets and does not perform runtime revalidation. Use SSR/SSG on ${targetName}, or deploy ISG routes to Node until edge ISG support is added.\n`,
         );
       }
 
-      // workerd validates every named export of the deployed entry module as
-      // an entrypoint and rejects the build metadata (buildTarget, manifests,
-      // resolvedApp, ...) that server.js exports for the prerender pass
-      // above. Deploy a thin wrapper that re-exports only the default
-      // handler and the Cloudflare entrypoint classes.
-      const entrypointNames: string[] = Array.isArray(serverMod.cloudflareWorkerEntrypointNames)
-        ? serverMod.cloudflareWorkerEntrypointNames
-        : [];
-      const deployEntryLines = [
-        ...(entrypointNames.length > 0
-          ? [`export { ${entrypointNames.join(", ")} } from "./server.js";`]
-          : []),
-        'export { default } from "./server.js";',
-        "",
-      ];
-      writeFileSync(resolve(root, "dist/server/worker.js"), deployEntryLines.join("\n"), "utf-8");
+      if (serverMod.buildTarget === "void") {
+        log("\n  Void worker → dist/server/server.js\n");
+        log("  Deploy with: void deploy --skip-build\n");
+      } else {
+        // workerd validates every named export of the deployed entry module
+        // as an entrypoint and rejects the build metadata (buildTarget,
+        // manifests, resolvedApp, ...) that server.js exports for the
+        // prerender pass above. Deploy a thin wrapper that re-exports only
+        // the default handler and the Cloudflare entrypoint classes.
+        const entrypointNames: string[] = Array.isArray(serverMod.cloudflareWorkerEntrypointNames)
+          ? serverMod.cloudflareWorkerEntrypointNames
+          : [];
+        const deployEntryLines = [
+          ...(entrypointNames.length > 0
+            ? [`export { ${entrypointNames.join(", ")} } from "./server.js";`]
+            : []),
+          'export { default } from "./server.js";',
+          "",
+        ];
+        writeFileSync(resolve(root, "dist/server/worker.js"), deployEntryLines.join("\n"), "utf-8");
 
-      log("\n  Cloudflare worker → dist/server/worker.js\n");
-      log("  Deploy with: wrangler deploy\n");
+        log("\n  Cloudflare worker → dist/server/worker.js\n");
+        log("  Deploy with: wrangler deploy\n");
+      }
     }
 
     if (serverMod.buildTarget === "vercel") {

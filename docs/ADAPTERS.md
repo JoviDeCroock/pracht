@@ -68,6 +68,76 @@ The adapter factory calls the entry module generator internally to create a virt
 
 ---
 
+## Void Adapter
+
+The Void adapter emits a Cloudflare Worker-compatible runtime and marks the
+build target as `void` so `pracht build` prints the Void deploy path. Pracht
+still owns routing and rendering; Void packages the built Worker/assets and can
+provision inferred platform bindings.
+
+### Setup
+
+```typescript
+import { pracht } from "@pracht/vite-plugin";
+import { voidAdapter } from "@pracht/adapter-void";
+
+pracht({ adapter: voidAdapter() });
+```
+
+Add `void.json` to pin Workers compatibility. Include `nodejs_compat` when you
+use Void runtime helpers such as `void/db`, `void/kv`, `void/storage`, or
+`void/env`:
+
+```json
+{
+  "$schema": "./node_modules/void/schema.json",
+  "worker": {
+    "compatibility_date": "2026-02-24",
+    "compatibility_flags": ["nodejs_compat"]
+  }
+}
+```
+
+### Features
+
+- **Worker output**: `pracht build` emits `dist/server/server.js` and
+  `dist/client/`, the output shape Void's full deploy path can package.
+- **Void runtime env**: generated entries wrap each request with Void's runtime
+  env context, so default helpers from `void/db`, `void/kv`, `void/storage`, and
+  `void/env` can resolve bindings from the incoming Worker `env`.
+- **Binding inference**: `void deploy` can infer D1, KV, R2, AI, and queue
+  bindings from Void-recognized imports or direct `env.DB` / `env.KV` /
+  `env.STORAGE` usage. You can also declare bindings explicitly with
+  `void.json` `inference.bindings`.
+- **Auth caveat**: Void-managed auth routes and middleware are not automatic,
+  because Pracht's `handlePrachtRequest()` owns routing. Use Pracht API routes
+  with your auth library, or wire Better Auth directly.
+- **ISG caveat**: runtime ISG revalidation is not implemented for Void yet. ISG
+  routes are prerendered at build time and served as static assets.
+
+### Deploy
+
+Void's CLI normally runs its own build command. For Pracht apps, build with
+Pracht first and ask Void to package the existing output:
+
+```bash
+pracht build
+void deploy --skip-build
+```
+
+The same generated-entry options as the Cloudflare adapter are available:
+
+```typescript
+voidAdapter({
+  createContextFrom: "/src/server/context.ts",
+  workerExportsFrom: "/src/cloudflare.ts",
+});
+```
+
+The context module receives `{ request, env, executionContext }`.
+
+---
+
 ## Node Adapter (Phase 1)
 
 ### `createNodeRequestHandler(options)`

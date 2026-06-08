@@ -12,6 +12,11 @@ async function resolveAdapter() {
     return cloudflareAdapter();
   }
 
+  if (process.env.PRACHT_ADAPTER === "void") {
+    const { voidAdapter } = await import("@pracht/adapter-void");
+    return voidAdapter();
+  }
+
   const { nodeAdapter } = await import("@pracht/adapter-node");
   return nodeAdapter();
 }

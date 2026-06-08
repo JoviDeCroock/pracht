@@ -15,7 +15,7 @@ action-oriented body. Invoke a skill in Claude Code with `/<skill-name>`.
 | ------------------ | ------------------------------------------------------------ |
 | `/scaffold`        | Generate routes, shells, middleware, or API handlers.        |
 | `/debug`           | Investigate route matching, loader, rendering, or HMR bugs.  |
-| `/deploy`          | Configure an adapter and deploy to Node, Cloudflare, Vercel. |
+| `/deploy`          | Configure an adapter and deploy to Node, Cloudflare, Vercel, or Void. |
 | `/migrate-nextjs`  | Convert a Next.js app (App or Pages Router) to pracht.       |
 
 ## End-user skills

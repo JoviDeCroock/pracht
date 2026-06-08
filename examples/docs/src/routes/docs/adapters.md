@@ -1,6 +1,6 @@
 ---
 title: Adapters
-lead: Adapters are thin layers that translate between a platform's native request handling and pracht's Web Request/Response interface. pracht ships adapters for Cloudflare Workers, Vercel Edge Functions, and Node.js.
+lead: Adapters are thin layers that translate between a platform's native request handling and pracht's Web Request/Response interface. pracht ships adapters for Cloudflare Workers, Vercel Edge Functions, Void, and Node.js.
 breadcrumb: Adapters
 prev:
   href: /docs/deployment
@@ -158,6 +158,81 @@ npx vercel deploy --prebuilt
 
 ---
 
+## Void
+
+Deploy to Void with Pracht's routing/runtime and Void's Cloudflare-backed
+deployment platform. The generated Worker wraps requests in Void's runtime env
+context, so helpers like `void/db`, `void/kv`, `void/storage`, and `void/env`
+can resolve default bindings during loaders and API routes.
+
+Void-managed auth routes are not automatic because Pracht still owns routing.
+Wire auth through Pracht API routes and middleware, or use Better Auth directly.
+
+### Setup
+
+```ts [vite.config.ts]
+import { defineConfig } from "vite";
+import { pracht } from "@pracht/vite-plugin";
+import { voidAdapter } from "@pracht/adapter-void";
+
+export default defineConfig({
+  plugins: [pracht({ adapter: voidAdapter() })],
+});
+```
+
+```json [package.json]
+{
+  "dependencies": {
+    "@pracht/core": "*",
+    "@pracht/adapter-void": "*",
+    "void": "*"
+  }
+}
+```
+
+```json [void.json]
+{
+  "$schema": "./node_modules/void/schema.json",
+  "worker": {
+    "compatibility_date": "2026-02-24",
+    "compatibility_flags": ["nodejs_compat"]
+  }
+}
+```
+
+### Bindings
+
+Void can infer bindings from imports such as `void/db`, `void/kv`, and
+`void/storage`, or from direct `env.DB`, `env.KV`, and `env.STORAGE` access. In
+Pracht loaders and API routes, raw bindings are always available through
+`context.env`:
+
+```ts
+export async function loader({ context }: LoaderArgs) {
+  const row = await context.env.DB.prepare("SELECT 1 as ok").first();
+  return { ok: row?.ok === 1 };
+}
+```
+
+You can also use Void helpers once the adapter has wrapped the request env:
+
+```ts
+import { kv } from "void/kv";
+
+export async function GET() {
+  return Response.json({ value: await kv.get("example") });
+}
+```
+
+### Deploy
+
+```sh
+pracht build
+void deploy --skip-build
+```
+
+---
+
 ## Node.js
 
 Run pracht as a standard Node.js HTTP server. The adapter handles static file serving, ISG stale-while-revalidate, request translation, and the generated `dist/server/server.js` entry boots the production server directly.
@@ -192,6 +267,7 @@ Adapters inject platform-specific values into loaders and API routes via a conte
 ```ts [vite.config.ts]
 nodeAdapter({ createContextFrom: "/src/server/context.ts" });
 cloudflareAdapter({ createContextFrom: "/src/server/context.ts" });
+voidAdapter({ createContextFrom: "/src/server/context.ts" });
 vercelAdapter({ createContextFrom: "/src/server/context.ts" });
 ```
 

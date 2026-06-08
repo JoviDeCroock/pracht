@@ -84,5 +84,5 @@ pass treats them the same way — no separate pracht option is required.
 
 Target-specific Vite plugins (e.g. `@cloudflare/vite-plugin`) are pulled in by
 the adapter package you install (`@pracht/adapter-cloudflare`,
-`@pracht/adapter-vercel`, etc.). The default path uses `@pracht/adapter-node`,
-which ships as a dependency of this package.
+`@pracht/adapter-vercel`, `@pracht/adapter-void`, etc.). The default path uses
+`@pracht/adapter-node`, which ships as a dependency of this package.

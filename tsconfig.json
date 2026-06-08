@@ -25,7 +25,8 @@
       "@pracht/preact-ssr-precompile": ["./packages/preact-ssr-precompile/src/index.ts"],
       "@pracht/adapter-node": ["./packages/adapter-node/src/index.ts"],
       "@pracht/adapter-cloudflare": ["./packages/adapter-cloudflare/src/index.ts"],
-      "@pracht/adapter-vercel": ["./packages/adapter-vercel/src/index.ts"]
+      "@pracht/adapter-vercel": ["./packages/adapter-vercel/src/index.ts"],
+      "@pracht/adapter-void": ["./packages/adapter-void/src/index.ts"]
     }
   },
   "include": [

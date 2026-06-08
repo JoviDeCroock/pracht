@@ -3,8 +3,8 @@ name: deploy
 version: 1.0.0
 description: |
   Pracht deployment guide. Walks through adapter configuration, building, and
-  deploying to Node.js, Cloudflare Workers, or Vercel. Handles wrangler config,
-  Docker and production checklist.
+  deploying to Node.js, Cloudflare Workers, Vercel, or Void. Handles wrangler
+  config, Void deploy output, Docker and production checklist.
   Use when asked to "deploy", "set up deployment", "configure adapter",
   "deploy to cloudflare", "deploy to vercel", or "production build".
 allowed-tools:
@@ -33,6 +33,7 @@ Ask the user where they want to deploy if not already clear from their message.
 | Node.js            | `@pracht/adapter-node`       | Stable |
 | Cloudflare Workers | `@pracht/adapter-cloudflare` | Stable |
 | Vercel             | `@pracht/adapter-vercel`     | Stable |
+| Void               | `@pracht/adapter-void`       | Stable |
 
 ---
 
@@ -151,6 +152,45 @@ npx vercel deploy --prebuilt
 ```
 
 Produces: `.vercel/output/config.json`, `.vercel/output/static/`, `.vercel/output/functions/render.func/server.js`
+
+---
+
+## Void Deployment
+
+### Setup
+
+1. Ensure `@pracht/adapter-void` and `void` are installed.
+2. In `vite.config.ts`:
+   ```ts
+   import { pracht } from "@pracht/vite-plugin";
+   import { voidAdapter } from "@pracht/adapter-void";
+   export default { plugins: [pracht({ adapter: voidAdapter() })] };
+   ```
+3. Add `void.json`:
+   ```json
+   {
+     "$schema": "./node_modules/void/schema.json",
+     "worker": {
+       "compatibility_date": "2026-02-24",
+       "compatibility_flags": ["nodejs_compat"]
+     }
+   }
+   ```
+
+### Build & Deploy
+
+```bash
+pracht build
+void deploy --skip-build
+```
+
+Void packages `dist/client/` and `dist/server/server.js`. D1, KV, R2, and AI
+bindings can be inferred by Void from source usage or declared with
+`void.json` `inference.bindings`. Pracht code can use `context.env` directly;
+the adapter also wraps requests so `void/db`, `void/kv`, `void/storage`, and
+`void/env` can resolve default bindings. Void-managed auth routes are not
+automatic because Pracht owns routing; wire auth through Pracht API routes and
+middleware.
 
 ---
 
