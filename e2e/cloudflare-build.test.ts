@@ -55,8 +55,10 @@ test("pracht build emits a deployable Cloudflare Worker setup", async () => {
   expect(workerSource).toContain("cloudflareAssetsBinding");
   expect(workerSource).toContain('buildTarget = "cloudflare"');
   expect(workerSource).toContain("_pracht/headers.json");
+  expect(workerSource).toContain("_pracht/isg.json");
+  expect(workerSource).toContain("createCloudflareFetchHandler");
   expect(workerSource).toContain("server_default as default");
-  expect(output).toContain("Cloudflare adapter currently serves prerendered ISG HTML");
+  expect(output).not.toContain("does not perform runtime revalidation");
 
   // Cloudflare primitives configured via `workerExportsFrom` must be re-exported
   expect(workerSource).toContain("Counter");
@@ -69,6 +71,8 @@ test("pracht build emits a deployable Cloudflare Worker setup", async () => {
   expect(deploySource).toContain('export { default } from "./server.js";');
   expect(deploySource).not.toContain("buildTarget");
   expect(deploySource).not.toContain("cssManifest");
+
+  expect(existsSync(resolve(exampleDir, "dist/client/_pracht/isg.json"))).toBe(true);
 });
 
 test("prerendered SSG pages include client JS and working framework context", async () => {

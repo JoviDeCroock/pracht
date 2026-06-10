@@ -102,8 +102,8 @@ Platform adapters export a request handler shaped for their runtime:
 | Adapter              | Runtime           | Notes                                |
 | -------------------- | ----------------- | ------------------------------------ |
 | `adapter-node`       | Node.js `http`    | Static file serving, ISG mtime check |
-| `adapter-cloudflare` | Workers `fetch`   | `env.ASSETS`, bindings, no runtime ISG yet |
-| `adapter-vercel`     | Serverless / Edge | Build Output API v3 + edge handler   |
+| `adapter-cloudflare` | Workers `fetch`   | `env.ASSETS`, Cache API-backed ISG   |
+| `adapter-vercel`     | Serverless / Edge | Build Output API v3 + native ISR     |
 
 Each adapter:
 
@@ -150,7 +150,7 @@ SSR and SSG, deployed to Node. Thoroughly tested with Playwright E2E tests.
    - `createNodeRequestHandler()` — Web Request/Response over `http`
    - Static file serving from `dist/client/`
    - Vite manifest loading for asset injection
-   - ISG time-window revalidation
+   - ISG time-window and webhook revalidation
 
 4. **`packages/cli`** — developer tooling (instant local DX)
    - `pracht dev` — one command, instant Vite dev server with HMR
@@ -168,13 +168,6 @@ SSR and SSG, deployed to Node. Thoroughly tested with Playwright E2E tests.
    - Loaders return correct data
    - Shells wrap routes correctly
    - Hydration completes without errors
-
-## TODO
-
-- CF and Vercel ISG
-- ISG webhook revalidation
-
----
 
 ## Monorepo Structure
 

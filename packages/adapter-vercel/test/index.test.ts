@@ -13,8 +13,8 @@ describe("createVercelServerEntryModule", () => {
     expect(source).toContain(
       'import { createContext as createPrachtContext } from "/src/server/context.ts";',
     );
-    expect(source).toContain("await createPrachtContext({ request, context })");
-    expect(source).toContain("context: prachtContext");
+    expect(source).toContain("createContext: createPrachtContext");
+    expect(source).toContain("createVercelEdgeHandler");
     expect(source).toContain('export const vercelFunctionName = "app";');
   });
 });

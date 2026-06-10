@@ -11,7 +11,13 @@ import { join } from "node:path";
 import { once } from "node:events";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { defineApp, resolveApiRoutes, route, timeRevalidate } from "@pracht/core";
+import {
+  defineApp,
+  resolveApiRoutes,
+  route,
+  timeRevalidate,
+  webhookRevalidate,
+} from "@pracht/core";
 
 import { createNodeRequestHandler, createNodeServerEntryModule } from "../src/index.ts";
 
@@ -254,5 +260,99 @@ describe("createNodeRequestHandler", () => {
 
     expect(createContextCalls).toEqual(["missing"]);
     expect(readFileSync(htmlPath, "utf-8")).toContain("missing");
+  });
+
+  it("authenticates webhook ISG revalidation and regenerates opted-in paths", async () => {
+    const staticDir = makeTempDir();
+    const htmlDir = join(staticDir, "pricing");
+    const htmlPath = join(htmlDir, "index.html");
+    mkdirSync(htmlDir, { recursive: true });
+    writeFileSync(htmlPath, "<html><body>old</body></html>", "utf-8");
+
+    const previousToken = process.env.PRACHT_REVALIDATE_TOKEN;
+    delete process.env.PRACHT_REVALIDATE_TOKEN;
+
+    const app = defineApp({
+      routes: [
+        route("/pricing", "./routes/pricing.tsx", {
+          render: "isg",
+          revalidate: [timeRevalidate(3600), webhookRevalidate()],
+        }),
+      ],
+    });
+    const handler = createNodeRequestHandler({
+      app,
+      createContext: ({ request }) => ({
+        cookie: request.headers.get("cookie") ?? "missing",
+      }),
+      isgManifest: {
+        "/pricing": {
+          revalidate: [timeRevalidate(3600), webhookRevalidate()],
+        },
+      },
+      registry: {
+        routeModules: {
+          "./routes/pricing.tsx": async () => ({
+            Component: ({ data }) => `<main>${(data as { cookie: string }).cookie}</main>`,
+            loader: async ({ context }) => ({
+              cookie: (context as { cookie?: string }).cookie ?? "missing",
+            }),
+          }),
+        },
+      },
+      staticDir,
+    });
+
+    const server = createServer((req: IncomingMessage, res: ServerResponse) => {
+      void handler(req, res);
+    });
+    servers.add(server);
+
+    try {
+      server.listen(0, "127.0.0.1");
+      await once(server, "listening");
+      const address = server.address();
+      if (!address || typeof address === "string") {
+        throw new Error("Expected TCP server address");
+      }
+
+      const endpoint = `http://127.0.0.1:${address.port}/__pracht/revalidate`;
+      const body = JSON.stringify({ paths: ["/pricing"] });
+
+      const missingToken = await fetch(endpoint, {
+        body,
+        headers: { authorization: "Bearer secret", "content-type": "application/json" },
+        method: "POST",
+      });
+      expect(missingToken.status).toBe(401);
+
+      process.env.PRACHT_REVALIDATE_TOKEN = "secret";
+      const badToken = await fetch(endpoint, {
+        body,
+        headers: { authorization: "Bearer wrong", "content-type": "application/json" },
+        method: "POST",
+      });
+      expect(badToken.status).toBe(401);
+
+      const valid = await fetch(endpoint, {
+        body,
+        headers: {
+          authorization: "Bearer secret",
+          "content-type": "application/json",
+          cookie: "session=should-not-leak",
+        },
+        method: "POST",
+      });
+      expect(valid.status).toBe(200);
+      await expect(valid.json()).resolves.toEqual({ revalidated: ["/pricing"], skipped: [] });
+      expect(readFileSync(htmlPath, "utf-8")).toContain("missing");
+      expect(readFileSync(htmlPath, "utf-8")).not.toContain("should-not-leak");
+    } finally {
+      if (previousToken === undefined) {
+        delete process.env.PRACHT_REVALIDATE_TOKEN;
+      } else {
+        process.env.PRACHT_REVALIDATE_TOKEN = previousToken;
+      }
+    }
   });
 });

@@ -1,49 +1,14 @@
 import type { PrachtAdapter } from "@pracht/vite-plugin";
 import type { Plugin } from "vite";
 import { cloudflare } from "@cloudflare/vite-plugin";
-import {
-  applyDefaultSecurityHeaders,
-  handlePrachtRequest,
-  type HandlePrachtRequestOptions,
-  type ModuleRegistry,
-  type ResolvedApiRoute,
-  type PrachtApp,
-} from "@pracht/core/server";
 
-type HeadersManifest = Record<string, Record<string, string>>;
-
-export interface CloudflareFetcher {
-  fetch(input: Request | URL | string): Promise<Response>;
-}
-
-export interface CloudflareExecutionContext {
-  waitUntil(promise: Promise<unknown>): void;
-  passThroughOnException?(): void;
-}
-
-export interface CloudflareContextArgs<TEnv = Record<string, unknown>> {
-  request: Request;
-  env: TEnv;
-  executionContext: CloudflareExecutionContext;
-}
-
-export interface CloudflareAdapterOptions<
-  TEnv extends Record<string, unknown> = Record<string, unknown>,
-  TContext = {
-    env: TEnv;
-    executionContext: CloudflareExecutionContext;
-  },
-> {
-  app: PrachtApp;
-  registry?: ModuleRegistry;
-  apiRoutes?: ResolvedApiRoute[];
-  clientEntryUrl?: string;
-  cssManifest?: Record<string, string[]>;
-  jsManifest?: Record<string, string[]>;
-  assetsBinding?: string;
-  headersManifest?: HeadersManifest;
-  createContext?: (args: CloudflareContextArgs<TEnv>) => TContext | Promise<TContext>;
-}
+export { createCloudflareFetchHandler } from "./runtime.ts";
+export type {
+  CloudflareAdapterOptions,
+  CloudflareContextArgs,
+  CloudflareExecutionContext,
+  CloudflareFetcher,
+} from "./runtime.ts";
 
 export interface CloudflareServerEntryModuleOptions {
   assetsBinding?: string;
@@ -58,47 +23,6 @@ export interface CloudflareServerEntryModuleOptions {
    * remains pracht's handler; a `fetch` export in this module is ignored.
    */
   workerHandlersFrom?: string;
-}
-
-export function createCloudflareFetchHandler<
-  TEnv extends Record<string, unknown> = Record<string, unknown>,
-  TContext = {
-    env: TEnv;
-    executionContext: CloudflareExecutionContext;
-  },
->(options: CloudflareAdapterOptions<TEnv, TContext>) {
-  const assetsBinding = options.assetsBinding ?? "ASSETS";
-
-  return async (
-    request: Request,
-    env: TEnv,
-    executionContext: CloudflareExecutionContext,
-  ): Promise<Response> => {
-    const assetResponse = await maybeServeAsset(
-      request,
-      env,
-      assetsBinding,
-      options.headersManifest ?? {},
-    );
-    if (assetResponse) {
-      return assetResponse;
-    }
-
-    const context = options.createContext
-      ? await options.createContext({ request, env, executionContext })
-      : ({ env, executionContext } as TContext);
-
-    return handlePrachtRequest({
-      app: options.app,
-      registry: options.registry,
-      request,
-      context,
-      apiRoutes: options.apiRoutes,
-      clientEntryUrl: options.clientEntryUrl,
-      cssManifest: options.cssManifest,
-      jsManifest: options.jsManifest,
-    } satisfies HandlePrachtRequestOptions<TContext>);
-  };
 }
 
 export function createCloudflareServerEntryModule(
@@ -141,70 +65,40 @@ export function createCloudflareServerEntryModule(
     "  return headersManifestPromise;",
     "}",
     "",
-    "function applyPrachtHeadersManifest(headers, headersManifest, pathname) {",
-    "  const withoutIndex = pathname.replace(/\\/index\\.html$/, '') || '/';",
-    "  const withoutSlash = pathname.replace(/\\/$/, '') || '/';",
-    "  const routeHeaders = headersManifest[pathname] ?? headersManifest[withoutSlash] ?? headersManifest[withoutIndex];",
-    "  if (!routeHeaders) return;",
-    "  for (const [key, value] of Object.entries(routeHeaders)) {",
-    "    headers.set(key, value);",
+    "let isgManifestPromise;",
+    "async function readPrachtISGManifest(request, assets) {",
+    "  if (!isgManifestPromise) {",
+    "    const manifestUrl = new URL('/_pracht/isg.json', request.url);",
+    "    isgManifestPromise = assets.fetch(manifestUrl).then(async (response) => {",
+    "      if (!response.ok) return {};",
+    "      return response.json();",
+    "    }).catch(() => ({}));",
     "  }",
-    "}",
-    "",
-    "async function maybeServePrachtAsset(request, env) {",
-    '  if (request.method !== "GET" && request.method !== "HEAD") {',
-    "    return null;",
-    "  }",
-    "",
-    "  // Route state requests must be handled by the framework (returns JSON), not static assets",
-    "  const url = new URL(request.url);",
-    '  if (request.headers.get("x-pracht-route-state-request") === "1" || url.searchParams.get("_data") === "1") {',
-    "    return null;",
-    "  }",
-    "",
-    "  // Markdown negotiation: let the framework serve markdown source for",
-    "  // routes that export it instead of the prerendered HTML.",
-    '  if ((request.headers.get("accept") ?? "").includes("text/markdown")) {',
-    "    return null;",
-    "  }",
-    "",
-    `  const assets = env?.[${JSON.stringify(assetsBinding)}];`,
-    '  if (!assets || typeof assets.fetch !== "function") {',
-    "    return null;",
-    "  }",
-    "",
-    "  const response = await assets.fetch(request);",
-    "  if (response.status === 404) return null;",
-    "  // Vary on the route-state header so the CDN caches HTML and JSON responses separately",
-    "  const headers = new Headers(response.headers);",
-    "  headers.append('Vary', 'x-pracht-route-state-request');",
-    "  applyDefaultSecurityHeaders(headers);",
-    "  if ((headers.get('content-type') ?? '').includes('text/html')) {",
-    "    applyPrachtHeadersManifest(headers, await readPrachtHeadersManifest(request, assets), url.pathname);",
-    "  }",
-    "  return new Response(response.body, { status: response.status, statusText: response.statusText, headers });",
+    "  return isgManifestPromise;",
     "}",
     "",
     "async function fetch(request, env, executionContext) {",
-    "  const assetResponse = await maybeServePrachtAsset(request, env);",
-    "  if (assetResponse) {",
-    "    return assetResponse;",
-    "  }",
+    `  const assets = env?.[${JSON.stringify(assetsBinding)}];`,
+    '  const headersManifest = assets && typeof assets.fetch === "function"',
+    "    ? await readPrachtHeadersManifest(request, assets)",
+    "    : {};",
+    '  const isgManifest = assets && typeof assets.fetch === "function"',
+    "    ? await readPrachtISGManifest(request, assets)",
+    "    : {};",
     "",
-    "  const context = createPrachtContext",
-    "    ? await createPrachtContext({ request, env, executionContext })",
-    "    : { env, executionContext };",
-    "",
-    "  return handlePrachtRequest({",
+    "  const handler = createCloudflareFetchHandler({",
     "    app: resolvedApp,",
     "    registry,",
-    "    request,",
-    "    context,",
     "    apiRoutes,",
     "    clientEntryUrl: clientEntryUrl ?? undefined,",
     "    cssManifest,",
     "    jsManifest,",
+    `    assetsBinding: ${JSON.stringify(assetsBinding)},`,
+    "    headersManifest,",
+    "    isgManifest,",
+    "    createContext: createPrachtContext,",
     "  });",
+    "  return handler(request, env, executionContext);",
     "}",
     "",
     "export default { ...prachtWorkerHandlers, fetch };",
@@ -212,72 +106,6 @@ export function createCloudflareServerEntryModule(
     ...workerExports,
     "",
   ].join("\n");
-}
-
-async function maybeServeAsset(
-  request: Request,
-  env: Record<string, unknown>,
-  assetsBinding: string,
-  headersManifest: HeadersManifest = {},
-): Promise<Response | null> {
-  if (request.method !== "GET" && request.method !== "HEAD") {
-    return null;
-  }
-
-  // Route state requests must be handled by the framework (returns JSON), not static assets
-  const url = new URL(request.url);
-  if (
-    request.headers.get("x-pracht-route-state-request") === "1" ||
-    url.searchParams.get("_data") === "1"
-  ) {
-    return null;
-  }
-
-  // Markdown negotiation: let the framework serve raw markdown for routes
-  // that export it, instead of the prerendered HTML asset.
-  if ((request.headers.get("accept") ?? "").includes("text/markdown")) {
-    return null;
-  }
-
-  const assets = env[assetsBinding];
-  if (!isFetcher(assets)) {
-    return null;
-  }
-
-  const response = await assets.fetch(request);
-  if (response.status === 404) return null;
-  // Vary on the route-state header so the CDN caches HTML and JSON responses separately
-  const headers = new Headers(response.headers);
-  headers.append("Vary", "x-pracht-route-state-request");
-  applyDefaultSecurityHeaders(headers);
-  if ((headers.get("content-type") ?? "").includes("text/html")) {
-    applyHeadersManifest(headers, headersManifest, url.pathname);
-  }
-  return new Response(response.body, {
-    status: response.status,
-    statusText: response.statusText,
-    headers,
-  });
-}
-
-function applyHeadersManifest(
-  headers: Headers,
-  headersManifest: HeadersManifest,
-  pathname: string,
-): void {
-  const withoutIndex = pathname.replace(/\/index\.html$/, "") || "/";
-  const withoutSlash = pathname.replace(/\/$/, "") || "/";
-  const routeHeaders =
-    headersManifest[pathname] ?? headersManifest[withoutSlash] ?? headersManifest[withoutIndex];
-  if (!routeHeaders) return;
-
-  for (const [key, value] of Object.entries(routeHeaders)) {
-    headers.set(key, value);
-  }
-}
-
-function isFetcher(value: unknown): value is CloudflareFetcher {
-  return typeof value === "object" && value !== null && "fetch" in value;
 }
 
 /**
@@ -294,7 +122,7 @@ export function cloudflareAdapter(options: CloudflareServerEntryModuleOptions = 
     ownsDevServer: true,
     edge: true,
     serverImports:
-      'import { applyDefaultSecurityHeaders, handlePrachtRequest, resolveApp, resolveApiRoutes } from "@pracht/core/server";',
+      'import { resolveApp, resolveApiRoutes } from "@pracht/core/server";\nimport { createCloudflareFetchHandler } from "@pracht/adapter-cloudflare/runtime";',
     createServerEntryModule() {
       return createCloudflareServerEntryModule(options);
     },

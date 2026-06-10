@@ -146,7 +146,13 @@ export interface TimeRevalidatePolicy {
   seconds: number;
 }
 
-export type RouteRevalidate = TimeRevalidatePolicy;
+export interface WebhookRevalidatePolicy {
+  kind: "webhook";
+}
+
+export type RouteRevalidatePolicy = TimeRevalidatePolicy | WebhookRevalidatePolicy;
+
+export type RouteRevalidate = RouteRevalidatePolicy | readonly RouteRevalidatePolicy[];
 
 export type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "HEAD" | "OPTIONS";
 

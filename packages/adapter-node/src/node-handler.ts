@@ -6,10 +6,16 @@ import { pipeline } from "node:stream/promises";
 
 import {
   applyDefaultSecurityHeaders,
+  getTimeRevalidateSeconds,
   handlePrachtRequest,
+  hasWebhookRevalidate,
   type HandlePrachtRequestOptions,
   type ISGManifestEntry,
+  jsonResponse,
   type ModuleRegistry,
+  PRACHT_REVALIDATE_ENDPOINT,
+  PRACHT_REVALIDATE_TOKEN_ENV,
+  readRevalidationRequest,
   type ResolvedApiRoute,
   type PrachtApp,
 } from "@pracht/core/server";
@@ -106,6 +112,16 @@ export function createNodeRequestHandler<TContext = unknown>(
     const url = new URL(request.url);
     const isTransportRouteStateRequest = isRouteStateRequest(url, request.headers);
     const wantsMarkdown = (request.headers.get("accept") ?? "").includes("text/markdown");
+
+    if (url.pathname === PRACHT_REVALIDATE_ENDPOINT) {
+      const response = await handleRevalidationEndpoint(request, options, staticDir, isgManifest, {
+        request,
+        req,
+        res,
+      });
+      await writeWebResponse(res, response);
+      return;
+    }
 
     if (
       staticDir &&
@@ -235,7 +251,8 @@ async function serveISGEntry<TContext>(
   if (!fileStat?.isFile()) return false;
 
   const ageMs = Date.now() - fileStat.mtimeMs;
-  const isStale = entry.revalidate.kind === "time" && ageMs > entry.revalidate.seconds * 1000;
+  const revalidateSeconds = getTimeRevalidateSeconds(entry.revalidate);
+  const isStale = revalidateSeconds !== null && ageMs > revalidateSeconds * 1000;
 
   const headers = applyDefaultSecurityHeaders(
     new Headers({
@@ -270,6 +287,45 @@ async function serveISGEntry<TContext>(
   }
 
   return true;
+}
+
+async function handleRevalidationEndpoint<TContext>(
+  request: Request,
+  options: NodeAdapterOptions<TContext>,
+  staticDir: string | undefined,
+  isgManifest: Record<string, ISGManifestEntry>,
+  contextArgs: NodeAdapterContextArgs,
+): Promise<Response> {
+  const parsed = await readRevalidationRequest(request, process.env[PRACHT_REVALIDATE_TOKEN_ENV]);
+  if (!parsed.ok) return parsed.response;
+
+  if (!staticDir) {
+    return jsonResponse(
+      {
+        error: "ISG revalidation requires a staticDir.",
+        revalidated: [],
+        skipped: parsed.paths,
+      },
+      503,
+    );
+  }
+
+  const revalidated: string[] = [];
+  const skipped: string[] = [];
+
+  for (const pathname of parsed.paths) {
+    const entry = isgManifest[pathname];
+    const htmlPath = resolveContainedPath(staticDir, pathname);
+    if (!entry || !hasWebhookRevalidate(entry.revalidate) || !htmlPath) {
+      skipped.push(pathname);
+      continue;
+    }
+
+    await regenerateISGPage(options, pathname, htmlPath, contextArgs);
+    revalidated.push(pathname);
+  }
+
+  return jsonResponse({ revalidated, skipped });
 }
 
 /**

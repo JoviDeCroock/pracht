@@ -262,5 +262,5 @@ Or connect your Git repository in the Vercel dashboard for automatic deployments
 
 - Use `render: "ssr"` for any route that reads from Postgres — data changes per request.
 - The `sql` template tag from `@vercel/postgres` automatically parameterizes queries — it's safe against SQL injection by default.
-- Pracht's Vercel adapter targets Edge Functions: pracht prerenders ISG routes at build time, then routes ISG paths through the Edge Function instead of relying on process-local cache state. Use `render: "ssg"` for fully static pages or `render: "ssr"` for per-request freshness.
+- Pracht's Vercel adapter emits native Build Output API prerender functions for ISG routes. Set `PRACHT_REVALIDATE_TOKEN` if you want webhook revalidation through `/__pracht/revalidate`.
 - Vercel Edge Functions have a 25MB size limit and a 30-second execution timeout. Keep loaders fast and move heavy work to background jobs.

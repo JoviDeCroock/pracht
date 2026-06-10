@@ -9,6 +9,7 @@ export {
   resolveApp,
   route,
   timeRevalidate,
+  webhookRevalidate,
 } from "./app.ts";
 export { createHref } from "./href.ts";
 export {
@@ -43,6 +44,18 @@ export {
 } from "./runtime.ts";
 export { prefetch, type PrefetchFn } from "./prefetch-api.ts";
 export { prerenderApp } from "./prerender.ts";
+export {
+  createISGRegenerationRequest,
+  getTimeRevalidateSeconds,
+  hasWebhookRevalidate,
+  isAuthorizedRevalidationRequest,
+  jsonResponse,
+  normalizeRouteRevalidate,
+  PRACHT_REVALIDATE_ENDPOINT,
+  PRACHT_REVALIDATE_TOKEN_ENV,
+  PRACHT_REVALIDATE_TOKEN_HEADER,
+  readRevalidationRequest,
+} from "./revalidation.ts";
 export { redirect, type RedirectOptions } from "./runtime-middleware.ts";
 export { initClientRouter, useNavigate } from "./router.ts";
 export { PrachtHttpError } from "./types.ts";
@@ -99,6 +112,7 @@ export type {
   RouteDataFor,
   RouteLoaderData,
   RouteRevalidate,
+  RouteRevalidatePolicy,
   RouteSearchFor,
   RouteTarget,
   RouteTreeNode,
@@ -108,6 +122,7 @@ export type {
   ShellModule,
   ShellProps,
   TimeRevalidatePolicy,
+  WebhookRevalidatePolicy,
   PrachtApp,
   PrachtAppConfig,
 } from "./types.ts";

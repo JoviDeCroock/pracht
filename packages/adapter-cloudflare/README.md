@@ -53,7 +53,7 @@ Keep the matching bindings and migrations in `wrangler.jsonc`.
 
 - Converts Cloudflare Worker requests to standard Web Requests
 - Static asset serving via `env.ASSETS`
-- SSG/ISG prerendered asset serving (runtime ISG revalidation is not implemented yet; builds warn when ISG routes target Cloudflare)
+- SSG serving from `env.ASSETS` and ISG revalidation through the Workers Cache API
 - Execution context passing for Cloudflare-specific APIs
 - Generated-entry context factories via `cloudflareAdapter({ createContextFrom })`
 

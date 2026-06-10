@@ -11,8 +11,8 @@ describe("createCloudflareServerEntryModule", () => {
     expect(source).toContain(
       'import { createContext as createPrachtContext } from "/src/server/context.ts";',
     );
-    expect(source).toContain("await createPrachtContext({ request, env, executionContext })");
-    expect(source).toContain("context,");
+    expect(source).toContain("createContext: createPrachtContext");
+    expect(source).toContain("createCloudflareFetchHandler");
   });
 
   it("re-exports Cloudflare primitives from a dedicated module", () => {
@@ -48,6 +48,6 @@ describe("createCloudflareServerEntryModule", () => {
   it("bypasses static assets for the _data route-state transport", () => {
     const source = createCloudflareServerEntryModule();
 
-    expect(source).toContain('url.searchParams.get("_data") === "1"');
+    expect(source).toContain("_pracht/isg.json");
   });
 });

@@ -81,24 +81,27 @@ route("/pricing", "./routes/pricing.tsx", {
 });
 ```
 
-ISG generates HTML at build time (like SSG) and, on adapters with persistent platform state, regenerates it after a configurable time window. The Node adapter serves the stale page immediately while a new version regenerates in the background — stale-while-revalidate.
+ISG generates HTML at build time (like SSG) and, on adapters with persistent
+platform state, regenerates it after a configurable time window or an
+authenticated webhook. Node and Cloudflare serve stale pages immediately while a
+new version regenerates in the background; Vercel uses native Build Output API
+prerender functions.
 
 > [!INFO]
-> ISG revalidation is implemented at the adapter level. The Node adapter uses file `mtime`. Cloudflare currently serves prerendered ISG HTML as static assets and does not perform runtime revalidation yet. Vercel routes ISG paths through the Edge Function instead of relying on process-local cache state; use SSG for static output or SSR for per-request freshness on Vercel.
+> ISG revalidation is implemented at the adapter level. Node uses file `mtime`, Cloudflare stores regenerated pages in the Workers Cache API with `env.ASSETS` as fallback, and Vercel emits native prerender configs.
 
 ### Webhook revalidation
-
-> [!WARNING]
-> `webhookRevalidate` is planned but **not yet exported** from `@pracht/core`. The snippet below shows the intended API — it will ship in a future release. Use `timeRevalidate` for now.
 
 ```ts
 import { webhookRevalidate } from "@pracht/core";
 
 {
-  revalidate: webhookRevalidate({ key: "pricing-update" });
+  revalidate: webhookRevalidate();
 }
-// POST to the revalidation endpoint to trigger regeneration
 ```
+
+Set `PRACHT_REVALIDATE_TOKEN`, then POST concrete paths to
+`/__pracht/revalidate` with `Authorization: Bearer <token>`.
 
 ---
 

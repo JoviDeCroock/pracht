@@ -1,9 +1,15 @@
 import type { PrachtAdapter } from "@pracht/vite-plugin";
 import {
   handlePrachtRequest,
+  hasWebhookRevalidate,
   type HandlePrachtRequestOptions,
+  jsonResponse,
+  matchAppRoute,
   type ModuleRegistry,
+  PRACHT_REVALIDATE_ENDPOINT,
+  PRACHT_REVALIDATE_TOKEN_ENV,
   type ResolvedApiRoute,
+  readRevalidationRequest,
   type PrachtApp,
 } from "@pracht/core/server";
 
@@ -44,6 +50,10 @@ export function createVercelEdgeHandler<
   TContext = TVercelContext,
 >(options: VercelAdapterOptions<TVercelContext, TContext>) {
   return async (request: Request, context: TVercelContext): Promise<Response> => {
+    if (new URL(request.url).pathname === PRACHT_REVALIDATE_ENDPOINT) {
+      return handleVercelRevalidationEndpoint(request, options.app);
+    }
+
     const prachtContext = options.createContext
       ? await options.createContext({ request, context })
       : (context as unknown as TContext);
@@ -76,23 +86,63 @@ export function createVercelServerEntryModule(
     `export const vercelRegions = ${JSON.stringify(regions ?? null)};`,
     "",
     "export default async function handle(request, context) {",
-    "  const prachtContext = createPrachtContext",
-    "    ? await createPrachtContext({ request, context })",
-    "    : context;",
-    "",
-    "  return handlePrachtRequest({",
+    "  const handler = createVercelEdgeHandler({",
     "    app: resolvedApp,",
     "    registry,",
-    "    request,",
-    "    context: prachtContext,",
     "    apiRoutes,",
     "    clientEntryUrl: clientEntryUrl ?? undefined,",
     "    cssManifest,",
     "    jsManifest,",
+    "    createContext: createPrachtContext,",
     "  });",
+    "  return handler(request, context);",
     "}",
     "",
   ].join("\n");
+}
+
+async function handleVercelRevalidationEndpoint(
+  request: Request,
+  app: PrachtApp,
+): Promise<Response> {
+  const token = getRuntimeRevalidationToken();
+  const parsed = await readRevalidationRequest(request, token);
+  if (!parsed.ok) return parsed.response;
+
+  const revalidated: string[] = [];
+  const skipped: string[] = [];
+
+  for (const pathname of parsed.paths) {
+    const match = matchAppRoute(app, pathname);
+    if (!match || match.route.render !== "isg" || !hasWebhookRevalidate(match.route.revalidate)) {
+      skipped.push(pathname);
+      continue;
+    }
+
+    const revalidateUrl = new URL(pathname, request.url);
+    const response = await fetch(revalidateUrl, {
+      headers: {
+        accept: "text/html",
+        "x-prerender-revalidate": token!,
+      },
+      method: "GET",
+    });
+
+    if (response.ok) {
+      revalidated.push(pathname);
+    } else {
+      skipped.push(pathname);
+    }
+  }
+
+  return jsonResponse({ revalidated, skipped });
+}
+
+function getRuntimeRevalidationToken(): string | undefined {
+  const runtime = globalThis as typeof globalThis & {
+    process?: { env?: Record<string, string | undefined> };
+  };
+  return runtime.process?.env?.[PRACHT_REVALIDATE_TOKEN_ENV];
 }
 
 /**
@@ -108,7 +158,7 @@ export function vercelAdapter(options: VercelServerEntryModuleOptions = {}): Pra
     id: "vercel",
     edge: true,
     serverImports:
-      'import { handlePrachtRequest, resolveApp, resolveApiRoutes } from "@pracht/core/server";',
+      'import { resolveApp, resolveApiRoutes } from "@pracht/core/server";\nimport { createVercelEdgeHandler } from "@pracht/adapter-vercel";',
     createServerEntryModule() {
       return createVercelServerEntryModule(options);
     },

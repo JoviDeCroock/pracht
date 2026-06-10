@@ -186,19 +186,16 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
 
     if (Object.keys(isgManifest).length > 0) {
       const isgManifestPath = resolve(root, "dist/server/isg-manifest.json");
-      writeFileSync(isgManifestPath, JSON.stringify(isgManifest, null, 2), "utf-8");
+      const isgManifestJson = `${JSON.stringify(isgManifest, null, 2)}\n`;
+      writeFileSync(isgManifestPath, isgManifestJson, "utf-8");
+      mkdirSync(resolve(clientDir, "_pracht"), { recursive: true });
+      writeFileSync(resolve(clientDir, "_pracht/isg.json"), isgManifestJson, "utf-8");
       log(
         `\n  ISG manifest → dist/server/isg-manifest.json (${Object.keys(isgManifest).length} route(s))\n`,
       );
     }
 
     if (serverMod.buildTarget === "cloudflare") {
-      if (Object.keys(isgManifest).length > 0) {
-        console.warn(
-          "\n  Warning: Cloudflare adapter currently serves prerendered ISG HTML as static assets and does not perform runtime revalidation. Use SSR/SSG on Cloudflare, or deploy ISG routes to Node until Cloudflare ISG support is added.\n",
-        );
-      }
-
       // workerd validates every named export of the deployed entry module as
       // an entrypoint and rejects the build metadata (buildTarget, manifests,
       // resolvedApp, ...) that server.js exports for the prerender pass
@@ -223,7 +220,7 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
     if (serverMod.buildTarget === "vercel") {
       const outputPath = writeVercelBuildOutput({
         functionName: serverMod.vercelFunctionName,
-        isgRoutes: Object.keys(isgManifest),
+        isgManifest,
         headersManifest,
         regions: serverMod.vercelRegions,
         root,
