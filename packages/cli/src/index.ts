@@ -19,6 +19,7 @@ const main = defineCommand({
     doctor: () => import("./commands/doctor.js").then((m) => m.default),
     generate: () => import("./commands/generate.js").then((m) => m.default),
     inspect: () => import("./commands/inspect.js").then((m) => m.default),
+    mcp: () => import("./commands/mcp.js").then((m) => m.default),
     typegen: () => import("./commands/typegen.js").then((m) => m.default),
     verify: () => import("./commands/verify.js").then((m) => m.default),
   },

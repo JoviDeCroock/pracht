@@ -91,6 +91,13 @@ The starter gives you:
 - `pracht verify` — fast framework-aware checks with `--changed` and `--json`
 - `pracht doctor` — app wiring checks with optional JSON output
 
+## AI-assisted development
+
+Pracht is built to be operated by coding agents as much as by humans:
+
+- **MCP server** — `pracht mcp` starts a stdio [Model Context Protocol](https://modelcontextprotocol.io) server so agents can natively inspect the resolved app graph, run doctor/verify diagnostics, and scaffold routes, shells, middleware, and API handlers. See [docs/MCP.md](docs/MCP.md) for registration and the tool reference.
+- **Claude Code skills** — repo-local skills for scaffolding, auditing, debugging, and deploying pracht apps live in [skills/](skills/README.md).
+
 ## Repo map
 
 - [VISION_MVP.md](VISION_MVP.md) — scope and product direction
@@ -100,6 +107,7 @@ The starter gives you:
 - [docs/DATA_LOADING.md](docs/DATA_LOADING.md) — loaders, forms, client hooks
 - [docs/STYLING.md](docs/STYLING.md) — CSS Modules, Tailwind, CSS-in-JS limitations
 - [docs/ADAPTERS.md](docs/ADAPTERS.md) — Node, Cloudflare, Vercel deployment paths
+- [docs/MCP.md](docs/MCP.md) — built-in MCP server for coding agents
 - [packages/start/README.md](packages/start/README.md) — starter CLI details
 - [packages/preact-worker-facets/README.md](packages/preact-worker-facets/README.md) — experimental Cloudflare Dynamic Worker facets runtime for Preact components
 - [examples/basic](examples/basic), [examples/cloudflare](examples/cloudflare), [examples/docs](examples/docs) — working apps

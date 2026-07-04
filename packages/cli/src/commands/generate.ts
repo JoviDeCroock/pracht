@@ -44,7 +44,7 @@ import {
   buildShellModuleSource,
 } from "./generate-source.js";
 
-interface GenerateResult {
+export interface GenerateResult {
   created: string[];
   kind: string;
   updated: string[];
@@ -151,7 +151,7 @@ function outputResult(result: GenerateResult, json: boolean): void {
   }
 }
 
-interface RouteArgs {
+export interface RouteArgs {
   "error-boundary"?: boolean;
   loader?: boolean;
   middleware?: string;
@@ -163,7 +163,7 @@ interface RouteArgs {
   title?: string;
 }
 
-function generateRoute(args: RouteArgs, project: ProjectConfig): GenerateResult {
+export function generateRoute(args: RouteArgs, project: ProjectConfig): GenerateResult {
   const routePath = normalizeRoutePathString(args.path);
   const render = requireEnum(args.render, "render", ["spa", "ssr", "ssg", "isg"], "ssr");
   const includeLoader = Boolean(args.loader);
@@ -301,7 +301,7 @@ function generatePagesRoute({
   };
 }
 
-function generateShell(name: string, project: ProjectConfig): GenerateResult {
+export function generateShell(name: string, project: ProjectConfig): GenerateResult {
   if (project.mode === "pages") {
     throw new Error(
       "Pages router apps use a single `_app` shell. `pracht generate shell` is only available for manifest apps.",
@@ -329,7 +329,7 @@ function generateShell(name: string, project: ProjectConfig): GenerateResult {
   };
 }
 
-function generateMiddleware(name: string, project: ProjectConfig): GenerateResult {
+export function generateMiddleware(name: string, project: ProjectConfig): GenerateResult {
   if (project.mode === "pages") {
     throw new Error(
       "Pages router apps do not use manifest middleware registration. `pracht generate middleware` is only available for manifest apps.",
@@ -357,12 +357,12 @@ function generateMiddleware(name: string, project: ProjectConfig): GenerateResul
   };
 }
 
-interface ApiArgs {
+export interface ApiArgs {
   methods?: string;
   path: string;
 }
 
-function generateApi(args: ApiArgs, project: ProjectConfig): GenerateResult {
+export function generateApi(args: ApiArgs, project: ProjectConfig): GenerateResult {
   const endpointPath = normalizeApiPath(args.path);
   const methods = parseApiMethods(args.methods);
   const apiFile = resolveApiModulePath(project, endpointPath);
