@@ -14,6 +14,7 @@ import {
   PRACHT_REVALIDATE_TOKEN_ENV,
   type ResolvedApiRoute,
   readRevalidationRequest,
+  setServerEnv,
   type PrachtApp,
 } from "@pracht/core/server";
 
@@ -75,6 +76,9 @@ export function createCloudflareFetchHandler<
     env: TEnv,
     executionContext: CloudflareExecutionContext,
   ): Promise<Response> => {
+    // Make `serverEnv` from @pracht/core/env/server resolve to this worker request's bindings.
+    setServerEnv(env);
+
     const renderISGPage = async (pathname: string, originalRequest: Request): Promise<Response> => {
       const regenerationRequest = createISGRegenerationRequest(pathname, originalRequest);
       const context = options.createContext

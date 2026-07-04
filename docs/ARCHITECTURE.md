@@ -507,6 +507,10 @@ The published core package also exposes small browser-oriented entries:
 - `@pracht/core/error-overlay` and `@pracht/core/dev-404` are dev-only entries
   loaded on demand by the Vite dev middleware (via `ssrLoadModule`); no
   production entry point or generated server entry imports them.
+- `@pracht/core/env` exposes `publicEnv` (client-safe, `PRACHT_PUBLIC_`-prefixed
+  vars only); `@pracht/core/env/server` exposes `serverEnv` and is server-only —
+  the vite plugin rejects client-side imports of it at build time, and its
+  browser condition points at a throwing stub as a backstop for other bundlers.
 - The root `@pracht/core` export has a browser condition that points at a
   client-safe public entry for route and shell modules.
 
@@ -547,6 +551,24 @@ client side as well. Projects that run `pracht typegen` can drop the generic
 entirely: the generated declaration registers each route's loader data on
 `Register["routes"]`, so `useRouteData("dashboard")` resolves the data type
 from the route id (see [docs/DATA_LOADING.md](DATA_LOADING.md#useroutedata)).
+
+---
+
+## Environment Variable Safety
+
+Pracht separates env access into `serverEnv` (`@pracht/core/env/server`,
+server-only, resolved per adapter) and `publicEnv` (`@pracht/core`, only
+`PRACHT_PUBLIC_`-prefixed variables, inlined into client bundles via Vite's
+`envPrefix`). Both are typed once through the `Register` declaration-merging
+pattern (`Register["env"]`).
+
+At build time the `pracht:env-safety` plugin scans client output chunks — and
+the transformed sources of first-party modules included in them — for
+references to non-public env vars and fails the build naming the variable,
+chunk, and likely source module. `pracht({ envSafety: { allow: [...] } })` is
+the escape hatch; `pracht verify` re-runs the scan against `dist/client`.
+
+See [docs/ENV.md](ENV.md) for the full model and per-adapter behavior.
 
 ---
 

@@ -24,6 +24,8 @@ export type {
   AppGraphModuleAccess,
   AppGraphRoute,
 } from "./app-graph.ts";
+export { filterPublicEnv, PRACHT_PUBLIC_ENV_PREFIX, publicEnv } from "./env.ts";
+export type { PrachtPublicEnv, PrachtServerEnv, PublicEnvOf } from "./env.ts";
 export { forwardRef } from "./forwardRef.ts";
 export { useIsHydrated } from "./hydration.ts";
 export { Suspense, lazy } from "preact-suspense";
