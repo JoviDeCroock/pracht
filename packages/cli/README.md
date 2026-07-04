@@ -41,6 +41,23 @@ For Node.js targets, run the built server with:
 node dist/server/server.js
 ```
 
+### `pracht preview`
+
+Serve the production build locally. Runs `pracht build` first (skip with
+`--skip-build`), then serves the output for the configured adapter:
+
+- **Node**: runs `dist/server/server.js` on `--port` (or `$PORT`, default 3000).
+- **Cloudflare**: delegates to `wrangler dev` against the built worker; requires
+  wrangler in `node_modules` or on your PATH plus a wrangler config.
+- **Vercel**: there is no faithful local production runtime — the command points
+  you at `vercel build` / `vercel dev` instead.
+
+```bash
+pracht preview
+pracht preview --port 4000
+pracht preview --skip-build
+```
+
 ### `pracht verify`
 
 Run fast framework-aware verification checks without paying for a full build or

@@ -575,6 +575,7 @@ function createPackageJson({ adapter, projectName, tailwind, versions }) {
   };
 
   if (adapter.id === "node") {
+    scripts.preview = "pracht preview";
     scripts.start = "node dist/server/server.js";
   }
 
@@ -588,6 +589,7 @@ function createPackageJson({ adapter, projectName, tailwind, versions }) {
 
   if (adapter.id === "cloudflare") {
     scripts.deploy = "pracht build && wrangler deploy";
+    scripts.preview = "pracht preview";
     devDependencies.wrangler = "^4.81.0";
   }
 
@@ -930,6 +932,10 @@ function createAgentInstructions({ adapter, packageManager, router, tailwind }) 
     `- \`${runCmd} build\` — production build`,
   ];
 
+  if (adapter.id === "node" || adapter.id === "cloudflare") {
+    lines.push(`- \`${runCmd} preview\` — build and serve the production build locally`);
+  }
+
   if (adapter.id === "node") {
     lines.push(`- \`${runCmd} start\` — run the built server`);
   }
@@ -990,6 +996,7 @@ function createAgentInstructions({ adapter, packageManager, router, tailwind }) 
 function createReadme({ adapter, packageManager, projectName, router, tailwind }) {
   const installCommand = packageManager === "npm" ? "npm install" : `${packageManager} install`;
   const devCommand = packageManager === "npm" ? "npm run dev" : `${packageManager} dev`;
+  const previewCommand = packageManager === "npm" ? "npm run preview" : `${packageManager} preview`;
   const startCommand = packageManager === "npm" ? "npm run start" : `${packageManager} start`;
   const deployCommand = packageManager === "npm" ? "npm run deploy" : `${packageManager} deploy`;
 
@@ -1005,10 +1012,12 @@ function createReadme({ adapter, packageManager, projectName, router, tailwind }
   ];
 
   if (adapter.id === "node") {
+    lines.push(`- \`${previewCommand}\``);
     lines.push(`- \`${startCommand}\``);
   }
 
   if (adapter.id === "cloudflare") {
+    lines.push(`- \`${previewCommand}\``);
     lines.push(`- \`${deployCommand}\``);
     lines.push("");
     lines.push(

@@ -69,6 +69,9 @@ described in `VISION_MVP.md`.
   client + server builds (with Vite manifest generation, SSG/ISG prerendering,
   ISG manifest output, executable Node server output in `dist/server/server.js`,
   and Vercel `.vercel/output/` generation when the app targets those adapters),
+  `pracht preview` builds and serves the production output locally (Node runs
+  `dist/server/server.js`, Cloudflare delegates to `wrangler dev`, and Vercel
+  points at `vercel build`/`vercel dev`),
   `pracht verify` runs fast framework-aware checks with optional `--changed`
   and `--json` output, `pracht inspect [routes|api|build] --json` emits the
   resolved route graph, API handlers, and build metadata for agents/tools,

@@ -20,6 +20,7 @@ const main = defineCommand({
     generate: () => import("./commands/generate.js").then((m) => m.default),
     inspect: () => import("./commands/inspect.js").then((m) => m.default),
     mcp: () => import("./commands/mcp.js").then((m) => m.default),
+    preview: () => import("./commands/preview.js").then((m) => m.default),
     typegen: () => import("./commands/typegen.js").then((m) => m.default),
     verify: () => import("./commands/verify.js").then((m) => m.default),
   },

@@ -67,7 +67,7 @@ Produces:
 node dist/server/server.js
 ```
 
-Port 3000 by default. For production: reverse proxy (nginx, Caddy), process manager (PM2, systemd), `NODE_ENV=production`.
+Port 3000 by default. For a local production smoke test, `pracht preview` builds and runs the server in one step (`--port <n>`, `--skip-build` to reuse an existing build). For production: reverse proxy (nginx, Caddy), process manager (PM2, systemd), `NODE_ENV=production`.
 
 ### Docker
 
@@ -100,6 +100,8 @@ CMD ["node", "dist/server/server.js"]
 pracht build
 npx wrangler deploy
 ```
+
+To smoke-test the built worker locally first, run `pracht preview` — it builds and then delegates to `wrangler dev` against `dist/server/server.js`.
 
 ### Wrangler Configuration
 
@@ -158,14 +160,14 @@ Produces: `.vercel/output/config.json`, `.vercel/output/static/`, `.vercel/outpu
 2. **Environment variables**: Ensure secrets/config needed by loaders are available at runtime.
 3. **Static assets**: Verify `dist/client/` contains prerendered HTML for SSG/ISG routes.
 4. **ISG routes**: Confirm the ISG manifest exists if using incremental static generation.
-5. **API routes**: Test API endpoints work in the production runtime. For Node.js, run `node dist/server/server.js`.
+5. **API routes**: Test API endpoints work in the production runtime. For Node.js, run `pracht preview` (or `node dist/server/server.js`).
 6. **Middleware**: Verify auth/redirect middleware behaves correctly in production.
 
 ## Rules
 
 1. Read `vite.config.ts` and `package.json` before giving advice.
 2. Run `pracht build` to verify the build succeeds before deploying.
-3. Smoke-test the production runtime before pushing to production. For Node.js, run `node dist/server/server.js`.
+3. Smoke-test the production runtime before pushing to production. For Node.js and Cloudflare, run `pracht preview`.
 4. If the user needs an adapter that isn't installed, help them add it (`pnpm add @pracht/adapter-*`).
 5. Don't push to production without the user's explicit confirmation.
 

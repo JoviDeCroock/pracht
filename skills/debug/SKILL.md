@@ -107,6 +107,7 @@ Work through these in order, stopping when you find the root cause:
 ### 8. Build / deployment issues
 
 - `pracht build` runs client + server builds, then prerenders SSG/ISG routes.
+- `pracht preview` builds and serves the production output locally (Node runs `dist/server/server.js`, Cloudflare delegates to `wrangler dev`).
 - `pracht inspect build --json` reports the resolved adapter target plus client/CSS/JS manifests from the latest build output.
 - Check `dist/client/` for client assets and `dist/server/` for server bundle.
 - ISG manifest: `dist/client/pracht-isg-manifest.json`.

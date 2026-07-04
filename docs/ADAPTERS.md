@@ -190,7 +190,9 @@ export const handler = createNodeRequestHandler({
 ```
 
 Running `pracht build` for a Node target emits `dist/server/server.js`, which is
-the executable production server entry.
+the executable production server entry. `pracht preview` builds and runs it in
+one step (`--port`/`$PORT` select the port, `--skip-build` reuses the existing
+build).
 
 ---
 
@@ -225,6 +227,10 @@ the executable production server entry.
   `main` at `dist/server/worker.js` — you own that file, which lets you add
   KV, D1, R2, cron, and any other Cloudflare bindings without losing them on
   rebuild.
+- **Local preview**: `pracht preview` runs `pracht build` and then delegates to
+  `wrangler dev --port <port>` against the built worker. It requires wrangler
+  (in `node_modules` or on PATH) and a wrangler config; it errors with install
+  instructions otherwise.
 - **KV/D1/R2 support**: custom context factories and the default build entry both
   surface the Cloudflare `env` object.
 - **`@cloudflare/vite-plugin` integration**: the adapter automatically includes
@@ -380,6 +386,9 @@ export default {
 - **Build Output API v3**: `pracht({ adapter: vercelAdapter() })` makes `pracht build`
   emit `.vercel/output/config.json`, `.vercel/output/static/`, and
   `.vercel/output/functions/render.func/`.
+- **Local preview**: there is no faithful local Vercel production runtime, so
+  `pracht preview` does not emulate one — it points at `vercel build` /
+  `vercel dev` instead.
 - **Clean URL routing**: prerendered SSG pages are copied into
   `.vercel/output/static` and exposed through `config.json` rewrites so `/about`
   resolves to `/about/index.html`.

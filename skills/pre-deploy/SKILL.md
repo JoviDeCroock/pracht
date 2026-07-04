@@ -61,7 +61,7 @@ These catch app-graph wiring problems independent of the adapter. Resolve all
 - `dist/server/server.js` exists.
 - `dist/client/.vite/manifest.json` exists.
 - `dist/server/isg-manifest.json` exists if any route has `render: "isg"`.
-- Smoke test: `node dist/server/server.js` boots and `curl localhost:3000` returns 200.
+- Smoke test: `pracht preview --skip-build` (or `node dist/server/server.js`) boots and `curl localhost:3000` returns 200.
 - Required env vars (grep `process.env.*` across `src/`) are set in the
   deployment environment. List them for the user.
 - Reverse-proxy / TLS termination configured (out of scope for this skill —
