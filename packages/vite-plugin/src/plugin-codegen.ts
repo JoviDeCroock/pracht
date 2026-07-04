@@ -142,6 +142,7 @@ export function createPrachtServerModuleSource(
     `export const cssManifest = ${JSON.stringify(clientBuild.cssManifest)};`,
     `export const jsManifest = ${JSON.stringify(clientBuild.jsManifest)};`,
     `export const prerenderConcurrency = ${JSON.stringify(resolved.prerenderConcurrency)};`,
+    `export const budgets = ${JSON.stringify(resolved.budgets)};`,
     "export { prerenderApp };",
     "",
   ];

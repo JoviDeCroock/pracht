@@ -18,6 +18,23 @@ Start the local development server with SSR and HMR.
 
 Create a production build with client/server output and SSG/ISG prerendering.
 
+```bash
+pracht build
+pracht build --analyze          # per-route client JS report (gzip + raw)
+pracht build --json             # same report as JSON (agent-friendly)
+pracht build --no-budget-fail   # report exceeded budgets without failing
+```
+
+`--analyze` prints, per route (pattern + render mode), the transitive client
+chunks it loads with raw and gzip sizes, a total row, and the shared entry
+chunks broken out. Output respects `NO_COLOR`.
+
+When the pracht plugin config declares `budgets` (e.g.
+`budgets: { "*": "120kb", "/dashboard": "200kb" }`), every build evaluates the
+per-route gzip client-JS ceilings, writes `dist/server/budget-report.json`, and
+exits non-zero on exceeded budgets unless `--no-budget-fail` is passed. See
+[docs/PERFORMANCE.md](https://github.com/JoviDeCroock/pracht/blob/main/docs/PERFORMANCE.md).
+
 For Node.js targets, run the built server with:
 
 ```bash
@@ -28,7 +45,9 @@ node dist/server/server.js
 
 Run fast framework-aware verification checks without paying for a full build or
 test loop. Use `--changed` to focus on changed manifest-managed files and
-`--json` for machine-readable output.
+`--json` for machine-readable output. When `dist/server/budget-report.json`
+exists (written by `pracht build` when budgets are configured), the last
+build's client JS budget results are surfaced as checks.
 
 ```bash
 pracht verify

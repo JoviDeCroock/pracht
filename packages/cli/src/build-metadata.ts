@@ -13,6 +13,8 @@ interface ViteManifestEntry {
 
 export interface ClientBuildAssets {
   clientEntryUrl: string | null;
+  /** Transitive JS chunk urls loaded by the client entry on every page. */
+  clientEntryJs: string[];
   cssManifest: Record<string, string[]>;
   jsManifest: Record<string, string[]>;
 }
@@ -25,6 +27,7 @@ export function readClientBuildAssets(root: string = process.cwd()): ClientBuild
   if (!manifestPath) {
     return {
       clientEntryUrl: null,
+      clientEntryJs: [],
       cssManifest: {},
       jsManifest: {},
     };
@@ -82,6 +85,9 @@ export function readClientBuildAssets(root: string = process.cwd()): ClientBuild
 
   return {
     clientEntryUrl: clientEntry ? `/${clientEntry.file}` : null,
+    clientEntryJs: clientEntry
+      ? collectTransitiveDeps("virtual:pracht/client").js.map((file) => `/${file}`)
+      : [],
     cssManifest,
     jsManifest,
   };
