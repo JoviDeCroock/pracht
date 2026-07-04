@@ -22,6 +22,7 @@ import type {
   PrachtApp,
   PrachtAppConfig,
 } from "./types.ts";
+import { formatUnknownNameError } from "./name-suggestions.ts";
 
 interface InheritedRouteConfig {
   pathPrefix: string;
@@ -117,6 +118,20 @@ export function resolveApp(app: PrachtApp): ResolvedPrachtApp {
     middleware: [],
   };
 
+  for (const name of app.api?.middleware ?? []) {
+    if (!hasOwnEntry(app.middleware, name)) {
+      throw new Error(
+        formatUnknownNameError({
+          kind: "middleware",
+          kindPlural: "middleware",
+          name,
+          registered: Object.keys(app.middleware),
+          context: "api routes",
+        }),
+      );
+    }
+  }
+
   for (const node of app.routes) {
     flattenRouteNode(app, node, inherited, routes);
   }
@@ -177,6 +192,17 @@ function flattenRouteNode(
   const shell = node.shell ?? inherited.shell;
   const middleware = [...inherited.middleware, ...(node.middleware ?? [])];
 
+  if (shell !== undefined && !hasOwnEntry(app.shells, shell)) {
+    throw new Error(
+      formatUnknownNameError({
+        kind: "shell",
+        name: shell,
+        registered: Object.keys(app.shells),
+        context: `route "${fullPath}"`,
+      }),
+    );
+  }
+
   routes.push({
     id: node.id ?? createRouteId(fullPath),
     path: fullPath,
@@ -184,16 +210,31 @@ function flattenRouteNode(
     loaderFile: node.loaderFile,
     hasLoader: node.loaderFile ? true : node.hasLoader,
     shell,
-    shellFile: shell ? app.shells[shell] : undefined,
+    shellFile: shell !== undefined ? app.shells[shell] : undefined,
     render: node.render ?? inherited.render,
     middleware,
-    middlewareFiles: middleware.flatMap((name) => {
-      const middlewareFile = app.middleware[name];
-      return middlewareFile ? [middlewareFile] : [];
+    middlewareFiles: middleware.map((name) => {
+      if (!hasOwnEntry(app.middleware, name)) {
+        throw new Error(
+          formatUnknownNameError({
+            kind: "middleware",
+            kindPlural: "middleware",
+            name,
+            registered: Object.keys(app.middleware),
+            context: `route "${fullPath}"`,
+          }),
+        );
+      }
+      return app.middleware[name];
     }),
     revalidate: node.revalidate,
     segments: parseRouteSegments(fullPath),
   });
+}
+
+/** `in` would also match `Object.prototype` keys such as `constructor`. */
+function hasOwnEntry(record: Record<string, string>, name: string): boolean {
+  return Object.prototype.hasOwnProperty.call(record, name);
 }
 
 function isResolvedApp(app: PrachtApp | ResolvedPrachtApp): app is ResolvedPrachtApp {
@@ -356,7 +397,14 @@ function buildHrefUntyped(
 ): string {
   const route = routes.find((candidate) => candidate.id === routeId);
   if (!route) {
-    throw new Error(`Unknown pracht route id: ${routeId}.`);
+    throw new Error(
+      formatUnknownNameError({
+        kind: "pracht route id",
+        kindPlural: "route ids",
+        name: routeId,
+        registered: routes.flatMap((candidate) => (candidate.id ? [candidate.id] : [])),
+      }),
+    );
   }
 
   const segments = route.segments ?? parseRouteSegments(route.path);

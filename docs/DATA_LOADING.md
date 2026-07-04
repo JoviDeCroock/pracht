@@ -160,6 +160,27 @@ production, serialized route and API failures also include `error.diagnostics`
 with framework metadata such as `phase`, `routeId`, `routePath`, `routeFile`,
 `loaderFile`, `shellFile`, `middlewareFiles`, and `status`.
 
+#### Dev error overlay
+
+In dev, uncaught server errors render pracht's full-page error overlay
+instead of a bare 500. Stack frames from your app code (and the reported
+file path) are clickable — they open the file at the exact line and column
+in your editor through Vite's built-in `/__open-in-editor` endpoint. Frames
+from `node_modules` and Node internals are de-emphasized.
+
+Manifest wiring mistakes fail loudly with a "did you mean" hint. Referencing
+an unregistered shell or middleware name (including `api.middleware`) throws
+during `resolveApp()`, and unknown route ids throw from `href()`/`<Link route>`:
+
+```
+Unknown shell "pubic" for route "/". Did you mean "public"? Registered shells: public, app.
+Unknown middleware "auht" for route "/admin". Did you mean "auth"? Registered middleware: auth, logging.
+Unknown pracht route id "prduct". Did you mean "product"? Registered route ids: home, product, docs.
+```
+
+These messages flow into the dev error overlay as soon as the dev server
+loads the manifest.
+
 ---
 
 ## Head Metadata

@@ -51,7 +51,7 @@ Work through these in order, stopping when you find the root cause:
 - If `<Link route="...">`, `href("...")`, or route-object `useNavigate()` fails to typecheck, run `pracht typegen --check` to detect stale generated files.
 - Run `pracht inspect routes --json` and confirm the route id exists. If it is a fallback id, remember path changes can rename it.
 - Check generated `src/pracht-routes.d.ts` for inferred params. `:id`, `*`, and `:path*` params are required; extra params should fail at typecheck time.
-- If runtime navigation throws `Unknown pracht route id`, ensure `pracht typegen` was run and the component is rendered inside the pracht route tree.
+- If runtime navigation throws `Unknown pracht route id "..."`, the error includes a `Did you mean "..."?` suggestion and the list of registered route ids — check for a typo first, then ensure `pracht typegen` was run and the component is rendered inside the pracht route tree.
 - For unexpected URLs, reproduce with `href(routeId, options)` and compare against the route's resolved path and params.
 
 ### 3. Loader / API route errors
@@ -69,12 +69,14 @@ Work through these in order, stopping when you find the root cause:
   - Date/time rendering differences
   - Browser-only APIs used during SSR (`window`, `document`, `localStorage`)
   - Conditional rendering based on client state
-- **Missing shell**: Verify the shell is registered in `defineApp({ shells: { ... } })` and assigned to the route/group.
+- **Missing shell**: Referencing an unregistered shell name throws at manifest resolution — `Unknown shell "..." for route "...". Did you mean "..."? Registered shells: ...` — and shows up in the dev error overlay as soon as the server loads the manifest. Verify the shell is registered in `defineApp({ shells: { ... } })` and assigned to the route/group.
 - **404 page**: Route not matched — check manifest wiring (step 1). In `pracht dev`, unmatched navigations render a dev-only 404 page listing every registered route with its render mode; compare the requested path against that table. The route table is also printed on dev-server startup and available via `pracht inspect routes`.
 
 ### 5. Middleware issues
 
-- Verify middleware is registered in `defineApp({ middleware: { ... } })`.
+- Verify middleware is registered in `defineApp({ middleware: { ... } })`. An
+  unregistered name (on a route, group, or `api.middleware`) throws at manifest
+  resolution — `Unknown middleware "..." for route "...". Did you mean "..."? Registered middleware: ...`
 - Verify middleware is applied to the route/group: `middleware: ["name"]`.
 - Middleware is wrap-around: it must always return a `Response`, either by
   calling `await next()` (to continue down the chain) or short-circuiting.
