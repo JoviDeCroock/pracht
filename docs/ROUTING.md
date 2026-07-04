@@ -205,6 +205,12 @@ currently typed as `SearchParamsInput` (`string`, `URLSearchParams`, or an
 object of primitive values/arrays); route-specific search schemas can be added
 later through route metadata without changing the runtime helper shape.
 
+The declaration also registers each route's loader data type, so
+`useRouteData("product")` returns the awaited return type of that route's
+loader (including separate loader files wired via the manifest) without
+writing a generic. See
+[docs/DATA_LOADING.md](DATA_LOADING.md#useroutedata) for details.
+
 Use `pracht typegen --check` in CI to fail when generated route files are stale.
 
 ---

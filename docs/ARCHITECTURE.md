@@ -502,7 +502,10 @@ export default function Page({ data }: RouteComponentProps<typeof loader>) {
 
 The `LoaderData<T>` utility extracts the return type of a loader function,
 unwrapping Promises. This flows through `useRouteData<typeof loader>()` on the
-client side as well.
+client side as well. Projects that run `pracht typegen` can drop the generic
+entirely: the generated declaration registers each route's loader data on
+`Register["routes"]`, so `useRouteData("dashboard")` resolves the data type
+from the route id (see [docs/DATA_LOADING.md](DATA_LOADING.md#useroutedata)).
 
 ---
 

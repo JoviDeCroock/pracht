@@ -229,6 +229,17 @@ Headers merge with the shell's `headers` export. Route-level headers override sh
 
 Access the current route's loader data reactively. Updates automatically on navigation and revalidation.
 
+If your project runs `pracht typegen`, pass the route id and the data type is inferred from that route's loader — no generic needed:
+
+```ts
+export function Component() {
+  const data = useRouteData("dashboard");
+  return <span>{data.user.name}</span>;
+}
+```
+
+For projects that do not run typegen, pass the loader type explicitly as a generic instead:
+
 ```ts
 export function Component() {
   const data = useRouteData<typeof loader>();
