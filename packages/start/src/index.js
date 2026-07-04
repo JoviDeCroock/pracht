@@ -18,6 +18,8 @@ const FALLBACK_VERSION_RANGES = {
   "@pracht/cli": "^1.3.1",
   "@pracht/core": "^0.5.0",
   "@pracht/vite-plugin": "^0.3.2",
+  "@tailwindcss/vite": "^4.1.0",
+  tailwindcss: "^4.1.0",
   vercel: "latest",
 };
 
@@ -68,12 +70,19 @@ export async function run(argv = process.argv.slice(2)) {
   const dir = options.dir ?? (options.yes ? DEFAULT_DIRECTORY : null);
   const adapterId = options.adapter ?? (options.yes ? "node" : null);
   const router = options.router ?? (options.yes ? "manifest" : null);
+  const tailwind = options.tailwind ?? (options.yes ? false : null);
 
   let resolvedDir = dir;
   let resolvedAdapter = adapterId;
   let resolvedRouter = router;
+  let resolvedTailwind = tailwind;
 
-  if (resolvedDir == null || resolvedAdapter == null || resolvedRouter == null) {
+  if (
+    resolvedDir == null ||
+    resolvedAdapter == null ||
+    resolvedRouter == null ||
+    resolvedTailwind == null
+  ) {
     const readline = createInterface({
       input: process.stdin,
       output: process.stdout,
@@ -83,6 +92,7 @@ export async function run(argv = process.argv.slice(2)) {
       resolvedDir = resolvedDir ?? (await promptForDirectory(readline));
       resolvedAdapter = resolvedAdapter ?? (await promptForAdapter(readline));
       resolvedRouter = resolvedRouter ?? (await promptForRouter(readline));
+      resolvedTailwind = resolvedTailwind ?? (await promptForTailwind(readline));
     } finally {
       readline.close();
     }
@@ -99,6 +109,7 @@ export async function run(argv = process.argv.slice(2)) {
       projectName: toPackageName(basename(targetDir)),
       resolveRemoteVersions: false,
       router: resolvedRouter,
+      tailwind: resolvedTailwind,
     });
 
     const fileList = Object.keys(files).sort();
@@ -111,6 +122,7 @@ export async function run(argv = process.argv.slice(2)) {
           dryRun: true,
           files: fileList,
           router: resolvedRouter,
+          tailwind: resolvedTailwind,
         }),
       );
     } else {
@@ -128,6 +140,7 @@ export async function run(argv = process.argv.slice(2)) {
     adapter: ADAPTERS[resolvedAdapter],
     packageManager,
     router: resolvedRouter,
+    tailwind: resolvedTailwind,
     targetDir,
   });
 
@@ -138,6 +151,23 @@ export async function run(argv = process.argv.slice(2)) {
     installSucceeded = await installDependencies(targetDir, packageManager);
   }
 
+  let gitInitialized = false;
+  if (options.git) {
+    const gitResult = await initGitRepository(targetDir);
+    gitInitialized = gitResult.initialized;
+
+    if (gitResult.initialized) {
+      log("");
+      log("Initialized a git repository with an initial commit.");
+    } else if (gitResult.reason === "existing-repo") {
+      log("");
+      log("Skipped git init — the target directory is already inside a git repository.");
+    } else if (gitResult.reason === "git-not-found") {
+      log("");
+      log("Skipped git init — git is not available on this machine.");
+    }
+  }
+
   if (options.json) {
     const files = await buildProjectFiles({
       adapter: ADAPTERS[resolvedAdapter],
@@ -145,6 +175,7 @@ export async function run(argv = process.argv.slice(2)) {
       projectName: toPackageName(basename(targetDir)),
       resolveRemoteVersions: false,
       router: resolvedRouter,
+      tailwind: resolvedTailwind,
     });
 
     console.log(
@@ -152,8 +183,10 @@ export async function run(argv = process.argv.slice(2)) {
         adapter: resolvedAdapter,
         directory: resolvedDir,
         files: Object.keys(files).sort(),
+        gitInitialized,
         installed: options.skipInstall ? false : installSucceeded,
         router: resolvedRouter,
+        tailwind: resolvedTailwind,
       }),
     );
   } else {
@@ -167,13 +200,20 @@ export async function run(argv = process.argv.slice(2)) {
   }
 }
 
-export async function scaffoldProject({ adapter, packageManager, router = "manifest", targetDir }) {
+export async function scaffoldProject({
+  adapter,
+  packageManager,
+  router = "manifest",
+  tailwind = false,
+  targetDir,
+}) {
   const packageName = toPackageName(basename(targetDir));
   const files = await buildProjectFiles({
     adapter,
     packageManager,
     projectName: packageName,
     router,
+    tailwind,
   });
 
   await mkdir(targetDir, { recursive: true });
@@ -207,15 +247,43 @@ export function parseArgs(argv) {
     adapter: undefined,
     dir: undefined,
     dryRun: false,
+    git: true,
     json: false,
     router: undefined,
     skipInstall: false,
+    tailwind: undefined,
     yes: false,
   };
 
   for (const arg of argv) {
     if (arg === "--skip-install") {
       options.skipInstall = true;
+      continue;
+    }
+
+    if (arg === "--tailwind") {
+      options.tailwind = true;
+      continue;
+    }
+
+    if (arg === "--no-tailwind") {
+      options.tailwind = false;
+      continue;
+    }
+
+    if (arg === "--no-git") {
+      options.git = false;
+      continue;
+    }
+
+    if (arg.startsWith("--template=")) {
+      const value = normalizeTemplate(arg.slice("--template=".length));
+      if (!value) {
+        throw new ValidationError(
+          `Invalid template: ${arg.slice("--template=".length)}. Use minimal or tailwind.`,
+        );
+      }
+      options.tailwind = value === "tailwind";
       continue;
     }
 
@@ -322,6 +390,33 @@ async function promptForRouter(readline) {
   }
 }
 
+async function promptForTailwind(readline) {
+  while (true) {
+    const answer = await readline.question("Use Tailwind CSS? (y/N): ");
+    const normalized = normalizeYesNo(answer.trim() || "no");
+
+    if (normalized != null) {
+      return normalized;
+    }
+
+    console.log("Answer y/yes or n/no.");
+  }
+}
+
+function normalizeYesNo(value) {
+  const normalized = value.toLowerCase();
+
+  if (normalized === "y" || normalized === "yes") {
+    return true;
+  }
+
+  if (normalized === "n" || normalized === "no") {
+    return false;
+  }
+
+  return null;
+}
+
 async function ensureTargetDirectory(targetDir) {
   const error = await validateTargetDirectory(targetDir);
 
@@ -343,6 +438,20 @@ async function validateTargetDirectory(targetDir) {
   const entries = await readdir(targetDir);
   if (entries.length > 0) {
     return "Target directory already exists and is not empty.";
+  }
+
+  return null;
+}
+
+function normalizeTemplate(value) {
+  const normalized = value.toLowerCase();
+
+  if (normalized === "minimal") {
+    return "minimal";
+  }
+
+  if (normalized === "tailwind") {
+    return "tailwind";
   }
 
   return null;
@@ -406,6 +515,7 @@ async function buildProjectFiles({
   projectName,
   resolveRemoteVersions = true,
   router,
+  tailwind = false,
 }) {
   const packagesToResolve = [
     "@pracht/cli",
@@ -416,26 +526,33 @@ async function buildProjectFiles({
   if (adapter.id === "vercel") {
     packagesToResolve.push("vercel");
   }
+  if (tailwind) {
+    packagesToResolve.push("tailwindcss", "@tailwindcss/vite");
+  }
 
   const versions = await resolveVersions(packagesToResolve, { remote: resolveRemoteVersions });
 
   const files = {
     ".gitignore": "dist\nnode_modules\n.wrangler\n.vercel\n.env*\n!.env.example\n.dev.vars\n",
-    "README.md": createReadme({ adapter, packageManager, projectName, router }),
-    "package.json": createPackageJson({ adapter, projectName, versions }),
+    "README.md": createReadme({ adapter, packageManager, projectName, router, tailwind }),
+    "package.json": createPackageJson({ adapter, projectName, tailwind, versions }),
     "src/api/health.ts": createHealthRoute(adapter),
-    "vite.config.ts": createViteConfig(adapter, router),
+    "vite.config.ts": createViteConfig(adapter, router, tailwind),
     "tsconfig.json": createBaseTSConfig(adapter),
-    "AGENTS.md": createAgentInstructions({ adapter, packageManager, router }),
+    "AGENTS.md": createAgentInstructions({ adapter, packageManager, router, tailwind }),
   };
 
   if (router === "pages") {
-    files["src/pages/_app.tsx"] = createShellFile(projectName);
+    files["src/pages/_app.tsx"] = createShellFile(projectName, tailwind);
     files["src/pages/index.tsx"] = createPagesHomeRoute(adapter);
   } else {
     files["src/routes.ts"] = createRoutesFile();
     files["src/routes/home.tsx"] = createHomeRoute(adapter);
-    files["src/shells/public.tsx"] = createShellFile(projectName);
+    files["src/shells/public.tsx"] = createShellFile(projectName, tailwind);
+  }
+
+  if (tailwind) {
+    files["src/styles/global.css"] = '@import "tailwindcss";\n';
   }
 
   if (adapter.id === "cloudflare") {
@@ -443,10 +560,15 @@ async function buildProjectFiles({
     files["src/env.d.ts"] = createCloudflareEnvDeclaration();
   }
 
+  if (adapter.id === "node") {
+    files["Dockerfile"] = createDockerfile(packageManager);
+    files[".dockerignore"] = createDockerignore();
+  }
+
   return files;
 }
 
-function createPackageJson({ adapter, projectName, versions }) {
+function createPackageJson({ adapter, projectName, tailwind, versions }) {
   const scripts = {
     build: "pracht build",
     dev: "pracht dev",
@@ -474,6 +596,11 @@ function createPackageJson({ adapter, projectName, versions }) {
     devDependencies.vercel = versions["vercel"];
   }
 
+  if (tailwind) {
+    devDependencies["@tailwindcss/vite"] = versions["@tailwindcss/vite"];
+    devDependencies.tailwindcss = versions["tailwindcss"];
+  }
+
   return `${JSON.stringify(
     {
       dependencies: {
@@ -492,7 +619,7 @@ function createPackageJson({ adapter, projectName, versions }) {
   )}\n`;
 }
 
-function createViteConfig(adapter, router) {
+function createViteConfig(adapter, router, tailwind) {
   const ADAPTER_IMPORTS = {
     node: { fn: "nodeAdapter", pkg: "@pracht/adapter-node" },
     cloudflare: { fn: "cloudflareAdapter", pkg: "@pracht/adapter-cloudflare" },
@@ -506,16 +633,23 @@ function createViteConfig(adapter, router) {
       ? `{ pagesDir: "/src/pages", adapter: ${info.fn}() }`
       : `{ adapter: ${info.fn}() }`;
 
-  return [
+  const plugins = tailwind
+    ? `[pracht(${prachtOptions}), tailwindcss()]`
+    : `[pracht(${prachtOptions})]`;
+
+  const lines = [
     'import { defineConfig } from "vite";',
     'import { pracht } from "@pracht/vite-plugin";',
     `import { ${info.fn} } from "${info.pkg}";`,
-    "",
-    "export default defineConfig({",
-    `  plugins: [pracht(${prachtOptions})],`,
-    "});",
-    "",
-  ].join("\n");
+  ];
+
+  if (tailwind) {
+    lines.push('import tailwindcss from "@tailwindcss/vite";');
+  }
+
+  lines.push("", "export default defineConfig({", `  plugins: ${plugins},`, "});", "");
+
+  return lines.join("\n");
 }
 
 function createRoutesFile() {
@@ -534,9 +668,15 @@ function createRoutesFile() {
   ].join("\n");
 }
 
-function createShellFile(projectName) {
+function createShellFile(projectName, tailwind = false) {
+  const lines = ['import type { ShellProps } from "@pracht/core";'];
+
+  if (tailwind) {
+    lines.push('import "../styles/global.css";');
+  }
+
   return [
-    'import type { ShellProps } from "@pracht/core";',
+    ...lines,
     "",
     "export function Shell({ children }: ShellProps) {",
     "  return (",
@@ -705,7 +845,80 @@ function createCloudflareEnvDeclaration() {
   ].join("\n");
 }
 
-function createAgentInstructions({ adapter, packageManager, router }) {
+function createDockerfile(packageManager) {
+  const COMMANDS = {
+    npm: {
+      build: "npm run build",
+      install: "npm install",
+      lockfile: "package-lock.json*",
+      prune: "npm prune --omit=dev",
+      setup: null,
+    },
+    pnpm: {
+      build: "pnpm build",
+      install: "pnpm install",
+      lockfile: "pnpm-lock.yaml*",
+      prune: "pnpm prune --prod",
+      setup: "corepack enable pnpm",
+    },
+    yarn: {
+      build: "yarn build",
+      install: "yarn install",
+      lockfile: "yarn.lock*",
+      prune: "yarn install --production --ignore-scripts --prefer-offline",
+      setup: "corepack enable yarn",
+    },
+  };
+
+  // The runtime image ships Node.js, so bun scaffolds fall back to npm inside Docker.
+  const commands = COMMANDS[packageManager] ?? COMMANDS.npm;
+
+  const lines = ["# syntax=docker/dockerfile:1", "", "FROM node:22-alpine AS base", "WORKDIR /app"];
+
+  if (commands.setup) {
+    lines.push(`RUN ${commands.setup}`);
+  }
+
+  lines.push(
+    "",
+    "FROM base AS deps",
+    `COPY package.json ${commands.lockfile} ./`,
+    `RUN ${commands.install}`,
+    "",
+    "FROM deps AS build",
+    "COPY . .",
+    `RUN ${commands.build}`,
+    `RUN ${commands.prune}`,
+    "",
+    "FROM node:22-alpine AS runtime",
+    "WORKDIR /app",
+    "ENV NODE_ENV=production",
+    "ENV PORT=3000",
+    "COPY --from=build /app/package.json ./package.json",
+    "COPY --from=build /app/node_modules ./node_modules",
+    "COPY --from=build /app/dist ./dist",
+    "EXPOSE 3000",
+    'CMD ["node", "dist/server/server.js"]',
+    "",
+  );
+
+  return lines.join("\n");
+}
+
+function createDockerignore() {
+  return [
+    "node_modules",
+    "dist",
+    ".git",
+    ".env*",
+    "!.env.example",
+    "Dockerfile",
+    ".dockerignore",
+    "",
+  ].join("\n");
+}
+
+function createAgentInstructions({ adapter, packageManager, router, tailwind }) {
   const runCmd = packageManager === "npm" ? "npm run" : packageManager;
 
   const lines = [
@@ -756,6 +969,14 @@ function createAgentInstructions({ adapter, packageManager, router }) {
   lines.push("- `src/api/` — API route handlers");
   lines.push(`- \`vite.config.ts\` — Vite config with the ${adapter.label} adapter`);
 
+  if (tailwind) {
+    lines.push("- `src/styles/global.css` — Tailwind CSS entry stylesheet, imported by the shell");
+  }
+
+  if (adapter.id === "node") {
+    lines.push("- `Dockerfile` — multi-stage container build that runs the built server");
+  }
+
   if (adapter.id === "cloudflare") {
     lines.push("- `wrangler.jsonc` — Cloudflare Workers configuration");
     lines.push("- `src/env.d.ts` — TypeScript types for Cloudflare bindings");
@@ -766,7 +987,7 @@ function createAgentInstructions({ adapter, packageManager, router }) {
   return lines.join("\n");
 }
 
-function createReadme({ adapter, packageManager, projectName, router }) {
+function createReadme({ adapter, packageManager, projectName, router, tailwind }) {
   const installCommand = packageManager === "npm" ? "npm install" : `${packageManager} install`;
   const devCommand = packageManager === "npm" ? "npm run dev" : `${packageManager} dev`;
   const startCommand = packageManager === "npm" ? "npm run start" : `${packageManager} start`;
@@ -816,7 +1037,77 @@ function createReadme({ adapter, packageManager, projectName, router }) {
 
   lines.push("- `src/api/health.ts` is a sample API route.");
 
+  if (tailwind) {
+    lines.push("- `src/styles/global.css` is the Tailwind CSS entry, imported by the shell.");
+  }
+
+  if (adapter.id === "node") {
+    lines.push("");
+    lines.push("## Docker");
+    lines.push("");
+    lines.push("A multi-stage `Dockerfile` builds the app and runs the Node server:");
+    lines.push("");
+    lines.push("```bash");
+    lines.push(`docker build -t ${projectName} .`);
+    lines.push(`docker run -p 3000:3000 ${projectName}`);
+    lines.push("```");
+  }
+
   return `${lines.join("\n")}\n`;
+}
+
+export async function initGitRepository(targetDir) {
+  if (!(await execCommand("git", ["--version"]))) {
+    return { initialized: false, reason: "git-not-found" };
+  }
+
+  if (await execCommand("git", ["rev-parse", "--is-inside-work-tree"], targetDir)) {
+    return { initialized: false, reason: "existing-repo" };
+  }
+
+  if (!(await execCommand("git", ["init"], targetDir))) {
+    return { initialized: false, reason: "init-failed" };
+  }
+
+  if (!(await execCommand("git", ["add", "-A"], targetDir))) {
+    return { initialized: false, reason: "commit-failed" };
+  }
+
+  // Fall back to a scoped identity when the user has no git identity configured,
+  // so the initial commit still succeeds (e.g. on fresh machines or CI).
+  const hasIdentity = await execCommand("git", ["config", "user.email"], targetDir);
+  const identityArgs = hasIdentity
+    ? []
+    : ["-c", "user.name=create-pracht", "-c", "user.email=create-pracht@localhost"];
+
+  const committed = await execCommand(
+    "git",
+    [...identityArgs, "commit", "-m", "Initial commit from create-pracht"],
+    targetDir,
+  );
+
+  if (!committed) {
+    return { initialized: false, reason: "commit-failed" };
+  }
+
+  return { initialized: true };
+}
+
+function execCommand(command, args, cwd) {
+  return new Promise((resolveExec) => {
+    const child = spawn(command, args, {
+      cwd,
+      stdio: "ignore",
+    });
+
+    child.on("close", (code) => {
+      resolveExec(code === 0);
+    });
+
+    child.on("error", () => {
+      resolveExec(false);
+    });
+  });
 }
 
 async function installDependencies(targetDir, packageManager) {
@@ -868,13 +1159,16 @@ Usage:
   create-pracht [directory] [options]
 
 Options:
-  --adapter=node|cf|vercel   Choose hosting adapter (default: node)
-  --router=manifest|pages    Choose routing system (default: manifest)
-  --skip-install             Skip dependency installation
-  --yes, -y                  Accept defaults, skip all prompts
-  --json                     Output JSON summary instead of prose
-  --dry-run                  Show which files would be created without writing
-  -h, --help                 Show this help message
+  --adapter=node|cf|vercel     Choose hosting adapter (default: node)
+  --router=manifest|pages      Choose routing system (default: manifest)
+  --template=minimal|tailwind  Choose starter template (minimal, or minimal + Tailwind CSS)
+  --tailwind / --no-tailwind   Enable or disable Tailwind CSS wiring (default: prompt)
+  --no-git                     Skip git init and the initial commit
+  --skip-install               Skip dependency installation
+  --yes, -y                    Accept defaults, skip all prompts
+  --json                       Output JSON summary instead of prose
+  --dry-run                    Show which files would be created without writing
+  -h, --help                   Show this help message
 `);
 }
 
