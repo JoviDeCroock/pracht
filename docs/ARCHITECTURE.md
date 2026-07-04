@@ -306,6 +306,43 @@ Secrets in loader code stay server-side. The client only receives serialized dat
 
 ---
 
+## Dev Server Debugging
+
+The Vite dev SSR middleware (`packages/vite-plugin/src/plugin-dev-ssr.ts`) adds two
+dev-only debugging surfaces. Neither exists in production builds, and adapters that
+own the dev server (`ownsDevServer: true`, e.g. Cloudflare's workerd-based dev) bypass
+this middleware and therefore don't expose them.
+
+### `/_pracht` devtools page
+
+- `GET /_pracht` serves a self-contained HTML page (no Preact — same approach as the
+  error overlay in `packages/framework/src/error-overlay.ts`) listing every page route
+  (pattern, render mode, shell, middleware chain, source file) and API route
+  (path, methods, source file), with links to navigable routes.
+- `GET /_pracht.json` serves the same data as JSON.
+- Both are built from the shared app-graph helpers in
+  `packages/framework/src/app-graph.ts` (`@pracht/core/devtools`) — the same
+  serialization `pracht inspect --json` uses, so the CLI and the page never drift.
+- The path is reserved in dev only: a user route at `/_pracht` still wins in
+  production, while in dev the middleware logs a collision warning and serves the
+  devtools page.
+
+### `Server-Timing` header
+
+In dev, every SSR page response carries a standards-compliant `Server-Timing` header,
+e.g. `mw;dur=1.2, loader;dur=14.8, render;dur=3.1`, visible in the browser devtools
+Network panel:
+
+- `mw` — time spent in the middleware chain (excluding loader/render)
+- `loader` — time awaiting the route loader (omitted when the route has none)
+- `render` — module resolution + component rendering + HTML assembly
+
+The runtime only records timings when the dev middleware passes a collector via
+`HandlePrachtRequestOptions.timings`; production adapters never pass one, so
+production requests skip all timing work.
+
+---
+
 ## Build Pipeline
 
 Pracht uses Vite's multi-environment build:

@@ -57,6 +57,10 @@
     "./dev-404": {
       "types": "./dist/dev-404.d.mts",
       "default": "./dist/dev-404.mjs"
+    },
+    "./devtools": {
+      "types": "./dist/devtools.d.mts",
+      "default": "./dist/devtools.mjs"
     }
   },
   "publishConfig": {

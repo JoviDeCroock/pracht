@@ -33,6 +33,7 @@ import {
 } from "./runtime-response.ts";
 import { withRouteResponseHeaders } from "./runtime-headers.ts";
 import { markdownResponse, prefersMarkdown } from "./runtime-negotiation.ts";
+import type { PrachtPhaseTimings } from "./runtime-timing.ts";
 import type {
   ApiRouteArgs,
   ApiRouteModule,
@@ -153,6 +154,12 @@ export interface HandlePrachtRequestOptions<TContext = unknown> {
   /** Per-source-file JS chunk map produced by the vite plugin for modulepreload hints. */
   jsManifest?: Record<string, string[]>;
   apiRoutes?: ResolvedApiRoute[];
+  /**
+   * Dev-only phase-timing collector. When provided, the runtime records
+   * middleware/loader/render durations (ms) onto it so callers can emit a
+   * `Server-Timing` header. Leave unset in production — no timing work runs.
+   */
+  timings?: PrachtPhaseTimings;
 }
 
 export async function handlePrachtRequest<TContext>(
@@ -331,6 +338,7 @@ export async function handlePrachtRequest<TContext>(
   let shellModule: ShellModule | undefined;
   let loaderFile: string | undefined;
   let currentPhase: PrachtRuntimeDiagnosticPhase = "middleware";
+  const timings = options.timings;
 
   try {
     // Kick off every piece of the pipeline that doesn't depend on the
@@ -375,7 +383,14 @@ export async function handlePrachtRequest<TContext>(
       const { loader, loaderFile: resolvedLoaderFile } = await dataFunctionsPromise;
       loaderFile = resolvedLoaderFile;
 
-      const loaderResult = loader ? await loader(routeArgs) : undefined;
+      let loaderResult: unknown;
+      if (loader) {
+        const loaderStart = timings ? performance.now() : 0;
+        loaderResult = await loader(routeArgs);
+        if (timings) {
+          timings.loader = performance.now() - loaderStart;
+        }
+      }
 
       // Allow loaders to return a Response directly (e.g. for redirects)
       if (loaderResult instanceof Response) {
@@ -518,6 +533,24 @@ export async function handlePrachtRequest<TContext>(
       );
     };
 
+    // Dev-only instrumentation: wrap the terminal so middleware time can be
+    // derived as "chain total minus terminal", and terminal time minus the
+    // loader becomes the render phase. Production passes no collector and
+    // uses the un-wrapped terminal.
+    let terminal = pageTerminal;
+    let chainStart = 0;
+    if (timings) {
+      terminal = async () => {
+        const terminalStart = performance.now();
+        try {
+          return await pageTerminal();
+        } finally {
+          timings.render = performance.now() - terminalStart - (timings.loader ?? 0);
+        }
+      };
+      chainStart = performance.now();
+    }
+
     const response = await runMiddlewareChain({
       context: pageContext,
       middlewareFiles: match.route.middlewareFiles,
@@ -527,8 +560,11 @@ export async function handlePrachtRequest<TContext>(
       route: match.route,
       signal: requestSignal,
       url,
-      terminal: pageTerminal,
+      terminal,
     });
+    if (timings) {
+      timings.mw = performance.now() - chainStart - (timings.render ?? 0) - (timings.loader ?? 0);
+    }
     return normalizePageResponse(response, { isRouteStateRequest });
   } catch (error: unknown) {
     return renderRouteErrorResponse({
@@ -574,6 +610,7 @@ function isHrefRouteDefinition(value: unknown): value is HrefRouteDefinition {
 // Public runtime surface — re-exported so `./runtime.ts` remains the
 // single import entry for the framework's runtime API.
 export { applyDefaultSecurityHeaders } from "./runtime-headers.ts";
+export { formatServerTimingHeader, type PrachtPhaseTimings } from "./runtime-timing.ts";
 export {
   deserializeRouteError,
   type PrachtRuntimeDiagnosticPhase,

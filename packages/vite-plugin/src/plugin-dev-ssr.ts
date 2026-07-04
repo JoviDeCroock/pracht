@@ -1,16 +1,22 @@
+import { readFileSync } from "node:fs";
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { resolve } from "node:path";
 import type { Connect, ViteDevServer } from "vite";
-import type { ResolvedApiRoute, ResolvedPrachtApp } from "@pracht/core";
+import type { PrachtPhaseTimings, ResolvedApiRoute, ResolvedPrachtApp } from "@pracht/core";
 import { CLIENT_BROWSER_PATH, PRACHT_SERVER_MODULE_ID } from "./plugin-assets.ts";
 
 const BODYLESS_METHODS = new Set(["GET", "HEAD"]);
 const DEFAULT_MAX_BODY_SIZE = 1024 * 1024; // 1 MiB
+
+export const DEVTOOLS_PATH = "/_pracht";
+export const DEVTOOLS_JSON_PATH = "/_pracht.json";
 
 export function createDevSSRMiddleware(
   server: ViteDevServer,
   options: { maxBodySize?: number } = {},
 ): Connect.NextHandleFunction {
   const maxBodySize = options.maxBodySize ?? DEFAULT_MAX_BODY_SIZE;
+  let warnedDevtoolsCollision = false;
   return async (req: IncomingMessage, res: ServerResponse, next: Connect.NextFunction) => {
     const url = req.url ?? "/";
     const requestUrl = new URL(url, "http://localhost");
@@ -27,6 +33,27 @@ export function createDevSSRMiddleware(
         matchApiRoute: framework.matchApiRoute,
         matchAppRoute: framework.matchAppRoute,
       };
+
+      // `/_pracht` is reserved in dev only. Production builds never see this
+      // branch, so a user route at that path keeps working in production.
+      if (requestUrl.pathname === DEVTOOLS_PATH || requestUrl.pathname === DEVTOOLS_JSON_PATH) {
+        if (!warnedDevtoolsCollision && matchesResolvedRoute(requestUrl.pathname, routeMatchers)) {
+          warnedDevtoolsCollision = true;
+          server.config.logger.warn(
+            `[pracht] An app route matches ${requestUrl.pathname}, which is reserved for the ` +
+              `pracht devtools page in dev. The devtools page wins during development; the app ` +
+              `route is only served in production builds.`,
+          );
+        }
+
+        await serveDevtools(server, res, {
+          apiRoutes: serverMod.apiRoutes ?? [],
+          app: serverMod.resolvedApp,
+          url,
+          wantsJson: requestUrl.pathname === DEVTOOLS_JSON_PATH,
+        });
+        return;
+      }
 
       if (shouldBypassDevSSR(requestUrl, req, routeMatchers)) {
         return next();
@@ -47,6 +74,9 @@ export function createDevSSRMiddleware(
         }
         throw err;
       }
+      // Dev-only: collect middleware/loader/render phase durations so the
+      // browser Network panel shows them via the Server-Timing header.
+      const timings: PrachtPhaseTimings = {};
       const response = await framework.handlePrachtRequest({
         app: serverMod.resolvedApp,
         registry: serverMod.registry,
@@ -54,6 +84,7 @@ export function createDevSSRMiddleware(
         debugErrors: true,
         clientEntryUrl: CLIENT_BROWSER_PATH,
         apiRoutes: serverMod.apiRoutes,
+        timings,
       });
 
       if (response.status === 404) {
@@ -71,11 +102,51 @@ export function createDevSSRMiddleware(
       response.headers.forEach((value: string, key: string) => {
         res.setHeader(key, value);
       });
+      const serverTiming = framework.formatServerTimingHeader(timings);
+      if (serverTiming) {
+        res.setHeader("Server-Timing", serverTiming);
+      }
       res.end(body);
     } catch (error: unknown) {
       await handleDevError(server, req, res, next, url, error);
     }
   };
+}
+
+/**
+ * Serve the dev-only `/_pracht` devtools page (or `/_pracht.json`) built from
+ * the same resolved app graph that `pracht inspect` reports.
+ */
+async function serveDevtools(
+  server: ViteDevServer,
+  res: ServerResponse,
+  options: {
+    apiRoutes: ResolvedApiRoute[];
+    app: ResolvedPrachtApp;
+    url: string;
+    wantsJson: boolean;
+  },
+): Promise<void> {
+  const devtools = await server.ssrLoadModule("@pracht/core/devtools");
+  const graph = await devtools.buildAppGraph({
+    apiRoutes: options.apiRoutes,
+    app: options.app,
+    loadModule: (file: string) => server.ssrLoadModule(file),
+    readSource: (file: string) => readFileSync(resolve(server.config.root, `.${file}`), "utf-8"),
+  });
+
+  if (options.wantsJson) {
+    res.statusCode = 200;
+    res.setHeader("content-type", "application/json; charset=utf-8");
+    res.end(JSON.stringify(graph, null, 2));
+    return;
+  }
+
+  let html = devtools.buildDevtoolsHtml(graph);
+  html = await server.transformIndexHtml(options.url, html);
+  res.statusCode = 200;
+  res.setHeader("content-type", "text/html; charset=utf-8");
+  res.end(html);
 }
 
 async function handleDevError(

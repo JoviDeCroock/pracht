@@ -261,3 +261,46 @@ test("unmatched route returns 404", async ({ request }) => {
   const response = await request.get("/nonexistent-page");
   expect(response.status()).toBe(404);
 });
+
+// ---------------------------------------------------------------------------
+// Dev devtools: /_pracht + Server-Timing
+// ---------------------------------------------------------------------------
+
+test("/_pracht serves the devtools page in dev", async ({ request }) => {
+  const response = await request.get("/_pracht");
+  expect(response.status()).toBe(200);
+  expect(response.headers()["content-type"]).toContain("text/html");
+
+  const html = await response.text();
+  expect(html).toContain("pracht");
+  expect(html).toContain("/about");
+  expect(html).toContain("/blog/:slug");
+  expect(html).toContain("/api/health");
+  expect(html).toContain("/_pracht.json");
+});
+
+test("/_pracht.json serves the resolved app graph as JSON", async ({ request }) => {
+  const response = await request.get("/_pracht.json");
+  expect(response.status()).toBe(200);
+  expect(response.headers()["content-type"]).toContain("application/json");
+
+  const graph = await response.json();
+  const routePaths = graph.routes.map((route: { path: string }) => route.path);
+  expect(routePaths).toContain("/");
+  expect(routePaths).toContain("/about");
+  expect(routePaths).toContain("/blog/:slug");
+
+  const health = graph.api.find((route: { path: string }) => route.path === "/api/health");
+  expect(health.methods).toContain("GET");
+  expect(health.file).toContain("health");
+});
+
+test("dev SSR responses carry a Server-Timing header with phase durations", async ({ request }) => {
+  const response = await request.get("/");
+  expect(response.status()).toBe(200);
+
+  const serverTiming = response.headers()["server-timing"];
+  expect(serverTiming).toMatch(/mw;dur=\d+(\.\d+)?/);
+  expect(serverTiming).toMatch(/loader;dur=\d+(\.\d+)?/);
+  expect(serverTiming).toMatch(/render;dur=\d+(\.\d+)?/);
+});
