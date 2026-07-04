@@ -70,7 +70,7 @@ Work through these in order, stopping when you find the root cause:
   - Browser-only APIs used during SSR (`window`, `document`, `localStorage`)
   - Conditional rendering based on client state
 - **Missing shell**: Verify the shell is registered in `defineApp({ shells: { ... } })` and assigned to the route/group.
-- **404 page**: Route not matched — check manifest wiring (step 1).
+- **404 page**: Route not matched — check manifest wiring (step 1). In `pracht dev`, unmatched navigations render a dev-only 404 page listing every registered route with its render mode; compare the requested path against that table. The route table is also printed on dev-server startup and available via `pracht inspect routes`.
 
 ### 5. Middleware issues
 

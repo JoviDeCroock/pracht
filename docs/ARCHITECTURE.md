@@ -450,6 +450,7 @@ hydration.ts    — Preact options hooks for tracking hydration (no internal dep
 href.ts         — createHref helper layered on buildHref
 forwardRef.ts   — forwardRef helper (no internal deps)
 error-overlay.ts — dev error page HTML (no internal deps)
+dev-404.ts      — dev-only 404 page HTML listing registered routes (no internal deps)
 ```
 
 The published core package also exposes small browser-oriented entries:
@@ -460,6 +461,9 @@ The published core package also exposes small browser-oriented entries:
   transformed route module references to strings.
 - `@pracht/core/server` is used by generated server entries and adapters so
   edge worker builds do not resolve server imports through the browser condition.
+- `@pracht/core/error-overlay` and `@pracht/core/dev-404` are dev-only entries
+  loaded on demand by the Vite dev middleware (via `ssrLoadModule`); no
+  production entry point or generated server entry imports them.
 - The root `@pracht/core` export has a browser condition that points at a
   client-safe public entry for route and shell modules.
 

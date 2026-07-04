@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { shouldBypassDevSSR } from "../src/plugin-dev-ssr.ts";
+import { isDevNotFoundRequest, shouldBypassDevSSR } from "../src/plugin-dev-ssr.ts";
 
 const routeMatchers = {
   app: {} as any,
@@ -110,6 +110,50 @@ describe("shouldBypassDevSSR", () => {
         method: "GET",
       }),
     ).toBe(true);
+  });
+
+  it("serves the dev 404 page for unmatched HTML navigations only", () => {
+    const htmlHeaders = { accept: "text/html,application/xhtml+xml" };
+
+    // Unmatched document navigation → rich dev 404.
+    expect(
+      isDevNotFoundRequest("/nope", { headers: htmlHeaders, method: "GET" }, routeMatchers),
+    ).toBe(true);
+    expect(
+      isDevNotFoundRequest("/api/unknown", { headers: htmlHeaders, method: "GET" }, routeMatchers),
+    ).toBe(true);
+
+    // Matched routes never hit the dev 404.
+    expect(
+      isDevNotFoundRequest("/@alice", { headers: htmlHeaders, method: "GET" }, routeMatchers),
+    ).toBe(false);
+
+    // Route-state (JSON) requests keep their existing 404 behavior.
+    expect(
+      isDevNotFoundRequest(
+        "/nope?_data=1",
+        { headers: { accept: "*/*" }, method: "GET" },
+        routeMatchers,
+      ),
+    ).toBe(false);
+    expect(
+      isDevNotFoundRequest(
+        "/nope",
+        {
+          headers: { accept: "application/json", "x-pracht-route-state-request": "1" },
+          method: "GET",
+        },
+        routeMatchers,
+      ),
+    ).toBe(false);
+
+    // Non-document fetches and mutations keep their existing behavior.
+    expect(
+      isDevNotFoundRequest("/nope", { headers: { accept: "*/*" }, method: "GET" }, routeMatchers),
+    ).toBe(false);
+    expect(
+      isDevNotFoundRequest("/nope", { headers: htmlHeaders, method: "POST" }, routeMatchers),
+    ).toBe(false);
   });
 
   it("still treats unmatched HTML navigations as document requests", () => {

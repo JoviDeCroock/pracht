@@ -21,15 +21,19 @@ export function createDevSSRMiddleware(
         server.ssrLoadModule(PRACHT_SERVER_MODULE_ID),
       ]);
 
-      if (
-        shouldBypassDevSSR(requestUrl, req, {
-          app: serverMod.resolvedApp,
-          apiRoutes: serverMod.apiRoutes,
-          matchApiRoute: framework.matchApiRoute,
-          matchAppRoute: framework.matchAppRoute,
-        })
-      ) {
+      const routeMatchers = {
+        app: serverMod.resolvedApp as ResolvedPrachtApp,
+        apiRoutes: serverMod.apiRoutes as ResolvedApiRoute[],
+        matchApiRoute: framework.matchApiRoute,
+        matchAppRoute: framework.matchAppRoute,
+      };
+
+      if (shouldBypassDevSSR(requestUrl, req, routeMatchers)) {
         return next();
+      }
+
+      if (isDevNotFoundRequest(requestUrl, req, routeMatchers)) {
+        return serveDevNotFound(server, res, next, url, requestUrl.pathname, routeMatchers);
       }
 
       let webRequest: Request;
@@ -114,6 +118,68 @@ async function handleDevError(
     res.end(html);
   } catch {
     next(error);
+  }
+}
+
+/**
+ * True when a GET/HEAD document request matches no page route and no API
+ * route — the dev middleware then serves the rich dev-only 404 page instead
+ * of falling through to Vite. Route-state (JSON) requests and non-document
+ * fetches keep their existing 404 behavior.
+ */
+export function isDevNotFoundRequest(
+  requestUrl: URL | string,
+  req: Pick<IncomingMessage, "headers" | "method">,
+  options: {
+    app?: ResolvedPrachtApp;
+    apiRoutes?: ResolvedApiRoute[];
+    matchApiRoute?: (routes: ResolvedApiRoute[], pathname: string) => unknown;
+    matchAppRoute?: (app: ResolvedPrachtApp, pathname: string) => unknown;
+  } = {},
+): boolean {
+  const url = typeof requestUrl === "string" ? new URL(requestUrl, "http://localhost") : requestUrl;
+
+  if (isRouteStateRequest(url, req)) {
+    return false;
+  }
+
+  const method = (req.method ?? "GET").toUpperCase();
+  if (method !== "GET" && method !== "HEAD") {
+    return false;
+  }
+
+  const accept = readRequestHeader(req.headers.accept).toLowerCase();
+  if (!accept.includes("text/html") && !accept.includes("application/xhtml+xml")) {
+    return false;
+  }
+
+  return !matchesResolvedRoute(url.pathname, options);
+}
+
+async function serveDevNotFound(
+  server: ViteDevServer,
+  res: ServerResponse,
+  next: Connect.NextFunction,
+  url: string,
+  pathname: string,
+  options: { app: ResolvedPrachtApp; apiRoutes: ResolvedApiRoute[] },
+): Promise<void> {
+  try {
+    const { buildDevNotFoundHtml } = await server.ssrLoadModule("@pracht/core/dev-404");
+    let html = buildDevNotFoundHtml({
+      apiRoutes: options.apiRoutes.map((route) => ({ path: route.path })),
+      requestedPath: pathname,
+      routes: options.app.routes.map((route) => ({
+        path: route.path,
+        render: route.render ?? null,
+      })),
+    });
+    html = await server.transformIndexHtml(url, html);
+    res.statusCode = 404;
+    res.setHeader("content-type", "text/html; charset=utf-8");
+    res.end(html);
+  } catch {
+    next();
   }
 }
 

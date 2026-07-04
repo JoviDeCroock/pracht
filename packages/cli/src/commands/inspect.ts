@@ -1,16 +1,14 @@
-import { existsSync, readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { existsSync } from "node:fs";
 
 import { defineCommand } from "citty";
-import { createServer, type ViteDevServer } from "vite";
+import { createServer } from "vite";
 
 import { handleCliError } from "../utils.js";
+import { collectApiRoutes, serializeResolvedRoutes } from "../app-graph.js";
 import { readClientBuildAssets } from "../build-metadata.js";
-import { HTTP_METHODS, type HttpMethod } from "../constants.js";
 import { readProjectConfig, resolveProjectPath } from "../project.js";
 
 const INSPECT_TARGETS = new Set(["routes", "api", "build", "all"]);
-const METHOD_ORDER: HttpMethod[] = [...HTTP_METHODS];
 
 export default defineCommand({
   meta: {
@@ -105,17 +103,13 @@ export async function runInspect(root: string, { target = "all" } = {}): Promise
     };
 
     if (target === "routes" || target === "all") {
-      report.routes = serializeRoutes(serverModule.resolvedApp.routes);
+      report.routes = serializeResolvedRoutes(serverModule.resolvedApp.routes);
     }
 
     if (target === "api" || target === "all") {
-      report.api = await Promise.all(
-        serverModule.apiRoutes.map(async (route: { file: string; path: string }) => ({
-          file: route.file,
-          methods: await detectApiMethods(server, root, route.file),
-          path: route.path,
-        })),
-      );
+      report.api = await collectApiRoutes(server, root, serverModule.apiRoutes, {
+        executeApiModules: true,
+      });
     }
 
     if (target === "build" || target === "all") {
@@ -131,50 +125,6 @@ export async function runInspect(root: string, { target = "all" } = {}): Promise
     return report;
   } finally {
     await server.close();
-  }
-}
-
-interface RouteEntry {
-  file: string;
-  id: string;
-  loaderFile?: string;
-  middleware: string[];
-  path: string;
-  render?: string;
-  revalidate?: unknown;
-  shell?: string;
-  shellFile?: string;
-}
-
-function serializeRoutes(routes: RouteEntry[]) {
-  return routes.map((route) => ({
-    file: route.file,
-    id: route.id,
-    loaderFile: route.loaderFile ?? null,
-    middleware: route.middleware,
-    path: route.path,
-    render: route.render ?? null,
-    revalidate: route.revalidate ?? null,
-    shell: route.shell ?? null,
-    shellFile: route.shellFile ?? null,
-  }));
-}
-
-async function detectApiMethods(
-  server: ViteDevServer,
-  root: string,
-  file: string,
-): Promise<string[]> {
-  const resolvedFile = resolve(root, `.${file}`);
-  const source = readFileSync(resolvedFile, "utf-8");
-
-  try {
-    const module = await server.ssrLoadModule(file);
-    return METHOD_ORDER.filter((method) => typeof module[method] === "function");
-  } catch {
-    return METHOD_ORDER.filter((method) =>
-      new RegExp(`export\\s+(?:async\\s+)?(?:function|const|let|var)\\s+${method}\\b`).test(source),
-    );
   }
 }
 

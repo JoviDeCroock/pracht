@@ -452,3 +452,60 @@ generateRoutesFile("src/pages", "src/routes.ts", {
 
 Then remove `pagesDir` from your pracht config. The generated file includes
 a header comment explaining how to use it directly.
+
+---
+
+## Dev Server
+
+### Startup Banner
+
+`pracht dev` prints a route table when the server starts: the local (and
+network) URL, every page route with its render mode, shell, and middleware,
+plus API routes with their exported HTTP methods.
+
+```
+  pracht dev
+
+  ➜  Local:   http://localhost:3000/
+
+  Routes (5)
+    ROUTE          MODE  SHELL   MIDDLEWARE
+    /              ssg   public  -
+    /pricing       isg   public  -
+    /products/:id  ssr   public  -
+    /dashboard     ssr   app     auth
+    /settings      spa   app     auth
+
+  API (3)
+    ROUTE           METHODS
+    /api/dashboard  GET
+    /api/echo       GET, POST
+    /api/health     GET
+```
+
+The banner reuses the same resolved-app-graph logic as `pracht inspect` (see
+`pracht inspect routes --json` for the machine-readable version). Output
+respects [`NO_COLOR`](https://no-color.org); ANSI colors are only emitted on a
+TTY. API methods are detected with a static export scan at startup — API
+modules are not executed until they receive a request.
+
+### Dev-Only 404 Page
+
+In dev mode, a document navigation (GET/HEAD with an HTML `Accept` header)
+that matches no page route and no API route renders a standalone 404 page
+listing every registered route with its render mode — static paths are
+clickable links. The page is self-contained HTML served by the dev middleware
+(`@pracht/core/dev-404`, same approach as the dev error overlay) and reloads
+automatically when a route is added.
+
+This page exists only in development:
+
+- Route-state (JSON) requests, non-document fetches, and non-GET methods keep
+  their normal 404 behavior.
+- Apps that register a catch-all `route("*", ...)` match every path, so their
+  own not-found page renders instead.
+- Adapters that own the dev server (e.g. Cloudflare) route dev requests
+  through their own worker runtime, so the dev middleware — and this page —
+  does not apply there.
+- Production builds never include the module — production 404 behavior is
+  unchanged.

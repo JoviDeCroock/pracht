@@ -16,7 +16,7 @@ export default defineConfig({
     },
     {
       name: "pages-router",
-      testMatch: /pages-router\.test\.ts/,
+      testMatch: /pages-router\.test\.ts|dev-404\.test\.ts/,
       use: {
         baseURL: "http://localhost:3101",
       },
