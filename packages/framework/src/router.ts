@@ -497,6 +497,11 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
 
   window.__PRACHT_NAVIGATE__ = navigate;
   window.__PRACHT_ROUTER_READY__ = true;
+  // Public hydration marker for test tooling: server-rendered pages look
+  // interactive before the client router takes over, so tests (Playwright,
+  // etc.) should wait for `html[data-pracht-hydrated]` before driving forms —
+  // interacting earlier triggers native form submits instead of JS handlers.
+  document.documentElement.setAttribute("data-pracht-hydrated", "true");
 
   const warmModules: ModuleWarmFn = (match) => {
     startRouteImport(match);
