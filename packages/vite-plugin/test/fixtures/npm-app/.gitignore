@@ -1,0 +1,3 @@
+# The fixture models an app that installed @pracht/core from npm, so its
+# node_modules layout is intentional test data, not an install artifact.
+!node_modules/

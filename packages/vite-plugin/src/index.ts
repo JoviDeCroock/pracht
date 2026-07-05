@@ -1,6 +1,7 @@
 import { preactSsrPrecompile } from "@pracht/preact-ssr-precompile";
 import preact from "@preact/preset-vite";
-import { resolve } from "node:path";
+import { createRequire } from "node:module";
+import { join, resolve } from "node:path";
 import type { Plugin, UserConfig } from "vite";
 import {
   isPrachtClientModuleId,
@@ -200,7 +201,11 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
     enforce: "post",
 
     config(config) {
-      return withPrachtOptimizeDepsEntries(config, createPrachtOptimizeDepsEntries(resolved));
+      return withPrachtOptimizeDepsEntries(
+        config,
+        createPrachtOptimizeDepsEntries(resolved),
+        createPrachtOptimizeDepsInclude(config.root ?? process.cwd()),
+      );
     },
   };
 
@@ -250,7 +255,41 @@ function rewriteManifestCoreImports(code: string): string {
   );
 }
 
-function withPrachtOptimizeDepsEntries(config: UserConfig, prachtEntries: string[]): UserConfig {
+// Client-side dependencies the scanner can never discover on its own: the
+// virtual client entry imports `@pracht/core/client`, and the plugin's
+// transforms inject `@pracht/core/manifest` imports after scanning. Without
+// pre-bundling them, the first browser hit triggers a re-optimize + full
+// reload that aborts in-flight module requests mid-hydration. `@pracht/core`
+// is included alongside them so user imports share the same optimized chunk
+// graph (a source copy next to a pre-bundled client copy splits the runtime
+// context in two).
+const PRACHT_OPTIMIZE_DEPS_INCLUDE = [
+  "@pracht/core",
+  "@pracht/core/client",
+  "@pracht/core/manifest",
+];
+
+function createPrachtOptimizeDepsInclude(root: string): string[] {
+  // Vite deliberately leaves workspace-linked packages un-optimized (they are
+  // treated as source). Force-including only some `@pracht/core` entries in
+  // that setup would create a pre-bundled copy of the runtime next to the
+  // linked source copy and split the router context in two — so the includes
+  // only apply when the app resolves `@pracht/core` from node_modules.
+  try {
+    const require = createRequire(join(root, "package.json"));
+    const corePackagePath = toPosixPath(require.resolve("@pracht/core/package.json"));
+    if (!corePackagePath.includes("/node_modules/")) return [];
+    return PRACHT_OPTIMIZE_DEPS_INCLUDE;
+  } catch {
+    return [];
+  }
+}
+
+function withPrachtOptimizeDepsEntries(
+  config: UserConfig,
+  prachtEntries: string[],
+  prachtInclude: string[],
+): UserConfig {
   const environments = Object.fromEntries(
     Object.entries(config.environments ?? {}).map(([name, environment]) => [
       name,
@@ -265,6 +304,9 @@ function withPrachtOptimizeDepsEntries(config: UserConfig, prachtEntries: string
   return {
     optimizeDeps: {
       entries: mergeOptimizeDepsEntries(config.optimizeDeps?.entries, prachtEntries),
+      ...(prachtInclude.length > 0
+        ? { include: mergeOptimizeDepsEntries(config.optimizeDeps?.include, prachtInclude) }
+        : {}),
     },
     ...(Object.keys(environments).length > 0 ? { environments } : {}),
   };
