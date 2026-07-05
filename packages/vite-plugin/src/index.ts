@@ -85,6 +85,18 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
           ? {
               ssr: {
                 noExternal: true,
+                // Edge server bundles run outside Node; without this the SSR
+                // build emits Node-flavored CJS interop
+                // (`createRequire(import.meta.url)`) that workerd rejects at
+                // startup.
+                target: "webworker" as const,
+              },
+              build: {
+                rollupOptions: {
+                  // Platform-scheme modules only exist inside the target
+                  // runtime and must stay runtime imports.
+                  external: [/^cloudflare:/],
+                },
               },
             }
           : {}),
