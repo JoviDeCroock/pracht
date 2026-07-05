@@ -53,6 +53,10 @@
     "./error-overlay": {
       "types": "./dist/error-overlay.d.mts",
       "default": "./dist/error-overlay.mjs"
+    },
+    "./dev-404": {
+      "types": "./dist/dev-404.d.mts",
+      "default": "./dist/dev-404.mjs"
     }
   },
   "publishConfig": {
