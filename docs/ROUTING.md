@@ -509,3 +509,27 @@ This page exists only in development:
   does not apply there.
 - Production builds never include the module — production 404 behavior is
   unchanged.
+
+## Testing Hydration
+
+Server-rendered pages (SSR/SSG, and the shell of SPA routes) contain fully
+formed markup before the client router hydrates, so a form can *look*
+interactive while its JS handlers are not attached yet. Driving it too early —
+as end-to-end tools like Playwright will happily do — triggers a native form
+submit (full page load) instead of the framework handler.
+
+When the client router finishes initializing, pracht:
+
+- sets `data-pracht-hydrated="true"` on `<html>` — the supported marker for
+  test tooling and CSS;
+- sets `window.__PRACHT_ROUTER_READY__ = true` and exposes
+  `window.__PRACHT_NAVIGATE__` for programmatic navigation.
+
+Wait for the attribute before interacting with prerendered markup:
+
+```typescript
+// Playwright
+await page.goto("/register");
+await page.locator("html[data-pracht-hydrated]").waitFor();
+await page.getByLabel("Email").fill("user@example.com");
+```

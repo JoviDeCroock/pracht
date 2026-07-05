@@ -68,6 +68,14 @@ test("dashboard redirects to / without session cookie", async ({ page }) => {
   expect(response?.status()).toBe(200);
 });
 
+test("hydration marks the document with data-pracht-hydrated", async ({ page }) => {
+  await page.goto("/");
+  await page.locator("html[data-pracht-hydrated]").waitFor();
+
+  const marker = await page.getAttribute("html", "data-pracht-hydrated");
+  expect(marker).toBe("true");
+});
+
 test("client navigation to a protected route no-ops when middleware redirects back to the current page", async ({
   page,
 }) => {
