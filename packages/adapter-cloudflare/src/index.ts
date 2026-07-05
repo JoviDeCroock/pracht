@@ -50,6 +50,14 @@ export interface CloudflareServerEntryModuleOptions {
   workerExportsFrom?: string;
   /** Vite-resolvable module path exporting `createContext(args)`. */
   createContextFrom?: string;
+  /**
+   * Vite-resolvable module path whose named exports (`queue`, `scheduled`,
+   * `email`, `tail`, ...) are merged into the generated worker's default
+   * export next to pracht's `fetch` handler, so apps can consume Queues, Cron
+   * Triggers, and Email Routing without replacing the adapter. `fetch` always
+   * remains pracht's handler; a `fetch` export in this module is ignored.
+   */
+  workerHandlersFrom?: string;
 }
 
 export function createCloudflareFetchHandler<
@@ -103,9 +111,13 @@ export function createCloudflareServerEntryModule(
   const contextImport = options.createContextFrom
     ? `import { createContext as createPrachtContext } from ${JSON.stringify(options.createContextFrom)};`
     : "const createPrachtContext = undefined;";
+  const handlersImport = options.workerHandlersFrom
+    ? `import * as prachtWorkerHandlers from ${JSON.stringify(options.workerHandlersFrom)};`
+    : "const prachtWorkerHandlers = {};";
 
   return [
     contextImport,
+    handlersImport,
     `export const cloudflareAssetsBinding = ${JSON.stringify(assetsBinding)};`,
     "",
     "let headersManifestPromise;",
@@ -186,7 +198,7 @@ export function createCloudflareServerEntryModule(
     "  });",
     "}",
     "",
-    "export default { fetch };",
+    "export default { ...prachtWorkerHandlers, fetch };",
     "",
     ...workerExports,
     "",

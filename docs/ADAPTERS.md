@@ -260,6 +260,35 @@ explicit. Pair this with the corresponding `wrangler.jsonc` bindings:
 }
 ```
 
+### Handling queue, cron, and email events (`workerHandlersFrom`)
+
+Queues consumers, Cron Triggers, and Email Routing deliver events to handlers
+on the worker's **default export** (`queue`, `scheduled`, `email`, ...), which
+the generated entry normally reserves for pracht's `fetch`. Point
+`workerHandlersFrom` at a module whose named exports should ride along:
+
+```typescript
+cloudflareAdapter({
+  workerHandlersFrom: "/src/worker-handlers.ts",
+});
+```
+
+```typescript
+// src/worker-handlers.ts
+export async function queue(batch, env, ctx) {
+  for (const message of batch.messages) await processJob(message, env);
+}
+
+export async function scheduled(event, env, ctx) {
+  await runCronSweep(env, ctx);
+}
+```
+
+The generated entry becomes
+`export default { ...handlers, fetch }` — every named export of the module is
+merged in, but `fetch` always stays pracht's handler; export request handling
+belongs in API routes or middleware instead.
+
 ### Using Cloudflare bindings in dev
 
 The adapter handles everything — just declare bindings in `wrangler.jsonc`:
