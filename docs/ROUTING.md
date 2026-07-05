@@ -43,6 +43,38 @@ Module references accept two forms — both are fully supported:
 
 The Vite plugin transforms import functions to strings at build/dev time, so both produce identical behavior when the app runs through `@pracht/vite-plugin`. Direct framework-only tests/scripts should use string refs or run the same transform.
 
+### Importing the manifest without the Vite plugin
+
+Anything that imports the app manifest outside the plugin — a vitest `node`
+project asserting on the route table, a script feeding `matchAppRoute()`, a
+custom lint rule — never sees the transform. With function refs, `route()`
+throws at import time:
+
+```text
+Error: Invalid ModuleRef: expected a string path, but received a function at
+runtime. Use a plain string path (e.g. "./routes/home.tsx"), or ensure the
+Vite plugin rewrites inline `() => import("./file")` refs in the app manifest.
+```
+
+If the manifest needs to work in both worlds, prefer string refs:
+
+```typescript
+// src/routes.ts — loads under vitest, tsx, plain node, and the Vite plugin
+export const app = defineApp({
+  shells: { root: "./shells/root.tsx" },
+  routes: [route("/", "./routes/home.tsx", { render: "ssg" })],
+});
+```
+
+```typescript
+// test/routes.test.ts — no Vite plugin involved
+import { matchAppRoute, resolveApp } from "@pracht/core";
+import { app } from "../src/routes.ts";
+
+const resolved = resolveApp(app);
+expect(matchAppRoute(resolved, "/products/42")?.params).toEqual({ id: "42" });
+```
+
 ### `defineApp(config)`
 
 Top-level configuration:
