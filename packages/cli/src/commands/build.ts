@@ -153,7 +153,25 @@ export default defineCommand({
             "\n  Warning: Cloudflare adapter currently serves prerendered ISG HTML as static assets and does not perform runtime revalidation. Use SSR/SSG on Cloudflare, or deploy ISG routes to Node until Cloudflare ISG support is added.\n",
           );
         }
-        log("\n  Cloudflare worker → dist/server/server.js\n");
+
+        // workerd validates every named export of the deployed entry module as
+        // an entrypoint and rejects the build metadata (buildTarget, manifests,
+        // resolvedApp, ...) that server.js exports for the prerender pass
+        // above. Deploy a thin wrapper that re-exports only the default
+        // handler and the Cloudflare entrypoint classes.
+        const entrypointNames: string[] = Array.isArray(serverMod.cloudflareWorkerEntrypointNames)
+          ? serverMod.cloudflareWorkerEntrypointNames
+          : [];
+        const deployEntryLines = [
+          ...(entrypointNames.length > 0
+            ? [`export { ${entrypointNames.join(", ")} } from "./server.js";`]
+            : []),
+          'export { default } from "./server.js";',
+          "",
+        ];
+        writeFileSync(resolve(root, "dist/server/worker.js"), deployEntryLines.join("\n"), "utf-8");
+
+        log("\n  Cloudflare worker → dist/server/worker.js\n");
         log("  Deploy with: wrangler deploy\n");
       }
 

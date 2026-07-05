@@ -32,16 +32,18 @@ test("pracht build emits a deployable Cloudflare Worker setup", async () => {
 
   const wranglerPath = resolve(exampleDir, "wrangler.jsonc");
   const serverEntryPath = resolve(exampleDir, "dist/server/server.js");
+  const deployEntryPath = resolve(exampleDir, "dist/server/worker.js");
 
   const output = buildCloudflareExample();
 
   // wrangler.jsonc is user-owned (checked into the project), not generated
   expect(existsSync(wranglerPath)).toBe(true);
   expect(existsSync(serverEntryPath)).toBe(true);
+  expect(existsSync(deployEntryPath)).toBe(true);
 
   const wranglerConfig = parseJsonc(readFileSync(wranglerPath, "utf-8"));
   expect(wranglerConfig).toMatchObject({
-    main: "dist/server/server.js",
+    main: "dist/server/worker.js",
     assets: {
       directory: "dist/client",
       binding: "ASSETS",
@@ -58,6 +60,15 @@ test("pracht build emits a deployable Cloudflare Worker setup", async () => {
 
   // Cloudflare primitives configured via `workerExportsFrom` must be re-exported
   expect(workerSource).toContain("Counter");
+
+  // The deploy entry re-exports only the default handler and entrypoint
+  // classes: workerd rejects non-handler named exports (buildTarget,
+  // manifests, ...) on the deployed entry module.
+  const deploySource = readFileSync(deployEntryPath, "utf-8");
+  expect(deploySource).toContain('export { Counter } from "./server.js";');
+  expect(deploySource).toContain('export { default } from "./server.js";');
+  expect(deploySource).not.toContain("buildTarget");
+  expect(deploySource).not.toContain("cssManifest");
 });
 
 test("prerendered SSG pages include client JS and working framework context", async () => {

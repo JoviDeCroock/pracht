@@ -218,9 +218,13 @@ the executable production server entry.
   executionContext }` to pracht so loaders, API routes, and middleware can
   access bindings without extra wiring.
 - **Build output**: `pracht({ adapter: cloudflareAdapter() })` makes `pracht build`
-  emit a Worker bundle in `dist/server/server.js`. You own a `wrangler.jsonc`
-  in your project root that points at the output — this lets you add KV, D1,
-  R2, cron, and any other Cloudflare bindings without losing them on rebuild.
+  emit a Worker bundle in `dist/server/server.js` plus a thin deploy entry in
+  `dist/server/worker.js` that re-exports only the default handler and your
+  Cloudflare entrypoint classes (workerd rejects the build metadata that
+  `server.js` also exports for the prerender pass). Point `wrangler.jsonc`'s
+  `main` at `dist/server/worker.js` — you own that file, which lets you add
+  KV, D1, R2, cron, and any other Cloudflare bindings without losing them on
+  rebuild.
 - **KV/D1/R2 support**: custom context factories and the default build entry both
   surface the Cloudflare `env` object.
 - **`@cloudflare/vite-plugin` integration**: the adapter automatically includes
@@ -266,13 +270,13 @@ The adapter handles everything — just declare bindings in `wrangler.jsonc`:
 
 ```jsonc
 {
-  "main": "dist/server/server.js",
+  "main": "dist/server/worker.js",
   "kv_namespaces": [{ "binding": "MY_KV", "id": "..." }],
   "d1_databases": [{ "binding": "DB", "database_name": "my-db", "database_id": "..." }],
 }
 ```
 
-The `main` field stays pointed at `dist/server/server.js` for production
+The `main` field stays pointed at `dist/server/worker.js` for production
 deploys. During dev, the adapter automatically overrides the entry to
 pracht's virtual server module via `@cloudflare/vite-plugin` — no extra
 files needed.

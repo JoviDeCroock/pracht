@@ -97,9 +97,18 @@ export function createCloudflareServerEntryModule(
   options: CloudflareServerEntryModuleOptions = {},
 ): string {
   const assetsBinding = options.assetsBinding ?? "ASSETS";
+  // The entrypoint-name list lets `pracht build` write a clean deploy entry
+  // (dist/server/worker.js) that re-exports only the default handler and these
+  // classes: workerd validates every named export of the deployed entry module
+  // and rejects the build metadata (buildTarget, manifests, ...) this module
+  // also exports for the CLI's prerender pass.
   const workerExports = options.workerExportsFrom
-    ? [`export * from ${JSON.stringify(options.workerExportsFrom)};`]
-    : [];
+    ? [
+        `export * from ${JSON.stringify(options.workerExportsFrom)};`,
+        `import * as prachtWorkerEntrypoints from ${JSON.stringify(options.workerExportsFrom)};`,
+        "export const cloudflareWorkerEntrypointNames = Object.keys(prachtWorkerEntrypoints);",
+      ]
+    : ["export const cloudflareWorkerEntrypointNames = [];"];
   const contextImport = options.createContextFrom
     ? `import { createContext as createPrachtContext } from ${JSON.stringify(options.createContextFrom)};`
     : "const createPrachtContext = undefined;";

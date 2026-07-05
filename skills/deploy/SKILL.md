@@ -106,7 +106,7 @@ npx wrangler deploy
 ```json
 {
   "name": "my-pracht-app",
-  "main": "dist/server/server.js",
+  "main": "dist/server/worker.js",
   "compatibility_date": "2024-01-01",
   "assets": { "directory": "dist/client" }
 }
