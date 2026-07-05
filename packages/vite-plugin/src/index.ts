@@ -60,20 +60,27 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
 
       return {
         appType: "custom" as const,
-        build: {
-          rollupOptions: {
-            output: {
-              manualChunks(id: string) {
-                if (
-                  id.includes("node_modules/preact") ||
-                  id.includes("node_modules/preact-suspense")
-                ) {
-                  return "vendor";
-                }
+        // The vendor split only makes sense for the client bundle; SSR builds
+        // that disable code splitting (e.g. webworker targets) reject
+        // `manualChunks` outright.
+        ...(isSSRBuild
+          ? {}
+          : {
+              build: {
+                rollupOptions: {
+                  output: {
+                    manualChunks(id: string) {
+                      if (
+                        id.includes("node_modules/preact") ||
+                        id.includes("node_modules/preact-suspense")
+                      ) {
+                        return "vendor";
+                      }
+                    },
+                  },
+                },
               },
-            },
-          },
-        },
+            }),
         ...(isEdge && isSSRBuild
           ? {
               ssr: {
