@@ -432,6 +432,8 @@ The internal module graph within the framework package is acyclic:
 ```
 types.ts        — pure types, no internal deps
     ↑
+name-suggestions.ts — edit-distance "did you mean" helpers for wiring errors
+    ↑
 app.ts          — route manifest, matching, SSG path building
     ↑
 runtime-context.ts — hydration state reader and Preact runtime provider
@@ -449,7 +451,7 @@ router.ts       — client router, hydration bootstrap (imports runtime-context 
 hydration.ts    — Preact options hooks for tracking hydration (no internal deps)
 href.ts         — createHref helper layered on buildHref
 forwardRef.ts   — forwardRef helper (no internal deps)
-error-overlay.ts — dev error page HTML (no internal deps)
+error-overlay.ts — dev error page HTML + stack-frame parsing (no internal deps)
 dev-404.ts      — dev-only 404 page HTML listing registered routes (no internal deps)
 ```
 
@@ -604,3 +606,34 @@ visible banner:
 
 The banner is only installed when `import.meta.env.DEV` is true, so the
 overhead — and the wrappers themselves — never ship to production builds.
+
+### Dev error overlay (`error-overlay.ts`)
+
+When an uncaught error escapes the dev SSR middleware, the vite-plugin
+renders a standalone HTML error page via `buildErrorOverlayHtml()` (exposed
+as `@pracht/core/error-overlay`). The overlay is deliberately not a Preact
+component — it must render even when Preact itself fails — and it is only
+served by the dev middleware, never in production builds.
+
+Two ergonomics features are built in:
+
+- **Open-in-editor links.** `parseStackFrames()` parses V8-style stack
+  traces into frames with `file:line:column` locations. App-code frames
+  become clickable links that hit Vite's built-in
+  `/__open-in-editor?file=<path>:<line>:<column>` endpoint (launch-editor
+  middleware) via `fetch`. Frames from `node_modules`, `node:` internals,
+  and Vite-internal/virtual modules are visually de-emphasized and never
+  linked. Path normalization handles `file://` URLs, `/@fs/` prefixes,
+  Vite transform queries (`?t=…`, `?pracht-client`), and root-relative
+  dev-server URLs (`/src/routes/home.tsx`), which are joined onto the
+  project root the dev middleware passes in (`server.config.root`).
+- **"Did you mean" wiring errors.** `resolveApp()` fails loudly when a
+  route or group references an unknown shell or middleware name (including
+  `api.middleware`), and `buildHref()` does the same for unknown route ids.
+  The messages include a closest-match suggestion (small internal
+  edit-distance helper in `name-suggestions.ts`, no dependency) and the
+  full list of registered names, e.g.
+  `Unknown shell "pubic" for route "/". Did you mean "public"? Registered shells: public, app.`
+  Because the virtual server module calls `resolveApp()` at load time,
+  these errors surface in the overlay as soon as the dev server evaluates
+  the manifest.

@@ -44,6 +44,69 @@ describe("resolveApp", () => {
   });
 });
 
+describe("resolveApp wiring errors", () => {
+  it("throws with a did-you-mean hint for unknown shell names", () => {
+    const app = defineApp({
+      shells: {
+        public: "./shells/public.tsx",
+        app: "./shells/app.tsx",
+      },
+      routes: [group({ shell: "pubic" }, [route("/", "./routes/home.tsx")])],
+    });
+
+    expect(() => resolveApp(app)).toThrow(
+      'Unknown shell "pubic" for route "/". Did you mean "public"? Registered shells: public, app.',
+    );
+  });
+
+  it("throws without a suggestion when no shell name is close", () => {
+    const app = defineApp({
+      shells: { public: "./shells/public.tsx" },
+      routes: [route("/", "./routes/home.tsx", { shell: "dashboard" })],
+    });
+
+    expect(() => resolveApp(app)).toThrow(
+      'Unknown shell "dashboard" for route "/". Registered shells: public.',
+    );
+  });
+
+  it("reports when no shells are registered at all", () => {
+    const app = defineApp({
+      routes: [route("/", "./routes/home.tsx", { shell: "public" })],
+    });
+
+    expect(() => resolveApp(app)).toThrow(
+      'Unknown shell "public" for route "/". No shells are registered in defineApp().',
+    );
+  });
+
+  it("throws with a did-you-mean hint for unknown middleware names", () => {
+    const app = defineApp({
+      middleware: {
+        auth: "./middleware/auth.ts",
+        logging: "./middleware/logging.ts",
+      },
+      routes: [route("/admin", "./routes/admin.tsx", { middleware: ["auht"] })],
+    });
+
+    expect(() => resolveApp(app)).toThrow(
+      'Unknown middleware "auht" for route "/admin". Did you mean "auth"? Registered middleware: auth, logging.',
+    );
+  });
+
+  it("validates api middleware names", () => {
+    const app = defineApp({
+      middleware: { auth: "./middleware/auth.ts" },
+      api: { middleware: ["athu"] },
+      routes: [],
+    });
+
+    expect(() => resolveApp(app)).toThrow(
+      'Unknown middleware "athu" for api routes. Did you mean "auth"? Registered middleware: auth.',
+    );
+  });
+});
+
 describe("route() with RouteConfig object", () => {
   it("accepts an object config with component and loader", () => {
     const app = defineApp({
@@ -119,6 +182,9 @@ describe("typed route href helpers", () => {
 
   it("throws for unknown, missing, and extra params", () => {
     expect(() => buildHref(app.routes, "missing")).toThrow(/Unknown pracht route id/);
+    expect(() => buildHref(app.routes, "prduct")).toThrow(
+      'Unknown pracht route id "prduct". Did you mean "product"? Registered route ids: home, product, docs.',
+    );
     expect(() => buildHref(app.routes, "product")).toThrow(/Missing route param: id/);
     expect(() => buildHref(app.routes, "product", { params: { id: "1", extra: "x" } })).toThrow(
       /Unexpected route param: extra/,

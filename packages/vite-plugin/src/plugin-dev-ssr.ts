@@ -111,6 +111,7 @@ async function handleDevError(
     let html = buildErrorOverlayHtml({
       message: error instanceof Error ? error.message : String(error),
       stack: error instanceof Error ? error.stack : undefined,
+      root: server.config.root,
     });
     html = await server.transformIndexHtml(url, html);
     res.statusCode = 500;
