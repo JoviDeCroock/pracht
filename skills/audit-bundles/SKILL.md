@@ -1,6 +1,6 @@
 ---
 name: audit-bundles
-version: 1.0.0
+version: 1.1.0
 description: |
   Analyze a pracht production build. Report client bundle size per route,
   flag fat vendor chunks, find route components that ship large dependencies,
@@ -21,15 +21,22 @@ Pracht performs route-level code splitting via the Vite plugin and emits a
 manifest. This skill reads that manifest, sizes each route's client payload,
 and surfaces the worst offenders.
 
-## Step 1: Build
+## Step 1: Build with analysis
 
 ```bash
-pracht build
+pracht build --analyze --json
 ```
 
-A stale `dist/` produces misleading numbers. Confirm the build succeeded.
+This is the native per-route payload report: for every route (pattern + render
+mode) it emits the transitive client JS chunks with raw and gzip sizes
+(`routes[].chunks`), route-specific and total sums (`routeGzipBytes`,
+`totalGzipBytes`), and the shared entry chunks broken out (`shared`), sorted by
+total gzip descending. A stale `dist/` produces misleading numbers — rebuild,
+don't reuse.
 
-## Step 2: Pull the build graph
+For a human-readable table, use `pracht build --analyze` instead.
+
+## Step 2: Pull supporting metadata
 
 ```bash
 pracht inspect build --json
@@ -37,27 +44,26 @@ pracht inspect build --json
 
 Captures the resolved adapter, client entry URL, and CSS/JS manifest. Cross
 reference with `dist/client/.vite/manifest.json` for chunk metadata
-(file, imports, dynamicImports, css, isEntry).
+(file, imports, dynamicImports, css, isEntry) — needed for vendor fan-in
+analysis (Step 4) and CSS sizing, which the analyze report does not cover.
 
-## Step 3: Compute per-route payload
+## Step 3: Interpret per-route payload
 
-For each route, the client payload is:
+From the Step 1 JSON, report:
 
-1. The route module's chunk (via the manifest).
-2. Its `imports[]` (transitive synchronous imports — recurse).
-3. Plus the client entry chunk and its imports (shared by every route).
-4. Plus the route's CSS chunks.
+| Route | Route JS (gz) | Shared (gz) | Total (gz) | CSS (gz) | LCP-class? |
+| ----- | ------------- | ----------- | ---------- | -------- | ---------- |
 
-Report:
-
-| Route | Route chunk (gz) | Shared (gz) | Total (gz) | CSS (gz) | LCP-class? |
-| ----- | ---------------- | ----------- | ---------- | -------- | ---------- |
-
-`gz` = gzip size. Use Node's `zlib.gzipSync` on the raw file content if a CLI
-tool is not available.
+`gz` = gzip size, taken directly from `routeGzipBytes` / `shared.gzipBytes` /
+`totalGzipBytes`. Size CSS chunks (from `cssManifest`) with `zlib.gzipSync`.
 
 `LCP-class?` is `yes` when total gz exceeds 200 KB — that's the order of
 magnitude where mid-tier mobile starts losing LCP budget.
+
+If the app declares `budgets` in the pracht plugin config, the Step 1 JSON also
+contains a `budgets` section with per-route pass/fail — lead the report with any
+failures. If no budgets are configured, suggest adding them (see
+docs/PERFORMANCE.md), starting from the current sizes plus ~10% headroom.
 
 ## Step 4: Vendor chunk health
 
@@ -110,7 +116,8 @@ inside `Component`: -180 KB gz off `/dashboard/analytics`."
 
 ## Rules
 
-1. Always run `pracht build` first. A stale build is a source of bad advice.
+1. Always run `pracht build --analyze --json` first. A stale build is a source
+   of bad advice.
 2. Use the Vite manifest as the source of truth — chunk names rotate per
    build.
 3. Report gzip size, not raw — the wire size is what users pay.

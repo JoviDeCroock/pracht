@@ -1,6 +1,7 @@
 import { dirname, resolve } from "node:path";
 import { existsSync, readFileSync } from "node:fs";
 
+import { formatBytes } from "./bundle-report.js";
 import { extractRegistryEntries, extractRelativeModulePaths } from "./manifest.js";
 import {
   displayPath,
@@ -371,6 +372,53 @@ export function collectApiVerification(
       createCheck(
         "ok",
         `Changed API route ${JSON.stringify(display)} resolves to ${JSON.stringify(resolveApiRoutePath(apiDir, file))}.`,
+      ),
+    );
+  }
+}
+
+interface BudgetReportFile {
+  results?: {
+    path: string;
+    gzipBytes: number;
+    limitBytes: number;
+    ok: boolean;
+  }[];
+}
+
+export function collectBudgetChecks(project: ProjectConfig, checks: Check[]): void {
+  const reportPath = resolve(project.root, "dist/server/budget-report.json");
+  if (!existsSync(reportPath)) return;
+
+  let report: BudgetReportFile;
+  try {
+    report = JSON.parse(readFileSync(reportPath, "utf-8"));
+  } catch {
+    checks.push(
+      createCheck("warning", "dist/server/budget-report.json exists but could not be parsed."),
+    );
+    return;
+  }
+
+  const results = report.results ?? [];
+  if (results.length === 0) return;
+
+  const failed = results.filter((result) => !result.ok);
+  if (failed.length === 0) {
+    checks.push(
+      createCheck(
+        "ok",
+        `All ${results.length} route client JS budget${results.length === 1 ? "" : "s"} pass (from the last \`pracht build\`).`,
+      ),
+    );
+    return;
+  }
+
+  for (const result of failed) {
+    checks.push(
+      createCheck(
+        "error",
+        `Route ${JSON.stringify(result.path)} exceeds its client JS budget: ${formatBytes(result.gzipBytes)} gzip > ${formatBytes(result.limitBytes)} (from the last \`pracht build\`).`,
       ),
     );
   }

@@ -21,6 +21,7 @@ Pick SPA, SSR, SSG, or ISG on a route-by-route basis. Ship less JavaScript by de
 - **Per-route render modes** — SPA, SSR, SSG, and ISG in the same app. No global default fighting you.
 - **Explicit over magic** — a typed `defineApp()` manifest wires routes, shells, and middleware. What runs where is never a mystery. Prefer file-based routing? Opt in to the pages router and skip the manifest entirely.
 - **Vite-native** — instant HMR, fast builds, multi-environment output out of the box.
+- **Performance budgets built in** — `pracht build --analyze` reports per-route client JS (gzip + raw), and per-route `budgets` fail the build when a route ships too much.
 - **Deploy anywhere** — one codebase, one build, three production-ready adapters (Node, Cloudflare Workers, Vercel).
 
 ## At a glance
@@ -87,7 +88,7 @@ The prompts cover the target directory, hosting adapter (Node.js, Cloudflare Wor
 The starter gives you:
 
 - `pracht dev` — local SSR + HMR
-- `pracht build` — client/server output plus SSG/ISG prerendering
+- `pracht build` — client/server output plus SSG/ISG prerendering, with `--analyze` for a per-route client JS report and budget enforcement
 - `pracht inspect [routes|api|build] --json` — resolved app graph metadata
 - `pracht generate route|shell|middleware|api` — framework-native scaffolding
 - `pracht verify` — fast framework-aware checks with `--changed` and `--json`
@@ -107,6 +108,7 @@ Pracht is built to be operated by coding agents as much as by humans:
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — framework internals
 - [docs/ROUTING.md](docs/ROUTING.md) — manifest and matching model
 - [docs/RENDERING_MODES.md](docs/RENDERING_MODES.md) — SSR, SSG, ISG, SPA behavior
+- [docs/PERFORMANCE.md](docs/PERFORMANCE.md) — bundle analysis and per-route client JS budgets
 - [docs/DATA_LOADING.md](docs/DATA_LOADING.md) — loaders, forms, client hooks
 - [docs/STYLING.md](docs/STYLING.md) — CSS Modules, Tailwind, CSS-in-JS limitations
 - [docs/ADAPTERS.md](docs/ADAPTERS.md) — Node, Cloudflare, Vercel deployment paths

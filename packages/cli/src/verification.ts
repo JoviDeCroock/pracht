@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import { displayPath, readProjectConfig } from "./project.js";
 import {
   collectApiVerification,
+  collectBudgetChecks,
   collectConfigChecks,
   collectManifestVerification,
   collectPackageChecks,
@@ -88,6 +89,7 @@ export function runVerification(
 
   collectApiVerification(project, checks, { changedFiles: frameworkFiles, scope });
   collectPackageChecks(project, checks, packageJsonPath);
+  collectBudgetChecks(project, checks);
 
   if (options.changed && frameworkFiles.length === 0 && !changedInfo.warning) {
     checks.push(
