@@ -82,6 +82,8 @@ Same render modes, same adapters — just let the filesystem drive.
 npm create pracht@latest my-app
 ```
 
+The prompts cover the target directory, hosting adapter (Node.js, Cloudflare Workers, Vercel), router (manifest or pages), and optional Tailwind CSS. For non-interactive runs pass flags instead — e.g. `--template=tailwind` (or `--template=minimal`), `--adapter=node`, `--no-git`, `--yes`. See [packages/start/README.md](packages/start/README.md) for the full list.
+
 The starter gives you:
 
 - `pracht dev` — local SSR + HMR
@@ -90,6 +92,7 @@ The starter gives you:
 - `pracht generate route|shell|middleware|api` — framework-native scaffolding
 - `pracht verify` — fast framework-aware checks with `--changed` and `--json`
 - `pracht doctor` — app wiring checks with optional JSON output
+- Optional Tailwind CSS wiring, a git repo with an initial commit, and (for the Node adapter) a multi-stage `Dockerfile`
 
 ## AI-assisted development
 
