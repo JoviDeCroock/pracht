@@ -20,7 +20,7 @@ function packageJsonPathsFromPnpmWorkspace() {
   for (const rawLine of readFileSync(workspace, "utf8").split(/\r?\n/)) {
     const line = rawLine.trim();
     if (!line.startsWith("- ")) continue;
-    const pattern = line.slice(2).replace(/^['\"]|['\"]$/g, "");
+    const pattern = line.slice(2).replace(/^['"]|['"]$/g, "");
     if (!pattern || pattern.startsWith("!")) continue;
     patterns.push(pattern);
   }
