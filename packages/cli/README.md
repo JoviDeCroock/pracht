@@ -99,3 +99,14 @@ machine-readable output.
 pracht doctor
 pracht doctor --json
 ```
+
+### `pracht mcp`
+
+Start a Model Context Protocol server on stdio that exposes inspect, doctor,
+verify, and generate as native tools for coding agents. See
+[docs/MCP.md](https://github.com/JoviDeCroock/pracht/blob/main/docs/MCP.md)
+for client registration and the tool reference.
+
+```bash
+pracht mcp
+```

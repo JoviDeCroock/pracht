@@ -61,6 +61,9 @@ action-oriented body. Invoke a skill in Claude Code with `/<skill-name>`.
 - Use `pracht inspect routes --json`, `pracht inspect api --json`, and
   `pracht inspect build --json` as the source of truth instead of globbing
   `src/`. The resolved graph already accounts for groups and inheritance.
+- The same capabilities are available as native MCP tools via `pracht mcp`
+  (inspect, doctor, verify, and generate) — see [docs/MCP.md](../docs/MCP.md).
+  Prefer the MCP tools when the client has the server registered.
 - Use `pracht typegen` to refresh `src/pracht-routes.d.ts` and
   `src/pracht-routes.ts` after route ids or paths change; use
   `pracht typegen --check` in verification/CI.
