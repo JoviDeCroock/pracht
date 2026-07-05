@@ -1,4 +1,5 @@
 import { cpSync, existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { register } from "node:module";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -16,6 +17,20 @@ import {
   shouldUseColor,
   type BundleReportRoute,
 } from "../bundle-report.js";
+
+let prerenderHooksRegistered = false;
+
+function registerPrerenderModuleHooks(): void {
+  if (prerenderHooksRegistered) return;
+  prerenderHooksRegistered = true;
+  try {
+    // Published layout: the hooks file is a sibling tsdown entry in dist/.
+    register("./prerender-module-hooks.mjs", import.meta.url);
+  } catch {
+    // Source layout (running the CLI with type stripping from src/).
+    register("../prerender-module-hooks.ts", import.meta.url);
+  }
+}
 
 export default defineCommand({
   meta: {
@@ -96,6 +111,9 @@ export default defineCommand({
     }
 
     if (existsSync(serverEntry)) {
+      // Edge server bundles keep `cloudflare:*` imports external; stub them so
+      // the bundle can be imported in Node for the prerender pass below.
+      registerPrerenderModuleHooks();
       const serverMod = await import(pathToFileURL(serverEntry).href);
       const { prerenderApp } = serverMod;
       const { clientEntryUrl, clientEntryJs, cssManifest, jsManifest } =
