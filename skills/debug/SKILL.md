@@ -1,6 +1,6 @@
 ---
 name: debug
-version: 1.1.0
+version: 1.2.0
 description: |
   Pracht framework-aware debugging. Systematically investigates route matching,
   loader/API route errors, rendering issues, middleware, API routes, HMR, and build
@@ -27,6 +27,7 @@ The user will describe a symptom (error, unexpected behavior, blank page, etc.).
 
 Before deep manual inspection, prefer running `pracht verify` for a fast agent loop or `pracht doctor` when the problem could be caused by broader broken app wiring or missing files.
 When another agent/tool needs the framework's resolved graph, prefer `pracht inspect routes --json`, `pracht inspect api --json`, or `pracht inspect build --json` over reconstructing it from source files.
+While the dev server is running, `GET /_pracht` serves a devtools page with the same resolved route/API graph (raw JSON at `/_pracht.json`) — useful when you have a browser or `curl` handy but no CLI access. Dev SSR responses also carry a `Server-Timing` header (`mw`, `loader`, `render` durations in ms) — check it in the browser Network panel or with `curl -sI` to see which phase makes a route slow.
 
 ## Iron Law
 
@@ -40,7 +41,7 @@ Work through these in order, stopping when you find the root cause:
 
 - Run `pracht verify` first if you want a cheap changed-file confidence check.
 - Run `pracht doctor` if the route might be missing, miswired, or pointing at a missing module across the project.
-- For machine-readable route wiring, run `pracht inspect routes --json`.
+- For machine-readable route wiring, run `pracht inspect routes --json`. With a running dev server, `curl http://localhost:5173/_pracht.json` returns the same graph.
 - Read `src/routes.ts` — is the route defined? Is the path correct?
 - Check for typos in file paths (the manifest uses relative paths like `"./routes/home.tsx"`).
 - For dynamic segments, verify bracket syntax: `route("/users/:id", ...)` in manifest, `[id].ts` in filenames.
@@ -56,6 +57,7 @@ Work through these in order, stopping when you find the root cause:
 
 ### 3. Loader / API route errors
 
+- For slow pages, read the dev `Server-Timing` response header (`mw`/`loader`/`render` in ms) to see which phase dominates before reading code.
 - Read the route module's `loader` function or the matching API route handler.
 - Check that `loader` returns serializable data (no functions, no circular refs).
 - Check that API route handlers return `Response` objects and branch on `request.method` when using a default export.

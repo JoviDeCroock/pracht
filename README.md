@@ -87,7 +87,7 @@ The prompts cover the target directory, hosting adapter (Node.js, Cloudflare Wor
 
 The starter gives you:
 
-- `pracht dev` — local SSR + HMR
+- `pracht dev` — local SSR + HMR, a `/_pracht` devtools page with the resolved route/API graph (JSON at `/_pracht.json`), and `Server-Timing` middleware/loader/render phase timings on every dev SSR response
 - `pracht build` — client/server output plus SSG/ISG prerendering, with `--analyze` for a per-route client JS report and budget enforcement
 - `pracht preview` — build and serve the production build locally
 - `pracht inspect [routes|api|build] --json` — resolved app graph metadata

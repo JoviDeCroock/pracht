@@ -1,10 +1,12 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+import { resolve } from "node:path";
 
+import { serializeApiRoutes, serializeAppRoutes } from "@pracht/core";
+import type { AppGraphApiRoute, AppGraphRoute } from "@pracht/core";
 import { defineCommand } from "citty";
 import { createServer } from "vite";
 
 import { handleCliError } from "../utils.js";
-import { collectApiRoutes, serializeResolvedRoutes } from "../app-graph.js";
 import { readClientBuildAssets } from "../build-metadata.js";
 import { readProjectConfig, resolveProjectPath } from "../project.js";
 
@@ -47,7 +49,7 @@ export default defineCommand({
 });
 
 export interface InspectReport {
-  api?: { file: string; methods: string[]; path: string }[];
+  api?: AppGraphApiRoute[];
   build?: {
     adapterTarget: string;
     clientEntryUrl: string | null;
@@ -55,17 +57,7 @@ export interface InspectReport {
     jsManifest: Record<string, string[]>;
   };
   mode: string;
-  routes?: {
-    file: string;
-    id: string;
-    loaderFile: string | null;
-    middleware: string[];
-    path: string;
-    render: string | null;
-    revalidate: unknown;
-    shell: string | null;
-    shellFile: string | null;
-  }[];
+  routes?: AppGraphRoute[];
 }
 
 export async function runInspect(root: string, { target = "all" } = {}): Promise<InspectReport> {
@@ -103,12 +95,13 @@ export async function runInspect(root: string, { target = "all" } = {}): Promise
     };
 
     if (target === "routes" || target === "all") {
-      report.routes = serializeResolvedRoutes(serverModule.resolvedApp.routes);
+      report.routes = serializeAppRoutes(serverModule.resolvedApp.routes);
     }
 
     if (target === "api" || target === "all") {
-      report.api = await collectApiRoutes(server, root, serverModule.apiRoutes, {
-        executeApiModules: true,
+      report.api = await serializeApiRoutes(serverModule.apiRoutes, {
+        loadModule: (file) => server.ssrLoadModule(file),
+        readSource: (file) => readFileSync(resolve(root, `.${file}`), "utf-8"),
       });
     }
 

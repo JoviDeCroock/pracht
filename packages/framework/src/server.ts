@@ -13,9 +13,22 @@ export {
 export { createHref } from "./href.ts";
 export {
   applyDefaultSecurityHeaders,
+  formatServerTimingHeader,
   handlePrachtRequest,
   PrachtRuntimeProvider,
 } from "./runtime.ts";
+export {
+  buildAppGraph,
+  detectApiMethods,
+  serializeApiRoutes,
+  serializeAppRoutes,
+} from "./app-graph.ts";
+export type {
+  AppGraph,
+  AppGraphApiRoute,
+  AppGraphModuleAccess,
+  AppGraphRoute,
+} from "./app-graph.ts";
 export { prerenderApp } from "./prerender.ts";
 export { redirect, type RedirectOptions } from "./runtime-middleware.ts";
 export { PrachtHttpError } from "./types.ts";
@@ -84,6 +97,7 @@ export type {
 } from "./types.ts";
 export type {
   HandlePrachtRequestOptions,
+  PrachtPhaseTimings,
   PrachtRuntimeDiagnosticPhase,
   PrachtRuntimeDiagnostics,
   SerializedRouteError,

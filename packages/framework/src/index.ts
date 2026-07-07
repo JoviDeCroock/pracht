@@ -11,12 +11,25 @@ export {
   timeRevalidate,
 } from "./app.ts";
 export { createHref } from "./href.ts";
+export {
+  buildAppGraph,
+  detectApiMethods,
+  serializeApiRoutes,
+  serializeAppRoutes,
+} from "./app-graph.ts";
+export type {
+  AppGraph,
+  AppGraphApiRoute,
+  AppGraphModuleAccess,
+  AppGraphRoute,
+} from "./app-graph.ts";
 export { forwardRef } from "./forwardRef.ts";
 export { useIsHydrated } from "./hydration.ts";
 export { Suspense, lazy } from "preact-suspense";
 export {
   applyDefaultSecurityHeaders,
   Form,
+  formatServerTimingHeader,
   Link,
   handlePrachtRequest,
   readHydrationState,
@@ -98,6 +111,7 @@ export type {
   HandlePrachtRequestOptions,
   LinkProps,
   Location,
+  PrachtPhaseTimings,
   PrachtRuntimeDiagnosticPhase,
   PrachtRuntimeDiagnostics,
   RouteStateResult,
