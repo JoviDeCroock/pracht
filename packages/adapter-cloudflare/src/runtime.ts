@@ -1,11 +1,13 @@
 import {
   applyDefaultSecurityHeaders,
   createISGRegenerationRequest,
+  createRevalidationSingleFlight,
   getTimeRevalidateSeconds,
   handlePrachtRequest,
   hasWebhookRevalidate,
   type HandlePrachtRequestOptions,
   type ISGManifestEntry,
+  isCacheableISGResponse,
   jsonResponse,
   type ModuleRegistry,
   PRACHT_REVALIDATE_ENDPOINT,
@@ -17,6 +19,13 @@ import {
 
 type HeadersManifest = Record<string, Record<string, string>>;
 type ISGManifest = Record<string, ISGManifestEntry>;
+
+const ROUTE_STATE_REQUEST_HEADER = "x-pracht-route-state-request";
+
+// Module-level so it survives across requests within an isolate even though
+// the generated worker entry creates a fresh fetch handler per request.
+// Collapses concurrent regenerations of the same path into one render.
+const regenerationSingleFlight = createRevalidationSingleFlight();
 
 export interface CloudflareFetcher {
   fetch(input: Request | URL | string): Promise<Response>;
@@ -240,6 +249,7 @@ async function handleCloudflareRevalidationEndpoint(
     return jsonResponse(
       {
         error: "Cloudflare Cache API is unavailable.",
+        failed: [],
         revalidated: [],
         skipped: parsed.paths,
       },
@@ -249,6 +259,7 @@ async function handleCloudflareRevalidationEndpoint(
 
   const revalidated: string[] = [];
   const skipped: string[] = [];
+  const failed: string[] = [];
 
   for (const pathname of parsed.paths) {
     const entry = isgManifest[pathname];
@@ -258,27 +269,46 @@ async function handleCloudflareRevalidationEndpoint(
     }
 
     const cacheKey = createISGCacheKey(request, pathname);
-    await regenerateCloudflareISGPage(cache, cacheKey, pathname, request, renderISGPage);
-    revalidated.push(pathname);
+    // A failed regeneration keeps the existing cached copy and is reported
+    // in `failed` instead of aborting the whole batch with a 500.
+    if (await regenerateCloudflareISGPage(cache, cacheKey, pathname, request, renderISGPage)) {
+      revalidated.push(pathname);
+    } else {
+      failed.push(pathname);
+    }
   }
 
-  return jsonResponse({ revalidated, skipped });
+  return jsonResponse({ failed, revalidated, skipped });
 }
 
+/**
+ * Render an ISG page and overwrite its Cache API entry. Returns `true` when
+ * a fresh copy was stored. Render errors and `cache.put()` failures are
+ * logged and swallowed — the previously cached (stale) copy stays live.
+ */
 async function regenerateCloudflareISGPage(
   cache: Cache,
   cacheKey: Request,
   pathname: string,
   request: Request,
   renderISGPage: (pathname: string, originalRequest: Request) => Promise<Response>,
-): Promise<void> {
-  const response = await renderISGPage(pathname, request);
-  if (response.status !== 200 || !isISGResponseCacheable(response)) return;
+): Promise<boolean> {
+  return regenerationSingleFlight(cacheKey.url, async () => {
+    try {
+      const response = await renderISGPage(pathname, request);
+      if (response.status !== 200 || !isCacheableISGResponse(response)) return false;
 
-  const headers = applyDefaultSecurityHeaders(new Headers(response.headers));
-  headers.set("cache-control", "public, max-age=0, must-revalidate");
-  headers.set("x-pracht-isg-generated-at", String(Date.now()));
-  await cache.put(cacheKey, new Response(await response.text(), { status: 200, headers }));
+      const headers = applyDefaultSecurityHeaders(new Headers(response.headers));
+      headers.set("cache-control", "public, max-age=0, must-revalidate");
+      headers.set("x-pracht-isg-generated-at", String(Date.now()));
+      ensureRouteStateVary(headers);
+      await cache.put(cacheKey, new Response(await response.text(), { status: 200, headers }));
+      return true;
+    } catch (err) {
+      console.error(`ISG regeneration failed for ${pathname}:`, err);
+      return false;
+    }
+  });
 }
 
 function applyHeadersManifest(
@@ -354,6 +384,9 @@ function prepareCloudflareISGResponse(
   const headers = applyDefaultSecurityHeaders(new Headers(response.headers));
   applyHeadersManifest(headers, headersManifest, pathname);
   headers.set("x-pracht-isg", stale ? "stale" : "fresh");
+  // Downstream caches must keep HTML documents and route-state JSON apart,
+  // matching the Vary the asset path (`maybeServeAsset`) already sets.
+  ensureRouteStateVary(headers);
   return new Response(response.body, {
     status: response.status,
     statusText: response.statusText,
@@ -361,18 +394,12 @@ function prepareCloudflareISGResponse(
   });
 }
 
-function isISGResponseCacheable(response: Response): boolean {
-  const cacheControl = response.headers.get("cache-control")?.toLowerCase() ?? "";
-  if (/\b(no-store|private)\b/.test(cacheControl)) return false;
-
-  if (response.headers.get("set-cookie")) return false;
-
-  const vary = response.headers.get("vary")?.toLowerCase() ?? "";
-  if (!vary) return true;
-  if (vary.includes("*")) return false;
-  const varied = vary.split(",").map((s) => s.trim());
-  for (const name of varied) {
-    if (name === "cookie" || name === "authorization") return false;
-  }
-  return true;
+function ensureRouteStateVary(headers: Headers): void {
+  const vary = headers.get("vary") ?? "";
+  const varied = vary
+    .toLowerCase()
+    .split(",")
+    .map((value) => value.trim());
+  if (varied.includes(ROUTE_STATE_REQUEST_HEADER) || varied.includes("*")) return;
+  headers.append("Vary", ROUTE_STATE_REQUEST_HEADER);
 }

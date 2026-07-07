@@ -134,6 +134,18 @@ closed with `401` when the token is unset or incorrect. Pracht also accepts the
 same secret in the `x-pracht-revalidate-token` header for webhook providers
 that cannot send bearer auth.
 
+The response reports `revalidated`, `skipped`, and `failed` path arrays.
+Ineligible paths (not ISG, not prerendered, no `webhookRevalidate()`) are
+skipped; paths whose regeneration errored are reported in `failed` and keep
+serving the previously generated copy. Concurrent regenerations of the same
+path are single-flighted, so a burst of stale traffic or webhook posts
+triggers one render, not N.
+
+Dynamic ISG paths that `getStaticPaths()` did not enumerate at build time are
+rendered on demand per request (uncached); webhook posts naming them are
+reported as `skipped` on Node and Cloudflare because there is no generated
+copy to refresh.
+
 Webhook and time policies can be combined:
 
 ```typescript

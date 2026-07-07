@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  createRevalidationSingleFlight,
   getTimeRevalidateSeconds,
   hasWebhookRevalidate,
   isAuthorizedRevalidationRequest,
+  isCacheableISGResponse,
   normalizeRouteRevalidate,
   readRevalidationRequest,
   timeRevalidate,
@@ -79,5 +81,85 @@ describe("revalidation endpoint auth", () => {
     );
 
     expect(authorized).toEqual({ ok: true, paths: ["/pricing"] });
+  });
+});
+
+describe("createRevalidationSingleFlight", () => {
+  it("collapses concurrent tasks for the same key into one execution", async () => {
+    const singleFlight = createRevalidationSingleFlight();
+    let executions = 0;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    const task = async () => {
+      executions += 1;
+      await gate;
+      return executions;
+    };
+
+    const first = singleFlight("/pricing", task);
+    const second = singleFlight("/pricing", task);
+    const other = singleFlight("/other", async () => {
+      executions += 1;
+      return executions;
+    });
+
+    release();
+    await expect(Promise.all([first, second, other])).resolves.toBeDefined();
+    expect(executions).toBe(2);
+    await expect(first).resolves.toBe(await second);
+  });
+
+  it("allows a new run after the previous one settles, including rejections", async () => {
+    const singleFlight = createRevalidationSingleFlight();
+    let executions = 0;
+
+    await expect(
+      singleFlight("/pricing", async () => {
+        executions += 1;
+        throw new Error("boom");
+      }),
+    ).rejects.toThrow("boom");
+
+    await expect(
+      singleFlight("/pricing", async () => {
+        executions += 1;
+        return "ok";
+      }),
+    ).resolves.toBe("ok");
+    expect(executions).toBe(2);
+  });
+});
+
+describe("isCacheableISGResponse", () => {
+  it("accepts plain shared-cacheable HTML responses", () => {
+    expect(
+      isCacheableISGResponse(
+        new Response("<html></html>", {
+          headers: { "content-type": "text/html", vary: "accept-encoding" },
+        }),
+      ),
+    ).toBe(true);
+  });
+
+  it("rejects responses that depend on per-request state", () => {
+    expect(
+      isCacheableISGResponse(new Response("x", { headers: { "cache-control": "no-store" } })),
+    ).toBe(false);
+    expect(
+      isCacheableISGResponse(
+        new Response("x", { headers: { "cache-control": "private, max-age=60" } }),
+      ),
+    ).toBe(false);
+    expect(
+      isCacheableISGResponse(new Response("x", { headers: { "set-cookie": "session=abc" } })),
+    ).toBe(false);
+    expect(isCacheableISGResponse(new Response("x", { headers: { vary: "Cookie" } }))).toBe(false);
+    expect(
+      isCacheableISGResponse(new Response("x", { headers: { vary: "Accept, Authorization" } })),
+    ).toBe(false);
+    expect(isCacheableISGResponse(new Response("x", { headers: { vary: "*" } }))).toBe(false);
   });
 });

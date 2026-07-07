@@ -11,6 +11,7 @@ import {
   hasWebhookRevalidate,
   type HandlePrachtRequestOptions,
   type ISGManifestEntry,
+  isCacheableISGResponse,
   jsonResponse,
   type ModuleRegistry,
   PRACHT_REVALIDATE_ENDPOINT,
@@ -178,7 +179,7 @@ export function createNodeRequestHandler<TContext = unknown>(
       url.pathname in isgManifest &&
       response.status === 200 &&
       response.headers.get("content-type")?.includes("text/html") &&
-      isISGResponseCacheable(response)
+      isCacheableISGResponse(response)
     ) {
       const html = await response.clone().text();
       const htmlPath = resolveContainedPath(staticDir, url.pathname);
@@ -303,6 +304,7 @@ async function handleRevalidationEndpoint<TContext>(
     return jsonResponse(
       {
         error: "ISG revalidation requires a staticDir.",
+        failed: [],
         revalidated: [],
         skipped: parsed.paths,
       },
@@ -312,6 +314,7 @@ async function handleRevalidationEndpoint<TContext>(
 
   const revalidated: string[] = [];
   const skipped: string[] = [];
+  const failed: string[] = [];
 
   for (const pathname of parsed.paths) {
     const entry = isgManifest[pathname];
@@ -321,11 +324,21 @@ async function handleRevalidationEndpoint<TContext>(
       continue;
     }
 
-    await regenerateISGPage(options, pathname, htmlPath, contextArgs);
-    revalidated.push(pathname);
+    // A failed regeneration keeps the existing on-disk HTML and is reported
+    // in `failed` instead of aborting the whole batch with a 500.
+    try {
+      if (await regenerateISGPage(options, pathname, htmlPath, contextArgs)) {
+        revalidated.push(pathname);
+      } else {
+        failed.push(pathname);
+      }
+    } catch (err) {
+      console.error(`ISG webhook revalidation failed for ${pathname}:`, err);
+      failed.push(pathname);
+    }
   }
 
-  return jsonResponse({ revalidated, skipped });
+  return jsonResponse({ failed, revalidated, skipped });
 }
 
 /**
@@ -349,29 +362,6 @@ function resolveContainedPath(staticDir: string, pathname: string): string | nul
     return null;
   }
   return resolved;
-}
-
-/**
- * An ISG response is safe to cache on disk only when it doesn't depend
- * on request-specific state (cookies, auth) that the cached copy would
- * lose. `Cache-Control: private` / `no-store`, any `Set-Cookie`, and a
- * `Vary` that implies per-request output (cookie, authorization) all
- * signal "don't cache this across users".
- */
-function isISGResponseCacheable(response: Response): boolean {
-  const cacheControl = response.headers.get("cache-control")?.toLowerCase() ?? "";
-  if (/\b(no-store|private)\b/.test(cacheControl)) return false;
-
-  if (response.headers.get("set-cookie")) return false;
-
-  const vary = response.headers.get("vary")?.toLowerCase() ?? "";
-  if (!vary) return true;
-  if (vary.includes("*")) return false;
-  const varied = vary.split(",").map((s) => s.trim());
-  for (const name of varied) {
-    if (name === "cookie" || name === "authorization") return false;
-  }
-  return true;
 }
 
 function isRouteStateRequest(url: URL, headers: Headers): boolean {

@@ -111,6 +111,7 @@ async function handleVercelRevalidationEndpoint(
 
   const revalidated: string[] = [];
   const skipped: string[] = [];
+  const failed: string[] = [];
 
   for (const pathname of parsed.paths) {
     const match = matchAppRoute(app, pathname);
@@ -119,23 +120,30 @@ async function handleVercelRevalidationEndpoint(
       continue;
     }
 
-    const revalidateUrl = new URL(pathname, request.url);
-    const response = await fetch(revalidateUrl, {
-      headers: {
-        accept: "text/html",
-        "x-prerender-revalidate": token!,
-      },
-      method: "GET",
-    });
+    // A failed regeneration keeps Vercel's cached prerender output and is
+    // reported in `failed` instead of aborting the whole batch with a 500.
+    try {
+      const revalidateUrl = new URL(pathname, request.url);
+      const response = await fetch(revalidateUrl, {
+        headers: {
+          accept: "text/html",
+          "x-prerender-revalidate": token!,
+        },
+        method: "GET",
+      });
 
-    if (response.ok) {
-      revalidated.push(pathname);
-    } else {
-      skipped.push(pathname);
+      if (response.ok) {
+        revalidated.push(pathname);
+      } else {
+        failed.push(pathname);
+      }
+    } catch (err) {
+      console.error(`ISG webhook revalidation failed for ${pathname}:`, err);
+      failed.push(pathname);
     }
   }
 
-  return jsonResponse({ revalidated, skipped });
+  return jsonResponse({ failed, revalidated, skipped });
 }
 
 function getRuntimeRevalidationToken(): string | undefined {

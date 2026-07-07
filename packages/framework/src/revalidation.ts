@@ -8,6 +8,55 @@ export interface ParsedRevalidationRequest {
   paths: string[];
 }
 
+export type RevalidationSingleFlight = <T>(key: string, task: () => Promise<T>) => Promise<T>;
+
+/**
+ * Deduplicate concurrent regenerations of the same path. Without this, a
+ * stampede of requests against a stale ISG page (or repeated webhook posts)
+ * triggers N parallel renders that all race to write the same output.
+ * Callers sharing one single-flight instance receive the in-flight promise
+ * instead of starting another regeneration.
+ */
+export function createRevalidationSingleFlight(): RevalidationSingleFlight {
+  const inflight = new Map<string, Promise<unknown>>();
+
+  return <T>(key: string, task: () => Promise<T>): Promise<T> => {
+    const existing = inflight.get(key);
+    if (existing) return existing as Promise<T>;
+
+    const pending = Promise.resolve()
+      .then(task)
+      .finally(() => {
+        inflight.delete(key);
+      });
+    inflight.set(key, pending);
+    return pending;
+  };
+}
+
+/**
+ * An ISG response is safe to persist in a shared cache only when it doesn't
+ * depend on request-specific state (cookies, auth) that the cached copy would
+ * replay to every visitor. `Cache-Control: private` / `no-store`, any
+ * `Set-Cookie`, and a `Vary` that implies per-request output (cookie,
+ * authorization) all signal "don't cache this across users".
+ */
+export function isCacheableISGResponse(response: Response): boolean {
+  const cacheControl = response.headers.get("cache-control")?.toLowerCase() ?? "";
+  if (/\b(no-store|private)\b/.test(cacheControl)) return false;
+
+  if (response.headers.get("set-cookie")) return false;
+
+  const vary = response.headers.get("vary")?.toLowerCase() ?? "";
+  if (!vary) return true;
+  if (vary.includes("*")) return false;
+  const varied = vary.split(",").map((s) => s.trim());
+  for (const name of varied) {
+    if (name === "cookie" || name === "authorization") return false;
+  }
+  return true;
+}
+
 export type RevalidationRequestResult =
   | {
       ok: true;

@@ -344,9 +344,85 @@ describe("createNodeRequestHandler", () => {
         method: "POST",
       });
       expect(valid.status).toBe(200);
-      await expect(valid.json()).resolves.toEqual({ revalidated: ["/pricing"], skipped: [] });
+      await expect(valid.json()).resolves.toEqual({
+        failed: [],
+        revalidated: ["/pricing"],
+        skipped: [],
+      });
       expect(readFileSync(htmlPath, "utf-8")).toContain("missing");
       expect(readFileSync(htmlPath, "utf-8")).not.toContain("should-not-leak");
+    } finally {
+      if (previousToken === undefined) {
+        delete process.env.PRACHT_REVALIDATE_TOKEN;
+      } else {
+        process.env.PRACHT_REVALIDATE_TOKEN = previousToken;
+      }
+    }
+  });
+
+  it("reports failed webhook regenerations and keeps the stale HTML on disk", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const staticDir = makeTempDir();
+    const htmlDir = join(staticDir, "broken");
+    const htmlPath = join(htmlDir, "index.html");
+    mkdirSync(htmlDir, { recursive: true });
+    writeFileSync(htmlPath, "<html><body>stale-but-safe</body></html>", "utf-8");
+
+    const previousToken = process.env.PRACHT_REVALIDATE_TOKEN;
+    process.env.PRACHT_REVALIDATE_TOKEN = "secret";
+
+    const app = defineApp({
+      routes: [
+        route("/broken", "./routes/broken.tsx", {
+          render: "isg",
+          revalidate: webhookRevalidate(),
+        }),
+      ],
+    });
+    const handler = createNodeRequestHandler({
+      app,
+      isgManifest: {
+        "/broken": { revalidate: webhookRevalidate() },
+      },
+      registry: {
+        routeModules: {
+          "./routes/broken.tsx": async () => ({
+            Component: () => "<main>never</main>",
+            loader: async () => {
+              throw new Error("upstream CMS exploded");
+            },
+          }),
+        },
+      },
+      staticDir,
+    });
+
+    const server = createServer((req: IncomingMessage, res: ServerResponse) => {
+      void handler(req, res);
+    });
+    servers.add(server);
+
+    try {
+      server.listen(0, "127.0.0.1");
+      await once(server, "listening");
+      const address = server.address();
+      if (!address || typeof address === "string") {
+        throw new Error("Expected TCP server address");
+      }
+
+      const response = await fetch(`http://127.0.0.1:${address.port}/__pracht/revalidate`, {
+        body: JSON.stringify({ paths: ["/broken", "/not-isg"] }),
+        headers: { authorization: "Bearer secret", "content-type": "application/json" },
+        method: "POST",
+      });
+
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toEqual({
+        failed: ["/broken"],
+        revalidated: [],
+        skipped: ["/not-isg"],
+      });
+      expect(readFileSync(htmlPath, "utf-8")).toContain("stale-but-safe");
     } finally {
       if (previousToken === undefined) {
         delete process.env.PRACHT_REVALIDATE_TOKEN;

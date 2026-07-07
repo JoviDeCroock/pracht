@@ -494,9 +494,12 @@ curl -X POST https://example.com/__pracht/revalidate \
 ```
 
 The body must include `paths` as an array of concrete URL paths. The endpoint
-returns JSON with `revalidated` and `skipped` path arrays. A path is skipped
-when it is not an ISG route, is not in the prerender manifest, or does not opt
-into `webhookRevalidate()`.
+returns JSON with `revalidated`, `skipped`, and `failed` path arrays. A path is
+skipped when it is not an ISG route, is not in the prerender manifest, or does
+not opt into `webhookRevalidate()`. A path lands in `failed` when regeneration
+did not produce cacheable 200 HTML (loader error, `Set-Cookie`, `Cache-Control:
+private`/`no-store`, cache write failure); the previously generated copy stays
+live, and the batch continues instead of aborting with a 500.
 
 Set `PRACHT_REVALIDATE_TOKEN` in the deployment environment. Auth uses a
 constant-time comparison and fails closed with `401` when the token is missing
@@ -506,6 +509,19 @@ secret in `x-pracht-revalidate-token`.
 Regeneration never replays the webhook request's cookies, authorization
 headers, locale, or other user-specific headers. Adapters synthesize a clean
 `GET` document request for the target path.
+
+Concurrent regenerations of the same path are single-flighted: a stampede of
+stale requests (or repeated webhook posts) share one in-flight render per
+process/isolate instead of racing N parallel regenerations.
+
+Dynamic ISG paths that `getStaticPaths()` did not enumerate at build time are
+not in the prerender manifest. Regular requests for such paths still work —
+they fall through to the server render on every request, without a cached
+copy. Webhook posts naming them are reported as `skipped` on Node and
+Cloudflare (nothing cached to refresh). Vercel matches route patterns rather
+than the manifest, so such paths are accepted, but only build-time enumerated
+paths have prerender functions — new concrete paths are served per-request by
+the edge function.
 
 ---
 

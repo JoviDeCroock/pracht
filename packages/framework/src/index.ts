@@ -46,15 +46,18 @@ export { prefetch, type PrefetchFn } from "./prefetch-api.ts";
 export { prerenderApp } from "./prerender.ts";
 export {
   createISGRegenerationRequest,
+  createRevalidationSingleFlight,
   getTimeRevalidateSeconds,
   hasWebhookRevalidate,
   isAuthorizedRevalidationRequest,
+  isCacheableISGResponse,
   jsonResponse,
   normalizeRouteRevalidate,
   PRACHT_REVALIDATE_ENDPOINT,
   PRACHT_REVALIDATE_TOKEN_ENV,
   PRACHT_REVALIDATE_TOKEN_HEADER,
   readRevalidationRequest,
+  type RevalidationSingleFlight,
 } from "./revalidation.ts";
 export { redirect, type RedirectOptions } from "./runtime-middleware.ts";
 export { initClientRouter, useNavigate } from "./router.ts";
