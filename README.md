@@ -89,6 +89,7 @@ The starter gives you:
 
 - `pracht dev` — local SSR + HMR
 - `pracht build` — client/server output plus SSG/ISG prerendering, with `--analyze` for a per-route client JS report and budget enforcement
+- `pracht preview` — build and serve the production build locally
 - `pracht inspect [routes|api|build] --json` — resolved app graph metadata
 - `pracht generate route|shell|middleware|api` — framework-native scaffolding
 - `pracht verify` — fast framework-aware checks with `--changed` and `--json`

@@ -73,10 +73,12 @@ Cloudflare scaffolds also include:
 
 Node starters also include:
 
+- `preview` -> `pracht preview`
 - `start` -> `node dist/server/server.js`
 
 Cloudflare starters also include:
 
+- `preview` -> `pracht preview`
 - `deploy` -> `pracht build && wrangler deploy`
 
 Vercel starters also include:

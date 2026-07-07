@@ -26,11 +26,11 @@ runs axe-core against the result.
 
 ## Step 1: Boot the app
 
-Prefer the production build/runtime (`node dist/server/server.js` for Node targets, or the target platform's local preview) — production HTML is what users
+Prefer the production build/runtime (`pracht preview` builds and serves it for Node and Cloudflare targets) — production HTML is what users
 actually receive. Fall back to `pracht dev` only if the user can't build.
 
 ```bash
-pracht build && node dist/server/server.js &
+pracht preview &
 ```
 
 Or, if `BASE_URL` is set, target the deployed app.

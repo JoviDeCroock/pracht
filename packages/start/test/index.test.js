@@ -53,6 +53,7 @@ describe("create-pracht", () => {
 
     expect(packageJson).toMatch(/"@pracht\/cli": "\^\d+\.\d+\.\d+"/);
     expect(packageJson).toMatch(/"@pracht\/adapter-node": "\^\d+\.\d+\.\d+"/);
+    expect(packageJson).toContain('"preview": "pracht preview"');
     expect(packageJson).toContain('"start": "node dist/server/server.js"');
     expect(packageJson).not.toContain("wrangler");
     expect(gitignore).toContain(".env*");
@@ -136,6 +137,7 @@ describe("create-pracht", () => {
     expect(packageJson).toMatch(/"@pracht\/cli": "\^\d+\.\d+\.\d+"/);
     expect(packageJson).toMatch(/"@pracht\/adapter-cloudflare": "\^\d+\.\d+\.\d+"/);
 
+    expect(packageJson).toContain('"preview": "pracht preview"');
     expect(packageJson).toContain('"wrangler": "^4.81.0"');
     expect(packageJson).not.toContain('"@cloudflare/vite-plugin"');
     expect(wranglerConfig).toContain('"main": "dist/server/server.js"');
@@ -201,6 +203,7 @@ describe("create-pracht", () => {
     expect(packageJson).toMatch(/"vercel": "\^\d+\.\d+\.\d+"/);
 
     expect(packageJson).toContain('"deploy": "pracht build && vercel deploy --prebuilt"');
+    expect(packageJson).not.toContain('"preview"');
     expect(readme).toContain("configured for Vercel");
     expect(readme).toContain("pnpm deploy");
     expect(existsSync(join(targetDir, "wrangler.jsonc"))).toBe(false);
