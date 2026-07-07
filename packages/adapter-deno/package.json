@@ -1,0 +1,46 @@
+{
+  "name": "@pracht/adapter-deno",
+  "version": "0.1.0",
+  "description": "Deno adapter for serving Pracht apps with Deno.serve, static assets, loaders, and API routes.",
+  "keywords": [
+    "pracht",
+    "preact",
+    "deno",
+    "adapter",
+    "server",
+    "ssr",
+    "ssg",
+    "api-routes",
+    "vite"
+  ],
+  "license": "MIT",
+  "homepage": "https://github.com/JoviDeCroock/pracht/tree/main/packages/adapter-deno",
+  "bugs": {
+    "url": "https://github.com/JoviDeCroock/pracht/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/JoviDeCroock/pracht",
+    "directory": "packages/adapter-deno"
+  },
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.mts",
+      "default": "./dist/index.mjs"
+    }
+  },
+  "publishConfig": {
+    "provenance": true
+  },
+  "scripts": {
+    "build": "tsdown",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "@pracht/core": "workspace:*"
+  }
+}

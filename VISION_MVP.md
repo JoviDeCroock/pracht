@@ -104,6 +104,7 @@ Platform adapters export a request handler shaped for their runtime:
 | `adapter-node`       | Node.js `http`    | Static file serving, ISG mtime check |
 | `adapter-cloudflare` | Workers `fetch`   | `env.ASSETS`, bindings, no runtime ISG yet |
 | `adapter-vercel`     | Serverless / Edge | Build Output API v3 + edge handler   |
+| `adapter-deno`       | Deno `Deno.serve` | Native Web Request/Response handler, no runtime ISG yet |
 
 Each adapter:
 
@@ -186,6 +187,7 @@ pracht/
     adapter-node/     # Node.js server adapter
     adapter-cloudflare/  # Cloudflare Workers adapter
     adapter-vercel/      # Vercel Edge adapter
+    adapter-deno/        # Deno server adapter
     cli/              # Dev/build/generate/inspect/verify/doctor commands
     create-pracht/     # (Phase 2) Starter scaffolding
   example/            # Working example app

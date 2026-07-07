@@ -220,6 +220,12 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
       log("  Deploy with: wrangler deploy\n");
     }
 
+    if (serverMod.buildTarget === "deno" && Object.keys(isgManifest).length > 0) {
+      console.warn(
+        "\n  Warning: Deno adapter currently serves prerendered ISG HTML as static assets and does not perform runtime revalidation. Use SSR/SSG on Deno, or deploy ISG routes to Node until Deno ISG support is added.\n",
+      );
+    }
+
     if (serverMod.buildTarget === "vercel") {
       const outputPath = writeVercelBuildOutput({
         functionName: serverMod.vercelFunctionName,

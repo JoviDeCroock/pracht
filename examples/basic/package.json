@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "dependencies": {
+    "@pracht/adapter-deno": "workspace:*",
     "@pracht/adapter-node": "workspace:*",
     "@pracht/adapter-vercel": "workspace:*",
     "@pracht/core": "workspace:*"

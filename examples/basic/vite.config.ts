@@ -12,6 +12,11 @@ async function resolveAdapter() {
     return cloudflareAdapter();
   }
 
+  if (process.env.PRACHT_ADAPTER === "deno") {
+    const { denoAdapter } = await import("@pracht/adapter-deno");
+    return denoAdapter();
+  }
+
   const { nodeAdapter } = await import("@pracht/adapter-node");
   return nodeAdapter();
 }
