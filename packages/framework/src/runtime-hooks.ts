@@ -15,7 +15,14 @@ import {
 import { clearPrefetchCache } from "./prefetch-cache.ts";
 import { deserializeRouteError } from "./runtime-errors.ts";
 import { fetchPrachtRouteState, navigateToClientLocation } from "./runtime-client-fetch.ts";
-import type { LoaderData, LoaderLike, RouteId, RouteParams, RouteTarget } from "./types.ts";
+import type {
+  LoaderData,
+  LoaderLike,
+  RouteDataFor,
+  RouteId,
+  RouteParams,
+  RouteTarget,
+} from "./types.ts";
 
 export { PrachtRuntimeProvider, readHydrationState, startApp };
 export type { PrachtHydrationState, StartAppOptions };
@@ -36,10 +43,17 @@ export interface Location {
   search: string;
 }
 
+export function useRouteData<TRoute extends RouteId>(routeId: TRoute): RouteDataFor<TRoute>;
 export function useRouteData<TLoader extends LoaderLike>(): LoaderData<TLoader>;
 export function useRouteData<TData = unknown>(): TData;
-export function useRouteData(): unknown {
-  return useContext(RouteDataContext)?.data;
+export function useRouteData(routeId?: string): unknown {
+  const runtime = useContext(RouteDataContext);
+  if (import.meta.env?.DEV && routeId !== undefined && runtime && runtime.routeId !== routeId) {
+    console.warn(
+      `useRouteData("${routeId}") rendered inside route "${runtime.routeId}"; returning the active route's data.`,
+    );
+  }
+  return runtime?.data;
 }
 
 export function useLocation(): Location {

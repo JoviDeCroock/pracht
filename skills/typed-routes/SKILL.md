@@ -51,7 +51,8 @@ pracht typegen
 
 This writes:
 
-- `src/pracht-routes.d.ts` — module augmentation for route ids and params.
+- `src/pracht-routes.d.ts` — module augmentation for route ids, params, and
+  loader data types.
 - `src/pracht-routes.ts` — runtime `href()` helper backed by the same route map.
 
 Do not hand-edit generated files. If they are stale, update the route graph and
@@ -100,6 +101,26 @@ const productUrl = href("product", {
 
 Use `href()` in loaders that return URLs, sitemap helpers, menu config, test
 fixtures, and other non-component code.
+
+### Loader data
+
+After typegen, `useRouteData(routeId)` returns that route's loader data with
+no generic — route ids autocomplete and the type follows the route's loader
+(or its separate loader file from the manifest):
+
+```tsx
+import { useRouteData } from "@pracht/core";
+
+export function Component() {
+  const data = useRouteData("product");
+  return <h1>{data.product.name}</h1>;
+}
+```
+
+Prefer this over `useRouteData<typeof loader>()` when typegen runs; keep the
+generic form for projects that do not generate route types. Routes without a
+loader type their data as `undefined`. The id must be the active route — dev
+mode warns on mismatches.
 
 ## Step 4: Param and search rules
 

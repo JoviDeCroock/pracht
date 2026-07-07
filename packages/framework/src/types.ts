@@ -80,6 +80,14 @@ export type RouteSearchFor<TRoute extends RouteId> = HasRegisteredRoutes extends
     : never
   : SearchParamsInput;
 
+export type RouteDataFor<TRoute extends RouteId> = HasRegisteredRoutes extends true
+  ? TRoute extends keyof RegisteredRouteMap
+    ? RegisteredRouteMap[TRoute] extends { data: infer TData }
+      ? TData
+      : unknown
+    : never
+  : unknown;
+
 type TypedHrefOptions<TRoute extends RouteId> =
   IsEmptyRouteParams<RouteParamsFor<TRoute>> extends true
     ? {
@@ -303,6 +311,22 @@ export type LoaderData<TLoader extends LoaderLike> = TLoader extends (
 ) => infer TResult
   ? Awaited<TResult>
   : never;
+
+/**
+ * Extract loader data from a route module type. `pracht typegen` uses this to
+ * register per-route loader data on `Register["routes"]`. When a separate
+ * loader module is wired via the manifest (`loader: () => import(...)`), pass
+ * it first and the route module second — the loader module wins, matching the
+ * runtime's resolution order. Modules without a `loader` export resolve to
+ * `undefined`, mirroring the data a loaderless route receives.
+ */
+export type RouteLoaderData<TModule, TFallbackModule = TModule> = TModule extends {
+  loader: (...args: any[]) => infer TResult;
+}
+  ? Awaited<TResult>
+  : TFallbackModule extends { loader: (...args: any[]) => infer TFallbackResult }
+    ? Awaited<TFallbackResult>
+    : undefined;
 
 export interface HeadArgs<
   TLoader extends LoaderLike = undefined,

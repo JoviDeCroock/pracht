@@ -82,6 +82,8 @@ export type {
   RouteParamInput,
   RouteParams,
   RouteParamsFor,
+  RouteDataFor,
+  RouteLoaderData,
   RouteRevalidate,
   RouteSearchFor,
   RouteTarget,

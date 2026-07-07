@@ -36,13 +36,17 @@ metadata for the failure phase and matched framework files when available.
 
 - `startApp()` — client-side hydration and runtime
 - `useLocation()` — access the current pathname and search string separately
-- `useRouteData()` — access loader data inside a route component
+- `useRouteData()` — access loader data inside a route component; pass a route
+  id for fully typed data after `pracht typegen`, or a `typeof loader` generic
+  otherwise
 - `useRevalidate()` — trigger a revalidation of the current route's data
 - `<Form>` — progressive enhancement form component
 
 ### Types
 
 - `LoaderData<T>` — infer the return type of a loader
+- `RouteLoaderData<TModule, TFallbackModule?>` — infer loader data from a route
+  module type; used by `pracht typegen` to key loader data by route id
 - `RouteComponentProps<T>` — props type for route components
 - `LoaderArgs` — argument type passed to loaders
 

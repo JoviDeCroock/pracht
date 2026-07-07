@@ -316,10 +316,32 @@ See [docs/CSP.md](CSP.md) for a Content Security Policy recipe.
 
 ## Client Hooks
 
-### `useRouteData<typeof loader>()`
+### `useRouteData()`
 
 Access the current route's loader data reactively. Updates on navigation and
 revalidation.
+
+If your project runs `pracht typegen`, pass the route id and the data type is
+inferred from that route's loader — no generic needed:
+
+```typescript
+export function Component() {
+  const data = useRouteData("dashboard");
+  // data is typed as the awaited return type of the dashboard route's loader
+  return <span>{data.user.name}</span>;
+}
+```
+
+Route ids autocomplete against the generated route map. The generated
+declaration points at the route module (or the separate loader module wired via
+the manifest), so changing a loader's return type flows through without
+re-running typegen; only adding, removing, or renaming routes requires a
+regeneration. Routes without a loader type their data as `undefined`. In
+development, pracht logs a warning when the id you pass is not the active
+route, since the hook always returns the active route's data.
+
+For projects that do not run typegen, pass the loader type explicitly as a
+generic instead:
 
 ```typescript
 export function Component() {
