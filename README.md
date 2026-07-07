@@ -113,6 +113,7 @@ Pracht is built to be operated by coding agents as much as by humans:
 - [docs/DATA_LOADING.md](docs/DATA_LOADING.md) — loaders, forms, client hooks
 - [docs/STYLING.md](docs/STYLING.md) — CSS Modules, Tailwind, CSS-in-JS limitations
 - [docs/ADAPTERS.md](docs/ADAPTERS.md) — Node, Cloudflare, Vercel deployment paths
+- [docs/IMAGES.md](docs/IMAGES.md) — responsive `<Image>` component, loaders, optimization endpoint
 - [docs/MCP.md](docs/MCP.md) — built-in MCP server for coding agents
 - [packages/start/README.md](packages/start/README.md) — starter CLI details
 - [packages/preact-worker-facets/README.md](packages/preact-worker-facets/README.md) — experimental Cloudflare Dynamic Worker facets runtime for Preact components
