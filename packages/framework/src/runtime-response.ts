@@ -1,5 +1,5 @@
 import { h } from "preact";
-import type { ComponentChildren, FunctionComponent } from "preact";
+import type { ComponentChildren, FunctionComponent, VNode } from "preact";
 
 import {
   buildRuntimeDiagnostics,
@@ -227,7 +227,7 @@ export async function renderRouteErrorResponse<TContext>(options: {
   const componentTree = Shell
     ? h(Shell, null, h(Boundary, { error: errorValue }))
     : h(Boundary, { error: errorValue });
-  let tree = h(
+  let tree: VNode<any> = h(
     PrachtRuntimeProvider as unknown as FunctionComponent<{
       data: null;
       routeId: string;
