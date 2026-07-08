@@ -59,7 +59,7 @@ test("islands build hydrates islands only and ships minimal JS", async ({ page }
 
   const homeHtml = readFileSync(resolve(exampleDir, "dist/client/index.html"), "utf-8");
   expect(homeHtml).toContain('<pracht-island island="/src/islands/Counter.tsx"');
-  expect(homeHtml).toContain("props=\"{&quot;start&quot;:5}\"");
+  expect(homeHtml).toContain('props="{&quot;start&quot;:5}"');
   // Islands routes carry no hydration state and never reference the full
   // client runtime entry.
   expect(homeHtml).not.toContain('id="pracht-state"');

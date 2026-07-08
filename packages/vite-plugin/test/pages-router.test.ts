@@ -53,10 +53,7 @@ describe("scanPagesDirectory", () => {
       join(pagesDir, "index.tsx"),
       'export const RENDER_MODE = "ssg";\nexport const HYDRATION = "islands";\nexport function Component() { return null; }\n',
     );
-    writeFileSync(
-      join(pagesDir, "about.tsx"),
-      "export function Component() { return null; }\n",
-    );
+    writeFileSync(join(pagesDir, "about.tsx"), "export function Component() { return null; }\n");
 
     const pages = scanPagesDirectory(pagesDir);
     expect(pages.find((page) => page.routePath === "/")?.hydrationMode).toBe("islands");

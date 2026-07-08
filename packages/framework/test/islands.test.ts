@@ -82,7 +82,9 @@ describe("islands route config", () => {
 
   it("rejects spa render combined with islands hydration", () => {
     const app = defineApp({
-      routes: [route("/settings", "./routes/settings.tsx", { render: "spa", hydration: "islands" })],
+      routes: [
+        route("/settings", "./routes/settings.tsx", { render: "spa", hydration: "islands" }),
+      ],
     });
 
     expect(() => resolveApp(app)).toThrowError(/render: "spa" with hydration: "islands"/);
@@ -107,7 +109,7 @@ describe("islands server rendering", () => {
     });
 
     expect(html).toContain('<pracht-island island="/src/islands/Counter.tsx" export="default"');
-    expect(html).toContain("props=\"{&quot;start&quot;:5}\"");
+    expect(html).toContain('props="{&quot;start&quot;:5}"');
     expect(html).toContain("Count: 5");
     // No hydration state and no full client runtime — only the islands bootstrap.
     expect(html).not.toContain('id="pracht-state"');
@@ -147,7 +149,7 @@ describe("islands server rendering", () => {
     });
 
     expect(html).not.toContain("<pracht-island");
-    expect(html).not.toContain("<script type=\"module\"");
+    expect(html).not.toContain('<script type="module"');
   });
 
   it("renders islands as plain components on full-hydration routes", async () => {
@@ -285,8 +287,6 @@ describe("validateIslandProps", () => {
   it("rejects circular references", () => {
     const value: Record<string, unknown> = {};
     value.self = value;
-    expect(() => validateIslandProps({ value }, descriptor)).toThrowError(
-      /circular reference/,
-    );
+    expect(() => validateIslandProps({ value }, descriptor)).toThrowError(/circular reference/);
   });
 });

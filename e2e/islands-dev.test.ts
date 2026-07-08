@@ -27,9 +27,7 @@ test("non-island server components do not hydrate on islands routes", async ({ p
 
   // The full client runtime never loads on islands routes, so the regular
   // hydration marker must not appear.
-  const fullHydrationMarker = await page
-    .locator("html")
-    .getAttribute("data-pracht-hydrated");
+  const fullHydrationMarker = await page.locator("html").getAttribute("data-pracht-hydrated");
   expect(fullHydrationMarker).toBeNull();
 });
 
