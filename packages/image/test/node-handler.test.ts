@@ -218,6 +218,27 @@ describe("createImageHandler optimization", () => {
     expect(response.status).toBe(413);
   });
 
+  it("stops reading the source body after the size cap is exceeded", async () => {
+    let canceled = false;
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        controller.enqueue(new Uint8Array(8));
+      },
+      cancel() {
+        canceled = true;
+      },
+    });
+    const handler = createImageHandler({
+      fetchImage: async () => new Response(body, { headers: { "content-type": "image/png" } }),
+      maxSourceBytes: 10,
+    });
+
+    const response = await handler(imageRequest("url=%2Fhero.png&w=640"));
+
+    expect(response.status).toBe(413);
+    expect(canceled).toBe(true);
+  });
+
   it("explains how to install sharp when it is missing", async () => {
     const handler = createImageHandler({
       fetchImage: pngFetcher(),

@@ -14,4 +14,5 @@ exports `createImageHandler()`, a sharp-backed optimization endpoint (sharp is
 an optional peer dependency) mounted as the `src/api/_pracht/image.ts` API
 route: it negotiates WebP/AVIF via `Accept`, only serves allowlisted widths,
 restricts sources to same-origin unless `remotePatterns` opts hosts in, and
-answers with immutable cache headers. See docs/IMAGES.md.
+stream-enforces the source image size cap before optimization. Answers with
+immutable cache headers. See docs/IMAGES.md.
