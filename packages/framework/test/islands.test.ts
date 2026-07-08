@@ -31,6 +31,7 @@ function registerTestIslands(): void {
 
 interface RenderRouteOptions {
   Component: (props: any) => any;
+  ErrorBoundary?: (props: any) => any;
   hydration?: "full" | "islands" | "none";
   loader?: () => unknown;
 }
@@ -51,6 +52,7 @@ async function renderRoute(options: RenderRouteOptions): Promise<string> {
       routeModules: {
         "./routes/page.tsx": async () => ({
           Component: options.Component,
+          ...(options.ErrorBoundary ? { ErrorBoundary: options.ErrorBoundary } : {}),
           ...(options.loader ? { loader: options.loader } : {}),
         }),
       },
@@ -216,6 +218,42 @@ describe("islands server rendering", () => {
     });
 
     expect(html).toContain("invalid client strategy");
+  });
+
+  it("keeps hydration none error boundaries script-free", async () => {
+    registerTestIslands();
+
+    const html = await renderRoute({
+      hydration: "none",
+      loader: () => {
+        throw new Error("Broken static page");
+      },
+      Component: () => h("main", null, "ok"),
+      ErrorBoundary: ({ error }) => h("p", null, `Error: ${error.message}`),
+    });
+
+    expect(html).toContain("Error: Broken static page");
+    expect(html).not.toContain('id="pracht-state"');
+    expect(html).not.toContain("<script");
+  });
+
+  it("uses the islands bootstrap for islands error boundaries that render islands", async () => {
+    registerTestIslands();
+
+    const html = await renderRoute({
+      hydration: "islands",
+      loader: () => {
+        throw new Error("Broken islands page");
+      },
+      Component: () => h("main", null, "ok"),
+      ErrorBoundary: () => h("section", null, h(Counter, { start: 7 })),
+    });
+
+    expect(html).toContain('<pracht-island island="/src/islands/Counter.tsx" export="default"');
+    expect(html).toContain('props="{&quot;start&quot;:7}"');
+    expect(html).not.toContain('id="pracht-state"');
+    expect(html).toContain('<script type="module" src="/assets/islands-client-test.js"></script>');
+    expect(html).not.toContain("/@pracht/client.js");
   });
 });
 

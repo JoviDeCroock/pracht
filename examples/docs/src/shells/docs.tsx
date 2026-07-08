@@ -40,6 +40,7 @@ const NAV = [
     label: "Core Concepts",
     links: [
       { href: "/docs/rendering", Icon: IconBolt, title: "Rendering Modes" },
+      { href: "/docs/islands", Icon: IconSparkles, title: "Islands" },
       { href: "/docs/data-loading", Icon: IconServerBolt, title: "Data Loading" },
       { href: "/docs/api-routes", Icon: IconPlug, title: "API Routes" },
       { href: "/docs/middleware", Icon: IconShield, title: "Middleware" },

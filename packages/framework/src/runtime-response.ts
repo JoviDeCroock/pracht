@@ -15,10 +15,19 @@ import {
   withRouteResponseHeaders,
 } from "./runtime-headers.ts";
 import { buildHtmlDocument, htmlResponse } from "./runtime-html.ts";
-import { resolvePageCssUrls, resolvePageJsUrls } from "./runtime-manifest.ts";
+import {
+  resolveManifestEntries,
+  resolvePageCssUrls,
+  resolvePageJsUrls,
+  resolveRegistryModule,
+} from "./runtime-manifest.ts";
 import { mergeDocumentHeaders } from "./runtime-middleware.ts";
 import { PrachtRuntimeProvider } from "./runtime-hooks.ts";
-import { resolveRegistryModule } from "./runtime-manifest.ts";
+import {
+  getIslandsClientEntryUrl,
+  IslandCaptureContext,
+  type IslandCapture,
+} from "./islands-server.ts";
 import type {
   BaseRouteArgs,
   HrefRouteDefinition,
@@ -38,6 +47,7 @@ export async function getRenderToStringAsync() {
 interface HandleRequestOptionsLike {
   debugErrors?: boolean;
   clientEntryUrl?: string;
+  islandsEntryUrl?: string;
   cssManifest?: Record<string, string[]>;
   jsManifest?: Record<string, string[]>;
   registry?: import("./types.ts").ModuleRegistry;
@@ -217,7 +227,7 @@ export async function renderRouteErrorResponse<TContext>(options: {
   const componentTree = Shell
     ? h(Shell, null, h(Boundary, { error: errorValue }))
     : h(Boundary, { error: errorValue });
-  const tree = h(
+  let tree = h(
     PrachtRuntimeProvider as unknown as FunctionComponent<{
       data: null;
       routeId: string;
@@ -228,7 +238,61 @@ export async function renderRouteErrorResponse<TContext>(options: {
     { data: null, routeId: options.routeId, routes: options.routes, url: options.requestPath },
     componentTree,
   );
+  const hydration = options.routeArgs.route.hydration ?? "full";
+  let islandCapture: IslandCapture | null = null;
+  if (hydration === "islands") {
+    islandCapture = { islands: [] };
+    tree = h(
+      IslandCaptureContext.Provider as FunctionComponent<Record<string, unknown>>,
+      { value: islandCapture },
+      tree,
+    );
+  }
   const body = await renderToString(tree);
+
+  if (hydration !== "full") {
+    const islandFiles = [
+      ...new Set((islandCapture?.islands ?? []).map((usage) => usage.descriptor.file)),
+    ];
+    let islandsEntryUrl: string | undefined;
+    if (islandFiles.length > 0) {
+      islandsEntryUrl = options.options.islandsEntryUrl ?? getIslandsClientEntryUrl();
+      if (!islandsEntryUrl) {
+        throw new Error(
+          `Route "${options.routeArgs.route.path}" uses hydration: "islands" and rendered ` +
+            `${islandFiles.length} island(s) in its error boundary, but no islands bootstrap URL is registered. ` +
+            "This usually means the @pracht/vite-plugin islands entry was not built — " +
+            "check that your islands live in the configured islands directory.",
+        );
+      }
+    }
+
+    const preloadFiles = new Set(
+      (islandCapture?.islands ?? [])
+        .filter((usage) => usage.strategy === "load")
+        .map((usage) => usage.descriptor.file),
+    );
+    const islandPreloadUrls = new Set<string>();
+    if (options.options.jsManifest) {
+      for (const file of preloadFiles) {
+        for (const url of resolveManifestEntries(options.options.jsManifest, file) ?? []) {
+          islandPreloadUrls.add(url);
+        }
+      }
+    }
+
+    return htmlResponse(
+      buildHtmlDocument({
+        head,
+        body,
+        clientEntryUrl: islandsEntryUrl,
+        cssUrls,
+        modulePreloadUrls: [...islandPreloadUrls],
+      }),
+      routeErrorWithDiagnostics.status,
+      documentHeaders,
+    );
+  }
 
   return htmlResponse(
     buildHtmlDocument({
