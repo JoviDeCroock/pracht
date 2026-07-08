@@ -60,6 +60,10 @@ export const app = defineApp({
         id: "styling",
         render: "ssg",
       }),
+      route("/docs/images", () => import("./routes/docs/images.md"), {
+        id: "images",
+        render: "ssg",
+      }),
       route("/docs/env", () => import("./routes/docs/env.md"), {
         id: "env",
         render: "ssg",

@@ -27,6 +27,7 @@ import {
   IconActivity,
   IconShieldCheck,
   IconWorldBolt,
+  IconPhoto,
 } from "@tabler/icons-preact";
 import "../styles/global.css";
 
@@ -51,6 +52,7 @@ const NAV = [
       { href: "/docs/middleware", Icon: IconShield, title: "Middleware" },
       { href: "/docs/shells", Icon: IconLayout, title: "Shells" },
       { href: "/docs/styling", Icon: IconPalette, title: "Styling" },
+      { href: "/docs/images", Icon: IconPhoto, title: "Images" },
       { href: "/docs/env", Icon: IconKey, title: "Environment" },
     ],
   },
