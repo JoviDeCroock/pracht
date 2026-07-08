@@ -106,6 +106,16 @@ describe("prefetch strategies", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
+  it('honors a route-level prefetch "none" default on hover', () => {
+    const anchor = addAnchor("/quiet");
+    setupPrefetching(createApp());
+
+    hover(anchor);
+    vi.advanceTimersByTime(200);
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
   it('honors a per-anchor "intent" override on a route configured with prefetch "none"', () => {
     const anchor = addAnchor("/quiet", { "data-pracht-prefetch": "intent" });
     setupPrefetching(createApp());

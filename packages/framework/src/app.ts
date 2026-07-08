@@ -229,6 +229,7 @@ function flattenRouteNode(
       }
       return app.middleware[name];
     }),
+    prefetch: node.prefetch,
     revalidate: node.revalidate,
     segments: parseRouteSegments(fullPath),
   });
