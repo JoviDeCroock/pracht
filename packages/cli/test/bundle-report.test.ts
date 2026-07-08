@@ -152,6 +152,68 @@ describe("collectBundleReport", () => {
     // "src/routes/home.tsx" — suffix matching must bridge the difference.
     expect(report.routes.every((route) => route.chunks.length > 0)).toBe(true);
   });
+
+  it("attributes islands bootstrap + island chunks to islands routes without the shared entry", () => {
+    const ISLANDS_ENTRY_JS = "console.log('islands bootstrap');".repeat(5);
+    const COUNTER_JS = "console.log('counter island');".repeat(8);
+    const clientDir = createClientDirFixture({
+      "assets/entry.js": ENTRY_JS,
+      "assets/vendor.js": VENDOR_JS,
+      "assets/home.js": HOME_JS,
+      "assets/islands-client.js": ISLANDS_ENTRY_JS,
+      "assets/Counter.js": COUNTER_JS,
+    });
+
+    const report = collectBundleReport({
+      clientDir,
+      clientEntryJs: ["/assets/entry.js", "/assets/vendor.js"],
+      islandsEntryJs: ["/assets/islands-client.js", "/assets/vendor.js"],
+      islandFiles: ["/src/islands/Counter.tsx"],
+      jsManifest: {
+        "src/routes/home.tsx": ["/assets/home.js", "/assets/vendor.js"],
+        "src/islands/Counter.tsx": ["/assets/Counter.js", "/assets/vendor.js"],
+      },
+      routes: [
+        {
+          id: "home",
+          path: "/",
+          render: "ssg",
+          hydration: "islands",
+          file: "./routes/home.tsx",
+        },
+        {
+          id: "static",
+          path: "/static",
+          render: "ssg",
+          hydration: "none",
+          file: "./routes/static.tsx",
+        },
+      ],
+    });
+
+    const home = report.routes.find((route) => route.path === "/");
+    expect(home?.hydration).toBe("islands");
+    expect(home?.chunks.map((chunk) => chunk.url).sort()).toEqual([
+      "/assets/Counter.js",
+      "/assets/islands-client.js",
+      "/assets/vendor.js",
+    ]);
+    // The full client runtime entry is never loaded by islands routes.
+    expect(home?.chunks.map((chunk) => chunk.url)).not.toContain("/assets/entry.js");
+    expect(home?.totalGzipBytes).toBe(home?.routeGzipBytes);
+
+    const staticRoute = report.routes.find((route) => route.path === "/static");
+    expect(staticRoute?.hydration).toBe("none");
+    expect(staticRoute?.chunks).toEqual([]);
+    expect(staticRoute?.totalBytes).toBe(0);
+    expect(staticRoute?.totalGzipBytes).toBe(0);
+
+    const output = formatBundleReport(report);
+    expect(output).toContain("/ (ssg, islands)");
+    expect(output).toContain("/static (ssg, none)");
+    expect(output).toContain("total (islands bootstrap + islands, no shared entry)");
+    expect(output).toContain("total (no client js)");
+  });
 });
 
 describe("evaluateBudgets", () => {

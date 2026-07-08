@@ -28,6 +28,7 @@ interface InheritedRouteConfig {
   pathPrefix: string;
   shell?: string;
   render?: ResolvedRoute["render"];
+  hydration?: ResolvedRoute["hydration"];
   middleware: string[];
 }
 
@@ -180,6 +181,7 @@ function flattenRouteNode(
       pathPrefix: mergeRoutePaths(inherited.pathPrefix, node.meta.pathPrefix),
       shell: node.meta.shell ?? inherited.shell,
       render: node.meta.render ?? inherited.render,
+      hydration: node.meta.hydration ?? inherited.hydration,
       middleware: [...inherited.middleware, ...(node.meta.middleware ?? [])],
     };
 
@@ -193,6 +195,16 @@ function flattenRouteNode(
   const fullPath = mergeRoutePaths(inherited.pathPrefix, node.path);
   const shell = node.shell ?? inherited.shell;
   const middleware = [...inherited.middleware, ...(node.middleware ?? [])];
+  const render = node.render ?? inherited.render;
+  const hydration = node.hydration ?? inherited.hydration;
+
+  if (render === "spa" && hydration !== undefined && hydration !== "full") {
+    throw new Error(
+      `Route "${fullPath}" combines render: "spa" with hydration: "${hydration}". ` +
+        "SPA routes render entirely in the browser and always use full hydration — " +
+        'remove the hydration option or use render: "ssg" / "isg" / "ssr".',
+    );
+  }
 
   if (shell !== undefined && !hasOwnEntry(app.shells, shell)) {
     throw new Error(
@@ -213,7 +225,8 @@ function flattenRouteNode(
     hasLoader: node.loaderFile ? true : node.hasLoader,
     shell,
     shellFile: shell !== undefined ? app.shells[shell] : undefined,
-    render: node.render ?? inherited.render,
+    render,
+    hydration,
     middleware,
     middlewareFiles: middleware.map((name) => {
       if (!hasOwnEntry(app.middleware, name)) {

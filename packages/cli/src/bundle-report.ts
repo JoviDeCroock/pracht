@@ -57,11 +57,19 @@ export interface RouteBundle {
   id?: string;
   path: string;
   render: string;
+  /** Hydration mode; omitted for the default "full". */
+  hydration?: string;
   /** Route-specific chunks (route module + shell, excluding shared entry chunks). */
   chunks: BundleChunk[];
   routeBytes: number;
   routeGzipBytes: number;
-  /** Route-specific + shared entry chunks. */
+  /**
+   * For full-hydration routes: route-specific + shared entry chunks.
+   * For islands routes: islands bootstrap + island chunks only — the full
+   * client runtime is never loaded. Island chunks are an upper bound (every
+   * island in the app), because which islands a page uses is only known at
+   * render time. For hydration "none" routes this is 0.
+   */
   totalBytes: number;
   totalGzipBytes: number;
 }
@@ -81,6 +89,7 @@ export interface BundleReportRoute {
   id?: string;
   path: string;
   render?: string;
+  hydration?: string;
   file: string;
   shellFile?: string;
 }
@@ -89,6 +98,10 @@ export interface CollectBundleReportOptions {
   routes: BundleReportRoute[];
   jsManifest: Record<string, string[]>;
   clientEntryJs: string[];
+  /** Transitive chunks of the islands bootstrap entry (empty when unused). */
+  islandsEntryJs?: string[];
+  /** Source files of all island modules, for islands-route attribution. */
+  islandFiles?: string[];
   clientDir: string;
 }
 
@@ -127,6 +140,8 @@ export function collectBundleReport({
   routes,
   jsManifest,
   clientEntryJs,
+  islandsEntryJs = [],
+  islandFiles = [],
   clientDir,
 }: CollectBundleReportOptions): BundleReport {
   const suffixIndex = buildSuffixIndex(jsManifest);
@@ -155,7 +170,54 @@ export function collectBundleReport({
   const sharedBytes = sumBytes(sharedChunks);
   const sharedGzipBytes = sumGzipBytes(sharedChunks);
 
+  // Chunks an islands-mode route can load: the islands bootstrap plus every
+  // island chunk. Which islands a page actually renders is only known at
+  // render time, so this is a per-route upper bound.
+  const islandUrls = new Set<string>(islandsEntryJs);
+  for (const file of islandFiles) {
+    for (const url of resolveManifestEntries(jsManifest, suffixIndex, file)) {
+      islandUrls.add(url);
+    }
+  }
+
   const reportRoutes: RouteBundle[] = routes.map((route) => {
+    const hydration = route.hydration ?? "full";
+
+    if (hydration === "none") {
+      return {
+        ...(route.id ? { id: route.id } : {}),
+        path: route.path,
+        render: route.render ?? "ssr",
+        hydration,
+        chunks: [],
+        routeBytes: 0,
+        routeGzipBytes: 0,
+        totalBytes: 0,
+        totalGzipBytes: 0,
+      };
+    }
+
+    if (hydration === "islands") {
+      const chunks = [...islandUrls]
+        .map(measureChunk)
+        .sort((left, right) => right.gzipBytes - left.gzipBytes);
+      const routeBytes = sumBytes(chunks);
+      const routeGzipBytes = sumGzipBytes(chunks);
+
+      return {
+        ...(route.id ? { id: route.id } : {}),
+        path: route.path,
+        render: route.render ?? "ssr",
+        hydration,
+        chunks,
+        routeBytes,
+        routeGzipBytes,
+        // Islands routes never load the shared client entry.
+        totalBytes: routeBytes,
+        totalGzipBytes: routeGzipBytes,
+      };
+    }
+
     const urls = new Set<string>();
     if (route.shellFile) {
       for (const url of resolveManifestEntries(jsManifest, suffixIndex, route.shellFile)) {
@@ -280,7 +342,13 @@ export function formatBundleReport(report: BundleReport, options: FormatOptions 
     [];
 
   for (const route of report.routes) {
-    rows.push({ label: `${route.path} (${route.render})`, raw: "", gzip: "", kind: "header" });
+    const modeSuffix = route.hydration && route.hydration !== "full" ? `, ${route.hydration}` : "";
+    rows.push({
+      label: `${route.path} (${route.render}${modeSuffix})`,
+      raw: "",
+      gzip: "",
+      kind: "header",
+    });
     for (const chunk of route.chunks) {
       rows.push({
         label: `  ${chunk.url}`,
@@ -289,8 +357,14 @@ export function formatBundleReport(report: BundleReport, options: FormatOptions 
         kind: "chunk",
       });
     }
+    const totalLabel =
+      route.hydration === "islands"
+        ? "  total (islands bootstrap + islands, no shared entry)"
+        : route.hydration === "none"
+          ? "  total (no client js)"
+          : "  total (incl. shared)";
     rows.push({
-      label: "  total (incl. shared)",
+      label: totalLabel,
       raw: formatBytes(route.totalBytes),
       gzip: formatBytes(route.totalGzipBytes),
       kind: "total",

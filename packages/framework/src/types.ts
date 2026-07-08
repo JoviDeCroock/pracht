@@ -21,6 +21,37 @@ type RegisteredContext = Register extends { context: infer T } ? T : unknown;
 
 export type RenderMode = "spa" | "ssr" | "ssg" | "isg";
 
+/**
+ * Per-route hydration mode.
+ *
+ * - `"full"` (default) — the whole page tree hydrates and the client router
+ *   takes over navigation. Existing behavior, zero change.
+ * - `"islands"` — only components from the islands directory (`src/islands/`)
+ *   hydrate; the rest of the page ships no JavaScript. Navigation to and from
+ *   these routes is regular full-document (MPA-style) navigation.
+ * - `"none"` — fully static output; no JavaScript is injected at all.
+ */
+export type HydrationMode = "full" | "islands" | "none";
+
+/**
+ * Hydration strategy for one island usage, passed via the `client` prop:
+ *
+ * - `"load"` (default) — hydrate as soon as the islands bootstrap runs.
+ * - `"idle"` — hydrate in a `requestIdleCallback`.
+ * - `"visible"` — hydrate when the island scrolls into view
+ *   (`IntersectionObserver`).
+ */
+export type IslandStrategy = "load" | "idle" | "visible";
+
+/**
+ * Props accepted by every island component usage on the server. Intersect
+ * with your own props type: `function Counter(props: CounterProps & IslandProps)`.
+ * `client` is consumed by the framework and never reaches the component.
+ */
+export interface IslandProps {
+  client?: IslandStrategy;
+}
+
 export type RouteParams = Record<string, string>;
 
 export type RouteParamInput = string | number | boolean;
@@ -194,6 +225,7 @@ export interface RouteMeta {
   id?: string;
   shell?: string;
   render?: RenderMode;
+  hydration?: HydrationMode;
   middleware?: string[];
   revalidate?: RouteRevalidate;
   prefetch?: PrefetchStrategy;
@@ -203,6 +235,7 @@ export interface RouteMeta {
 export interface GroupMeta {
   shell?: string;
   render?: RenderMode;
+  hydration?: HydrationMode;
   middleware?: string[];
   pathPrefix?: string;
 }

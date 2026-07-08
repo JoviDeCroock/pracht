@@ -8,6 +8,7 @@ export default defineConfig({
     "src/client.ts",
     "src/manifest.ts",
     "src/server.ts",
+    "src/islands-client.ts",
     "src/error-overlay.ts",
     "src/dev-404.ts",
     "src/devtools.ts",

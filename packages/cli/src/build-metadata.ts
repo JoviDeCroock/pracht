@@ -15,6 +15,9 @@ export interface ClientBuildAssets {
   clientEntryUrl: string | null;
   /** Transitive JS chunk urls loaded by the client entry on every page. */
   clientEntryJs: string[];
+  islandsEntryUrl: string | null;
+  /** Transitive JS chunk urls loaded by the islands bootstrap entry. */
+  islandsEntryJs: string[];
   cssManifest: Record<string, string[]>;
   jsManifest: Record<string, string[]>;
 }
@@ -28,6 +31,8 @@ export function readClientBuildAssets(root: string = process.cwd()): ClientBuild
     return {
       clientEntryUrl: null,
       clientEntryJs: [],
+      islandsEntryUrl: null,
+      islandsEntryJs: [],
       cssManifest: {},
       jsManifest: {},
     };
@@ -36,6 +41,7 @@ export function readClientBuildAssets(root: string = process.cwd()): ClientBuild
   const rawManifest = readFileSync(manifestPath, "utf-8");
   const manifest: Record<string, ViteManifestEntry> = JSON.parse(rawManifest);
   const clientEntry = manifest["virtual:pracht/client"];
+  const islandsEntry = manifest["virtual:pracht/islands-client"];
 
   function collectTransitiveDeps(key: string): { css: string[]; js: string[] } {
     const css = new Set<string>();
@@ -87,6 +93,10 @@ export function readClientBuildAssets(root: string = process.cwd()): ClientBuild
     clientEntryUrl: clientEntry ? `/${clientEntry.file}` : null,
     clientEntryJs: clientEntry
       ? collectTransitiveDeps("virtual:pracht/client").js.map((file) => `/${file}`)
+      : [],
+    islandsEntryUrl: islandsEntry ? `/${islandsEntry.file}` : null,
+    islandsEntryJs: islandsEntry
+      ? collectTransitiveDeps("virtual:pracht/islands-client").js.map((file) => `/${file}`)
       : [],
     cssManifest,
     jsManifest,

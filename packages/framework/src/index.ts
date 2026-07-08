@@ -45,6 +45,14 @@ export { prefetch, type PrefetchFn } from "./prefetch-api.ts";
 export { prerenderApp } from "./prerender.ts";
 export { redirect, type RedirectOptions } from "./runtime-middleware.ts";
 export { initClientRouter, useNavigate } from "./router.ts";
+export {
+  registerServerIslands,
+  setIslandsClientEntryUrl,
+  validateIslandProps,
+  type IslandCapture,
+  type IslandDescriptor,
+  type IslandUsage,
+} from "./islands-server.ts";
 export { PrachtHttpError } from "./types.ts";
 export type {
   ApiConfig,
@@ -83,6 +91,9 @@ export type {
   LinkPrefetchStrategy,
   ModuleRegistry,
   RenderMode,
+  HydrationMode,
+  IslandStrategy,
+  IslandProps,
   ResolvedApiRoute,
   ResolvedRoute,
   ResolvedPrachtApp,

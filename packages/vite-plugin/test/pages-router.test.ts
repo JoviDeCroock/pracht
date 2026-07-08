@@ -46,6 +46,28 @@ describe("scanPagesDirectory", () => {
     expect(pages.find((page) => page.routePath === "/guide")?.renderMode).toBe("ssg");
   });
 
+  it("extracts the HYDRATION export and emits it in the generated manifest", () => {
+    const pagesDir = makeTempPagesDir();
+
+    writeFileSync(
+      join(pagesDir, "index.tsx"),
+      'export const RENDER_MODE = "ssg";\nexport const HYDRATION = "islands";\nexport function Component() { return null; }\n',
+    );
+    writeFileSync(
+      join(pagesDir, "about.tsx"),
+      "export function Component() { return null; }\n",
+    );
+
+    const pages = scanPagesDirectory(pagesDir);
+    expect(pages.find((page) => page.routePath === "/")?.hydrationMode).toBe("islands");
+    expect(pages.find((page) => page.routePath === "/about")?.hydrationMode).toBeUndefined();
+
+    const source = generatePagesManifestSource(pages, { pagesDir });
+    expect(source).toContain('hydration: "islands"');
+    // Routes without a HYDRATION export stay on the default (full) hydration.
+    expect(source.match(/hydration:/g)).toHaveLength(1);
+  });
+
   it("sorts nested dynamic folders after static routes", () => {
     const pagesDir = makeTempPagesDir();
     mkdirSync(join(pagesDir, "[slug]"), { recursive: true });
@@ -167,6 +189,7 @@ describe("pracht plugin config", () => {
       "src/middleware/**/*.{ts,tsx,js,jsx}",
       "src/api/**/*.{ts,js,tsx,jsx}",
       "src/server/**/*.{ts,js,tsx,jsx}",
+      "src/islands/**/*.{ts,tsx,js,jsx}",
     ];
 
     expect(result.optimizeDeps?.entries).toEqual(["custom-entry.ts", ...expectedPrachtEntries]);

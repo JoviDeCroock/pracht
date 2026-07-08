@@ -1,7 +1,11 @@
 import { dirname, resolve } from "node:path";
 import { PRACHT_CLIENT_MODULE_QUERY } from "./client-module-query.ts";
 import { generatePagesManifestSource, scanPagesDirectory } from "./pages-router.ts";
-import { CLIENT_BROWSER_PATH, readClientBuildAssets } from "./plugin-assets.ts";
+import {
+  CLIENT_BROWSER_PATH,
+  ISLANDS_CLIENT_BROWSER_PATH,
+  readClientBuildAssets,
+} from "./plugin-assets.ts";
 import {
   resolveOptions,
   type PrachtPluginOptions,
@@ -98,6 +102,26 @@ export function createPrachtClientModuleSource(
   ].join("\n");
 }
 
+/**
+ * Source of `virtual:pracht/islands-client` — the tiny bootstrap loaded by
+ * `hydration: "islands"` routes. It deliberately does NOT import the app
+ * manifest, the router, or the full client runtime: it only scans the DOM
+ * for island markers and hydrates the islands present on the page.
+ */
+export function createPrachtIslandsClientModuleSource(options: PrachtPluginOptions = {}): string {
+  const resolved = resolveOptions(options);
+  const islandsGlob = `${resolved.islandsDir}/**/*.{ts,tsx,js,jsx}`;
+
+  return [
+    'import { hydrateIslands } from "@pracht/core/islands-client";',
+    "",
+    `const islandModules = import.meta.glob(${JSON.stringify(islandsGlob)});`,
+    "",
+    "hydrateIslands({ modules: islandModules });",
+    "",
+  ].join("\n");
+}
+
 export function createPrachtServerModuleSource(
   options: PrachtPluginOptions = {},
   buildOptions: {
@@ -111,7 +135,7 @@ export function createPrachtServerModuleSource(
   const routeLoaderHints = createRouteLoaderHintsForVirtualModules(resolved, buildOptions.root);
   const clientBuild = buildOptions.isBuild
     ? readClientBuildAssets(buildOptions.root)
-    : { clientEntryUrl: null, cssManifest: {}, jsManifest: {} };
+    : { clientEntryUrl: null, islandsEntryUrl: null, cssManifest: {}, jsManifest: {} };
   const adapter = resolved.adapter;
 
   // The adapter tells us what extra imports it needs (e.g. handlePrachtRequest).
@@ -126,19 +150,36 @@ export function createPrachtServerModuleSource(
     ? generatePagesAppInlineSource(resolved, buildOptions.root)
     : `import { app } from ${JSON.stringify(resolved.appFile)};`;
 
+  // In dev the islands bootstrap is served from a stable path; in production
+  // builds the hashed entry URL comes from the client build manifest (null
+  // when the app has no islands directory).
+  const islandsEntryUrl = buildOptions.isBuild
+    ? clientBuild.islandsEntryUrl
+    : ISLANDS_CLIENT_BROWSER_PATH;
+  const islandsGlob = `${resolved.islandsDir}/**/*.{ts,tsx,js,jsx}`;
+
   const source = [
     prachtImports,
+    'import { registerServerIslands, setIslandsClientEntryUrl } from "@pracht/core/server";',
     appImport,
     "",
     `const routeLoaderHints = ${JSON.stringify(routeLoaderHints)};`,
     ...createApplyRouteLoaderHintsSource(),
     registrySource,
     "",
+    "// Islands are registered eagerly so the server renderer can detect their",
+    "// vnodes during islands-mode renders.",
+    `const islandModules = import.meta.glob(${JSON.stringify(islandsGlob)}, { eager: true });`,
+    "registerServerIslands(islandModules);",
+    `setIslandsClientEntryUrl(${JSON.stringify(islandsEntryUrl ?? undefined)});`,
+    "export const islandFiles = Object.keys(islandModules);",
+    "",
     "export const resolvedApp = resolveApp(app);",
     "applyRouteLoaderHints(resolvedApp, routeLoaderHints);",
     `export const apiRoutes = resolveApiRoutes(Object.keys(apiModules), ${JSON.stringify(resolved.apiDir)});`,
     `export const buildTarget = ${JSON.stringify(adapter?.id ?? "node")};`,
     `export const clientEntryUrl = ${JSON.stringify(clientBuild.clientEntryUrl ?? CLIENT_BROWSER_PATH)};`,
+    `export const islandsEntryUrl = ${JSON.stringify(islandsEntryUrl ?? null)};`,
     `export const cssManifest = ${JSON.stringify(clientBuild.cssManifest)};`,
     `export const jsManifest = ${JSON.stringify(clientBuild.jsManifest)};`,
     `export const prerenderConcurrency = ${JSON.stringify(resolved.prerenderConcurrency)};`,

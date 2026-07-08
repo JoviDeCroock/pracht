@@ -202,10 +202,37 @@ Settings is SPA because it's behind auth and doesn't need SEO.
 
 ---
 
+## Hydration Modes
+
+Orthogonal to the render mode, every route also has a **hydration mode**:
+
+```typescript
+route("/", () => import("./routes/home.tsx"), {
+  render: "ssg",
+  hydration: "islands",
+});
+```
+
+| Mode                 | Behavior                                                                 |
+| -------------------- | ------------------------------------------------------------------------ |
+| `"full"` _(default)_ | The whole page tree hydrates; the client router takes over navigation.   |
+| `"islands"`          | Only components from `src/islands/` hydrate; the page is otherwise static. |
+| `"none"`             | Fully static output — no JavaScript is injected at all.                  |
+
+`hydration` combines with `ssg`, `isg`, and `ssr`. `render: "spa"` always
+implies full hydration (combining it with `"islands"`/`"none"` is a config
+error). Routes with `"islands"` or `"none"` use regular full-document
+navigation instead of the client router. See [ISLANDS.md](ISLANDS.md) for the
+full picture: island discovery, hydration strategies (`load`/`idle`/`visible`),
+prop serialization rules, and limitations.
+
+---
+
 ## How Rendering Interacts with Navigation
 
-After the initial page load (regardless of mode), the client router handles
-navigation. All subsequent route transitions use the same flow:
+After the initial page load (for full-hydration routes, regardless of render
+mode), the client router handles navigation. All subsequent route transitions
+use the same flow:
 
 1. Client matches the new route
 2. Fetches loader data as JSON from the server (via `x-pracht-route-state-request` header)
@@ -214,3 +241,7 @@ navigation. All subsequent route transitions use the same flow:
 
 This means even SSG routes get fresh loader data during client navigation —
 the static HTML is only for the initial load and crawlers.
+
+Routes with `hydration: "islands"` or `hydration: "none"` never load the
+client router; navigating to or from them is a normal full-document
+navigation (MPA-style).

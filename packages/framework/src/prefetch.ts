@@ -67,7 +67,12 @@ export function setupPrefetching(app: ResolvedPrachtApp, warmModules?: ModuleWar
 
     const routePathname = getRoutePathname(href);
     const match = routePathname ? (matchAppRoute(app, routePathname) ?? null) : null;
-    const strategy = match ? (match.route.prefetch ?? "intent") : "none";
+    // Islands / no-hydration routes use full document navigation, so
+    // prefetching route-state JSON or client modules for them is wasted work.
+    const isFullDocumentRoute =
+      match?.route.hydration === "islands" || match?.route.hydration === "none";
+    const strategy: PrefetchStrategy =
+      match && !isFullDocumentRoute ? (match.route.prefetch ?? "intent") : "none";
     const entry = { match, strategy };
     matchCache.set(href, entry);
     trimMapToSize(matchCache, MAX_MATCH_CACHE_ENTRIES);

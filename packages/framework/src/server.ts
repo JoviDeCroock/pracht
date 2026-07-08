@@ -31,6 +31,15 @@ export type {
 } from "./app-graph.ts";
 export { prerenderApp } from "./prerender.ts";
 export { redirect, type RedirectOptions } from "./runtime-middleware.ts";
+export {
+  registerServerIslands,
+  setIslandsClientEntryUrl,
+  validateIslandProps,
+  IslandCaptureContext,
+  type IslandCapture,
+  type IslandDescriptor,
+  type IslandUsage,
+} from "./islands-server.ts";
 export { PrachtHttpError } from "./types.ts";
 
 export type {
@@ -69,6 +78,9 @@ export type {
   PrefetchStrategy,
   ModuleRegistry,
   RenderMode,
+  HydrationMode,
+  IslandStrategy,
+  IslandProps,
   ResolvedApiRoute,
   ResolvedRoute,
   ResolvedPrachtApp,

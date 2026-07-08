@@ -50,6 +50,23 @@ Per-route render mode via `{ render: "spa" | "ssr" | "ssg" | "isg" }`:
 
 ISG supports time-based and webhook-based revalidation policies.
 
+### Hydration Modes (Islands)
+
+Orthogonal to the render mode, every route has a hydration mode via
+`{ hydration: "full" | "islands" | "none" }` (default `"full"`, zero change
+for existing apps):
+
+- **`"islands"`** — partial hydration inspired by Deno Fresh and Astro: only
+  components from `src/islands/` hydrate, each as its own code-split chunk
+  loaded by a tiny bootstrap instead of the full client runtime. Per-usage
+  strategies via the `client` prop: `load` (default), `idle`, `visible`.
+  Island props are JSON-serialized into the HTML with clear dev errors for
+  non-serializable values. Navigation is MPA-style full-document in v1.
+- **`"none"`** — fully static output, zero JavaScript shipped.
+
+Works in both the manifest router and the pages router
+(`export const HYDRATION = "islands"`). See [docs/ISLANDS.md](docs/ISLANDS.md).
+
 ### Data Loading
 
 Two styles, both fully supported — pick whichever fits your mental model:
