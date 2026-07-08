@@ -32,8 +32,8 @@
     "oxlint": "^1.58.0",
     "preact": "^10.26.9",
     "preact-render-to-string": "^6.5.13",
-    "tsdown": "^0.21.7",
-    "typescript": "^5.8.3",
+    "tsdown": "^0.21.10",
+    "typescript": "^6.0.3",
     "vite": "^8.0.0",
     "vitest": "^3.2.4"
   }
