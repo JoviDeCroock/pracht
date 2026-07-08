@@ -3,8 +3,8 @@ title: Testing
 lead: Test your pracht app at every level — unit test loaders and API routes with Vitest, and run full E2E tests with Playwright to verify rendering, navigation, and hydration.
 breadcrumb: Testing
 prev:
-  href: /docs/recipes/forms
-  title: Forms
+  href: /docs/recipes/view-transitions
+  title: View Transitions
 next:
   href: /docs/recipes/logging
   title: Logging
