@@ -258,6 +258,25 @@ export function Component() {
 }
 ```
 
+### useNavigation()
+
+Reactive pending state for the current navigation or `<Form>` submission — the
+building block for global progress bars, pending buttons, and optimistic UI:
+
+```ts
+import { useNavigation } from "@pracht/core";
+
+function NavigationProgress() {
+  const navigation = useNavigation();
+  if (navigation.state === "idle") return null;
+  return <div class="nav-progress" role="progressbar" aria-label="Loading page" />;
+}
+```
+
+- `state` — `"idle"`, `"loading"` (navigation in flight), or `"submitting"` (`<Form>` awaiting its response)
+- `location` — the target `{ pathname, search, hash, href }` while not idle
+- `formData` — the submitted `FormData` while a submission is pending (great for optimistic UI)
+
 ### \<Form\> Component
 
 Declarative form submission with progressive enhancement. Use the `action` prop to target an API route:

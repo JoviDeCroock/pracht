@@ -35,11 +35,13 @@ export {
   readHydrationState,
   startApp,
   useLocation,
+  useNavigation,
   useParams,
   useRevalidate,
   useRouteData,
   PrachtRuntimeProvider,
 } from "./runtime.ts";
+export { prefetch, type PrefetchFn } from "./prefetch-api.ts";
 export { prerenderApp } from "./prerender.ts";
 export { redirect, type RedirectOptions } from "./runtime-middleware.ts";
 export { initClientRouter, useNavigate } from "./router.ts";
@@ -78,6 +80,7 @@ export type {
   ModuleRef,
   NavigateOptions,
   PrefetchStrategy,
+  LinkPrefetchStrategy,
   ModuleRegistry,
   RenderMode,
   ResolvedApiRoute,
@@ -113,6 +116,8 @@ export type {
   HandlePrachtRequestOptions,
   LinkProps,
   Location,
+  Navigation,
+  NavigationLocation,
   PrachtPhaseTimings,
   PrachtRuntimeDiagnosticPhase,
   PrachtRuntimeDiagnostics,

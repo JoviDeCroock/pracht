@@ -1,40 +1,37 @@
 import { matchAppRoute } from "./app.ts";
-import {
-  cacheRouteState,
-  clearPrefetchCache,
-  EMPTY_ROUTE_STATE_PROMISE,
-  getCachedRouteState,
-  trimMapToSize,
-} from "./prefetch-cache.ts";
-import { fetchPrachtRouteState, routeNeedsServerFetch } from "./runtime-client-fetch.ts";
-import type { RouteStateResult } from "./runtime-client-fetch.ts";
-import type { ResolvedPrachtApp, ResolvedRoute, PrefetchStrategy, RouteMatch } from "./types.ts";
+import { clearPrefetchCache, getCachedRouteState, trimMapToSize } from "./prefetch-cache.ts";
+import { prefetchRouteState } from "./prefetch-api.ts";
+import { PREFETCH_ATTRIBUTE } from "./runtime-constants.ts";
+import type { ModuleWarmFn } from "./prefetch-api.ts";
+import type {
+  LinkPrefetchStrategy,
+  ResolvedPrachtApp,
+  PrefetchStrategy,
+  RouteMatch,
+} from "./types.ts";
 
-export type ModuleWarmFn = (match: RouteMatch) => void;
+export type { ModuleWarmFn };
 
 const MAX_MATCH_CACHE_ENTRIES = 250;
+
+const LINK_PREFETCH_STRATEGIES: ReadonlySet<string> = new Set([
+  "none",
+  "hover",
+  "intent",
+  "viewport",
+  "render",
+]);
 
 interface MatchCacheEntry {
   match: RouteMatch | null;
   strategy: PrefetchStrategy;
 }
 
-export { clearPrefetchCache, getCachedRouteState };
-
-export function prefetchRouteState(url: string, route?: ResolvedRoute): Promise<RouteStateResult> {
-  if (route && !routeNeedsServerFetch(route)) return EMPTY_ROUTE_STATE_PROMISE;
-
-  const cached = getCachedRouteState(url);
-  if (cached) return cached;
-
-  const promise = fetchPrachtRouteState(url);
-  cacheRouteState(url, promise);
-  return promise;
-}
+export { clearPrefetchCache, getCachedRouteState, prefetchRouteState };
 
 export function setupPrefetching(app: ResolvedPrachtApp, warmModules?: ModuleWarmFn): void {
   let hoverTimer: ReturnType<typeof setTimeout> | null = null;
-  const observedViewportAnchors = new WeakSet<HTMLAnchorElement>();
+  const processedAnchors = new WeakSet<HTMLAnchorElement>();
   const matchCache = new Map<string, MatchCacheEntry>();
 
   function getRoutePathname(url: string): string | null {
@@ -77,10 +74,25 @@ export function setupPrefetching(app: ResolvedPrachtApp, warmModules?: ModuleWar
     return entry;
   }
 
+  /**
+   * Per-anchor `data-pracht-prefetch` (rendered by `<Link prefetch>`) wins
+   * over the route-level strategy; unmatched hrefs are never prefetched.
+   */
+  function getAnchorStrategy(anchor: HTMLAnchorElement, href: string): LinkPrefetchStrategy {
+    const entry = getMatchEntry(href);
+    if (!entry.match) return "none";
+    const override = anchor.getAttribute(PREFETCH_ATTRIBUTE);
+    if (override && LINK_PREFETCH_STRATEGIES.has(override)) {
+      return override as LinkPrefetchStrategy;
+    }
+    return entry.strategy;
+  }
+
   function prefetchHref(href: string): void {
     const match = getMatchEntry(href).match;
-    prefetchRouteState(href, match?.route);
-    if (warmModules && match) warmModules(match);
+    if (!match) return;
+    prefetchRouteState(href, match.route);
+    if (warmModules) warmModules(match);
   }
 
   // Hover / focus prefetching (intent-based)
@@ -93,7 +105,7 @@ export function setupPrefetching(app: ResolvedPrachtApp, warmModules?: ModuleWar
       const href = getInternalHref(anchor);
       if (!href) return;
 
-      const strategy = getMatchEntry(href).strategy;
+      const strategy = getAnchorStrategy(anchor, href);
       if (strategy !== "hover" && strategy !== "intent") return;
 
       if (hoverTimer) clearTimeout(hoverTimer);
@@ -126,7 +138,7 @@ export function setupPrefetching(app: ResolvedPrachtApp, warmModules?: ModuleWar
       const href = getInternalHref(anchor);
       if (!href) return;
 
-      const strategy = getMatchEntry(href).strategy;
+      const strategy = getAnchorStrategy(anchor, href);
       if (strategy !== "hover" && strategy !== "intent") return;
 
       prefetchHref(href);
@@ -135,49 +147,55 @@ export function setupPrefetching(app: ResolvedPrachtApp, warmModules?: ModuleWar
   );
 
   // Viewport-based prefetching via IntersectionObserver
-  if (typeof IntersectionObserver === "undefined") return;
+  const observer =
+    typeof IntersectionObserver === "undefined"
+      ? null
+      : new IntersectionObserver(
+          (entries) => {
+            for (const entry of entries) {
+              if (!entry.isIntersecting) continue;
+              const anchor = entry.target as HTMLAnchorElement;
+              const href = getInternalHref(anchor);
+              if (!href) continue;
+              prefetchHref(href);
+              observer?.unobserve(anchor);
+            }
+          },
+          { rootMargin: "200px" },
+        );
 
-  const observer = new IntersectionObserver(
-    (entries) => {
-      for (const entry of entries) {
-        if (!entry.isIntersecting) continue;
-        const anchor = entry.target as HTMLAnchorElement;
-        const href = getInternalHref(anchor);
-        if (!href) continue;
-        prefetchHref(href);
-        observer.unobserve(anchor);
-      }
-    },
-    { rootMargin: "200px" },
-  );
-
-  function observeAnchor(anchor: HTMLAnchorElement): void {
-    if (observedViewportAnchors.has(anchor)) return;
+  function processAnchor(anchor: HTMLAnchorElement): void {
+    if (processedAnchors.has(anchor)) return;
     const href = getInternalHref(anchor);
     if (!href) return;
-    const strategy = getMatchEntry(href).strategy;
-    if (strategy !== "viewport") return;
-    observedViewportAnchors.add(anchor);
+    const strategy = getAnchorStrategy(anchor, href);
+    if (strategy === "render") {
+      processedAnchors.add(anchor);
+      prefetchHref(href);
+      return;
+    }
+    if (strategy !== "viewport" || !observer) return;
+    processedAnchors.add(anchor);
     observer.observe(anchor);
   }
 
-  function observeViewportLinks(root: ParentNode): void {
+  function processAnchors(root: ParentNode): void {
     if (root instanceof HTMLAnchorElement) {
-      observeAnchor(root);
+      processAnchor(root);
     }
     for (const anchor of root.querySelectorAll<HTMLAnchorElement>("a[href]")) {
-      observeAnchor(anchor);
+      processAnchor(anchor);
     }
   }
 
-  observeViewportLinks(document.body);
+  processAnchors(document.body);
 
   // Observe only newly-added DOM subtrees instead of re-scanning the whole document.
   const mutationObserver = new MutationObserver((records) => {
     for (const record of records) {
       for (const node of record.addedNodes) {
         if (node instanceof HTMLElement || node instanceof DocumentFragment) {
-          observeViewportLinks(node);
+          processAnchors(node);
         }
       }
     }

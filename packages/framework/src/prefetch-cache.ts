@@ -38,6 +38,17 @@ export function cacheRouteState(url: string, promise: Promise<RouteStateResult>)
   trimMapToSize(prefetchCache, MAX_PREFETCH_CACHE_ENTRIES);
 }
 
+/**
+ * Remove a cached entry, but only when it still holds `promise` — a newer
+ * entry cached under the same URL must not be evicted by an older rejection.
+ */
+export function removeCachedRouteState(url: string, promise: Promise<RouteStateResult>): void {
+  const entry = prefetchCache.get(url);
+  if (entry && entry.promise === promise) {
+    prefetchCache.delete(url);
+  }
+}
+
 function sweepPrefetchCache(now = Date.now()): void {
   for (const [url, entry] of prefetchCache) {
     if (now - entry.timestamp > CACHE_TTL_MS) {

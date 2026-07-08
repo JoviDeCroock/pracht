@@ -481,10 +481,14 @@ runtime.ts      — SSR handler and prerendering (static import of app.ts)
     ↑
 prefetch-cache.ts — bounded route-state cache shared by navigation, forms, and prefetching
     ↑
-prefetch.ts     — prefetch strategy wiring, loaded by the client router after hydration
+prefetch-api.ts — imperative prefetch() surface + router registration (no listener code)
     ↑
-router.ts       — client router, hydration bootstrap (imports runtime-context + prefetch-cache)
+prefetch.ts     — prefetch listener wiring (intent/viewport/render), loaded by the client router after hydration
+    ↑
+router.ts       — client router, hydration bootstrap (imports runtime-context + prefetch-api)
 
+navigation-state.ts — shared useNavigation() store written by router.ts and <Form> (no internal deps)
+scroll-restoration.ts — sessionStorage-backed per-history-entry scroll position store (no internal deps)
 hydration.ts    — Preact options hooks for tracking hydration (no internal deps)
 href.ts         — createHref helper layered on buildHref
 forwardRef.ts   — forwardRef helper (no internal deps)

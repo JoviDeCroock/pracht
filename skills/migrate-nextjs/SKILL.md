@@ -77,6 +77,8 @@ For pages router projects, you can **skip manual manifest wiring entirely** (Pha
 | `useSearchParams()`             | `useRouteData()` or parse from loader args                      | Loaders receive `url` with searchParams                               |
 | `useParams()`                   | `useRouteData()` or `params` in loader                          | Params flow through loader data                                       |
 | `next/link` `<Link>`            | `<Link route="...">` or plain `<a>`                            | Prefer typed `<Link>` for known app routes after `pracht typegen`; plain anchors still work |
+| `next/link` `prefetch={false}`  | `<Link prefetch="none">`                                        | Pracht prefetches on hover/focus by default; also `"viewport"`, `"render"` |
+| `useLinkStatus()` / pending UI  | `useNavigation()`                                               | `{ state, location, formData }` — powers progress bars and optimistic UI |
 | `next/image`                    | Standard `<img>`                                                | Use `vite-imagetools` plugin if optimization needed                   |
 | `next/head` or Metadata API     | `head()` export on route/shell                                  | Per-route and per-shell head merging                                  |
 | `className`                     | `class`                                                         | Preact uses `class` attribute                                         |
@@ -371,6 +373,8 @@ Plain anchors still work for simple, external, or user-provided URLs because the
 ```tsx
 <a href="/about">About</a>
 ```
+
+`<Link>` also accepts navigation-behavior props: `prefetch` (`"none" | "intent" | "viewport" | "render"`, default `"intent"` on hover/focus — the equivalent of `next/link`'s `prefetch` tuning), `preserveScroll` (skip the scroll-to-top reset), and `viewTransition` (wrap the navigation in `document.startViewTransition()` where supported). Scroll restoration on back/forward works out of the box, like Next.js.
 
 #### `next/image` → `<img>`
 

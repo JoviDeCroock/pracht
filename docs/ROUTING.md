@@ -123,6 +123,7 @@ interface RouteMeta {
   render?: "spa" | "ssr" | "ssg" | "isg";
   middleware?: string[]; // Named middleware from defineApp.middleware
   revalidate?: RouteRevalidate; // ISG revalidation policy
+  prefetch?: "none" | "hover" | "viewport" | "intent"; // Route-level prefetch strategy (default: "intent")
 }
 ```
 
@@ -212,6 +213,104 @@ writing a generic. See
 [docs/DATA_LOADING.md](DATA_LOADING.md#useroutedata) for details.
 
 Use `pracht typegen --check` in CI to fail when generated route files are stale.
+
+---
+
+## Navigation UX
+
+### `<Link>` props
+
+Beyond the typed `route`/`params`/`search`/`hash` target props, `<Link>`
+accepts three navigation-behavior props:
+
+```tsx
+<Link route="product" params={{ id }} prefetch="viewport">Product</Link>
+<Link route="inbox" preserveScroll>Refresh inbox</Link>
+<Link route="gallery" viewTransition>Gallery</Link>
+```
+
+| Prop             | Type                                              | Behavior                                                                 |
+| ---------------- | ------------------------------------------------- | ------------------------------------------------------------------------ |
+| `prefetch`       | `"none" \| "intent" \| "viewport" \| "render"`   | Per-link prefetch strategy; overrides the route-level `prefetch` meta    |
+| `preserveScroll` | `boolean`                                         | Keep the current scroll position instead of scrolling to the top        |
+| `viewTransition` | `boolean`                                         | Wrap this navigation's DOM commit in `document.startViewTransition()`   |
+
+These props render as `data-pracht-*` attributes on the underlying `<a>`, so
+they also work on plain anchors if you set the attributes yourself.
+
+### Prefetching
+
+Every internal link is prefetched on hover/focus by default (`"intent"`, with a
+50ms debounce). A per-route default can be set via the `prefetch` route meta,
+and `<Link prefetch>` overrides it per link:
+
+- `"intent"` — prefetch on hover or keyboard focus (default)
+- `"viewport"` — prefetch when the link scrolls near the viewport
+  (IntersectionObserver, 200px root margin)
+- `"render"` — prefetch as soon as the link is rendered
+- `"none"` — never prefetch this link
+
+Prefetching warms the route's JS chunks and caches the route-state JSON in a
+bounded LRU cache (30s TTL); a subsequent navigation consumes the cached
+result instead of fetching again. Failed prefetches are evicted so they never
+poison a later navigation.
+
+There is also an imperative API for warming a route from code (e.g. before
+opening a client-side dialog that links somewhere):
+
+```ts
+import { prefetch } from "@pracht/core";
+
+await prefetch("/products/42");
+await prefetch({ route: "product", params: { id: "42" } }); // typed target
+```
+
+`prefetch()` is a no-op during SSR, before the client router initializes, and
+for URLs that match no route.
+
+### Scroll restoration
+
+The client router owns scrolling (`history.scrollRestoration = "manual"`):
+
+- **Forward navigations** scroll to the top, or to the `#hash` target element
+  when the URL has a fragment.
+- **Back/forward navigations** (popstate) restore the scroll position the page
+  had when the user left it. Positions are keyed per history entry and stored
+  in `sessionStorage`, so they survive reloads and back-navigation from
+  external sites.
+- Opt out per navigation with `<Link preserveScroll>` or
+  `navigate(to, { preserveScroll: true })`.
+
+### View Transitions
+
+Navigations can opt into the
+[View Transitions API](https://developer.mozilla.org/en-US/docs/Web/API/View_Transition_API)
+for animated route changes. Browsers without support fall back to an instant
+commit — no polyfill, no behavior difference beyond the animation.
+
+Per navigation:
+
+```tsx
+<Link route="gallery" viewTransition>Gallery</Link>
+```
+
+```ts
+const navigate = useNavigate();
+await navigate("/gallery", { viewTransition: true });
+```
+
+Or app-wide in the manifest — individual navigations can still opt out with
+`{ viewTransition: false }`:
+
+```typescript
+export const app = defineApp({
+  viewTransitions: true,
+  routes: [/* ... */],
+});
+```
+
+Customize the animation with regular `::view-transition-*` CSS; typed route
+data and the navigation lifecycle are unaffected.
 
 ---
 

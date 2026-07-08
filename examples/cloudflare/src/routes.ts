@@ -20,6 +20,8 @@ export const app = defineApp({
         id: "product",
         render: "ssr",
       }),
+      route("/slow", () => import("./routes/slow.tsx"), { id: "slow", render: "ssr" }),
+      route("/long", () => import("./routes/long.tsx"), { id: "long", render: "ssr" }),
     ]),
     group({ shell: "app", middleware: ["auth"] }, [
       route("/dashboard", () => import("./routes/dashboard.tsx"), {
