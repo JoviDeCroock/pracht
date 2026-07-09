@@ -1,5 +1,18 @@
 # create-pracht
 
+## 0.3.0
+
+### Minor Changes
+
+- [#174](https://github.com/JoviDeCroock/pracht/pull/174) [`4d494c7`](https://github.com/JoviDeCroock/pracht/commit/4d494c791ca079dcb5cfebc059cbf53c46e9de90) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Polish the starter CLI:
+
+  - Add a Tailwind CSS option — a yes/no prompt plus `--tailwind` / `--no-tailwind` flags — that wires `tailwindcss` and `@tailwindcss/vite` into `vite.config.ts`, generates `src/styles/global.css`, and imports it from the shell.
+  - Add a `--template=minimal|tailwind` flag as the non-interactive umbrella (minimal is the current output, tailwind adds the Tailwind wiring).
+  - Initialize a git repository with an "Initial commit from create-pracht" commit after scaffolding, skipped with `--no-git`, when git is unavailable, or when the target directory is already inside a repository.
+  - Generate a multi-stage `Dockerfile` and `.dockerignore` for Node adapter scaffolds, and document `docker build` in the generated README.
+
+- [#175](https://github.com/JoviDeCroock/pracht/pull/175) [`439bc22`](https://github.com/JoviDeCroock/pracht/commit/439bc22a7a92baf2e450ecf6c9fa9b6e0d43b22d) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Add `pracht preview` to serve the production build locally with one command. It runs `pracht build` first (skippable with `--skip-build`) and then serves the output for the configured adapter: Node targets run `dist/server/server.js` as a child process (`--port <n>`, `$PORT`, default 3000), Cloudflare targets delegate to `wrangler dev` against the built worker (with an actionable error when wrangler or its config is missing), and Vercel targets print guidance towards `vercel build`/`vercel dev` since there is no faithful local production runtime. Scaffolded Node and Cloudflare starters now include a `preview` script.
+
 ## 0.2.6
 
 ### Patch Changes

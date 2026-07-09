@@ -1,5 +1,59 @@
 # @pracht/core
 
+## 0.9.0
+
+### Minor Changes
+
+- [#178](https://github.com/JoviDeCroock/pracht/pull/178) [`d27b96a`](https://github.com/JoviDeCroock/pracht/commit/d27b96a68354b69d06cdfdd9667956631283ce1a) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Add a dev-server startup banner and a rich dev-only 404 page.
+
+  `pracht dev` now prints a route table on startup — every page route with its
+  render mode, shell, and middleware, plus API routes with their HTTP methods —
+  alongside the local URL. The banner reuses the resolved-app-graph logic shared
+  with `pracht inspect` and respects `NO_COLOR`.
+
+  In dev mode, document navigations that match no page route and no API route now
+  render a styled standalone 404 page (new `@pracht/core/dev-404` entry, same
+  self-contained approach as the error overlay) listing all registered routes
+  with render modes and links plus the requested path. The module is only loaded
+  by the dev middleware; production 404 behavior is unchanged.
+
+- [#180](https://github.com/JoviDeCroock/pracht/pull/180) [`ab693d5`](https://github.com/JoviDeCroock/pracht/commit/ab693d5ac04a1c7b3815c70396ab2e9a3a258072) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Add a dev-only `/_pracht` devtools page and `Server-Timing` phase headers.
+
+  - The dev server now serves a self-contained devtools page at `/_pracht` listing every page route (pattern, render mode, shell, middleware chain, source file) and API route (path, methods, source file), with the same data available as JSON at `/_pracht.json`. The path is reserved in dev only — a colliding user route logs a warning in dev and still wins in production.
+  - Dev SSR responses now carry a standards-compliant `Server-Timing` header (e.g. `mw;dur=1.2, loader;dur=14.8, render;dur=3.1`) so middleware/loader/render phase durations show up in the browser Network panel. The runtime only records timings when the new `HandlePrachtRequestOptions.timings` collector is passed; production requests skip all timing work.
+  - `@pracht/core` gains a shared app-graph module (`buildAppGraph`, `serializeAppRoutes`, `serializeApiRoutes`, `detectApiMethods`, and a new `@pracht/core/devtools` entry) that both `pracht inspect` and the devtools page use, so the CLI and the page report the same graph.
+
+- [#188](https://github.com/JoviDeCroock/pracht/pull/188) [`54b1070`](https://github.com/JoviDeCroock/pracht/commit/54b1070e3c73075689ae7d40ceb7716da412e077) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - The client router now sets `data-pracht-hydrated="true"` on `<html>` once it
+  finishes initializing. Server-rendered pages look interactive before
+  hydration, so end-to-end tests that drive prerendered forms too early trigger
+  native form submits instead of the framework handlers — wait for
+  `html[data-pracht-hydrated]` before interacting. Documented in
+  `docs/ROUTING.md` under "Testing Hydration".
+
+- [#194](https://github.com/JoviDeCroock/pracht/pull/194) [`a6b120b`](https://github.com/JoviDeCroock/pracht/commit/a6b120b8b79082adbdb54dbeb1920ba3703079c8) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Add navigation UX primitives: `useNavigation()`, scroll restoration, a public `<Link>` prefetch API, and View Transitions integration.
+
+  - **`useNavigation()`** — reactive pending state for the current client navigation or `<Form>` submission. Returns `{ state: "idle" | "loading" | "submitting", location?, formData? }` and updates through the router's full lifecycle (nav start → route-state fetch → commit → idle). Enables global progress bars, pending buttons, and optimistic UI (`formData` holds the in-flight submission values).
+  - **Scroll restoration** — the client router now owns scrolling (`history.scrollRestoration = "manual"`). Back/forward navigations restore the previous scroll position (keyed per history entry, `sessionStorage`-backed so it survives reloads); new navigations scroll to the top or to the `#hash` target. Opt out per navigation with `<Link preserveScroll>` or `navigate(to, { preserveScroll: true })`. **Behavior improvement:** previously every navigation (including back/forward) reset scroll to the top — back/forward now restores position by default, matching peer frameworks.
+  - **`<Link prefetch>`** — the existing bounded prefetch cache is now controllable per link: `"intent"` (hover/focus, the existing default), `"viewport"` (IntersectionObserver), `"render"` (on mount), or `"none"`. Route-level `prefetch` meta still sets the default; navigations consume prefetched route state without a second request, and failed prefetches are evicted from the cache. Also adds an imperative `prefetch(hrefOrRouteTarget)` export.
+  - **View Transitions** — opt in per navigation via `<Link viewTransition>` / `navigate(to, { viewTransition: true })`, or app-wide via `defineApp({ viewTransitions: true })`. The DOM commit is wrapped in `document.startViewTransition()` when available and falls back to an instant commit otherwise.
+
+- [#176](https://github.com/JoviDeCroock/pracht/pull/176) [`8862f51`](https://github.com/JoviDeCroock/pracht/commit/8862f51505bdbba8afd7ebf8570d461b233d66f9) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Dev error overlay: stack frames and the reported file path are now clickable and open the file at the exact line/column in your editor via Vite's built-in `/__open-in-editor` endpoint. App-code frames are parsed from the stack (handling `file://` URLs, `/@fs/` prefixes, Vite transform queries, and root-relative dev-server URLs), while `node_modules` and Node-internal frames are de-emphasized and never linked.
+
+  Manifest wiring mistakes now fail loudly with "did you mean" hints: referencing an unknown shell or middleware name (including `api.middleware`) throws during `resolveApp()`, and unknown route ids throw from `href()`/`buildHref()`, each listing the closest match and all registered names, e.g. `Unknown shell "pubic" for route "/". Did you mean "public"? Registered shells: public, app.` These errors surface in the dev error overlay as soon as the dev server loads the manifest.
+
+- [#177](https://github.com/JoviDeCroock/pracht/pull/177) [`c1b22c4`](https://github.com/JoviDeCroock/pracht/commit/c1b22c4e786a485c969143de48cd2be7f5f03fe8) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Add zero-generic typed loader data keyed by route id.
+
+  `pracht typegen` now registers each route's loader data type on
+  `Register["routes"]` in the generated `src/pracht-routes.d.ts`, pointing at the
+  route module (or the separate loader module wired via the manifest, which wins
+  over an inline loader like at runtime). `@pracht/core` gains a
+  `RouteLoaderData<TModule, TFallbackModule?>` utility type, a
+  `RouteDataFor<TRouteId>` helper, and a new `useRouteData(routeId)` overload
+  that returns the mapped loader data with route-id autocomplete — no generic
+  needed. The existing `useRouteData<typeof loader>()` form keeps working as the
+  fallback for projects that do not run typegen. In development, passing a route
+  id that is not the active route logs a warning.
+
 ## 0.8.1
 
 ### Patch Changes
