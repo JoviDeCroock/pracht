@@ -71,4 +71,10 @@ describe("serverEnv", () => {
       (serverEnv as Record<string, unknown>).INJECTED = "nope";
     }).toThrow(/read-only/);
   });
+
+  it("is not re-exported from the broad server entry", async () => {
+    const serverEntry = await import("../src/server.ts");
+    expect("serverEnv" in serverEntry).toBe(false);
+    expect("setServerEnv" in serverEntry).toBe(true);
+  });
 });

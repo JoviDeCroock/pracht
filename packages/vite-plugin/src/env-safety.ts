@@ -16,9 +16,16 @@ export const VITE_BUILTIN_ENV_VARS = new Set([
 
 /** Prefix that marks an env var as intentionally public. */
 export const PUBLIC_ENV_PREFIX = "PRACHT_PUBLIC_";
+export const VITE_PUBLIC_ENV_PREFIX = "VITE_";
+const PUBLIC_ENV_PREFIXES = [PUBLIC_ENV_PREFIX, VITE_PUBLIC_ENV_PREFIX] as const;
 
 /** Server-only core entry that must never resolve into client bundles. */
 export const SERVER_ENV_MODULE_ID = "@pracht/core/env/server";
+
+export interface EnvSafetyReport {
+  findings: EnvLeakProblem[];
+  version: 1;
+}
 
 export interface EnvSafetyOptions {
   /** Env var names allowed to appear in client bundles despite not being public. */
@@ -37,7 +44,7 @@ const ENV_REFERENCE_RE =
 
 /**
  * Scans JavaScript source for references to environment variables that are
- * neither `PRACHT_PUBLIC_`-prefixed, Vite built-ins, nor explicitly allowed.
+ * neither public-prefixed, Vite built-ins, nor explicitly allowed.
  */
 export function scanCodeForEnvLeaks(
   code: string,
@@ -50,7 +57,7 @@ export function scanCodeForEnvLeaks(
     const accessor = match[1] as EnvLeakReference["accessor"];
     const name = match[2] ?? match[4];
     if (!name) continue;
-    if (name.startsWith(PUBLIC_ENV_PREFIX)) continue;
+    if (PUBLIC_ENV_PREFIXES.some((prefix) => name.startsWith(prefix))) continue;
     if (VITE_BUILTIN_ENV_VARS.has(name)) continue;
     if (allow.has(name)) continue;
 
@@ -81,7 +88,7 @@ export function formatEnvLeakError(problems: EnvLeakProblem[]): string {
     "[pracht] Environment variable leak detected in the client bundle:",
     ...lines,
     "",
-    `Only PRACHT_PUBLIC_-prefixed variables may be referenced in client code (read them via publicEnv from "@pracht/core").`,
+    `Only PRACHT_PUBLIC_- or VITE_-prefixed variables may be referenced in client code (prefer publicEnv from "@pracht/core" for typed PRACHT_PUBLIC_ values).`,
     `Move server-only reads into loaders/API routes and access them via serverEnv from "@pracht/core/env/server",`,
     "or allowlist intentionally-safe names with pracht({ envSafety: { allow: [...] } }).",
   ].join("\n");
@@ -178,6 +185,16 @@ export function createEnvSafetyPlugin(envSafety: false | EnvSafetyOptions): Plug
       if (problems.length > 0) {
         this.error(formatEnvLeakError(problems));
       }
+
+      this.emitFile({
+        fileName: "_pracht/env-safety.json",
+        source: JSON.stringify(
+          { findings: problems, version: 1 } satisfies EnvSafetyReport,
+          null,
+          2,
+        ),
+        type: "asset",
+      });
     },
   };
 }

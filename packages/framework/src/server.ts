@@ -14,7 +14,7 @@ export {
 export { createHref } from "./href.ts";
 export { filterPublicEnv, PRACHT_PUBLIC_ENV_PREFIX, publicEnv } from "./env.ts";
 export type { PrachtPublicEnv, PrachtServerEnv, PublicEnvOf } from "./env.ts";
-export { serverEnv, setServerEnv } from "./env-server.ts";
+export { setServerEnv } from "./env-server.ts";
 export {
   applyDefaultSecurityHeaders,
   formatServerTimingHeader,

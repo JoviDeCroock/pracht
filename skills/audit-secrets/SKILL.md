@@ -26,9 +26,10 @@ it cannot save you from a value that flows into the return.
 Pracht has built-in env leak detection (see `docs/ENV.md`):
 
 - `pracht build` fails when a client chunk references a non-public env var
-  (anything not `PRACHT_PUBLIC_`-prefixed and not a Vite built-in), naming the
-  variable, chunk, and likely source module.
-- `pracht verify` re-runs that scan against an existing `dist/client` output.
+  (anything not `PRACHT_PUBLIC_`-/`VITE_`-prefixed and not a Vite built-in),
+  naming the variable, chunk, and likely source module.
+- `pracht verify` checks the build-time env-safety report and re-runs the
+  literal chunk scan against an existing `dist/client` output.
 - Client-side imports of `@pracht/core/env/server` (`serverEnv`) fail the build.
 
 Run `pracht verify` (or a build) first and fold its findings into the report.

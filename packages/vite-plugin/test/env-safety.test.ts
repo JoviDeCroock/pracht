@@ -36,11 +36,16 @@ function runGenerateBundle(
   plugin: Plugin,
   bundle: Record<string, unknown>,
   consumer: "client" | "server" = "client",
-): void {
+): unknown[] {
   const generateBundle = getHook<GenerateBundleHook>(plugin, "generateBundle");
+  const emitted: unknown[] = [];
   generateBundle.call(
     {
       environment: { config: { consumer } },
+      emitFile(file: unknown) {
+        emitted.push(file);
+        return "asset-ref";
+      },
       error(message: string) {
         throw new Error(message);
       },
@@ -48,6 +53,7 @@ function runGenerateBundle(
     {},
     bundle,
   );
+  return emitted;
 }
 
 describe("scanCodeForEnvLeaks", () => {
@@ -67,16 +73,17 @@ describe("scanCodeForEnvLeaks", () => {
     ]);
   });
 
-  it("ignores PRACHT_PUBLIC_-prefixed vars, Vite built-ins, and NODE_ENV", () => {
+  it("ignores public-prefixed vars, Vite built-ins, and NODE_ENV", () => {
     const findings = scanCodeForEnvLeaks(
       `const a = import.meta.env.PRACHT_PUBLIC_APP_NAME;
        const b = process.env.PRACHT_PUBLIC_API_BASE;
-       const c = import.meta.env.MODE;
-       const d = import.meta.env.DEV;
-       const e = import.meta.env.PROD;
-       const f = import.meta.env.SSR;
-       const g = import.meta.env.BASE_URL;
-       const h = process.env.NODE_ENV;`,
+       const c = import.meta.env.VITE_LEGACY_PUBLIC_VALUE;
+       const d = import.meta.env.MODE;
+       const e = import.meta.env.DEV;
+       const f = import.meta.env.PROD;
+       const g = import.meta.env.SSR;
+       const h = import.meta.env.BASE_URL;
+       const i = process.env.NODE_ENV;`,
     );
 
     expect(findings).toEqual([]);
@@ -179,10 +186,18 @@ describe("createEnvSafetyPlugin", () => {
   it("passes clean client bundles and skips server bundles", () => {
     const plugin = createEnvSafetyPlugin({});
     const cleanBundle = {
-      "assets/index.js": chunk("assets/index.js", "console.log(import.meta.env.PRACHT_PUBLIC_X);"),
+      "assets/index.js": chunk(
+        "assets/index.js",
+        "console.log(import.meta.env.PRACHT_PUBLIC_X, import.meta.env.VITE_PUBLIC_X);",
+      ),
       "assets/style.css": { type: "asset" as const, fileName: "assets/style.css" },
     };
-    expect(() => runGenerateBundle(plugin, cleanBundle)).not.toThrow();
+    const emitted = runGenerateBundle(plugin, cleanBundle);
+    expect(emitted).toContainEqual({
+      fileName: "_pracht/env-safety.json",
+      source: JSON.stringify({ findings: [], version: 1 }, null, 2),
+      type: "asset",
+    });
 
     const serverBundle = {
       "server.js": chunk("server.js", "const url = process.env.DATABASE_URL;"),

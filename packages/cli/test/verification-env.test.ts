@@ -27,7 +27,7 @@ function makeProject(rawConfig = ""): ProjectConfig {
 
 describe("scanSourceForEnvLeaks", () => {
   it("flags non-public references and skips public/built-in/allowed ones", () => {
-    const code = `a(process.env.API_SECRET, import.meta.env.PRACHT_PUBLIC_URL, import.meta.env.MODE, process.env.ALLOWED_ONE);`;
+    const code = `a(process.env.API_SECRET, import.meta.env.PRACHT_PUBLIC_URL, import.meta.env.VITE_URL, import.meta.env.MODE, process.env.ALLOWED_ONE);`;
 
     expect(scanSourceForEnvLeaks(code, new Set(["ALLOWED_ONE"]))).toEqual([
       { accessor: "process.env", name: "API_SECRET" },
@@ -69,10 +69,13 @@ describe("collectEnvLeakVerification", () => {
   it("passes clean output and respects the configured allowlist", () => {
     const project = makeProject('pracht({ envSafety: { allow: ["SENTRY_RELEASE"] } })');
     const assetsDir = join(project.root, "dist/client/assets");
+    const reportDir = join(project.root, "dist/client/_pracht");
     mkdirSync(assetsDir, { recursive: true });
+    mkdirSync(reportDir, { recursive: true });
+    writeFileSync(join(reportDir, "env-safety.json"), JSON.stringify({ findings: [], version: 1 }));
     writeFileSync(
       join(assetsDir, "index-abc.js"),
-      "use(import.meta.env.PRACHT_PUBLIC_NAME, process.env.SENTRY_RELEASE);",
+      "use(import.meta.env.PRACHT_PUBLIC_NAME, import.meta.env.VITE_NAME, process.env.SENTRY_RELEASE);",
     );
 
     const checks: Check[] = [];
@@ -80,6 +83,51 @@ describe("collectEnvLeakVerification", () => {
 
     expect(checks.some((check) => check.status === "error")).toBe(false);
     expect(checks.some((check) => check.message.includes("no non-public env var"))).toBe(true);
+  });
+
+  it("reports source-level findings from the build env-safety report", () => {
+    const project = makeProject();
+    const reportDir = join(project.root, "dist/client/_pracht");
+    mkdirSync(reportDir, { recursive: true });
+    writeFileSync(
+      join(reportDir, "env-safety.json"),
+      JSON.stringify({
+        findings: [
+          {
+            accessor: "process.env",
+            chunk: "assets/index-abc.js",
+            name: "SESSION_SECRET",
+            sources: ["/src/routes/leaky.tsx"],
+          },
+        ],
+        version: 1,
+      }),
+    );
+
+    const checks: Check[] = [];
+    collectEnvLeakVerification(project, checks, { scope: "full" });
+
+    const error = checks.find((check) => check.status === "error");
+    expect(error?.message).toContain("process.env.SESSION_SECRET");
+    expect(error?.message).toContain("assets/index-abc.js");
+  });
+
+  it("warns when output is clean but the source-level build report is missing", () => {
+    const project = makeProject();
+    const assetsDir = join(project.root, "dist/client/assets");
+    mkdirSync(assetsDir, { recursive: true });
+    writeFileSync(
+      join(assetsDir, "index-abc.js"),
+      "const name = import.meta.env.PRACHT_PUBLIC_NAME;",
+    );
+
+    const checks: Check[] = [];
+    collectEnvLeakVerification(project, checks, { scope: "full" });
+
+    expect(checks.some((check) => check.status === "error")).toBe(false);
+    expect(
+      checks.some((check) => check.status === "warning" && check.message.includes("build report")),
+    ).toBe(true);
   });
 
   it("skips scanning outside full scope and when no build output exists", () => {

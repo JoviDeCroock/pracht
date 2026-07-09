@@ -566,7 +566,9 @@ At build time the `pracht:env-safety` plugin scans client output chunks — and
 the transformed sources of first-party modules included in them — for
 references to non-public env vars and fails the build naming the variable,
 chunk, and likely source module. `pracht({ envSafety: { allow: [...] } })` is
-the escape hatch; `pracht verify` re-runs the scan against `dist/client`.
+the escape hatch; successful client builds emit an env-safety report under
+`dist/client/_pracht/`, and `pracht verify` uses that report plus a literal
+chunk scan against `dist/client`.
 
 See [docs/ENV.md](ENV.md) for the full model and per-adapter behavior.
 

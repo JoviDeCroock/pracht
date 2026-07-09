@@ -26,8 +26,8 @@ const api = publicEnv.PRACHT_PUBLIC_API_BASE;
 
 ### The prefix rule
 
-Only variables prefixed with `PRACHT_PUBLIC_` are exposed to the client. The
-pracht Vite plugin adds `PRACHT_PUBLIC_` to Vite's
+Only variables prefixed with `PRACHT_PUBLIC_` are exposed through `publicEnv`.
+The pracht Vite plugin adds `PRACHT_PUBLIC_` to Vite's
 [`envPrefix`](https://vite.dev/config/shared-options#envprefix) (alongside the
 default `VITE_`), so prefixed variables are also available directly as
 `import.meta.env.PRACHT_PUBLIC_*` in dev and statically inlined at build time.
@@ -79,14 +79,15 @@ to `Record<string, string | undefined>`.
   bindings.
 
 Custom setups can call `setServerEnv(env)` (exported from
-`@pracht/core/server` and `@pracht/core/env/server`) to install another source.
+`@pracht/core/env/server` and `@pracht/core/server`) to install another source.
 
 ## Client-leak detection
 
 During `pracht build` the plugin scans every client chunk for references to
 `process.env.X` / `import.meta.env.X` (including `["X"]` bracket access) where
-`X` is not `PRACHT_PUBLIC_`-prefixed and not a Vite built-in (`MODE`, `DEV`,
-`PROD`, `SSR`, `BASE_URL`, plus `NODE_ENV`, which Vite statically replaces).
+`X` is not `PRACHT_PUBLIC_`- or `VITE_`-prefixed and not a Vite built-in
+(`MODE`, `DEV`, `PROD`, `SSR`, `BASE_URL`, plus `NODE_ENV`, which Vite
+statically replaces).
 References are matched both in the rendered chunks and in the transformed
 sources of first-party modules that end up in a chunk — bundlers rewrite
 `process.env` in client output, so the source-level signal is what catches
@@ -98,8 +99,9 @@ immediately. Route files may import it freely for `loader`/`headers`/
 `getStaticPaths` — the client transform strips those exports and the import
 with them (see `docs/ARCHITECTURE.md`, client module transform).
 
-`pracht verify` (and `pracht doctor`) re-run the chunk scan against an
-existing `dist/client` output when one is present.
+`pracht verify` (and `pracht doctor`) read the build-time env-safety report
+emitted to `dist/client/_pracht/env-safety.json` and also re-run the literal
+chunk scan against an existing `dist/client` output when one is present.
 
 ### Escape hatch
 

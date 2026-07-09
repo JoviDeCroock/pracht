@@ -20,5 +20,5 @@ Env var safety: typed env access and client-leak detection.
   non-public env vars (`process.env.X` / `import.meta.env.X`), naming the
   variable, chunk, and likely source module. Escape hatch:
   `pracht({ envSafety: { allow: [...] } })` or `envSafety: false`.
-- `pracht verify` / `pracht doctor` re-run the leak scan against an existing
-  `dist/client` build output.
+- `pracht verify` / `pracht doctor` read the env-safety build report and re-run
+  the literal leak scan against an existing `dist/client` build output.
