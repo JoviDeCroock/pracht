@@ -361,6 +361,103 @@ export function Component() {
 }
 ```
 
+### `useNavigation()`
+
+Reactive pending state for the current client navigation or `<Form>`
+submission:
+
+```typescript
+import { useNavigation } from "@pracht/core";
+
+const navigation = useNavigation();
+// { state: "idle" }
+// { state: "loading", location }             — a navigation is fetching/committing
+// { state: "submitting", location, formData } — a <Form> submission is in flight
+```
+
+- `state` — `"idle"`, `"loading"`, or `"submitting"`.
+- `location` — the target `{ pathname, search, hash, href }` while not idle.
+- `formData` — the submitted `FormData` while a `<Form>` submission is pending.
+
+The hook updates through the router's full lifecycle: navigation start →
+route-state fetch → DOM commit → idle. During SSR it always returns
+`{ state: "idle" }`.
+
+#### Global progress bar
+
+Because `useNavigation()` works from any component (a shell is the natural
+place), a top-of-page progress indicator is a few lines:
+
+```tsx
+// src/shells/root.tsx
+import { useNavigation } from "@pracht/core";
+
+function NavigationProgress() {
+  const navigation = useNavigation();
+  if (navigation.state === "idle") return null;
+  return <div class="nav-progress" role="progressbar" aria-label="Loading page" />;
+}
+
+export function Shell({ children }: ShellProps) {
+  return (
+    <>
+      <NavigationProgress />
+      {children}
+    </>
+  );
+}
+```
+
+```css
+.nav-progress {
+  position: fixed;
+  top: 0;
+  left: 0;
+  height: 3px;
+  width: 100%;
+  background: linear-gradient(to right, #7c3aed, #db2777);
+  animation: nav-progress-slide 1s ease-in-out infinite;
+}
+```
+
+#### Pending buttons
+
+```tsx
+function SubmitButton() {
+  const navigation = useNavigation();
+  const pending = navigation.state === "submitting";
+  return (
+    <button type="submit" disabled={pending}>
+      {pending ? "Saving…" : "Save"}
+    </button>
+  );
+}
+```
+
+#### Optimistic UI
+
+While a `<Form>` submission is pending, `navigation.formData` holds the values
+the user just submitted — render them immediately instead of waiting for the
+loader to revalidate:
+
+```tsx
+export function Component({ data }: RouteComponentProps<typeof loader>) {
+  const navigation = useNavigation();
+
+  const optimisticTitle =
+    navigation.state === "submitting" ? navigation.formData.get("title") : null;
+
+  return (
+    <ul>
+      {data.todos.map((todo) => (
+        <li key={todo.id}>{todo.title}</li>
+      ))}
+      {optimisticTitle ? <li class="pending">{String(optimisticTitle)}</li> : null}
+    </ul>
+  );
+}
+```
+
 ### `<Form>` Component
 
 Declarative form submission:
@@ -383,6 +480,8 @@ The `<Form>` component:
 - Intercepts submit and sends via fetch to the specified action URL (no full page reload)
 - Handles redirects automatically
 - Falls back to native form submission if JavaScript fails
+- Publishes its pending state through `useNavigation()` — `state: "submitting"`
+  with the submitted `FormData` — for pending buttons and optimistic UI
 
 ---
 

@@ -100,6 +100,7 @@ export function defineApp(config: PrachtAppConfig): PrachtApp {
     middleware: resolveModuleRefRecord(config.middleware ?? {}),
     api: config.api ?? {},
     routes: config.routes,
+    viewTransitions: config.viewTransitions,
   };
 }
 
@@ -142,6 +143,7 @@ export function resolveApp(app: PrachtApp): ResolvedPrachtApp {
     api: app.api,
     routes,
     apiRoutes: [],
+    viewTransitions: app.viewTransitions,
   };
 }
 
@@ -227,6 +229,7 @@ function flattenRouteNode(
       }
       return app.middleware[name];
     }),
+    prefetch: node.prefetch,
     revalidate: node.revalidate,
     segments: parseRouteSegments(fullPath),
   });

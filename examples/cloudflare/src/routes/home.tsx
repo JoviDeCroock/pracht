@@ -41,6 +41,20 @@ export function Component({ data }: RouteComponentProps<typeof loader>) {
       <p>
         <a href={href("pricing", { search: { ref: "typed-helper" } })}>Pricing via href()</a>
       </p>
+      <p class="demo-links">
+        <Link route="slow" prefetch="none" id="slow-link">
+          Slow page
+        </Link>{" "}
+        <Link route="pricing" prefetch="intent" id="prefetch-pricing-link">
+          Pricing (prefetch on intent)
+        </Link>{" "}
+        <Link route="pricing" viewTransition id="vt-pricing-link">
+          Pricing (view transition)
+        </Link>{" "}
+        <Link route="long" id="long-link">
+          Long page
+        </Link>
+      </p>
       <TypedProductButton />
     </section>
   );

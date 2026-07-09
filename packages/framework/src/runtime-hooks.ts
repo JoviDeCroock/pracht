@@ -1,9 +1,22 @@
 import { h } from "preact";
 import type { JSX } from "preact";
-import { useContext } from "preact/hooks";
+import { useContext, useEffect, useState } from "preact/hooks";
 
 import { buildHref } from "./app.ts";
-import { SAFE_METHODS } from "./runtime-constants.ts";
+import {
+  beginSubmittingNavigation,
+  createNavigationLocation,
+  getNavigation,
+  settleNavigation,
+  subscribeToNavigation,
+  type Navigation,
+} from "./navigation-state.ts";
+import {
+  PREFETCH_ATTRIBUTE,
+  PRESERVE_SCROLL_ATTRIBUTE,
+  SAFE_METHODS,
+  VIEW_TRANSITION_ATTRIBUTE,
+} from "./runtime-constants.ts";
 import {
   PrachtRuntimeProvider,
   readHydrationState,
@@ -16,6 +29,7 @@ import { clearPrefetchCache } from "./prefetch-cache.ts";
 import { deserializeRouteError } from "./runtime-errors.ts";
 import { fetchPrachtRouteState, navigateToClientLocation } from "./runtime-client-fetch.ts";
 import type {
+  LinkPrefetchStrategy,
   LoaderData,
   LoaderLike,
   RouteDataFor,
@@ -26,6 +40,7 @@ import type {
 
 export { PrachtRuntimeProvider, readHydrationState, startApp };
 export type { PrachtHydrationState, StartAppOptions };
+export type { Navigation, NavigationLocation } from "./navigation-state.ts";
 
 export interface FormProps extends Omit<JSX.HTMLAttributes<HTMLFormElement>, "action" | "method"> {
   action?: string;
@@ -36,7 +51,22 @@ export type LinkProps<TRoute extends RouteId = RouteId> = Omit<
   JSX.HTMLAttributes<HTMLAnchorElement>,
   "href"
 > &
-  RouteTarget<TRoute>;
+  RouteTarget<TRoute> & {
+    /**
+     * Prefetch strategy for this link, overriding the route-level strategy:
+     * `"intent"` (hover/focus), `"viewport"` (IntersectionObserver),
+     * `"render"` (as soon as the link mounts), or `"none"`. When omitted the
+     * route's `prefetch` meta applies (default: `"intent"`).
+     */
+    prefetch?: LinkPrefetchStrategy;
+    /** Keep the current scroll position when this link navigates. */
+    preserveScroll?: boolean;
+    /**
+     * Wrap the navigation triggered by this link in
+     * `document.startViewTransition()` when supported.
+     */
+    viewTransition?: boolean;
+  };
 
 export interface Location {
   pathname: string;
@@ -92,6 +122,26 @@ export function useRevalidate() {
   };
 }
 
+/**
+ * Reactive pending state for the current client navigation or `<Form>`
+ * submission. Returns `{ state: "idle" }` when nothing is in flight,
+ * `{ state: "loading", location }` while the router fetches and commits a
+ * navigation, and `{ state: "submitting", location, formData }` while a
+ * `<Form>` submission is awaiting its response. During SSR it always
+ * returns the idle state.
+ */
+export function useNavigation(): Navigation {
+  const [navigation, setNavigation] = useState<Navigation>(getNavigation);
+
+  useEffect(() => {
+    // Re-sync in case a navigation started between render and effect.
+    setNavigation(getNavigation());
+    return subscribeToNavigation(setNavigation);
+  }, []);
+
+  return navigation;
+}
+
 export function Link<TRoute extends RouteId>(props: LinkProps<TRoute>) {
   const runtime = useContext(RouteDataContext);
   const routes = runtime?.routes ?? globalThis.__PRACHT_ROUTE_DEFINITIONS__;
@@ -99,15 +149,20 @@ export function Link<TRoute extends RouteId>(props: LinkProps<TRoute>) {
     throw new Error("<Link route=...> must render inside a pracht route tree.");
   }
 
-  const { route, params, search, hash, ...anchorProps } = props as LinkProps<RouteId> & {
-    hash?: string;
-    params?: Record<string, string | number | boolean>;
-    search?: unknown;
-  };
+  const { route, params, search, hash, prefetch, preserveScroll, viewTransition, ...anchorProps } =
+    props as LinkProps<RouteId> & {
+      hash?: string;
+      params?: Record<string, string | number | boolean>;
+      search?: unknown;
+    };
 
   return h("a", {
     ...anchorProps,
     href: buildHref(routes, route, { params, search, hash } as never),
+    // Read by the client router's click handler and the prefetch listeners.
+    [PREFETCH_ATTRIBUTE]: prefetch,
+    [PRESERVE_SCROLL_ATTRIBUTE]: preserveScroll ? "" : undefined,
+    [VIEW_TRANSITION_ATTRIBUTE]: viewTransition ? "" : undefined,
   } as JSX.HTMLAttributes<HTMLAnchorElement>);
 }
 
@@ -135,15 +190,29 @@ export function Form(props: FormProps) {
 
       event.preventDefault();
       clearPrefetchCache();
-      const response = await fetch(props.action ?? form.action, {
-        method: formMethod,
-        body: new FormData(form),
-        redirect: "manual",
-      });
+      const actionUrl = props.action ?? form.action;
+      const formData = new FormData(form);
+      // Expose the in-flight submission through useNavigation().
+      const navigationToken = beginSubmittingNavigation(
+        createNavigationLocation(actionUrl),
+        formData,
+      );
+      try {
+        const response = await fetch(actionUrl, {
+          method: formMethod,
+          body: formData,
+          redirect: "manual",
+        });
 
-      if (response.type === "opaqueredirect" || (response.status >= 300 && response.status < 400)) {
-        const location = response.headers.get("location");
-        await navigateToClientLocation(location ?? props.action ?? form.action);
+        if (
+          response.type === "opaqueredirect" ||
+          (response.status >= 300 && response.status < 400)
+        ) {
+          const location = response.headers.get("location");
+          await navigateToClientLocation(location ?? actionUrl);
+        }
+      } finally {
+        settleNavigation(navigationToken);
       }
     },
   } as JSX.HTMLAttributes<HTMLFormElement>);

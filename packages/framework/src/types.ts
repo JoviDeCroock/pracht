@@ -40,6 +40,17 @@ export interface BuildHrefOptions {
 
 export interface NavigateOptions {
   replace?: boolean;
+  /**
+   * Keep the current scroll position after the navigation commits instead of
+   * scrolling to the top (or to the target `#hash` element).
+   */
+  preserveScroll?: boolean;
+  /**
+   * Wrap this navigation's DOM commit in `document.startViewTransition()`
+   * when the browser supports it. Overrides the app-level
+   * `viewTransitions` default for this navigation.
+   */
+  viewTransition?: boolean;
 }
 
 export interface HrefRouteDefinition {
@@ -172,6 +183,13 @@ export interface ApiRouteMatch {
 
 export type PrefetchStrategy = "none" | "hover" | "viewport" | "intent";
 
+/**
+ * Per-link prefetch strategy accepted by `<Link prefetch>`. Extends the
+ * route-level strategies with `"render"`, which prefetches as soon as the
+ * link is rendered.
+ */
+export type LinkPrefetchStrategy = PrefetchStrategy | "render";
+
 export interface RouteMeta {
   id?: string;
   shell?: string;
@@ -227,6 +245,13 @@ export interface PrachtAppConfig {
   middleware?: Record<string, ModuleRef>;
   api?: ApiConfig;
   routes: RouteTreeNode[];
+  /**
+   * Enable the View Transitions API for every client navigation by default.
+   * Individual navigations can still opt out via
+   * `navigate(to, { viewTransition: false })`. Ignored in browsers without
+   * `document.startViewTransition` support.
+   */
+  viewTransitions?: boolean;
 }
 
 export interface PrachtApp {
@@ -234,6 +259,7 @@ export interface PrachtApp {
   middleware: Record<string, string>;
   api: ApiConfig;
   routes: RouteTreeNode[];
+  viewTransitions?: boolean;
 }
 
 export interface StaticRouteSegment {

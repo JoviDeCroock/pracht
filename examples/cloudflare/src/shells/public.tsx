@@ -1,4 +1,18 @@
+import { useNavigation } from "@pracht/core";
 import type { ShellProps } from "@pracht/core";
+
+function NavigationStatus() {
+  const navigation = useNavigation();
+  return (
+    <span
+      id="nav-status"
+      data-state={navigation.state}
+      data-target={navigation.location?.pathname ?? ""}
+    >
+      {navigation.state}
+    </span>
+  );
+}
 
 export function Shell({ children }: ShellProps) {
   return (
@@ -9,6 +23,7 @@ export function Shell({ children }: ShellProps) {
           <a href="/">Home</a>
           <a href="/pricing">Pricing</a>
         </nav>
+        <NavigationStatus />
       </header>
       <main>{children}</main>
       <footer>Preact-first. Vite-native. Explicit routing.</footer>

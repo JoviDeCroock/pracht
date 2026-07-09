@@ -16,6 +16,14 @@ export const routes = [
     path: "/products/:id",
   },
   {
+    id: "slow",
+    path: "/slow",
+  },
+  {
+    id: "long",
+    path: "/long",
+  },
+  {
     id: "dashboard",
     path: "/dashboard",
   },

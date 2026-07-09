@@ -86,7 +86,12 @@ export function ProductLink({ id }: { id: string }) {
 ```
 
 `<Link>` renders a normal `<a>` and the client router intercepts it like any
-same-origin anchor.
+same-origin anchor. It also accepts navigation-behavior props:
+`prefetch="none" | "intent" | "viewport" | "render"` (per-link prefetch
+strategy, default `"intent"`), `preserveScroll` (keep the scroll position),
+and `viewTransition` (animate the navigation with the View Transitions API
+where supported). There is also an imperative `prefetch()` export and a
+`useNavigation()` hook for pending navigation/submission state.
 
 ### Outside components
 

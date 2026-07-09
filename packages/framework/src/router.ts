@@ -1,13 +1,27 @@
 import { createContext, h } from "preact";
 import { hydrate, render } from "preact";
-import { useContext, useMemo, useState } from "preact/hooks";
+import { useContext, useLayoutEffect, useMemo, useState } from "preact/hooks";
 import type { FunctionComponent } from "preact";
 
 import { buildHref, matchAppRoute } from "./app.ts";
 import { installHydrationMismatchWarning } from "./hydration-mismatch.ts";
 import { markHydrating } from "./hydration.ts";
+import {
+  beginLoadingNavigation,
+  createNavigationLocation,
+  settleNavigation,
+} from "./navigation-state.ts";
 import { getCachedRouteState } from "./prefetch-cache.ts";
-import type { ModuleWarmFn } from "./prefetch.ts";
+import { registerPrefetchTarget } from "./prefetch-api.ts";
+import type { ModuleWarmFn } from "./prefetch-api.ts";
+import { PRESERVE_SCROLL_ATTRIBUTE, VIEW_TRANSITION_ATTRIBUTE } from "./runtime-constants.ts";
+import {
+  createScrollPositionStore,
+  generateScrollKey,
+  getSessionScrollStorage,
+  readScrollKeyFromHistoryState,
+  withScrollKeyInHistoryState,
+} from "./scroll-restoration.ts";
 import type {
   NavigateOptions,
   ResolvedPrachtApp,
@@ -111,12 +125,85 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
   let latestNavigationId = 0;
   let activeNavigationAbort: AbortController | null = null;
 
+  // --- Scroll restoration -------------------------------------------------
+  // The router owns scrolling: positions are keyed per history entry (via a
+  // key stored on `history.state`) and persisted in sessionStorage so they
+  // survive reloads and back-navigation from external documents.
+  const scrollStore = createScrollPositionStore(getSessionScrollStorage());
+  if ("scrollRestoration" in history) {
+    history.scrollRestoration = "manual";
+  }
+
+  let currentScrollKey = readScrollKeyFromHistoryState(history.state) ?? "";
+  const hadExistingScrollKey = currentScrollKey !== "";
+  if (!hadExistingScrollKey) {
+    currentScrollKey = generateScrollKey();
+    try {
+      history.replaceState(
+        withScrollKeyInHistoryState(history.state, currentScrollKey),
+        "",
+        window.location.href,
+      );
+    } catch {
+      // Some embedders restrict history mutation; scroll restoration then
+      // degrades to scroll-to-top, which matches the previous behavior.
+    }
+  }
+
+  function saveScrollPosition(): void {
+    scrollStore.set(currentScrollKey, { x: window.scrollX, y: window.scrollY });
+  }
+
+  window.addEventListener("pagehide", saveScrollPosition);
+
+  function restoreOrResetScroll(
+    opts: InternalNavigateOptions | undefined,
+    browserUrl: string,
+  ): void {
+    if (opts?.preserveScroll) return;
+
+    if (opts?._popstate) {
+      const saved = scrollStore.get(currentScrollKey);
+      window.scrollTo(saved?.x ?? 0, saved?.y ?? 0);
+      return;
+    }
+
+    const hashIndex = browserUrl.indexOf("#");
+    if (hashIndex !== -1) {
+      let id = browserUrl.slice(hashIndex + 1);
+      try {
+        id = decodeURIComponent(id);
+      } catch {
+        // Keep the raw fragment when it is not valid percent-encoding.
+      }
+      const hashTarget = id ? document.getElementById(id) : null;
+      if (hashTarget && typeof hashTarget.scrollIntoView === "function") {
+        hashTarget.scrollIntoView();
+        return;
+      }
+    }
+
+    window.scrollTo(0, 0);
+  }
+
+  // Runs after the DOM for a newly committed route state is in place —
+  // scroll restoration must not race Preact's asynchronous re-render (the
+  // outgoing page's height would clamp the restored position).
+  let afterCommitCallback: (() => void) | null = null;
+
   function RouterRoot({ initialState }: { initialState: RouteRenderState }) {
     const [routeState, setRouteState] = useState(initialState);
     updateRouteState = setRouteState;
     const navigateValue = useMemo(() => navigate, []);
 
     const { Shell, Component, componentProps, data, params, routeId, url, version } = routeState;
+
+    useLayoutEffect(() => {
+      if (!afterCommitCallback) return;
+      const callback = afterCommitCallback;
+      afterCommitCallback = null;
+      callback();
+    }, [version]);
     const componentTree = Shell
       ? h(
           Shell as FunctionComponent<Record<string, unknown>>,
@@ -272,102 +359,127 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
       return;
     }
 
-    // Start route-state fetch and module imports in parallel
-    let statePromise: Promise<RouteStateResult>;
-    if (routeNeedsServerFetch(match.route)) {
-      statePromise =
-        getCachedRouteState(target.requestUrl) ??
-        fetchPrachtRouteState(target.requestUrl, { signal: abortController.signal });
-    } else {
-      statePromise = Promise.resolve({ type: "data" as const, data: undefined });
-    }
-    const routeModPromise = startRouteImport(match);
-    const shellModPromise = startShellImport(match);
-
-    // Await route state (need it to handle redirects before rendering)
-    let state: { data: unknown; error?: SerializedRouteError | null } = {
-      data: undefined,
-      error: null,
-    };
+    // Expose pending state through useNavigation(). The token makes the
+    // finally-settle a no-op when a newer navigation supersedes this one.
+    const navigationToken = beginLoadingNavigation(createNavigationLocation(target.browserUrl));
     try {
-      const result = await statePromise;
-      if (navigationId !== latestNavigationId) return;
-      if (result.type === "redirect") {
-        if (result.location) {
-          const redirect = resolveRedirectTarget(result.location);
-          if (redirect.unsafe) {
-            console.error(`[pracht] refused to navigate to unsafe URL: ${result.location}`);
-            return;
-          }
-          if (redirect.externalUrl) {
-            window.location.href = redirect.externalUrl;
-            return;
-          }
+      // Start route-state fetch and module imports in parallel
+      let statePromise: Promise<RouteStateResult>;
+      if (routeNeedsServerFetch(match.route)) {
+        statePromise =
+          getCachedRouteState(target.requestUrl) ??
+          fetchPrachtRouteState(target.requestUrl, { signal: abortController.signal });
+      } else {
+        statePromise = Promise.resolve({ type: "data" as const, data: undefined });
+      }
+      const routeModPromise = startRouteImport(match);
+      const shellModPromise = startShellImport(match);
 
-          if (redirect.isCurrentLocation) {
+      // Await route state (need it to handle redirects before rendering)
+      let state: { data: unknown; error?: SerializedRouteError | null } = {
+        data: undefined,
+        error: null,
+      };
+      try {
+        const result = await statePromise;
+        if (navigationId !== latestNavigationId) return;
+        if (result.type === "redirect") {
+          if (result.location) {
+            const redirect = resolveRedirectTarget(result.location);
+            if (redirect.unsafe) {
+              console.error(`[pracht] refused to navigate to unsafe URL: ${result.location}`);
+              return;
+            }
+            if (redirect.externalUrl) {
+              window.location.href = redirect.externalUrl;
+              return;
+            }
+
+            if (redirect.isCurrentLocation) {
+              return;
+            }
+
+            if (redirect.documentUrl) {
+              window.location.href = redirect.documentUrl;
+              return;
+            }
+
+            if (redirect.internalPath) {
+              await navigate(redirect.internalPath, opts);
+              return;
+            }
+
+            window.location.href = target.browserUrl;
             return;
           }
-
-          if (redirect.documentUrl) {
-            window.location.href = redirect.documentUrl;
-            return;
-          }
-
-          if (redirect.internalPath) {
-            await navigate(redirect.internalPath, opts);
-            return;
-          }
-
           window.location.href = target.browserUrl;
           return;
         }
+
+        if (result.type === "error") {
+          state = {
+            data: undefined,
+            error: result.error,
+          };
+        } else {
+          state = {
+            data: result.data,
+            error: null,
+          };
+        }
+      } catch {
+        if (abortController.signal.aborted || navigationId !== latestNavigationId) return;
+        // Network error — full page load as fallback
         window.location.href = target.browserUrl;
         return;
       }
 
-      if (result.type === "error") {
-        state = {
-          data: undefined,
-          error: result.error,
-        };
-      } else {
-        state = {
-          data: result.data,
-          error: null,
-        };
+      if (navigationId !== latestNavigationId) return;
+
+      if (!opts?._popstate) {
+        // Remember where the outgoing history entry was scrolled to before
+        // this entry is replaced / a new one is pushed.
+        saveScrollPosition();
+        if (opts?.replace) {
+          history.replaceState(
+            withScrollKeyInHistoryState(history.state, currentScrollKey),
+            "",
+            target.browserUrl,
+          );
+        } else {
+          const nextScrollKey = generateScrollKey();
+          history.pushState(
+            withScrollKeyInHistoryState(null, nextScrollKey),
+            "",
+            target.browserUrl,
+          );
+          currentScrollKey = nextScrollKey;
+        }
       }
-    } catch {
-      if (abortController.signal.aborted || navigationId !== latestNavigationId) return;
-      // Network error — full page load as fallback
-      window.location.href = target.browserUrl;
-      return;
-    }
 
-    if (navigationId !== latestNavigationId) return;
+      // Module imports started above are already in-flight
+      const routeState = await resolveRouteState(
+        match,
+        state,
+        target.requestUrl,
+        routeModPromise,
+        shellModPromise,
+      );
+      if (navigationId !== latestNavigationId) return;
 
-    if (!opts?._popstate) {
-      if (opts?.replace) {
-        history.replaceState(null, "", target.browserUrl);
-      } else {
-        history.pushState(null, "", target.browserUrl);
+      if (!routeState) {
+        window.location.href = target.browserUrl;
+        return;
       }
-    }
 
-    // Module imports started above are already in-flight
-    const routeState = await resolveRouteState(
-      match,
-      state,
-      target.requestUrl,
-      routeModPromise,
-      shellModPromise,
-    );
-    if (navigationId !== latestNavigationId) return;
-
-    if (routeState) {
-      applyRouteState(routeState);
-      window.scrollTo(0, 0);
-    } else {
-      window.location.href = target.browserUrl;
+      const commit = () => {
+        afterCommitCallback = () => restoreOrResetScroll(opts, target.browserUrl);
+        applyRouteState(routeState);
+      };
+      const useViewTransition = opts?.viewTransition ?? app.viewTransitions === true;
+      await commitWithOptionalViewTransition(commit, useViewTransition);
+    } finally {
+      settleNavigation(navigationToken);
     }
   }
 
@@ -486,10 +598,32 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
     if (url.origin !== window.location.origin) return;
 
     e.preventDefault();
-    navigate(url.pathname + url.search + url.hash);
+    const navOptions: NavigateOptions = {};
+    if (anchor.hasAttribute(PRESERVE_SCROLL_ATTRIBUTE)) navOptions.preserveScroll = true;
+    if (anchor.hasAttribute(VIEW_TRANSITION_ATTRIBUTE)) navOptions.viewTransition = true;
+    navigate(url.pathname + url.search + url.hash, navOptions);
   });
 
   window.addEventListener("popstate", () => {
+    // The history entry already changed, but the on-screen scroll position
+    // still belongs to the entry we are leaving — save it under its key
+    // before adopting the new entry's key.
+    saveScrollPosition();
+    let nextScrollKey = readScrollKeyFromHistoryState(history.state);
+    if (!nextScrollKey) {
+      nextScrollKey = generateScrollKey();
+      try {
+        history.replaceState(
+          withScrollKeyInHistoryState(history.state, nextScrollKey),
+          "",
+          window.location.href,
+        );
+      } catch {
+        // History mutation restricted — restoration degrades to scroll-to-top.
+      }
+    }
+    currentScrollKey = nextScrollKey;
+
     navigate(window.location.pathname + window.location.search + window.location.hash, {
       _popstate: true,
     });
@@ -503,13 +637,73 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
   // interacting earlier triggers native form submits instead of JS handlers.
   document.documentElement.setAttribute("data-pracht-hydrated", "true");
 
+  // Restore the scroll position after a reload or a return from an external
+  // document — with `history.scrollRestoration = "manual"` the browser no
+  // longer does this for us.
+  if (hadExistingScrollKey) {
+    const savedPosition = scrollStore.get(currentScrollKey);
+    if (savedPosition) {
+      window.scrollTo(savedPosition.x, savedPosition.y);
+    }
+  }
+
   const warmModules: ModuleWarmFn = (match) => {
     startRouteImport(match);
     startShellImport(match);
   };
+  registerPrefetchTarget(app, warmModules);
   void import("./prefetch.ts").then(({ setupPrefetching }) => {
     setupPrefetching(app, warmModules);
   });
+}
+
+interface ViewTransitionLike {
+  updateCallbackDone?: Promise<void>;
+}
+
+type ViewTransitionDocument = Document & {
+  startViewTransition?: (callback: () => void | Promise<void>) => ViewTransitionLike;
+};
+
+/**
+ * Commit a navigation's DOM update, optionally wrapped in
+ * `document.startViewTransition()`. Falls back to a plain commit when view
+ * transitions are disabled or unsupported. Resolves once the DOM update has
+ * been applied (not when the transition animation finishes).
+ */
+async function commitWithOptionalViewTransition(
+  commit: () => void,
+  useViewTransition: boolean,
+): Promise<void> {
+  const doc = document as ViewTransitionDocument;
+  if (!useViewTransition || typeof doc.startViewTransition !== "function") {
+    commit();
+    return;
+  }
+
+  let committed = false;
+  let transition: ViewTransitionLike | undefined;
+  try {
+    transition = doc.startViewTransition(async () => {
+      committed = true;
+      commit();
+      // Preact flushes state updates asynchronously — wait a macrotask so the
+      // new route's DOM is in place before the transition captures snapshots.
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    });
+  } catch {
+    // Defensive: a broken partial implementation must not break navigation.
+  }
+
+  try {
+    await transition?.updateCallbackDone;
+  } catch {
+    // The transition was skipped — the DOM update itself still applied.
+  }
+
+  if (!committed) {
+    commit();
+  }
 }
 
 function resolveBrowserRouteTarget(to: string): BrowserRouteTarget | null {

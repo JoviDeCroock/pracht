@@ -91,6 +91,14 @@ export const app = defineApp({
         id: "recipes-forms",
         render: "ssg",
       }),
+      route(
+        "/docs/recipes/view-transitions",
+        () => import("./routes/docs/recipes-view-transitions.md"),
+        {
+          id: "recipes-view-transitions",
+          render: "ssg",
+        },
+      ),
       route("/docs/recipes/testing", () => import("./routes/docs/recipes-testing.md"), {
         id: "recipes-testing",
         render: "ssg",
