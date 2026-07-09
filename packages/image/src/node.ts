@@ -143,6 +143,12 @@ async function readCappedBody(response: Response, maxBytes: number): Promise<Uin
   return body;
 }
 
+function responseBody(bytes: Uint8Array): ArrayBuffer {
+  const body = new ArrayBuffer(bytes.byteLength);
+  new Uint8Array(body).set(bytes);
+  return body;
+}
+
 /**
  * Create the pracht image optimization endpoint.
  *
@@ -304,7 +310,7 @@ export function createImageHandler(
       if (sourceType === "image/svg+xml") {
         headers["content-disposition"] = "attachment";
       }
-      return new Response(sourceBytes, { headers });
+      return new Response(responseBody(sourceBytes), { headers });
     }
 
     let sharp: SharpFactory;
@@ -338,7 +344,7 @@ export function createImageHandler(
       return errorResponse(500, `Failed to optimize source image "${source}".`);
     }
 
-    return new Response(new Uint8Array(output), {
+    return new Response(responseBody(output), {
       headers: { ...baseHeaders, "content-type": contentType },
     });
   };
