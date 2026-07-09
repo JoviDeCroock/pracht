@@ -85,11 +85,27 @@ Examples of recommendations:
 - `spa` → `ssr` when route has SEO-relevant `head()` and unauthenticated
   visitors should see content.
 
+## Step 3b: Consider the hydration mode too
+
+Render mode controls when HTML is generated; **hydration mode** controls how
+much JavaScript ships afterwards (`hydration: "full" | "islands" | "none"`,
+default `"full"` — see `docs/ISLANDS.md`). While tuning, also flag:
+
+- Routes with **no interactivity at all** (no event handlers, no hooks) →
+  `hydration: "none"` — zero JS shipped.
+- Content-heavy routes with **one or two isolated widgets** (counter, search
+  box, newsletter form) → `hydration: "islands"` with the widgets moved to
+  `src/islands/`.
+- Caveats: islands routes use MPA-style full-document navigation (no client
+  router), island props must be JSON-serializable, and `render: "spa"` cannot
+  combine with `"islands"`/`"none"`.
+
 ## Step 4: Show the diffs (optional)
 
 If the user accepts, edit `src/routes.ts` to update the `render` field. For
 ISG, add `revalidate: timeRevalidate(N)` and import `timeRevalidate` from
-`@pracht/core`.
+`@pracht/core`. For hydration changes, update the `hydration` field the same
+way (pages router: `export const HYDRATION = "..."`).
 
 ## Rules
 

@@ -9,7 +9,7 @@ export default defineConfig({
     {
       name: "basic",
       testMatch:
-        /basic\.test\.ts|navigation\.test\.ts|node-build\.test\.ts|cloudflare-build\.test\.ts|vercel-build\.test\.ts|client-bundle-strip\.test\.ts|tsrx-build\.test\.ts/,
+        /basic\.test\.ts|navigation\.test\.ts|node-build\.test\.ts|cloudflare-build\.test\.ts|vercel-build\.test\.ts|client-bundle-strip\.test\.ts|tsrx-build\.test\.ts|islands-build\.test\.ts/,
       use: {
         baseURL: "http://localhost:3100",
       },
@@ -19,6 +19,13 @@ export default defineConfig({
       testMatch: /pages-router\.test\.ts|dev-404\.test\.ts/,
       use: {
         baseURL: "http://localhost:3101",
+      },
+    },
+    {
+      name: "islands",
+      testMatch: /islands-dev\.test\.ts/,
+      use: {
+        baseURL: "http://localhost:3102",
       },
     },
   ],
@@ -32,6 +39,12 @@ export default defineConfig({
     {
       command: "node e2e/start-dev-server.mjs examples/pages-router 3101",
       port: 3101,
+      reuseExistingServer: !process.env.CI,
+      timeout: 15_000,
+    },
+    {
+      command: "node e2e/start-dev-server.mjs examples/islands 3102",
+      port: 3102,
       reuseExistingServer: !process.env.CI,
       timeout: 15_000,
     },

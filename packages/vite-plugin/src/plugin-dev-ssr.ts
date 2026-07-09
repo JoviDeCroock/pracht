@@ -3,7 +3,11 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { resolve } from "node:path";
 import type { Connect, ViteDevServer } from "vite";
 import type { PrachtPhaseTimings, ResolvedApiRoute, ResolvedPrachtApp } from "@pracht/core";
-import { CLIENT_BROWSER_PATH, PRACHT_SERVER_MODULE_ID } from "./plugin-assets.ts";
+import {
+  CLIENT_BROWSER_PATH,
+  ISLANDS_CLIENT_BROWSER_PATH,
+  PRACHT_SERVER_MODULE_ID,
+} from "./plugin-assets.ts";
 
 const BODYLESS_METHODS = new Set(["GET", "HEAD"]);
 const DEFAULT_MAX_BODY_SIZE = 1024 * 1024; // 1 MiB
@@ -357,6 +361,7 @@ function hasKnownAssetExtension(pathname: string): boolean {
 function isReservedDevPath(pathname: string): boolean {
   return (
     pathname === CLIENT_BROWSER_PATH ||
+    pathname === ISLANDS_CLIENT_BROWSER_PATH ||
     pathname === "/@vite/client" ||
     pathname === "/@react-refresh" ||
     pathname.startsWith("/@vite/") ||

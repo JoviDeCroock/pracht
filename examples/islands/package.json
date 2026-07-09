@@ -1,0 +1,17 @@
+{
+  "name": "@pracht/example-islands",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@pracht/adapter-node": "workspace:*",
+    "@pracht/core": "workspace:*"
+  },
+  "devDependencies": {
+    "@pracht/cli": "workspace:*",
+    "@pracht/vite-plugin": "workspace:*",
+    "preact": "^10.26.9",
+    "preact-render-to-string": "^6.5.13",
+    "vite": "^8.0.0"
+  }
+}

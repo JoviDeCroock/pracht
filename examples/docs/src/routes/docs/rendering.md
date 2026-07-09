@@ -6,8 +6,8 @@ prev:
   href: /docs/routing
   title: Routing
 next:
-  href: /docs/data-loading
-  title: Data Loading
+  href: /docs/islands
+  title: Islands
 ---
 
 ## Overview

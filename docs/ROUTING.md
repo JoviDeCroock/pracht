@@ -121,11 +121,17 @@ interface RouteMeta {
   id?: string; // Explicit route ID (auto-generated if omitted)
   shell?: string; // Named shell from defineApp.shells
   render?: "spa" | "ssr" | "ssg" | "isg";
+  hydration?: "full" | "islands" | "none"; // Partial hydration (see ISLANDS.md)
   middleware?: string[]; // Named middleware from defineApp.middleware
   revalidate?: RouteRevalidate; // ISG revalidation policy
   prefetch?: "none" | "hover" | "viewport" | "intent"; // Route-level prefetch strategy (default: "intent")
 }
 ```
+
+`hydration` defaults to `"full"`. `"islands"` hydrates only components from
+`src/islands/`; `"none"` ships no JavaScript at all. Both are inherited
+through `group(...)` like `render` and documented in
+[ISLANDS.md](ISLANDS.md).
 
 ---
 
@@ -556,6 +562,19 @@ overridable globally via `pagesDefaultRender`:
 ```typescript
 pracht({ pagesDir: "/src/pages", pagesDefaultRender: "ssg" });
 ```
+
+### Per-Route Hydration Mode
+
+Page files can also export a `HYDRATION` constant to opt into partial
+hydration (see [ISLANDS.md](ISLANDS.md)):
+
+```tsx
+// src/pages/index.tsx
+export const RENDER_MODE = "ssg";
+export const HYDRATION = "islands"; // "full" (default) | "islands" | "none"
+```
+
+Islands live in `src/islands/` regardless of router mode.
 
 ### Route Priority
 

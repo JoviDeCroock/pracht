@@ -13,6 +13,12 @@ import { withDefaultSecurityHeaders } from "./runtime-headers.ts";
 import { PrachtRuntimeProvider } from "./runtime-context.ts";
 import { buildHtmlDocument, htmlResponse } from "./runtime-html.ts";
 import {
+  getIslandsClientEntryUrl,
+  IslandCaptureContext,
+  type IslandCapture,
+} from "./islands-server.ts";
+import {
+  resolveManifestEntries,
   resolvePageCssUrls,
   resolvePageJsUrls,
   resolveDataFunctions,
@@ -149,6 +155,12 @@ export interface HandlePrachtRequestOptions<TContext = unknown> {
   /** Expose raw server error details in rendered HTML and route-state JSON. */
   debugErrors?: boolean;
   clientEntryUrl?: string;
+  /**
+   * URL of the islands bootstrap script injected on `hydration: "islands"`
+   * routes. Defaults to the URL registered by the generated server module
+   * via `setIslandsClientEntryUrl()`.
+   */
+  islandsEntryUrl?: string;
   /** Per-source-file CSS map produced by the vite plugin. */
   cssManifest?: Record<string, string[]>;
   /** Per-source-file JS chunk map produced by the vite plugin for modulepreload hints. */
@@ -500,7 +512,7 @@ export async function handlePrachtRequest<TContext>(
         ? h(Shell, null, h(Comp, componentProps))
         : h(Comp, componentProps);
 
-      const tree = h(
+      let tree = h(
         PrachtRuntimeProvider as FunctionComponent<Record<string, unknown>>,
         {
           data,
@@ -511,8 +523,73 @@ export async function handlePrachtRequest<TContext>(
         },
         componentTree,
       );
+
+      const hydration = match.route.hydration ?? "full";
+      let islandCapture: IslandCapture | null = null;
+      if (hydration === "islands") {
+        // The capture collector travels through context (not module state),
+        // so concurrent async renders — e.g. parallel SSG prerendering —
+        // never attribute islands to the wrong page.
+        islandCapture = { islands: [] };
+        tree = h(
+          IslandCaptureContext.Provider as FunctionComponent<Record<string, unknown>>,
+          { value: islandCapture },
+          tree,
+        );
+      }
+
       const renderToString = await getRenderToStringAsync();
       const ssrContent = await renderToString(tree);
+
+      if (hydration !== "full") {
+        const islandFiles = [
+          ...new Set((islandCapture?.islands ?? []).map((usage) => usage.descriptor.file)),
+        ];
+        let islandsEntryUrl: string | undefined;
+        if (islandFiles.length > 0) {
+          islandsEntryUrl = options.islandsEntryUrl ?? getIslandsClientEntryUrl();
+          if (!islandsEntryUrl) {
+            throw new Error(
+              `Route "${match.route.path}" uses hydration: "islands" and rendered ` +
+                `${islandFiles.length} island(s), but no islands bootstrap URL is registered. ` +
+                "This usually means the @pracht/vite-plugin islands entry was not built — " +
+                "check that your islands live in the configured islands directory.",
+            );
+          }
+        }
+
+        // Preload only islands that hydrate immediately ("load"). Preloading
+        // "visible"/"idle" islands would defeat those strategies' whole
+        // point: deferring the network cost until the island is needed.
+        const preloadFiles = new Set(
+          (islandCapture?.islands ?? [])
+            .filter((usage) => usage.strategy === "load")
+            .map((usage) => usage.descriptor.file),
+        );
+        const islandPreloadUrls = new Set<string>();
+        if (options.jsManifest) {
+          for (const file of preloadFiles) {
+            for (const url of resolveManifestEntries(options.jsManifest, file) ?? []) {
+              islandPreloadUrls.add(url);
+            }
+          }
+        }
+
+        // No hydration state, no client runtime: islands routes ship only the
+        // islands bootstrap plus the islands present on the page, and
+        // hydration: "none" routes ship no JavaScript at all.
+        return htmlResponse(
+          buildHtmlDocument({
+            head,
+            body: ssrContent,
+            clientEntryUrl: islandsEntryUrl,
+            cssUrls,
+            modulePreloadUrls: [...islandPreloadUrls],
+          }),
+          200,
+          documentHeaders,
+        );
+      }
 
       return htmlResponse(
         buildHtmlDocument({

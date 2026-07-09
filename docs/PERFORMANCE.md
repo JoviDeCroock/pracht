@@ -38,6 +38,11 @@ shared entry (all routes)
   are broken out separately — every route pays for them once.
 - Sizes are raw bytes and gzip (via `node:zlib` at the default level). Routes
   are sorted by total gzip size, descending. Colors respect `NO_COLOR`.
+- **Islands routes** (`hydration: "islands"`, see [ISLANDS.md](ISLANDS.md))
+  are attributed the islands bootstrap plus island chunks instead — they never
+  load the shared client entry, so their total excludes it. Island chunks are
+  an upper bound (every island in the app), since per-page usage is only known
+  at render time. `hydration: "none"` routes report `0b`.
 
 ### JSON output
 

@@ -10,6 +10,7 @@ export interface ScannedPage {
   isCatchAll: boolean;
   isDynamic: boolean;
   renderMode?: string;
+  hydrationMode?: string;
   hasLoader?: boolean;
 }
 
@@ -56,6 +57,7 @@ function scan(dir: string, root: string, pages: ScannedPage[]): void {
     const routePath = filePathToRoutePath(rel);
     const source = readFileSync(abs, "utf-8");
     const renderMode = extractRenderMode(source);
+    const hydrationMode = extractHydrationMode(source);
     const hasLoader = detectLoaderExport(source);
 
     pages.push({
@@ -66,6 +68,7 @@ function scan(dir: string, root: string, pages: ScannedPage[]): void {
       isCatchAll: routePath.split("/").includes("*"),
       isDynamic: routePath.split("/").some((segment) => segment.startsWith(":")),
       renderMode,
+      hydrationMode,
       hasLoader,
     });
   }
@@ -140,6 +143,13 @@ function extractRenderMode(source: string): string | undefined {
   return match ? match[1] : undefined;
 }
 
+const HYDRATION_RE = /export\s+const\s+HYDRATION\s*=\s*["'](\w+)["']/;
+
+function extractHydrationMode(source: string): string | undefined {
+  const match = HYDRATION_RE.exec(source);
+  return match ? match[1] : undefined;
+}
+
 export function generatePagesManifestSource(
   pages: ScannedPage[],
   options: PagesRouterOptions & { pagesDirPrefix?: string; useImportSyntax?: boolean },
@@ -174,6 +184,9 @@ export function generatePagesManifestSource(
       `render: ${JSON.stringify(render)}`,
       `hasLoader: ${page.hasLoader ? "true" : "false"}`,
     ];
+    if (page.hydrationMode) {
+      metaParts.push(`hydration: ${JSON.stringify(page.hydrationMode)}`);
+    }
     routeEntries.push(
       `    route(${JSON.stringify(page.routePath)}, ${fileRef}, { ${metaParts.join(", ")} })`,
     );

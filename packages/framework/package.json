@@ -50,6 +50,10 @@
       "types": "./dist/server.d.mts",
       "default": "./dist/server.mjs"
     },
+    "./islands-client": {
+      "types": "./dist/islands-client.d.mts",
+      "default": "./dist/islands-client.mjs"
+    },
     "./error-overlay": {
       "types": "./dist/error-overlay.d.mts",
       "default": "./dist/error-overlay.mjs"

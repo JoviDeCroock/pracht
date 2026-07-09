@@ -359,6 +359,15 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
       return;
     }
 
+    if (match.route.hydration === "islands" || match.route.hydration === "none") {
+      // Islands / no-hydration routes are served as regular documents
+      // (MPA-style): their pages never load the client runtime, so client
+      // rendering them here would produce a page that loses its islands
+      // bootstrap. Full document navigation keeps both worlds consistent.
+      window.location.href = target.browserUrl;
+      return;
+    }
+
     // Expose pending state through useNavigation(). The token makes the
     // finally-settle a no-op when a newer navigation supersedes this one.
     const navigationToken = beginLoadingNavigation(createNavigationLocation(target.browserUrl));

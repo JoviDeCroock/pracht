@@ -144,7 +144,8 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
     const serverMod = await import(pathToFileURL(serverEntry).href);
     buildTarget = typeof serverMod.buildTarget === "string" ? serverMod.buildTarget : null;
     const { prerenderApp } = serverMod;
-    const { clientEntryUrl, clientEntryJs, cssManifest, jsManifest } = readClientBuildAssets(root);
+    const { clientEntryUrl, clientEntryJs, islandsEntryJs, cssManifest, jsManifest } =
+      readClientBuildAssets(root);
 
     const { pages, isgManifest } = await prerenderApp({
       app: serverMod.resolvedApp,
@@ -244,6 +245,8 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
         routes,
         jsManifest,
         clientEntryJs,
+        islandsEntryJs,
+        islandFiles: Array.isArray(serverMod.islandFiles) ? serverMod.islandFiles : [],
         clientDir,
       });
       const evaluation = hasBudgets ? evaluateBudgets(report, budgets) : null;

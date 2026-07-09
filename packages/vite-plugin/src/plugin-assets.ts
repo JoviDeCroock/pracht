@@ -4,10 +4,12 @@ import { stripPrachtClientModuleQuery } from "./client-module-query.ts";
 
 export const PRACHT_CLIENT_MODULE_ID = "virtual:pracht/client";
 export const PRACHT_SERVER_MODULE_ID = "virtual:pracht/server";
+export const PRACHT_ISLANDS_CLIENT_MODULE_ID = "virtual:pracht/islands-client";
 
 // Browser-safe path alias — the colon in "virtual:" is parsed as a protocol
 // scheme by browsers, so we serve the client module from a plain path.
 export const CLIENT_BROWSER_PATH = "/@pracht/client.js";
+export const ISLANDS_CLIENT_BROWSER_PATH = "/@pracht/islands.js";
 
 export interface ViteManifestEntry {
   file: string;
@@ -19,6 +21,7 @@ export interface ViteManifestEntry {
 
 export interface ClientBuildAssets {
   clientEntryUrl: string | null;
+  islandsEntryUrl: string | null;
   cssManifest: Record<string, string[]>;
   jsManifest: Record<string, string[]>;
 }
@@ -28,12 +31,13 @@ export function readClientBuildAssets(root = process.cwd()): ClientBuildAssets {
     .map((candidate) => resolve(root, candidate))
     .find((candidate) => existsSync(candidate));
   if (!manifestPath) {
-    return { clientEntryUrl: null, cssManifest: {}, jsManifest: {} };
+    return { clientEntryUrl: null, islandsEntryUrl: null, cssManifest: {}, jsManifest: {} };
   }
 
   const rawManifest = readFileSync(manifestPath, "utf-8");
   const manifest = JSON.parse(rawManifest) as Record<string, ViteManifestEntry>;
   const clientEntry = manifest[PRACHT_CLIENT_MODULE_ID];
+  const islandsEntry = manifest[PRACHT_ISLANDS_CLIENT_MODULE_ID];
 
   const cssManifest: Record<string, string[]> = {};
   const jsManifest: Record<string, string[]> = {};
@@ -51,6 +55,7 @@ export function readClientBuildAssets(root = process.cwd()): ClientBuildAssets {
 
   return {
     clientEntryUrl: clientEntry ? `/${clientEntry.file}` : null,
+    islandsEntryUrl: islandsEntry ? `/${islandsEntry.file}` : null,
     cssManifest,
     jsManifest,
   };
@@ -90,4 +95,12 @@ export function isClientModule(id: string): boolean {
 
 export function isServerModule(id: string): boolean {
   return id === PRACHT_SERVER_MODULE_ID || id.endsWith(PRACHT_SERVER_MODULE_ID);
+}
+
+export function isIslandsClientModule(id: string): boolean {
+  return (
+    id === PRACHT_ISLANDS_CLIENT_MODULE_ID ||
+    id === ISLANDS_CLIENT_BROWSER_PATH ||
+    id.endsWith(PRACHT_ISLANDS_CLIENT_MODULE_ID)
+  );
 }

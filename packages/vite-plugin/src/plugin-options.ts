@@ -9,6 +9,11 @@ export interface PrachtPluginOptions {
   middlewareDir?: string;
   apiDir?: string;
   serverDir?: string;
+  /**
+   * Directory containing island components hydrated on
+   * `hydration: "islands"` routes. Defaults to "/src/islands".
+   */
+  islandsDir?: string;
   adapter?: PrachtAdapter;
   /** Enable file-system pages routing by pointing to the pages directory (e.g. "/src/pages"). */
   pagesDir?: string;
@@ -42,6 +47,7 @@ const DEFAULTS: ResolvedPrachtPluginOptions = {
   shellsDir: "/src/shells",
   apiDir: "/src/api",
   serverDir: "/src/server",
+  islandsDir: "/src/islands",
   adapter: createDefaultNodeAdapter(),
   pagesDir: "",
   pagesDefaultRender: "ssr",

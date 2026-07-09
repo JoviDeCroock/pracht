@@ -99,7 +99,12 @@ function isAllowedHeadAttribute(
 export function buildHtmlDocument(options: {
   head: HeadMetadata;
   body: string;
-  hydrationState: PrachtHydrationState;
+  /**
+   * Omitted for islands-mode and hydration-none routes: no state script and
+   * no entry script are injected unless `clientEntryUrl` is set explicitly
+   * (islands routes pass the islands bootstrap URL here).
+   */
+  hydrationState?: PrachtHydrationState;
   clientEntryUrl?: string;
   cssUrls?: string[];
   modulePreloadUrls?: string[];
@@ -149,7 +154,9 @@ export function buildHtmlDocument(options: {
     ? `<link rel="preload" as="fetch" href="${escapeHtml(routeStatePreloadUrl)}" crossorigin="anonymous">`
     : "";
 
-  const stateScript = `<script id="${HYDRATION_STATE_ELEMENT_ID}" type="application/json">${serializeJsonForHtml(hydrationState)}</script>`;
+  const stateScript = hydrationState
+    ? `<script id="${HYDRATION_STATE_ELEMENT_ID}" type="application/json">${serializeJsonForHtml(hydrationState)}</script>`
+    : "";
   const entryScript = clientEntryUrl
     ? `<script type="module" src="${escapeHtml(clientEntryUrl)}"></script>`
     : "";

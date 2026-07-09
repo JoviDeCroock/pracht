@@ -11,15 +11,19 @@ import {
 import type { RenderMode } from "@pracht/core";
 import {
   PRACHT_CLIENT_MODULE_ID,
+  PRACHT_ISLANDS_CLIENT_MODULE_ID,
   PRACHT_SERVER_MODULE_ID,
   isClientModule,
+  isIslandsClientModule,
   isServerModule,
 } from "./plugin-assets.ts";
 import {
   clearPagesAppSourceCache,
   createPrachtClientModuleSource,
+  createPrachtIslandsClientModuleSource,
   createPrachtServerModuleSource,
 } from "./plugin-codegen.ts";
+import { existsSync } from "node:fs";
 import { createDevSSRMiddleware } from "./plugin-dev-ssr.ts";
 import {
   resolveOptions,
@@ -32,10 +36,11 @@ export type { PrachtAdapter } from "./plugin-adapter.ts";
 export type { PrachtPluginOptions } from "./plugin-options.ts";
 export {
   createPrachtClientModuleSource,
+  createPrachtIslandsClientModuleSource,
   createPrachtServerModuleSource,
   createPrachtRegistryModuleSource,
 } from "./plugin-codegen.ts";
-export { PRACHT_CLIENT_MODULE_ID, PRACHT_SERVER_MODULE_ID };
+export { PRACHT_CLIENT_MODULE_ID, PRACHT_ISLANDS_CLIENT_MODULE_ID, PRACHT_SERVER_MODULE_ID };
 
 export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
   const resolved = resolveOptions(options);
@@ -59,6 +64,16 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
       const isEdge = resolved.adapter.edge === true;
       const isSSRBuild = env.isSsrBuild;
 
+      // Emit the islands bootstrap as its own client entry so islands-mode
+      // routes can load it without the full client runtime. Only added when
+      // the app actually has an islands directory, so builds of apps without
+      // islands are byte-for-byte unchanged.
+      const configRoot = _config.root ?? process.cwd();
+      const wantsIslandsEntry =
+        env.command === "build" &&
+        !isSSRBuild &&
+        existsSync(resolveConfigPath(configRoot, resolved.islandsDir));
+
       return {
         appType: "custom" as const,
         // The vendor split only makes sense for the client bundle; SSR builds
@@ -69,6 +84,7 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
           : {
               build: {
                 rollupOptions: {
+                  ...(wantsIslandsEntry ? { input: [PRACHT_ISLANDS_CLIENT_MODULE_ID] } : {}),
                   output: {
                     manualChunks(id: string) {
                       if (
@@ -111,12 +127,16 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
     },
 
     resolveId(id) {
+      if (isIslandsClientModule(id)) return PRACHT_ISLANDS_CLIENT_MODULE_ID;
       if (isClientModule(id)) return PRACHT_CLIENT_MODULE_ID;
       if (isServerModule(id)) return PRACHT_SERVER_MODULE_ID;
       return null;
     },
 
     load(id) {
+      if (isIslandsClientModule(id)) {
+        return createPrachtIslandsClientModuleSource(resolved);
+      }
       if (isClientModule(id)) {
         return createPrachtClientModuleSource(resolved, { root });
       }
@@ -180,6 +200,7 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
         resolved.middlewareDir,
         resolved.apiDir,
         resolved.serverDir,
+        resolved.islandsDir,
       ];
       if (dirs.some((dir) => relative.startsWith(dir))) {
         const serverMod = server.moduleGraph.getModuleById(PRACHT_SERVER_MODULE_ID);
@@ -187,6 +208,10 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
         if (relative.startsWith(resolved.routesDir)) {
           const clientMod = server.moduleGraph.getModuleById(PRACHT_CLIENT_MODULE_ID);
           if (clientMod) server.moduleGraph.invalidateModule(clientMod);
+        }
+        if (relative.startsWith(resolved.islandsDir)) {
+          const islandsMod = server.moduleGraph.getModuleById(PRACHT_ISLANDS_CLIENT_MODULE_ID);
+          if (islandsMod) server.moduleGraph.invalidateModule(islandsMod);
         }
       }
     },
@@ -278,6 +303,7 @@ function rewriteManifestCoreImports(code: string): string {
 const PRACHT_OPTIMIZE_DEPS_INCLUDE = [
   "@pracht/core",
   "@pracht/core/client",
+  "@pracht/core/islands-client",
   "@pracht/core/manifest",
 ];
 
@@ -333,6 +359,7 @@ function createPrachtOptimizeDepsEntries(resolved: ResolvedPrachtPluginOptions):
         `${toOptimizeDepsEntry(resolved.middlewareDir)}/**/*.${scriptExtensions}`,
         `${toOptimizeDepsEntry(resolved.apiDir)}/**/*.{ts,js,tsx,jsx}`,
         `${toOptimizeDepsEntry(resolved.serverDir)}/**/*.{ts,js,tsx,jsx}`,
+        `${toOptimizeDepsEntry(resolved.islandsDir)}/**/*.${scriptExtensions}`,
       ]
     : [
         toOptimizeDepsEntry(resolved.appFile),
@@ -341,6 +368,7 @@ function createPrachtOptimizeDepsEntries(resolved: ResolvedPrachtPluginOptions):
         `${toOptimizeDepsEntry(resolved.middlewareDir)}/**/*.${scriptExtensions}`,
         `${toOptimizeDepsEntry(resolved.apiDir)}/**/*.{ts,js,tsx,jsx}`,
         `${toOptimizeDepsEntry(resolved.serverDir)}/**/*.{ts,js,tsx,jsx}`,
+        `${toOptimizeDepsEntry(resolved.islandsDir)}/**/*.${scriptExtensions}`,
       ];
 
   return [...new Set(entries.filter(Boolean))];
