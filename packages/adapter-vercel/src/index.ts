@@ -101,6 +101,14 @@ export function createVercelServerEntryModule(
   ].join("\n");
 }
 
+/**
+ * `x-vercel-cache` values that prove the prerender cache was actually
+ * refreshed. A `HIT`/`STALE` on a bypass request means Vercel ignored the
+ * `x-prerender-revalidate` header — the runtime token does not match the
+ * `bypassToken` baked into the build's `*.prerender-config.json`.
+ */
+const VERCEL_CACHE_REFRESH_STATUSES = new Set(["MISS", "REVALIDATED", "BYPASS"]);
+
 async function handleVercelRevalidationEndpoint(
   request: Request,
   app: PrachtApp,
@@ -132,9 +140,25 @@ async function handleVercelRevalidationEndpoint(
         method: "GET",
       });
 
-      if (response.ok) {
+      if (!response.ok) {
+        failed.push(pathname);
+        continue;
+      }
+
+      // A 200 alone does not prove the cache was refreshed: when the runtime
+      // token differs from the build-time bypassToken, Vercel serves the
+      // cached prerender output (x-vercel-cache: HIT/STALE) and the page was
+      // never regenerated. Treat an absent header conservatively as success
+      // (non-Vercel/test environments don't set it).
+      const cacheStatus = response.headers.get("x-vercel-cache");
+      if (cacheStatus === null || VERCEL_CACHE_REFRESH_STATUSES.has(cacheStatus.toUpperCase())) {
         revalidated.push(pathname);
       } else {
+        console.error(
+          `ISG webhook revalidation failed for ${pathname}: x-vercel-cache was "${cacheStatus}" — ` +
+            "the revalidation token did not match the build-time bypass token; " +
+            `rebuild with ${PRACHT_REVALIDATE_TOKEN_ENV} set.`,
+        );
         failed.push(pathname);
       }
     } catch (err) {

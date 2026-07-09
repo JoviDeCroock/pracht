@@ -32,6 +32,11 @@ test("pracht build emits a deployable Node server entry", async () => {
 
   expect(existsSync(serverEntryPath)).toBe(true);
 
+  // The ISG manifest stays server-side; it must not be exposed in the
+  // publicly served client dir on the Node target.
+  expect(existsSync(resolve(exampleDir, "dist/server/isg-manifest.json"))).toBe(true);
+  expect(existsSync(resolve(exampleDir, "dist/client/_pracht/isg.json"))).toBe(false);
+
   const serverSource = readFileSync(serverEntryPath, "utf-8");
   expect(serverSource).toContain('buildTarget = "node"');
   expect(serverSource).toContain("createNodeRequestHandler");

@@ -416,7 +416,12 @@ export default {
   `PRACHT_REVALIDATE_TOKEN` is used as the `bypassToken` when present at build
   time. If the env var is absent during build, Pracht writes a random bypass
   token and the runtime webhook endpoint still fails closed until the env var is
-  configured.
+  configured. The token must be set **at build time**: the `bypassToken` is
+  baked into the build's `*.prerender-config.json`, so setting the env var only
+  at runtime authenticates the webhook but cannot bypass Vercel's prerender
+  cache — such paths are reported as `failed` (detected via the
+  `x-vercel-cache` response header) until you rebuild with
+  `PRACHT_REVALIDATE_TOKEN` set.
 - **Dynamic fallback**: SSR and API routes are routed to the generated edge
   function. ISG document requests are handled by route-named prerender functions,
   while route-state requests still bypass static/prerender output and reach the

@@ -225,7 +225,9 @@ function isValidRevalidationPath(value: unknown): value is string {
     !value.startsWith("//") &&
     !value.includes("\0") &&
     !value.includes("?") &&
-    !value.includes("#")
+    !value.includes("#") &&
+    !value.includes("\\") &&
+    !value.split("/").includes("..")
   );
 }
 

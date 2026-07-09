@@ -188,8 +188,14 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
       const isgManifestPath = resolve(root, "dist/server/isg-manifest.json");
       const isgManifestJson = `${JSON.stringify(isgManifest, null, 2)}\n`;
       writeFileSync(isgManifestPath, isgManifestJson, "utf-8");
-      mkdirSync(resolve(clientDir, "_pracht"), { recursive: true });
-      writeFileSync(resolve(clientDir, "_pracht/isg.json"), isgManifestJson, "utf-8");
+      if (buildTarget === "cloudflare") {
+        // Only the Cloudflare worker runtime reads the manifest from the
+        // static assets (via readPrachtISGManifest). On other targets the
+        // client dir is served publicly, so writing it there would leak the
+        // ISG route list and revalidation policies.
+        mkdirSync(resolve(clientDir, "_pracht"), { recursive: true });
+        writeFileSync(resolve(clientDir, "_pracht/isg.json"), isgManifestJson, "utf-8");
+      }
       log(
         `\n  ISG manifest → dist/server/isg-manifest.json (${Object.keys(isgManifest).length} route(s))\n`,
       );

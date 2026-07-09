@@ -82,6 +82,43 @@ describe("revalidation endpoint auth", () => {
 
     expect(authorized).toEqual({ ok: true, paths: ["/pricing"] });
   });
+
+  it("rejects traversal segments and backslashes in paths", async () => {
+    const invalidPaths = [
+      "/../secret",
+      "/pricing/../admin",
+      "/pricing/..",
+      "/..",
+      "/pricing\\admin",
+      "\\pricing",
+      "/pricing\\..\\admin",
+    ];
+
+    for (const path of invalidPaths) {
+      const parsed = await readRevalidationRequest(
+        new Request("https://app.example/__pracht/revalidate", {
+          body: JSON.stringify({ paths: [path] }),
+          headers: { authorization: "Bearer secret" },
+          method: "POST",
+        }),
+        "secret",
+      );
+
+      expect(parsed.ok, `expected ${JSON.stringify(path)} to be rejected`).toBe(false);
+      if (!parsed.ok) expect(parsed.response.status).toBe(400);
+    }
+
+    // Dots that are not a bare `..` segment stay valid.
+    const parsed = await readRevalidationRequest(
+      new Request("https://app.example/__pracht/revalidate", {
+        body: JSON.stringify({ paths: ["/docs/v1..2/notes.txt"] }),
+        headers: { authorization: "Bearer secret" },
+        method: "POST",
+      }),
+      "secret",
+    );
+    expect(parsed).toEqual({ ok: true, paths: ["/docs/v1..2/notes.txt"] });
+  });
 });
 
 describe("createRevalidationSingleFlight", () => {

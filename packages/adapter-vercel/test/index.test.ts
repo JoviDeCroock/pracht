@@ -80,7 +80,10 @@ describe("createVercelEdgeHandler webhook revalidation", () => {
           url: String(input),
           headers: Object.fromEntries(new Headers(init?.headers)),
         });
-        return new Response("<html>ok</html>", { status: 200 });
+        return new Response("<html>ok</html>", {
+          headers: { "x-vercel-cache": "MISS" },
+          status: 200,
+        });
       }),
     );
 
@@ -124,6 +127,52 @@ describe("createVercelEdgeHandler webhook revalidation", () => {
     await expect(response.json()).resolves.toEqual({
       failed: ["/pricing"],
       revalidated: [],
+      skipped: [],
+    });
+  });
+
+  it("marks cache hits on the bypass request as failed instead of revalidated", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    process.env.PRACHT_REVALIDATE_TOKEN = "secret";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response("<html>cached</html>", {
+            headers: { "x-vercel-cache": "HIT" },
+            status: 200,
+          }),
+      ),
+    );
+
+    const handler = createVercelEdgeHandler({ app });
+    const response = await handler(createWebhookRequest(["/pricing"], "secret"), {});
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      failed: ["/pricing"],
+      revalidated: [],
+      skipped: [],
+    });
+    expect(consoleError).toHaveBeenCalledWith(
+      expect.stringContaining("did not match the build-time bypass token"),
+    );
+  });
+
+  it("treats an absent x-vercel-cache header as a successful regeneration", async () => {
+    process.env.PRACHT_REVALIDATE_TOKEN = "secret";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("<html>ok</html>", { status: 200 })),
+    );
+
+    const handler = createVercelEdgeHandler({ app });
+    const response = await handler(createWebhookRequest(["/pricing"], "secret"), {});
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      failed: [],
+      revalidated: ["/pricing"],
       skipped: [],
     });
   });

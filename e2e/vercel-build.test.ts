@@ -42,6 +42,9 @@ test("pracht build emits a deployable Vercel Build Output setup", async () => {
   expect(existsSync(pricingFallbackPath)).toBe(true);
   expect(existsSync(staticIndexPath)).toBe(true);
   expect(existsSync(staticPricingPath)).toBe(false);
+  // The ISG manifest must not leak into the publicly served static output.
+  expect(existsSync(resolve(vercelDir, "static/_pracht/isg.json"))).toBe(false);
+  expect(existsSync(resolve(exampleDir, "dist/client/_pracht/isg.json"))).toBe(false);
 
   const config = JSON.parse(readFileSync(configPath, "utf-8"));
   expect(config.version).toBe(3);
