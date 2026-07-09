@@ -38,7 +38,8 @@
     "provenance": true
   },
   "scripts": {
-    "build": "tsdown"
+    "build": "tsdown",
+    "prepublishOnly": "npm run build"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
