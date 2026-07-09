@@ -91,8 +91,17 @@ jobs:
       - name: Install npm
         run: npm install -g npm@11.15.0
 
-      - name: Build
-        run: pnpm build
+      # No separate build step: stage-packages.mjs stages each package with
+      # `pnpm publish`, whose prepublishOnly hook builds it. Package types resolve
+      # from source via tsconfig `paths`, so per-package builds need no ordering.
+
+      # changesets/action skips `git config user.*` in github-api commit mode,
+      # and checkout uses persist-credentials: false, so no identity is set.
+      # stage-packages.mjs creates annotated tags (`git tag -m`), which require one.
+      - name: Configure git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
       - name: Publish packages
         uses: changesets/action@a45c4d594aa4e2c509dc14a9f2b3b67ba3780d0d # v1.9.0
