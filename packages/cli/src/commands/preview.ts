@@ -11,9 +11,9 @@ import { runBuild } from "./build.js";
 
 const SERVER_ENTRY = "dist/server/server.js";
 const WRANGLER_CONFIG_FILES = ["wrangler.jsonc", "wrangler.json", "wrangler.toml"];
-const ADAPTER_TARGETS = new Set(["cloudflare", "node", "vercel"]);
+const ADAPTER_TARGETS = new Set(["cloudflare", "deno", "node", "vercel"]);
 
-export type AdapterTarget = "cloudflare" | "node" | "vercel";
+export type AdapterTarget = "cloudflare" | "deno" | "node" | "vercel";
 
 export default defineCommand({
   meta: {
@@ -102,6 +102,29 @@ export default defineCommand({
       return;
     }
 
+    if (target === "deno") {
+      const denoBin = resolveDenoBin(root);
+      if (!denoBin) {
+        throw new Error(
+          [
+            "`pracht preview` needs deno to serve Deno builds, but it was not found on your PATH.",
+            "Install Deno from https://deno.com/ and re-run `pracht preview`.",
+          ].join("\n"),
+        );
+      }
+
+      console.log(`\n  Previewing Deno build → http://localhost:${port}\n`);
+      spawnPreviewProcess(
+        denoBin,
+        ["run", "--allow-net", "--allow-read=dist", "--allow-env=PORT", serverEntry],
+        {
+          cwd: root,
+          env: { ...process.env, PORT: String(port) },
+        },
+      );
+      return;
+    }
+
     console.log(`\n  Previewing production build → http://localhost:${port}\n`);
     spawnPreviewProcess(process.execPath, [serverEntry], {
       cwd: root,
@@ -121,6 +144,10 @@ export function detectAdapterTarget(project: Pick<ProjectConfig, "rawConfig">): 
     return "vercel";
   }
 
+  if (/\bdenoAdapter\s*\(/.test(source) || source.includes("@pracht/adapter-deno")) {
+    return "deno";
+  }
+
   return "node";
 }
 
@@ -134,6 +161,23 @@ export function resolveWranglerBin(
 ): string | null {
   const binNames =
     process.platform === "win32" ? ["wrangler.cmd", "wrangler.exe", "wrangler"] : ["wrangler"];
+  const searchDirs = [
+    resolve(root, "node_modules/.bin"),
+    ...(env.PATH ?? "").split(delimiter).filter(Boolean),
+  ];
+
+  for (const dir of searchDirs) {
+    for (const name of binNames) {
+      const candidate = join(dir, name);
+      if (existsSync(candidate)) return candidate;
+    }
+  }
+
+  return null;
+}
+
+export function resolveDenoBin(root: string, env: NodeJS.ProcessEnv = process.env): string | null {
+  const binNames = process.platform === "win32" ? ["deno.cmd", "deno.exe", "deno"] : ["deno"];
   const searchDirs = [
     resolve(root, "node_modules/.bin"),
     ...(env.PATH ?? "").split(delimiter).filter(Boolean),

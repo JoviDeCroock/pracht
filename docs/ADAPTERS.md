@@ -369,6 +369,92 @@ export default {
 
 ---
 
+## Deno Adapter
+
+### `createDenoRequestHandler(options)`
+
+| Option          | Type                                | Description                                                     |
+| --------------- | ----------------------------------- | --------------------------------------------------------------- |
+| `app`           | `PrachtApp`                         | The resolved app from `defineApp()`                             |
+| `registry`      | `ModuleRegistry`                    | Lazy module importers                                           |
+| `staticDir`     | `string \| URL`                     | File URL or path for `dist/client/`                             |
+| `createContext` | `(args) => TContext`                | App-level context factory                                       |
+| `apiRoutes`     | `ResolvedApiRoute[]`                | Resolved API route metadata                                     |
+| `clientEntryUrl` | `string`                           | Client entry script URL                                         |
+| `cssManifest`   | `Record<string, string[]>`          | Route/shell CSS asset manifest                                  |
+| `jsManifest`    | `Record<string, string[]>`          | Route/shell JS asset manifest                                   |
+| `headersManifest` | `Record<string, Record<string, string>>` | Prerendered document headers                            |
+
+### Features
+
+- **Native Deno server**: generated entries call `Deno.serve()` and pass Web
+  `Request` objects directly to pracht. No Node request/response bridge is
+  involved.
+- **Static file serving**: reads from `dist/client/` with proper content-type
+  headers. Hashed assets under `/assets/` get `Cache-Control: public,
+  max-age=31536000, immutable`; HTML and other files get `public, max-age=0,
+  must-revalidate`. Clean URLs resolve to `index.html` files. Static responses
+  apply the same baseline security headers as dynamic responses, and
+  prerendered HTML receives route and shell document headers from
+  `dist/server/headers-manifest.json`.
+- **Route-state bypass**: route-state requests (`x-pracht-route-state-request:
+  1` or `?_data=1`) and Markdown negotiation requests bypass static files and
+  reach `handlePrachtRequest()`.
+- **ISG caveat**: runtime ISG revalidation is not implemented for Deno yet. ISG
+  routes are prerendered at build time and served as static files. `pracht
+  build` warns when a Deno build contains ISG routes.
+- **Local preview**: `pracht preview` runs `pracht build` and then executes the
+  built server with `deno run --allow-net --allow-read=dist --allow-env=PORT`.
+
+### Generated entry options
+
+When using `denoAdapter()` in `vite.config.ts`, generated entries can import a context factory:
+
+```typescript
+denoAdapter({
+  createContextFrom: "/src/server/context.ts",
+  port: 8787,
+});
+```
+
+The context module must export `createContext(args)`. Deno passes `{ request }`.
+
+### Entry module
+
+```javascript
+// virtual:pracht/server (generated in deno mode)
+import { createDenoRequestHandler } from "@pracht/adapter-deno";
+
+const staticDir = new URL("../client/", import.meta.url);
+const denoHandler = createDenoRequestHandler({
+  app: resolvedApp,
+  registry,
+  staticDir,
+  apiRoutes,
+  clientEntryUrl,
+  cssManifest,
+  jsManifest,
+});
+
+export async function handler(request) {
+  return denoHandler(request);
+}
+
+if (import.meta.main) {
+  const port = Number(Deno.env.get("PORT") ?? 3000);
+  Deno.serve({ port }, handler);
+}
+```
+
+Running `pracht build` for a Deno target emits `dist/server/server.js`, which is
+the executable production server entry. Run it manually with:
+
+```bash
+deno run --allow-net --allow-read=dist --allow-env=PORT dist/server/server.js
+```
+
+---
+
 ## Vercel Adapter (Phase 2)
 
 ### `createVercelEdgeHandler(options)`

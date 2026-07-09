@@ -13,6 +13,7 @@ described in `VISION_MVP.md`.
 | `packages/adapter-node`       | `@pracht/adapter-node`       | Node `IncomingMessage`/`ServerResponse` bridge, ISG stale-while-revalidate                                   |
 | `packages/adapter-cloudflare` | `@pracht/adapter-cloudflare` | Cloudflare Workers fetch handler, generated worker entry source, and static asset handoff (no runtime ISG revalidation yet) |
 | `packages/adapter-vercel`     | `@pracht/adapter-vercel`     | Vercel Edge handler and Build Output API entry source                                                        |
+| `packages/adapter-deno`       | `@pracht/adapter-deno`       | Deno `Deno.serve` handler, generated server entry source, and static asset handoff (no runtime ISG revalidation yet) |
 | `packages/preact-worker-facets` | `@pracht/preact-worker-facets` | Experimental Cloudflare Dynamic Worker + Durable Object facets runtime for inert, stateful Preact components |
 | `packages/cli`                | `@pracht/cli`                | `pracht dev`, `build`, `verify`, the `generate` subcommands, and `doctor`                                    |
 | `examples/cloudflare`         | `@pracht/example-cloudflare` | Cloudflare-targeted example app with SSG, ISG, SSR, SPA routes, auth middleware, and API routes              |
@@ -67,11 +68,12 @@ described in `VISION_MVP.md`.
   `hydrate()` from Preact.
 - **CLI** — `pracht dev` starts a Vite dev server with SSR, `pracht build` runs
   client + server builds (with Vite manifest generation, SSG/ISG prerendering,
-  ISG manifest output, executable Node server output in `dist/server/server.js`,
-  and Vercel `.vercel/output/` generation when the app targets those adapters),
-  `pracht preview` builds and serves the production output locally (Node runs
-  `dist/server/server.js`, Cloudflare delegates to `wrangler dev`, and Vercel
-  points at `vercel build`/`vercel dev`),
+  ISG manifest output, executable Node/Deno server output in
+  `dist/server/server.js`, and Vercel `.vercel/output/` generation when the app
+  targets those adapters), `pracht preview` builds and serves the production
+  output locally (Node runs `dist/server/server.js`, Deno runs it through
+  `deno run`, Cloudflare delegates to `wrangler dev`, and Vercel points at
+  `vercel build`/`vercel dev`),
   `pracht verify` runs fast framework-aware checks with optional `--changed`
   and `--json` output, `pracht inspect [routes|api|build] --json` emits the
   resolved route graph, API handlers, and build metadata for agents/tools,
@@ -81,8 +83,9 @@ described in `VISION_MVP.md`.
   files, and `pracht doctor` validates app wiring across the whole project.
 - **Package builds** — `tsdown` compiles `pracht`, `@pracht/vite-plugin`,
   `@pracht/preact-ssr-precompile`, `@pracht/adapter-node`,
-  `@pracht/adapter-cloudflare`, and `@pracht/adapter-vercel` from TypeScript to
-  ESM (`dist/index.mjs` + `.d.mts`). `@pracht/core` also publishes browser,
+  `@pracht/adapter-cloudflare`, `@pracht/adapter-vercel`, and
+  `@pracht/adapter-deno` from TypeScript to ESM (`dist/index.mjs` + `.d.mts`).
+  `@pracht/core` also publishes browser,
   client, manifest, and server subpath entries so the Vite plugin can keep
   server-only runtime code and route-only browser helpers out of the critical
   client bootstrap graph while generated server modules avoid the browser export
@@ -99,6 +102,11 @@ described in `VISION_MVP.md`.
   `.vercel/output/static` and `.vercel/output/functions/render.func`, rewrites
   clean SSG URLs to static HTML, and routes ISG plus dynamic requests to the
   generated edge function.
+- **Deno adapter** — Emits a native `Deno.serve` entry that accepts Web
+  `Request` objects directly, serves static files from `dist/client`, and falls
+  back to `handlePrachtRequest()` for SSR, SPA route-state requests, loaders,
+  middleware, and API routes. Runtime ISG revalidation is intentionally not
+  implemented yet; Deno builds warn when ISG routes are present.
 - **Preact Worker facets prototype** — `@pracht/preact-worker-facets` provides
   experimental helpers for running Preact-style component modules inside
   Cloudflare Dynamic Workers. A supervisor Durable Object owns auth, source

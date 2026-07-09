@@ -53,6 +53,9 @@ importers:
 
   examples/basic:
     dependencies:
+      '@pracht/adapter-deno':
+        specifier: workspace:*
+        version: link:../../packages/adapter-deno
       '@pracht/adapter-node':
         specifier: workspace:*
         version: link:../../packages/adapter-node
@@ -233,6 +236,12 @@ importers:
       wrangler:
         specifier: ^4.81.0
         version: 4.81.0
+
+  packages/adapter-deno:
+    dependencies:
+      '@pracht/core':
+        specifier: workspace:*
+        version: link:../framework
 
   packages/adapter-node:
     dependencies:

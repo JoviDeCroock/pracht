@@ -113,6 +113,11 @@ stale, it serves the stale HTML immediately and triggers regeneration.
 > prerenders ISG routes at build time and routes ISG paths through the Edge
 > Function rather than relying on process-local cache state. Use SSG for static
 > output or SSR for per-request freshness on Vercel.
+>
+> **Deno note:** The Deno adapter currently does not implement runtime ISG
+> revalidation. ISG routes are prerendered at build time and served as static
+> files. Use SSG/SSR on Deno, or deploy ISG routes to Node until a persistent
+> Deno cache/storage design lands.
 
 ### Webhook-based revalidation
 

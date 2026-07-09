@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   detectAdapterTarget,
   normalizeAdapterTarget,
+  resolveDenoBin,
   resolveWranglerBin,
 } from "../src/commands/preview.ts";
 
@@ -52,6 +53,23 @@ describe("detectAdapterTarget", () => {
     ).toBe("node");
   });
 
+  it("detects the deno adapter from the factory call", () => {
+    expect(
+      detectAdapterTarget({
+        rawConfig:
+          'import { denoAdapter } from "@pracht/adapter-deno";\nexport default { plugins: [pracht({ adapter: denoAdapter() })] };',
+      }),
+    ).toBe("deno");
+  });
+
+  it("detects the deno adapter from the package import", () => {
+    expect(
+      detectAdapterTarget({
+        rawConfig: 'import { denoAdapter as adapter } from "@pracht/adapter-deno";',
+      }),
+    ).toBe("deno");
+  });
+
   it("defaults to node when no adapter is configured", () => {
     expect(detectAdapterTarget({ rawConfig: "export default { plugins: [pracht()] };" })).toBe(
       "node",
@@ -63,6 +81,7 @@ describe("normalizeAdapterTarget", () => {
   it("accepts the built-in adapter targets", () => {
     expect(normalizeAdapterTarget("node")).toBe("node");
     expect(normalizeAdapterTarget("cloudflare")).toBe("cloudflare");
+    expect(normalizeAdapterTarget("deno")).toBe("deno");
     expect(normalizeAdapterTarget("vercel")).toBe("vercel");
   });
 
@@ -70,6 +89,47 @@ describe("normalizeAdapterTarget", () => {
     expect(normalizeAdapterTarget("my-platform")).toBe(null);
     expect(normalizeAdapterTarget(undefined)).toBe(null);
     expect(normalizeAdapterTarget(42)).toBe(null);
+  });
+});
+
+describe("resolveDenoBin", () => {
+  const tempDirs: string[] = [];
+
+  function makeTempDir(prefix: string): string {
+    const dir = mkdtempSync(join(tmpdir(), prefix));
+    tempDirs.push(dir);
+    return dir;
+  }
+
+  afterEach(() => {
+    while (tempDirs.length > 0) {
+      rmSync(tempDirs.pop()!, { force: true, recursive: true });
+    }
+  });
+
+  it("prefers the project-local deno binary", () => {
+    const root = makeTempDir("pracht-preview-local-");
+    const binDir = join(root, "node_modules/.bin");
+    mkdirSync(binDir, { recursive: true });
+    writeFileSync(join(binDir, "deno"), "#!/bin/sh\n", { mode: 0o755 });
+
+    const pathDir = makeTempDir("pracht-preview-path-");
+    writeFileSync(join(pathDir, "deno"), "#!/bin/sh\n", { mode: 0o755 });
+
+    expect(resolveDenoBin(root, { PATH: pathDir })).toBe(join(binDir, "deno"));
+  });
+
+  it("falls back to deno on PATH", () => {
+    const root = makeTempDir("pracht-preview-root-");
+    const pathDir = makeTempDir("pracht-preview-path-");
+    writeFileSync(join(pathDir, "deno"), "#!/bin/sh\n", { mode: 0o755 });
+
+    expect(resolveDenoBin(root, { PATH: pathDir })).toBe(join(pathDir, "deno"));
+  });
+
+  it("returns null when deno is not installed anywhere", () => {
+    const root = makeTempDir("pracht-preview-missing-");
+    expect(resolveDenoBin(root, { PATH: makeTempDir("pracht-preview-empty-") })).toBe(null);
   });
 });
 
