@@ -707,8 +707,8 @@ defineApp({
     route("/", () => import("./routes/home.tsx"), { speculation: "prefetch" }),
 
     // Browser fully prerenders in the background (default "conservative").
-    // The SPA click handler skips this route so the browser activates the
-    // prerendered document on click — instant page swap.
+    // In browsers with speculation rules support, the SPA click handler skips
+    // this route so the browser activates the prerendered document on click.
     route("/pricing", () => import("./routes/pricing.tsx"), {
       speculation: "prerender",
     }),
@@ -737,9 +737,15 @@ SPA navigation completes without a network round-trip.
 2. **`prefetch` for full-page navigations and middle-click / new-tab opens** —
    the browser fills its HTTP cache with the page HTML.
 
-Routes flagged for `prerender` are excluded from JS hover-prefetch to avoid
-double-fetching. Set both fields explicitly when you want JS prefetch to keep
-running alongside speculation `prefetch`.
+Routes flagged for `prerender` are excluded from JS hover-prefetch in browsers
+with speculation rules support to avoid double-fetching. In browsers that do not
+support speculation rules, the normal JS prefetch and SPA navigation path remain
+active as the fallback. Set both fields explicitly when you want JS prefetch to
+keep running alongside speculation `prefetch`.
+
+If your app sets a Content Security Policy, allow the generated speculation
+rules script with `'inline-speculation-rules'` in `script-src`. See
+[CSP.md](CSP.md) for the starter policy.
 
 ### Browser support
 

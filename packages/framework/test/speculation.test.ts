@@ -82,6 +82,24 @@ describe("buildSpeculationRules", () => {
     expect(rules?.prefetch?.[0].where.href_matches).toEqual(["/blog/:slug", "/files/*"]);
   });
 
+  it("escapes URLPattern metacharacters in static segments", () => {
+    const resolved = resolveApp(
+      defineApp({
+        routes: [
+          route("/c++", "./routes/c-plus-plus.tsx", { speculation: "prefetch" }),
+          route("/file(1)", "./routes/file-one.tsx", { speculation: "prefetch" }),
+          route("/docs/a{b}", "./routes/braces.tsx", { speculation: "prefetch" }),
+        ],
+      }),
+    );
+    const rules = buildSpeculationRules(resolved.routes);
+    expect(rules?.prefetch?.[0].where.href_matches).toEqual([
+      "/c\\+\\+",
+      "/file\\(1\\)",
+      "/docs/a\\{b\\}",
+    ]);
+  });
+
   it("groups routes by mode and eagerness", () => {
     const resolved = resolveApp(
       defineApp({

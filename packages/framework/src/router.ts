@@ -15,7 +15,7 @@ import { getCachedRouteState } from "./prefetch-cache.ts";
 import { registerPrefetchTarget } from "./prefetch-api.ts";
 import type { ModuleWarmFn } from "./prefetch-api.ts";
 import { PRESERVE_SCROLL_ATTRIBUTE, VIEW_TRANSITION_ATTRIBUTE } from "./runtime-constants.ts";
-import { normalizeSpeculation } from "./runtime-speculation.ts";
+import { normalizeSpeculation, supportsSpeculationRules } from "./runtime-speculation.ts";
 import {
   createScrollPositionStore,
   generateScrollKey,
@@ -612,7 +612,7 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
     // prerendered document. Intercepting here would cancel the activation
     // and force a redundant SPA fetch of the route-state JSON.
     const targetMatch = matchAppRoute(app, url.pathname);
-    if (targetMatch) {
+    if (targetMatch && supportsSpeculationRules()) {
       const spec = normalizeSpeculation(targetMatch.route.speculation);
       if (spec?.mode === "prerender") return;
     }
