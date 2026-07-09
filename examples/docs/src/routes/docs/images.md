@@ -81,7 +81,10 @@ The default loader points at `/api/_pracht/image`. Add an API route at that path
 ```ts [src/api/_pracht/image.ts]
 import { createImageHandler } from "@pracht/image/node";
 
-export const GET = createImageHandler();
+const imageHandler = createImageHandler();
+
+export const GET = imageHandler;
+export const HEAD = imageHandler;
 ```
 
 This endpoint works in `pracht dev`, adapter-node, and Node-compatible runtimes. It returns immutable cache headers, varies on `Accept`, and negotiates modern output formats such as WebP.
@@ -119,11 +122,14 @@ The Node endpoint accepts same-origin URLs by default. Allow remote hosts explic
 ```ts [src/api/_pracht/image.ts]
 import { createImageHandler } from "@pracht/image/node";
 
-export const GET = createImageHandler({
+const imageHandler = createImageHandler({
   remotePatterns: [
     { protocol: "https", hostname: "images.example.com", pathname: "/uploads" },
   ],
 });
+
+export const GET = imageHandler;
+export const HEAD = imageHandler;
 ```
 
 Remote allowlists are rechecked after redirects. Widths are also restricted to configured breakpoints, which keeps attackers from filling your cache with arbitrary image variants.

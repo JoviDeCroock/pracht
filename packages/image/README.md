@@ -31,7 +31,10 @@ import { Image } from "@pracht/image";
 // src/api/_pracht/image.ts — mounts the optimization endpoint
 import { createImageHandler } from "@pracht/image/node";
 
-export const GET = createImageHandler();
+const imageHandler = createImageHandler();
+
+export const GET = imageHandler;
+export const HEAD = imageHandler;
 ```
 
 See [docs/IMAGES.md](https://github.com/JoviDeCroock/pracht/blob/main/docs/IMAGES.md)
