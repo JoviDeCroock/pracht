@@ -13,6 +13,7 @@
     "jsx": "react-jsx",
     "jsxImportSource": "preact",
     "baseUrl": ".",
+    "ignoreDeprecations": "6.0",
     "paths": {
       "@pracht/core": ["./packages/framework/src/index.ts"],
       "@pracht/core/browser": ["./packages/framework/src/browser.ts"],
