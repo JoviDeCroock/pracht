@@ -32,6 +32,18 @@ function imageRequest(query: string, accept = "image/webp,image/png,*/*"): { req
   };
 }
 
+function headImageRequest(
+  query: string,
+  accept = "image/webp,image/png,*/*",
+): { request: Request } {
+  return {
+    request: new Request(`http://localhost:3000/api/_pracht/image?${query}`, {
+      headers: { accept },
+      method: "HEAD",
+    }),
+  };
+}
+
 describe("createImageHandler validation", () => {
   const handler = createImageHandler({ fetchImage: pngFetcher() });
 
@@ -153,6 +165,17 @@ describe("createImageHandler optimization", () => {
     expect(metadata.width).toBe(640);
   });
 
+  it("answers HEAD with image headers and no body", async () => {
+    const handler = createImageHandler({ fetchImage: pngFetcher() });
+    const response = await handler(headImageRequest("url=%2Fhero.png&w=640&q=75"));
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toBe("image/webp");
+    expect(response.headers.get("cache-control")).toBe("public, max-age=31536000, immutable");
+    expect(response.body).toBeNull();
+    expect((await response.arrayBuffer()).byteLength).toBe(0);
+  });
+
   it("never enlarges beyond the source width", async () => {
     const handler = createImageHandler({ fetchImage: pngFetcher() });
     const response = await handler(imageRequest("url=%2Fhero.png&w=1920"));
@@ -193,6 +216,20 @@ describe("createImageHandler optimization", () => {
     expect(response.headers.get("content-type")).toBe("image/svg+xml");
     expect(response.headers.get("content-disposition")).toBe("attachment");
     await expect(response.text()).resolves.toBe(svg);
+  });
+
+  it("answers passthrough HEAD responses with headers and no body", async () => {
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg"></svg>';
+    const handler = createImageHandler({
+      fetchImage: async () => new Response(svg, { headers: { "content-type": "image/svg+xml" } }),
+    });
+    const response = await handler(headImageRequest("url=%2Flogo.svg&w=640"));
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toBe("image/svg+xml");
+    expect(response.headers.get("content-disposition")).toBe("attachment");
+    expect(response.body).toBeNull();
+    expect((await response.arrayBuffer()).byteLength).toBe(0);
   });
 
   it("propagates upstream failures as 502", async () => {

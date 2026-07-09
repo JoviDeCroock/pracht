@@ -92,9 +92,12 @@ Mount it as an API route — this is the least invasive wiring and works with
 // src/api/_pracht/image.ts
 import { createImageHandler } from "@pracht/image/node";
 
-export const GET = createImageHandler({
+const imageHandler = createImageHandler({
   // remotePatterns: [{ protocol: "https", hostname: "images.example.com" }],
 });
+
+export const GET = imageHandler;
+export const HEAD = imageHandler;
 ```
 
 That file maps to `/api/_pracht/image`, which is exactly what

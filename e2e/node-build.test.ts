@@ -91,6 +91,17 @@ test("pracht build emits a deployable Node server entry", async () => {
     expect(imageResponse.headers.get("content-type")).toBe("image/webp");
     expect(imageResponse.headers.get("cache-control")).toBe("public, max-age=31536000, immutable");
 
+    const imageHeadResponse = await fetch(
+      `http://127.0.0.1:${port}/api/_pracht/image?url=%2Fbanner.jpg&w=640&q=75`,
+      { headers: { accept: "image/webp,*/*" }, method: "HEAD" },
+    );
+    expect(imageHeadResponse.status).toBe(200);
+    expect(imageHeadResponse.headers.get("content-type")).toBe("image/webp");
+    expect(imageHeadResponse.headers.get("cache-control")).toBe(
+      "public, max-age=31536000, immutable",
+    );
+    expect((await imageHeadResponse.arrayBuffer()).byteLength).toBe(0);
+
     const disallowedImageResponse = await fetch(
       `http://127.0.0.1:${port}/api/_pracht/image?url=${encodeURIComponent("https://example.com/a.png")}&w=640`,
     );

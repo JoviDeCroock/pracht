@@ -149,6 +149,10 @@ function responseBody(bytes: Uint8Array): ArrayBuffer {
   return body;
 }
 
+function imageResponseBody(request: Request, bytes: Uint8Array): ArrayBuffer | null {
+  return request.method === "HEAD" ? null : responseBody(bytes);
+}
+
 /**
  * Create the pracht image optimization endpoint.
  *
@@ -158,7 +162,9 @@ function responseBody(bytes: Uint8Array): ArrayBuffer {
  * ```ts
  * // src/api/_pracht/image.ts
  * import { createImageHandler } from "@pracht/image/node";
- * export const GET = createImageHandler();
+ * const imageHandler = createImageHandler();
+ * export const GET = imageHandler;
+ * export const HEAD = imageHandler;
  * ```
  *
  * The handler resizes and re-encodes images with sharp (an optional peer
@@ -310,7 +316,7 @@ export function createImageHandler(
       if (sourceType === "image/svg+xml") {
         headers["content-disposition"] = "attachment";
       }
-      return new Response(responseBody(sourceBytes), { headers });
+      return new Response(imageResponseBody(request, sourceBytes), { headers });
     }
 
     let sharp: SharpFactory;
@@ -344,7 +350,7 @@ export function createImageHandler(
       return errorResponse(500, `Failed to optimize source image "${source}".`);
     }
 
-    return new Response(responseBody(output), {
+    return new Response(imageResponseBody(request, output), {
       headers: { ...baseHeaders, "content-type": contentType },
     });
   };
