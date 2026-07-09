@@ -113,6 +113,11 @@ stale, it serves the stale HTML immediately and triggers regeneration.
 > prerenders ISG routes at build time and routes ISG paths through the Edge
 > Function rather than relying on process-local cache state. Use SSG for static
 > output or SSR for per-request freshness on Vercel.
+>
+> **Void note:** The Void adapter wraps the Cloudflare adapter, so it has no
+> runtime ISG revalidation either. ISG routes are prerendered at build time and
+> served as static assets on Void; the build emits a warning when it encounters
+> them. Use SSG/SSR on Void, or deploy ISG routes to Node.
 
 ### Webhook-based revalidation
 

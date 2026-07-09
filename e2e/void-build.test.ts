@@ -1,4 +1,4 @@
-import { execFileSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, rmSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -17,7 +17,7 @@ test("pracht build emits Worker output deployable by Void", async () => {
 
   rmSync(distDir, { force: true, recursive: true });
 
-  const output = execFileSync(process.execPath, ["../../packages/cli/bin/pracht.js", "build"], {
+  const result = spawnSync(process.execPath, ["../../packages/cli/bin/pracht.js", "build"], {
     cwd: exampleDir,
     encoding: "utf-8",
     env: {
@@ -26,12 +26,19 @@ test("pracht build emits Worker output deployable by Void", async () => {
     },
     stdio: "pipe",
   });
+  expect(result.status).toBe(0);
+  const output = result.stdout;
 
   expect(existsSync(serverEntryPath)).toBe(true);
   expect(existsSync(staticIndexPath)).toBe(true);
   expect(existsSync(voidConfigPath)).toBe(true);
   expect(output).toContain("Void worker");
   expect(output).toContain("void deploy --skip-build");
+  // The void example has an ISG route (/pricing); the Void build target must
+  // warn that ISG falls back to build-time static output.
+  expect(result.stderr).toContain(
+    "Void adapter currently serves prerendered ISG HTML as static assets and does not perform runtime revalidation",
+  );
 
   const workerSource = readFileSync(serverEntryPath, "utf-8");
   expect(workerSource).toContain("withRuntimeEnv(env");
