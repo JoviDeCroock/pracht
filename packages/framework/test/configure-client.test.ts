@@ -2,6 +2,7 @@
 import { h, render } from "preact";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { configureClient as configureBrowserClient } from "../src/browser.ts";
 import { configureClient, Form } from "../src/index.ts";
 import { fetchPrachtRouteState } from "../src/runtime.ts";
 
@@ -41,6 +42,10 @@ describe("configureClient", () => {
       }),
     );
     expect(result).toEqual({ type: "data", data: { hello: "world" } });
+  });
+
+  it("is exported from the browser entry", () => {
+    expect(configureBrowserClient).toBe(configureClient);
   });
 
   it("falls back to the global fetch when no configuration is set", async () => {

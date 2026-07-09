@@ -25,7 +25,11 @@ export {
   useRouteData,
 } from "./runtime-hooks.ts";
 export { prefetch, type PrefetchFn } from "./prefetch-api.ts";
-export { fetchPrachtRouteState, parseSafeNavigationUrl } from "./runtime-client-fetch.ts";
+export {
+  configureClient,
+  fetchPrachtRouteState,
+  parseSafeNavigationUrl,
+} from "./runtime-client-fetch.ts";
 export { initClientRouter, useNavigate } from "./router.ts";
 export { redirect, type RedirectOptions } from "./runtime-middleware.ts";
 export { PrachtHttpError } from "./types.ts";
@@ -104,6 +108,10 @@ export type {
   PrachtHydrationState,
   StartAppOptions,
 } from "./runtime-hooks.ts";
-export type { RouteStateResult } from "./runtime-client-fetch.ts";
+export type {
+  ConfigureClientOptions,
+  PrachtClientFetch,
+  RouteStateResult,
+} from "./runtime-client-fetch.ts";
 export type { SerializedRouteError } from "./runtime-errors.ts";
 export type { InitClientRouterOptions, NavigateFn } from "./router.ts";
