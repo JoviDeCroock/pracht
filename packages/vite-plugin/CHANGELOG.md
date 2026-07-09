@@ -1,5 +1,67 @@
 # @pracht/vite-plugin
 
+## 0.5.0
+
+### Minor Changes
+
+- [#179](https://github.com/JoviDeCroock/pracht/pull/179) [`67bc60b`](https://github.com/JoviDeCroock/pracht/commit/67bc60b5a0439beb91fc7332ea6bac9520108d70) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Add `pracht build --analyze` and per-route client JS budgets.
+
+  `pracht build --analyze` prints a per-route report of the client JavaScript each route loads: the transitive chunks (route module + shell) with raw and gzip sizes, a total row per route, and the shared entry chunks broken out. `--json` emits the same data as machine-readable JSON. Output respects `NO_COLOR` and routes are sorted by total gzip size, descending.
+
+  The pracht plugin accepts a new `budgets` option (e.g. `budgets: { "*": "120kb", "/dashboard": "200kb" }`) declaring per-route gzip client-JS ceilings; `"*"` applies to every route and explicit route paths override it. `pracht build` evaluates budgets after every build, prints pass/fail per route, writes `dist/server/budget-report.json`, and exits non-zero on exceeded budgets unless `--no-budget-fail` is passed. `pracht verify` and `pracht doctor` surface the last build's budget results when the report file is present.
+
+- [#178](https://github.com/JoviDeCroock/pracht/pull/178) [`d27b96a`](https://github.com/JoviDeCroock/pracht/commit/d27b96a68354b69d06cdfdd9667956631283ce1a) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Add a dev-server startup banner and a rich dev-only 404 page.
+
+  `pracht dev` now prints a route table on startup — every page route with its
+  render mode, shell, and middleware, plus API routes with their HTTP methods —
+  alongside the local URL. The banner reuses the resolved-app-graph logic shared
+  with `pracht inspect` and respects `NO_COLOR`.
+
+  In dev mode, document navigations that match no page route and no API route now
+  render a styled standalone 404 page (new `@pracht/core/dev-404` entry, same
+  self-contained approach as the error overlay) listing all registered routes
+  with render modes and links plus the requested path. The module is only loaded
+  by the dev middleware; production 404 behavior is unchanged.
+
+- [#180](https://github.com/JoviDeCroock/pracht/pull/180) [`ab693d5`](https://github.com/JoviDeCroock/pracht/commit/ab693d5ac04a1c7b3815c70396ab2e9a3a258072) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Add a dev-only `/_pracht` devtools page and `Server-Timing` phase headers.
+
+  - The dev server now serves a self-contained devtools page at `/_pracht` listing every page route (pattern, render mode, shell, middleware chain, source file) and API route (path, methods, source file), with the same data available as JSON at `/_pracht.json`. The path is reserved in dev only — a colliding user route logs a warning in dev and still wins in production.
+  - Dev SSR responses now carry a standards-compliant `Server-Timing` header (e.g. `mw;dur=1.2, loader;dur=14.8, render;dur=3.1`) so middleware/loader/render phase durations show up in the browser Network panel. The runtime only records timings when the new `HandlePrachtRequestOptions.timings` collector is passed; production requests skip all timing work.
+  - `@pracht/core` gains a shared app-graph module (`buildAppGraph`, `serializeAppRoutes`, `serializeApiRoutes`, `detectApiMethods`, and a new `@pracht/core/devtools` entry) that both `pracht inspect` and the devtools page use, so the CLI and the page report the same graph.
+
+- [#176](https://github.com/JoviDeCroock/pracht/pull/176) [`8862f51`](https://github.com/JoviDeCroock/pracht/commit/8862f51505bdbba8afd7ebf8570d461b233d66f9) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Dev error overlay: stack frames and the reported file path are now clickable and open the file at the exact line/column in your editor via Vite's built-in `/__open-in-editor` endpoint. App-code frames are parsed from the stack (handling `file://` URLs, `/@fs/` prefixes, Vite transform queries, and root-relative dev-server URLs), while `node_modules` and Node-internal frames are de-emphasized and never linked.
+
+  Manifest wiring mistakes now fail loudly with "did you mean" hints: referencing an unknown shell or middleware name (including `api.middleware`) throws during `resolveApp()`, and unknown route ids throw from `href()`/`buildHref()`, each listing the closest match and all registered names, e.g. `Unknown shell "pubic" for route "/". Did you mean "public"? Registered shells: public, app.` These errors surface in the dev error overlay as soon as the dev server loads the manifest.
+
+### Patch Changes
+
+- [#185](https://github.com/JoviDeCroock/pracht/pull/185) [`51436d1`](https://github.com/JoviDeCroock/pracht/commit/51436d1f34892079e1c54a983e73da4e767df4b6) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Edge adapters now build the server bundle with `ssr.target: "webworker"` and
+  externalize `cloudflare:*` platform modules. Without the webworker target, SSR
+  builds of apps with CommonJS dependencies emit Node-flavored interop
+  (`createRequire(import.meta.url)`) that workerd rejects at startup, and
+  `cloudflare:workers`/`cloudflare:email` imports failed to resolve at build
+  time instead of remaining runtime imports.
+
+- [#184](https://github.com/JoviDeCroock/pracht/pull/184) [`59a4751`](https://github.com/JoviDeCroock/pracht/commit/59a4751703b8e3899e3ecdd595ec567b21e1f1e8) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Only apply the preact vendor `manualChunks` split to client builds. SSR builds
+  that disable code splitting (for example webworker-target server bundles)
+  reject `manualChunks` with `"output.manualChunks" cannot be used when
+"output.codeSplitting" is set to false`, and the split never had an effect on
+  single-file server output anyway.
+
+- [#187](https://github.com/JoviDeCroock/pracht/pull/187) [`02e8e14`](https://github.com/JoviDeCroock/pracht/commit/02e8e14fb1a89e5eb8278fd7040e02430821d448) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Pre-bundle `@pracht/core` (index, `/client`, and `/manifest` entries) in the
+  dev dependency optimizer when the package is installed from npm. The virtual
+  client entry and the plugin's own transforms import these after Vite's scanner
+  has run, so the first browser hit triggered a re-optimize plus full reload
+  that aborted in-flight module requests mid-hydration (breaking, for example,
+  Playwright runs against a freshly started dev server). Workspace-linked
+  setups (like this monorepo's examples) are left untouched — Vite treats
+  linked packages as source, and force-including them would split the runtime
+  into two copies.
+- Updated dependencies [[`d27b96a`](https://github.com/JoviDeCroock/pracht/commit/d27b96a68354b69d06cdfdd9667956631283ce1a), [`ab693d5`](https://github.com/JoviDeCroock/pracht/commit/ab693d5ac04a1c7b3815c70396ab2e9a3a258072), [`54b1070`](https://github.com/JoviDeCroock/pracht/commit/54b1070e3c73075689ae7d40ceb7716da412e077), [`846f475`](https://github.com/JoviDeCroock/pracht/commit/846f47598dd7d975210149717f5a29210fb9205d), [`a6b120b`](https://github.com/JoviDeCroock/pracht/commit/a6b120b8b79082adbdb54dbeb1920ba3703079c8), [`8862f51`](https://github.com/JoviDeCroock/pracht/commit/8862f51505bdbba8afd7ebf8570d461b233d66f9), [`c1b22c4`](https://github.com/JoviDeCroock/pracht/commit/c1b22c4e786a485c969143de48cd2be7f5f03fe8)]:
+  - @pracht/core@0.9.0
+  - @pracht/preact-ssr-precompile@0.1.2
+  - @pracht/adapter-node@0.2.5
+
 ## 0.4.4
 
 ### Patch Changes

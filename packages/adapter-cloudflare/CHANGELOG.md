@@ -1,5 +1,31 @@
 # @pracht/adapter-cloudflare
 
+## 0.4.0
+
+### Minor Changes
+
+- [#182](https://github.com/JoviDeCroock/pracht/pull/182) [`7382665`](https://github.com/JoviDeCroock/pracht/commit/7382665fda125517881c6f65b46f9867a7bd383d) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Add a `workerHandlersFrom` option to `cloudflareAdapter()`. It points at a
+  Vite-resolvable module whose named exports (`queue`, `scheduled`, `email`,
+  `tail`, ...) are merged into the generated worker's default export next to
+  pracht's `fetch` handler, so apps can consume Queues, Cron Triggers, and Email
+  Routing without replacing the adapter. `fetch` always remains pracht's
+  handler.
+
+### Patch Changes
+
+- [#183](https://github.com/JoviDeCroock/pracht/pull/183) [`9db0a58`](https://github.com/JoviDeCroock/pracht/commit/9db0a5897216eb049cc99f0d53adb5dad34314b9) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - `pracht build` for the Cloudflare target now writes a thin deploy entry at
+  `dist/server/worker.js` that re-exports only the default handler and the
+  `workerExportsFrom` entrypoint classes. workerd validates every named export
+  of the deployed entry module and rejects the build metadata (`buildTarget`,
+  asset manifests, `resolvedApp`, ...) that `dist/server/server.js` exports for
+  the SSG prerender pass, so pointing `wrangler.jsonc`'s `main` at `server.js`
+  failed to boot with `Incorrect type for map entry 'buildTarget'`. Point `main`
+  at `dist/server/worker.js` instead. The generated server entry now also
+  exports `cloudflareWorkerEntrypointNames` so the CLI knows which classes to
+  re-export.
+- Updated dependencies [[`d27b96a`](https://github.com/JoviDeCroock/pracht/commit/d27b96a68354b69d06cdfdd9667956631283ce1a), [`ab693d5`](https://github.com/JoviDeCroock/pracht/commit/ab693d5ac04a1c7b3815c70396ab2e9a3a258072), [`54b1070`](https://github.com/JoviDeCroock/pracht/commit/54b1070e3c73075689ae7d40ceb7716da412e077), [`a6b120b`](https://github.com/JoviDeCroock/pracht/commit/a6b120b8b79082adbdb54dbeb1920ba3703079c8), [`8862f51`](https://github.com/JoviDeCroock/pracht/commit/8862f51505bdbba8afd7ebf8570d461b233d66f9), [`c1b22c4`](https://github.com/JoviDeCroock/pracht/commit/c1b22c4e786a485c969143de48cd2be7f5f03fe8)]:
+  - @pracht/core@0.9.0
+
 ## 0.3.4
 
 ### Patch Changes

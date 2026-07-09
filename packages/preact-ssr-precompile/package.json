@@ -1,6 +1,6 @@
 {
   "name": "@pracht/preact-ssr-precompile",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Experimental Vite/Rolldown plugin that precompiles safe Preact JSX for faster server-side rendering.",
   "keywords": [
     "pracht",

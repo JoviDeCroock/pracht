@@ -1,5 +1,74 @@
 # @pracht/cli
 
+## 1.6.0
+
+### Minor Changes
+
+- [#179](https://github.com/JoviDeCroock/pracht/pull/179) [`67bc60b`](https://github.com/JoviDeCroock/pracht/commit/67bc60b5a0439beb91fc7332ea6bac9520108d70) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Add `pracht build --analyze` and per-route client JS budgets.
+
+  `pracht build --analyze` prints a per-route report of the client JavaScript each route loads: the transitive chunks (route module + shell) with raw and gzip sizes, a total row per route, and the shared entry chunks broken out. `--json` emits the same data as machine-readable JSON. Output respects `NO_COLOR` and routes are sorted by total gzip size, descending.
+
+  The pracht plugin accepts a new `budgets` option (e.g. `budgets: { "*": "120kb", "/dashboard": "200kb" }`) declaring per-route gzip client-JS ceilings; `"*"` applies to every route and explicit route paths override it. `pracht build` evaluates budgets after every build, prints pass/fail per route, writes `dist/server/budget-report.json`, and exits non-zero on exceeded budgets unless `--no-budget-fail` is passed. `pracht verify` and `pracht doctor` surface the last build's budget results when the report file is present.
+
+- [#183](https://github.com/JoviDeCroock/pracht/pull/183) [`9db0a58`](https://github.com/JoviDeCroock/pracht/commit/9db0a5897216eb049cc99f0d53adb5dad34314b9) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - `pracht build` for the Cloudflare target now writes a thin deploy entry at
+  `dist/server/worker.js` that re-exports only the default handler and the
+  `workerExportsFrom` entrypoint classes. workerd validates every named export
+  of the deployed entry module and rejects the build metadata (`buildTarget`,
+  asset manifests, `resolvedApp`, ...) that `dist/server/server.js` exports for
+  the SSG prerender pass, so pointing `wrangler.jsonc`'s `main` at `server.js`
+  failed to boot with `Incorrect type for map entry 'buildTarget'`. Point `main`
+  at `dist/server/worker.js` instead. The generated server entry now also
+  exports `cloudflareWorkerEntrypointNames` so the CLI knows which classes to
+  re-export.
+
+- [#178](https://github.com/JoviDeCroock/pracht/pull/178) [`d27b96a`](https://github.com/JoviDeCroock/pracht/commit/d27b96a68354b69d06cdfdd9667956631283ce1a) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Add a dev-server startup banner and a rich dev-only 404 page.
+
+  `pracht dev` now prints a route table on startup — every page route with its
+  render mode, shell, and middleware, plus API routes with their HTTP methods —
+  alongside the local URL. The banner reuses the resolved-app-graph logic shared
+  with `pracht inspect` and respects `NO_COLOR`.
+
+  In dev mode, document navigations that match no page route and no API route now
+  render a styled standalone 404 page (new `@pracht/core/dev-404` entry, same
+  self-contained approach as the error overlay) listing all registered routes
+  with render modes and links plus the requested path. The module is only loaded
+  by the dev middleware; production 404 behavior is unchanged.
+
+- [#173](https://github.com/JoviDeCroock/pracht/pull/173) [`004e429`](https://github.com/JoviDeCroock/pracht/commit/004e4295db64bea56a283848db352b3c29909a45) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Add `pracht mcp`, a stdio Model Context Protocol server built into the CLI. It exposes the existing command internals as native MCP tools for coding agents: `inspect_routes`, `inspect_api`, `inspect_build`, `doctor`, `verify` (with optional `changed` scope), and `generate_route` / `generate_shell` / `generate_middleware` / `generate_api`. Every tool accepts an optional `cwd`, returns the same JSON payloads as the corresponding `--json` CLI flags, and surfaces failures as `isError` results instead of crashing the server. See docs/MCP.md for registration instructions and the tool reference.
+
+- [#175](https://github.com/JoviDeCroock/pracht/pull/175) [`439bc22`](https://github.com/JoviDeCroock/pracht/commit/439bc22a7a92baf2e450ecf6c9fa9b6e0d43b22d) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Add `pracht preview` to serve the production build locally with one command. It runs `pracht build` first (skippable with `--skip-build`) and then serves the output for the configured adapter: Node targets run `dist/server/server.js` as a child process (`--port <n>`, `$PORT`, default 3000), Cloudflare targets delegate to `wrangler dev` against the built worker (with an actionable error when wrangler or its config is missing), and Vercel targets print guidance towards `vercel build`/`vercel dev` since there is no faithful local production runtime. Scaffolded Node and Cloudflare starters now include a `preview` script.
+
+- [#177](https://github.com/JoviDeCroock/pracht/pull/177) [`c1b22c4`](https://github.com/JoviDeCroock/pracht/commit/c1b22c4e786a485c969143de48cd2be7f5f03fe8) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Add zero-generic typed loader data keyed by route id.
+
+  `pracht typegen` now registers each route's loader data type on
+  `Register["routes"]` in the generated `src/pracht-routes.d.ts`, pointing at the
+  route module (or the separate loader module wired via the manifest, which wins
+  over an inline loader like at runtime). `@pracht/core` gains a
+  `RouteLoaderData<TModule, TFallbackModule?>` utility type, a
+  `RouteDataFor<TRouteId>` helper, and a new `useRouteData(routeId)` overload
+  that returns the mapped loader data with route-id autocomplete — no generic
+  needed. The existing `useRouteData<typeof loader>()` form keeps working as the
+  fallback for projects that do not run typegen. In development, passing a route
+  id that is not the active route logs a warning.
+
+### Patch Changes
+
+- [#185](https://github.com/JoviDeCroock/pracht/pull/185) [`b83f5b7`](https://github.com/JoviDeCroock/pracht/commit/b83f5b7d6d92f22c982bad4fb62a9be00dd56a97) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - `pracht build` now stubs `cloudflare:*` platform modules (via Node module
+  hooks) while importing the built server bundle for SSG prerendering. Edge
+  server bundles keep these imports external because they only exist inside
+  workerd, so any app whose worker graph imports `cloudflare:workers` or
+  `cloudflare:email` previously failed the prerender pass with
+  `ERR_UNSUPPORTED_ESM_URL_SCHEME`.
+
+- [#180](https://github.com/JoviDeCroock/pracht/pull/180) [`ab693d5`](https://github.com/JoviDeCroock/pracht/commit/ab693d5ac04a1c7b3815c70396ab2e9a3a258072) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Add a dev-only `/_pracht` devtools page and `Server-Timing` phase headers.
+
+  - The dev server now serves a self-contained devtools page at `/_pracht` listing every page route (pattern, render mode, shell, middleware chain, source file) and API route (path, methods, source file), with the same data available as JSON at `/_pracht.json`. The path is reserved in dev only — a colliding user route logs a warning in dev and still wins in production.
+  - Dev SSR responses now carry a standards-compliant `Server-Timing` header (e.g. `mw;dur=1.2, loader;dur=14.8, render;dur=3.1`) so middleware/loader/render phase durations show up in the browser Network panel. The runtime only records timings when the new `HandlePrachtRequestOptions.timings` collector is passed; production requests skip all timing work.
+  - `@pracht/core` gains a shared app-graph module (`buildAppGraph`, `serializeAppRoutes`, `serializeApiRoutes`, `detectApiMethods`, and a new `@pracht/core/devtools` entry) that both `pracht inspect` and the devtools page use, so the CLI and the page report the same graph.
+
+- Updated dependencies [[`d27b96a`](https://github.com/JoviDeCroock/pracht/commit/d27b96a68354b69d06cdfdd9667956631283ce1a), [`ab693d5`](https://github.com/JoviDeCroock/pracht/commit/ab693d5ac04a1c7b3815c70396ab2e9a3a258072), [`54b1070`](https://github.com/JoviDeCroock/pracht/commit/54b1070e3c73075689ae7d40ceb7716da412e077), [`a6b120b`](https://github.com/JoviDeCroock/pracht/commit/a6b120b8b79082adbdb54dbeb1920ba3703079c8), [`8862f51`](https://github.com/JoviDeCroock/pracht/commit/8862f51505bdbba8afd7ebf8570d461b233d66f9), [`c1b22c4`](https://github.com/JoviDeCroock/pracht/commit/c1b22c4e786a485c969143de48cd2be7f5f03fe8)]:
+  - @pracht/core@0.9.0
+
 ## 1.5.1
 
 ### Patch Changes
