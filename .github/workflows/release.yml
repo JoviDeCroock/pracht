@@ -94,6 +94,14 @@ jobs:
       - name: Build
         run: pnpm build
 
+      # changesets/action skips `git config user.*` in github-api commit mode,
+      # and checkout uses persist-credentials: false, so no identity is set.
+      # stage-packages.mjs creates annotated tags (`git tag -m`), which require one.
+      - name: Configure git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
       - name: Publish packages
         uses: changesets/action@a45c4d594aa4e2c509dc14a9f2b3b67ba3780d0d # v1.9.0
         with:
