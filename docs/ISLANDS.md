@@ -170,6 +170,10 @@ outer island.)
   a small bootstrap that scans the DOM for markers, dynamically imports only
   the islands present on the page (each island is its own code-split chunk),
   and hydrates each one in place with its serialized props.
+- Routes configured with `hydration: "islands"` or `hydration: "none"` are
+  also excluded from the generated full client-router entry, so server-only
+  helpers imported by those page modules are not emitted into public client
+  chunks.
 - If an islands route renders zero islands, no script tag is emitted at all —
   the output is as static as `hydration: "none"`.
 

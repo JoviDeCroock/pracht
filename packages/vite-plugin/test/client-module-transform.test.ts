@@ -437,6 +437,40 @@ describe("client route module build", () => {
     expect(transformed).toContain('route("/", "./routes/home.tsx"');
   });
 
+  it("excludes non-full hydration manifest routes from the generated client entry", () => {
+    const root = makeTempProject();
+    mkdirSync(join(root, "src", "routes"), { recursive: true });
+
+    writeFileSync(
+      join(root, "src", "routes.ts"),
+      [
+        'import { defineApp, group, route } from "@pracht/core";',
+        "export const app = defineApp({",
+        "  routes: [",
+        '    group({ hydration: "islands" }, [',
+        '      route("/", () => import("./routes/home.tsx"), { render: "ssg" }),',
+        '      route("/full", () => import("./routes/full.tsx"), { render: "ssg", hydration: "full" }),',
+        "    ]),",
+        '    route("/static", "./routes/static.tsx", { render: "ssg", hydration: "none" }),',
+        "  ],",
+        "});",
+        "",
+      ].join("\n"),
+    );
+
+    const clientSource = createPrachtClientModuleSource(
+      {
+        appFile: "/src/routes.ts",
+        routesDir: "/src/routes",
+      },
+      { root },
+    );
+
+    expect(clientSource).toContain('"!/src/routes/home.tsx"');
+    expect(clientSource).toContain('"!/src/routes/static.tsx"');
+    expect(clientSource).not.toContain('"!/src/routes/full.tsx"');
+  });
+
   it("embeds route loader hints for manifest routes", () => {
     const root = makeTempProject();
     mkdirSync(join(root, "src", "routes"), { recursive: true });

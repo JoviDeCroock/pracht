@@ -1,4 +1,5 @@
-import { dirname, resolve } from "node:path";
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import { dirname, extname, join, resolve } from "node:path";
 import { PRACHT_CLIENT_MODULE_QUERY } from "./client-module-query.ts";
 import { generatePagesManifestSource, scanPagesDirectory } from "./pages-router.ts";
 import {
@@ -12,6 +13,120 @@ import {
   type ResolvedPrachtPluginOptions,
 } from "./plugin-options.ts";
 import { createRouteLoaderHints } from "./route-loader-hints.ts";
+
+const ROUTE_MODULE_EXTENSIONS = new Set([".ts", ".tsx", ".js", ".jsx", ".md", ".mdx", ".tsrx"]);
+const NON_FULL_HYDRATION_RE = /hydration\s*:\s*["'](?:islands|none)["']/;
+const FULL_HYDRATION_RE = /hydration\s*:\s*["']full["']/;
+const PAGES_NON_FULL_HYDRATION_RE = /export\s+const\s+HYDRATION\s*=\s*["'](?:islands|none)["']/;
+
+function toPosixPath(path: string): string {
+  return path.replace(/\\/g, "/");
+}
+
+function findMatching(source: string, start: number, open: string, close: string): number {
+  let depth = 0;
+  for (let i = start; i < source.length; i++) {
+    const ch = source[i];
+    if (ch === open) depth++;
+    if (ch === close) {
+      depth--;
+      if (depth === 0) return i;
+    }
+  }
+  return -1;
+}
+
+function scanFiles(dir: string, files: string[]): void {
+  let entries: string[];
+  try {
+    entries = readdirSync(dir);
+  } catch {
+    return;
+  }
+
+  for (const entry of entries) {
+    const abs = join(dir, entry);
+    let stat;
+    try {
+      stat = statSync(abs);
+    } catch {
+      continue;
+    }
+    if (stat.isDirectory()) {
+      scanFiles(abs, files);
+    } else if (ROUTE_MODULE_EXTENSIONS.has(extname(entry))) {
+      files.push(abs);
+    }
+  }
+}
+
+function createNonFullHydrationExcludes(
+  resolved: ResolvedPrachtPluginOptions,
+  root: string = process.cwd(),
+): string[] {
+  const excludes = new Set<string>();
+
+  if (resolved.pagesDir) {
+    const files: string[] = [];
+    scanFiles(resolve(root, resolved.pagesDir.replace(/^\//, "")), files);
+    for (const file of files) {
+      try {
+        if (PAGES_NON_FULL_HYDRATION_RE.test(readFileSync(file, "utf-8"))) {
+          excludes.add(
+            `!/${toPosixPath(file).replace(toPosixPath(root).replace(/\/$/, "") + "/", "")}`,
+          );
+        }
+      } catch {}
+    }
+    return [...excludes];
+  }
+
+  const appFile = resolve(root, resolved.appFile.replace(/^\//, ""));
+  let source: string;
+  try {
+    source = readFileSync(appFile, "utf-8");
+  } catch {
+    return [];
+  }
+  const groups: Array<{ start: number; end: number; nonFull: boolean }> = [];
+  for (const match of source.matchAll(/\bgroup\s*\(/g)) {
+    const parenStart = match.index! + match[0].lastIndexOf("(");
+    const parenEnd = findMatching(source, parenStart, "(", ")");
+    if (parenEnd === -1) continue;
+    const args = source.slice(parenStart + 1, parenEnd);
+    const arrayStart = source.indexOf("[", parenStart);
+    if (arrayStart === -1 || arrayStart > parenEnd) continue;
+    const arrayEnd = findMatching(source, arrayStart, "[", "]");
+    if (arrayEnd === -1) continue;
+    groups.push({
+      start: arrayStart,
+      end: arrayEnd,
+      nonFull: NON_FULL_HYDRATION_RE.test(args.split("[")[0] ?? ""),
+    });
+  }
+
+  const appDir = dirname(appFile);
+  const routeRe =
+    /\broute\s*\(\s*[^,]+,\s*(?:(?:\(\s*\)\s*=>\s*import\s*\(\s*)?["']([^"']+)["']\s*\)?|["']([^"']+)["'])/g;
+  for (const match of source.matchAll(routeRe)) {
+    const fileRef = match[1] ?? match[2];
+    const callStart = match.index!;
+    const parenStart = source.indexOf("(", callStart);
+    const parenEnd = findMatching(source, parenStart, "(", ")");
+    if (parenEnd === -1) continue;
+    const callSource = source.slice(parenStart, parenEnd);
+    const ownNonFull = NON_FULL_HYDRATION_RE.test(callSource);
+    const ownFull = FULL_HYDRATION_RE.test(callSource);
+    const inheritedNonFull = groups
+      .filter((group) => group.start < callStart && callStart < group.end)
+      .sort((a, b) => b.start - a.start)[0]?.nonFull;
+    if (ownFull || (!ownNonFull && inheritedNonFull !== true)) continue;
+    const abs = resolve(appDir, fileRef);
+    excludes.add(`!/${toPosixPath(abs).replace(toPosixPath(root).replace(/\/$/, "") + "/", "")}`);
+  }
+
+  return [...excludes];
+}
 
 export function createPrachtClientModuleSource(
   options: PrachtPluginOptions = {},
@@ -33,6 +148,10 @@ export function createPrachtClientModuleSource(
   const dirPrefix = isPagesMode ? resolved.pagesDir : resolved.routesDir;
   const routeGlob = `${dirPrefix}/**/*.{ts,tsx,js,jsx,md,mdx}`;
   const routeTsrxGlob = `${dirPrefix}/**/*.tsrx`;
+  const routeExcludes = createNonFullHydrationExcludes(resolved, buildOptions.root);
+  const routeGlobPattern = routeExcludes.length > 0 ? [routeGlob, ...routeExcludes] : routeGlob;
+  const routeTsrxGlobPattern =
+    routeExcludes.length > 0 ? [routeTsrxGlob, ...routeExcludes] : routeTsrxGlob;
 
   const shellGlob = isPagesMode
     ? `${resolved.pagesDir}/**/_app.{ts,tsx,js,jsx}`
@@ -47,8 +166,8 @@ export function createPrachtClientModuleSource(
     "",
     `const routeLoaderHints = ${JSON.stringify(routeLoaderHints)};`,
     `const routeModules = {`,
-    `  ...import.meta.glob(${JSON.stringify(routeGlob)}, { query: ${JSON.stringify(PRACHT_CLIENT_MODULE_QUERY)} }),`,
-    `  ...import.meta.glob(${JSON.stringify(routeTsrxGlob)}),`,
+    `  ...import.meta.glob(${JSON.stringify(routeGlobPattern)}, { query: ${JSON.stringify(PRACHT_CLIENT_MODULE_QUERY)} }),`,
+    `  ...import.meta.glob(${JSON.stringify(routeTsrxGlobPattern)}),`,
     `};`,
     `const shellModules = {`,
     `  ...import.meta.glob(${JSON.stringify(shellGlob)}, { query: ${JSON.stringify(PRACHT_CLIENT_MODULE_QUERY)} }),`,
