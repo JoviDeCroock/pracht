@@ -48,12 +48,16 @@ const FILL_STYLE: JSX.CSSProperties = {
 
 const FILL_STYLE_STRING = "position:absolute;height:100%;width:100%;left:0;top:0;right:0;bottom:0;";
 
-const isDev = typeof process === "undefined" || process.env.NODE_ENV !== "production";
-
 const warned = new Set<string>();
 
+function isDevWarningsEnabled(): boolean {
+  const nodeEnv = (globalThis as { process?: { env?: { NODE_ENV?: string } } }).process?.env
+    ?.NODE_ENV;
+  return typeof nodeEnv === "string" && nodeEnv !== "production";
+}
+
 function warnOnce(key: string, message: string): void {
-  if (!isDev || warned.has(key)) return;
+  if (!isDevWarningsEnabled() || warned.has(key)) return;
   warned.add(key);
   console.error(message);
 }
@@ -142,7 +146,7 @@ export function Image(props: ImageProps): VNode {
   const numericWidth = toDimension(width);
   const numericHeight = toDimension(height);
 
-  if (isDev) {
+  if (isDevWarningsEnabled()) {
     if (!fill && (numericWidth == null || numericHeight == null)) {
       warnOnce(
         `dimensions:${src}`,

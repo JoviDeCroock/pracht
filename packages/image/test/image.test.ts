@@ -14,6 +14,7 @@ import {
 afterEach(() => {
   resetImageConfig();
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
 describe("<Image> fixed layout", () => {
@@ -187,6 +188,32 @@ describe("<Image> dev warnings", () => {
   it("does not warn when dimensions are provided", () => {
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
     render(h(Image, { src: "/ok.jpg", alt: "Fine", width: 10, height: 10 }));
+
+    expect(error).not.toHaveBeenCalled();
+  });
+
+  it("does not warn in production", () => {
+    const originalNodeEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = "production";
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    try {
+      render(h(Image, { src: "/production-missing-dimensions.jpg", alt: "Production" }));
+    } finally {
+      if (originalNodeEnv === undefined) {
+        delete process.env.NODE_ENV;
+      } else {
+        process.env.NODE_ENV = originalNodeEnv;
+      }
+    }
+
+    expect(error).not.toHaveBeenCalled();
+  });
+
+  it("does not warn when the process global is unavailable", () => {
+    vi.stubGlobal("process", undefined);
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    render(h(Image, { src: "/browser-missing-dimensions.jpg", alt: "Browser" }));
 
     expect(error).not.toHaveBeenCalled();
   });

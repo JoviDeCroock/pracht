@@ -40,7 +40,7 @@ export interface CreateImageHandlerOptions {
   /** Reject source images larger than this many bytes. Defaults to 25 MiB. */
   maxSourceBytes?: number;
   /** Override how source images are fetched (useful for tests/CDNs). */
-  fetchImage?: (url: URL, request: Request) => Promise<Response>;
+  fetchImage?: (url: URL, request: Request, signal?: AbortSignal) => Promise<Response>;
   /** Override how sharp is imported (useful for tests). */
   loadSharp?: () => Promise<unknown>;
 }
@@ -66,6 +66,11 @@ interface SharpPipeline {
 }
 
 type SharpFactory = (input: Uint8Array) => SharpPipeline;
+
+interface ImageHandlerArgs {
+  request: Request;
+  signal?: AbortSignal;
+}
 
 function createSharpImporter(load: () => Promise<unknown>): () => Promise<SharpFactory> {
   let cached: Promise<SharpFactory> | undefined;
@@ -175,7 +180,7 @@ function imageResponseBody(request: Request, bytes: Uint8Array): ArrayBuffer | n
  */
 export function createImageHandler(
   options: CreateImageHandlerOptions = {},
-): (args: { request: Request }) => Promise<Response> {
+): (args: ImageHandlerArgs) => Promise<Response> {
   const remotePatterns = options.remotePatterns ?? [];
   const allowedWidths = new Set(
     options.allowedWidths ?? [...DEFAULT_IMAGE_SIZES, ...DEFAULT_DEVICE_SIZES],
@@ -186,10 +191,18 @@ export function createImageHandler(
   const maxSourceBytes = options.maxSourceBytes ?? DEFAULT_MAX_SOURCE_BYTES;
   const fetchImage =
     options.fetchImage ??
-    ((url: URL) => fetch(url, { headers: { accept: "image/*,*/*;q=0.8" }, redirect: "follow" }));
+    ((url: URL, _request: Request, signal?: AbortSignal) =>
+      fetch(url, {
+        headers: { accept: "image/*,*/*;q=0.8" },
+        redirect: "follow",
+        signal,
+      }));
   const importSharp = createSharpImporter(options.loadSharp ?? (() => import("sharp")));
 
-  return async function handleImageRequest({ request }: { request: Request }): Promise<Response> {
+  return async function handleImageRequest({
+    request,
+    signal,
+  }: ImageHandlerArgs): Promise<Response> {
     if (request.method !== "GET" && request.method !== "HEAD") {
       return new Response("Method Not Allowed", { status: 405, headers: { allow: "GET, HEAD" } });
     }
@@ -258,7 +271,7 @@ export function createImageHandler(
 
     let upstream: Response;
     try {
-      upstream = await fetchImage(target, request);
+      upstream = await fetchImage(target, request, signal);
     } catch {
       return errorResponse(502, `Failed to fetch source image "${source}".`);
     }
