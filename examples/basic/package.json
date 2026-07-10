@@ -6,7 +6,9 @@
   "dependencies": {
     "@pracht/adapter-node": "workspace:*",
     "@pracht/adapter-vercel": "workspace:*",
-    "@pracht/core": "workspace:*"
+    "@pracht/core": "workspace:*",
+    "@pracht/image": "workspace:*",
+    "sharp": "^0.34.0"
   },
   "devDependencies": {
     "@pracht/cli": "workspace:*",
