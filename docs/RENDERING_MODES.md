@@ -118,8 +118,11 @@ with `expiration` set from the time policy.
 > stale pages are served instantly while the Worker re-renders in the
 > background — a true edge-tier cache rather than the per-colo Cache API.
 > Cached pages can be purged early with `purgeCache()` from
-> `@pracht/adapter-cloudflare/cache`. See
-> [ADAPTERS.md](ADAPTERS.md#isg-via-workers-caching-cache).
+> `@pracht/adapter-cloudflare/cache`. Pracht only stamps Workers Caching
+> headers on ISG responses that pass the shared ISG cache-safety policy, so
+> responses with `Set-Cookie`, `Cache-Control: private` / `no-store`, or
+> `Vary: Cookie`, `Vary: Authorization`, or `Vary: *` stay out of the shared
+> edge cache. See [ADAPTERS.md](ADAPTERS.md#isg-via-workers-caching-cache).
 
 ### Webhook-based revalidation
 

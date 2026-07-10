@@ -13,7 +13,11 @@
  * Everything in this module must stay safe to bundle into the worker —
  * no `vite` or Node imports.
  */
-import { getTimeRevalidateSeconds, matchAppRoute } from "@pracht/core/server";
+import {
+  getTimeRevalidateSeconds,
+  isCacheableISGResponse,
+  matchAppRoute,
+} from "@pracht/core/server";
 import type { PrachtApp, ResolvedPrachtApp, ResolvedRoute } from "@pracht/core/server";
 
 export interface CloudflareWorkersCacheOptions {
@@ -125,8 +129,9 @@ export function findCacheableIsgRoute(
  * A user-set `Cache-Control` or `cloudflare-cdn-cache-control` (via a
  * route/shell `headers()` export or middleware) takes full precedence:
  * pracht adds nothing, so routes can opt out or tune their own policy.
- * Responses that are not a cacheable page (non-200, `Set-Cookie`) pass
- * through untouched.
+ * Responses that are not a cacheable page (non-200, `Set-Cookie`,
+ * `Cache-Control: private` / `no-store`, or `Vary: Cookie` /
+ * `Authorization` / `*`) pass through untouched.
  */
 export function applyWorkersCacheHeaders(
   response: Response,
@@ -136,7 +141,7 @@ export function applyWorkersCacheHeaders(
   if (response.status !== 200) return response;
   if (response.headers.has("cache-control")) return response;
   if (response.headers.has("cloudflare-cdn-cache-control")) return response;
-  if (response.headers.has("set-cookie")) return response;
+  if (!isCacheableISGResponse(response)) return response;
 
   const seconds = getTimeRevalidateSeconds(route.revalidate) ?? 0;
   if (seconds <= 0) return response;

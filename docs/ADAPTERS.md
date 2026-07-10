@@ -310,7 +310,10 @@ With the option on:
 - A route/shell `headers()` export that sets `Cache-Control` (or
   `cloudflare-cdn-cache-control`) takes full precedence — pracht adds
   nothing, so individual routes can opt out or tune their own policy.
-  Responses with `Set-Cookie` are never cached.
+  Pracht also reuses the shared ISG cache-safety policy before stamping edge
+  headers: responses with `Set-Cookie`, `Cache-Control: private` /
+  `no-store`, or `Vary: Cookie`, `Vary: Authorization`, or `Vary: *` are
+  never stored in the shared edge cache.
 - Route-state JSON (client navigations) stays `no-store` and always reaches
   the Worker.
 - Everything pracht did **not** deliberately mark cacheable gets
