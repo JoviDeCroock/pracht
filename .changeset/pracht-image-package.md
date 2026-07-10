@@ -17,4 +17,5 @@ restricts sources to same-origin unless `remotePatterns` opts hosts in, and
 stream-enforces the source image size cap before optimization. Answers with
 immutable cache headers, supports GET plus HEAD API route exports, forwards
 Pracht's API abort signal to upstream fetches, and keeps development-only image
-dimension warnings out of production browser runtimes. See docs/IMAGES.md.
+dimension warnings out of production browser runtimes while preserving them in
+browser development builds. See docs/IMAGES.md.

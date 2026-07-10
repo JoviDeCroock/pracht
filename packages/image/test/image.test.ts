@@ -14,6 +14,7 @@ import {
 afterEach(() => {
   resetImageConfig();
   vi.restoreAllMocks();
+  vi.unstubAllEnvs();
   vi.unstubAllGlobals();
 });
 
@@ -210,11 +211,24 @@ describe("<Image> dev warnings", () => {
     expect(error).not.toHaveBeenCalled();
   });
 
-  it("does not warn when the process global is unavailable", () => {
-    vi.stubGlobal("process", undefined);
+  it("warns in browser dev when NODE_ENV is unavailable", () => {
+    const originalNodeEnv = process.env.NODE_ENV;
+    delete process.env.NODE_ENV;
+    vi.stubEnv("DEV", true);
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
-    render(h(Image, { src: "/browser-missing-dimensions.jpg", alt: "Browser" }));
 
-    expect(error).not.toHaveBeenCalled();
+    try {
+      render(h(Image, { src: "/browser-missing-dimensions.jpg", alt: "Browser" }));
+    } finally {
+      if (originalNodeEnv === undefined) {
+        delete process.env.NODE_ENV;
+      } else {
+        process.env.NODE_ENV = originalNodeEnv;
+      }
+    }
+
+    expect(error).toHaveBeenCalledWith(
+      expect.stringContaining('missing required "width" and "height" props'),
+    );
   });
 });
