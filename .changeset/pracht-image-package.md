@@ -15,5 +15,6 @@ an optional peer dependency) mounted as the `src/api/_pracht/image.ts` API
 route: it negotiates WebP/AVIF via `Accept`, only serves allowlisted widths,
 restricts sources to same-origin unless `remotePatterns` opts hosts in, and
 stream-enforces the source image size cap before optimization. Answers with
-immutable cache headers and supports GET plus HEAD API route exports. See
-docs/IMAGES.md.
+immutable cache headers, supports GET plus HEAD API route exports, forwards
+Pracht's API abort signal to upstream fetches, and keeps development-only image
+dimension warnings out of production browser runtimes. See docs/IMAGES.md.

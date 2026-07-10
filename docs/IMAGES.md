@@ -143,6 +143,10 @@ createImageHandler({
 });
 ```
 
+Custom `fetchImage(url, request, signal)` hooks receive the Pracht API route
+abort signal so upstream fetches can stop when the request times out or is
+cancelled.
+
 ## Per-target guidance
 
 - **adapter-node** — mount the API route as above; done. Put a CDN in front

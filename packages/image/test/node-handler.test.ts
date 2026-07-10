@@ -107,6 +107,25 @@ describe("createImageHandler validation", () => {
     expect(response.status).toBe(405);
     expect(response.headers.get("allow")).toBe("GET, HEAD");
   });
+
+  it("passes the API route abort signal to custom source fetchers", async () => {
+    const controller = new AbortController();
+    let seenSignal: AbortSignal | undefined;
+    const signalAware = createImageHandler({
+      fetchImage: async (_url, _request, signal) => {
+        seenSignal = signal;
+        return new Response(sourcePng, { headers: { "content-type": "image/png" } });
+      },
+    });
+
+    const response = await signalAware({
+      ...imageRequest("url=%2Fa.png&w=640"),
+      signal: controller.signal,
+    });
+
+    expect(response.status).toBe(200);
+    expect(seenSignal).toBe(controller.signal);
+  });
 });
 
 describe("createImageHandler remote allowlist", () => {
