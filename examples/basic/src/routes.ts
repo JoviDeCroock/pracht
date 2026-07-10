@@ -8,9 +8,14 @@ export const app = defineApp({
   middleware: {
     auth: () => import("./middleware/auth.ts"),
   },
+  capabilities: {
+    "notes.search": () => import("./capabilities/notes-search.ts"),
+    "notes.create": () => import("./capabilities/notes-create.ts"),
+  },
   routes: [
     group({ shell: "public" }, [
       route("/", () => import("./routes/home.tsx"), { id: "home", render: "ssg" }),
+      route("/notes", () => import("./routes/notes.tsx"), { id: "notes", render: "ssr" }),
       route("/products/:productId", () => import("./routes/product.tsx"), {
         id: "product",
         render: "ssg",

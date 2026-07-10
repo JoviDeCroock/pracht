@@ -29,6 +29,15 @@ import {
   mergeHeadMetadata,
   runMiddlewareChain,
 } from "./runtime-middleware.ts";
+import {
+  CAPABILITY_HTTP_PREFIX,
+  envelopeResponse,
+  handleCapabilityRequest,
+  matchCapabilityRoute,
+  resolveAppCapabilities,
+  setActiveCapabilityHost,
+  type ResolvedCapability,
+} from "./runtime-capabilities.ts";
 import { buildRouteStateUrl } from "./runtime-client-fetch.ts";
 import {
   getRenderToStringAsync,
@@ -198,6 +207,11 @@ export async function handlePrachtRequest<TContext>(
   const isRouteStateRequest = headerSignalsRouteState || dataParamIsFirstParty;
   const exposeDiagnostics = shouldExposeServerErrors(options);
 
+  // Register the capability host so `invokeCapability()` works from loaders,
+  // API routes, and middleware during this request. One assignment — free
+  // for apps without capabilities.
+  setActiveCapabilityHost(options.app, registry);
+
   if (options.apiRoutes?.length) {
     const apiMatch = matchApiRoute(options.apiRoutes, url.pathname);
     if (apiMatch) {
@@ -278,6 +292,79 @@ export async function handlePrachtRequest<TContext>(
           phase: currentPhase,
           route: apiMatch.route,
         });
+      }
+    }
+  }
+
+  // Capability HTTP projection. Only runs when the manifest registers
+  // capabilities — apps without them pay a single `Object.keys` call.
+  // Explicit API route files take precedence (they matched above).
+  if (Object.keys(options.app.capabilities ?? {}).length > 0) {
+    let capabilities: ResolvedCapability[] | null = null;
+    try {
+      capabilities = await resolveAppCapabilities(options.app, registry);
+    } catch (error: unknown) {
+      warnCapabilityResolutionFailure(error);
+      // A broken capability definition must not take down page rendering;
+      // requests to capability paths still fail closed below.
+      if (url.pathname.startsWith(CAPABILITY_HTTP_PREFIX)) {
+        return withDefaultSecurityHeaders(
+          envelopeResponse(500, {
+            ok: false,
+            error: {
+              code: "internal_error",
+              message: exposeDiagnostics
+                ? `Capability registry failed to resolve: ${error instanceof Error ? error.message : String(error)}`
+                : "Capability registry failed to resolve.",
+            },
+          }),
+        );
+      }
+    }
+
+    if (capabilities) {
+      const capabilityMatch = matchCapabilityRoute(capabilities, url.pathname);
+      if (capabilityMatch) {
+        // Same CSRF stance as state-changing API requests: capability calls
+        // are session-authenticated POSTs, so cross-origin browser requests
+        // are rejected unless the app opted out.
+        const requireSameOrigin = options.app.api?.requireSameOrigin ?? true;
+        if (
+          requireSameOrigin &&
+          !SAFE_METHODS.has(options.request.method) &&
+          !isSameOriginMutation(options.request, url)
+        ) {
+          return withDefaultSecurityHeaders(
+            envelopeResponse(403, {
+              ok: false,
+              error: { code: "cross_origin_blocked", message: "Cross-origin request blocked" },
+            }),
+          );
+        }
+
+        const capabilityResponse = await handleCapabilityRequest({
+          match: capabilityMatch,
+          context: (options.context ?? {}) as TContext,
+          registry,
+          request: options.request,
+          url,
+          exposeErrors: exposeDiagnostics,
+        });
+        return withDefaultSecurityHeaders(capabilityResponse);
+      }
+
+      // Unmatched requests under the capability prefix get the typed 404
+      // instead of falling through to the HTML not-found page.
+      if (url.pathname.startsWith(CAPABILITY_HTTP_PREFIX)) {
+        return withDefaultSecurityHeaders(
+          envelopeResponse(404, {
+            ok: false,
+            error: {
+              code: "unknown_capability",
+              message: "No capability is exposed at this path.",
+            },
+          }),
+        );
       }
     }
   }
@@ -659,6 +746,18 @@ export async function handlePrachtRequest<TContext>(
       requestPath,
     });
   }
+}
+
+let warnedCapabilityResolutionFailure = false;
+
+/** Resolution failures repeat on every request — log the details once. */
+function warnCapabilityResolutionFailure(error: unknown): void {
+  if (warnedCapabilityResolutionFailure) return;
+  warnedCapabilityResolutionFailure = true;
+  console.error(
+    "[pracht] Capability registry failed to resolve; capability requests will return 500:",
+    error,
+  );
 }
 
 function getRequestPath(url: URL): string {

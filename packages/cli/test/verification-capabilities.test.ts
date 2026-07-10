@@ -1,0 +1,182 @@
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
+
+import { PROJECT_DEFAULTS } from "../src/constants.js";
+import type { ProjectConfig } from "../src/project.js";
+import { collectCapabilityChecks } from "../src/verification-capabilities.js";
+import type { Check } from "../src/verification-helpers.js";
+
+const tempDirs: string[] = [];
+
+afterEach(() => {
+  for (const dir of tempDirs.splice(0)) {
+    rmSync(dir, { force: true, recursive: true });
+  }
+});
+
+function createProject(options: { capability: string; registration?: string }): ProjectConfig {
+  const root = mkdtempSync(join(tmpdir(), "pracht-verify-capabilities-"));
+  tempDirs.push(root);
+  mkdirSync(join(root, "src/capabilities"), { recursive: true });
+
+  writeFileSync(join(root, "src/capabilities/notes-search.ts"), options.capability, "utf-8");
+  writeFileSync(
+    join(root, "src/routes.ts"),
+    [
+      'import { defineApp, route } from "@pracht/core";',
+      "export const app = defineApp({",
+      "  capabilities: {",
+      options.registration ?? '    "notes.search": () => import("./capabilities/notes-search.ts"),',
+      "  },",
+      '  routes: [route("/", () => import("./routes/home.tsx"))],',
+      "});",
+    ].join("\n"),
+    "utf-8",
+  );
+
+  return {
+    ...PROJECT_DEFAULTS,
+    configFile: join(root, "vite.config.ts"),
+    hasPrachtPlugin: true,
+    mode: "manifest",
+    rawConfig: "",
+    root,
+  } as ProjectConfig;
+}
+
+function runChecks(capability: string): Check[] {
+  const checks: Check[] = [];
+  collectCapabilityChecks(createProject({ capability }), checks);
+  return checks;
+}
+
+function capabilitySource(fields: string): string {
+  return [
+    'import { defineCapability } from "@pracht/capabilities";',
+    "",
+    "export default defineCapability({",
+    fields,
+    "  async run() {",
+    "    return {};",
+    "  },",
+    "});",
+    "",
+  ].join("\n");
+}
+
+const COMPLETE_FIELDS = `  title: "Search notes",
+  description: "Find notes.",
+  input: { type: "object", properties: { query: { type: "string" } }, required: ["query"] },
+  output: { type: "object" },
+  effect: "read",
+  expose: { http: true, webmcp: true },`;
+
+describe("collectCapabilityChecks", () => {
+  it("passes a complete exposed capability", () => {
+    const checks = runChecks(capabilitySource(COMPLETE_FIELDS));
+
+    expect(checks.some((check) => check.status === "error")).toBe(false);
+    expect(checks.map((check) => check.message)).toContainEqual(
+      expect.stringContaining("declares a complete exposed contract (effect: read)"),
+    );
+  });
+
+  it("fails exposed capabilities that are missing contract fields", () => {
+    const checks = runChecks(
+      capabilitySource(`  title: "Search notes",
+  input: { type: "object" },
+  expose: { http: true },`),
+    );
+
+    const errors = checks.filter((check) => check.status === "error");
+    expect(errors).toHaveLength(1);
+    expect(errors[0].message).toContain(
+      "is exposed but is missing: description, output schema, effect",
+    );
+  });
+
+  it("fails destructive exposed capabilities with the trust-layer message", () => {
+    const checks = runChecks(
+      capabilitySource(COMPLETE_FIELDS.replace('effect: "read"', 'effect: "destructive"')),
+    );
+
+    const errors = checks.filter((check) => check.status === "error");
+    expect(errors.map((error) => error.message)).toContainEqual(
+      expect.stringContaining(
+        "destructive capabilities cannot be exposed yet; the trust layer ships separately",
+      ),
+    );
+  });
+
+  it("fails webmcp exposure without http", () => {
+    const checks = runChecks(
+      capabilitySource(
+        COMPLETE_FIELDS.replace(
+          "expose: { http: true, webmcp: true },",
+          "expose: { webmcp: true },",
+        ),
+      ),
+    );
+
+    const errors = checks.filter((check) => check.status === "error");
+    expect(errors.map((error) => error.message)).toContainEqual(
+      expect.stringContaining("sets expose.webmcp without expose.http"),
+    );
+  });
+
+  it("fails schemas using unsupported JSON Schema keywords", () => {
+    const checks = runChecks(
+      capabilitySource(
+        COMPLETE_FIELDS.replace(
+          'input: { type: "object", properties: { query: { type: "string" } }, required: ["query"] },',
+          'input: { type: "object", properties: { query: { type: "string", pattern: "^a" } } },',
+        ),
+      ),
+    );
+
+    const errors = checks.filter((check) => check.status === "error");
+    expect(errors.map((error) => error.message)).toContainEqual(
+      expect.stringContaining("unsupported JSON Schema keywords: /properties/query/pattern"),
+    );
+  });
+
+  it("warns instead of failing when a schema is not statically analyzable", () => {
+    const checks = runChecks(
+      capabilitySource(
+        COMPLETE_FIELDS.replace(
+          'input: { type: "object", properties: { query: { type: "string" } }, required: ["query"] },',
+          "input: sharedInputSchema,",
+        ),
+      ),
+    );
+
+    expect(checks.filter((check) => check.status === "error")).toHaveLength(0);
+    expect(checks.map((check) => check.message)).toContainEqual(
+      expect.stringContaining("could not be verified statically"),
+    );
+  });
+
+  it("does nothing for apps without a capabilities registry", () => {
+    const checks: Check[] = [];
+    const project = createProject({ capability: "export default {};", registration: "" });
+    collectCapabilityChecks(project, checks);
+    expect(checks).toEqual([]);
+  });
+
+  it("allows private capabilities without exposure metadata", () => {
+    const checks = runChecks(
+      capabilitySource(`  title: "Private op",
+  description: "Server-only.",
+  input: { type: "object" },
+  output: { type: "object" },
+  effect: "destructive",`),
+    );
+
+    expect(checks.filter((check) => check.status === "error")).toHaveLength(0);
+    expect(checks.map((check) => check.message)).toContainEqual(
+      expect.stringContaining("declares a complete private contract (effect: destructive)"),
+    );
+  });
+});

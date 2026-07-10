@@ -1,8 +1,8 @@
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-import { serializeApiRoutes, serializeAppRoutes } from "@pracht/core";
-import type { AppGraphApiRoute, AppGraphRoute } from "@pracht/core";
+import { serializeApiRoutes, serializeAppRoutes, serializeCapabilities } from "@pracht/core";
+import type { AppGraphApiRoute, AppGraphCapability, AppGraphRoute } from "@pracht/core";
 import { defineCommand } from "citty";
 import { createServer } from "vite";
 
@@ -10,7 +10,7 @@ import { handleCliError } from "../utils.js";
 import { readClientBuildAssets } from "../build-metadata.js";
 import { readProjectConfig, resolveProjectPath } from "../project.js";
 
-const INSPECT_TARGETS = new Set(["routes", "api", "build", "all"]);
+const INSPECT_TARGETS = new Set(["routes", "api", "capabilities", "build", "all"]);
 
 export default defineCommand({
   meta: {
@@ -20,7 +20,7 @@ export default defineCommand({
   args: {
     target: {
       type: "positional",
-      description: "Inspect target: routes, api, build, or all",
+      description: "Inspect target: routes, api, capabilities, build, or all",
       required: false,
     },
     json: {
@@ -50,6 +50,7 @@ export default defineCommand({
 
 export interface InspectReport {
   api?: AppGraphApiRoute[];
+  capabilities?: AppGraphCapability[];
   build?: {
     adapterTarget: string;
     clientEntryUrl: string | null;
@@ -105,6 +106,13 @@ export async function runInspect(root: string, { target = "all" } = {}): Promise
       });
     }
 
+    if (target === "capabilities" || target === "all") {
+      report.capabilities = await serializeCapabilities(serverModule.resolvedApp.capabilities, {
+        loadModule: (file) => server.ssrLoadModule(file),
+        readSource: (file) => readFileSync(resolve(root, `.${file}`), "utf-8"),
+      });
+    }
+
     if (target === "build" || target === "all") {
       const buildAssets = readClientBuildAssets(root);
       report.build = {
@@ -141,6 +149,22 @@ function printInspectReport(report: InspectReport): void {
       for (const route of report.api) {
         const methods = route.methods.length > 0 ? route.methods.join(",") : "none";
         console.log(`  ${route.path}  methods=${methods}  file=${route.file}`);
+      }
+    }
+  }
+
+  if (report.capabilities) {
+    console.log("\nCapabilities");
+    if (report.capabilities.length === 0) {
+      console.log("  No capabilities registered.");
+    } else {
+      for (const capability of report.capabilities) {
+        const transports =
+          capability.transports.length > 0 ? capability.transports.join(",") : "private";
+        console.log(
+          `  ${capability.name}  effect=${capability.effect ?? "n/a"}  transports=${transports}  ` +
+            `http=${capability.httpPath ?? "n/a"}  file=${capability.source}`,
+        );
       }
     }
   }

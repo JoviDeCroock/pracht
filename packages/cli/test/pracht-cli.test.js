@@ -344,9 +344,15 @@ export const app = defineApp({
       mode: "manifest",
     });
 
+    const capabilities = JSON.parse(
+      runCli(["inspect", "capabilities", "--json"], { cwd: appDir }).stdout,
+    );
+    expect(capabilities).toEqual({ capabilities: [], mode: "manifest" });
+
     expect(all).toEqual({
       ...routes,
       ...api,
+      ...capabilities,
       ...build,
     });
   }, 30_000);

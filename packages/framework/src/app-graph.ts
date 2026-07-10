@@ -7,7 +7,14 @@
  * module platform-neutral.
  */
 
-import type { HttpMethod, ResolvedApiRoute, ResolvedPrachtApp, ResolvedRoute } from "./types.ts";
+import { capabilityHttpPath } from "./runtime-capabilities.ts";
+import type {
+  HttpMethod,
+  PrachtCapability,
+  ResolvedApiRoute,
+  ResolvedPrachtApp,
+  ResolvedRoute,
+} from "./types.ts";
 
 export const API_METHOD_ORDER: readonly HttpMethod[] = [
   "GET",
@@ -37,8 +44,22 @@ export interface AppGraphApiRoute {
   path: string;
 }
 
+export interface AppGraphCapability {
+  effect: string | null;
+  /** Reserved for the MCP Apps projection — always false for now. */
+  hasUi: false;
+  httpPath: string | null;
+  middleware: string[];
+  name: string;
+  source: string;
+  title: string | null;
+  /** Exposure transports from the capability's `expose` config. */
+  transports: string[];
+}
+
 export interface AppGraph {
   api: AppGraphApiRoute[];
+  capabilities: AppGraphCapability[];
   routes: AppGraphRoute[];
 }
 
@@ -76,6 +97,57 @@ export function serializeApiRoutes(
   );
 }
 
+/**
+ * Serialize registered capabilities by loading their modules. Modules that
+ * fail to load (or don't export a capability) still appear in the graph with
+ * null metadata so inspect/devtools can surface the broken registration.
+ */
+export function serializeCapabilities(
+  capabilities: Record<string, string> | undefined,
+  access: AppGraphModuleAccess,
+): Promise<AppGraphCapability[]> {
+  return Promise.all(
+    Object.entries(capabilities ?? {}).map(async ([name, file]) => {
+      try {
+        const module = await access.loadModule(file);
+        const capability = module.default as PrachtCapability | undefined;
+        if (!capability || capability.kind !== "capability") {
+          throw new Error("module does not default-export a capability");
+        }
+
+        const transports: string[] = [];
+        if (capability.expose?.http) transports.push("http");
+        if (capability.expose?.mcp) transports.push("mcp");
+        if (capability.expose?.webmcp) transports.push("webmcp");
+
+        return {
+          effect: capability.effect,
+          hasUi: false as const,
+          httpPath: capability.expose?.http
+            ? (capability.expose.http.path ?? capabilityHttpPath(name))
+            : null,
+          middleware: capability.middleware ?? [],
+          name,
+          source: file,
+          title: capability.title,
+          transports,
+        };
+      } catch {
+        return {
+          effect: null,
+          hasUi: false as const,
+          httpPath: null,
+          middleware: [],
+          name,
+          source: file,
+          title: null,
+          transports: [],
+        };
+      }
+    }),
+  );
+}
+
 export async function buildAppGraph(
   options: {
     apiRoutes?: readonly ResolvedApiRoute[];
@@ -84,6 +156,7 @@ export async function buildAppGraph(
 ): Promise<AppGraph> {
   return {
     api: await serializeApiRoutes(options.apiRoutes ?? [], options),
+    capabilities: await serializeCapabilities(options.app.capabilities, options),
     routes: serializeAppRoutes(options.app.routes),
   };
 }

@@ -23,13 +23,22 @@ export {
   detectApiMethods,
   serializeApiRoutes,
   serializeAppRoutes,
+  serializeCapabilities,
 } from "./app-graph.ts";
 export type {
   AppGraph,
   AppGraphApiRoute,
+  AppGraphCapability,
   AppGraphModuleAccess,
   AppGraphRoute,
 } from "./app-graph.ts";
+export {
+  capabilityHttpPath,
+  invokeCapability,
+  matchCapabilityRoute,
+  resolveAppCapabilities,
+} from "./runtime-capabilities.ts";
+export type { InvokeCapabilityContext, ResolvedCapability } from "./runtime-capabilities.ts";
 export { prerenderApp } from "./prerender.ts";
 export {
   createISGRegenerationRequest,
@@ -67,6 +76,16 @@ export type {
   ApiRouteMatch,
   ApiRouteModule,
   BaseRouteArgs,
+  CapabilityEffect,
+  CapabilityEnvelope,
+  CapabilityErrorPayload,
+  CapabilityExposure,
+  CapabilityHttpExposure,
+  CapabilityIssue,
+  CapabilityModule,
+  CapabilityRunArgs,
+  CapabilityValidationResult,
+  PrachtCapability,
   DataModule,
   ErrorBoundaryProps,
   GroupDefinition,

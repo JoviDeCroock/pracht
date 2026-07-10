@@ -13,6 +13,7 @@ import {
   type ResolvedPrachtPluginOptions,
 } from "./plugin-options.ts";
 import { createRouteLoaderHints } from "./route-loader-hints.ts";
+import { createWebmcpBootstrapSource, hasWebmcpCapabilities } from "./plugin-capabilities.ts";
 
 const ROUTE_MODULE_EXTENSIONS = new Set([".ts", ".tsx", ".js", ".jsx", ".md", ".mdx", ".tsrx"]);
 const NON_FULL_HYDRATION_RE = /hydration\s*:\s*["'](?:islands|none)["']/;
@@ -218,6 +219,9 @@ export function createPrachtClientModuleSource(
     "  });",
     "}",
     "",
+    // WebMCP page-tool registration — only emitted when at least one
+    // capability opts in, so apps without WebMCP exposure ship zero extra bytes.
+    ...(hasWebmcpCapabilities(resolved, buildOptions.root) ? createWebmcpBootstrapSource() : []),
   ].join("\n");
 }
 
@@ -227,7 +231,10 @@ export function createPrachtClientModuleSource(
  * manifest, the router, or the full client runtime: it only scans the DOM
  * for island markers and hydrates the islands present on the page.
  */
-export function createPrachtIslandsClientModuleSource(options: PrachtPluginOptions = {}): string {
+export function createPrachtIslandsClientModuleSource(
+  options: PrachtPluginOptions = {},
+  buildOptions: { root?: string } = {},
+): string {
   const resolved = resolveOptions(options);
   const islandsGlob = `${resolved.islandsDir}/**/*.{ts,tsx,js,jsx}`;
 
@@ -238,6 +245,9 @@ export function createPrachtIslandsClientModuleSource(options: PrachtPluginOptio
     "",
     "hydrateIslands({ modules: islandModules });",
     "",
+    // Islands pages skip the full client runtime, so the bootstrap pulls in
+    // the WebMCP shim itself when a capability opts in.
+    ...(hasWebmcpCapabilities(resolved, buildOptions.root) ? createWebmcpBootstrapSource() : []),
   ].join("\n");
 }
 
@@ -383,6 +393,7 @@ export function createPrachtRegistryModuleSource(options: PrachtPluginOptions = 
     `export const middlewareModules = import.meta.glob(${JSON.stringify(`${resolved.middlewareDir}/**/*.{ts,tsx,js,jsx}`)});`,
     `export const apiModules = import.meta.glob(${JSON.stringify(`${resolved.apiDir}/**/*.{ts,js,tsx,jsx}`)});`,
     `export const dataModules = import.meta.glob(${JSON.stringify(`${resolved.serverDir}/**/*.{ts,js,tsx,jsx}`)});`,
+    `export const capabilityModules = import.meta.glob(${JSON.stringify(`${resolved.capabilitiesDir}/**/*.{ts,js,tsx,jsx}`)});`,
     "",
     "export const registry = {",
     "  routeModules,",
@@ -390,6 +401,7 @@ export function createPrachtRegistryModuleSource(options: PrachtPluginOptions = 
     "  middlewareModules,",
     "  apiModules,",
     "  dataModules,",
+    "  capabilityModules,",
     "};",
   ].join("\n");
 }

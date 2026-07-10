@@ -49,6 +49,16 @@ export function createPrachtMcpServer(): McpServer {
   );
 
   server.registerTool(
+    "inspect_capabilities",
+    {
+      description:
+        "Inspect the registered capabilities of a pracht app: name, effect class, exposure transports (http/mcp/webmcp), HTTP path, middleware, source file. Same payload as `pracht inspect capabilities --json`.",
+      inputSchema: { ...cwdInput },
+    },
+    guard(({ cwd }) => runInspect(resolveCwd(cwd), { target: "capabilities" })),
+  );
+
+  server.registerTool(
     "inspect_build",
     {
       description:

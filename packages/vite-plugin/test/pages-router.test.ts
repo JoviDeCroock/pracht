@@ -187,6 +187,7 @@ describe("pracht plugin config", () => {
       "src/api/**/*.{ts,js,tsx,jsx}",
       "src/server/**/*.{ts,js,tsx,jsx}",
       "src/islands/**/*.{ts,tsx,js,jsx}",
+      "src/capabilities/**/*.{ts,js,tsx,jsx}",
     ];
 
     expect(result.optimizeDeps?.entries).toEqual(["custom-entry.ts", ...expectedPrachtEntries]);

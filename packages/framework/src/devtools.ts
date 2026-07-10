@@ -13,10 +13,12 @@ export {
   detectApiMethods,
   serializeApiRoutes,
   serializeAppRoutes,
+  serializeCapabilities,
 } from "./app-graph.ts";
 export type {
   AppGraph,
   AppGraphApiRoute,
+  AppGraphCapability,
   AppGraphModuleAccess,
   AppGraphRoute,
 } from "./app-graph.ts";
@@ -46,6 +48,32 @@ export function buildDevtoolsHtml(graph: AppGraph): string {
       </tr>`,
     )
     .join("\n");
+
+  const capabilityRows = (graph.capabilities ?? [])
+    .map(
+      (capability) => `<tr>
+        <td>${escapeHtml(capability.name)}</td>
+        <td>${escapeHtml(capability.effect ?? "—")}</td>
+        <td>${escapeHtml(capability.transports.length > 0 ? capability.transports.join(", ") : "private")}</td>
+        <td>${escapeHtml(capability.httpPath ?? "—")}</td>
+        <td>${escapeHtml(capability.middleware.length > 0 ? capability.middleware.join(" → ") : "—")}</td>
+        <td class="file">${escapeHtml(capability.source)}</td>
+      </tr>`,
+    )
+    .join("\n");
+
+  // Only rendered when the app registers capabilities — the devtools page is
+  // byte-for-byte unchanged for apps that don't use them.
+  const capabilitiesSection =
+    (graph.capabilities ?? []).length > 0
+      ? `<h2>Capabilities</h2>
+    <table>
+      <thead><tr><th>Name</th><th>Effect</th><th>Transports</th><th>HTTP path</th><th>Middleware</th><th>Source</th></tr></thead>
+      <tbody>
+${capabilityRows}
+      </tbody>
+    </table>`
+      : "";
 
   const apiSection =
     graph.api.length > 0
@@ -162,6 +190,7 @@ ${routeRows}
       </tbody>
     </table>
     ${apiSection}
+    ${capabilitiesSection}
     <div class="hint">
       Raw JSON at <a href="${DEVTOOLS_JSON_PATH}">${DEVTOOLS_JSON_PATH}</a> ·
       same data as <code>pracht inspect --json</code> ·

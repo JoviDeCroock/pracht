@@ -282,6 +282,14 @@ export type RouteTreeNode = RouteDefinition | GroupDefinition;
 export interface PrachtAppConfig {
   shells?: Record<string, ModuleRef>;
   middleware?: Record<string, ModuleRef>;
+  /**
+   * Named capabilities defined with `defineCapability()` from
+   * `@pracht/capabilities`, registered like shells and middleware:
+   * `{ "notes.search": () => import("./capabilities/notes-search.ts") }`.
+   * Capability modules are server-only and private by default — a capability
+   * without an `expose` config is only callable via `invokeCapability()`.
+   */
+  capabilities?: Record<string, ModuleRef>;
   api?: ApiConfig;
   routes: RouteTreeNode[];
   /**
@@ -296,6 +304,7 @@ export interface PrachtAppConfig {
 export interface PrachtApp {
   shells: Record<string, string>;
   middleware: Record<string, string>;
+  capabilities: Record<string, string>;
   api: ApiConfig;
   routes: RouteTreeNode[];
   viewTransitions?: boolean;
@@ -469,7 +478,75 @@ export interface ModuleRegistry {
   middlewareModules?: Record<string, ModuleImporter<MiddlewareModule>>;
   apiModules?: Record<string, ModuleImporter<ApiRouteModule>>;
   dataModules?: Record<string, ModuleImporter<DataModule>>;
+  capabilityModules?: Record<string, ModuleImporter<CapabilityModule>>;
 }
+
+// ---------------------------------------------------------------------------
+// Capabilities
+//
+// The framework executes capabilities through this structural contract so
+// `@pracht/core` never has to depend on the optional `@pracht/capabilities`
+// package. `defineCapability()` returns objects satisfying `PrachtCapability`.
+// ---------------------------------------------------------------------------
+
+export type CapabilityEffect = "read" | "write" | "destructive";
+
+export interface CapabilityIssue {
+  path: string;
+  message: string;
+}
+
+export type CapabilityValidationResult =
+  | { ok: true; value: unknown }
+  | { ok: false; issues: CapabilityIssue[] };
+
+export interface CapabilityHttpExposure {
+  method: "POST";
+  path?: string;
+}
+
+export interface CapabilityExposure {
+  http: CapabilityHttpExposure | null;
+  mcp: boolean;
+  webmcp: boolean;
+}
+
+export interface CapabilityRunArgs<TContext = RegisteredContext> {
+  input: unknown;
+  context: TContext;
+  request: Request;
+  signal: AbortSignal;
+}
+
+export interface PrachtCapability<TContext = any> {
+  kind: "capability";
+  title: string;
+  description: string;
+  input: Record<string, unknown>;
+  output: Record<string, unknown>;
+  effect: CapabilityEffect;
+  middleware: string[];
+  expose: CapabilityExposure | null;
+  run: (args: CapabilityRunArgs<TContext>) => MaybePromise<unknown>;
+  /** Applies input defaults and validates against the input schema. */
+  validateInput: (value: unknown) => CapabilityValidationResult;
+  validateOutput: (value: unknown) => CapabilityValidationResult;
+}
+
+export interface CapabilityModule<TContext = any> {
+  default: PrachtCapability<TContext>;
+}
+
+export interface CapabilityErrorPayload {
+  code: string;
+  message: string;
+  issues?: CapabilityIssue[];
+}
+
+/** Result/error envelope shared by HTTP, WebMCP, and `invokeCapability()`. */
+export type CapabilityEnvelope<T = unknown> =
+  | { ok: true; data: T }
+  | { ok: false; error: CapabilityErrorPayload };
 
 export class PrachtHttpError extends Error {
   readonly status: number;
