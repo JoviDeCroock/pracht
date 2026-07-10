@@ -6,8 +6,8 @@ prev:
   href: /docs/agent-workflow
   title: AI-Assisted Authoring & Review
 next:
-  href: /docs/recipes/i18n
-  title: i18n
+  href: /docs/capabilities
+  title: Capabilities
 ---
 
 ## What Ships

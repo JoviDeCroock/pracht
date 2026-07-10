@@ -25,6 +25,7 @@ import {
   IconSparkles,
   IconPresentationAnalytics,
   IconActivity,
+  IconShieldCheck,
 } from "@tabler/icons-preact";
 import "../styles/global.css";
 
@@ -64,9 +65,16 @@ const NAV = [
     links: [
       { href: "/docs/prefetching", Icon: IconBolt, title: "Prefetching" },
       { href: "/docs/performance", Icon: IconGauge, title: "Performance" },
+    ],
+  },
+  {
+    label: "Agents",
+    links: [
       { href: "/docs/llms", Icon: IconSparkles, title: "LLM Content" },
       { href: "/docs/agent-workflow", Icon: IconRobot, title: "Agent Workflow" },
       { href: "/docs/agent-skills", Icon: IconSparkles, title: "Agent Skills" },
+      { href: "/docs/capabilities", Icon: IconRobot, title: "Capabilities" },
+      { href: "/docs/agent-trust", Icon: IconShieldCheck, title: "Agent Trust" },
     ],
   },
   {

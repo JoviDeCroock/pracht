@@ -71,7 +71,18 @@ This makes the feature safe to enable on public pages: humans get the polished a
 
 ## Discovery with llms.txt
 
-Content negotiation is paired with two discovery files in this example app:
+pracht can generate `/llms.txt` for you: the vite plugin's `llmsTxt` option emits the file from the resolved app graph — every page URL, every API endpoint with its methods, and every HTTP-exposed [capability](/docs/capabilities) with its dispatch endpoint, effect class, and description. Routes with a `markdown` export are annotated with `` supports `Accept: text/markdown` ``.
+
+```ts [vite.config.ts]
+pracht({
+  adapter: nodeAdapter(),
+  llmsTxt: { origin: "https://example.com" }, // title/description default to package.json
+});
+```
+
+`pracht build` writes `dist/client/llms.txt` and the dev server serves it live at `/llms.txt`.
+
+This docs site needs curated sections and an `llms-full.txt` bundle with inlined page content, so it uses a custom frontmatter-driven plugin instead:
 
 - `/llms.txt` — a concise map of the docs with titles, descriptions, and canonical URLs.
 - `/llms-full.txt` — a single Markdown bundle with the full source of every listed page.

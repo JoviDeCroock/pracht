@@ -3,7 +3,7 @@ import type { PreactSsrPrecompileOptions } from "@pracht/preact-ssr-precompile";
 import type { EnvSafetyOptions } from "./env-safety.ts";
 import { createDefaultNodeAdapter, type PrachtAdapter } from "./plugin-adapter.ts";
 
-export type LlmsTxtSection = "pages" | "api";
+export type LlmsTxtSection = "pages" | "api" | "capabilities";
 
 export interface PrachtLlmsTxtOptions {
   /** H1 title. Defaults to the app's package.json `name`. */
@@ -18,7 +18,7 @@ export interface PrachtLlmsTxtOptions {
    * contains absolute URLs. Links stay root-relative when omitted.
    */
   origin?: string;
-  /** Sections to emit. Defaults to ["pages", "api"]. */
+  /** Sections to emit. Defaults to ["pages", "api", "capabilities"]. */
   include?: LlmsTxtSection[];
 }
 
@@ -114,7 +114,7 @@ export function resolveOptions(options: PrachtPluginOptions): ResolvedPrachtPlug
   return resolved;
 }
 
-const LLMS_TXT_SECTIONS = new Set<LlmsTxtSection>(["pages", "api"]);
+const LLMS_TXT_SECTIONS = new Set<LlmsTxtSection>(["pages", "api", "capabilities"]);
 
 function validateLlmsTxt(llmsTxt: false | PrachtLlmsTxtOptions): void {
   if (llmsTxt === false) return;
@@ -127,7 +127,7 @@ function validateLlmsTxt(llmsTxt: false | PrachtLlmsTxtOptions): void {
       llmsTxt.include.every((section) => LLMS_TXT_SECTIONS.has(section));
     if (!isValid) {
       throw new Error(
-        `pracht({ llmsTxt: { include } }) expects an array of "pages" and/or "api", got ${JSON.stringify(llmsTxt.include)}.`,
+        `pracht({ llmsTxt: { include } }) expects an array of "pages", "api", and/or "capabilities", got ${JSON.stringify(llmsTxt.include)}.`,
       );
     }
   }

@@ -136,6 +136,10 @@ from `@pracht/capabilities`:
 - Agent trust layer: Web Bot Auth (RFC 9421) verified agent identity as
   `context.agent` with observe/require policies, capability audit events,
   and a `pracht eval` harness for scripted agent-task checks.
+- Discovery: the opt-in `llmsTxt` plugin option emits an
+  [llms.txt](https://llmstxt.org) index from the app graph — pages, API
+  endpoints, and HTTP-exposed capabilities
+  ([docs/LLMS_TXT.md](docs/LLMS_TXT.md)).
 - See [docs/CAPABILITIES.md](docs/CAPABILITIES.md) and
   [docs/AGENT_TRUST.md](docs/AGENT_TRUST.md).
 
