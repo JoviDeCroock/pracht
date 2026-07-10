@@ -42,6 +42,7 @@ import {
   setActiveCapabilityHost,
   type ResolvedCapability,
 } from "./runtime-capabilities.ts";
+import { verifyAgentSignature } from "./runtime-agent-auth.ts";
 import { buildRouteStateUrl } from "./runtime-client-fetch.ts";
 import {
   getRenderToStringAsync,
@@ -57,9 +58,11 @@ import type {
   ApiRouteArgs,
   ApiRouteModule,
   BaseRouteArgs,
+  CapabilityAuditHook,
   HttpMethod,
   ModuleRegistry,
   HrefRouteDefinition,
+  PrachtAgentIdentity,
   PrachtApp,
   ResolvedApiRoute,
   ResolvedPrachtApp,
@@ -185,6 +188,13 @@ export interface HandlePrachtRequestOptions<TContext = unknown> {
    * `Server-Timing` header. Leave unset in production — no timing work runs.
    */
   timings?: PrachtPhaseTimings;
+  /**
+   * Structured audit callback invoked for every capability dispatch
+   * (principal/agent, capability, effect, outcome, duration). Custom server
+   * entries can pass it here; application code can alternatively register a
+   * hook via `setCapabilityAuditHook()` from any server-only module.
+   */
+  onCapabilityAudit?: CapabilityAuditHook;
 }
 
 export async function handlePrachtRequest<TContext>(
@@ -216,6 +226,21 @@ export async function handlePrachtRequest<TContext>(
   // for apps without capabilities.
   setActiveCapabilityHost(options.app, registry);
 
+  // Web Bot Auth: verify the agent signature once per request when the app
+  // opted in via `defineApp({ agents: { webBotAuth } })`. The result (identity
+  // or null) lands on the shared request context before middleware, loaders,
+  // API routes, or capabilities run. Apps without the config skip everything —
+  // a single property check.
+  const requestContext = (options.context ?? {}) as TContext;
+  const webBotAuth = options.app.agents?.webBotAuth;
+  let agent: PrachtAgentIdentity | null = null;
+  if (webBotAuth) {
+    if (options.request.headers.has("signature-input")) {
+      agent = await verifyAgentSignature(options.request, webBotAuth);
+    }
+    (requestContext as { agent?: PrachtAgentIdentity | null }).agent = agent;
+  }
+
   if (options.apiRoutes?.length) {
     const apiMatch = matchApiRoute(options.apiRoutes, url.pathname);
     if (apiMatch) {
@@ -240,7 +265,7 @@ export async function handlePrachtRequest<TContext>(
       }
 
       const requestSignal = AbortSignal.timeout(30_000);
-      const apiContext = (options.context ?? {}) as TContext;
+      const apiContext = requestContext;
 
       const apiTerminal = async (): Promise<Response> => {
         currentPhase = "api";
@@ -348,11 +373,14 @@ export async function handlePrachtRequest<TContext>(
 
         const capabilityResponse = await handleCapabilityRequest({
           match: capabilityMatch,
-          context: (options.context ?? {}) as TContext,
+          context: requestContext,
           registry,
           request: options.request,
           url,
           exposeErrors: exposeDiagnostics,
+          agents: options.app.agents,
+          agent,
+          onAudit: options.onCapabilityAudit,
         });
         return withDefaultSecurityHeaders(capabilityResponse);
       }
@@ -428,7 +456,7 @@ export async function handlePrachtRequest<TContext>(
   }
 
   const requestSignal = AbortSignal.timeout(30_000);
-  const pageContext = (options.context ?? {}) as TContext;
+  const pageContext = requestContext;
   const routeArgs: BaseRouteArgs<TContext> = {
     request: options.request,
     params: match.params,

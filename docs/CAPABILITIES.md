@@ -100,10 +100,13 @@ so humans and agents can pinpoint what to fix.
 ### Effects
 
 Every capability declares one of `read`, `write`, or `destructive`.
-Destructive capabilities (delete, publish, pay, send, change access) **cannot
-be exposed at all yet** — the server-verified confirmation layer ships
-separately. `defineCapability()`, the runtime registry, and `pracht verify`
-all enforce this.
+Destructive capabilities (delete, publish, pay, send, change access) may be
+exposed over HTTP only, and every dispatch is gated by a server-verified
+prepare/commit confirmation flow that requires `PRACHT_CONFIRMATION_SECRET`
+to be configured — see [AGENT_TRUST.md](AGENT_TRUST.md). Exposing them to
+agent projections (`expose.webmcp`/`expose.mcp`) stays disallowed:
+`defineCapability()`, the runtime registry, and `pracht verify` all enforce
+this.
 
 ## Invocation
 
@@ -203,8 +206,13 @@ analyzed statically.
 - **Exposure requires a complete contract** — `pracht verify` fails for
   exposed capabilities missing a description, input schema, output schema, or
   effect classification.
-- **`destructive` + `expose` is an error** — destructive capabilities cannot
-  be exposed yet; the trust layer ships separately.
+- **`destructive` is confirmation-gated** — HTTP exposure requires the
+  prepare/commit confirmation flow (and its secret); `webmcp`/`mcp` exposure
+  is an error. See [AGENT_TRUST.md](AGENT_TRUST.md).
+- **Verified agent identity and policy** — Web Bot Auth (RFC 9421) puts
+  `context.agent` on every request when enabled; capability endpoints can
+  `agentPolicy: "require"` verified agents, and every dispatch emits an
+  audit event. See [AGENT_TRUST.md](AGENT_TRUST.md).
 - **Output is validated** — a handler returning data outside its output
   schema produces a redacted 500, never the raw value.
 - **Same-origin enforcement** — cross-origin browser POSTs are rejected by
@@ -224,13 +232,20 @@ The capability graph feeds every existing inspection surface:
 - the `pracht mcp` server exposes an `inspect_capabilities` tool;
 - `pracht verify` runs the static contract checks described above.
 
+## Testing agent flows
+
+`pracht eval` runs scripted scenarios (search → validation failure →
+confirmation flow) against the capability HTTP projection and exits 1 on any
+failed expectation — see [AGENT_TRUST.md](AGENT_TRUST.md#pracht-eval-scripted-agent-task-scenarios)
+and `examples/basic/evals/notes.eval.json`.
+
 ## Not built yet
 
 - Remote MCP projection (`/mcp` Streamable HTTP endpoint) and `expose.mcp`
   (accepted and recorded in the graph, but nothing serves it yet).
 - MCP Apps UI (`ui` option) — `hasUi` is always `false` in the graph.
-- Confirmation tokens / prepare-commit flows for destructive capabilities
-  (and therefore any exposure of `destructive` effects).
+- Destructive capabilities over WebMCP/MCP (HTTP-only, confirmation-gated —
+  see [AGENT_TRUST.md](AGENT_TRUST.md)).
 - Generated TypeScript types from schemas (`pracht typegen` integration) and
   capability scaffolding (`pracht generate capability`).
 - Pages-router support.

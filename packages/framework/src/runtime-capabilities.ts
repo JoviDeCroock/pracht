@@ -13,13 +13,27 @@
  */
 
 import { formatUnknownNameError } from "./name-suggestions.ts";
+import {
+  canonicalJson,
+  CONFIRMATION_HEADER,
+  CONFIRMATION_SECRET_ENV,
+  consumeConfirmationToken,
+  createConfirmationToken,
+  DEFAULT_CONFIRMATION_TTL_SECONDS,
+  resolveConfirmationSecret,
+  verifyConfirmationToken,
+} from "./runtime-confirmation.ts";
 import { resolveRegistryModule } from "./runtime-manifest.ts";
 import { runMiddlewareChain } from "./runtime-middleware.ts";
 import type {
+  CapabilityAuditEvent,
+  CapabilityAuditHook,
   CapabilityEnvelope,
   CapabilityErrorPayload,
   CapabilityModule,
   ModuleRegistry,
+  PrachtAgentIdentity,
+  PrachtAgentsConfig,
   PrachtApp,
   PrachtCapability,
   ResolvedApiRoute,
@@ -93,10 +107,15 @@ async function resolveAppCapabilitiesUncached(
 
     // `defineCapability()` already refuses these; re-check here so a
     // hand-rolled capability object fails closed before it can be served.
-    if (capability.effect === "destructive" && capability.expose) {
+    // Destructive + HTTP is allowed (the prepare/commit confirmation flow
+    // gates every dispatch); agent-initiated projections stay disallowed in v1.
+    if (
+      capability.effect === "destructive" &&
+      (capability.expose?.webmcp || capability.expose?.mcp)
+    ) {
       throw new Error(
-        `Capability "${name}": destructive capabilities cannot be exposed yet; ` +
-          "the trust layer ships separately.",
+        `Capability "${name}": destructive capabilities cannot be exposed to agent ` +
+          "projections (webmcp/mcp) yet — only expose.http with the confirmation flow.",
       );
     }
     if (capability.expose?.webmcp && !capability.expose.http) {
@@ -270,26 +289,104 @@ async function runCapabilityPipeline<TContext>(
   return { kind: "short-circuit", response };
 }
 
-/**
- * Handle a matched capability HTTP request. Method/CSRF checks already ran in
- * `handlePrachtRequest`. Always answers with the typed envelope, except for
- * middleware redirects (3xx pass through untouched).
- */
-export async function handleCapabilityRequest<TContext>(options: {
+// ---------------------------------------------------------------------------
+// Audit trail
+// ---------------------------------------------------------------------------
+
+// Module-level hook so server-only application code (middleware modules,
+// capability modules, custom server entries) can subscribe without a way to
+// pass functions through the serializable app manifest. Same registration
+// style as `setActiveCapabilityHost`/`setIslandsClientEntryUrl`.
+let capabilityAuditHook: CapabilityAuditHook | null = null;
+
+export function setCapabilityAuditHook(hook: CapabilityAuditHook | null): void {
+  capabilityAuditHook = hook;
+}
+
+/** Audit hooks observe; they must never break a request. */
+function emitCapabilityAudit(event: CapabilityAuditEvent, extra?: CapabilityAuditHook): void {
+  for (const hook of [capabilityAuditHook, extra]) {
+    if (!hook) continue;
+    try {
+      hook(event);
+    } catch {
+      // Deliberately swallowed.
+    }
+  }
+}
+
+export interface HandleCapabilityRequestOptions<TContext> {
   match: ResolvedCapability;
   context: TContext;
   registry: ModuleRegistry;
   request: Request;
   url: URL;
   exposeErrors: boolean;
-}): Promise<Response> {
+  /** App-level agent trust config (`defineApp({ agents })`). */
+  agents?: PrachtAgentsConfig;
+  /** Verified agent identity for this request, `null` when unsigned/unverified. */
+  agent?: PrachtAgentIdentity | null;
+  onAudit?: CapabilityAuditHook;
+}
+
+/**
+ * Handle a matched capability HTTP request. Method/CSRF checks already ran in
+ * `handlePrachtRequest`. Always answers with the typed envelope, except for
+ * middleware redirects (3xx pass through untouched). Emits one audit event
+ * per dispatch (principal, capability, effect, outcome, duration).
+ */
+export async function handleCapabilityRequest<TContext>(
+  options: HandleCapabilityRequestOptions<TContext>,
+): Promise<Response> {
+  const started = performance.now();
+  const { response, outcome } = await dispatchCapabilityHttp(options);
+  emitCapabilityAudit(
+    {
+      capability: options.match.name,
+      effect: options.match.capability.effect,
+      transport: "http",
+      outcome,
+      status: response.status,
+      durationMs: performance.now() - started,
+      agent: options.agent ?? null,
+    },
+    options.onAudit,
+  );
+  return response;
+}
+
+async function dispatchCapabilityHttp<TContext>(
+  options: HandleCapabilityRequestOptions<TContext>,
+): Promise<{ response: Response; outcome: string }> {
+  const { capability, name } = options.match;
+
   if (options.request.method.toUpperCase() !== "POST") {
-    return envelopeResponse(
-      405,
-      errorEnvelope({
-        code: "method_not_allowed",
-        message: `Capability "${options.match.name}" only accepts POST.`,
-      }),
+    return audited(
+      envelopeResponse(
+        405,
+        errorEnvelope({
+          code: "method_not_allowed",
+          message: `Capability "${name}" only accepts POST.`,
+        }),
+      ),
+      "method_not_allowed",
+    );
+  }
+
+  // Web Bot Auth policy: per-capability override, then the app default.
+  // "require" without a verified agent fails closed with the 401 envelope —
+  // including when webBotAuth is not configured at all.
+  const policy = capability.agentPolicy ?? options.agents?.webBotAuth?.policy ?? "observe";
+  if (policy === "require" && !options.agent) {
+    return audited(
+      envelopeResponse(
+        401,
+        errorEnvelope({
+          code: "agent_required",
+          message: `Capability "${name}" requires a verified agent signature (Web Bot Auth).`,
+        }),
+      ),
+      "agent_required",
     );
   }
 
@@ -300,13 +397,28 @@ export async function handleCapabilityRequest<TContext>(options: {
       input = JSON.parse(body);
     }
   } catch {
-    return envelopeResponse(
-      400,
-      errorEnvelope({ code: "invalid_json", message: "Request body must be valid JSON." }),
+    return audited(
+      envelopeResponse(
+        400,
+        errorEnvelope({ code: "invalid_json", message: "Request body must be valid JSON." }),
+      ),
+      "invalid_json",
     );
   }
 
   try {
+    // Destructive capabilities never run on the first call: the prepare/commit
+    // confirmation gate answers before the pipeline unless a valid token for
+    // this exact principal + input is presented. Invalid input skips the gate
+    // so the pipeline can produce its usual 400 with issues.
+    if (capability.effect === "destructive") {
+      const validated = capability.validateInput(input);
+      if (validated.ok) {
+        const gate = await enforceDestructiveConfirmation(options, validated.value);
+        if (gate) return gate;
+      }
+    }
+
     const outcome = await runCapabilityPipeline({
       resolved: options.match,
       input,
@@ -319,20 +431,120 @@ export async function handleCapabilityRequest<TContext>(options: {
     });
 
     if (outcome.kind === "envelope") {
-      return outcome.response;
+      return audited(outcome.response, envelopeOutcome(outcome.envelope));
     }
-    return normalizeMiddlewareShortCircuit(outcome.response);
+    const normalized = normalizeMiddlewareShortCircuit(outcome.response);
+    return audited(normalized, `middleware_${normalized.status}`);
   } catch (error: unknown) {
-    return envelopeResponse(
-      500,
-      errorEnvelope({
-        code: "internal_error",
-        message: options.exposeErrors
-          ? `Capability "${options.match.name}" failed: ${error instanceof Error ? error.message : String(error)}`
-          : "Capability failed.",
-      }),
+    return audited(
+      envelopeResponse(
+        500,
+        errorEnvelope({
+          code: "internal_error",
+          message: options.exposeErrors
+            ? `Capability "${name}" failed: ${error instanceof Error ? error.message : String(error)}`
+            : "Capability failed.",
+        }),
+      ),
+      "internal_error",
     );
   }
+}
+
+function audited(response: Response, outcome: string): { response: Response; outcome: string } {
+  return { response, outcome };
+}
+
+function envelopeOutcome(envelope: CapabilityEnvelope): string {
+  return envelope.ok ? "ok" : envelope.error.code;
+}
+
+/**
+ * Prepare/commit gate for destructive capability HTTP calls. Returns the
+ * response ending the request, or `null` when a valid confirmation token was
+ * presented and the capability may run. See runtime-confirmation.ts for the
+ * token construction and its documented replay limitations.
+ */
+async function enforceDestructiveConfirmation<TContext>(
+  options: HandleCapabilityRequestOptions<TContext>,
+  validatedInput: unknown,
+): Promise<{ response: Response; outcome: string } | null> {
+  const secret = resolveConfirmationSecret();
+  if (!secret) {
+    // Exposed destructive capability without a configured secret: fail closed.
+    // `pracht verify` reports this at build time too.
+    return audited(
+      envelopeResponse(
+        403,
+        errorEnvelope({
+          code: "confirmation_unavailable",
+          message:
+            `Destructive capability "${options.match.name}" cannot run: no confirmation ` +
+            `secret is configured (set ${CONFIRMATION_SECRET_ENV}).`,
+        }),
+      ),
+      "confirmation_unavailable",
+    );
+  }
+
+  const binding = {
+    secret,
+    principal: options.agent ? `agent:${options.agent.keyId}` : "anonymous",
+    capability: options.match.name,
+    canonicalInput: canonicalJson(validatedInput),
+  };
+  const presented = options.request.headers.get(CONFIRMATION_HEADER);
+
+  if (!presented) {
+    const ttlSeconds = options.agents?.confirmation?.ttlSeconds ?? DEFAULT_CONFIRMATION_TTL_SECONDS;
+    const { token, expiresAt } = await createConfirmationToken({ ...binding, ttlSeconds });
+    return audited(
+      envelopeResponse(
+        409,
+        errorEnvelope({
+          code: "confirmation_required",
+          message:
+            `Capability "${options.match.name}" is destructive. Repeat the call with ` +
+            `identical input and the "${CONFIRMATION_HEADER}" header set to the confirmation token.`,
+          confirmationToken: token,
+          expiresAt,
+        }),
+      ),
+      "confirmation_required",
+    );
+  }
+
+  const verification = await verifyConfirmationToken(presented, binding);
+  if (!verification.ok) {
+    return audited(
+      envelopeResponse(
+        403,
+        errorEnvelope({
+          code: "confirmation_invalid",
+          message: `Confirmation token rejected (${verification.reason}).`,
+        }),
+      ),
+      "confirmation_invalid",
+    );
+  }
+
+  if (
+    options.agents?.confirmation?.singleUse &&
+    !consumeConfirmationToken(verification.signature, verification.expiresAt)
+  ) {
+    return audited(
+      envelopeResponse(
+        403,
+        errorEnvelope({
+          code: "confirmation_invalid",
+          message: "Confirmation token rejected (already_used).",
+        }),
+      ),
+      "confirmation_invalid",
+    );
+  }
+
+  return null;
 }
 
 /**
@@ -425,10 +637,12 @@ export async function invokeCapability<T = unknown>(
     }) as CapabilityEnvelope<T>;
   }
 
+  const started = performance.now();
+  const context = ctx.context ?? {};
   const outcome = await runCapabilityPipeline({
     resolved,
     input,
-    context: ctx.context ?? {},
+    context,
     registry: host.registry,
     request: ctx.request,
     signal: ctx.signal ?? AbortSignal.timeout(CAPABILITY_TIMEOUT_MS),
@@ -437,11 +651,27 @@ export async function invokeCapability<T = unknown>(
     exposeErrors: true,
   });
 
+  // Direct invocation audits like HTTP dispatch does, marked as the "server"
+  // transport. The agent identity travels on the request context when Web
+  // Bot Auth is enabled.
+  const agent = (context as { agent?: PrachtAgentIdentity | null }).agent ?? null;
+  const status = outcome.kind === "envelope" ? outcome.status : outcome.response.status;
+  const auditOutcome =
+    outcome.kind === "envelope" ? envelopeOutcome(outcome.envelope) : `middleware_${status}`;
+  emitCapabilityAudit({
+    capability: name,
+    effect: resolved.capability.effect,
+    transport: "server",
+    outcome: auditOutcome,
+    status,
+    durationMs: performance.now() - started,
+    agent,
+  });
+
   if (outcome.kind === "envelope") {
     return outcome.envelope as CapabilityEnvelope<T>;
   }
 
-  const status = outcome.response.status;
   const code =
     status === 401
       ? "unauthorized"

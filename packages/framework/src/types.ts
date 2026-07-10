@@ -516,6 +516,101 @@ export interface GroupDefinition {
 
 export type RouteTreeNode = RouteDefinition | GroupDefinition;
 
+// ---------------------------------------------------------------------------
+// Agent trust layer (Web Bot Auth + destructive-capability confirmation)
+//
+// Everything in `agents` is plain serializable data — the app manifest is
+// bundled into the client too, so no secrets and no functions belong here.
+// Web Bot Auth keys are *public* Ed25519 keys; the confirmation secret comes
+// from the environment (PRACHT_CONFIRMATION_SECRET) or
+// `setCapabilityConfirmationSecret()`, never from the manifest.
+// ---------------------------------------------------------------------------
+
+export type AgentPolicyMode = "observe" | "require";
+
+/** A statically configured agent verification key (public Ed25519 JWK material). */
+export interface WebBotAuthStaticKey {
+  /** Base64url raw Ed25519 public key — the JWK `x` member. */
+  x: string;
+  /**
+   * Key id the agent sends as `keyid`. Defaults to the RFC 8037 JWK SHA-256
+   * thumbprint computed from `x`, which is what Web Bot Auth agents send.
+   */
+  kid?: string;
+  /** Label reported as `agentDomain` when the request has no Signature-Agent header. */
+  agent?: string;
+}
+
+export interface WebBotAuthConfig {
+  /**
+   * App-wide default policy for capability HTTP endpoints.
+   * - `"observe"` (default): verify and surface `context.agent`, serve everyone.
+   * - `"require"`: unsigned/unverified requests to capability HTTP endpoints
+   *   get a 401 envelope. Individual capabilities can override via `agentPolicy`.
+   */
+  policy?: AgentPolicyMode;
+  /** Statically trusted keys (tests, air-gapped deploys, pinned agents). */
+  keys?: WebBotAuthStaticKey[];
+  /**
+   * Origins (e.g. `"https://signature-agent.example"`) whose
+   * `/.well-known/http-message-signatures-directory` may be fetched to
+   * resolve unknown key ids. Fetching is allowlist-only: an unlisted
+   * Signature-Agent fails verification instead of triggering a fetch
+   * (fail closed, no SSRF surface).
+   */
+  directories?: string[];
+  /** Allowed clock skew when checking `created`/`expires`, seconds. Default 60. */
+  clockSkewSeconds?: number;
+  /** Maximum accepted signature lifetime (`expires - created`), seconds. Default 86400 (24h, per draft guidance). */
+  maxLifetimeSeconds?: number;
+  /** In-memory TTL for fetched key directories, seconds. Default 300. */
+  directoryCacheTtlSeconds?: number;
+}
+
+export interface CapabilityConfirmationConfig {
+  /** Confirmation token TTL, seconds. Default 120. */
+  ttlSeconds?: number;
+  /**
+   * Best-effort single-use enforcement via an in-memory, per-instance cache.
+   * Stateless HMAC tokens cannot prevent replay across instances or
+   * restarts — see docs/AGENT_TRUST.md for the honest limitations.
+   */
+  singleUse?: boolean;
+}
+
+export interface PrachtAgentsConfig {
+  /** Verify RFC 9421 / Web Bot Auth agent signatures and surface `context.agent`. */
+  webBotAuth?: WebBotAuthConfig;
+  /** Prepare/commit confirmation flow options for destructive capabilities. */
+  confirmation?: CapabilityConfirmationConfig;
+}
+
+/** Verified agent identity surfaced as `context.agent` when Web Bot Auth is enabled. */
+export interface PrachtAgentIdentity {
+  verified: true;
+  /** Host of the agent's Signature-Agent directory URL (or the static key's `agent` label). */
+  agentDomain: string | null;
+  /** The `keyid` signature parameter (base64url JWK thumbprint). */
+  keyId: string;
+}
+
+/** Structured audit event emitted for every capability dispatch. */
+export interface CapabilityAuditEvent {
+  capability: string;
+  effect: CapabilityEffect;
+  /** How the capability was invoked. */
+  transport: "http" | "server";
+  /** `"ok"` or the envelope error code (e.g. `"invalid_input"`, `"confirmation_required"`). */
+  outcome: string;
+  /** HTTP status the envelope maps to (also set for server-side invocation). */
+  status: number;
+  durationMs: number;
+  /** Verified agent identity, `null` when unsigned/unverified or Web Bot Auth is off. */
+  agent: PrachtAgentIdentity | null;
+}
+
+export type CapabilityAuditHook = (event: CapabilityAuditEvent) => void;
+
 export interface PrachtAppConfig {
   shells?: Record<string, ModuleRef>;
   middleware?: Record<string, ModuleRef>;
@@ -527,6 +622,11 @@ export interface PrachtAppConfig {
    * without an `expose` config is only callable via `invokeCapability()`.
    */
   capabilities?: Record<string, ModuleRef>;
+  /**
+   * Agent trust configuration: Web Bot Auth verification policy/keys and the
+   * destructive-capability confirmation flow. Serializable data only.
+   */
+  agents?: PrachtAgentsConfig;
   api?: ApiConfig;
   routes: RouteTreeNode[];
   /**
@@ -548,6 +648,7 @@ export interface PrachtApp {
   shells: Record<string, string>;
   middleware: Record<string, string>;
   capabilities: Record<string, string>;
+  agents?: PrachtAgentsConfig;
   api: ApiConfig;
   routes: RouteTreeNode[];
   constraints?: RouteConstraint[];
@@ -771,6 +872,8 @@ export interface PrachtCapability<TContext = any> {
   effect: CapabilityEffect;
   middleware: string[];
   expose: CapabilityExposure | null;
+  /** Per-capability Web Bot Auth policy override; inherits the app default when unset. */
+  agentPolicy?: "observe" | "require";
   run: (args: CapabilityRunArgs<TContext>) => MaybePromise<unknown>;
   /** Applies input defaults and validates against the input schema. */
   validateInput: (value: unknown) => CapabilityValidationResult;
@@ -785,6 +888,10 @@ export interface CapabilityErrorPayload {
   code: string;
   message: string;
   issues?: CapabilityIssue[];
+  /** Present on `confirmation_required` errors: pass it back via `x-pracht-confirm`. */
+  confirmationToken?: string;
+  /** Unix seconds when `confirmationToken` expires. */
+  expiresAt?: number;
 }
 
 /** Result/error envelope shared by HTTP, WebMCP, and `invokeCapability()`. */

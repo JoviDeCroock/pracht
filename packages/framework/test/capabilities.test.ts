@@ -138,12 +138,22 @@ describe("resolveAppCapabilities", () => {
     );
   });
 
-  it("rejects hand-rolled destructive exposed capability objects", async () => {
-    const capability = { ...createSearchCapability(), effect: "destructive" as const };
+  it("rejects hand-rolled destructive capability objects exposed to agent projections", async () => {
+    const capability = {
+      ...createSearchCapability({ expose: { http: true, webmcp: true } }),
+      effect: "destructive" as const,
+    };
     const { app, registry } = createApp(capability);
     await expect(resolveAppCapabilities(app, registry)).rejects.toThrow(
-      /destructive capabilities cannot be exposed yet/,
+      /destructive capabilities cannot be exposed to agent projections/,
     );
+  });
+
+  it("accepts destructive capabilities exposed over HTTP only", async () => {
+    const capability = { ...createSearchCapability(), effect: "destructive" as const };
+    const { app, registry } = createApp(capability);
+    const resolved = await resolveAppCapabilities(app, registry);
+    expect(resolved[0].httpPath).toBe("/api/capabilities/notes/search");
   });
 });
 
