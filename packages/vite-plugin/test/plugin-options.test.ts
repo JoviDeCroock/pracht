@@ -49,10 +49,15 @@ describe("resolveOptions llmsTxt", () => {
     expect(() => resolveOptions({ llmsTxt: true })).toThrow(/false or an options object/);
   });
 
+  it("accepts the capabilities section", () => {
+    const resolved = resolveOptions({ llmsTxt: { include: ["capabilities"] } });
+    expect(resolved.llmsTxt).toEqual({ include: ["capabilities"] });
+  });
+
   it("rejects unknown include sections", () => {
     // @ts-expect-error — "sitemap" is not a valid section.
     expect(() => resolveOptions({ llmsTxt: { include: ["sitemap"] } })).toThrow(
-      /"pages" and\/or "api"/,
+      /"pages", "api", and\/or "capabilities"/,
     );
   });
 });

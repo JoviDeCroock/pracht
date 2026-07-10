@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { defineCapability } from "../../capabilities/src/index.ts";
 import { defineApp, resolveApiRoutes, resolveApp, route } from "../src/app.ts";
 import { buildLlmsTxt } from "../src/llms-txt.ts";
 import type { ModuleRegistry } from "../src/types.ts";
@@ -128,5 +129,113 @@ describe("buildLlmsTxt", () => {
     expect(output).toContain("- [/](/)\n");
     expect(output).not.toContain("text/markdown");
     expect(output).toContain("- [/api/health](/api/health)\n");
+  });
+});
+
+function createCapability(overrides: Record<string, unknown>) {
+  return defineCapability({
+    title: "Capability",
+    description: "A capability.",
+    input: { type: "object", properties: {}, additionalProperties: false },
+    output: { type: "object", properties: {} },
+    effect: "read",
+    async run() {
+      return {};
+    },
+    ...overrides,
+  } as Parameters<typeof defineCapability>[0]);
+}
+
+function createCapabilityFixtures() {
+  const app = resolveApp(
+    defineApp({
+      capabilities: {
+        // Deliberately unsorted to prove name ordering is stable.
+        "notes.search": "./capabilities/notes-search.ts",
+        "notes.purge": "./capabilities/notes-purge.ts",
+        "notes.audit": "./capabilities/notes-audit.ts",
+      },
+      routes: [route("/", "./routes/home.tsx", { render: "ssg" })],
+    }),
+  );
+
+  const capabilityModule = (capability: unknown) =>
+    (async () => ({ default: capability })) as NonNullable<
+      ModuleRegistry["capabilityModules"]
+    >[string];
+
+  const registry: ModuleRegistry = {
+    routeModules: { "./routes/home.tsx": async () => ({}) },
+    capabilityModules: {
+      "./capabilities/notes-search.ts": capabilityModule(
+        createCapability({
+          description: "Find notes.",
+          expose: { http: true, webmcp: true },
+        }),
+      ),
+      "./capabilities/notes-purge.ts": capabilityModule(
+        createCapability({
+          description: "Delete notes.",
+          effect: "destructive",
+          expose: { http: true },
+        }),
+      ),
+      // Private (no expose) — must not appear: there is no URL to call.
+      "./capabilities/notes-audit.ts": capabilityModule(createCapability({})),
+    },
+  };
+
+  return { app, registry };
+}
+
+describe("buildLlmsTxt capabilities", () => {
+  it("lists HTTP-exposed capabilities with effect, confirmation, and description", async () => {
+    const { app, registry } = createCapabilityFixtures();
+    const output = await buildLlmsTxt({ app, registry, title: "Pracht Test App" });
+
+    expect(output).toContain(`## Capabilities
+
+- [notes.purge](/api/capabilities/notes/purge): POST (destructive, requires confirmation) — Delete notes.
+- [notes.search](/api/capabilities/notes/search): POST (read) — Find notes.
+`);
+    expect(output).not.toContain("notes.audit");
+  });
+
+  it("prefixes capability endpoints with the configured origin", async () => {
+    const { app, registry } = createCapabilityFixtures();
+    const output = await buildLlmsTxt({
+      app,
+      registry,
+      title: "Pracht Test App",
+      origin: "https://example.com",
+    });
+
+    expect(output).toContain("- [notes.search](https://example.com/api/capabilities/notes/search)");
+  });
+
+  it("omits the section when excluded or when no registry is available", async () => {
+    const { app, registry } = createCapabilityFixtures();
+
+    const excluded = await buildLlmsTxt({
+      app,
+      registry,
+      title: "Pracht Test App",
+      include: ["pages", "api"],
+    });
+    expect(excluded).not.toContain("## Capabilities");
+
+    const withoutRegistry = await buildLlmsTxt({ app, title: "Pracht Test App" });
+    expect(withoutRegistry).not.toContain("## Capabilities");
+  });
+
+  it("omits the section when the app registers no capabilities", async () => {
+    const output = await buildLlmsTxt({
+      app: createResolvedApp(),
+      apiRoutes,
+      registry: createRegistry(),
+      title: "Pracht Test App",
+    });
+
+    expect(output).not.toContain("## Capabilities");
   });
 });

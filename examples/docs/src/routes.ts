@@ -96,6 +96,14 @@ export const app = defineApp({
         id: "agent-skills",
         render: "ssg",
       }),
+      route("/docs/capabilities", () => import("./routes/docs/capabilities.md"), {
+        id: "capabilities",
+        render: "ssg",
+      }),
+      route("/docs/agent-trust", () => import("./routes/docs/agent-trust.md"), {
+        id: "agent-trust",
+        render: "ssg",
+      }),
       route("/docs/recipes/i18n", () => import("./routes/docs/recipes-i18n.md"), {
         id: "recipes-i18n",
         render: "ssg",

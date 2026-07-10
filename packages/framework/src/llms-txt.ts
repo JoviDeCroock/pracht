@@ -7,10 +7,14 @@
  * dynamic SSG/ISG routes are expanded through their `getStaticPaths()`
  * export. Dynamic routes without enumerable instances (e.g. SSR routes with
  * params) are skipped — they have no concrete URL an agent could fetch.
+ * HTTP-exposed capabilities are listed with their dispatch endpoint, effect
+ * class, and description so agents can discover callable operations, not
+ * just readable pages.
  */
 
 import { buildPathFromSegments } from "./app.ts";
 import { API_METHOD_ORDER } from "./app-graph.ts";
+import { resolveAppCapabilities } from "./runtime-capabilities.ts";
 import { resolveRegistryModule } from "./runtime-manifest.ts";
 import type {
   ApiRouteModule,
@@ -22,7 +26,7 @@ import type {
   RouteParams,
 } from "./types.ts";
 
-export type LlmsTxtSection = "pages" | "api";
+export type LlmsTxtSection = "pages" | "api" | "capabilities";
 
 export interface BuildLlmsTxtOptions {
   app: ResolvedPrachtApp;
@@ -37,7 +41,7 @@ export interface BuildLlmsTxtOptions {
    * contains absolute URLs. Links stay root-relative when omitted.
    */
   origin?: string;
-  /** Sections to emit. Defaults to both "pages" and "api". */
+  /** Sections to emit. Defaults to "pages", "api", and "capabilities". */
   include?: readonly LlmsTxtSection[];
 }
 
@@ -52,8 +56,15 @@ interface LlmsTxtApiEntry {
   methods: string[];
 }
 
+interface LlmsTxtCapabilityEntry {
+  name: string;
+  path: string;
+  description: string;
+  effect: string;
+}
+
 export async function buildLlmsTxt(options: BuildLlmsTxtOptions): Promise<string> {
-  const include = options.include ?? ["pages", "api"];
+  const include = options.include ?? ["pages", "api", "capabilities"];
   const origin = options.origin?.replace(/\/$/, "") ?? "";
 
   const lines: string[] = [`# ${options.title}`];
@@ -79,6 +90,20 @@ export async function buildLlmsTxt(options: BuildLlmsTxtOptions): Promise<string
       for (const entry of apiEntries) {
         const note = entry.methods.length > 0 ? `: ${entry.methods.join(", ")}` : "";
         lines.push(`- [${entry.path}](${origin}${entry.path})${note}`);
+      }
+    }
+  }
+
+  if (include.includes("capabilities")) {
+    const capabilityEntries = await collectCapabilityEntries(options.app, options.registry);
+    if (capabilityEntries.length > 0) {
+      lines.push("", "## Capabilities", "");
+      for (const entry of capabilityEntries) {
+        const confirmation = entry.effect === "destructive" ? ", requires confirmation" : "";
+        const description = entry.description ? ` — ${entry.description}` : "";
+        lines.push(
+          `- [${entry.name}](${origin}${entry.path}): POST (${entry.effect}${confirmation})${description}`,
+        );
       }
     }
   }
@@ -169,4 +194,30 @@ async function collectApiEntries(
   }
 
   return entries.sort((left, right) => comparePaths(left.path, right.path));
+}
+
+// Only HTTP-exposed capabilities are listed — private ones have no URL an
+// agent could call, and webmcp exposure requires expose.http anyway. Invalid
+// capability registrations propagate as errors, matching HTTP dispatch and
+// `pracht inspect` rather than silently emitting an incomplete file.
+async function collectCapabilityEntries(
+  app: ResolvedPrachtApp,
+  registry: ModuleRegistry | undefined,
+): Promise<LlmsTxtCapabilityEntry[]> {
+  if (!registry?.capabilityModules) return [];
+  if (Object.keys(app.capabilities ?? {}).length === 0) return [];
+
+  const resolved = await resolveAppCapabilities(app, registry);
+  const entries: LlmsTxtCapabilityEntry[] = [];
+  for (const { name, capability, httpPath } of resolved) {
+    if (!httpPath) continue;
+    entries.push({
+      description: capability.description ?? "",
+      effect: capability.effect,
+      name,
+      path: httpPath,
+    });
+  }
+
+  return entries.sort((left, right) => comparePaths(left.name, right.name));
 }

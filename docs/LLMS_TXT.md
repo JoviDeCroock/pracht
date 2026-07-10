@@ -1,10 +1,11 @@
 # llms.txt
 
 Pracht can emit an [llms.txt](https://llmstxt.org) file — a markdown index of
-your site's pages and API endpoints that LLM agents (and audits such as
-Lighthouse's Agentic Browsing check) read to discover what a site offers. The
-file is generated from the resolved app graph, so it always matches the routes
-the app actually serves. The feature is opt-in and has zero cost when disabled.
+your site's pages, API endpoints, and [capabilities](CAPABILITIES.md) that LLM
+agents (and audits such as Lighthouse's Agentic Browsing check) read to
+discover what a site offers. The file is generated from the resolved app
+graph, so it always matches the routes the app actually serves. The feature is
+opt-in and has zero cost when disabled.
 
 ## Enabling
 
@@ -16,7 +17,7 @@ pracht({
     title: "My App", // defaults to package.json "name"
     description: "What the app does.", // defaults to package.json "description"
     origin: "https://example.com", // emit absolute URLs; relative when omitted
-    include: ["pages", "api"], // sections to emit (default: both)
+    include: ["pages", "api", "capabilities"], // sections to emit (default: all)
   },
 })
 ```
@@ -56,6 +57,12 @@ blockquote summary, and H2 sections containing markdown link lists.
 
 - [/api/echo](/api/echo): POST
 - [/api/health](/api/health): GET
+
+## Capabilities
+
+- [notes.create](/api/capabilities/notes/create): POST (write) — Add a new note.
+- [notes.purge](/api/capabilities/notes/purge): POST (destructive, requires confirmation) — Delete matching notes.
+- [notes.search](/api/capabilities/notes/search): POST (read) — Find notes matching a query.
 ```
 
 Output is deterministic: entries are sorted by path with a locale-independent
@@ -80,6 +87,16 @@ comparison, so repeated builds produce byte-identical files.
 API routes are listed as endpoint patterns (including dynamic params such as
 `/api/users/:id`) with their detected HTTP methods as the note. Handlers
 exported only as `default` produce no method note.
+
+### Capabilities
+
+Every HTTP-exposed [capability](CAPABILITIES.md) is listed by name, linking to
+its dispatch endpoint, with its effect class and description as the note.
+Destructive capabilities are annotated with `requires confirmation` — their
+first dispatch answers `409 confirmation_required` per the
+[agent trust layer](AGENT_TRUST.md). Private capabilities (no `expose`) are
+omitted: there is no URL an agent could call. Entries are sorted by capability
+name.
 
 ## Notes
 

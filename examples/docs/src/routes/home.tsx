@@ -83,6 +83,14 @@ const AGENT_DOC_LINKS: { href: string; text: string }[] = [
     text: "Agent skills — installable Claude Code skills with a /.well-known discovery manifest",
   },
   {
+    href: "/docs/capabilities",
+    text: "Capabilities — typed operations defined once and projected to server calls, HTTP endpoints, and WebMCP page tools",
+  },
+  {
+    href: "/docs/agent-trust",
+    text: "Agent trust — Web Bot Auth verified identity, confirmation flow for destructive operations, and pracht eval",
+  },
+  {
     href: "/docs/demo-comparison",
     text: "Demo comparison — product + agent demo highlighting pracht's strengths",
   },
