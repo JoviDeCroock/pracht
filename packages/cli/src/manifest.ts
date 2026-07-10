@@ -57,11 +57,13 @@ export function extractRegistryEntries(
   if (!block) return [];
   const inner = source.slice(block.openIndex + 1, block.closeIndex);
   const entries: { name: string; path: string }[] = [];
+  // Keys may be bare identifiers (shells, middleware) or quoted strings —
+  // capability names like "notes.search" require quoting.
   const pattern =
-    /([A-Za-z0-9_-]+)\s*:\s*(?:(["'`])([^"'`]+)\2|\(\)\s*=>\s*import\(\s*(["'`])([^"'`]+)\4\s*\))/g;
+    /(?:(["'])([^"'\n]+)\1|([A-Za-z0-9_-]+))\s*:\s*(?:(["'`])([^"'`]+)\4|\(\)\s*=>\s*import\(\s*(["'`])([^"'`]+)\6\s*\))/g;
 
   for (const match of inner.matchAll(pattern)) {
-    entries.push({ name: match[1], path: match[3] ?? match[5] });
+    entries.push({ name: match[2] ?? match[3], path: match[5] ?? match[7] });
   }
 
   return entries;

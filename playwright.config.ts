@@ -28,6 +28,13 @@ export default defineConfig({
         baseURL: "http://localhost:3102",
       },
     },
+    {
+      name: "capabilities",
+      testMatch: /capabilities\.test\.ts/,
+      use: {
+        baseURL: "http://localhost:3103",
+      },
+    },
   ],
   webServer: [
     {
@@ -45,6 +52,12 @@ export default defineConfig({
     {
       command: "node e2e/start-dev-server.mjs examples/islands 3102",
       port: 3102,
+      reuseExistingServer: !process.env.CI,
+      timeout: 15_000,
+    },
+    {
+      command: "node e2e/start-dev-server.mjs examples/basic 3103",
+      port: 3103,
       reuseExistingServer: !process.env.CI,
       timeout: 15_000,
     },

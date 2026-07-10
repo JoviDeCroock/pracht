@@ -12,6 +12,10 @@ export const app = defineApp({
     component: () => import("./routes/not-found.tsx"),
     shell: "public",
   },
+  capabilities: {
+    "notes.search": () => import("./capabilities/notes-search.ts"),
+    "notes.create": () => import("./capabilities/notes-create.ts"),
+  },
   routes: [
     group({ shell: "public" }, [
       route("/", () => import("./routes/home.tsx"), {
@@ -19,6 +23,7 @@ export const app = defineApp({
         render: "ssg",
         speculation: "prefetch",
       }),
+      route("/notes", () => import("./routes/notes.tsx"), { id: "notes", render: "ssr" }),
       route("/products/:productId", () => import("./routes/product.tsx"), {
         id: "product",
         render: "ssg",

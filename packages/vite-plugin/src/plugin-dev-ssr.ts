@@ -93,9 +93,16 @@ export function createDevSSRMiddleware(
 
       // A 404 from the runtime normally falls through to Vite (which has
       // already had its shot at static files, since this middleware is
-      // installed after Vite's own). Apps that declare a `notFound` page get
-      // that page rendered here instead — same as in production.
-      if (response.status === 404 && !routeMatchers.app?.notFound) {
+      // installed after Vite's own). Two exceptions are served as-is: apps
+      // that declare a `notFound` page get that page rendered here — same as
+      // in production — and JSON 404s are typed API responses (route-state,
+      // capability envelopes) that must reach the client untouched.
+      const responseContentType = response.headers.get("content-type") ?? "";
+      if (
+        response.status === 404 &&
+        !responseContentType.includes("application/json") &&
+        !routeMatchers.app?.notFound
+      ) {
         return next();
       }
 

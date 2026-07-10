@@ -15,6 +15,11 @@ export interface PrachtPluginOptions {
    * `hydration: "islands"` routes. Defaults to "/src/islands".
    */
   islandsDir?: string;
+  /**
+   * Directory containing capability modules registered in the app manifest
+   * via `capabilities: { ... }`. Defaults to "/src/capabilities".
+   */
+  capabilitiesDir?: string;
   adapter?: PrachtAdapter;
   /** Enable file-system pages routing by pointing to the pages directory (e.g. "/src/pages"). */
   pagesDir?: string;
@@ -56,6 +61,7 @@ const DEFAULTS: ResolvedPrachtPluginOptions = {
   apiDir: "/src/api",
   serverDir: "/src/server",
   islandsDir: "/src/islands",
+  capabilitiesDir: "/src/capabilities",
   adapter: createDefaultNodeAdapter(),
   pagesDir: "",
   pagesDefaultRender: "ssr",

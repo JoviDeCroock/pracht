@@ -5,6 +5,34 @@ declare module "virtual:pracht/server" {
 
 declare module "virtual:pracht/client" {}
 
+declare module "virtual:pracht/capabilities" {
+  export interface CapabilityIssue {
+    path: string;
+    message: string;
+  }
+  export interface CapabilityErrorPayload {
+    code: string;
+    message: string;
+    issues?: CapabilityIssue[];
+  }
+  export type CapabilityEnvelope<T = unknown> =
+    | { ok: true; data: T }
+    | { ok: false; error: CapabilityErrorPayload };
+  /** HTTP endpoints of http-exposed capabilities, keyed by capability name. */
+  export const capabilityEndpoints: Record<string, { method: string; path: string }>;
+  /** Invoke an http-exposed capability from the browser via its HTTP projection. */
+  export function callCapability<T = unknown>(
+    name: string,
+    input?: unknown,
+    opts?: { signal?: AbortSignal },
+  ): Promise<CapabilityEnvelope<T>>;
+}
+
+declare module "virtual:pracht/webmcp" {
+  /** Registers WebMCP page tools; returns false when the API is unavailable. */
+  export function registerPrachtWebmcpTools(): boolean;
+}
+
 // `.tsrx` modules are compiled by `@tsrx/vite-plugin-preact`. Declare an
 // ambient module so apps can `import` them without a typed source — TypeScript
 // has no built-in support for the `.tsrx` extension.

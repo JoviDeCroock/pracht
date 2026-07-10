@@ -25,6 +25,8 @@ const cliEntry = resolve(repoRoot, "packages/cli/bin/pracht.js");
 const SERVER_ONLY_MARKER = "SERVER_ONLY_STRIP_MARKER_7f3c";
 const LOADER_BODY_MARKER = "LOADER_BODY_STRIP_MARKER_2a91";
 const COMPONENT_MARKER = "COMPONENT_STRIP_MARKER_b55e";
+// Defined in examples/basic/src/server/notes-store.ts (used only by capabilities).
+const CAPABILITY_SERVER_MARKER = "PRACHT_NOTES_STORE_SERVER_MARKER_4c8a";
 
 test("server-only route exports and their imports are stripped from client bundles", async () => {
   test.setTimeout(120_000);
@@ -110,6 +112,12 @@ test("server-only route exports and their imports are stripped from client bundl
     // silent broken build.
     expect(serverJs).toContain(LOADER_BODY_MARKER);
     expect(serverJs).toContain(SERVER_ONLY_MARKER);
+
+    // Capability modules are server-only. examples/basic registers
+    // notes.search/notes.create via the manifest; their store marker must
+    // stay out of every client asset while remaining in the server bundle.
+    expect(clientJs).not.toContain(CAPABILITY_SERVER_MARKER);
+    expect(serverJs).toContain(CAPABILITY_SERVER_MARKER);
   } finally {
     rmSync(tempDir, { force: true, recursive: true });
   }
