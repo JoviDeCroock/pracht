@@ -37,6 +37,69 @@ export function routeNeedsServerFetch(route: ResolvedRoute): boolean {
   return true;
 }
 
+/**
+ * A fetch implementation matching the standard Web fetch signature.
+ *
+ * Provided to {@link configureClient} to customize how the framework's
+ * client runtime (navigation, revalidation, prefetch, `<Form>`) performs
+ * HTTP requests — e.g. to forward an `Authorization` header from a
+ * client-held token into loader requests.
+ */
+export type PrachtClientFetch = typeof fetch;
+
+export interface ConfigureClientOptions {
+  /**
+   * Replacement fetch function used for every framework-initiated client
+   * request: route-state fetches during navigation/revalidation/prefetch,
+   * and `<Form>` submissions.
+   *
+   * The function receives the same `(input, init)` arguments as the
+   * standard `fetch`. The framework sets its own required headers
+   * (e.g. `x-pracht-route-state-request`) on `init.headers`; callers
+   * should merge them when adding their own.
+   */
+  fetch?: PrachtClientFetch;
+}
+
+let configuredClientFetch: PrachtClientFetch | undefined;
+
+/**
+ * Configure the client runtime. Call this once at app startup (e.g. at the
+ * top of your `src/routes.ts`) to install a custom fetch implementation
+ * that every framework-initiated client request will flow through.
+ *
+ * Typical use is forwarding an `Authorization` header on client-side
+ * navigations, revalidations, prefetches, and `<Form>` submissions so
+ * server-side loaders can read it from `request.headers`.
+ *
+ * ```ts
+ * configureClient({
+ *   fetch: (input, init) =>
+ *     fetch(input, {
+ *       ...init,
+ *       credentials: "include",
+ *       headers: {
+ *         ...(init?.headers as Record<string, string> | undefined),
+ *         Authorization: `Bearer ${getToken()}`,
+ *       },
+ *     }),
+ * });
+ * ```
+ *
+ * Passing `undefined` for `fetch` resets to the global `fetch`.
+ */
+export function configureClient(options: ConfigureClientOptions = {}): void {
+  configuredClientFetch = options.fetch;
+}
+
+export function getConfiguredClientFetch(): PrachtClientFetch {
+  return configuredClientFetch ?? fetch;
+}
+
+export function isClientFetchConfigured(): boolean {
+  return configuredClientFetch !== undefined;
+}
+
 export function buildRouteStateUrl(url: string): string {
   const separator = url.includes("?") ? "&" : "?";
   return `${url}${separator}_data=1`;
@@ -47,7 +110,8 @@ export async function fetchPrachtRouteState(
   options?: { signal?: AbortSignal; useDataParam?: boolean },
 ): Promise<RouteStateResult> {
   const fetchUrl = options?.useDataParam ? buildRouteStateUrl(url) : url;
-  const response = await fetch(fetchUrl, {
+  const clientFetch = getConfiguredClientFetch();
+  const response = await clientFetch(fetchUrl, {
     headers: options?.useDataParam
       ? {}
       : { [ROUTE_STATE_REQUEST_HEADER]: "1", "Cache-Control": "no-cache" },
