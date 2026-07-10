@@ -29,8 +29,10 @@ export function scanSourceForEnvLeaks(
 ): { accessor: string; name: string }[] {
   const findings: { accessor: string; name: string }[] = [];
   const seen = new Set<string>();
+  const codePositions = getCodePositionMask(code);
 
   for (const match of code.matchAll(ENV_REFERENCE_RE)) {
+    if (!codePositions[match.index]) continue;
     const accessor = match[1];
     const name = match[2] ?? match[4];
     if (!name) continue;
@@ -45,6 +47,123 @@ export function scanSourceForEnvLeaks(
   }
 
   return findings;
+}
+
+function getCodePositionMask(code: string): Uint8Array {
+  const mask = new Uint8Array(code.length);
+  const templateExpressionDepths: number[] = [];
+  let mode: "block-comment" | "code" | "double" | "line-comment" | "single" | "template" = "code";
+  let i = 0;
+
+  while (i < code.length) {
+    const char = code[i];
+    const next = code[i + 1];
+
+    if (mode === "line-comment") {
+      if (char === "\n" || char === "\r") {
+        mode = "code";
+        mask[i] = 1;
+      }
+      i++;
+      continue;
+    }
+
+    if (mode === "block-comment") {
+      if (char === "*" && next === "/") {
+        mode = "code";
+        i += 2;
+      } else {
+        i++;
+      }
+      continue;
+    }
+
+    if (mode === "single" || mode === "double") {
+      const quote = mode === "single" ? "'" : '"';
+      if (char === "\\") {
+        i += 2;
+        continue;
+      }
+      if (char === quote || char === "\n" || char === "\r") {
+        mode = "code";
+      }
+      i++;
+      continue;
+    }
+
+    if (mode === "template") {
+      if (char === "\\") {
+        i += 2;
+        continue;
+      }
+      if (char === "`") {
+        mode = "code";
+        i++;
+        continue;
+      }
+      if (char === "$" && next === "{") {
+        mask[i] = 1;
+        mask[i + 1] = 1;
+        templateExpressionDepths.push(1);
+        mode = "code";
+        i += 2;
+        continue;
+      }
+      i++;
+      continue;
+    }
+
+    mask[i] = 1;
+
+    if (char === "/" && next === "/") {
+      mask[i + 1] = 1;
+      mode = "line-comment";
+      i += 2;
+      continue;
+    }
+
+    if (char === "/" && next === "*") {
+      mask[i + 1] = 1;
+      mode = "block-comment";
+      i += 2;
+      continue;
+    }
+
+    if (char === "'") {
+      mode = "single";
+      i++;
+      continue;
+    }
+
+    if (char === '"') {
+      mode = "double";
+      i++;
+      continue;
+    }
+
+    if (char === "`") {
+      mode = "template";
+      i++;
+      continue;
+    }
+
+    if (templateExpressionDepths.length > 0) {
+      const top = templateExpressionDepths.length - 1;
+      if (char === "{") {
+        templateExpressionDepths[top]++;
+      } else if (char === "}") {
+        templateExpressionDepths[top]--;
+        if (templateExpressionDepths[top] === 0) {
+          templateExpressionDepths.pop();
+          mode = "template";
+        }
+      }
+    }
+
+    i++;
+  }
+
+  return mask;
 }
 
 /**

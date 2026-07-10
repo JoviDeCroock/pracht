@@ -100,6 +100,25 @@ describe("scanCodeForEnvLeaks", () => {
       { accessor: "process.env", name: "LEAKY" },
     ]);
   });
+
+  it("ignores comments and literal text while preserving real code references", () => {
+    const findings = scanCodeForEnvLeaks(
+      `
+      // process.env.COMMENT_SECRET
+      /* import.meta.env.BLOCK_SECRET */
+      const message = "do not use process.env.STRING_SECRET";
+      const single = 'import.meta.env.SINGLE_SECRET';
+      const text = \`process.env.TEMPLATE_TEXT_SECRET\`;
+      const real = \`\${process.env.TEMPLATE_EXPR_SECRET}\`;
+      const bracket = process.env["BRACKET_SECRET"];
+      `,
+    );
+
+    expect(findings).toEqual([
+      { accessor: "process.env", name: "TEMPLATE_EXPR_SECRET" },
+      { accessor: "process.env", name: "BRACKET_SECRET" },
+    ]);
+  });
 });
 
 describe("createEnvSafetyPlugin", () => {
