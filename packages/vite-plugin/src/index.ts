@@ -42,7 +42,11 @@ import {
 
 export type { RenderMode };
 export type { PrachtAdapter } from "./plugin-adapter.ts";
-export type { PrachtPluginOptions } from "./plugin-options.ts";
+export type {
+  LlmsTxtSection,
+  PrachtLlmsTxtOptions,
+  PrachtPluginOptions,
+} from "./plugin-options.ts";
 export {
   createPrachtClientModuleSource,
   createPrachtIslandsClientModuleSource,
@@ -229,7 +233,10 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
       if (resolved.adapter.ownsDevServer) return;
       return () => {
         server.middlewares.use(
-          createDevSSRMiddleware(server, { maxBodySize: resolved.maxBodySize }),
+          createDevSSRMiddleware(server, {
+            llmsTxt: !!resolved.llmsTxt,
+            maxBodySize: resolved.maxBodySize,
+          }),
         );
       };
     },

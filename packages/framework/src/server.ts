@@ -69,6 +69,8 @@ export {
   resolveAppCapabilities,
 } from "./runtime-capabilities.ts";
 export type { InvokeCapabilityContext, ResolvedCapability } from "./runtime-capabilities.ts";
+export { buildLlmsTxt } from "./llms-txt.ts";
+export type { BuildLlmsTxtOptions, LlmsTxtSection } from "./llms-txt.ts";
 export { prerenderApp } from "./prerender.ts";
 export {
   createISGRegenerationRequest,

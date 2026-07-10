@@ -75,6 +75,26 @@ test("pracht build emits a deployable Node server entry", async () => {
       expect(productHtml).toContain("Price:");
     }
 
+    // llms.txt is generated from the resolved app graph and served as a
+    // regular static file from dist/client.
+    const llmsTxtPath = resolve(exampleDir, "dist/client/llms.txt");
+    expect(existsSync(llmsTxtPath)).toBe(true);
+    const llmsTxt = readFileSync(llmsTxtPath, "utf-8");
+    expect(llmsTxt.startsWith("# Pracht Example\n")).toBe(true);
+    expect(llmsTxt).toContain("> Example app for the pracht framework.");
+    expect(llmsTxt).toContain("- [/](/): supports `Accept: text/markdown`");
+    // Dynamic SSG instances are listed; the raw pattern is not.
+    expect(llmsTxt).toContain("- [/products/1](/products/1)");
+    expect(llmsTxt).toContain("- [/products/3](/products/3)");
+    expect(llmsTxt).not.toContain("/products/:productId");
+    expect(llmsTxt).toContain("- [/api/echo](/api/echo): POST");
+    expect(llmsTxt).toContain("- [/api/health](/api/health): GET");
+
+    const llmsTxtResponse = await fetch(`http://127.0.0.1:${port}/llms.txt`);
+    expect(llmsTxtResponse.status).toBe(200);
+    expect(llmsTxtResponse.headers.get("content-type")).toContain("text/plain");
+    expect(await llmsTxtResponse.text()).toBe(llmsTxt);
+
     const apiResponse = await fetch(`http://127.0.0.1:${port}/api/health`);
     expect(apiResponse.status).toBe(200);
     await expect(apiResponse.json()).resolves.toEqual({ status: "ok" });
@@ -165,11 +185,12 @@ test("precompileSsrJsx opt-in precompiles server JSX and keeps the app deployabl
   const distDir = resolve(exampleDir, "dist");
 
   const viteConfig = readFileSync(viteConfigPath, "utf-8");
+  expect(viteConfig).toContain("adapter: await resolveAdapter(),");
   writeFileSync(
     viteConfigPath,
     viteConfig.replace(
-      "pracht({ adapter: await resolveAdapter() })",
-      "pracht({ adapter: await resolveAdapter(), precompileSsrJsx: true })",
+      "adapter: await resolveAdapter(),",
+      "adapter: await resolveAdapter(),\n      precompileSsrJsx: true,",
     ),
     "utf-8",
   );

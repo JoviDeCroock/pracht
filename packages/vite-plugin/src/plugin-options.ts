@@ -3,6 +3,25 @@ import type { PreactSsrPrecompileOptions } from "@pracht/preact-ssr-precompile";
 import type { EnvSafetyOptions } from "./env-safety.ts";
 import { createDefaultNodeAdapter, type PrachtAdapter } from "./plugin-adapter.ts";
 
+export type LlmsTxtSection = "pages" | "api";
+
+export interface PrachtLlmsTxtOptions {
+  /** H1 title. Defaults to the app's package.json `name`. */
+  title?: string;
+  /**
+   * Blockquote summary under the title. Defaults to the app's package.json
+   * `description`; omitted when neither is set.
+   */
+  description?: string;
+  /**
+   * Origin (e.g. "https://example.com") prepended to every link so llms.txt
+   * contains absolute URLs. Links stay root-relative when omitted.
+   */
+  origin?: string;
+  /** Sections to emit. Defaults to ["pages", "api"]. */
+  include?: LlmsTxtSection[];
+}
+
 export interface PrachtPluginOptions {
   appFile?: string;
   routesDir?: string;
@@ -49,6 +68,12 @@ export interface PrachtPluginOptions {
    * variables, or `false` to disable the check entirely.
    */
   envSafety?: false | EnvSafetyOptions;
+  /**
+   * Opt into emitting an llms.txt file (https://llmstxt.org) generated from
+   * the resolved app graph. `pracht build` writes `dist/client/llms.txt` and
+   * the dev server serves `/llms.txt` live. Disabled by default.
+   */
+  llmsTxt?: false | PrachtLlmsTxtOptions;
 }
 
 export type ResolvedPrachtPluginOptions = Required<PrachtPluginOptions>;
@@ -70,6 +95,7 @@ const DEFAULTS: ResolvedPrachtPluginOptions = {
   budgets: {},
   precompileSsrJsx: false,
   envSafety: {},
+  llmsTxt: false,
 };
 
 export function resolveOptions(options: PrachtPluginOptions): ResolvedPrachtPluginOptions {
@@ -84,7 +110,27 @@ export function resolveOptions(options: PrachtPluginOptions): ResolvedPrachtPlug
     throw new Error("pracht({ maxBodySize }) expects a positive integer number of bytes.");
   }
   validateBudgets(resolved.budgets);
+  validateLlmsTxt(resolved.llmsTxt);
   return resolved;
+}
+
+const LLMS_TXT_SECTIONS = new Set<LlmsTxtSection>(["pages", "api"]);
+
+function validateLlmsTxt(llmsTxt: false | PrachtLlmsTxtOptions): void {
+  if (llmsTxt === false) return;
+  if (typeof llmsTxt !== "object" || llmsTxt === null) {
+    throw new Error("pracht({ llmsTxt }) expects false or an options object.");
+  }
+  if (llmsTxt.include !== undefined) {
+    const isValid =
+      Array.isArray(llmsTxt.include) &&
+      llmsTxt.include.every((section) => LLMS_TXT_SECTIONS.has(section));
+    if (!isValid) {
+      throw new Error(
+        `pracht({ llmsTxt: { include } }) expects an array of "pages" and/or "api", got ${JSON.stringify(llmsTxt.include)}.`,
+      );
+    }
+  }
 }
 
 function validateBudgets(budgets: Record<string, string | number>): void {
