@@ -50,10 +50,24 @@ const FILL_STYLE_STRING = "position:absolute;height:100%;width:100%;left:0;top:0
 
 const warned = new Set<string>();
 
+function getNodeEnv(): string | undefined {
+  return (globalThis as { process?: { env?: { NODE_ENV?: string } } }).process?.env?.NODE_ENV;
+}
+
+function getImportMetaDev(): boolean | undefined {
+  const env = (import.meta as ImportMeta & { env?: { DEV?: boolean; MODE?: string } }).env;
+  if (env?.MODE === "production") return false;
+  if (typeof env?.DEV === "boolean") return env.DEV;
+  if (typeof env?.MODE === "string") return env.MODE !== "production";
+  return undefined;
+}
+
 function isDevWarningsEnabled(): boolean {
-  const nodeEnv = (globalThis as { process?: { env?: { NODE_ENV?: string } } }).process?.env
-    ?.NODE_ENV;
-  return typeof nodeEnv === "string" && nodeEnv !== "production";
+  const nodeEnv = getNodeEnv();
+  if (nodeEnv === "production") return false;
+  if (typeof nodeEnv === "string") return true;
+
+  return getImportMetaDev() ?? false;
 }
 
 function warnOnce(key: string, message: string): void {
