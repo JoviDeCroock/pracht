@@ -102,6 +102,7 @@ Pracht is built to be operated by coding agents as much as by humans:
 
 - **MCP server** — `pracht mcp` starts a stdio [Model Context Protocol](https://modelcontextprotocol.io) server so agents can natively inspect the resolved app graph, run doctor/verify diagnostics, and scaffold routes, shells, middleware, and API handlers. See [docs/MCP.md](docs/MCP.md) for registration and the tool reference.
 - **Claude Code skills** — repo-local skills for scaffolding, auditing, debugging, and deploying pracht apps live in [skills/](skills/README.md).
+- **llms.txt** — the opt-in `llmsTxt` plugin option emits an [llms.txt](https://llmstxt.org) index of your pages and API routes at build time and serves it live in dev. See [docs/LLMS_TXT.md](docs/LLMS_TXT.md).
 
 ## Repo map
 

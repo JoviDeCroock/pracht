@@ -288,7 +288,9 @@ describe("create-pracht", () => {
     expect(packageJson).toMatch(/"tailwindcss": "\^\d+\.\d+\.\d+"/);
     expect(packageJson).toMatch(/"@tailwindcss\/vite": "\^\d+\.\d+\.\d+"/);
     expect(viteConfig).toContain('import tailwindcss from "@tailwindcss/vite";');
-    expect(viteConfig).toContain("plugins: [pracht({ adapter: nodeAdapter() }), tailwindcss()]");
+    expect(viteConfig).toContain(
+      "plugins: [pracht({ adapter: nodeAdapter(), llmsTxt: {} }), tailwindcss()]",
+    );
     expect(globalCss).toBe('@import "tailwindcss";\n');
     expect(shell).toContain('import "../styles/global.css";');
     expect(readme).toContain("src/styles/global.css");
@@ -313,7 +315,7 @@ describe("create-pracht", () => {
     const app = await readFile(join(targetDir, "src/pages/_app.tsx"), "utf-8");
 
     expect(viteConfig).toContain(
-      'plugins: [pracht({ pagesDir: "/src/pages", adapter: nodeAdapter() }), tailwindcss()]',
+      'plugins: [pracht({ pagesDir: "/src/pages", adapter: nodeAdapter(), llmsTxt: {} }), tailwindcss()]',
     );
     expect(app).toContain('import "../styles/global.css";');
     expect(existsSync(join(targetDir, "src/styles/global.css"))).toBe(true);

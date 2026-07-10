@@ -174,6 +174,14 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
       }
     }
 
+    // The server module only exports generateLlmsTxt when the vite plugin's
+    // `llmsTxt` option is enabled — disabled builds skip this entirely.
+    if (typeof serverMod.generateLlmsTxt === "function") {
+      const llmsTxt: string = await serverMod.generateLlmsTxt();
+      writeFileSync(resolve(clientDir, "llms.txt"), llmsTxt, "utf-8");
+      log("\n  llms.txt → dist/client/llms.txt\n");
+    }
+
     if (Object.keys(headersManifest).length > 0) {
       const headersManifestJson = `${JSON.stringify(headersManifest, null, 2)}\n`;
       writeFileSync(

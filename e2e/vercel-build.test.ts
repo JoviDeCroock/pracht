@@ -46,6 +46,12 @@ test("pracht build emits a deployable Vercel Build Output setup", async () => {
   expect(existsSync(resolve(vercelDir, "static/_pracht/isg.json"))).toBe(false);
   expect(existsSync(resolve(exampleDir, "dist/client/_pracht/isg.json"))).toBe(false);
 
+  // llms.txt is copied into the Vercel static output alongside the other
+  // dist/client files and served by the `handle: filesystem` route.
+  const staticLlmsTxtPath = resolve(vercelDir, "static/llms.txt");
+  expect(existsSync(staticLlmsTxtPath)).toBe(true);
+  expect(readFileSync(staticLlmsTxtPath, "utf-8")).toContain("# Pracht Example");
+
   const config = JSON.parse(readFileSync(configPath, "utf-8"));
   expect(config.version).toBe(3);
   expect(config.routes).toEqual(

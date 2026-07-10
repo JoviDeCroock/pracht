@@ -8,6 +8,7 @@ export default defineConfig({
       adapter: cloudflareAdapter({
         workerExportsFrom: "/src/cloudflare.ts",
       }),
+      llmsTxt: { title: "Pracht Cloudflare Example" },
     }),
   ],
 });

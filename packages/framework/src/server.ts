@@ -30,6 +30,8 @@ export type {
   AppGraphModuleAccess,
   AppGraphRoute,
 } from "./app-graph.ts";
+export { buildLlmsTxt } from "./llms-txt.ts";
+export type { BuildLlmsTxtOptions, LlmsTxtSection } from "./llms-txt.ts";
 export { prerenderApp } from "./prerender.ts";
 export {
   createISGRegenerationRequest,

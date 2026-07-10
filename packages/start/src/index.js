@@ -632,8 +632,8 @@ function createViteConfig(adapter, router, tailwind) {
 
   const prachtOptions =
     router === "pages"
-      ? `{ pagesDir: "/src/pages", adapter: ${info.fn}() }`
-      : `{ adapter: ${info.fn}() }`;
+      ? `{ pagesDir: "/src/pages", adapter: ${info.fn}(), llmsTxt: {} }`
+      : `{ adapter: ${info.fn}(), llmsTxt: {} }`;
 
   const plugins = tailwind
     ? `[pracht(${prachtOptions}), tailwindcss()]`
