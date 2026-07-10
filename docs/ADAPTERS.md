@@ -204,12 +204,13 @@ build).
 
 ### `createCloudflareFetchHandler(options)`
 
-| Option          | Type                                        | Description                               |
-| --------------- | ------------------------------------------- | ----------------------------------------- |
-| `app`           | `PrachtApp`                                 | The resolved app                          |
-| `registry`      | `ModuleRegistry`                            | Module importers                          |
-| `createContext` | `(args: CloudflareContextArgs) => TContext` | Context with `env` and `executionContext` |
-| `isgManifest`   | `Record<string, ISGManifestEntry>`          | Concrete ISG path metadata                |
+| Option          | Type                                        | Description                                                          |
+| --------------- | ------------------------------------------- | -------------------------------------------------------------------- |
+| `app`           | `PrachtApp`                                 | The resolved app                                                     |
+| `registry`      | `ModuleRegistry`                            | Module importers                                                     |
+| `createContext` | `(args: CloudflareContextArgs) => TContext` | Context with `env` and `executionContext`                            |
+| `isgManifest`   | `Record<string, ISGManifestEntry>`          | Concrete ISG path metadata                                           |
+| `cache`         | `boolean \| { staleWhileRevalidate }`       | Serve time-revalidated ISG routes through Workers Caching (see below) |
 
 ### Features
 
@@ -230,6 +231,16 @@ build).
   request. This keeps ISG dependency-free and fast, but webhook invalidation is
   not a global purge. Other colos refresh when they receive the webhook or when
   their cached entry becomes stale and a visitor requests it.
+- **ISG via Workers Caching**: with `cloudflareAdapter({ cache: true })`,
+  time-revalidated ISG routes are instead rendered on demand and cached in
+  front of the Worker by
+  [Workers Caching](https://developers.cloudflare.com/workers/cache/) for
+  their `revalidate` window, with stale pages served instantly while the
+  Worker re-renders in the background — a true edge-tier cache rather than
+  the per-colo Cache API. Webhook-only ISG routes keep the worker-managed
+  path above so `POST /__pracht/revalidate` takes effect immediately; when a
+  route has both a time and a webhook policy, the webhook also purges the
+  edge entry.
 - **Default request context**: generated worker entries pass `{ env,
   executionContext }` to pracht so loaders, API routes, and middleware can
   access bindings without extra wiring.
@@ -251,6 +262,89 @@ build).
   `@cloudflare/vite-plugin`, running the dev server inside workerd so that API
   routes and loaders have full access to Cloudflare bindings (KV, D1, R2,
   Queues, etc.) during development.
+
+### ISG via Workers Caching (`cache`)
+
+[Workers Caching](https://developers.cloudflare.com/workers/cache/) is a
+cache that sits **in front of** the Worker: Cloudflare stores responses whose
+caching headers mark them cacheable and answers repeat requests without
+invoking the Worker at all. Pracht maps time-revalidated ISG onto it;
+webhook-only ISG routes stay on the worker-managed Cache API path so
+`POST /__pracht/revalidate` takes effect immediately. Enable both sides:
+
+```typescript
+// vite.config.ts
+cloudflareAdapter({ cache: true });
+// or tune the stale window (seconds; default one year):
+cloudflareAdapter({ cache: { staleWhileRevalidate: 86400 } });
+```
+
+```jsonc
+// wrangler.jsonc
+{ "cache": { "enabled": true } }
+```
+
+With the option on:
+
+- Time-revalidated ISG pages are **not** emitted as static snapshots at build
+  time. The first request after a deploy renders fresh (Workers Caching
+  partitions the cache per Worker version, so deploys always start cold).
+  Webhook-only ISG routes keep their snapshots and the worker-managed path.
+- Routes with both a time and a webhook policy are edge-cached, and
+  `POST /__pracht/revalidate` purges their edge entries after regenerating
+  the worker-managed copy.
+- The worker stamps ISG document responses with
+  `cloudflare-cdn-cache-control: max-age=<revalidate>,
+  stale-while-revalidate=<staleWhileRevalidate>` — the edge holds the page
+  for the route's `revalidate` window, and after the window visitors get the
+  cached page instantly while the Worker re-renders it in the background.
+  The edge directives live in `cloudflare-cdn-cache-control` (highest
+  precedence; Cloudflare consumes and strips it) rather than `Cache-Control`
+  because `must-revalidate`/`s-maxage` in `Cache-Control` would prohibit
+  serving stale (RFC 9111 §4.2.4) and disable stale-while-revalidate. The
+  browser-facing header is `Cache-Control: public, max-age=0,
+  must-revalidate`, matching the Node adapter's ISG behavior.
+- Responses carry `Cache-Tag: pracht:isg,pracht:route:<id>` so they can be
+  purged, and `Vary: Accept` so Markdown-for-Agents negotiation caches HTML
+  and markdown variants separately.
+- A route/shell `headers()` export that sets `Cache-Control` (or
+  `cloudflare-cdn-cache-control`) takes full precedence — pracht adds
+  nothing, so individual routes can opt out or tune their own policy.
+  Responses with `Set-Cookie` are never cached.
+- Route-state JSON (client navigations) stays `no-store` and always reaches
+  the Worker.
+- Everything pracht did **not** deliberately mark cacheable gets
+  `Cache-Control: private, no-cache` (unless the response already sets its
+  own `Cache-Control`). With Workers Caching enabled, Cloudflare would
+  otherwise apply heuristic freshness (~2 hours for 200s) to responses that
+  carry no `Cache-Control` header — and `Cookie` is not part of the cache
+  key, so SSR pages (including authenticated ones) and API GET responses
+  would be edge-cached across users.
+
+Because cache hits skip the Worker entirely, middleware does not run for
+cached ISG pages. That matches the previous behavior (static snapshots were
+served before the framework, too) — keep per-visitor logic on SSR routes.
+
+Purge cached pages from loaders, API routes, or webhook handlers with
+`purgeCache` — this is webhook-based ISG revalidation:
+
+```typescript
+// src/api/revalidate.ts
+import { purgeCache, routeCacheTag } from "@pracht/adapter-cloudflare/cache";
+
+export async function POST() {
+  await purgeCache({ tags: [routeCacheTag("pricing")] });
+  // also: purgeCache({ pathPrefixes: ["/blog/"] }) or purgeCache({ purgeEverything: true })
+  return Response.json({ revalidated: true });
+}
+```
+
+Protect purge webhooks with a shared secret so strangers cannot flush the
+cache — see `examples/cloudflare/src/api/revalidate.ts` for a version that
+checks an `x-revalidate-secret` header against a Worker secret.
+
+Purges are scoped to the Worker that owns the cache — no zone-level purge
+touches it, and `purgeCache` cannot touch other Workers.
 
 ### Exporting Cloudflare primitives (Workflows, Durable Objects, etc.)
 

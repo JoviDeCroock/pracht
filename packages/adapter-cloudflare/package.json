@@ -36,6 +36,10 @@
     "./runtime": {
       "types": "./dist/runtime.d.mts",
       "default": "./dist/runtime.mjs"
+    },
+    "./cache": {
+      "types": "./dist/cache.d.mts",
+      "default": "./dist/cache.mjs"
     }
   },
   "publishConfig": {

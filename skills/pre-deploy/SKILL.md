@@ -79,7 +79,10 @@ These catch app-graph wiring problems independent of the adapter. Resolve all
   `path` (Node form), `process.cwd`, `Buffer`, `__dirname`, `__filename`,
   `crypto.createHash` (use `crypto.subtle` instead), `child_process`,
   `cluster`, `worker_threads`. Flag each occurrence.
-- ISG: confirm a binding exists for the manifest if used (KV recommended).
+- ISG: if ISG routes exist, confirm Workers Caching is wired up on both
+  sides — `cloudflareAdapter({ cache: true })` in vite config and
+  `"cache": { "enabled": true }` in wrangler config. Without it, ISG pages
+  are static snapshots that never revalidate.
 - Bundle size: report the size of `dist/server/server.js`. Workers limit is
   ~1 MB compressed for free tier, ~10 MB on paid. Warn at 80% of the active
   limit.

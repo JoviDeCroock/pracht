@@ -1,6 +1,7 @@
 import type { PrachtAdapter } from "@pracht/vite-plugin";
 import type { Plugin } from "vite";
 import { cloudflare } from "@cloudflare/vite-plugin";
+import { resolveWorkersCacheOptions, type CloudflareWorkersCacheOption } from "./cache.ts";
 
 export { createCloudflareFetchHandler } from "./runtime.ts";
 export type {
@@ -9,6 +10,14 @@ export type {
   CloudflareExecutionContext,
   CloudflareFetcher,
 } from "./runtime.ts";
+export {
+  ISG_CACHE_TAG,
+  purgeCache,
+  routeCacheTag,
+  type CloudflareWorkersCacheOption,
+  type CloudflareWorkersCacheOptions,
+  type PurgeCacheOptions,
+} from "./cache.ts";
 
 export interface CloudflareServerEntryModuleOptions {
   assetsBinding?: string;
@@ -23,12 +32,23 @@ export interface CloudflareServerEntryModuleOptions {
    * remains pracht's handler; a `fetch` export in this module is ignored.
    */
   workerHandlersFrom?: string;
+  /**
+   * Serve ISG routes through Cloudflare Workers Caching: instead of the
+   * build-time static snapshot, ISG pages are rendered on demand and cached
+   * at the edge for their `revalidate` window (via
+   * `cloudflare-cdn-cache-control`), with stale pages served instantly while
+   * the Worker re-renders in the background. Purge cached pages with
+   * `purgeCache()` from `@pracht/adapter-cloudflare/cache`.
+   * Requires `"cache": { "enabled": true }` in wrangler config.
+   */
+  cache?: CloudflareWorkersCacheOption;
 }
 
 export function createCloudflareServerEntryModule(
   options: CloudflareServerEntryModuleOptions = {},
 ): string {
   const assetsBinding = options.assetsBinding ?? "ASSETS";
+  const cacheOptions = resolveWorkersCacheOptions(options.cache);
   // The entrypoint-name list lets `pracht build` write a clean deploy entry
   // (dist/server/worker.js) that re-exports only the default handler and these
   // classes: workerd validates every named export of the deployed entry module
@@ -52,6 +72,7 @@ export function createCloudflareServerEntryModule(
     contextImport,
     handlersImport,
     `export const cloudflareAssetsBinding = ${JSON.stringify(assetsBinding)};`,
+    `export const cloudflareWorkersCacheEnabled = ${JSON.stringify(Boolean(cacheOptions))};`,
     "",
     "let headersManifestPromise;",
     "async function readPrachtHeadersManifest(request, assets) {",
@@ -97,6 +118,7 @@ export function createCloudflareServerEntryModule(
     "    headersManifest,",
     "    isgManifest,",
     "    createContext: createPrachtContext,",
+    `    cache: ${JSON.stringify(options.cache ?? false)},`,
     "  });",
     "  return handler(request, env, executionContext);",
     "}",

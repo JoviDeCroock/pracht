@@ -62,6 +62,21 @@ export default defineCommand({
   },
 });
 
+// Mirrors getTimeRevalidateSeconds from @pracht/core without importing it:
+// the CLI reads the manifest the built server bundle produced, so the entry
+// shape (single policy or array) is the framework's RouteRevalidate.
+function hasTimeRevalidate(revalidate: unknown): boolean {
+  const policies = Array.isArray(revalidate) ? revalidate : [revalidate];
+  return policies.some(
+    (policy) =>
+      typeof policy === "object" &&
+      policy !== null &&
+      (policy as { kind?: unknown }).kind === "time" &&
+      typeof (policy as { seconds?: unknown }).seconds === "number" &&
+      (policy as { seconds: number }).seconds > 0,
+  );
+}
+
 function indentBlock(block: string): string {
   return block
     .split("\n")
@@ -163,9 +178,24 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
       ]),
     );
 
-    if (pages.length > 0) {
-      log(`\n  Prerendering ${pages.length} SSG/ISG route(s)...\n`);
-      for (const page of pages) {
+    // With Workers Caching enabled, time-revalidated ISG pages are rendered
+    // on demand and cached at the edge. A prerendered static snapshot would
+    // be served ahead of the Worker and never revalidate, so it must not be
+    // emitted. Webhook-only ISG routes are not edge-cached — they keep their
+    // snapshot and revalidate through the worker-managed Cache API path.
+    const cloudflareWorkersCacheEnabled =
+      serverMod.buildTarget === "cloudflare" && serverMod.cloudflareWorkersCacheEnabled === true;
+    const edgeCachedIsgPaths = cloudflareWorkersCacheEnabled
+      ? Object.keys(isgManifest).filter((path) => hasTimeRevalidate(isgManifest[path]?.revalidate))
+      : [];
+    const staticPages =
+      edgeCachedIsgPaths.length > 0
+        ? pages.filter((page: { path: string }) => !edgeCachedIsgPaths.includes(page.path))
+        : pages;
+
+    if (staticPages.length > 0) {
+      log(`\n  Prerendering ${staticPages.length} SSG/ISG route(s)...\n`);
+      for (const page of staticPages) {
         const filePath = resolvePrerenderOutputPath(clientDir, page.path);
 
         mkdirSync(dirname(filePath), { recursive: true });
@@ -203,6 +233,12 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
     }
 
     if (serverMod.buildTarget === "cloudflare") {
+      if (cloudflareWorkersCacheEnabled && edgeCachedIsgPaths.length > 0) {
+        log(
+          `\n  ISG via Workers Caching: ${edgeCachedIsgPaths.length} route(s) render on demand and revalidate at the edge. Requires "cache": { "enabled": true } in wrangler config.\n`,
+        );
+      }
+
       // workerd validates every named export of the deployed entry module as
       // an entrypoint and rejects the build metadata (buildTarget, manifests,
       // resolvedApp, ...) that server.js exports for the prerender pass

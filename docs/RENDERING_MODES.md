@@ -110,7 +110,19 @@ the generated timestamp stored in the Cache API entry and falls back to the
 build-time asset timestamp. Vercel writes native `.prerender-config.json` files
 with `expiration` set from the time policy.
 
+> **Cloudflare Workers Caching:** with `cloudflareAdapter({ cache: true })`
+> (plus `"cache": { "enabled": true }` in wrangler config), time-revalidated
+> ISG routes are instead served through
+> [Workers Caching](https://developers.cloudflare.com/workers/cache/): pages
+> render on demand, the edge caches them for the `revalidate` window, and
+> stale pages are served instantly while the Worker re-renders in the
+> background — a true edge-tier cache rather than the per-colo Cache API.
+> Cached pages can be purged early with `purgeCache()` from
+> `@pracht/adapter-cloudflare/cache`. See
+> [ADAPTERS.md](ADAPTERS.md#isg-via-workers-caching-cache).
+
 ### Webhook-based revalidation
+
 
 ```typescript
 import { webhookRevalidate } from "@pracht/core";

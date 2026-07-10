@@ -50,4 +50,26 @@ describe("createCloudflareServerEntryModule", () => {
 
     expect(source).toContain("_pracht/isg.json");
   });
+
+  it("wires Workers Caching for ISG routes when enabled", () => {
+    const source = createCloudflareServerEntryModule({ cache: true });
+
+    // The runtime handler owns the cache logic — the entry only threads the
+    // option through and flags the build (snapshot skipping keys off it).
+    expect(source).toContain("export const cloudflareWorkersCacheEnabled = true;");
+    expect(source).toContain("cache: true,");
+  });
+
+  it("passes a custom stale-while-revalidate window through to the handler", () => {
+    const source = createCloudflareServerEntryModule({ cache: { staleWhileRevalidate: 60 } });
+
+    expect(source).toContain('cache: {"staleWhileRevalidate":60},');
+  });
+
+  it("leaves Workers Caching out when not enabled", () => {
+    const source = createCloudflareServerEntryModule();
+
+    expect(source).toContain("export const cloudflareWorkersCacheEnabled = false;");
+    expect(source).toContain("cache: false,");
+  });
 });
