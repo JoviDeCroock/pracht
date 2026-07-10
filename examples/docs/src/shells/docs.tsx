@@ -26,6 +26,7 @@ import {
   IconPresentationAnalytics,
   IconActivity,
   IconShieldCheck,
+  IconWorldBolt,
 } from "@tabler/icons-preact";
 import "../styles/global.css";
 
@@ -70,6 +71,7 @@ const NAV = [
   {
     label: "Agents",
     links: [
+      { href: "/docs/agents", Icon: IconWorldBolt, title: "The Agentic Web" },
       { href: "/docs/llms", Icon: IconSparkles, title: "LLM Content" },
       { href: "/docs/agent-workflow", Icon: IconRobot, title: "Agent Workflow" },
       { href: "/docs/agent-skills", Icon: IconSparkles, title: "Agent Skills" },

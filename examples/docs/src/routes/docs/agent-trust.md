@@ -130,3 +130,5 @@ Can an agent actually complete a task through your capabilities? `pracht eval` r
 pracht preview                          # in another terminal
 pracht eval --url http://localhost:3000 # runs evals/**/*.eval.json
 ```
+
+The [Testing recipe](/docs/recipes/testing) covers the rest of the agent-surface toolbox: unit testing `run()` and the schema validators, asserting the prepare/commit flow from Playwright, faking the WebMCP API, and signing Web Bot Auth requests in tests.

@@ -137,3 +137,5 @@ pracht inspect capabilities
 ```
 
 Coming next: a remote MCP endpoint (`/mcp`) projecting the same capabilities to out-of-browser agents, and MCP Apps UI views rendered with Preact.
+
+For the story behind the design, read [The Agentic Web](/docs/agents); for unit, E2E, and WebMCP testing patterns, see the [Testing recipe](/docs/recipes/testing).

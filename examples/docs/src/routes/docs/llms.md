@@ -3,8 +3,8 @@ title: LLM Content Negotiation
 lead: Give AI agents first-class Markdown at the same URLs your readers use. pracht routes can negotiate on <code>Accept: text/markdown</code>, publish <code>/llms.txt</code>, and keep HTML as the browser default.
 breadcrumb: LLMs
 prev:
-  href: /docs/performance
-  title: Performance
+  href: /docs/agents
+  title: The Agentic Web
 next:
   href: /docs/agent-workflow
   title: AI-Assisted Authoring & Review
