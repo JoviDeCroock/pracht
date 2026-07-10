@@ -174,6 +174,21 @@ describe("applyWorkersCacheHeaders", () => {
 
     expect(response.headers.has("cache-control")).toBe(false);
   });
+
+  it("does not edge-cache responses that vary by cookie, authorization, or everything", () => {
+    for (const vary of ["Cookie", "Accept, Authorization", "*"]) {
+      const response = applyWorkersCacheHeaders(
+        new Response("<html></html>", { headers: { vary } }),
+        isgRoute(),
+        cacheOptions,
+      );
+
+      expect(response.headers.has("cache-control")).toBe(false);
+      expect(response.headers.has("cloudflare-cdn-cache-control")).toBe(false);
+      expect(response.headers.has("cache-tag")).toBe(false);
+      expect(response.headers.get("vary")).toBe(vary);
+    }
+  });
 });
 
 describe("preventHeuristicCaching", () => {
