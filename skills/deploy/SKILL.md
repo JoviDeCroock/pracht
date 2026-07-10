@@ -129,6 +129,24 @@ export async function loader({ context }: LoaderArgs) {
 pracht({ adapter: cloudflareAdapter({ assetsBinding: "STATIC" }) });
 ```
 
+### ISG via Workers Caching
+
+For ISG routes, enable Workers Caching on both sides:
+
+```ts
+pracht({ adapter: cloudflareAdapter({ cache: true }) });
+```
+
+```jsonc
+// wrangler.jsonc
+{ "cache": { "enabled": true } }
+```
+
+ISG pages then render on demand, are cached at the edge for their
+`revalidate` window, and can be purged early with `purgeCache()` from
+`@pracht/adapter-cloudflare/cache`. Without this, ISG routes are served as
+build-time static snapshots that never revalidate.
+
 ---
 
 ## Vercel Deployment
@@ -158,7 +176,7 @@ Produces: `.vercel/output/config.json`, `.vercel/output/static/`, `.vercel/outpu
 
 1. **Build**: Run `pracht build` and verify `dist/` output.
 2. **Environment variables**: Ensure secrets/config needed by loaders are available at runtime.
-3. **Static assets**: Verify `dist/client/` contains prerendered HTML for SSG/ISG routes.
+3. **Static assets**: Verify `dist/client/` contains prerendered HTML for SSG routes (and ISG routes, except on Cloudflare with Workers Caching enabled — those render on demand).
 4. **ISG routes**: Confirm the ISG manifest exists if using incremental static generation.
 5. **API routes**: Test API endpoints work in the production runtime. For Node.js, run `pracht preview` (or `node dist/server/server.js`).
 6. **Middleware**: Verify auth/redirect middleware behaves correctly in production.

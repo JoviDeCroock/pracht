@@ -60,6 +60,24 @@ test("pracht build emits a deployable Cloudflare Worker setup", async () => {
   expect(workerSource).toContain("server_default as default");
   expect(output).not.toContain("does not perform runtime revalidation");
 
+  // The example enables Workers Caching: the worker carries the ISG cache
+  // wiring, the build reports it, and wrangler.jsonc turns the cache on.
+  expect(workerSource).toContain("cloudflareWorkersCacheEnabled = true");
+  expect(workerSource).toContain("cache: true");
+  // Edge directives live in cloudflare-cdn-cache-control so
+  // stale-while-revalidate is not disabled by the browser-facing
+  // must-revalidate (RFC 9111 §4.2.4).
+  expect(workerSource).toContain("cloudflare-cdn-cache-control");
+  expect(workerSource).toContain("stale-while-revalidate");
+  expect(output).toContain("ISG via Workers Caching");
+  expect(wranglerConfig).toMatchObject({ cache: { enabled: true } });
+
+  // Time-revalidated ISG pages must not be emitted as static snapshots —
+  // they render on demand and live in the edge cache, otherwise they would
+  // never revalidate.
+  expect(existsSync(resolve(distDir, "client/pricing/index.html"))).toBe(false);
+  expect(existsSync(resolve(distDir, "client/pricing.html"))).toBe(false);
+
   // Cloudflare primitives configured via `workerExportsFrom` must be re-exported
   expect(workerSource).toContain("Counter");
 

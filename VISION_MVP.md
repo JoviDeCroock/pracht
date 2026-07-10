@@ -119,7 +119,7 @@ Platform adapters export a request handler shaped for their runtime:
 | Adapter              | Runtime           | Notes                                |
 | -------------------- | ----------------- | ------------------------------------ |
 | `adapter-node`       | Node.js `http`    | Static file serving, ISG mtime check |
-| `adapter-cloudflare` | Workers `fetch`   | `env.ASSETS`, Cache API-backed ISG   |
+| `adapter-cloudflare` | Workers `fetch`   | `env.ASSETS`, Cache API-backed ISG, opt-in Workers Caching |
 | `adapter-vercel`     | Serverless / Edge | Build Output API v3 + native ISR     |
 
 Each adapter:

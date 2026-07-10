@@ -19,6 +19,7 @@ const STUB_SOURCES: Record<string, string> = {
     "export class WorkflowEntrypoint {}",
     "export class RpcTarget {}",
     "export const env = {};",
+    'export const cache = { purge() { throw new Error("cache.purge is not available during prerendering"); } };',
     "",
   ].join("\n"),
   "cloudflare:email": "export class EmailMessage {}\n",

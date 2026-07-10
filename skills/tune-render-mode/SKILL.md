@@ -112,10 +112,10 @@ way (pages router: `export const HYDRATION = "..."`).
 1. Never silently change render modes. Always present the recommendation
    first.
 2. If a route uses `auth` middleware, default to `ssr` — auth implies cookies.
-3. ISG requires the route to be servable from the same machine that runs
-   builds OR a runtime that can persist the manifest (Node + filesystem,
-   Cloudflare with a bound KV). Confirm adapter capability before recommending
-   ISG.
+3. ISG requires an adapter with revalidation support: Node (filesystem
+   mtime checks) or Cloudflare with Workers Caching
+   (`cloudflareAdapter({ cache: true })` plus `"cache": { "enabled": true }`
+   in wrangler config). Confirm adapter capability before recommending ISG.
 4. For dynamic SSG/ISG routes, ensure `getStaticPaths` exists. Flag if missing.
 5. Use `pracht inspect routes --json` rather than reading `src/routes.ts`
    manually — the resolved graph already accounts for groups and inheritance.

@@ -16,6 +16,14 @@ import {
   readRevalidationRequest,
   type PrachtApp,
 } from "@pracht/core/server";
+import {
+  applyWorkersCacheHeaders,
+  type CloudflareWorkersCacheOption,
+  findCacheableIsgRoute,
+  preventHeuristicCaching,
+  purgeCache,
+  resolveWorkersCacheOptions,
+} from "./cache.ts";
 
 type HeadersManifest = Record<string, Record<string, string>>;
 type ISGManifest = Record<string, ISGManifestEntry>;
@@ -59,6 +67,17 @@ export interface CloudflareAdapterOptions<
   headersManifest?: HeadersManifest;
   isgManifest?: ISGManifest;
   createContext?: (args: CloudflareContextArgs<TEnv>) => TContext | Promise<TContext>;
+  /**
+   * Serve time-revalidated ISG routes through Cloudflare Workers Caching:
+   * instead of the build-time static snapshot and the worker-managed Cache
+   * API path, ISG pages are rendered on demand and cached at the edge for
+   * their `revalidate` window (via `cloudflare-cdn-cache-control`), with
+   * stale pages served instantly while the Worker re-renders in the
+   * background. Webhook-only ISG routes keep the worker-managed path so
+   * revalidation takes effect immediately. Requires
+   * `"cache": { "enabled": true }` in wrangler config.
+   */
+  cache?: CloudflareWorkersCacheOption;
 }
 
 export function createCloudflareFetchHandler<
@@ -69,6 +88,7 @@ export function createCloudflareFetchHandler<
   },
 >(options: CloudflareAdapterOptions<TEnv, TContext>) {
   const assetsBinding = options.assetsBinding ?? "ASSETS";
+  const cacheOptions = resolveWorkersCacheOptions(options.cache);
 
   return async (
     request: Request,
@@ -99,35 +119,44 @@ export function createCloudflareFetchHandler<
         env,
         options.isgManifest ?? {},
         renderISGPage,
+        Boolean(cacheOptions),
       );
     }
 
-    const isgResponse = await maybeServeISG(
-      request,
-      env,
-      executionContext,
-      assetsBinding,
-      options.isgManifest ?? {},
-      options.headersManifest ?? {},
-      renderISGPage,
-    );
-    if (isgResponse) return isgResponse;
+    // ISG routes served through Workers Caching bypass both the prerendered
+    // static snapshot and the worker-managed Cache API path — the framework
+    // re-renders and the edge cache holds the response for the revalidate
+    // window.
+    const cacheRoute = cacheOptions ? findCacheableIsgRoute(options.app, request) : null;
 
-    const assetResponse = await maybeServeAsset(
-      request,
-      env,
-      assetsBinding,
-      options.headersManifest ?? {},
-    );
-    if (assetResponse) {
-      return assetResponse;
+    if (!cacheRoute) {
+      const isgResponse = await maybeServeISG(
+        request,
+        env,
+        executionContext,
+        assetsBinding,
+        options.isgManifest ?? {},
+        options.headersManifest ?? {},
+        renderISGPage,
+      );
+      if (isgResponse) return preventHeuristicCaching(request, isgResponse);
+
+      const assetResponse = await maybeServeAsset(
+        request,
+        env,
+        assetsBinding,
+        options.headersManifest ?? {},
+      );
+      if (assetResponse) {
+        return assetResponse;
+      }
     }
 
     const context = options.createContext
       ? await options.createContext({ request, env, executionContext })
       : ({ env, executionContext } as TContext);
 
-    return handlePrachtRequest({
+    const response = await handlePrachtRequest({
       app: options.app,
       registry: options.registry,
       request,
@@ -137,6 +166,19 @@ export function createCloudflareFetchHandler<
       cssManifest: options.cssManifest,
       jsManifest: options.jsManifest,
     } satisfies HandlePrachtRequestOptions<TContext>);
+
+    const finalResponse =
+      cacheRoute && cacheOptions
+        ? applyWorkersCacheHeaders(response, cacheRoute, cacheOptions)
+        : response;
+
+    // Workers Caching heuristically caches 200 responses that lack a
+    // Cache-Control header (and Cookie is not part of the cache key) —
+    // stamp everything pracht did not deliberately mark cacheable so SSR
+    // pages and API responses can never be edge-cached by accident. This
+    // guards even when the adapter `cache` option is off, because
+    // `"cache": { "enabled": true }` in wrangler config is independent.
+    return preventHeuristicCaching(request, finalResponse);
   };
 }
 
@@ -235,6 +277,7 @@ async function handleCloudflareRevalidationEndpoint(
   env: Record<string, unknown>,
   isgManifest: ISGManifest,
   renderISGPage: (pathname: string, originalRequest: Request) => Promise<Response>,
+  edgeCacheEnabled: boolean,
 ): Promise<Response> {
   const parsed = await readRevalidationRequest(
     request,
@@ -273,6 +316,18 @@ async function handleCloudflareRevalidationEndpoint(
     // in `failed` instead of aborting the whole batch with a 500.
     if (await regenerateCloudflareISGPage(cache, cacheKey, pathname, request, renderISGPage)) {
       revalidated.push(pathname);
+      // Routes with both a time and a webhook policy are served through
+      // Workers Caching when the `cache` option is on — the edge copy must
+      // be purged too, or it keeps serving the old page until its TTL. A
+      // purge failure keeps the path in `revalidated` (the worker-managed
+      // copy is fresh); the edge falls back to its time window.
+      if (edgeCacheEnabled && getTimeRevalidateSeconds(entry.revalidate) !== null) {
+        try {
+          await purgeCache({ pathPrefixes: [pathname] });
+        } catch (err) {
+          console.error(`ISG edge cache purge failed for ${pathname}:`, err);
+        }
+      }
     } else {
       failed.push(pathname);
     }

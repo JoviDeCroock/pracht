@@ -3,6 +3,9 @@
   "name": "pracht-example-cloudflare",
   "main": "dist/server/worker.js",
   "compatibility_date": "2026-04-06",
+  // Workers Caching: lets Cloudflare serve cached ISG pages without invoking
+  // the Worker; pracht sets the Cache-Control/Cache-Tag headers per route.
+  "cache": { "enabled": true },
   "assets": {
     "binding": "ASSETS",
     "directory": "dist/client",

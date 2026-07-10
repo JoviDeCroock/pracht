@@ -7,6 +7,7 @@ export default defineConfig({
     pracht({
       adapter: cloudflareAdapter({
         workerExportsFrom: "/src/cloudflare.ts",
+        cache: true,
       }),
     }),
   ],
