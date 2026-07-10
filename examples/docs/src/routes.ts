@@ -84,6 +84,10 @@ export const app = defineApp({
         id: "performance",
         render: "ssg",
       }),
+      route("/docs/agents", () => import("./routes/docs/agents.md"), {
+        id: "agents",
+        render: "ssg",
+      }),
       route("/docs/llms", () => import("./routes/docs/llms.md"), {
         id: "llms",
         render: "ssg",

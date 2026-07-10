@@ -6,8 +6,8 @@ prev:
   href: /docs/prefetching
   title: Prefetching
 next:
-  href: /docs/llms
-  title: LLM Content Negotiation
+  href: /docs/agents
+  title: The Agentic Web
 ---
 
 ## Route-Level Code Splitting
