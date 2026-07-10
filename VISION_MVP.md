@@ -193,6 +193,22 @@ SSR and SSG, deployed to Node. Thoroughly tested with Playwright E2E tests.
 
 ---
 
+## Next Product Bet: Capability Graph
+
+The proposed post-MVP direction is a protocol-neutral graph of typed application capabilities that
+can be invoked from the web application, HTTP, remote agent tools (MCP), in-browser agent tools
+(WebMCP), and optional embedded Preact interfaces. This would extend Pracht's agent story from
+coding-agent support to finished applications that are deliberately and safely operable by agents.
+The differentiator is the trust layer — explicit registration, effect classes, an authenticated
+principal with agent identity, and an eval harness — not schema-to-tool conversion, which is
+becoming commodity.
+
+The proposal, candidate comparison, threat model, and staged proof are documented in
+[docs/CAPABILITY_GRAPH.md](docs/CAPABILITY_GRAPH.md). It is exploratory and does not change the
+current stable API.
+
+---
+
 ## Monorepo Structure
 
 ```
