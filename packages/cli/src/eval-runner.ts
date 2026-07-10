@@ -318,3 +318,45 @@ export async function runScenario(
     error: null,
   };
 }
+
+// ---------------------------------------------------------------------------
+// `--start` support: wait for a just-spawned app server to answer
+// ---------------------------------------------------------------------------
+
+export interface WaitForServerOptions {
+  timeoutMs?: number;
+  intervalMs?: number;
+  /** Checked between attempts — return a reason to abort early (e.g. the started process already exited). */
+  earlyExit?: () => string | null;
+  fetchImpl?: typeof fetch;
+}
+
+export type WaitForServerResult = { ok: true } | { ok: false; reason: string };
+
+/**
+ * Poll a base URL until the server answers. Any HTTP response counts as
+ * ready — 404s included — because reachability is all the scenario runner
+ * needs before it starts dispatching capability calls.
+ */
+export async function waitForServer(
+  baseUrl: string,
+  options: WaitForServerOptions = {},
+): Promise<WaitForServerResult> {
+  const { timeoutMs = 30_000, intervalMs = 250, earlyExit, fetchImpl = fetch } = options;
+  const deadline = Date.now() + timeoutMs;
+
+  while (Date.now() < deadline) {
+    const abortReason = earlyExit?.();
+    if (abortReason) {
+      return { ok: false, reason: abortReason };
+    }
+    try {
+      await fetchImpl(baseUrl, { signal: AbortSignal.timeout(2_000) });
+      return { ok: true };
+    } catch {
+      await new Promise((resolve) => setTimeout(resolve, intervalMs));
+    }
+  }
+
+  return { ok: false, reason: `no response from ${baseUrl} within ${timeoutMs}ms` };
+}

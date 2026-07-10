@@ -99,6 +99,49 @@ describe("formatDevBanner", () => {
     expect(banner).toContain("API (0)");
     expect(banner).toContain("(none)");
   });
+
+  it("lists registered capabilities with effect, exposure, and dispatch path", () => {
+    const banner = formatDevBanner({
+      apiRoutes: [],
+      capabilities: [
+        {
+          effect: "read",
+          httpPath: "/api/capabilities/notes/search",
+          name: "notes.search",
+          transports: ["http", "webmcp"],
+        },
+        {
+          effect: "destructive",
+          httpPath: "/api/capabilities/notes/purge",
+          name: "notes.purge",
+          transports: ["http"],
+        },
+        { effect: "read", httpPath: null, name: "notes.internal", transports: [] },
+      ],
+      color: false,
+      localUrls: ["http://localhost:3000/"],
+      routes: [],
+    });
+
+    expect(banner).toContain("Capabilities (3)");
+    expect(banner).toMatch(
+      /notes\.search\s+read\s+http,webmcp\s+\/api\/capabilities\/notes\/search/,
+    );
+    expect(banner).toMatch(/notes\.purge\s+destructive\s+http\s+\/api\/capabilities\/notes\/purge/);
+    expect(banner).toMatch(/notes\.internal\s+read\s+private\s+-/);
+  });
+
+  it("omits the capabilities section when none are registered", () => {
+    const banner = formatDevBanner({
+      apiRoutes,
+      capabilities: [],
+      color: false,
+      localUrls: ["http://localhost:3000/"],
+      routes,
+    });
+
+    expect(banner).not.toContain("Capabilities");
+  });
 });
 
 describe("supportsColor", () => {

@@ -10,6 +10,7 @@ import type {
 } from "@pracht/core";
 import { defineCommand } from "citty";
 
+import { capabilityModuleLoader } from "../app-graph.js";
 import { withAppServer } from "../app-server.js";
 import { handleCliError } from "../utils.js";
 import { readClientBuildAssets } from "../build-metadata.js";
@@ -94,7 +95,7 @@ export async function runInspect(
 
     if (target === "capabilities" || target === "all") {
       report.capabilities = await serializeCapabilities(serverModule.resolvedApp.capabilities, {
-        loadModule: (file) => server.ssrLoadModule(file),
+        loadModule: capabilityModuleLoader(server, serverModule),
         readSource: (file) => readFileSync(resolve(root, `.${file}`), "utf-8"),
       });
     }

@@ -426,7 +426,49 @@ describe("notes.search", () => {
 
 The object `defineCapability()` returns also carries `validateInput()` / `validateOutput()` — the exact validators the dispatch pipeline uses, including schema defaults — so contract behavior is unit-testable without a server.
 
-Note the boundary: calling `run()` directly skips validation, the middleware chain, and the confirmation flow. Those run in the dispatch pipeline, so test them through the HTTP projection below — `invokeCapability()` is only available while `handlePrachtRequest()` is serving requests.
+Note the boundary: calling `run()` directly skips validation, the middleware chain, and the confirmation flow. For those, build a test host.
+
+### The full pipeline without a server
+
+`createCapabilityTestHost()` runs the real dispatch pipeline in-process — no manifest, no Vite, no port. `invoke()` mirrors `invokeCapability()`; `request()` mirrors the generated HTTP endpoints, including agent policy and the confirmation flow:
+
+```ts [src/capabilities/notes.test.ts]
+import { createCapabilityTestHost, setCapabilityConfirmationSecret } from "@pracht/core";
+import notesSearch from "./notes-search";
+import notesPurge from "./notes-purge";
+
+const host = createCapabilityTestHost({
+  capabilities: { "notes.search": notesSearch, "notes.purge": notesPurge },
+  middleware: { auth: authMiddleware }, // for capabilities declaring middleware: ["auth"]
+});
+
+it("runs validation, middleware, run(), and output validation", async () => {
+  const result = await host.invoke("notes.search", { query: "roadmap" });
+  expect(result.ok).toBe(true);
+});
+
+it("walks the prepare/commit confirmation flow", async () => {
+  setCapabilityConfirmationSecret("test-only-secret");
+
+  const prepare = await host.request("notes.purge", { titlePrefix: "Old" });
+  expect(prepare.status).toBe(409);
+  const { error } = await prepare.json();
+
+  const commit = await host.request("notes.purge", { titlePrefix: "Old" }, {
+    headers: { "x-pracht-confirm": error.confirmationToken },
+  });
+  expect(commit.status).toBe(200);
+});
+```
+
+To test `agentPolicy: "require"` and `context.agent`, inject a simulated verified identity — no request signing needed:
+
+```ts
+const response = await host.request("agent.ping", {}, {
+  agent: { verified: true, agentDomain: "test-agent.example", keyId: "test-key" },
+});
+expect(response.status).toBe(200);
+```
 
 ### E2E testing the HTTP projection
 
@@ -525,7 +567,7 @@ test("webmcp tools register and execute", async ({ page }) => {
 
 ### Signing Web Bot Auth requests in tests
 
-To test `agentPolicy: "require"` and `context.agent`, sign requests the way a real agent would. Generate an Ed25519 test keypair, put the *public* JWK in your manifest's `agents.webBotAuth.keys`, and sign with the private part in tests:
+The test host's `agent` option covers pipeline behavior; to test the *verifier itself* over the wire, sign requests the way a real agent would. Generate an Ed25519 test keypair, put the *public* JWK in your manifest's `agents.webBotAuth.keys`, and sign with the private part in tests:
 
 ```ts [e2e/web-bot-auth.ts]
 import { createPrivateKey, sign } from "node:crypto";
@@ -578,8 +620,11 @@ test("unsigned requests are rejected", async ({ request }) => {
 `pracht eval` runs multi-step scenarios against a live server and exits `1` on any failed expectation — regression tests for your agent UX. Scenarios live in `evals/**/*.eval.json`; `$steps[n].<path>` references thread values (like confirmation tokens) between steps:
 
 ```sh
-pracht preview &                        # or pracht dev, in another terminal
-pracht eval --url http://localhost:3000 # add --json for machine-readable CI output
+# One command: start the app, wait for it, run the scenarios, stop it.
+pracht eval --start "pracht preview"    # add --json for machine-readable CI output
+
+# Or point at a server you manage yourself:
+pracht eval --url http://localhost:3000
 ```
 
 See [Agent Trust](/docs/agent-trust) for the scenario format, and the framework repository's `examples/basic` for a complete worked example — five capabilities with unit, E2E, and eval coverage.

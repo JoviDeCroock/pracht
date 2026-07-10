@@ -1,0 +1,11 @@
+{
+  "name": "start flow",
+  "task": "Ping the echo capability on a server that pracht eval started itself.",
+  "steps": [
+    {
+      "capability": "echo.ping",
+      "input": {},
+      "expect": { "ok": true, "status": 200, "output": { "pong": true } }
+    }
+  ]
+}

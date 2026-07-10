@@ -1,3 +1,5 @@
+import type { AppGraphCapability } from "@pracht/core";
+
 import type { AppGraphApiRoute, AppGraphRoute } from "./app-graph.js";
 
 export interface DevBannerRoute extends Pick<
@@ -7,8 +9,14 @@ export interface DevBannerRoute extends Pick<
 
 export interface DevBannerApiRoute extends Pick<AppGraphApiRoute, "methods" | "path"> {}
 
+export interface DevBannerCapability extends Pick<
+  AppGraphCapability,
+  "effect" | "httpPath" | "name" | "transports"
+> {}
+
 export interface DevBannerOptions {
   apiRoutes: DevBannerApiRoute[];
+  capabilities?: DevBannerCapability[];
   color?: boolean;
   localUrls: string[];
   networkUrls?: string[];
@@ -21,6 +29,7 @@ const ANSI = {
   dim: "2",
   green: "32",
   magenta: "35",
+  red: "31",
   yellow: "33",
 };
 
@@ -31,12 +40,25 @@ const MODE_COLORS: Record<string, string> = {
   ssr: ANSI.yellow,
 };
 
+const EFFECT_COLORS: Record<string, string> = {
+  destructive: ANSI.red,
+  read: ANSI.green,
+  write: ANSI.yellow,
+};
+
 /**
  * Format the `pracht dev` startup banner: local URL(s) plus an aligned table
  * of page routes (pattern, render mode, shell, middleware) and API routes.
  */
 export function formatDevBanner(options: DevBannerOptions): string {
-  const { apiRoutes, color = false, localUrls, networkUrls = [], routes } = options;
+  const {
+    apiRoutes,
+    capabilities = [],
+    color = false,
+    localUrls,
+    networkUrls = [],
+    routes,
+  } = options;
   const paint = (text: string, code: string): string =>
     color ? `\u001b[${code}m${text}\u001b[0m` : text;
 
@@ -95,6 +117,32 @@ export function formatDevBanner(options: DevBannerOptions): string {
     }
   }
   lines.push("");
+
+  // Apps without capabilities skip the section entirely — most apps don't
+  // register any, and an empty table would only add noise.
+  if (capabilities.length > 0) {
+    lines.push(`  ${paint(`Capabilities (${capabilities.length})`, ANSI.bold)}`);
+    const rows = capabilities.map((capability) => [
+      capability.name,
+      capability.effect ?? "?",
+      capability.transports.length > 0 ? capability.transports.join(",") : "private",
+      capability.httpPath ?? "-",
+    ]);
+    const header = ["NAME", "EFFECT", "EXPOSURE", "HTTP"];
+    const widths = columnWidths([header, ...rows]);
+    lines.push(`    ${paint(formatRow(header, widths), ANSI.dim)}`);
+    for (const row of rows) {
+      const [name, effect, exposure, httpPath] = row;
+      const cells = [
+        name.padEnd(widths[0]),
+        paint(effect.padEnd(widths[1]), EFFECT_COLORS[effect] ?? ANSI.dim),
+        exposure.padEnd(widths[2]),
+        httpPath,
+      ];
+      lines.push(`    ${cells.join("  ")}`.trimEnd());
+    }
+    lines.push("");
+  }
 
   return lines.join("\n");
 }

@@ -78,6 +78,14 @@ export async function invokeCapability(): Promise<never> {
       'via callCapability from "virtual:pracht/capabilities" instead.',
   );
 }
+
+/** Browser stub for the server-only `createCapabilityTestHost()` — see above. */
+export function createCapabilityTestHost(): never {
+  throw new Error(
+    "createCapabilityTestHost() is server-only. Import it in Node-based tests, " +
+      "not in browser code.",
+  );
+}
 export { fetchPrachtRouteState, parseSafeNavigationUrl } from "./runtime-client-fetch.ts";
 export { initClientRouter, useNavigate } from "./router.ts";
 export { redirect, type RedirectOptions } from "./runtime-middleware.ts";

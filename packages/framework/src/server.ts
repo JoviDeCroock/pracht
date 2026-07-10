@@ -69,6 +69,14 @@ export {
   resolveAppCapabilities,
 } from "./runtime-capabilities.ts";
 export type { InvokeCapabilityContext, ResolvedCapability } from "./runtime-capabilities.ts";
+export { resolveRegistryModule } from "./runtime-manifest.ts";
+export { createCapabilityTestHost } from "./testing-capabilities.ts";
+export type {
+  CapabilityTestHost,
+  CapabilityTestHostOptions,
+  CapabilityTestInvokeOptions,
+  CapabilityTestRequestOptions,
+} from "./testing-capabilities.ts";
 export { buildLlmsTxt } from "./llms-txt.ts";
 export type { BuildLlmsTxtOptions, LlmsTxtSection } from "./llms-txt.ts";
 export { prerenderApp } from "./prerender.ts";

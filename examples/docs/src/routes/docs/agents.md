@@ -98,7 +98,7 @@ curl -s -X POST http://localhost:3000/api/capabilities/notes/purge \
 # Repeat with -H "x-pracht-confirm: <token>" and identical input to commit.
 ```
 
-Then prove the whole flow as a scripted scenario:
+Then prove the whole flow as a scripted scenario (with `--start "pracht preview"` it even manages the server itself):
 
 ```sh
 pnpm pracht eval --url http://localhost:3000
