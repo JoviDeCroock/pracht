@@ -11,6 +11,22 @@ export const app = defineApp({
   capabilities: {
     "notes.search": () => import("./capabilities/notes-search.ts"),
     "notes.create": () => import("./capabilities/notes-create.ts"),
+    "notes.purge": () => import("./capabilities/notes-purge.ts"),
+    "agent.whoami": () => import("./capabilities/agent-whoami.ts"),
+    "agent.ping": () => import("./capabilities/agent-ping.ts"),
+  },
+  agents: {
+    // Web Bot Auth: verify RFC 9421 agent signatures and surface the identity
+    // as `context.agent`. The key below is the e2e suite's test agent — a
+    // *public* Ed25519 key, safe to commit. "observe" serves unsigned callers
+    // too; `agent.ping` opts into "require" per capability.
+    webBotAuth: {
+      policy: "observe",
+      keys: [{ x: "s5n91rPm5ymJjl--scT4WWq7HE9kUdj-6sVe5r__xgc", agent: "test-agent.example" }],
+    },
+    confirmation: {
+      ttlSeconds: 120,
+    },
   },
   routes: [
     group({ shell: "public" }, [

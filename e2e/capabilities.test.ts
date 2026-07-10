@@ -1,8 +1,20 @@
+import { execFile } from "node:child_process";
+import { createPrivateKey, sign as nodeSign } from "node:crypto";
+import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
+
 import { expect, test } from "@playwright/test";
 
-// Runs against examples/basic (port 3103), which registers two capabilities:
+const execFileAsync = promisify(execFile);
+
+// Runs against examples/basic (port 3103), which registers five capabilities:
 //   notes.search — read, expose.http + expose.webmcp
 //   notes.create — write, expose.http
+//   notes.purge  — destructive, expose.http (prepare/commit confirmation flow)
+//   agent.whoami — read, expose.http (echoes the Web Bot Auth identity)
+//   agent.ping   — read, expose.http, agentPolicy: "require"
+// The dev server runs with PRACHT_CONFIRMATION_SECRET set (playwright.config.ts).
 
 // ---------------------------------------------------------------------------
 // HTTP projection
@@ -167,4 +179,196 @@ test("without the WebMCP API the page works and registers nothing", async ({ pag
   );
   expect(hasTools).toBe(false);
   expect(errors).toEqual([]);
+});
+
+// ---------------------------------------------------------------------------
+// Web Bot Auth (verified agent identity)
+// ---------------------------------------------------------------------------
+
+// The example app's manifest trusts this test agent's *public* key; the
+// private part below signs requests in-test only.
+const TEST_AGENT_JWK = {
+  kty: "OKP",
+  crv: "Ed25519",
+  d: "JZlLQqnxH-0O_1mfnuqDBB1U5XgqETE5eiRXxXRhZNM",
+  x: "s5n91rPm5ymJjl--scT4WWq7HE9kUdj-6sVe5r__xgc",
+};
+const TEST_AGENT_KEY_ID = "9zaO23t4-sitQq-zx7KAn4Q1Ds_W1PF07ozJfoP3H70";
+
+/**
+ * Sign per draft-meunier-web-bot-auth-architecture-02: covered components
+ * `@authority` + `signature-agent`, Ed25519, tag "web-bot-auth".
+ */
+function webBotAuthHeaders(authority: string): Record<string, string> {
+  const now = Math.floor(Date.now() / 1000);
+  const signatureAgent = '"https://test-agent.example"';
+  const params =
+    `("@authority" "signature-agent");created=${now};expires=${now + 300}` +
+    `;keyid="${TEST_AGENT_KEY_ID}";alg="ed25519";tag="web-bot-auth"`;
+  const base = [
+    `"@authority": ${authority}`,
+    `"signature-agent": ${signatureAgent}`,
+    `"@signature-params": ${params}`,
+  ].join("\n");
+
+  const key = createPrivateKey({ key: TEST_AGENT_JWK, format: "jwk" });
+  const signature = nodeSign(null, Buffer.from(base, "utf-8"), key);
+
+  return {
+    "signature-agent": signatureAgent,
+    "signature-input": `sig1=${params}`,
+    signature: `sig1=:${signature.toString("base64")}:`,
+  };
+}
+
+test("unsigned requests in observe mode are served with a null agent", async ({ request }) => {
+  const response = await request.post("/api/capabilities/agent/whoami", { data: {} });
+  expect(response.status()).toBe(200);
+  const body = await response.json();
+  expect(body).toEqual({ ok: true, data: { verified: false } });
+});
+
+test("signed requests surface the verified agent identity", async ({ request }) => {
+  const response = await request.post("/api/capabilities/agent/whoami", {
+    data: {},
+    headers: webBotAuthHeaders("localhost:3103"),
+  });
+  expect(response.status()).toBe(200);
+  const body = await response.json();
+  expect(body.ok).toBe(true);
+  expect(body.data).toEqual({
+    verified: true,
+    agentDomain: "test-agent.example",
+    keyId: TEST_AGENT_KEY_ID,
+  });
+});
+
+test('agentPolicy "require" rejects unsigned requests with the 401 envelope', async ({
+  request,
+}) => {
+  const response = await request.post("/api/capabilities/agent/ping", { data: {} });
+  expect(response.status()).toBe(401);
+  const body = await response.json();
+  expect(body.ok).toBe(false);
+  expect(body.error.code).toBe("agent_required");
+});
+
+test('agentPolicy "require" serves verified agents', async ({ request }) => {
+  const response = await request.post("/api/capabilities/agent/ping", {
+    data: {},
+    headers: webBotAuthHeaders("localhost:3103"),
+  });
+  expect(response.status()).toBe(200);
+  expect(await response.json()).toEqual({ ok: true, data: { pong: true } });
+});
+
+test("a bad signature does not verify", async ({ request }) => {
+  const headers = webBotAuthHeaders("localhost:3103");
+  // Flip the first base64 character of the signature bytes ("sig1=:" is 6 chars).
+  const flipped = headers.signature[6] === "A" ? "B" : "A";
+  headers.signature = headers.signature.slice(0, 6) + flipped + headers.signature.slice(7);
+  const response = await request.post("/api/capabilities/agent/whoami", {
+    data: {},
+    headers,
+  });
+  const body = await response.json();
+  expect(body.data).toEqual({ verified: false });
+});
+
+// ---------------------------------------------------------------------------
+// Destructive capability confirmation flow (prepare/commit)
+// ---------------------------------------------------------------------------
+
+test("destructive capability requires confirmation, then commits with the token", async ({
+  request,
+}) => {
+  // Seed a note the purge will target.
+  const created = await request.post("/api/capabilities/notes/create", {
+    data: { title: "E2E purge target", body: "to be deleted" },
+  });
+  expect((await created.json()).ok).toBe(true);
+
+  // Prepare: no token → 409 with a confirmation token, nothing deleted.
+  const prepare = await request.post("/api/capabilities/notes/purge", {
+    data: { titlePrefix: "E2E purge target" },
+  });
+  expect(prepare.status()).toBe(409);
+  const prepareBody = await prepare.json();
+  expect(prepareBody.error.code).toBe("confirmation_required");
+  const token = prepareBody.error.confirmationToken as string;
+  expect(typeof token).toBe("string");
+
+  // The note still exists — prepare must not run the capability.
+  const searchAfterPrepare = await request.post("/api/capabilities/notes/search", {
+    data: { query: "E2E purge target" },
+  });
+  expect((await searchAfterPrepare.json()).data.notes.length).toBeGreaterThan(0);
+
+  // Tampered token → 403, fail closed.
+  const tampered = await request.post("/api/capabilities/notes/purge", {
+    data: { titlePrefix: "E2E purge target" },
+    headers: { "x-pracht-confirm": `${token}x` },
+  });
+  expect(tampered.status()).toBe(403);
+  expect((await tampered.json()).error.code).toBe("confirmation_invalid");
+
+  // Different input with a valid token → 403 (token is input-bound).
+  const mismatched = await request.post("/api/capabilities/notes/purge", {
+    data: { titlePrefix: "Manifest" },
+    headers: { "x-pracht-confirm": token },
+  });
+  expect(mismatched.status()).toBe(403);
+
+  // Commit: same input + token → runs.
+  const commit = await request.post("/api/capabilities/notes/purge", {
+    data: { titlePrefix: "E2E purge target" },
+    headers: { "x-pracht-confirm": token },
+  });
+  expect(commit.status()).toBe(200);
+  const commitBody = await commit.json();
+  expect(commitBody.ok).toBe(true);
+  expect(commitBody.data.purged).toBeGreaterThan(0);
+
+  const searchAfterCommit = await request.post("/api/capabilities/notes/search", {
+    data: { query: "E2E purge target" },
+  });
+  expect((await searchAfterCommit.json()).data.notes).toEqual([]);
+});
+
+// ---------------------------------------------------------------------------
+// pracht eval CLI
+// ---------------------------------------------------------------------------
+
+const repoRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
+const cliEntry = resolve(repoRoot, "packages/cli/bin/pracht.js");
+
+test("pracht eval runs the example scenario against the dev server", async () => {
+  const { stdout } = await execFileAsync(
+    process.execPath,
+    [cliEntry, "eval", "--url", "http://localhost:3103"],
+    { cwd: resolve(repoRoot, "examples/basic") },
+  );
+  expect(stdout).toContain("PASS  notes agent flow");
+  expect(stdout).toContain("confirmation_required");
+  expect(stdout).toContain("1 scenario(s) passed, 0 failed");
+});
+
+test("pracht eval exits 1 on a failing scenario", async () => {
+  const failingScenario = resolve(repoRoot, "e2e/fixtures/failing.eval.json");
+  const result = await execFileAsync(
+    process.execPath,
+    [cliEntry, "eval", failingScenario, "--url", "http://localhost:3103", "--json"],
+    { cwd: resolve(repoRoot, "examples/basic") },
+  ).then(
+    (value) => ({ code: 0, stdout: value.stdout }),
+    (error: { code?: number; stdout?: string }) => ({
+      code: error.code ?? 1,
+      stdout: error.stdout,
+    }),
+  );
+
+  expect(result.code).toBe(1);
+  const report = JSON.parse(result.stdout ?? "");
+  expect(report.ok).toBe(false);
+  expect(report.scenarios[0].steps[0].failures.length).toBeGreaterThan(0);
 });

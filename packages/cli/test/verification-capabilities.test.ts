@@ -97,17 +97,58 @@ describe("collectCapabilityChecks", () => {
     );
   });
 
-  it("fails destructive exposed capabilities with the trust-layer message", () => {
+  it("fails destructive capabilities exposed to agent projections", () => {
+    // COMPLETE_FIELDS exposes http + webmcp — destructive may only use http.
     const checks = runChecks(
       capabilitySource(COMPLETE_FIELDS.replace('effect: "read"', 'effect: "destructive"')),
     );
 
     const errors = checks.filter((check) => check.status === "error");
     expect(errors.map((error) => error.message)).toContainEqual(
-      expect.stringContaining(
-        "destructive capabilities cannot be exposed yet; the trust layer ships separately",
-      ),
+      expect.stringContaining("is destructive and exposed to agent projections"),
     );
+  });
+
+  it("fails destructive http exposure without the confirmation secret", () => {
+    const previous = process.env.PRACHT_CONFIRMATION_SECRET;
+    delete process.env.PRACHT_CONFIRMATION_SECRET;
+    try {
+      const checks = runChecks(
+        capabilitySource(
+          COMPLETE_FIELDS.replace('effect: "read"', 'effect: "destructive"').replace(
+            "expose: { http: true, webmcp: true },",
+            "expose: { http: true },",
+          ),
+        ),
+      );
+
+      const errors = checks.filter((check) => check.status === "error");
+      expect(errors.map((error) => error.message)).toContainEqual(
+        expect.stringContaining("without PRACHT_CONFIRMATION_SECRET"),
+      );
+    } finally {
+      if (previous !== undefined) process.env.PRACHT_CONFIRMATION_SECRET = previous;
+    }
+  });
+
+  it("accepts destructive http exposure when the confirmation secret is configured", () => {
+    const previous = process.env.PRACHT_CONFIRMATION_SECRET;
+    process.env.PRACHT_CONFIRMATION_SECRET = "verify-test-secret";
+    try {
+      const checks = runChecks(
+        capabilitySource(
+          COMPLETE_FIELDS.replace('effect: "read"', 'effect: "destructive"').replace(
+            "expose: { http: true, webmcp: true },",
+            "expose: { http: true },",
+          ),
+        ),
+      );
+
+      expect(checks.filter((check) => check.status === "error")).toHaveLength(0);
+    } finally {
+      if (previous === undefined) delete process.env.PRACHT_CONFIRMATION_SECRET;
+      else process.env.PRACHT_CONFIRMATION_SECRET = previous;
+    }
   });
 
   it("fails webmcp exposure without http", () => {

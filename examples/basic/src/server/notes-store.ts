@@ -32,3 +32,15 @@ export function createNote(title: string, body: string): Note {
   notes.push(note);
   return note;
 }
+
+/** Delete notes whose title starts with the prefix. Returns the count removed. */
+export function purgeNotes(titlePrefix: string): number {
+  let purged = 0;
+  for (let index = notes.length - 1; index >= 0; index -= 1) {
+    if (notes[index].title.startsWith(titlePrefix)) {
+      notes.splice(index, 1);
+      purged += 1;
+    }
+  }
+  return purged;
+}

@@ -123,9 +123,14 @@ from `@pracht/capabilities`:
   (`invokeCapability()`), a generated HTTP endpoint (`expose.http`), and a
   WebMCP page tool for in-browser agents (`expose.webmcp`).
 - Private by default; exposure requires a complete contract, `destructive`
-  effects cannot be exposed yet, and the graph feeds `pracht inspect
-  capabilities`, `/_pracht`, `pracht verify`, and the CLI MCP server.
-- See [docs/CAPABILITIES.md](docs/CAPABILITIES.md).
+  effects are HTTP-only behind a server-verified prepare/commit confirmation
+  flow, and the graph feeds `pracht inspect capabilities`, `/_pracht`,
+  `pracht verify`, and the CLI MCP server.
+- Agent trust layer: Web Bot Auth (RFC 9421) verified agent identity as
+  `context.agent` with observe/require policies, capability audit events,
+  and a `pracht eval` harness for scripted agent-task checks.
+- See [docs/CAPABILITIES.md](docs/CAPABILITIES.md) and
+  [docs/AGENT_TRUST.md](docs/AGENT_TRUST.md).
 
 ### Deployment Adapters
 

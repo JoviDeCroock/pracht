@@ -1,0 +1,32 @@
+{
+  "name": "notes agent flow",
+  "task": "Search notes, hit a validation failure, then purge with the confirmation flow.",
+  "steps": [
+    {
+      "capability": "notes.search",
+      "input": { "query": "capabilities" },
+      "expect": { "ok": true, "status": 200 }
+    },
+    {
+      "capability": "notes.search",
+      "input": { "query": "" },
+      "expect": { "ok": false, "status": 400, "errorCode": "invalid_input" }
+    },
+    {
+      "capability": "notes.create",
+      "input": { "title": "Purge target", "body": "Created by pracht eval." },
+      "expect": { "ok": true, "output": { "note": { "title": "Purge target" } } }
+    },
+    {
+      "capability": "notes.purge",
+      "input": { "titlePrefix": "Purge target" },
+      "expect": { "ok": false, "status": 409, "errorCode": "confirmation_required" }
+    },
+    {
+      "capability": "notes.purge",
+      "input": { "titlePrefix": "Purge target" },
+      "headers": { "x-pracht-confirm": "$steps[3].error.confirmationToken" },
+      "expect": { "ok": true }
+    }
+  ]
+}

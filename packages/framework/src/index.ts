@@ -31,8 +31,16 @@ export {
   invokeCapability,
   matchCapabilityRoute,
   resolveAppCapabilities,
+  setCapabilityAuditHook,
 } from "./runtime-capabilities.ts";
 export type { InvokeCapabilityContext, ResolvedCapability } from "./runtime-capabilities.ts";
+export { verifyAgentSignature } from "./runtime-agent-auth.ts";
+export type { VerifyAgentSignatureOptions } from "./runtime-agent-auth.ts";
+export {
+  CONFIRMATION_HEADER,
+  CONFIRMATION_SECRET_ENV,
+  setCapabilityConfirmationSecret,
+} from "./runtime-confirmation.ts";
 export { forwardRef } from "./forwardRef.ts";
 export { useIsHydrated } from "./hydration.ts";
 export { Suspense, lazy } from "preact-suspense";
@@ -87,8 +95,16 @@ export type {
   BuildHrefOptions,
   ApiRouteMatch,
   ApiRouteModule,
+  AgentPolicyMode,
   BaseRouteArgs,
+  CapabilityAuditEvent,
+  CapabilityAuditHook,
+  CapabilityConfirmationConfig,
   CapabilityEffect,
+  PrachtAgentIdentity,
+  PrachtAgentsConfig,
+  WebBotAuthConfig,
+  WebBotAuthStaticKey,
   CapabilityEnvelope,
   CapabilityErrorPayload,
   CapabilityExposure,

@@ -12,8 +12,10 @@ import { createCheck, type Check } from "./verification-helpers.js";
  * checks mirror what `defineCapability()` and the runtime registry enforce,
  * but run without executing application code so `pracht verify` stays fast
  * and safe. Spec security rule 1: exposed capabilities without a full
- * contract (description, input, output, effect) fail verification, and
- * destructive capabilities cannot be exposed at all.
+ * contract (description, input, output, effect) fail verification. Spec rule
+ * 3: destructive capabilities may only be exposed over HTTP, and only when
+ * the prepare/commit confirmation secret (PRACHT_CONFIRMATION_SECRET) is
+ * configured in the environment `pracht verify` runs in.
  */
 export function collectCapabilityChecks(project: ProjectConfig, checks: Check[]): void {
   const manifestPath = resolveProjectPath(project.root, project.appFile);
@@ -75,19 +77,30 @@ function collectSingleCapabilityChecks(
       problems.push(`is exposed but is missing: ${missing.join(", ")}`);
     }
 
-    if (effect === "destructive") {
-      problems.push(
-        "is destructive and exposed — destructive capabilities cannot be exposed yet; the trust layer ships separately",
-      );
-    }
-
     const exposeText = properties.get("expose") ?? "";
     const hasHttp = /\bhttp\s*:\s*(true|\{)/.test(exposeText);
     const hasWebmcp = /\bwebmcp\s*:\s*true/.test(exposeText);
+    // `\b` keeps "webmcp:" from matching — "b" and "m" are both word characters.
+    const hasMcp = /\bmcp\s*:\s*true/.test(exposeText);
     if (hasWebmcp && !hasHttp) {
       problems.push(
         "sets expose.webmcp without expose.http — WebMCP tools dispatch through the HTTP projection",
       );
+    }
+
+    if (effect === "destructive") {
+      if (hasWebmcp || hasMcp) {
+        problems.push(
+          "is destructive and exposed to agent projections (webmcp/mcp) — only expose.http " +
+            "is allowed, gated by the prepare/commit confirmation flow",
+        );
+      } else if (hasHttp && !process.env.PRACHT_CONFIRMATION_SECRET) {
+        problems.push(
+          "is destructive and exposed over HTTP without PRACHT_CONFIRMATION_SECRET in the " +
+            "environment — the prepare/commit confirmation flow needs the secret and the " +
+            "runtime fails closed without it",
+        );
+      }
     }
   }
 
