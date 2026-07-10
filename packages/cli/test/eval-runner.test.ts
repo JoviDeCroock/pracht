@@ -11,6 +11,7 @@ import {
   parseScenario,
   resolveStepReferences,
   runScenario,
+  waitForServer,
   type EvalScenario,
   type EvalStepResult,
 } from "../src/eval-runner.js";
@@ -225,5 +226,54 @@ describe("runScenario", () => {
   it("maps capability names to default HTTP paths", () => {
     expect(capabilityHttpPath("notes.purge")).toBe("/api/capabilities/notes/purge");
     expect(capabilityHttpPath("ping")).toBe("/api/capabilities/ping");
+  });
+});
+
+describe("waitForServer", () => {
+  it("resolves ok once the server answers, even with an error status", async () => {
+    let calls = 0;
+    const fetchImpl = (async () => {
+      calls += 1;
+      if (calls < 3) throw new Error("ECONNREFUSED");
+      return new Response("not found", { status: 404 });
+    }) as typeof fetch;
+
+    const result = await waitForServer("http://localhost:9", {
+      fetchImpl,
+      intervalMs: 1,
+      timeoutMs: 1_000,
+    });
+    expect(result).toEqual({ ok: true });
+    expect(calls).toBe(3);
+  });
+
+  it("times out with a reason when the server never answers", async () => {
+    const fetchImpl = (async () => {
+      throw new Error("ECONNREFUSED");
+    }) as typeof fetch;
+
+    const result = await waitForServer("http://localhost:9", {
+      fetchImpl,
+      intervalMs: 1,
+      timeoutMs: 20,
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("expected timeout");
+    expect(result.reason).toContain("http://localhost:9");
+  });
+
+  it("aborts early when the earlyExit callback reports a reason", async () => {
+    const fetchImpl = (async () => {
+      throw new Error("ECONNREFUSED");
+    }) as typeof fetch;
+
+    let polls = 0;
+    const result = await waitForServer("http://localhost:9", {
+      earlyExit: () => (++polls > 1 ? "start command exited" : null),
+      fetchImpl,
+      intervalMs: 1,
+      timeoutMs: 5_000,
+    });
+    expect(result).toEqual({ ok: false, reason: "start command exited" });
   });
 });

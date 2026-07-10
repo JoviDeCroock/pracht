@@ -128,7 +128,7 @@ The shim ships as its own chunk behind feature detection: browsers without the A
 
 ## Inspect the Graph
 
-The capability graph feeds every inspection surface: `pracht inspect capabilities [--json]`, the `/_pracht` devtools page, the `inspect_capabilities` tool on the `pracht mcp` server, and the static checks in `pracht verify`.
+The capability graph feeds every inspection surface: the `pracht dev` startup banner, `pracht inspect capabilities [--json]`, the `/_pracht` devtools page, the `inspect_capabilities` tool on the `pracht mcp` server, and the static checks in `pracht verify`.
 
 ```sh
 pracht inspect capabilities

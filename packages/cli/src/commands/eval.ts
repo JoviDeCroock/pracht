@@ -1,3 +1,4 @@
+import { spawn, type ChildProcess } from "node:child_process";
 import { relative } from "node:path";
 
 import { defineCommand } from "citty";
@@ -6,8 +7,11 @@ import {
   findEvalFiles,
   parseScenario,
   runScenario,
+  waitForServer,
   type EvalScenarioResult,
 } from "../eval-runner.js";
+
+const DEFAULT_START_URL = "http://localhost:3000";
 
 export default defineCommand({
   meta: {
@@ -23,6 +27,13 @@ export default defineCommand({
     url: {
       type: "string",
       description: "Base URL of the running app (overrides per-file url)",
+    },
+    start: {
+      type: "string",
+      description:
+        'Command that starts your app (e.g. "pracht preview"). pracht eval launches it, ' +
+        `waits for a response at --url (default ${DEFAULT_START_URL}), runs the scenarios, ` +
+        "then stops it",
     },
     json: {
       type: "boolean",
@@ -44,22 +55,89 @@ export default defineCommand({
       return;
     }
 
-    const results: EvalScenarioResult[] = [];
-    for (const file of files) {
-      results.push(await runEvalFile(file, cwd, args.url ? String(args.url) : undefined));
+    let urlOverride = args.url ? String(args.url) : undefined;
+    let child: ChildProcess | undefined;
+
+    if (args.start) {
+      const startCommand = String(args.start);
+      // One started server serves every scenario, so its URL overrides
+      // per-file urls too.
+      const baseUrl = urlOverride ?? DEFAULT_START_URL;
+      urlOverride = baseUrl;
+
+      let output = "";
+      let exitReason: string | null = null;
+      child = spawn(startCommand, {
+        shell: true,
+        // Its own process group on POSIX, so stopping it also stops whatever
+        // the shell command spawned (package managers, dev servers).
+        detached: process.platform !== "win32",
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+      child.stdout?.on("data", (chunk: Buffer) => {
+        output += chunk.toString();
+      });
+      child.stderr?.on("data", (chunk: Buffer) => {
+        output += chunk.toString();
+      });
+      child.on("exit", (code) => {
+        exitReason = `the start command exited with code ${code ?? "unknown"} before the server answered`;
+      });
+
+      if (!args.json) {
+        console.log(`Starting app: ${startCommand}`);
+        console.log(`Waiting for ${baseUrl} ...`);
+      }
+      const ready = await waitForServer(baseUrl, { earlyExit: () => exitReason });
+      if (!ready.ok) {
+        stopStartedCommand(child);
+        console.error(`Could not reach the app at ${baseUrl}: ${ready.reason}`);
+        if (output.trim() !== "") {
+          console.error(`\n--- start command output ---\n${output.trimEnd()}`);
+        }
+        process.exitCode = 1;
+        return;
+      }
     }
 
-    const ok = results.every((result) => result.ok && result.error === null);
-    if (args.json) {
-      console.log(JSON.stringify({ ok, scenarios: results }, null, 2));
-    } else {
-      printTranscript(results, cwd);
-    }
-    if (!ok) {
-      process.exitCode = 1;
+    try {
+      const results: EvalScenarioResult[] = [];
+      for (const file of files) {
+        results.push(await runEvalFile(file, cwd, urlOverride));
+      }
+
+      const ok = results.every((result) => result.ok && result.error === null);
+      if (args.json) {
+        console.log(JSON.stringify({ ok, scenarios: results }, null, 2));
+      } else {
+        printTranscript(results, cwd);
+      }
+      if (!ok) {
+        process.exitCode = 1;
+      }
+    } finally {
+      if (child) {
+        stopStartedCommand(child);
+      }
     }
   },
 });
+
+/** Stop the `--start` process — the whole group on POSIX (`shell: true` spawns children). */
+function stopStartedCommand(child: ChildProcess): void {
+  if (child.exitCode !== null || child.signalCode !== null) {
+    return;
+  }
+  if (process.platform !== "win32" && child.pid) {
+    try {
+      process.kill(-child.pid, "SIGTERM");
+      return;
+    } catch {
+      // Group already gone — fall through to the direct kill.
+    }
+  }
+  child.kill("SIGTERM");
+}
 
 async function runEvalFile(
   file: string,
@@ -88,7 +166,8 @@ async function runEvalFile(
       steps: [],
       error:
         'no target server: pass --url <base> or set "url" in the scenario file. ' +
-        "Tip: run `pracht preview` (or `pracht dev`) in another terminal and point --url at it.",
+        "Tip: run `pracht preview` (or `pracht dev`) in another terminal and point --url at it, " +
+        'or let pracht eval manage the server with --start "pracht preview".',
     };
   }
 

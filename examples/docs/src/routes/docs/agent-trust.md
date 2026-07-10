@@ -124,11 +124,14 @@ Can an agent actually complete a task through your capabilities? `pracht eval` r
 }
 ```
 
-`$steps[n].<path>` references carry values between steps — the confirmation token above threads the prepare/commit flow through a scenario. Run it against a live server:
+`$steps[n].<path>` references carry values between steps — the confirmation token above threads the prepare/commit flow through a scenario. One command runs it — `--start` launches your app, waits for it to answer, runs the scenarios, and stops it:
 
 ```sh
+pracht eval --start "pracht preview"    # runs evals/**/*.eval.json
+
+# …or manage the server yourself:
 pracht preview                          # in another terminal
-pracht eval --url http://localhost:3000 # runs evals/**/*.eval.json
+pracht eval --url http://localhost:3000
 ```
 
-The [Testing recipe](/docs/recipes/testing) covers the rest of the agent-surface toolbox: unit testing `run()` and the schema validators, asserting the prepare/commit flow from Playwright, faking the WebMCP API, and signing Web Bot Auth requests in tests.
+The [Testing recipe](/docs/recipes/testing) covers the rest of the agent-surface toolbox: unit testing the full dispatch pipeline with `createCapabilityTestHost()` — including this confirmation flow and simulated agent identities — plus Playwright patterns, faking the WebMCP API, and signing Web Bot Auth requests in tests.

@@ -39,3 +39,9 @@ curl -s -X POST http://localhost:3000/api/capabilities/notes/search \
 
 pnpm pracht eval --url http://localhost:3000
 ```
+
+Or let `pracht eval` manage the server itself:
+
+```sh
+PRACHT_CONFIRMATION_SECRET=dev-secret pnpm pracht eval --start "pnpm pracht dev"
+```

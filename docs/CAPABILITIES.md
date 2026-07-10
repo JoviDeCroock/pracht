@@ -225,6 +225,8 @@ analyzed statically.
 
 The capability graph feeds every existing inspection surface:
 
+- the `pracht dev` startup banner prints a Capabilities table (name, effect,
+  exposure, dispatch path) whenever the app registers any;
 - `pracht inspect capabilities [--json]` — name, effect, transports, HTTP
   path, middleware, source;
 - the `/_pracht` devtools page gains a Capabilities table (dev only, rendered
@@ -234,9 +236,19 @@ The capability graph feeds every existing inspection surface:
 
 ## Testing agent flows
 
+`createCapabilityTestHost()` (from `@pracht/core`) runs the dispatch pipeline
+in-process for unit tests — no manifest, no Vite, no server. `invoke()`
+mirrors `invokeCapability()`; `request()` mirrors the HTTP projection,
+including Web Bot Auth policy (inject a simulated identity via the `agent`
+option) and the destructive prepare/commit confirmation flow (set
+`PRACHT_CONFIRMATION_SECRET` or call `setCapabilityConfirmationSecret()` in
+test setup). See `packages/framework/test/capability-test-host.test.ts` for
+worked examples.
+
 `pracht eval` runs scripted scenarios (search → validation failure →
 confirmation flow) against the capability HTTP projection and exits 1 on any
-failed expectation — see [AGENT_TRUST.md](AGENT_TRUST.md#pracht-eval-scripted-agent-task-scenarios)
+failed expectation — `--start "<command>"` launches and stops the app itself.
+See [AGENT_TRUST.md](AGENT_TRUST.md#pracht-eval-scripted-agent-task-scenarios)
 and `examples/basic/evals/notes.eval.json`.
 
 ## Not built yet

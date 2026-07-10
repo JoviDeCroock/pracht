@@ -353,6 +353,34 @@ test("pracht eval runs the example scenario against the dev server", async () =>
   expect(stdout).toContain("1 scenario(s) passed, 0 failed");
 });
 
+test("pracht eval --start launches the app, runs the scenario, and stops it", async () => {
+  const scenario = resolve(repoRoot, "e2e/fixtures/start-flow.eval.json");
+  const serverScript = resolve(repoRoot, "e2e/fixtures/mini-capability-server.mjs");
+
+  const { stdout } = await execFileAsync(
+    process.execPath,
+    [
+      cliEntry,
+      "eval",
+      scenario,
+      "--start",
+      `"${process.execPath}" "${serverScript}" 3177`,
+      "--url",
+      "http://localhost:3177",
+    ],
+    { cwd: resolve(repoRoot, "examples/basic") },
+  );
+  expect(stdout).toContain("Waiting for http://localhost:3177");
+  expect(stdout).toContain("PASS  start flow");
+  expect(stdout).toContain("1 scenario(s) passed, 0 failed");
+
+  // The started server must be gone once eval exits.
+  await new Promise((resolveDelay) => setTimeout(resolveDelay, 300));
+  await expect(
+    fetch("http://localhost:3177", { signal: AbortSignal.timeout(1_000) }),
+  ).rejects.toThrow();
+});
+
 test("pracht eval exits 1 on a failing scenario", async () => {
   const failingScenario = resolve(repoRoot, "e2e/fixtures/failing.eval.json");
   const result = await execFileAsync(

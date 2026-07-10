@@ -582,7 +582,7 @@ function normalizeMiddlewareShortCircuit(response: Response): Response {
 // Direct server-side invocation
 // ---------------------------------------------------------------------------
 
-interface CapabilityHost {
+export interface CapabilityHost {
   app: CapabilityHostApp;
   registry: ModuleRegistry;
 }
@@ -619,10 +619,25 @@ export async function invokeCapability<T = unknown>(
   if (!host) {
     throw new Error(
       "invokeCapability() has no capability host yet. It is only available while " +
-        "handlePrachtRequest() is serving requests (loaders, API routes, middleware).",
+        "handlePrachtRequest() is serving requests (loaders, API routes, middleware). " +
+        "In tests, build a standalone host with createCapabilityTestHost() instead.",
     );
   }
+  return invokeCapabilityOnHost(host, name, input, ctx);
+}
 
+/**
+ * Run one capability through the full dispatch pipeline against an explicit
+ * host. Shared by `invokeCapability()` (the process-level host installed by
+ * `handlePrachtRequest`) and `createCapabilityTestHost()` (a synthetic host
+ * for tests).
+ */
+export async function invokeCapabilityOnHost<T = unknown>(
+  host: CapabilityHost,
+  name: string,
+  input: unknown,
+  ctx: InvokeCapabilityContext,
+): Promise<CapabilityEnvelope<T>> {
   const capabilities = await resolveAppCapabilities(host.app, host.registry);
   const resolved = capabilities.find((entry) => entry.name === name);
   if (!resolved) {

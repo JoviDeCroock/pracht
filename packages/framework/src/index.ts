@@ -95,6 +95,14 @@ export {
   setCapabilityAuditHook,
 } from "./runtime-capabilities.ts";
 export type { InvokeCapabilityContext, ResolvedCapability } from "./runtime-capabilities.ts";
+export { resolveRegistryModule } from "./runtime-manifest.ts";
+export { createCapabilityTestHost } from "./testing-capabilities.ts";
+export type {
+  CapabilityTestHost,
+  CapabilityTestHostOptions,
+  CapabilityTestInvokeOptions,
+  CapabilityTestRequestOptions,
+} from "./testing-capabilities.ts";
 export { verifyAgentSignature } from "./runtime-agent-auth.ts";
 export type { VerifyAgentSignatureOptions } from "./runtime-agent-auth.ts";
 export {

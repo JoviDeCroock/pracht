@@ -224,10 +224,18 @@ HTTP projection and exits 1 on any failed expectation — "can an agent
 actually complete this task through my tools?" as a repeatable CI check.
 
 ```bash
-pracht preview          # or `pracht dev`, in another terminal
+pracht eval --start "pracht preview"             # starts the app, runs evals/**/*.eval.json, stops it
+
+pracht preview          # …or manage the server yourself, in another terminal
 pracht eval --url http://localhost:3000          # runs evals/**/*.eval.json
 pracht eval evals/notes.eval.json --json         # explicit files, CI output
 ```
+
+`--start "<command>"` spawns the command in its own process group, polls
+`--url` (default `http://localhost:3000`) until the server answers (30s
+timeout, any HTTP response counts), runs the scenarios, and stops the whole
+group afterwards. On timeout or early exit it prints the command's output and
+exits 1.
 
 Scenario format (`examples/basic/evals/notes.eval.json` is a working
 example):
@@ -273,4 +281,3 @@ example):
 - RSA-PSS agent keys (the Web Bot Auth ecosystem is Ed25519-first).
 - Destructive capabilities over WebMCP/MCP, and `pracht eval` speaking MCP
   instead of the HTTP projection.
-- Auto-starting `pracht preview` from `pracht eval`.
