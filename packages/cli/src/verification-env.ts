@@ -32,7 +32,7 @@ export function scanSourceForEnvLeaks(
   const codePositions = getCodePositionMask(code);
 
   for (const match of code.matchAll(ENV_REFERENCE_RE)) {
-    if (!codePositions[match.index]) continue;
+    if (!codePositions[match.index ?? -1]) continue;
     const accessor = match[1];
     const name = match[2] ?? match[4];
     if (!name) continue;
@@ -52,7 +52,9 @@ export function scanSourceForEnvLeaks(
 function getCodePositionMask(code: string): Uint8Array {
   const mask = new Uint8Array(code.length);
   const templateExpressionDepths: number[] = [];
-  let mode: "block-comment" | "code" | "double" | "line-comment" | "single" | "template" = "code";
+  let mode: "block-comment" | "code" | "double" | "line-comment" | "regex" | "single" | "template" =
+    "code";
+  let regexCharClass = false;
   let i = 0;
 
   while (i < code.length) {
@@ -85,6 +87,36 @@ function getCodePositionMask(code: string): Uint8Array {
         continue;
       }
       if (char === quote || char === "\n" || char === "\r") {
+        mode = "code";
+      }
+      i++;
+      continue;
+    }
+
+    if (mode === "regex") {
+      if (char === "\\") {
+        i += 2;
+        continue;
+      }
+      if (char === "[") {
+        regexCharClass = true;
+        i++;
+        continue;
+      }
+      if (char === "]") {
+        regexCharClass = false;
+        i++;
+        continue;
+      }
+      if (char === "/" && !regexCharClass) {
+        regexCharClass = false;
+        i++;
+        while (i < code.length && isIdentifierChar(code[i])) i++;
+        mode = "code";
+        continue;
+      }
+      if (char === "\n" || char === "\r") {
+        regexCharClass = false;
         mode = "code";
       }
       i++;
@@ -129,6 +161,13 @@ function getCodePositionMask(code: string): Uint8Array {
       continue;
     }
 
+    if (char === "/" && isRegexLiteralStart(code, i)) {
+      mode = "regex";
+      regexCharClass = false;
+      i++;
+      continue;
+    }
+
     if (char === "'") {
       mode = "single";
       i++;
@@ -166,13 +205,55 @@ function getCodePositionMask(code: string): Uint8Array {
   return mask;
 }
 
+function isRegexLiteralStart(code: string, slashIndex: number): boolean {
+  let i = slashIndex - 1;
+  while (i >= 0 && /\s/.test(code[i])) i--;
+  if (i < 0) return true;
+
+  const previous = code[i];
+  if (previous === ">" && code[i - 1] === "=") return true;
+  if ("([{=,:;!?&|^~<>*%+-".includes(previous)) return true;
+
+  if (isIdentifierChar(previous)) {
+    let start = i;
+    while (start >= 0 && isIdentifierChar(code[start])) start--;
+    const word = code.slice(start + 1, i + 1);
+    return new Set([
+      "await",
+      "case",
+      "delete",
+      "do",
+      "else",
+      "in",
+      "instanceof",
+      "new",
+      "of",
+      "return",
+      "throw",
+      "typeof",
+      "void",
+      "yield",
+    ]).has(word);
+  }
+
+  return false;
+}
+
+function isIdentifierChar(char: string | undefined): boolean {
+  return !!char && /[A-Za-z0-9_$]/.test(char);
+}
+
 /**
  * Best-effort extraction of `envSafety: { allow: [...] }` names from the raw
  * vite config source, so verify matches the build-time allowlist.
  */
 export function extractEnvSafetyAllowList(rawConfig: string): Set<string> {
   const allow = new Set<string>();
-  const envSafetyMatch = rawConfig.match(/envSafety\s*:\s*\{[^}]*allow\s*:\s*\[([^\]]*)\]/);
+  const codePositions = getCodePositionMask(rawConfig);
+  const envSafetyPattern = /envSafety\s*:\s*\{[^}]*allow\s*:\s*\[([^\]]*)\]/g;
+  const envSafetyMatch = Array.from(rawConfig.matchAll(envSafetyPattern)).find(
+    (match) => codePositions[match.index ?? -1],
+  );
   if (!envSafetyMatch) return allow;
 
   for (const entry of envSafetyMatch[1].matchAll(/["']([^"']+)["']/g)) {
@@ -182,7 +263,10 @@ export function extractEnvSafetyAllowList(rawConfig: string): Set<string> {
 }
 
 function envSafetyDisabled(rawConfig: string): boolean {
-  return /envSafety\s*:\s*false/.test(rawConfig);
+  const codePositions = getCodePositionMask(rawConfig);
+  return Array.from(rawConfig.matchAll(/envSafety\s*:\s*false/g)).some(
+    (match) => codePositions[match.index ?? -1],
+  );
 }
 
 function readBuildEnvSafetyReport(clientDir: string): EnvLeakFinding[] | null {

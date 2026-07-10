@@ -41,6 +41,7 @@ describe("scanSourceForEnvLeaks", () => {
       const message = "do not use process.env.STRING_SECRET";
       const single = 'import.meta.env.SINGLE_SECRET';
       const text = \`process.env.TEMPLATE_TEXT_SECRET\`;
+      const pattern = /process.env.REGEX_SECRET/;
       const real = \`\${process.env.TEMPLATE_EXPR_SECRET}\`;
       const bracket = process.env["BRACKET_SECRET"];
     `;
@@ -66,6 +67,16 @@ describe("extractEnvSafetyAllowList", () => {
   it("returns an empty set when envSafety is not configured", () => {
     expect(extractEnvSafetyAllowList("pracht({})").size).toBe(0);
   });
+
+  it("ignores allowlists in comments and literal text", () => {
+    const allow = extractEnvSafetyAllowList(`
+      // pracht({ envSafety: { allow: ["COMMENT_SECRET"] } })
+      const text = 'envSafety: { allow: ["STRING_SECRET"] }';
+      pracht({});
+    `);
+
+    expect([...allow]).toEqual([]);
+  });
 });
 
 describe("collectEnvLeakVerification", () => {
@@ -81,6 +92,22 @@ describe("collectEnvLeakVerification", () => {
     const error = checks.find((check) => check.status === "error");
     expect(error?.message).toContain("process.env.SESSION_SECRET");
     expect(error?.message).toContain("index-abc.js");
+  });
+
+  it("does not disable verification from comments or literal text", () => {
+    const project = makeProject(`
+      // pracht({ envSafety: false })
+      const text = "envSafety: false";
+    `);
+    const assetsDir = join(project.root, "dist/client/assets");
+    mkdirSync(assetsDir, { recursive: true });
+    writeFileSync(join(assetsDir, "index-abc.js"), "const k = process.env.SESSION_SECRET;");
+
+    const checks: Check[] = [];
+    collectEnvLeakVerification(project, checks, { scope: "full" });
+
+    const error = checks.find((check) => check.status === "error");
+    expect(error?.message).toContain("process.env.SESSION_SECRET");
   });
 
   it("passes clean output and respects the configured allowlist", () => {

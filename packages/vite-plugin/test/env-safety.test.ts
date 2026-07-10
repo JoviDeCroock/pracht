@@ -109,6 +109,7 @@ describe("scanCodeForEnvLeaks", () => {
       const message = "do not use process.env.STRING_SECRET";
       const single = 'import.meta.env.SINGLE_SECRET';
       const text = \`process.env.TEMPLATE_TEXT_SECRET\`;
+      const pattern = /process.env.REGEX_SECRET/;
       const real = \`\${process.env.TEMPLATE_EXPR_SECRET}\`;
       const bracket = process.env["BRACKET_SECRET"];
       `,
