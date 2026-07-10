@@ -14,13 +14,15 @@ const DEFAULT_MAX_BODY_SIZE = 1024 * 1024; // 1 MiB
 
 export const DEVTOOLS_PATH = "/_pracht";
 export const DEVTOOLS_JSON_PATH = "/_pracht.json";
+export const LLMS_TXT_PATH = "/llms.txt";
 
 export function createDevSSRMiddleware(
   server: ViteDevServer,
-  options: { maxBodySize?: number } = {},
+  options: { maxBodySize?: number; llmsTxt?: boolean } = {},
 ): Connect.NextHandleFunction {
   const maxBodySize = options.maxBodySize ?? DEFAULT_MAX_BODY_SIZE;
   let warnedDevtoolsCollision = false;
+  let warnedLlmsTxtCollision = false;
   return async (req: IncomingMessage, res: ServerResponse, next: Connect.NextFunction) => {
     const url = req.url ?? "/";
     const requestUrl = new URL(url, "http://localhost");
@@ -56,6 +58,31 @@ export function createDevSSRMiddleware(
           url,
           wantsJson: requestUrl.pathname === DEVTOOLS_JSON_PATH,
         });
+        return;
+      }
+
+      // `/llms.txt` is served from the live app graph when the plugin's
+      // `llmsTxt` option is enabled — the same content `pracht build` writes
+      // to dist/client/llms.txt.
+      if (
+        options.llmsTxt &&
+        requestUrl.pathname === LLMS_TXT_PATH &&
+        BODYLESS_METHODS.has((req.method ?? "GET").toUpperCase()) &&
+        typeof serverMod.generateLlmsTxt === "function"
+      ) {
+        if (!warnedLlmsTxtCollision && matchesResolvedRoute(LLMS_TXT_PATH, routeMatchers)) {
+          warnedLlmsTxtCollision = true;
+          server.config.logger.warn(
+            `[pracht] An app route matches ${LLMS_TXT_PATH}, which is reserved by the ` +
+              `pracht({ llmsTxt }) option. The generated llms.txt wins; disable the option ` +
+              `to serve the app route instead.`,
+          );
+        }
+
+        const llmsTxt: string = await serverMod.generateLlmsTxt();
+        res.statusCode = 200;
+        res.setHeader("content-type", "text/plain; charset=utf-8");
+        res.end(llmsTxt);
         return;
       }
 

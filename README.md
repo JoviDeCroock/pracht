@@ -109,6 +109,7 @@ Pracht is built to be operated by coding agents as much as by humans — and for
 - **Authoring guide for agents** — `pracht llms --write` drops the framework's conventions into `llms.txt` so any coding agent picks them up.
 - **Capabilities & WebMCP** — `@pracht/capabilities` lets you define a typed application operation once (JSON Schema contract, effect class, middleware) and project it to server code, a generated HTTP endpoint, and a WebMCP page tool for in-browser agents — private by default, with `pracht verify` enforcing the security defaults. See [docs/CAPABILITIES.md](docs/CAPABILITIES.md).
 - **Agent trust layer** — Web Bot Auth (RFC 9421) verified agent identity on the request context with observe/require policies, a prepare/commit confirmation flow for destructive capabilities, capability audit events, and `pracht eval` for scripted agent-task checks in CI. See [docs/AGENT_TRUST.md](docs/AGENT_TRUST.md).
+- **llms.txt** — the opt-in `llmsTxt` plugin option emits an [llms.txt](https://llmstxt.org) index of your pages and API routes at build time and serves it live in dev. See [docs/LLMS_TXT.md](docs/LLMS_TXT.md).
 - **Claude Code skills** — 28 skills for scaffolding, auditing, testing, debugging, and deploying pracht apps live in [skills/](skills/README.md). See the [agent skills](#agent-skills) section below.
 
 ## Agent skills

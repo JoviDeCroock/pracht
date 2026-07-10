@@ -17,5 +17,13 @@ async function resolveAdapter() {
 }
 
 export default defineConfig(async () => ({
-  plugins: [pracht({ adapter: await resolveAdapter() })],
+  plugins: [
+    pracht({
+      adapter: await resolveAdapter(),
+      llmsTxt: {
+        title: "Pracht Example",
+        description: "Example app for the pracht framework.",
+      },
+    }),
+  ],
 }));

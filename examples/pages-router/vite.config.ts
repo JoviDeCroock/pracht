@@ -7,5 +7,11 @@ async function resolveAdapter() {
 }
 
 export default defineConfig(async () => ({
-  plugins: [pracht({ pagesDir: "/src/pages", adapter: await resolveAdapter() })],
+  plugins: [
+    pracht({
+      pagesDir: "/src/pages",
+      adapter: await resolveAdapter(),
+      llmsTxt: { title: "Pracht Pages Example" },
+    }),
+  ],
 }));
