@@ -32,6 +32,7 @@ import type {
 } from "./types.ts";
 import {
   fetchPrachtRouteState,
+  isClientFetchConfigured,
   parseSafeNavigationUrl,
   routeNeedsServerFetch,
 } from "./runtime-client-fetch.ts";
@@ -366,8 +367,11 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
       // Start route-state fetch and module imports in parallel
       let statePromise: Promise<RouteStateResult>;
       if (routeNeedsServerFetch(match.route)) {
+        const cachedState = isClientFetchConfigured()
+          ? null
+          : getCachedRouteState(target.requestUrl);
         statePromise =
-          getCachedRouteState(target.requestUrl) ??
+          cachedState ??
           fetchPrachtRouteState(target.requestUrl, { signal: abortController.signal });
       } else {
         statePromise = Promise.resolve({ type: "data" as const, data: undefined });

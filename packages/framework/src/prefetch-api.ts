@@ -14,7 +14,11 @@ import {
   getCachedRouteState,
   removeCachedRouteState,
 } from "./prefetch-cache.ts";
-import { fetchPrachtRouteState, routeNeedsServerFetch } from "./runtime-client-fetch.ts";
+import {
+  fetchPrachtRouteState,
+  isClientFetchConfigured,
+  routeNeedsServerFetch,
+} from "./runtime-client-fetch.ts";
 import type { RouteStateResult } from "./runtime-client-fetch.ts";
 import type {
   ResolvedPrachtApp,
@@ -48,11 +52,15 @@ export function getPrefetchTarget(): { app: ResolvedPrachtApp; warmModules?: Mod
 /**
  * Fetch (or reuse) the route-state JSON for `url` and store it in the shared
  * bounded prefetch cache so a subsequent client navigation can consume it
- * without a second network request. Rejected fetches are evicted from the
- * cache so a transient network error does not poison later navigations.
+ * without a second network request. When a custom client fetch is configured,
+ * route state can vary by caller-added headers, so prefetches are deliberately
+ * not cached. Rejected fetches are evicted from the cache so a transient
+ * network error does not poison later navigations.
  */
 export function prefetchRouteState(url: string, route?: ResolvedRoute): Promise<RouteStateResult> {
   if (route && !routeNeedsServerFetch(route)) return EMPTY_ROUTE_STATE_PROMISE;
+
+  if (isClientFetchConfigured()) return fetchPrachtRouteState(url);
 
   const cached = getCachedRouteState(url);
   if (cached) return cached;

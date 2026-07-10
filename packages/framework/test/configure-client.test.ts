@@ -4,6 +4,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { configureClient as configureBrowserClient } from "../src/browser.ts";
 import { configureClient, Form } from "../src/index.ts";
+import { clearPrefetchCache, getCachedRouteState } from "../src/prefetch-cache.ts";
+import { prefetchRouteState } from "../src/prefetch-api.ts";
 import { fetchPrachtRouteState } from "../src/runtime.ts";
 
 function createJsonResponse(body: unknown, init?: ResponseInit): Response {
@@ -19,6 +21,7 @@ describe("configureClient", () => {
   afterEach(() => {
     // Reset to default (global fetch) between tests.
     configureClient({ fetch: undefined });
+    clearPrefetchCache();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
@@ -97,6 +100,27 @@ describe("configureClient", () => {
       "x-pracht-route-state-request": "1",
       "Cache-Control": "no-cache",
     });
+  });
+
+  it("does not cache route-state prefetches when a custom fetch is configured", async () => {
+    const customFetch = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(createJsonResponse({ data: { token: "first" } }))
+      .mockResolvedValueOnce(createJsonResponse({ data: { token: "second" } }));
+
+    configureClient({ fetch: customFetch });
+
+    await expect(prefetchRouteState("/account")).resolves.toEqual({
+      data: { token: "first" },
+      type: "data",
+    });
+    expect(getCachedRouteState("/account")).toBeNull();
+
+    await expect(prefetchRouteState("/account")).resolves.toEqual({
+      data: { token: "second" },
+      type: "data",
+    });
+    expect(customFetch).toHaveBeenCalledTimes(2);
   });
 
   it("routes <Form> submissions through the configured fetch", async () => {

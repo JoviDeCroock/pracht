@@ -96,6 +96,10 @@ export function getConfiguredClientFetch(): PrachtClientFetch {
   return configuredClientFetch ?? fetch;
 }
 
+export function isClientFetchConfigured(): boolean {
+  return configuredClientFetch !== undefined;
+}
+
 export function buildRouteStateUrl(url: string): string {
   const separator = url.includes("?") ? "&" : "?";
   return `${url}${separator}_data=1`;

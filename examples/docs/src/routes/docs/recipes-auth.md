@@ -365,3 +365,7 @@ export async function loader({ request }: LoaderArgs) {
   // ...
 }
 ```
+
+With a custom fetch installed, route prefetching still warms modules, but
+prefetched route-state JSON is not reused during navigation. That keeps
+user-specific loader responses from being cached by URL alone.

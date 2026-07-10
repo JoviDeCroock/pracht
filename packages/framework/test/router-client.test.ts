@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   Form,
   Link,
+  configureClient,
   defineApp,
   initClientRouter,
   resolveApp,
@@ -15,6 +16,7 @@ import {
   useNavigate,
   useRouteData,
 } from "../src/index.ts";
+import { cacheRouteState, clearPrefetchCache } from "../src/prefetch-cache.ts";
 
 function createJsonResponse(body: unknown, init?: ResponseInit): Response {
   return new Response(JSON.stringify(body), {
@@ -50,6 +52,8 @@ describe("initClientRouter", () => {
     root.remove();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
+    configureClient({ fetch: undefined });
+    clearPrefetchCache();
     delete window.__PRACHT_NAVIGATE__;
     delete window.__PRACHT_ROUTER_READY__;
     delete globalThis.__PRACHT_ROUTE_DEFINITIONS__;
@@ -158,6 +162,50 @@ describe("initClientRouter", () => {
     );
     expect(window.location.pathname).toBe("/products/2");
     expect(root.textContent).toContain("Product 2");
+  });
+
+  it("ignores cached route state during navigation when a custom fetch is configured", async () => {
+    function Page() {
+      const data = useRouteData<{ label: string }>();
+      return h("main", null, data.label);
+    }
+
+    const app = resolveApp(
+      defineApp({
+        routes: [
+          route("/", "./routes/home.tsx", { id: "home", render: "ssr" }),
+          route("/next", "./routes/next.tsx", { id: "next", render: "ssr" }),
+        ],
+      }),
+    );
+
+    root.innerHTML = "<main>home</main>";
+    cacheRouteState("/next", Promise.resolve({ data: { label: "cached" }, type: "data" }));
+    fetchSpy.mockResolvedValue(createJsonResponse({ data: { label: "fresh" } }));
+    configureClient({ fetch: fetchSpy as unknown as typeof fetch });
+
+    await initClientRouter({
+      app,
+      routeModules: {
+        "./routes/home.tsx": async () => ({ default: Page }),
+        "./routes/next.tsx": async () => ({ default: Page }),
+      },
+      shellModules: {},
+      initialState: {
+        data: { label: "home" },
+        routeId: "home",
+        url: "/",
+      },
+      root,
+      findModuleKey: (_modules, file) => file,
+    });
+
+    await window.__PRACHT_NAVIGATE__!("/next");
+    await flush();
+
+    expect(fetchSpy).toHaveBeenCalledWith("/next", expect.objectContaining({ redirect: "manual" }));
+    expect(root.textContent).toContain("fresh");
+    expect(root.textContent).not.toContain("cached");
   });
 
   it("preserves same-shell instances without exposing stale route data to useRouteData()", async () => {

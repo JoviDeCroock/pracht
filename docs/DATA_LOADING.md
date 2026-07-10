@@ -118,6 +118,11 @@ Cookies (used by the session-based auth recipe) continue to flow by default
 for same-origin deployments; set `credentials: "include"` as shown above only
 if you serve loaders from a cross-origin host.
 
+When a custom fetch is configured, link prefetching still warms the route and
+shell modules, but Pracht does not reuse prefetched route-state JSON for later
+navigations. The custom fetch can make loader responses vary by headers such as
+`Authorization`, so navigations always fetch fresh route state.
+
 ### Error handling
 
 Throw `PrachtHttpError` for structured error responses:
