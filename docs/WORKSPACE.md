@@ -10,9 +10,9 @@ described in `VISION_MVP.md`.
 | `packages/framework`          | `@pracht/core`               | Core manifest API, route resolution, API routes, SSR rendering, client runtime                               |
 | `packages/vite-plugin`        | `@pracht/vite-plugin`        | Virtual modules, `import.meta.glob()` registries, API route auto-discovery, HMR, dev SSR middleware          |
 | `packages/preact-ssr-precompile` | `@pracht/preact-ssr-precompile` | Experimental Rolldown/Vite plugin that precompiles safe Preact JSX DOM subtrees into server-only `jsxTemplate()` calls |
-| `packages/adapter-node`       | `@pracht/adapter-node`       | Node `IncomingMessage`/`ServerResponse` bridge, ISG stale-while-revalidate                                   |
-| `packages/adapter-cloudflare` | `@pracht/adapter-cloudflare` | Cloudflare Workers fetch handler, generated worker entry source, and static asset handoff (no runtime ISG revalidation yet) |
-| `packages/adapter-vercel`     | `@pracht/adapter-vercel`     | Vercel Edge handler and Build Output API entry source                                                        |
+| `packages/adapter-node`       | `@pracht/adapter-node`       | Node `IncomingMessage`/`ServerResponse` bridge, ISG stale-while-revalidate, and webhook revalidation         |
+| `packages/adapter-cloudflare` | `@pracht/adapter-cloudflare` | Cloudflare Workers fetch handler, generated worker entry source, static asset handoff, and Cache API ISG     |
+| `packages/adapter-vercel`     | `@pracht/adapter-vercel`     | Vercel Edge handler, Build Output API entry source, and native ISR artifacts                                 |
 | `packages/preact-worker-facets` | `@pracht/preact-worker-facets` | Experimental Cloudflare Dynamic Worker + Durable Object facets runtime for inert, stateful Preact components |
 | `packages/cli`                | `@pracht/cli`                | `pracht dev`, `build`, `verify`, the `generate` subcommands, and `doctor`                                    |
 | `examples/cloudflare`         | `@pracht/example-cloudflare` | Cloudflare-targeted example app with SSG, ISG, SSR, SPA routes, auth middleware, and API routes              |
@@ -48,10 +48,9 @@ described in `VISION_MVP.md`.
   present.
 - **ISG revalidation** — At build time, ISG routes are prerendered alongside SSG
   routes and an `isg-manifest.json` is generated mapping paths to revalidation
-  config. At runtime, the Node adapter implements stale-while-revalidate:
-  cached HTML is served immediately, and if the file's mtime exceeds the
-  `revalidate.seconds` threshold, background regeneration refreshes the cached
-  page.
+  config. Node uses file mtime, Cloudflare uses the Cache API with `env.ASSETS`
+  fallback, and Vercel emits Build Output API prerender functions. Routes can
+  opt into `timeRevalidate()`, `webhookRevalidate()`, or both.
 - **Middleware** — Named middleware from the manifest runs before loaders and can
   redirect, return a Response, or augment the context.
 - **Vite plugin** — Generates `virtual:pracht/client` (hydration entry) and
@@ -88,17 +87,15 @@ described in `VISION_MVP.md`.
   client bootstrap graph while generated server modules avoid the browser export
   condition. The CLI remains plain JS.
 - **Node adapter** — Translates Node requests to Web `Request` objects, calls
-  `handlePrachtRequest()`, and implements ISG stale-while-revalidate with
-  background regeneration.
+  `handlePrachtRequest()`, and implements ISG stale-while-revalidate plus
+  webhook regeneration of on-disk HTML.
 - **Cloudflare adapter** — Serves `env.ASSETS` when available, falls back to
-  `handlePrachtRequest()`, and gives loaders, API routes, and middleware access
-  to `env` and the `executionContext` through `args.context`. Runtime ISG
-  revalidation is intentionally not implemented yet; Cloudflare builds warn when
-  ISG routes are present.
+  `handlePrachtRequest()`, gives loaders/API routes/middleware access to `env`
+  and `executionContext`, and stores regenerated ISG HTML in the Workers Cache
+  API.
 - **Vercel adapter** — Emits an Edge-compatible handler, copies the build into
   `.vercel/output/static` and `.vercel/output/functions/render.func`, rewrites
-  clean SSG URLs to static HTML, and routes ISG plus dynamic requests to the
-  generated edge function.
+  clean SSG URLs to static HTML, and emits native prerender functions for ISG.
 - **Preact Worker facets prototype** — `@pracht/preact-worker-facets` provides
   experimental helpers for running Preact-style component modules inside
   Cloudflare Dynamic Workers. A supervisor Durable Object owns auth, source
@@ -138,4 +135,4 @@ described in `VISION_MVP.md`.
 
 ## Later (Phase 2 remaining)
 
-1. ISG webhook revalidation — on-demand cache invalidation via POST endpoint.
+No Phase 2 adapter ISG items are currently tracked here.

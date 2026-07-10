@@ -140,14 +140,18 @@ Prerendered HTML receives route and shell document headers from
 document headers such as `Set-Cookie`, `Authorization`, `Proxy-Authenticate`,
 `WWW-Authenticate`, and secret-shaped custom `x-*` headers before they can enter
 that manifest.
-- **ISG revalidation**: checks `pracht-isg-manifest.json` for time revalidation
-  metadata. Compares file mtime against revalidation window. Regenerates stale
-  pages and writes updated HTML to disk. Route-state requests (`x-pracht-route-state-request`
-  and `?_data=1`) bypass the cached HTML path so client navigation still reaches
-  `handlePrachtRequest()`. Background regeneration uses a clean HTML request
-  instead of replaying the triggering user's cookies/authorization headers.
-  Static and ISG files are streamed, and static responses support `ETag` /
-  `Last-Modified` conditional revalidation.
+- **ISG revalidation**: checks `isg-manifest.json` for time and webhook
+  revalidation metadata. Time revalidation compares file mtime against the
+  configured window, serves stale HTML immediately, and refreshes the file in
+  the background. Webhook revalidation is exposed at
+  `POST /__pracht/revalidate` and regenerates named paths synchronously after
+  authenticating `PRACHT_REVALIDATE_TOKEN`. Route-state requests
+  (`x-pracht-route-state-request` and `?_data=1`) bypass the cached HTML path
+  so client navigation still reaches `handlePrachtRequest()`. All regeneration
+  uses a clean HTML request instead of replaying the triggering user's cookies,
+  authorization headers, locale, or experiment headers. Static and ISG files are
+  streamed, and static responses support `ETag` / `Last-Modified` conditional
+  revalidation.
 - **Vite manifest**: reads `.vite/manifest.json` to inject correct `<script>` and
   `<link>` tags into server-rendered HTML.
 - **Response headers**: preserves multiple `Set-Cookie` headers from framework
@@ -205,6 +209,7 @@ build).
 | `app`           | `PrachtApp`                                 | The resolved app                          |
 | `registry`      | `ModuleRegistry`                            | Module importers                          |
 | `createContext` | `(args: CloudflareContextArgs) => TContext` | Context with `env` and `executionContext` |
+| `isgManifest`   | `Record<string, ISGManifestEntry>`          | Concrete ISG path metadata                |
 
 ### Features
 
@@ -213,9 +218,18 @@ build).
   the same default security headers applied to dynamic responses.
   Prerendered HTML also receives route and shell document headers from
   `dist/client/_pracht/headers.json`.
-- **ISG caveat**: runtime ISG revalidation is not implemented for Cloudflare
-  yet. ISG routes are prerendered at build time and then served as static
-  assets. `pracht build` warns when a Cloudflare build contains ISG routes.
+- **ISG revalidation**: runtime ISG uses the Workers Cache API as the
+  regenerated-page store, with `env.ASSETS` as the build-time fallback. The
+  generated worker reads `dist/client/_pracht/isg.json`, checks cache freshness
+  from the stored generation timestamp, serves stale HTML immediately for
+  time-based revalidation, and schedules regeneration with
+  `executionContext.waitUntil()`. `POST /__pracht/revalidate` authenticates
+  `PRACHT_REVALIDATE_TOKEN` and overwrites the named Cache API entries for
+  routes that opt into `webhookRevalidate()`.
+- **Cache locality**: Cloudflare's Cache API is local to the colo handling the
+  request. This keeps ISG dependency-free and fast, but webhook invalidation is
+  not a global purge. Other colos refresh when they receive the webhook or when
+  their cached entry becomes stale and a visitor requests it.
 - **Default request context**: generated worker entries pass `{ env,
   executionContext }` to pracht so loaders, API routes, and middleware can
   access bindings without extra wiring.
@@ -384,8 +398,9 @@ export default {
 - **Edge runtime handler**: generated server entries export a default `fetch`-style
   handler that Vercel bundles as an Edge Function.
 - **Build Output API v3**: `pracht({ adapter: vercelAdapter() })` makes `pracht build`
-  emit `.vercel/output/config.json`, `.vercel/output/static/`, and
-  `.vercel/output/functions/render.func/`.
+  emit `.vercel/output/config.json`, `.vercel/output/static/`,
+  `.vercel/output/functions/render.func/`, and route-named prerender functions
+  for ISG paths.
 - **Local preview**: there is no faithful local Vercel production runtime, so
   `pracht preview` does not emulate one — it points at `vercel build` /
   `vercel dev` instead.
@@ -395,9 +410,22 @@ export default {
 - **Route-state bypass**: Vercel build output adds rules for both
   `x-pracht-route-state-request: 1` and `?_data=1`, so route-state requests go
   to the edge function before any static SSG rewrite can serve cached HTML.
-- **Dynamic fallback**: SSR, API, and ISG routes are routed to the generated edge
-  function. ISG paths currently bypass the static fallback so freshness stays
-  correct even without native Vercel ISR integration yet.
+- **Native ISR**: ISG routes are emitted as Build Output API prerender functions
+  with `.prerender-config.json` files. Time policies become Vercel
+  `expiration` values, build-time HTML becomes the prerender fallback, and
+  `PRACHT_REVALIDATE_TOKEN` is used as the `bypassToken` when present at build
+  time. If the env var is absent during build, Pracht writes a random bypass
+  token and the runtime webhook endpoint still fails closed until the env var is
+  configured. The token must be set **at build time**: the `bypassToken` is
+  baked into the build's `*.prerender-config.json`, so setting the env var only
+  at runtime authenticates the webhook but cannot bypass Vercel's prerender
+  cache — such paths are reported as `failed` (detected via the
+  `x-vercel-cache` response header) until you rebuild with
+  `PRACHT_REVALIDATE_TOKEN` set.
+- **Dynamic fallback**: SSR and API routes are routed to the generated edge
+  function. ISG document requests are handled by route-named prerender functions,
+  while route-state requests still bypass static/prerender output and reach the
+  edge function.
 - **Static security headers**: the generated `config.json` includes a `headers`
   section that applies the same baseline security headers to all responses,
   including static assets served by Vercel's CDN. Static prerendered routes also
@@ -424,7 +452,8 @@ The context module must export `createContext(args)`. Vercel passes `{ request, 
 
 ```javascript
 // virtual:pracht/server (generated in vercel mode)
-import { handlePrachtRequest, resolveApp, resolveApiRoutes } from "@pracht/core";
+import { resolveApp, resolveApiRoutes } from "@pracht/core/server";
+import { createVercelEdgeHandler } from "@pracht/adapter-vercel";
 import { app } from "./src/routes.ts";
 
 const resolvedApp = resolveApp(app);
@@ -433,17 +462,71 @@ const apiRoutes = resolveApiRoutes(Object.keys(apiModules), "/src/api");
 export const vercelFunctionName = "render";
 
 export default async function handle(request, context) {
-  return handlePrachtRequest({
+  const handler = createVercelEdgeHandler({
     app: resolvedApp,
     registry,
-    request,
-    context,
     apiRoutes,
     clientEntryUrl: clientEntryUrl ?? undefined,
     cssManifest,
   });
+  return handler(request, context);
 }
 ```
+
+---
+
+## ISG Webhook Revalidation
+
+Routes opt into webhook revalidation with `webhookRevalidate()` or by combining
+it with `timeRevalidate()`:
+
+```typescript
+import { timeRevalidate, webhookRevalidate } from "@pracht/core";
+
+route("/pricing", () => import("./routes/pricing.tsx"), {
+  render: "isg",
+  revalidate: [timeRevalidate(3600), webhookRevalidate()],
+});
+```
+
+All built-in adapters expose the same endpoint:
+
+```sh
+curl -X POST https://example.com/__pracht/revalidate \
+  -H "Authorization: Bearer $PRACHT_REVALIDATE_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"paths":["/pricing"]}'
+```
+
+The body must include `paths` as an array of concrete URL paths. The endpoint
+returns JSON with `revalidated`, `skipped`, and `failed` path arrays. A path is
+skipped when it is not an ISG route, is not in the prerender manifest, or does
+not opt into `webhookRevalidate()`. A path lands in `failed` when regeneration
+did not produce cacheable 200 HTML (loader error, `Set-Cookie`, `Cache-Control:
+private`/`no-store`, cache write failure); the previously generated copy stays
+live, and the batch continues instead of aborting with a 500.
+
+Set `PRACHT_REVALIDATE_TOKEN` in the deployment environment. Auth uses a
+constant-time comparison and fails closed with `401` when the token is missing
+or incorrect. Webhook providers that cannot send bearer auth can send the same
+secret in `x-pracht-revalidate-token`.
+
+Regeneration never replays the webhook request's cookies, authorization
+headers, locale, or other user-specific headers. Adapters synthesize a clean
+`GET` document request for the target path.
+
+Concurrent regenerations of the same path are single-flighted: a stampede of
+stale requests (or repeated webhook posts) share one in-flight render per
+process/isolate instead of racing N parallel regenerations.
+
+Dynamic ISG paths that `getStaticPaths()` did not enumerate at build time are
+not in the prerender manifest. Regular requests for such paths still work —
+they fall through to the server render on every request, without a cached
+copy. Webhook posts naming them are reported as `skipped` on Node and
+Cloudflare (nothing cached to refresh). Vercel matches route patterns rather
+than the manifest, so such paths are accepted, but only build-time enumerated
+paths have prerender functions — new concrete paths are served per-request by
+the edge function.
 
 ---
 

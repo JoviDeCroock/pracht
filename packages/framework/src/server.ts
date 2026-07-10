@@ -9,6 +9,7 @@ export {
   resolveApp,
   route,
   timeRevalidate,
+  webhookRevalidate,
 } from "./app.ts";
 export { createHref } from "./href.ts";
 export {
@@ -30,6 +31,21 @@ export type {
   AppGraphRoute,
 } from "./app-graph.ts";
 export { prerenderApp } from "./prerender.ts";
+export {
+  createISGRegenerationRequest,
+  createRevalidationSingleFlight,
+  getTimeRevalidateSeconds,
+  hasWebhookRevalidate,
+  isAuthorizedRevalidationRequest,
+  isCacheableISGResponse,
+  jsonResponse,
+  normalizeRouteRevalidate,
+  PRACHT_REVALIDATE_ENDPOINT,
+  PRACHT_REVALIDATE_TOKEN_ENV,
+  PRACHT_REVALIDATE_TOKEN_HEADER,
+  readRevalidationRequest,
+  type RevalidationSingleFlight,
+} from "./revalidation.ts";
 export { redirect, type RedirectOptions } from "./runtime-middleware.ts";
 export {
   registerServerIslands,
@@ -97,6 +113,7 @@ export type {
   RouteDataFor,
   RouteLoaderData,
   RouteRevalidate,
+  RouteRevalidatePolicy,
   RouteSearchFor,
   RouteTarget,
   RouteTreeNode,
@@ -106,6 +123,7 @@ export type {
   ShellModule,
   ShellProps,
   TimeRevalidatePolicy,
+  WebhookRevalidatePolicy,
   PrachtApp,
   PrachtAppConfig,
 } from "./types.ts";

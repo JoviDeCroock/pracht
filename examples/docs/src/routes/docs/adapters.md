@@ -29,7 +29,10 @@ Adapters also preserve route and shell document headers for prerendered HTML so 
 
 ## Cloudflare Workers
 
-Deploy to Cloudflare's global edge network. Static assets are served from the `ASSETS` binding, and dynamic routes are handled by the Worker. Runtime ISG revalidation is not implemented for Cloudflare yet; ISG routes are prerendered at build time and served as static assets, and `pracht build` warns when this combination is used.
+Deploy to Cloudflare's global edge network. Static assets are served from the
+`ASSETS` binding, dynamic routes are handled by the Worker, and regenerated ISG
+HTML is stored in the Workers Cache API with `ASSETS` as the build-time
+fallback.
 
 ### Setup
 
@@ -146,7 +149,9 @@ Static prerendered routes receive document headers through the generated Build O
     config.json    // routes, rewrites, headers
     static/        // SSG pages served from the filesystem
     functions/
-      render.func/ // Edge Function for SSR/ISG/API routes
+      render.func/ // Edge Function for SSR/API routes and webhook bridge
+      pricing.func/
+      pricing.prerender-config.json
 ```
 
 ### Deploy

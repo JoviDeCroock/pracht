@@ -15,7 +15,11 @@ test("pracht build emits a deployable Vercel Build Output setup", async () => {
   const configPath = resolve(vercelDir, "config.json");
   const functionConfigPath = resolve(vercelDir, "functions/render.func/.vc-config.json");
   const serverEntryPath = resolve(vercelDir, "functions/render.func/server.js");
+  const pricingFunctionConfigPath = resolve(vercelDir, "functions/pricing.func/.vc-config.json");
+  const pricingPrerenderConfigPath = resolve(vercelDir, "functions/pricing.prerender-config.json");
+  const pricingFallbackPath = resolve(vercelDir, "functions/pricing.prerender-fallback.html");
   const staticIndexPath = resolve(vercelDir, "static/index.html");
+  const staticPricingPath = resolve(vercelDir, "static/pricing/index.html");
 
   rmSync(distDir, { force: true, recursive: true });
   rmSync(vercelDir, { force: true, recursive: true });
@@ -33,7 +37,14 @@ test("pracht build emits a deployable Vercel Build Output setup", async () => {
   expect(existsSync(configPath)).toBe(true);
   expect(existsSync(functionConfigPath)).toBe(true);
   expect(existsSync(serverEntryPath)).toBe(true);
+  expect(existsSync(pricingFunctionConfigPath)).toBe(true);
+  expect(existsSync(pricingPrerenderConfigPath)).toBe(true);
+  expect(existsSync(pricingFallbackPath)).toBe(true);
   expect(existsSync(staticIndexPath)).toBe(true);
+  expect(existsSync(staticPricingPath)).toBe(false);
+  // The ISG manifest must not leak into the publicly served static output.
+  expect(existsSync(resolve(vercelDir, "static/_pracht/isg.json"))).toBe(false);
+  expect(existsSync(resolve(exampleDir, "dist/client/_pracht/isg.json"))).toBe(false);
 
   const config = JSON.parse(readFileSync(configPath, "utf-8"));
   expect(config.version).toBe(3);
@@ -50,6 +61,7 @@ test("pracht build emits a deployable Vercel Build Output setup", async () => {
         dest: "/render",
       }),
       expect.objectContaining({ src: "^/$", dest: "/index.html" }),
+      expect.objectContaining({ src: "^/pricing/?$", dest: "/pricing" }),
       expect.objectContaining({ handle: "filesystem" }),
       expect.objectContaining({ src: "/(.*)", dest: "/render" }),
     ]),
@@ -73,9 +85,21 @@ test("pracht build emits a deployable Vercel Build Output setup", async () => {
     runtime: "edge",
     entrypoint: "server.js",
   });
+  const pricingFunctionConfig = JSON.parse(readFileSync(pricingFunctionConfigPath, "utf-8"));
+  expect(pricingFunctionConfig).toMatchObject(functionConfig);
+
+  const pricingPrerenderConfig = JSON.parse(readFileSync(pricingPrerenderConfigPath, "utf-8"));
+  expect(pricingPrerenderConfig).toMatchObject({
+    allowQuery: [],
+    expiration: 3600,
+    fallback: "pricing.prerender-fallback.html",
+    initialStatus: 200,
+  });
+  expect(pricingPrerenderConfig.bypassToken).toEqual(expect.any(String));
 
   const functionSource = readFileSync(serverEntryPath, "utf-8");
   expect(functionSource).toContain("vercelFunctionName");
   expect(functionSource).toContain('buildTarget = "vercel"');
+  expect(functionSource).toContain("createVercelEdgeHandler");
   expect(functionSource).toContain("async function handle(request, context)");
 });

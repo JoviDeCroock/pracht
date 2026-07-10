@@ -19,6 +19,7 @@ import type {
   RouteTreeNode,
   SearchParamsInput,
   TimeRevalidatePolicy,
+  WebhookRevalidatePolicy,
   PrachtApp,
   PrachtAppConfig,
 } from "./types.ts";
@@ -40,6 +41,12 @@ export function timeRevalidate(seconds: number): TimeRevalidatePolicy {
   return {
     kind: "time",
     seconds,
+  };
+}
+
+export function webhookRevalidate(): WebhookRevalidatePolicy {
+  return {
+    kind: "webhook",
   };
 }
 

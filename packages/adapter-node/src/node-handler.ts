@@ -6,10 +6,17 @@ import { pipeline } from "node:stream/promises";
 
 import {
   applyDefaultSecurityHeaders,
+  getTimeRevalidateSeconds,
   handlePrachtRequest,
+  hasWebhookRevalidate,
   type HandlePrachtRequestOptions,
   type ISGManifestEntry,
+  isCacheableISGResponse,
+  jsonResponse,
   type ModuleRegistry,
+  PRACHT_REVALIDATE_ENDPOINT,
+  PRACHT_REVALIDATE_TOKEN_ENV,
+  readRevalidationRequest,
   type ResolvedApiRoute,
   type PrachtApp,
 } from "@pracht/core/server";
@@ -107,6 +114,16 @@ export function createNodeRequestHandler<TContext = unknown>(
     const isTransportRouteStateRequest = isRouteStateRequest(url, request.headers);
     const wantsMarkdown = (request.headers.get("accept") ?? "").includes("text/markdown");
 
+    if (url.pathname === PRACHT_REVALIDATE_ENDPOINT) {
+      const response = await handleRevalidationEndpoint(request, options, staticDir, isgManifest, {
+        request,
+        req,
+        res,
+      });
+      await writeWebResponse(res, response);
+      return;
+    }
+
     if (
       staticDir &&
       isStaticAssetMethod(request.method) &&
@@ -162,7 +179,7 @@ export function createNodeRequestHandler<TContext = unknown>(
       url.pathname in isgManifest &&
       response.status === 200 &&
       response.headers.get("content-type")?.includes("text/html") &&
-      isISGResponseCacheable(response)
+      isCacheableISGResponse(response)
     ) {
       const html = await response.clone().text();
       const htmlPath = resolveContainedPath(staticDir, url.pathname);
@@ -235,7 +252,8 @@ async function serveISGEntry<TContext>(
   if (!fileStat?.isFile()) return false;
 
   const ageMs = Date.now() - fileStat.mtimeMs;
-  const isStale = entry.revalidate.kind === "time" && ageMs > entry.revalidate.seconds * 1000;
+  const revalidateSeconds = getTimeRevalidateSeconds(entry.revalidate);
+  const isStale = revalidateSeconds !== null && ageMs > revalidateSeconds * 1000;
 
   const headers = applyDefaultSecurityHeaders(
     new Headers({
@@ -272,6 +290,57 @@ async function serveISGEntry<TContext>(
   return true;
 }
 
+async function handleRevalidationEndpoint<TContext>(
+  request: Request,
+  options: NodeAdapterOptions<TContext>,
+  staticDir: string | undefined,
+  isgManifest: Record<string, ISGManifestEntry>,
+  contextArgs: NodeAdapterContextArgs,
+): Promise<Response> {
+  const parsed = await readRevalidationRequest(request, process.env[PRACHT_REVALIDATE_TOKEN_ENV]);
+  if (!parsed.ok) return parsed.response;
+
+  if (!staticDir) {
+    return jsonResponse(
+      {
+        error: "ISG revalidation requires a staticDir.",
+        failed: [],
+        revalidated: [],
+        skipped: parsed.paths,
+      },
+      503,
+    );
+  }
+
+  const revalidated: string[] = [];
+  const skipped: string[] = [];
+  const failed: string[] = [];
+
+  for (const pathname of parsed.paths) {
+    const entry = isgManifest[pathname];
+    const htmlPath = resolveContainedPath(staticDir, pathname);
+    if (!entry || !hasWebhookRevalidate(entry.revalidate) || !htmlPath) {
+      skipped.push(pathname);
+      continue;
+    }
+
+    // A failed regeneration keeps the existing on-disk HTML and is reported
+    // in `failed` instead of aborting the whole batch with a 500.
+    try {
+      if (await regenerateISGPage(options, pathname, htmlPath, contextArgs)) {
+        revalidated.push(pathname);
+      } else {
+        failed.push(pathname);
+      }
+    } catch (err) {
+      console.error(`ISG webhook revalidation failed for ${pathname}:`, err);
+      failed.push(pathname);
+    }
+  }
+
+  return jsonResponse({ failed, revalidated, skipped });
+}
+
 /**
  * Resolve a URL pathname to `<staticDir>/<pathname>/index.html` while
  * ensuring the result stays inside `staticDir`. Returns `null` when the
@@ -293,29 +362,6 @@ function resolveContainedPath(staticDir: string, pathname: string): string | nul
     return null;
   }
   return resolved;
-}
-
-/**
- * An ISG response is safe to cache on disk only when it doesn't depend
- * on request-specific state (cookies, auth) that the cached copy would
- * lose. `Cache-Control: private` / `no-store`, any `Set-Cookie`, and a
- * `Vary` that implies per-request output (cookie, authorization) all
- * signal "don't cache this across users".
- */
-function isISGResponseCacheable(response: Response): boolean {
-  const cacheControl = response.headers.get("cache-control")?.toLowerCase() ?? "";
-  if (/\b(no-store|private)\b/.test(cacheControl)) return false;
-
-  if (response.headers.get("set-cookie")) return false;
-
-  const vary = response.headers.get("vary")?.toLowerCase() ?? "";
-  if (!vary) return true;
-  if (vary.includes("*")) return false;
-  const varied = vary.split(",").map((s) => s.trim());
-  for (const name of varied) {
-    if (name === "cookie" || name === "authorization") return false;
-  }
-  return true;
 }
 
 function isRouteStateRequest(url: URL, headers: Headers): boolean {

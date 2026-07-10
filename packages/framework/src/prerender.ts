@@ -1,4 +1,5 @@
 import { buildPathFromSegments, resolveApp } from "./app.ts";
+import { normalizeRouteRevalidate } from "./revalidation.ts";
 import { resolveRegistryModule } from "./runtime-manifest.ts";
 import { handlePrachtRequest } from "./runtime.ts";
 import type {
@@ -17,6 +18,7 @@ export interface PrerenderResult {
 
 export interface ISGManifestEntry {
   revalidate: RouteRevalidate;
+  generatedAt?: number;
 }
 
 export interface PrerenderAppResult {
@@ -56,6 +58,7 @@ export async function prerenderApp(
   const resolved = resolveApp(options.app);
   const results: PrerenderResult[] = [];
   const isgManifest: Record<string, ISGManifestEntry> = {};
+  const generatedAt = Date.now();
 
   // Collect all work items first, then render in parallel batches
   const work: {
@@ -67,6 +70,9 @@ export async function prerenderApp(
     if (route.render !== "ssg" && route.render !== "isg") continue;
     const paths = await collectSSGPaths(route, options.registry);
     for (const pathname of paths) {
+      if (route.render === "isg" && route.revalidate) {
+        normalizeRouteRevalidate(route.revalidate);
+      }
       work.push({ pathname, render: route.render, revalidate: route.revalidate });
     }
   }
@@ -114,7 +120,10 @@ export async function prerenderApp(
         headers: result.headers,
       });
       if (result.item.render === "isg" && result.item.revalidate) {
-        isgManifest[result.item.pathname] = { revalidate: result.item.revalidate };
+        isgManifest[result.item.pathname] = {
+          generatedAt,
+          revalidate: result.item.revalidate,
+        };
       }
     }
   }

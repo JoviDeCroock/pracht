@@ -375,8 +375,8 @@ dist/
     about/index.html
     blog/hello/index.html
   server/
-    pracht-route-manifest.json  # Route metadata for runtime
-    pracht-isg-manifest.json    # ISG revalidation config
+    headers-manifest.json       # Prerendered document headers
+    isg-manifest.json           # ISG revalidation config
     server.js                  # Platform entry module
 ```
 

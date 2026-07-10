@@ -89,7 +89,11 @@ route("/pricing", () => import("./routes/pricing.tsx"), {
 });
 ```
 
-ISG generates HTML at build time (like SSG) and, on adapters with persistent platform state, regenerates it after a configurable time window. The Node adapter serves the stale page while a new version is generated in the background.
+ISG generates HTML at build time (like SSG) and, on adapters with persistent
+platform state, regenerates it after a configurable time window or an
+authenticated webhook. Node and Cloudflare serve stale HTML immediately while a
+new version is generated in the background for time-based revalidation. Vercel
+uses Build Output API prerender functions and the platform ISR cache.
 
 ### Time-based revalidation
 
@@ -101,35 +105,70 @@ import { timeRevalidate } from "@pracht/core";
 } // seconds
 ```
 
-The Node adapter checks the file's mtime against the revalidation window. If
-stale, it serves the stale HTML immediately and triggers regeneration.
-
-> **Cloudflare note:** The Cloudflare adapter currently does not implement
-> runtime ISG revalidation. ISG routes are prerendered at build time and served
-> as static assets on Cloudflare. Use SSG/SSR on Cloudflare, or deploy ISG
-> routes to Node until a Cloudflare cache/KV-backed design lands.
->
-> **Vercel note:** Pracht's Vercel adapter targets Edge Functions. Pracht
-> prerenders ISG routes at build time and routes ISG paths through the Edge
-> Function rather than relying on process-local cache state. Use SSG for static
-> output or SSR for per-request freshness on Vercel.
+Node checks the file's mtime against the revalidation window. Cloudflare checks
+the generated timestamp stored in the Cache API entry and falls back to the
+build-time asset timestamp. Vercel writes native `.prerender-config.json` files
+with `expiration` set from the time policy.
 
 ### Webhook-based revalidation
-
-> **Not yet available.** `webhookRevalidate` is planned but not exported from
-> `@pracht/core` today. The API below shows the intended design — it will ship
-> in a future release. Use `timeRevalidate` for now.
 
 ```typescript
 import { webhookRevalidate } from "@pracht/core";
 
 {
-  revalidate: webhookRevalidate({ key: "pricing-update" });
+  revalidate: webhookRevalidate();
 }
 ```
 
-An external system POSTs to a revalidation endpoint to trigger regeneration.
-Useful for CMS-driven content where you know exactly when data changes.
+An external system POSTs to the framework endpoint to trigger regeneration:
+
+```sh
+curl -X POST https://example.com/__pracht/revalidate \
+  -H "Authorization: Bearer $PRACHT_REVALIDATE_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"paths":["/pricing"]}'
+```
+
+Set `PRACHT_REVALIDATE_TOKEN` in the runtime environment. The endpoint fails
+closed with `401` when the token is unset or incorrect. Pracht also accepts the
+same secret in the `x-pracht-revalidate-token` header for webhook providers
+that cannot send bearer auth.
+
+The response reports `revalidated`, `skipped`, and `failed` path arrays.
+Ineligible paths (not ISG, not prerendered, no `webhookRevalidate()`) are
+skipped; paths whose regeneration errored are reported in `failed` and keep
+serving the previously generated copy. Concurrent regenerations of the same
+path are single-flighted, so a burst of stale traffic or webhook posts
+triggers one render, not N.
+
+Dynamic ISG paths that `getStaticPaths()` did not enumerate at build time are
+rendered on demand per request (uncached); webhook posts naming them are
+reported as `skipped` on Node and Cloudflare because there is no generated
+copy to refresh.
+
+Webhook and time policies can be combined:
+
+```typescript
+import { timeRevalidate, webhookRevalidate } from "@pracht/core";
+
+route("/pricing", () => import("./routes/pricing.tsx"), {
+  render: "isg",
+  revalidate: [timeRevalidate(3600), webhookRevalidate()],
+});
+```
+
+This means "regenerate hourly, or sooner when a CMS webhook names this path."
+
+| Adapter    | Time revalidation                       | Webhook revalidation                |
+| ---------- | --------------------------------------- | ----------------------------------- |
+| Node       | File mtime + stale-while-revalidate     | Regenerates the on-disk HTML file   |
+| Cloudflare | Cache API + `env.ASSETS` fallback       | Overwrites the Cache API entry      |
+| Vercel     | Build Output API prerender `expiration` | Uses `x-prerender-revalidate`       |
+
+Cloudflare's Cache API is per-colo. A webhook updates the colo that receives
+the webhook request; other colos refresh on their next stale request or their
+own webhook hit. Use shorter time windows when globally immediate invalidation
+is required.
 
 ---
 
