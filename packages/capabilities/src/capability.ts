@@ -8,11 +8,20 @@ import {
 
 /**
  * Side-effect classification. Every capability must declare one; the
- * framework's exposure policy is driven by it (`destructive` capabilities
- * cannot be exposed at all until the server-verified confirmation layer
- * ships).
+ * framework's exposure policy is driven by it. `destructive` capabilities
+ * may only be exposed over HTTP, where every dispatch is gated by the
+ * server-verified prepare/commit confirmation flow (see docs/AGENT_TRUST.md);
+ * agent projections (`webmcp`/`mcp`) stay disallowed for them in v1.
  */
 export type CapabilityEffect = "read" | "write" | "destructive";
+
+/**
+ * Web Bot Auth policy for the capability's HTTP endpoint:
+ * - `"observe"` — serve everyone, surface the verified identity on context;
+ * - `"require"` — reject unsigned/unverified requests with a 401 envelope.
+ * Unset inherits the app-wide default from `defineApp({ agents })`.
+ */
+export type CapabilityAgentPolicy = "observe" | "require";
 
 export interface CapabilityHttpExposure {
   method: "POST";
@@ -55,6 +64,8 @@ export interface CapabilityDefinition<TInput = unknown, TOutput = unknown, TCont
   middleware?: string[];
   /** Explicit exposure. A capability without `expose` is only callable server-side. */
   expose?: CapabilityExposeConfig;
+  /** Per-capability Web Bot Auth policy override for the HTTP endpoint. */
+  agentPolicy?: CapabilityAgentPolicy;
   run: (args: CapabilityRunArgs<TInput, TContext>) => TOutput | Promise<TOutput>;
 }
 
@@ -76,6 +87,7 @@ export interface Capability<TInput = unknown, TOutput = unknown, TContext = unkn
   effect: CapabilityEffect;
   middleware: string[];
   expose: CapabilityExposure | null;
+  agentPolicy?: CapabilityAgentPolicy;
   run: (args: CapabilityRunArgs<TInput, TContext>) => TOutput | Promise<TOutput>;
   /** Apply input defaults and validate. Returns the defaulted value on success. */
   validateInput: (value: unknown) => CapabilityValidationResult<TInput>;
@@ -91,10 +103,15 @@ export interface CapabilityErrorPayload {
   code: string;
   message: string;
   issues?: SchemaIssue[];
+  /** Present on `confirmation_required` errors: pass it back via `x-pracht-confirm`. */
+  confirmationToken?: string;
+  /** Unix seconds when `confirmationToken` expires. */
+  expiresAt?: number;
 }
 
 export const DESTRUCTIVE_EXPOSURE_ERROR =
-  "destructive capabilities cannot be exposed yet; the trust layer ships separately";
+  "destructive capabilities cannot be exposed to agent projections (webmcp/mcp) yet — " +
+  "only expose.http, where the prepare/commit confirmation flow gates every call";
 
 /**
  * Define a protocol-neutral application capability.
@@ -102,7 +119,9 @@ export const DESTRUCTIVE_EXPOSURE_ERROR =
  * Fails fast (throws) on invalid definitions instead of deferring problems to
  * request time: missing contract fields, schemas outside the supported JSON
  * Schema subset, `webmcp` exposure without an HTTP projection to dispatch
- * through, and any exposure of a `destructive` capability.
+ * through, and `webmcp`/`mcp` exposure of a `destructive` capability
+ * (destructive + `expose.http` is allowed — the runtime's server-verified
+ * prepare/commit confirmation flow gates every dispatch).
  */
 export function defineCapability<TInput = unknown, TOutput = unknown, TContext = unknown>(
   definition: CapabilityDefinition<TInput, TOutput, TContext>,
@@ -111,8 +130,8 @@ export function defineCapability<TInput = unknown, TOutput = unknown, TContext =
 
   const expose = normalizeExposure(definition.expose);
 
-  if (definition.effect === "destructive" && expose) {
-    throw new Error(`defineCapability("${definition.title}"): ${DESTRUCTIVE_EXPOSURE_ERROR}`);
+  if (definition.effect === "destructive" && (expose?.webmcp || expose?.mcp)) {
+    throw new Error(`defineCapability("${definition.title}"): ${DESTRUCTIVE_EXPOSURE_ERROR}.`);
   }
   if (expose?.webmcp && !expose.http) {
     throw new Error(
@@ -130,6 +149,7 @@ export function defineCapability<TInput = unknown, TOutput = unknown, TContext =
     effect: definition.effect,
     middleware: definition.middleware ?? [],
     expose,
+    agentPolicy: definition.agentPolicy,
     run: definition.run,
     validateInput(value: unknown): CapabilityValidationResult<TInput> {
       const withDefaults = applySchemaDefaults(definition.input, value ?? {});
@@ -191,6 +211,14 @@ function assertDefinition(definition: CapabilityDefinition<never, unknown, never
       definition.middleware.some((name) => typeof name !== "string"))
   ) {
     throw new Error(`defineCapability("${label}"): "middleware" must be an array of names.`);
+  }
+
+  if (
+    definition.agentPolicy !== undefined &&
+    definition.agentPolicy !== "observe" &&
+    definition.agentPolicy !== "require"
+  ) {
+    throw new Error(`defineCapability("${label}"): "agentPolicy" must be "observe" or "require".`);
   }
 }
 

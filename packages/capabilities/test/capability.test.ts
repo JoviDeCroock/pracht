@@ -96,19 +96,43 @@ describe("defineCapability", () => {
     ).toThrow(/unsupported JSON Schema keywords: \/properties\/query\/pattern/);
   });
 
-  it("rejects exposing destructive capabilities", () => {
+  it("rejects exposing destructive capabilities to agent projections", () => {
     expect(() =>
       defineCapability({
         ...baseDefinition,
         effect: "destructive",
-        expose: { http: true },
+        expose: { http: true, webmcp: true },
       }),
-    ).toThrow(/destructive capabilities cannot be exposed yet; the trust layer ships separately/);
+    ).toThrow(/destructive capabilities cannot be exposed to agent projections/);
+    expect(() =>
+      defineCapability({
+        ...baseDefinition,
+        effect: "destructive",
+        expose: { http: true, mcp: true },
+      }),
+    ).toThrow(/destructive capabilities cannot be exposed to agent projections/);
+  });
+
+  it("allows destructive capabilities over HTTP (confirmation-gated at runtime)", () => {
+    const capability = defineCapability({
+      ...baseDefinition,
+      effect: "destructive",
+      expose: { http: true },
+    });
+    expect(capability.expose?.http).toEqual({ method: "POST" });
   });
 
   it("allows private destructive capabilities", () => {
     const capability = defineCapability({ ...baseDefinition, effect: "destructive" });
     expect(capability.expose).toBeNull();
+  });
+
+  it("records agentPolicy and rejects invalid values", () => {
+    const capability = defineCapability({ ...baseDefinition, agentPolicy: "require" });
+    expect(capability.agentPolicy).toBe("require");
+    expect(() =>
+      defineCapability({ ...baseDefinition, agentPolicy: "always" as unknown as "require" }),
+    ).toThrow(/"agentPolicy" must be "observe" or "require"/);
   });
 
   it("rejects webmcp exposure without http", () => {

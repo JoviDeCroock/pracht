@@ -60,6 +60,11 @@ export default defineConfig({
       port: 3103,
       reuseExistingServer: !process.env.CI,
       timeout: 15_000,
+      env: {
+        // Enables the destructive-capability confirmation flow that
+        // e2e/capabilities.test.ts and the example eval scenario exercise.
+        PRACHT_CONFIRMATION_SECRET: "pracht-e2e-confirmation-secret",
+      },
     },
   ],
 });
