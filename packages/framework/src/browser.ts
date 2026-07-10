@@ -64,6 +64,20 @@ export {
   useRouteData,
 } from "./runtime-hooks.ts";
 export { prefetch, type PrefetchFn } from "./prefetch-api.ts";
+
+/**
+ * Browser stub for the server-only `invokeCapability()`. Route modules import
+ * it for their loaders; the client transform strips the loader, but the named
+ * import can survive when the statement also imports client hooks. This stub
+ * keeps the capability pipeline out of client bundles and fails loudly if it
+ * is ever called in the browser.
+ */
+export async function invokeCapability(): Promise<never> {
+  throw new Error(
+    "invokeCapability() is server-only. In the browser, call the HTTP projection " +
+      'via callCapability from "virtual:pracht/capabilities" instead.',
+  );
+}
 export { fetchPrachtRouteState, parseSafeNavigationUrl } from "./runtime-client-fetch.ts";
 export { initClientRouter, useNavigate } from "./router.ts";
 export { redirect, type RedirectOptions } from "./runtime-middleware.ts";

@@ -91,7 +91,11 @@ export function createDevSSRMiddleware(
         timings,
       });
 
-      if (response.status === 404) {
+      // JSON 404s are typed API responses (route-state, capability envelopes)
+      // and must reach the client as-is; only non-JSON 404s fall through to
+      // Vite / the dev not-found page.
+      const responseContentType = response.headers.get("content-type") ?? "";
+      if (response.status === 404 && !responseContentType.includes("application/json")) {
         return next();
       }
 

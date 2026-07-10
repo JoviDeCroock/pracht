@@ -11,6 +11,7 @@ import { defineApp, resolveApiRoutes, resolveApp, route } from "../src/app.ts";
 import { buildDevtoolsHtml, DEVTOOLS_JSON_PATH } from "../src/devtools.ts";
 
 const graphFixture: AppGraph = {
+  capabilities: [],
   api: [
     {
       file: "/src/api/health.ts",
@@ -96,6 +97,7 @@ describe("buildDevtoolsHtml", () => {
   it("escapes HTML in graph values", () => {
     const html = buildDevtoolsHtml({
       api: [],
+      capabilities: [],
       routes: [
         {
           file: "./routes/<script>alert(1)</script>.tsx",
@@ -120,9 +122,50 @@ describe("buildDevtoolsHtml", () => {
   });
 
   it("renders an empty state when there are no API routes", () => {
-    const html = buildDevtoolsHtml({ api: [], routes: graphFixture.routes });
+    const html = buildDevtoolsHtml({ api: [], capabilities: [], routes: graphFixture.routes });
 
     expect(html).toContain("No API routes found.");
+  });
+
+  it("omits the capabilities section when none are registered", () => {
+    const html = buildDevtoolsHtml(graphFixture);
+
+    expect(html).not.toContain("Capabilities");
+  });
+
+  it("renders the capabilities table when capabilities are registered", () => {
+    const html = buildDevtoolsHtml({
+      ...graphFixture,
+      capabilities: [
+        {
+          effect: "read",
+          hasUi: false,
+          httpPath: "/api/capabilities/notes/search",
+          middleware: ["auth"],
+          name: "notes.search",
+          source: "./capabilities/notes-search.ts",
+          title: "Search notes",
+          transports: ["http", "webmcp"],
+        },
+        {
+          effect: "write",
+          hasUi: false,
+          httpPath: null,
+          middleware: [],
+          name: "notes.archive",
+          source: "./capabilities/notes-archive.ts",
+          title: "Archive note",
+          transports: [],
+        },
+      ],
+    });
+
+    expect(html).toContain("Capabilities");
+    expect(html).toContain("notes.search");
+    expect(html).toContain("http, webmcp");
+    expect(html).toContain("/api/capabilities/notes/search");
+    // Unexposed capabilities are labeled private.
+    expect(html).toContain("private");
   });
 });
 
@@ -155,6 +198,7 @@ describe("buildAppGraph", () => {
     });
 
     expect(graph).toEqual({
+      capabilities: [],
       api: [
         {
           file: "/src/api/health.ts",

@@ -11,13 +11,21 @@ import {
 import type { RenderMode } from "@pracht/core";
 import { createEnvSafetyPlugin, PUBLIC_ENV_PREFIX, SERVER_ENV_MODULE_ID } from "./env-safety.ts";
 import {
+  PRACHT_CAPABILITIES_MODULE_ID,
   PRACHT_CLIENT_MODULE_ID,
   PRACHT_ISLANDS_CLIENT_MODULE_ID,
   PRACHT_SERVER_MODULE_ID,
+  PRACHT_WEBMCP_MODULE_ID,
+  isCapabilitiesModule,
   isClientModule,
   isIslandsClientModule,
   isServerModule,
+  isWebmcpModule,
 } from "./plugin-assets.ts";
+import {
+  createPrachtCapabilitiesClientModuleSource,
+  createPrachtWebmcpModuleSource,
+} from "./plugin-capabilities.ts";
 import {
   clearPagesAppSourceCache,
   createPrachtClientModuleSource,
@@ -41,7 +49,6 @@ export {
   createPrachtServerModuleSource,
   createPrachtRegistryModuleSource,
 } from "./plugin-codegen.ts";
-export { PRACHT_CLIENT_MODULE_ID, PRACHT_ISLANDS_CLIENT_MODULE_ID, PRACHT_SERVER_MODULE_ID };
 export {
   createEnvSafetyPlugin,
   formatEnvLeakError,
@@ -51,6 +58,18 @@ export {
   type EnvLeakReference,
   type EnvSafetyOptions,
 } from "./env-safety.ts";
+export {
+  createPrachtCapabilitiesClientModuleSource,
+  createPrachtWebmcpModuleSource,
+  extractCapabilities,
+} from "./plugin-capabilities.ts";
+export {
+  PRACHT_CAPABILITIES_MODULE_ID,
+  PRACHT_CLIENT_MODULE_ID,
+  PRACHT_ISLANDS_CLIENT_MODULE_ID,
+  PRACHT_SERVER_MODULE_ID,
+  PRACHT_WEBMCP_MODULE_ID,
+};
 
 export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
   const resolved = resolveOptions(options);
@@ -143,6 +162,8 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
       if (isIslandsClientModule(id)) return PRACHT_ISLANDS_CLIENT_MODULE_ID;
       if (isClientModule(id)) return PRACHT_CLIENT_MODULE_ID;
       if (isServerModule(id)) return PRACHT_SERVER_MODULE_ID;
+      if (isCapabilitiesModule(id)) return PRACHT_CAPABILITIES_MODULE_ID;
+      if (isWebmcpModule(id)) return PRACHT_WEBMCP_MODULE_ID;
 
       // Fail loudly when client code imports the server-only env entry.
       // `scan` resolutions (dep optimizer discovery) are skipped because the
@@ -166,13 +187,19 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
 
     load(id) {
       if (isIslandsClientModule(id)) {
-        return createPrachtIslandsClientModuleSource(resolved);
+        return createPrachtIslandsClientModuleSource(resolved, { root });
       }
       if (isClientModule(id)) {
         return createPrachtClientModuleSource(resolved, { root });
       }
       if (isServerModule(id)) {
         return createPrachtServerModuleSource(resolved, { root, isBuild });
+      }
+      if (isCapabilitiesModule(id)) {
+        return createPrachtCapabilitiesClientModuleSource(resolved, { root });
+      }
+      if (isWebmcpModule(id)) {
+        return createPrachtWebmcpModuleSource(resolved, { root });
       }
       return null;
     },
@@ -232,6 +259,7 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
         resolved.apiDir,
         resolved.serverDir,
         resolved.islandsDir,
+        resolved.capabilitiesDir,
       ];
       if (dirs.some((dir) => relative.startsWith(dir))) {
         const serverMod = server.moduleGraph.getModuleById(PRACHT_SERVER_MODULE_ID);
@@ -243,6 +271,14 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
         if (relative.startsWith(resolved.islandsDir)) {
           const islandsMod = server.moduleGraph.getModuleById(PRACHT_ISLANDS_CLIENT_MODULE_ID);
           if (islandsMod) server.moduleGraph.invalidateModule(islandsMod);
+        }
+        if (relative.startsWith(resolved.capabilitiesDir)) {
+          // Exposure metadata and schemas are baked into the generated
+          // browser modules — regenerate them alongside the server module.
+          for (const moduleId of [PRACHT_CAPABILITIES_MODULE_ID, PRACHT_WEBMCP_MODULE_ID]) {
+            const capabilityMod = server.moduleGraph.getModuleById(moduleId);
+            if (capabilityMod) server.moduleGraph.invalidateModule(capabilityMod);
+          }
         }
       }
     },
@@ -401,6 +437,7 @@ function createPrachtOptimizeDepsEntries(resolved: ResolvedPrachtPluginOptions):
         `${toOptimizeDepsEntry(resolved.apiDir)}/**/*.{ts,js,tsx,jsx}`,
         `${toOptimizeDepsEntry(resolved.serverDir)}/**/*.{ts,js,tsx,jsx}`,
         `${toOptimizeDepsEntry(resolved.islandsDir)}/**/*.${scriptExtensions}`,
+        `${toOptimizeDepsEntry(resolved.capabilitiesDir)}/**/*.{ts,js,tsx,jsx}`,
       ];
 
   return [...new Set(entries.filter(Boolean))];

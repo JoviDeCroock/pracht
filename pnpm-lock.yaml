@@ -59,6 +59,9 @@ importers:
       '@pracht/adapter-vercel':
         specifier: workspace:*
         version: link:../../packages/adapter-vercel
+      '@pracht/capabilities':
+        specifier: workspace:*
+        version: link:../../packages/capabilities
       '@pracht/core':
         specifier: workspace:*
         version: link:../../packages/framework
@@ -271,11 +274,16 @@ importers:
         specifier: workspace:*
         version: link:../framework
 
+  packages/capabilities: {}
+
   packages/cli:
     dependencies:
       '@modelcontextprotocol/sdk':
         specifier: ^1.29.0
         version: 1.29.0(zod@4.4.3)
+      '@pracht/capabilities':
+        specifier: workspace:*
+        version: link:../capabilities
       '@pracht/core':
         specifier: workspace:*
         version: link:../framework

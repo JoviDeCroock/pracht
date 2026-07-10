@@ -120,6 +120,7 @@ export function defineApp(config: PrachtAppConfig): PrachtApp {
   return {
     shells: resolveModuleRefRecord(config.shells ?? {}),
     middleware: resolveModuleRefRecord(config.middleware ?? {}),
+    capabilities: resolveModuleRefRecord(config.capabilities ?? {}),
     api: config.api ?? {},
     routes: config.routes,
     constraints: config.constraints,
@@ -165,6 +166,7 @@ export function resolveApp(app: PrachtApp): ResolvedPrachtApp {
   return {
     shells: app.shells,
     middleware: app.middleware,
+    capabilities: app.capabilities ?? {},
     api: app.api,
     routes,
     apiRoutes: [],

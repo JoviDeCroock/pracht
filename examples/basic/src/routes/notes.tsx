@@ -1,0 +1,79 @@
+import { useState } from "preact/hooks";
+import {
+  invokeCapability,
+  useIsHydrated,
+  useRevalidate,
+  useRouteData,
+  type LoaderArgs,
+} from "@pracht/core";
+import { callCapability } from "virtual:pracht/capabilities";
+
+interface Note {
+  id: string;
+  title: string;
+  body: string;
+}
+
+// Direct server-side invocation: the loader calls the same capability the
+// HTTP projection serves, through the same validation + middleware pipeline.
+export async function loader({ request, context, signal }: LoaderArgs) {
+  const result = await invokeCapability<{ notes: Note[] }>(
+    "notes.search",
+    { query: "note" },
+    { request, context, signal },
+  );
+
+  return {
+    notes: result.ok ? result.data.notes : [],
+    error: result.ok ? null : result.error.message,
+  };
+}
+
+export function Component() {
+  // useRouteData (rather than the data prop) so revalidate() re-renders the list.
+  const data = useRouteData<typeof loader>();
+  const hydrated = useIsHydrated();
+  const revalidate = useRevalidate();
+  const [title, setTitle] = useState("");
+  const [status, setStatus] = useState<string | null>(null);
+
+  const createNote = async (event: Event) => {
+    event.preventDefault();
+    // Browser invocation goes through the generated HTTP projection.
+    const result = await callCapability<{ note: Note }>("notes.create", {
+      title,
+      body: "Created from the browser.",
+    });
+
+    if (result.ok) {
+      setStatus(`Created "${result.data.note.title}"`);
+      setTitle("");
+      await revalidate();
+    } else {
+      setStatus(`Error: ${result.error.message}`);
+    }
+  };
+
+  return (
+    <section>
+      <h1>Notes</h1>
+      <ul data-testid="notes-list">
+        {data.notes.map((note) => (
+          <li key={note.id}>
+            <strong>{note.title}</strong> — {note.body}
+          </li>
+        ))}
+      </ul>
+      <form data-testid="create-note-form" data-hydrated={hydrated} onSubmit={createNote}>
+        <input
+          name="title"
+          placeholder="Note title"
+          value={title}
+          onInput={(event) => setTitle((event.target as HTMLInputElement).value)}
+        />
+        <button type="submit">Create note</button>
+      </form>
+      {status ? <p data-testid="create-note-status">{status}</p> : null}
+    </section>
+  );
+}

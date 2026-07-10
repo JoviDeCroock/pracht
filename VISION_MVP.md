@@ -119,6 +119,21 @@ Standalone server endpoints independent of the page rendering pipeline:
   compile time and returns typed responses. See
   [docs/API_VALIDATION.md](docs/API_VALIDATION.md).
 
+### Capabilities (agent-ready operations)
+
+Typed, protocol-neutral application operations registered in the manifest via
+`defineApp({ capabilities: { ... } })` and defined with `defineCapability()`
+from `@pracht/capabilities`:
+
+- One contract (JSON Schema input/output, effect class, named middleware,
+  server-only `run()`), projected to direct server invocation
+  (`invokeCapability()`), a generated HTTP endpoint (`expose.http`), and a
+  WebMCP page tool for in-browser agents (`expose.webmcp`).
+- Private by default; exposure requires a complete contract, `destructive`
+  effects cannot be exposed yet, and the graph feeds `pracht inspect
+  capabilities`, `/_pracht`, `pracht verify`, and the CLI MCP server.
+- See [docs/CAPABILITIES.md](docs/CAPABILITIES.md).
+
 ### Deployment Adapters
 
 Platform adapters export a request handler shaped for their runtime:

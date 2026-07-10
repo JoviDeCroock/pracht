@@ -91,7 +91,7 @@ The starter gives you:
 - `pracht dev` — local SSR + HMR, a `/_pracht` devtools page with the resolved route/API graph (JSON at `/_pracht.json`), and `Server-Timing` middleware/loader/render phase timings on every dev SSR response
 - `pracht build` — client/server output plus SSG/ISG prerendering, with `--analyze` for a per-route client JS report and budget enforcement
 - `pracht preview` — build and serve the production build locally
-- `pracht inspect [routes|api|build] --json` — resolved app graph metadata
+- `pracht inspect [routes|api|capabilities|build] --json` — resolved app graph metadata
 - `pracht generate route|shell|middleware|api` — framework-native scaffolding; `generate route` also emits a Playwright smoke test when the app has an e2e setup
 - `pracht verify` — fast framework-aware checks with `--changed` and `--json`, including `defineApp({ constraints })` enforcement and app-graph snapshot freshness
 - `pracht plan` — semantic app-graph diff against a base git ref (`--write` refreshes the committed `.pracht/app-graph.json` snapshot; `--markdown` for PR comments)
@@ -107,6 +107,7 @@ Pracht is built to be operated by coding agents as much as by humans — and for
 - **Machine-enforced invariants** — `defineApp({ constraints })` declares rules like `requireMiddleware("/app/**", "auth")` that `pracht verify` enforces deterministically, so no author (human or LLM) can merge a violation.
 - **MCP server** — `pracht mcp` starts a stdio [Model Context Protocol](https://modelcontextprotocol.io) server so agents can natively inspect the resolved app graph, run doctor/verify diagnostics, diff and snapshot the graph (plan/report), read the authoring guide (get_docs), and scaffold routes, shells, middleware, and API handlers. See [docs/MCP.md](docs/MCP.md) for registration and the tool reference.
 - **Authoring guide for agents** — `pracht llms --write` drops the framework's conventions into `llms.txt` so any coding agent picks them up.
+- **Capabilities & WebMCP** — `@pracht/capabilities` lets you define a typed application operation once (JSON Schema contract, effect class, middleware) and project it to server code, a generated HTTP endpoint, and a WebMCP page tool for in-browser agents — private by default, with `pracht verify` enforcing the security defaults. See [docs/CAPABILITIES.md](docs/CAPABILITIES.md).
 - **Claude Code skills** — 28 skills for scaffolding, auditing, testing, debugging, and deploying pracht apps live in [skills/](skills/README.md). See the [agent skills](#agent-skills) section below.
 
 ## Agent skills
@@ -116,7 +117,6 @@ The skills are distributed three ways ([docs](https://pracht.resynapse.dev/docs/
 - **Discovery endpoint** — every skill is published at `https://pracht.resynapse.dev/skills/<name>/SKILL.md`, listed with SHA-256 digests in the manifest at [`/.well-known/agent-skills/index.json`](https://pracht.resynapse.dev/.well-known/agent-skills/index.json) and advertised via a `Link: rel="agent-skills"` header.
 - **create-pracht** — `npm create pracht@latest` seeds the full catalog into new apps' `.claude/skills/` and writes a `.mcp.json` registering the `pracht mcp` server (yes-default prompt, `--no-agent-tools` to skip).
 - **In this repo** — `.claude/skills` symlinks to [skills/](skills/README.md), so Claude Code loads them automatically for contributors.
->>>>>>> 463a134 (Ship the skills to users: create-pracht seeding, docs page, contributor loading)
 
 ## Repo map
 
@@ -127,6 +127,7 @@ The skills are distributed three ways ([docs](https://pracht.resynapse.dev/docs/
 - [docs/PERFORMANCE.md](docs/PERFORMANCE.md) — bundle analysis and per-route client JS budgets
 - [docs/DATA_LOADING.md](docs/DATA_LOADING.md) — loaders, forms, client hooks
 - [docs/API_VALIDATION.md](docs/API_VALIDATION.md) — Standard Schema validation for API routes, typed `apiFetch()`
+- [docs/CAPABILITIES.md](docs/CAPABILITIES.md) — typed capabilities, HTTP projection, WebMCP page tools
 - [docs/STYLING.md](docs/STYLING.md) — CSS Modules, Tailwind, CSS-in-JS limitations
 - [docs/ADAPTERS.md](docs/ADAPTERS.md) — Node, Cloudflare, Vercel deployment paths
 - [docs/MCP.md](docs/MCP.md) — built-in MCP server for coding agents

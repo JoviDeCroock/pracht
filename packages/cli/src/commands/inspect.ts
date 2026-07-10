@@ -1,15 +1,20 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-import { serializeApiRoutes, serializeAppRoutes } from "@pracht/core";
-import type { AppGraphApiRoute, AppGraphRoute, ResolvedApiRoute } from "@pracht/core";
+import { serializeApiRoutes, serializeAppRoutes, serializeCapabilities } from "@pracht/core";
+import type {
+  AppGraphApiRoute,
+  AppGraphCapability,
+  AppGraphRoute,
+  ResolvedApiRoute,
+} from "@pracht/core";
 import { defineCommand } from "citty";
 
 import { withAppServer } from "../app-server.js";
 import { handleCliError } from "../utils.js";
 import { readClientBuildAssets } from "../build-metadata.js";
 
-const INSPECT_TARGETS = new Set(["routes", "api", "build", "all"]);
+const INSPECT_TARGETS = new Set(["routes", "api", "capabilities", "build", "all"]);
 
 export default defineCommand({
   meta: {
@@ -19,7 +24,7 @@ export default defineCommand({
   args: {
     target: {
       type: "positional",
-      description: "Inspect target: routes, api, build, or all",
+      description: "Inspect target: routes, api, capabilities, build, or all",
       required: false,
     },
     json: {
@@ -49,6 +54,7 @@ export default defineCommand({
 
 export interface InspectReport {
   api?: AppGraphApiRoute[];
+  capabilities?: AppGraphCapability[];
   build?: {
     adapterTarget: string;
     clientEntryUrl: string | null;
@@ -84,6 +90,13 @@ export async function runInspect(
             methods: [],
             path,
           }));
+    }
+
+    if (target === "capabilities" || target === "all") {
+      report.capabilities = await serializeCapabilities(serverModule.resolvedApp.capabilities, {
+        loadModule: (file) => server.ssrLoadModule(file),
+        readSource: (file) => readFileSync(resolve(root, `.${file}`), "utf-8"),
+      });
     }
 
     if (target === "build" || target === "all") {
@@ -125,6 +138,22 @@ function printInspectReport(report: InspectReport): void {
             : "default"
           : explicitMethods || "none";
         console.log(`  ${route.path}  methods=${methods}  file=${route.file}`);
+      }
+    }
+  }
+
+  if (report.capabilities) {
+    console.log("\nCapabilities");
+    if (report.capabilities.length === 0) {
+      console.log("  No capabilities registered.");
+    } else {
+      for (const capability of report.capabilities) {
+        const transports =
+          capability.transports.length > 0 ? capability.transports.join(",") : "private";
+        console.log(
+          `  ${capability.name}  effect=${capability.effect ?? "n/a"}  transports=${transports}  ` +
+            `http=${capability.httpPath ?? "n/a"}  file=${capability.source}`,
+        );
       }
     }
   }

@@ -75,16 +75,25 @@ export {
   detectApiMethods,
   serializeApiRoutes,
   serializeAppRoutes,
+  serializeCapabilities,
 } from "./app-graph.ts";
 export type {
   ApiRouteExports,
   AppGraph,
   AppGraphApiRoute,
+  AppGraphCapability,
   AppGraphModuleAccess,
   AppGraphRoute,
 } from "./app-graph.ts";
 export { filterPublicEnv, PRACHT_PUBLIC_ENV_PREFIX, publicEnv } from "./env.ts";
 export type { PrachtPublicEnv, PrachtServerEnv, PublicEnvOf } from "./env.ts";
+export {
+  capabilityHttpPath,
+  invokeCapability,
+  matchCapabilityRoute,
+  resolveAppCapabilities,
+} from "./runtime-capabilities.ts";
+export type { InvokeCapabilityContext, ResolvedCapability } from "./runtime-capabilities.ts";
 export { forwardRef } from "./forwardRef.ts";
 export { useIsHydrated } from "./hydration.ts";
 export { Suspense, lazy } from "preact-suspense";
@@ -141,6 +150,16 @@ export type {
   ApiRouteMatch,
   ApiRouteModule,
   BaseRouteArgs,
+  CapabilityEffect,
+  CapabilityEnvelope,
+  CapabilityErrorPayload,
+  CapabilityExposure,
+  CapabilityHttpExposure,
+  CapabilityIssue,
+  CapabilityModule,
+  CapabilityRunArgs,
+  CapabilityValidationResult,
+  PrachtCapability,
   DataModule,
   ErrorBoundaryProps,
   GroupDefinition,

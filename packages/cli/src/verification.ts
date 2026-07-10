@@ -9,6 +9,7 @@ import {
   collectPackageChecks,
   collectPagesVerification,
 } from "./verification-checks.js";
+import { collectCapabilityChecks } from "./verification-capabilities.js";
 import { collectEnvLeakVerification } from "./verification-env.js";
 import { collectGraphChecks } from "./verification-graph.js";
 import { createCheck, type Check } from "./verification-helpers.js";
@@ -87,6 +88,10 @@ export async function runVerification(
     collectPagesVerification(project, checks, { changedFiles: frameworkFiles, scope });
   } else {
     collectManifestVerification(project, checks, { changedFiles: frameworkFiles, scope });
+    // Capability contracts are cheap to verify statically and security
+    // relevant, so they are always checked in manifest mode (no-op for apps
+    // without a `capabilities` registry).
+    collectCapabilityChecks(project, checks);
   }
 
   collectApiVerification(project, checks, { changedFiles: frameworkFiles, scope });
