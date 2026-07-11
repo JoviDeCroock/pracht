@@ -44,10 +44,11 @@ export function buildRouteStateUrl(url: string): string {
 
 export async function fetchPrachtRouteState(
   url: string,
-  options?: { signal?: AbortSignal; useDataParam?: boolean },
+  options?: { cache?: RequestCache; signal?: AbortSignal; useDataParam?: boolean },
 ): Promise<RouteStateResult> {
   const fetchUrl = options?.useDataParam ? buildRouteStateUrl(url) : url;
   const response = await fetch(fetchUrl, {
+    cache: options?.cache,
     headers: options?.useDataParam ? {} : { [ROUTE_STATE_REQUEST_HEADER]: "1" },
     redirect: "manual",
     signal: options?.signal,

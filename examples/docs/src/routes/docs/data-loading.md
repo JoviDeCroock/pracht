@@ -258,6 +258,10 @@ export function Component() {
 }
 ```
 
+Manual revalidation bypasses route-state browser caching, including
+`loaderCache`, so refresh buttons and post-mutation reloads fetch fresh loader
+data.
+
 ### useNavigation()
 
 Reactive pending state for the current navigation or `<Form>` submission — the

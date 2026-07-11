@@ -91,7 +91,9 @@ responses remain `no-store`. If a loader returns a `Response` with an explicit
 `loaderCache` is client-side browser caching only. It does not change ISG
 `revalidate`, and the prefetcher's bounded 30-second in-memory cache remains
 independent so an intent prefetch can still be consumed by the navigation that
-immediately follows it.
+immediately follows it. Explicit `useRevalidate()` calls bypass this browser
+cache so user-triggered refreshes and post-mutation reloads still re-run the
+loader.
 
 For SPA routes, the initial HTML can still include the matched shell and an
 optional shell `Loading` export so the page is not blank before the route-state

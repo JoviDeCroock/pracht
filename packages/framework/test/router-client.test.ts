@@ -13,6 +13,7 @@ import {
   route,
   useLocation,
   useNavigate,
+  useRevalidate,
   useRouteData,
 } from "../src/index.ts";
 
@@ -158,6 +159,64 @@ describe("initClientRouter", () => {
     );
     expect(window.location.pathname).toBe("/products/2");
     expect(root.textContent).toContain("Product 2");
+  });
+
+  it("bypasses the HTTP cache when revalidating route data", async () => {
+    function Dashboard() {
+      const data = useRouteData<{ count: number }>();
+      const revalidate = useRevalidate();
+      return h(
+        "main",
+        null,
+        h("span", { id: "count" }, String(data.count)),
+        h("button", { id: "refresh", onClick: () => void revalidate() }, "Refresh"),
+      );
+    }
+
+    const app = resolveApp(
+      defineApp({
+        routes: [
+          route("/dashboard", "./routes/dashboard.tsx", {
+            id: "dashboard",
+            loaderCache: 60,
+            render: "ssr",
+          }),
+        ],
+      }),
+    );
+
+    root.innerHTML = '<main><span id="count">1</span><button id="refresh">Refresh</button></main>';
+    history.replaceState(null, "", "/dashboard");
+    fetchSpy.mockResolvedValue(createJsonResponse({ data: { count: 2 } }));
+
+    await initClientRouter({
+      app,
+      routeModules: {
+        "./routes/dashboard.tsx": async () => ({ default: Dashboard }),
+      },
+      shellModules: {},
+      initialState: {
+        data: { count: 1 },
+        routeId: "dashboard",
+        url: "/dashboard",
+      },
+      root,
+      findModuleKey: (_modules, file) => file,
+    });
+
+    root.querySelector<HTMLButtonElement>("#refresh")?.click();
+    await flush();
+    await flush();
+
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "/dashboard",
+      expect.objectContaining({
+        cache: "no-store",
+        headers: expect.objectContaining({ "x-pracht-route-state-request": "1" }),
+        redirect: "manual",
+      }),
+    );
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
 
   it("preserves same-shell instances without exposing stale route data to useRouteData()", async () => {
