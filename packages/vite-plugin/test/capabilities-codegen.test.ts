@@ -2,6 +2,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import type { CapabilityErrorPayload } from "virtual:pracht/capabilities";
 
 import {
   createPrachtCapabilitiesClientModuleSource,
@@ -195,6 +196,17 @@ describe("extractCapabilities", () => {
 });
 
 describe("createPrachtCapabilitiesClientModuleSource", () => {
+  it("types destructive confirmation metadata in browser envelopes", () => {
+    const error = {
+      code: "confirmation_required",
+      message: "Confirm the call.",
+      confirmationToken: "v1.payload.signature",
+      expiresAt: 1_800_000_000,
+    } satisfies CapabilityErrorPayload;
+
+    expect(error.confirmationToken).toContain("v1.");
+  });
+
   it("contains only http-exposed endpoints — no schemas, no server code", () => {
     const root = createFixture({
       capabilities: {
@@ -258,6 +270,29 @@ describe("createPrachtCapabilitiesClientModuleSource", () => {
     expect(headers).toBeInstanceOf(Headers);
     expect((headers as Headers).get("content-type")).toBe("application/json");
     expect((headers as Headers).get("x-pracht-confirm")).toBe("token-1");
+  });
+
+  it("preserves explicit null input in browser calls", async () => {
+    const root = createFixture({ capabilities: { "notes-create.ts": CREATE_CAPABILITY } });
+    const source = createPrachtCapabilitiesClientModuleSource({}, { root });
+    let requestInit: RequestInit | undefined;
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (_input, init) => {
+      requestInit = init;
+      return Response.json({ ok: true, data: null });
+    }) as typeof fetch;
+
+    try {
+      const moduleUrl = `data:text/javascript;base64,${Buffer.from(source).toString("base64")}#${Date.now()}`;
+      const mod = (await import(moduleUrl)) as {
+        callCapability: (name: string, input?: unknown) => Promise<unknown>;
+      };
+      await mod.callCapability("notes.create", null);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+
+    expect(requestInit?.body).toBe("null");
   });
 });
 

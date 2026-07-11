@@ -120,6 +120,36 @@ describe("resolveAppCapabilities", () => {
     expect(resolved[0].httpPath).toBe("/api/find-notes");
   });
 
+  it("normalizes trailing slashes on custom HTTP paths", async () => {
+    const { app, registry } = createApp(
+      createSearchCapability({ expose: { http: { path: "/api/find-notes/" } } }),
+    );
+    const resolved = await resolveAppCapabilities(app, registry);
+
+    expect(resolved[0].httpPath).toBe("/api/find-notes");
+    expect(matchCapabilityRoute(resolved, "/api/find-notes/")?.name).toBe("notes.search");
+  });
+
+  it("rejects custom HTTP paths that only differ by a trailing slash", async () => {
+    const first = createSearchCapability({ expose: { http: { path: "/api/find-notes" } } });
+    const second = createSearchCapability({ expose: { http: { path: "/api/find-notes/" } } });
+    const app = defineApp({
+      capabilities: {
+        "notes.first": "./capabilities/first.ts",
+        "notes.second": "./capabilities/second.ts",
+      },
+      routes: [route("/", "./routes/home.tsx")],
+    });
+    const registry: ModuleRegistry = {
+      capabilityModules: {
+        "./capabilities/first.ts": async () => ({ default: first }),
+        "./capabilities/second.ts": async () => ({ default: second }),
+      },
+    };
+
+    await expect(resolveAppCapabilities(app, registry)).rejects.toThrow(/both expose HTTP path/);
+  });
+
   it("keeps unexposed capabilities private (no HTTP path)", async () => {
     const { app, registry } = createApp(createSearchCapability({ expose: undefined }));
     const resolved = await resolveAppCapabilities(app, registry);
@@ -224,6 +254,28 @@ describe("capability HTTP projection", () => {
 
     expect(response.status).toBe(400);
     expect((await response.json()).error.code).toBe("invalid_json");
+  });
+
+  it("passes explicit null input through a null schema", async () => {
+    const capability = defineCapability({
+      title: "Accept null",
+      description: "Accept a null input.",
+      input: { type: "null" },
+      output: { type: "null" },
+      effect: "read",
+      expose: { http: true },
+      run: ({ input }) => input,
+    });
+    const { app, registry } = createApp(capability);
+
+    const response = await handlePrachtRequest({
+      app,
+      registry,
+      request: postCapability("/api/capabilities/notes/search", null),
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true, data: null });
   });
 
   it("returns 405 for non-POST methods on a capability path", async () => {
@@ -412,6 +464,39 @@ describe("capability HTTP projection", () => {
     });
 
     expect(await response.json()).toEqual({ from: "api-route" });
+  });
+
+  it("fails closed at a custom path when another capability breaks registry resolution", async () => {
+    const capability = createSearchCapability({
+      expose: { http: { path: "/api/find-notes" } },
+    });
+    const app = defineApp({
+      capabilities: {
+        "notes.search": "./capabilities/notes-search.ts",
+        "notes.broken": "./capabilities/broken.ts",
+      },
+      routes: [route("/api/find-notes", "./routes/home.tsx")],
+    });
+    const registry: ModuleRegistry = {
+      routeModules: {
+        "./routes/home.tsx": async () => ({ Component: () => null }),
+      },
+      capabilityModules: {
+        "./capabilities/notes-search.ts": async () => ({ default: capability }),
+        "./capabilities/broken.ts": (async () => ({
+          not: "a capability",
+        })) as unknown as NonNullable<ModuleRegistry["capabilityModules"]>[string],
+      },
+    };
+
+    const response = await handlePrachtRequest({
+      app,
+      registry,
+      request: postCapability("/api/find-notes", { query: "hello" }),
+    });
+
+    expect(response.status).toBe(500);
+    expect((await response.json()).error.code).toBe("internal_error");
   });
 });
 

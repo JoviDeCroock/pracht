@@ -152,7 +152,7 @@ export function defineCapability<TInput = unknown, TOutput = unknown, TContext =
     agentPolicy: definition.agentPolicy,
     run: definition.run,
     validateInput(value: unknown): CapabilityValidationResult<TInput> {
-      const withDefaults = applySchemaDefaults(definition.input, value ?? {});
+      const withDefaults = applySchemaDefaults(definition.input, value === undefined ? {} : value);
       const issues = validateAgainstSchema(definition.input, withDefaults);
       if (issues.length > 0) return { ok: false, issues };
       return { ok: true, value: withDefaults as TInput };

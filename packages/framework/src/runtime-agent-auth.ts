@@ -330,8 +330,28 @@ async function fetchAgentDirectory(
 async function readBodyWithCap(response: Response, maxBytes: number): Promise<string | null> {
   const declaredLength = Number(response.headers.get("content-length") ?? "0");
   if (declaredLength > maxBytes) return null;
-  const buffer = await response.arrayBuffer();
-  if (buffer.byteLength > maxBytes) return null;
+  if (!response.body) return "";
+
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let totalBytes = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    totalBytes += value.byteLength;
+    if (totalBytes > maxBytes) {
+      await reader.cancel();
+      return null;
+    }
+    chunks.push(value);
+  }
+
+  const buffer = new Uint8Array(totalBytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    buffer.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
   return new TextDecoder().decode(buffer);
 }
 

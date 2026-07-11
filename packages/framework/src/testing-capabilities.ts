@@ -165,7 +165,7 @@ export function createCapabilityTestHost(options: CapabilityTestHostOptions): Ca
       const request = new Request(`${TEST_ORIGIN}${match.httpPath}`, {
         method: "POST",
         headers,
-        body: JSON.stringify(input ?? {}),
+        body: JSON.stringify(input === undefined ? {} : input),
       });
 
       return handleCapabilityRequest({
