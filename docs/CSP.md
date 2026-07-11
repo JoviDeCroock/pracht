@@ -21,7 +21,7 @@ export function headers(_args: HeadersArgs) {
       "object-src 'none'",
       "frame-ancestors 'self'",
       "form-action 'self'",
-      "script-src 'self'",
+      "script-src 'self' 'inline-speculation-rules'",
       "style-src 'self'",
       "img-src 'self' data:",
       "font-src 'self'",
@@ -31,8 +31,10 @@ export function headers(_args: HeadersArgs) {
 }
 ```
 
-This allows Pracht's generated module script and same-origin assets while
-blocking plugin/object embeds and cross-origin scripts by default.
+This allows Pracht's generated module script, same-origin assets, and the
+browser-native speculation rules script emitted by routes that opt into
+`speculation`. It still blocks plugin/object embeds and cross-origin scripts by
+default.
 
 ## Add Only The Origins You Use
 
@@ -67,6 +69,11 @@ Normal Pracht page rendering and hydration do not require executable inline
 scripts from application code. If your route `head()` returns `script` entries
 for JSON-LD or another inline format, test the route with your CSP enabled and
 prefer hashes or a route-specific policy for the exact inline content.
+
+Routes that opt into `speculation` emit an inline
+`<script type="speculationrules">` document rule. Allow it with
+`'inline-speculation-rules'` in `script-src`, or use a nonce/hash policy if your
+deployment requires tighter inline-script controls.
 
 For third-party analytics, prefer loading the script from an explicit origin and
 keep the vendor's collection endpoint in `connect-src`.

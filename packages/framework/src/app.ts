@@ -18,6 +18,7 @@ import type {
   RouteSegment,
   RouteTreeNode,
   SearchParamsInput,
+  SpeculationOption,
   TimeRevalidatePolicy,
   WebhookRevalidatePolicy,
   PrachtApp,
@@ -31,6 +32,7 @@ interface InheritedRouteConfig {
   render?: ResolvedRoute["render"];
   hydration?: ResolvedRoute["hydration"];
   middleware: string[];
+  speculation?: SpeculationOption;
 }
 
 export function timeRevalidate(seconds: number): TimeRevalidatePolicy {
@@ -190,6 +192,7 @@ function flattenRouteNode(
       render: node.meta.render ?? inherited.render,
       hydration: node.meta.hydration ?? inherited.hydration,
       middleware: [...inherited.middleware, ...(node.meta.middleware ?? [])],
+      speculation: node.meta.speculation ?? inherited.speculation,
     };
 
     for (const child of node.routes) {
@@ -251,6 +254,7 @@ function flattenRouteNode(
     }),
     prefetch: node.prefetch,
     revalidate: node.revalidate,
+    speculation: node.speculation ?? inherited.speculation,
     segments: parseRouteSegments(fullPath),
   });
 }

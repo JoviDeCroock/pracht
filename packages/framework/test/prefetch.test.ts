@@ -29,6 +29,26 @@ function createApp(): ResolvedPrachtApp {
           render: "ssr",
           prefetch: "none",
         }),
+        route("/static-doc", "./routes/static-doc.tsx", {
+          id: "static-doc",
+          render: "ssr",
+          hydration: "none",
+        }),
+      ],
+    }),
+  );
+}
+
+function createSpeculationApp(path: string): ResolvedPrachtApp {
+  return resolveApp(
+    defineApp({
+      routes: [
+        route("/", "./routes/home.tsx", { id: "home", render: "ssr" }),
+        route(path, "./routes/pricing.tsx", {
+          id: "pricing",
+          render: "ssr",
+          speculation: "prerender",
+        }),
       ],
     }),
   );
@@ -46,6 +66,13 @@ function addAnchor(href: string, attributes: Record<string, string> = {}): HTMLA
 
 function hover(anchor: HTMLAnchorElement): void {
   anchor.dispatchEvent(new MouseEvent("mouseenter", { bubbles: false }));
+}
+
+function stubSpeculationRulesSupport(supported: boolean): void {
+  Object.defineProperty(HTMLScriptElement, "supports", {
+    configurable: true,
+    value: vi.fn((type: string) => supported && type === "speculationrules"),
+  });
 }
 
 async function flushMicrotasks(): Promise<void> {
@@ -127,6 +154,16 @@ describe("prefetch strategies", () => {
     expect(fetchSpy.mock.calls[0][0]).toBe("/quiet");
   });
 
+  it("does not prefetch route state for no-hydration routes", () => {
+    const anchor = addAnchor("/static-doc", { "data-pracht-prefetch": "intent" });
+    setupPrefetching(createApp());
+
+    hover(anchor);
+    vi.advanceTimersByTime(60);
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
   it('prefetches "render" links immediately when scanned', () => {
     addAnchor("/pricing", { "data-pracht-prefetch": "render" });
     setupPrefetching(createApp());
@@ -150,6 +187,29 @@ describe("prefetch strategies", () => {
   it("never prefetches hrefs that match no route", () => {
     const anchor = addAnchor("/definitely-not-a-route", { "data-pracht-prefetch": "render" });
     setupPrefetching(createApp());
+
+    hover(anchor);
+    vi.advanceTimersByTime(200);
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("keeps JS prefetch as the fallback for prerender routes when speculation rules are unsupported", () => {
+    stubSpeculationRulesSupport(false);
+    const anchor = addAnchor("/prerender-fallback");
+    setupPrefetching(createSpeculationApp("/prerender-fallback"));
+
+    hover(anchor);
+    vi.advanceTimersByTime(60);
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(fetchSpy.mock.calls[0][0]).toBe("/prerender-fallback");
+  });
+
+  it("suppresses JS prefetch for prerender routes when speculation rules are supported", () => {
+    stubSpeculationRulesSupport(true);
+    const anchor = addAnchor("/prerender-supported");
+    setupPrefetching(createSpeculationApp("/prerender-supported"));
 
     hover(anchor);
     vi.advanceTimersByTime(200);

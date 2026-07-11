@@ -34,6 +34,7 @@ interface RenderRouteOptions {
   ErrorBoundary?: (props: any) => any;
   hydration?: "full" | "islands" | "none";
   loader?: () => unknown;
+  speculation?: "prefetch" | "prerender";
 }
 
 async function renderRoute(options: RenderRouteOptions): Promise<string> {
@@ -42,6 +43,7 @@ async function renderRoute(options: RenderRouteOptions): Promise<string> {
       route("/", "./routes/page.tsx", {
         render: "ssr",
         ...(options.hydration ? { hydration: options.hydration } : {}),
+        ...(options.speculation ? { speculation: options.speculation } : {}),
       }),
     ],
   });
@@ -140,6 +142,19 @@ describe("islands server rendering", () => {
 
     expect(html).not.toContain("<pracht-island");
     expect(html).not.toContain("<script");
+  });
+
+  it("can emit speculation rules without adding hydration scripts", async () => {
+    registerTestIslands();
+
+    const html = await renderRoute({
+      hydration: "none",
+      speculation: "prefetch",
+      Component: () => h("main", null, "static"),
+    });
+
+    expect(html).not.toContain('id="pracht-state"');
+    expect(html).toContain('<script type="speculationrules">');
   });
 
   it("skips the bootstrap script when an islands route renders no islands", async () => {
