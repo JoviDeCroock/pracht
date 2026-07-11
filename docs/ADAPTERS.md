@@ -226,7 +226,9 @@ build).
   time-based revalidation, and schedules regeneration with
   `executionContext.waitUntil()`. `POST /__pracht/revalidate` authenticates
   `PRACHT_REVALIDATE_TOKEN` and overwrites the named Cache API entries for
-  routes that opt into `webhookRevalidate()`.
+  routes that opt into `webhookRevalidate()`. Successful manifest reads are
+  cached for the isolate lifetime; transient asset or JSON failures are evicted
+  so the next request retries. A missing manifest (`404`) is cached as empty.
 - **Cache locality**: Cloudflare's Cache API is local to the colo handling the
   request. This keeps ISG dependency-free and fast, but webhook invalidation is
   not a global purge. Other colos refresh when they receive the webhook or when
