@@ -83,6 +83,10 @@ These catch app-graph wiring problems independent of the adapter. Resolve all
   sides — `cloudflareAdapter({ cache: true })` in vite config and
   `"cache": { "enabled": true }` in wrangler config. Without it, ISG pages
   are static snapshots that never revalidate.
+- When Workers Caching is enabled, flag ISG routes reachable through unbounded
+  query strings. Require a bounded allowlist/canonical redirect or an uncached
+  gateway with a normalized `cf.cacheKey`; also check that markdown-capable
+  routes normalize `Accept` at the gateway when variant fan-out matters.
 - Bundle size: report the size of `dist/server/server.js`. Workers limit is
   ~1 MB compressed for free tier, ~10 MB on paid. Warn at 80% of the active
   limit.

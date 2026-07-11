@@ -109,7 +109,7 @@ describe("findCacheableIsgRoute", () => {
 });
 
 describe("applyWorkersCacheHeaders", () => {
-  it("stamps edge and browser cache headers, cache-tag, and Vary: Accept on ISG pages", () => {
+  it("stamps edge and browser cache headers and a cache tag on ISG pages", () => {
     const response = applyWorkersCacheHeaders(
       new Response("<html></html>", {
         headers: { "content-type": "text/html", vary: "x-pracht-route-state-request" },
@@ -126,7 +126,19 @@ describe("applyWorkersCacheHeaders", () => {
     );
     expect(response.headers.get("cache-control")).toBe("public, max-age=0, must-revalidate");
     expect(response.headers.get("cache-tag")).toBe(`${ISG_CACHE_TAG},pracht:route:pricing`);
-    expect(response.headers.get("vary")).toBe("x-pracht-route-state-request, Accept");
+    expect(response.headers.get("vary")).toBe("x-pracht-route-state-request");
+  });
+
+  it("preserves route-aware Accept variance from the core runtime", () => {
+    const response = applyWorkersCacheHeaders(
+      new Response("<html></html>", {
+        headers: { "content-type": "text/html", vary: "Accept" },
+      }),
+      isgRoute(),
+      cacheOptions,
+    );
+
+    expect(response.headers.get("vary")).toBe("Accept");
   });
 
   it("leaves a user-set cache-control alone", () => {

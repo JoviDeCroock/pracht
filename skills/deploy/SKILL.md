@@ -142,6 +142,12 @@ pracht({ adapter: cloudflareAdapter({ cache: true }) });
 { "cache": { "enabled": true } }
 ```
 
+Before enabling it, audit ISG URLs for unbounded query strings. Workers Caching
+keys the exact path and query string, including parameter order and trailing
+slashes; use a bounded query allowlist/canonical redirect or an uncached gateway
+with a pathname-only `cf.cacheKey`, and normalize `Accept` there for routes that
+export markdown. See `docs/ADAPTERS.md#cache-key-cardinality`.
+
 ISG pages then render on demand, are cached at the edge for their
 `revalidate` window, and can be purged early with `purgeCache()` from
 `@pracht/adapter-cloudflare/cache`. Without this, ISG routes are served as
