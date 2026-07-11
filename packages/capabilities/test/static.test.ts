@@ -35,6 +35,7 @@ describe("capability static extraction", () => {
 
   it("extracts registrations from a quoted capabilities property", () => {
     const source = `
+      const example = '"capabilities": { "notes.fake": "./fake.ts" }';
       export const app = defineApp({
         "capabilities": {
           "notes.search": "./capabilities/notes-search.ts",
