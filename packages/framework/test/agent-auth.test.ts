@@ -147,9 +147,15 @@ describe("verifyAgentSignature", () => {
     const identity = await verifyAgentSignature(request, staticOptions);
     expect(identity).toEqual({
       verified: true,
-      agentDomain: "agent.example",
+      agentDomain: "pinned-agent.example",
       keyId: TEST_KEY_THUMBPRINT,
     });
+  });
+
+  it("does not let Signature-Agent override a static key's pinned label", async () => {
+    const request = await signedRequest({ signatureAgent: '"https://trusted.example"' });
+    const identity = await verifyAgentSignature(request, staticOptions);
+    expect(identity?.agentDomain).toBe("pinned-agent.example");
   });
 
   it("uses the static key's agent label when no Signature-Agent header is sent", async () => {
