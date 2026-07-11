@@ -361,6 +361,28 @@ describe("collectCapabilityChecks", () => {
     );
   });
 
+  it("does not execute expressions while statically verifying fields", () => {
+    const marker = `__prachtVerifyExecuted_${Date.now()}`;
+    try {
+      const checks = runChecks(
+        capabilitySource(
+          COMPLETE_FIELDS.replace(
+            'input: { type: "object", properties: { query: { type: "string" } }, required: ["query"] },',
+            `input: (() => { globalThis.${marker} = true; return { type: "object" }; })(),`,
+          ),
+        ),
+      );
+
+      expect((globalThis as Record<string, unknown>)[marker]).toBeUndefined();
+      expect(checks.filter((check) => check.status === "error")).toHaveLength(0);
+      expect(checks.map((check) => check.message)).toContainEqual(
+        expect.stringContaining("could not be verified statically"),
+      );
+    } finally {
+      delete (globalThis as Record<string, unknown>)[marker];
+    }
+  });
+
   it("warns instead of failing when string metadata is not statically analyzable", () => {
     const checks = runChecks(
       capabilitySource(`  title: sharedTitle,
