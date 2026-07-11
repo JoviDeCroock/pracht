@@ -387,7 +387,7 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
       if (routeNeedsServerFetch(match.route)) {
         statePromise = opts?._reloadRouteState
           ? fetchPrachtRouteState(target.requestUrl, {
-              cache: "no-store",
+              cache: "reload",
               signal: abortController.signal,
             })
           : (getCachedRouteState(target.requestUrl) ??

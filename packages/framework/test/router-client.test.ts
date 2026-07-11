@@ -211,7 +211,7 @@ describe("initClientRouter", () => {
     expect(fetchSpy).toHaveBeenCalledWith(
       "/dashboard",
       expect.objectContaining({
-        cache: "no-store",
+        cache: "reload",
         headers: expect.objectContaining({ "x-pracht-route-state-request": "1" }),
         redirect: "manual",
       }),
@@ -277,7 +277,7 @@ describe("initClientRouter", () => {
       2,
       "/cart",
       expect.objectContaining({
-        cache: "no-store",
+        cache: "reload",
         headers: expect.objectContaining({ "x-pracht-route-state-request": "1" }),
         redirect: "manual",
       }),

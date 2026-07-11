@@ -106,7 +106,7 @@ export function useRevalidate() {
     }
 
     const path = runtime?.url || window.location.pathname + window.location.search;
-    const result = await fetchPrachtRouteState(path, { cache: "no-store" });
+    const result = await fetchPrachtRouteState(path, { cache: "reload" });
 
     if (result.type === "redirect") {
       await navigateToClientLocation(result.location);
