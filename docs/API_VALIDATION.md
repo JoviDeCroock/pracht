@@ -156,6 +156,8 @@ Runtime behavior:
 - Plain objects passed as `body` are JSON-encoded with
   `Content-Type: application/json`; `FormData`, `URLSearchParams`, `Blob`,
   typed arrays, streams, and strings pass through unchanged.
+- `GET` and `HEAD` requests are bodyless; passing `body` for either method is
+  rejected by generated types and at runtime.
 - 2xx JSON responses are parsed; `text/*` responses resolve to the text;
   `HEAD`, 204, and 205 responses resolve to `undefined`; anything else resolves to the raw
   `Response`.

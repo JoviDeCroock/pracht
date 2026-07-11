@@ -207,8 +207,13 @@ type ApiMethodTypesFor<
     ? ApiMethodMapFor<TPath>["default"]
     : { body: unknown; query: unknown; output: unknown };
 
-export type ApiBodyFor<TPath extends ApiPath, TMethod extends HttpMethod> =
-  ApiMethodTypesFor<TPath, TMethod> extends { body: infer TBody } ? TBody : unknown;
+export type ApiBodyFor<TPath extends ApiPath, TMethod extends HttpMethod> = TMethod extends
+  | "GET"
+  | "HEAD"
+  ? undefined
+  : ApiMethodTypesFor<TPath, TMethod> extends { body: infer TBody }
+    ? TBody
+    : unknown;
 
 export type ApiQueryFor<TPath extends ApiPath, TMethod extends HttpMethod> =
   ApiMethodTypesFor<TPath, TMethod> extends { query: infer TQuery } ? TQuery : unknown;

@@ -233,11 +233,12 @@ export function Form(props: FormProps) {
             ? event.submitter
             : null;
         try {
-          form.requestSubmit(
-            submitter instanceof HTMLButtonElement || submitter instanceof HTMLInputElement
+          const nativeSubmitter =
+            (submitter instanceof HTMLButtonElement || submitter instanceof HTMLInputElement) &&
+            submitter.form === form
               ? submitter
-              : undefined,
-          );
+              : undefined;
+          form.requestSubmit(nativeSubmitter);
         } finally {
           validatedNativeSubmissions.delete(form);
         }

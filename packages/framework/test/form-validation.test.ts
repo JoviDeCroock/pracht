@@ -94,6 +94,26 @@ describe("<Form> validation", () => {
     expect(issues).toEqual([[{ in: "body", message: "Name is required", path: ["name"] }]]);
   });
 
+  it("resumes valid native GET submissions after validation", async () => {
+    const requestSubmit = vi
+      .spyOn(HTMLFormElement.prototype, "requestSubmit")
+      .mockImplementation(() => undefined);
+
+    render(
+      h(
+        Form,
+        { action: "/search", method: "get", schema: nameSchema },
+        h("input", { name: "name", value: "pracht" }),
+      ),
+      root,
+    );
+
+    await submit();
+
+    expect(requestSubmit).toHaveBeenCalledTimes(1);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
   it("submits when the schema accepts the form data", async () => {
     fetchSpy.mockResolvedValue(new Response(null, { status: 200 }));
     const onValidationIssues = vi.fn();

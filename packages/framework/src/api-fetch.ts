@@ -75,6 +75,7 @@ export async function apiFetch<
   TMethod extends ApiMethodsFor<TPath> = DefaultApiMethod<TPath>,
 >(path: TPath, ...args: ApiFetchArgs<TPath, TMethod>): Promise<ApiOutputFor<TPath, TMethod>> {
   const options = (args[0] ?? {}) as UntypedApiFetchOptions;
+  const method = options.method?.toUpperCase() ?? "GET";
 
   const segments = parseRouteSegments(path);
   const isDynamic = segments.some((segment) => segment.type !== "static");
@@ -86,6 +87,9 @@ export async function apiFetch<
   const headers = new Headers(options.headers);
   let body: BodyInit | undefined;
   if (options.body !== undefined) {
+    if (method === "GET" || method === "HEAD") {
+      throw new TypeError(`API ${method} requests cannot have a body.`);
+    }
     if (isRawBody(options.body)) {
       body = options.body;
     } else {
@@ -97,7 +101,6 @@ export async function apiFetch<
   }
 
   const fetchImpl = options.fetch ?? fetch;
-  const method = options.method?.toUpperCase() ?? "GET";
   const requestInit: RequestInit & { duplex?: "half" } = {
     method,
     headers,

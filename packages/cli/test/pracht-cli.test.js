@@ -445,6 +445,9 @@ export async function main() {
   const head = await apiFetch("/api/items/:id", { method: "HEAD", params: { id: "1" } });
   const _head: undefined = head;
 
+  // @ts-expect-error - GET and HEAD requests cannot carry bodies
+  await apiFetch("/api/items/:id", { method: "HEAD", params: { id: "1" }, body: "nope" });
+
   // Body is typed by the route's Standard Schema input.
   const created = await apiFetch("/api/items", { method: "POST", body: { name: "x" } });
   const _created: { created: string } = created;

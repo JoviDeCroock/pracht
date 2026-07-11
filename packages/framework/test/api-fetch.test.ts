@@ -148,6 +148,20 @@ describe("apiFetch", () => {
     ).resolves.toBeUndefined();
   });
 
+  it("rejects bodies for GET and HEAD before calling fetch", async () => {
+    const fetchSpy = vi.fn();
+
+    await expect(
+      // @ts-expect-error - exercise the runtime guard for a statically invalid request
+      apiFetch("/api/items", { body: { invalid: true }, fetch: fetchSpy }),
+    ).rejects.toThrow("API GET requests cannot have a body.");
+    await expect(
+      // @ts-expect-error - exercise the runtime guard for a statically invalid request
+      apiFetch("/api/items", { method: "HEAD", body: "invalid", fetch: fetchSpy }),
+    ).rejects.toThrow("API HEAD requests cannot have a body.");
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
   it("parses media types case-insensitively", async () => {
     const fetchSpy = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ ok: true }), {
