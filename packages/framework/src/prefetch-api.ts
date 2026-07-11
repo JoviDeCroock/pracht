@@ -7,7 +7,7 @@
  * the core client bundle.
  */
 
-import { buildHref, matchAppRoute } from "./app.ts";
+import { buildHref, matchResolvedRoute } from "./route-matching.ts";
 import {
   cacheRouteState,
   EMPTY_ROUTE_STATE_PROMISE,
@@ -96,7 +96,7 @@ export const prefetch: PrefetchFn = async (to: string | RouteTarget): Promise<vo
   }
   if (url.origin !== window.location.origin) return;
 
-  const match = matchAppRoute(target.app, url.pathname);
+  const match = matchResolvedRoute(target.app, url.pathname);
   if (!match) return;
 
   target.warmModules?.(match);

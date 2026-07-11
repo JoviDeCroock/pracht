@@ -3,7 +3,7 @@ import { hydrate, render } from "preact";
 import { useContext, useLayoutEffect, useMemo, useState } from "preact/hooks";
 import type { FunctionComponent } from "preact";
 
-import { buildHref, matchAppRoute } from "./app.ts";
+import { buildHref, matchResolvedRoute } from "./route-matching.ts";
 import { installHydrationMismatchWarning } from "./hydration-mismatch.ts";
 import { markHydrating } from "./hydration.ts";
 import {
@@ -362,7 +362,7 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
       return;
     }
 
-    const match = matchAppRoute(app, target.pathname);
+    const match = matchResolvedRoute(app, target.pathname);
     if (!match) {
       // No client route — fall back to full page load
       window.location.href = target.browserUrl;
@@ -509,7 +509,7 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
   const initialTarget = resolveBrowserRouteTarget(options.initialState.url);
   const initialRequestUrl = initialTarget?.requestUrl ?? options.initialState.url;
   const initialBrowserUrl = initialTarget?.browserUrl ?? options.initialState.url;
-  const initialMatch = matchAppRoute(app, initialTarget?.pathname ?? options.initialState.url);
+  const initialMatch = matchResolvedRoute(app, initialTarget?.pathname ?? options.initialState.url);
   if (initialMatch) {
     const initialShellPromise =
       initialMatch.route.render === "spa" && options.initialState.pending
@@ -624,7 +624,7 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
     // the browser perform a normal navigation so it can activate the
     // prerendered document. Intercepting here would cancel the activation
     // and force a redundant SPA fetch of the route-state JSON.
-    const targetMatch = matchAppRoute(app, url.pathname);
+    const targetMatch = matchResolvedRoute(app, url.pathname);
     if (targetMatch && supportsSpeculationRules()) {
       const spec = normalizeSpeculation(targetMatch.route.speculation);
       if (spec?.mode === "prerender") return;

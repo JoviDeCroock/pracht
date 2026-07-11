@@ -1,4 +1,4 @@
-import { matchAppRoute } from "./app.ts";
+import { matchResolvedRoute } from "./route-matching.ts";
 import { clearPrefetchCache, getCachedRouteState, trimMapToSize } from "./prefetch-cache.ts";
 import { prefetchRouteState } from "./prefetch-api.ts";
 import { PREFETCH_ATTRIBUTE } from "./runtime-constants.ts";
@@ -68,7 +68,7 @@ export function setupPrefetching(app: ResolvedPrachtApp, warmModules?: ModuleWar
     }
 
     const routePathname = getRoutePathname(href);
-    const match = routePathname ? (matchAppRoute(app, routePathname) ?? null) : null;
+    const match = routePathname ? (matchResolvedRoute(app, routePathname) ?? null) : null;
     // Islands / no-hydration routes use full document navigation, so
     // prefetching route-state JSON or client modules for them is wasted work.
     const isFullDocumentRoute =

@@ -1,4 +1,5 @@
-import { buildPathFromSegments, resolveApp } from "./app.ts";
+import { resolveApp } from "./app.ts";
+import { buildPathFromSegments } from "./route-matching.ts";
 import { normalizeRouteRevalidate } from "./revalidation.ts";
 import { resolveRegistryModule } from "./runtime-manifest.ts";
 import { handlePrachtRequest } from "./runtime.ts";
