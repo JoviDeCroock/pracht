@@ -26,11 +26,23 @@ function makeProject(rawConfig = ""): ProjectConfig {
 }
 
 describe("scanSourceForEnvLeaks", () => {
-  it("flags non-public references and skips public/built-in/allowed ones", () => {
-    const code = `a(process.env.API_SECRET, import.meta.env.PRACHT_PUBLIC_URL, import.meta.env.VITE_URL, import.meta.env.MODE, process.env.ALLOWED_ONE);`;
+  it("flags non-public references and skips PRACHT_PUBLIC/built-in/allowed ones", () => {
+    const code = `a(process.env.API_SECRET, import.meta.env.PRACHT_PUBLIC_URL, import.meta.env.MODE, process.env.ALLOWED_ONE);`;
 
     expect(scanSourceForEnvLeaks(code, new Set(["ALLOWED_ONE"]))).toEqual([
       { accessor: "process.env", name: "API_SECRET" },
+    ]);
+  });
+
+  it("flags VITE-prefixed references unless allowlisted", () => {
+    expect(
+      scanSourceForEnvLeaks(
+        `a(import.meta.env.VITE_SECRET, process.env.VITE_TOKEN, import.meta.env.VITE_ALLOWED);`,
+        new Set(["VITE_ALLOWED"]),
+      ),
+    ).toEqual([
+      { accessor: "import.meta.env", name: "VITE_SECRET" },
+      { accessor: "process.env", name: "VITE_TOKEN" },
     ]);
   });
 
@@ -119,7 +131,7 @@ describe("collectEnvLeakVerification", () => {
     writeFileSync(join(reportDir, "env-safety.json"), JSON.stringify({ findings: [], version: 1 }));
     writeFileSync(
       join(assetsDir, "index-abc.js"),
-      "use(import.meta.env.PRACHT_PUBLIC_NAME, import.meta.env.VITE_NAME, process.env.SENTRY_RELEASE);",
+      "use(import.meta.env.PRACHT_PUBLIC_NAME, process.env.SENTRY_RELEASE);",
     );
 
     const checks: Check[] = [];

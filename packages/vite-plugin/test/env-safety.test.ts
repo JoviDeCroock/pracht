@@ -73,11 +73,10 @@ describe("scanCodeForEnvLeaks", () => {
     ]);
   });
 
-  it("ignores public-prefixed vars, Vite built-ins, and NODE_ENV", () => {
+  it("ignores PRACHT_PUBLIC-prefixed vars, Vite built-ins, and NODE_ENV", () => {
     const findings = scanCodeForEnvLeaks(
       `const a = import.meta.env.PRACHT_PUBLIC_APP_NAME;
        const b = process.env.PRACHT_PUBLIC_API_BASE;
-       const c = import.meta.env.VITE_LEGACY_PUBLIC_VALUE;
        const d = import.meta.env.MODE;
        const e = import.meta.env.DEV;
        const f = import.meta.env.PROD;
@@ -87,6 +86,21 @@ describe("scanCodeForEnvLeaks", () => {
     );
 
     expect(findings).toEqual([]);
+  });
+
+  it("flags VITE-prefixed variables as non-public unless allowlisted", () => {
+    const findings = scanCodeForEnvLeaks(
+      `const legacy = import.meta.env.VITE_SECRET;
+       const token = process.env.VITE_TOKEN;`,
+    );
+
+    expect(findings).toEqual([
+      { accessor: "import.meta.env", name: "VITE_SECRET" },
+      { accessor: "process.env", name: "VITE_TOKEN" },
+    ]);
+    expect(scanCodeForEnvLeaks("import.meta.env.VITE_ALLOWED", new Set(["VITE_ALLOWED"]))).toEqual(
+      [],
+    );
   });
 
   it("respects the allowlist and dedupes repeated references", () => {
@@ -206,11 +220,11 @@ describe("createEnvSafetyPlugin", () => {
   it("passes clean client bundles and skips server bundles", () => {
     const plugin = createEnvSafetyPlugin({});
     const cleanBundle = {
-      "assets/index.js": chunk(
-        "assets/index.js",
-        "console.log(import.meta.env.PRACHT_PUBLIC_X, import.meta.env.VITE_PUBLIC_X);",
-      ),
-      "assets/style.css": { type: "asset" as const, fileName: "assets/style.css" },
+      "assets/index.js": chunk("assets/index.js", "console.log(import.meta.env.PRACHT_PUBLIC_X);"),
+      "assets/style.css": {
+        type: "asset" as const,
+        fileName: "assets/style.css",
+      },
     };
     const emitted = runGenerateBundle(plugin, cleanBundle);
     expect(emitted).toContainEqual({
@@ -275,7 +289,9 @@ describe("pracht plugin env wiring", () => {
     ).toThrowError(/server-only/);
 
     expect(
-      resolveId.call({}, "@pracht/core/env/server", "/src/server/db.ts", { ssr: true }),
+      resolveId.call({}, "@pracht/core/env/server", "/src/server/db.ts", {
+        ssr: true,
+      }),
     ).toBeNull();
     expect(
       resolveId.call({}, "@pracht/core/env/server", "/src/routes/page.tsx", {

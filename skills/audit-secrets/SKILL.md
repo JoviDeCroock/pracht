@@ -26,7 +26,7 @@ it cannot save you from a value that flows into the return.
 Pracht has built-in env leak detection (see `docs/ENV.md`):
 
 - `pracht build` fails when a client chunk references a non-public env var
-  (anything not `PRACHT_PUBLIC_`-/`VITE_`-prefixed and not a Vite built-in),
+  (anything not `PRACHT_PUBLIC_`-prefixed and not a Vite built-in),
   naming the variable, chunk, and likely source module.
 - `pracht verify` checks the build-time env-safety report and re-runs the
   literal chunk scan against an existing `dist/client` output.
@@ -35,7 +35,7 @@ Pracht has built-in env leak detection (see `docs/ENV.md`):
 Run `pracht verify` (or a build) first and fold its findings into the report.
 Check `vite.config.*` for `envSafety: { allow: [...] }` / `envSafety: false` —
 every allowlisted name and a disabled check are findings to review, since they
-bypass the native gate. The native check detects *references*, not values, so
+bypass the native gate. The native check detects _references_, not values, so
 the dataflow steps below are still required.
 
 ## Step 1: Identify "secret-shaped" identifiers
@@ -69,6 +69,7 @@ risk in the report.
 
 Grep client-rendered files (route components, shells, anything imported from
 them) for imports of:
+
 - `node:*` builtins
 - `@pracht/adapter-*`
 - Local `src/server/**` modules
@@ -98,9 +99,11 @@ Check for accidental exposure outside loaders:
 - Grep tracked files for likely committed secrets (long random strings near
   identifier names from step 1).
 - Confirm client-side env access goes through `publicEnv` (from
-  `@pracht/core`) or `import.meta.env.PRACHT_PUBLIC_*` / `import.meta.env.VITE_*`
-  — both prefixes are intentionally public and inlined into the client bundle;
-  warn loudly if a `PRACHT_PUBLIC_` or `VITE_` variable has a secret-shaped name.
+  `@pracht/core`) or `import.meta.env.PRACHT_PUBLIC_*`; `VITE_*` values are
+  still exposed by Vite compatibility wiring, but Pracht does not treat them as
+  intentionally public, so flag client-side `VITE_*` references unless they are
+  explicitly allowlisted and reviewed. Warn loudly if a public env name has a
+  secret-shaped name.
 - Confirm server-side env access uses `serverEnv` (from
   `@pracht/core/env/server`) or `context.env` rather than ad-hoc globals.
 
@@ -110,9 +113,10 @@ Check for accidental exposure outside loaders:
 | --------- | ------------------- | ------------------------------------------- | -------- |
 
 Severities:
+
 - `error` — direct flow from `process.env.SECRET_*` / `serverEnv.SECRET_*` to
   loader return.
-- `error` — `PRACHT_PUBLIC_*_SECRET` / `VITE_*_SECRET` style client-public
+- `error` — `PRACHT_PUBLIC_*_SECRET` style client-public or allowlisted `VITE_*_SECRET`
   secret-shaped name.
 - `error` — `envSafety: false` or an allowlisted name that looks secret-shaped.
 - `warn` — spread of a row that may contain secret columns.
