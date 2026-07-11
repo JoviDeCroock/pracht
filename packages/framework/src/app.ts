@@ -1,23 +1,17 @@
 import type {
   ApiRouteMatch,
-  BuildHrefOptions,
   GroupDefinition,
   GroupMeta,
-  HrefArgs,
-  HrefRouteDefinition,
   ModuleRef,
   ResolvedApiRoute,
   ResolvedRoute,
   ResolvedPrachtApp,
   RouteConfig,
   RouteDefinition,
-  RouteId,
   RouteMatch,
   RouteMeta,
-  RouteParams,
   RouteSegment,
   RouteTreeNode,
-  SearchParamsInput,
   SpeculationOption,
   TimeRevalidatePolicy,
   WebhookRevalidatePolicy,
@@ -25,6 +19,23 @@ import type {
   PrachtAppConfig,
 } from "./types.ts";
 import { formatUnknownNameError } from "./name-suggestions.ts";
+import {
+  matchResolvedRoute,
+  matchRouteSegments,
+  normalizeRoutePath,
+  parseRouteSegments,
+  splitPathSegments,
+} from "./route-matching.ts";
+
+export { buildHref, buildPathFromSegments } from "./route-matching.ts";
+
+// Manifest validation is a dev/build-time aid: `import.meta.env.DEV` is
+// statically `false` in production Vite bundles, so this folds to `false`
+// and every validation branch (plus the error formatting it references) is
+// dead-code-eliminated from client builds. In Node (CLI builds, tests)
+// `import.meta.env` is undefined and validation stays on — `pracht build`
+// runs `resolveApp` there, so invalid manifests still fail the build.
+const VALIDATE_MANIFEST = import.meta.env?.DEV !== false;
 
 interface InheritedRouteConfig {
   pathPrefix: string;
@@ -130,17 +141,19 @@ export function resolveApp(app: PrachtApp): ResolvedPrachtApp {
     middleware: [],
   };
 
-  for (const name of app.api?.middleware ?? []) {
-    if (!hasOwnEntry(app.middleware, name)) {
-      throw new Error(
-        formatUnknownNameError({
-          kind: "middleware",
-          kindPlural: "middleware",
-          name,
-          registered: Object.keys(app.middleware),
-          context: "api routes",
-        }),
-      );
+  if (VALIDATE_MANIFEST) {
+    for (const name of app.api?.middleware ?? []) {
+      if (!hasOwnEntry(app.middleware, name)) {
+        throw new Error(
+          formatUnknownNameError({
+            kind: "middleware",
+            kindPlural: "middleware",
+            name,
+            registered: Object.keys(app.middleware),
+            context: "api routes",
+          }),
+        );
+      }
     }
   }
 
@@ -163,21 +176,7 @@ export function matchAppRoute(
   pathname: string,
 ): RouteMatch | undefined {
   const resolved = isResolvedApp(app) ? app : resolveApp(app);
-  const normalizedPathname = normalizeRoutePath(pathname);
-  const targetSegments = splitPathSegments(normalizedPathname);
-
-  for (const currentRoute of resolved.routes) {
-    const params = matchRouteSegments(currentRoute.segments, targetSegments);
-    if (params) {
-      return {
-        route: currentRoute,
-        params,
-        pathname: normalizedPathname,
-      };
-    }
-  }
-
-  return undefined;
+  return matchResolvedRoute(resolved, pathname);
 }
 
 function flattenRouteNode(
@@ -188,7 +187,9 @@ function flattenRouteNode(
 ): void {
   if (node.kind === "group") {
     const pathPrefix = mergeRoutePaths(inherited.pathPrefix, node.meta.pathPrefix);
-    assertValidLoaderCache(node.meta.loaderCache, `group at "${pathPrefix}"`);
+    if (VALIDATE_MANIFEST) {
+      assertValidLoaderCache(node.meta.loaderCache, `group at "${pathPrefix}"`);
+    }
     const nextInherited: InheritedRouteConfig = {
       pathPrefix,
       shell: node.meta.shell ?? inherited.shell,
@@ -207,30 +208,33 @@ function flattenRouteNode(
   }
 
   const fullPath = mergeRoutePaths(inherited.pathPrefix, node.path);
-  assertValidLoaderCache(node.loaderCache, `route "${fullPath}"`);
   const shell = node.shell ?? inherited.shell;
   const middleware = [...inherited.middleware, ...(node.middleware ?? [])];
   const render = node.render ?? inherited.render;
   const hydration = node.hydration ?? inherited.hydration;
   const loaderCache = node.loaderCache ?? inherited.loaderCache;
 
-  if (render === "spa" && hydration !== undefined && hydration !== "full") {
-    throw new Error(
-      `Route "${fullPath}" combines render: "spa" with hydration: "${hydration}". ` +
-        "SPA routes render entirely in the browser and always use full hydration — " +
-        'remove the hydration option or use render: "ssg" / "isg" / "ssr".',
-    );
-  }
+  if (VALIDATE_MANIFEST) {
+    assertValidLoaderCache(node.loaderCache, `route "${fullPath}"`);
 
-  if (shell !== undefined && !hasOwnEntry(app.shells, shell)) {
-    throw new Error(
-      formatUnknownNameError({
-        kind: "shell",
-        name: shell,
-        registered: Object.keys(app.shells),
-        context: `route "${fullPath}"`,
-      }),
-    );
+    if (render === "spa" && hydration !== undefined && hydration !== "full") {
+      throw new Error(
+        `Route "${fullPath}" combines render: "spa" with hydration: "${hydration}". ` +
+          "SPA routes render entirely in the browser and always use full hydration — " +
+          'remove the hydration option or use render: "ssg" / "isg" / "ssr".',
+      );
+    }
+
+    if (shell !== undefined && !hasOwnEntry(app.shells, shell)) {
+      throw new Error(
+        formatUnknownNameError({
+          kind: "shell",
+          name: shell,
+          registered: Object.keys(app.shells),
+          context: `route "${fullPath}"`,
+        }),
+      );
+    }
   }
 
   routes.push({
@@ -246,7 +250,7 @@ function flattenRouteNode(
     loaderCache,
     middleware,
     middlewareFiles: middleware.map((name) => {
-      if (!hasOwnEntry(app.middleware, name)) {
+      if (VALIDATE_MANIFEST && !hasOwnEntry(app.middleware, name)) {
         throw new Error(
           formatUnknownNameError({
             kind: "middleware",
@@ -287,98 +291,6 @@ function isResolvedApp(app: PrachtApp | ResolvedPrachtApp): app is ResolvedPrach
   return app.routes.length === 0 || "segments" in app.routes[0];
 }
 
-function matchRouteSegments(
-  routeSegments: RouteSegment[],
-  targetSegments: string[],
-): RouteParams | null {
-  const params: RouteParams = {};
-  let routeIndex = 0;
-  let targetIndex = 0;
-
-  while (routeIndex < routeSegments.length) {
-    const currentSegment = routeSegments[routeIndex];
-
-    if (currentSegment.type === "catchall") {
-      try {
-        params[currentSegment.name] = targetSegments
-          .slice(targetIndex)
-          .map(decodeURIComponent)
-          .join("/");
-      } catch {
-        return null;
-      }
-      return params;
-    }
-
-    const targetSegment = targetSegments[targetIndex];
-    if (typeof targetSegment === "undefined") {
-      return null;
-    }
-
-    if (currentSegment.type === "static") {
-      if (currentSegment.value !== targetSegment) {
-        return null;
-      }
-    } else {
-      try {
-        params[currentSegment.name] = decodeURIComponent(targetSegment);
-      } catch {
-        return null;
-      }
-    }
-
-    routeIndex += 1;
-    targetIndex += 1;
-  }
-
-  return targetIndex === targetSegments.length ? params : null;
-}
-
-function parseRouteSegments(path: string): RouteSegment[] {
-  return splitPathSegments(path).map((segment) => {
-    if (segment === "*") {
-      return {
-        type: "catchall",
-        name: "*",
-      } as const;
-    }
-
-    if (segment.startsWith(":") && segment.endsWith("*")) {
-      return {
-        type: "catchall",
-        name: segment.slice(1, -1) || "*",
-      } as const;
-    }
-
-    if (segment.startsWith(":")) {
-      return {
-        type: "param",
-        name: segment.slice(1),
-      } as const;
-    }
-
-    assertSafeStaticRouteSegment(segment);
-    return {
-      type: "static",
-      value: segment,
-    } as const;
-  });
-}
-
-function splitPathSegments(path: string): string[] {
-  return normalizeRoutePath(path).split("/").filter(Boolean);
-}
-
-function assertSafeStaticRouteSegment(segment: string): void {
-  if (segment === "." || segment === "..") {
-    throw new Error(`Unsafe static route segment "${segment}" is not allowed.`);
-  }
-
-  if (segment.includes("\0") || /[\r\n\\]/.test(segment)) {
-    throw new Error(`Unsafe static route segment "${segment}" contains a forbidden character.`);
-  }
-}
-
 function mergeRoutePaths(prefix: string, path?: string): string {
   if (!path) {
     return normalizeRoutePath(prefix);
@@ -396,147 +308,6 @@ function mergeRoutePaths(prefix: string, path?: string): string {
   }
 
   return normalizeRoutePath(`${normalizedPrefix}/${normalizedPath.slice(1)}`);
-}
-
-function normalizeRoutePath(path: string): string {
-  if (!path || path === "/") {
-    return "/";
-  }
-
-  const withLeadingSlash = path.startsWith("/") ? path : `/${path}`;
-  const collapsed = withLeadingSlash.replace(/\/{2,}/g, "/");
-
-  return collapsed.length > 1 && collapsed.endsWith("/") ? collapsed.slice(0, -1) : collapsed;
-}
-
-export function buildPathFromSegments(
-  segments: readonly RouteSegment[],
-  params: RouteParams,
-): string {
-  const parts = segments.map((segment) => {
-    if (segment.type === "static") return segment.value;
-    if (segment.type === "param") return encodeDynamicPathSegment(params[segment.name] ?? "");
-    // Catch-all routes preserve `/` between captured components, but each
-    // component is encoded as its own filesystem-safe URL segment.
-    const raw = params[segment.name] ?? params["*"] ?? "";
-    return raw
-      .split("/")
-      .map((part) => encodeDynamicPathSegment(part))
-      .join("/");
-  });
-
-  return normalizeRoutePath("/" + parts.join("/"));
-}
-
-export function buildHref<TRoute extends RouteId>(
-  routes: readonly HrefRouteDefinition[],
-  routeId: TRoute,
-  ...args: HrefArgs<TRoute>
-): string {
-  return buildHrefUntyped(routes, String(routeId), args[0] as BuildHrefOptions | undefined);
-}
-
-function buildHrefUntyped(
-  routes: readonly HrefRouteDefinition[],
-  routeId: string,
-  options: BuildHrefOptions = {},
-): string {
-  const route = routes.find((candidate) => candidate.id === routeId);
-  if (!route) {
-    throw new Error(
-      formatUnknownNameError({
-        kind: "pracht route id",
-        kindPlural: "route ids",
-        name: routeId,
-        registered: routes.flatMap((candidate) => (candidate.id ? [candidate.id] : [])),
-      }),
-    );
-  }
-
-  const segments = route.segments ?? parseRouteSegments(route.path);
-  const params = normalizeHrefParams(segments, options.params ?? {});
-  const path = buildPathFromSegments(segments, params);
-  return `${path}${serializeSearch(options.search)}${serializeHash(options.hash)}`;
-}
-
-function normalizeHrefParams(
-  segments: readonly RouteSegment[],
-  params: Record<string, unknown>,
-): RouteParams {
-  const expected = new Set(
-    segments
-      .filter((segment) => segment.type === "param" || segment.type === "catchall")
-      .map((segment) => segment.name),
-  );
-
-  for (const name of expected) {
-    if (params[name] == null) {
-      throw new Error(`Missing route param: ${name}.`);
-    }
-  }
-
-  for (const name of Object.keys(params)) {
-    if (!expected.has(name)) {
-      throw new Error(`Unexpected route param: ${name}.`);
-    }
-  }
-
-  const normalized: RouteParams = {};
-  for (const name of expected) {
-    normalized[name] = String(params[name]);
-  }
-  return normalized;
-}
-
-function serializeSearch(search: SearchParamsInput | undefined): string {
-  if (search == null) return "";
-
-  if (typeof search === "string") {
-    if (!search) return "";
-    return search.startsWith("?") ? search : `?${search}`;
-  }
-
-  const params = search instanceof URLSearchParams ? search : objectToSearchParams(search);
-  const serialized = params.toString();
-  return serialized ? `?${serialized}` : "";
-}
-
-function objectToSearchParams(search: Record<string, unknown>): URLSearchParams {
-  const params = new URLSearchParams();
-  for (const [key, value] of Object.entries(search)) {
-    if (Array.isArray(value)) {
-      for (const item of value) {
-        appendSearchValue(params, key, item);
-      }
-      continue;
-    }
-
-    appendSearchValue(params, key, value);
-  }
-  return params;
-}
-
-function appendSearchValue(params: URLSearchParams, key: string, value: unknown): void {
-  if (value == null) return;
-  params.append(key, String(value));
-}
-
-function serializeHash(hash: string | undefined): string {
-  if (!hash) return "";
-  return hash.startsWith("#") ? hash : `#${hash}`;
-}
-
-/**
- * Encode one dynamic URL path segment for SSG/ISG output. `encodeURIComponent`
- * leaves unreserved characters (including `.`) intact, and even percent-encoded
- * dot segments are normalized by URL parsers. Reject exact `.` / `..` segments
- * instead of allowing them to reach filesystem output path construction.
- */
-function encodeDynamicPathSegment(part: string): string {
-  if (part === "." || part === "..") {
-    throw new Error(`Unsafe dynamic route param segment "${part}" is not allowed.`);
-  }
-  return encodeURIComponent(part);
 }
 
 /**

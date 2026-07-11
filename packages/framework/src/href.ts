@@ -1,4 +1,4 @@
-import { buildHref } from "./app.ts";
+import { buildHref } from "./route-matching.ts";
 import type { BuildHrefOptions, HrefFn, HrefRouteDefinition } from "./types.ts";
 
 export function createHref(routes: readonly HrefRouteDefinition[]): HrefFn {

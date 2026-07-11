@@ -2,7 +2,7 @@ import { h } from "preact";
 import type { JSX } from "preact";
 import { useContext, useEffect, useState } from "preact/hooks";
 
-import { buildHref } from "./app.ts";
+import { buildHref } from "./route-matching.ts";
 import {
   beginSubmittingNavigation,
   createNavigationLocation,
