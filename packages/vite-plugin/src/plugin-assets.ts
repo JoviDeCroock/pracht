@@ -53,12 +53,33 @@ export function readClientBuildAssets(root = process.cwd()): ClientBuildAssets {
     }
   }
 
+  // Store each entry's own static import closure under its virtual module id
+  // so the runtime can emit modulepreload links for chunks the browser would
+  // otherwise only discover after parsing the entry (@pracht/core reads these
+  // via CLIENT_ENTRY_MANIFEST_KEY / ISLANDS_ENTRY_MANIFEST_KEY). The entry
+  // file itself is excluded — it is already the page's <script src>.
+  addEntryDeps(manifest, jsManifest, PRACHT_CLIENT_MODULE_ID, clientEntry);
+  addEntryDeps(manifest, jsManifest, PRACHT_ISLANDS_CLIENT_MODULE_ID, islandsEntry);
+
   return {
     clientEntryUrl: clientEntry ? `/${clientEntry.file}` : null,
     islandsEntryUrl: islandsEntry ? `/${islandsEntry.file}` : null,
     cssManifest,
     jsManifest,
   };
+}
+
+function addEntryDeps(
+  manifest: Record<string, ViteManifestEntry>,
+  jsManifest: Record<string, string[]>,
+  entryKey: string,
+  entry: ViteManifestEntry | undefined,
+): void {
+  if (!entry) return;
+  const deps = collectTransitiveDeps(manifest, entryKey).js.filter((file) => file !== entry.file);
+  if (deps.length > 0) {
+    jsManifest[entryKey] = deps.map((file) => `/${file}`);
+  }
 }
 
 // Walk static imports transitively (not dynamicImports — those belong to
