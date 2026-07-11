@@ -72,7 +72,12 @@ export function formatUnknownNameError(options: UnknownNameErrorOptions): string
 
   let message = `Unknown ${kind} "${name}"${context ? ` for ${context}` : ""}.`;
 
-  const suggestion = closestName(name, registered);
+  // Suggestions are a dev/build-time aid: `import.meta.env.DEV` is statically
+  // `false` in production Vite bundles, so the ternary constant-folds and the
+  // edit-distance implementation is dead-code-eliminated from client builds.
+  // In Node (CLI builds, tests) `import.meta.env` is undefined and the
+  // comparison keeps suggestions enabled.
+  const suggestion = import.meta.env?.DEV === false ? undefined : closestName(name, registered);
   if (suggestion) {
     message += ` Did you mean "${suggestion}"?`;
   }
