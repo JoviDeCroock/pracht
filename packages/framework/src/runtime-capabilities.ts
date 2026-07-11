@@ -12,6 +12,13 @@
  * default — only `expose.http` makes one reachable over the network.
  */
 
+import {
+  CAPABILITY_HTTP_PREFIX,
+  CAPABILITY_TRANSPORT_HEADER,
+  capabilityHttpPath,
+  coerceFormInput,
+  normalizeCapabilityHttpPath,
+} from "@pracht/capabilities";
 import { formatUnknownNameError } from "./name-suggestions.ts";
 import {
   canonicalJson,
@@ -42,7 +49,7 @@ import type {
   ResolvedApiRoute,
 } from "./types.ts";
 
-export const CAPABILITY_HTTP_PREFIX = "/api/capabilities/";
+export { CAPABILITY_HTTP_PREFIX, capabilityHttpPath };
 
 /** Longest a capability may run before its signal aborts, matching API routes. */
 const CAPABILITY_TIMEOUT_MS = 30_000;
@@ -60,15 +67,6 @@ export interface ResolvedCapability {
 }
 
 export type CapabilityHostApp = Pick<PrachtApp, "capabilities" | "middleware">;
-
-/** Default HTTP path for a capability name: dots become slashes. */
-export function capabilityHttpPath(name: string): string {
-  return `${CAPABILITY_HTTP_PREFIX}${name.split(".").join("/")}`;
-}
-
-function normalizeCapabilityHttpPath(path: string): string {
-  return path.length > 1 && path.endsWith("/") ? path.slice(0, -1) : path;
-}
 
 // Resolution loads every registered capability module once per manifest +
 // registry instance. Dev HMR can keep the same app manifest object while
@@ -413,7 +411,11 @@ export async function handleCapabilityRequest<TContext>(
     {
       capability: options.match.name,
       effect: options.match.capability.effect,
-      transport: "http",
+      // The generated WebMCP shim marks its dispatches so audit trails can
+      // tell in-browser agent traffic (cookie-authenticated) apart from
+      // remote HTTP callers. Client-declared, so informational only.
+      transport:
+        options.request.headers.get(CAPABILITY_TRANSPORT_HEADER) === "webmcp" ? "webmcp" : "http",
       outcome,
       status: response.status,
       durationMs: performance.now() - started,
@@ -459,20 +461,45 @@ async function dispatchCapabilityHttp<TContext>(
     );
   }
 
+  // JSON is the native encoding. Form posts — the no-JS fallback of
+  // `<Form capability>` — are accepted too and coerced onto the input schema,
+  // so progressive enhancement hits the exact same contract as agents do.
   let input: unknown = {};
-  try {
-    const body = await options.request.text();
-    if (body.trim() !== "") {
-      input = JSON.parse(body);
+  const contentType = options.request.headers.get("content-type") ?? "";
+  const isFormPost =
+    contentType.includes("application/x-www-form-urlencoded") ||
+    contentType.includes("multipart/form-data");
+  if (isFormPost) {
+    try {
+      const form = await options.request.formData();
+      input = coerceFormInput(capability.input, form.entries());
+    } catch {
+      return audited(
+        envelopeResponse(
+          400,
+          errorEnvelope({
+            code: "invalid_json",
+            message: "Request form body could not be parsed.",
+          }),
+        ),
+        "invalid_json",
+      );
     }
-  } catch {
-    return audited(
-      envelopeResponse(
-        400,
-        errorEnvelope({ code: "invalid_json", message: "Request body must be valid JSON." }),
-      ),
-      "invalid_json",
-    );
+  } else {
+    try {
+      const body = await options.request.text();
+      if (body.trim() !== "") {
+        input = JSON.parse(body);
+      }
+    } catch {
+      return audited(
+        envelopeResponse(
+          400,
+          errorEnvelope({ code: "invalid_json", message: "Request body must be valid JSON." }),
+        ),
+        "invalid_json",
+      );
+    }
   }
 
   try {
@@ -500,6 +527,19 @@ async function dispatchCapabilityHttp<TContext>(
     });
 
     if (outcome.kind === "envelope") {
+      // Progressive enhancement: a successful form post from a document (the
+      // no-JS `<Form capability>` fallback) navigates back to the page it
+      // was posted from instead of rendering the JSON envelope.
+      if (
+        isFormPost &&
+        outcome.envelope.ok &&
+        (options.request.headers.get("accept") ?? "").includes("text/html")
+      ) {
+        const back = sameOriginReferer(options.request, options.url);
+        if (back) {
+          return audited(Response.redirect(back, 303), "ok");
+        }
+      }
       return audited(outcome.response, envelopeOutcome(outcome.envelope));
     }
     const normalized = normalizeMiddlewareShortCircuit(outcome.response);
@@ -522,6 +562,18 @@ async function dispatchCapabilityHttp<TContext>(
 
 function audited(response: Response, outcome: string): { response: Response; outcome: string } {
   return { response, outcome };
+}
+
+/** Referer of a document form post, only when it stays on this origin. */
+function sameOriginReferer(request: Request, url: URL): string | null {
+  const referer = request.headers.get("referer");
+  if (!referer) return null;
+  try {
+    const parsed = new URL(referer);
+    return parsed.origin === url.origin ? parsed.href : null;
+  } catch {
+    return null;
+  }
 }
 
 function envelopeOutcome(envelope: CapabilityEnvelope): string {

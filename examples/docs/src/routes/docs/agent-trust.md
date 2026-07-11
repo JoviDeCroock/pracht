@@ -117,14 +117,14 @@ Can an agent actually complete a task through your capabilities? `pracht eval` r
     {
       "capability": "notes.purge",
       "input": { "titlePrefix": "Old" },
-      "headers": { "x-pracht-confirm": "$steps[1].error.confirmationToken" },
+      "confirm": "$steps[1].error.confirmationToken",
       "expect": { "ok": true, "output": { "purged": 1 } }
     }
   ]
 }
 ```
 
-`$steps[n].<path>` references carry values between steps — the confirmation token above threads the prepare/commit flow through a scenario. One command runs it — `--start` launches your app, waits for it to answer, runs the scenarios, and stops it:
+`$steps[n].<path>` references carry values between steps — the `confirm` field above threads the prepare/commit flow through a scenario without spelling out the header name. One command runs it — `--start` launches your app, waits for it to answer, runs the scenarios, and stops it:
 
 ```sh
 pracht eval --start "pracht preview"    # runs evals/**/*.eval.json

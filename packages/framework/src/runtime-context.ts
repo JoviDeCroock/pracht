@@ -1,8 +1,10 @@
+import { CAPABILITY_SETTLED_EVENT } from "@pracht/capabilities";
 import { createContext, h } from "preact";
 import type { ComponentChildren } from "preact";
 import { useEffect, useMemo, useState } from "preact/hooks";
 
 import { EMPTY_ROUTE_PARAMS, HYDRATION_STATE_ELEMENT_ID } from "./runtime-constants.ts";
+import { revalidateRouteData, shouldRevalidateAfterCapability } from "./runtime-revalidate.ts";
 import type { HrefRouteDefinition, RouteParams } from "./types.ts";
 
 export interface PrachtHydrationState<TData = unknown> {
@@ -83,6 +85,21 @@ export function PrachtRuntimeProvider<TData>({
     }),
     [routeData, params, routeId, routes, stateVersion, url],
   );
+
+  // Effect-driven revalidation: capabilities are effect-classed, so the
+  // runtime can refresh route data after any successful non-`read` call made
+  // from the browser — `callCapability()` and `<Form capability>` announce
+  // themselves via CAPABILITY_SETTLED_EVENT instead of importing the router.
+  useEffect(() => {
+    const handleSettled = (event: Event) => {
+      if (!shouldRevalidateAfterCapability((event as CustomEvent).detail)) return;
+      void revalidateRouteData(context).catch(() => {
+        // Revalidation is best-effort; the mutation itself already succeeded.
+      });
+    };
+    window.addEventListener(CAPABILITY_SETTLED_EVENT, handleSettled);
+    return () => window.removeEventListener(CAPABILITY_SETTLED_EVENT, handleSettled);
+  }, [context]);
 
   return h(RouteDataContext.Provider, {
     value: context,

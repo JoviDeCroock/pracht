@@ -237,9 +237,11 @@ describe("createPrachtCapabilitiesClientModuleSource", () => {
 
     const source = createPrachtCapabilitiesClientModuleSource({}, { root });
     expect(source).toContain(
-      '"notes.search":{"method":"POST","path":"/api/capabilities/notes/search"}',
+      '"notes.search":{"method":"POST","path":"/api/capabilities/notes/search","effect":"read"}',
     );
-    expect(source).toContain('"notes.create":{"method":"POST","path":"/api/create-note"}');
+    expect(source).toContain(
+      '"notes.create":{"method":"POST","path":"/api/create-note","effect":"write"}',
+    );
     expect(source).not.toContain("notes.private");
     expect(source).not.toContain("defineCapability");
     expect(source).toContain("export async function callCapability");

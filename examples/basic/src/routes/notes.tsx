@@ -1,12 +1,5 @@
 import { useState } from "preact/hooks";
-import {
-  invokeCapability,
-  useIsHydrated,
-  useRevalidate,
-  useRouteData,
-  type LoaderArgs,
-} from "@pracht/core";
-import { callCapability } from "virtual:pracht/capabilities";
+import { Form, invokeCapability, useIsHydrated, useRouteData, type LoaderArgs } from "@pracht/core";
 
 // Direct server-side invocation: the loader calls the same capability the
 // HTTP projection serves, through the same validation + middleware pipeline.
@@ -26,30 +19,9 @@ export async function loader({ request, context, signal }: LoaderArgs) {
 }
 
 export function Component() {
-  // useRouteData (rather than the data prop) so revalidate() re-renders the list.
   const data = useRouteData<typeof loader>();
   const hydrated = useIsHydrated();
-  const revalidate = useRevalidate();
-  const [title, setTitle] = useState("");
   const [status, setStatus] = useState<string | null>(null);
-
-  const createNote = async (event: Event) => {
-    event.preventDefault();
-    // Browser invocation goes through the generated HTTP projection; the
-    // input and result types are inferred from the capability name.
-    const result = await callCapability("notes.create", {
-      title,
-      body: "Created from the browser.",
-    });
-
-    if (result.ok) {
-      setStatus(`Created "${result.data.note.title}"`);
-      setTitle("");
-      await revalidate();
-    } else {
-      setStatus(`Error: ${result.error.message}`);
-    }
-  };
 
   return (
     <section>
@@ -61,15 +33,27 @@ export function Component() {
           </li>
         ))}
       </ul>
-      <form data-testid="create-note-form" data-hydrated={hydrated} onSubmit={createNote}>
-        <input
-          name="title"
-          placeholder="Note title"
-          value={title}
-          onInput={(event) => setTitle((event.target as HTMLInputElement).value)}
-        />
+      {/*
+        The form posts to the exact endpoint agents call — one contract for
+        both users. Fields are coerced onto the capability's input schema
+        server-side, the note list revalidates automatically after a
+        successful submission, and without JavaScript the endpoint accepts
+        the form-encoded post and redirects back to this page.
+      */}
+      <Form
+        data-testid="create-note-form"
+        data-hydrated={hydrated}
+        capability="notes.create"
+        onCapabilityResult={(result) => {
+          setStatus(
+            result.ok ? `Created "${result.data.note.title}"` : `Error: ${result.error.message}`,
+          );
+        }}
+      >
+        <input name="title" placeholder="Note title" />
+        <input type="hidden" name="body" value="Created from the browser." />
         <button type="submit">Create note</button>
-      </form>
+      </Form>
       {status ? <p data-testid="create-note-status">{status}</p> : null}
     </section>
   );

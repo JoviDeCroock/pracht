@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { schemaToTypeText } from "../src/schema-types.js";
+import { schemaToTypeText } from "../src/schema-type-text.ts";
 
 describe("schemaToTypeText", () => {
   it("maps primitive types", () => {

@@ -725,6 +725,52 @@ and [AGENT_TRUST.md](AGENT_TRUST.md).
 - Registered-name input mismatches fall back to the untyped overload (see
   answer 1) instead of failing the build.
 
+### Consolidation pass (2026-07-11)
+
+A same-day cohesion review tied the product and API surface together; the
+changes are behavioral, so they are recorded here rather than left to git
+history.
+
+- **The wire protocol got one home.** `@pracht/capabilities` now owns the
+  HTTP path formula, the confirmation and transport header names, the
+  `CapabilityErrorCode` union, the envelope types, the schema→TypeScript
+  printer used by typegen, and the shared static extractor
+  (`@pracht/capabilities/static`). The framework, the Vite plugin's generated
+  modules, and the CLI import from it — previously `capabilityHttpPath()`
+  existed three times and the extractor twice (the two copies had already
+  drifted on shorthand-property handling). `@pracht/core` now depends on
+  `@pracht/capabilities`; the original zero-dependency stance bought
+  duplication in four packages and was reversed deliberately.
+- **`<Form capability>` partially revisits answer 2.** The proposal's
+  generated `<capability.Form>` stays dead, but the framework's existing
+  `<Form>` accepts a `capability` prop: it posts to the capability's HTTP
+  projection (the exact endpoint agents call), the server coerces
+  form-encoded fields onto the input schema, and a successful no-JS document
+  post 303s back to the same-origin referer. One contract now genuinely
+  serves humans and agents on the write path, not just the read path.
+- **Effect classes drive the client cache.** Browser-side capability calls
+  (generated `callCapability()` and `<Form capability>`) announce settlement
+  on a window event; the route runtime revalidates loader data after
+  successful non-`read` calls. The effect class stopped being agent-only
+  ceremony. Opt out per call with `revalidate: false`.
+- **`context.agent` is typed everywhere.** `CapabilityContext` (the default
+  `defineCapability` context) and the framework's `PrachtRequestContext` both
+  carry `agent?: PrachtAgentIdentity | null`; the runtime no longer smuggles
+  it through a type assertion, and capability authors need no hand-rolled
+  context interface.
+- **Audit events distinguish WebMCP.** The shim marks its dispatches with the
+  transport header; `CapabilityAuditEvent.transport` gained `"webmcp"`
+  (client-declared, informational).
+- **Declared-but-unserved `expose.mcp` is labeled.** `pracht verify` warns
+  and the dev banner prints `mcp(unserved)` until Stage 2 ships.
+- **Eval scenarios gained `confirm`.** Sugar for the confirmation header;
+  raw `headers` still work.
+- **`llmsTxt` deliberately stays a plugin option.** The cohesion review
+  considered moving it into `defineApp({ agents })`, but emission must work
+  in pages mode, which has no manifest. The split is: request-time trust
+  config lives in the manifest (`agents`), build-time emission lives in the
+  plugin (`llmsTxt`, `capabilitiesDir`).
+
 ## Final Recommendation
 
 Proceed with Stage 0 as the next product exploration. Continue streaming SSR and other framework

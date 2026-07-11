@@ -66,6 +66,7 @@ import type {
   HrefRouteDefinition,
   PrachtAgentIdentity,
   PrachtApp,
+  PrachtContextExtensions,
   ResolvedApiRoute,
   ResolvedPrachtApp,
   RouteMatch,
@@ -241,7 +242,7 @@ export async function handlePrachtRequest<TContext>(
     if (options.request.headers.has("signature-input")) {
       agent = await verifyAgentSignature(options.request, webBotAuth);
     }
-    (requestContext as { agent?: PrachtAgentIdentity | null }).agent = agent;
+    (requestContext as PrachtContextExtensions).agent = agent;
   }
 
   if (options.apiRoutes?.length) {

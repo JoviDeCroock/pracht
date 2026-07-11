@@ -224,13 +224,21 @@ structured event:
 interface CapabilityAuditEvent {
   capability: string;          // "notes.purge"
   effect: "read" | "write" | "destructive";
-  transport: "http" | "server";
+  transport: "http" | "server" | "webmcp";
   outcome: string;             // "ok" | "invalid_input" | "confirmation_required" | ...
   status: number;
   durationMs: number;
   agent: { verified: true; agentDomain: string | null; keyId: string } | null;
 }
 ```
+
+`"webmcp"` reflects the transport marker header
+(`CAPABILITY_TRANSPORT_HEADER` from `@pracht/capabilities`) that the
+generated WebMCP shim sends with its dispatches, so audit trails can tell
+in-browser agent traffic (cookie-authenticated) apart from remote HTTP
+callers. Like any client-sent header it is informational, not a trust
+signal. `outcome` values come from the `CapabilityErrorCode` union exported
+by `@pracht/capabilities` (plus `"ok"` and middleware short-circuits).
 
 Subscribe from any server-only module (audit hooks observe: exceptions are
 swallowed, never breaking a request):
@@ -277,7 +285,7 @@ example):
       "capability": "notes.purge",   // name → POST /api/capabilities/notes/purge
       "path": "/api/custom",         // optional override for custom expose.http.path
       "input": { "titlePrefix": "Old" },
-      "headers": { "x-pracht-confirm": "$steps[0].error.confirmationToken" },
+      "confirm": "$steps[0].error.confirmationToken", // sets the confirmation header
       "expect": {
         "ok": false,                        // envelope ok flag
         "status": 409,                      // HTTP status
@@ -295,8 +303,10 @@ example):
   `$steps[<index>].<dot.path>` resolves against an earlier step's result
   object `{ status, ok, data, error }` — e.g.
   `$steps[0].error.confirmationToken` to carry the confirmation flow, or
-  `$steps[1].data.note.id`. References work anywhere in `input` and
-  `headers`; unresolvable references fail the scenario.
+  `$steps[1].data.note.id`. References work anywhere in `input`, `headers`,
+  and `confirm`; unresolvable references fail the scenario.
+- **Confirmation flow**: `confirm` sets the confirmation header without
+  spelling out its name; raw `headers` still work for anything else.
 - Output: a human transcript (step, capability, outcome, status, latency,
   denial reasons) or `--json` for CI.
 

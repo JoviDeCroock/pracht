@@ -5,6 +5,11 @@ import {
   collectInvalidSchemaKeywordValues,
   collectUnsupportedSchemaKeywords,
 } from "@pracht/capabilities";
+import {
+  evaluateLiteral,
+  extractDefineCapabilityArgs,
+  scanTopLevelProperties,
+} from "@pracht/capabilities/static";
 
 import { extractRegistryEntries } from "./manifest.js";
 import { resolveProjectPath, type ProjectConfig } from "./project.js";
@@ -78,7 +83,7 @@ function collectSingleCapabilityChecks(
     return;
   }
 
-  const properties = scanTopLevelPropertyText(args);
+  const properties = scanTopLevelProperties(args);
   const exposed = properties.has("expose");
   const title = readStaticString(properties.get("title"));
   const description = readStaticString(properties.get("description"));
@@ -160,6 +165,16 @@ function collectSingleCapabilityChecks(
       );
     }
 
+    if (hasMcp && effectValue !== "destructive") {
+      checks.push(
+        createCheck(
+          "warning",
+          `${label} sets expose.mcp, which is recorded in the graph but not served yet — ` +
+            "the remote MCP projection is capability-graph Stage 2 (see docs/CAPABILITY_GRAPH.md).",
+        ),
+      );
+    }
+
     if (effectValue === "destructive") {
       if (hasWebmcp || hasMcp) {
         problems.push(
@@ -214,142 +229,6 @@ function collectSingleCapabilityChecks(
       `${label} declares a complete ${exposed ? "exposed" : "private"} contract${effectValue ? ` (effect: ${effectValue})` : ""}.`,
     ),
   );
-}
-
-// ---------------------------------------------------------------------------
-// Static analysis helpers (quote/comment/depth aware)
-// ---------------------------------------------------------------------------
-
-function extractDefineCapabilityArgs(source: string): string | null {
-  // Match the call site (optionally with a type argument), not the import.
-  const callMatch = /defineCapability\s*(?:<[^(]*?>)?\s*\(/.exec(source);
-  if (!callMatch || callMatch.index == null) return null;
-  const braceStart = source.indexOf("{", callMatch.index + callMatch[0].length - 1);
-  if (braceStart === -1) return null;
-  const braceEnd = findMatchingBrace(source, braceStart, "{", "}");
-  if (braceEnd === -1) return null;
-  return source.slice(braceStart + 1, braceEnd);
-}
-
-/** Map of top-level property name → raw value text of an object literal body. */
-function scanTopLevelPropertyText(objectBody: string): Map<string, string> {
-  const properties = new Map<string, string>();
-  let index = 0;
-
-  while (index < objectBody.length) {
-    index = skipInsignificant(objectBody, index);
-    if (index >= objectBody.length) break;
-
-    let key: string | null = null;
-    const char = objectBody[index];
-    if (char === '"' || char === "'") {
-      const end = findStringEnd(objectBody, index);
-      if (end === -1) break;
-      key = objectBody.slice(index + 1, end);
-      index = end + 1;
-    } else {
-      const match = /^[A-Za-z_$][A-Za-z0-9_$]*/.exec(objectBody.slice(index));
-      if (!match) break;
-      key = match[0];
-      index += match[0].length;
-    }
-
-    index = skipInsignificant(objectBody, index);
-    if (objectBody[index] !== ":") {
-      index = skipToTopLevelComma(objectBody, index) + 1;
-      continue;
-    }
-    index += 1;
-
-    const valueStart = skipInsignificant(objectBody, index);
-    const valueEnd = skipToTopLevelComma(objectBody, valueStart);
-    properties.set(key, objectBody.slice(valueStart, valueEnd).trim());
-    index = valueEnd + 1;
-  }
-
-  return properties;
-}
-
-function skipToTopLevelComma(source: string, start: number): number {
-  let depth = 0;
-  let index = start;
-  while (index < source.length) {
-    const char = source[index];
-    if (char === '"' || char === "'" || char === "`") {
-      const end = findStringEnd(source, index);
-      if (end === -1) return source.length;
-      index = end + 1;
-      continue;
-    }
-    if (char === "/" && (source[index + 1] === "/" || source[index + 1] === "*")) {
-      index = skipInsignificant(source, index);
-      continue;
-    }
-    if (char === "{" || char === "[" || char === "(") depth += 1;
-    if (char === "}" || char === "]" || char === ")") depth -= 1;
-    if (char === "," && depth === 0) return index;
-    index += 1;
-  }
-  return source.length;
-}
-
-function skipInsignificant(source: string, start: number): number {
-  let index = start;
-  while (index < source.length) {
-    const char = source[index];
-    if (char === " " || char === "\t" || char === "\n" || char === "\r") {
-      index += 1;
-      continue;
-    }
-    if (char === "/" && source[index + 1] === "/") {
-      const lineEnd = source.indexOf("\n", index);
-      index = lineEnd === -1 ? source.length : lineEnd + 1;
-      continue;
-    }
-    if (char === "/" && source[index + 1] === "*") {
-      const blockEnd = source.indexOf("*/", index + 2);
-      index = blockEnd === -1 ? source.length : blockEnd + 2;
-      continue;
-    }
-    break;
-  }
-  return index;
-}
-
-function findStringEnd(source: string, start: number): number {
-  const quote = source[start];
-  for (let index = start + 1; index < source.length; index += 1) {
-    const char = source[index];
-    if (char === "\\") {
-      index += 1;
-      continue;
-    }
-    if (char === quote) return index;
-  }
-  return -1;
-}
-
-function findMatchingBrace(source: string, start: number, open: string, close: string): number {
-  let depth = 0;
-  for (let index = start; index < source.length; index += 1) {
-    const char = source[index];
-    if (char === '"' || char === "'" || char === "`") {
-      const end = findStringEnd(source, index);
-      if (end === -1) return -1;
-      index = end;
-      continue;
-    }
-    if (char === "/" && (source[index + 1] === "/" || source[index + 1] === "*")) {
-      index = skipInsignificant(source, index) - 1;
-      continue;
-    }
-    if (char === open) depth += 1;
-    if (char === close) {
-      depth -= 1;
-      if (depth === 0) return index;
-    }
-  }
-  return -1;
 }
 
 type StaticString =
@@ -416,167 +295,4 @@ function readExposeFlags(text: string | undefined): {
     hasWebmcp: expose.webmcp === true,
     problems,
   };
-}
-
-/** Parse an extracted data literal without evaluating application code. */
-function evaluateLiteral(expression: string): unknown {
-  const parsed = parseLiteralValue(expression, 0);
-  if (!parsed) return undefined;
-  const end = skipInsignificant(expression, parsed.index);
-  return end === expression.length ? parsed.value : undefined;
-}
-
-interface ParsedLiteral {
-  value: unknown;
-  index: number;
-}
-
-function parseLiteralValue(source: string, start: number): ParsedLiteral | null {
-  const index = skipInsignificant(source, start);
-  const char = source[index];
-  if (char === "{") return parseObjectLiteral(source, index);
-  if (char === "[") return parseArrayLiteral(source, index);
-  if (char === '"' || char === "'" || char === "`") return parseStringLiteral(source, index);
-  if (source.startsWith("true", index)) return parseKeyword(source, index, "true", true);
-  if (source.startsWith("false", index)) return parseKeyword(source, index, "false", false);
-  if (source.startsWith("null", index)) return parseKeyword(source, index, "null", null);
-  return parseNumberLiteral(source, index);
-}
-
-function parseObjectLiteral(source: string, start: number): ParsedLiteral | null {
-  const value: Record<string, unknown> = {};
-  let index = skipInsignificant(source, start + 1);
-  if (source[index] === "}") return { value, index: index + 1 };
-
-  while (index < source.length) {
-    let key: string | null = null;
-    const char = source[index];
-    if (char === '"' || char === "'" || char === "`") {
-      const parsedKey = parseStringLiteral(source, index);
-      if (!parsedKey || typeof parsedKey.value !== "string") return null;
-      key = parsedKey.value;
-      index = parsedKey.index;
-    } else {
-      const match = /^[A-Za-z_$][A-Za-z0-9_$]*/.exec(source.slice(index));
-      if (!match) return null;
-      key = match[0];
-      index += match[0].length;
-    }
-
-    index = skipInsignificant(source, index);
-    if (source[index] !== ":") return null;
-
-    const parsedValue = parseLiteralValue(source, index + 1);
-    if (!parsedValue) return null;
-    value[key] = parsedValue.value;
-
-    index = skipInsignificant(source, parsedValue.index);
-    if (source[index] === "}") return { value, index: index + 1 };
-    if (source[index] !== ",") return null;
-    index = skipInsignificant(source, index + 1);
-    if (source[index] === "}") return { value, index: index + 1 };
-  }
-
-  return null;
-}
-
-function parseArrayLiteral(source: string, start: number): ParsedLiteral | null {
-  const value: unknown[] = [];
-  let index = skipInsignificant(source, start + 1);
-  if (source[index] === "]") return { value, index: index + 1 };
-
-  while (index < source.length) {
-    const parsedValue = parseLiteralValue(source, index);
-    if (!parsedValue) return null;
-    value.push(parsedValue.value);
-
-    index = skipInsignificant(source, parsedValue.index);
-    if (source[index] === "]") return { value, index: index + 1 };
-    if (source[index] !== ",") return null;
-    index = skipInsignificant(source, index + 1);
-    if (source[index] === "]") return { value, index: index + 1 };
-  }
-
-  return null;
-}
-
-function parseStringLiteral(source: string, start: number): ParsedLiteral | null {
-  const quote = source[start];
-  const end = findStringEnd(source, start);
-  if (end === -1) return null;
-  const body = source.slice(start + 1, end);
-  if (quote === "`" && body.includes("${")) return null;
-
-  let value = "";
-  for (let index = 0; index < body.length; index += 1) {
-    const char = body[index];
-    if (char !== "\\") {
-      value += char;
-      continue;
-    }
-
-    index += 1;
-    if (index >= body.length) return null;
-    const escaped = body[index];
-    switch (escaped) {
-      case "b":
-        value += "\b";
-        break;
-      case "f":
-        value += "\f";
-        break;
-      case "n":
-        value += "\n";
-        break;
-      case "r":
-        value += "\r";
-        break;
-      case "t":
-        value += "\t";
-        break;
-      case "v":
-        value += "\v";
-        break;
-      case "0":
-        value += "\0";
-        break;
-      case "x": {
-        const hex = body.slice(index + 1, index + 3);
-        if (!/^[0-9a-fA-F]{2}$/.test(hex)) return null;
-        value += String.fromCharCode(Number.parseInt(hex, 16));
-        index += 2;
-        break;
-      }
-      case "u": {
-        const hex = body.slice(index + 1, index + 5);
-        if (!/^[0-9a-fA-F]{4}$/.test(hex)) return null;
-        value += String.fromCharCode(Number.parseInt(hex, 16));
-        index += 4;
-        break;
-      }
-      default:
-        value += escaped;
-        break;
-    }
-  }
-
-  return { value, index: end + 1 };
-}
-
-function parseKeyword(
-  source: string,
-  start: number,
-  keyword: string,
-  value: unknown,
-): ParsedLiteral | null {
-  const end = start + keyword.length;
-  return /[A-Za-z0-9_$]/.test(source[end] ?? "") ? null : { value, index: end };
-}
-
-function parseNumberLiteral(source: string, start: number): ParsedLiteral | null {
-  const match = /^-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?/.exec(source.slice(start));
-  if (!match) return null;
-  const end = start + match[0].length;
-  if (/[A-Za-z0-9_$]/.test(source[end] ?? "")) return null;
-  return { value: Number(match[0]), index: end };
 }

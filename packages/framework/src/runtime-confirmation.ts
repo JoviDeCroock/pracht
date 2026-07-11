@@ -19,8 +19,9 @@
  * bundled into the client.
  */
 
-export const CONFIRMATION_HEADER = "x-pracht-confirm";
-export const CONFIRMATION_SECRET_ENV = "PRACHT_CONFIRMATION_SECRET";
+import { CONFIRMATION_HEADER, CONFIRMATION_SECRET_ENV } from "@pracht/capabilities";
+
+export { CONFIRMATION_HEADER, CONFIRMATION_SECRET_ENV };
 export const DEFAULT_CONFIRMATION_TTL_SECONDS = 120;
 
 const TOKEN_VERSION = "v1";

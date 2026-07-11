@@ -199,6 +199,44 @@ describe("runScenario", () => {
     expect(requests[1].headers["x-pracht-confirm"]).toBe("tok-1");
   });
 
+  it('sets the confirmation header from the "confirm" step field', async () => {
+    const requests: { headers: Record<string, string> }[] = [];
+    const responses = [
+      {
+        status: 409,
+        body: { ok: false, error: { code: "confirmation_required", confirmationToken: "tok-9" } },
+      },
+      { status: 200, body: { ok: true, data: { purged: 2 } } },
+    ];
+    const fetchImpl = (async (_url: RequestInfo | URL, init?: RequestInit) => {
+      requests.push({ headers: (init?.headers ?? {}) as Record<string, string> });
+      const next = responses[requests.length - 1];
+      return new Response(JSON.stringify(next.body), { status: next.status });
+    }) as typeof fetch;
+
+    const result = await runScenario(
+      {
+        name: "purge with confirm sugar",
+        steps: [
+          {
+            capability: "notes.purge",
+            expect: { errorCode: "confirmation_required" },
+          },
+          {
+            capability: "notes.purge",
+            confirm: "$steps[0].error.confirmationToken",
+            expect: { ok: true },
+          },
+        ],
+      },
+      "purge.eval.json",
+      { baseUrl: "http://localhost:3103", fetchImpl },
+    );
+
+    expect(result.ok).toBe(true);
+    expect(requests[1].headers["x-pracht-confirm"]).toBe("tok-9");
+  });
+
   it("fails the scenario when an expectation does not hold", async () => {
     const fetchImpl = (async () =>
       new Response(JSON.stringify({ ok: true, data: {} }), { status: 200 })) as typeof fetch;

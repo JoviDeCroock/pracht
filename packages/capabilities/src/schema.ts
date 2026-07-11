@@ -17,7 +17,7 @@
 
 export type JsonSchema = Record<string, unknown>;
 
-export interface SchemaIssue {
+export interface CapabilityIssue {
   /** JSON-pointer-ish path into the validated value, e.g. "/limit". Empty for the root. */
   path: string;
   message: string;
@@ -207,10 +207,14 @@ export function applySchemaDefaults(schema: unknown, value: unknown): unknown {
  * value conforms. Every issue carries a path scoped to the offending value so
  * callers (and agents) can pinpoint what to fix.
  */
-export function validateAgainstSchema(schema: unknown, value: unknown, path = ""): SchemaIssue[] {
+export function validateAgainstSchema(
+  schema: unknown,
+  value: unknown,
+  path = "",
+): CapabilityIssue[] {
   if (!isPlainObject(schema)) return [];
 
-  const issues: SchemaIssue[] = [];
+  const issues: CapabilityIssue[] = [];
 
   if ("const" in schema && !jsonEquals(value, schema.const)) {
     issues.push({ path, message: `must equal ${JSON.stringify(schema.const)}` });

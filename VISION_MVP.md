@@ -129,6 +129,11 @@ from `@pracht/capabilities`:
   server-only `run()`), projected to direct server invocation
   (`invokeCapability()`), a generated HTTP endpoint (`expose.http`), and a
   WebMCP page tool for in-browser agents (`expose.webmcp`).
+- The same contract serves the human UI: `<Form capability>` posts to the
+  capability endpoint (with a no-JS form-encoded fallback), and successful
+  non-`read` browser calls revalidate route data automatically — the effect
+  class drives the client cache. The wire protocol (paths, headers, error
+  codes, envelope) has a single home in `@pracht/capabilities`.
 - Private by default; exposure requires a complete contract, `destructive`
   effects are HTTP-only behind a server-verified prepare/commit confirmation
   flow, and the graph feeds `pracht inspect capabilities`, `/_pracht`,

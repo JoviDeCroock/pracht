@@ -14,7 +14,7 @@
  *       {
  *         "capability": "notes.search",       // or "path": "/api/custom"
  *         "input": { "query": "roadmap" },
- *         "headers": { "x-pracht-confirm": "$steps[0].error.confirmationToken" },
+ *         "confirm": "$steps[0].error.confirmationToken",  // sets the confirmation header
  *         "expect": { "ok": true, "errorCode": "...", "status": 200,
  *                     "output": { "notes": [] } }  // subset match
  *       }
@@ -29,6 +29,7 @@
 
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { capabilityHttpPath, CONFIRMATION_HEADER } from "@pracht/capabilities";
 
 export interface EvalExpectation {
   ok?: boolean;
@@ -44,6 +45,12 @@ export interface EvalStep {
   path?: string;
   input?: unknown;
   headers?: Record<string, string>;
+  /**
+   * Confirmation token for committing a destructive capability — usually a
+   * `$steps[n].error.confirmationToken` reference. Sets the confirmation
+   * header without spelling out the header name.
+   */
+  confirm?: string;
   expect?: EvalExpectation;
 }
 
@@ -76,10 +83,7 @@ export interface EvalScenarioResult {
   error: string | null;
 }
 
-/** Default HTTP path for a capability name — mirrors `@pracht/core`. */
-export function capabilityHttpPath(name: string): string {
-  return `/api/capabilities/${name.split(".").join("/")}`;
-}
+export { capabilityHttpPath };
 
 // ---------------------------------------------------------------------------
 // Scenario discovery and parsing
@@ -259,6 +263,9 @@ export async function runScenario(
     try {
       input = resolveStepReferences(step.input === undefined ? {} : step.input, steps);
       headers = resolveStepReferences(step.headers ?? {}, steps) as Record<string, string>;
+      if (step.confirm !== undefined) {
+        headers[CONFIRMATION_HEADER] = String(resolveStepReferences(step.confirm, steps));
+      }
     } catch (error: unknown) {
       return {
         name: scenario.name,

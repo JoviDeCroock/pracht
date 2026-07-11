@@ -433,7 +433,7 @@ Note the boundary: calling `run()` directly skips validation, the middleware cha
 `createCapabilityTestHost()` runs the real dispatch pipeline in-process — no manifest, no Vite, no port. `invoke()` mirrors `invokeCapability()`; `request()` mirrors the generated HTTP endpoints, including agent policy and the confirmation flow:
 
 ```ts [src/capabilities/notes.test.ts]
-import { createCapabilityTestHost, setCapabilityConfirmationSecret } from "@pracht/core";
+import { CONFIRMATION_HEADER, createCapabilityTestHost, setCapabilityConfirmationSecret } from "@pracht/core";
 import notesSearch from "./notes-search";
 import notesPurge from "./notes-purge";
 
@@ -455,7 +455,7 @@ it("walks the prepare/commit confirmation flow", async () => {
   const { error } = await prepare.json();
 
   const commit = await host.request("notes.purge", { titlePrefix: "Old" }, {
-    headers: { "x-pracht-confirm": error.confirmationToken },
+    headers: { [CONFIRMATION_HEADER]: error.confirmationToken },
   });
   expect(commit.status).toBe(200);
 });
@@ -518,6 +518,8 @@ webServer: {
 Then assert the prepare/commit handshake — the first call must not run the capability:
 
 ```ts [e2e/confirmation.test.ts]
+import { CONFIRMATION_HEADER } from "@pracht/capabilities";
+
 test("destructive capability requires confirmation, then commits", async ({ request }) => {
   // Prepare: no token → 409 with a confirmation token, nothing deleted.
   const prepare = await request.post("/api/capabilities/notes/purge", {
@@ -530,7 +532,7 @@ test("destructive capability requires confirmation, then commits", async ({ requ
   // Commit: identical input + the token → runs.
   const commit = await request.post("/api/capabilities/notes/purge", {
     data: { titlePrefix: "Old" },
-    headers: { "x-pracht-confirm": error.confirmationToken },
+    headers: { [CONFIRMATION_HEADER]: error.confirmationToken },
   });
   expect(commit.status()).toBe(200);
 });
