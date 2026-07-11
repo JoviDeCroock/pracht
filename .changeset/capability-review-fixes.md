@@ -8,4 +8,6 @@
 Harden capability dispatch and agent trust edge cases: normalize custom HTTP
 paths, fail closed for custom endpoints when registry resolution fails, stream
 agent-directory responses within the documented size cap, expose confirmation
-fields in browser types, and preserve explicit null capability inputs.
+fields in browser types, preserve explicit null capability inputs, reject malformed
+schemas, honor middleware replacement responses, and keep test-host agent context
+aligned with production.

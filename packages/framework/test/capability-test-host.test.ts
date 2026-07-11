@@ -119,6 +119,27 @@ describe("createCapabilityTestHost — invoke()", () => {
     expect(result.error.code).toBe("unauthorized");
   });
 
+  it("honors a middleware response that replaces the result after next()", async () => {
+    const host = createCapabilityTestHost({
+      capabilities: { "notes.search": createSearchCapability({ middleware: ["deny-after"] }) },
+      middleware: {
+        "deny-after": async (_args, next) => {
+          await next();
+          return new Response("denied", { status: 403 });
+        },
+      },
+    });
+
+    const result = await host.invoke("notes.search", { query: "roadmap" });
+    expect(result).toEqual({
+      ok: false,
+      error: {
+        code: "forbidden",
+        message: "Capability middleware short-circuited with status 403.",
+      },
+    });
+  });
+
   it("invokes private capabilities that have no expose at all", async () => {
     const host = createCapabilityTestHost({
       capabilities: { "notes.search": createSearchCapability({ expose: undefined }) },
@@ -207,6 +228,27 @@ describe("createCapabilityTestHost — request()", () => {
     const signed = await host.request("agent.ping", { query: "x" }, { agent: TEST_AGENT });
     expect(signed.status).toBe(200);
     expect((await signed.json()).data.notes).toEqual(["test-agent.example"]);
+  });
+
+  it("overwrites unverified agent context when Web Bot Auth is configured", async () => {
+    const host = createCapabilityTestHost({
+      agents: { webBotAuth: { policy: "observe" } },
+      capabilities: {
+        "agent.ping": createSearchCapability({
+          async run({ context }: { context: { agent: PrachtAgentIdentity | null } }) {
+            return { notes: [context.agent?.keyId ?? "none"] };
+          },
+        }),
+      },
+    });
+
+    const response = await host.request(
+      "agent.ping",
+      { query: "x" },
+      { context: { agent: { ...TEST_AGENT, keyId: "spoofed" } } },
+    );
+    expect(response.status).toBe(200);
+    expect((await response.json()).data.notes).toEqual(["none"]);
   });
 
   it("walks the destructive prepare/commit confirmation flow", async () => {

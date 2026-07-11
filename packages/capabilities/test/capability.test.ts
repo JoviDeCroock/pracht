@@ -104,6 +104,21 @@ describe("defineCapability", () => {
     ).toThrow(/unsupported JSON Schema keywords: \/properties\/query\/pattern/);
   });
 
+  it("rejects malformed values for supported schema keywords", () => {
+    expect(() =>
+      defineCapability({
+        ...baseDefinition,
+        input: { type: 123 },
+      }),
+    ).toThrow(/invalid JSON Schema values: \/type:<expected supported type string>/);
+    expect(() =>
+      defineCapability({
+        ...baseDefinition,
+        input: { type: "object", required: "query" },
+      }),
+    ).toThrow(/\/required:<expected string array>/);
+  });
+
   it("rejects exposing destructive capabilities to agent projections", () => {
     expect(() =>
       defineCapability({

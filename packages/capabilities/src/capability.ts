@@ -1,5 +1,6 @@
 import {
   applySchemaDefaults,
+  collectInvalidSchemaKeywordValues,
   collectUnsupportedSchemaKeywords,
   validateAgainstSchema,
   type JsonSchema,
@@ -195,12 +196,19 @@ function assertDefinition(definition: CapabilityDefinition<never, unknown, never
       throw new Error(`defineCapability("${label}"): "${field}" must be a JSON Schema object.`);
     }
     const unsupported = collectUnsupportedSchemaKeywords(schema);
+    const invalid = collectInvalidSchemaKeywordValues(schema);
     if (unsupported.length > 0) {
       throw new Error(
         `defineCapability("${label}"): "${field}" schema uses unsupported JSON Schema keywords: ` +
           `${unsupported.join(", ")}. Supported keywords: type (object/array/string/number/` +
           "integer/boolean/null), properties, required, additionalProperties, items, enum, " +
           "const, minimum, maximum, minLength, maxLength, default, title, description.",
+      );
+    }
+    if (invalid.length > 0) {
+      throw new Error(
+        `defineCapability("${label}"): "${field}" schema has invalid JSON Schema values: ` +
+          `${invalid.join(", ")}.`,
       );
     }
   }

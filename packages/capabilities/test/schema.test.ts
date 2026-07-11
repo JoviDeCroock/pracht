@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   applySchemaDefaults,
+  collectInvalidSchemaKeywordValues,
   collectUnsupportedSchemaKeywords,
   validateAgainstSchema,
 } from "../src/schema.ts";
@@ -41,6 +42,12 @@ describe("validateAgainstSchema", () => {
   it("reports missing required properties with a path", () => {
     const issues = validateAgainstSchema(schema, {});
     expect(issues).toEqual([{ path: "/query", message: "is required" }]);
+  });
+
+  it("does not satisfy required properties through Object.prototype", () => {
+    expect(validateAgainstSchema({ type: "object", required: ["constructor"] }, {})).toEqual([
+      { path: "/constructor", message: "is required" },
+    ]);
   });
 
   it("reports type mismatches with the actual type", () => {
@@ -122,6 +129,14 @@ describe("applySchemaDefaults", () => {
     expect(applySchemaDefaults(schema, { limit: 3 })).toEqual({ limit: 3 });
   });
 
+  it("applies defaults for names inherited from Object.prototype", () => {
+    const schema = {
+      type: "object",
+      properties: { toString: { type: "string", default: "value" } },
+    };
+    expect(applySchemaDefaults(schema, {})).toEqual({ toString: "value" });
+  });
+
   it("applies defaults in nested objects and array items", () => {
     const schema = {
       type: "object",
@@ -181,5 +196,21 @@ describe("collectUnsupportedSchemaKeywords", () => {
     expect(
       collectUnsupportedSchemaKeywords({ type: "array", items: [{ type: "string" }] }),
     ).toEqual(["/items:<tuple form>"]);
+  });
+});
+
+describe("collectInvalidSchemaKeywordValues", () => {
+  it("rejects malformed supported keyword values recursively", () => {
+    expect(
+      collectInvalidSchemaKeywordValues({
+        type: 123,
+        properties: { nested: { required: "id" } },
+        additionalProperties: "yes",
+      }),
+    ).toEqual([
+      "/type:<expected supported type string>",
+      "/additionalProperties:<expected boolean or schema object>",
+      "/properties/nested/required:<expected string array>",
+    ]);
   });
 });

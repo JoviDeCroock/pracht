@@ -154,9 +154,7 @@ export function createCapabilityTestHost(options: CapabilityTestHostOptions): Ca
       const context: Record<string, unknown> = { ...requestOptions.context };
       // `handlePrachtRequest` surfaces the verified identity on the request
       // context before dispatch; simulated identities travel the same way.
-      if (!("agent" in context)) {
-        context.agent = agent;
-      }
+      if (options.agents?.webBotAuth || requestOptions.agent !== undefined) context.agent = agent;
 
       const headers = new Headers(requestOptions.headers);
       if (!headers.has("content-type")) {

@@ -277,6 +277,7 @@ async function runCapabilityPipeline<TContext>(
   const holder: { settled: { status: number; envelope: CapabilityEnvelope } | null } = {
     settled: null,
   };
+  let terminalResponse: Response | null = null;
 
   const terminal = async (): Promise<Response> => {
     let output: unknown;
@@ -297,7 +298,8 @@ async function runCapabilityPipeline<TContext>(
             : "Capability failed.",
         }),
       };
-      return envelopeResponse(holder.settled.status, holder.settled.envelope);
+      terminalResponse = envelopeResponse(holder.settled.status, holder.settled.envelope);
+      return terminalResponse;
     }
 
     const validatedOutput = capability.validateOutput(output);
@@ -313,11 +315,13 @@ async function runCapabilityPipeline<TContext>(
           issues: options.exposeErrors ? validatedOutput.issues : undefined,
         }),
       };
-      return envelopeResponse(holder.settled.status, holder.settled.envelope);
+      terminalResponse = envelopeResponse(holder.settled.status, holder.settled.envelope);
+      return terminalResponse;
     }
 
     holder.settled = { status: 200, envelope: { ok: true, data: validatedOutput.value } };
-    return envelopeResponse(holder.settled.status, holder.settled.envelope);
+    terminalResponse = envelopeResponse(holder.settled.status, holder.settled.envelope);
+    return terminalResponse;
   };
 
   const response = await runMiddlewareChain({
@@ -332,10 +336,26 @@ async function runCapabilityPipeline<TContext>(
     terminal,
   });
 
-  if (holder.settled) {
+  if (
+    holder.settled &&
+    (response === terminalResponse || (await responseMatchesEnvelope(response, holder.settled)))
+  ) {
     return { kind: "envelope", ...holder.settled, response };
   }
   return { kind: "short-circuit", response };
+}
+
+async function responseMatchesEnvelope(
+  response: Response,
+  settled: { status: number; envelope: CapabilityEnvelope },
+): Promise<boolean> {
+  if (response.status !== settled.status) return false;
+  if (!response.headers.get("content-type")?.includes("application/json")) return false;
+  try {
+    return canonicalJson(await response.clone().json()) === canonicalJson(settled.envelope);
+  } catch {
+    return false;
+  }
 }
 
 // ---------------------------------------------------------------------------

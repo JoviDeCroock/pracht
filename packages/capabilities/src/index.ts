@@ -14,6 +14,7 @@ export type {
 } from "./capability.ts";
 export {
   applySchemaDefaults,
+  collectInvalidSchemaKeywordValues,
   collectUnsupportedSchemaKeywords,
   validateAgainstSchema,
 } from "./schema.ts";
