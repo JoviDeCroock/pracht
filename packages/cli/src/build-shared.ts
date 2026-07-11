@@ -29,7 +29,15 @@ export function writeVercelBuildOutput({
   const outputDir = join(root, ".vercel/output");
   const staticDir = join(outputDir, "static");
   const functionsDir = join(outputDir, "functions");
-  const functionDir = join(outputDir, "functions", `${functionName || "render"}.func`);
+  const resolvedFunctionName = functionName || "render";
+  const functionDir = join(functionsDir, `${resolvedFunctionName}.func`);
+
+  assertNoVercelPrerenderFunctionCollisions({
+    functionDir,
+    functionName: resolvedFunctionName,
+    functionsDir,
+    isgRoutes: Object.keys(isgManifest),
+  });
 
   rmSync(outputDir, { force: true, recursive: true });
   mkdirSync(outputDir, { recursive: true });
@@ -65,6 +73,28 @@ export function writeVercelBuildOutput({
   );
 
   return ".vercel/output";
+}
+
+function assertNoVercelPrerenderFunctionCollisions({
+  functionDir,
+  functionName,
+  functionsDir,
+  isgRoutes,
+}: {
+  functionDir: string;
+  functionName: string;
+  functionsDir: string;
+  isgRoutes: string[];
+}): void {
+  for (const route of isgRoutes) {
+    const prerenderName = routeToPrerenderFunctionName(route);
+    const routeFunctionDir = join(functionsDir, `${prerenderName}.func`);
+    if (routeFunctionDir !== functionDir) continue;
+
+    throw new Error(
+      `Cannot emit Vercel ISG route ${JSON.stringify(route)} because its prerender function ${JSON.stringify(`${prerenderName}.func`)} collides with the main edge function ${JSON.stringify(`${functionName}.func`)}. Rename the route or configure vercelAdapter({ functionName: "..." }) with a non-conflicting name.`,
+    );
+  }
 }
 
 function writeVercelPrerenderFunctions({
