@@ -98,7 +98,7 @@ describe("buildSpeculationRules", () => {
       "/c\\+\\+",
       "/file\\(1\\)",
       "/docs/a\\{b\\}",
-      "/foo:bar",
+      "/foo\\:bar",
     ]);
   });
 

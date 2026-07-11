@@ -24,7 +24,7 @@ const DEFAULT_EAGERNESS: Record<SpeculationMode, SpeculationEagerness> = {
   prerender: "conservative",
 };
 
-const URL_PATTERN_STATIC_SEGMENT_CHARS_RE = /[+*?{}()[\]\\]/g;
+const URL_PATTERN_STATIC_SEGMENT_CHARS_RE = /[:+*?{}()[\]\\]/g;
 
 export function normalizeSpeculation(
   option: SpeculationOption | undefined,
