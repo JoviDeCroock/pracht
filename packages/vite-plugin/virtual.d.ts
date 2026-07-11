@@ -11,23 +11,38 @@ declare module "virtual:pracht/capabilities" {
     CapabilityOutputFor,
     RegisteredCapabilityName,
   } from "@pracht/core";
+  import type {
+    CapabilityEffect,
+    CapabilityEnvelope,
+    CapabilityErrorPayload,
+    CapabilityIssue,
+  } from "@pracht/capabilities";
 
-  export interface CapabilityIssue {
-    path: string;
-    message: string;
+  // The envelope types are the protocol package's — re-exported so existing
+  // `import type { ... } from "virtual:pracht/capabilities"` keeps working.
+  export type { CapabilityEnvelope, CapabilityErrorPayload, CapabilityIssue };
+
+  export interface CallCapabilityOptions {
+    headers?: HeadersInit;
+    signal?: AbortSignal;
+    /**
+     * Confirmation token for committing a destructive capability, taken from
+     * the prior call's `confirmation_required` error envelope. Sets the
+     * confirmation header for you.
+     */
+    confirm?: string;
+    /**
+     * Successful non-`read` calls revalidate the active route's data
+     * automatically; pass `false` to skip it for this call.
+     */
+    revalidate?: boolean;
   }
-  export interface CapabilityErrorPayload {
-    code: string;
-    message: string;
-    issues?: CapabilityIssue[];
-    confirmationToken?: string;
-    expiresAt?: number;
-  }
-  export type CapabilityEnvelope<T = unknown> =
-    | { ok: true; data: T }
-    | { ok: false; error: CapabilityErrorPayload };
+
   /** HTTP endpoints of http-exposed capabilities, keyed by capability name. */
-  export const capabilityEndpoints: Record<string, { method: string; path: string }>;
+  export const capabilityEndpoints: Record<
+    string,
+    { method: string; path: string; effect: CapabilityEffect | null }
+  >;
   /**
    * Invoke an http-exposed capability from the browser via its HTTP projection.
    * When `pracht typegen` has registered the capability graph on
@@ -37,12 +52,12 @@ declare module "virtual:pracht/capabilities" {
   export function callCapability<TName extends RegisteredCapabilityName>(
     name: TName,
     input: CapabilityInputFor<TName>,
-    opts?: { headers?: HeadersInit; signal?: AbortSignal },
+    opts?: CallCapabilityOptions,
   ): Promise<CapabilityEnvelope<CapabilityOutputFor<TName>>>;
   export function callCapability<T = unknown>(
     name: string,
     input?: unknown,
-    opts?: { headers?: HeadersInit; signal?: AbortSignal },
+    opts?: CallCapabilityOptions,
   ): Promise<CapabilityEnvelope<T>>;
 }
 

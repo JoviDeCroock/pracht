@@ -125,7 +125,13 @@ export function formatDevBanner(options: DevBannerOptions): string {
     const rows = capabilities.map((capability) => [
       capability.name,
       capability.effect ?? "?",
-      capability.transports.length > 0 ? capability.transports.join(",") : "private",
+      capability.transports.length > 0
+        ? capability.transports
+            // Remote MCP is recorded in the graph but not served yet
+            // (capability-graph Stage 2) — don't let the banner imply it is.
+            .map((transport) => (transport === "mcp" ? "mcp(unserved)" : transport))
+            .join(",")
+        : "private",
       capability.httpPath ?? "-",
     ]);
     const header = ["NAME", "EFFECT", "EXPOSURE", "HTTP"];

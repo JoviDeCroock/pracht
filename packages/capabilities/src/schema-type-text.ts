@@ -1,9 +1,9 @@
 /**
- * JSON Schema (supported subset) → TypeScript type text, for `pracht typegen`.
- *
- * Only the capability schema subset enforced by `defineCapability()` reaches
- * this printer (see packages/capabilities/src/schema.ts), so unknown keywords
- * simply fall back to `unknown` instead of guessing.
+ * JSON Schema (supported subset) → TypeScript type text, used by
+ * `pracht typegen` to emit capability input/output types. It lives next to
+ * the schema subset definition (see schema.ts) so the two evolve in lockstep:
+ * a keyword added to the subset must be handled here or it degrades to
+ * `unknown` instead of guessing.
  *
  * Position matters for optionality:
  * - `"input"` — a property is optional for the caller when it is not

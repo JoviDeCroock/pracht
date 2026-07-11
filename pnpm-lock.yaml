@@ -296,6 +296,9 @@ importers:
 
   packages/framework:
     dependencies:
+      '@pracht/capabilities':
+        specifier: workspace:*
+        version: link:../capabilities
       '@standard-schema/spec':
         specifier: ^1.0.0
         version: 1.1.0
@@ -334,6 +337,9 @@ importers:
       '@pracht/adapter-node':
         specifier: workspace:*
         version: link:../adapter-node
+      '@pracht/capabilities':
+        specifier: workspace:*
+        version: link:../capabilities
       '@pracht/core':
         specifier: workspace:*
         version: link:../framework

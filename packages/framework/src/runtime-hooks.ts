@@ -32,14 +32,18 @@ import {
   type PrachtHydrationState,
   type StartAppOptions,
 } from "./runtime-context.ts";
+import { CAPABILITY_SETTLED_EVENT, capabilityHttpPath } from "@pracht/capabilities";
 import { clearPrefetchCache } from "./prefetch-cache.ts";
-import { deserializeRouteError } from "./runtime-errors.ts";
-import { fetchPrachtRouteState, navigateToClientLocation } from "./runtime-client-fetch.ts";
+import { navigateToClientLocation } from "./runtime-client-fetch.ts";
+import { revalidateRouteData } from "./runtime-revalidate.ts";
 import type {
   ApiPath,
+  CapabilityEnvelope,
+  CapabilityOutputFor,
   LinkPrefetchStrategy,
   LoaderData,
   LoaderLike,
+  RegisteredCapabilityName,
   RouteDataFor,
   RouteId,
   RouteParams,
@@ -50,7 +54,13 @@ export { PrachtRuntimeProvider, readHydrationState, startApp };
 export type { PrachtHydrationState, StartAppOptions };
 export type { Navigation, NavigationLocation } from "./navigation-state.ts";
 
-export interface FormProps extends Omit<JSX.HTMLAttributes<HTMLFormElement>, "action" | "method"> {
+/** Envelope data type for a capability name, when typegen has registered it. */
+type CapabilityFormResult<TName extends string> = TName extends RegisteredCapabilityName
+  ? CapabilityEnvelope<CapabilityOutputFor<TName>>
+  : CapabilityEnvelope;
+
+export interface FormProps<TName extends string = string>
+  extends Omit<JSX.HTMLAttributes<HTMLFormElement>, "action" | "method"> {
   /**
    * Form action. Autocompletes API route paths registered by `pracht typegen`
    * while still accepting any URL string (dynamic segments must be
@@ -58,6 +68,19 @@ export interface FormProps extends Omit<JSX.HTMLAttributes<HTMLFormElement>, "ac
    */
   action?: ApiPath | (string & {});
   method?: string;
+  /**
+   * Post this form to a capability's HTTP projection instead of an `action`
+   * URL — the same endpoint agents call, so the human form and the agent
+   * tool literally share one contract. Fields are coerced onto the
+   * capability's input schema server-side; after a successful submission the
+   * active route's data revalidates automatically. Works without JavaScript:
+   * the endpoint accepts the form-encoded fallback and redirects back to the
+   * page. Set `action` explicitly for capabilities with a custom
+   * `expose.http.path`.
+   */
+  capability?: TName;
+  /** Called with the typed envelope after a `capability` submission settles. */
+  onCapabilityResult?: (envelope: CapabilityFormResult<TName>) => void;
   /**
    * Standard Schema validated against the form's data (one entry per field,
    * arrays for repeated fields) before submitting. When validation fails the
@@ -135,26 +158,7 @@ export function useParams(): RouteParams {
 export function useRevalidate() {
   const runtime = useContext(RouteDataContext);
 
-  return async () => {
-    if (typeof window === "undefined") {
-      return undefined;
-    }
-
-    const path = runtime?.url || window.location.pathname + window.location.search;
-    const result = await fetchPrachtRouteState(path, { cache: "reload" });
-
-    if (result.type === "redirect") {
-      await navigateToClientLocation(result.location);
-      return undefined;
-    }
-
-    if (result.type === "error") {
-      throw deserializeRouteError(result.error);
-    }
-
-    runtime?.setData(result.data);
-    return result.data;
-  };
+  return () => revalidateRouteData(runtime);
 }
 
 /**
@@ -201,12 +205,27 @@ export function Link<TRoute extends RouteId>(props: LinkProps<TRoute>) {
   } as JSX.HTMLAttributes<HTMLAnchorElement>);
 }
 
-export function Form(props: FormProps) {
-  const { onSubmit, method, schema, onValidationIssues, onResponse, ...rest } = props;
+export function Form<TName extends string = string>(props: FormProps<TName>) {
+  const {
+    onSubmit,
+    method,
+    action,
+    capability,
+    onCapabilityResult,
+    schema,
+    onValidationIssues,
+    onResponse,
+    ...rest
+  } = props;
+  // Capability forms post to the capability's HTTP projection; the action
+  // attribute keeps the no-JS fallback working (the endpoint accepts
+  // form-encoded bodies and redirects document posts back on success).
+  const actionAttribute = capability ? (action ?? capabilityHttpPath(capability)) : action;
 
   return h("form", {
     ...rest,
-    method,
+    method: capability ? "post" : method,
+    action: actionAttribute,
     onSubmit: async (event: Event) => {
       const form = event.currentTarget;
       if (!(form instanceof HTMLFormElement)) {
@@ -218,6 +237,61 @@ export function Form(props: FormProps) {
 
       onSubmit?.(event as never);
       if (event.defaultPrevented) {
+        return;
+      }
+
+      if (capability) {
+        event.preventDefault();
+        clearPrefetchCache();
+        const endpoint = actionAttribute ?? form.action;
+        const formData = new FormData(form);
+        // Expose the in-flight submission through useNavigation().
+        const navigationToken = beginSubmittingNavigation(
+          createNavigationLocation(endpoint),
+          formData,
+        );
+        let envelope: CapabilityEnvelope;
+        try {
+          const response = await fetch(endpoint, {
+            method: "POST",
+            body: formData,
+            credentials: "same-origin",
+          });
+          try {
+            envelope = (await response.json()) as CapabilityEnvelope;
+          } catch {
+            envelope = {
+              ok: false,
+              error: {
+                code: "invalid_response",
+                message: `Capability endpoint returned a non-JSON response (status ${response.status}).`,
+              },
+            };
+          }
+        } catch (error: unknown) {
+          envelope = {
+            ok: false,
+            error: {
+              code: "network_error",
+              message: error instanceof Error ? error.message : String(error),
+            },
+          };
+        } finally {
+          settleNavigation(navigationToken);
+        }
+
+        if (envelope.ok) {
+          form.reset();
+        }
+        // The runtime provider revalidates route data on this event; the
+        // effect class is unknown client-side, but a form post is a mutation
+        // by nature, so successful submissions always refresh.
+        window.dispatchEvent(
+          new CustomEvent(CAPABILITY_SETTLED_EVENT, {
+            detail: { name: capability, ok: envelope.ok },
+          }),
+        );
+        onCapabilityResult?.(envelope as CapabilityFormResult<TName>);
         return;
       }
 
@@ -237,7 +311,7 @@ export function Form(props: FormProps) {
 
       event.preventDefault();
       const submitterAction = nativeSubmitter?.getAttribute("formaction");
-      const actionUrl = submitterAction ?? props.action ?? form.action;
+      const actionUrl = submitterAction ?? action ?? form.action;
       const formData = new FormData(form, nativeSubmitter);
 
       if (schema) {

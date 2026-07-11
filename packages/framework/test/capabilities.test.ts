@@ -573,3 +573,107 @@ describe("invokeCapability", () => {
     expect(body.data.error.message).toContain("notes.search");
   });
 });
+
+describe("form-encoded capability dispatch (<Form capability> fallback)", () => {
+  function postForm(
+    path: string,
+    fields: Record<string, string>,
+    headers: Record<string, string> = {},
+  ) {
+    return new Request(`http://localhost${path}`, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded", ...headers },
+      body: new URLSearchParams(fields).toString(),
+    });
+  }
+
+  it("coerces form fields onto the input schema before validation", async () => {
+    const { app, registry } = createApp(createSearchCapability());
+
+    const response = await handlePrachtRequest({
+      app,
+      registry,
+      request: postForm("/api/capabilities/notes/search", { query: "roadmap", limit: "5" }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true, data: { notes: ["roadmap:5"] } });
+  });
+
+  it("redirects successful document form posts back to the referring page", async () => {
+    const { app, registry } = createApp(createSearchCapability());
+
+    const response = await handlePrachtRequest({
+      app,
+      registry,
+      request: postForm(
+        "/api/capabilities/notes/search",
+        { query: "roadmap" },
+        { accept: "text/html", referer: "http://localhost/notes" },
+      ),
+    });
+
+    expect(response.status).toBe(303);
+    expect(response.headers.get("location")).toBe("http://localhost/notes");
+  });
+
+  it("keeps the JSON envelope for failed document form posts and cross-origin referers", async () => {
+    const { app, registry } = createApp(createSearchCapability());
+
+    const invalid = await handlePrachtRequest({
+      app,
+      registry,
+      request: postForm(
+        "/api/capabilities/notes/search",
+        { query: "" },
+        { accept: "text/html", referer: "http://localhost/notes" },
+      ),
+    });
+    expect(invalid.status).toBe(400);
+    expect((await invalid.json()).error.code).toBe("invalid_input");
+
+    // A same-origin request whose referer points elsewhere passes CSRF but
+    // must not be redirected off-origin — it falls back to the JSON envelope.
+    const foreignReferer = await handlePrachtRequest({
+      app,
+      registry,
+      request: postForm(
+        "/api/capabilities/notes/search",
+        { query: "roadmap" },
+        {
+          accept: "text/html",
+          origin: "http://localhost",
+          referer: "https://evil.example/phish",
+        },
+      ),
+    });
+    expect(foreignReferer.status).toBe(200);
+    expect((await foreignReferer.json()).ok).toBe(true);
+  });
+});
+
+describe("webmcp transport marker", () => {
+  it("audits dispatches carrying the transport header as webmcp", async () => {
+    const { app, registry } = createApp(createSearchCapability());
+    const events: Array<{ transport: string; outcome: string }> = [];
+
+    const response = await handlePrachtRequest({
+      app,
+      registry,
+      request: new Request("http://localhost/api/capabilities/notes/search", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-pracht-transport": "webmcp",
+        },
+        body: JSON.stringify({ query: "hello" }),
+      }),
+      onCapabilityAudit: (event) => events.push(event),
+    });
+
+    expect(response.status).toBe(200);
+    expect(events).toHaveLength(1);
+    expect(events[0].transport).toBe("webmcp");
+    expect(events[0].outcome).toBe("ok");
+  });
+});

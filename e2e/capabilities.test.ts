@@ -80,7 +80,9 @@ test("loader invokes notes.search server-side and SSRs the results", async ({ re
   expect(html).toContain('data-testid="notes-list"');
 });
 
-test("browser form creates a note through callCapability and revalidates", async ({ page }) => {
+test("<Form capability> creates a note through the capability endpoint and auto-revalidates", async ({
+  page,
+}) => {
   await page.goto("/notes");
   await expect(page.locator('[data-testid="notes-list"] li').first()).toBeVisible();
   // Wait for hydration so the submit handler is attached before clicking.
@@ -95,8 +97,30 @@ test("browser form creates a note through callCapability and revalidates", async
   await expect(page.locator('[data-testid="create-note-status"]')).toContainText(
     'Created "A browser note"',
   );
-  // revalidate() re-runs the loader; the new note matches the "note" query.
+  // Effect-driven revalidation re-runs the loader without any manual
+  // revalidate() call; the new note matches the "note" query.
   await expect(page.locator('[data-testid="notes-list"]')).toContainText("A browser note");
+});
+
+test("no-JS form posts hit the same capability contract and redirect back", async ({ request }) => {
+  // The form-encoded fallback of <Form capability>: fields are coerced onto
+  // the input schema and a successful document post 303s back to the page.
+  const response = await request.post("/api/capabilities/notes/create", {
+    form: { title: "A no-js note", body: "Posted without JavaScript." },
+    headers: { accept: "text/html", referer: "http://localhost:3103/notes" },
+    maxRedirects: 0,
+  });
+  expect(response.status()).toBe(303);
+  expect(response.headers().location).toContain("/notes");
+
+  // Without a document accept header the JSON envelope answers as usual.
+  const jsonResponse = await request.post("/api/capabilities/notes/create", {
+    form: { title: "A form-encoded note", body: "Posted as urlencoded." },
+  });
+  expect(jsonResponse.status()).toBe(200);
+  const body = await jsonResponse.json();
+  expect(body.ok).toBe(true);
+  expect(body.data.note.title).toBe("A form-encoded note");
 });
 
 // ---------------------------------------------------------------------------

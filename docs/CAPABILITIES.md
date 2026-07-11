@@ -75,6 +75,13 @@ export default defineCapability({
 });
 ```
 
+`context` defaults to `CapabilityContext`: `context.agent` is typed as the
+verified Web Bot Auth identity (`PrachtAgentIdentity | null`, absent when
+`agents` is not configured — see [AGENT_TRUST.md](AGENT_TRUST.md)), and
+everything middleware attaches is reachable as `unknown`. Narrow it with your
+own type via the third generic (`defineCapability<In, Out, MyContext>`), or
+use the framework's `PrachtRequestContext` for the app-registered context.
+
 ### Schemas
 
 `input` and `output` are plain JSON Schema objects validated by a
@@ -157,6 +164,13 @@ production; invalid `run()` output is always a 500 and never returned raw.
 State-changing capability calls enforce the same same-origin CSRF policy as
 API routes (`api.requireSameOrigin`, on by default).
 
+The wire contract has one home: `@pracht/capabilities` exports the path
+formula (`capabilityHttpPath`), the header names (`CONFIRMATION_HEADER`,
+`CAPABILITY_TRANSPORT_HEADER`), the envelope types, and the full
+`CapabilityErrorCode` union (`CAPABILITY_ERROR_CODES`) — the framework
+runtime, the generated client modules, and the CLI all import from it, so the
+protocol cannot drift between packages.
+
 ### Browser
 
 ```ts
@@ -166,9 +180,42 @@ const result = await callCapability<{ note: Note }>("notes.create", { title });
 ```
 
 `virtual:pracht/capabilities` is generated at build time from the manifest and
-contains only http-exposed capability names and endpoints — capability modules
-themselves are server-only and never enter the client graph (guarded by e2e
-bundle assertions). Apps without capabilities ship zero extra bytes.
+contains only http-exposed capability names, endpoints, and effect classes —
+capability modules themselves are server-only and never enter the client graph
+(guarded by e2e bundle assertions). Apps without capabilities ship zero extra
+bytes.
+
+Options: `{ headers, signal, confirm, revalidate }`. `confirm` sets the
+confirmation header when committing a destructive call (take the token from
+the prior `confirmation_required` envelope). After a successful non-`read`
+call the active route's data revalidates automatically — the effect class the
+capability already declares drives the client cache; pass `revalidate: false`
+to opt a call out.
+
+### Forms
+
+The framework's `<Form>` posts directly to a capability, so the human form
+and the agent tool literally share one contract:
+
+```tsx
+import { Form } from "@pracht/core";
+
+<Form capability="notes.create" onCapabilityResult={(result) => { ... }}>
+  <input name="title" />
+  <button type="submit">Create</button>
+</Form>;
+```
+
+- Fields are coerced onto the capability's input schema server-side (numbers
+  parsed, checkbox `on` → boolean, repeated fields → arrays), then validated
+  like any other call.
+- After a successful submission the route's loader data revalidates
+  automatically; `onCapabilityResult` receives the typed envelope (inferred
+  from the capability name once typegen has run).
+- Progressive enhancement: without JavaScript the endpoint accepts the
+  form-encoded post and answers a successful document submission with a 303
+  back to the same-origin referring page. Failed posts keep the JSON envelope.
+- For capabilities with a custom `expose.http.path`, set `action` explicitly.
 
 ## Generated types
 
@@ -282,7 +329,9 @@ and `examples/basic/evals/notes.eval.json`.
 ## Not built yet
 
 - Remote MCP projection (`/mcp` Streamable HTTP endpoint) and `expose.mcp`
-  (accepted and recorded in the graph, but nothing serves it yet).
+  (accepted and recorded in the graph, but nothing serves it yet —
+  `pracht verify` warns and the dev banner shows it as `mcp(unserved)` so a
+  declared-but-dead transport is never mistaken for a live one).
 - MCP Apps UI (`ui` option) — `hasUi` is always `false` in the graph.
 - Destructive capabilities over WebMCP/MCP (HTTP-only, confirmation-gated —
   see [AGENT_TRUST.md](AGENT_TRUST.md)).

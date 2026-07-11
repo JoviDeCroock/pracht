@@ -4,7 +4,7 @@ import { dirname, isAbsolute, relative, resolve } from "node:path";
 import { defineCommand } from "citty";
 
 import { displayPath, readProjectConfig, resolveProjectPath } from "../project.js";
-import { schemaToTypeText } from "../schema-types.js";
+import { schemaToTypeText } from "@pracht/capabilities";
 import { ensureTrailingNewline, handleCliError } from "../utils.js";
 import { runInspect, type InspectReport } from "./inspect.js";
 

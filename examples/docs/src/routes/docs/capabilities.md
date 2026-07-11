@@ -90,13 +90,26 @@ export async function loader({ request, context, signal }) {
 }
 ```
 
-From the browser — `virtual:pracht/capabilities` contains only http-exposed names and endpoints; capability modules never enter the client bundle:
+From the browser — `virtual:pracht/capabilities` contains only http-exposed names, endpoints, and effect classes; capability modules never enter the client bundle:
 
 ```ts [src/islands/NoteForm.tsx]
 import { callCapability } from "virtual:pracht/capabilities";
 
 const result = await callCapability("notes.create", { title });
 ```
+
+Or declaratively — the framework's `<Form>` posts straight to a capability, so the human form and the agent tool share one contract. Fields are coerced onto the input schema server-side, and without JavaScript the endpoint accepts the form-encoded post and redirects back:
+
+```tsx [src/routes/notes.tsx]
+import { Form } from "@pracht/core";
+
+<Form capability="notes.create" onCapabilityResult={(result) => setStatus(result)}>
+  <input name="title" />
+  <button type="submit">Create note</button>
+</Form>;
+```
+
+Mutations keep the page honest automatically: capabilities are effect-classed, so after any successful non-`read` call from the browser (`callCapability` or `<Form capability>`) the active route's loader data revalidates — no manual `revalidate()` bookkeeping. Opt out per call with `{ revalidate: false }`.
 
 Over HTTP — every response uses a typed envelope, with path-scoped validation issues an agent can act on:
 

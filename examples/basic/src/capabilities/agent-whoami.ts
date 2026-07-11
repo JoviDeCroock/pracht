@@ -1,14 +1,10 @@
 import { defineCapability } from "@pracht/capabilities";
-import type { PrachtAgentIdentity } from "@pracht/core";
-
-interface WhoamiContext {
-  agent?: PrachtAgentIdentity | null;
-}
 
 // Echoes the Web Bot Auth verification result so agents (and the e2e suite)
 // can see what identity the server established. Policy stays "observe":
-// unsigned callers are served and simply see verified: false.
-export default defineCapability<Record<string, never>, unknown, WhoamiContext>({
+// unsigned callers are served and simply see verified: false. The default
+// capability context already types `context.agent` — no custom context type.
+export default defineCapability<Record<string, never>>({
   title: "Agent whoami",
   description: "Report the verified Web Bot Auth agent identity for this request.",
   input: {

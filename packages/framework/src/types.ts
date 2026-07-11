@@ -1,3 +1,9 @@
+import type {
+  Capability,
+  CapabilityAgentPolicy,
+  CapabilityEffect,
+  PrachtAgentIdentity,
+} from "@pracht/capabilities";
 import type { ComponentChildren, FunctionComponent } from "preact";
 
 import type { RouteConstraint } from "./constraints.ts";
@@ -19,7 +25,29 @@ import type { RouteConstraint } from "./constraints.ts";
 // biome-ignore lint/suspicious/noEmptyInterface: augmented by users
 export interface Register {}
 
-export type RegisteredContext = Register extends { context: infer T } ? T : unknown;
+/**
+ * Fields the framework itself surfaces on the request context, merged into
+ * the app-registered context type so loaders, middleware, API routes, and
+ * capabilities all see them without casts.
+ */
+export interface PrachtContextExtensions {
+  /**
+   * Verified agent identity (Web Bot Auth); `null` when the request is
+   * unsigned or fails verification, absent when `defineApp({ agents })` is
+   * not configured.
+   */
+  agent?: PrachtAgentIdentity | null;
+}
+
+export type RegisteredContext = (Register extends { context: infer T } ? T : unknown) &
+  PrachtContextExtensions;
+
+/**
+ * The request context as application code receives it — the registered
+ * context plus the framework-surfaced fields. Use it to type standalone
+ * functions (e.g. the third `defineCapability()` generic).
+ */
+export type PrachtRequestContext = RegisteredContext;
 
 export type RenderMode = "spa" | "ssr" | "ssg" | "isg";
 
@@ -526,7 +554,7 @@ export type RouteTreeNode = RouteDefinition | GroupDefinition;
 // `setCapabilityConfirmationSecret()`, never from the manifest.
 // ---------------------------------------------------------------------------
 
-export type AgentPolicyMode = "observe" | "require";
+export type AgentPolicyMode = CapabilityAgentPolicy;
 
 /** A statically configured agent verification key (public Ed25519 JWK material). */
 export interface WebBotAuthStaticKey {
@@ -585,21 +613,16 @@ export interface PrachtAgentsConfig {
   confirmation?: CapabilityConfirmationConfig;
 }
 
-/** Verified agent identity surfaced as `context.agent` when Web Bot Auth is enabled. */
-export interface PrachtAgentIdentity {
-  verified: true;
-  /** Host of the agent's Signature-Agent directory URL (or the static key's `agent` label). */
-  agentDomain: string | null;
-  /** The `keyid` signature parameter (base64url JWK thumbprint). */
-  keyId: string;
-}
-
 /** Structured audit event emitted for every capability dispatch. */
 export interface CapabilityAuditEvent {
   capability: string;
   effect: CapabilityEffect;
-  /** How the capability was invoked. */
-  transport: "http" | "server";
+  /**
+   * How the capability was invoked. `"webmcp"` reflects the transport marker
+   * the generated WebMCP shim sends with its dispatches — informational, not
+   * a trust signal (any HTTP client can send the header).
+   */
+  transport: "http" | "server" | "webmcp";
   /** `"ok"` or the envelope error code (e.g. `"invalid_input"`, `"confirmation_required"`). */
   outcome: string;
   /** HTTP status the envelope maps to (also set for server-side invocation). */
@@ -829,75 +852,32 @@ export interface ModuleRegistry {
 // ---------------------------------------------------------------------------
 // Capabilities
 //
-// The framework executes capabilities through this structural contract so
-// `@pracht/core` never has to depend on the optional `@pracht/capabilities`
-// package. `defineCapability()` returns objects satisfying `PrachtCapability`.
+// The contract types live in `@pracht/capabilities` — the protocol-owning
+// leaf package — and are re-exported here so framework consumers keep one
+// import surface. `PrachtCapability` is the erased-generics view of
+// `defineCapability()`'s return value that the runtime executes.
 // ---------------------------------------------------------------------------
 
-export type CapabilityEffect = "read" | "write" | "destructive";
+export type {
+  CapabilityAgentPolicy,
+  CapabilityContext,
+  CapabilityEffect,
+  CapabilityEnvelope,
+  CapabilityErrorCode,
+  CapabilityErrorPayload,
+  CapabilityExposure,
+  CapabilityHttpExposure,
+  CapabilityIssue,
+  CapabilityRunArgs,
+  CapabilityValidationResult,
+  PrachtAgentIdentity,
+} from "@pracht/capabilities";
 
-export interface CapabilityIssue {
-  path: string;
-  message: string;
-}
-
-export type CapabilityValidationResult =
-  | { ok: true; value: unknown }
-  | { ok: false; issues: CapabilityIssue[] };
-
-export interface CapabilityHttpExposure {
-  method: "POST";
-  path?: string;
-}
-
-export interface CapabilityExposure {
-  http: CapabilityHttpExposure | null;
-  mcp: boolean;
-  webmcp: boolean;
-}
-
-export interface CapabilityRunArgs<TContext = RegisteredContext> {
-  input: unknown;
-  context: TContext;
-  request: Request;
-  signal: AbortSignal;
-}
-
-export interface PrachtCapability<TContext = any> {
-  kind: "capability";
-  title: string;
-  description: string;
-  input: Record<string, unknown>;
-  output: Record<string, unknown>;
-  effect: CapabilityEffect;
-  middleware: string[];
-  expose: CapabilityExposure | null;
-  /** Per-capability Web Bot Auth policy override; inherits the app default when unset. */
-  agentPolicy?: "observe" | "require";
-  run: (args: CapabilityRunArgs<TContext>) => MaybePromise<unknown>;
-  /** Applies input defaults and validates against the input schema. */
-  validateInput: (value: unknown) => CapabilityValidationResult;
-  validateOutput: (value: unknown) => CapabilityValidationResult;
-}
+export type PrachtCapability<TContext = any> = Capability<any, unknown, TContext>;
 
 export interface CapabilityModule<TContext = any> {
   default: PrachtCapability<TContext>;
 }
-
-export interface CapabilityErrorPayload {
-  code: string;
-  message: string;
-  issues?: CapabilityIssue[];
-  /** Present on `confirmation_required` errors: pass it back via `x-pracht-confirm`. */
-  confirmationToken?: string;
-  /** Unix seconds when `confirmationToken` expires. */
-  expiresAt?: number;
-}
-
-/** Result/error envelope shared by HTTP, WebMCP, and `invokeCapability()`. */
-export type CapabilityEnvelope<T = unknown> =
-  | { ok: true; data: T }
-  | { ok: false; error: CapabilityErrorPayload };
 
 /**
  * `pracht typegen` generates capability input/output types from the JSON

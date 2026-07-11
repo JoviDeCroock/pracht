@@ -1,10 +1,11 @@
+import type { CapabilityErrorCode, PrachtAgentIdentity } from "./protocol.ts";
 import {
   applySchemaDefaults,
   collectInvalidSchemaKeywordValues,
   collectUnsupportedSchemaKeywords,
   validateAgainstSchema,
   type JsonSchema,
-  type SchemaIssue,
+  type CapabilityIssue,
 } from "./schema.ts";
 
 /**
@@ -46,14 +47,30 @@ export interface CapabilityExposure {
   webmcp: boolean;
 }
 
-export interface CapabilityRunArgs<TInput = unknown, TContext = unknown> {
+/**
+ * The request context a capability handler receives by default: the verified
+ * agent identity the framework surfaces on every request, plus whatever app
+ * middleware attached. Narrow the open part with your own context type via
+ * the third `defineCapability` generic.
+ */
+export interface CapabilityContext {
+  /** Verified agent identity (Web Bot Auth); `null` when unsigned/unverified, absent when the app does not configure agents. */
+  agent?: PrachtAgentIdentity | null;
+  [key: string]: unknown;
+}
+
+export interface CapabilityRunArgs<TInput = unknown, TContext = CapabilityContext> {
   input: TInput;
   context: TContext;
   request: Request;
   signal: AbortSignal;
 }
 
-export interface CapabilityDefinition<TInput = unknown, TOutput = unknown, TContext = unknown> {
+export interface CapabilityDefinition<
+  TInput = unknown,
+  TOutput = unknown,
+  TContext = CapabilityContext,
+> {
   title: string;
   description: string;
   /** JSON Schema (supported subset) for the capability input. */
@@ -72,14 +89,14 @@ export interface CapabilityDefinition<TInput = unknown, TOutput = unknown, TCont
 
 export type CapabilityValidationResult<T = unknown> =
   | { ok: true; value: T }
-  | { ok: false; issues: SchemaIssue[] };
+  | { ok: false; issues: CapabilityIssue[] };
 
 /**
  * The object `defineCapability()` returns. The validation methods are
  * attached here so the framework runtime can execute capabilities through a
  * structural contract without depending on this package.
  */
-export interface Capability<TInput = unknown, TOutput = unknown, TContext = unknown> {
+export interface Capability<TInput = unknown, TOutput = unknown, TContext = CapabilityContext> {
   kind: "capability";
   title: string;
   description: string;
@@ -101,10 +118,10 @@ export type CapabilityEnvelope<T = unknown> =
   | { ok: false; error: CapabilityErrorPayload };
 
 export interface CapabilityErrorPayload {
-  code: string;
+  code: CapabilityErrorCode;
   message: string;
-  issues?: SchemaIssue[];
-  /** Present on `confirmation_required` errors: pass it back via `x-pracht-confirm`. */
+  issues?: CapabilityIssue[];
+  /** Present on `confirmation_required` errors: pass it back via the CONFIRMATION_HEADER. */
   confirmationToken?: string;
   /** Unix seconds when `confirmationToken` expires. */
   expiresAt?: number;
@@ -124,7 +141,7 @@ export const DESTRUCTIVE_EXPOSURE_ERROR =
  * (destructive + `expose.http` is allowed — the runtime's server-verified
  * prepare/commit confirmation flow gates every dispatch).
  */
-export function defineCapability<TInput = unknown, TOutput = unknown, TContext = unknown>(
+export function defineCapability<TInput = unknown, TOutput = unknown, TContext = CapabilityContext>(
   definition: CapabilityDefinition<TInput, TOutput, TContext>,
 ): Capability<TInput, TOutput, TContext> {
   assertDefinition(definition);

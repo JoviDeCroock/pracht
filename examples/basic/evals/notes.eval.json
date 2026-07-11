@@ -25,7 +25,7 @@
     {
       "capability": "notes.purge",
       "input": { "titlePrefix": "Purge target" },
-      "headers": { "x-pracht-confirm": "$steps[3].error.confirmationToken" },
+      "confirm": "$steps[3].error.confirmationToken",
       "expect": { "ok": true }
     }
   ]
