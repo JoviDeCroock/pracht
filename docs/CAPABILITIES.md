@@ -18,6 +18,12 @@ diverge between transports:
 input validation → named middleware chain → run() → output validation
 ```
 
+Capability inputs, outputs, and schema values are restricted to the JSON data
+model. JavaScript-only values such as `File`, `Blob`, `Date`, `Map`,
+`undefined`, and circular objects are rejected even when a schema is otherwise
+unconstrained. File uploads should stay in API routes rather than capability
+contracts.
+
 ## Registration
 
 Capabilities are registered in the app manifest, exactly like shells and
