@@ -219,6 +219,46 @@ describe("createPrachtCapabilitiesClientModuleSource", () => {
     const source = createPrachtCapabilitiesClientModuleSource({}, { root });
     expect(source).toContain("const endpoints = {};");
   });
+
+  it("forwards caller-supplied headers for confirmation flows", async () => {
+    const root = createFixture({
+      capabilities: {
+        "notes-create.ts": CREATE_CAPABILITY,
+      },
+    });
+    const source = createPrachtCapabilitiesClientModuleSource({}, { root });
+    let requestInit: RequestInit | undefined;
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (_input, init) => {
+      requestInit = init;
+      return new Response(JSON.stringify({ ok: true, data: { id: "n1" } }), {
+        headers: { "content-type": "application/json" },
+      });
+    }) as typeof fetch;
+
+    try {
+      const moduleUrl = `data:text/javascript;base64,${Buffer.from(source).toString("base64")}#${Date.now()}`;
+      const mod = (await import(moduleUrl)) as {
+        callCapability: (
+          name: string,
+          input?: unknown,
+          opts?: { headers?: HeadersInit },
+        ) => Promise<unknown>;
+      };
+      await mod.callCapability(
+        "notes.create",
+        { title: "Confirmed note" },
+        { headers: { "x-pracht-confirm": "token-1" } },
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+
+    const headers = requestInit?.headers;
+    expect(headers).toBeInstanceOf(Headers);
+    expect((headers as Headers).get("content-type")).toBe("application/json");
+    expect((headers as Headers).get("x-pracht-confirm")).toBe("token-1");
+  });
 });
 
 describe("createPrachtWebmcpModuleSource", () => {

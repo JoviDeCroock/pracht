@@ -24,7 +24,7 @@ declare module "virtual:pracht/capabilities" {
   export function callCapability<T = unknown>(
     name: string,
     input?: unknown,
-    opts?: { signal?: AbortSignal },
+    opts?: { headers?: HeadersInit; signal?: AbortSignal },
   ): Promise<CapabilityEnvelope<T>>;
 }
 
