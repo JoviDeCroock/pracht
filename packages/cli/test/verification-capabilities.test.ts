@@ -16,7 +16,11 @@ afterEach(() => {
   }
 });
 
-function createProject(options: { capability: string; registration?: string }): ProjectConfig {
+function createProject(options: {
+  capability: string;
+  middlewareBlock?: string;
+  registration?: string;
+}): ProjectConfig {
   const root = mkdtempSync(join(tmpdir(), "pracht-verify-capabilities-"));
   tempDirs.push(root);
   mkdirSync(join(root, "src/capabilities"), { recursive: true });
@@ -27,6 +31,7 @@ function createProject(options: { capability: string; registration?: string }): 
     [
       'import { defineApp, route } from "@pracht/core";',
       "export const app = defineApp({",
+      options.middlewareBlock ?? "",
       "  capabilities: {",
       options.registration ?? '    "notes.search": () => import("./capabilities/notes-search.ts"),',
       "  },",
@@ -93,7 +98,85 @@ describe("collectCapabilityChecks", () => {
     const errors = checks.filter((check) => check.status === "error");
     expect(errors).toHaveLength(1);
     expect(errors[0].message).toContain(
-      "is exposed but is missing: description, output schema, effect",
+      "is missing required fields: description, output schema, effect",
+    );
+  });
+
+  it("fails capabilities that are missing required fields even when private", () => {
+    const checks = runChecks(
+      capabilitySource(`  description: "Private op.",
+  input: { type: "object" },
+  output: { type: "object" },
+  effect: "read",`),
+    );
+
+    expect(
+      checks.filter((check) => check.status === "error").map((check) => check.message),
+    ).toContainEqual(expect.stringContaining("is missing required fields: title"));
+  });
+
+  it("fails capabilities with invalid effect values", () => {
+    const checks = runChecks(
+      capabilitySource(COMPLETE_FIELDS.replace('effect: "read"', 'effect: "publish"')),
+    );
+
+    expect(
+      checks.filter((check) => check.status === "error").map((check) => check.message),
+    ).toContainEqual(expect.stringContaining('"effect" must be "read", "write", or "destructive"'));
+  });
+
+  it("fails capabilities with invalid agent policy values", () => {
+    const checks = runChecks(
+      capabilitySource(`${COMPLETE_FIELDS}
+  agentPolicy: "signed",`),
+    );
+
+    expect(
+      checks.filter((check) => check.status === "error").map((check) => check.message),
+    ).toContainEqual(expect.stringContaining('"agentPolicy" must be "observe" or "require"'));
+  });
+
+  it("fails capabilities that reference unknown middleware", () => {
+    const checks = runChecks(
+      capabilitySource(`${COMPLETE_FIELDS}
+  middleware: ["auth"],`),
+    );
+
+    expect(
+      checks.filter((check) => check.status === "error").map((check) => check.message),
+    ).toContainEqual(expect.stringContaining('references unknown middleware "auth"'));
+  });
+
+  it("accepts capabilities that reference registered middleware", () => {
+    const checks: Check[] = [];
+    collectCapabilityChecks(
+      createProject({
+        capability: capabilitySource(`${COMPLETE_FIELDS}
+  middleware: ["auth"],`),
+        middlewareBlock: '  middleware: { auth: () => import("./middleware/auth.ts") },',
+      }),
+      checks,
+    );
+
+    expect(checks.filter((check) => check.status === "error")).toHaveLength(0);
+  });
+
+  it("fails malformed HTTP exposure config", () => {
+    const checks = runChecks(
+      capabilitySource(
+        COMPLETE_FIELDS.replace(
+          "expose: { http: true, webmcp: true },",
+          'expose: { http: { method: "GET", path: "api/custom" } },',
+        ),
+      ),
+    );
+
+    const errors = checks.filter((check) => check.status === "error").map((check) => check.message);
+    expect(errors).toContainEqual(
+      expect.stringContaining('HTTP exposure only supports method: "POST"'),
+    );
+    expect(errors).toContainEqual(
+      expect.stringContaining('HTTP exposure "path" must be a string starting with "/"'),
     );
   });
 

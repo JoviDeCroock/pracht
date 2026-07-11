@@ -10,6 +10,9 @@ import { extractRegistryEntries } from "./manifest.js";
 import { resolveProjectPath, type ProjectConfig } from "./project.js";
 import { createCheck, type Check } from "./verification-helpers.js";
 
+const CAPABILITY_EFFECTS = new Set(["read", "write", "destructive"]);
+const AGENT_POLICIES = new Set(["observe", "require"]);
+
 /**
  * Static verification of registered capabilities (manifest mode only). These
  * checks mirror what `defineCapability()` and the runtime registry enforce,
@@ -27,6 +30,9 @@ export function collectCapabilityChecks(project: ProjectConfig, checks: Check[])
   const manifestSource = readFileSync(manifestPath, "utf-8");
   const entries = extractRegistryEntries(manifestSource, "capabilities");
   if (entries.length === 0) return;
+  const registeredMiddleware = new Set(
+    extractRegistryEntries(manifestSource, "middleware").map((entry) => entry.name),
+  );
 
   checks.push(
     createCheck(
@@ -43,7 +49,13 @@ export function collectCapabilityChecks(project: ProjectConfig, checks: Check[])
       continue;
     }
 
-    collectSingleCapabilityChecks(entry.name, entry.path, readFileSync(filePath, "utf-8"), checks);
+    collectSingleCapabilityChecks(
+      entry.name,
+      entry.path,
+      readFileSync(filePath, "utf-8"),
+      registeredMiddleware,
+      checks,
+    );
   }
 }
 
@@ -51,6 +63,7 @@ function collectSingleCapabilityChecks(
   name: string,
   displayPath: string,
   source: string,
+  registeredMiddleware: Set<string>,
   checks: Check[],
 ): void {
   const label = `Capability ${JSON.stringify(name)} (${displayPath})`;
@@ -67,20 +80,45 @@ function collectSingleCapabilityChecks(
 
   const properties = scanTopLevelPropertyText(args);
   const exposed = properties.has("expose");
+  const title = readStringLiteral(properties.get("title"));
+  const description = readStringLiteral(properties.get("description"));
   const effect = readStringLiteral(properties.get("effect"));
   const problems: string[] = [];
 
-  if (exposed) {
-    const missing: string[] = [];
-    if (!readStringLiteral(properties.get("description"))) missing.push("description");
-    if (!properties.has("input")) missing.push("input schema");
-    if (!properties.has("output")) missing.push("output schema");
-    if (!effect) missing.push("effect");
-    if (missing.length > 0) {
-      problems.push(`is exposed but is missing: ${missing.join(", ")}`);
-    }
+  const missing: string[] = [];
+  if (!title) missing.push("title");
+  if (!description) missing.push("description");
+  if (!properties.has("input")) missing.push("input schema");
+  if (!properties.has("output")) missing.push("output schema");
+  if (!effect) missing.push("effect");
+  if (missing.length > 0) {
+    problems.push(`is missing required fields: ${missing.join(", ")}`);
+  }
+  if (effect && !CAPABILITY_EFFECTS.has(effect)) {
+    problems.push('"effect" must be "read", "write", or "destructive"');
+  }
 
-    const { hasHttp, hasMcp, hasWebmcp } = readExposeFlags(properties.get("expose"));
+  const agentPolicy = readStringLiteral(properties.get("agentPolicy"));
+  if (properties.has("agentPolicy") && (!agentPolicy || !AGENT_POLICIES.has(agentPolicy))) {
+    problems.push('"agentPolicy" must be "observe" or "require"');
+  }
+
+  const middleware = readMiddlewareNames(properties.get("middleware"));
+  if (middleware.kind === "invalid") {
+    problems.push('"middleware" must be an array of names');
+  } else if (middleware.kind === "valid") {
+    for (const middlewareName of middleware.names) {
+      if (!registeredMiddleware.has(middlewareName)) {
+        problems.push(`references unknown middleware ${JSON.stringify(middlewareName)}`);
+      }
+    }
+  }
+
+  const exposeFlags = readExposeFlags(properties.get("expose"));
+  problems.push(...exposeFlags.problems);
+
+  if (exposed) {
+    const { hasHttp, hasMcp, hasWebmcp } = exposeFlags;
     if (hasWebmcp && !hasHttp) {
       problems.push(
         "sets expose.webmcp without expose.http — WebMCP tools dispatch through the HTTP projection",
@@ -285,20 +323,53 @@ function readStringLiteral(text: string | undefined): string | null {
   return typeof value === "string" ? value : null;
 }
 
+type MiddlewareNames =
+  | { kind: "absent" }
+  | { kind: "invalid" }
+  | { kind: "valid"; names: string[] };
+
+function readMiddlewareNames(text: string | undefined): MiddlewareNames {
+  if (!text) return { kind: "absent" };
+  const value = evaluateLiteral(text);
+  if (!Array.isArray(value) || value.some((name) => typeof name !== "string")) {
+    return { kind: "invalid" };
+  }
+  return { kind: "valid", names: value };
+}
+
 function readExposeFlags(text: string | undefined): {
   hasHttp: boolean;
   hasMcp: boolean;
   hasWebmcp: boolean;
+  problems: string[];
 } {
   const value = text ? evaluateLiteral(text) : undefined;
   if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return { hasHttp: false, hasMcp: false, hasWebmcp: false };
+    return { hasHttp: false, hasMcp: false, hasWebmcp: false, problems: [] };
   }
   const expose = value as Record<string, unknown>;
+  const problems: string[] = [];
+  let hasHttp = false;
+  if (expose.http === true) {
+    hasHttp = true;
+  } else if (expose.http && typeof expose.http === "object" && !Array.isArray(expose.http)) {
+    hasHttp = true;
+    const http = expose.http as Record<string, unknown>;
+    if (http.method !== undefined && http.method !== "POST") {
+      problems.push('HTTP exposure only supports method: "POST"');
+    }
+    if (http.path !== undefined && (typeof http.path !== "string" || !http.path.startsWith("/"))) {
+      problems.push('HTTP exposure "path" must be a string starting with "/"');
+    }
+  } else if (expose.http !== undefined && expose.http !== false && expose.http !== null) {
+    problems.push('"expose.http" must be true or an object');
+  }
+
   return {
-    hasHttp: expose.http === true || (typeof expose.http === "object" && expose.http !== null),
+    hasHttp,
     hasMcp: expose.mcp === true,
     hasWebmcp: expose.webmcp === true,
+    problems,
   };
 }
 
