@@ -749,8 +749,10 @@ rules script with `'inline-speculation-rules'` in `script-src`. See
 
 ### Browser support
 
-Chromium-based browsers (Chrome 109+, Edge). Firefox and Safari ignore the
-script — the JS `prefetch` strategy continues to work as the cross-browser
-fallback.
+Chromium-based browsers (Chrome / Edge 121+). Pracht emits **document rules**
+(`href_matches` + `eagerness`), which landed in Chrome 121 — earlier versions
+only understood explicit URL-list rules and ignore this script. Firefox and
+Safari ignore it too — the JS `prefetch` strategy continues to work as the
+cross-browser fallback.
 
 [Speculation Rules API]: https://developer.mozilla.org/docs/Web/API/Speculation_Rules_API
