@@ -425,6 +425,7 @@ async function verifyAgentSignatureUnsafe(
 
     // Key resolution: static keys first, then the allowlisted directory.
     let key = await resolveStaticKey(options.keys, keyid);
+    let resolvedFromDirectory = false;
     let agentDomain = key?.agent ?? null;
     if (!key && agentUrl) {
       const allowed = (options.directories ?? []).some(
@@ -437,10 +438,11 @@ async function verifyAgentSignatureUnsafe(
           options.fetchImpl ?? fetch,
         );
         key = directoryKeys.find((candidate) => candidate.keyId === keyid) ?? null;
+        resolvedFromDirectory = key !== null;
       }
     }
     if (!key) continue;
-    if (agentUrl) agentDomain = agentUrl.host;
+    if (resolvedFromDirectory && agentUrl) agentDomain = agentUrl.host;
 
     const base = buildSignatureBase(request, member);
     if (base === null) continue;

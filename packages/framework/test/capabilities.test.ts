@@ -155,6 +155,24 @@ describe("resolveAppCapabilities", () => {
     const resolved = await resolveAppCapabilities(app, registry);
     expect(resolved[0].httpPath).toBe("/api/capabilities/notes/search");
   });
+
+  it("refreshes resolved modules when the generated capability registry changes", async () => {
+    const { app, registry } = createApp(createSearchCapability({ title: "Before edit" }));
+    const first = await resolveAppCapabilities(app, registry);
+    expect(first[0].capability.title).toBe("Before edit");
+
+    const nextRegistry: ModuleRegistry = {
+      ...registry,
+      capabilityModules: {
+        "./capabilities/notes-search.ts": async () => ({
+          default: createSearchCapability({ title: "After edit" }),
+        }),
+      },
+    };
+
+    const second = await resolveAppCapabilities(app, nextRegistry);
+    expect(second[0].capability.title).toBe("After edit");
+  });
 });
 
 describe("capability HTTP projection", () => {

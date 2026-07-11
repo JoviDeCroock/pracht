@@ -63,20 +63,31 @@ export function capabilityHttpPath(name: string): string {
   return `${CAPABILITY_HTTP_PREFIX}${name.split(".").join("/")}`;
 }
 
-// Resolution loads every registered capability module once per process (or
-// per dev-server module graph — the cache key is the manifest's capability
-// record, which gets a new identity whenever the server module re-evaluates).
-const resolvedCapabilitiesCache = new WeakMap<object, Promise<ResolvedCapability[]>>();
+// Resolution loads every registered capability module once per manifest +
+// registry instance. Dev HMR can keep the same app manifest object while
+// replacing the generated registry after a capability edit, so both identities
+// participate in the cache key.
+const resolvedCapabilitiesCache = new WeakMap<
+  object,
+  WeakMap<object, Promise<ResolvedCapability[]>>
+>();
+const EMPTY_CAPABILITY_MODULES = {};
 
 export function resolveAppCapabilities(
   app: CapabilityHostApp,
   registry: ModuleRegistry,
 ): Promise<ResolvedCapability[]> {
   const capabilities = app.capabilities ?? {};
-  let resolved = resolvedCapabilitiesCache.get(capabilities);
+  const capabilityModules = registry.capabilityModules ?? EMPTY_CAPABILITY_MODULES;
+  let registryCache = resolvedCapabilitiesCache.get(capabilities);
+  if (!registryCache) {
+    registryCache = new WeakMap();
+    resolvedCapabilitiesCache.set(capabilities, registryCache);
+  }
+  let resolved = registryCache.get(capabilityModules);
   if (!resolved) {
     resolved = resolveAppCapabilitiesUncached(app, registry);
-    resolvedCapabilitiesCache.set(capabilities, resolved);
+    registryCache.set(capabilityModules, resolved);
   }
   return resolved;
 }

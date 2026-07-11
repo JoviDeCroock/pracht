@@ -103,6 +103,11 @@ yields `context.agent = null`, never a partial identity:
 - the Ed25519 signature verifies over the RFC 9421 signature base via
   WebCrypto.
 
+For statically pinned keys, `context.agent.agentDomain` is the configured
+`agent` label (or `null` when omitted), even if the signed request also sends
+`Signature-Agent`. The header's host is used only for keys resolved from an
+allowlisted directory.
+
 Replay note: the drafts allow enforcing `nonce` uniqueness with a store;
 Pracht's stateless verifier does not (a signature can be replayed against
 the same authority until it expires). Bind short `expires` windows and treat
