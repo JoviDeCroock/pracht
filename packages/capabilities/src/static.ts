@@ -97,11 +97,16 @@ export function extractCapabilityRegistrations(
  * source file (used for the manifest's `capabilities` block).
  */
 export function findTopLevelObjectProperty(source: string, key: string): string | null {
-  const searchable = maskCommentsAndStrings(source);
-  const pattern = new RegExp(`\\b${key}\\s*:\\s*\\{`);
-  const match = pattern.exec(searchable);
+  const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const codeOnly = maskCommentsAndStrings(source);
+  const commentsRemoved = maskComments(source);
+  const unquotedMatch = new RegExp(`\\b${escapedKey}\\s*:\\s*\\{`).exec(codeOnly);
+  const quotedMatch = new RegExp(`(["'])${escapedKey}\\1\\s*:\\s*\\{`).exec(commentsRemoved);
+  const match = [unquotedMatch, quotedMatch]
+    .filter((candidate): candidate is RegExpExecArray => candidate !== null)
+    .sort((left, right) => left.index - right.index)[0];
   if (!match || match.index == null) return null;
-  const braceStart = searchable.indexOf("{", match.index);
+  const braceStart = commentsRemoved.indexOf("{", match.index);
   const braceEnd = findMatchingBrace(source, braceStart, "{", "}");
   if (braceEnd === -1) return null;
   return source.slice(braceStart + 1, braceEnd);
