@@ -31,6 +31,7 @@ import {
 import type {
   BaseRouteArgs,
   HrefRouteDefinition,
+  LoaderCache,
   ResolvedApiRoute,
   RouteModule,
   ShellModule,
@@ -82,7 +83,7 @@ export function jsonRedirectResponse(
 
 export function normalizePageResponse(
   response: Response,
-  options: { isRouteStateRequest: boolean },
+  options: { isRouteStateRequest: boolean; loaderCache?: LoaderCache },
 ): Response {
   if (options.isRouteStateRequest && response.status >= 300 && response.status < 400) {
     const location = response.headers.get("location");
@@ -94,7 +95,10 @@ export function normalizePageResponse(
     }
   }
 
-  return withRouteResponseHeaders(response, options);
+  return withRouteResponseHeaders(response, {
+    isRouteStateRequest: options.isRouteStateRequest,
+    loaderCache: response.ok ? options.loaderCache : undefined,
+  });
 }
 
 export function renderApiErrorResponse<TContext>(options: {
