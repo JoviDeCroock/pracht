@@ -66,6 +66,10 @@ export function capabilityHttpPath(name: string): string {
   return `${CAPABILITY_HTTP_PREFIX}${name.split(".").join("/")}`;
 }
 
+function normalizeCapabilityHttpPath(path: string): string {
+  return path.length > 1 && path.endsWith("/") ? path.slice(0, -1) : path;
+}
+
 // Resolution loads every registered capability module once per manifest +
 // registry instance. Dev HMR can keep the same app manifest object while
 // replacing the generated registry after a capability edit, so both identities
@@ -168,7 +172,9 @@ async function resolveAppCapabilitiesUncached(
 
     let httpPath: string | null = null;
     if (capability.expose?.http) {
-      httpPath = capability.expose.http.path ?? capabilityHttpPath(name);
+      httpPath = normalizeCapabilityHttpPath(
+        capability.expose.http.path ?? capabilityHttpPath(name),
+      );
       const existing = seenHttpPaths.get(httpPath);
       if (existing) {
         throw new Error(
@@ -188,9 +194,38 @@ export function matchCapabilityRoute(
   capabilities: readonly ResolvedCapability[],
   pathname: string,
 ): ResolvedCapability | undefined {
-  const normalized =
-    pathname.length > 1 && pathname.endsWith("/") ? pathname.slice(0, -1) : pathname;
+  const normalized = normalizeCapabilityHttpPath(pathname);
   return capabilities.find((entry) => entry.httpPath === normalized);
+}
+
+/**
+ * Best-effort path discovery used only after full registry resolution fails.
+ * It recognizes valid capability modules independently so custom HTTP paths
+ * still fail closed instead of falling through to an unrelated page route.
+ */
+export async function isRegisteredCapabilityHttpPath(
+  app: CapabilityHostApp,
+  registry: ModuleRegistry,
+  pathname: string,
+): Promise<boolean> {
+  const normalized = normalizeCapabilityHttpPath(pathname);
+  for (const [name, file] of Object.entries(app.capabilities ?? {})) {
+    try {
+      const module = await resolveRegistryModule<CapabilityModule>(
+        registry.capabilityModules,
+        file,
+      );
+      const capability = module?.default;
+      if (capability?.kind !== "capability" || !capability.expose?.http) continue;
+      const httpPath = normalizeCapabilityHttpPath(
+        capability.expose.http.path ?? capabilityHttpPath(name),
+      );
+      if (httpPath === normalized) return true;
+    } catch {
+      // The full resolver reports the original error; this scan only identifies paths.
+    }
+  }
+  return false;
 }
 
 interface CapabilityPipelineOptions<TContext> {

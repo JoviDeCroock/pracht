@@ -215,7 +215,7 @@ export function createPrachtCapabilitiesClientModuleSource(
     "    response = await fetch(endpoint.path, {",
     "      method: endpoint.method,",
     "      headers,",
-    "      body: JSON.stringify(input ?? {}),",
+    "      body: JSON.stringify(input === undefined ? {} : input),",
     '      credentials: "same-origin",',
     "      signal: opts && opts.signal,",
     "    });",

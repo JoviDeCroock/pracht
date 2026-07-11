@@ -257,7 +257,7 @@ export async function runScenario(
     let input: unknown;
     let headers: Record<string, string>;
     try {
-      input = resolveStepReferences(step.input ?? {}, steps);
+      input = resolveStepReferences(step.input === undefined ? {} : step.input, steps);
       headers = resolveStepReferences(step.headers ?? {}, steps) as Record<string, string>;
     } catch (error: unknown) {
       return {

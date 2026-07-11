@@ -51,6 +51,14 @@ describe("defineCapability", () => {
     expect(result).toEqual({ ok: true, value: { query: "x", limit: 10 } });
   });
 
+  it("preserves explicit null input for null schemas", () => {
+    const capability = defineCapability({
+      ...baseDefinition,
+      input: { type: "null" },
+    });
+    expect(capability.validateInput(null)).toEqual({ ok: true, value: null });
+  });
+
   it("returns path-scoped input issues", () => {
     const capability = defineCapability(baseDefinition);
     const result = capability.validateInput({ query: "x", limit: 99 });

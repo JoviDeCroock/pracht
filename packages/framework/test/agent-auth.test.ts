@@ -295,6 +295,32 @@ describe("key directory resolution", () => {
     expect(identity).toBeNull();
   });
 
+  it("cancels directory bodies as soon as they exceed the size cap", async () => {
+    let pullCount = 0;
+    let cancelled = false;
+    const fetchImpl = (async () =>
+      new Response(
+        new ReadableStream<Uint8Array>({
+          pull(controller) {
+            if (pullCount++ === 0) controller.enqueue(new Uint8Array(65_536));
+            else controller.enqueue(new Uint8Array([0]));
+          },
+          cancel() {
+            cancelled = true;
+          },
+        }),
+      )) as typeof fetch;
+
+    const identity = await verifyAgentSignature(await signedRequest(), {
+      directories: ["https://agent.example"],
+      now: () => NOW,
+      fetchImpl,
+    });
+
+    expect(identity).toBeNull();
+    expect(cancelled).toBe(true);
+  });
+
   it("parses JWKS entries, dropping non-Ed25519 and kid-mismatched keys", async () => {
     const keys = await parseDirectoryJwks({
       keys: [

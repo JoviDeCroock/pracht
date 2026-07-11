@@ -20,6 +20,8 @@ declare module "virtual:pracht/capabilities" {
     code: string;
     message: string;
     issues?: CapabilityIssue[];
+    confirmationToken?: string;
+    expiresAt?: number;
   }
   export type CapabilityEnvelope<T = unknown> =
     | { ok: true; data: T }

@@ -37,6 +37,7 @@ import {
   CAPABILITY_HTTP_PREFIX,
   envelopeResponse,
   handleCapabilityRequest,
+  isRegisteredCapabilityHttpPath,
   matchCapabilityRoute,
   resolveAppCapabilities,
   setActiveCapabilityHost,
@@ -336,7 +337,10 @@ export async function handlePrachtRequest<TContext>(
       warnCapabilityResolutionFailure(error);
       // A broken capability definition must not take down page rendering;
       // requests to capability paths still fail closed below.
-      if (url.pathname.startsWith(CAPABILITY_HTTP_PREFIX)) {
+      if (
+        url.pathname.startsWith(CAPABILITY_HTTP_PREFIX) ||
+        (await isRegisteredCapabilityHttpPath(options.app, registry, url.pathname))
+      ) {
         return withDefaultSecurityHeaders(
           envelopeResponse(500, {
             ok: false,
