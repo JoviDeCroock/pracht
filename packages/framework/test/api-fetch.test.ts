@@ -136,6 +136,28 @@ describe("apiFetch", () => {
     await expect(apiFetch("/api/empty", { fetch: emptyFetch })).resolves.toBeUndefined();
   });
 
+  it("treats HEAD responses as bodyless", async () => {
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValue(
+        new Response(null, { status: 200, headers: { "content-type": "application/json" } }),
+      );
+
+    await expect(
+      apiFetch("/api/items", { method: "HEAD", fetch: fetchSpy }),
+    ).resolves.toBeUndefined();
+  });
+
+  it("parses media types case-insensitively", async () => {
+    const fetchSpy = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ ok: true }), {
+        headers: { "content-type": "Application/JSON" },
+      }),
+    );
+
+    await expect(apiFetch("/api/items", { fetch: fetchSpy })).resolves.toEqual({ ok: true });
+  });
+
   it("rejects malformed JSON in successful responses", async () => {
     const fetchSpy = vi
       .fn()

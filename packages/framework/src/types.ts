@@ -213,8 +213,11 @@ export type ApiBodyFor<TPath extends ApiPath, TMethod extends HttpMethod> =
 export type ApiQueryFor<TPath extends ApiPath, TMethod extends HttpMethod> =
   ApiMethodTypesFor<TPath, TMethod> extends { query: infer TQuery } ? TQuery : unknown;
 
-export type ApiOutputFor<TPath extends ApiPath, TMethod extends HttpMethod> =
-  ApiMethodTypesFor<TPath, TMethod> extends { output: infer TOutput } ? TOutput : unknown;
+export type ApiOutputFor<TPath extends ApiPath, TMethod extends HttpMethod> = TMethod extends "HEAD"
+  ? undefined
+  : ApiMethodTypesFor<TPath, TMethod> extends { output: infer TOutput }
+    ? TOutput
+    : unknown;
 
 export type ApiParamsFor<TPath extends ApiPath> = HasRegisteredApiRoutes extends true
   ? ApiRouteEntryFor<TPath> extends { params: infer TParams }

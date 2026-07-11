@@ -67,7 +67,8 @@ interface UntypedApiFetchOptions extends ApiFetchBaseOptions {
  * application/json`); `FormData`, `URLSearchParams`, `Blob`, typed arrays,
  * streams, and strings pass through unchanged. Non-2xx responses throw
  * `ApiFetchError`. JSON responses are parsed; `text/*` responses resolve to
- * the text; anything else resolves to the raw `Response`.
+ * the text; `HEAD`, 204, and 205 responses resolve to `undefined`; anything
+ * else resolves to the raw `Response`.
  */
 export async function apiFetch<
   TPath extends ApiPath,
@@ -96,8 +97,9 @@ export async function apiFetch<
   }
 
   const fetchImpl = options.fetch ?? fetch;
+  const method = options.method?.toUpperCase() ?? "GET";
   const requestInit: RequestInit & { duplex?: "half" } = {
-    method: options.method ?? "GET",
+    method,
     headers,
     body,
     signal: options.signal,
@@ -108,10 +110,10 @@ export async function apiFetch<
   const response = await fetchImpl(url, requestInit);
 
   if (!response.ok) {
-    throw new ApiFetchError(response, await readResponseBody(response, true));
+    throw new ApiFetchError(response, await readResponseBody(response, method === "HEAD", true));
   }
 
-  return (await readResponseBody(response)) as ApiOutputFor<TPath, TMethod>;
+  return (await readResponseBody(response, method === "HEAD")) as ApiOutputFor<TPath, TMethod>;
 }
 
 function isRawBody(body: unknown): body is BodyInit {
@@ -130,12 +132,16 @@ function isReadableStreamBody(body: unknown): body is ReadableStream {
   return typeof ReadableStream !== "undefined" && body instanceof ReadableStream;
 }
 
-async function readResponseBody(response: Response, tolerateInvalidJson = false): Promise<unknown> {
-  if (response.status === 204 || response.status === 205) {
+async function readResponseBody(
+  response: Response,
+  bodylessMethod: boolean,
+  tolerateInvalidJson = false,
+): Promise<unknown> {
+  if (bodylessMethod || response.status === 204 || response.status === 205) {
     return undefined;
   }
 
-  const contentType = response.headers.get("content-type") ?? "";
+  const contentType = (response.headers.get("content-type") ?? "").toLowerCase();
   if (contentType.includes("json")) {
     return tolerateInvalidJson ? response.json().catch(() => undefined) : response.json();
   }

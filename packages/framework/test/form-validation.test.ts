@@ -67,6 +67,33 @@ describe("<Form> validation", () => {
     expect(issues).toEqual([[{ in: "body", message: "Name is required", path: ["name"] }]]);
   });
 
+  it("prevents invalid native GET submissions", async () => {
+    const issues: ApiValidationIssue[][] = [];
+
+    render(
+      h(
+        Form,
+        {
+          action: "/search",
+          method: "get",
+          schema: nameSchema,
+          onValidationIssues: (found) => issues.push(found),
+        },
+        h("input", { name: "name", value: "" }),
+      ),
+      root,
+    );
+
+    const form = root.querySelector("form")!;
+    const event = new Event("submit", { bubbles: true, cancelable: true });
+    form.dispatchEvent(event);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(issues).toEqual([[{ in: "body", message: "Name is required", path: ["name"] }]]);
+  });
+
   it("submits when the schema accepts the form data", async () => {
     fetchSpy.mockResolvedValue(new Response(null, { status: 200 }));
     const onValidationIssues = vi.fn();

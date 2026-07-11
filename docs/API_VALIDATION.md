@@ -157,7 +157,7 @@ Runtime behavior:
   `Content-Type: application/json`; `FormData`, `URLSearchParams`, `Blob`,
   typed arrays, streams, and strings pass through unchanged.
 - 2xx JSON responses are parsed; `text/*` responses resolve to the text;
-  204/205 resolve to `undefined`; anything else resolves to the raw
+  `HEAD`, 204, and 205 responses resolve to `undefined`; anything else resolves to the raw
   `Response`.
 - Non-2xx responses throw `ApiFetchError` carrying `status`, `response`, the
   parsed `body`, and — when the server sent the standardized validation

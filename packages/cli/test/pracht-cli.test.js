@@ -441,6 +441,10 @@ export async function main() {
   const item = await apiFetch("/api/items/:id", { params: { id: "1" } });
   const _item: { id: string } = item;
 
+  // HEAD responses are always bodyless regardless of the handler return type.
+  const head = await apiFetch("/api/items/:id", { method: "HEAD", params: { id: "1" } });
+  const _head: undefined = head;
+
   // Body is typed by the route's Standard Schema input.
   const created = await apiFetch("/api/items", { method: "POST", body: { name: "x" } });
   const _created: { created: string } = created;
@@ -726,6 +730,10 @@ export function passthroughSchema<T>(): StandardSchemaV1<T, T> {
     `import { defineApi } from "@pracht/core";
 
 export const GET = defineApi({
+  handler: ({ params }) => ({ id: params.id }),
+});
+
+export const HEAD = defineApi({
   handler: ({ params }) => ({ id: params.id }),
 });
 

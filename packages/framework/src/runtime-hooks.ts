@@ -88,6 +88,8 @@ export type LinkProps<TRoute extends RouteId = RouteId> = Omit<
     viewTransition?: boolean;
   };
 
+const validatedNativeSubmissions = new WeakSet<HTMLFormElement>();
+
 export interface Location {
   pathname: string;
   search: string;
@@ -193,18 +195,22 @@ export function Form(props: FormProps) {
     ...rest,
     method,
     onSubmit: async (event: Event) => {
+      const form = event.currentTarget;
+      if (!(form instanceof HTMLFormElement)) {
+        return;
+      }
+      if (validatedNativeSubmissions.delete(form)) {
+        return;
+      }
+
       onSubmit?.(event as never);
       if (event.defaultPrevented) {
         return;
       }
 
-      const form = event.currentTarget;
-      if (!(form instanceof HTMLFormElement)) {
-        return;
-      }
-
       const formMethod = (method ?? form.method ?? "post").toUpperCase();
-      if (SAFE_METHODS.has(formMethod)) {
+      const isSafeMethod = SAFE_METHODS.has(formMethod);
+      if (isSafeMethod && !schema) {
         return;
       }
 
@@ -218,6 +224,24 @@ export function Form(props: FormProps) {
           onValidationIssues?.(result.issues);
           return;
         }
+      }
+
+      if (isSafeMethod) {
+        validatedNativeSubmissions.add(form);
+        const submitter =
+          typeof SubmitEvent !== "undefined" && event instanceof SubmitEvent
+            ? event.submitter
+            : null;
+        try {
+          form.requestSubmit(
+            submitter instanceof HTMLButtonElement || submitter instanceof HTMLInputElement
+              ? submitter
+              : undefined,
+          );
+        } finally {
+          validatedNativeSubmissions.delete(form);
+        }
+        return;
       }
 
       clearPrefetchCache();
