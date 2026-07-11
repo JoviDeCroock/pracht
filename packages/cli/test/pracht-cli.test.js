@@ -445,6 +445,10 @@ export async function main() {
   const created = await apiFetch("/api/items", { method: "POST", body: { name: "x" } });
   const _created: { created: string } = created;
 
+  // A default handler remains available for methods without a named override.
+  const fallback = await apiFetch("/api/items/:id", { method: "PATCH", params: { id: "1" } });
+  const _fallback: unknown = fallback;
+
   // @ts-expect-error - unknown api path
   await apiFetch("/api/nope");
 
@@ -719,6 +723,10 @@ export function passthroughSchema<T>(): StandardSchemaV1<T, T> {
 export const GET = defineApi({
   handler: ({ params }) => ({ id: params.id }),
 });
+
+export default async function handler() {
+  return new Response("fallback");
+}
 
 export async function DELETE() {
   return Response.json({ deleted: true });

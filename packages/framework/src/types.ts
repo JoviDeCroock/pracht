@@ -189,14 +189,13 @@ type ApiRouteEntryFor<TPath> = TPath extends keyof RegisteredApiRouteMap
 type ApiMethodMapFor<TPath> =
   ApiRouteEntryFor<TPath> extends { methods: infer TMethods } ? TMethods : {};
 
-/**
- * HTTP methods a registered API route exports. Routes without named method
- * exports (only a `default` handler) accept every method, untyped.
- */
+/** HTTP methods handled by the registered route, including default fallbacks. */
 export type ApiMethodsFor<TPath extends ApiPath> = HasRegisteredApiRoutes extends true
-  ? Extract<keyof ApiMethodMapFor<TPath>, HttpMethod> extends never
+  ? "default" extends keyof ApiMethodMapFor<TPath>
     ? HttpMethod
-    : Extract<keyof ApiMethodMapFor<TPath>, HttpMethod>
+    : Extract<keyof ApiMethodMapFor<TPath>, HttpMethod> extends never
+      ? HttpMethod
+      : Extract<keyof ApiMethodMapFor<TPath>, HttpMethod>
   : HttpMethod;
 
 type ApiMethodTypesFor<
@@ -204,7 +203,9 @@ type ApiMethodTypesFor<
   TMethod,
 > = TMethod extends keyof ApiMethodMapFor<TPath>
   ? ApiMethodMapFor<TPath>[TMethod]
-  : { body: unknown; query: unknown; output: unknown };
+  : "default" extends keyof ApiMethodMapFor<TPath>
+    ? ApiMethodMapFor<TPath>["default"]
+    : { body: unknown; query: unknown; output: unknown };
 
 export type ApiBodyFor<TPath extends ApiPath, TMethod extends HttpMethod> =
   ApiMethodTypesFor<TPath, TMethod> extends { body: infer TBody } ? TBody : unknown;

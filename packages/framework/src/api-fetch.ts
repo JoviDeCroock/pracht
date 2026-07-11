@@ -96,15 +96,19 @@ export async function apiFetch<
   }
 
   const fetchImpl = options.fetch ?? fetch;
-  const response = await fetchImpl(url, {
+  const requestInit: RequestInit & { duplex?: "half" } = {
     method: options.method ?? "GET",
     headers,
     body,
     signal: options.signal,
-  });
+  };
+  if (isReadableStreamBody(body)) {
+    requestInit.duplex = "half";
+  }
+  const response = await fetchImpl(url, requestInit);
 
   if (!response.ok) {
-    throw new ApiFetchError(response, await readResponseBody(response));
+    throw new ApiFetchError(response, await readResponseBody(response, true));
   }
 
   return (await readResponseBody(response)) as ApiOutputFor<TPath, TMethod>;
@@ -118,18 +122,22 @@ function isRawBody(body: unknown): body is BodyInit {
     body instanceof Blob ||
     body instanceof ArrayBuffer ||
     ArrayBuffer.isView(body) ||
-    (typeof ReadableStream !== "undefined" && body instanceof ReadableStream)
+    isReadableStreamBody(body)
   );
 }
 
-async function readResponseBody(response: Response): Promise<unknown> {
+function isReadableStreamBody(body: unknown): body is ReadableStream {
+  return typeof ReadableStream !== "undefined" && body instanceof ReadableStream;
+}
+
+async function readResponseBody(response: Response, tolerateInvalidJson = false): Promise<unknown> {
   if (response.status === 204 || response.status === 205) {
     return undefined;
   }
 
   const contentType = response.headers.get("content-type") ?? "";
   if (contentType.includes("json")) {
-    return response.json().catch(() => undefined);
+    return tolerateInvalidJson ? response.json().catch(() => undefined) : response.json();
   }
   if (contentType.startsWith("text/")) {
     return response.text();

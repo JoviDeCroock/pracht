@@ -343,5 +343,5 @@ export type ApiHandlerTypes<THandler> = THandler extends {
  * `Register["apiRoutes"]`, which `apiFetch()` reads for end-to-end types.
  */
 export type ApiRouteMethodMap<TModule> = {
-  [TMethod in HttpMethod & keyof TModule]: ApiHandlerTypes<TModule[TMethod]>;
+  [TMethod in (HttpMethod | "default") & keyof TModule]: ApiHandlerTypes<TModule[TMethod]>;
 };

@@ -76,6 +76,20 @@ describe("apiFetch", () => {
     expect(init.headers.has("content-type")).toBe(false);
   });
 
+  it("sets the Node fetch duplex option for stream bodies", async () => {
+    const fetchSpy = vi.fn().mockResolvedValue(jsonResponse({ ok: true }));
+    const body = new ReadableStream({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode("pracht"));
+        controller.close();
+      },
+    });
+
+    await apiFetch("/api/items", { method: "POST", body, fetch: fetchSpy });
+
+    expect(fetchSpy.mock.calls[0][1]).toMatchObject({ body, duplex: "half" });
+  });
+
   it("throws ApiFetchError with normalized issues on 422 validation failures", async () => {
     const fetchSpy = vi.fn().mockResolvedValue(
       jsonResponse(
@@ -120,5 +134,15 @@ describe("apiFetch", () => {
 
     const emptyFetch = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));
     await expect(apiFetch("/api/empty", { fetch: emptyFetch })).resolves.toBeUndefined();
+  });
+
+  it("rejects malformed JSON in successful responses", async () => {
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValue(
+        new Response("{broken", { headers: { "content-type": "application/json" } }),
+      );
+
+    await expect(apiFetch("/api/items", { fetch: fetchSpy })).rejects.toBeInstanceOf(SyntaxError);
   });
 });
