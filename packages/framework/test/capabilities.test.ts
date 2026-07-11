@@ -600,6 +600,36 @@ describe("form-encoded capability dispatch (<Form capability> fallback)", () => 
     expect(await response.json()).toEqual({ ok: true, data: { notes: ["roadmap:5"] } });
   });
 
+  it("rejects multipart files outside the capability JSON data model", async () => {
+    let ran = false;
+    const capability = createSearchCapability({
+      input: { type: "object" },
+      async run() {
+        ran = true;
+        return { notes: [] };
+      },
+    });
+    const { app, registry } = createApp(capability);
+    const form = new FormData();
+    form.set("upload", new Blob(["data"]), "notes.txt");
+
+    const response = await handlePrachtRequest({
+      app,
+      registry,
+      request: new Request("http://localhost/api/capabilities/notes/search", {
+        method: "POST",
+        body: form,
+      }),
+    });
+
+    expect(response.status).toBe(400);
+    expect((await response.json()).error).toMatchObject({
+      code: "invalid_input",
+      issues: [{ path: "/upload", message: "must be JSON-serializable, got object" }],
+    });
+    expect(ran).toBe(false);
+  });
+
   it("redirects successful document form posts back to the referring page", async () => {
     const { app, registry } = createApp(createSearchCapability());
 

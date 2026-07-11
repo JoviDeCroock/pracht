@@ -17,9 +17,10 @@
  * import statement's `defineCapability` binding.
  */
 export function extractDefineCapabilityArgs(source: string): string | null {
-  const callMatch = /defineCapability\s*(?:<[^(]*?>)?\s*\(/.exec(source);
+  const searchable = maskCommentsAndStrings(source);
+  const callMatch = /defineCapability\s*(?:<[^(]*?>)?\s*\(/.exec(searchable);
   if (!callMatch || callMatch.index == null) return null;
-  const braceStart = source.indexOf("{", callMatch.index + callMatch[0].length - 1);
+  const braceStart = searchable.indexOf("{", callMatch.index + callMatch[0].length - 1);
   if (braceStart === -1) return null;
   const braceEnd = findMatchingBrace(source, braceStart, "{", "}");
   if (braceEnd === -1) return null;
@@ -78,13 +79,14 @@ export function extractCapabilityRegistrations(
 ): { name: string; file: string }[] {
   const block = findTopLevelObjectProperty(manifestSource, "capabilities");
   if (!block) return [];
+  const searchableBlock = maskComments(block);
 
   const entries: { name: string; file: string }[] = [];
   // Keys are usually quoted ("notes.search"); values are either lazy import
   // functions or plain string paths (post-transform form).
   const pattern =
     /(?:(["'])((?:\\.|(?!\1).)+)\1|([A-Za-z0-9_$]+))\s*:\s*(?:\(\)\s*=>\s*import\(\s*(["'])([^"']+)\4\s*\)|(["'])([^"']+)\6)/g;
-  for (const match of block.matchAll(pattern)) {
+  for (const match of searchableBlock.matchAll(pattern)) {
     entries.push({ name: match[2] ?? match[3], file: match[5] ?? match[7] });
   }
   return entries;
@@ -95,10 +97,11 @@ export function extractCapabilityRegistrations(
  * source file (used for the manifest's `capabilities` block).
  */
 export function findTopLevelObjectProperty(source: string, key: string): string | null {
+  const searchable = maskCommentsAndStrings(source);
   const pattern = new RegExp(`\\b${key}\\s*:\\s*\\{`);
-  const match = pattern.exec(source);
+  const match = pattern.exec(searchable);
   if (!match || match.index == null) return null;
-  const braceStart = source.indexOf("{", match.index);
+  const braceStart = searchable.indexOf("{", match.index);
   const braceEnd = findMatchingBrace(source, braceStart, "{", "}");
   if (braceEnd === -1) return null;
   return source.slice(braceStart + 1, braceEnd);
@@ -156,6 +159,56 @@ function skipInsignificant(source: string, start: number): number {
     break;
   }
   return index;
+}
+
+/**
+ * Replace comments (and optionally strings) with spaces while preserving
+ * source offsets. Regex-based entry-point discovery can then only match live
+ * code, while the real source remains available for brace-aware extraction.
+ */
+function maskLexicalNoise(source: string, maskStrings: boolean): string {
+  const chars = source.split("");
+  let index = 0;
+  while (index < source.length) {
+    const char = source[index];
+    if (char === '"' || char === "'" || char === "`") {
+      const end = findStringEnd(source, index);
+      if (end === -1) return chars.slice(0, index).join("") + " ".repeat(source.length - index);
+      if (maskStrings) {
+        for (let cursor = index; cursor <= end; cursor += 1) {
+          if (chars[cursor] !== "\n" && chars[cursor] !== "\r") chars[cursor] = " ";
+        }
+      }
+      index = end + 1;
+      continue;
+    }
+    if (char === "/" && source[index + 1] === "/") {
+      const end = source.indexOf("\n", index + 2);
+      const limit = end === -1 ? source.length : end;
+      for (let cursor = index; cursor < limit; cursor += 1) chars[cursor] = " ";
+      index = limit;
+      continue;
+    }
+    if (char === "/" && source[index + 1] === "*") {
+      const close = source.indexOf("*/", index + 2);
+      const limit = close === -1 ? source.length : close + 2;
+      for (let cursor = index; cursor < limit; cursor += 1) {
+        if (chars[cursor] !== "\n" && chars[cursor] !== "\r") chars[cursor] = " ";
+      }
+      index = limit;
+      continue;
+    }
+    index += 1;
+  }
+  return chars.join("");
+}
+
+function maskComments(source: string): string {
+  return maskLexicalNoise(source, false);
+}
+
+function maskCommentsAndStrings(source: string): string {
+  return maskLexicalNoise(source, true);
 }
 
 /** Index of the closing quote of the string starting at `start`. */

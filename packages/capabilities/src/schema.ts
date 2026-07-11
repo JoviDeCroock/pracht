@@ -127,6 +127,17 @@ export function collectInvalidSchemaKeywordValues(schema: unknown, path = ""): s
   }
   if ("enum" in schema && (!Array.isArray(schema.enum) || schema.enum.length === 0)) {
     invalid.push(`${path}/enum:<expected non-empty array>`);
+  } else if (Array.isArray(schema.enum)) {
+    for (const [index, value] of schema.enum.entries()) {
+      if (!isJsonValue(value)) {
+        invalid.push(`${path}/enum/${index}:<expected JSON value>`);
+      }
+    }
+  }
+  for (const keyword of ["const", "default"] as const) {
+    if (keyword in schema && !isJsonValue(schema[keyword])) {
+      invalid.push(`${path}/${keyword}:<expected JSON value>`);
+    }
   }
   for (const keyword of ["minimum", "maximum"] as const) {
     if (
@@ -212,6 +223,16 @@ export function validateAgainstSchema(
   value: unknown,
   path = "",
 ): CapabilityIssue[] {
+  const nonJsonIssue = findNonJsonIssue(value, path);
+  if (nonJsonIssue) return [nonJsonIssue];
+  return validateJsonAgainstSchema(schema, value, path);
+}
+
+function validateJsonAgainstSchema(
+  schema: unknown,
+  value: unknown,
+  path: string,
+): CapabilityIssue[] {
   if (!isPlainObject(schema)) return [];
 
   const issues: CapabilityIssue[] = [];
@@ -270,7 +291,7 @@ export function validateAgainstSchema(
     for (const [name, propertyValue] of Object.entries(value)) {
       if (Object.hasOwn(properties, name)) {
         const propertySchema = properties[name];
-        issues.push(...validateAgainstSchema(propertySchema, propertyValue, `${path}/${name}`));
+        issues.push(...validateJsonAgainstSchema(propertySchema, propertyValue, `${path}/${name}`));
         continue;
       }
 
@@ -278,7 +299,11 @@ export function validateAgainstSchema(
         issues.push({ path: `${path}/${name}`, message: "is not an allowed property" });
       } else if (isPlainObject(schema.additionalProperties)) {
         issues.push(
-          ...validateAgainstSchema(schema.additionalProperties, propertyValue, `${path}/${name}`),
+          ...validateJsonAgainstSchema(
+            schema.additionalProperties,
+            propertyValue,
+            `${path}/${name}`,
+          ),
         );
       }
     }
@@ -286,11 +311,74 @@ export function validateAgainstSchema(
 
   if (Array.isArray(value) && isPlainObject(schema.items)) {
     for (let index = 0; index < value.length; index += 1) {
-      issues.push(...validateAgainstSchema(schema.items, value[index], `${path}/${index}`));
+      issues.push(...validateJsonAgainstSchema(schema.items, value[index], `${path}/${index}`));
     }
   }
 
   return issues;
+}
+
+/**
+ * JSON Schema describes JSON data, so reject JavaScript-only values even when
+ * the schema is unconstrained or permits additional properties. This matters
+ * for direct invocation and multipart forms, which can otherwise introduce
+ * values such as `File`/`Blob` that JSON requests can never represent.
+ */
+function findNonJsonIssue(
+  value: unknown,
+  path: string,
+  ancestors = new Set<object>(),
+): CapabilityIssue | null {
+  if (
+    value === null ||
+    typeof value === "string" ||
+    typeof value === "boolean" ||
+    (typeof value === "number" && Number.isFinite(value))
+  ) {
+    return null;
+  }
+
+  if (typeof value !== "object") {
+    return { path, message: `must be JSON-serializable, got ${typeof value}` };
+  }
+  if (!Array.isArray(value) && !isPlainObject(value)) {
+    return { path, message: "must be JSON-serializable, got object" };
+  }
+  if (ancestors.has(value)) {
+    return { path, message: "must be JSON-serializable, got a circular reference" };
+  }
+
+  ancestors.add(value);
+  if (Array.isArray(value)) {
+    for (let index = 0; index < value.length; index += 1) {
+      if (!Object.hasOwn(value, index)) {
+        ancestors.delete(value);
+        return {
+          path: `${path}/${index}`,
+          message: "must be JSON-serializable, got a sparse array slot",
+        };
+      }
+      const issue = findNonJsonIssue(value[index], `${path}/${index}`, ancestors);
+      if (issue) {
+        ancestors.delete(value);
+        return issue;
+      }
+    }
+  } else {
+    for (const [key, entry] of Object.entries(value)) {
+      const issue = findNonJsonIssue(entry, `${path}/${key}`, ancestors);
+      if (issue) {
+        ancestors.delete(value);
+        return issue;
+      }
+    }
+  }
+  ancestors.delete(value);
+  return null;
+}
+
+function isJsonValue(value: unknown): boolean {
+  return findNonJsonIssue(value, "") === null;
 }
 
 function matchesType(type: string, value: unknown): boolean {

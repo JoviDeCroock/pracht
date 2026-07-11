@@ -60,10 +60,30 @@ describe("validateAgainstSchema", () => {
 
     for (const value of [new Date(), new Map(), new Instance()]) {
       expect(validateAgainstSchema({ type: "object" }, value)).toEqual([
-        { path: "", message: "must be of type object, got object" },
+        { path: "", message: "must be JSON-serializable, got object" },
       ]);
     }
     expect(validateAgainstSchema({ type: "object" }, Object.create(null))).toEqual([]);
+  });
+
+  it("rejects non-JSON values through unconstrained and additional properties", () => {
+    expect(validateAgainstSchema({}, { upload: new Blob(["data"]) })).toEqual([
+      { path: "/upload", message: "must be JSON-serializable, got object" },
+    ]);
+    expect(validateAgainstSchema({ type: "object" }, { value: undefined })).toEqual([
+      { path: "/value", message: "must be JSON-serializable, got undefined" },
+    ]);
+
+    const circular: Record<string, unknown> = {};
+    circular.self = circular;
+    expect(validateAgainstSchema({}, circular)).toEqual([
+      { path: "/self", message: "must be JSON-serializable, got a circular reference" },
+    ]);
+
+    const sparse = Array(1);
+    expect(validateAgainstSchema({}, sparse)).toEqual([
+      { path: "/0", message: "must be JSON-serializable, got a sparse array slot" },
+    ]);
   });
 
   it("enforces integer vs number", () => {
@@ -232,6 +252,20 @@ describe("collectInvalidSchemaKeywordValues", () => {
       "/type:<expected supported type string>",
       "/additionalProperties:<expected boolean or schema object>",
       "/properties/nested/required:<expected string array>",
+    ]);
+  });
+
+  it("rejects non-JSON const, default, and enum values", () => {
+    expect(
+      collectInvalidSchemaKeywordValues({
+        const: 1n,
+        default: undefined,
+        enum: ["ok", new Date()],
+      }),
+    ).toEqual([
+      "/enum/1:<expected JSON value>",
+      "/const:<expected JSON value>",
+      "/default:<expected JSON value>",
     ]);
   });
 });
