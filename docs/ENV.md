@@ -9,10 +9,10 @@ code.
 
 ## The model
 
-| Surface     | Import                      | Contents                              | Where it works        |
-| ----------- | --------------------------- | ------------------------------------- | --------------------- |
-| `serverEnv` | `@pracht/core/env/server`   | The full platform env                 | Server code only      |
-| `publicEnv` | `@pracht/core` (any entry)  | Only `PRACHT_PUBLIC_`-prefixed vars   | Everywhere            |
+| Surface     | Import                     | Contents                            | Where it works   |
+| ----------- | -------------------------- | ----------------------------------- | ---------------- |
+| `serverEnv` | `@pracht/core/env/server`  | The full platform env               | Server code only |
+| `publicEnv` | `@pracht/core` (any entry) | Only `PRACHT_PUBLIC_`-prefixed vars | Everywhere       |
 
 ```ts
 // Server code (loaders, middleware, API routes, src/server/**):
@@ -31,7 +31,11 @@ The pracht Vite plugin adds `PRACHT_PUBLIC_` to Vite's
 [`envPrefix`](https://vite.dev/config/shared-options#envprefix) (alongside the
 default `VITE_`), so prefixed variables are also available directly as
 `import.meta.env.PRACHT_PUBLIC_*` in dev and statically inlined at build time.
-Because values are inlined, never put a secret behind the prefix.
+Because values are inlined, never put a secret behind `PRACHT_PUBLIC_`.
+Although Vite still exposes `VITE_` variables through `import.meta.env` for
+compatibility, Pracht does not treat `VITE_` as an intentionally public prefix:
+client references such as `import.meta.env.VITE_SECRET` fail env leak detection
+unless explicitly allowlisted.
 
 `publicEnv` reads `import.meta.env` when Vite provides it and falls back to
 `process.env` outside Vite (plain Node entries, tests). It is a snapshot of
@@ -85,9 +89,9 @@ Custom setups can call `setServerEnv(env)` (exported from
 
 During `pracht build` the plugin scans every client chunk for references to
 `process.env.X` / `import.meta.env.X` (including `["X"]` bracket access) where
-`X` is not `PRACHT_PUBLIC_`- or `VITE_`-prefixed and not a Vite built-in
-(`MODE`, `DEV`, `PROD`, `SSR`, `BASE_URL`, plus `NODE_ENV`, which Vite
-statically replaces).
+`X` is not `PRACHT_PUBLIC_`-prefixed and not a Vite built-in (`MODE`,
+`DEV`, `PROD`, `SSR`, `BASE_URL`, plus `NODE_ENV`, which Vite statically
+replaces).
 References are matched both in the rendered chunks and in the transformed
 sources of first-party modules that end up in a chunk — bundlers rewrite
 `process.env` in client output, so the source-level signal is what catches
@@ -116,7 +120,7 @@ pracht({
 
 ### Limits
 
-The check detects *references*, not values: a secret returned from a loader
+The check detects _references_, not values: a secret returned from a loader
 still reaches the client through hydration state, and a value inlined via a
 custom `define` is invisible to the scan. Use the `audit-secrets` skill for
 dataflow-level review of loader return values.

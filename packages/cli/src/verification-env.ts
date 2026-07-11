@@ -8,8 +8,6 @@ import { createCheck, type Check } from "./verification-helpers.js";
 // depend on @pracht/vite-plugin, so the (small) scan logic is mirrored here.
 const VITE_BUILTIN_ENV_VARS = new Set(["MODE", "DEV", "PROD", "SSR", "BASE_URL", "NODE_ENV"]);
 const PUBLIC_ENV_PREFIX = "PRACHT_PUBLIC_";
-const VITE_PUBLIC_ENV_PREFIX = "VITE_";
-const PUBLIC_ENV_PREFIXES = [PUBLIC_ENV_PREFIX, VITE_PUBLIC_ENV_PREFIX] as const;
 const ENV_REFERENCE_RE =
   /\b(process\.env|import\.meta\.env)(?:\.([A-Za-z_$][A-Za-z0-9_$]*)|\[\s*(["'])([A-Za-z_$][A-Za-z0-9_$]*)\3\s*\])/g;
 
@@ -20,7 +18,12 @@ export interface EnvLeakFinding {
 }
 
 interface BuildEnvSafetyReport {
-  findings?: Array<{ accessor?: unknown; chunk?: unknown; name?: unknown; sources?: unknown }>;
+  findings?: Array<{
+    accessor?: unknown;
+    chunk?: unknown;
+    name?: unknown;
+    sources?: unknown;
+  }>;
 }
 
 export function scanSourceForEnvLeaks(
@@ -36,7 +39,7 @@ export function scanSourceForEnvLeaks(
     const accessor = match[1];
     const name = match[2] ?? match[4];
     if (!name) continue;
-    if (PUBLIC_ENV_PREFIXES.some((prefix) => name.startsWith(prefix))) continue;
+    if (name.startsWith(PUBLIC_ENV_PREFIX)) continue;
     if (VITE_BUILTIN_ENV_VARS.has(name)) continue;
     if (allow.has(name)) continue;
 
@@ -340,7 +343,7 @@ export function collectEnvLeakVerification(
           .map(
             (finding) => `${finding.accessor}.${finding.name} in ${JSON.stringify(finding.file)}`,
           )
-          .join("; ")}. Only PRACHT_PUBLIC_- or VITE_-prefixed variables are safe client-side.`,
+          .join("; ")}. Only PRACHT_PUBLIC_-prefixed variables are safe client-side.`,
       ),
     );
   } else if (!buildReportFindings) {

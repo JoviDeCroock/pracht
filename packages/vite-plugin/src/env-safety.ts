@@ -16,8 +16,6 @@ export const VITE_BUILTIN_ENV_VARS = new Set([
 
 /** Prefix that marks an env var as intentionally public. */
 export const PUBLIC_ENV_PREFIX = "PRACHT_PUBLIC_";
-export const VITE_PUBLIC_ENV_PREFIX = "VITE_";
-const PUBLIC_ENV_PREFIXES = [PUBLIC_ENV_PREFIX, VITE_PUBLIC_ENV_PREFIX] as const;
 
 /** Server-only core entry that must never resolve into client bundles. */
 export const SERVER_ENV_MODULE_ID = "@pracht/core/env/server";
@@ -59,7 +57,7 @@ export function scanCodeForEnvLeaks(
     const accessor = match[1] as EnvLeakReference["accessor"];
     const name = match[2] ?? match[4];
     if (!name) continue;
-    if (PUBLIC_ENV_PREFIXES.some((prefix) => name.startsWith(prefix))) continue;
+    if (name.startsWith(PUBLIC_ENV_PREFIX)) continue;
     if (VITE_BUILTIN_ENV_VARS.has(name)) continue;
     if (allow.has(name)) continue;
 
@@ -284,7 +282,7 @@ export function formatEnvLeakError(problems: EnvLeakProblem[]): string {
     "[pracht] Environment variable leak detected in the client bundle:",
     ...lines,
     "",
-    `Only PRACHT_PUBLIC_- or VITE_-prefixed variables may be referenced in client code (prefer publicEnv from "@pracht/core" for typed PRACHT_PUBLIC_ values).`,
+    `Only PRACHT_PUBLIC_-prefixed variables may be referenced in client code (prefer publicEnv from "@pracht/core" for typed public values).`,
     `Move server-only reads into loaders/API routes and access them via serverEnv from "@pracht/core/env/server",`,
     "or allowlist intentionally-safe names with pracht({ envSafety: { allow: [...] } }).",
   ].join("\n");
