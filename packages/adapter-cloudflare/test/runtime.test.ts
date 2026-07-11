@@ -353,6 +353,40 @@ describe("createCloudflareFetchHandler webhook revalidation", () => {
     await expect(store.get(keyUrl)!.clone().text()).resolves.toContain("fresh-content");
   });
 
+  it("isolates malformed manifest metadata to one webhook path", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const { cache, store } = createMockCaches();
+    vi.stubGlobal("caches", { default: cache });
+    const { executionContext } = createExecutionContext();
+    const host = "hook-malformed.example";
+    const keyUrl = cacheKeyUrl("/pricing", host);
+    putCachedISGPage(store, keyUrl, "<html>old</html>", Date.now() - 10_000);
+
+    const { app, registry } = createPricingApp();
+    const handler = createCloudflareFetchHandler({
+      app,
+      registry,
+      isgManifest: {
+        "/malformed": { revalidate: { kind: "cms" } as never },
+        "/pricing": { revalidate: isgRevalidate },
+      },
+    });
+
+    const response = await handler(
+      createWebhookRequest(host, ["/malformed", "/pricing"], "secret"),
+      { ASSETS: create404Assets(), PRACHT_REVALIDATE_TOKEN: "secret" },
+      executionContext,
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      failed: ["/malformed"],
+      revalidated: ["/pricing"],
+      skipped: [],
+    });
+    await expect(store.get(keyUrl)!.clone().text()).resolves.toContain("fresh-content");
+  });
+
   it("reports failed regenerations and keeps the cached copy", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
     const { cache, store } = createMockCaches();
