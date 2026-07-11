@@ -193,6 +193,25 @@ describe("extractCapabilities", () => {
 
     expect(() => extractCapabilities({}, root)).toThrow(/inline object literal/);
   });
+
+  it("does not execute expressions while extracting projection metadata", () => {
+    const marker = `__prachtProjectionExecuted_${Date.now()}`;
+    const root = createFixture({
+      capabilities: {
+        "notes-search.ts": SEARCH_CAPABILITY.replace(
+          /input: \{[\s\S]*?\n  \},/,
+          `input: (() => { globalThis.${marker} = true; return { type: "object" }; })(),`,
+        ),
+      },
+    });
+
+    try {
+      expect(() => extractCapabilities({}, root)).toThrow(/inline object literal/);
+      expect((globalThis as Record<string, unknown>)[marker]).toBeUndefined();
+    } finally {
+      delete (globalThis as Record<string, unknown>)[marker];
+    }
+  });
 });
 
 describe("createPrachtCapabilitiesClientModuleSource", () => {

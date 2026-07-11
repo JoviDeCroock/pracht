@@ -1,8 +1,10 @@
 # Pracht Capability Graph
 
 **Status:** Accepted — Stage 1, Stage 2b, and the trust layer shipped; see the
-[decision log](#decision-log-2026-07-11)  
-**Date:** 2026-07-10 (decision log added 2026-07-11)  
+[decision log](#decision-log-2026-07-11)
+
+**Date:** 2026-07-10 (decision log added 2026-07-11)
+
 **Recommendation:** Make typed, protocol-neutral application capabilities the next major Pracht
 primitive.
 
