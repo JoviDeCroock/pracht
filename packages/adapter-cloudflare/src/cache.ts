@@ -118,9 +118,10 @@ export function findCacheableIsgRoute(
  * - `Cache-Control: public, max-age=0, must-revalidate` — browsers keep
  *   revalidating, matching the Node adapter's ISG responses.
  * - `Cache-Tag` — `pracht:isg` plus the route tag, for `purgeCache()`.
- * - `Vary: Accept` — Markdown-for-Agents negotiation returns a different
- *   body for `Accept: text/markdown`, so cached variants must be keyed by
- *   the Accept header.
+ * Markdown-capable routes already carry `Vary: Accept` from the core runtime
+ * on both their HTML and markdown responses. Routes without a `markdown`
+ * export deliberately do not vary so verbatim Accept values cannot fragment
+ * their edge cache.
  *
  * A user-set `Cache-Control` or `cloudflare-cdn-cache-control` (via a
  * route/shell `headers()` export or middleware) takes full precedence:
@@ -148,7 +149,6 @@ export function applyWorkersCacheHeaders(
   );
   headers.set("cache-control", "public, max-age=0, must-revalidate");
   headers.set("cache-tag", `${ISG_CACHE_TAG},${routeCacheTag(route.id ?? route.path)}`);
-  appendVary(headers, "Accept");
 
   return new Response(response.body, {
     status: response.status,
@@ -191,17 +191,6 @@ export function preventHeuristicCaching(request: Request, response: Response): R
       headers,
     });
   }
-}
-
-function appendVary(headers: Headers, value: string): void {
-  const current = headers.get("vary");
-  if (!current) {
-    headers.set("vary", value);
-    return;
-  }
-  const values = current.split(",").map((part) => part.trim().toLowerCase());
-  if (values.includes("*") || values.includes(value.toLowerCase())) return;
-  headers.set("vary", `${current}, ${value}`);
 }
 
 export interface PurgeCacheOptions {

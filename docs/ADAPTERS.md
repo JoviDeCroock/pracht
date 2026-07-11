@@ -305,8 +305,9 @@ With the option on:
   browser-facing header is `Cache-Control: public, max-age=0,
   must-revalidate`, matching the Node adapter's ISG behavior.
 - Responses carry `Cache-Tag: pracht:isg,pracht:route:<id>` so they can be
-  purged, and `Vary: Accept` so Markdown-for-Agents negotiation caches HTML
-  and markdown variants separately.
+  purged. Routes that export `markdown` also carry `Vary: Accept` on both
+  their HTML and markdown responses so the representations stay separate;
+  routes without that export do not vary on `Accept`.
 - A route/shell `headers()` export that sets `Cache-Control` (or
   `cloudflare-cdn-cache-control`) takes full precedence — pracht adds
   nothing, so individual routes can opt out or tune their own policy.
@@ -320,6 +321,38 @@ With the option on:
   carry no `Cache-Control` header — and `Cookie` is not part of the cache
   key, so SSR pages (including authenticated ones) and API GET responses
   would be edge-cached across users.
+
+#### Cache-key cardinality
+
+Workers Caching keys inbound requests by the exact path and query string.
+Query parameter order and trailing slashes are significant, so `/pricing`,
+`/pricing?ref=a`, and `/pricing?ref=b` populate independent entries with
+independent revalidation cycles. This differs from Pracht's Node and
+worker-managed Cloudflare ISG caches, which key generated pages by pathname.
+It also means arbitrary public query values can create unbounded edge entries
+and force cold renders.
+
+Pracht cannot replace the cache key from inside the cached entrypoint: on a
+hit, Workers Caching answers before that Worker runs, and custom `cf.cacheKey`
+values are only honored for same-account calls from another entrypoint. Before
+enabling Workers Caching, keep ISG query shapes bounded and canonical:
+
+- Redirect or reject unsupported query parameters and enforce one trailing-
+  slash form in an uncached gateway before it calls the cached entrypoint.
+- If query parameters do not affect the page, have that gateway call a cached
+  entrypoint with a pathname-only `cf.cacheKey`. This adds a gateway invocation
+  but collapses tracking and attacker-chosen values onto one cache entry.
+- If a route genuinely renders different content for an unbounded query space,
+  opt it out with a route `Cache-Control: private, no-store` header or do not
+  enable Workers Caching for that deployment.
+
+Cloudflare compares request-header values named by `Vary` verbatim. Pracht
+therefore adds `Vary: Accept` only to routes that actually export `markdown`,
+but those routes can still accumulate variants for semantically equivalent
+browser and agent `Accept` strings. For high-traffic markdown-capable routes,
+normalize `Accept` to a small HTML/markdown set in the same uncached-gateway
+pattern. Purges by Pracht's cache tags or path prefixes invalidate all variants
+of the matching URL together.
 
 Because cache hits skip the Worker entirely, middleware does not run for
 cached ISG pages. That matches the previous behavior (static snapshots were

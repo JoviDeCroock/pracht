@@ -9,7 +9,7 @@ import {
   shouldExposeServerErrors,
   type PrachtRuntimeDiagnosticPhase,
 } from "./runtime-errors.ts";
-import { withDefaultSecurityHeaders } from "./runtime-headers.ts";
+import { appendVaryHeader, withDefaultSecurityHeaders } from "./runtime-headers.ts";
 import { PrachtRuntimeProvider } from "./runtime-context.ts";
 import { buildHtmlDocument, htmlResponse } from "./runtime-html.ts";
 import {
@@ -426,14 +426,25 @@ export async function handlePrachtRequest<TContext>(
         mergeDocumentHeaders(shellModule, routeModule, routeArgs, data),
       ]);
 
+      // Both representations must carry the same Vary header so a cache
+      // filled by an HTML request can never satisfy a later markdown request
+      // (or vice versa). Keep the variance scoped to routes that actually
+      // export markdown: raw Accept values create distinct cache variants on
+      // CDNs such as Cloudflare Workers Caching.
+      const markdownRepresentation =
+        typeof routeModule.markdown === "string" ? routeModule.markdown : undefined;
+      if (markdownRepresentation !== undefined) {
+        appendVaryHeader(documentHeaders, "Accept");
+      }
+
       // Markdown-for-Agents negotiation must run after loader + header
       // resolution so auth redirects/401s and cache policies still apply.
       if (
         !isRouteStateRequest &&
-        typeof routeModule.markdown === "string" &&
+        markdownRepresentation !== undefined &&
         prefersMarkdown(options.request.headers.get("accept"))
       ) {
-        return markdownResponse(routeModule.markdown, documentHeaders);
+        return markdownResponse(markdownRepresentation, documentHeaders);
       }
 
       const cssUrls = resolvePageCssUrls(

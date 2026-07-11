@@ -78,6 +78,7 @@ describe("handlePrachtRequest markdown negotiation", () => {
 
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")?.includes("text/html")).toBe(true);
+    expect(response.headers.get("vary")?.toLowerCase()).toContain("accept");
   });
 
   it("falls through to HTML when the route has no markdown export", async () => {
@@ -97,6 +98,7 @@ describe("handlePrachtRequest markdown negotiation", () => {
 
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")?.includes("text/html")).toBe(true);
+    expect(response.headers.get("vary")?.toLowerCase()).not.toContain("accept");
   });
 
   it("runs loader and preserves document headers before returning markdown", async () => {

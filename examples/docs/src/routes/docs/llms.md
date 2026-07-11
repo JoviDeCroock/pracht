@@ -22,7 +22,7 @@ curl https://pracht.resynapse.dev/docs/routing
 curl -H "Accept: text/markdown" https://pracht.resynapse.dev/docs/routing
 ```
 
-The response includes `Content-Type: text/markdown; charset=utf-8` and `Vary: Accept`, so caches keep the HTML and Markdown variants separate.
+The HTML and Markdown responses include `Vary: Accept`, so caches keep both representations separate. Routes without a `markdown` export do not vary on `Accept`.
 
 ---
 
