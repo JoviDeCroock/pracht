@@ -79,6 +79,16 @@ describe("validateAgainstSchema", () => {
     ]);
   });
 
+  it("rejects prototype-named properties unless explicitly declared", () => {
+    const closedSchema = { type: "object", properties: {}, additionalProperties: false };
+    for (const name of ["constructor", "toString", "__proto__"]) {
+      const input = JSON.parse(`{${JSON.stringify(name)}:1}`);
+      expect(validateAgainstSchema(closedSchema, input)).toEqual([
+        { path: `/${name}`, message: "is not an allowed property" },
+      ]);
+    }
+  });
+
   it("validates array items with indexed paths", () => {
     expect(validateAgainstSchema(schema, { query: "x", tags: ["ok", 7] })).toEqual([
       { path: "/tags/1", message: "must be of type string, got number" },

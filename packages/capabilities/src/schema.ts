@@ -264,8 +264,8 @@ export function validateAgainstSchema(schema: unknown, value: unknown, path = ""
     }
 
     for (const [name, propertyValue] of Object.entries(value)) {
-      const propertySchema = properties[name];
-      if (propertySchema !== undefined) {
+      if (Object.hasOwn(properties, name)) {
+        const propertySchema = properties[name];
         issues.push(...validateAgainstSchema(propertySchema, propertyValue, `${path}/${name}`));
         continue;
       }
