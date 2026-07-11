@@ -595,13 +595,15 @@ curl -X POST https://example.com/__pracht/revalidate \
   -d '{"paths":["/pricing"]}'
 ```
 
-The body must include `paths` as an array of concrete URL paths. The endpoint
-returns JSON with `revalidated`, `skipped`, and `failed` path arrays. A path is
-skipped when it is not an ISG route, is not in the prerender manifest, or does
-not opt into `webhookRevalidate()`. A path lands in `failed` when regeneration
-did not produce cacheable 200 HTML (loader error, `Set-Cookie`, `Cache-Control:
-private`/`no-store`, cache write failure); the previously generated copy stays
-live, and the batch continues instead of aborting with a 500.
+The body must include `paths` as an array of at most 64 concrete URL paths;
+larger batches are rejected with `400`. The endpoint returns JSON with
+`revalidated`, `skipped`, and `failed` path arrays. A path is skipped when it is
+not an ISG route, is not in the prerender manifest, or does not opt into
+`webhookRevalidate()`. A path lands in `failed` when regeneration did not
+produce cacheable 200 HTML (loader error, malformed manifest metadata,
+`Set-Cookie`, `Cache-Control: private`/`no-store`, cache write failure); the
+previously generated copy stays live, and the batch continues instead of
+aborting with a 500.
 
 Set `PRACHT_REVALIDATE_TOKEN` in the deployment environment. Auth uses a
 constant-time comparison and fails closed with `401` when the token is missing
@@ -615,6 +617,12 @@ headers, locale, or other user-specific headers. Adapters synthesize a clean
 Concurrent regenerations of the same path are single-flighted: a stampede of
 stale requests (or repeated webhook posts) share one in-flight render per
 process/isolate instead of racing N parallel regenerations.
+
+Single-flight callers join the render that is already running. A webhook that
+arrives during a stale-request regeneration can therefore report the path as
+`revalidated` even when that render started before the content change that
+triggered the webhook. Send a later webhook when strict post-change freshness
+is required.
 
 Dynamic ISG paths that `getStaticPaths()` did not enumerate at build time are
 not in the prerender manifest. Regular requests for such paths still work —

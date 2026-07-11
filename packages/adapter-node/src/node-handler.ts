@@ -317,16 +317,16 @@ async function handleRevalidationEndpoint<TContext>(
   const failed: string[] = [];
 
   for (const pathname of parsed.paths) {
-    const entry = isgManifest[pathname];
-    const htmlPath = resolveContainedPath(staticDir, pathname);
-    if (!entry || !hasWebhookRevalidate(entry.revalidate) || !htmlPath) {
-      skipped.push(pathname);
-      continue;
-    }
-
-    // A failed regeneration keeps the existing on-disk HTML and is reported
-    // in `failed` instead of aborting the whole batch with a 500.
     try {
+      const entry = isgManifest[pathname];
+      const htmlPath = resolveContainedPath(staticDir, pathname);
+      if (!entry || !htmlPath || !hasWebhookRevalidate(entry.revalidate)) {
+        skipped.push(pathname);
+        continue;
+      }
+
+      // A failed regeneration keeps the existing on-disk HTML and is reported
+      // in `failed` instead of aborting the whole batch with a 500.
       if (await regenerateISGPage(options, pathname, htmlPath, contextArgs)) {
         revalidated.push(pathname);
       } else {

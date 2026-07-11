@@ -305,30 +305,35 @@ async function handleCloudflareRevalidationEndpoint(
   const failed: string[] = [];
 
   for (const pathname of parsed.paths) {
-    const entry = isgManifest[pathname];
-    if (!entry || !hasWebhookRevalidate(entry.revalidate)) {
-      skipped.push(pathname);
-      continue;
-    }
-
-    const cacheKey = createISGCacheKey(request, pathname);
-    // A failed regeneration keeps the existing cached copy and is reported
-    // in `failed` instead of aborting the whole batch with a 500.
-    if (await regenerateCloudflareISGPage(cache, cacheKey, pathname, request, renderISGPage)) {
-      revalidated.push(pathname);
-      // Routes with both a time and a webhook policy are served through
-      // Workers Caching when the `cache` option is on — the edge copy must
-      // be purged too, or it keeps serving the old page until its TTL. A
-      // purge failure keeps the path in `revalidated` (the worker-managed
-      // copy is fresh); the edge falls back to its time window.
-      if (edgeCacheEnabled && getTimeRevalidateSeconds(entry.revalidate) !== null) {
-        try {
-          await purgeCache({ pathPrefixes: [pathname] });
-        } catch (err) {
-          console.error(`ISG edge cache purge failed for ${pathname}:`, err);
-        }
+    try {
+      const entry = isgManifest[pathname];
+      if (!entry || !hasWebhookRevalidate(entry.revalidate)) {
+        skipped.push(pathname);
+        continue;
       }
-    } else {
+
+      const cacheKey = createISGCacheKey(request, pathname);
+      // A failed regeneration keeps the existing cached copy and is reported
+      // in `failed` instead of aborting the whole batch with a 500.
+      if (await regenerateCloudflareISGPage(cache, cacheKey, pathname, request, renderISGPage)) {
+        revalidated.push(pathname);
+        // Routes with both a time and a webhook policy are served through
+        // Workers Caching when the `cache` option is on — the edge copy must
+        // be purged too, or it keeps serving the old page until its TTL. A
+        // purge failure keeps the path in `revalidated` (the worker-managed
+        // copy is fresh); the edge falls back to its time window.
+        if (edgeCacheEnabled && getTimeRevalidateSeconds(entry.revalidate) !== null) {
+          try {
+            await purgeCache({ pathPrefixes: [pathname] });
+          } catch (err) {
+            console.error(`ISG edge cache purge failed for ${pathname}:`, err);
+          }
+        }
+      } else {
+        failed.push(pathname);
+      }
+    } catch (err) {
+      console.error(`ISG webhook revalidation failed for ${pathname}:`, err);
       failed.push(pathname);
     }
   }

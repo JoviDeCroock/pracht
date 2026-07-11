@@ -431,4 +431,74 @@ describe("createNodeRequestHandler", () => {
       }
     }
   });
+
+  it("isolates malformed manifest metadata to one webhook path", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const staticDir = makeTempDir();
+    const htmlDir = join(staticDir, "pricing");
+    const htmlPath = join(htmlDir, "index.html");
+    mkdirSync(htmlDir, { recursive: true });
+    writeFileSync(htmlPath, "<html><body>old</body></html>", "utf-8");
+
+    const previousToken = process.env.PRACHT_REVALIDATE_TOKEN;
+    process.env.PRACHT_REVALIDATE_TOKEN = "secret";
+
+    const app = defineApp({
+      routes: [
+        route("/pricing", "./routes/pricing.tsx", {
+          render: "isg",
+          revalidate: webhookRevalidate(),
+        }),
+      ],
+    });
+    const handler = createNodeRequestHandler({
+      app,
+      isgManifest: {
+        "/malformed": { revalidate: { kind: "cms" } as never },
+        "/pricing": { revalidate: webhookRevalidate() },
+      },
+      registry: {
+        routeModules: {
+          "./routes/pricing.tsx": async () => ({
+            Component: () => "<main>fresh</main>",
+          }),
+        },
+      },
+      staticDir,
+    });
+
+    const server = createServer((req: IncomingMessage, res: ServerResponse) => {
+      void handler(req, res);
+    });
+    servers.add(server);
+
+    try {
+      server.listen(0, "127.0.0.1");
+      await once(server, "listening");
+      const address = server.address();
+      if (!address || typeof address === "string") {
+        throw new Error("Expected TCP server address");
+      }
+
+      const response = await fetch(`http://127.0.0.1:${address.port}/__pracht/revalidate`, {
+        body: JSON.stringify({ paths: ["/malformed", "/pricing"] }),
+        headers: { authorization: "Bearer secret", "content-type": "application/json" },
+        method: "POST",
+      });
+
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toEqual({
+        failed: ["/malformed"],
+        revalidated: ["/pricing"],
+        skipped: [],
+      });
+      expect(readFileSync(htmlPath, "utf-8")).toContain("fresh");
+    } finally {
+      if (previousToken === undefined) {
+        delete process.env.PRACHT_REVALIDATE_TOKEN;
+      } else {
+        process.env.PRACHT_REVALIDATE_TOKEN = previousToken;
+      }
+    }
+  });
 });

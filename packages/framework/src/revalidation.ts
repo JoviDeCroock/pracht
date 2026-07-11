@@ -4,6 +4,8 @@ export const PRACHT_REVALIDATE_ENDPOINT = "/__pracht/revalidate";
 export const PRACHT_REVALIDATE_TOKEN_ENV = "PRACHT_REVALIDATE_TOKEN";
 export const PRACHT_REVALIDATE_TOKEN_HEADER = "x-pracht-revalidate-token";
 
+const MAX_REVALIDATION_PATHS = 64;
+
 export interface ParsedRevalidationRequest {
   paths: string[];
 }
@@ -147,6 +149,16 @@ export async function readRevalidationRequest(
     };
   }
 
+  if (hasTooManyRevalidationPaths(body)) {
+    return {
+      ok: false,
+      response: jsonResponse(
+        { error: `Expected at most ${MAX_REVALIDATION_PATHS} revalidation paths.` },
+        400,
+      ),
+    };
+  }
+
   const paths = parseRevalidationPaths(body);
   if (!paths) {
     return {
@@ -205,8 +217,7 @@ function getRevalidationToken(request: Request): string | null {
 
 function parseRevalidationPaths(body: unknown): string[] | null {
   if (!body || typeof body !== "object") return null;
-  const value =
-    (body as { paths?: unknown; path?: unknown }).paths ?? (body as { path?: unknown }).path;
+  const value = getRevalidationPathsValue(body);
   const paths = Array.isArray(value) ? value : typeof value === "string" ? [value] : null;
   if (!paths || paths.length === 0) return null;
 
@@ -216,6 +227,16 @@ function parseRevalidationPaths(body: unknown): string[] | null {
     unique.add(path);
   }
   return [...unique];
+}
+
+function hasTooManyRevalidationPaths(body: unknown): boolean {
+  if (!body || typeof body !== "object") return false;
+  const value = getRevalidationPathsValue(body);
+  return Array.isArray(value) && value.length > MAX_REVALIDATION_PATHS;
+}
+
+function getRevalidationPathsValue(body: object): unknown {
+  return (body as { paths?: unknown; path?: unknown }).paths ?? (body as { path?: unknown }).path;
 }
 
 function isValidRevalidationPath(value: unknown): value is string {

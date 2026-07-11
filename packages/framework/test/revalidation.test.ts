@@ -83,6 +83,34 @@ describe("revalidation endpoint auth", () => {
     expect(authorized).toEqual({ ok: true, paths: ["/pricing"] });
   });
 
+  it("rejects batches over 64 paths before deduplicating them", async () => {
+    const atLimit = await readRevalidationRequest(
+      new Request("https://app.example/__pracht/revalidate", {
+        body: JSON.stringify({ paths: Array.from({ length: 64 }, () => "/pricing") }),
+        headers: { authorization: "Bearer secret" },
+        method: "POST",
+      }),
+      "secret",
+    );
+    expect(atLimit).toEqual({ ok: true, paths: ["/pricing"] });
+
+    const overLimit = await readRevalidationRequest(
+      new Request("https://app.example/__pracht/revalidate", {
+        body: JSON.stringify({ paths: Array.from({ length: 65 }, () => "/pricing") }),
+        headers: { authorization: "Bearer secret" },
+        method: "POST",
+      }),
+      "secret",
+    );
+    expect(overLimit.ok).toBe(false);
+    if (!overLimit.ok) {
+      expect(overLimit.response.status).toBe(400);
+      await expect(overLimit.response.json()).resolves.toEqual({
+        error: "Expected at most 64 revalidation paths.",
+      });
+    }
+  });
+
   it("rejects traversal segments and backslashes in paths", async () => {
     const invalidPaths = [
       "/../secret",
