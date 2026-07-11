@@ -32,7 +32,23 @@ export function isApiValidationErrorBody(value: unknown): value is ApiValidation
     typeof value === "object" &&
     value !== null &&
     (value as { error?: unknown }).error === "validation" &&
-    Array.isArray((value as { issues?: unknown }).issues)
+    Array.isArray((value as { issues?: unknown }).issues) &&
+    (value as { issues: unknown[] }).issues.every(isApiValidationIssue)
+  );
+}
+
+function isApiValidationIssue(value: unknown): value is ApiValidationIssue {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+
+  const issue = value as { in?: unknown; message?: unknown; path?: unknown };
+  return (
+    (issue.in === "body" || issue.in === "query" || issue.in === "params") &&
+    typeof issue.message === "string" &&
+    (issue.path === undefined ||
+      (Array.isArray(issue.path) &&
+        issue.path.every((segment) => ["string", "number", "symbol"].includes(typeof segment))))
   );
 }
 
@@ -255,7 +271,7 @@ async function runSchema(
 export function searchParamsToRecord(
   searchParams: URLSearchParams,
 ): Record<string, string | string[]> {
-  const record: Record<string, string | string[]> = {};
+  const record = Object.create(null) as Record<string, string | string[]>;
   for (const key of new Set(searchParams.keys())) {
     const values = searchParams.getAll(key);
     record[key] = values.length === 1 ? values[0] : values;
@@ -270,7 +286,7 @@ export function searchParamsToRecord(
 export function formDataToRecord(
   formData: FormData,
 ): Record<string, FormDataEntryValue | FormDataEntryValue[]> {
-  const record: Record<string, FormDataEntryValue | FormDataEntryValue[]> = {};
+  const record = Object.create(null) as Record<string, FormDataEntryValue | FormDataEntryValue[]>;
   for (const key of new Set(formData.keys())) {
     const values = formData.getAll(key);
     record[key] = values.length === 1 ? values[0] : values;
@@ -285,7 +301,7 @@ async function readRequestBody(request: Request): Promise<ParsedBody> {
     return { ok: true, value: undefined };
   }
 
-  const contentType = request.headers.get("content-type") ?? "";
+  const contentType = (request.headers.get("content-type") ?? "").toLowerCase();
 
   if (
     contentType.includes("application/x-www-form-urlencoded") ||

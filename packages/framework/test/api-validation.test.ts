@@ -76,6 +76,26 @@ describe("defineApi", () => {
     await expect(response.json()).resolves.toEqual({ created: "pracht" });
   });
 
+  it("parses request media types case-insensitively", async () => {
+    const handler = defineApi({
+      body: objectSchema({ name: "string" }),
+      handler: ({ body }) => ({ created: body.name }),
+    });
+
+    const response = await handler(
+      apiArgs(
+        new Request("http://localhost/api/items", {
+          method: "POST",
+          headers: { "content-type": "Application/JSON" },
+          body: JSON.stringify({ name: "pracht" }),
+        }),
+      ),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ created: "pracht" });
+  });
+
   it("answers schema failures with the standardized 422 issue body", async () => {
     const handler = defineApi({
       body: objectSchema({ name: "string" }),
@@ -264,5 +284,29 @@ describe("record helpers", () => {
     formData.append("b", "2");
     formData.append("b", "3");
     expect(formDataToRecord(formData)).toEqual({ a: "1", b: ["2", "3"] });
+  });
+
+  it("preserves special field names without changing the record prototype", () => {
+    const query = searchParamsToRecord(new URLSearchParams("__proto__=query&constructor=value"));
+    const formData = new FormData();
+    formData.set("__proto__", "form");
+
+    const form = formDataToRecord(formData);
+
+    expect(Object.getPrototypeOf(query)).toBeNull();
+    expect(query["__proto__"]).toBe("query");
+    expect(query.constructor).toBe("value");
+    expect(Object.getPrototypeOf(form)).toBeNull();
+    expect(form["__proto__"]).toBe("form");
+  });
+
+  it("rejects malformed validation issue bodies", () => {
+    expect(isApiValidationErrorBody({ error: "validation", issues: [null] })).toBe(false);
+    expect(
+      isApiValidationErrorBody({
+        error: "validation",
+        issues: [{ in: "other", message: "Invalid" }],
+      }),
+    ).toBe(false);
   });
 });
