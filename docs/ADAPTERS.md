@@ -516,6 +516,10 @@ export default {
   cache — such paths are reported as `failed` (detected via the
   `x-vercel-cache` response header) until you rebuild with
   `PRACHT_REVALIDATE_TOKEN` set.
+- **Function-name safety**: the build fails with a descriptive error when an ISG
+  route would use the same `.func` directory as the main edge function (for
+  example, `/render` with the default `functionName: "render"`). Rename the
+  route or set a non-conflicting `functionName` in `vercelAdapter()`.
 - **Dynamic fallback**: SSR and API routes are routed to the generated edge
   function. ISG document requests are handled by route-named prerender functions,
   while route-state requests still bypass static/prerender output and reach the
