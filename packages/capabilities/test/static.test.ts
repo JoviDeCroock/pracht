@@ -32,4 +32,19 @@ describe("capability static extraction", () => {
       { name: "notes.search", file: "./capabilities/notes-search.ts" },
     ]);
   });
+
+  it("extracts registrations from a quoted capabilities property", () => {
+    const source = `
+      export const app = defineApp({
+        "capabilities": {
+          "notes.search": "./capabilities/notes-search.ts",
+        },
+        routes: [],
+      });
+    `;
+
+    expect(extractCapabilityRegistrations(source)).toEqual([
+      { name: "notes.search", file: "./capabilities/notes-search.ts" },
+    ]);
+  });
 });
