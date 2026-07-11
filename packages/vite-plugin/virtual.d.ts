@@ -6,6 +6,12 @@ declare module "virtual:pracht/server" {
 declare module "virtual:pracht/client" {}
 
 declare module "virtual:pracht/capabilities" {
+  import type {
+    CapabilityInputFor,
+    CapabilityOutputFor,
+    RegisteredCapabilityName,
+  } from "@pracht/core";
+
   export interface CapabilityIssue {
     path: string;
     message: string;
@@ -20,7 +26,17 @@ declare module "virtual:pracht/capabilities" {
     | { ok: false; error: CapabilityErrorPayload };
   /** HTTP endpoints of http-exposed capabilities, keyed by capability name. */
   export const capabilityEndpoints: Record<string, { method: string; path: string }>;
-  /** Invoke an http-exposed capability from the browser via its HTTP projection. */
+  /**
+   * Invoke an http-exposed capability from the browser via its HTTP projection.
+   * When `pracht typegen` has registered the capability graph on
+   * `Register["capabilities"]`, input and output types are inferred from the
+   * capability name.
+   */
+  export function callCapability<TName extends RegisteredCapabilityName>(
+    name: TName,
+    input: CapabilityInputFor<TName>,
+    opts?: { headers?: HeadersInit; signal?: AbortSignal },
+  ): Promise<CapabilityEnvelope<CapabilityOutputFor<TName>>>;
   export function callCapability<T = unknown>(
     name: string,
     input?: unknown,

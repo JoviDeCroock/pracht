@@ -106,6 +106,8 @@ curl -X POST /api/capabilities/notes/search -H 'content-type: application/json' 
 # { "ok": false, "error": { "code": "invalid_input", "issues": [{ "path": "/limit", "message": "must be <= 20" }] } }
 ```
 
+And both calls above are fully typed: `pracht typegen` generates input/output types from the capability schemas into `src/pracht-capabilities.d.ts`, so `invokeCapability()` and `callCapability()` infer both sides from the capability name — no per-call generics.
+
 ---
 
 ## WebMCP: Tools for In-Browser Agents
