@@ -6,8 +6,8 @@ prev:
   href: /docs/shells
   title: Shells
 next:
-  href: /docs/cli
-  title: CLI
+  href: /docs/env
+  title: Environment Variables
 ---
 
 ## Recommended Approaches

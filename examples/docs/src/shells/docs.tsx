@@ -15,6 +15,7 @@ import {
   IconGauge,
   IconWorld,
   IconLock,
+  IconKey,
   IconForms,
   IconTestPipe,
   IconTriangle,
@@ -46,6 +47,7 @@ const NAV = [
       { href: "/docs/middleware", Icon: IconShield, title: "Middleware" },
       { href: "/docs/shells", Icon: IconLayout, title: "Shells" },
       { href: "/docs/styling", Icon: IconPalette, title: "Styling" },
+      { href: "/docs/env", Icon: IconKey, title: "Environment" },
     ],
   },
   {
