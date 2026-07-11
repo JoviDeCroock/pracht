@@ -55,6 +55,17 @@ describe("validateAgainstSchema", () => {
     expect(issues).toEqual([{ path: "/query", message: "must be of type string, got number" }]);
   });
 
+  it("rejects JavaScript objects outside the JSON data model", () => {
+    class Instance {}
+
+    for (const value of [new Date(), new Map(), new Instance()]) {
+      expect(validateAgainstSchema({ type: "object" }, value)).toEqual([
+        { path: "", message: "must be of type object, got object" },
+      ]);
+    }
+    expect(validateAgainstSchema({ type: "object" }, Object.create(null))).toEqual([]);
+  });
+
   it("enforces integer vs number", () => {
     expect(validateAgainstSchema(schema, { query: "x", limit: 1.5 })).toEqual([
       { path: "/limit", message: "must be of type integer, got number" },
