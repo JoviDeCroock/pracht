@@ -3,7 +3,7 @@ name: audit-loaders
 version: 1.0.0
 description: |
   Audit pracht route loaders for serializability, leaked secrets,
-  browser-only API misuse, and missing AbortSignal plumbing.
+  unsafe loader caching, browser-only API misuse, and missing AbortSignal plumbing.
   Use when asked to "audit loaders", "check loader data", "find serialization
   bugs", "are my loaders safe", or "loader security review".
 allowed-tools:
@@ -28,7 +28,7 @@ pracht inspect routes --json
 For every route entry, read the `file` it resolves to and inspect the `loader`
 export.
 
-## Step 2: Run the four checks
+## Step 2: Run the five checks
 
 For each `loader` (and `getStaticPaths` when present):
 
@@ -83,6 +83,19 @@ For loaders that call `fetch` or any I/O:
   database client that accepts cancellation.
 - A loader that ignores `signal` keeps work running after the client navigates
   away.
+
+### 2e. Loader cache safety
+
+For routes with a positive `loaderCache` value, flag loader data whose freshness
+or visibility depends on cookies, authorization headers, sessions, user identity,
+permissions, or request-specific context. Route-state HTTP caching is `private`,
+so shared proxies cannot reuse it, but a stale response can still survive logout,
+account switching, or permission changes in the same browser.
+
+Recommend `loaderCache: false`/`0` for personalized or authorization-sensitive
+loaders. Use a positive duration only when every field in the returned data can be
+safely reused for that long. Do not confuse `loaderCache` with ISG `revalidate` or
+the short-lived in-memory prefetch cache; they are independent policies.
 
 ## Step 3: Report
 

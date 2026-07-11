@@ -93,7 +93,7 @@ Defines a single route:
 | ------ | ----------- | ------------------------------------------------------ |
 | `path` | `string`    | URL pattern (e.g. `/blog/:slug`)                       |
 | `file` | `ModuleRef` | Module reference — `() => import("./path")` or string  |
-| `meta` | `RouteMeta` | Optional: render mode, shell, middleware, revalidation |
+| `meta` | `RouteMeta` | Optional: render mode, shell, middleware, revalidation, loader caching |
 
 > [!IMPORTANT]
 > Function module refs must use the exact inline form `() => import("./path")`
@@ -107,7 +107,7 @@ Groups routes with shared configuration:
 
 | Param    | Type                | Description                                           |
 | -------- | ------------------- | ----------------------------------------------------- |
-| `meta`   | `GroupMeta`         | Shell, middleware, render mode, pathPrefix to inherit |
+| `meta`   | `GroupMeta`         | Shell, middleware, render mode, loader cache, pathPrefix to inherit |
 | `routes` | `RouteDefinition[]` | Routes in this group                                  |
 
 Group properties cascade to children. A route's own meta overrides the group's.
@@ -124,6 +124,7 @@ interface RouteMeta {
   hydration?: "full" | "islands" | "none"; // Partial hydration (see ISLANDS.md)
   middleware?: string[]; // Named middleware from defineApp.middleware
   revalidate?: RouteRevalidate; // ISG revalidation policy
+  loaderCache?: number | false; // Browser cache seconds for route-state loader data
   prefetch?: "none" | "hover" | "viewport" | "intent"; // Route-level prefetch strategy (default: "intent")
   speculation?: "prefetch" | "prerender" | { mode; eagerness };
 }
@@ -133,6 +134,13 @@ interface RouteMeta {
 `src/islands/`; `"none"` ships no JavaScript at all. Both are inherited
 through `group(...)` like `render` and documented in
 [ISLANDS.md](ISLANDS.md).
+
+`loaderCache` accepts a non-negative integer number of seconds or `false`.
+Positive values set `Cache-Control: private, max-age=<seconds>` on successful
+route-state loader data. `0`, `false`, and an omitted value use `no-store`.
+It inherits through `group(...)`, and a route-level value overrides the group.
+This browser cache is independent of ISG `revalidate` and the client's 30-second
+in-memory prefetch cache. See [DATA_LOADING.md](DATA_LOADING.md#loaders).
 
 See [Speculation Rules](#speculation-rules) for `speculation` semantics and how
 it composes with the JS-based `prefetch` strategy.
@@ -263,7 +271,8 @@ and `<Link prefetch>` overrides it per link:
 Prefetching warms the route's JS chunks and caches the route-state JSON in a
 bounded LRU cache (30s TTL); a subsequent navigation consumes the cached
 result instead of fetching again. Failed prefetches are evicted so they never
-poison a later navigation.
+poison a later navigation. This short-lived in-memory cache is independent of
+the route's HTTP `loaderCache` policy.
 
 There is also an imperative API for warming a route from code (e.g. before
 opening a client-side dialog that links somewhere):

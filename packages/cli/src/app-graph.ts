@@ -10,6 +10,7 @@ const METHOD_ORDER: HttpMethod[] = [...HTTP_METHODS];
 export interface AppGraphRoute {
   file: string;
   id: string;
+  loaderCache: number | false | null;
   loaderFile: string | null;
   middleware: string[];
   path: string;
@@ -33,6 +34,7 @@ export interface AppGraph {
 interface ResolvedRouteEntry {
   file: string;
   id: string;
+  loaderCache?: number | false;
   loaderFile?: string;
   middleware: string[];
   path: string;
@@ -67,6 +69,7 @@ export function serializeResolvedRoutes(routes: ResolvedRouteEntry[]): AppGraphR
   return routes.map((route) => ({
     file: route.file,
     id: route.id,
+    loaderCache: route.loaderCache ?? null,
     loaderFile: route.loaderFile ?? null,
     middleware: route.middleware,
     path: route.path,

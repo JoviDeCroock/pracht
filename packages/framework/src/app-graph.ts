@@ -22,6 +22,7 @@ export const API_METHOD_ORDER: readonly HttpMethod[] = [
 export interface AppGraphRoute {
   file: string;
   id: string;
+  loaderCache: number | false | null;
   loaderFile: string | null;
   middleware: string[];
   path: string;
@@ -53,6 +54,7 @@ export function serializeAppRoutes(routes: readonly ResolvedRoute[]): AppGraphRo
   return routes.map((route) => ({
     file: route.file,
     id: route.id ?? "",
+    loaderCache: route.loaderCache ?? null,
     loaderFile: route.loaderFile ?? null,
     middleware: route.middleware,
     path: route.path,

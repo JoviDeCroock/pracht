@@ -98,6 +98,7 @@ export type {
   LoaderArgs,
   LoaderData,
   LoaderFn,
+  LoaderCache,
   MiddlewareArgs,
   MiddlewareFn,
   MiddlewareModule,

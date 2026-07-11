@@ -413,7 +413,10 @@ export async function handlePrachtRequest<TContext>(
       const data = loaderResult;
 
       if (isRouteStateRequest) {
-        return Response.json({ data });
+        return withRouteResponseHeaders(Response.json({ data }), {
+          isRouteStateRequest: true,
+          loaderCache: match.route.loaderCache,
+        });
       }
 
       // Shell import was kicked off up front; this await is usually already

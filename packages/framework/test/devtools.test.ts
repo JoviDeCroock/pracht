@@ -22,6 +22,7 @@ const graphFixture: AppGraph = {
     {
       file: "./routes/home.tsx",
       id: "home",
+      loaderCache: null,
       loaderFile: null,
       middleware: [],
       path: "/",
@@ -33,6 +34,7 @@ const graphFixture: AppGraph = {
     {
       file: "./routes/user.tsx",
       id: "user",
+      loaderCache: null,
       loaderFile: "./routes/user.data.ts",
       middleware: ["auth", "logger"],
       path: "/users/:id",
@@ -85,6 +87,7 @@ describe("buildDevtoolsHtml", () => {
         {
           file: "./routes/<script>alert(1)</script>.tsx",
           id: "xss",
+          loaderCache: null,
           loaderFile: null,
           middleware: [],
           path: "/xss",
@@ -113,7 +116,12 @@ describe("buildAppGraph", () => {
       defineApp({
         middleware: { auth: "./middleware/auth.ts" },
         routes: [
-          route("/", "./routes/home.tsx", { id: "home", render: "ssg", shell: "public" }),
+          route("/", "./routes/home.tsx", {
+            id: "home",
+            loaderCache: 60,
+            render: "ssg",
+            shell: "public",
+          }),
           route("/users/:id", "./routes/user.tsx", { middleware: ["auth"] }),
         ],
         shells: { public: "./shells/public.tsx" },
@@ -139,6 +147,7 @@ describe("buildAppGraph", () => {
         {
           file: "./routes/home.tsx",
           id: "home",
+          loaderCache: 60,
           loaderFile: null,
           middleware: [],
           path: "/",
@@ -150,6 +159,7 @@ describe("buildAppGraph", () => {
         {
           file: "./routes/user.tsx",
           id: expect.any(String),
+          loaderCache: null,
           loaderFile: null,
           middleware: ["auth"],
           path: "/users/:id",
@@ -217,6 +227,7 @@ describe("serializeAppRoutes", () => {
     expect(serialized).toEqual({
       file: "./routes/home.tsx",
       id: "",
+      loaderCache: null,
       loaderFile: null,
       middleware: [],
       path: "/",

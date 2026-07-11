@@ -42,6 +42,32 @@ describe("resolveApp", () => {
       shellFile: "./shells/public.tsx",
     });
   });
+
+  it("inherits loader cache durations and allows routes to opt out", () => {
+    const app = defineApp({
+      routes: [
+        group({ loaderCache: 300 }, [
+          route("/cached", "./routes/cached.tsx"),
+          route("/fresh", "./routes/fresh.tsx", { loaderCache: false }),
+        ]),
+      ],
+    });
+
+    const resolved = resolveApp(app);
+
+    expect(resolved.routes[0].loaderCache).toBe(300);
+    expect(resolved.routes[1].loaderCache).toBe(false);
+  });
+
+  it("rejects invalid loader cache durations", () => {
+    const app = defineApp({
+      routes: [route("/invalid", "./routes/invalid.tsx", { loaderCache: -1 })],
+    });
+
+    expect(() => resolveApp(app)).toThrow(
+      'Invalid loaderCache for route "/invalid": expected false or a non-negative integer number of seconds.',
+    );
+  });
 });
 
 describe("resolveApp wiring errors", () => {

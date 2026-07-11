@@ -631,6 +631,80 @@ describe("handlePrachtRequest cache variance", () => {
     await expect(response.json()).resolves.toEqual({ data: { plan: "MVP" } });
   });
 
+  it("uses a route loaderCache duration for successful route-state data", async () => {
+    const app = defineApp({
+      routes: [route("/pricing", "./routes/pricing.tsx", { render: "ssr", loaderCache: 3600 })],
+    });
+
+    const response = await handlePrachtRequest({
+      app,
+      registry: {
+        routeModules: {
+          "./routes/pricing.tsx": async () => ({
+            Component: ({ data }) => h("main", null, (data as { plan: string }).plan),
+            loader: async () => ({ plan: "MVP" }),
+          }),
+        },
+      },
+      request: new Request("http://localhost/pricing", {
+        headers: { "x-pracht-route-state-request": "1" },
+      }),
+    });
+
+    expect(response.headers.get("cache-control")).toBe("private, max-age=3600");
+    await expect(response.json()).resolves.toEqual({ data: { plan: "MVP" } });
+  });
+
+  it.each([false, 0] as const)("treats loaderCache %s as no-store", async (loaderCache) => {
+    const app = defineApp({
+      routes: [route("/pricing", "./routes/pricing.tsx", { render: "ssr", loaderCache })],
+    });
+
+    const response = await handlePrachtRequest({
+      app,
+      registry: {
+        routeModules: {
+          "./routes/pricing.tsx": async () => ({
+            Component: () => h("main", null, "MVP"),
+            loader: async () => ({ plan: "MVP" }),
+          }),
+        },
+      },
+      request: new Request("http://localhost/pricing", {
+        headers: { "x-pracht-route-state-request": "1" },
+      }),
+    });
+
+    expect(response.headers.get("cache-control")).toBe("no-store");
+  });
+
+  it("preserves an explicit loader Response cache policy", async () => {
+    const app = defineApp({
+      routes: [route("/pricing", "./routes/pricing.tsx", { render: "ssr", loaderCache: 3600 })],
+    });
+
+    const response = await handlePrachtRequest({
+      app,
+      registry: {
+        routeModules: {
+          "./routes/pricing.tsx": async () => ({
+            Component: () => h("main", null, "MVP"),
+            loader: async () =>
+              Response.json(
+                { data: { plan: "MVP" } },
+                { headers: { "cache-control": "private, max-age=5" } },
+              ),
+          }),
+        },
+      },
+      request: new Request("http://localhost/pricing", {
+        headers: { "x-pracht-route-state-request": "1" },
+      }),
+    });
+
+    expect(response.headers.get("cache-control")).toBe("private, max-age=5");
+  });
+
   it("treats _data=1 query parameter as a route-state request", async () => {
     const app = defineApp({
       routes: [route("/pricing", "./routes/pricing.tsx", { render: "ssr" })],

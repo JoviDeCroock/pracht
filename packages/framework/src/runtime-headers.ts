@@ -1,4 +1,5 @@
 import { ROUTE_STATE_CACHE_CONTROL, ROUTE_STATE_REQUEST_HEADER } from "./runtime-constants.ts";
+import type { LoaderCache } from "./types.ts";
 
 const HEADER_CRLF_RE = /[\r\n]/;
 
@@ -72,13 +73,13 @@ export function applyDefaultSecurityHeaders(headers: Headers): Headers {
 
 export function applySecurityAndRouteHeaders(
   headers: Headers,
-  options?: { isRouteStateRequest: boolean },
+  options?: { isRouteStateRequest: boolean; loaderCache?: LoaderCache },
 ): Headers {
   applyDefaultSecurityHeaders(headers);
   if (options) {
     appendVaryHeader(headers, ROUTE_STATE_REQUEST_HEADER);
     if (options.isRouteStateRequest && !headers.has("cache-control")) {
-      headers.set("cache-control", ROUTE_STATE_CACHE_CONTROL);
+      headers.set("cache-control", getRouteStateCacheControl(options.loaderCache));
     }
   }
   return headers;
@@ -96,7 +97,7 @@ export function withDefaultSecurityHeaders(response: Response): Response {
 
 export function withRouteResponseHeaders(
   response: Response,
-  options: { isRouteStateRequest: boolean },
+  options: { isRouteStateRequest: boolean; loaderCache?: LoaderCache },
 ): Response {
   const headers = new Headers(response.headers);
   applySecurityAndRouteHeaders(headers, options);
@@ -105,6 +106,13 @@ export function withRouteResponseHeaders(
     statusText: response.statusText,
     headers,
   });
+}
+
+function getRouteStateCacheControl(loaderCache: LoaderCache | undefined): string {
+  if (loaderCache === undefined || loaderCache === false || loaderCache === 0) {
+    return ROUTE_STATE_CACHE_CONTROL;
+  }
+  return `private, max-age=${loaderCache}`;
 }
 
 export function appendVaryHeader(headers: Headers, value: string): void {
