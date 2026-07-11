@@ -60,6 +60,11 @@ Handlers may return:
 - any JSON-serializable value, sent as `Response.json(value)` — this is what
   makes response types inferable on the client.
 
+If a handler can return a `Response` on any branch, its client output is
+`unknown`: status, content type, and body cannot be inferred from the
+`Response` type. Keep JSON-returning handlers separate when callers need a
+precise result type.
+
 ### Validation failures
 
 Invalid requests never reach the handler. The route answers with a
@@ -115,7 +120,8 @@ declare module "@pracht/core" {
 
 `ApiRouteMethodMap` extracts `{ body, query, output }` per exported HTTP
 method: `defineApi` handlers carry their schema input types and handler
-return type; plain handlers register with `unknown` request/response types.
+return type when every branch returns JSON; handlers that can return a
+`Response` and plain handlers register with `unknown` response types.
 Routes that only export a `default` handler accept every method, untyped.
 
 Run `pracht typegen --check` in CI to fail when the generated files are

@@ -76,13 +76,11 @@ export type ValidatedApiArgs<
 };
 
 /**
- * JSON output type of a handler: whatever it returns besides `Response`.
- * Handlers that only ever return `Response` keep an `unknown` output — the
- * payload type cannot be recovered from a `Response`.
+ * JSON output type of a handler. Any handler that can return `Response` keeps
+ * an `unknown` output because the payload type cannot be recovered from the
+ * response status, headers, or body.
  */
-type ApiHandlerOutput<TResult> = [Exclude<TResult, Response>] extends [never]
-  ? unknown
-  : Exclude<TResult, Response>;
+type ApiHandlerOutput<TResult> = [Extract<TResult, Response>] extends [never] ? TResult : unknown;
 
 /**
  * The callable produced by `defineApi()`. Compatible with the plain

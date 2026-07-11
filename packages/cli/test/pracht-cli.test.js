@@ -445,6 +445,11 @@ export async function main() {
   const created = await apiFetch("/api/items", { method: "POST", body: { name: "x" } });
   const _created: { created: string } = created;
 
+  // A successful Response branch makes the parsed output unknowable.
+  const mixed = await apiFetch("/api/items", { method: "PUT" });
+  // @ts-expect-error - mixed Response/JSON handlers have unknown output
+  const _mixed: { updated: boolean } = mixed;
+
   // A default handler remains available for methods without a named override.
   const fallback = await apiFetch("/api/items/:id", { method: "PATCH", params: { id: "1" } });
   const _fallback: unknown = fallback;
@@ -742,6 +747,11 @@ import { passthroughSchema } from "../../lib/schema-util";
 export const POST = defineApi({
   body: passthroughSchema<{ name: string }>(),
   handler: ({ body }) => ({ created: body.name }),
+});
+
+export const PUT = defineApi({
+  handler: () =>
+    Math.random() > 0.5 ? { updated: true } : new Response(null, { status: 204 }),
 });
 `,
   );
