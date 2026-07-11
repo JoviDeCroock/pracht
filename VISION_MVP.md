@@ -140,8 +140,13 @@ from `@pracht/capabilities`:
   [llms.txt](https://llmstxt.org) index from the app graph — pages, API
   endpoints, and HTTP-exposed capabilities
   ([docs/LLMS_TXT.md](docs/LLMS_TXT.md)).
+- `pracht typegen` generates capability input/output types from the graph, so
+  `invokeCapability()` and the browser's `callCapability()` infer both sides
+  from the capability name.
 - See [docs/CAPABILITIES.md](docs/CAPABILITIES.md) and
-  [docs/AGENT_TRUST.md](docs/AGENT_TRUST.md).
+  [docs/AGENT_TRUST.md](docs/AGENT_TRUST.md). The product bet, its decision
+  log, and the staged plan (remote MCP and MCP Apps are the unbuilt stages)
+  live in [docs/CAPABILITY_GRAPH.md](docs/CAPABILITY_GRAPH.md).
 
 ### Deployment Adapters
 

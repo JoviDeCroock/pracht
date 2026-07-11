@@ -55,8 +55,12 @@ export interface AppGraphCapability {
   /** Reserved for the MCP Apps projection — always false for now. */
   hasUi: false;
   httpPath: string | null;
+  /** Input JSON Schema — feeds `pracht typegen` and agent-facing inspection. */
+  input: Record<string, unknown> | null;
   middleware: string[];
   name: string;
+  /** Output JSON Schema — feeds `pracht typegen` and agent-facing inspection. */
+  output: Record<string, unknown> | null;
   source: string;
   title: string | null;
   /** Exposure transports from the capability's `expose` config. */
@@ -140,8 +144,10 @@ export function serializeCapabilities(
           httpPath: capability.expose?.http
             ? (capability.expose.http.path ?? capabilityHttpPath(name))
             : null,
+          input: capability.input ?? null,
           middleware: capability.middleware ?? [],
           name,
+          output: capability.output ?? null,
           source: file,
           title: capability.title,
           transports,
@@ -151,8 +157,10 @@ export function serializeCapabilities(
           effect: null,
           hasUi: false as const,
           httpPath: null,
+          input: null,
           middleware: [],
           name,
+          output: null,
           source: file,
           title: null,
           transports: [],

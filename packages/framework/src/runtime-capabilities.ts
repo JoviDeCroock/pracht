@@ -30,12 +30,15 @@ import type {
   CapabilityAuditHook,
   CapabilityEnvelope,
   CapabilityErrorPayload,
+  CapabilityInputFor,
   CapabilityModule,
+  CapabilityOutputFor,
   ModuleRegistry,
   PrachtAgentIdentity,
   PrachtAgentsConfig,
   PrachtApp,
   PrachtCapability,
+  RegisteredCapabilityName,
   ResolvedApiRoute,
 } from "./types.ts";
 
@@ -620,7 +623,22 @@ export interface InvokeCapabilityContext<TContext = unknown> {
  * input validation, the capability's named middleware, `run()`, output
  * validation — and resolves to the same typed envelope. Works for private
  * (non-exposed) capabilities too.
+ *
+ * When `pracht typegen` has registered the capability graph on
+ * `Register["capabilities"]`, the input and output types are inferred from
+ * the capability name; the explicit `invokeCapability<Output>(...)` form
+ * keeps working for unregistered names.
  */
+export async function invokeCapability<TName extends RegisteredCapabilityName>(
+  name: TName,
+  input: CapabilityInputFor<TName>,
+  ctx: InvokeCapabilityContext,
+): Promise<CapabilityEnvelope<CapabilityOutputFor<TName>>>;
+export async function invokeCapability<T = unknown>(
+  name: string,
+  input: unknown,
+  ctx: InvokeCapabilityContext,
+): Promise<CapabilityEnvelope<T>>;
 export async function invokeCapability<T = unknown>(
   name: string,
   input: unknown,

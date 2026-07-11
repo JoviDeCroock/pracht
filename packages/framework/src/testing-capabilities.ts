@@ -30,11 +30,14 @@ import {
 } from "./runtime-capabilities.ts";
 import type {
   CapabilityEnvelope,
+  CapabilityInputFor,
+  CapabilityOutputFor,
   MiddlewareFn,
   ModuleRegistry,
   PrachtAgentIdentity,
   PrachtAgentsConfig,
   PrachtCapability,
+  RegisteredCapabilityName,
 } from "./types.ts";
 
 const TEST_ORIGIN = "http://capability-test.local";
@@ -68,6 +71,11 @@ export interface CapabilityTestRequestOptions {
 
 export interface CapabilityTestHost {
   /** Direct server invocation — same pipeline and envelope as `invokeCapability()`. */
+  invoke<TName extends RegisteredCapabilityName>(
+    name: TName,
+    input: CapabilityInputFor<TName>,
+    options?: CapabilityTestInvokeOptions,
+  ): Promise<CapabilityEnvelope<CapabilityOutputFor<TName>>>;
   invoke<T = unknown>(
     name: string,
     input: unknown,

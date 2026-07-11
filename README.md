@@ -131,6 +131,7 @@ The skills are distributed three ways ([docs](https://pracht.resynapse.dev/docs/
 - [docs/API_VALIDATION.md](docs/API_VALIDATION.md) — Standard Schema validation for API routes, typed `apiFetch()`
 - [docs/CAPABILITIES.md](docs/CAPABILITIES.md) — typed capabilities, HTTP projection, WebMCP page tools
 - [docs/AGENT_TRUST.md](docs/AGENT_TRUST.md) — Web Bot Auth, effect-class confirmation flow, audit hook, `pracht eval`
+- [docs/CAPABILITY_GRAPH.md](docs/CAPABILITY_GRAPH.md) — the capability graph product bet: proposal, decision log, staged plan
 - [docs/LLMS_TXT.md](docs/LLMS_TXT.md) — generated llms.txt: pages, API endpoints, capabilities
 - [docs/STYLING.md](docs/STYLING.md) — CSS Modules, Tailwind, CSS-in-JS limitations
 - [docs/ADAPTERS.md](docs/ADAPTERS.md) — Node, Cloudflare, Vercel deployment paths

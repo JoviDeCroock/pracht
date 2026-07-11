@@ -899,6 +899,28 @@ export type CapabilityEnvelope<T = unknown> =
   | { ok: true; data: T }
   | { ok: false; error: CapabilityErrorPayload };
 
+/**
+ * `pracht typegen` generates capability input/output types from the JSON
+ * Schemas in the app's capability graph and registers them on
+ * `Register["capabilities"]`, mirroring how route typegen registers
+ * `Register["routes"]`. Once registered, `invokeCapability()` (and the
+ * browser's `callCapability()`) infer input and output types from the
+ * capability name — no per-call generics needed.
+ */
+type RegisteredCapabilityMap = Register extends { capabilities: infer TCapabilities }
+  ? TCapabilities extends Record<string, unknown>
+    ? TCapabilities
+    : {}
+  : {};
+
+export type RegisteredCapabilityName = Extract<keyof RegisteredCapabilityMap, string>;
+
+export type CapabilityInputFor<TName extends RegisteredCapabilityName> =
+  RegisteredCapabilityMap[TName] extends { input: infer TInput } ? TInput : unknown;
+
+export type CapabilityOutputFor<TName extends RegisteredCapabilityName> =
+  RegisteredCapabilityMap[TName] extends { output: infer TOutput } ? TOutput : unknown;
+
 export class PrachtHttpError extends Error {
   readonly status: number;
 

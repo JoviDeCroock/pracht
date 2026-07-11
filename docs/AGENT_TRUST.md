@@ -193,6 +193,28 @@ Set `PRACHT_CONFIRMATION_SECRET` in the server environment (or call
   `"anonymous"` — the flow still forces the two-step round trip with
   identical input, but does not tie the token to a caller.
 
+## Operational hardening: what the framework does not do (yet)
+
+The capability pipeline enforces contracts, policy, and confirmation. Three
+operational concerns deliberately stay outside it for now — treat them as
+deployment responsibilities, not solved problems:
+
+- **Rate limiting.** There are no built-in per-principal or per-capability
+  limits. Put rate limiting in the capability's named middleware: it runs
+  before `run()` on every projection (HTTP and direct invocation), sees
+  `context.agent` when Web Bot Auth is enabled, and can short-circuit with a
+  429 response. The audit hook provides per-capability outcome and latency
+  data to alert on.
+- **Write idempotency.** `write` capabilities have no framework idempotency
+  helper. Agents retry, and confirmation tokens only gate `destructive`
+  effects — so design write inputs to be safely repeatable: accept a
+  client-supplied idempotency key in the input schema, or deduplicate inside
+  `run()`.
+- **Result-size limits.** Request body limits belong to the adapter; there is
+  no output-size budget on capability results. Keep outputs bounded (a `limit`
+  input with a schema `maximum`, pagination) — oversized results hurt agents
+  (context windows) and browsers alike.
+
 ## Audit trail
 
 Every capability dispatch — HTTP or direct `invokeCapability()` — emits one
@@ -286,3 +308,7 @@ example):
 - RSA-PSS agent keys (the Web Bot Auth ecosystem is Ed25519-first).
 - Destructive capabilities over WebMCP/MCP, and `pracht eval` speaking MCP
   instead of the HTTP projection.
+- Framework-level rate limiting, write-idempotency helpers, and result-size
+  limits — see [operational
+  hardening](#operational-hardening-what-the-framework-does-not-do-yet) for
+  the middleware/app-level approach in the meantime.

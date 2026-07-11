@@ -170,6 +170,33 @@ contains only http-exposed capability names and endpoints — capability modules
 themselves are server-only and never enter the client graph (guarded by e2e
 bundle assertions). Apps without capabilities ship zero extra bytes.
 
+## Generated types
+
+`pracht typegen` (the same command that generates typed routes) also emits
+`src/pracht-capabilities.d.ts` when the app registers capabilities: TypeScript
+input/output types generated from each capability's JSON Schemas, registered
+on `Register["capabilities"]`. With that file in the program,
+`invokeCapability()`, the browser's `callCapability()`, and
+`createCapabilityTestHost().invoke()` all infer both sides from the capability
+name — no per-call generics:
+
+```ts
+const result = await invokeCapability("notes.search", { query: "roadmap" }, args);
+// result.data: { notes: Array<...> } — inferred from the output schema
+```
+
+- An input property is optional when it is not `required` **or** declares a
+  schema `default` (defaults are applied before input validation); an output
+  property is optional exactly when it is not `required`.
+- Objects without `additionalProperties: false` keep an index signature, so
+  extra members remain reachable as `unknown`.
+- Unregistered names — and a mismatched input on a registered name — fall back
+  to the untyped `invokeCapability<Output>(name, ...)` overload; runtime
+  validation still rejects bad input either way.
+- `--capabilities-out` overrides the output path, `--check` covers the file in
+  CI, and removing the last capability rewrites an existing file to the empty
+  registration instead of leaving it stale.
+
 ## WebMCP
 
 With `expose.webmcp: true` (which requires `expose.http`), the client runtime
@@ -228,7 +255,8 @@ The capability graph feeds every existing inspection surface:
 - the `pracht dev` startup banner prints a Capabilities table (name, effect,
   exposure, dispatch path) whenever the app registers any;
 - `pracht inspect capabilities [--json]` — name, effect, transports, HTTP
-  path, middleware, source;
+  path, middleware, source, plus the input/output JSON Schemas in `--json`
+  output;
 - the `/_pracht` devtools page gains a Capabilities table (dev only, rendered
   only when capabilities exist);
 - the `pracht mcp` server exposes an `inspect_capabilities` tool;
@@ -258,6 +286,5 @@ and `examples/basic/evals/notes.eval.json`.
 - MCP Apps UI (`ui` option) — `hasUi` is always `false` in the graph.
 - Destructive capabilities over WebMCP/MCP (HTTP-only, confirmation-gated —
   see [AGENT_TRUST.md](AGENT_TRUST.md)).
-- Generated TypeScript types from schemas (`pracht typegen` integration) and
-  capability scaffolding (`pracht generate capability`).
+- Capability scaffolding (`pracht generate capability`).
 - Pages-router support.
