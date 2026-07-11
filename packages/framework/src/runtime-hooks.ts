@@ -209,7 +209,7 @@ export function Form(props: FormProps) {
           (response.status >= 300 && response.status < 400)
         ) {
           const location = response.headers.get("location");
-          await navigateToClientLocation(location ?? actionUrl);
+          await navigateToClientLocation(location ?? actionUrl, { reloadRouteState: true });
         }
       } finally {
         settleNavigation(navigationToken);

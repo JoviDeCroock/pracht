@@ -93,7 +93,7 @@ export async function fetchPrachtRouteState(
 
 export async function navigateToClientLocation(
   location: string,
-  options?: { replace?: boolean },
+  options?: { reloadRouteState?: boolean; replace?: boolean },
 ): Promise<void> {
   if (typeof window === "undefined") {
     return;
@@ -107,7 +107,10 @@ export async function navigateToClientLocation(
 
   const target = targetUrl.pathname + targetUrl.search + targetUrl.hash;
   if (targetUrl.origin === window.location.origin && window.__PRACHT_NAVIGATE__) {
-    await window.__PRACHT_NAVIGATE__(target, options);
+    await window.__PRACHT_NAVIGATE__(target, {
+      _reloadRouteState: options?.reloadRouteState,
+      replace: options?.replace,
+    });
     return;
   }
 

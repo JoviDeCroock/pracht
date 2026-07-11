@@ -64,6 +64,32 @@ export. Named route exports such as `loader`, `head`, `headers`,
 > [!NOTE]
 > Loaders **never** run in the browser. Database connections, API keys, and secrets in loader code stay server-side permanently.
 
+### Route-state caching
+
+Client navigation fetches loader data through Pracht's route-state endpoint. By
+default those JSON responses use `Cache-Control: no-store`, so every navigation
+asks the server for fresh loader data.
+
+Use `loaderCache` in route metadata when the returned data can safely be reused
+by the same browser for a short time:
+
+```ts [src/routes.ts]
+route("/pricing", "./routes/pricing.tsx", {
+  render: "isg",
+  loaderCache: 60,
+});
+```
+
+A positive value sets `Cache-Control: private, max-age=<seconds>` on successful
+route-state responses. `loaderCache: false` and `loaderCache: 0` keep `no-store`
+and can opt a route out of a group default.
+
+Only cache data that is safe to reuse for the configured duration in the same
+browser. Avoid positive `loaderCache` values for loader data that depends on the
+current user, permissions, session, or cookies. `loaderCache` does not change
+ISG `revalidate`, and it is separate from Pracht's short in-memory prefetch
+cache.
+
 ### Error handling
 
 Throw `PrachtHttpError` for structured error responses. Pair it with an `ErrorBoundary` export to render a fallback UI:

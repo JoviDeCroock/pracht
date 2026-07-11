@@ -219,6 +219,72 @@ describe("initClientRouter", () => {
     expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
 
+  it("bypasses the HTTP cache when a form redirect reloads cached route data", async () => {
+    function Cart() {
+      const data = useRouteData<{ count: number }>();
+      return h(
+        "main",
+        null,
+        h(Form, { action: "/api/cart", method: "post" }, h("button", null, "Add")),
+        h("span", { id: "count" }, String(data.count)),
+      );
+    }
+
+    const app = resolveApp(
+      defineApp({
+        routes: [
+          route("/cart", "./routes/cart.tsx", {
+            id: "cart",
+            loaderCache: 60,
+            render: "ssr",
+          }),
+        ],
+      }),
+    );
+
+    root.innerHTML =
+      '<main><form action="/api/cart" method="post"><button>Add</button></form><span id="count">1</span></main>';
+    history.replaceState(null, "", "/cart");
+    fetchSpy.mockImplementation(async (input: RequestInfo | URL) => {
+      if (String(input) === "/api/cart") {
+        return new Response(null, { headers: { location: "/cart" }, status: 302 });
+      }
+
+      return createJsonResponse({ data: { count: 2 } });
+    });
+
+    await initClientRouter({
+      app,
+      routeModules: {
+        "./routes/cart.tsx": async () => ({ default: Cart }),
+      },
+      shellModules: {},
+      initialState: {
+        data: { count: 1 },
+        routeId: "cart",
+        url: "/cart",
+      },
+      root,
+      findModuleKey: (_modules, file) => file,
+    });
+
+    const submitEvent = new Event("submit", { bubbles: true, cancelable: true });
+    root.querySelector("form")?.dispatchEvent(submitEvent);
+    await flush();
+    await flush();
+
+    expect(fetchSpy).toHaveBeenNthCalledWith(
+      2,
+      "/cart",
+      expect.objectContaining({
+        cache: "no-store",
+        headers: expect.objectContaining({ "x-pracht-route-state-request": "1" }),
+        redirect: "manual",
+      }),
+    );
+    expect(root.querySelector("#count")?.textContent).toBe("2");
+  });
+
   it("preserves same-shell instances without exposing stale route data to useRouteData()", async () => {
     const renderLog: Array<{ label: string; pathname: string }> = [];
     let shellMountCount = 0;

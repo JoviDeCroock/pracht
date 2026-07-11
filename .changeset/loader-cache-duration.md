@@ -8,3 +8,5 @@ Add an inheritable `loaderCache` route option for controlling how long browsers 
 Expose the resolved loader cache policy in `pracht inspect routes --json` and the MCP route graph.
 
 Manual `useRevalidate()` calls bypass route-state browser caching so explicit refreshes and post-mutation reloads still re-run the loader.
+
+Form redirects after state-changing submissions also bypass cached route-state data when reloading the destination route.
