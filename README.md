@@ -112,6 +112,7 @@ Pracht is built to be operated by coding agents as much as by humans:
 - [docs/RENDERING_MODES.md](docs/RENDERING_MODES.md) — SSR, SSG, ISG, SPA behavior
 - [docs/PERFORMANCE.md](docs/PERFORMANCE.md) — bundle analysis and per-route client JS budgets
 - [docs/DATA_LOADING.md](docs/DATA_LOADING.md) — loaders, forms, client hooks
+- [docs/API_VALIDATION.md](docs/API_VALIDATION.md) — Standard Schema validation for API routes, typed `apiFetch()`
 - [docs/STYLING.md](docs/STYLING.md) — CSS Modules, Tailwind, CSS-in-JS limitations
 - [docs/ADAPTERS.md](docs/ADAPTERS.md) — Node, Cloudflare, Vercel deployment paths
 - [docs/MCP.md](docs/MCP.md) — built-in MCP server for coding agents

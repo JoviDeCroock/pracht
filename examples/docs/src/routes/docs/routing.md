@@ -117,7 +117,7 @@ Run `pracht typegen` to generate a type-safe route map from the same resolved ap
 pracht typegen
 ```
 
-This writes `src/pracht-routes.d.ts` for route id and param types plus `src/pracht-routes.ts` for an adapter-agnostic `href()` helper.
+This writes `src/pracht.d.ts` for route id and param types plus `src/pracht-routes.ts` for an adapter-agnostic `href()` helper.
 
 ```tsx
 import { Link, useNavigate } from "@pracht/core";

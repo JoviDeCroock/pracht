@@ -51,9 +51,13 @@ pracht typegen
 
 This writes:
 
-- `src/pracht-routes.d.ts` — module augmentation for route ids, params, and
-  loader data types.
+- `src/pracht.d.ts` — module augmentation for route ids, params, loader data
+  types, and API route request/response types (consumed by `apiFetch()`).
 - `src/pracht-routes.ts` — runtime `href()` helper backed by the same route map.
+
+Earlier versions wrote the declaration to `src/pracht-routes.d.ts`; typegen
+removes that stale file automatically (TypeScript silently ignored it next to
+the same-named `.ts` helper).
 
 Do not hand-edit generated files. If they are stale, update the route graph and
 run typegen again. In CI, prefer:
@@ -127,6 +131,20 @@ generic form for projects that do not generate route types. Routes without a
 loader type their data as `undefined`. The id must be the active route — dev
 mode warns on mismatches.
 
+### API routes
+
+After typegen, `apiFetch()` type-checks API calls end to end — paths,
+methods, params, bodies and queries (for `defineApi()` routes), and response
+types:
+
+```ts
+import { apiFetch } from "@pracht/core";
+
+const item = await apiFetch("/api/items/:id", { params: { id: "42" } });
+```
+
+See docs/API_VALIDATION.md for `defineApi()` and validation error handling.
+
 ## Step 4: Param and search rules
 
 - `:id` requires `params: { id: string }`.
@@ -154,7 +172,7 @@ anchor `href` and client-side navigation without a full page reload.
 1. Always start from `pracht inspect routes --json` or `pracht typegen`; do not
    infer the full route map from files by hand.
 2. Prefer adding explicit ids before converting links for important routes.
-3. Never edit `src/pracht-routes.d.ts` or `src/pracht-routes.ts` manually.
+3. Never edit `src/pracht.d.ts` or `src/pracht-routes.ts` manually.
 4. Keep plain `<a href="...">` where a URL is genuinely external, opaque, or
    user-provided.
 5. After adding/removing/renaming routes, run `pracht typegen` and include the

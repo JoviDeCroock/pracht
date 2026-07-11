@@ -45,7 +45,7 @@ pracht verify --json
 ```
 
 If the app uses generated typed routes (`src/pracht-routes.ts` or
-`src/pracht-routes.d.ts` exists), also run:
+`src/pracht.d.ts` exists), also run:
 
 ```bash
 pracht typegen --check

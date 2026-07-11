@@ -64,7 +64,7 @@ action-oriented body. Invoke a skill in Claude Code with `/<skill-name>`.
 - The same capabilities are available as native MCP tools via `pracht mcp`
   (inspect, doctor, verify, and generate) — see [docs/MCP.md](../docs/MCP.md).
   Prefer the MCP tools when the client has the server registered.
-- Use `pracht typegen` to refresh `src/pracht-routes.d.ts` and
+- Use `pracht typegen` to refresh `src/pracht.d.ts` and
   `src/pracht-routes.ts` after route ids or paths change; use
   `pracht typegen --check` in verification/CI.
 - Audit skills produce a report; they never auto-fix.

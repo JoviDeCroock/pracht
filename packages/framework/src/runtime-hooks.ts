@@ -1,7 +1,14 @@
 import { h } from "preact";
 import type { JSX } from "preact";
 import { useContext, useEffect, useState } from "preact/hooks";
+import type { StandardSchemaV1 } from "@standard-schema/spec";
 
+import {
+  formDataToRecord,
+  isApiValidationErrorBody,
+  validateStandardSchema,
+  type ApiValidationIssue,
+} from "./api-validation.ts";
 import { buildHref } from "./route-matching.ts";
 import {
   beginSubmittingNavigation,
@@ -45,6 +52,19 @@ export type { Navigation, NavigationLocation } from "./navigation-state.ts";
 export interface FormProps extends Omit<JSX.HTMLAttributes<HTMLFormElement>, "action" | "method"> {
   action?: string;
   method?: string;
+  /**
+   * Standard Schema validated against the form's data (one entry per field,
+   * arrays for repeated fields) before submitting. When validation fails the
+   * request is skipped and `onValidationIssues` fires with the issues.
+   */
+  schema?: StandardSchemaV1;
+  /**
+   * Called with normalized validation issues when the client-side `schema`
+   * rejects a submission, or when the server responds with the standardized
+   * validation failure produced by `defineApi()` (HTTP 422,
+   * `{ error: "validation", issues }`).
+   */
+  onValidationIssues?: (issues: ApiValidationIssue[]) => void;
 }
 
 export type LinkProps<TRoute extends RouteId = RouteId> = Omit<
@@ -167,7 +187,7 @@ export function Link<TRoute extends RouteId>(props: LinkProps<TRoute>) {
 }
 
 export function Form(props: FormProps) {
-  const { onSubmit, method, ...rest } = props;
+  const { onSubmit, method, schema, onValidationIssues, ...rest } = props;
 
   return h("form", {
     ...rest,
@@ -189,9 +209,18 @@ export function Form(props: FormProps) {
       }
 
       event.preventDefault();
-      clearPrefetchCache();
       const actionUrl = props.action ?? form.action;
       const formData = new FormData(form);
+
+      if (schema) {
+        const result = await validateStandardSchema(schema, formDataToRecord(formData), "body");
+        if (result.issues) {
+          onValidationIssues?.(result.issues);
+          return;
+        }
+      }
+
+      clearPrefetchCache();
       // Expose the in-flight submission through useNavigation().
       const navigationToken = beginSubmittingNavigation(
         createNavigationLocation(actionUrl),
@@ -210,6 +239,11 @@ export function Form(props: FormProps) {
         ) {
           const location = response.headers.get("location");
           await navigateToClientLocation(location ?? actionUrl, { reloadRouteState: true });
+        } else if (response.status === 422 && onValidationIssues) {
+          const body = await response.json().catch(() => null);
+          if (isApiValidationErrorBody(body)) {
+            onValidationIssues(body.issues);
+          }
         }
       } finally {
         settleNavigation(navigationToken);

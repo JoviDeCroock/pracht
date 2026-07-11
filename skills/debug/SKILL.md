@@ -51,7 +51,7 @@ Work through these in order, stopping when you find the root cause:
 
 - If `<Link route="...">`, `href("...")`, or route-object `useNavigate()` fails to typecheck, run `pracht typegen --check` to detect stale generated files.
 - Run `pracht inspect routes --json` and confirm the route id exists. If it is a fallback id, remember path changes can rename it.
-- Check generated `src/pracht-routes.d.ts` for inferred params. `:id`, `*`, and `:path*` params are required; extra params should fail at typecheck time.
+- Check generated `src/pracht.d.ts` for inferred params. `:id`, `*`, and `:path*` params are required; extra params should fail at typecheck time.
 - If runtime navigation throws `Unknown pracht route id "..."`, the error includes a `Did you mean "..."?` suggestion and the list of registered route ids — check for a typo first, then ensure `pracht typegen` was run and the component is rendered inside the pracht route tree.
 - For unexpected URLs, reproduce with `href(routeId, options)` and compare against the route's resolved path and params.
 

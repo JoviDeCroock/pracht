@@ -17,7 +17,7 @@ import type { ComponentChildren, FunctionComponent } from "preact";
 // biome-ignore lint/suspicious/noEmptyInterface: augmented by users
 export interface Register {}
 
-type RegisteredContext = Register extends { context: infer T } ? T : unknown;
+export type RegisteredContext = Register extends { context: infer T } ? T : unknown;
 
 export type RenderMode = "spa" | "ssr" | "ssg" | "isg";
 
@@ -164,6 +164,111 @@ export type RouteTarget<TRoute extends RouteId = RouteId> = HasRegisteredRoutes 
   : { route: string } & BuildHrefOptions;
 
 export type HrefFn = <TRoute extends RouteId>(route: TRoute, ...args: HrefArgs<TRoute>) => string;
+
+type RegisteredApiRouteMap = Register extends { apiRoutes: infer TApiRoutes }
+  ? TApiRoutes extends Record<string, unknown>
+    ? TApiRoutes
+    : {}
+  : {};
+
+type HasRegisteredApiRoutes = keyof RegisteredApiRouteMap extends never ? false : true;
+
+/**
+ * API route path templates registered by `pracht typegen` (e.g.
+ * `"/api/items/:id"`). Falls back to `string` when no api routes are
+ * registered so `apiFetch()` stays usable without codegen.
+ */
+export type ApiPath = HasRegisteredApiRoutes extends true
+  ? Extract<keyof RegisteredApiRouteMap, string>
+  : string;
+
+type ApiRouteEntryFor<TPath> = TPath extends keyof RegisteredApiRouteMap
+  ? RegisteredApiRouteMap[TPath]
+  : never;
+
+type ApiMethodMapFor<TPath> =
+  ApiRouteEntryFor<TPath> extends { methods: infer TMethods } ? TMethods : {};
+
+/**
+ * HTTP methods a registered API route exports. Routes without named method
+ * exports (only a `default` handler) accept every method, untyped.
+ */
+export type ApiMethodsFor<TPath extends ApiPath> = HasRegisteredApiRoutes extends true
+  ? Extract<keyof ApiMethodMapFor<TPath>, HttpMethod> extends never
+    ? HttpMethod
+    : Extract<keyof ApiMethodMapFor<TPath>, HttpMethod>
+  : HttpMethod;
+
+type ApiMethodTypesFor<
+  TPath extends ApiPath,
+  TMethod,
+> = TMethod extends keyof ApiMethodMapFor<TPath>
+  ? ApiMethodMapFor<TPath>[TMethod]
+  : { body: unknown; query: unknown; output: unknown };
+
+export type ApiBodyFor<TPath extends ApiPath, TMethod extends HttpMethod> =
+  ApiMethodTypesFor<TPath, TMethod> extends { body: infer TBody } ? TBody : unknown;
+
+export type ApiQueryFor<TPath extends ApiPath, TMethod extends HttpMethod> =
+  ApiMethodTypesFor<TPath, TMethod> extends { query: infer TQuery } ? TQuery : unknown;
+
+export type ApiOutputFor<TPath extends ApiPath, TMethod extends HttpMethod> =
+  ApiMethodTypesFor<TPath, TMethod> extends { output: infer TOutput } ? TOutput : unknown;
+
+export type ApiParamsFor<TPath extends ApiPath> = HasRegisteredApiRoutes extends true
+  ? ApiRouteEntryFor<TPath> extends { params: infer TParams }
+    ? TParams extends Record<string, unknown>
+      ? TParams
+      : EmptyRouteParams
+    : EmptyRouteParams
+  : Record<string, RouteParamInput>;
+
+type ApiFetchMethodField<TPath extends ApiPath, TMethod> =
+  "GET" extends ApiMethodsFor<TPath> ? { method?: TMethod } : { method: TMethod };
+
+type ApiFetchBodyField<TBody> = unknown extends TBody
+  ? { body?: unknown }
+  : undefined extends TBody
+    ? { body?: TBody }
+    : { body: TBody };
+
+type ApiFetchQueryField<TQuery> = unknown extends TQuery
+  ? { query?: SearchParamsInput }
+  : Record<never, never> extends TQuery
+    ? { query?: TQuery }
+    : { query: TQuery };
+
+type ApiFetchParamsField<TPath extends ApiPath> = HasRegisteredApiRoutes extends true
+  ? IsEmptyRouteParams<ApiParamsFor<TPath>> extends true
+    ? { params?: never }
+    : { params: ApiParamsFor<TPath> }
+  : { params?: Record<string, RouteParamInput> };
+
+export interface ApiFetchBaseOptions {
+  headers?: HeadersInit;
+  signal?: AbortSignal;
+  /** Custom fetch implementation (tests, server-to-server calls). */
+  fetch?: typeof globalThis.fetch;
+  /** Prefix for the request URL, e.g. an absolute origin during SSR. */
+  baseUrl?: string;
+}
+
+export type ApiFetchOptions<
+  TPath extends ApiPath = ApiPath,
+  TMethod extends ApiMethodsFor<TPath> = ApiMethodsFor<TPath>,
+> = ApiFetchBaseOptions &
+  ApiFetchMethodField<TPath, TMethod> &
+  ApiFetchBodyField<ApiBodyFor<TPath, TMethod>> &
+  ApiFetchQueryField<ApiQueryFor<TPath, TMethod>> &
+  ApiFetchParamsField<TPath>;
+
+export type ApiFetchArgs<TPath extends ApiPath, TMethod extends ApiMethodsFor<TPath>> =
+  Record<never, never> extends ApiFetchOptions<TPath, TMethod>
+    ? [options?: ApiFetchOptions<TPath, TMethod>]
+    : [options: ApiFetchOptions<TPath, TMethod>];
+
+export type DefaultApiMethod<TPath extends ApiPath> =
+  "GET" extends ApiMethodsFor<TPath> ? "GET" : ApiMethodsFor<TPath>;
 
 /**
  * A reference to a module file — either a plain string path or a lazy import

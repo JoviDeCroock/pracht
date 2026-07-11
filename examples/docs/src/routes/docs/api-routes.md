@@ -137,3 +137,32 @@ export function GET() {
   });
 }
 ```
+
+---
+
+## Validation and Typed Fetch
+
+Wrap a handler with `defineApi()` to validate the request with any [Standard Schema](https://standardschema.dev) validator (zod, valibot, arktype, …) before it runs. Invalid requests get a standardized 422 response (`{ error: "validation", issues }`); handlers can return plain JSON values, sent as `Response.json()`.
+
+```ts [src/api/items.ts]
+import { defineApi } from "@pracht/core";
+import * as z from "zod";
+
+export const POST = defineApi({
+  body: z.object({ name: z.string().min(1) }),
+  handler: ({ body }) => ({ created: body.name }),
+});
+```
+
+Run `pracht typegen` and the `apiFetch()` client checks every call at compile time — paths, methods, params, bodies, queries — and returns the handler's response type:
+
+```ts
+import { apiFetch } from "@pracht/core";
+
+const created = await apiFetch("/api/items", {
+  method: "POST",
+  body: { name: "Pracht" }, // type-checked against the body schema
+});
+```
+
+Non-2xx responses throw `ApiFetchError`; validation failures expose the normalized `issues` for form error display. `<Form>` accepts the same schemas via its `schema` and `onValidationIssues` props, so client-side and server-side validation share one schema module.

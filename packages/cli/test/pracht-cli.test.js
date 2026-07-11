@@ -12,6 +12,15 @@ const repoTempRoot = resolve(dirname(cliPath), "../test/.tmp");
 const coreImportPath = resolve(repoRoot, "packages/framework/src/index.ts");
 const nodeAdapterImportPath = resolve(repoRoot, "packages/adapter-node/src/index.ts");
 const vitePluginImportPath = resolve(repoRoot, "packages/vite-plugin/src/index.ts");
+const standardSchemaImportPath = resolve(
+  repoRoot,
+  "packages/framework/node_modules/@standard-schema/spec/dist/index.d.ts",
+);
+// The api-types compile test consumes the built declarations like a real
+// project would (skipLibCheck leaves them unchecked); compiling the framework
+// *source* alongside a populated Register augmentation is not supported.
+const coreDistTypesPath = resolve(repoRoot, "packages/framework/dist/index.d.mts");
+const tscPath = resolve(repoRoot, "node_modules/typescript/bin/tsc");
 const tempDirs = [];
 
 afterEach(() => {
@@ -358,18 +367,19 @@ export const app = defineApp({
     writeTypedManifestApp(appDir);
 
     const result = JSON.parse(runCli(["typegen", "--json"], { cwd: appDir }).stdout);
-    const declaration = readFileSync(join(appDir, "src/pracht-routes.d.ts"), "utf-8");
+    const declaration = readFileSync(join(appDir, "src/pracht.d.ts"), "utf-8");
     const runtime = readFileSync(join(appDir, "src/pracht-routes.ts"), "utf-8");
 
     expect(result).toMatchObject({
+      apiRoutes: 2,
       check: false,
-      files: ["src/pracht-routes.d.ts", "src/pracht-routes.ts"],
+      files: ["src/pracht.d.ts", "src/pracht-routes.ts"],
       mode: "manifest",
       ok: true,
       routes: 3,
     });
     expect(declaration).toContain(
-      'import type { RouteLoaderData, RouteParamInput, SearchParamsInput } from "@pracht/core";',
+      'import type { ApiRouteMethodMap, RouteLoaderData, RouteParamInput, SearchParamsInput } from "@pracht/core";',
     );
     expect(declaration).toContain('"home": {');
     expect(declaration).toContain("params: Record<never, never>;");
@@ -384,6 +394,10 @@ export const app = defineApp({
     expect(declaration).toContain(
       'data: RouteLoaderData<typeof import("./server/dashboard-loader"), typeof import("./routes/dashboard")>;',
     );
+    // API routes register on Register["apiRoutes"] for the typed apiFetch client.
+    expect(declaration).toContain("    apiRoutes: {");
+    expect(declaration).toContain('"/api/items/:id": {');
+    expect(declaration).toContain('methods: ApiRouteMethodMap<typeof import("./api/items/[id]")>;');
     expect(runtime).toContain('id: "product"');
     expect(runtime).toContain('path: "/products/:id"');
     expect(runtime).toContain("export const href = createHref(routes);");
@@ -391,7 +405,7 @@ export const app = defineApp({
     const check = JSON.parse(runCli(["typegen", "--check", "--json"], { cwd: appDir }).stdout);
     expect(check).toMatchObject({ check: true, ok: true, routes: 3 });
 
-    writeProjectFile(appDir, "src/pracht-routes.d.ts", "stale\n");
+    writeProjectFile(appDir, "src/pracht.d.ts", "stale\n");
     const stale = runCliStatus(["typegen", "--check", "--json"], { cwd: appDir });
     expect(stale.status).toBe(1);
     expect(JSON.parse(stale.stderr)).toMatchObject({ ok: false });
@@ -402,7 +416,7 @@ export const app = defineApp({
     writeInspectablePagesApp(appDir);
 
     const result = JSON.parse(runCli(["typegen", "--json"], { cwd: appDir }).stdout);
-    const declaration = readFileSync(join(appDir, "src/pracht-routes.d.ts"), "utf-8");
+    const declaration = readFileSync(join(appDir, "src/pracht.d.ts"), "utf-8");
 
     expect(result).toMatchObject({ mode: "pages", ok: true, routes: 2 });
     expect(declaration).toContain('"index": {');
@@ -411,6 +425,80 @@ export const app = defineApp({
     expect(declaration).toContain('data: RouteLoaderData<typeof import("./pages/index")>;');
     expect(declaration).toContain('data: RouteLoaderData<typeof import("./pages/blog/[slug]")>;');
   }, 30_000);
+
+  it("generated api route types drive apiFetch end to end", () => {
+    const appDir = createRepoTempDir("pracht-cli-typegen-api-types-");
+    writeTypedManifestApp(appDir);
+    runCli(["typegen"], { cwd: appDir });
+
+    writeProjectFile(
+      appDir,
+      "src/api-consumer.ts",
+      `import { apiFetch } from "@pracht/core";
+
+export async function main() {
+  // Params are required and the output type comes from the handler.
+  const item = await apiFetch("/api/items/:id", { params: { id: "1" } });
+  const _item: { id: string } = item;
+
+  // Body is typed by the route's Standard Schema input.
+  const created = await apiFetch("/api/items", { method: "POST", body: { name: "x" } });
+  const _created: { created: string } = created;
+
+  // @ts-expect-error - unknown api path
+  await apiFetch("/api/nope");
+
+  // @ts-expect-error - missing required params
+  await apiFetch("/api/items/:id");
+
+  // @ts-expect-error - body must match the schema input
+  await apiFetch("/api/items", { method: "POST", body: { name: 1 } });
+
+  // @ts-expect-error - POST requires a body
+  await apiFetch("/api/items", { method: "POST" });
+
+  // @ts-expect-error - GET is not exported for /api/items
+  await apiFetch("/api/items", { method: "GET" });
+}
+`,
+    );
+    writeProjectFile(
+      appDir,
+      "tsconfig.json",
+      JSON.stringify(
+        {
+          compilerOptions: {
+            target: "ES2022",
+            module: "ESNext",
+            moduleResolution: "Bundler",
+            allowImportingTsExtensions: true,
+            noEmit: true,
+            strict: true,
+            skipLibCheck: true,
+            lib: ["ES2022", "DOM", "DOM.Iterable"],
+            jsx: "react-jsx",
+            jsxImportSource: "preact",
+            types: ["node", "vite/client"],
+            paths: {
+              "@pracht/core": [coreDistTypesPath],
+              "@standard-schema/spec": [standardSchemaImportPath],
+            },
+          },
+          include: ["src"],
+        },
+        null,
+        2,
+      ),
+    );
+
+    // Throws (non-zero exit) when the generated declaration fails to
+    // deliver end-to-end api types.
+    execFileSync(process.execPath, [tscPath, "-p", "."], {
+      cwd: appDir,
+      encoding: "utf-8",
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+  }, 60_000);
 
   it("scaffolds pages-router routes without touching a manifest", () => {
     const appDir = createTempDir("pracht-cli-pages-");
@@ -605,6 +693,48 @@ export function Component() { return null; }
     `export async function loader() {
   return { widgets: 3 };
 }
+`,
+  );
+  writeProjectFile(
+    appDir,
+    "src/lib/schema-util.ts",
+    `import type { StandardSchemaV1 } from "@standard-schema/spec";
+
+export function passthroughSchema<T>(): StandardSchemaV1<T, T> {
+  return {
+    "~standard": {
+      version: 1,
+      vendor: "fixture",
+      validate: (value) => ({ value: value as T }),
+    },
+  };
+}
+`,
+  );
+  writeProjectFile(
+    appDir,
+    "src/api/items/[id].ts",
+    `import { defineApi } from "@pracht/core";
+
+export const GET = defineApi({
+  handler: ({ params }) => ({ id: params.id }),
+});
+
+export async function DELETE() {
+  return Response.json({ deleted: true });
+}
+`,
+  );
+  writeProjectFile(
+    appDir,
+    "src/api/items/index.ts",
+    `import { defineApi } from "@pracht/core";
+import { passthroughSchema } from "../../lib/schema-util";
+
+export const POST = defineApi({
+  body: passthroughSchema<{ name: string }>(),
+  handler: ({ body }) => ({ created: body.name }),
+});
 `,
   );
 }

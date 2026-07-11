@@ -569,3 +569,7 @@ API routes:
 - Share the same request context shape as page routes
 - Can opt into app-level API middleware via `defineApp({ api: { middleware } })`
 - Are excluded from client bundles entirely
+
+For request validation with Standard Schema (zod, valibot, …) and an
+end-to-end typed fetch client, wrap handlers with `defineApi()` — see
+[docs/API_VALIDATION.md](API_VALIDATION.md).

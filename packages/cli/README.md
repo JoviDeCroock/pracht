@@ -117,7 +117,7 @@ pracht inspect build --json
 
 ### `pracht typegen`
 
-Generate `src/pracht-routes.d.ts` and `src/pracht-routes.ts` from the resolved
+Generate `src/pracht.d.ts` and `src/pracht-routes.ts` from the resolved
 route graph for typed `<Link>`, route-object `useNavigate()`, and `href()`
 helpers. Use `--check` in CI to fail when generated files are stale.
 
