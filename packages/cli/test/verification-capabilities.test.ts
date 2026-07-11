@@ -183,6 +183,25 @@ describe("collectCapabilityChecks", () => {
     );
   });
 
+  it("fails schemas using malformed supported keyword values", () => {
+    const checks = runChecks(
+      capabilitySource(
+        COMPLETE_FIELDS.replace(
+          'input: { type: "object", properties: { query: { type: "string" } }, required: ["query"] },',
+          'input: { type: "object", required: "query" },',
+        ),
+      ),
+    );
+
+    expect(
+      checks.filter((check) => check.status === "error").map((check) => check.message),
+    ).toContainEqual(
+      expect.stringContaining(
+        '"input" schema has invalid JSON Schema values: /required:<expected string array>',
+      ),
+    );
+  });
+
   it("warns instead of failing when a schema is not statically analyzable", () => {
     const checks = runChecks(
       capabilitySource(

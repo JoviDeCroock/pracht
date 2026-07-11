@@ -1,7 +1,10 @@
 import { dirname, resolve } from "node:path";
 import { existsSync, readFileSync } from "node:fs";
 
-import { collectUnsupportedSchemaKeywords } from "@pracht/capabilities";
+import {
+  collectInvalidSchemaKeywordValues,
+  collectUnsupportedSchemaKeywords,
+} from "@pracht/capabilities";
 
 import { extractRegistryEntries } from "./manifest.js";
 import { resolveProjectPath, type ProjectConfig } from "./project.js";
@@ -122,6 +125,10 @@ function collectSingleCapabilityChecks(
       problems.push(
         `"${field}" schema uses unsupported JSON Schema keywords: ${unsupported.join(", ")}`,
       );
+    }
+    const invalid = collectInvalidSchemaKeywordValues(schema);
+    if (invalid.length > 0) {
+      problems.push(`"${field}" schema has invalid JSON Schema values: ${invalid.join(", ")}`);
     }
   }
 
