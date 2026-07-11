@@ -409,6 +409,21 @@ export const app = defineApp({
     const stale = runCliStatus(["typegen", "--check", "--json"], { cwd: appDir });
     expect(stale.status).toBe(1);
     expect(JSON.parse(stale.stderr)).toMatchObject({ ok: false });
+
+    for (const [declarationOut, runtimeOut] of [
+      ["src/collision.ts", "src/collision.ts"],
+      ["src/collision.d.ts", "src/collision.tsx"],
+    ]) {
+      const collision = runCliStatus(
+        ["typegen", "--out", declarationOut, "--runtime-out", runtimeOut, "--json"],
+        { cwd: appDir },
+      );
+      expect(collision.status).toBe(1);
+      expect(JSON.parse(collision.stderr)).toMatchObject({
+        ok: false,
+        error: expect.stringContaining("shares its basename"),
+      });
+    }
   }, 30_000);
 
   it("generates typed route declarations for pages-router apps", () => {

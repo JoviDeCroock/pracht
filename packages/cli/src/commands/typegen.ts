@@ -97,7 +97,7 @@ async function runTypegen(options: TypegenOptions): Promise<TypegenResult> {
   const project = readProjectConfig(options.root);
   const declarationPath = resolveOutputPath(options.root, options.declarationOut);
   const runtimePath = resolveOutputPath(options.root, options.runtimeOut);
-  if (declarationPath.replace(/\.d\.ts$/, "") === runtimePath.replace(/\.ts$/, "")) {
+  if (outputsCollide(declarationPath, runtimePath)) {
     throw new Error(
       `Declaration output ${options.declarationOut} shares its basename with ${options.runtimeOut}. ` +
         "TypeScript drops a .d.ts input that sits next to a same-named .ts file, " +
@@ -140,6 +140,16 @@ async function runTypegen(options: TypegenOptions): Promise<TypegenResult> {
     mode: report.mode,
     routes: routes.length,
   };
+}
+
+function outputsCollide(declarationPath: string, runtimePath: string): boolean {
+  if (declarationPath === runtimePath) {
+    return true;
+  }
+
+  const declarationStem = declarationPath.replace(/\.d\.(?:ts|mts|cts)$/, "");
+  const runtimeStem = runtimePath.replace(/\.(?:ts|tsx|mts|cts)$/, "");
+  return declarationStem !== declarationPath && declarationStem === runtimeStem;
 }
 
 function validateRoutes(routes: RouteEntry[]): void {
