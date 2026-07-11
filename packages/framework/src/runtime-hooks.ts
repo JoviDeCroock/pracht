@@ -216,7 +216,14 @@ export function Form(props: FormProps) {
 
       event.preventDefault();
       const actionUrl = props.action ?? form.action;
-      const formData = new FormData(form);
+      const submitter =
+        typeof SubmitEvent !== "undefined" && event instanceof SubmitEvent ? event.submitter : null;
+      const nativeSubmitter =
+        (submitter instanceof HTMLButtonElement || submitter instanceof HTMLInputElement) &&
+        submitter.form === form
+          ? submitter
+          : undefined;
+      const formData = new FormData(form, nativeSubmitter);
 
       if (schema) {
         const result = await validateStandardSchema(schema, formDataToRecord(formData), "body");
@@ -228,16 +235,7 @@ export function Form(props: FormProps) {
 
       if (isSafeMethod) {
         validatedNativeSubmissions.add(form);
-        const submitter =
-          typeof SubmitEvent !== "undefined" && event instanceof SubmitEvent
-            ? event.submitter
-            : null;
         try {
-          const nativeSubmitter =
-            (submitter instanceof HTMLButtonElement || submitter instanceof HTMLInputElement) &&
-            submitter.form === form
-              ? submitter
-              : undefined;
           form.requestSubmit(nativeSubmitter);
         } finally {
           validatedNativeSubmissions.delete(form);

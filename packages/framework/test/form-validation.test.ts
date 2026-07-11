@@ -19,6 +19,19 @@ const nameSchema: StandardSchemaV1<Record<string, unknown>> = {
   },
 };
 
+const actionSchema: StandardSchemaV1<Record<string, unknown>> = {
+  "~standard": {
+    version: 1,
+    vendor: "pracht-test",
+    validate(value) {
+      const action = (value as Record<string, unknown>).action;
+      return action === "save"
+        ? { value: value as Record<string, unknown> }
+        : { issues: [{ message: "Action is required", path: ["action"] }] };
+    },
+  },
+};
+
 describe("<Form> validation", () => {
   let root: HTMLDivElement;
   let fetchSpy: ReturnType<typeof vi.fn>;
@@ -131,6 +144,36 @@ describe("<Form> validation", () => {
 
     expect(fetchSpy).toHaveBeenCalledTimes(1);
     expect(onValidationIssues).not.toHaveBeenCalled();
+  });
+
+  it("validates and submits the clicked button value", async () => {
+    fetchSpy.mockResolvedValue(new Response(null, { status: 200 }));
+    const onValidationIssues = vi.fn();
+
+    render(
+      h(
+        Form,
+        {
+          action: "/api/items",
+          method: "post",
+          schema: actionSchema,
+          onValidationIssues,
+        },
+        h("button", { name: "action", value: "save" }, "Save"),
+      ),
+      root,
+    );
+
+    const form = root.querySelector("form")!;
+    const button = root.querySelector("button")!;
+    form.dispatchEvent(
+      new SubmitEvent("submit", { bubbles: true, cancelable: true, submitter: button }),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(onValidationIssues).not.toHaveBeenCalled();
+    const body = fetchSpy.mock.calls[0][1].body as FormData;
+    expect(body.get("action")).toBe("save");
   });
 
   it("surfaces server-side 422 validation issues", async () => {
