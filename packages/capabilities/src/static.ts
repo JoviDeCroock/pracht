@@ -101,12 +101,12 @@ export function findTopLevelObjectProperty(source: string, key: string): string 
   const codeOnly = maskCommentsAndStrings(source);
   const commentsRemoved = maskComments(source);
   const unquotedMatch = new RegExp(`\\b${escapedKey}\\s*:\\s*\\{`).exec(codeOnly);
-  const quotedMatch = new RegExp(`(["'])${escapedKey}\\1\\s*:\\s*\\{`).exec(commentsRemoved);
-  const match = [unquotedMatch, quotedMatch]
-    .filter((candidate): candidate is RegExpExecArray => candidate !== null)
-    .sort((left, right) => left.index - right.index)[0];
-  if (!match || match.index == null) return null;
-  const braceStart = commentsRemoved.indexOf("{", match.index);
+  const quotedIndex = findQuotedObjectProperty(source, key);
+  const matchIndex = [unquotedMatch?.index, quotedIndex]
+    .filter((candidate): candidate is number => candidate !== undefined && candidate !== null)
+    .sort((left, right) => left - right)[0];
+  if (matchIndex === undefined) return null;
+  const braceStart = commentsRemoved.indexOf("{", matchIndex);
   const braceEnd = findMatchingBrace(source, braceStart, "{", "}");
   if (braceEnd === -1) return null;
   return source.slice(braceStart + 1, braceEnd);
@@ -214,6 +214,34 @@ function maskComments(source: string): string {
 
 function maskCommentsAndStrings(source: string): string {
   return maskLexicalNoise(source, true);
+}
+
+/** Find an actual quoted property token, excluding lookalikes inside strings/comments. */
+function findQuotedObjectProperty(source: string, key: string): number | null {
+  let index = 0;
+  while (index < source.length) {
+    const next = skipInsignificant(source, index);
+    if (next > index) {
+      index = next;
+      continue;
+    }
+
+    const char = source[index];
+    if (char !== '"' && char !== "'" && char !== "`") {
+      index += 1;
+      continue;
+    }
+
+    const end = findStringEnd(source, index);
+    if (end === -1) return null;
+    if (char !== "`" && source.slice(index + 1, end) === key) {
+      const colon = skipInsignificant(source, end + 1);
+      const brace = source[colon] === ":" ? skipInsignificant(source, colon + 1) : -1;
+      if (brace !== -1 && source[brace] === "{") return index;
+    }
+    index = end + 1;
+  }
+  return null;
 }
 
 /** Index of the closing quote of the string starting at `start`. */
