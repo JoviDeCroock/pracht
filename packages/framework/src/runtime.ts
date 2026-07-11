@@ -413,7 +413,10 @@ export async function handlePrachtRequest<TContext>(
       const data = loaderResult;
 
       if (isRouteStateRequest) {
-        return Response.json({ data });
+        return withRouteResponseHeaders(Response.json({ data }), {
+          isRouteStateRequest: true,
+          loaderCache: match.route.loaderCache,
+        });
       }
 
       // Shell import was kicked off up front; this await is usually already
@@ -657,7 +660,10 @@ export async function handlePrachtRequest<TContext>(
     if (timings) {
       timings.mw = performance.now() - chainStart - (timings.render ?? 0) - (timings.loader ?? 0);
     }
-    return normalizePageResponse(response, { isRouteStateRequest });
+    return normalizePageResponse(response, {
+      isRouteStateRequest,
+      loaderCache: match.route.loaderCache,
+    });
   } catch (error: unknown) {
     return renderRouteErrorResponse({
       error,

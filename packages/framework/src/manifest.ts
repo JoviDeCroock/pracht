@@ -10,6 +10,7 @@ export type {
   HydrationMode,
   IslandStrategy,
   IslandProps,
+  LoaderCache,
   RouteConfig,
   RouteDefinition,
   RouteMeta,

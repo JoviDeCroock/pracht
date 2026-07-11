@@ -13,6 +13,7 @@ import {
   route,
   useLocation,
   useNavigate,
+  useRevalidate,
   useRouteData,
 } from "../src/index.ts";
 
@@ -158,6 +159,130 @@ describe("initClientRouter", () => {
     );
     expect(window.location.pathname).toBe("/products/2");
     expect(root.textContent).toContain("Product 2");
+  });
+
+  it("bypasses the HTTP cache when revalidating route data", async () => {
+    function Dashboard() {
+      const data = useRouteData<{ count: number }>();
+      const revalidate = useRevalidate();
+      return h(
+        "main",
+        null,
+        h("span", { id: "count" }, String(data.count)),
+        h("button", { id: "refresh", onClick: () => void revalidate() }, "Refresh"),
+      );
+    }
+
+    const app = resolveApp(
+      defineApp({
+        routes: [
+          route("/dashboard", "./routes/dashboard.tsx", {
+            id: "dashboard",
+            loaderCache: 60,
+            render: "ssr",
+          }),
+        ],
+      }),
+    );
+
+    root.innerHTML = '<main><span id="count">1</span><button id="refresh">Refresh</button></main>';
+    history.replaceState(null, "", "/dashboard");
+    fetchSpy.mockResolvedValue(createJsonResponse({ data: { count: 2 } }));
+
+    await initClientRouter({
+      app,
+      routeModules: {
+        "./routes/dashboard.tsx": async () => ({ default: Dashboard }),
+      },
+      shellModules: {},
+      initialState: {
+        data: { count: 1 },
+        routeId: "dashboard",
+        url: "/dashboard",
+      },
+      root,
+      findModuleKey: (_modules, file) => file,
+    });
+
+    root.querySelector<HTMLButtonElement>("#refresh")?.click();
+    await flush();
+    await flush();
+
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "/dashboard",
+      expect.objectContaining({
+        cache: "reload",
+        headers: expect.objectContaining({ "x-pracht-route-state-request": "1" }),
+        redirect: "manual",
+      }),
+    );
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("bypasses the HTTP cache when a form redirect reloads cached route data", async () => {
+    function Cart() {
+      const data = useRouteData<{ count: number }>();
+      return h(
+        "main",
+        null,
+        h(Form, { action: "/api/cart", method: "post" }, h("button", null, "Add")),
+        h("span", { id: "count" }, String(data.count)),
+      );
+    }
+
+    const app = resolveApp(
+      defineApp({
+        routes: [
+          route("/cart", "./routes/cart.tsx", {
+            id: "cart",
+            loaderCache: 60,
+            render: "ssr",
+          }),
+        ],
+      }),
+    );
+
+    root.innerHTML =
+      '<main><form action="/api/cart" method="post"><button>Add</button></form><span id="count">1</span></main>';
+    history.replaceState(null, "", "/cart");
+    fetchSpy.mockImplementation(async (input: RequestInfo | URL) => {
+      if (String(input) === "/api/cart") {
+        return new Response(null, { headers: { location: "/cart" }, status: 302 });
+      }
+
+      return createJsonResponse({ data: { count: 2 } });
+    });
+
+    await initClientRouter({
+      app,
+      routeModules: {
+        "./routes/cart.tsx": async () => ({ default: Cart }),
+      },
+      shellModules: {},
+      initialState: {
+        data: { count: 1 },
+        routeId: "cart",
+        url: "/cart",
+      },
+      root,
+      findModuleKey: (_modules, file) => file,
+    });
+
+    const submitEvent = new Event("submit", { bubbles: true, cancelable: true });
+    root.querySelector("form")?.dispatchEvent(submitEvent);
+    await flush();
+    await flush();
+
+    expect(fetchSpy).toHaveBeenNthCalledWith(
+      2,
+      "/cart",
+      expect.objectContaining({
+        cache: "reload",
+        headers: expect.objectContaining({ "x-pracht-route-state-request": "1" }),
+        redirect: "manual",
+      }),
+    );
+    expect(root.querySelector("#count")?.textContent).toBe("2");
   });
 
   it("preserves same-shell instances without exposing stale route data to useRouteData()", async () => {

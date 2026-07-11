@@ -230,6 +230,15 @@ test("route state request returns JSON", async ({ request }) => {
   expect(json.data.highlights).toContain("Hybrid route manifest");
 });
 
+test("route state request uses the configured loader cache duration", async ({ request }) => {
+  const response = await request.get("/pricing", {
+    headers: { "x-pracht-route-state-request": "1" },
+  });
+
+  expect(response.status()).toBe(200);
+  expect(response.headers()["cache-control"]).toBe("private, max-age=60");
+});
+
 // ---------------------------------------------------------------------------
 // 404 handling
 // ---------------------------------------------------------------------------

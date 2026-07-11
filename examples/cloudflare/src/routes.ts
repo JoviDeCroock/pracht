@@ -17,6 +17,7 @@ export const app = defineApp({
       }),
       route("/pricing", () => import("./routes/pricing.tsx"), {
         id: "pricing",
+        loaderCache: 60,
         render: "isg",
         revalidate: timeRevalidate(3600),
         speculation: "prefetch",

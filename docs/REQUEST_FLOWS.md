@@ -26,7 +26,8 @@ and returns a small JSON envelope:
 
 The `Vary: x-pracht-route-state-request` response header tells caches to keep
 the HTML and JSON variants separate. JSON responses default to
-`Cache-Control: no-store`.
+`Cache-Control: no-store`; a positive route `loaderCache` value changes
+successful loader-data responses to `private, max-age=<seconds>`.
 
 If the target route has neither a loader nor middleware, client navigation can
 skip the route-state request entirely and only load the route/shell modules.
@@ -396,6 +397,10 @@ x-pracht-route-state-request: 1
 Vary: x-pracht-route-state-request
 Cache-Control: no-store
 ```
+
+`Cache-Control` above is the default. Routes configured with
+`loaderCache: <seconds>` return `private, max-age=<seconds>` for successful data;
+redirects and errors remain `no-store`.
 
 No HTML is rendered during navigation regardless of the target route's mode.
 The client updates the component tree in-place.

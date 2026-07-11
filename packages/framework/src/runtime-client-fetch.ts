@@ -44,13 +44,12 @@ export function buildRouteStateUrl(url: string): string {
 
 export async function fetchPrachtRouteState(
   url: string,
-  options?: { signal?: AbortSignal; useDataParam?: boolean },
+  options?: { cache?: RequestCache; signal?: AbortSignal; useDataParam?: boolean },
 ): Promise<RouteStateResult> {
   const fetchUrl = options?.useDataParam ? buildRouteStateUrl(url) : url;
   const response = await fetch(fetchUrl, {
-    headers: options?.useDataParam
-      ? {}
-      : { [ROUTE_STATE_REQUEST_HEADER]: "1", "Cache-Control": "no-cache" },
+    cache: options?.cache,
+    headers: options?.useDataParam ? {} : { [ROUTE_STATE_REQUEST_HEADER]: "1" },
     redirect: "manual",
     signal: options?.signal,
   });
@@ -94,7 +93,7 @@ export async function fetchPrachtRouteState(
 
 export async function navigateToClientLocation(
   location: string,
-  options?: { replace?: boolean },
+  options?: { reloadRouteState?: boolean; replace?: boolean },
 ): Promise<void> {
   if (typeof window === "undefined") {
     return;
@@ -108,7 +107,10 @@ export async function navigateToClientLocation(
 
   const target = targetUrl.pathname + targetUrl.search + targetUrl.hash;
   if (targetUrl.origin === window.location.origin && window.__PRACHT_NAVIGATE__) {
-    await window.__PRACHT_NAVIGATE__(target, options);
+    await window.__PRACHT_NAVIGATE__(target, {
+      _reloadRouteState: options?.reloadRouteState,
+      replace: options?.replace,
+    });
     return;
   }
 

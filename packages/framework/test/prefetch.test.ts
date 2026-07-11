@@ -112,6 +112,7 @@ describe("prefetch strategies", () => {
         headers: expect.objectContaining({ "x-pracht-route-state-request": "1" }),
       }),
     );
+    expect(fetchSpy.mock.calls[0][1].headers).not.toHaveProperty("Cache-Control");
 
     // The navigation path reads the same cache — no second request.
     const cached = getCachedRouteState("/pricing");

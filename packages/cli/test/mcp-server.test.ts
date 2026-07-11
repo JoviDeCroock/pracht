@@ -173,6 +173,7 @@ export const app = defineApp({
         {
           file: "./routes/dashboard.tsx",
           id: "dashboard",
+          loaderCache: null,
           loaderFile: null,
           middleware: [],
           path: "/dashboard",

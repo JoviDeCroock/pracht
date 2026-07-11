@@ -303,6 +303,7 @@ export const app = defineApp({
         {
           file: "./routes/dashboard.tsx",
           id: "dashboard",
+          loaderCache: null,
           loaderFile: "./server/dashboard-loader.ts",
           middleware: ["auth"],
           path: "/dashboard",

@@ -31,6 +31,7 @@ interface InheritedRouteConfig {
   shell?: string;
   render?: ResolvedRoute["render"];
   hydration?: ResolvedRoute["hydration"];
+  loaderCache?: ResolvedRoute["loaderCache"];
   middleware: string[];
   speculation?: SpeculationOption;
 }
@@ -186,11 +187,14 @@ function flattenRouteNode(
   routes: ResolvedRoute[],
 ): void {
   if (node.kind === "group") {
+    const pathPrefix = mergeRoutePaths(inherited.pathPrefix, node.meta.pathPrefix);
+    assertValidLoaderCache(node.meta.loaderCache, `group at "${pathPrefix}"`);
     const nextInherited: InheritedRouteConfig = {
-      pathPrefix: mergeRoutePaths(inherited.pathPrefix, node.meta.pathPrefix),
+      pathPrefix,
       shell: node.meta.shell ?? inherited.shell,
       render: node.meta.render ?? inherited.render,
       hydration: node.meta.hydration ?? inherited.hydration,
+      loaderCache: node.meta.loaderCache ?? inherited.loaderCache,
       middleware: [...inherited.middleware, ...(node.meta.middleware ?? [])],
       speculation: node.meta.speculation ?? inherited.speculation,
     };
@@ -203,10 +207,12 @@ function flattenRouteNode(
   }
 
   const fullPath = mergeRoutePaths(inherited.pathPrefix, node.path);
+  assertValidLoaderCache(node.loaderCache, `route "${fullPath}"`);
   const shell = node.shell ?? inherited.shell;
   const middleware = [...inherited.middleware, ...(node.middleware ?? [])];
   const render = node.render ?? inherited.render;
   const hydration = node.hydration ?? inherited.hydration;
+  const loaderCache = node.loaderCache ?? inherited.loaderCache;
 
   if (render === "spa" && hydration !== undefined && hydration !== "full") {
     throw new Error(
@@ -237,6 +243,7 @@ function flattenRouteNode(
     shellFile: shell !== undefined ? app.shells[shell] : undefined,
     render,
     hydration,
+    loaderCache,
     middleware,
     middlewareFiles: middleware.map((name) => {
       if (!hasOwnEntry(app.middleware, name)) {
@@ -257,6 +264,18 @@ function flattenRouteNode(
     speculation: node.speculation ?? inherited.speculation,
     segments: parseRouteSegments(fullPath),
   });
+}
+
+function assertValidLoaderCache(loaderCache: ResolvedRoute["loaderCache"], context: string): void {
+  if (
+    loaderCache !== undefined &&
+    loaderCache !== false &&
+    (!Number.isInteger(loaderCache) || loaderCache < 0)
+  ) {
+    throw new Error(
+      `Invalid loaderCache for ${context}: expected false or a non-negative integer number of seconds.`,
+    );
+  }
 }
 
 /** `in` would also match `Object.prototype` keys such as `constructor`. */

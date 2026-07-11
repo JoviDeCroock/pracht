@@ -53,7 +53,7 @@ interface RouteRenderState {
 
 declare global {
   interface Window {
-    __PRACHT_NAVIGATE__?: NavigateFn;
+    __PRACHT_NAVIGATE__?: InternalNavigateFn;
     __PRACHT_ROUTER_READY__?: boolean;
   }
 }
@@ -67,6 +67,15 @@ export interface NavigateFn {
 
 interface InternalNavigateOptions extends NavigateOptions {
   _popstate?: boolean;
+  _reloadRouteState?: boolean;
+}
+
+interface InternalNavigateFn {
+  (to: string, options?: InternalNavigateOptions): Promise<void>;
+  <TRoute extends RouteId>(
+    to: RouteTarget<TRoute>,
+    options?: InternalNavigateOptions,
+  ): Promise<void>;
 }
 
 interface BrowserRouteTarget {
@@ -376,9 +385,13 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
       // Start route-state fetch and module imports in parallel
       let statePromise: Promise<RouteStateResult>;
       if (routeNeedsServerFetch(match.route)) {
-        statePromise =
-          getCachedRouteState(target.requestUrl) ??
-          fetchPrachtRouteState(target.requestUrl, { signal: abortController.signal });
+        statePromise = opts?._reloadRouteState
+          ? fetchPrachtRouteState(target.requestUrl, {
+              cache: "reload",
+              signal: abortController.signal,
+            })
+          : (getCachedRouteState(target.requestUrl) ??
+            fetchPrachtRouteState(target.requestUrl, { signal: abortController.signal }));
       } else {
         statePromise = Promise.resolve({ type: "data" as const, data: undefined });
       }

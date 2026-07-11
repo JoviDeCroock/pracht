@@ -221,6 +221,12 @@ export interface ApiRouteMatch {
 export type PrefetchStrategy = "none" | "hover" | "viewport" | "intent";
 
 /**
+ * Browser cache duration for route-state loader responses, in seconds.
+ * `false` and `0` disable storage with `Cache-Control: no-store`.
+ */
+export type LoaderCache = number | false;
+
+/**
  * Per-link prefetch strategy accepted by `<Link prefetch>`. Extends the
  * route-level strategies with `"render"`, which prefetches as soon as the
  * link is rendered.
@@ -260,6 +266,7 @@ export interface RouteMeta {
   hydration?: HydrationMode;
   middleware?: string[];
   revalidate?: RouteRevalidate;
+  loaderCache?: LoaderCache;
   prefetch?: PrefetchStrategy;
   speculation?: SpeculationOption;
   hasLoader?: boolean;
@@ -270,6 +277,7 @@ export interface GroupMeta {
   render?: RenderMode;
   hydration?: HydrationMode;
   middleware?: string[];
+  loaderCache?: LoaderCache;
   pathPrefix?: string;
   speculation?: SpeculationOption;
 }

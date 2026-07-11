@@ -294,12 +294,15 @@ User clicks <a> or calls navigate()
       └─ Import shell module chunk (if applicable)
   → Otherwise, import the route/shell modules only and skip the server fetch
   → Server runs middleware + loader when needed and returns JSON (no HTML rendering)
+    with no-store by default or the route's private loaderCache duration
   → Client updates component tree with new data + loaded modules
   → Update URL via history.pushState
 ```
 
 Module imports are cached so repeated navigations to the same shell skip the import.
 Prefetching (hover/intent/viewport) also warms module chunks alongside route-state data.
+Its bounded 30-second in-memory reuse window is independent of the route-state
+response's browser HTTP cache policy.
 
 This "server-owned navigation" pattern means loaders never run in the browser.
 Secrets in loader code stay server-side. The client only receives serialized data.

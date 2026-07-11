@@ -130,6 +130,7 @@ describe("dev middleware /_pracht devtools route", () => {
       {
         file: "./routes/home.tsx",
         id: "home",
+        loaderCache: null,
         loaderFile: null,
         middleware: [],
         path: "/",
@@ -141,6 +142,7 @@ describe("dev middleware /_pracht devtools route", () => {
       {
         file: "./routes/user.tsx",
         id: expect.any(String),
+        loaderCache: null,
         loaderFile: null,
         middleware: ["auth"],
         path: "/users/:id",

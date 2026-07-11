@@ -70,7 +70,30 @@ plugins turn Markdown/MDX or TypeScript route files into JavaScript.
 
 Framework-generated route-state responses add `Vary: x-pracht-route-state-request`
 so caches keep HTML and JSON variants separate. Those JSON responses also default
-to `Cache-Control: no-store` unless your app sets a stricter policy explicitly.
+to `Cache-Control: no-store`.
+
+Use `loaderCache` in route metadata when loader data can safely be reused by the
+same browser:
+
+```typescript
+route("/settings", () => import("./routes/settings.tsx"), {
+  render: "spa",
+  loaderCache: 3600,
+});
+```
+
+A positive integer sets `Cache-Control: private, max-age=<seconds>` on successful
+route-state data responses. `loaderCache: false` and `loaderCache: 0` both produce
+`no-store`, which also lets a route opt out of a group default. Redirects and error
+responses remain `no-store`. If a loader returns a `Response` with an explicit
+`Cache-Control` header, that header takes precedence over route metadata.
+
+`loaderCache` is client-side browser caching only. It does not change ISG
+`revalidate`, and the prefetcher's bounded 30-second in-memory cache remains
+independent so an intent prefetch can still be consumed by the navigation that
+immediately follows it. Explicit `useRevalidate()` calls bypass this browser
+cache so user-triggered refreshes and post-mutation reloads still re-run the
+loader.
 
 For SPA routes, the initial HTML can still include the matched shell and an
 optional shell `Loading` export so the page is not blank before the route-state
