@@ -117,8 +117,6 @@ Pracht is built to be operated by coding agents as much as by humans:
 - [docs/MCP.md](docs/MCP.md) — built-in MCP server for coding agents
 - [docs/ENV.md](docs/ENV.md) — typed env access, `PRACHT_PUBLIC_` prefix rule, leak detection
 - [packages/start/README.md](packages/start/README.md) — starter CLI details
-- [packages/preact-worker-facets/README.md](packages/preact-worker-facets/README.md) — experimental Cloudflare Dynamic Worker facets runtime for Preact components
-- [examples/basic](examples/basic), [examples/cloudflare](examples/cloudflare), [examples/docs](examples/docs) — working apps
 
 ## Contributing
 
