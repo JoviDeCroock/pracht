@@ -80,32 +80,67 @@ function collectSingleCapabilityChecks(
 
   const properties = scanTopLevelPropertyText(args);
   const exposed = properties.has("expose");
-  const title = readStringLiteral(properties.get("title"));
-  const description = readStringLiteral(properties.get("description"));
-  const effect = readStringLiteral(properties.get("effect"));
+  const title = readStaticString(properties.get("title"));
+  const description = readStaticString(properties.get("description"));
+  const effect = readStaticString(properties.get("effect"));
   const problems: string[] = [];
 
   const missing: string[] = [];
-  if (!title) missing.push("title");
-  if (!description) missing.push("description");
+  if (title.kind === "absent") missing.push("title");
+  if (description.kind === "absent") missing.push("description");
   if (!properties.has("input")) missing.push("input schema");
   if (!properties.has("output")) missing.push("output schema");
-  if (!effect) missing.push("effect");
+  if (effect.kind === "absent") missing.push("effect");
   if (missing.length > 0) {
     problems.push(`is missing required fields: ${missing.join(", ")}`);
   }
-  if (effect && !CAPABILITY_EFFECTS.has(effect)) {
+
+  for (const [field, value] of [
+    ["title", title],
+    ["description", description],
+    ["effect", effect],
+  ] as const) {
+    if (value.kind === "invalid") {
+      problems.push(`"${field}" must be a non-empty string`);
+    } else if (value.kind === "unknown") {
+      checks.push(
+        createCheck(
+          "warning",
+          `${label}: the "${field}" field is not an inline string literal, so it could not be verified statically.`,
+        ),
+      );
+    }
+  }
+
+  const effectValue = effect.kind === "valid" ? effect.value : null;
+  if (effectValue && !CAPABILITY_EFFECTS.has(effectValue)) {
     problems.push('"effect" must be "read", "write", or "destructive"');
   }
 
-  const agentPolicy = readStringLiteral(properties.get("agentPolicy"));
-  if (properties.has("agentPolicy") && (!agentPolicy || !AGENT_POLICIES.has(agentPolicy))) {
-    problems.push('"agentPolicy" must be "observe" or "require"');
+  const agentPolicy = readStaticString(properties.get("agentPolicy"));
+  if (properties.has("agentPolicy")) {
+    if (agentPolicy.kind === "unknown") {
+      checks.push(
+        createCheck(
+          "warning",
+          `${label}: the "agentPolicy" field is not an inline string literal, so it could not be verified statically.`,
+        ),
+      );
+    } else if (agentPolicy.kind !== "valid" || !AGENT_POLICIES.has(agentPolicy.value)) {
+      problems.push('"agentPolicy" must be "observe" or "require"');
+    }
   }
 
   const middleware = readMiddlewareNames(properties.get("middleware"));
   if (middleware.kind === "invalid") {
     problems.push('"middleware" must be an array of names');
+  } else if (middleware.kind === "unknown") {
+    checks.push(
+      createCheck(
+        "warning",
+        `${label}: the "middleware" field is not an inline array literal, so it could not be verified statically.`,
+      ),
+    );
   } else if (middleware.kind === "valid") {
     for (const middlewareName of middleware.names) {
       if (!registeredMiddleware.has(middlewareName)) {
@@ -125,7 +160,7 @@ function collectSingleCapabilityChecks(
       );
     }
 
-    if (effect === "destructive") {
+    if (effectValue === "destructive") {
       if (hasWebmcp || hasMcp) {
         problems.push(
           "is destructive and exposed to agent projections (webmcp/mcp) — only expose.http " +
@@ -176,7 +211,7 @@ function collectSingleCapabilityChecks(
   checks.push(
     createCheck(
       "ok",
-      `${label} declares a complete ${exposed ? "exposed" : "private"} contract${effect ? ` (effect: ${effect})` : ""}.`,
+      `${label} declares a complete ${exposed ? "exposed" : "private"} contract${effectValue ? ` (effect: ${effectValue})` : ""}.`,
     ),
   );
 }
@@ -317,20 +352,30 @@ function findMatchingBrace(source: string, start: number, open: string, close: s
   return -1;
 }
 
-function readStringLiteral(text: string | undefined): string | null {
-  if (!text) return null;
+type StaticString =
+  | { kind: "absent" }
+  | { kind: "invalid" }
+  | { kind: "unknown" }
+  | { kind: "valid"; value: string };
+
+function readStaticString(text: string | undefined): StaticString {
+  if (!text) return { kind: "absent" };
   const value = evaluateLiteral(text);
-  return typeof value === "string" ? value : null;
+  if (value === undefined) return { kind: "unknown" };
+  if (typeof value !== "string" || value.trim() === "") return { kind: "invalid" };
+  return { kind: "valid", value };
 }
 
 type MiddlewareNames =
   | { kind: "absent" }
   | { kind: "invalid" }
+  | { kind: "unknown" }
   | { kind: "valid"; names: string[] };
 
 function readMiddlewareNames(text: string | undefined): MiddlewareNames {
   if (!text) return { kind: "absent" };
   const value = evaluateLiteral(text);
+  if (value === undefined) return { kind: "unknown" };
   if (!Array.isArray(value) || value.some((name) => typeof name !== "string")) {
     return { kind: "invalid" };
   }

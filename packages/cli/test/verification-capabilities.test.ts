@@ -136,6 +136,18 @@ describe("collectCapabilityChecks", () => {
     ).toContainEqual(expect.stringContaining('"agentPolicy" must be "observe" or "require"'));
   });
 
+  it("warns instead of failing when agent policy is not statically analyzable", () => {
+    const checks = runChecks(
+      capabilitySource(`${COMPLETE_FIELDS}
+  agentPolicy: sharedAgentPolicy,`),
+    );
+
+    expect(checks.filter((check) => check.status === "error")).toHaveLength(0);
+    expect(checks.map((check) => check.message)).toContainEqual(
+      expect.stringContaining('"agentPolicy" field is not an inline string literal'),
+    );
+  });
+
   it("fails capabilities that reference unknown middleware", () => {
     const checks = runChecks(
       capabilitySource(`${COMPLETE_FIELDS}
@@ -145,6 +157,18 @@ describe("collectCapabilityChecks", () => {
     expect(
       checks.filter((check) => check.status === "error").map((check) => check.message),
     ).toContainEqual(expect.stringContaining('references unknown middleware "auth"'));
+  });
+
+  it("warns instead of failing when middleware is not statically analyzable", () => {
+    const checks = runChecks(
+      capabilitySource(`${COMPLETE_FIELDS}
+  middleware: sharedMiddleware,`),
+    );
+
+    expect(checks.filter((check) => check.status === "error")).toHaveLength(0);
+    expect(checks.map((check) => check.message)).toContainEqual(
+      expect.stringContaining('"middleware" field is not an inline array literal'),
+    );
   });
 
   it("accepts capabilities that reference registered middleware", () => {
@@ -334,6 +358,27 @@ describe("collectCapabilityChecks", () => {
     expect(checks.filter((check) => check.status === "error")).toHaveLength(0);
     expect(checks.map((check) => check.message)).toContainEqual(
       expect.stringContaining("could not be verified statically"),
+    );
+  });
+
+  it("warns instead of failing when string metadata is not statically analyzable", () => {
+    const checks = runChecks(
+      capabilitySource(`  title: sharedTitle,
+  description: sharedDescription,
+  input: { type: "object" },
+  output: { type: "object" },
+  effect: sharedEffect,`),
+    );
+
+    expect(checks.filter((check) => check.status === "error")).toHaveLength(0);
+    expect(checks.map((check) => check.message)).toContainEqual(
+      expect.stringContaining('"title" field is not an inline string literal'),
+    );
+    expect(checks.map((check) => check.message)).toContainEqual(
+      expect.stringContaining('"description" field is not an inline string literal'),
+    );
+    expect(checks.map((check) => check.message)).toContainEqual(
+      expect.stringContaining('"effect" field is not an inline string literal'),
     );
   });
 
