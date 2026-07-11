@@ -1,5 +1,28 @@
 import type { ModuleImporter, ModuleRegistry } from "./types.ts";
 
+// Reserved jsManifest keys under which the build stores the transitive static
+// JS imports of the client/islands entry chunks. Without these, the browser
+// only discovers the entry's secondary chunks after downloading and parsing
+// the entry itself — one extra serial round trip before hydration. Must match
+// the virtual module ids in @pracht/vite-plugin (plugin-assets.ts).
+export const CLIENT_ENTRY_MANIFEST_KEY = "virtual:pracht/client";
+export const ISLANDS_ENTRY_MANIFEST_KEY = "virtual:pracht/islands-client";
+
+/**
+ * Merge an entry chunk's own static import urls into a page's modulepreload
+ * list. Entry deps come first — they gate hydration — and duplicates from the
+ * page's route/shell chunk closure are dropped.
+ */
+export function mergeEntryPreloadUrls(
+  jsManifest: Record<string, string[]> | undefined,
+  entryKey: string,
+  pageUrls: string[],
+): string[] {
+  const entryUrls = jsManifest?.[entryKey];
+  if (!entryUrls || entryUrls.length === 0) return pageUrls;
+  return [...new Set([...entryUrls, ...pageUrls])];
+}
+
 /** Strip leading `./` and `/` so all module paths share one canonical form. */
 export function normalizeModulePath(path: string): string {
   return path.replace(/^\.?\//, "");

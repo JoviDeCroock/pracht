@@ -16,6 +16,9 @@ import {
 } from "./runtime-headers.ts";
 import { buildHtmlDocument, htmlResponse } from "./runtime-html.ts";
 import {
+  CLIENT_ENTRY_MANIFEST_KEY,
+  ISLANDS_ENTRY_MANIFEST_KEY,
+  mergeEntryPreloadUrls,
   resolveManifestEntries,
   resolvePageCssUrls,
   resolvePageJsUrls,
@@ -214,10 +217,10 @@ export async function renderRouteErrorResponse<TContext>(options: {
     options.shellFile,
     options.routeArgs.route.file,
   );
-  const modulePreloadUrls = resolvePageJsUrls(
+  const modulePreloadUrls = mergeEntryPreloadUrls(
     options.options.jsManifest,
-    options.shellFile,
-    options.routeArgs.route.file,
+    CLIENT_ENTRY_MANIFEST_KEY,
+    resolvePageJsUrls(options.options.jsManifest, options.shellFile, options.routeArgs.route.file),
   );
   const renderToString = await getRenderToStringAsync();
 
@@ -291,7 +294,11 @@ export async function renderRouteErrorResponse<TContext>(options: {
         body,
         clientEntryUrl: islandsEntryUrl,
         cssUrls,
-        modulePreloadUrls: [...islandPreloadUrls],
+        modulePreloadUrls: islandsEntryUrl
+          ? mergeEntryPreloadUrls(options.options.jsManifest, ISLANDS_ENTRY_MANIFEST_KEY, [
+              ...islandPreloadUrls,
+            ])
+          : [...islandPreloadUrls],
       }),
       routeErrorWithDiagnostics.status,
       documentHeaders,

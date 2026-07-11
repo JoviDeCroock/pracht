@@ -1174,6 +1174,47 @@ describe("prerenderApp", () => {
     expect(page.html).toContain('<link rel="modulepreload" href="/assets/vendor-abc123.js">');
   });
 
+  it("preloads the client entry's own static import closure without duplicates", async () => {
+    const app = defineApp({
+      routes: [route("/pricing", "./routes/pricing.tsx", { render: "ssg", shell: "public" })],
+      shells: {
+        public: "./shells/public.tsx",
+      },
+    });
+
+    const [page] = await prerenderApp({
+      app,
+      clientEntryUrl: "/assets/client-abc123.js",
+      jsManifest: {
+        "src/routes/pricing.tsx": ["/assets/pricing-abc123.js", "/assets/vendor-abc123.js"],
+        "src/shells/public.tsx": ["/assets/public-abc123.js", "/assets/vendor-abc123.js"],
+        "virtual:pracht/client": ["/assets/runtime-abc123.js", "/assets/vendor-abc123.js"],
+      },
+      registry: {
+        routeModules: {
+          "/src/routes/pricing.tsx": async () => ({
+            Component: ({ data }) => h("main", null, (data as { plan: string }).plan),
+            loader: async () => ({ plan: "MVP" }),
+          }),
+        },
+        shellModules: {
+          "/src/shells/public.tsx": async () => ({
+            Shell: ({ children }) => h("section", null, children),
+          }),
+        },
+      },
+    });
+
+    // The chunk the entry statically imports is preloaded even though no
+    // route/shell references it — the browser would otherwise discover it
+    // only after parsing the entry.
+    expect(page.html).toContain('<link rel="modulepreload" href="/assets/runtime-abc123.js">');
+    // Shared urls between the entry closure and route/shell chunks stay deduped.
+    expect(page.html.match(/href="\/assets\/vendor-abc123\.js"/g)).toHaveLength(1);
+    // The entry itself is loaded via <script src>, never preloaded.
+    expect(page.html).not.toContain('<link rel="modulepreload" href="/assets/client-abc123.js">');
+  });
+
   it("preserves document headers on prerendered pages", async () => {
     const app = defineApp({
       routes: [route("/pricing", "./routes/pricing.tsx", { render: "ssg", shell: "public" })],

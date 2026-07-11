@@ -340,6 +340,7 @@ export const app = defineApp({
         jsManifest: {
           "src/routes/dashboard.tsx": ["/assets/dashboard.js", "/assets/vendor.js"],
           "src/shells/app.tsx": ["/assets/app.js", "/assets/vendor.js"],
+          "virtual:pracht/client": ["/assets/vendor.js"],
         },
       },
       mode: "manifest",

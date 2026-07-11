@@ -19,6 +19,9 @@ import {
   type IslandCapture,
 } from "./islands-server.ts";
 import {
+  CLIENT_ENTRY_MANIFEST_KEY,
+  ISLANDS_ENTRY_MANIFEST_KEY,
+  mergeEntryPreloadUrls,
   resolveManifestEntries,
   resolvePageCssUrls,
   resolvePageJsUrls,
@@ -456,10 +459,10 @@ export async function handlePrachtRequest<TContext>(
         match.route.shellFile,
         match.route.file,
       );
-      const modulePreloadUrls = resolvePageJsUrls(
+      const modulePreloadUrls = mergeEntryPreloadUrls(
         options.jsManifest,
-        match.route.shellFile,
-        match.route.file,
+        CLIENT_ENTRY_MANIFEST_KEY,
+        resolvePageJsUrls(options.jsManifest, match.route.shellFile, match.route.file),
       );
 
       if (match.route.render === "spa") {
@@ -600,7 +603,11 @@ export async function handlePrachtRequest<TContext>(
             body: ssrContent,
             clientEntryUrl: islandsEntryUrl,
             cssUrls,
-            modulePreloadUrls: [...islandPreloadUrls],
+            modulePreloadUrls: islandsEntryUrl
+              ? mergeEntryPreloadUrls(options.jsManifest, ISLANDS_ENTRY_MANIFEST_KEY, [
+                  ...islandPreloadUrls,
+                ])
+              : [...islandPreloadUrls],
             speculationRules: getAppSpeculationRules(resolvedApp),
           }),
           200,
