@@ -131,6 +131,27 @@ describe("collectCapabilityChecks", () => {
     }
   });
 
+  it("fails destructive http exposure when expose keys are quoted", () => {
+    const previous = process.env.PRACHT_CONFIRMATION_SECRET;
+    delete process.env.PRACHT_CONFIRMATION_SECRET;
+    try {
+      const checks = runChecks(
+        capabilitySource(
+          COMPLETE_FIELDS.replace('effect: "read"', 'effect: "destructive"').replace(
+            "expose: { http: true, webmcp: true },",
+            'expose: { "http": true },',
+          ),
+        ),
+      );
+
+      expect(
+        checks.filter((check) => check.status === "error").map((check) => check.message),
+      ).toContainEqual(expect.stringContaining("without PRACHT_CONFIRMATION_SECRET"));
+    } finally {
+      if (previous !== undefined) process.env.PRACHT_CONFIRMATION_SECRET = previous;
+    }
+  });
+
   it("accepts destructive http exposure when the confirmation secret is configured", () => {
     const previous = process.env.PRACHT_CONFIRMATION_SECRET;
     process.env.PRACHT_CONFIRMATION_SECRET = "verify-test-secret";
@@ -165,6 +186,21 @@ describe("collectCapabilityChecks", () => {
     expect(errors.map((error) => error.message)).toContainEqual(
       expect.stringContaining("sets expose.webmcp without expose.http"),
     );
+  });
+
+  it("fails webmcp exposure without http when expose keys are quoted", () => {
+    const checks = runChecks(
+      capabilitySource(
+        COMPLETE_FIELDS.replace(
+          "expose: { http: true, webmcp: true },",
+          'expose: { "webmcp": true },',
+        ),
+      ),
+    );
+
+    expect(
+      checks.filter((check) => check.status === "error").map((check) => check.message),
+    ).toContainEqual(expect.stringContaining("sets expose.webmcp without expose.http"));
   });
 
   it("fails schemas using unsupported JSON Schema keywords", () => {

@@ -80,11 +80,7 @@ function collectSingleCapabilityChecks(
       problems.push(`is exposed but is missing: ${missing.join(", ")}`);
     }
 
-    const exposeText = properties.get("expose") ?? "";
-    const hasHttp = /\bhttp\s*:\s*(true|\{)/.test(exposeText);
-    const hasWebmcp = /\bwebmcp\s*:\s*true/.test(exposeText);
-    // `\b` keeps "webmcp:" from matching — "b" and "m" are both word characters.
-    const hasMcp = /\bmcp\s*:\s*true/.test(exposeText);
+    const { hasHttp, hasMcp, hasWebmcp } = readExposeFlags(properties.get("expose"));
     if (hasWebmcp && !hasHttp) {
       problems.push(
         "sets expose.webmcp without expose.http — WebMCP tools dispatch through the HTTP projection",
@@ -287,6 +283,23 @@ function readStringLiteral(text: string | undefined): string | null {
   if (!text) return null;
   const value = evaluateLiteral(text);
   return typeof value === "string" ? value : null;
+}
+
+function readExposeFlags(text: string | undefined): {
+  hasHttp: boolean;
+  hasMcp: boolean;
+  hasWebmcp: boolean;
+} {
+  const value = text ? evaluateLiteral(text) : undefined;
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return { hasHttp: false, hasMcp: false, hasWebmcp: false };
+  }
+  const expose = value as Record<string, unknown>;
+  return {
+    hasHttp: expose.http === true || (typeof expose.http === "object" && expose.http !== null),
+    hasMcp: expose.mcp === true,
+    hasWebmcp: expose.webmcp === true,
+  };
 }
 
 /** Evaluate an extracted literal as data; returns undefined when it isn't one. */
