@@ -9,6 +9,7 @@ import {
   collectPackageChecks,
   collectPagesVerification,
 } from "./verification-checks.js";
+import { collectEnvLeakVerification } from "./verification-env.js";
 import { createCheck, type Check } from "./verification-helpers.js";
 import {
   collectChangedFiles,
@@ -88,6 +89,7 @@ export function runVerification(
   }
 
   collectApiVerification(project, checks, { changedFiles: frameworkFiles, scope });
+  collectEnvLeakVerification(project, checks, { scope });
   collectPackageChecks(project, checks, packageJsonPath);
   collectBudgetChecks(project, checks);
 

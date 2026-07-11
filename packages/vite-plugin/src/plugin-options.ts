@@ -1,5 +1,6 @@
 import type { RenderMode } from "@pracht/core";
 import type { PreactSsrPrecompileOptions } from "@pracht/preact-ssr-precompile";
+import type { EnvSafetyOptions } from "./env-safety.ts";
 import { createDefaultNodeAdapter, type PrachtAdapter } from "./plugin-adapter.ts";
 
 export interface PrachtPluginOptions {
@@ -36,6 +37,13 @@ export interface PrachtPluginOptions {
    * Client bundles keep the normal Preact JSX transform for hydration.
    */
   precompileSsrJsx?: boolean | PreactSsrPrecompileOptions;
+  /**
+   * Client-bundle env leak detection. Enabled by default: production client
+   * chunks referencing `process.env.X` / `import.meta.env.X` for a non-public
+   * variable fail the build. Pass `{ allow: ["NAME"] }` to permit specific
+   * variables, or `false` to disable the check entirely.
+   */
+  envSafety?: false | EnvSafetyOptions;
 }
 
 export type ResolvedPrachtPluginOptions = Required<PrachtPluginOptions>;
@@ -55,6 +63,7 @@ const DEFAULTS: ResolvedPrachtPluginOptions = {
   maxBodySize: 1024 * 1024,
   budgets: {},
   precompileSsrJsx: false,
+  envSafety: {},
 };
 
 export function resolveOptions(options: PrachtPluginOptions): ResolvedPrachtPluginOptions {

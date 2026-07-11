@@ -9,6 +9,7 @@ import {
 } from "./client-module-transform.ts";
 
 import type { RenderMode } from "@pracht/core";
+import { createEnvSafetyPlugin, PUBLIC_ENV_PREFIX, SERVER_ENV_MODULE_ID } from "./env-safety.ts";
 import {
   PRACHT_CLIENT_MODULE_ID,
   PRACHT_ISLANDS_CLIENT_MODULE_ID,
@@ -41,6 +42,15 @@ export {
   createPrachtRegistryModuleSource,
 } from "./plugin-codegen.ts";
 export { PRACHT_CLIENT_MODULE_ID, PRACHT_ISLANDS_CLIENT_MODULE_ID, PRACHT_SERVER_MODULE_ID };
+export {
+  createEnvSafetyPlugin,
+  formatEnvLeakError,
+  PUBLIC_ENV_PREFIX,
+  scanCodeForEnvLeaks,
+  VITE_BUILTIN_ENV_VARS,
+  type EnvLeakReference,
+  type EnvSafetyOptions,
+} from "./env-safety.ts";
 
 export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
   const resolved = resolveOptions(options);
@@ -76,6 +86,9 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
 
       return {
         appType: "custom" as const,
+        // Expose PRACHT_PUBLIC_-prefixed vars on import.meta.env (client and
+        // server) while keeping Vite's default VITE_ prefix working.
+        envPrefix: ["VITE_", PUBLIC_ENV_PREFIX],
         // The vendor split only makes sense for the client bundle; SSR builds
         // that disable code splitting (e.g. webworker targets) reject
         // `manualChunks` outright.
@@ -126,10 +139,28 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
       routeFileDirs = computeRouteFileDirs(root, resolved);
     },
 
-    resolveId(id) {
+    resolveId(id, importer, resolveIdOptions) {
       if (isIslandsClientModule(id)) return PRACHT_ISLANDS_CLIENT_MODULE_ID;
       if (isClientModule(id)) return PRACHT_CLIENT_MODULE_ID;
       if (isServerModule(id)) return PRACHT_SERVER_MODULE_ID;
+
+      // Fail loudly when client code imports the server-only env entry.
+      // `scan` resolutions (dep optimizer discovery) are skipped because the
+      // scanner does not run the client transform that strips server-only
+      // exports (and their now-unused imports) from route files.
+      if (
+        id === SERVER_ENV_MODULE_ID &&
+        !resolveIdOptions?.ssr &&
+        !(resolveIdOptions as { scan?: boolean } | undefined)?.scan
+      ) {
+        throw new Error(
+          `[pracht] ${JSON.stringify(SERVER_ENV_MODULE_ID)} was imported by ` +
+            `${JSON.stringify(importer ?? "unknown module")} in client code. serverEnv is ` +
+            "server-only — read it inside loaders, middleware, or API routes, or use " +
+            `publicEnv (PRACHT_PUBLIC_-prefixed variables) from "@pracht/core" instead.`,
+        );
+      }
+
       return null;
     },
 
@@ -258,6 +289,7 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
     ...preact(),
     prachtPlugin,
     clientModuleTransformPlugin,
+    createEnvSafetyPlugin(resolved.envSafety),
   ];
 
   const adapterPlugins = resolved.adapter.vitePlugins?.();

@@ -25,8 +25,10 @@ Auth in pracht follows a simple pattern: middleware checks the session before an
 
 Create a small session module that reads/writes signed cookies. This example uses a simple HMAC approach — swap in your preferred session library.
 
+The signing secret is read through [`serverEnv`](/docs/env), which keeps it out of the client bundle and resolves per adapter. Read it inside the function rather than at module top level so it works on Cloudflare, where env bindings only exist per request.
+
 ```ts [src/server/session.ts]
-const SECRET = process.env.SESSION_SECRET!;
+import { serverEnv } from "@pracht/core/env/server";
 
 export interface Session {
   userId: string;
@@ -61,7 +63,7 @@ export function clearSessionCookie(): string {
 async function sign(data: string): Promise<string> {
   const key = await crypto.subtle.importKey(
     "raw",
-    new TextEncoder().encode(SECRET),
+    new TextEncoder().encode(serverEnv.SESSION_SECRET),
     { name: "HMAC", hash: "SHA-256" },
     false,
     ["sign"],

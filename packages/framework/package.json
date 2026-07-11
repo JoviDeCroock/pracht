@@ -46,6 +46,15 @@
       "types": "./dist/manifest.d.mts",
       "default": "./dist/manifest.mjs"
     },
+    "./env": {
+      "types": "./dist/env.d.mts",
+      "default": "./dist/env.mjs"
+    },
+    "./env/server": {
+      "types": "./dist/env-server.d.mts",
+      "browser": "./dist/env-server.browser.mjs",
+      "default": "./dist/env-server.mjs"
+    },
     "./server": {
       "types": "./dist/server.d.mts",
       "default": "./dist/server.mjs"
