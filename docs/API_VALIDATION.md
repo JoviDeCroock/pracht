@@ -57,8 +57,16 @@ flow through — `z.coerce.number()` gives the handler a `number`.
 Handlers may return:
 
 - a `Response` for full control over status and headers, or
-- any JSON-serializable value, sent as `Response.json(value)` — this is what
-  makes response types inferable on the client.
+- a JSON value made from strings, finite numbers, booleans, null, arrays, and
+  plain objects, sent as `Response.json(value)` — this is what makes response
+  types inferable on the client.
+
+The JSON shape must survive serialization without changing type. Values such
+as `Date`, `BigInt`, `undefined`, class instances, sparse arrays, and circular
+objects are rejected (at compile time where TypeScript can identify them, and
+again at runtime for untyped callers and value-level cases such as `NaN`).
+Serialize them explicitly or return a `Response` when you need custom wire
+formats.
 
 If a handler can return a `Response` on any branch, its client output is
 `unknown`: status, content type, and body cannot be inferred from the
@@ -125,7 +133,9 @@ return type when every branch returns JSON; handlers that can return a
 Routes that only export a `default` handler accept every method, untyped.
 
 Run `pracht typegen --check` in CI to fail when the generated files are
-stale.
+stale. Type generation discovers API paths without importing the API modules,
+so top-level route code and runtime service initialization do not execute
+during codegen.
 
 ---
 
@@ -149,7 +159,9 @@ const item = await apiFetch("/api/items/:id", { params: { id: "42" } });
 With registered types, the compiler rejects unknown paths, methods a route
 does not export, missing or mismatched bodies, unknown query keys, and
 missing params. Params are substituted into the path template with proper
-segment encoding.
+segment encoding. Method unions remain correlated with their request shapes:
+when POST and PUT accept different bodies, a dynamic `"POST" | "PUT"` value
+must be paired with a correspondingly discriminated options object.
 
 Runtime behavior:
 

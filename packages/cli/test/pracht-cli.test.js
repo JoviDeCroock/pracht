@@ -401,6 +401,7 @@ export const app = defineApp({
     expect(runtime).toContain('id: "product"');
     expect(runtime).toContain('path: "/products/:id"');
     expect(runtime).toContain("export const href = createHref(routes);");
+    expect(existsSync(join(appDir, "api-module-loaded"))).toBe(false);
 
     const check = JSON.parse(runCli(["typegen", "--check", "--json"], { cwd: appDir }).stdout);
     expect(check).toMatchObject({ check: true, ok: true, routes: 3 });
@@ -449,7 +450,7 @@ export const app = defineApp({
     writeProjectFile(
       appDir,
       "src/api-consumer.ts",
-      `import { apiFetch } from "@pracht/core";
+      `import { apiFetch, defineApi } from "@pracht/core";
 
 export async function main() {
   // Params are required and the output type comes from the handler.
@@ -467,10 +468,22 @@ export async function main() {
   const created = await apiFetch("/api/items", { method: "POST", body: { name: "x" } });
   const _created: { created: string } = created;
 
+  // @ts-expect-error - omitting method always means GET, never an inferred mutation
+  await apiFetch("/api/items", { body: { name: "x" } });
+
   // A successful Response branch makes the parsed output unknowable.
-  const mixed = await apiFetch("/api/items", { method: "PUT" });
+  const mixed = await apiFetch("/api/items", { method: "PUT", body: { id: 1 } });
   // @ts-expect-error - mixed Response/JSON handlers have unknown output
   const _mixed: { updated: boolean } = mixed;
+
+  const mutationMethod = Math.random() > 0.5 ? "POST" as const : "PUT" as const;
+  // @ts-expect-error - a union method must stay correlated with its body shape
+  await apiFetch("/api/items", { method: mutationMethod, body: { name: "x" } });
+
+  // @ts-expect-error - inferred JSON outputs must survive serialization unchanged
+  defineApi({ handler: () => ({ createdAt: new Date() }) });
+  // @ts-expect-error - undefined is not a top-level JSON value
+  defineApi({ handler: () => undefined });
 
   // A default handler remains available for methods without a named override.
   const fallback = await apiFetch("/api/items/:id", { method: "PATCH", params: { id: "1" } });
@@ -524,11 +537,15 @@ export async function main() {
 
     // Throws (non-zero exit) when the generated declaration fails to
     // deliver end-to-end api types.
-    execFileSync(process.execPath, [tscPath, "-p", "."], {
-      cwd: appDir,
-      encoding: "utf-8",
-      stdio: ["ignore", "pipe", "pipe"],
-    });
+    try {
+      execFileSync(process.execPath, [tscPath, "-p", "."], {
+        cwd: appDir,
+        encoding: "utf-8",
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+    } catch (error) {
+      throw new Error(error.stdout || error.stderr || error.message);
+    }
   }, 60_000);
 
   it("scaffolds pages-router routes without touching a manifest", () => {
@@ -767,8 +784,11 @@ export async function DELETE() {
   writeProjectFile(
     appDir,
     "src/api/items/index.ts",
-    `import { defineApi } from "@pracht/core";
+    `import { writeFileSync } from "node:fs";
+import { defineApi } from "@pracht/core";
 import { passthroughSchema } from "../../lib/schema-util";
+
+writeFileSync("api-module-loaded", "typegen executed an API module");
 
 export const POST = defineApi({
   body: passthroughSchema<{ name: string }>(),
@@ -776,6 +796,7 @@ export const POST = defineApi({
 });
 
 export const PUT = defineApi({
+  body: passthroughSchema<{ id: number }>(),
   handler: () =>
     Math.random() > 0.5 ? { updated: true } : new Response(null, { status: 204 }),
 });

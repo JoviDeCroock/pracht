@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { serializeApiRoutes, serializeAppRoutes } from "@pracht/core";
-import type { AppGraphApiRoute, AppGraphRoute } from "@pracht/core";
+import type { AppGraphApiRoute, AppGraphRoute, ResolvedApiRoute } from "@pracht/core";
 import { defineCommand } from "citty";
 import { createServer } from "vite";
 
@@ -60,7 +60,10 @@ export interface InspectReport {
   routes?: AppGraphRoute[];
 }
 
-export async function runInspect(root: string, { target = "all" } = {}): Promise<InspectReport> {
+export async function runInspect(
+  root: string,
+  { inspectApiMethods = true, target = "all" } = {},
+): Promise<InspectReport> {
   const project = readProjectConfig(root);
 
   if (!project.configFile) {
@@ -99,10 +102,16 @@ export async function runInspect(root: string, { target = "all" } = {}): Promise
     }
 
     if (target === "api" || target === "all") {
-      report.api = await serializeApiRoutes(serverModule.apiRoutes, {
-        loadModule: (file) => server.ssrLoadModule(file),
-        readSource: (file) => readFileSync(resolve(root, `.${file}`), "utf-8"),
-      });
+      report.api = inspectApiMethods
+        ? await serializeApiRoutes(serverModule.apiRoutes, {
+            loadModule: (file) => server.ssrLoadModule(file),
+            readSource: (file) => readFileSync(resolve(root, `.${file}`), "utf-8"),
+          })
+        : (serverModule.apiRoutes as ResolvedApiRoute[]).map(({ file, path }) => ({
+            file,
+            methods: [],
+            path,
+          }));
     }
 
     if (target === "build" || target === "all") {

@@ -119,7 +119,9 @@ pracht inspect build --json
 
 Generate `src/pracht.d.ts` and `src/pracht-routes.ts` from the resolved
 route graph for typed `<Link>`, route-object `useNavigate()`, and `href()`
-helpers. Use `--check` in CI to fail when generated files are stale.
+helpers, plus typed API route registrations for `apiFetch()`. API modules are
+not executed during generation. Use `--check` in CI to fail when generated
+files are stale.
 
 ```bash
 pracht typegen

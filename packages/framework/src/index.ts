@@ -22,6 +22,8 @@ export {
 } from "./api-validation.ts";
 export type {
   ApiHandlerTypes,
+  ApiJsonPrimitive,
+  ApiJsonValue,
   ApiRouteMethodMap,
   ApiRouteSchemas,
   ApiValidationErrorBody,

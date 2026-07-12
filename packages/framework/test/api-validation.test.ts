@@ -13,10 +13,14 @@ import {
   type ApiRouteArgs,
 } from "../src/index.ts";
 
-function objectSchema(
-  shape: Record<string, "string" | "number">,
+type ObjectSchemaOutput<TShape extends Record<string, "string" | "number">> = {
+  [TKey in keyof TShape]: TShape[TKey] extends "string" ? string : number;
+};
+
+function objectSchema<TShape extends Record<string, "string" | "number">>(
+  shape: TShape,
   { async = false } = {},
-): StandardSchemaV1<Record<string, unknown>, Record<string, unknown>> {
+): StandardSchemaV1<Record<string, unknown>, ObjectSchemaOutput<TShape>> {
   return {
     "~standard": {
       version: 1,
@@ -32,7 +36,7 @@ function objectSchema(
               ? []
               : [{ message: `Expected ${type}`, path: [key] }],
           );
-          return issues.length > 0 ? { issues } : { value: value as Record<string, unknown> };
+          return issues.length > 0 ? { issues } : { value: value as ObjectSchemaOutput<TShape> };
         })();
 
         return async ? Promise.resolve(result) : result;
@@ -230,6 +234,28 @@ describe("defineApi", () => {
     const response = await handler(apiArgs(new Request("http://localhost/api/raw")));
     expect(response.status).toBe(201);
     await expect(response.text()).resolves.toBe("made it");
+  });
+
+  it("rejects JSON values whose runtime representation would change type", async () => {
+    const dateHandler = defineApi({
+      // Simulate an untyped consumer bypassing the compile-time JSON check.
+      handler: (() => new Date("2026-07-12T00:00:00.000Z")) as () => never,
+    });
+    await expect(dateHandler(apiArgs(new Request("http://localhost/api/date")))).rejects.toThrow(
+      "non-plain object at $",
+    );
+
+    const numberHandler = defineApi({ handler: () => Number.NaN });
+    await expect(
+      numberHandler(apiArgs(new Request("http://localhost/api/number"))),
+    ).rejects.toThrow("non-finite number at $");
+
+    const array = ["value"] as string[] & { metadata?: string };
+    array.metadata = "not serialized";
+    const arrayHandler = defineApi({ handler: (() => array) as () => never });
+    await expect(arrayHandler(apiArgs(new Request("http://localhost/api/array")))).rejects.toThrow(
+      "extra array data at $.metadata",
+    );
   });
 
   it("exposes the schemas on the handler for tooling", () => {

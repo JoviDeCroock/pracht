@@ -144,6 +144,8 @@ const item = await apiFetch("/api/items/:id", { params: { id: "42" } });
 ```
 
 See docs/API_VALIDATION.md for `defineApi()` and validation error handling.
+Typegen discovers API route files without importing them, so it is safe for
+route modules that initialize runtime-only services at module scope.
 
 ## Step 4: Param and search rules
 

@@ -88,7 +88,10 @@ interface TypegenResult {
 }
 
 async function runTypegen(options: TypegenOptions): Promise<TypegenResult> {
-  const report = await runInspect(options.root, { target: "all" });
+  // Type generation only needs each API route's path and source file. Avoid
+  // loading the modules themselves: top-level API code may initialize runtime
+  // services or have other side effects that should never run during codegen.
+  const report = await runInspect(options.root, { inspectApiMethods: false, target: "all" });
   const routes = report.routes ?? [];
   const apiRoutes = report.api ?? [];
   validateRoutes(routes);

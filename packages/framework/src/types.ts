@@ -232,8 +232,9 @@ export type ApiParamsFor<TPath extends ApiPath> = HasRegisteredApiRoutes extends
     : EmptyRouteParams
   : Record<string, RouteParamInput>;
 
-type ApiFetchMethodField<TPath extends ApiPath, TMethod> =
-  "GET" extends ApiMethodsFor<TPath> ? { method?: TMethod } : { method: TMethod };
+type ApiFetchMethodField<TMethod> = TMethod extends "GET"
+  ? { method?: "GET" }
+  : { method: TMethod };
 
 type ApiFetchBodyField<TBody> = unknown extends TBody
   ? { body?: unknown }
@@ -265,11 +266,14 @@ export interface ApiFetchBaseOptions {
 export type ApiFetchOptions<
   TPath extends ApiPath = ApiPath,
   TMethod extends ApiMethodsFor<TPath> = ApiMethodsFor<TPath>,
-> = ApiFetchBaseOptions &
-  ApiFetchMethodField<TPath, TMethod> &
-  ApiFetchBodyField<ApiBodyFor<TPath, TMethod>> &
-  ApiFetchQueryField<ApiQueryFor<TPath, TMethod>> &
-  ApiFetchParamsField<TPath>;
+> =
+  TMethod extends ApiMethodsFor<TPath>
+    ? ApiFetchBaseOptions &
+        ApiFetchMethodField<TMethod> &
+        ApiFetchBodyField<ApiBodyFor<TPath, TMethod>> &
+        ApiFetchQueryField<ApiQueryFor<TPath, TMethod>> &
+        ApiFetchParamsField<TPath>
+    : never;
 
 export type ApiFetchArgs<TPath extends ApiPath, TMethod extends ApiMethodsFor<TPath>> =
   Record<never, never> extends ApiFetchOptions<TPath, TMethod>

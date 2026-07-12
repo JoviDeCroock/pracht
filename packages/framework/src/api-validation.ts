@@ -67,6 +67,33 @@ export interface ApiRouteSchemas {
   params?: StandardSchemaV1;
 }
 
+/** Values that can cross the JSON response boundary without changing type. */
+export type ApiJsonPrimitive = string | number | boolean | null;
+export type ApiJsonValue =
+  | ApiJsonPrimitive
+  | { readonly [key: string]: ApiJsonValue }
+  | readonly ApiJsonValue[];
+
+type JsonCompatible<T> = T extends ApiJsonPrimitive
+  ? T
+  : T extends bigint | symbol | undefined | ((...args: never[]) => unknown)
+    ? never
+    : T extends readonly unknown[]
+      ? { [TKey in keyof T]: JsonCompatible<T[TKey]> }
+      : T extends object
+        ? { [TKey in keyof T]: JsonCompatible<T[TKey]> }
+        : never;
+
+type NonResponseResult<TResult> = Exclude<Awaited<TResult>, Response>;
+
+type ApiHandlerResultConstraint<TResult> = [NonResponseResult<TResult>] extends [never]
+  ? unknown
+  : [NonResponseResult<TResult>] extends [JsonCompatible<NonResponseResult<TResult>>]
+    ? unknown
+    : {
+        readonly "Handler return values must be JSON-safe or Response objects": never;
+      };
+
 type InferSchemaOutput<TSchema> = TSchema extends StandardSchemaV1
   ? StandardSchemaV1.InferOutput<TSchema>
   : undefined;
@@ -138,6 +165,14 @@ export interface DefineApiConfig<
   ) => MaybePromise<TResult>;
 }
 
+type DefineApiHandler<
+  TBodySchema extends StandardSchemaV1 | undefined,
+  TQuerySchema extends StandardSchemaV1 | undefined,
+  TParamsSchema extends StandardSchemaV1 | undefined,
+  TContext,
+  TResult = unknown,
+> = DefineApiConfig<TBodySchema, TQuerySchema, TParamsSchema, TResult, TContext>["handler"];
+
 /**
  * Define a validated API route handler.
  *
@@ -156,20 +191,25 @@ export interface DefineApiConfig<
  * [Standard Schema](https://standardschema.dev) validator before the handler
  * runs, and answers invalid requests with a 422 JSON body
  * (`{ error: "validation", issues }`). Handlers may return a `Response` for
- * full control, or any JSON-serializable value to send as `Response.json()`.
+ * full control, or a JSON-safe value whose type survives `Response.json()`.
  */
 export function defineApi<
-  TResult,
+  THandler extends DefineApiHandler<TBodySchema, TQuerySchema, TParamsSchema, TContext, any>,
   TBodySchema extends StandardSchemaV1 | undefined = undefined,
   TQuerySchema extends StandardSchemaV1 | undefined = undefined,
   TParamsSchema extends StandardSchemaV1 | undefined = undefined,
   TContext = RegisteredContext,
 >(
-  config: DefineApiConfig<TBodySchema, TQuerySchema, TParamsSchema, TResult, TContext>,
+  config: Omit<
+    DefineApiConfig<TBodySchema, TQuerySchema, TParamsSchema, never, TContext>,
+    "handler"
+  > & {
+    handler: THandler & ApiHandlerResultConstraint<NoInfer<ReturnType<THandler>>>;
+  },
 ): ValidatedApiHandler<
   InferSchemaInput<TBodySchema>,
   InferSchemaInput<TQuerySchema>,
-  ApiHandlerOutput<Awaited<TResult>>
+  ApiHandlerOutput<Awaited<ReturnType<THandler>>>
 > {
   const handler = async (args: ApiRouteArgs<TContext>): Promise<Response> => {
     const issues: ApiValidationIssue[] = [];
@@ -209,7 +249,12 @@ export function defineApi<
       params,
     } as never);
 
-    return result instanceof Response ? result : Response.json(result);
+    if (result instanceof Response) {
+      return result;
+    }
+
+    assertApiJsonValue(result);
+    return Response.json(result);
   };
 
   return Object.assign(handler, {
@@ -219,6 +264,60 @@ export function defineApi<
       params: config.params,
     },
   }) as never;
+}
+
+function assertApiJsonValue(
+  value: unknown,
+  path = "$",
+  ancestors: Set<object> = new Set(),
+): asserts value is ApiJsonValue {
+  if (value === null || typeof value === "string" || typeof value === "boolean") {
+    return;
+  }
+  if (typeof value === "number") {
+    if (Number.isFinite(value)) {
+      return;
+    }
+    throw new TypeError(`defineApi() handler returned a non-finite number at ${path}.`);
+  }
+  if (typeof value !== "object") {
+    throw new TypeError(`defineApi() handler returned a non-JSON value at ${path}.`);
+  }
+  if (ancestors.has(value)) {
+    throw new TypeError(`defineApi() handler returned a circular value at ${path}.`);
+  }
+
+  const prototype = Object.getPrototypeOf(value);
+  if (!Array.isArray(value) && prototype !== Object.prototype && prototype !== null) {
+    throw new TypeError(`defineApi() handler returned a non-plain object at ${path}.`);
+  }
+  if (Object.getOwnPropertySymbols(value).length > 0) {
+    throw new TypeError(`defineApi() handler returned symbol-keyed data at ${path}.`);
+  }
+
+  ancestors.add(value);
+  try {
+    if (Array.isArray(value)) {
+      for (const key of Object.keys(value)) {
+        if (!/^(0|[1-9]\d*)$/.test(key) || Number(key) >= value.length) {
+          throw new TypeError(`defineApi() handler returned extra array data at ${path}.${key}.`);
+        }
+      }
+      for (let index = 0; index < value.length; index += 1) {
+        if (!(index in value)) {
+          throw new TypeError(`defineApi() handler returned a sparse array at ${path}[${index}].`);
+        }
+        assertApiJsonValue(value[index], `${path}[${index}]`, ancestors);
+      }
+      return;
+    }
+
+    for (const [key, entry] of Object.entries(value)) {
+      assertApiJsonValue(entry, `${path}.${key}`, ancestors);
+    }
+  } finally {
+    ancestors.delete(value);
+  }
 }
 
 /**

@@ -142,7 +142,7 @@ export function GET() {
 
 ## Validation and Typed Fetch
 
-Wrap a handler with `defineApi()` to validate the request with any [Standard Schema](https://standardschema.dev) validator (zod, valibot, arktype, …) before it runs. Invalid requests get a standardized 422 response (`{ error: "validation", issues }`); handlers can return plain JSON values, sent as `Response.json()`.
+Wrap a handler with `defineApi()` to validate the request with any [Standard Schema](https://standardschema.dev) validator (zod, valibot, arktype, …) before it runs. Invalid requests get a standardized 422 response (`{ error: "validation", issues }`); handlers can return JSON-safe primitives, arrays, and plain objects, sent as `Response.json()`. Serialize values such as `Date` explicitly, or return a `Response` for custom wire formats.
 
 ```ts [src/api/items.ts]
 import { defineApi } from "@pracht/core";
