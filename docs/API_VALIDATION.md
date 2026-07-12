@@ -59,7 +59,8 @@ flow through — `z.coerce.number()` gives the handler a `number`.
 > (or a string array for repeated query keys). Write schemas that accept
 > string input — `z.coerce.number()`, `z.enum([...])`, transforms — never
 > `z.number()`, which could not validate any request. `apiFetch()` rejects
-> query keys whose schema input has no string representation at compile time.
+> query and params keys whose schema input has no string representation at
+> compile time (when the schema exposes a concrete input type).
 > A repeated key (`?tag=a&tag=b`) arrives as an array but a single `?tag=a`
 > arrives as a plain string, so accept both:
 > `z.union([z.string(), z.array(z.string())])`.
@@ -149,7 +150,7 @@ declare module "@pracht/core" {
 }
 ```
 
-`ApiRouteMethodMap` extracts `{ body, query, output }` per exported HTTP
+`ApiRouteMethodMap` extracts `{ body, query, params, output }` per exported HTTP
 method: `defineApi` handlers carry their schema input types and handler
 return type when every branch returns JSON; handlers that can return a
 `Response` and plain handlers register with `unknown` response types.
@@ -161,11 +162,12 @@ so top-level route code and runtime service initialization do not execute
 during codegen.
 
 While `pracht dev` runs, the generated files refresh automatically whenever
-route files are added, removed, or renamed, and whenever the route manifest
-changes (opt-in by having run `pracht typegen` once — the watcher activates
-when `src/pracht.d.ts` exists). Handler signature changes need no regeneration:
-the declaration references route modules with `typeof import(...)`, so those
-types update live.
+route files are added, removed, or renamed, and whenever the route manifest or
+one of its imported definition modules changes. The watcher activates after
+`pracht typegen` has created the default `src/pracht.d.ts`; until then the dev
+banner prints the command needed to enable typed routes. Handler signature
+changes need no regeneration: the declaration references route modules with
+`typeof import(...)`, so those types update live.
 
 ---
 
@@ -187,9 +189,10 @@ const item = await apiFetch("/api/items/:id", { params: { id: "42" } });
 ```
 
 With registered types, the compiler rejects unknown paths, methods a route
-does not export, missing or mismatched bodies, unknown query keys, and
-missing params. Params are substituted into the path template with proper
-segment encoding. Method unions remain correlated with their request shapes:
+does not export, missing or mismatched bodies, unknown query keys, missing
+params, and params schemas that cannot accept their string wire values. Params
+are substituted into the path template with proper segment encoding. Method
+unions remain correlated with their request shapes:
 when POST and PUT accept different bodies, a dynamic `"POST" | "PUT"` value
 must be paired with a correspondingly discriminated options object.
 

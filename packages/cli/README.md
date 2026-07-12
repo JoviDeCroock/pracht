@@ -121,7 +121,8 @@ Generate `src/pracht.d.ts` and `src/pracht-routes.ts` from the resolved
 route graph for typed `<Link>`, route-object `useNavigate()`, and `href()`
 helpers, plus typed API route registrations for `apiFetch()`. API modules are
 not executed during generation. Use `--check` in CI to fail when generated
-files are stale.
+files are stale. After the first generation, `pracht dev` keeps the default
+outputs current; before it, the dev banner prints a one-line setup tip.
 
 ```bash
 pracht typegen

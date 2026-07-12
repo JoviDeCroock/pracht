@@ -237,8 +237,9 @@ available to the typed `apiFetch()` client. See
 
 Use `pracht typegen --check` in CI to fail when generated route files are
 stale. While `pracht dev` runs, the generated files refresh automatically when
-route files are added, removed, or renamed, and when the route manifest changes
-(active once `src/pracht.d.ts` exists from a first `pracht typegen` run).
+route files are added, removed, or renamed, and when the route manifest or one
+of its imported definition modules changes. The dev banner prompts for the
+first `pracht typegen` run when `src/pracht.d.ts` does not exist yet.
 
 ---
 

@@ -205,7 +205,7 @@ type ApiMethodTypesFor<
   ? ApiMethodMapFor<TPath>[TMethod]
   : "default" extends keyof ApiMethodMapFor<TPath>
     ? ApiMethodMapFor<TPath>["default"]
-    : { body: unknown; query: unknown; output: unknown };
+    : { body: unknown; query: unknown; output: unknown; params: unknown };
 
 export type ApiBodyFor<TPath extends ApiPath, TMethod extends HttpMethod> = TMethod extends
   | "GET"
@@ -231,6 +231,9 @@ export type ApiParamsFor<TPath extends ApiPath> = HasRegisteredApiRoutes extends
       : EmptyRouteParams
     : EmptyRouteParams
   : Record<string, RouteParamInput>;
+
+type ApiParamsSchemaInputFor<TPath extends ApiPath, TMethod extends HttpMethod> =
+  ApiMethodTypesFor<TPath, TMethod> extends { params: infer TParams } ? TParams : unknown;
 
 type ApiFetchMethodField<TMethod> = TMethod extends "GET"
   ? { method?: "GET" }
@@ -297,10 +300,39 @@ type ApiFetchQueryField<TQuery> = unknown extends TQuery
     ? { query?: ApiQueryWireCheck<TQuery> }
     : { query: ApiQueryWireCheck<TQuery> };
 
-type ApiFetchParamsField<TPath extends ApiPath> = HasRegisteredApiRoutes extends true
+type ApiParamWireError = {
+  readonly "Route params arrive as strings; give this key a schema input that accepts them (e.g. z.coerce.number())": never;
+};
+
+/**
+ * Route params are interpolated from convenient primitive inputs, but the
+ * server always hands their string representation to the params schema. Keep
+ * the ergonomic call-site type while rejecting schema keys that cannot accept
+ * that wire value. Opaque schema inputs (`unknown`) remain permissive.
+ */
+type ApiParamsWireCheck<TPathParams, TSchemaInput> = unknown extends TSchemaInput
+  ? TPathParams
+  : TSchemaInput extends Record<string, unknown>
+    ? {
+        [TKey in keyof TPathParams]: TKey extends keyof TSchemaInput
+          ? unknown extends TSchemaInput[TKey]
+            ? TPathParams[TKey]
+            : [Extract<NonNullable<TSchemaInput[TKey]>, string>] extends [never]
+              ? ApiParamWireError
+              : TPathParams[TKey]
+          : TPathParams[TKey];
+      }
+    : { [TKey in keyof TPathParams]: ApiParamWireError };
+
+type ApiFetchParamsField<
+  TPath extends ApiPath,
+  TMethod extends HttpMethod,
+> = HasRegisteredApiRoutes extends true
   ? IsEmptyRouteParams<ApiParamsFor<TPath>> extends true
     ? { params?: never }
-    : { params: ApiParamsFor<TPath> }
+    : {
+        params: ApiParamsWireCheck<ApiParamsFor<TPath>, ApiParamsSchemaInputFor<TPath, TMethod>>;
+      }
   : { params?: Record<string, RouteParamInput> };
 
 export interface ApiFetchBaseOptions {
@@ -321,7 +353,7 @@ export type ApiFetchOptions<
         ApiFetchMethodField<TMethod> &
         ApiFetchBodyField<ApiBodyFor<TPath, TMethod>> &
         ApiFetchQueryField<ApiQueryFor<TPath, TMethod>> &
-        ApiFetchParamsField<TPath>
+        ApiFetchParamsField<TPath, TMethod>
     : never;
 
 export type ApiFetchArgs<TPath extends ApiPath, TMethod extends ApiMethodsFor<TPath>> =

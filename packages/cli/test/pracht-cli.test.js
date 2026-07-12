@@ -470,9 +470,10 @@ export const app = defineApp({
       `import { apiFetch, defineApi } from "@pracht/core";
 
 export async function main() {
-  // Params are required and the output type comes from the handler.
-  const item = await apiFetch("/api/items/:id", { params: { id: "1" } });
-  const _item: { id: string } = item;
+  // Params are required, convenient primitive inputs are stringified for the
+  // wire, and transformed schema output reaches the handler response type.
+  const item = await apiFetch("/api/items/:id", { params: { id: 1 } });
+  const _item: { id: number } = item;
 
   // HEAD responses are always bodyless regardless of the handler return type.
   const head = await apiFetch("/api/items/:id", { method: "HEAD", params: { id: "1" } });
@@ -480,6 +481,9 @@ export async function main() {
 
   // @ts-expect-error - GET and HEAD requests cannot carry bodies
   await apiFetch("/api/items/:id", { method: "HEAD", params: { id: "1" }, body: "nope" });
+
+  // @ts-expect-error - route params arrive as strings, so a number-only schema cannot validate
+  await apiFetch("/api/items/:id", { method: "DELETE", params: { id: 1 } });
 
   // Body is typed by the route's Standard Schema input.
   const created = await apiFetch("/api/items", { method: "POST", body: { name: "x" } });
@@ -582,9 +586,59 @@ export async function main() {
     }
   }, 60_000);
 
+  it("pracht dev explains how to enable generated route types", async () => {
+    const appDir = createRepoTempDir("pracht-cli-dev-typegen-hint-");
+    writeTypedManifestApp(appDir);
+
+    const child = spawn(process.execPath, [cliPath, "dev"], {
+      cwd: appDir,
+      env: process.env,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let output = "";
+    child.stdout.setEncoding("utf-8");
+    child.stderr.setEncoding("utf-8");
+    child.stdout.on("data", (chunk) => {
+      output += chunk;
+    });
+    child.stderr.on("data", (chunk) => {
+      output += chunk;
+    });
+
+    try {
+      await waitFor(
+        () => output.includes("run `pracht typegen` once"),
+        30_000,
+        () => output,
+      );
+      expect(existsSync(join(appDir, "src/pracht.d.ts"))).toBe(false);
+    } finally {
+      child.kill("SIGTERM");
+    }
+  }, 90_000);
+
   it("pracht dev keeps generated route types in sync with route files", async () => {
     const appDir = createRepoTempDir("pracht-cli-dev-typegen-");
     writeTypedManifestApp(appDir);
+    writeProjectFile(
+      appDir,
+      "src/routes.ts",
+      `import { defineApp } from "@pracht/core";
+import { routes } from "./route-definitions";
+
+export const app = defineApp({ routes });
+`,
+    );
+    writeProjectFile(
+      appDir,
+      "src/route-definitions.ts",
+      `import { route } from "@pracht/core";
+
+export const routes = [
+  route("/", "./routes/home.tsx", { id: "home", render: "ssg" }),
+];
+`,
+    );
     runCli(["typegen"], { cwd: appDir });
 
     const child = spawn(process.execPath, [cliPath, "dev"], {
@@ -624,15 +678,13 @@ export async function main() {
 
       writeProjectFile(
         appDir,
-        "src/routes.ts",
-        `import { defineApp, route } from "@pracht/core";
+        "src/route-definitions.ts",
+        `import { route } from "@pracht/core";
 
-export const app = defineApp({
-  routes: [
-    route("/", "./routes/home.tsx", { id: "home", render: "ssg" }),
-    route("/settings", "./routes/home.tsx", { id: "settings", render: "ssr" }),
-  ],
-});
+export const routes = [
+  route("/", "./routes/home.tsx", { id: "home", render: "ssg" }),
+  route("/settings", "./routes/home.tsx", { id: "settings", render: "ssr" }),
+];
 `,
       );
 
@@ -859,12 +911,12 @@ export function Component() { return null; }
     "src/lib/schema-util.ts",
     `import type { StandardSchemaV1 } from "@standard-schema/spec";
 
-export function passthroughSchema<T>(): StandardSchemaV1<T, T> {
+export function passthroughSchema<TInput, TOutput = TInput>(): StandardSchemaV1<TInput, TOutput> {
   return {
     "~standard": {
       version: 1,
       vendor: "fixture",
-      validate: (value) => ({ value: value as T }),
+      validate: (value) => ({ value: value as TOutput }),
     },
   };
 }
@@ -874,8 +926,10 @@ export function passthroughSchema<T>(): StandardSchemaV1<T, T> {
     appDir,
     "src/api/items/[id].ts",
     `import { defineApi } from "@pracht/core";
+import { passthroughSchema } from "../../lib/schema-util";
 
 export const GET = defineApi({
+  params: passthroughSchema<{ id: string }, { id: number }>(),
   handler: ({ params }) => ({ id: params.id }),
 });
 
@@ -887,9 +941,10 @@ export default async function handler() {
   return new Response("fallback");
 }
 
-export async function DELETE() {
-  return Response.json({ deleted: true });
-}
+export const DELETE = defineApi({
+  params: passthroughSchema<{ id: number }>(),
+  handler: () => ({ deleted: true }),
+});
 `,
   );
   writeProjectFile(

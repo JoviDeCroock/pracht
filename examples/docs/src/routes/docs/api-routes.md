@@ -165,6 +165,6 @@ const created = await apiFetch("/api/items", {
 });
 ```
 
-Query and params values reach their schemas as strings (the URL wire format) — use string-accepting inputs like `z.coerce.number()`, never `z.number()`. Handlers that need a custom status code keep their typed payload with `json(value, { status: 201 })` instead of `Response.json()`. While `pracht dev` runs, the generated types refresh automatically when route files are added, removed, or renamed and when the route manifest changes.
+Query and params values reach their schemas as strings (the URL wire format) — use string-accepting inputs like `z.coerce.number()`, never `z.number()`; generated calls reject concrete schema keys that cannot accept strings. Handlers that need a custom status code keep their typed payload with `json(value, { status: 201 })` instead of `Response.json()`. After the first `pracht typegen` run, `pracht dev` refreshes the generated types automatically when route files are added, removed, or renamed and when the route manifest or an imported definition module changes; before it, the dev banner prints a setup tip.
 
 Non-2xx responses throw `ApiFetchError`; validation failures expose the normalized `issues` for form error display. `<Form>` accepts the same schemas via its `schema` and `onValidationIssues` props, so client-side and server-side validation share one schema module; its `onResponse` prop receives every non-redirect response for success payloads and non-validation failures.

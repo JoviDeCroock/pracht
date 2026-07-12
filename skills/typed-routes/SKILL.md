@@ -61,8 +61,9 @@ the same-named `.ts` helper).
 
 Do not hand-edit generated files. If they are stale, update the route graph and
 run typegen again — or rely on `pracht dev`, which refreshes them when route
-files are added, removed, or renamed and when the route manifest changes
-(active once `src/pracht.d.ts` exists). In CI, prefer:
+files are added, removed, or renamed and when the route manifest or an imported
+definition module changes. The dev banner prompts for the initial typegen run
+when `src/pracht.d.ts` does not exist. In CI, prefer:
 
 ```bash
 pracht typegen --check
@@ -151,8 +152,9 @@ route modules that initialize runtime-only services at module scope.
 
 Query and params values cross the wire as strings — write schemas that accept
 string input (`z.coerce.number()`, not `z.number()`); `apiFetch()` rejects
-query keys without a string representation at compile time. Handlers that
-need a custom status keep typed payloads with `json(value, { status })`.
+query and params keys without a string representation at compile time when the
+schema exposes a concrete input type. Handlers that need a custom status keep
+typed payloads with `json(value, { status })`.
 
 ## Step 4: Param and search rules
 

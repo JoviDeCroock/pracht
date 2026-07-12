@@ -185,12 +185,17 @@ type ApiHandlerOutput<TResult> = [PlainResponseResult<TResult>] extends [never]
  * `ApiRouteMethodMap` (used by `pracht typegen`) can extract them.
  * The marker never exists at runtime.
  */
-export interface ValidatedApiHandler<TBody = unknown, TQuery = unknown, TOutput = unknown> {
+export interface ValidatedApiHandler<
+  TBody = unknown,
+  TQuery = unknown,
+  TOutput = unknown,
+  TParams = unknown,
+> {
   // Callable with any context so the runtime dispatch, adapters, and tests
   // can invoke it directly; the inner handler sees the registered context.
   (args: ApiRouteArgs<any>): Promise<Response>;
   readonly schemas: ApiRouteSchemas;
-  readonly "~types": { body: TBody; query: TQuery; output: TOutput };
+  readonly "~types": { body: TBody; query: TQuery; output: TOutput; params: TParams };
 }
 
 export interface DefineApiConfig<
@@ -262,7 +267,8 @@ export function defineApi<
 ): ValidatedApiHandler<
   InferSchemaInput<TBodySchema>,
   InferSchemaInput<TQuerySchema>,
-  ApiHandlerOutput<Awaited<ReturnType<THandler>>>
+  ApiHandlerOutput<Awaited<ReturnType<THandler>>>,
+  InferSchemaInput<TParamsSchema>
 > {
   const handler = async (args: ApiRouteArgs<TContext>): Promise<Response> => {
     const issues: ApiValidationIssue[] = [];
@@ -499,7 +505,7 @@ async function readRequestBody(request: Request): Promise<ParsedBody> {
 }
 
 /**
- * Extract `{ body, query, output }` from one exported handler. `defineApi()`
+ * Extract `{ body, query, output, params }` from one exported handler. `defineApi()`
  * handlers carry precise types; plain handlers fall back to `unknown`.
  */
 export type ApiHandlerTypes<THandler> = THandler extends {
@@ -507,7 +513,7 @@ export type ApiHandlerTypes<THandler> = THandler extends {
 }
   ? TTypes
   : THandler extends (...args: never[]) => infer TResult
-    ? { body: unknown; query: unknown; output: ApiHandlerOutput<Awaited<TResult>> }
+    ? { body: unknown; query: unknown; output: ApiHandlerOutput<Awaited<TResult>>; params: unknown }
     : never;
 
 /**

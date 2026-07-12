@@ -31,7 +31,7 @@ export default defineCommand({
     });
 
     await server.listen();
-    watchGeneratedRouteTypes(server, root);
+    const watchesGeneratedRouteTypes = watchGeneratedRouteTypes(server, root);
 
     try {
       const graph = await collectAppGraph(server, root);
@@ -45,6 +45,11 @@ export default defineCommand({
           routes: graph.routes,
         }),
       );
+      if (!watchesGeneratedRouteTypes) {
+        console.log(
+          "\n  Tip: run `pracht typegen` once to enable typed routes and `apiFetch()`; `pracht dev` will keep them in sync.\n",
+        );
+      }
     } catch {
       // Not a resolvable pracht app graph (or it failed to load) — fall back
       // to Vite's own URL output so the dev server still starts cleanly.
@@ -62,15 +67,16 @@ const ROUTE_MODULE_PATTERN = /\.(?:ts|tsx|tsrx|js|jsx|md|mdx)$/;
  * having run `pracht typegen` once: when the generated declaration exists at
  * its default location it is refreshed on startup, whenever files that can
  * define routes are added or removed (renames arrive as an unlink + add pair),
- * and whenever the app manifest changes. Handler signature changes need no
- * regeneration — the declaration references route modules with
- * `typeof import(...)`, so those types update live. Projects that never ran
- * typegen are left untouched.
+ * and whenever the app manifest or one of its imported definition modules
+ * changes. Handler signature changes need no regeneration — the declaration
+ * references route modules with `typeof import(...)`, so those types update
+ * live. Projects that never ran typegen are left untouched and receive a
+ * setup tip in the dev banner.
  */
-function watchGeneratedRouteTypes(server: ViteDevServer, root: string): void {
+function watchGeneratedRouteTypes(server: ViteDevServer, root: string): boolean {
   const declarationPath = resolve(root, DEFAULT_DECLARATION_OUT);
   if (!existsSync(declarationPath)) {
-    return;
+    return false;
   }
 
   const generatedPaths = new Set([declarationPath, resolve(root, DEFAULT_RUNTIME_OUT)]);
@@ -105,8 +111,12 @@ function watchGeneratedRouteTypes(server: ViteDevServer, root: string): void {
     }
   };
 
-  const queueRegenerate = (file: string) => {
-    if (!file.startsWith(root) || !ROUTE_MODULE_PATTERN.test(file) || generatedPaths.has(file)) {
+  const queueRegenerate = (file: string, requireRouteExtension = true) => {
+    if (
+      !file.startsWith(root) ||
+      (requireRouteExtension && !ROUTE_MODULE_PATTERN.test(file)) ||
+      generatedPaths.has(file)
+    ) {
       return;
     }
     if (queued) {
@@ -118,12 +128,46 @@ function watchGeneratedRouteTypes(server: ViteDevServer, root: string): void {
     }, 300);
   };
 
-  server.watcher.on("add", queueRegenerate);
-  server.watcher.on("unlink", queueRegenerate);
+  server.watcher.on("add", (file) => queueRegenerate(file));
+  server.watcher.on("unlink", (file) => queueRegenerate(file));
   server.watcher.on("change", (file) => {
-    if (file === appFilePath) {
-      queueRegenerate(file);
+    if (isAppManifestDependency(server, file, appFilePath)) {
+      queueRegenerate(file, false);
     }
   });
   void regenerate();
+  return true;
+}
+
+/** Whether `file` is the app manifest or one of its local imported modules. */
+function isAppManifestDependency(
+  server: ViteDevServer,
+  file: string,
+  appFilePath: string,
+): boolean {
+  if (file === appFilePath) {
+    return true;
+  }
+
+  const modules = server.environments.ssr.moduleGraph.getModulesByFile(file);
+  if (!modules) {
+    return false;
+  }
+
+  const pending = [...modules];
+  const visited = new Set(pending);
+  while (pending.length > 0) {
+    const module = pending.pop()!;
+    for (const importer of module.importers) {
+      if (importer.file === appFilePath) {
+        return true;
+      }
+      if (!visited.has(importer)) {
+        visited.add(importer);
+        pending.push(importer);
+      }
+    }
+  }
+
+  return false;
 }

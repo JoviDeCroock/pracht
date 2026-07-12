@@ -33,7 +33,8 @@ export const GET = defineApi({
 ```
 
 Schemas can validate `body`, `query`, and route `params`. Query and param values cross the wire as
-strings, so numeric inputs need coercion or a transform. Repeated query keys arrive as string arrays.
+strings, so numeric inputs need coercion or a transform. Generated calls reject concrete query or
+params schema keys that cannot accept strings. Repeated query keys arrive as string arrays.
 
 Handlers can return JSON-safe values directly. Use `json(value, init)` when you need a custom status
 or headers without losing the response payload type. Values that change during JSON serialization —
@@ -50,7 +51,8 @@ pracht typegen
 
 This creates `src/pracht.d.ts` and `src/pracht-routes.ts`. Once those default files exist,
 `pracht dev` keeps them current when route files are added, removed, or renamed and when the route
-manifest changes. Run `pracht typegen --check` in CI to catch stale generated files.
+manifest or one of its imported definition modules changes. Before the first run, the dev banner
+prints a setup tip. Run `pracht typegen --check` in CI to catch stale generated files.
 
 ## Call the route with `apiFetch()`
 
