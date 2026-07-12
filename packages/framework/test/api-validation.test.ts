@@ -8,6 +8,7 @@ import {
   formDataToRecord,
   handlePrachtRequest,
   isApiValidationErrorBody,
+  json,
   resolveApiRoutes,
   route,
   searchParamsToRecord,
@@ -297,6 +298,32 @@ describe("defineApi", () => {
       error: "validation",
       issues: [{ in: "body", message: "Expected string", path: ["name"] }],
     });
+  });
+});
+
+describe("json", () => {
+  it("builds a JSON response with the given status and headers", async () => {
+    const response = json({ created: "pracht" }, { status: 201, headers: { "x-request": "1" } });
+
+    expect(response.status).toBe(201);
+    expect(response.headers.get("x-request")).toBe("1");
+    expect(response.headers.get("content-type")).toContain("application/json");
+    await expect(response.json()).resolves.toEqual({ created: "pracht" });
+  });
+
+  it("rejects values that would change type over the wire", () => {
+    expect(() => json({ createdAt: new Date() } as never)).toThrow(TypeError);
+  });
+
+  it("passes through defineApi with its status intact", async () => {
+    const handler = defineApi({
+      handler: () => json({ created: true }, { status: 201 }),
+    });
+
+    const response = await handler(apiArgs(new Request("http://localhost/api/items")));
+
+    expect(response.status).toBe(201);
+    await expect(response.json()).resolves.toEqual({ created: true });
   });
 });
 

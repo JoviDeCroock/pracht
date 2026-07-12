@@ -60,7 +60,9 @@ removes that stale file automatically (TypeScript silently ignored it next to
 the same-named `.ts` helper).
 
 Do not hand-edit generated files. If they are stale, update the route graph and
-run typegen again. In CI, prefer:
+run typegen again — or rely on `pracht dev`, which refreshes them when route
+files are added, removed, or renamed and when the route manifest changes
+(active once `src/pracht.d.ts` exists). In CI, prefer:
 
 ```bash
 pracht typegen --check
@@ -146,6 +148,11 @@ const item = await apiFetch("/api/items/:id", { params: { id: "42" } });
 See docs/API_VALIDATION.md for `defineApi()` and validation error handling.
 Typegen discovers API route files without importing them, so it is safe for
 route modules that initialize runtime-only services at module scope.
+
+Query and params values cross the wire as strings — write schemas that accept
+string input (`z.coerce.number()`, not `z.number()`); `apiFetch()` rejects
+query keys without a string representation at compile time. Handlers that
+need a custom status keep typed payloads with `json(value, { status })`.
 
 ## Step 4: Param and search rules
 

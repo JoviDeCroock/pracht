@@ -54,6 +54,16 @@ signal, route) plus the **validated** `body` and `query` values, with `params`
 replaced by the params schema's output when one is given. Schema output types
 flow through — `z.coerce.number()` gives the handler a `number`.
 
+> **Query and params schemas receive strings.** The wire format for query
+> strings and route params is text: every value the schema sees is a string
+> (or a string array for repeated query keys). Write schemas that accept
+> string input — `z.coerce.number()`, `z.enum([...])`, transforms — never
+> `z.number()`, which could not validate any request. `apiFetch()` rejects
+> query keys whose schema input has no string representation at compile time.
+> A repeated key (`?tag=a&tag=b`) arrives as an array but a single `?tag=a`
+> arrives as a plain string, so accept both:
+> `z.union([z.string(), z.array(z.string())])`.
+
 Handlers may return:
 
 - a `Response` for full control over status and headers, or
@@ -64,14 +74,27 @@ Handlers may return:
 The JSON shape must survive serialization without changing type. Values such
 as `Date`, `BigInt`, `undefined`, class instances, sparse arrays, and circular
 objects are rejected (at compile time where TypeScript can identify them, and
-again at runtime for untyped callers and value-level cases such as `NaN`).
+again at runtime for JavaScript callers and value-level cases such as `NaN`).
 Serialize them explicitly or return a `Response` when you need custom wire
 formats.
 
-If a handler can return a `Response` on any branch, its client output is
+When a handler only needs a different status code or extra headers, return
+`json(value, init)` — it behaves like `Response.json()` but keeps the payload
+type visible to `apiFetch()`:
+
+```typescript
+import { defineApi, json } from "@pracht/core";
+
+export const POST = defineApi({
+  body: itemSchema,
+  handler: ({ body }) => json({ created: body.name }, { status: 201 }),
+});
+```
+
+If a handler can return a plain `Response` on any branch, its client output is
 `unknown`: status, content type, and body cannot be inferred from the
-`Response` type. Keep JSON-returning handlers separate when callers need a
-precise result type.
+`Response` type. Use `json()` or keep JSON-returning handlers separate when
+callers need a precise result type.
 
 ### Validation failures
 
@@ -137,6 +160,13 @@ stale. Type generation discovers API paths without importing the API modules,
 so top-level route code and runtime service initialization do not execute
 during codegen.
 
+While `pracht dev` runs, the generated files refresh automatically whenever
+route files are added, removed, or renamed, and whenever the route manifest
+changes (opt-in by having run `pracht typegen` once — the watcher activates
+when `src/pracht.d.ts` exists). Handler signature changes need no regeneration:
+the declaration references route modules with `typeof import(...)`, so those
+types update live.
+
 ---
 
 ## Typed Requests with `apiFetch()`
@@ -167,7 +197,12 @@ Runtime behavior:
 
 - Plain objects passed as `body` are JSON-encoded with
   `Content-Type: application/json`; `FormData`, `URLSearchParams`, `Blob`,
-  typed arrays, streams, and strings pass through unchanged.
+  typed arrays, streams, and strings pass through unchanged. Routes whose
+  body schema contains `File`/`Blob` values accept `FormData` in their typed
+  `body` — JSON-encoding a `File` would silently drop it, so send multipart.
+  For other binary payloads and streams, use a plain handler and read
+  `request.body` or the appropriate `Request` method directly; `defineApi()`
+  parses non-JSON, non-form bodies as text before passing them to a schema.
 - `GET` and `HEAD` requests are bodyless; passing `body` for either method is
   rejected by generated types and at runtime.
 - 2xx JSON responses are parsed; `text/*` responses resolve to the text;
@@ -192,6 +227,13 @@ try {
 `ApiFetchOptions` also accepts `headers`, `signal`, a custom `fetch`
 implementation, and a `baseUrl` prefix for absolute-origin calls during SSR
 or in tests.
+
+> **Calling APIs during SSR.** Relative URLs only resolve in the browser —
+> server-side `fetch` throws on them. In loaders and other server code, pass
+> an absolute `baseUrl`. Better: calling your own origin over HTTP from a
+> single-process server wastes a round trip and can deadlock, so extract the
+> shared logic into a function that both the API route and the loader call
+> directly.
 
 ---
 
@@ -225,13 +267,20 @@ function NewItem() {
 }
 ```
 
+- `action` autocompletes API route paths registered by `pracht typegen`
+  (any URL string still works).
 - `schema` validates the form's data client-side before submitting (one entry
   per field, arrays for repeated fields, `File` values untouched). On
   failure the request is skipped and `onValidationIssues` fires.
 - `onValidationIssues` also fires when the server answers with the
-  standardized 422 validation body — so a `defineApi` route with the same
+  standardized 400/422 validation body — so a `defineApi` route with the same
   schema gives identical error shapes whether JavaScript validated first or
   the server did. Share one schema module between the API route and the form.
+- `onResponse` receives the `Response` for every non-redirect fetch
+  submission — read a success payload with `response.json()`, or branch on
+  `response.ok`/`response.status` to surface non-validation failures (500s
+  would otherwise pass silently). The body is never consumed before the
+  callback runs.
 
 Without JavaScript the form still submits natively and the server-side
 schema remains the source of truth.

@@ -11,8 +11,8 @@ import { runInspect, type InspectReport } from "./inspect.js";
 // (`pracht-routes.d.ts` next to `pracht-routes.ts`): TypeScript treats such a
 // `.d.ts` as the build output of the `.ts` file and silently drops it from
 // the program, so its `Register` augmentation never applies.
-const DEFAULT_DECLARATION_OUT = "src/pracht.d.ts";
-const DEFAULT_RUNTIME_OUT = "src/pracht-routes.ts";
+export const DEFAULT_DECLARATION_OUT = "src/pracht.d.ts";
+export const DEFAULT_RUNTIME_OUT = "src/pracht-routes.ts";
 const LEGACY_DECLARATION_OUT = "src/pracht-routes.d.ts";
 
 type RouteEntry = NonNullable<InspectReport["routes"]>[number];
@@ -72,7 +72,7 @@ export default defineCommand({
   },
 });
 
-interface TypegenOptions {
+export interface TypegenOptions {
   check: boolean;
   declarationOut: string;
   root: string;
@@ -87,7 +87,7 @@ interface TypegenResult {
   routes: number;
 }
 
-async function runTypegen(options: TypegenOptions): Promise<TypegenResult> {
+export async function runTypegen(options: TypegenOptions): Promise<TypegenResult> {
   // Type generation only needs each API route's path and source file. Avoid
   // loading the modules themselves: top-level API code may initialize runtime
   // services or have other side effects that should never run during codegen.
@@ -130,6 +130,11 @@ async function runTypegen(options: TypegenOptions): Promise<TypegenResult> {
     }
   } else {
     for (const output of outputs) {
+      // Skip identical rewrites so watch-mode regeneration (`pracht dev`)
+      // does not trigger spurious HMR updates for the generated modules.
+      if (fileMatches(output.path, output.source)) {
+        continue;
+      }
       mkdirSync(dirname(output.path), { recursive: true });
       writeFileSync(output.path, output.source, "utf-8");
     }

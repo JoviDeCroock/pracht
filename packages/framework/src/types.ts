@@ -236,17 +236,66 @@ type ApiFetchMethodField<TMethod> = TMethod extends "GET"
   ? { method?: "GET" }
   : { method: TMethod };
 
+type ContainsFileValue<TValue> = [Extract<TValue, Blob>] extends [never]
+  ? TValue extends readonly (infer TEntry)[]
+    ? [Extract<TEntry, Blob>] extends [never]
+      ? false
+      : true
+    : false
+  : true;
+
+type ApiBodyAcceptsFormData<TBody> =
+  TBody extends Record<string, unknown>
+    ? true extends {
+        [TKey in keyof TBody]-?: ContainsFileValue<NonNullable<TBody[TKey]>>;
+      }[keyof TBody]
+      ? true
+      : false
+    : false;
+
+/**
+ * A `File`/`Blob`-bearing body schema targets multipart form submissions.
+ * JSON-encoding such a body would silently drop the file (`File` serializes
+ * to `{}`), so `FormData` is accepted as the wire format for those routes.
+ */
+type ApiFetchBodyInput<TBody> =
+  true extends ApiBodyAcceptsFormData<NonNullable<TBody>> ? TBody | FormData : TBody;
+
 type ApiFetchBodyField<TBody> = unknown extends TBody
   ? { body?: unknown }
   : undefined extends TBody
-    ? { body?: TBody }
-    : { body: TBody };
+    ? { body?: ApiFetchBodyInput<TBody> }
+    : { body: ApiFetchBodyInput<TBody> };
+
+type QueryWireValue = string | readonly string[];
+
+/**
+ * Query values cross the wire as URL search params: the server always hands
+ * the query schema a string per key (or a string array for repeated keys). A
+ * schema input with no string representation — `z.number()`, `z.boolean()` —
+ * would type-check here yet fail validation on every request, so those keys
+ * become a compile-time error instead. Inputs that accept strings
+ * (`z.coerce.number()`, `z.enum([...])`, unions with a string arm) pass
+ * through unchanged.
+ */
+type ApiQueryWireCheck<TQuery> =
+  TQuery extends Record<string, unknown>
+    ? {
+        [TKey in keyof TQuery]: unknown extends TQuery[TKey]
+          ? TQuery[TKey]
+          : [Extract<NonNullable<TQuery[TKey]>, QueryWireValue>] extends [never]
+            ? {
+                readonly "Query values arrive as strings; give this key a schema input that accepts them (e.g. z.coerce.number())": never;
+              }
+            : TQuery[TKey];
+      }
+    : TQuery;
 
 type ApiFetchQueryField<TQuery> = unknown extends TQuery
   ? { query?: SearchParamsInput }
   : Record<never, never> extends TQuery
-    ? { query?: TQuery }
-    : { query: TQuery };
+    ? { query?: ApiQueryWireCheck<TQuery> }
+    : { query: ApiQueryWireCheck<TQuery> };
 
 type ApiFetchParamsField<TPath extends ApiPath> = HasRegisteredApiRoutes extends true
   ? IsEmptyRouteParams<ApiParamsFor<TPath>> extends true

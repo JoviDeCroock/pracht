@@ -36,6 +36,7 @@ import { clearPrefetchCache } from "./prefetch-cache.ts";
 import { deserializeRouteError } from "./runtime-errors.ts";
 import { fetchPrachtRouteState, navigateToClientLocation } from "./runtime-client-fetch.ts";
 import type {
+  ApiPath,
   LinkPrefetchStrategy,
   LoaderData,
   LoaderLike,
@@ -50,7 +51,12 @@ export type { PrachtHydrationState, StartAppOptions };
 export type { Navigation, NavigationLocation } from "./navigation-state.ts";
 
 export interface FormProps extends Omit<JSX.HTMLAttributes<HTMLFormElement>, "action" | "method"> {
-  action?: string;
+  /**
+   * Form action. Autocompletes API route paths registered by `pracht typegen`
+   * while still accepting any URL string (dynamic segments must be
+   * interpolated by the caller).
+   */
+  action?: ApiPath | (string & {});
   method?: string;
   /**
    * Standard Schema validated against the form's data (one entry per field,
@@ -61,10 +67,17 @@ export interface FormProps extends Omit<JSX.HTMLAttributes<HTMLFormElement>, "ac
   /**
    * Called with normalized validation issues when the client-side `schema`
    * rejects a submission, or when the server responds with the standardized
-   * validation failure produced by `defineApi()` (HTTP 422,
+   * validation failure produced by `defineApi()` (HTTP 400/422,
    * `{ error: "validation", issues }`).
    */
   onValidationIssues?: (issues: ApiValidationIssue[]) => void;
+  /**
+   * Called with the server's response for every non-redirect fetch
+   * submission — success payloads (2xx) and failures (4xx/5xx) alike. Read
+   * the body with `response.json()`; validation-issue handling parses a
+   * clone, so the body is never consumed before this callback.
+   */
+  onResponse?: (response: Response) => void;
 }
 
 export type LinkProps<TRoute extends RouteId = RouteId> = Omit<
@@ -189,7 +202,7 @@ export function Link<TRoute extends RouteId>(props: LinkProps<TRoute>) {
 }
 
 export function Form(props: FormProps) {
-  const { onSubmit, method, schema, onValidationIssues, ...rest } = props;
+  const { onSubmit, method, schema, onValidationIssues, onResponse, ...rest } = props;
 
   return h("form", {
     ...rest,
@@ -208,14 +221,6 @@ export function Form(props: FormProps) {
         return;
       }
 
-      const formMethod = (method ?? form.method ?? "post").toUpperCase();
-      const isSafeMethod = SAFE_METHODS.has(formMethod);
-      if (isSafeMethod && !schema) {
-        return;
-      }
-
-      event.preventDefault();
-      const actionUrl = props.action ?? form.action;
       const submitter =
         typeof SubmitEvent !== "undefined" && event instanceof SubmitEvent ? event.submitter : null;
       const nativeSubmitter =
@@ -223,6 +228,16 @@ export function Form(props: FormProps) {
         submitter.form === form
           ? submitter
           : undefined;
+      const submitterMethod = nativeSubmitter?.getAttribute("formmethod") || undefined;
+      const formMethod = (submitterMethod ?? method ?? form.method ?? "post").toUpperCase();
+      const isSafeMethod = SAFE_METHODS.has(formMethod);
+      if (isSafeMethod && !schema) {
+        return;
+      }
+
+      event.preventDefault();
+      const submitterAction = nativeSubmitter?.getAttribute("formaction");
+      const actionUrl = submitterAction ?? props.action ?? form.action;
       const formData = new FormData(form, nativeSubmitter);
 
       if (schema) {
@@ -262,11 +277,17 @@ export function Form(props: FormProps) {
         ) {
           const location = response.headers.get("location");
           await navigateToClientLocation(location ?? actionUrl, { reloadRouteState: true });
-        } else if (response.status === 422 && onValidationIssues) {
-          const body = await response.json().catch(() => null);
-          if (isApiValidationErrorBody(body)) {
-            onValidationIssues(body.issues);
+        } else {
+          if ((response.status === 400 || response.status === 422) && onValidationIssues) {
+            const body = await response
+              .clone()
+              .json()
+              .catch(() => null);
+            if (isApiValidationErrorBody(body)) {
+              onValidationIssues(body.issues);
+            }
           }
+          onResponse?.(response);
         }
       } finally {
         settleNavigation(navigationToken);

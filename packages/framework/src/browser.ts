@@ -14,6 +14,7 @@ export {
   defineApi,
   formDataToRecord,
   isApiValidationErrorBody,
+  json,
   searchParamsToRecord,
   validateStandardSchema,
 } from "./api-validation.ts";
@@ -28,6 +29,7 @@ export type {
   ApiValidationPathSegment,
   ApiValidationSource,
   DefineApiConfig,
+  TypedJsonResponse,
   ValidatedApiArgs,
   ValidatedApiHandler,
 } from "./api-validation.ts";

@@ -1,5 +1,14 @@
-import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -371,7 +380,7 @@ export const app = defineApp({
     const runtime = readFileSync(join(appDir, "src/pracht-routes.ts"), "utf-8");
 
     expect(result).toMatchObject({
-      apiRoutes: 2,
+      apiRoutes: 3,
       check: false,
       files: ["src/pracht.d.ts", "src/pracht-routes.ts"],
       mode: "manifest",
@@ -405,6 +414,14 @@ export const app = defineApp({
 
     const check = JSON.parse(runCli(["typegen", "--check", "--json"], { cwd: appDir }).stdout);
     expect(check).toMatchObject({ check: true, ok: true, routes: 3 });
+
+    // Unchanged outputs are not rewritten — dev-mode regeneration relies on
+    // this to avoid spurious HMR updates for the generated runtime module.
+    const declarationPath = join(appDir, "src/pracht.d.ts");
+    const past = new Date(Date.now() - 120_000);
+    utimesSync(declarationPath, past, past);
+    runCli(["typegen"], { cwd: appDir });
+    expect(statSync(declarationPath).mtimeMs).toBeLessThan(Date.now() - 60_000);
 
     writeProjectFile(appDir, "src/pracht.d.ts", "stale\n");
     const stale = runCliStatus(["typegen", "--check", "--json"], { cwd: appDir });
@@ -503,6 +520,23 @@ export async function main() {
 
   // @ts-expect-error - GET is not exported for /api/items
   await apiFetch("/api/items", { method: "GET" });
+
+  // json() handlers keep their payload type (and status freedom) on the client.
+  const uploaded = await apiFetch("/api/uploads", {
+    method: "POST",
+    body: { name: "x", avatar: new File([], "a.png") },
+  });
+  const _uploaded: { uploaded: string } = uploaded;
+
+  // File-bearing body schemas accept FormData as the wire format.
+  await apiFetch("/api/uploads", { method: "POST", body: new FormData() });
+
+  // String query inputs stay fully typed.
+  const results = await apiFetch("/api/uploads", { query: { q: "boots" } });
+  const _results: { results: string[] } = results;
+
+  // @ts-expect-error - query values arrive as strings; a number input can never validate
+  await apiFetch("/api/uploads", { query: { q: "boots", page: 2 } });
 }
 `,
     );
@@ -548,6 +582,70 @@ export async function main() {
     }
   }, 60_000);
 
+  it("pracht dev keeps generated route types in sync with route files", async () => {
+    const appDir = createRepoTempDir("pracht-cli-dev-typegen-");
+    writeTypedManifestApp(appDir);
+    runCli(["typegen"], { cwd: appDir });
+
+    const child = spawn(process.execPath, [cliPath, "dev"], {
+      cwd: appDir,
+      env: process.env,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let output = "";
+    child.stdout.setEncoding("utf-8");
+    child.stderr.setEncoding("utf-8");
+    child.stdout.on("data", (chunk) => {
+      output += chunk;
+    });
+    child.stderr.on("data", (chunk) => {
+      output += chunk;
+    });
+
+    try {
+      // The route-type watcher attaches before the banner prints.
+      await waitFor(
+        () => output.includes("http"),
+        30_000,
+        () => output,
+      );
+
+      writeProjectFile(
+        appDir,
+        "src/api/ping.ts",
+        "export function GET() {\n  return Response.json({ pong: true });\n}\n",
+      );
+
+      await waitFor(
+        () => readFileSync(join(appDir, "src/pracht.d.ts"), "utf-8").includes('"/api/ping"'),
+        30_000,
+        () => output,
+      );
+
+      writeProjectFile(
+        appDir,
+        "src/routes.ts",
+        `import { defineApp, route } from "@pracht/core";
+
+export const app = defineApp({
+  routes: [
+    route("/", "./routes/home.tsx", { id: "home", render: "ssg" }),
+    route("/settings", "./routes/home.tsx", { id: "settings", render: "ssr" }),
+  ],
+});
+`,
+      );
+
+      await waitFor(
+        () => readFileSync(join(appDir, "src/pracht.d.ts"), "utf-8").includes('"settings"'),
+        30_000,
+        () => output,
+      );
+    } finally {
+      child.kill("SIGTERM");
+    }
+  }, 90_000);
+
   it("scaffolds pages-router routes without touching a manifest", () => {
     const appDir = createTempDir("pracht-cli-pages-");
     writePagesApp(appDir);
@@ -565,6 +663,19 @@ export async function main() {
     expect(routeSource).toContain('slug: "example-slug"');
   });
 });
+
+async function waitFor(predicate, timeoutMs, describeFailure) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (predicate()) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  throw new Error(
+    `Timed out waiting for condition.${describeFailure ? `\n${describeFailure()}` : ""}`,
+  );
+}
 
 function createTempDir(prefix) {
   const dir = mkdtempSync(join(tmpdir(), prefix));
@@ -799,6 +910,23 @@ export const PUT = defineApi({
   body: passthroughSchema<{ id: number }>(),
   handler: () =>
     Math.random() > 0.5 ? { updated: true } : new Response(null, { status: 204 }),
+});
+`,
+  );
+  writeProjectFile(
+    appDir,
+    "src/api/uploads.ts",
+    `import { defineApi, json } from "@pracht/core";
+import { passthroughSchema } from "../lib/schema-util";
+
+export const POST = defineApi({
+  body: passthroughSchema<{ name: string; avatar: File }>(),
+  handler: ({ body }) => json({ uploaded: body.name }, { status: 201 }),
+});
+
+export const GET = defineApi({
+  query: passthroughSchema<{ q: string; page?: number }>(),
+  handler: ({ query }) => ({ results: [query.q] }),
 });
 `,
   );

@@ -97,6 +97,40 @@ type JsonCompatible<T> = T extends ApiJsonPrimitive
 
 type NonResponseResult<TResult> = Exclude<Awaited<TResult>, Response>;
 
+/**
+ * `Response` subtype produced by `json()`. Carries the payload type on a
+ * type-only `"~payload"` marker (it never exists at runtime) so
+ * `ApiHandlerOutput` can surface the payload to `apiFetch()` callers even
+ * though the handler returns a `Response`.
+ */
+export interface TypedJsonResponse<TPayload> extends Response {
+  readonly "~payload": TPayload;
+}
+
+type JsonValueConstraint<TValue> = [TValue] extends [JsonCompatible<TValue>]
+  ? unknown
+  : { readonly "json() values must be JSON-safe": never };
+
+/**
+ * `Response.json()` with the payload type preserved for `apiFetch()` callers.
+ * Use it when a handler needs a non-200 status or custom headers without
+ * collapsing the client-side response type to `unknown`:
+ *
+ * ```ts
+ * export const POST = defineApi({
+ *   body: itemSchema,
+ *   handler: ({ body }) => json({ created: body.name }, { status: 201 }),
+ * });
+ * ```
+ */
+export function json<TValue>(
+  value: TValue & JsonValueConstraint<NoInfer<TValue>>,
+  init?: ResponseInit,
+): TypedJsonResponse<TValue> {
+  assertApiJsonValue(value);
+  return Response.json(value, init) as TypedJsonResponse<TValue>;
+}
+
 type ApiHandlerResultConstraint<TResult> = [NonResponseResult<TResult>] extends [never]
   ? unknown
   : [NonResponseResult<TResult>] extends [JsonCompatible<NonResponseResult<TResult>>]
@@ -129,12 +163,20 @@ export type ValidatedApiArgs<
   params: TParams;
 };
 
+type PlainResponseResult<TResult> =
+  TResult extends TypedJsonResponse<any> ? never : Extract<TResult, Response>;
+
+type TypedJsonPayload<TResult> =
+  TResult extends TypedJsonResponse<infer TPayload> ? TPayload : never;
+
 /**
- * JSON output type of a handler. Any handler that can return `Response` keeps
- * an `unknown` output because the payload type cannot be recovered from the
- * response status, headers, or body.
+ * JSON output type of a handler. `json()` responses carry their payload type;
+ * any other `Response` branch keeps an `unknown` output because the payload
+ * type cannot be recovered from the response status, headers, or body.
  */
-type ApiHandlerOutput<TResult> = [Extract<TResult, Response>] extends [never] ? TResult : unknown;
+type ApiHandlerOutput<TResult> = [PlainResponseResult<TResult>] extends [never]
+  ? Exclude<TResult, Response> | TypedJsonPayload<TResult>
+  : unknown;
 
 /**
  * The callable produced by `defineApi()`. Compatible with the plain

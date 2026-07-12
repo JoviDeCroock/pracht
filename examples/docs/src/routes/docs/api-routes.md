@@ -6,8 +6,8 @@ prev:
   href: /docs/data-loading
   title: Data Loading
 next:
-  href: /docs/middleware
-  title: Middleware
+  href: /docs/api-validation
+  title: API Validation
 ---
 
 ## File Convention
@@ -165,4 +165,6 @@ const created = await apiFetch("/api/items", {
 });
 ```
 
-Non-2xx responses throw `ApiFetchError`; validation failures expose the normalized `issues` for form error display. `<Form>` accepts the same schemas via its `schema` and `onValidationIssues` props, so client-side and server-side validation share one schema module.
+Query and params values reach their schemas as strings (the URL wire format) — use string-accepting inputs like `z.coerce.number()`, never `z.number()`. Handlers that need a custom status code keep their typed payload with `json(value, { status: 201 })` instead of `Response.json()`. While `pracht dev` runs, the generated types refresh automatically when route files are added, removed, or renamed and when the route manifest changes.
+
+Non-2xx responses throw `ApiFetchError`; validation failures expose the normalized `issues` for form error display. `<Form>` accepts the same schemas via its `schema` and `onValidationIssues` props, so client-side and server-side validation share one schema module; its `onResponse` prop receives every non-redirect response for success payloads and non-validation failures.
