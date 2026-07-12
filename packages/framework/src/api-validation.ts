@@ -10,6 +10,7 @@ import type {
 
 /** Which part of the request a validation issue belongs to. */
 export type ApiValidationSource = "body" | "query" | "params";
+export type ApiValidationPathSegment = string | number;
 
 /**
  * One normalized validation issue, serialized into the 422 response body and
@@ -18,7 +19,7 @@ export type ApiValidationSource = "body" | "query" | "params";
 export interface ApiValidationIssue {
   in: ApiValidationSource;
   message: string;
-  path?: PropertyKey[];
+  path?: ApiValidationPathSegment[];
 }
 
 /** JSON body of a validation failure response (HTTP 400/422). */
@@ -48,7 +49,11 @@ function isApiValidationIssue(value: unknown): value is ApiValidationIssue {
     typeof issue.message === "string" &&
     (issue.path === undefined ||
       (Array.isArray(issue.path) &&
-        issue.path.every((segment) => ["string", "number", "symbol"].includes(typeof segment))))
+        issue.path.every(
+          (segment) =>
+            typeof segment === "string" ||
+            (typeof segment === "number" && Number.isFinite(segment)),
+        )))
   );
 }
 
@@ -57,7 +62,13 @@ export function apiValidationErrorResponse(
   issues: ApiValidationIssue[],
   init?: { status?: number },
 ): Response {
-  const body: ApiValidationErrorBody = { error: "validation", issues };
+  const body: ApiValidationErrorBody = {
+    error: "validation",
+    issues: issues.map((issue) => ({
+      ...issue,
+      path: issue.path?.map(normalizeValidationPathSegment),
+    })),
+  };
   return Response.json(body, { status: init?.status ?? 422 });
 }
 
@@ -340,13 +351,21 @@ export async function validateStandardSchema(
         in: source,
         message: issue.message,
         path: issue.path?.map((segment) =>
-          typeof segment === "object" && segment !== null ? segment.key : segment,
+          normalizeValidationPathSegment(
+            typeof segment === "object" && segment !== null ? segment.key : segment,
+          ),
         ),
       })),
     };
   }
 
   return { issues: null, value: result.value };
+}
+
+function normalizeValidationPathSegment(segment: PropertyKey): ApiValidationPathSegment {
+  return typeof segment === "symbol" || (typeof segment === "number" && !Number.isFinite(segment))
+    ? String(segment)
+    : segment;
 }
 
 async function runSchema(

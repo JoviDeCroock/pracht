@@ -2,6 +2,7 @@ import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { describe, expect, it } from "vitest";
 
 import {
+  apiValidationErrorResponse,
   defineApi,
   defineApp,
   formDataToRecord,
@@ -10,6 +11,7 @@ import {
   resolveApiRoutes,
   route,
   searchParamsToRecord,
+  validateStandardSchema,
   type ApiRouteArgs,
 } from "../src/index.ts";
 
@@ -334,5 +336,41 @@ describe("record helpers", () => {
         issues: [{ in: "other", message: "Invalid" }],
       }),
     ).toBe(false);
+    expect(
+      isApiValidationErrorBody({
+        error: "validation",
+        issues: [{ in: "body", message: "Invalid", path: [null] }],
+      }),
+    ).toBe(false);
+  });
+
+  it("normalizes schema paths so validation issues survive JSON", async () => {
+    const schema: StandardSchemaV1 = {
+      "~standard": {
+        version: 1,
+        vendor: "pracht-test",
+        validate: () => ({
+          issues: [{ message: "Invalid", path: [Symbol("field"), Number.POSITIVE_INFINITY] }],
+        }),
+      },
+    };
+
+    await expect(validateStandardSchema(schema, null, "body")).resolves.toEqual({
+      issues: [
+        {
+          in: "body",
+          message: "Invalid",
+          path: ["Symbol(field)", "Infinity"],
+        },
+      ],
+    });
+
+    const response = apiValidationErrorResponse([
+      { in: "params", message: "Invalid", path: [Number.NEGATIVE_INFINITY] },
+    ]);
+    await expect(response.json()).resolves.toEqual({
+      error: "validation",
+      issues: [{ in: "params", message: "Invalid", path: ["-Infinity"] }],
+    });
   });
 });

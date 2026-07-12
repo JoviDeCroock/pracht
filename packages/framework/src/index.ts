@@ -28,6 +28,7 @@ export type {
   ApiRouteSchemas,
   ApiValidationErrorBody,
   ApiValidationIssue,
+  ApiValidationPathSegment,
   ApiValidationSource,
   DefineApiConfig,
   ValidatedApiArgs,
