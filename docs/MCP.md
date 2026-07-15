@@ -41,6 +41,9 @@ automatically:
 }
 ```
 
+Apps scaffolded with `create-pracht` get this `.mcp.json` (plus the Claude Code skills in
+`.claude/skills/`) out of the box unless scaffolded with `--no-agent-tools`.
+
 ## Registering with other MCP clients
 
 Any client that supports stdio servers works the same way — configure the command
@@ -56,8 +59,8 @@ the server from the project directory.
 
 | Tool                  | Inputs                                                                                                              | Returns                                                                              |
 | --------------------- | ------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
-| `inspect_routes`      | `cwd?`                                                                                                              | Resolved page routes: path, id, render mode, shell, middleware, loader file. Same as `pracht inspect routes --json`. |
-| `inspect_api`         | `cwd?`                                                                                                              | Resolved API routes: endpoint path, source file, exported HTTP methods. Same as `pracht inspect api --json`. |
+| `inspect_routes`      | `cwd?`                                                                                                              | Resolved page routes: path, id, render mode, hydration mode, prefetch strategy, speculation rules, shell, middleware, loader file. Unset options serialize as `null`. Same as `pracht inspect routes --json`. |
+| `inspect_api`         | `cwd?`                                                                                                              | Resolved API routes: endpoint path, source file, exported HTTP methods, `hasDefaultHandler` (default catch-all export). Same as `pracht inspect api --json`. |
 | `inspect_build`       | `cwd?`                                                                                                              | Build metadata: adapter target, client entry URL, CSS/JS manifests (requires a prior `pracht build`). Same as `pracht inspect build --json`. |
 | `doctor`              | `cwd?`                                                                                                              | Wiring diagnostics with per-check status. Same as `pracht doctor --json`.            |
 | `verify`              | `cwd?`, `changed?` (boolean, maps to `--changed`)                                                                   | Framework verification checks with scope info — including `defineApp({ constraints })` enforcement and app-graph snapshot freshness. Same as `pracht verify --json`. |

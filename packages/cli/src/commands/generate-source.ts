@@ -124,7 +124,7 @@ export function buildApiRouteSource({
     return [...lines, ""];
   });
 
-  return ['import type { BaseRouteArgs } from "@pracht/core";', "", ...methodLines, ""].join("\n");
+  return ['import type { ApiRouteArgs } from "@pracht/core";', "", ...methodLines, ""].join("\n");
 }
 
 function buildRouteModuleSections(opts: RouteModuleParts): string[] {
@@ -201,7 +201,7 @@ function buildRouteModuleSections(opts: RouteModuleParts): string[] {
 function buildApiMethodSource(method: string, methods: string[], endpointPath: string): string[] {
   if (method === "DELETE" || method === "HEAD") {
     return [
-      `export function ${method}(_args: BaseRouteArgs) {`,
+      `export function ${method}(_args: ApiRouteArgs) {`,
       "  return new Response(null, { status: 204 });",
       "}",
     ];
@@ -209,7 +209,7 @@ function buildApiMethodSource(method: string, methods: string[], endpointPath: s
 
   if (method === "OPTIONS") {
     return [
-      `export function ${method}(_args: BaseRouteArgs) {`,
+      `export function ${method}(_args: ApiRouteArgs) {`,
       "  return new Response(null, {",
       `    headers: { allow: ${quote(methods.join(", "))} },`,
       "    status: 204,",
@@ -220,7 +220,7 @@ function buildApiMethodSource(method: string, methods: string[], endpointPath: s
 
   if (method === "GET") {
     return [
-      `export function ${method}(_args: BaseRouteArgs) {`,
+      `export function ${method}(_args: ApiRouteArgs) {`,
       `  return Response.json({ endpoint: ${quote(`/api${endpointPath}`)}, ok: true });`,
       "}",
     ];
@@ -228,7 +228,7 @@ function buildApiMethodSource(method: string, methods: string[], endpointPath: s
 
   const status = method === "POST" ? 201 : 200;
   return [
-    `export async function ${method}({ request }: BaseRouteArgs) {`,
+    `export async function ${method}({ request }: ApiRouteArgs) {`,
     "  const body = await request.json();",
     `  return Response.json({ body, ok: true }, { status: ${status} });`,
     "}",

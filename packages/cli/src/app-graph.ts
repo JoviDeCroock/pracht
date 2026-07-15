@@ -15,14 +15,17 @@ export interface AppGraphRoute {
   loaderFile: string | null;
   middleware: string[];
   path: string;
+  prefetch: string | null;
   render: string | null;
   revalidate: unknown;
   shell: string | null;
   shellFile: string | null;
+  speculation: unknown;
 }
 
 export interface AppGraphApiRoute {
   file: string;
+  hasDefaultHandler: boolean;
   methods: string[];
   path: string;
 }
@@ -40,10 +43,12 @@ interface ResolvedRouteEntry {
   loaderFile?: string;
   middleware: string[];
   path: string;
+  prefetch?: string;
   render?: string;
   revalidate?: unknown;
   shell?: string;
   shellFile?: string;
+  speculation?: unknown;
 }
 
 interface ApiRouteEntry {
@@ -76,10 +81,12 @@ export function serializeResolvedRoutes(routes: ResolvedRouteEntry[]): AppGraphR
     loaderFile: route.loaderFile ?? null,
     middleware: route.middleware,
     path: route.path,
+    prefetch: route.prefetch ?? null,
     render: route.render ?? null,
     revalidate: route.revalidate ?? null,
     shell: route.shell ?? null,
     shellFile: route.shellFile ?? null,
+    speculation: route.speculation ?? null,
   }));
 }
 
@@ -90,33 +97,48 @@ export async function collectApiRoutes(
   options: { executeApiModules?: boolean } = {},
 ): Promise<AppGraphApiRoute[]> {
   return Promise.all(
-    apiRoutes.map(async (route) => ({
-      file: route.file,
-      methods: await detectApiMethods(server, root, route.file, options),
-      path: route.path,
-    })),
+    apiRoutes.map(async (route) => {
+      const { hasDefaultHandler, methods } = await detectApiExports(
+        server,
+        root,
+        route.file,
+        options,
+      );
+      return {
+        file: route.file,
+        hasDefaultHandler,
+        methods,
+        path: route.path,
+      };
+    }),
   );
 }
 
-async function detectApiMethods(
+async function detectApiExports(
   server: ViteDevServer,
   root: string,
   file: string,
   options: { executeApiModules?: boolean },
-): Promise<string[]> {
+): Promise<{ hasDefaultHandler: boolean; methods: string[] }> {
   const resolvedFile = resolve(root, `.${file}`);
   const source = readFileSync(resolvedFile, "utf-8");
 
   if (options.executeApiModules) {
     try {
       const module = await server.ssrLoadModule(file);
-      return METHOD_ORDER.filter((method) => typeof module[method] === "function");
+      return {
+        hasDefaultHandler: typeof module.default === "function",
+        methods: METHOD_ORDER.filter((method) => typeof module[method] === "function"),
+      };
     } catch {
       // Fall through to the static scan below.
     }
   }
 
-  return METHOD_ORDER.filter((method) =>
-    new RegExp(`export\\s+(?:async\\s+)?(?:function|const|let|var)\\s+${method}\\b`).test(source),
-  );
+  return {
+    hasDefaultHandler: /export\s+default\b/.test(source),
+    methods: METHOD_ORDER.filter((method) =>
+      new RegExp(`export\\s+(?:async\\s+)?(?:function|const|let|var)\\s+${method}\\b`).test(source),
+    ),
+  };
 }

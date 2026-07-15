@@ -7,7 +7,13 @@
  * module platform-neutral.
  */
 
-import type { HttpMethod, ResolvedApiRoute, ResolvedPrachtApp, ResolvedRoute } from "./types.ts";
+import type {
+  HttpMethod,
+  ResolvedApiRoute,
+  ResolvedPrachtApp,
+  ResolvedRoute,
+  SpeculationOption,
+} from "./types.ts";
 
 export const API_METHOD_ORDER: readonly HttpMethod[] = [
   "GET",
@@ -27,14 +33,17 @@ export interface AppGraphRoute {
   loaderFile: string | null;
   middleware: string[];
   path: string;
+  prefetch: string | null;
   render: string | null;
   revalidate: unknown;
   shell: string | null;
   shellFile: string | null;
+  speculation: SpeculationOption | null;
 }
 
 export interface AppGraphApiRoute {
   file: string;
+  hasDefaultHandler: boolean;
   methods: string[];
   path: string;
 }
@@ -60,10 +69,12 @@ export function serializeAppRoutes(routes: readonly ResolvedRoute[]): AppGraphRo
     loaderFile: route.loaderFile ?? null,
     middleware: route.middleware,
     path: route.path,
+    prefetch: route.prefetch ?? null,
     render: route.render ?? null,
     revalidate: route.revalidate ?? null,
     shell: route.shell ?? null,
     shellFile: route.shellFile ?? null,
+    speculation: route.speculation ?? null,
   }));
 }
 
@@ -72,11 +83,15 @@ export function serializeApiRoutes(
   access: AppGraphModuleAccess,
 ): Promise<AppGraphApiRoute[]> {
   return Promise.all(
-    apiRoutes.map(async (route) => ({
-      file: route.file,
-      methods: await detectApiMethods(route.file, access),
-      path: route.path,
-    })),
+    apiRoutes.map(async (route) => {
+      const { hasDefaultHandler, methods } = await detectApiExports(route.file, access);
+      return {
+        file: route.file,
+        hasDefaultHandler,
+        methods,
+        path: route.path,
+      };
+    }),
   );
 }
 
@@ -92,23 +107,44 @@ export async function buildAppGraph(
   };
 }
 
-export async function detectApiMethods(
+export interface ApiRouteExports {
+  /** `true` when the module exports a default catch-all request handler. */
+  hasDefaultHandler: boolean;
+  methods: HttpMethod[];
+}
+
+export async function detectApiExports(
   file: string,
   access: AppGraphModuleAccess,
-): Promise<HttpMethod[]> {
+): Promise<ApiRouteExports> {
   try {
     const module = await access.loadModule(file);
-    return API_METHOD_ORDER.filter((method) => typeof module[method] === "function");
+    return {
+      hasDefaultHandler: typeof module.default === "function",
+      methods: API_METHOD_ORDER.filter((method) => typeof module[method] === "function"),
+    };
   } catch {
     let source: string;
     try {
       source = access.readSource(file);
     } catch {
-      return [];
+      return { hasDefaultHandler: false, methods: [] };
     }
 
-    return API_METHOD_ORDER.filter((method) =>
-      new RegExp(`export\\s+(?:async\\s+)?(?:function|const|let|var)\\s+${method}\\b`).test(source),
-    );
+    return {
+      hasDefaultHandler: /export\s+default\b/.test(source),
+      methods: API_METHOD_ORDER.filter((method) =>
+        new RegExp(`export\\s+(?:async\\s+)?(?:function|const|let|var)\\s+${method}\\b`).test(
+          source,
+        ),
+      ),
+    };
   }
+}
+
+export async function detectApiMethods(
+  file: string,
+  access: AppGraphModuleAccess,
+): Promise<HttpMethod[]> {
+  return (await detectApiExports(file, access)).methods;
 }

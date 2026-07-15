@@ -181,10 +181,12 @@ export const app = defineApp({
           loaderFile: null,
           middleware: [],
           path: "/dashboard",
+          prefetch: null,
           render: "ssr",
           revalidate: null,
           shell: null,
           shellFile: null,
+          speculation: null,
         },
       ],
     });

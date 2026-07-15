@@ -105,8 +105,8 @@ describe("@pracht/cli", () => {
     expect(middlewareSource).toContain("export const middleware: MiddlewareFn");
     expect(routeSource).toContain("export async function loader(_args: LoaderArgs)");
     expect(routeSource).toContain("export function ErrorBoundary({ error }: ErrorBoundaryProps)");
-    expect(apiSource).toContain("export function GET(_args: BaseRouteArgs)");
-    expect(apiSource).toContain("export async function POST({ request }: BaseRouteArgs)");
+    expect(apiSource).toContain("export function GET(_args: ApiRouteArgs)");
+    expect(apiSource).toContain("export async function POST({ request }: ApiRouteArgs)");
     expect(manifest).toContain('import { defineApp, route, timeRevalidate } from "@pracht/core";');
     expect(manifest).toContain('shells: {\n    app: "./shells/app.tsx",\n  },');
     expect(manifest).toContain('middleware: {\n    auth: "./middleware/auth.ts",\n  },');
@@ -320,12 +320,13 @@ export const app = defineApp({
       routes: [
         {
           file: "./routes/dashboard.tsx",
-          hydration: null,
+          hydration: "full",
           id: "dashboard",
           loaderCache: null,
           loaderFile: "./server/dashboard-loader.ts",
           middleware: ["auth"],
           path: "/dashboard",
+          prefetch: "hover",
           render: "isg",
           revalidate: {
             kind: "time",
@@ -333,6 +334,7 @@ export const app = defineApp({
           },
           shell: "app",
           shellFile: "./shells/app.tsx",
+          speculation: "prefetch",
         },
       ],
     });
@@ -341,8 +343,15 @@ export const app = defineApp({
       api: [
         {
           file: "/src/api/health.ts",
+          hasDefaultHandler: false,
           methods: ["GET", "POST"],
           path: "/api/health",
+        },
+        {
+          file: "/src/api/webhook.ts",
+          hasDefaultHandler: true,
+          methods: [],
+          path: "/api/webhook",
         },
       ],
       mode: "manifest",
@@ -1273,8 +1282,11 @@ export const app = defineApp({
       route("/dashboard", {
         component: () => import("./routes/dashboard.tsx"),
         loader: () => import("./server/dashboard-loader.ts"),
+        hydration: "full",
+        prefetch: "hover",
         render: "isg",
         revalidate: timeRevalidate(60),
+        speculation: "prefetch",
       }),
     ]),
   ],
@@ -1332,6 +1344,16 @@ export function GET(_args: BaseRouteArgs) {
 
 export async function POST(_args: BaseRouteArgs) {
   return Response.json({ created: true }, { status: 201 });
+}
+`,
+  );
+  writeProjectFile(
+    appDir,
+    "src/api/webhook.ts",
+    `import type { BaseRouteArgs } from "@pracht/core";
+
+export default async function handler(_args: BaseRouteArgs) {
+  return Response.json({ received: true });
 }
 `,
   );

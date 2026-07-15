@@ -71,11 +71,13 @@ export type {
 } from "./types.ts";
 export {
   buildAppGraph,
+  detectApiExports,
   detectApiMethods,
   serializeApiRoutes,
   serializeAppRoutes,
 } from "./app-graph.ts";
 export type {
+  ApiRouteExports,
   AppGraph,
   AppGraphApiRoute,
   AppGraphModuleAccess,

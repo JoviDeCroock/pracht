@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
 
 import type { AppGraph } from "../src/app-graph.ts";
-import { buildAppGraph, detectApiMethods, serializeAppRoutes } from "../src/app-graph.ts";
+import {
+  buildAppGraph,
+  detectApiExports,
+  detectApiMethods,
+  serializeAppRoutes,
+} from "../src/app-graph.ts";
 import { defineApp, resolveApiRoutes, resolveApp, route } from "../src/app.ts";
 import { buildDevtoolsHtml, DEVTOOLS_JSON_PATH } from "../src/devtools.ts";
 
@@ -9,11 +14,13 @@ const graphFixture: AppGraph = {
   api: [
     {
       file: "/src/api/health.ts",
+      hasDefaultHandler: false,
       methods: ["GET"],
       path: "/api/health",
     },
     {
       file: "/src/api/users/[id].ts",
+      hasDefaultHandler: true,
       methods: ["GET", "POST"],
       path: "/api/users/:id",
     },
@@ -27,10 +34,12 @@ const graphFixture: AppGraph = {
       loaderFile: null,
       middleware: [],
       path: "/",
+      prefetch: null,
       render: "ssr",
       revalidate: null,
       shell: "public",
       shellFile: "./shells/public.tsx",
+      speculation: null,
     },
     {
       file: "./routes/user.tsx",
@@ -40,10 +49,12 @@ const graphFixture: AppGraph = {
       loaderFile: "./routes/user.data.ts",
       middleware: ["auth", "logger"],
       path: "/users/:id",
+      prefetch: "hover",
       render: "spa",
       revalidate: null,
       shell: null,
       shellFile: null,
+      speculation: "prefetch",
     },
   ],
 };
@@ -94,10 +105,12 @@ describe("buildDevtoolsHtml", () => {
           loaderFile: null,
           middleware: [],
           path: "/xss",
+          prefetch: null,
           render: null,
           revalidate: null,
           shell: null,
           shellFile: null,
+          speculation: null,
         },
       ],
     });
@@ -120,10 +133,13 @@ describe("buildAppGraph", () => {
         middleware: { auth: "./middleware/auth.ts" },
         routes: [
           route("/", "./routes/home.tsx", {
+            hydration: "islands",
             id: "home",
             loaderCache: 60,
+            prefetch: "viewport",
             render: "ssg",
             shell: "public",
+            speculation: { eagerness: "eager", mode: "prerender" },
           }),
           route("/users/:id", "./routes/user.tsx", { middleware: ["auth"] }),
         ],
@@ -142,6 +158,7 @@ describe("buildAppGraph", () => {
       api: [
         {
           file: "/src/api/health.ts",
+          hasDefaultHandler: false,
           methods: ["GET", "POST"],
           path: "/api/health",
         },
@@ -149,16 +166,18 @@ describe("buildAppGraph", () => {
       routes: [
         {
           file: "./routes/home.tsx",
-          hydration: null,
+          hydration: "islands",
           id: "home",
           loaderCache: 60,
           loaderFile: null,
           middleware: [],
           path: "/",
+          prefetch: "viewport",
           render: "ssg",
           revalidate: null,
           shell: "public",
           shellFile: "./shells/public.tsx",
+          speculation: { eagerness: "eager", mode: "prerender" },
         },
         {
           file: "./routes/user.tsx",
@@ -168,10 +187,12 @@ describe("buildAppGraph", () => {
           loaderFile: null,
           middleware: ["auth"],
           path: "/users/:id",
+          prefetch: null,
           render: null,
           revalidate: null,
           shell: null,
           shellFile: null,
+          speculation: null,
         },
       ],
     });
@@ -217,6 +238,42 @@ describe("detectApiMethods", () => {
   });
 });
 
+describe("detectApiExports", () => {
+  it("flags default-export dispatchers on loaded modules", async () => {
+    const exports = await detectApiExports("/src/api/webhook.ts", {
+      loadModule: async () => ({ default: () => new Response(null) }),
+      readSource: () => "",
+    });
+
+    expect(exports).toEqual({ hasDefaultHandler: true, methods: [] });
+  });
+
+  it("detects default exports alongside method exports in the source fallback", async () => {
+    const exports = await detectApiExports("/src/api/broken.ts", {
+      loadModule: async () => {
+        throw new Error("boom");
+      },
+      readSource: () =>
+        "export async function GET() {}\nexport default async function handler() {}",
+    });
+
+    expect(exports).toEqual({ hasDefaultHandler: true, methods: ["GET"] });
+  });
+
+  it("reports no default handler when the module and source are both unavailable", async () => {
+    const exports = await detectApiExports("/src/api/missing.ts", {
+      loadModule: async () => {
+        throw new Error("boom");
+      },
+      readSource: () => {
+        throw new Error("missing");
+      },
+    });
+
+    expect(exports).toEqual({ hasDefaultHandler: false, methods: [] });
+  });
+});
+
 describe("serializeAppRoutes", () => {
   it("normalizes optional fields to null", () => {
     const [serialized] = serializeAppRoutes([
@@ -237,10 +294,12 @@ describe("serializeAppRoutes", () => {
       loaderFile: null,
       middleware: [],
       path: "/",
+      prefetch: null,
       render: null,
       revalidate: null,
       shell: null,
       shellFile: null,
+      speculation: null,
     });
   });
 });

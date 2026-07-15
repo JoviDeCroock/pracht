@@ -135,10 +135,12 @@ describe("dev middleware /_pracht devtools route", () => {
         loaderFile: null,
         middleware: [],
         path: "/",
+        prefetch: null,
         render: "ssr",
         revalidate: null,
         shell: "public",
         shellFile: "./shells/public.tsx",
+        speculation: null,
       },
       {
         file: "./routes/user.tsx",
@@ -148,15 +150,18 @@ describe("dev middleware /_pracht devtools route", () => {
         loaderFile: null,
         middleware: ["auth"],
         path: "/users/:id",
+        prefetch: null,
         render: null,
         revalidate: null,
         shell: null,
         shellFile: null,
+        speculation: null,
       },
     ]);
     expect(graph.api).toEqual([
       {
         file: "/src/api/health.ts",
+        hasDefaultHandler: false,
         methods: ["GET"],
         path: "/api/health",
       },
