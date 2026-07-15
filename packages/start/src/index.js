@@ -1,8 +1,9 @@
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { copyFile, mkdir, readdir, stat, symlink, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readFile, readdir, stat, symlink, writeFile } from "node:fs/promises";
 import { basename, dirname, resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
+import { fileURLToPath } from "node:url";
 
 export class ValidationError extends Error {
   constructor(message) {
@@ -58,6 +59,12 @@ const ADAPTERS = {
 
 const DEFAULT_DIRECTORY = "pracht-app";
 
+const PACKAGE_ROOT = fileURLToPath(new URL("..", import.meta.url));
+
+// The published package bundles a copy of the repo skills (see
+// scripts/sync-skills.js); inside the monorepo we fall back to the source.
+const SKILL_DIRS = [resolve(PACKAGE_ROOT, "skills"), resolve(PACKAGE_ROOT, "../../skills")];
+
 export async function run(argv = process.argv.slice(2)) {
   const options = parseArgs(argv);
   const packageManager = getPackageManager();
@@ -71,17 +78,20 @@ export async function run(argv = process.argv.slice(2)) {
   const adapterId = options.adapter ?? (options.yes ? "node" : null);
   const router = options.router ?? (options.yes ? "manifest" : null);
   const tailwind = options.tailwind ?? (options.yes ? false : null);
+  const agentTools = options.agentTools ?? (options.yes ? true : null);
 
   let resolvedDir = dir;
   let resolvedAdapter = adapterId;
   let resolvedRouter = router;
   let resolvedTailwind = tailwind;
+  let resolvedAgentTools = agentTools;
 
   if (
     resolvedDir == null ||
     resolvedAdapter == null ||
     resolvedRouter == null ||
-    resolvedTailwind == null
+    resolvedTailwind == null ||
+    resolvedAgentTools == null
   ) {
     const readline = createInterface({
       input: process.stdin,
@@ -93,6 +103,7 @@ export async function run(argv = process.argv.slice(2)) {
       resolvedAdapter = resolvedAdapter ?? (await promptForAdapter(readline));
       resolvedRouter = resolvedRouter ?? (await promptForRouter(readline));
       resolvedTailwind = resolvedTailwind ?? (await promptForTailwind(readline));
+      resolvedAgentTools = resolvedAgentTools ?? (await promptForAgentTools(readline));
     } finally {
       readline.close();
     }
@@ -105,6 +116,7 @@ export async function run(argv = process.argv.slice(2)) {
   if (options.dryRun) {
     const files = await buildProjectFiles({
       adapter: ADAPTERS[resolvedAdapter],
+      agentTools: resolvedAgentTools,
       packageManager,
       projectName: toPackageName(basename(targetDir)),
       resolveRemoteVersions: false,
@@ -118,6 +130,7 @@ export async function run(argv = process.argv.slice(2)) {
       console.log(
         JSON.stringify({
           adapter: resolvedAdapter,
+          agentTools: resolvedAgentTools,
           directory: resolvedDir,
           dryRun: true,
           files: fileList,
@@ -138,6 +151,7 @@ export async function run(argv = process.argv.slice(2)) {
 
   await scaffoldProject({
     adapter: ADAPTERS[resolvedAdapter],
+    agentTools: resolvedAgentTools,
     packageManager,
     router: resolvedRouter,
     tailwind: resolvedTailwind,
@@ -171,6 +185,7 @@ export async function run(argv = process.argv.slice(2)) {
   if (options.json) {
     const files = await buildProjectFiles({
       adapter: ADAPTERS[resolvedAdapter],
+      agentTools: resolvedAgentTools,
       packageManager,
       projectName: toPackageName(basename(targetDir)),
       resolveRemoteVersions: false,
@@ -181,6 +196,7 @@ export async function run(argv = process.argv.slice(2)) {
     console.log(
       JSON.stringify({
         adapter: resolvedAdapter,
+        agentTools: resolvedAgentTools,
         directory: resolvedDir,
         files: Object.keys(files).sort(),
         gitInitialized,
@@ -202,6 +218,7 @@ export async function run(argv = process.argv.slice(2)) {
 
 export async function scaffoldProject({
   adapter,
+  agentTools = true,
   packageManager,
   router = "manifest",
   tailwind = false,
@@ -210,6 +227,7 @@ export async function scaffoldProject({
   const packageName = toPackageName(basename(targetDir));
   const files = await buildProjectFiles({
     adapter,
+    agentTools,
     packageManager,
     projectName: packageName,
     router,
@@ -245,6 +263,7 @@ export function getPackageManager(userAgent = process.env.npm_config_user_agent 
 export function parseArgs(argv) {
   const options = {
     adapter: undefined,
+    agentTools: undefined,
     dir: undefined,
     dryRun: false,
     git: true,
@@ -273,6 +292,16 @@ export function parseArgs(argv) {
 
     if (arg === "--no-git") {
       options.git = false;
+      continue;
+    }
+
+    if (arg === "--agent-tools") {
+      options.agentTools = true;
+      continue;
+    }
+
+    if (arg === "--no-agent-tools") {
+      options.agentTools = false;
       continue;
     }
 
@@ -403,6 +432,19 @@ async function promptForTailwind(readline) {
   }
 }
 
+async function promptForAgentTools(readline) {
+  while (true) {
+    const answer = await readline.question("Set up Claude Code skills + MCP? (Y/n): ");
+    const normalized = normalizeYesNo(answer.trim() || "yes");
+
+    if (normalized != null) {
+      return normalized;
+    }
+
+    console.log("Answer y/yes or n/no.");
+  }
+}
+
 function normalizeYesNo(value) {
   const normalized = value.toLowerCase();
 
@@ -511,6 +553,7 @@ async function resolveVersions(packageNames, { remote = true } = {}) {
 
 async function buildProjectFiles({
   adapter,
+  agentTools = true,
   packageManager,
   projectName,
   resolveRemoteVersions = true,
@@ -535,12 +578,19 @@ async function buildProjectFiles({
   const files = {
     ".gitignore":
       "dist\nnode_modules\n.wrangler\n.vercel\n.env*\n!.env.example\n.dev.vars\n# Keep .pracht/app-graph.json committed — it is the `pracht plan` snapshot.\n",
-    "README.md": createReadme({ adapter, packageManager, projectName, router, tailwind }),
+    "README.md": createReadme({
+      adapter,
+      agentTools,
+      packageManager,
+      projectName,
+      router,
+      tailwind,
+    }),
     "package.json": createPackageJson({ adapter, projectName, tailwind, versions }),
     "src/api/health.ts": createHealthRoute(adapter),
     "vite.config.ts": createViteConfig(adapter, router, tailwind),
     "tsconfig.json": createBaseTSConfig(adapter),
-    "AGENTS.md": createAgentInstructions({ adapter, packageManager, router, tailwind }),
+    "AGENTS.md": createAgentInstructions({ adapter, agentTools, packageManager, router, tailwind }),
   };
 
   if (router === "pages") {
@@ -564,6 +614,45 @@ async function buildProjectFiles({
   if (adapter.id === "node") {
     files["Dockerfile"] = createDockerfile(packageManager);
     files[".dockerignore"] = createDockerignore();
+  }
+
+  if (agentTools) {
+    files[".mcp.json"] = createMcpConfig();
+    Object.assign(files, await readSkillFiles());
+  }
+
+  return files;
+}
+
+function createMcpConfig() {
+  return `${JSON.stringify(
+    {
+      mcpServers: {
+        pracht: {
+          command: "npx",
+          args: ["pracht", "mcp"],
+        },
+      },
+    },
+    null,
+    2,
+  )}\n`;
+}
+
+async function readSkillFiles() {
+  const skillsDir = SKILL_DIRS.find((dir) => existsSync(dir));
+
+  if (!skillsDir) {
+    return {};
+  }
+
+  const files = {};
+  for (const name of await readdir(skillsDir)) {
+    const skillFile = resolve(skillsDir, name, "SKILL.md");
+    if (!existsSync(skillFile)) {
+      continue;
+    }
+    files[`.claude/skills/${name}/SKILL.md`] = await readFile(skillFile, "utf-8");
   }
 
   return files;
@@ -926,7 +1015,7 @@ function createDockerignore() {
   ].join("\n");
 }
 
-function createAgentInstructions({ adapter, packageManager, router, tailwind }) {
+function createAgentInstructions({ adapter, agentTools, packageManager, router, tailwind }) {
   const runCmd = packageManager === "npm" ? "npm run" : packageManager;
 
   const lines = [
@@ -1000,12 +1089,24 @@ function createAgentInstructions({ adapter, packageManager, router, tailwind }) 
     lines.push("- `src/env.d.ts` — TypeScript types for Cloudflare bindings");
   }
 
+  if (agentTools) {
+    lines.push("");
+    lines.push("## Agent tooling");
+    lines.push("");
+    lines.push(
+      "- `.claude/skills/` — pracht Claude Code skills (audits, scaffolds, testing, debugging); invoke with `/<skill-name>`",
+    );
+    lines.push(
+      "- `.mcp.json` — registers the `pracht mcp` server so MCP clients can inspect the app graph, run doctor/verify, and scaffold natively",
+    );
+  }
+
   lines.push("");
 
   return lines.join("\n");
 }
 
-function createReadme({ adapter, packageManager, projectName, router, tailwind }) {
+function createReadme({ adapter, agentTools, packageManager, projectName, router, tailwind }) {
   const installCommand = packageManager === "npm" ? "npm install" : `${packageManager} install`;
   const devCommand = packageManager === "npm" ? "npm run dev" : `${packageManager} dev`;
   const previewCommand = packageManager === "npm" ? "npm run preview" : `${packageManager} preview`;
@@ -1060,6 +1161,12 @@ function createReadme({ adapter, packageManager, projectName, router, tailwind }
 
   if (tailwind) {
     lines.push("- `src/styles/global.css` is the Tailwind CSS entry, imported by the shell.");
+  }
+
+  if (agentTools) {
+    lines.push(
+      "- `.claude/skills/` and `.mcp.json` wire up the pracht Claude Code skills and MCP server.",
+    );
   }
 
   lines.push("");
@@ -1197,6 +1304,8 @@ Options:
   --router=manifest|pages      Choose routing system (default: manifest)
   --template=minimal|tailwind  Choose starter template (minimal, or minimal + Tailwind CSS)
   --tailwind / --no-tailwind   Enable or disable Tailwind CSS wiring (default: prompt)
+  --agent-tools / --no-agent-tools
+                               Seed Claude Code skills and a pracht MCP config (default: prompt, yes)
   --no-git                     Skip git init and the initial commit
   --skip-install               Skip dependency installation
   --yes, -y                    Accept defaults, skip all prompts

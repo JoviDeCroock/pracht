@@ -342,6 +342,7 @@ describe("create-pracht", () => {
         "--adapter=node",
         "--router=manifest",
         "--template=tailwind",
+        "--agent-tools",
         "--dry-run",
         "--json",
       ]);
@@ -352,10 +353,13 @@ describe("create-pracht", () => {
 
     expect(output.dryRun).toBe(true);
     expect(output.tailwind).toBe(true);
+    expect(output.agentTools).toBe(true);
     expect(output.files).toContain("Dockerfile");
     expect(output.files).toContain(".dockerignore");
     expect(output.files).toContain("src/styles/global.css");
     expect(output.files).toContain(".gitignore");
+    expect(output.files).toContain(".mcp.json");
+    expect(output.files).toContain(".claude/skills/add-auth/SKILL.md");
     expect(existsSync(targetDir)).toBe(false);
   });
 
@@ -371,6 +375,7 @@ describe("create-pracht", () => {
         "--adapter=vercel",
         "--router=manifest",
         "--template=minimal",
+        "--no-agent-tools",
         "--dry-run",
         "--json",
       ]);
@@ -380,9 +385,56 @@ describe("create-pracht", () => {
     }
 
     expect(output.tailwind).toBe(false);
+    expect(output.agentTools).toBe(false);
     expect(output.files).not.toContain("Dockerfile");
     expect(output.files).not.toContain("src/styles/global.css");
+    expect(output.files).not.toContain(".mcp.json");
+    expect(output.files.some((file) => file.startsWith(".claude/skills/"))).toBe(false);
     expect(existsSync(targetDir)).toBe(false);
+  });
+
+  it("seeds Claude Code skills and an MCP config by default", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pracht-start-agent-tools-"));
+    const targetDir = join(root, "my-agent-app");
+
+    await scaffoldProject({
+      adapter: NODE_ADAPTER,
+      packageManager: "pnpm",
+      targetDir,
+    });
+
+    const mcpConfig = JSON.parse(await readFile(join(targetDir, ".mcp.json"), "utf-8"));
+    expect(mcpConfig.mcpServers.pracht).toEqual({
+      command: "npx",
+      args: ["pracht", "mcp"],
+    });
+
+    const skillFile = join(targetDir, ".claude/skills/add-auth/SKILL.md");
+    expect(existsSync(skillFile)).toBe(true);
+    expect(await readFile(skillFile, "utf-8")).toContain("name: add-auth");
+
+    const agents = await readFile(join(targetDir, "AGENTS.md"), "utf-8");
+    expect(agents).toContain("## Agent tooling");
+    expect(agents).toContain(".claude/skills/");
+    expect(agents).toContain(".mcp.json");
+  });
+
+  it("skips agent tooling when agentTools is false", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pracht-start-no-agent-tools-"));
+    const targetDir = join(root, "my-plain-app");
+
+    await scaffoldProject({
+      adapter: NODE_ADAPTER,
+      agentTools: false,
+      packageManager: "pnpm",
+      targetDir,
+    });
+
+    expect(existsSync(join(targetDir, ".mcp.json"))).toBe(false);
+    expect(existsSync(join(targetDir, ".claude"))).toBe(false);
+
+    const agents = await readFile(join(targetDir, "AGENTS.md"), "utf-8");
+    expect(agents).not.toContain("## Agent tooling");
   });
 
   it("initializes a git repository with an initial commit", async () => {
@@ -470,6 +522,12 @@ describe("create-pracht", () => {
   it("parseArgs throws ValidationError for invalid template", () => {
     expect(() => parseArgs(["--template=invalid"])).toThrow(ValidationError);
     expect(() => parseArgs(["--template=invalid"])).toThrow(/Invalid template/);
+  });
+
+  it("parseArgs handles --agent-tools and --no-agent-tools flags", () => {
+    expect(parseArgs([]).agentTools).toBeUndefined();
+    expect(parseArgs(["--agent-tools"]).agentTools).toBe(true);
+    expect(parseArgs(["--no-agent-tools"]).agentTools).toBe(false);
   });
 
   it("parseArgs handles --no-git flag", () => {

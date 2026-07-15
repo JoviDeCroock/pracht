@@ -81,6 +81,24 @@ API middleware runs before the handler, just like page middleware runs before lo
 
 ---
 
+## Same-Origin Protection (CSRF)
+
+By default, pracht rejects state-changing API requests (`POST`, `PUT`, `PATCH`, `DELETE`) that come from another origin with a `403` — before any API middleware runs. A request is considered same-origin when the browser says so (`Sec-Fetch-Site: same-origin`) or its `Origin`/`Referer` header matches the request URL's origin. `Sec-Fetch-Site: same-site` is not accepted, since sibling subdomains can be attacker-controlled. Requests without any browser provenance headers — curl, server-to-server calls, tests — pass through, because a browser form can't produce them.
+
+This is controlled by `requireSameOrigin` on the API config and defaults to `true`:
+
+```ts [src/routes.ts]
+export const app = defineApp({
+  api: {
+    requireSameOrigin: false, // default: true — set false to opt out
+  },
+});
+```
+
+Only opt out if you implement your own CSRF protection in middleware — for example to allowlist trusted cross-origin callers. See the [authentication recipe](/docs/recipes/auth) for the full CSRF layering guide.
+
+---
+
 ## Middleware Without a Manifest (Higher-Order Functions)
 
 When using the **pages router** or any setup without a `routes.ts` manifest, you can apply middleware to individual API routes with a plain higher-order function — no framework API required:

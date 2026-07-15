@@ -6,8 +6,8 @@ prev:
   href: /docs/llms
   title: LLM Content Negotiation
 next:
-  href: /docs/recipes/i18n
-  title: i18n
+  href: /docs/agent-skills
+  title: Agent Skills
 ---
 
 ## Why This Exists

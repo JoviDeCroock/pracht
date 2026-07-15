@@ -79,6 +79,10 @@ const AGENT_DOC_LINKS: { href: string; text: string }[] = [
     text: "LLM content negotiation — markdown on the same URLs as HTML, plus /llms.txt",
   },
   {
+    href: "/docs/agent-skills",
+    text: "Agent skills — installable Claude Code skills with a /.well-known discovery manifest",
+  },
+  {
     href: "/docs/demo-comparison",
     text: "Demo comparison — product + agent demo highlighting pracht's strengths",
   },

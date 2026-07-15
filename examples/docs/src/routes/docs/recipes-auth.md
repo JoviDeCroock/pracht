@@ -266,19 +266,37 @@ export const app = defineApp({
 
 ## CSRF Protection
 
-Session cookies are the ambient credential a CSRF attack abuses: a malicious site submits a form to your API and the browser attaches the cookie automatically. Pracht does not ship CSRF middleware — the defense depends on your cookie strategy and threat model. Pick the layers you want:
+Session cookies are the ambient credential a CSRF attack abuses: a malicious site submits a form to your API and the browser attaches the cookie automatically.
 
-### 1. `SameSite` on the session cookie (primary defense)
+### Built in: same-origin enforcement (on by default)
 
-The session cookie in the snippet above already sets `SameSite=Lax`. That blocks cross-site `POST`/`PUT`/`PATCH`/`DELETE` submissions in every modern browser and is enough for most apps. Use `SameSite=Strict` if you don't need inbound links from other sites to arrive authenticated.
+Pracht ships this defense in the runtime. State-changing API requests (`POST`/`PUT`/`PATCH`/`DELETE`) are rejected with a `403` unless the browser signals an exact same-origin request — `Sec-Fetch-Site: same-origin`, or an `Origin`/`Referer` header matching the request URL's origin. `Sec-Fetch-Site: same-site` is deliberately **not** accepted, because sibling subdomains can be attacker-controlled. Requests with no browser provenance headers at all (curl, server-to-server, tests) are allowed — a browser form can't produce those.
+
+This runs before API middleware, is controlled by [`ApiConfig.requireSameOrigin`](/docs/api-routes), and defaults to `true`. Opt out only if you build your own CSRF protection into middleware:
+
+```ts [src/routes.ts]
+defineApp({
+  api: {
+    middleware: ["auth"],
+    requireSameOrigin: false, // default: true
+  },
+  routes: [...],
+});
+```
+
+So for a first-party app, cross-site form CSRF is blocked out of the box. The layers below still matter — here's when:
+
+### 1. `SameSite` on the session cookie
+
+The session cookie in the snippet above already sets `SameSite=Lax`. That keeps the cookie off cross-site `POST`/`PUT`/`PATCH`/`DELETE` submissions in every modern browser, so the attack fails even before the server-side check runs. Use `SameSite=Strict` if you don't need inbound links from other sites to arrive authenticated. Keep this layer — cookie scoping and origin enforcement protect against different failure modes.
 
 ```ts
 `session=${payload}.${signature}; Path=/; HttpOnly; SameSite=Lax; Max-Age=604800`;
 ```
 
-### 2. Origin check middleware (defense in depth)
+### 2. Custom origin middleware (allowlists)
 
-For extra hardening — or if you run older browsers where `SameSite` is unreliable — add a middleware that rejects unsafe-method requests whose `Origin` header does not match the request's own origin:
+The built-in check accepts exactly one origin: your own. If trusted cross-origin callers need to hit your mutation endpoints (e.g. an admin app on another domain), or you disabled `requireSameOrigin`, add a middleware with an explicit allowlist:
 
 ```ts [src/middleware/origin-check.ts]
 import type { MiddlewareFn } from "@pracht/core";
@@ -308,7 +326,7 @@ export const middleware: MiddlewareFn = ({ request, url }, next) => {
 };
 ```
 
-Wire it to the whole API (or just mutation groups) in `routes.ts`:
+Wire it to the whole API (or just mutation groups) in `routes.ts`, and turn the stricter built-in check off since it would reject the allowlisted origins first:
 
 ```ts
 defineApp({
@@ -316,7 +334,7 @@ defineApp({
     auth: "./middleware/auth.ts",
     originCheck: "./middleware/origin-check.ts",
   },
-  api: { middleware: ["originCheck"] },
+  api: { middleware: ["originCheck"], requireSameOrigin: false },
   routes: [...],
 });
 ```
@@ -325,4 +343,4 @@ This is a pure header check — it doesn't issue or validate tokens. Pair it wit
 
 ### 3. Token-based CSRF
 
-Only reach for per-request CSRF tokens if your cookies must be `SameSite=None` (e.g. you embed the app in a third-party iframe). For first-party apps, the two layers above are sufficient.
+Only reach for per-request CSRF tokens if your cookies must be `SameSite=None` (e.g. you embed the app in a third-party iframe). For first-party apps, the layers above are sufficient.

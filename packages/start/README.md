@@ -20,6 +20,7 @@ npm run dev
 - Scaffolds a minimal app with a route manifest or pages router, shell, home route, sample API route, runnable project README, and agent instructions.
 - Manifest scaffolds include a commented-out `constraints` example in `src/routes.ts`, ready for `pracht verify`.
 - The generated `.gitignore` keeps `.pracht/app-graph.json` committable, and the README and agent instructions cover the `pracht verify` / `pracht plan` / `pracht report` loop.
+- Seeds the pracht Claude Code skills into `.claude/skills/` and writes a `.mcp.json` registering the `pracht mcp` server (yes-default prompt; skipped with `--no-agent-tools`).
 - Initializes a git repository with an initial commit (skipped with `--no-git`, when git is unavailable, or when the target is already inside a repository).
 - `--dry-run` uses pinned fallback versions and does not require npm registry access.
 
@@ -39,9 +40,10 @@ node ./packages/start/bin/create-pracht.js my-app --adapter=node --no-tailwind -
 - `--router=manifest|pages` — choose the routing system (default: manifest).
 - `--template=minimal|tailwind` — non-interactive template selection; `minimal` is the default output, `tailwind` is minimal plus Tailwind CSS wiring.
 - `--tailwind` / `--no-tailwind` — enable or disable Tailwind CSS without going through the prompt.
+- `--agent-tools` / `--no-agent-tools` — seed the Claude Code skills and `.mcp.json` (or skip them) without going through the prompt.
 - `--no-git` — skip `git init` and the initial commit.
 - `--skip-install` — skip dependency installation.
-- `--yes`, `-y` — accept defaults (node adapter, manifest router, no Tailwind) and skip all prompts.
+- `--yes`, `-y` — accept defaults (node adapter, manifest router, no Tailwind, agent tooling on) and skip all prompts.
 - `--json` — output a JSON summary instead of prose.
 - `--dry-run` — list the files that would be created without writing anything.
 
@@ -54,6 +56,12 @@ node ./packages/start/bin/create-pracht.js my-app --adapter=node --no-tailwind -
 - `src/shells/public.tsx`
 - `src/api/health.ts`
 - `.gitignore`
+- `.claude/skills/<name>/SKILL.md` — the pracht agent skills (unless `--no-agent-tools`)
+- `.mcp.json` — registers the `pracht mcp` server for MCP clients (unless `--no-agent-tools`)
+
+The skills are copied from the repo's [skills/](../../skills/README.md) directory into this
+package at build/publish time (`scripts/sync-skills.js`), so the published npm tarball is
+self-contained.
 
 Node scaffolds also include:
 
