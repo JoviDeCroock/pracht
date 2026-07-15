@@ -1,6 +1,6 @@
 ---
 name: add-db
-version: 1.0.0
+version: 1.1.0
 description: |
   Wire Drizzle ORM into a pracht app. Asks the user which database to target
   (Cloudflare D1, PlanetScale, Neon, Supabase, Turso, Postgres, MySQL, SQLite,
@@ -41,6 +41,12 @@ Use `AskUserQuestion`:
 | Vanilla Postgres   | `drizzle-orm/node-postgres`              | Node only                    |
 | Vanilla MySQL      | `drizzle-orm/mysql2`                     | Node only                    |
 | SQLite (better-sqlite3) | `drizzle-orm/better-sqlite3`        | Node only                    |
+
+If the pracht MCP server is registered (see docs/MCP.md), prefer its tools
+(`inspect_routes`, `inspect_api`, `inspect_build`, `doctor`, `verify`,
+`generate_*`) over shelling out. Prerequisites: `pracht inspect` needs a vite
+config with the pracht plugin; `pracht inspect build` reads artifacts from a
+prior `pracht build`.
 
 Cross-check with the project's pracht adapter (`pracht inspect build --json`):
 flag mismatches (e.g., `node-postgres` on Cloudflare Workers — won't work).
@@ -87,25 +93,54 @@ use `mysqlTable` from `drizzle-orm/mysql-core`.
 
 ```ts
 // Example for Postgres on Node:
+import { serverEnv } from "@pracht/core/env/server";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import * as schema from "./schema";
 
-const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const pool = new Pool({ connectionString: serverEnv.DATABASE_URL });
 export const db = drizzle(pool, { schema });
 ```
 
-For Cloudflare D1:
+Read the connection string via `serverEnv` (from `@pracht/core/env/server`),
+never `process.env` — it keeps the secret out of the client bundle and
+resolves per adapter (see docs/ENV.md). The module-level singleton above is
+fine on the Node adapter, where `serverEnv` works at module top level; on
+Cloudflare/Vercel Edge, read `serverEnv` inside a factory function instead —
+Workers env bindings only exist per request.
+
+For Cloudflare D1, first register the Cloudflare context type once via the
+`Register` augmentation (the pattern the docs recommend — see
+`examples/docs/src/routes/docs/recipes-fullstack-cloudflare.md`):
+
+```ts
+// src/env.d.ts
+declare module "@pracht/core" {
+  interface Register {
+    context: {
+      env: Env; // wrangler-generated bindings type, includes DB: D1Database
+      executionContext: ExecutionContext;
+    };
+  }
+}
+```
+
+Then the factory needs no per-file generics:
 
 ```ts
 import { drizzle } from "drizzle-orm/d1";
 import * as schema from "./schema";
 import type { LoaderArgs } from "@pracht/core";
 
-export function getDb({ context }: Pick<LoaderArgs<{ DB: D1Database }>, "context">) {
+export function getDb({ context }: Pick<LoaderArgs, "context">) {
   return drizzle(context.env.DB, { schema });
 }
 ```
+
+(Without the `Register` augmentation, the inline generic must describe the
+full Cloudflare context shape —
+`LoaderArgs<{ env: { DB: D1Database }; executionContext: ExecutionContext }>` —
+the context is `{ env, executionContext }`, not the bindings object itself.)
 
 For PlanetScale / Neon / Turso, follow the matching driver pattern. The
 pattern is:
@@ -115,6 +150,10 @@ pattern is:
   with `context` inside the loader.
 
 ## Step 5: `drizzle.config.ts`
+
+If `drizzle.config.ts` already exists, diff and merge — never overwrite.
+(`process.env` is fine here: this file runs under the drizzle-kit CLI on
+Node, never inside the worker.)
 
 ### Non-D1 providers (Postgres, MySQL, Turso, PlanetScale, Neon, local SQLite)
 
@@ -152,6 +191,9 @@ docs). Otherwise omit `dbCredentials` entirely — `drizzle-kit generate`
 doesn't need them.
 
 ## Step 6: Scripts
+
+Merge these into the existing `package.json` `scripts` block — never
+overwrite scripts that already exist; diff and ask if one collides.
 
 ### Non-D1 providers
 
@@ -207,9 +249,10 @@ Note: explicit projection — never spread DB rows into loader return values
 
 ## Step 8: Bindings & env vars
 
-- For Cloudflare adapters with D1: add the binding to `wrangler.toml`.
-  `migrations_dir` must match the `out` in `drizzle.config.ts` so wrangler
-  finds the SQL drizzle-kit emits:
+- For Cloudflare adapters with D1: add the binding to `wrangler.toml` (or
+  `wrangler.jsonc`). If the file already exists, diff and merge the binding
+  in — never overwrite the existing config. `migrations_dir` must match the
+  `out` in `drizzle.config.ts` so wrangler finds the SQL drizzle-kit emits:
   ```toml
   [[d1_databases]]
   binding = "DB"
@@ -238,11 +281,17 @@ pnpm db:migrate:local   # apply to miniflare D1
 pnpm db:migrate:remote  # apply to production D1
 ```
 
-Then run the project's existing tests:
+Then:
 
 ```bash
+pracht verify --json
 pnpm test
 ```
+
+Note: on a fresh project `pnpm test` is a no-op (no tests exist yet) — it
+proves nothing about the DB wiring. Suggest a loader smoke test that calls
+the Step 7 loader with a real (local) DB and asserts on the returned shape,
+or run `scaffold-tests` to set that up.
 
 ## Rules
 
@@ -250,10 +299,14 @@ pnpm test
 2. Never spread DB rows into loader return values — project explicitly.
 3. For edge runtimes, do not module-cache a connection — use a factory keyed
    by `context.env`.
-4. Add `.env*` to `.gitignore` if a connection string is involved.
-5. Recommend a migration workflow (`db:migrate`) over `db:push` for
+4. In app code, read connection strings via `serverEnv` from
+   `@pracht/core/env/server`, not `process.env`; on Cloudflare, read it
+   inside functions only. (Exception: `drizzle.config.ts` runs under the
+   drizzle-kit CLI on Node, where `process.env` is fine.)
+5. Add `.env*` to `.gitignore` if a connection string is involved.
+6. Recommend a migration workflow (`db:migrate`) over `db:push` for
    anything beyond local dev.
-6. For D1, apply migrations with `wrangler d1 migrations apply`, not
+7. For D1, apply migrations with `wrangler d1 migrations apply`, not
    `drizzle-kit migrate` — D1 exposes no TCP endpoint and drizzle-kit will
    silently fail to connect. Split into `db:migrate:local` and
    `db:migrate:remote` so the local miniflare DB can be iterated without

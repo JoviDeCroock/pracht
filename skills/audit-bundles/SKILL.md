@@ -1,6 +1,6 @@
 ---
 name: audit-bundles
-version: 1.1.0
+version: 1.2.0
 description: |
   Analyze a pracht production build. Report client bundle size per route,
   flag fat vendor chunks, find route components that ship large dependencies,
@@ -23,6 +23,12 @@ and surfaces the worst offenders.
 
 ## Step 1: Build with analysis
 
+If the pracht MCP server is registered (see docs/MCP.md), prefer its tools
+(`inspect_routes`, `inspect_api`, `inspect_build`, `doctor`, `verify`) over
+shelling out. Prerequisites: `pracht inspect` needs a vite config with the
+pracht plugin; `pracht inspect build` reads artifacts from a prior
+`pracht build`.
+
 ```bash
 pracht build --analyze --json
 ```
@@ -33,6 +39,11 @@ mode) it emits the transitive client JS chunks with raw and gzip sizes
 `totalGzipBytes`), and the shared entry chunks broken out (`shared`), sorted by
 total gzip descending. A stale `dist/` produces misleading numbers — rebuild,
 don't reuse.
+
+Exit-code footgun: when configured budgets fail, `pracht build --analyze
+--json` sets a nonzero exit code while still printing valid JSON on stdout.
+Do not treat exit 1 as "no output" — parse stdout anyway, or run with
+`--no-budget-fail` to keep the exit code clean.
 
 For a human-readable table, use `pracht build --analyze` instead.
 
@@ -51,14 +62,26 @@ analysis (Step 4) and CSS sizing, which the analyze report does not cover.
 
 From the Step 1 JSON, report:
 
-| Route | Route JS (gz) | Shared (gz) | Total (gz) | CSS (gz) | LCP-class? |
-| ----- | ------------- | ----------- | ---------- | -------- | ---------- |
+| Route | Hydration | Route JS (gz) | Shared (gz) | Total (gz) | CSS (gz) | LCP-class? |
+| ----- | --------- | ------------- | ----------- | ---------- | -------- | ---------- |
 
 `gz` = gzip size, taken directly from `routeGzipBytes` / `shared.gzipBytes` /
 `totalGzipBytes`. Size CSS chunks (from `cssManifest`) with `zlib.gzipSync`.
 
+Account for the per-route `hydration` field the analyze JSON emits (omitted
+means `"full"`) before judging sizes:
+
+- `hydration: "none"` routes ship **0 bytes** of JS — the report already
+  zeroes them out. Never flag them.
+- `hydration: "islands"` routes never load the shared client entry; their
+  total is the islands bootstrap plus **every** island chunk in the app — an
+  upper bound, since which islands a page actually uses is only known at
+  render time. Treat their totals as pessimistic.
+- Only `"full"` routes pay route JS + shared entry.
+
 `LCP-class?` is `yes` when total gz exceeds 200 KB — that's the order of
-magnitude where mid-tier mobile starts losing LCP budget.
+magnitude where mid-tier mobile starts losing LCP budget. Apply the threshold
+after the hydration adjustment above.
 
 If the app declares `budgets` in the pracht plugin config, the Step 1 JSON also
 contains a `budgets` section with per-route pass/fail — lead the report with any
@@ -91,8 +114,11 @@ For each route chunk over 50 KB gz, run `pracht inspect build --json` plus
 
 ## Step 6: Prefetch strategy
 
-`pracht inspect routes --json` exposes `prefetch` per route. Pracht supports
-`"none"`, `"hover"`, `"intent"`, `"viewport"`. Recommend:
+`pracht inspect routes --json` exposes `prefetch` per route on a current
+`@pracht/cli`. If your CLI version predates the field (it's absent from the
+JSON), fall back to grepping the route manifest source for `prefetch:`.
+Route-level strategies are `"none"`, `"hover"`, `"intent"`, `"viewport"`
+(`"render"` exists only as a per-link override — see below). Recommend:
 
 - `"viewport"` for primary-nav links.
 - `"hover"` for content links inside long pages.
@@ -100,8 +126,16 @@ For each route chunk over 50 KB gz, run `pracht inspect build --json` plus
 - `"none"` for routes that are large and rarely visited (admin, settings) so
   hover doesn't preload them.
 
-A 300 KB route on `prefetch: "viewport"` will start downloading every time it
-appears in the viewport — expensive on a marketing footer.
+Cost model for `"viewport"`: the IntersectionObserver fires once per anchor —
+it unobserves the anchor after the first prefetch, and prefetched route state
+is cached for 30 seconds — so a link in a marketing footer costs at most one
+prefetch per anchor per page view, not one per scroll. It's still wasteful
+for a 300 KB route that footer visitors rarely click; prefer `"none"` or
+`"hover"` there. Also note the per-link escape hatch: `<Link prefetch="...">`
+overrides the route-level strategy for a single anchor (and accepts the extra
+`"render"` value — prefetch as soon as the link renders, the most eager
+option), so a route can stay on `"intent"` while its primary-nav link opts
+into `"viewport"` or `"render"`.
 
 ## Step 7: Report
 
@@ -110,6 +144,10 @@ Three sections:
 1. **Top 10 routes by total client payload** — sorted desc.
 2. **Top 10 vendor chunks by size** — with fan-in.
 3. **Suggestions** — ordered by impact (KB saved × routes affected).
+
+Tag every finding with a primary severity — `error` (budget failure), `warn`
+(LCP-class route, single-route vendor chunk), `info` (tuning opportunity) —
+and keep the size numbers as supporting detail.
 
 Include before/after estimates for each suggestion: "Lazy-load `chart.js`
 inside `Component`: -180 KB gz off `/dashboard/analytics`."

@@ -1,6 +1,6 @@
 ---
 name: audit-secrets
-version: 1.0.0
+version: 1.1.0
 description: |
   Detect environment variables and secrets that leak from the server into
   the client bundle via loader return values, hydration state, or accidental
@@ -21,6 +21,12 @@ hydrates the client from them. Anything a loader returns ends up readable in the
 browser. The Vite plugin also strips server-only exports from route files, but
 it cannot save you from a value that flows into the return.
 
+Prerequisites: `pracht inspect` requires a vite config that registers the
+pracht plugin; the env-safety report under `dist/client/_pracht/` requires a
+prior `pracht build`. If the pracht MCP server is registered (see
+`docs/MCP.md`), prefer its tools (`inspect_routes`, `inspect_api`,
+`inspect_build`, `doctor`, `verify`) over shelling out.
+
 ## Step 0: Run the native env safety check
 
 Pracht has built-in env leak detection (see `docs/ENV.md`):
@@ -28,11 +34,12 @@ Pracht has built-in env leak detection (see `docs/ENV.md`):
 - `pracht build` fails when a client chunk references a non-public env var
   (anything not `PRACHT_PUBLIC_`-prefixed and not a Vite built-in),
   naming the variable, chunk, and likely source module.
-- `pracht verify` checks the build-time env-safety report and re-runs the
-  literal chunk scan against an existing `dist/client` output.
+- `pracht verify` (and `pracht doctor`) check the build-time env-safety report
+  and re-run the literal chunk scan against an existing `dist/client` output.
 - Client-side imports of `@pracht/core/env/server` (`serverEnv`) fail the build.
 
-Run `pracht verify` (or a build) first and fold its findings into the report.
+Run `pracht verify` or `pracht doctor` (or a build) first and fold the
+findings into the report.
 Check `vite.config.*` for `envSafety: { allow: [...] }` / `envSafety: false` —
 every allowlisted name and a disabled check are findings to review, since they
 bypass the native gate. The native check detects _references_, not values, so
@@ -75,10 +82,12 @@ them) for imports of:
 - Local `src/server/**` modules
 - Modules whose top level reads `process.env.*`
 
-The Vite plugin strips `loader`, `getStaticPaths`, `headers`, `middleware`
-exports from route files when serving the client query — see commit 594407d.
-But a component that imports `../server/db` will still pull `db` into the
-client bundle. Flag those imports.
+The Vite plugin strips the server-only exports `loader`, `head`, `headers`,
+`getStaticPaths`, and `markdown` from route files when serving the client
+query (`middleware` is not a route-file export — middleware lives in the
+manifest); see the client module transform notes in `docs/ARCHITECTURE.md`
+and `docs/ENV.md`. But a component that imports `../server/db` will still
+pull `db` into the client bundle. Flag those imports.
 
 ## Step 4: Hidden surfaces
 
@@ -87,7 +96,9 @@ Check for accidental exposure outside loaders:
 - `head()` returns: rare, but a `meta` value containing a token leaks into HTML.
 - `headers()` returns: flag values that look like secrets. For SSG/ISG pages,
   document headers can be copied into `dist/client/_pracht/headers.json`, which
-  is public client output and may be replayed on static responses.
+  is public client output and may be replayed on static responses. This skill
+  owns secret VALUES in headers; header policy (CSP, HSTS, weakened defaults)
+  is owned by `audit-headers` — cross-reference it.
 - `<Form>` `action` URLs containing tokens in the query string.
 - `prefetchRouteState(url)` calls with sensitive query params.
 - Inline `<script>` content emitted from custom shells.
@@ -133,5 +144,7 @@ Severities:
 4. Never print suspected secret values into the report — refer by name only.
 5. If you find a likely committed secret, recommend immediate rotation in
    addition to removal from history.
+6. Report only — do not auto-fix. Propose the projection/rotation/config
+   change; never apply it.
 
 $ARGUMENTS

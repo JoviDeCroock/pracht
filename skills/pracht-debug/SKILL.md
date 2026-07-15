@@ -1,6 +1,6 @@
 ---
-name: debug
-version: 1.2.0
+name: pracht-debug
+version: 1.3.0
 description: |
   Pracht framework-aware debugging. Systematically investigates route matching,
   loader/API route errors, rendering issues, middleware, API routes, HMR, and build
@@ -25,8 +25,9 @@ Framework-aware debugging for pracht applications — a full-stack Preact framew
 
 The user will describe a symptom (error, unexpected behavior, blank page, etc.). Investigate systematically using the checklist below, stopping when you find the root cause.
 
-Before deep manual inspection, prefer running `pracht verify` for a fast agent loop or `pracht doctor` when the problem could be caused by broader broken app wiring or missing files.
-When another agent/tool needs the framework's resolved graph, prefer `pracht inspect routes --json`, `pracht inspect api --json`, or `pracht inspect build --json` over reconstructing it from source files.
+Before deep manual inspection, prefer running `pracht verify` (add `--changed` to scope the checks to git-changed files) for a fast agent loop or `pracht doctor` when the problem could be caused by broader broken app wiring or missing files.
+When another agent/tool needs the framework's resolved graph, prefer `pracht inspect routes --json`, `pracht inspect api --json`, or `pracht inspect build --json` over reconstructing it from source files. Prerequisites: `pracht inspect` needs the pracht plugin registered in the project's vite config, and `pracht inspect build` needs a prior `pracht build`.
+If the pracht MCP server is registered (docs/MCP.md), prefer the `inspect_routes`/`inspect_api`/`doctor`/`verify` MCP tools over shelling out — same payloads, structured results.
 While the dev server is running, `GET /_pracht` serves a devtools page with the same resolved route/API graph (raw JSON at `/_pracht.json`) — useful when you have a browser or `curl` handy but no CLI access. Dev SSR responses also carry a `Server-Timing` header (`mw`, `loader`, `render` durations in ms) — check it in the browser Network panel or with `curl -sI` to see which phase makes a route slow.
 
 ## Iron Law
@@ -39,7 +40,7 @@ Work through these in order, stopping when you find the root cause:
 
 ### 1. Route matching
 
-- Run `pracht verify` first if you want a cheap changed-file confidence check.
+- Run `pracht verify --changed` first if you want a cheap changed-file confidence check.
 - Run `pracht doctor` if the route might be missing, miswired, or pointing at a missing module across the project.
 - For machine-readable route wiring, run `pracht inspect routes --json`. With a running dev server, `curl http://localhost:5173/_pracht.json` returns the same graph.
 - Read `src/routes.ts` — is the route defined? Is the path correct?
@@ -52,7 +53,7 @@ Work through these in order, stopping when you find the root cause:
 - If `<Link route="...">`, `href("...")`, or route-object `useNavigate()` fails to typecheck, run `pracht typegen --check` to detect stale generated files.
 - Run `pracht inspect routes --json` and confirm the route id exists. If it is a fallback id, remember path changes can rename it.
 - Check generated `src/pracht.d.ts` for inferred params. `:id`, `*`, and `:path*` params are required; extra params should fail at typecheck time.
-- If runtime navigation throws `Unknown pracht route id "..."`, the error includes a `Did you mean "..."?` suggestion and the list of registered route ids — check for a typo first, then ensure `pracht typegen` was run and the component is rendered inside the pracht route tree.
+- If runtime navigation throws `Unknown pracht route id "..."`, in dev the error includes a `Did you mean "..."?` suggestion and the list of registered route ids (production builds tree-shake this and throw the bare error) — check for a typo first, then ensure `pracht typegen` was run and the component is rendered inside the pracht route tree.
 - For unexpected URLs, reproduce with `href(routeId, options)` and compare against the route's resolved path and params.
 
 ### 3. Loader / API route errors
@@ -102,17 +103,17 @@ Work through these in order, stopping when you find the root cause:
 ### 7. Vite plugin / HMR issues
 
 - Check `vite.config.ts` — is `pracht()` plugin included?
-- Virtual modules: `virtual:pracht/client` (hydration), `virtual:pracht/server` (SSR).
-- HMR: changes to `src/routes.ts` trigger full reload; changes to route/shell/middleware/API files invalidate the server module.
-- If HMR seems broken, check that the file is in one of the watched directories (`src/routes/`, `src/shells/`, `src/middleware/`, `src/api/`).
+- Virtual modules: `virtual:pracht/client` (hydration), `virtual:pracht/server` (SSR), `virtual:pracht/islands-client` (islands hydration).
+- HMR: changes to `src/routes.ts` restart the dev server (`server.restart()`, not a browser-side full reload); changes to route/shell/middleware/API/server/islands files invalidate the server module.
+- If HMR seems broken, check that the file is in one of the watched directories (`src/routes/`, `src/shells/`, `src/middleware/`, `src/api/`, `src/server/`, `src/islands/`).
 
 ### 8. Build / deployment issues
 
 - `pracht build` runs client + server builds, then prerenders SSG/ISG routes.
 - `pracht preview` builds and serves the production output locally (Node runs `dist/server/server.js`, Cloudflare delegates to `wrangler dev`).
-- `pracht inspect build --json` reports the resolved adapter target plus client/CSS/JS manifests from the latest build output.
+- `pracht inspect build --json` reports the resolved adapter target plus client/CSS/JS manifests from the latest build output (requires a prior `pracht build`).
 - Check `dist/client/` for client assets and `dist/server/` for server bundle.
-- ISG manifest: `dist/client/pracht-isg-manifest.json`.
+- ISG manifest: `dist/server/isg-manifest.json`. On Cloudflare the build also copies it to `dist/client/_pracht/isg.json` for the worker runtime to read via the assets binding.
 - Adapter mismatch: ensure `pracht({ adapter: nodeAdapter() })` or `cloudflareAdapter()` matches deployment target.
 
 ## Key Files

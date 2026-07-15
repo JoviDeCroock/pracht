@@ -1,6 +1,6 @@
 ---
 name: scaffold-tests
-version: 1.0.0
+version: 1.1.0
 description: |
   Scaffold Vitest unit/integration tests for pracht routes, loaders, and
   middleware. Asks the user once whether to use vitest browser mode with
@@ -45,19 +45,30 @@ If the project already has one configured, default to it and confirm.
 
 Detect the package manager from the lockfile.
 
+Common (both modes):
+
+```bash
+pnpm add -D vitest @types/node
+```
+
+Component-test extras — `@preact/preset-vite` must be an explicit dev
+dependency: the configs in Step 3 import it, and a transitive-only copy
+fails under pnpm's strict `node_modules`.
+
 **Browser mode**:
 
 ```bash
-pnpm add -D vitest @vitest/browser playwright vitest-browser-preact
+pnpm add -D @vitest/browser playwright vitest-browser-preact @preact/preset-vite
 ```
 
 **JSDOM mode**:
 
 ```bash
-pnpm add -D vitest jsdom @testing-library/preact @testing-library/jest-dom
+pnpm add -D jsdom @testing-library/preact @testing-library/jest-dom @preact/preset-vite
 ```
 
-Both: `pnpm add -D vitest @types/node`.
+If the project only needs loader/middleware tests (no component rendering),
+skip the extras entirely and use the plugin-less config in Step 3.
 
 ## Step 3: Wire `vitest.config.ts`
 
@@ -100,13 +111,35 @@ export default defineConfig({
 import "@testing-library/jest-dom/vitest";
 ```
 
+**Loader/middleware-only mode** (no components) — matches the minimal config
+in `recipes-testing.md`; no preset, no extra deps:
+
+```ts
+import { defineConfig } from "vitest/config";
+
+export default defineConfig({
+  test: {
+    // Exclude E2E tests (run those with Playwright)
+    exclude: ["e2e/**", "node_modules/**"],
+  },
+});
+```
+
 If `vitest.config.ts` already exists, merge — never clobber.
 
 ## Step 4: Generate the tests
 
-Use `pracht inspect routes --json` and `pracht inspect api --json` to find
-targets. Ask the user which subset to scaffold, or pass paths via
-`$ARGUMENTS`.
+If the pracht MCP server is registered (see docs/MCP.md), prefer its tools
+(`inspect_routes`, `inspect_api`, `inspect_build`, `doctor`, `verify`,
+`generate_*`) over shelling out. Prerequisite: `pracht inspect` needs a vite
+config with the pracht plugin registered.
+
+This skill covers **loaders, middleware, and components**. For API handlers
+(`src/api/**`), delegate to `/pracht-test-api` — it owns handler enumeration and
+per-method test generation; don't duplicate a weaker version here.
+
+Use `pracht inspect routes --json` to find targets. Ask the user which subset
+to scaffold, or pass paths via `$ARGUMENTS`.
 
 ### Loader test template
 
@@ -230,6 +263,7 @@ If `pnpm test` already exists, do not overwrite.
 
 ```bash
 pnpm test
+pracht verify --json
 ```
 
 If anything fails on first run, report the failure and the fix. Do not commit

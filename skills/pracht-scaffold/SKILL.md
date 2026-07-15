@@ -1,6 +1,6 @@
 ---
-name: scaffold
-version: 1.0.0
+name: pracht-scaffold
+version: 1.1.0
 description: |
   Pracht code scaffolding. Prefer the framework-native CLI generators
   (`pracht generate route|shell|middleware|api`) and only fall back to manual
@@ -33,9 +33,28 @@ pracht generate middleware --name auth
 pracht generate api --path /health --methods GET,POST
 ```
 
+`pracht generate route` supports the full flag matrix below — do not fall back to manual edits for shapes it already covers:
+
+| Flag               | Meaning                                                                              |
+| ------------------ | ------------------------------------------------------------------------------------ |
+| `--path` (required) | Route path, e.g. `/dashboard` or `/blog/:slug`                                       |
+| `--render`         | Render mode: `ssr` (default), `spa`, `ssg`, or `isg`                                 |
+| `--shell`          | Registered shell name (manifest apps only)                                           |
+| `--middleware`     | Registered middleware names, comma-separated (manifest apps only)                    |
+| `--loader`         | Include a `loader` export                                                            |
+| `--error-boundary` | Include an `ErrorBoundary` export                                                    |
+| `--static-paths`   | Include `getStaticPaths` (added automatically for dynamic `ssg`/`isg` paths)         |
+| `--title`          | Page title used in the `head()` export                                               |
+| `--revalidate`     | ISG revalidation window in seconds (`isg` only, default 3600)                        |
+| `--json`           | Machine-readable output                                                              |
+
+`generate shell` and `generate middleware` take `--name`; `generate api` takes `--path` and `--methods` (comma-separated). All subcommands accept `--json`.
+
+- `--shell`/`--middleware` names must already be registered in the app manifest — the CLI errors otherwise. Generate the shell/middleware first, then the route that references it.
+- If the pracht MCP server is registered (docs/MCP.md), call the `generate_route`/`generate_shell`/`generate_middleware`/`generate_api` MCP tools instead of Bash — same behavior, structured results.
 - Add `--json` when another agent/tool needs machine-readable output.
 - `generate route` also emits a Playwright smoke test in `e2e/` when the app has a Playwright setup (`playwright.config.*` or an `e2e/` directory). Pass `--no-test` to skip it, `--test` to force it. Keep the generated test — it is the output-level proof the route works.
-- Use `pracht inspect routes --json` or `pracht inspect api --json` to confirm current wiring before manual edits when the existing graph matters.
+- Use `pracht inspect routes --json` or `pracht inspect api --json` to confirm current wiring before manual edits when the existing graph matters. `pracht inspect` requires the pracht plugin registered in the project's vite config.
 - If the app has typed routes (`src/pracht-routes.ts` / `.d.ts`) or the user asks for typed links, run `pracht typegen` after adding or renaming routes.
 - If the app commits `.pracht/app-graph.json`, run `pracht plan --write` after changing routes and include the refreshed snapshot — `pracht verify` fails when it is stale.
 - If `src/routes.ts` declares `constraints:`, respect them (e.g. put new `/app/**` routes behind the required middleware). Never delete or weaken a constraint to make `pracht verify` pass — that is a policy change the user must approve.
@@ -53,27 +72,37 @@ The user will describe what they want to create. Parse their request and generat
 | Middleware | `src/middleware/` | `middleware`                                                         | `src/middleware/rate-limit.ts` |
 | API route  | `src/api/`        | Named HTTP method handlers (`GET`, `POST`, `PUT`, `PATCH`, `DELETE`) or one default method dispatcher           | `src/api/users/[id].ts`        |
 
-## Templates
+## Templates (manual fallback)
+
+Use these only when the CLI cannot express the requested shape.
 
 ### Route
 
 ```tsx
-import type { LoaderArgs, RouteComponentProps } from "@pracht/core";
-
-export async function loader(_args: LoaderArgs) {
-  return {
-    /* loader data */
-  };
-}
-
 export function head() {
   return { title: "Page Title" };
 }
 
-export function Component({ data }: RouteComponentProps<typeof loader>) {
+export function Component() {
   return <section>{/* route UI */}</section>;
 }
 ```
+
+- Include a `loader` only when the route needs server data (matches the CLI, which omits it unless `--loader` is passed):
+
+  ```tsx
+  import type { LoaderArgs, RouteComponentProps } from "@pracht/core";
+
+  export async function loader(_args: LoaderArgs) {
+    return {
+      /* loader data */
+    };
+  }
+
+  export function Component({ data }: RouteComponentProps<typeof loader>) {
+    return <section>{/* route UI */}</section>;
+  }
+  ```
 
 - Include `ErrorBoundary` only if requested.
 - Include `getStaticPaths` only for SSG/ISG routes with dynamic segments.
@@ -118,9 +147,9 @@ export const middleware: MiddlewareFn = async ({ context, request }, next) => {
 ### API Route
 
 ```ts
-import type { BaseRouteArgs } from "@pracht/core";
+import type { ApiRouteArgs } from "@pracht/core";
 
-export function GET({ params, url }: BaseRouteArgs) {
+export function GET({ params, url }: ApiRouteArgs) {
   return Response.json({
     /* response data */
   });
@@ -133,9 +162,11 @@ export function GET({ params, url }: BaseRouteArgs) {
 - Always return `Response` objects (typically `Response.json()`).
 - Dynamic segments use bracket syntax in filenames: `[id].ts`, `[...slug].ts`.
 
-## Wiring Into the Manifest
+## Wiring Into the Manifest (manual fallback only)
 
-After creating module files, **always update `src/routes.ts`** to register the new module:
+The CLI generators wire the manifest themselves: `pracht generate route` inserts the `route(...)` call into `src/routes.ts` (adding `route`/`timeRevalidate` imports as needed), and `generate shell`/`generate middleware` upsert their registry entries. **Do not re-edit the manifest after a successful `pracht generate` run.**
+
+Only when you created module files by hand, update `src/routes.ts` to register the new module:
 
 - **Routes**: Add a `route("/path", () => import("./routes/filename.tsx"), { id: "name", render: "ssr" })` call inside the appropriate group or at the top level. Plain strings like `"./routes/filename.tsx"` also work.
 - **Shells**: Add to the `shells` record: `shellName: () => import("./shells/filename.tsx")` (or `"./shells/filename.tsx"`).

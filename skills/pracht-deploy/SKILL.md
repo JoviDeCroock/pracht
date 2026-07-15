@@ -1,6 +1,6 @@
 ---
-name: deploy
-version: 1.0.0
+name: pracht-deploy
+version: 1.1.0
 description: |
   Pracht deployment guide. Walks through adapter configuration, building, and
   deploying to Node.js, Cloudflare Workers, or Vercel. Handles wrangler config,
@@ -25,6 +25,8 @@ Guided adapter setup and deployment for pracht applications.
 
 Read `vite.config.ts` and `package.json` first — don't assume the current adapter.
 Ask the user where they want to deploy if not already clear from their message.
+
+If the pracht MCP server is registered (docs/MCP.md), prefer the `inspect_build`/`doctor`/`verify` MCP tools over shelling out. Note: `inspect_build` (like `pracht inspect build`) needs a prior `pracht build`, and `pracht inspect` requires the pracht plugin registered in the vite config.
 
 ## Supported Adapters
 
@@ -101,18 +103,25 @@ pracht build
 npx wrangler deploy
 ```
 
-To smoke-test the built worker locally first, run `pracht preview` — it builds and then delegates to `wrangler dev` against `dist/server/server.js`.
+To smoke-test the built worker locally first, run `pracht preview` — it builds and then delegates to `wrangler dev`, which serves the wrangler config's `main` entry, `dist/server/worker.js`.
 
 ### Wrangler Configuration
 
-```json
+```jsonc
+// wrangler.jsonc
 {
   "name": "my-pracht-app",
   "main": "dist/server/worker.js",
   "compatibility_date": "2024-01-01",
-  "assets": { "directory": "dist/client" }
+  "assets": {
+    "binding": "ASSETS",
+    "directory": "dist/client",
+    "run_worker_first": true,
+  },
 }
 ```
+
+`"binding": "ASSETS"` and `"run_worker_first": true` are required. Without the binding, the worker's `env.ASSETS` resolves to nothing and the runtime silently falls back to `null` — headers and ISG manifests load empty, so SSG serving, ISG revalidation, and per-route headers all silently no-op. The canonical config lives at `examples/cloudflare/wrangler.jsonc`. If you rename the binding with `assetsBinding` (below), the wrangler `binding` value must match.
 
 ### Bindings (KV, D1, R2)
 
@@ -131,7 +140,7 @@ pracht({ adapter: cloudflareAdapter({ assetsBinding: "STATIC" }) });
 
 ### ISG via Workers Caching
 
-For ISG routes, enable Workers Caching on both sides:
+ISG works out of the box: without any cache option, the default worker-managed path serves the build-time snapshot, detects staleness, and regenerates pages in the background via the Workers Cache API — per colo — and `POST /__pracht/revalidate` triggers on-demand regeneration. Enabling `cache: true` moves ISG from that per-colo worker-managed path to edge-tier Workers Caching, on both sides:
 
 ```ts
 pracht({ adapter: cloudflareAdapter({ cache: true }) });
@@ -148,10 +157,11 @@ slashes; use a bounded query allowlist/canonical redirect or an uncached gateway
 with a pathname-only `cf.cacheKey`, and normalize `Accept` there for routes that
 export markdown. See `docs/ADAPTERS.md#cache-key-cardinality`.
 
-ISG pages then render on demand, are cached at the edge for their
-`revalidate` window, and can be purged early with `purgeCache()` from
-`@pracht/adapter-cloudflare/cache`. Without this, ISG routes are served as
-build-time static snapshots that never revalidate.
+Time-revalidated ISG pages then render on demand, are cached at the edge for
+their `revalidate` window (stale pages served instantly while the Worker
+re-renders in the background), and can be purged early with `purgeCache()` from
+`@pracht/adapter-cloudflare/cache`. Webhook-only ISG routes keep their
+build-time snapshots and the worker-managed path either way.
 
 ---
 
@@ -182,8 +192,8 @@ Produces: `.vercel/output/config.json`, `.vercel/output/static/`, `.vercel/outpu
 
 1. **Build**: Run `pracht build` and verify `dist/` output.
 2. **Environment variables**: Ensure secrets/config needed by loaders are available at runtime.
-3. **Static assets**: Verify `dist/client/` contains prerendered HTML for SSG routes (and ISG routes, except on Cloudflare with Workers Caching enabled — those render on demand).
-4. **ISG routes**: Confirm the ISG manifest exists if using incremental static generation.
+3. **Static assets**: Verify `dist/client/` contains prerendered HTML for SSG routes (and ISG routes — except time-revalidated ISG routes on Cloudflare with Workers Caching enabled, which render on demand; webhook-only ISG routes keep their build-time snapshots).
+4. **ISG routes**: Confirm the ISG manifest (`dist/server/isg-manifest.json`; on Cloudflare also `dist/client/_pracht/isg.json`) exists if using incremental static generation.
 5. **API routes**: Test API endpoints work in the production runtime. For Node.js, run `pracht preview` (or `node dist/server/server.js`).
 6. **Middleware**: Verify auth/redirect middleware behaves correctly in production.
 

@@ -1,6 +1,6 @@
 ---
 name: typed-routes
-version: 1.0.0
+version: 1.1.0
 description: |
   Add or maintain pracht typed routes, typed links, route-object navigation,
   and generated href helpers. Use when asked to "add typed routes", "fix typed
@@ -22,7 +22,12 @@ Use this workflow to keep route ids, params, links, and navigation type-safe.
 
 ## Step 1: Inspect the resolved graph
 
-The resolved app graph is the source of truth — not a manual glob of `src/`:
+The resolved app graph is the source of truth — not a manual glob of `src/`.
+
+If the pracht MCP server is registered (see docs/MCP.md), prefer its tools
+(`inspect_routes`, `inspect_api`, `inspect_build`, `doctor`, `verify`,
+`generate_*`) over shelling out. Prerequisite: `pracht inspect` needs a vite
+config with the pracht plugin registered.
 
 ```bash
 pracht inspect routes --json
@@ -38,8 +43,9 @@ route("/products/:id", () => import("./routes/products/[id].tsx"), {
 });
 ```
 
-For pages-router apps, fallback ids come from the route path (`/` → `index`,
-`/blog/:slug` → `blog-slug`, `/*` → `splat`).
+Any route without an explicit `id` — manifest apps included, not just
+pages-router apps — gets a fallback id derived from the route path (`/` →
+`index`, `/blog/:slug` → `blog-slug`, `/*` → `splat`).
 
 ## Step 2: Generate route types and helpers
 
@@ -94,9 +100,9 @@ export function ProductLink({ id }: { id: string }) {
 
 `<Link>` renders a normal `<a>` and the client router intercepts it like any
 same-origin anchor. It also accepts navigation-behavior props:
-`prefetch="none" | "intent" | "viewport" | "render"` (per-link prefetch
-strategy, default `"intent"`), `preserveScroll` (keep the scroll position),
-and `viewTransition` (animate the navigation with the View Transitions API
+`prefetch="none" | "hover" | "intent" | "viewport" | "render"` (per-link
+prefetch strategy, default `"intent"`), `preserveScroll` (keep the scroll
+position), and `viewTransition` (animate the navigation with the View Transitions API
 where supported). There is also an imperative `prefetch()` export and a
 `useNavigation()` hook for pending navigation/submission state.
 
@@ -158,9 +164,13 @@ typed payloads with `json(value, { status })`.
 
 ## Step 4: Param and search rules
 
-- `:id` requires `params: { id: string }`.
-- `*` requires `params: { "*": string }`.
-- `:path*` requires `params: { path: string }`.
+Generated param types accept `RouteParamInput = string | number | boolean`
+(values are stringified into the path), so:
+
+- `:id` requires `params: { id: RouteParamInput }` — a `string` is typical,
+  but `number`/`boolean` also typecheck.
+- `*` requires `params: { "*": RouteParamInput }`.
+- `:path*` requires `params: { path: RouteParamInput }`.
 - Routes with no dynamic segments should omit `params`.
 - Missing and extra params should fail at typecheck time.
 - `search` currently accepts `string`, `URLSearchParams`, or an object of
@@ -173,6 +183,7 @@ Run at least:
 ```bash
 pracht typegen --check
 pnpm typecheck
+pracht verify --json
 ```
 
 If navigation changed, add or update Playwright coverage for both the rendered
