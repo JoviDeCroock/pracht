@@ -1,6 +1,6 @@
 {
   "name": "@pracht/adapter-node",
-  "version": "0.2.5",
+  "version": "0.3.0",
   "description": "Node.js adapter for serving Pracht apps with Web Request/Response, static assets, and ISG revalidation.",
   "keywords": [
     "pracht",

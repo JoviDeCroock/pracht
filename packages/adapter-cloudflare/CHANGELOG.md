@@ -1,5 +1,57 @@
 # @pracht/adapter-cloudflare
 
+## 0.5.0
+
+### Minor Changes
+
+- [#190](https://github.com/JoviDeCroock/pracht/pull/190) [`725dd13`](https://github.com/JoviDeCroock/pracht/commit/725dd139d48941896f7c471b654427306129f7ae) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Built-in Cloudflare Workers Caching support. `cloudflareAdapter({ cache: true })` serves time-revalidated ISG routes through [Workers Caching](https://developers.cloudflare.com/workers/cache/): pages render on demand, the edge caches them in front of the Worker for the route's `revalidate` window (via `cloudflare-cdn-cache-control`, so browsers still see `Cache-Control: public, max-age=0, must-revalidate`), and stale pages are served instantly while the Worker re-renders in the background (`stale-while-revalidate`, configurable via `cache: { staleWhileRevalidate }`). Webhook-only ISG routes keep the worker-managed Cache API path so `POST /__pracht/revalidate` takes effect immediately; routes with both a time and a webhook policy get their edge entries purged by the webhook. Cached pages are tagged (`pracht:isg`, `pracht:route:<id>`) and the new `@pracht/adapter-cloudflare/cache` entry exports `purgeCache()` and `routeCacheTag()` for cache invalidation from API routes, loaders, and middleware. Responses pracht did not deliberately mark cacheable are stamped `Cache-Control: private, no-cache` so Workers Caching's heuristic freshness can never edge-cache SSR pages or API GET responses across users. Requires `"cache": { "enabled": true }` in wrangler config.
+
+- [#172](https://github.com/JoviDeCroock/pracht/pull/172) [`8cb6278`](https://github.com/JoviDeCroock/pracht/commit/8cb6278beb853d1df52d7088d44c8bba3891c5ba) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Add webhook ISG revalidation policies and the shared `/__pracht/revalidate`
+  endpoint contract. Node regenerates on-disk ISG HTML, Cloudflare stores runtime
+  ISG responses in the Workers Cache API with `env.ASSETS` fallback, and Vercel
+  emits native Build Output API prerender functions with on-demand ISR wiring.
+
+  ISG regeneration is single-flighted per path (a stampede of stale requests or
+  webhook posts shares one render instead of racing N parallel regenerations),
+  and the webhook endpoint reports a `failed` array alongside `revalidated` and
+  `skipped`: regeneration errors keep the previously generated copy live and no
+  longer abort the batch with a 500. `@pracht/core` exports the new
+  `createRevalidationSingleFlight()` and `isCacheableISGResponse()` helpers for
+  adapters, and Cloudflare ISG responses served from the Cache API now carry
+  `Vary: x-pracht-route-state-request` like asset-served responses.
+
+### Patch Changes
+
+- [#212](https://github.com/JoviDeCroock/pracht/pull/212) [`a1a93c8`](https://github.com/JoviDeCroock/pracht/commit/a1a93c834f95e287bf56dc5cb45196a37c39a6c2) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Prevent Cloudflare Workers Caching from stamping public edge-cache headers on ISG responses that vary by cookie, authorization, or all request headers.
+
+- [#181](https://github.com/JoviDeCroock/pracht/pull/181) [`51e19b6`](https://github.com/JoviDeCroock/pracht/commit/51e19b6439fdb59db404a710dff033ea1d7e046b) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Env var safety: typed env access and client-leak detection.
+
+  - `@pracht/core` gains `publicEnv` (safe everywhere, only exposes
+    `PRACHT_PUBLIC_`-prefixed variables) and a server-only
+    `@pracht/core/env/server` entry exporting `serverEnv`/`setServerEnv`. Both
+    are typed once via the existing `Register` declaration-merging pattern
+    (`Register["env"]`). `serverEnv` resolves to `process.env` on Node/Vercel
+    and to the worker env bindings on Cloudflare (installed per request by the
+    adapter; not available at module top level there).
+  - The pracht Vite plugin adds `PRACHT_PUBLIC_` to Vite's `envPrefix`, rejects
+    client-side imports of `@pracht/core/env/server` at build time, and ships a
+    new `pracht:env-safety` build check that fails client builds referencing
+    non-public env vars (`process.env.X` / `import.meta.env.X`), naming the
+    variable, chunk, and likely source module. Escape hatch:
+    `pracht({ envSafety: { allow: [...] } })` or `envSafety: false`.
+  - `pracht verify` / `pracht doctor` read the env-safety build report and re-run
+    the literal leak scan against an existing `dist/client` build output.
+
+- [#217](https://github.com/JoviDeCroock/pracht/pull/217) [`854e1fa`](https://github.com/JoviDeCroock/pracht/commit/854e1faea33f85f2a0933e4dbaeaf5da563b8c03) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Limit webhook revalidation requests to 64 paths and keep malformed Node or
+  Cloudflare manifest entries isolated to their individual batch result.
+
+- [#214](https://github.com/JoviDeCroock/pracht/pull/214) [`76c4908`](https://github.com/JoviDeCroock/pracht/commit/76c49083f4f858652c9a2e1d60d9557daf33062d) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Limit `Vary: Accept` to routes that export a Markdown representation while applying it to both their HTML and Markdown responses. Cloudflare Workers Caching no longer fragments every ISG route by verbatim browser `Accept` strings, and its path, query-string, trailing-slash, and remaining Markdown variant behavior is now documented with bounded-query and gateway-normalization guidance.
+
+- [#216](https://github.com/JoviDeCroock/pracht/pull/216) [`2ec3f94`](https://github.com/JoviDeCroock/pracht/commit/2ec3f94c7daf9862e1b97ecebf09232f563010d2) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Retry generated Cloudflare headers and ISG manifest reads after transient asset fetch, response, or JSON failures instead of caching an empty manifest for the isolate lifetime. Missing manifests still cache as empty.
+
+- Updated dependencies [[`488aeed`](https://github.com/JoviDeCroock/pracht/commit/488aeedd54c9beb97b6334c72580c579d24be2d3), [`eb86e84`](https://github.com/JoviDeCroock/pracht/commit/eb86e84c40194d80b348b0a2f18157b645287d2a), [`e05655d`](https://github.com/JoviDeCroock/pracht/commit/e05655d4de0acd4a30bd411386b54846057019f8), [`9993c0b`](https://github.com/JoviDeCroock/pracht/commit/9993c0b967a3d8243aa7e14c4d7e94e0b5b487c2), [`51e19b6`](https://github.com/JoviDeCroock/pracht/commit/51e19b6439fdb59db404a710dff033ea1d7e046b), [`854e1fa`](https://github.com/JoviDeCroock/pracht/commit/854e1faea33f85f2a0933e4dbaeaf5da563b8c03), [`cc6169f`](https://github.com/JoviDeCroock/pracht/commit/cc6169f2520831a3a7096d46b3b3798df913f2e3), [`8cb6278`](https://github.com/JoviDeCroock/pracht/commit/8cb6278beb853d1df52d7088d44c8bba3891c5ba), [`db09195`](https://github.com/JoviDeCroock/pracht/commit/db09195576ae291566a40e029f01ef09155f170f), [`d1faf79`](https://github.com/JoviDeCroock/pracht/commit/d1faf7904b9aceb8c29225a19d5065d988053471), [`76c4908`](https://github.com/JoviDeCroock/pracht/commit/76c49083f4f858652c9a2e1d60d9557daf33062d), [`1b5c2a5`](https://github.com/JoviDeCroock/pracht/commit/1b5c2a545a6337cfe925f1f4028a22594787a997), [`8e58b8f`](https://github.com/JoviDeCroock/pracht/commit/8e58b8fb22f1f83ab4218f08d9a1e83a4658ce53), [`53af3a1`](https://github.com/JoviDeCroock/pracht/commit/53af3a1404508392960c7c5dcb5eebf57c57fc6f)]:
+  - @pracht/core@0.10.0
+
 ## 0.4.0
 
 ### Minor Changes

@@ -1,5 +1,49 @@
 # @pracht/vite-plugin
 
+## 0.6.0
+
+### Minor Changes
+
+- [#181](https://github.com/JoviDeCroock/pracht/pull/181) [`51e19b6`](https://github.com/JoviDeCroock/pracht/commit/51e19b6439fdb59db404a710dff033ea1d7e046b) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Env var safety: typed env access and client-leak detection.
+
+  - `@pracht/core` gains `publicEnv` (safe everywhere, only exposes
+    `PRACHT_PUBLIC_`-prefixed variables) and a server-only
+    `@pracht/core/env/server` entry exporting `serverEnv`/`setServerEnv`. Both
+    are typed once via the existing `Register` declaration-merging pattern
+    (`Register["env"]`). `serverEnv` resolves to `process.env` on Node/Vercel
+    and to the worker env bindings on Cloudflare (installed per request by the
+    adapter; not available at module top level there).
+  - The pracht Vite plugin adds `PRACHT_PUBLIC_` to Vite's `envPrefix`, rejects
+    client-side imports of `@pracht/core/env/server` at build time, and ships a
+    new `pracht:env-safety` build check that fails client builds referencing
+    non-public env vars (`process.env.X` / `import.meta.env.X`), naming the
+    variable, chunk, and likely source module. Escape hatch:
+    `pracht({ envSafety: { allow: [...] } })` or `envSafety: false`.
+  - `pracht verify` / `pracht doctor` read the env-safety build report and re-run
+    the literal leak scan against an existing `dist/client` build output.
+
+- [#195](https://github.com/JoviDeCroock/pracht/pull/195) [`db09195`](https://github.com/JoviDeCroock/pracht/commit/db09195576ae291566a40e029f01ef09155f170f) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Islands architecture (partial hydration). Routes can now opt into `hydration: "islands"` (or `"none"`) alongside their render mode — in the manifest router via `route(path, file, { render: "ssg", hydration: "islands" })` (inherited through `group(...)`), and in the pages router via `export const HYDRATION = "islands"`. The default stays `"full"`, so existing apps are unchanged.
+
+  Interactive components live in an islands directory (default `src/islands/`, configurable via `pracht({ islandsDir })`) and are auto-discovered: a Preact `options.vnode` hook detects island components during islands-mode renders — no wrappers at call sites. The server wraps each island's SSR output in a `<pracht-island>` marker with JSON-serialized props and emits clear dev errors for non-serializable props (naming the offending prop path) and for children/slots passed into islands (unsupported in v1). Per-usage hydration strategies via the framework-owned `client` prop: `load` (default, modulepreloaded), `idle` (requestIdleCallback), and `visible` (IntersectionObserver; the chunk is fetched only when the island scrolls into view).
+
+  Islands routes ship a tiny bootstrap (`virtual:pracht/islands-client`) instead of the client runtime/router: it scans the DOM for markers and dynamically imports only the islands present on the page (each island is its own code-split chunk). Pages that render zero islands — and `hydration: "none"` routes — ship no JavaScript at all. Navigation to, from, and between islands routes is MPA-style full-document navigation in v1; the client router deliberately falls back to `window.location` and skips prefetching for these routes.
+
+  `pracht build --analyze` attributes islands routes honestly: the islands bootstrap plus island chunks (an upper bound — per-page usage is only known at render time) with no shared client entry, and `0b` for `hydration: "none"` routes. Budgets apply to these totals. See `docs/ISLANDS.md` and `examples/islands`.
+
+### Patch Changes
+
+- [#224](https://github.com/JoviDeCroock/pracht/pull/224) [`10bbd46`](https://github.com/JoviDeCroock/pracht/commit/10bbd4677631e94fab20601e3d451a0fe5549be9) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Resolve client module keys exactly against the app manifest directory instead of runtime suffix matching. The virtual client entry previously built a suffix index over every glob key at startup and matched manifest refs by path suffix — ambiguous refs (e.g. two routes both named `index.tsx`) silently resolved to whichever key iterated first. Refs now canonicalize against the manifest file's directory (known at build time) for an exact lookup. In dev, refs that only resolve by suffix still work but log a console error explaining how to fix them; production builds resolve strictly and drop the fallback entirely.
+
+- [#220](https://github.com/JoviDeCroock/pracht/pull/220) [`325ebc8`](https://github.com/JoviDeCroock/pracht/commit/325ebc897d41349142e67bff1115eb3d75795502) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Treat `VITE_` environment variables as non-public in env leak detection unless explicitly allowlisted, preserving Pracht's `PRACHT_PUBLIC_` public-env boundary.
+
+- [#223](https://github.com/JoviDeCroock/pracht/pull/223) [`1b5c2a5`](https://github.com/JoviDeCroock/pracht/commit/1b5c2a545a6337cfe925f1f4028a22594787a997) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Emit modulepreload links for the client entry's own static import closure. The client entry statically imports secondary chunks (shared runtime, preload helper), but generated HTML previously only preloaded shell/route chunks — so the browser discovered those imports only after downloading and parsing the entry, adding a serial round trip before hydration. The build now stores each entry's transitive static JS imports in the js manifest under its virtual module id, and both server-rendered and prerendered pages merge them into the page's modulepreload links. Islands pages preload the islands bootstrap's closure; `hydration: "none"` pages still emit no JS at all.
+
+- [#199](https://github.com/JoviDeCroock/pracht/pull/199) [`2f3eaf8`](https://github.com/JoviDeCroock/pracht/commit/2f3eaf86196feeb5a0bcfc66224494892e8ffcae) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Exclude `hydration: "islands"` and `hydration: "none"` route modules from the generated full client runtime entry so server-only code in non-hydrated routes is not emitted into public client assets.
+
+- Updated dependencies [[`488aeed`](https://github.com/JoviDeCroock/pracht/commit/488aeedd54c9beb97b6334c72580c579d24be2d3), [`eb86e84`](https://github.com/JoviDeCroock/pracht/commit/eb86e84c40194d80b348b0a2f18157b645287d2a), [`e05655d`](https://github.com/JoviDeCroock/pracht/commit/e05655d4de0acd4a30bd411386b54846057019f8), [`9993c0b`](https://github.com/JoviDeCroock/pracht/commit/9993c0b967a3d8243aa7e14c4d7e94e0b5b487c2), [`51e19b6`](https://github.com/JoviDeCroock/pracht/commit/51e19b6439fdb59db404a710dff033ea1d7e046b), [`854e1fa`](https://github.com/JoviDeCroock/pracht/commit/854e1faea33f85f2a0933e4dbaeaf5da563b8c03), [`cc6169f`](https://github.com/JoviDeCroock/pracht/commit/cc6169f2520831a3a7096d46b3b3798df913f2e3), [`8cb6278`](https://github.com/JoviDeCroock/pracht/commit/8cb6278beb853d1df52d7088d44c8bba3891c5ba), [`db09195`](https://github.com/JoviDeCroock/pracht/commit/db09195576ae291566a40e029f01ef09155f170f), [`d1faf79`](https://github.com/JoviDeCroock/pracht/commit/d1faf7904b9aceb8c29225a19d5065d988053471), [`76c4908`](https://github.com/JoviDeCroock/pracht/commit/76c49083f4f858652c9a2e1d60d9557daf33062d), [`1b5c2a5`](https://github.com/JoviDeCroock/pracht/commit/1b5c2a545a6337cfe925f1f4028a22594787a997), [`8e58b8f`](https://github.com/JoviDeCroock/pracht/commit/8e58b8fb22f1f83ab4218f08d9a1e83a4658ce53), [`53af3a1`](https://github.com/JoviDeCroock/pracht/commit/53af3a1404508392960c7c5dcb5eebf57c57fc6f)]:
+  - @pracht/core@0.10.0
+  - @pracht/adapter-node@0.3.0
+
 ## 0.5.0
 
 ### Minor Changes

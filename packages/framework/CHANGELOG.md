@@ -1,5 +1,111 @@
 # @pracht/core
 
+## 0.10.0
+
+### Minor Changes
+
+- [#227](https://github.com/JoviDeCroock/pracht/pull/227) [`488aeed`](https://github.com/JoviDeCroock/pracht/commit/488aeedd54c9beb97b6334c72580c579d24be2d3) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Add declarative app constraints: `defineApp({ constraints })` with `requireMiddleware`, `requireShell`, `requireRenderMode`, `forbidRenderMode`, and `requireHead` helpers, a segment-wise route pattern matcher (`*` = one segment, trailing `**` = zero or more), and a pure `evaluateConstraints` evaluator. Constraints are carried through `resolveApp()` and enforced by `pracht verify`. The serialized app graph (`serializeAppRoutes`, devtools JSON, `pracht inspect`) now also includes each route's `hydration` mode.
+
+- [#222](https://github.com/JoviDeCroock/pracht/pull/222) [`eb86e84`](https://github.com/JoviDeCroock/pracht/commit/eb86e84c40194d80b348b0a2f18157b645287d2a) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - API validation and typed fetch DX improvements:
+
+  - New `json(value, init)` helper: behaves like `Response.json()` but returns a `TypedJsonResponse` whose payload type stays visible to `apiFetch()`, so handlers can use custom status codes and headers without collapsing the client-side response type to `unknown`.
+  - `apiFetch()` query and params typing now rejects, at compile time, concrete schema keys whose input has no string representation (e.g. `z.number()`): URL values cross the wire as strings, so those schemas could never validate a real request. String-accepting inputs (`z.coerce.number()`, enums, unions with a string arm) pass through unchanged, while route params keep accepting convenient stringifiable primitives at the call site.
+  - Routes whose body schema contains `File`/`Blob` values now accept `FormData` in their typed `apiFetch()` body — JSON-encoding a `File` would silently drop it.
+  - `<Form>` gains `onResponse`, called with the server's `Response` for every non-redirect fetch submission (success payloads and non-validation failures alike, with the body left unconsumed); `onValidationIssues` now also fires for the standardized 400 malformed-body response, matching `ApiFetchError`; and `action` autocompletes registered API route paths while still accepting any URL string.
+  - `<Form>` enhanced submissions honor the clicked button's `formaction` and `formmethod`, matching native multi-action form behavior.
+  - JSON-safety checks stay active at runtime so JavaScript and other untyped callers cannot return values that silently change shape across the response boundary.
+
+- [#222](https://github.com/JoviDeCroock/pracht/pull/222) [`e05655d`](https://github.com/JoviDeCroock/pracht/commit/e05655d4de0acd4a30bd411386b54846057019f8) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Add API-level type safety with Standard Schema validators ([#219](https://github.com/JoviDeCroock/pracht/issues/219)):
+
+  - `defineApi()` wraps API route handlers with [Standard Schema](https://standardschema.dev) validation for `body`, `query`, and `params` (zod, valibot, arktype, …). Invalid requests answer with a standardized 422 JSON body (`{ error: "validation", issues }`, 400 for unparseable bodies) before the handler runs. Handlers can return JSON-safe primitives, arrays, and plain objects (sent as `Response.json()`) or a `Response` for full control; values whose wire representation would change type are rejected by the type system and a runtime guard.
+  - `apiFetch()` is a typed fetch client for API routes. With `pracht typegen`, it checks paths, methods, params, bodies, and queries at compile time and returns the handler's response type (`undefined` for bodyless `HEAD` responses); method unions stay correlated with their body/query shapes. Without generated types it stays usable with `unknown` payloads. `GET` and `HEAD` request bodies are rejected. Non-2xx responses throw `ApiFetchError`, exposing normalized validation `issues` when present.
+  - `<Form>` accepts `schema` (client-side Standard Schema validation of the form data before submitting) and `onValidationIssues` (fires for client-side rejections and for server 422 validation responses), so one schema module covers both sides.
+  - New exports: `defineApi`, `apiFetch`, `ApiFetchError`, `apiValidationErrorResponse`, `isApiValidationErrorBody`, `validateStandardSchema`, `formDataToRecord`, `searchParamsToRecord`, and the supporting types (`ApiValidationIssue`, `ApiValidationPathSegment`, `ApiJsonValue`, `ApiRouteMethodMap`, `ApiPath`, `ApiFetchOptions`, …). `@standard-schema/spec` (types-only) is now a dependency.
+
+- [#181](https://github.com/JoviDeCroock/pracht/pull/181) [`51e19b6`](https://github.com/JoviDeCroock/pracht/commit/51e19b6439fdb59db404a710dff033ea1d7e046b) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Env var safety: typed env access and client-leak detection.
+
+  - `@pracht/core` gains `publicEnv` (safe everywhere, only exposes
+    `PRACHT_PUBLIC_`-prefixed variables) and a server-only
+    `@pracht/core/env/server` entry exporting `serverEnv`/`setServerEnv`. Both
+    are typed once via the existing `Register` declaration-merging pattern
+    (`Register["env"]`). `serverEnv` resolves to `process.env` on Node/Vercel
+    and to the worker env bindings on Cloudflare (installed per request by the
+    adapter; not available at module top level there).
+  - The pracht Vite plugin adds `PRACHT_PUBLIC_` to Vite's `envPrefix`, rejects
+    client-side imports of `@pracht/core/env/server` at build time, and ships a
+    new `pracht:env-safety` build check that fails client builds referencing
+    non-public env vars (`process.env.X` / `import.meta.env.X`), naming the
+    variable, chunk, and likely source module. Escape hatch:
+    `pracht({ envSafety: { allow: [...] } })` or `envSafety: false`.
+  - `pracht verify` / `pracht doctor` read the env-safety build report and re-run
+    the literal leak scan against an existing `dist/client` build output.
+
+- [#226](https://github.com/JoviDeCroock/pracht/pull/226) [`cc6169f`](https://github.com/JoviDeCroock/pracht/commit/cc6169f2520831a3a7096d46b3b3798df913f2e3) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Extend the app-graph serializers behind `pracht inspect --json`, the MCP
+  inspect tools, and the dev devtools endpoint. Serialized page routes now
+  include `hydration`, `prefetch`, and `speculation` (the resolved per-route
+  values, `null` when the route does not set them and the framework default
+  applies). Serialized API routes now include `hasDefaultHandler`, which is
+  `true` when the module exports a default catch-all request handler — detected
+  via module loading with a static `export default` source scan as fallback,
+  matching how HTTP methods are detected. `@pracht/core` also exports the new
+  `detectApiExports` helper (and `ApiRouteExports` type); `detectApiMethods`
+  keeps its existing signature. The human-readable `pracht inspect` output
+  prints the hydration mode per route and marks default-handler API routes
+  (`methods=GET+default` / `methods=default`).
+
+- [#172](https://github.com/JoviDeCroock/pracht/pull/172) [`8cb6278`](https://github.com/JoviDeCroock/pracht/commit/8cb6278beb853d1df52d7088d44c8bba3891c5ba) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Add webhook ISG revalidation policies and the shared `/__pracht/revalidate`
+  endpoint contract. Node regenerates on-disk ISG HTML, Cloudflare stores runtime
+  ISG responses in the Workers Cache API with `env.ASSETS` fallback, and Vercel
+  emits native Build Output API prerender functions with on-demand ISR wiring.
+
+  ISG regeneration is single-flighted per path (a stampede of stale requests or
+  webhook posts shares one render instead of racing N parallel regenerations),
+  and the webhook endpoint reports a `failed` array alongside `revalidated` and
+  `skipped`: regeneration errors keep the previously generated copy live and no
+  longer abort the batch with a 500. `@pracht/core` exports the new
+  `createRevalidationSingleFlight()` and `isCacheableISGResponse()` helpers for
+  adapters, and Cloudflare ISG responses served from the Cache API now carry
+  `Vary: x-pracht-route-state-request` like asset-served responses.
+
+- [#195](https://github.com/JoviDeCroock/pracht/pull/195) [`db09195`](https://github.com/JoviDeCroock/pracht/commit/db09195576ae291566a40e029f01ef09155f170f) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Islands architecture (partial hydration). Routes can now opt into `hydration: "islands"` (or `"none"`) alongside their render mode — in the manifest router via `route(path, file, { render: "ssg", hydration: "islands" })` (inherited through `group(...)`), and in the pages router via `export const HYDRATION = "islands"`. The default stays `"full"`, so existing apps are unchanged.
+
+  Interactive components live in an islands directory (default `src/islands/`, configurable via `pracht({ islandsDir })`) and are auto-discovered: a Preact `options.vnode` hook detects island components during islands-mode renders — no wrappers at call sites. The server wraps each island's SSR output in a `<pracht-island>` marker with JSON-serialized props and emits clear dev errors for non-serializable props (naming the offending prop path) and for children/slots passed into islands (unsupported in v1). Per-usage hydration strategies via the framework-owned `client` prop: `load` (default, modulepreloaded), `idle` (requestIdleCallback), and `visible` (IntersectionObserver; the chunk is fetched only when the island scrolls into view).
+
+  Islands routes ship a tiny bootstrap (`virtual:pracht/islands-client`) instead of the client runtime/router: it scans the DOM for markers and dynamically imports only the islands present on the page (each island is its own code-split chunk). Pages that render zero islands — and `hydration: "none"` routes — ship no JavaScript at all. Navigation to, from, and between islands routes is MPA-style full-document navigation in v1; the client router deliberately falls back to `window.location` and skips prefetching for these routes.
+
+  `pracht build --analyze` attributes islands routes honestly: the islands bootstrap plus island chunks (an upper bound — per-page usage is only known at render time) with no shared client entry, and `0b` for `hydration: "none"` routes. Budgets apply to these totals. See `docs/ISLANDS.md` and `examples/islands`.
+
+- [#152](https://github.com/JoviDeCroock/pracht/pull/152) [`8e58b8f`](https://github.com/JoviDeCroock/pracht/commit/8e58b8fb22f1f83ab4218f08d9a1e83a4658ce53) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Add per-route opt-in `speculation` config that emits a browser-native
+  `<script type="speculationrules">` block from the SSR/SSG renderer. Routes can
+  declare `speculation: "prefetch"` (default eagerness `moderate`) to let the
+  browser fetch the page HTML on intent, or `speculation: "prerender"` (default
+  eagerness `conservative`) to fully render the document in the background.
+  Routes flagged for `prerender` are skipped by the SPA click interceptor so the
+  browser can activate the prerendered document on click. Group meta also
+  accepts `speculation` and propagates to descendant routes. Accepts an object
+  form `{ mode, eagerness }` for finer control.
+
+### Patch Changes
+
+- [#225](https://github.com/JoviDeCroock/pracht/pull/225) [`9993c0b`](https://github.com/JoviDeCroock/pracht/commit/9993c0b967a3d8243aa7e14c4d7e94e0b5b487c2) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Stop shipping manifest validation to production client bundles. Route matching, path, and href primitives now live in a dependency-free module the client router imports directly, and `resolveApp`'s validation (unknown shell/middleware names, loaderCache checks, SPA+hydration conflicts, and their "did you mean" error formatting) runs only where `import.meta.env.DEV` is not statically `false` — dev servers, tests, and `pracht build` in Node, where invalid manifests still fail loudly. Production clients only flatten the already-validated manifest, cutting ~2 kB raw (~0.8 kB gzip) from the framework's client payload. Public API is unchanged: `buildHref`, `buildPathFromSegments`, and `matchAppRoute` keep their existing exports and signatures.
+
+- [#217](https://github.com/JoviDeCroock/pracht/pull/217) [`854e1fa`](https://github.com/JoviDeCroock/pracht/commit/854e1faea33f85f2a0933e4dbaeaf5da563b8c03) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Limit webhook revalidation requests to 64 paths and keep malformed Node or
+  Cloudflare manifest entries isolated to their individual batch result.
+
+- [#213](https://github.com/JoviDeCroock/pracht/pull/213) [`d1faf79`](https://github.com/JoviDeCroock/pracht/commit/d1faf7904b9aceb8c29225a19d5065d988053471) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Add an inheritable `loaderCache` route option for controlling how long browsers privately cache successful route-state loader data. Positive durations emit `Cache-Control: private, max-age=<seconds>`, while `false`, `0`, and the default remain `no-store`.
+
+  Expose the resolved loader cache policy in `pracht inspect routes --json` and the MCP route graph.
+
+  Manual `useRevalidate()` calls bypass route-state browser caching so explicit refreshes and post-mutation reloads still re-run the loader.
+
+  Form redirects after state-changing submissions also bypass cached route-state data when reloading the destination route.
+
+- [#214](https://github.com/JoviDeCroock/pracht/pull/214) [`76c4908`](https://github.com/JoviDeCroock/pracht/commit/76c49083f4f858652c9a2e1d60d9557daf33062d) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Limit `Vary: Accept` to routes that export a Markdown representation while applying it to both their HTML and Markdown responses. Cloudflare Workers Caching no longer fragments every ISG route by verbatim browser `Accept` strings, and its path, query-string, trailing-slash, and remaining Markdown variant behavior is now documented with bounded-query and gateway-normalization guidance.
+
+- [#223](https://github.com/JoviDeCroock/pracht/pull/223) [`1b5c2a5`](https://github.com/JoviDeCroock/pracht/commit/1b5c2a545a6337cfe925f1f4028a22594787a997) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Emit modulepreload links for the client entry's own static import closure. The client entry statically imports secondary chunks (shared runtime, preload helper), but generated HTML previously only preloaded shell/route chunks — so the browser discovered those imports only after downloading and parsing the entry, adding a serial round trip before hydration. The build now stores each entry's transitive static JS imports in the js manifest under its virtual module id, and both server-rendered and prerendered pages merge them into the page's modulepreload links. Islands pages preload the islands bootstrap's closure; `hydration: "none"` pages still emit no JS at all.
+
+- [#221](https://github.com/JoviDeCroock/pracht/pull/221) [`53af3a1`](https://github.com/JoviDeCroock/pracht/commit/53af3a1404508392960c7c5dcb5eebf57c57fc6f) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Strip the "did you mean" edit-distance implementation from production client bundles. Manifest wiring errors still list the registered names in production, but the Levenshtein-based suggestion is now computed only in dev, tests, and CLI builds where `import.meta.env.DEV` is not statically `false` — saving ~560 B raw (~260 B gzip) from every production client bundle.
+
 ## 0.9.0
 
 ### Minor Changes

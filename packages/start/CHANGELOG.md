@@ -1,5 +1,15 @@
 # create-pracht
 
+## 0.4.0
+
+### Minor Changes
+
+- [#226](https://github.com/JoviDeCroock/pracht/pull/226) [`53e6a7b`](https://github.com/JoviDeCroock/pracht/commit/53e6a7bbb6caca65a5464edab92d17659ef65166) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Seed Claude Code agent tooling into scaffolded apps. New projects now get the full pracht skill catalog copied into `.claude/skills/` and a `.mcp.json` registering the `pracht mcp` server, behind a yes-default "Set up Claude Code skills + MCP?" prompt (`--agent-tools` / `--no-agent-tools` for non-interactive runs; `--yes` includes the tooling). The skills ship inside the published package via a build-time sync from the repo's `skills/` directory.
+
+### Patch Changes
+
+- [#227](https://github.com/JoviDeCroock/pracht/pull/227) [`488aeed`](https://github.com/JoviDeCroock/pracht/commit/488aeedd54c9beb97b6334c72580c579d24be2d3) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Teach the starter about the verify / plan / report loop. Manifest scaffolds now include a commented-out `constraints` example in `src/routes.ts` (enforced by `pracht verify` once uncommented), the generated `.gitignore` notes that `.pracht/app-graph.json` — the `pracht plan` snapshot — should stay committed, the generated README gains a short Checks section, and the agent instructions list `pracht verify`, `pracht plan --write`, `pracht report`, and `pracht llms --write`.
+
 ## 0.3.0
 
 ### Minor Changes
