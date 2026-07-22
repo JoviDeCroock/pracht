@@ -80,6 +80,7 @@ export async function runInspect(
           })
         : (serverModule.apiRoutes as ResolvedApiRoute[]).map(({ file, path }) => ({
             file,
+            hasDefaultHandler: false,
             methods: [],
             path,
           }));
