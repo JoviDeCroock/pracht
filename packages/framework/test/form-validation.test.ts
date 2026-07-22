@@ -176,6 +176,80 @@ describe("<Form> validation", () => {
     expect(body.get("action")).toBe("save");
   });
 
+  it("validates capability forms before submitting", async () => {
+    const issues: ApiValidationIssue[][] = [];
+
+    render(
+      h(
+        Form,
+        {
+          capability: "items.create",
+          schema: nameSchema,
+          onValidationIssues: (found) => issues.push(found),
+        },
+        h("input", { name: "name", value: "" }),
+      ),
+      root,
+    );
+
+    await submit();
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(issues).toEqual([[{ in: "body", message: "Name is required", path: ["name"] }]]);
+  });
+
+  it("includes the clicked button value in capability submissions", async () => {
+    fetchSpy.mockResolvedValue(
+      new Response(JSON.stringify({ ok: true, data: {} }), {
+        headers: { "content-type": "application/json" },
+      }),
+    );
+
+    render(
+      h(Form, { capability: "items.save" }, h("button", { name: "action", value: "save" }, "Save")),
+      root,
+    );
+
+    const form = root.querySelector("form")!;
+    const button = root.querySelector("button")!;
+    form.dispatchEvent(
+      new SubmitEvent("submit", { bubbles: true, cancelable: true, submitter: button }),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const body = fetchSpy.mock.calls[0][1].body as FormData;
+    expect(body.get("action")).toBe("save");
+  });
+
+  it("keeps capability response bodies readable in onResponse", async () => {
+    const responseBody = { ok: true, data: { created: "pracht" } };
+    fetchSpy.mockResolvedValue(
+      new Response(JSON.stringify(responseBody), {
+        status: 201,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    const responses: Response[] = [];
+
+    render(
+      h(
+        Form,
+        {
+          capability: "items.create",
+          onResponse: (response) => responses.push(response),
+        },
+        h("input", { name: "name", value: "pracht" }),
+      ),
+      root,
+    );
+
+    await submit();
+
+    expect(responses).toHaveLength(1);
+    expect(responses[0].status).toBe(201);
+    await expect(responses[0].json()).resolves.toEqual(responseBody);
+  });
+
   it("uses the clicked button's formaction for enhanced submissions", async () => {
     fetchSpy.mockResolvedValue(new Response(null, { status: 200 }));
 

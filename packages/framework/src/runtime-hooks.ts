@@ -242,25 +242,43 @@ export function Form<TName extends string = string>(props: FormProps<TName>) {
         return;
       }
 
+      const submitter =
+        typeof SubmitEvent !== "undefined" && event instanceof SubmitEvent ? event.submitter : null;
+      const nativeSubmitter =
+        (submitter instanceof HTMLButtonElement || submitter instanceof HTMLInputElement) &&
+        submitter.form === form
+          ? submitter
+          : undefined;
+
       if (capability) {
         event.preventDefault();
-        clearPrefetchCache();
         const endpoint = actionAttribute ?? form.action;
-        const formData = new FormData(form);
+        const formData = new FormData(form, nativeSubmitter);
+
+        if (schema) {
+          const result = await validateStandardSchema(schema, formDataToRecord(formData), "body");
+          if (result.issues) {
+            onValidationIssues?.(result.issues);
+            return;
+          }
+        }
+
+        clearPrefetchCache();
         // Expose the in-flight submission through useNavigation().
         const navigationToken = beginSubmittingNavigation(
           createNavigationLocation(endpoint),
           formData,
         );
         let envelope: CapabilityEnvelope;
+        let response: Response | undefined;
         try {
-          const response = await fetch(endpoint, {
+          response = await fetch(endpoint, {
             method: "POST",
             body: formData,
             credentials: "same-origin",
           });
           try {
-            envelope = (await response.json()) as CapabilityEnvelope;
+            envelope = (await response.clone().json()) as CapabilityEnvelope;
           } catch {
             envelope = {
               ok: false,
@@ -282,6 +300,9 @@ export function Form<TName extends string = string>(props: FormProps<TName>) {
           settleNavigation(navigationToken);
         }
 
+        if (response) {
+          onResponse?.(response);
+        }
         if (envelope.ok) {
           form.reset();
         }
@@ -297,13 +318,6 @@ export function Form<TName extends string = string>(props: FormProps<TName>) {
         return;
       }
 
-      const submitter =
-        typeof SubmitEvent !== "undefined" && event instanceof SubmitEvent ? event.submitter : null;
-      const nativeSubmitter =
-        (submitter instanceof HTMLButtonElement || submitter instanceof HTMLInputElement) &&
-        submitter.form === form
-          ? submitter
-          : undefined;
       const submitterMethod = nativeSubmitter?.getAttribute("formmethod") || undefined;
       const formMethod = (submitterMethod ?? method ?? form.method ?? "post").toUpperCase();
       const isSafeMethod = SAFE_METHODS.has(formMethod);
