@@ -3,8 +3,8 @@ title: Middleware
 lead: Server-side request interceptors that run before loaders and API routes. Use them for authentication, redirects, request validation, and context enrichment.
 breadcrumb: Middleware
 prev:
-  href: /docs/api-routes
-  title: API Routes
+  href: /docs/api-validation
+  title: API Validation
 next:
   href: /docs/shells
   title: Shells

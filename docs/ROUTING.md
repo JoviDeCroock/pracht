@@ -190,7 +190,7 @@ Generate a type-safe route map from the same resolved app graph used by
 pracht typegen
 ```
 
-This writes `src/pracht-routes.d.ts` for module augmentation and
+This writes `src/pracht.d.ts` for module augmentation and
 `src/pracht-routes.ts` for a runtime `href()` helper. Route ids come from
 explicit `id` fields and fall back to generated ids such as `index`,
 `blog-slug`, or `docs-splat`.
@@ -230,7 +230,16 @@ loader (including separate loader files wired via the manifest) without
 writing a generic. See
 [docs/DATA_LOADING.md](DATA_LOADING.md#useroutedata) for details.
 
-Use `pracht typegen --check` in CI to fail when generated route files are stale.
+API routes register too: every `src/api/` module's exported HTTP methods,
+params, and — for `defineApi()` routes — request/response types become
+available to the typed `apiFetch()` client. See
+[docs/API_VALIDATION.md](API_VALIDATION.md).
+
+Use `pracht typegen --check` in CI to fail when generated route files are
+stale. While `pracht dev` runs, the generated files refresh automatically when
+route files are added, removed, or renamed, and when the route manifest or one
+of its imported definition modules changes. The dev banner prompts for the
+first `pracht typegen` run when `src/pracht.d.ts` does not exist yet.
 
 ---
 

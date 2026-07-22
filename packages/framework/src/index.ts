@@ -13,6 +13,43 @@ export {
 } from "./app.ts";
 export { createHref } from "./href.ts";
 export {
+  apiValidationErrorResponse,
+  defineApi,
+  formDataToRecord,
+  isApiValidationErrorBody,
+  json,
+  searchParamsToRecord,
+  validateStandardSchema,
+} from "./api-validation.ts";
+export type {
+  ApiHandlerTypes,
+  ApiJsonPrimitive,
+  ApiJsonValue,
+  ApiRouteMethodMap,
+  ApiRouteSchemas,
+  ApiValidationErrorBody,
+  ApiValidationIssue,
+  ApiValidationPathSegment,
+  ApiValidationSource,
+  DefineApiConfig,
+  TypedJsonResponse,
+  ValidatedApiArgs,
+  ValidatedApiHandler,
+} from "./api-validation.ts";
+export { apiFetch, ApiFetchError } from "./api-fetch.ts";
+export type {
+  ApiBodyFor,
+  ApiFetchArgs,
+  ApiFetchBaseOptions,
+  ApiFetchOptions,
+  ApiMethodsFor,
+  ApiOutputFor,
+  ApiParamsFor,
+  ApiPath,
+  ApiQueryFor,
+  DefaultApiMethod,
+} from "./types.ts";
+export {
   buildAppGraph,
   detectApiMethods,
   serializeApiRoutes,
@@ -77,6 +114,7 @@ export type {
   ApiRouteArgs,
   ApiRouteHandler,
   Register,
+  RegisteredContext,
   BuildHrefOptions,
   ApiRouteMatch,
   ApiRouteModule,

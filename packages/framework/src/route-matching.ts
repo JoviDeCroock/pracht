@@ -207,7 +207,7 @@ function buildHrefUntyped(
   return `${path}${serializeSearch(options.search)}${serializeHash(options.hash)}`;
 }
 
-function normalizeHrefParams(
+export function normalizeHrefParams(
   segments: readonly RouteSegment[],
   params: Record<string, unknown>,
 ): RouteParams {
@@ -236,7 +236,7 @@ function normalizeHrefParams(
   return normalized;
 }
 
-function serializeSearch(search: SearchParamsInput | undefined): string {
+export function serializeSearch(search: SearchParamsInput | undefined): string {
   if (search == null) return "";
 
   if (typeof search === "string") {

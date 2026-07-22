@@ -1,5 +1,14 @@
-import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -12,6 +21,15 @@ const repoTempRoot = resolve(dirname(cliPath), "../test/.tmp");
 const coreImportPath = resolve(repoRoot, "packages/framework/src/index.ts");
 const nodeAdapterImportPath = resolve(repoRoot, "packages/adapter-node/src/index.ts");
 const vitePluginImportPath = resolve(repoRoot, "packages/vite-plugin/src/index.ts");
+const standardSchemaImportPath = resolve(
+  repoRoot,
+  "packages/framework/node_modules/@standard-schema/spec/dist/index.d.ts",
+);
+// The api-types compile test consumes the built declarations like a real
+// project would (skipLibCheck leaves them unchecked); compiling the framework
+// *source* alongside a populated Register augmentation is not supported.
+const coreDistTypesPath = resolve(repoRoot, "packages/framework/dist/index.d.mts");
+const tscPath = resolve(repoRoot, "node_modules/typescript/bin/tsc");
 const tempDirs = [];
 
 afterEach(() => {
@@ -358,18 +376,19 @@ export const app = defineApp({
     writeTypedManifestApp(appDir);
 
     const result = JSON.parse(runCli(["typegen", "--json"], { cwd: appDir }).stdout);
-    const declaration = readFileSync(join(appDir, "src/pracht-routes.d.ts"), "utf-8");
+    const declaration = readFileSync(join(appDir, "src/pracht.d.ts"), "utf-8");
     const runtime = readFileSync(join(appDir, "src/pracht-routes.ts"), "utf-8");
 
     expect(result).toMatchObject({
+      apiRoutes: 3,
       check: false,
-      files: ["src/pracht-routes.d.ts", "src/pracht-routes.ts"],
+      files: ["src/pracht.d.ts", "src/pracht-routes.ts"],
       mode: "manifest",
       ok: true,
       routes: 3,
     });
     expect(declaration).toContain(
-      'import type { RouteLoaderData, RouteParamInput, SearchParamsInput } from "@pracht/core";',
+      'import type { ApiRouteMethodMap, RouteLoaderData, RouteParamInput, SearchParamsInput } from "@pracht/core";',
     );
     expect(declaration).toContain('"home": {');
     expect(declaration).toContain("params: Record<never, never>;");
@@ -384,17 +403,45 @@ export const app = defineApp({
     expect(declaration).toContain(
       'data: RouteLoaderData<typeof import("./server/dashboard-loader"), typeof import("./routes/dashboard")>;',
     );
+    // API routes register on Register["apiRoutes"] for the typed apiFetch client.
+    expect(declaration).toContain("    apiRoutes: {");
+    expect(declaration).toContain('"/api/items/:id": {');
+    expect(declaration).toContain('methods: ApiRouteMethodMap<typeof import("./api/items/[id]")>;');
     expect(runtime).toContain('id: "product"');
     expect(runtime).toContain('path: "/products/:id"');
     expect(runtime).toContain("export const href = createHref(routes);");
+    expect(existsSync(join(appDir, "api-module-loaded"))).toBe(false);
 
     const check = JSON.parse(runCli(["typegen", "--check", "--json"], { cwd: appDir }).stdout);
     expect(check).toMatchObject({ check: true, ok: true, routes: 3 });
 
-    writeProjectFile(appDir, "src/pracht-routes.d.ts", "stale\n");
+    // Unchanged outputs are not rewritten — dev-mode regeneration relies on
+    // this to avoid spurious HMR updates for the generated runtime module.
+    const declarationPath = join(appDir, "src/pracht.d.ts");
+    const past = new Date(Date.now() - 120_000);
+    utimesSync(declarationPath, past, past);
+    runCli(["typegen"], { cwd: appDir });
+    expect(statSync(declarationPath).mtimeMs).toBeLessThan(Date.now() - 60_000);
+
+    writeProjectFile(appDir, "src/pracht.d.ts", "stale\n");
     const stale = runCliStatus(["typegen", "--check", "--json"], { cwd: appDir });
     expect(stale.status).toBe(1);
     expect(JSON.parse(stale.stderr)).toMatchObject({ ok: false });
+
+    for (const [declarationOut, runtimeOut] of [
+      ["src/collision.ts", "src/collision.ts"],
+      ["src/collision.d.ts", "src/collision.tsx"],
+    ]) {
+      const collision = runCliStatus(
+        ["typegen", "--out", declarationOut, "--runtime-out", runtimeOut, "--json"],
+        { cwd: appDir },
+      );
+      expect(collision.status).toBe(1);
+      expect(JSON.parse(collision.stderr)).toMatchObject({
+        ok: false,
+        error: expect.stringContaining("shares its basename"),
+      });
+    }
   }, 30_000);
 
   it("generates typed route declarations for pages-router apps", () => {
@@ -402,7 +449,7 @@ export const app = defineApp({
     writeInspectablePagesApp(appDir);
 
     const result = JSON.parse(runCli(["typegen", "--json"], { cwd: appDir }).stdout);
-    const declaration = readFileSync(join(appDir, "src/pracht-routes.d.ts"), "utf-8");
+    const declaration = readFileSync(join(appDir, "src/pracht.d.ts"), "utf-8");
 
     expect(result).toMatchObject({ mode: "pages", ok: true, routes: 2 });
     expect(declaration).toContain('"index": {');
@@ -411,6 +458,245 @@ export const app = defineApp({
     expect(declaration).toContain('data: RouteLoaderData<typeof import("./pages/index")>;');
     expect(declaration).toContain('data: RouteLoaderData<typeof import("./pages/blog/[slug]")>;');
   }, 30_000);
+
+  it("generated api route types drive apiFetch end to end", () => {
+    const appDir = createRepoTempDir("pracht-cli-typegen-api-types-");
+    writeTypedManifestApp(appDir);
+    runCli(["typegen"], { cwd: appDir });
+
+    writeProjectFile(
+      appDir,
+      "src/api-consumer.ts",
+      `import { apiFetch, defineApi } from "@pracht/core";
+
+export async function main() {
+  // Params are required, convenient primitive inputs are stringified for the
+  // wire, and transformed schema output reaches the handler response type.
+  const item = await apiFetch("/api/items/:id", { params: { id: 1 } });
+  const _item: { id: number } = item;
+
+  // HEAD responses are always bodyless regardless of the handler return type.
+  const head = await apiFetch("/api/items/:id", { method: "HEAD", params: { id: "1" } });
+  const _head: undefined = head;
+
+  // @ts-expect-error - GET and HEAD requests cannot carry bodies
+  await apiFetch("/api/items/:id", { method: "HEAD", params: { id: "1" }, body: "nope" });
+
+  // @ts-expect-error - route params arrive as strings, so a number-only schema cannot validate
+  await apiFetch("/api/items/:id", { method: "DELETE", params: { id: 1 } });
+
+  // Body is typed by the route's Standard Schema input.
+  const created = await apiFetch("/api/items", { method: "POST", body: { name: "x" } });
+  const _created: { created: string } = created;
+
+  // @ts-expect-error - omitting method always means GET, never an inferred mutation
+  await apiFetch("/api/items", { body: { name: "x" } });
+
+  // A successful Response branch makes the parsed output unknowable.
+  const mixed = await apiFetch("/api/items", { method: "PUT", body: { id: 1 } });
+  // @ts-expect-error - mixed Response/JSON handlers have unknown output
+  const _mixed: { updated: boolean } = mixed;
+
+  const mutationMethod = Math.random() > 0.5 ? "POST" as const : "PUT" as const;
+  // @ts-expect-error - a union method must stay correlated with its body shape
+  await apiFetch("/api/items", { method: mutationMethod, body: { name: "x" } });
+
+  // @ts-expect-error - inferred JSON outputs must survive serialization unchanged
+  defineApi({ handler: () => ({ createdAt: new Date() }) });
+  // @ts-expect-error - undefined is not a top-level JSON value
+  defineApi({ handler: () => undefined });
+
+  // A default handler remains available for methods without a named override.
+  const fallback = await apiFetch("/api/items/:id", { method: "PATCH", params: { id: "1" } });
+  const _fallback: unknown = fallback;
+
+  // @ts-expect-error - unknown api path
+  await apiFetch("/api/nope");
+
+  // @ts-expect-error - missing required params
+  await apiFetch("/api/items/:id");
+
+  // @ts-expect-error - body must match the schema input
+  await apiFetch("/api/items", { method: "POST", body: { name: 1 } });
+
+  // @ts-expect-error - POST requires a body
+  await apiFetch("/api/items", { method: "POST" });
+
+  // @ts-expect-error - GET is not exported for /api/items
+  await apiFetch("/api/items", { method: "GET" });
+
+  // json() handlers keep their payload type (and status freedom) on the client.
+  const uploaded = await apiFetch("/api/uploads", {
+    method: "POST",
+    body: { name: "x", avatar: new File([], "a.png") },
+  });
+  const _uploaded: { uploaded: string } = uploaded;
+
+  // File-bearing body schemas accept FormData as the wire format.
+  await apiFetch("/api/uploads", { method: "POST", body: new FormData() });
+
+  // String query inputs stay fully typed.
+  const results = await apiFetch("/api/uploads", { query: { q: "boots" } });
+  const _results: { results: string[] } = results;
+
+  // @ts-expect-error - query values arrive as strings; a number input can never validate
+  await apiFetch("/api/uploads", { query: { q: "boots", page: 2 } });
+}
+`,
+    );
+    writeProjectFile(
+      appDir,
+      "tsconfig.json",
+      JSON.stringify(
+        {
+          compilerOptions: {
+            target: "ES2022",
+            module: "ESNext",
+            moduleResolution: "Bundler",
+            allowImportingTsExtensions: true,
+            noEmit: true,
+            strict: true,
+            skipLibCheck: true,
+            lib: ["ES2022", "DOM", "DOM.Iterable"],
+            jsx: "react-jsx",
+            jsxImportSource: "preact",
+            types: ["node", "vite/client"],
+            paths: {
+              "@pracht/core": [coreDistTypesPath],
+              "@standard-schema/spec": [standardSchemaImportPath],
+            },
+          },
+          include: ["src"],
+        },
+        null,
+        2,
+      ),
+    );
+
+    // Throws (non-zero exit) when the generated declaration fails to
+    // deliver end-to-end api types.
+    try {
+      execFileSync(process.execPath, [tscPath, "-p", "."], {
+        cwd: appDir,
+        encoding: "utf-8",
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+    } catch (error) {
+      throw new Error(error.stdout || error.stderr || error.message);
+    }
+  }, 60_000);
+
+  it("pracht dev explains how to enable generated route types", async () => {
+    const appDir = createRepoTempDir("pracht-cli-dev-typegen-hint-");
+    writeTypedManifestApp(appDir);
+
+    const child = spawn(process.execPath, [cliPath, "dev"], {
+      cwd: appDir,
+      env: process.env,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let output = "";
+    child.stdout.setEncoding("utf-8");
+    child.stderr.setEncoding("utf-8");
+    child.stdout.on("data", (chunk) => {
+      output += chunk;
+    });
+    child.stderr.on("data", (chunk) => {
+      output += chunk;
+    });
+
+    try {
+      await waitFor(
+        () => output.includes("run `pracht typegen` once"),
+        30_000,
+        () => output,
+      );
+      expect(existsSync(join(appDir, "src/pracht.d.ts"))).toBe(false);
+    } finally {
+      child.kill("SIGTERM");
+    }
+  }, 90_000);
+
+  it("pracht dev keeps generated route types in sync with route files", async () => {
+    const appDir = createRepoTempDir("pracht-cli-dev-typegen-");
+    writeTypedManifestApp(appDir);
+    writeProjectFile(
+      appDir,
+      "src/routes.ts",
+      `import { defineApp } from "@pracht/core";
+import { routes } from "./route-definitions";
+
+export const app = defineApp({ routes });
+`,
+    );
+    writeProjectFile(
+      appDir,
+      "src/route-definitions.ts",
+      `import { route } from "@pracht/core";
+
+export const routes = [
+  route("/", "./routes/home.tsx", { id: "home", render: "ssg" }),
+];
+`,
+    );
+    runCli(["typegen"], { cwd: appDir });
+
+    const child = spawn(process.execPath, [cliPath, "dev"], {
+      cwd: appDir,
+      env: process.env,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let output = "";
+    child.stdout.setEncoding("utf-8");
+    child.stderr.setEncoding("utf-8");
+    child.stdout.on("data", (chunk) => {
+      output += chunk;
+    });
+    child.stderr.on("data", (chunk) => {
+      output += chunk;
+    });
+
+    try {
+      // The route-type watcher attaches before the banner prints.
+      await waitFor(
+        () => output.includes("http"),
+        30_000,
+        () => output,
+      );
+
+      writeProjectFile(
+        appDir,
+        "src/api/ping.ts",
+        "export function GET() {\n  return Response.json({ pong: true });\n}\n",
+      );
+
+      await waitFor(
+        () => readFileSync(join(appDir, "src/pracht.d.ts"), "utf-8").includes('"/api/ping"'),
+        30_000,
+        () => output,
+      );
+
+      writeProjectFile(
+        appDir,
+        "src/route-definitions.ts",
+        `import { route } from "@pracht/core";
+
+export const routes = [
+  route("/", "./routes/home.tsx", { id: "home", render: "ssg" }),
+  route("/settings", "./routes/home.tsx", { id: "settings", render: "ssr" }),
+];
+`,
+      );
+
+      await waitFor(
+        () => readFileSync(join(appDir, "src/pracht.d.ts"), "utf-8").includes('"settings"'),
+        30_000,
+        () => output,
+      );
+    } finally {
+      child.kill("SIGTERM");
+    }
+  }, 90_000);
 
   it("scaffolds pages-router routes without touching a manifest", () => {
     const appDir = createTempDir("pracht-cli-pages-");
@@ -429,6 +715,19 @@ export const app = defineApp({
     expect(routeSource).toContain('slug: "example-slug"');
   });
 });
+
+async function waitFor(predicate, timeoutMs, describeFailure) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (predicate()) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  throw new Error(
+    `Timed out waiting for condition.${describeFailure ? `\n${describeFailure()}` : ""}`,
+  );
+}
 
 function createTempDir(prefix) {
   const dir = mkdtempSync(join(tmpdir(), prefix));
@@ -605,6 +904,85 @@ export function Component() { return null; }
     `export async function loader() {
   return { widgets: 3 };
 }
+`,
+  );
+  writeProjectFile(
+    appDir,
+    "src/lib/schema-util.ts",
+    `import type { StandardSchemaV1 } from "@standard-schema/spec";
+
+export function passthroughSchema<TInput, TOutput = TInput>(): StandardSchemaV1<TInput, TOutput> {
+  return {
+    "~standard": {
+      version: 1,
+      vendor: "fixture",
+      validate: (value) => ({ value: value as TOutput }),
+    },
+  };
+}
+`,
+  );
+  writeProjectFile(
+    appDir,
+    "src/api/items/[id].ts",
+    `import { defineApi } from "@pracht/core";
+import { passthroughSchema } from "../../lib/schema-util";
+
+export const GET = defineApi({
+  params: passthroughSchema<{ id: string }, { id: number }>(),
+  handler: ({ params }) => ({ id: params.id }),
+});
+
+export const HEAD = defineApi({
+  handler: ({ params }) => ({ id: params.id }),
+});
+
+export default async function handler() {
+  return new Response("fallback");
+}
+
+export const DELETE = defineApi({
+  params: passthroughSchema<{ id: number }>(),
+  handler: () => ({ deleted: true }),
+});
+`,
+  );
+  writeProjectFile(
+    appDir,
+    "src/api/items/index.ts",
+    `import { writeFileSync } from "node:fs";
+import { defineApi } from "@pracht/core";
+import { passthroughSchema } from "../../lib/schema-util";
+
+writeFileSync("api-module-loaded", "typegen executed an API module");
+
+export const POST = defineApi({
+  body: passthroughSchema<{ name: string }>(),
+  handler: ({ body }) => ({ created: body.name }),
+});
+
+export const PUT = defineApi({
+  body: passthroughSchema<{ id: number }>(),
+  handler: () =>
+    Math.random() > 0.5 ? { updated: true } : new Response(null, { status: 204 }),
+});
+`,
+  );
+  writeProjectFile(
+    appDir,
+    "src/api/uploads.ts",
+    `import { defineApi, json } from "@pracht/core";
+import { passthroughSchema } from "../lib/schema-util";
+
+export const POST = defineApi({
+  body: passthroughSchema<{ name: string; avatar: File }>(),
+  handler: ({ body }) => json({ uploaded: body.name }, { status: 201 }),
+});
+
+export const GET = defineApi({
+  query: passthroughSchema<{ q: string; page?: number }>(),
+  handler: ({ query }) => ({ results: [query.q] }),
+});
 `,
   );
 }

@@ -6,8 +6,8 @@ prev:
   href: /docs/data-loading
   title: Data Loading
 next:
-  href: /docs/middleware
-  title: Middleware
+  href: /docs/api-validation
+  title: API Validation
 ---
 
 ## File Convention
@@ -137,3 +137,34 @@ export function GET() {
   });
 }
 ```
+
+---
+
+## Validation and Typed Fetch
+
+Wrap a handler with `defineApi()` to validate the request with any [Standard Schema](https://standardschema.dev) validator (zod, valibot, arktype, …) before it runs. Invalid requests get a standardized 422 response (`{ error: "validation", issues }`); handlers can return JSON-safe primitives, arrays, and plain objects, sent as `Response.json()`. Serialize values such as `Date` explicitly, or return a `Response` for custom wire formats.
+
+```ts [src/api/items.ts]
+import { defineApi } from "@pracht/core";
+import * as z from "zod";
+
+export const POST = defineApi({
+  body: z.object({ name: z.string().min(1) }),
+  handler: ({ body }) => ({ created: body.name }),
+});
+```
+
+Run `pracht typegen` and the `apiFetch()` client checks every call at compile time — paths, methods, params, bodies, queries — and returns the handler's response type:
+
+```ts
+import { apiFetch } from "@pracht/core";
+
+const created = await apiFetch("/api/items", {
+  method: "POST",
+  body: { name: "Pracht" }, // type-checked against the body schema
+});
+```
+
+Query and params values reach their schemas as strings (the URL wire format) — use string-accepting inputs like `z.coerce.number()`, never `z.number()`; generated calls reject concrete schema keys that cannot accept strings. Handlers that need a custom status code keep their typed payload with `json(value, { status: 201 })` instead of `Response.json()`. After the first `pracht typegen` run, `pracht dev` refreshes the generated types automatically when route files are added, removed, or renamed and when the route manifest or an imported definition module changes; before it, the dev banner prints a setup tip.
+
+Non-2xx responses throw `ApiFetchError`; validation failures expose the normalized `issues` for form error display. `<Form>` accepts the same schemas via its `schema` and `onValidationIssues` props, so client-side and server-side validation share one schema module; its `onResponse` prop receives every non-redirect response for success payloads and non-validation failures.

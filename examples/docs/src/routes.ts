@@ -44,6 +44,10 @@ export const app = defineApp({
         id: "api-routes",
         render: "ssg",
       }),
+      route("/docs/api-validation", () => import("./routes/docs/api-validation.md"), {
+        id: "api-validation",
+        render: "ssg",
+      }),
       route("/docs/middleware", () => import("./routes/docs/middleware.md"), {
         id: "middleware",
         render: "ssg",

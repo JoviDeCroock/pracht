@@ -12,6 +12,31 @@ export {
   webhookRevalidate,
 } from "./app.ts";
 export { createHref } from "./href.ts";
+export {
+  apiValidationErrorResponse,
+  defineApi,
+  formDataToRecord,
+  isApiValidationErrorBody,
+  json,
+  searchParamsToRecord,
+  validateStandardSchema,
+} from "./api-validation.ts";
+export type {
+  ApiHandlerTypes,
+  ApiJsonPrimitive,
+  ApiJsonValue,
+  ApiRouteMethodMap,
+  ApiRouteSchemas,
+  ApiValidationErrorBody,
+  ApiValidationIssue,
+  ApiValidationPathSegment,
+  ApiValidationSource,
+  DefineApiConfig,
+  TypedJsonResponse,
+  ValidatedApiArgs,
+  ValidatedApiHandler,
+} from "./api-validation.ts";
+export { apiFetch, ApiFetchError } from "./api-fetch.ts";
 export { filterPublicEnv, PRACHT_PUBLIC_ENV_PREFIX, publicEnv } from "./env.ts";
 export type { PrachtPublicEnv, PrachtServerEnv, PublicEnvOf } from "./env.ts";
 export { setServerEnv } from "./env-server.ts";
@@ -66,6 +91,7 @@ export type {
   ApiRouteArgs,
   ApiRouteHandler,
   Register,
+  RegisteredContext,
   BuildHrefOptions,
   ApiRouteMatch,
   ApiRouteModule,

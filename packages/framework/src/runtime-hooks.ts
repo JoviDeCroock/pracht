@@ -1,7 +1,14 @@
 import { h } from "preact";
 import type { JSX } from "preact";
 import { useContext, useEffect, useState } from "preact/hooks";
+import type { StandardSchemaV1 } from "@standard-schema/spec";
 
+import {
+  formDataToRecord,
+  isApiValidationErrorBody,
+  validateStandardSchema,
+  type ApiValidationIssue,
+} from "./api-validation.ts";
 import { buildHref } from "./route-matching.ts";
 import {
   beginSubmittingNavigation,
@@ -29,6 +36,7 @@ import { clearPrefetchCache } from "./prefetch-cache.ts";
 import { deserializeRouteError } from "./runtime-errors.ts";
 import { fetchPrachtRouteState, navigateToClientLocation } from "./runtime-client-fetch.ts";
 import type {
+  ApiPath,
   LinkPrefetchStrategy,
   LoaderData,
   LoaderLike,
@@ -43,8 +51,33 @@ export type { PrachtHydrationState, StartAppOptions };
 export type { Navigation, NavigationLocation } from "./navigation-state.ts";
 
 export interface FormProps extends Omit<JSX.HTMLAttributes<HTMLFormElement>, "action" | "method"> {
-  action?: string;
+  /**
+   * Form action. Autocompletes API route paths registered by `pracht typegen`
+   * while still accepting any URL string (dynamic segments must be
+   * interpolated by the caller).
+   */
+  action?: ApiPath | (string & {});
   method?: string;
+  /**
+   * Standard Schema validated against the form's data (one entry per field,
+   * arrays for repeated fields) before submitting. When validation fails the
+   * request is skipped and `onValidationIssues` fires with the issues.
+   */
+  schema?: StandardSchemaV1;
+  /**
+   * Called with normalized validation issues when the client-side `schema`
+   * rejects a submission, or when the server responds with the standardized
+   * validation failure produced by `defineApi()` (HTTP 400/422,
+   * `{ error: "validation", issues }`).
+   */
+  onValidationIssues?: (issues: ApiValidationIssue[]) => void;
+  /**
+   * Called with the server's response for every non-redirect fetch
+   * submission — success payloads (2xx) and failures (4xx/5xx) alike. Read
+   * the body with `response.json()`; validation-issue handling parses a
+   * clone, so the body is never consumed before this callback.
+   */
+  onResponse?: (response: Response) => void;
 }
 
 export type LinkProps<TRoute extends RouteId = RouteId> = Omit<
@@ -67,6 +100,8 @@ export type LinkProps<TRoute extends RouteId = RouteId> = Omit<
      */
     viewTransition?: boolean;
   };
+
+const validatedNativeSubmissions = new WeakSet<HTMLFormElement>();
 
 export interface Location {
   pathname: string;
@@ -167,31 +202,63 @@ export function Link<TRoute extends RouteId>(props: LinkProps<TRoute>) {
 }
 
 export function Form(props: FormProps) {
-  const { onSubmit, method, ...rest } = props;
+  const { onSubmit, method, schema, onValidationIssues, onResponse, ...rest } = props;
 
   return h("form", {
     ...rest,
     method,
     onSubmit: async (event: Event) => {
+      const form = event.currentTarget;
+      if (!(form instanceof HTMLFormElement)) {
+        return;
+      }
+      if (validatedNativeSubmissions.delete(form)) {
+        return;
+      }
+
       onSubmit?.(event as never);
       if (event.defaultPrevented) {
         return;
       }
 
-      const form = event.currentTarget;
-      if (!(form instanceof HTMLFormElement)) {
-        return;
-      }
-
-      const formMethod = (method ?? form.method ?? "post").toUpperCase();
-      if (SAFE_METHODS.has(formMethod)) {
+      const submitter =
+        typeof SubmitEvent !== "undefined" && event instanceof SubmitEvent ? event.submitter : null;
+      const nativeSubmitter =
+        (submitter instanceof HTMLButtonElement || submitter instanceof HTMLInputElement) &&
+        submitter.form === form
+          ? submitter
+          : undefined;
+      const submitterMethod = nativeSubmitter?.getAttribute("formmethod") || undefined;
+      const formMethod = (submitterMethod ?? method ?? form.method ?? "post").toUpperCase();
+      const isSafeMethod = SAFE_METHODS.has(formMethod);
+      if (isSafeMethod && !schema) {
         return;
       }
 
       event.preventDefault();
+      const submitterAction = nativeSubmitter?.getAttribute("formaction");
+      const actionUrl = submitterAction ?? props.action ?? form.action;
+      const formData = new FormData(form, nativeSubmitter);
+
+      if (schema) {
+        const result = await validateStandardSchema(schema, formDataToRecord(formData), "body");
+        if (result.issues) {
+          onValidationIssues?.(result.issues);
+          return;
+        }
+      }
+
+      if (isSafeMethod) {
+        validatedNativeSubmissions.add(form);
+        try {
+          form.requestSubmit(nativeSubmitter);
+        } finally {
+          validatedNativeSubmissions.delete(form);
+        }
+        return;
+      }
+
       clearPrefetchCache();
-      const actionUrl = props.action ?? form.action;
-      const formData = new FormData(form);
       // Expose the in-flight submission through useNavigation().
       const navigationToken = beginSubmittingNavigation(
         createNavigationLocation(actionUrl),
@@ -210,6 +277,17 @@ export function Form(props: FormProps) {
         ) {
           const location = response.headers.get("location");
           await navigateToClientLocation(location ?? actionUrl, { reloadRouteState: true });
+        } else {
+          if ((response.status === 400 || response.status === 422) && onValidationIssues) {
+            const body = await response
+              .clone()
+              .json()
+              .catch(() => null);
+            if (isApiValidationErrorBody(body)) {
+              onValidationIssues(body.issues);
+            }
+          }
+          onResponse?.(response);
         }
       } finally {
         settleNavigation(navigationToken);

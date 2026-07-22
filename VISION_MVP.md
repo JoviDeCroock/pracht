@@ -111,6 +111,13 @@ Standalone server endpoints independent of the page rendering pipeline:
 - Return `Response` objects directly — full control over status, headers, body.
 - API routes are independent of page-route middleware by default. Shared API
   policy can be attached explicitly via `defineApp({ api: { middleware: [...] } })`.
+- Opt-in request validation via `defineApi()` with any
+  [Standard Schema](https://standardschema.dev) validator (body, query,
+  params), standardized 422 issue responses, and JSON-value handler returns.
+- `pracht typegen` registers each API route's request/response types so the
+  `apiFetch()` client checks paths, methods, bodies, queries, and params at
+  compile time and returns typed responses. See
+  [docs/API_VALIDATION.md](docs/API_VALIDATION.md).
 
 ### Deployment Adapters
 
