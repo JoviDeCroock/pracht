@@ -66,18 +66,66 @@ test loop. Use `--changed` to focus on changed manifest-managed files and
 exists (written by `pracht build` when budgets are configured), the last
 build's client JS budget results are surfaced as checks.
 
+When the app declares `defineApp({ constraints })` or commits a
+`.pracht/app-graph.json` snapshot, verification also resolves the live app
+graph, enforces every constraint, and fails if the snapshot is stale (fix with
+`pracht plan --write`).
+
 ```bash
 pracht verify
 pracht verify --changed
 pracht verify --json
 ```
 
+### `pracht plan`
+
+Semantic app-graph diff against a base git ref. Reads the
+`.pracht/app-graph.json` snapshot committed at the base ref (a route-graph
+lockfile), resolves the live graph, and prints the routes, API endpoints, and
+constraints that were added, removed, or changed — an intent-level changelog
+for reviewers. Per-route gzip sizes are annotated when the last build wrote a
+budget report.
+
+```bash
+pracht plan                       # diff against origin/main
+pracht plan --base main
+pracht plan --markdown            # fenced diff for PR comments
+pracht plan --json                # full structured payload
+pracht plan --write               # refresh .pracht/app-graph.json (commit it)
+```
+
+### `pracht report`
+
+Assemble a PR-ready markdown report from machine truth: the `pracht plan`
+diff, `pracht verify` results, and the last build's client JS budget table.
+Use it as the factual half of a PR description.
+
+```bash
+pracht report
+pracht report --base main --out pr-report.md
+```
+
+### `pracht llms`
+
+Print the embedded pracht authoring guide for coding agents (project layout,
+conventions, the verify → plan → report loop). `--write` saves it as
+`llms.txt` in the app root so agents pick it up automatically.
+
+```bash
+pracht llms
+pracht llms --write
+```
+
 ### `pracht generate route`
 
 Create a new route module. In manifest apps this also updates `src/routes.ts`.
+When the app has a Playwright setup (`playwright.config.*` or an `e2e/`
+directory), a smoke test is emitted at `e2e/<route-id>.spec.ts` as well —
+`--no-test` skips it, `--test` forces it.
 
 ```bash
 pracht generate route --path /dashboard --render ssr --shell app --middleware auth
+pracht generate route --path /blog/:slug --render ssg --no-test
 ```
 
 ### `pracht generate shell`
@@ -142,7 +190,8 @@ pracht doctor --json
 ### `pracht mcp`
 
 Start a Model Context Protocol server on stdio that exposes inspect, doctor,
-verify, and generate as native tools for coding agents. See
+verify, plan, report, generate, and the authoring guide (`get_docs`) as native
+tools for coding agents. See
 [docs/MCP.md](https://github.com/JoviDeCroock/pracht/blob/main/docs/MCP.md)
 for client registration and the tool reference.
 

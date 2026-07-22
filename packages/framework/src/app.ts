@@ -122,6 +122,7 @@ export function defineApp(config: PrachtAppConfig): PrachtApp {
     middleware: resolveModuleRefRecord(config.middleware ?? {}),
     api: config.api ?? {},
     routes: config.routes,
+    constraints: config.constraints,
     viewTransitions: config.viewTransitions,
   };
 }
@@ -167,6 +168,7 @@ export function resolveApp(app: PrachtApp): ResolvedPrachtApp {
     api: app.api,
     routes,
     apiRoutes: [],
+    constraints: app.constraints,
     viewTransitions: app.viewTransitions,
   };
 }

@@ -14,7 +14,7 @@ export default defineCommand({
     },
   },
   async run({ args }) {
-    const report = runDoctor(process.cwd());
+    const report = await runDoctor(process.cwd());
 
     if (args.json) {
       console.log(JSON.stringify(report, null, 2));

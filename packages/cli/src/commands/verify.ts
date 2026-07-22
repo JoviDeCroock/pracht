@@ -18,7 +18,7 @@ export default defineCommand({
     },
   },
   async run({ args }) {
-    const report = runVerification(process.cwd(), { changed: Boolean(args.changed) });
+    const report = await runVerification(process.cwd(), { changed: Boolean(args.changed) });
 
     if (args.json) {
       console.log(JSON.stringify(report, null, 2));

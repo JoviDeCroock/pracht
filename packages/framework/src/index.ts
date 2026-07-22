@@ -11,6 +11,26 @@ export {
   timeRevalidate,
   webhookRevalidate,
 } from "./app.ts";
+export {
+  evaluateConstraints,
+  forbidRenderMode,
+  matchRoutePattern,
+  requireHead,
+  requireMiddleware,
+  requireRenderMode,
+  requireShell,
+} from "./constraints.ts";
+export type {
+  ConstraintRoute,
+  ConstraintViolation,
+  EvaluateConstraintsOptions,
+  ForbidRenderModeConstraint,
+  RequireHeadConstraint,
+  RequireMiddlewareConstraint,
+  RequireRenderModeConstraint,
+  RequireShellConstraint,
+  RouteConstraint,
+} from "./constraints.ts";
 export { createHref } from "./href.ts";
 export {
   apiValidationErrorResponse,

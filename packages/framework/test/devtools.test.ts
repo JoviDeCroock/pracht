@@ -21,6 +21,7 @@ const graphFixture: AppGraph = {
   routes: [
     {
       file: "./routes/home.tsx",
+      hydration: null,
       id: "home",
       loaderCache: null,
       loaderFile: null,
@@ -33,6 +34,7 @@ const graphFixture: AppGraph = {
     },
     {
       file: "./routes/user.tsx",
+      hydration: null,
       id: "user",
       loaderCache: null,
       loaderFile: "./routes/user.data.ts",
@@ -86,6 +88,7 @@ describe("buildDevtoolsHtml", () => {
       routes: [
         {
           file: "./routes/<script>alert(1)</script>.tsx",
+          hydration: null,
           id: "xss",
           loaderCache: null,
           loaderFile: null,
@@ -146,6 +149,7 @@ describe("buildAppGraph", () => {
       routes: [
         {
           file: "./routes/home.tsx",
+          hydration: null,
           id: "home",
           loaderCache: 60,
           loaderFile: null,
@@ -158,6 +162,7 @@ describe("buildAppGraph", () => {
         },
         {
           file: "./routes/user.tsx",
+          hydration: null,
           id: expect.any(String),
           loaderCache: null,
           loaderFile: null,
@@ -226,6 +231,7 @@ describe("serializeAppRoutes", () => {
 
     expect(serialized).toEqual({
       file: "./routes/home.tsx",
+      hydration: null,
       id: "",
       loaderCache: null,
       loaderFile: null,

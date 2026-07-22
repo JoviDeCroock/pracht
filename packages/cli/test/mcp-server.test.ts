@@ -39,9 +39,12 @@ describe("pracht MCP server", () => {
       "generate_middleware",
       "generate_route",
       "generate_shell",
+      "get_docs",
       "inspect_api",
       "inspect_build",
       "inspect_routes",
+      "plan",
+      "report",
       "verify",
     ]);
   });
@@ -172,6 +175,7 @@ export const app = defineApp({
       routes: [
         {
           file: "./routes/dashboard.tsx",
+          hydration: null,
           id: "dashboard",
           loaderCache: null,
           loaderFile: null,

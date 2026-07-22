@@ -59,7 +59,11 @@ describe("create-pracht", () => {
     expect(gitignore).toContain(".env*");
     expect(gitignore).toContain("!.env.example");
     expect(gitignore).toContain(".dev.vars");
+    expect(gitignore).not.toContain("\n.pracht\n");
+    expect(gitignore).toContain("Keep .pracht/app-graph.json committed");
     expect(routes).toContain('route("/", "./routes/home.tsx"');
+    expect(routes).toContain("// constraints: [");
+    expect(routes).toContain('//   requireHead("**"),');
     expect(existsSync(join(targetDir, "wrangler.jsonc"))).toBe(false);
 
     const dockerfile = await readFile(join(targetDir, "Dockerfile"), "utf-8");
@@ -73,6 +77,9 @@ describe("create-pracht", () => {
     expect(dockerignore).toContain("node_modules");
     expect(dockerignore).toContain(".env*");
     expect(readme).toContain("docker build");
+    expect(readme).toContain("`pracht verify` validates routes and constraints.");
+    expect(readme).toContain("`pracht plan --write`");
+    expect(readme).toContain("`pracht report`");
 
     const viteConfig = await readFile(join(targetDir, "vite.config.ts"), "utf-8");
     expect(viteConfig).not.toContain("tailwindcss");
@@ -83,6 +90,10 @@ describe("create-pracht", () => {
     expect(agents).toContain("manifest routing");
     expect(agents).toContain("src/routes.ts");
     expect(agents).toContain("pracht generate route");
+    expect(agents).toContain("pracht verify");
+    expect(agents).toContain("pracht plan --write");
+    expect(agents).toContain("pracht report");
+    expect(agents).toContain("pracht llms --write");
     expect(agents).toContain("pnpm dev");
 
     const claudeLink = await readlink(join(targetDir, "CLAUDE.md"));

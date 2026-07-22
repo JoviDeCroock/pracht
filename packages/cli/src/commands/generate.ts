@@ -1,4 +1,5 @@
-import { readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { resolve } from "node:path";
 
 import { defineCommand } from "citty";
 
@@ -41,6 +42,7 @@ import {
   buildManifestRouteModuleSource,
   buildMiddlewareModuleSource,
   buildPagesRouteModuleSource,
+  buildRouteSmokeTestSource,
   buildShellModuleSource,
 } from "./generate-source.js";
 
@@ -65,6 +67,11 @@ const routeCommand = defineCommand({
     "static-paths": { type: "boolean", description: "Include static paths" },
     title: { type: "string", description: "Page title" },
     revalidate: { type: "string", description: "ISG revalidation seconds" },
+    test: {
+      type: "boolean",
+      description:
+        "Emit a Playwright smoke test in e2e/ (default: on when the app has a Playwright setup; --no-test to skip)",
+    },
     json: { type: "boolean", description: "Output as JSON" },
   },
   async run({ args }) {
@@ -160,6 +167,7 @@ export interface RouteArgs {
   revalidate?: string;
   shell?: string;
   "static-paths"?: boolean;
+  test?: boolean;
   title?: string;
 }
 
@@ -181,7 +189,7 @@ export function generateRoute(args: RouteArgs, project: ProjectConfig): Generate
     if (middleware.length > 0) {
       throw new Error("`pracht generate route --middleware` is only available for manifest apps.");
     }
-    return generatePagesRoute({
+    const result = generatePagesRoute({
       includeErrorBoundary,
       includeLoader,
       includeStaticPaths,
@@ -190,6 +198,8 @@ export function generateRoute(args: RouteArgs, project: ProjectConfig): Generate
       routePath,
       title,
     });
+    maybeGenerateSmokeTest(project, routePath, title, args.test, result);
+    return result;
   }
 
   const manifestPath = resolveProjectPath(project.root, project.appFile);
@@ -257,11 +267,46 @@ export function generateRoute(args: RouteArgs, project: ProjectConfig): Generate
   );
   writeFileSync(manifestPath, ensureTrailingNewline(nextManifestSource), "utf-8");
 
-  return {
+  const result: GenerateResult = {
     created: [displayPath(project.root, routeFile.absolutePath)],
     kind: "route",
     updated: [displayPath(project.root, manifestPath)],
   };
+  maybeGenerateSmokeTest(project, routePath, title, args.test, result);
+  return result;
+}
+
+/**
+ * Emit a Playwright smoke test next to a generated route. Defaults to on when
+ * the app has a Playwright setup (playwright.config.* or an e2e/ directory);
+ * `--test` forces emission, `--no-test` skips it.
+ */
+function maybeGenerateSmokeTest(
+  project: ProjectConfig,
+  routePath: string,
+  title: string,
+  testFlag: boolean | undefined,
+  result: GenerateResult,
+): void {
+  const shouldEmit = testFlag ?? hasPlaywrightSetup(project.root);
+  if (!shouldEmit) return;
+
+  const testFile = resolve(project.root, "e2e", `${routeIdFromPath(routePath)}.spec.ts`);
+  writeGeneratedFile(testFile, buildRouteSmokeTestSource({ routePath, title }));
+  result.created.push(displayPath(project.root, testFile));
+}
+
+function hasPlaywrightSetup(root: string): boolean {
+  return (
+    [
+      "playwright.config.ts",
+      "playwright.config.mts",
+      "playwright.config.js",
+      "playwright.config.mjs",
+    ]
+      .map((name) => resolve(root, name))
+      .some((file) => existsSync(file)) || existsSync(resolve(root, "e2e"))
+  );
 }
 
 function generatePagesRoute({

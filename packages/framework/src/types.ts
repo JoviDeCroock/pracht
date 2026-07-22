@@ -1,5 +1,7 @@
 import type { ComponentChildren, FunctionComponent } from "preact";
 
+import type { RouteConstraint } from "./constraints.ts";
+
 /**
  * Augment this interface to register your app's context type globally.
  * Once registered, all route args (`BaseRouteArgs`, `LoaderArgs`, etc.)
@@ -520,6 +522,12 @@ export interface PrachtAppConfig {
   api?: ApiConfig;
   routes: RouteTreeNode[];
   /**
+   * Declarative invariants over the resolved route graph (e.g.
+   * `requireMiddleware("/app/**", "auth")`). Enforced deterministically by
+   * `pracht verify`; violations fail verification.
+   */
+  constraints?: RouteConstraint[];
+  /**
    * Enable the View Transitions API for every client navigation by default.
    * Individual navigations can still opt out via
    * `navigate(to, { viewTransition: false })`. Ignored in browsers without
@@ -533,6 +541,7 @@ export interface PrachtApp {
   middleware: Record<string, string>;
   api: ApiConfig;
   routes: RouteTreeNode[];
+  constraints?: RouteConstraint[];
   viewTransitions?: boolean;
 }
 

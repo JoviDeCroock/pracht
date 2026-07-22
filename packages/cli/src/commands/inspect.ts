@@ -1,14 +1,13 @@
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { serializeApiRoutes, serializeAppRoutes } from "@pracht/core";
 import type { AppGraphApiRoute, AppGraphRoute, ResolvedApiRoute } from "@pracht/core";
 import { defineCommand } from "citty";
-import { createServer } from "vite";
 
+import { withAppServer } from "../app-server.js";
 import { handleCliError } from "../utils.js";
 import { readClientBuildAssets } from "../build-metadata.js";
-import { readProjectConfig, resolveProjectPath } from "../project.js";
 
 const INSPECT_TARGETS = new Set(["routes", "api", "build", "all"]);
 
@@ -64,35 +63,7 @@ export async function runInspect(
   root: string,
   { inspectApiMethods = true, target = "all" } = {},
 ): Promise<InspectReport> {
-  const project = readProjectConfig(root);
-
-  if (!project.configFile) {
-    throw new Error(
-      "Missing vite config. `pracht inspect` requires a project with pracht configured.",
-    );
-  }
-
-  if (!project.hasPrachtPlugin) {
-    throw new Error("vite.config does not appear to register the pracht plugin.");
-  }
-
-  if (project.mode === "manifest") {
-    const manifestPath = resolveProjectPath(project.root, project.appFile);
-    if (!existsSync(manifestPath)) {
-      throw new Error(`App manifest is missing at ${project.appFile}.`);
-    }
-  }
-
-  const server = await createServer({
-    root,
-    logLevel: "silent",
-    server: {
-      middlewareMode: true,
-    },
-  });
-
-  try {
-    const serverModule = await server.ssrLoadModule("virtual:pracht/server");
+  return withAppServer(root, async ({ project, server, serverModule }) => {
     const report: InspectReport = {
       mode: project.mode,
     };
@@ -125,9 +96,7 @@ export async function runInspect(
     }
 
     return report;
-  } finally {
-    await server.close();
-  }
+  });
 }
 
 function printInspectReport(report: InspectReport): void {

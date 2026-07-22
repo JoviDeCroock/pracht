@@ -533,7 +533,8 @@ async function buildProjectFiles({
   const versions = await resolveVersions(packagesToResolve, { remote: resolveRemoteVersions });
 
   const files = {
-    ".gitignore": "dist\nnode_modules\n.wrangler\n.vercel\n.env*\n!.env.example\n.dev.vars\n",
+    ".gitignore":
+      "dist\nnode_modules\n.wrangler\n.vercel\n.env*\n!.env.example\n.dev.vars\n# Keep .pracht/app-graph.json committed — it is the `pracht plan` snapshot.\n",
     "README.md": createReadme({ adapter, packageManager, projectName, router, tailwind }),
     "package.json": createPackageJson({ adapter, projectName, tailwind, versions }),
     "src/api/health.ts": createHealthRoute(adapter),
@@ -665,6 +666,11 @@ function createRoutesFile() {
     "  routes: [",
     '    route("/", "./routes/home.tsx", { id: "home", render: "ssg", shell: "public" }),',
     "  ],",
+    "  // Declarative invariants enforced by `pracht verify` — uncomment to use",
+    "  // (add the helpers to the @pracht/core import):",
+    "  // constraints: [",
+    '  //   requireHead("**"),',
+    "  // ],",
     "});",
     "",
   ].join("\n");
@@ -954,6 +960,12 @@ function createAgentInstructions({ adapter, packageManager, router, tailwind }) 
   lines.push("- `pracht generate middleware --name auth` — add middleware");
   lines.push("- `pracht generate api --path /health --methods GET` — add an API route");
   lines.push("- `pracht doctor` — check project health");
+  lines.push("- `pracht verify` — enforce route and constraint invariants");
+  lines.push(
+    "- `pracht plan --write` — refresh the committed `.pracht/app-graph.json` snapshot after route changes",
+  );
+  lines.push("- `pracht report` — PR-ready markdown summary (plan diff, verify, budgets)");
+  lines.push("- `pracht llms --write` — write an `llms.txt` authoring guide for coding agents");
 
   lines.push("");
   lines.push("## Project structure");
@@ -1049,6 +1061,19 @@ function createReadme({ adapter, packageManager, projectName, router, tailwind }
   if (tailwind) {
     lines.push("- `src/styles/global.css` is the Tailwind CSS entry, imported by the shell.");
   }
+
+  lines.push("");
+  lines.push("## Checks");
+  lines.push("");
+  lines.push(
+    router === "pages"
+      ? "- `pracht verify` validates routes."
+      : "- `pracht verify` validates routes and constraints.",
+  );
+  lines.push(
+    "- `pracht plan --write` commits an app-graph snapshot to `.pracht/`; `pracht plan` diffs against it.",
+  );
+  lines.push("- `pracht report` prints a PR-ready summary of both.");
 
   if (adapter.id === "node") {
     lines.push("");

@@ -4,6 +4,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 
+import { AUTHORING_GUIDE } from "./authoring-guide.js";
 import { VERSION } from "./constants.js";
 import { readProjectConfig } from "./project.js";
 import { runDoctor, runVerification } from "./verification.js";
@@ -14,6 +15,8 @@ import {
   generateShell,
 } from "./commands/generate.js";
 import { runInspect } from "./commands/inspect.js";
+import { runPlan } from "./commands/plan.js";
+import { runReport } from "./commands/report.js";
 
 const cwdInput = {
   cwd: z
@@ -85,6 +88,54 @@ export function createPrachtMcpServer(): McpServer {
   );
 
   server.registerTool(
+    "plan",
+    {
+      description:
+        "Semantic app-graph diff against a base git ref: routes/API/constraints added, removed, and changed. Same payload as `pracht plan --json`. Set write=true to refresh the committed .pracht/app-graph.json snapshot instead.",
+      inputSchema: {
+        ...cwdInput,
+        base: z
+          .string()
+          .optional()
+          .describe("Base git ref to diff against (defaults to origin/main)."),
+        write: z
+          .boolean()
+          .optional()
+          .describe("Write the current app graph to .pracht/app-graph.json instead of diffing."),
+      },
+    },
+    guard(({ base, cwd, write }) =>
+      runPlan(resolveCwd(cwd), { base: base ?? "origin/main", write: Boolean(write) }),
+    ),
+  );
+
+  server.registerTool(
+    "report",
+    {
+      description:
+        "PR-ready markdown report assembled from machine truth: app-graph diff, `pracht verify` results, and client JS budgets. Use it as the factual half of a PR description.",
+      inputSchema: {
+        ...cwdInput,
+        base: z
+          .string()
+          .optional()
+          .describe("Base git ref to diff against (defaults to origin/main)."),
+      },
+    },
+    guardText(({ base, cwd }) => runReport(resolveCwd(cwd), { base: base ?? "origin/main" })),
+  );
+
+  server.registerTool(
+    "get_docs",
+    {
+      description:
+        "The pracht authoring guide for coding agents: project layout, conventions, constraints, and the commands to run before finishing a change. Read this before authoring pracht app code.",
+      inputSchema: {},
+    },
+    guardText(() => AUTHORING_GUIDE),
+  );
+
+  server.registerTool(
     "generate_route",
     {
       description:
@@ -111,6 +162,12 @@ export function createPrachtMcpServer(): McpServer {
           .positive()
           .optional()
           .describe("ISG revalidation window in seconds (isg render mode only)."),
+        test: z
+          .boolean()
+          .optional()
+          .describe(
+            "Emit a Playwright smoke test in e2e/ (defaults to on when the app has a Playwright setup).",
+          ),
       },
     },
     guard((input) => {
@@ -125,6 +182,7 @@ export function createPrachtMcpServer(): McpServer {
           revalidate: input.revalidate === undefined ? undefined : String(input.revalidate),
           shell: input.shell,
           "static-paths": input.staticPaths,
+          test: input.test,
           title: input.title,
         },
         project,
@@ -199,6 +257,25 @@ function guard<Input>(
       const result = await handler(input);
       return {
         content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return {
+        content: [{ type: "text", text: message }],
+        isError: true,
+      };
+    }
+  };
+}
+
+/** Like guard(), but for handlers that already return display-ready text. */
+function guardText<Input>(
+  handler: (input: Input) => Promise<string> | string,
+): (input: Input) => Promise<CallToolResult> {
+  return async (input) => {
+    try {
+      return {
+        content: [{ type: "text", text: await handler(input) }],
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);

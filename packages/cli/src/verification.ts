@@ -10,6 +10,7 @@ import {
   collectPagesVerification,
 } from "./verification-checks.js";
 import { collectEnvLeakVerification } from "./verification-env.js";
+import { collectGraphChecks } from "./verification-graph.js";
 import { createCheck, type Check } from "./verification-helpers.js";
 import {
   collectChangedFiles,
@@ -37,8 +38,8 @@ export interface VerificationReport {
   scope: string;
 }
 
-export function runDoctor(root: string): DoctorReport {
-  const report = runVerification(root);
+export async function runDoctor(root: string): Promise<DoctorReport> {
+  const report = await runVerification(root);
 
   return {
     checks: report.checks,
@@ -48,10 +49,10 @@ export function runDoctor(root: string): DoctorReport {
   };
 }
 
-export function runVerification(
+export async function runVerification(
   root: string,
   options: { changed?: boolean } = {},
-): VerificationReport {
+): Promise<VerificationReport> {
   const project = readProjectConfig(root);
   const checks: Check[] = [];
   const packageJsonPath = resolve(project.root, "package.json");
@@ -92,6 +93,7 @@ export function runVerification(
   collectEnvLeakVerification(project, checks, { scope });
   collectPackageChecks(project, checks, packageJsonPath);
   collectBudgetChecks(project, checks);
+  await collectGraphChecks(project, checks);
 
   if (options.changed && frameworkFiles.length === 0 && !changedInfo.warning) {
     checks.push(
