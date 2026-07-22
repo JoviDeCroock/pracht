@@ -69,6 +69,48 @@ export function buildMiddlewareModuleSource(): string {
   ].join("\n");
 }
 
+/**
+ * A Playwright smoke test emitted alongside a generated route: the route
+ * serves successfully and renders its heading. Output-level proof the route
+ * exists, cheap enough to run on every change.
+ */
+export function buildRouteSmokeTestSource({
+  routePath,
+  title,
+}: {
+  routePath: string;
+  title: string;
+}): string {
+  const visitPath = exampleVisitPath(routePath);
+  return [
+    'import { expect, test } from "@playwright/test";',
+    "",
+    `test(${quote(`renders ${routePath}`)}, async ({ page }) => {`,
+    `  const response = await page.goto(${quote(visitPath)});`,
+    '  expect(response?.status(), "route should serve successfully").toBeLessThan(400);',
+    `  await expect(page.locator("h1").first()).toHaveText(${quote(title)});`,
+    "});",
+    "",
+  ].join("\n");
+}
+
+/** Substitute example values for dynamic segments, matching the getStaticPaths stub. */
+function exampleVisitPath(routePath: string): string {
+  if (routePath === "/") return "/";
+  const segments = routePath
+    .split("/")
+    .filter(Boolean)
+    .map((segment) => {
+      if (segment === "*") return "example-slug";
+      if (segment.startsWith(":")) {
+        const name = segment.endsWith("*") ? segment.slice(1, -1) : segment.slice(1);
+        return `example-${name || "slug"}`;
+      }
+      return segment;
+    });
+  return `/${segments.join("/")}`;
+}
+
 export function buildApiRouteSource({
   endpointPath,
   methods,

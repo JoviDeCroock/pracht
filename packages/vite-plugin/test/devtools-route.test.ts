@@ -129,6 +129,7 @@ describe("dev middleware /_pracht devtools route", () => {
     expect(graph.routes).toEqual([
       {
         file: "./routes/home.tsx",
+        hydration: null,
         id: "home",
         loaderCache: null,
         loaderFile: null,
@@ -141,6 +142,7 @@ describe("dev middleware /_pracht devtools route", () => {
       },
       {
         file: "./routes/user.tsx",
+        hydration: null,
         id: expect.any(String),
         loaderCache: null,
         loaderFile: null,

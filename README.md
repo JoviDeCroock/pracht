@@ -92,16 +92,21 @@ The starter gives you:
 - `pracht build` — client/server output plus SSG/ISG prerendering, with `--analyze` for a per-route client JS report and budget enforcement
 - `pracht preview` — build and serve the production build locally
 - `pracht inspect [routes|api|build] --json` — resolved app graph metadata
-- `pracht generate route|shell|middleware|api` — framework-native scaffolding
-- `pracht verify` — fast framework-aware checks with `--changed` and `--json`
+- `pracht generate route|shell|middleware|api` — framework-native scaffolding; `generate route` also emits a Playwright smoke test when the app has an e2e setup
+- `pracht verify` — fast framework-aware checks with `--changed` and `--json`, including `defineApp({ constraints })` enforcement and app-graph snapshot freshness
+- `pracht plan` — semantic app-graph diff against a base git ref (`--write` refreshes the committed `.pracht/app-graph.json` snapshot; `--markdown` for PR comments)
+- `pracht report` — PR-ready markdown assembled from the graph diff, verify results, and bundle budgets
 - `pracht doctor` — app wiring checks with optional JSON output
 - Optional Tailwind CSS wiring, a git repo with an initial commit, and (for the Node adapter) a multi-stage `Dockerfile`
 
 ## AI-assisted development
 
-Pracht is built to be operated by coding agents as much as by humans:
+Pracht is built to be operated by coding agents as much as by humans — and for the humans reviewing what agents produce:
 
-- **MCP server** — `pracht mcp` starts a stdio [Model Context Protocol](https://modelcontextprotocol.io) server so agents can natively inspect the resolved app graph, run doctor/verify diagnostics, and scaffold routes, shells, middleware, and API handlers. See [docs/MCP.md](docs/MCP.md) for registration and the tool reference.
+- **Provable changes** — a committed app-graph snapshot (`.pracht/app-graph.json`) plus `pracht plan` gives reviewers an intent-level diff of routes, render modes, shells, middleware, and API endpoints; `pracht report` turns it into the factual half of a PR description. See [docs/AGENT_WORKFLOW.md](docs/AGENT_WORKFLOW.md).
+- **Machine-enforced invariants** — `defineApp({ constraints })` declares rules like `requireMiddleware("/app/**", "auth")` that `pracht verify` enforces deterministically, so no author (human or LLM) can merge a violation.
+- **MCP server** — `pracht mcp` starts a stdio [Model Context Protocol](https://modelcontextprotocol.io) server so agents can natively inspect the resolved app graph, run doctor/verify diagnostics, diff and snapshot the graph (plan/report), read the authoring guide (get_docs), and scaffold routes, shells, middleware, and API handlers. See [docs/MCP.md](docs/MCP.md) for registration and the tool reference.
+- **Authoring guide for agents** — `pracht llms --write` drops the framework's conventions into `llms.txt` so any coding agent picks them up.
 - **Claude Code skills** — repo-local skills for scaffolding, auditing, debugging, and deploying pracht apps live in [skills/](skills/README.md).
 
 ## Repo map
@@ -116,6 +121,7 @@ Pracht is built to be operated by coding agents as much as by humans:
 - [docs/STYLING.md](docs/STYLING.md) — CSS Modules, Tailwind, CSS-in-JS limitations
 - [docs/ADAPTERS.md](docs/ADAPTERS.md) — Node, Cloudflare, Vercel deployment paths
 - [docs/MCP.md](docs/MCP.md) — built-in MCP server for coding agents
+- [docs/AGENT_WORKFLOW.md](docs/AGENT_WORKFLOW.md) — constraints, app-graph snapshots, `pracht plan`/`report`
 - [docs/ENV.md](docs/ENV.md) — typed env access, `PRACHT_PUBLIC_` prefix rule, leak detection
 - [packages/start/README.md](packages/start/README.md) — starter CLI details
 

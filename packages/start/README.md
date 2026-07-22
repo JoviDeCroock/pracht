@@ -18,6 +18,8 @@ npm run dev
 - Lets the user choose between the Node.js, Cloudflare, and Vercel adapters.
 - Optionally wires up Tailwind CSS (`tailwindcss` + `@tailwindcss/vite`, a global stylesheet, and the shell import).
 - Scaffolds a minimal app with a route manifest or pages router, shell, home route, sample API route, runnable project README, and agent instructions.
+- Manifest scaffolds include a commented-out `constraints` example in `src/routes.ts`, ready for `pracht verify`.
+- The generated `.gitignore` keeps `.pracht/app-graph.json` committable, and the README and agent instructions cover the `pracht verify` / `pracht plan` / `pracht report` loop.
 - Initializes a git repository with an initial commit (skipped with `--no-git`, when git is unavailable, or when the target is already inside a repository).
 - `--dry-run` uses pinned fallback versions and does not require npm registry access.
 

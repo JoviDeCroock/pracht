@@ -34,8 +34,11 @@ pracht generate api --path /health --methods GET,POST
 ```
 
 - Add `--json` when another agent/tool needs machine-readable output.
+- `generate route` also emits a Playwright smoke test in `e2e/` when the app has a Playwright setup (`playwright.config.*` or an `e2e/` directory). Pass `--no-test` to skip it, `--test` to force it. Keep the generated test — it is the output-level proof the route works.
 - Use `pracht inspect routes --json` or `pracht inspect api --json` to confirm current wiring before manual edits when the existing graph matters.
 - If the app has typed routes (`src/pracht-routes.ts` / `.d.ts`) or the user asks for typed links, run `pracht typegen` after adding or renaming routes.
+- If the app commits `.pracht/app-graph.json`, run `pracht plan --write` after changing routes and include the refreshed snapshot — `pracht verify` fails when it is stale.
+- If `src/routes.ts` declares `constraints:`, respect them (e.g. put new `/app/**` routes behind the required middleware). Never delete or weaken a constraint to make `pracht verify` pass — that is a policy change the user must approve.
 - If the CLI can express the request, do not reimplement the scaffold by hand.
 - Only edit files manually when the CLI cannot cover the requested shape.
 
@@ -151,6 +154,7 @@ Import `timeRevalidate` from `"@pracht/core"` when using ISG.
 4. Keep generated code minimal — only include exports the user actually needs.
 5. Use Preact idioms: `class` not `className`, functional components, `import type` for type-only imports.
 6. When route ids/paths change in a typed-routes app, run `pracht typegen` and include the generated route files.
-7. After scaffolding, summarize what was created and how it was wired.
+7. Finish with `pracht verify` (and `pracht plan --write` when the app commits an app-graph snapshot).
+8. After scaffolding, summarize what was created and how it was wired.
 
 $ARGUMENTS

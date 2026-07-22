@@ -6,8 +6,8 @@ prev:
   href: /docs/performance
   title: Performance
 next:
-  href: /docs/recipes/i18n
-  title: i18n
+  href: /docs/agent-workflow
+  title: AI-Assisted Authoring & Review
 ---
 
 ## One URL, Two Representations
@@ -95,6 +95,19 @@ llmsTxt({
 ```
 
 Agents can start at `/llms.txt`, follow the canonical route URLs, and request any page with `Accept: text/markdown` when they need exact source.
+
+---
+
+## Framework Docs for Agents
+
+Content negotiation and `llms.txt` cover your site's content. For the framework's own conventions, the CLI ships an embedded authoring guide: `pracht llms` prints it, and `pracht llms --write` saves it as `llms.txt` in the app root so coding agents working in the repo pick it up.
+
+```sh
+pracht llms
+pracht llms --write
+```
+
+The MCP server (`pracht mcp`) exposes the same guide via the `get_docs` tool, alongside `plan` and `report` for app-graph diffs and PR reports. See [AI-Assisted Authoring & Review](/docs/agent-workflow) for the full workflow.
 
 ---
 

@@ -136,6 +136,25 @@ Each adapter:
 - Implements ISG revalidation only when the platform has appropriate persistent storage/cache semantics, and documents/warns otherwise
 - Generates a platform-specific entry module via the Vite plugin
 
+### Agent Workflow (provable authoring, reviewable changes)
+
+- **Constraints**: `defineApp({ constraints })` declares invariants over the route
+  graph (`requireMiddleware`, `requireShell`, `requireRenderMode`,
+  `forbidRenderMode`, `requireHead`); `pracht verify` enforces them
+  deterministically.
+- **App-graph snapshot + plan**: `.pracht/app-graph.json` is a committed
+  route-graph lockfile; `pracht plan` diffs the live graph against a base git ref
+  for an intent-level changelog (`--markdown` for PR comments); verify fails when
+  the snapshot is stale.
+- **Report**: `pracht report` assembles a PR-ready markdown body from the graph
+  diff, verify results, and bundle budgets.
+- **Smoke tests**: `pracht generate route` emits a Playwright smoke test when the
+  app has an e2e setup.
+- **Authoring guide**: `pracht llms [--write]` and the MCP `get_docs` tool expose
+  the framework's conventions to any coding agent.
+
+See [docs/AGENT_WORKFLOW.md](docs/AGENT_WORKFLOW.md).
+
 ### Skills (Claude Code)
 
 Repo-local Claude Code commands for framework developers live in `.claude/commands/`:
@@ -203,7 +222,7 @@ pracht/
     adapter-node/     # Node.js server adapter
     adapter-cloudflare/  # Cloudflare Workers adapter
     adapter-vercel/      # Vercel Edge adapter
-    cli/              # Dev/build/generate/inspect/verify/doctor commands
+    cli/              # Dev/build/generate/inspect/verify/plan/report/doctor commands
     create-pracht/     # (Phase 2) Starter scaffolding
   example/            # Working example app
   docs/               # Architecture and design docs

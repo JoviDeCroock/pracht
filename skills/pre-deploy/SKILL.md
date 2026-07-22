@@ -51,8 +51,13 @@ If the app uses generated typed routes (`src/pracht-routes.ts` or
 pracht typegen --check
 ```
 
-These catch app-graph wiring problems independent of the adapter. Resolve all
-`status: "error"` entries before continuing.
+These catch app-graph wiring problems independent of the adapter — including
+`defineApp({ constraints })` violations and a stale `.pracht/app-graph.json`
+snapshot (fix the latter with `pracht plan --write`, then re-review the plan
+output). Resolve all `status: "error"` entries before continuing.
+
+When the deploy corresponds to a PR, `pracht report --base origin/main` produces
+a markdown summary (graph diff + verify + budgets) worth attaching to it.
 
 ## Step 3: Adapter-specific checklist
 
