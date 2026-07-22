@@ -18,10 +18,12 @@ function makeRoute(path: string, overrides: Record<string, unknown> = {}) {
     loaderFile: null,
     middleware: [],
     path,
+    prefetch: null,
     render: "ssr",
     revalidate: null,
     shell: null,
     shellFile: null,
+    speculation: null,
     ...overrides,
   };
 }
@@ -43,8 +45,8 @@ describe("normalizeGraphSnapshot", () => {
       makeSnapshot({
         routes: [makeRoute("/b"), makeRoute("/a")],
         api: [
-          { file: "/src/api/z.ts", methods: ["GET"], path: "/api/z" },
-          { file: "/src/api/a.ts", methods: ["GET"], path: "/api/a" },
+          { file: "/src/api/z.ts", hasDefaultHandler: false, methods: ["GET"], path: "/api/z" },
+          { file: "/src/api/a.ts", hasDefaultHandler: false, methods: ["GET"], path: "/api/a" },
         ],
       }),
     );
@@ -104,13 +106,30 @@ describe("diffGraphSnapshots", () => {
 
   it("detects api and constraint changes", () => {
     const base = makeSnapshot({
-      api: [{ file: "/src/api/health.ts", methods: ["GET"], path: "/api/health" }],
+      api: [
+        {
+          file: "/src/api/health.ts",
+          hasDefaultHandler: false,
+          methods: ["GET"],
+          path: "/api/health",
+        },
+      ],
       constraints: [{ kind: "require-head", pattern: "**" }],
     });
     const head = makeSnapshot({
       api: [
-        { file: "/src/api/health.ts", methods: ["GET", "POST"], path: "/api/health" },
-        { file: "/src/api/webhooks/stripe.ts", methods: ["POST"], path: "/api/webhooks/stripe" },
+        {
+          file: "/src/api/health.ts",
+          hasDefaultHandler: false,
+          methods: ["GET", "POST"],
+          path: "/api/health",
+        },
+        {
+          file: "/src/api/webhooks/stripe.ts",
+          hasDefaultHandler: false,
+          methods: ["POST"],
+          path: "/api/webhooks/stripe",
+        },
       ],
       constraints: [
         { kind: "require-head", pattern: "**" },

@@ -44,6 +44,7 @@ describe("create-pracht", () => {
         short: "node",
       },
       packageManager: "pnpm",
+      resolveRemoteVersions: false,
       targetDir,
     });
 
@@ -139,6 +140,7 @@ describe("create-pracht", () => {
         short: "cf",
       },
       packageManager: "pnpm",
+      resolveRemoteVersions: false,
       targetDir,
     });
 
@@ -204,6 +206,7 @@ describe("create-pracht", () => {
         short: "vercel",
       },
       packageManager: "pnpm",
+      resolveRemoteVersions: false,
       targetDir,
     });
 
@@ -261,6 +264,7 @@ describe("create-pracht", () => {
         short: "node",
       },
       packageManager: "pnpm",
+      resolveRemoteVersions: false,
       router: "pages",
       targetDir,
     });
@@ -286,6 +290,7 @@ describe("create-pracht", () => {
     await scaffoldProject({
       adapter: NODE_ADAPTER,
       packageManager: "pnpm",
+      resolveRemoteVersions: false,
       tailwind: true,
       targetDir,
     });
@@ -315,6 +320,7 @@ describe("create-pracht", () => {
     await scaffoldProject({
       adapter: NODE_ADAPTER,
       packageManager: "pnpm",
+      resolveRemoteVersions: false,
       router: "pages",
       tailwind: true,
       targetDir,
@@ -400,6 +406,7 @@ describe("create-pracht", () => {
     await scaffoldProject({
       adapter: NODE_ADAPTER,
       packageManager: "pnpm",
+      resolveRemoteVersions: false,
       targetDir,
     });
 
@@ -427,6 +434,7 @@ describe("create-pracht", () => {
       adapter: NODE_ADAPTER,
       agentTools: false,
       packageManager: "pnpm",
+      resolveRemoteVersions: false,
       targetDir,
     });
 
@@ -444,6 +452,7 @@ describe("create-pracht", () => {
     await scaffoldProject({
       adapter: NODE_ADAPTER,
       packageManager: "pnpm",
+      resolveRemoteVersions: false,
       targetDir,
     });
 
@@ -471,6 +480,7 @@ describe("create-pracht", () => {
     await scaffoldProject({
       adapter: NODE_ADAPTER,
       packageManager: "pnpm",
+      resolveRemoteVersions: false,
       targetDir,
     });
 

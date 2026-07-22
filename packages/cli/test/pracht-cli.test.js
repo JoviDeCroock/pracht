@@ -388,7 +388,7 @@ export const app = defineApp({
     runCli(["plan", "--write"], { cwd: appDir });
     const snapshot = JSON.parse(readFileSync(join(appDir, ".pracht/app-graph.json"), "utf-8"));
     expect(snapshot.routes.map((route) => route.path)).toEqual(["/dashboard"]);
-    expect(snapshot.api.map((route) => route.path)).toEqual(["/api/health"]);
+    expect(snapshot.api.map((route) => route.path)).toEqual(["/api/health", "/api/webhook"]);
 
     initializeGitRepo(appDir);
 
@@ -410,8 +410,11 @@ export const app = defineApp({
       route("/dashboard", {
         component: () => import("./routes/dashboard.tsx"),
         loader: () => import("./server/dashboard-loader.ts"),
+        hydration: "full",
+        prefetch: "hover",
         render: "isg",
         revalidate: timeRevalidate(60),
+        speculation: "prefetch",
       }),
     ]),
     route("/pricing", () => import("./routes/pricing.tsx"), { render: "ssg" }),

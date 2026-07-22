@@ -21,7 +21,7 @@ const FALLBACK_VERSION_RANGES = {
   "@pracht/vite-plugin": "^0.3.2",
   "@tailwindcss/vite": "^4.1.0",
   tailwindcss: "^4.1.0",
-  vercel: "latest",
+  vercel: "^56.5.0",
 };
 
 async function fetchLatestVersion(packageName) {
@@ -220,6 +220,7 @@ export async function scaffoldProject({
   adapter,
   agentTools = true,
   packageManager,
+  resolveRemoteVersions = true,
   router = "manifest",
   tailwind = false,
   targetDir,
@@ -230,6 +231,7 @@ export async function scaffoldProject({
     agentTools,
     packageManager,
     projectName: packageName,
+    resolveRemoteVersions,
     router,
     tailwind,
   });

@@ -25,7 +25,6 @@ import {
   IconSparkles,
   IconPresentationAnalytics,
   IconActivity,
-  IconRobot,
 } from "@tabler/icons-preact";
 import "../styles/global.css";
 
