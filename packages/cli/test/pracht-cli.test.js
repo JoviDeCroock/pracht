@@ -662,7 +662,7 @@ export function Component() {
 
     expect(result).toMatchObject({
       capabilities: 2,
-      files: ["src/pracht-routes.d.ts", "src/pracht-routes.ts", "src/pracht-capabilities.d.ts"],
+      files: ["src/pracht.d.ts", "src/pracht-routes.ts", "src/pracht-capabilities.d.ts"],
       ok: true,
     });
     expect(declaration).toContain('declare module "@pracht/core"');

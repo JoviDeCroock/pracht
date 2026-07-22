@@ -8,7 +8,12 @@ import { collectAppGraph } from "../app-graph.js";
 import { formatDevBanner, supportsColor } from "../dev-banner.js";
 import { readProjectConfig, resolveProjectPath } from "../project.js";
 import { requirePositiveInteger } from "../utils.js";
-import { DEFAULT_DECLARATION_OUT, DEFAULT_RUNTIME_OUT, runTypegen } from "./typegen.js";
+import {
+  DEFAULT_CAPABILITIES_OUT,
+  DEFAULT_DECLARATION_OUT,
+  DEFAULT_RUNTIME_OUT,
+  runTypegen,
+} from "./typegen.js";
 
 export default defineCommand({
   meta: {
@@ -86,7 +91,11 @@ function watchGeneratedRouteTypes(server: ViteDevServer, root: string): boolean 
     return false;
   }
 
-  const generatedPaths = new Set([declarationPath, resolve(root, DEFAULT_RUNTIME_OUT)]);
+  const generatedPaths = new Set([
+    declarationPath,
+    resolve(root, DEFAULT_RUNTIME_OUT),
+    resolve(root, DEFAULT_CAPABILITIES_OUT),
+  ]);
   const appFilePath = resolveProjectPath(root, readProjectConfig(root).appFile);
   let queued: ReturnType<typeof setTimeout> | null = null;
   let running = false;
@@ -100,6 +109,7 @@ function watchGeneratedRouteTypes(server: ViteDevServer, root: string): boolean 
     running = true;
     try {
       await runTypegen({
+        capabilitiesOut: DEFAULT_CAPABILITIES_OUT,
         check: false,
         declarationOut: DEFAULT_DECLARATION_OUT,
         root,
