@@ -1,6 +1,6 @@
 ---
 name: migrate-nextjs
-version: 1.0.0
+version: 1.1.0
 description: |
   Migrate a Next.js application to Pracht. Converts App Router pages, layouts,
   middleware, API routes, data fetching, and metadata to pracht equivalents.
@@ -43,6 +43,8 @@ Before touching any code, understand what you're migrating:
 
 Ask the user to confirm the migration scope if the project is large (>20 routes).
 
+If the pracht MCP server is registered (docs/MCP.md), use the `generate_route`/`generate_shell`/`generate_middleware`/`generate_api` MCP tools for scaffolding and `inspect_routes`/`inspect_api`/`doctor`/`verify` to check migration progress, instead of Bash. (`pracht inspect` needs the pracht plugin in the vite config; `inspect_build` needs a prior `pracht build`.)
+
 ## Fast Path: Pages Router Projects
 
 If the source Next.js project uses the **pages router** (`pages/` directory), pracht's `pagesDir` plugin option provides a near-drop-in migration:
@@ -64,7 +66,7 @@ For pages router projects, you can **skip manual manifest wiring entirely** (Pha
 | `pages/` directory              | `pagesDir` plugin option                                        | Auto-discovers routes from file system                                |
 | `app/page.tsx`                  | `src/routes/*.tsx` + `route()` in manifest                      | File is a module; wiring is explicit                                  |
 | `app/layout.tsx`                | `src/shells/*.tsx` + `shells` in `defineApp`                    | Shells are named, not directory-nested                                |
-| `app/loading.tsx`               | No direct equivalent                                            | Use Suspense in component if needed                                   |
+| `app/loading.tsx`               | `Loading` export on the shell                                   | Rendered as SSR placeholder for SPA routes until the client router takes over |
 | `app/error.tsx`                 | `ErrorBoundary` export in route module                          | Same concept, different wiring                                        |
 | `app/not-found.tsx`             | 404 route: `route("*", () => import("./routes/not-found.tsx"))` | Catch-all at end of routes array                                      |
 | `middleware.ts`                 | `src/middleware/*.ts` + `middleware` in `defineApp`             | Named, applied per route/group                                        |
@@ -73,9 +75,11 @@ For pages router projects, you can **skip manual manifest wiring entirely** (Pha
 | `generateMetadata`              | `head()` export                                                 | Returns `{ title, meta }`                                             |
 | Server Components               | `loader()` export                                               | Data fetching moves to loader; component is always a Preact component |
 | `"use server"` actions          | API routes + `<Form>` / `fetch`                                 | Mutations move to `src/api/*`; return `Response` objects              |
+| `"use client"` (few, in a mostly-server app) | `hydration: "islands"` + `src/islands/`            | Only islands ship JS; see the islands note in Phase 4                 |
+| `revalidatePath` / `res.revalidate()` | `webhookRevalidate()` + `POST /__pracht/revalidate`       | On-demand ISG regeneration; combinable with `timeRevalidate(seconds)` |
 | `useRouter()` (next/navigation) | `useNavigate()` from pracht                                     | Accepts paths or typed route targets after `pracht typegen`           |
-| `useSearchParams()`             | `useRouteData()` or parse from loader args                      | Loaders receive `url` with searchParams                               |
-| `useParams()`                   | `useRouteData()` or `params` in loader                          | Params flow through loader data                                       |
+| `useSearchParams()`             | `useLocation()` from pracht                                     | Returns `{ pathname, search }`; loaders also receive `url` with searchParams |
+| `useParams()`                   | `useParams()` from pracht                                       | Direct equivalent; also available as `params` in loader args          |
 | `next/link` `<Link>`            | `<Link route="...">` or plain `<a>`                            | Prefer typed `<Link>` for known app routes after `pracht typegen`; plain anchors still work |
 | `next/link` `prefetch={false}`  | `<Link prefetch="none">`                                        | Pracht prefetches on hover/focus by default; also `"viewport"`, `"render"` |
 | `useLinkStatus()` / pending UI  | `useNavigation()`                                               | `{ state, location, formData }` — powers progress bars and optimistic UI |
@@ -112,7 +116,7 @@ For pages router projects, you can **skip manual manifest wiring entirely** (Pha
 
 3. Update `package.json`:
    - Replace `react`, `react-dom` → `preact`
-   - Replace `next` → `pracht`, `@pracht/vite-plugin`, `@pracht/adapter-node` (or target adapter)
+   - Replace `next` → `@pracht/core` (framework runtime), `@pracht/cli` (provides the `pracht` bin), `@pracht/vite-plugin`, and `@pracht/adapter-node` (or target adapter). There is no package named `pracht`.
    - Update scripts: `dev` → `pracht dev`, `build` → `pracht build`, `start` → `node dist/server/server.js` (Node.js) or a platform-specific deploy command; add `preview` → `pracht preview` to serve the production build locally
 4. Remove Next.js config files: `next.config.*`, `next-env.d.ts`, `.next/`
 5. If `tsconfig.json` has `"jsx": "preserve"`, change to `"jsx": "react-jsx"` and add `"jsxImportSource": "preact"`.
@@ -238,6 +242,8 @@ Key transforms:
 - `import { ... } from "react"` → `import { ... } from "preact/hooks"` or `import { ... } from "preact/compat"`
 - `import { ... } from "react-dom"` → `import { ... } from "preact/compat"`
 
+**Islands note:** if the source app is mostly server components with only a handful of `"use client"` components, don't silently regress those pages to full-page hydration. Set `hydration: "islands"` on the route (or `export const HYDRATION = "islands"` in pages mode) and move the interactive components to `src/islands/` — the rest of the page renders as inert HTML and only the islands ship JavaScript. See `docs/ISLANDS.md`.
+
 ### Phase 5: Convert API routes
 
 **Next.js (`app/api/users/route.ts`):**
@@ -254,9 +260,9 @@ export async function GET(request: NextRequest) {
 **Pracht (`src/api/users.ts`):**
 
 ```ts
-import type { BaseRouteArgs } from "@pracht/core";
+import type { ApiRouteArgs } from "@pracht/core";
 
-export function GET({ request }: BaseRouteArgs) {
+export async function GET({ request }: ApiRouteArgs) {
   const users = await getUsers();
   return Response.json(users);
 }
@@ -264,7 +270,7 @@ export function GET({ request }: BaseRouteArgs) {
 
 Key transforms:
 
-- `NextRequest` → standard `Request` (via `BaseRouteArgs`)
+- `NextRequest` → standard `Request` (via `ApiRouteArgs`)
 - `NextResponse.json()` → `Response.json()` (Web standard)
 - Dynamic segments: `app/api/users/[id]/route.ts` → `src/api/users/[id].ts`
 - No manifest wiring needed — auto-discovered
@@ -318,6 +324,8 @@ Key transforms:
 
 **Note:** For pages router projects using `pagesDir`, this phase is automatic. Skip to Phase 8.
 
+Instead of hand-writing every entry, prefer `pracht generate route --path ... --render ...` (with `--shell`/`--middleware`/`--loader` as needed) per page: it creates a wired skeleton **and** updates `src/routes.ts` for you — then port the Next.js component/loader bodies into the generated files. Hand-write the manifest only for shapes the generator cannot express.
+
 Build `src/routes.ts` mapping every migrated page. Module references accept `() => import("./path")` (enables IDE navigation) or plain `"./path"` strings — both work:
 
 ```ts
@@ -350,6 +358,7 @@ Choose render modes based on the Next.js original:
 - Static pages (no data fetching, or `generateStaticParams`) → `"ssg"`
 - Dynamic pages (`cookies()`, `headers()`, per-request data) → `"ssr"`
 - ISR pages (`revalidate` option) → `"isg"` with `timeRevalidate(seconds)`
+- On-demand ISR (`revalidatePath` / `res.revalidate()`) → add `webhookRevalidate()` (alone or as `[timeRevalidate(seconds), webhookRevalidate()]`) and trigger via `POST /__pracht/revalidate`
 - Client-only pages → `"spa"`
 
 ### Phase 8: Handle common patterns
@@ -415,15 +424,28 @@ async function createPost(formData: FormData) {
 }
 
 // Pracht — API route handler
+import type { ApiRouteArgs } from "@pracht/core";
+
 export async function POST({ request }: ApiRouteArgs) {
   const form = await request.formData();
   await db.insert({ title: form.get("title") });
+  // revalidatePath("/posts") equivalent: regenerate the ISG page on demand
+  await fetch(new URL("/__pracht/revalidate", request.url), {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${process.env.PRACHT_REVALIDATE_TOKEN}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ paths: ["/posts"] }),
+  });
   return new Response(null, {
     status: 303,
     headers: { location: "/posts" },
   });
 }
 ```
+
+For the revalidation call to take effect, the `/posts` route must be `render: "isg"` and opt in with `revalidate: webhookRevalidate()` (or `[timeRevalidate(seconds), webhookRevalidate()]`) in the manifest — import both from `@pracht/core` — and `PRACHT_REVALIDATE_TOKEN` must be set in the runtime environment. If `/posts` is a plain SSR route, skip the revalidation call; the redirect re-renders it fresh anyway.
 
 #### `cookies()` / `headers()` → loader args
 
@@ -455,9 +477,9 @@ export async function loader({ request }: LoaderArgs) {
 
 ## Dependency Mapping
 
-| Next.js package | Pracht equivalent                                       |
-| --------------- | ------------------------------------------------------- |
-| `next`          | `pracht`, `@pracht/vite-plugin`, `@pracht/adapter-node` |
+| Next.js package | Pracht equivalent                                                            |
+| --------------- | ---------------------------------------------------------------------------- |
+| `next`          | `@pracht/core` + `@pracht/cli` + `@pracht/vite-plugin` + `@pracht/adapter-node` (or target adapter) |
 | `react`         | `preact`                                                |
 | `react-dom`     | `preact`                                                |
 | `@next/font`    | CSS `@font-face` or `fontsource` packages               |

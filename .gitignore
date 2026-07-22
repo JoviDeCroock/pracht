@@ -1,8 +1,9 @@
 node_modules
 dist
 .vercel
-.claude/settings.json
-!.claude/commands/
+.claude/*
+!.claude/skills
 test-results
 .tmp
 .wrangler
+packages/start/skills

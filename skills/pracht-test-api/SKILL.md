@@ -1,6 +1,6 @@
 ---
-name: test-api
-version: 1.0.0
+name: pracht-test-api
+version: 1.1.0
 description: |
   Auto-generate Vitest request/response tests for every handler in `src/api/`.
   Each test instantiates a `Request`, calls the exported HTTP method handler
@@ -19,8 +19,10 @@ allowed-tools:
 
 # Pracht Test API
 
-Pracht API handlers are plain functions: `(args: BaseRouteArgs) => Response |
-Promise<Response>`. They test cleanly in Vitest without booting the framework.
+Pracht API handlers are plain functions: `(args: ApiRouteArgs) => Response |
+Promise<Response>` (`ApiRouteArgs` is `BaseRouteArgs` with `route` narrowed
+to `ResolvedApiRoute`). They test cleanly in Vitest without booting the
+framework.
 
 ## Step 1: Confirm Vitest is installed
 
@@ -29,12 +31,22 @@ prompt the user to). This skill does not handle Vitest setup.
 
 ## Step 2: Enumerate API handlers
 
+If the pracht MCP server is registered (see docs/MCP.md), prefer its tools
+(`inspect_routes`, `inspect_api`, `inspect_build`, `doctor`, `verify`,
+`generate_*`) over shelling out. Prerequisite: `pracht inspect` needs a vite
+config with the pracht plugin registered.
+
 ```bash
 pracht inspect api --json
 ```
 
-For each entry, capture: `path` (URL), `file` (source path), exported
-`methods` (e.g., `["GET", "POST"]` or `["default"]`).
+For each entry, capture: `path` (URL), `file` (source path), and the exported
+`methods` (e.g., `["GET", "POST"]`). Note: `methods` only lists named HTTP
+method exports — a default-export dispatcher yields `methods: []`, never
+`["default"]`. Current `@pracht/cli` versions also report a
+`hasDefaultHandler` boolean; use it when present. If the field is absent
+(older CLI) and `methods` is empty, fall back to the grep in Step 7 to detect
+a default dispatcher.
 
 Ask the user which subset to scaffold or accept paths via `$ARGUMENTS`.
 
@@ -42,7 +54,7 @@ Ask the user which subset to scaffold or accept paths via `$ARGUMENTS`.
 
 Place tests next to the handler with `.test.ts` suffix
 (`src/api/users/[id].test.ts`). Use a small helper to construct
-`BaseRouteArgs`:
+`ApiRouteArgs`:
 
 ```ts
 import { describe, it, expect } from "vitest";
@@ -87,8 +99,12 @@ the user may need to provide a real fixture.
 
 ## Step 5: Detect auth-gated APIs
 
-If `pracht inspect routes --json` shows the API path (or its group) under
-auth middleware, scaffold an extra test:
+API routes do NOT appear in `pracht inspect routes --json` (that report
+covers page routes only) and `pracht inspect api --json` has no middleware
+field. API middleware is the single global list configured as
+`defineApp({ api: { middleware: [...] } })` — read the manifest source
+(`src/routes.ts` or wherever `defineApp` lives) to see whether an auth
+middleware is in that list. If it is, scaffold an extra test:
 
 ```ts
 it("rejects unauthenticated requests", async () => {
@@ -101,6 +117,9 @@ Note: middleware does NOT run when calling the handler directly — this test
 verifies the handler's own defense if it has one. If the only defense is
 middleware, mention that in the report and recommend an integration test that
 goes through the framework's request pipeline (out of scope for this skill).
+The same applies to the framework's built-in CSRF check: `requireSameOrigin`
+(on by default) rejects cross-origin state-changing API requests in the real
+pipeline but never runs in direct-invocation tests.
 
 ## Step 6: Validate JSON shape
 
@@ -125,6 +144,7 @@ support (grep for `request.method ===` patterns inside the file).
 
 ```bash
 pnpm test
+pracht verify --json
 ```
 
 Report passes/failures. Mark generated assertions as TODO so the user knows
@@ -135,7 +155,8 @@ to tighten them.
 1. Use `pracht inspect api --json` as the inventory — do not glob.
 2. Only import methods the handler actually exports; otherwise the test fails
    to load.
-3. Direct-handler invocation skips middleware. Be explicit in the report.
+3. Direct-handler invocation skips middleware AND the default-on
+   `requireSameOrigin` CSRF check. Be explicit in the report.
 4. Test files live next to handlers with `.test.ts` suffix unless the
    project already uses a `__tests__/` convention (detect and match).
 5. Never overwrite existing test files; emit a `.next.test.ts` and tell the

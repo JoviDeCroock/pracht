@@ -80,6 +80,7 @@ export async function runInspect(
           })
         : (serverModule.apiRoutes as ResolvedApiRoute[]).map(({ file, path }) => ({
             file,
+            hasDefaultHandler: false,
             methods: [],
             path,
           }));
@@ -106,7 +107,7 @@ function printInspectReport(report: InspectReport): void {
     console.log("\nRoutes");
     for (const route of report.routes) {
       console.log(
-        `  ${route.path}  id=${route.id}  render=${route.render ?? "n/a"}  file=${route.file}`,
+        `  ${route.path}  id=${route.id}  render=${route.render ?? "n/a"}  hydration=${route.hydration ?? "n/a"}  file=${route.file}`,
       );
     }
   }
@@ -117,7 +118,12 @@ function printInspectReport(report: InspectReport): void {
       console.log("  No API routes found.");
     } else {
       for (const route of report.api) {
-        const methods = route.methods.length > 0 ? route.methods.join(",") : "none";
+        const explicitMethods = route.methods.join(",");
+        const methods = route.hasDefaultHandler
+          ? explicitMethods
+            ? `${explicitMethods}+default`
+            : "default"
+          : explicitMethods || "none";
         console.log(`  ${route.path}  methods=${methods}  file=${route.file}`);
       }
     }

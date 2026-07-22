@@ -157,11 +157,16 @@ See [docs/AGENT_WORKFLOW.md](docs/AGENT_WORKFLOW.md).
 
 ### Skills (Claude Code)
 
-Repo-local Claude Code commands for framework developers live in `.claude/commands/`:
+Agent skills for framework authors and app builders live in [skills/](skills/README.md)
+(one `SKILL.md` per skill; `.claude/skills` symlinks there so Claude Code picks them up
+in this repo). They are published with a discovery manifest at
+`https://pracht.resynapse.dev/.well-known/agent-skills/index.json` and seeded into new
+apps by `create-pracht` — see the [agent skills docs](https://pracht.resynapse.dev/docs/agent-skills):
 
 - **Scaffold**: generate routes, shells, middleware, API routes with correct wiring
 - **Debug**: framework-aware debugging (route matching, loader errors, hydration)
 - **Deploy**: guided adapter setup and deployment
+- **Audit**: loaders, auth, CSRF, headers, secrets, bundles, SEO, a11y, and more
 
 ---
 

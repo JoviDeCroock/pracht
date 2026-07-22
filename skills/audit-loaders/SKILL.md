@@ -1,6 +1,6 @@
 ---
 name: audit-loaders
-version: 1.0.0
+version: 1.1.0
 description: |
   Audit pracht route loaders for serializability, leaked secrets,
   unsafe loader caching, browser-only API misuse, and missing AbortSignal plumbing.
@@ -21,12 +21,22 @@ ends up in the browser — including secrets you never meant to expose.
 
 ## Step 1: Enumerate routes
 
+If the pracht MCP server is registered (see docs/MCP.md), prefer its tools
+(`inspect_routes`, `inspect_api`, `inspect_build`, `doctor`, `verify`) over
+shelling out.
+
 ```bash
 pracht inspect routes --json
 ```
 
-For every route entry, read the `file` it resolves to and inspect the `loader`
-export.
+Prerequisite: `pracht inspect` needs a vite config with the pracht plugin
+wired up.
+
+For every route entry, read `loaderFile ?? file` and inspect the `loader`
+export there. Loaders may live in a separate data module wired via the
+manifest (`RouteConfig.loader`); the inspect JSON surfaces that as
+`loaderFile` (null when the loader lives in the route module itself). Reading
+only `file` misses every externalized loader.
 
 ## Step 2: Run the five checks
 
@@ -51,6 +61,11 @@ Recommend converting to `string` (ISO for dates), plain arrays, or plain objects
 before return.
 
 ### 2b. Secret leaks
+
+Ownership note: deep secret scanning is owned by `/audit-secrets` and by
+`pracht verify`'s env scan — keep this check brief and point the user there
+rather than triple-reporting the same findings. Here, only flag what falls
+out of reading the return value anyway:
 
 Grep the loader body and anything it returns for:
 

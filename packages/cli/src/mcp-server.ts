@@ -35,7 +35,7 @@ export function createPrachtMcpServer(): McpServer {
     "inspect_routes",
     {
       description:
-        "Inspect the resolved page-route graph of a pracht app: path, id, render mode, shell, middleware, loader file. Same payload as `pracht inspect routes --json`.",
+        "Inspect the resolved page-route graph of a pracht app: path, id, render mode, hydration mode, prefetch strategy, speculation rules, shell, middleware, loader file. Same payload as `pracht inspect routes --json`.",
       inputSchema: { ...cwdInput },
     },
     guard(({ cwd }) => runInspect(resolveCwd(cwd), { target: "routes" })),
@@ -45,7 +45,7 @@ export function createPrachtMcpServer(): McpServer {
     "inspect_api",
     {
       description:
-        "Inspect the resolved API routes of a pracht app: endpoint path, source file, exported HTTP methods. Same payload as `pracht inspect api --json`.",
+        "Inspect the resolved API routes of a pracht app: endpoint path, source file, exported HTTP methods, and whether the module exports a default catch-all handler (`hasDefaultHandler`). Same payload as `pracht inspect api --json`.",
       inputSchema: { ...cwdInput },
     },
     guard(({ cwd }) => runInspect(resolveCwd(cwd), { target: "api" })),

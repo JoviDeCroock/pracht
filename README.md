@@ -107,7 +107,16 @@ Pracht is built to be operated by coding agents as much as by humans — and for
 - **Machine-enforced invariants** — `defineApp({ constraints })` declares rules like `requireMiddleware("/app/**", "auth")` that `pracht verify` enforces deterministically, so no author (human or LLM) can merge a violation.
 - **MCP server** — `pracht mcp` starts a stdio [Model Context Protocol](https://modelcontextprotocol.io) server so agents can natively inspect the resolved app graph, run doctor/verify diagnostics, diff and snapshot the graph (plan/report), read the authoring guide (get_docs), and scaffold routes, shells, middleware, and API handlers. See [docs/MCP.md](docs/MCP.md) for registration and the tool reference.
 - **Authoring guide for agents** — `pracht llms --write` drops the framework's conventions into `llms.txt` so any coding agent picks them up.
-- **Claude Code skills** — repo-local skills for scaffolding, auditing, debugging, and deploying pracht apps live in [skills/](skills/README.md).
+- **Claude Code skills** — 28 skills for scaffolding, auditing, testing, debugging, and deploying pracht apps live in [skills/](skills/README.md). See the [agent skills](#agent-skills) section below.
+
+## Agent skills
+
+The skills are distributed three ways ([docs](https://pracht.resynapse.dev/docs/agent-skills)):
+
+- **Discovery endpoint** — every skill is published at `https://pracht.resynapse.dev/skills/<name>/SKILL.md`, listed with SHA-256 digests in the manifest at [`/.well-known/agent-skills/index.json`](https://pracht.resynapse.dev/.well-known/agent-skills/index.json) and advertised via a `Link: rel="agent-skills"` header.
+- **create-pracht** — `npm create pracht@latest` seeds the full catalog into new apps' `.claude/skills/` and writes a `.mcp.json` registering the `pracht mcp` server (yes-default prompt, `--no-agent-tools` to skip).
+- **In this repo** — `.claude/skills` symlinks to [skills/](skills/README.md), so Claude Code loads them automatically for contributors.
+>>>>>>> 463a134 (Ship the skills to users: create-pracht seeding, docs page, contributor loading)
 
 ## Repo map
 

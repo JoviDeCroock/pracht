@@ -1,6 +1,6 @@
 ---
 name: audit-seo
-version: 1.0.0
+version: 1.1.0
 description: |
   Per-route SEO audit for a pracht app: `head()` coverage, title/description
   presence, Open Graph and Twitter card completeness, canonical URLs, robots
@@ -18,14 +18,21 @@ allowed-tools:
 # Pracht Audit SEO
 
 Pracht owns the document. Per-route SEO lives in the `head()` export
-returning `{ title?, lang?, meta?, link? }`. This skill audits coverage and
-generates the static SEO artifacts.
+returning `{ title?, lang?, meta?, link?, script? }`. This skill audits
+coverage and generates the static SEO artifacts.
 
 ## Step 1: Inventory
+
+If the pracht MCP server is registered (see docs/MCP.md), prefer its tools
+(`inspect_routes`, `inspect_api`, `inspect_build`, `doctor`, `verify`) over
+shelling out.
 
 ```bash
 pracht inspect routes --json
 ```
+
+Prerequisite: `pracht inspect` needs a vite config with the pracht plugin
+wired up; run from the app root.
 
 For every route file, read the `head()` export (and the shell's `head()` for
 inherited values).
@@ -44,6 +51,7 @@ For each route, capture presence and quality:
 | `meta` `og:url`                          | Absolute, canonical               |
 | `meta` `twitter:card`                    | `summary_large_image` for content |
 | `link` `canonical`                       | Absolute URL                      |
+| `script` (JSON-LD)                       | Optional; see Step 6              |
 | `lang`                                   | Set on root or via shell          |
 
 Skip SPA-only / non-indexable routes (admin, dashboard) — flag as "noindex
@@ -59,10 +67,12 @@ candidate" if they don't already declare it.
 
 ## Step 4: `robots.txt`
 
-Look for:
-- `public/robots.txt` (Vite static asset).
-- Any route at `/robots.txt`.
-- Any API handler at `src/api/robots.ts`.
+`robots.txt` MUST be served at the origin root (`/robots.txt`) — crawlers
+never look anywhere else. Pracht API routes are always mounted under `/api/`
+(a `src/api/robots.ts` handler serves `/api/robots`, never `/robots.txt`), so
+an API handler cannot provide it. The workable option is the static asset:
+
+- `public/robots.txt` (Vite static asset, served at `/robots.txt`).
 
 If absent, recommend creating `public/robots.txt`:
 
@@ -75,40 +85,70 @@ Sitemap: https://<domain>/sitemap.xml
 ```
 
 If present, validate:
-- A `Sitemap:` line referencing an existing endpoint.
+- A `Sitemap:` line referencing an existing endpoint (see Step 5 — if the
+  sitemap is an API route, this must point at `/api/sitemap`).
 - No accidental `Disallow: /` (full-site block).
 - Path patterns match real routes (cross-reference with the manifest).
+- Flag any `src/api/robots.ts` found in the repo as `warn`: it is dead
+  weight at `/api/robots` and does not serve `/robots.txt`.
 
-## Step 5: `sitemap.xml`
+## Step 5: sitemap
 
 Generate (or recommend generating) a sitemap from the route manifest:
 
-- Include every route with `render: "ssg"` or `"isg"` and `prefetch !=
-  "none"`.
+- Include routes by **indexability**, not prefetch strategy: public
+  `render: "ssg"`/`"isg"` routes (and public SSR routes worth indexing),
+  minus routes under auth middleware, minus routes declaring a
+  `robots`/`noindex` meta. (`prefetch` is a client navigation hint —
+  orthogonal to indexability; do not use it as a criterion.)
 - Skip dynamic-segment routes unless `getStaticPaths` resolved them at build
-  time — pull resolved paths from `dist/client/<route>.html` filenames.
-- Skip routes under auth middleware (private).
+  time — pull resolved paths from the prerender output, which is laid out as
+  `dist/client/<route>/index.html` (clean URLs; e.g. `/about` →
+  `dist/client/about/index.html`).
 - Default `<changefreq>` from the route's revalidate policy: `timeRevalidate`
   → `weekly` if `> 86400s`, `daily` if `> 3600s`, `hourly` otherwise.
 
 Offer two output forms:
 
-1. Static `public/sitemap.xml` regenerated at build time via a small script.
+1. Static `public/sitemap.xml` regenerated at build time via a small script
+   (served at `/sitemap.xml`).
 2. A pracht API route at `src/api/sitemap.ts` that emits XML on each request
-   from the inspected manifest.
+   from the inspected manifest. It is served at `/api/sitemap` (API routes
+   always mount under `/api/`), so the robots `Sitemap:` line must point at
+   `https://<domain>/api/sitemap`.
 
 ## Step 6: Structured data (optional)
 
-If the user asks, scaffold JSON-LD for common types via `head()` `meta` /
-`link` tags or a custom shell-level script. This is opt-in — do not push it
-on every audit.
+If the user asks, scaffold JSON-LD via the `head()` export's native `script`
+field — `HeadMetadata` supports `script?: HeadScriptDescriptor[]`, where each
+descriptor takes attributes plus `children` for the inline body:
+
+```ts
+export function head() {
+  return {
+    script: [
+      {
+        type: "application/ld+json",
+        children: JSON.stringify({ "@context": "https://schema.org", ... }),
+      },
+    ],
+  };
+}
+```
+
+No shell-level custom `<script>` JSX is needed. This is opt-in — do not push
+it on every audit.
 
 ## Step 7: Report
 
-| Route | Title | Description | OG image | Canonical | Verdict |
-| ----- | ----- | ----------- | -------- | --------- | ------- |
+| Route | Severity | Title | Description | OG image | Canonical | Verdict |
+| ----- | -------- | ----- | ----------- | -------- | --------- | ------- |
 
-Verdicts: `complete`, `partial`, `missing`. Group by verdict.
+Primary severity per finding: `error` (site blocked by robots, auth-gated
+route in sitemap), `warn` (missing title/description/OG image/canonical on an
+indexable route), `info` (nice-to-haves like JSON-LD). Keep the
+`complete`/`partial`/`missing` verdict as a secondary per-route rollup,
+grouped by verdict.
 
 ## Rules
 

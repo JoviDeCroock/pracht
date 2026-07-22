@@ -1,6 +1,6 @@
 ---
 name: audit-a11y
-version: 1.0.0
+version: 1.1.0
 description: |
   Per-route accessibility audit for a pracht app. Drives a headless browser
   through every route in the manifest, runs axe-core, and reports issues
@@ -12,7 +12,6 @@ allowed-tools:
   - Bash
   - Read
   - Write
-  - Edit
   - Grep
   - Glob
   - AskUserQuestion
@@ -26,31 +25,52 @@ runs axe-core against the result.
 
 ## Step 1: Boot the app
 
-Prefer the production build/runtime (`pracht preview` builds and serves it for Node and Cloudflare targets) — production HTML is what users
-actually receive. Fall back to `pracht dev` only if the user can't build.
+Prefer the production build/runtime — production HTML is what users actually
+receive. `pracht preview` builds and serves it for **Node and Cloudflare**
+targets. It refuses Vercel targets (it prints guidance and exits nonzero):
+for a Vercel app, run `vercel dev` yourself or point `BASE_URL` at a deployed
+preview instead. Fall back to `pracht dev` only if the user can't build.
+
+Run the server as a managed background process, wait for readiness, and clean
+it up when the audit ends:
 
 ```bash
-pracht preview &
+pracht preview &   # run in the background (use the Bash tool's background mode)
+# wait for readiness before auditing:
+until curl -sf http://localhost:3000 > /dev/null; do sleep 1; done
 ```
 
-Or, if `BASE_URL` is set, target the deployed app.
+After Step 5 (or on any failure), kill the background process — do not leave
+a stray server holding the port.
+
+Or, if `BASE_URL` is set, target the deployed app and skip the local server
+entirely.
 
 ## Step 2: Install runner
 
-If Playwright is already wired (see `scaffold-e2e`), reuse it:
+If Playwright is already wired (see `scaffold-e2e`), reuse it. Install the
+axe adapter plus `tsx` (the Step 5 runner — it is not a pracht dependency):
 
 ```bash
-pnpm add -D @axe-core/playwright
+pnpm add -D @axe-core/playwright tsx
 ```
 
-If not, scaffold a one-off script using `playwright` directly. Prefer
-Playwright over Puppeteer for consistency with existing project tooling.
+If Playwright is not wired, scaffold a one-off script using `playwright`
+directly. Prefer Playwright over Puppeteer for consistency with existing
+project tooling.
 
 ## Step 3: Enumerate routes
+
+If the pracht MCP server is registered (see docs/MCP.md), prefer its tools
+(`inspect_routes`, `inspect_api`, `inspect_build`, `doctor`, `verify`) over
+shelling out.
 
 ```bash
 pracht inspect routes --json
 ```
+
+Prerequisite: `pracht inspect` needs a vite config with the pracht plugin
+wired up.
 
 For dynamic-segment routes, ask the user once for example params (or skip
 with a note in the report).
@@ -89,6 +109,8 @@ console.log(JSON.stringify(results, null, 2));
 pnpm exec tsx scripts/audit-a11y.ts > a11y-report.json
 ```
 
+Then stop the background server from Step 1.
+
 Aggregate by:
 
 - **Per-route summary**: violation count, worst severity.
@@ -96,6 +118,10 @@ Aggregate by:
   reveals a single component (header, footer, form) that authors every page.
 
 ## Step 6: Report
+
+Report findings with a primary severity of `error` / `warn` / `info`,
+mapping axe impacts: critical + serious → `error`, moderate → `warn`,
+minor → `info`. Keep the raw axe impact as a secondary column.
 
 ```
 ## Per-route summary
@@ -138,5 +164,7 @@ For the top 3 issues, propose concrete patches:
 4. Do not auto-fix. Suggest, then let the user review per component.
 5. For SPA routes that need interaction before content appears, ask the user
    for a setup hook (e.g., a script that logs in and lands on the dashboard).
+6. Always clean up background servers you started, even when the audit fails
+   partway.
 
 $ARGUMENTS

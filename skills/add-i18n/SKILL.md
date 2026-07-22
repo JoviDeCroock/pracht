@@ -1,6 +1,6 @@
 ---
 name: add-i18n
-version: 1.0.0
+version: 1.1.0
 description: |
   Wire internationalization into a pracht app following the framework's
   recommended pattern (middleware detects locale, loaders return translations,
@@ -24,6 +24,11 @@ allowed-tools:
 Pracht ships no i18n library — the framework gives you primitives. The
 recommended recipe lives at
 `examples/docs/src/routes/docs/recipes-i18n.md`.
+
+If the pracht MCP server is registered (see docs/MCP.md), prefer its tools
+(`inspect_routes`, `inspect_api`, `inspect_build`, `doctor`, `verify`,
+`generate_*`) over shelling out. Prerequisite: `pracht inspect` needs a vite
+config with the pracht plugin registered.
 
 ## Step 1: Pick the locale-detection strategy
 
@@ -91,6 +96,21 @@ export const middleware: MiddlewareFn = ({ request, url }, next) => {
   request.headers.set("x-locale", locale);
   return next();
 };
+```
+
+Caveat: a `/:locale/...` route pattern matches ANY first segment — `/zz/about`
+would happily serve default-locale content at a bogus URL, and search engines
+will index it as duplicate content. Guard against unsupported prefixes in the
+middleware — 404 (or redirect to the default-locale URL) when the first
+segment looks like a locale but isn't supported:
+
+```ts
+// Add before `return next()` in the URL-prefix middleware:
+if (maybe.length === 2 && !(supportedLocales as readonly string[]).includes(maybe)) {
+  return new Response("Not Found", { status: 404 });
+  // or redirect to the default-locale URL (import `redirect` from "@pracht/core"):
+  // return redirect(`/${url.pathname.split("/").slice(2).join("/")}`, { request });
+}
 ```
 
 ### Cookie variant
@@ -163,6 +183,10 @@ export const app = defineApp({
 For cookie / Accept-Language strategies, just add the middleware to the root
 group; no path changes.
 
+This step restructures route paths (`/` → `/:locale/...`), so route ids and
+generated types change — `pracht typegen` in the verification step is
+mandatory, not optional.
+
 ## Step 7: SEO touch-ups
 
 - Set `lang` in `head()` per route from the resolved locale.
@@ -173,12 +197,14 @@ group; no path changes.
 
 ## Step 8: String extraction (optional)
 
-Add a script that:
+First create `scripts/i18n-extract.mjs`, a script that:
 
 1. Greps for `t(locale, "...")` calls.
 2. Builds a key set.
 3. Diffs against each `src/i18n/<locale>.ts`.
 4. Reports missing keys per locale.
+
+Then run it:
 
 ```bash
 node scripts/i18n-extract.mjs
@@ -188,9 +214,15 @@ The output is a TODO list per locale, not auto-translation.
 
 ## Step 9: Verify
 
+- Step 6 changed route paths — run `pracht typegen` to refresh the generated
+  route types/`href()` helper. Add `pracht typegen --check` to CI so stale
+  types fail the build.
 - Boot dev: `pracht dev`.
 - Visit `/` and the locale-prefixed variant; confirm content swaps.
+- Visit an unsupported prefix (e.g. `/zz/about`); confirm the middleware
+  404s or redirects rather than serving default-locale content.
 - `pnpm test` and `pnpm e2e` still pass.
+- Run `pracht verify --json` and confirm no failures.
 
 ## Rules
 

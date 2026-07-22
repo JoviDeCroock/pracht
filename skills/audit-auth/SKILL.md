@@ -1,6 +1,6 @@
 ---
 name: audit-auth
-version: 1.0.0
+version: 1.1.0
 description: |
   Find pracht routes that look protected but aren't — missing auth middleware,
   middleware that augments context but never gates, client-side auth checks
@@ -16,10 +16,19 @@ allowed-tools:
 
 # Pracht Audit Auth
 
+What the framework guarantees: middleware runs wrap-around style — every
+middleware must return a `Response` (the runtime throws if it doesn't), either
+`return next()` to continue the chain or a short-circuit `Response` to stop it.
+The `redirect()` helper from `@pracht/core` returns a scheme/CRLF-validated
+redirect `Response`. What the framework does NOT decide is *which* routes get
+an auth gate — that is app wiring, and this skill audits it.
+
 The pracht auth pattern (see `examples/docs/src/routes/docs/recipes-auth.md`):
-middleware checks the session, redirects if absent, and forwards user info via
-request headers; loaders downstream read the headers. This skill verifies that
-every route that *should* be protected actually goes through the gate.
+middleware checks the session, short-circuits with a redirect on absence, and
+forwards user info via request headers; loaders downstream read the headers.
+
+Prerequisites: `pracht inspect` requires a vite config that registers the
+pracht plugin.
 
 ## Step 1: Identify the auth middleware(s)
 
@@ -27,12 +36,21 @@ every route that *should* be protected actually goes through the gate.
 pracht inspect routes --json
 ```
 
-Read every file under `src/middleware/`. Classify each:
+If the pracht MCP server is registered (see `docs/MCP.md`), prefer its tools
+(`inspect_routes`, `inspect_api`, `inspect_build`, `doctor`, `verify`) over
+shelling out.
 
-- **Gate** — calls `getSession`/`getUser` and either returns `{ redirect }` /
-  a `Response` on failure, or returns `void` on success.
-- **Augmenter** — calls `getSession`, sets headers/context with user info, but
-  never short-circuits on absence.
+Middleware is registered by name in the app manifest —
+`defineApp({ middleware: { auth: () => import("./middleware/auth.ts") } })` —
+and `inspect` reports those names, not files. Read the name→file map from
+`src/routes.ts` (or the configured manifest) to resolve each name, then read
+each middleware file and classify it:
+
+- **Gate** — on auth failure, returns a short-circuit `Response`
+  (`redirect("/login", { request })`, or a 401/403 `Response`) WITHOUT calling
+  `next()`; on success, `return next()`.
+- **Augmenter** — mutates request headers/context with user info, then always
+  returns `next()`. Never short-circuits.
 - **Other** — non-auth middleware (rate limit, logging, CORS, etc.).
 
 The "Augmenter" category is the silent killer: it makes loaders *think*
@@ -61,15 +79,21 @@ For each expected-protected route:
 2. Confirm at least one **Gate** middleware is present.
 3. Confirm the gate runs **before** any other middleware that depends on
    identity (order matters).
-4. If only an Augmenter is present, mark as `unprotected`.
+4. If only an Augmenter is present, mark as `augmented-only`.
 
 ## Step 4: Check the API surface
 
 Mutation endpoints (`POST`, `PUT`, `PATCH`, `DELETE`) are the highest-impact
 target. From `pracht inspect api --json`:
 
-- For each mutation handler, check whether `defineApp({ api: { middleware } })`
-  applies a Gate, OR the handler reads/validates a session itself.
+- Each API route reports `path`, `file`, `methods`, and `hasDefaultHandler`
+  (the last requires a current `@pracht/cli`). A `default`-export handler
+  serves ALL methods but reports `methods: []` — treat
+  `hasDefaultHandler: true` as "every method exposed". On older CLIs where
+  the field is missing, grep the handler file for `export default` instead.
+- For each mutation handler (named method export or default handler), check
+  whether `defineApp({ api: { middleware } })` applies a Gate, OR the handler
+  reads/validates a session itself.
 - Common bug: dashboard route is protected by middleware, but
   `POST /api/items` is not — attacker bypasses the UI entirely.
 
@@ -88,23 +112,28 @@ are the CSRF target. Recommend running `audit-csrf` after this skill.
 
 ## Step 7: Report
 
-| Route/API | Expected | Resolved middleware | Gate present? | Verdict |
-| --------- | -------- | ------------------- | ------------- | ------- |
+| Route/API | Expected | Resolved middleware | Gate present? | Severity | Verdict |
+| --------- | -------- | ------------------- | ------------- | -------- | ------- |
 
-Verdicts:
-- `protected` — gate confirmed.
-- `augmented-only` — middleware reads session but never blocks; loader must
-  handle null user.
-- `unprotected` — no auth middleware on a route the user expects protected.
-- `client-only` — server allows; client hides UI. Risky.
-- `inconsistent` — UI route is gated; sibling API is not.
+Severity is the primary scale; the verdict is a secondary domain label:
+
+- `error` / `unprotected` — no auth middleware on a route the user expects
+  protected.
+- `error` / `inconsistent` — UI route is gated; sibling API is not.
+- `warn` / `augmented-only` — middleware reads session but never blocks;
+  loader must handle null user.
+- `warn` / `client-only` — server allows; client hides UI.
+- `info` / `protected` — gate confirmed.
+- `info` / `public-by-design` — deliberately exposed (login, signup,
+  marketing).
 
 ## Rules
 
 1. The framework's `pracht inspect routes --json` and `pracht inspect api
    --json` are the source of truth — group inheritance is already resolved.
-2. Recognize Gates by behavior (returns `redirect`/`Response` on failure), not
-   by filename — projects use `auth.ts`, `requireUser.ts`, `session.ts`, etc.
+2. Recognize Gates by behavior (short-circuits with a `Response` without
+   calling `next()` on failure), not by filename — projects use `auth.ts`,
+   `requireUser.ts`, `session.ts`, etc.
 3. An Augmenter is a valid pattern when paired with a separate Gate or a
    loader that explicitly handles the unauthenticated case. Flag it; don't
    condemn it.

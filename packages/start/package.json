@@ -29,6 +29,7 @@
   "files": [
     "bin",
     "src",
+    "skills",
     "README.md"
   ],
   "type": "module",
@@ -36,7 +37,7 @@
     "provenance": true
   },
   "scripts": {
-    "build": "node -e \"\"",
+    "build": "node ./scripts/sync-skills.js",
     "prepublishOnly": "npm run build"
   }
 }

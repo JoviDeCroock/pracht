@@ -20,11 +20,11 @@ import {
   IconTestPipe,
   IconTriangle,
   IconRefresh,
+  IconRobot,
   IconBrandGithub,
   IconSparkles,
   IconPresentationAnalytics,
   IconActivity,
-  IconRobot,
 } from "@tabler/icons-preact";
 import "../styles/global.css";
 
@@ -66,6 +66,7 @@ const NAV = [
       { href: "/docs/performance", Icon: IconGauge, title: "Performance" },
       { href: "/docs/llms", Icon: IconSparkles, title: "LLM Content" },
       { href: "/docs/agent-workflow", Icon: IconRobot, title: "Agent Workflow" },
+      { href: "/docs/agent-skills", Icon: IconSparkles, title: "Agent Skills" },
     ],
   },
   {
