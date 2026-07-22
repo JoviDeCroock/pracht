@@ -14,7 +14,7 @@ import { runInspect, type InspectReport } from "./inspect.js";
 // the program, so its `Register` augmentation never applies.
 export const DEFAULT_DECLARATION_OUT = "src/pracht.d.ts";
 export const DEFAULT_RUNTIME_OUT = "src/pracht-routes.ts";
-const DEFAULT_CAPABILITIES_OUT = "src/pracht-capabilities.d.ts";
+export const DEFAULT_CAPABILITIES_OUT = "src/pracht-capabilities.d.ts";
 const LEGACY_DECLARATION_OUT = "src/pracht-routes.d.ts";
 
 type RouteEntry = NonNullable<InspectReport["routes"]>[number];

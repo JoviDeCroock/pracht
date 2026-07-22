@@ -59,8 +59,10 @@ type CapabilityFormResult<TName extends string> = TName extends RegisteredCapabi
   ? CapabilityEnvelope<CapabilityOutputFor<TName>>
   : CapabilityEnvelope;
 
-export interface FormProps<TName extends string = string>
-  extends Omit<JSX.HTMLAttributes<HTMLFormElement>, "action" | "method"> {
+export interface FormProps<TName extends string = string> extends Omit<
+  JSX.HTMLAttributes<HTMLFormElement>,
+  "action" | "method"
+> {
   /**
    * Form action. Autocompletes API route paths registered by `pracht typegen`
    * while still accepting any URL string (dynamic segments must be
