@@ -157,7 +157,18 @@ function collectSingleCapabilityChecks(
   const exposeFlags = readExposeFlags(properties.get("expose"));
   problems.push(...exposeFlags.problems);
 
-  if (exposed) {
+  if (exposeFlags.unknown) {
+    checks.push(
+      createCheck(
+        "warning",
+        `${label}: the "expose" field is not an inline object literal, so its exposure contract ` +
+          "could not be verified statically — including the destructive-exposure and " +
+          "confirmation-secret checks. Inline the expose object so verification can cover it.",
+      ),
+    );
+  }
+
+  if (exposed && !exposeFlags.unknown) {
     const { hasHttp, hasMcp, hasWebmcp } = exposeFlags;
     if (hasWebmcp && !hasHttp) {
       problems.push(
@@ -223,6 +234,12 @@ function collectSingleCapabilityChecks(
     return;
   }
 
+  if (exposeFlags.unknown) {
+    // The exposure contract could not be verified; the warning above already
+    // says so. Don't claim a complete contract.
+    return;
+  }
+
   checks.push(
     createCheck(
       "ok",
@@ -265,11 +282,16 @@ function readExposeFlags(text: string | undefined): {
   hasHttp: boolean;
   hasMcp: boolean;
   hasWebmcp: boolean;
+  /** `expose` is present but not an inline literal, so it can't be verified. */
+  unknown: boolean;
   problems: string[];
 } {
   const value = text ? evaluateLiteral(text) : undefined;
+  if (text !== undefined && value === undefined) {
+    return { hasHttp: false, hasMcp: false, hasWebmcp: false, unknown: true, problems: [] };
+  }
   if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return { hasHttp: false, hasMcp: false, hasWebmcp: false, problems: [] };
+    return { hasHttp: false, hasMcp: false, hasWebmcp: false, unknown: false, problems: [] };
   }
   const expose = value as Record<string, unknown>;
   const problems: string[] = [];
@@ -293,6 +315,7 @@ function readExposeFlags(text: string | undefined): {
     hasHttp,
     hasMcp: expose.mcp === true,
     hasWebmcp: expose.webmcp === true,
+    unknown: false,
     problems,
   };
 }

@@ -1,7 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { defineCapability } from "../../capabilities/src/index.ts";
-import { defineApp, handlePrachtRequest, route, setCapabilityAuditHook } from "../src/index.ts";
+import {
+  defineApp,
+  handlePrachtRequest,
+  resolveApp,
+  route,
+  setCapabilityAuditHook,
+} from "../src/index.ts";
 import {
   canonicalJson,
   clearConsumedConfirmationTokens,
@@ -251,6 +257,42 @@ describe("destructive capability HTTP flow", () => {
     expect((await response.json()).error.code).toBe("invalid_input");
   });
 
+  it("runs capability middleware during a prepare, not just the commit", async () => {
+    let middlewareCalls = 0;
+    const app = defineApp({
+      capabilities: { "notes.purge": "./capabilities/notes-purge.ts" },
+      middleware: { count: "./middleware/count.ts" },
+      agents: { confirmation: { ttlSeconds: 120 } },
+      routes: [route("/", "./routes/home.tsx")],
+    });
+    const registry: ModuleRegistry = {
+      routeModules: { "./routes/home.tsx": async () => ({ Component: () => null }) },
+      capabilityModules: {
+        "./capabilities/notes-purge.ts": (async () => ({
+          default: createPurgeCapability({ middleware: ["count"] }),
+        })) as NonNullable<ModuleRegistry["capabilityModules"]>[string],
+      },
+      middlewareModules: {
+        "./middleware/count.ts": (async () => ({
+          middleware: async (_args: unknown, next: () => Promise<Response>) => {
+            middlewareCalls += 1;
+            return next();
+          },
+        })) as NonNullable<ModuleRegistry["middlewareModules"]>[string],
+      },
+    };
+
+    const prepare = await handlePrachtRequest({
+      app,
+      registry,
+      request: postPurge({ titlePrefix: "x" }),
+    });
+    expect(prepare.status).toBe(409);
+    // The confirmation gate now runs inside the middleware chain, so
+    // rate-limiting middleware sees the prepare attempt too.
+    expect(middlewareCalls).toBe(1);
+  });
+
   it("optionally consumes tokens once per instance (singleUse)", async () => {
     const { app, registry } = createApp(createPurgeCapability(), {
       confirmation: { ttlSeconds: 120, singleUse: true },
@@ -355,5 +397,33 @@ describe("agent policy and audit", () => {
     expect(response.status).toBe(200);
     expect(events).toHaveLength(1);
     expect(events[0].outcome).toBe("ok");
+  });
+});
+
+describe("agents config validation", () => {
+  function buildApp(agents: PrachtAgentsConfig) {
+    return defineApp({
+      agents,
+      routes: [route("/", "./routes/home.tsx")],
+    });
+  }
+
+  it("rejects an unknown webBotAuth policy (fails closed, not open)", () => {
+    const app = buildApp({ webBotAuth: { policy: "requre" as never } });
+    expect(() => resolveApp(app)).toThrow(/policy/);
+  });
+
+  it("accepts the valid policies", () => {
+    expect(() => resolveApp(buildApp({ webBotAuth: { policy: "require" } }))).not.toThrow();
+    expect(() => resolveApp(buildApp({ webBotAuth: { policy: "observe" } }))).not.toThrow();
+  });
+
+  it("rejects non-positive numeric trust settings", () => {
+    expect(() => resolveApp(buildApp({ confirmation: { ttlSeconds: 0 } }))).toThrow(
+      /positive number/,
+    );
+    expect(() => resolveApp(buildApp({ webBotAuth: { clockSkewSeconds: -1 } }))).toThrow(
+      /positive number/,
+    );
   });
 });

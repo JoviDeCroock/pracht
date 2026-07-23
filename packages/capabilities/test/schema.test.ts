@@ -141,6 +141,19 @@ describe("validateAgainstSchema", () => {
     ]);
   });
 
+  it("does not accept a __proto__ payload as an object-valued const", () => {
+    const constSchema = { const: { x: 1 } };
+    const proto = JSON.parse('{"__proto__": {}}') as Record<string, unknown>;
+    expect(validateAgainstSchema(constSchema, proto)).not.toEqual([]);
+    expect(validateAgainstSchema(constSchema, { x: 1 })).toEqual([]);
+  });
+
+  it("does not accept a __proto__ payload as an object-valued enum member", () => {
+    const enumSchema = { enum: [{ mode: "safe" }] };
+    const proto = JSON.parse('{"__proto__": {}}') as Record<string, unknown>;
+    expect(validateAgainstSchema(enumSchema, proto)).not.toEqual([]);
+  });
+
   it("validates null and boolean types", () => {
     expect(validateAgainstSchema({ type: "null" }, null)).toEqual([]);
     expect(validateAgainstSchema({ type: "boolean" }, "true")).toEqual([

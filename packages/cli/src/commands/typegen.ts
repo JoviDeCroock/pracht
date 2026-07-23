@@ -125,6 +125,20 @@ export async function runTypegen(options: TypegenOptions): Promise<TypegenResult
         "so the generated route types would never apply. Pick a different --out.",
     );
   }
+  if (outputsCollide(capabilitiesPath, runtimePath)) {
+    throw new Error(
+      `Capabilities output ${options.capabilitiesOut} shares its basename with ${options.runtimeOut}. ` +
+        "TypeScript drops a .d.ts input that sits next to a same-named .ts file, " +
+        "so the generated capability types would never apply. Pick a different --capabilities-out.",
+    );
+  }
+  if (capabilitiesPath === declarationPath) {
+    throw new Error(
+      `Capabilities output ${options.capabilitiesOut} is the same file as the declaration output ` +
+        `${options.declarationOut}; the two generated files would overwrite each other. ` +
+        "Pick a different --capabilities-out.",
+    );
+  }
   const outputs = [
     {
       path: declarationPath,

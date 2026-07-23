@@ -88,6 +88,58 @@ describe("collectCapabilityChecks", () => {
     );
   });
 
+  it("warns instead of passing when expose is not an inline literal", () => {
+    const source = [
+      'import { defineCapability } from "@pracht/capabilities";',
+      "",
+      "const EXPOSE = { http: true };",
+      "export default defineCapability({",
+      '  title: "Purge notes",',
+      '  description: "Delete notes.",',
+      '  input: { type: "object" },',
+      '  output: { type: "object" },',
+      '  effect: "destructive",',
+      "  expose: EXPOSE,",
+      "  async run() {",
+      "    return {};",
+      "  },",
+      "});",
+      "",
+    ].join("\n");
+    const checks = runChecks(source);
+
+    // The destructive-exposure / confirmation-secret checks can't run, so it
+    // must warn rather than silently claim a complete contract.
+    expect(checks.map((check) => check.message)).toContainEqual(
+      expect.stringContaining('the "expose" field is not an inline object literal'),
+    );
+    expect(checks.map((check) => check.message)).not.toContainEqual(
+      expect.stringContaining("declares a complete"),
+    );
+  });
+
+  it("does not count a commented-out registration", () => {
+    const checks: Check[] = [];
+    collectCapabilityChecks(
+      createProject({
+        capability: capabilitySource(
+          `  title: "Purge",
+  description: "Delete everything.",
+  input: { type: "object" },
+  output: { type: "object" },
+  effect: "destructive",
+  expose: { http: true },`,
+        ),
+        registration: '    // "notes.search": () => import("./capabilities/notes-search.ts"),',
+      }),
+      checks,
+    );
+
+    // Nothing is registered, so the destructive-without-secret error must not
+    // fire for the commented-out capability.
+    expect(checks.filter((check) => check.status === "error")).toHaveLength(0);
+  });
+
   it("fails exposed capabilities that are missing contract fields", () => {
     const checks = runChecks(
       capabilitySource(`  title: "Search notes",

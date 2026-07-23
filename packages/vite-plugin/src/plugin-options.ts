@@ -103,6 +103,11 @@ export function resolveOptions(options: PrachtPluginOptions): ResolvedPrachtPlug
     ...DEFAULTS,
     ...options,
   };
+  // An explicit `llmsTxt: undefined` (permitted by the optional type) would
+  // spread over the `false` default — treat it as disabled, not invalid.
+  if (resolved.llmsTxt === undefined) {
+    resolved.llmsTxt = false;
+  }
   if (!Number.isInteger(resolved.prerenderConcurrency) || resolved.prerenderConcurrency <= 0) {
     throw new Error("pracht({ prerenderConcurrency }) expects a positive integer.");
   }

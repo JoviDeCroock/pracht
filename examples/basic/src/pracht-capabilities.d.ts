@@ -5,30 +5,24 @@ declare module "@pracht/core" {
   interface Register {
     capabilities: {
       "notes.search": {
-        input: { query: string; limit?: number };
-        output: {
-          notes: Array<{ id: string; title: string; body: string; [key: string]: unknown }>;
-          [key: string]: unknown;
-        };
+        input: { "query": string; "limit"?: number; };
+        output: { "notes": Array<{ "id": string; "title": string; "body": string; [key: string]: unknown; }>; [key: string]: unknown; };
       };
       "notes.create": {
-        input: { title: string; body?: string };
-        output: {
-          note: { id: string; title: string; body: string; [key: string]: unknown };
-          [key: string]: unknown;
-        };
+        input: { "title": string; "body"?: string; };
+        output: { "note": { "id": string; "title": string; "body": string; [key: string]: unknown; }; [key: string]: unknown; };
       };
       "notes.purge": {
-        input: { titlePrefix: string };
-        output: { purged: number; [key: string]: unknown };
+        input: { "titlePrefix": string; };
+        output: { "purged": number; [key: string]: unknown; };
       };
       "agent.whoami": {
         input: Record<string, never>;
-        output: { verified: boolean; agentDomain?: string; keyId?: string; [key: string]: unknown };
+        output: { "verified": boolean; "agentDomain"?: string; "keyId"?: string; [key: string]: unknown; };
       };
       "agent.ping": {
         input: Record<string, never>;
-        output: { pong: boolean; [key: string]: unknown };
+        output: { "pong": boolean; [key: string]: unknown; };
       };
     };
   }

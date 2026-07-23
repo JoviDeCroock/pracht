@@ -51,7 +51,9 @@ export function requirePositiveInteger(
   key: string,
   fallback: number,
 ): number {
-  const parsed = value == null ? fallback : Number.parseInt(value, 10);
+  // Treat an unset OR empty env var (`PORT=`) as absent so it falls back
+  // instead of parsing to NaN and throwing.
+  const parsed = value == null || value === "" ? fallback : Number.parseInt(value, 10);
   if (!Number.isInteger(parsed) || parsed <= 0) {
     throw new Error(`--${key} must be a positive integer.`);
   }
