@@ -33,6 +33,17 @@ import {
   mergeHeadMetadata,
   runMiddlewareChain,
 } from "./runtime-middleware.ts";
+import {
+  CAPABILITY_HTTP_PREFIX,
+  envelopeResponse,
+  handleCapabilityRequest,
+  isRegisteredCapabilityHttpPath,
+  matchCapabilityRoute,
+  resolveAppCapabilities,
+  setActiveCapabilityHost,
+  type ResolvedCapability,
+} from "./runtime-capabilities.ts";
+import { verifyAgentSignature } from "./runtime-agent-auth.ts";
 import { buildRouteStateUrl } from "./runtime-client-fetch.ts";
 import {
   getRenderToStringAsync,
@@ -48,10 +59,13 @@ import type {
   ApiRouteArgs,
   ApiRouteModule,
   BaseRouteArgs,
+  CapabilityAuditHook,
   HttpMethod,
   ModuleRegistry,
   HrefRouteDefinition,
+  PrachtAgentIdentity,
   PrachtApp,
+  PrachtContextExtensions,
   ResolvedApiRoute,
   ResolvedPrachtApp,
   RouteModule,
@@ -176,6 +190,13 @@ export interface HandlePrachtRequestOptions<TContext = unknown> {
    * `Server-Timing` header. Leave unset in production — no timing work runs.
    */
   timings?: PrachtPhaseTimings;
+  /**
+   * Structured audit callback invoked for every capability dispatch
+   * (principal/agent, capability, effect, outcome, duration). Custom server
+   * entries can pass it here; application code can alternatively register a
+   * hook via `setCapabilityAuditHook()` from any server-only module.
+   */
+  onCapabilityAudit?: CapabilityAuditHook;
 }
 
 export async function handlePrachtRequest<TContext>(
@@ -202,6 +223,26 @@ export async function handlePrachtRequest<TContext>(
   const isRouteStateRequest = headerSignalsRouteState || dataParamIsFirstParty;
   const exposeDiagnostics = shouldExposeServerErrors(options);
 
+  // Register the capability host so `invokeCapability()` works from loaders,
+  // API routes, and middleware during this request. One assignment — free
+  // for apps without capabilities.
+  setActiveCapabilityHost(options.app, registry);
+
+  // Web Bot Auth: verify the agent signature once per request when the app
+  // opted in via `defineApp({ agents: { webBotAuth } })`. The result (identity
+  // or null) lands on the shared request context before middleware, loaders,
+  // API routes, or capabilities run. Apps without the config skip everything —
+  // a single property check.
+  const requestContext = (options.context ?? {}) as TContext;
+  const webBotAuth = options.app.agents?.webBotAuth;
+  let agent: PrachtAgentIdentity | null = null;
+  if (webBotAuth) {
+    if (options.request.headers.has("signature-input")) {
+      agent = await verifyAgentSignature(options.request, webBotAuth);
+    }
+    (requestContext as PrachtContextExtensions).agent = agent;
+  }
+
   if (options.apiRoutes?.length) {
     const apiMatch = matchApiRoute(options.apiRoutes, url.pathname);
     if (apiMatch) {
@@ -226,7 +267,7 @@ export async function handlePrachtRequest<TContext>(
       }
 
       const requestSignal = AbortSignal.timeout(30_000);
-      const apiContext = (options.context ?? {}) as TContext;
+      const apiContext = requestContext;
 
       const apiTerminal = async (): Promise<Response> => {
         currentPhase = "api";
@@ -286,6 +327,85 @@ export async function handlePrachtRequest<TContext>(
     }
   }
 
+  // Capability HTTP projection. Only runs when the manifest registers
+  // capabilities — apps without them pay a single `Object.keys` call.
+  // Explicit API route files take precedence (they matched above).
+  if (Object.keys(options.app.capabilities ?? {}).length > 0) {
+    let capabilities: ResolvedCapability[] | null = null;
+    try {
+      capabilities = await resolveAppCapabilities(options.app, registry);
+    } catch (error: unknown) {
+      warnCapabilityResolutionFailure(error);
+      // A broken capability definition must not take down page rendering;
+      // requests to capability paths still fail closed below.
+      if (
+        url.pathname.startsWith(CAPABILITY_HTTP_PREFIX) ||
+        (await isRegisteredCapabilityHttpPath(options.app, registry, url.pathname))
+      ) {
+        return withDefaultSecurityHeaders(
+          envelopeResponse(500, {
+            ok: false,
+            error: {
+              code: "internal_error",
+              message: exposeDiagnostics
+                ? `Capability registry failed to resolve: ${error instanceof Error ? error.message : String(error)}`
+                : "Capability registry failed to resolve.",
+            },
+          }),
+        );
+      }
+    }
+
+    if (capabilities) {
+      const capabilityMatch = matchCapabilityRoute(capabilities, url.pathname);
+      if (capabilityMatch) {
+        // Same CSRF stance as state-changing API requests: capability calls
+        // are session-authenticated POSTs, so cross-origin browser requests
+        // are rejected unless the app opted out.
+        const requireSameOrigin = options.app.api?.requireSameOrigin ?? true;
+        if (
+          requireSameOrigin &&
+          !SAFE_METHODS.has(options.request.method) &&
+          !isSameOriginMutation(options.request, url)
+        ) {
+          return withDefaultSecurityHeaders(
+            envelopeResponse(403, {
+              ok: false,
+              error: { code: "cross_origin_blocked", message: "Cross-origin request blocked" },
+            }),
+          );
+        }
+
+        const capabilityResponse = await handleCapabilityRequest({
+          match: capabilityMatch,
+          context: requestContext,
+          registry,
+          request: options.request,
+          url,
+          exposeErrors: exposeDiagnostics,
+          agents: options.app.agents,
+          agent,
+          onAudit: options.onCapabilityAudit,
+        });
+        return withDefaultSecurityHeaders(capabilityResponse);
+      }
+
+      // Unmatched requests under the capability prefix get the typed 404
+      // instead of falling through to the HTML not-found page.
+      if (url.pathname.startsWith(CAPABILITY_HTTP_PREFIX)) {
+        return withDefaultSecurityHeaders(
+          envelopeResponse(404, {
+            ok: false,
+            error: {
+              code: "unknown_capability",
+              message: "No capability is exposed at this path.",
+            },
+          }),
+        );
+      }
+    }
+  }
+
   const match = matchAppRoute(resolvedApp, url.pathname);
 
   if (!match) {
@@ -341,7 +461,7 @@ export async function handlePrachtRequest<TContext>(
   }
 
   const requestSignal = AbortSignal.timeout(30_000);
-  const pageContext = (options.context ?? {}) as TContext;
+  const pageContext = requestContext;
   const routeArgs: BaseRouteArgs<TContext> = {
     request: options.request,
     params: match.params,
@@ -687,6 +807,18 @@ export async function handlePrachtRequest<TContext>(
       requestPath,
     });
   }
+}
+
+let warnedCapabilityResolutionFailure = false;
+
+/** Resolution failures repeat on every request — log the details once. */
+function warnCapabilityResolutionFailure(error: unknown): void {
+  if (warnedCapabilityResolutionFailure) return;
+  warnedCapabilityResolutionFailure = true;
+  console.error(
+    "[pracht] Capability registry failed to resolve; capability requests will return 500:",
+    error,
+  );
 }
 
 function getRequestPath(url: URL): string {

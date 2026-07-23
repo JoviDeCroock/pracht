@@ -7,7 +7,13 @@ import { createServer, type ViteDevServer } from "vite";
 import { collectAppGraph } from "../app-graph.js";
 import { formatDevBanner, supportsColor } from "../dev-banner.js";
 import { readProjectConfig, resolveProjectPath } from "../project.js";
-import { DEFAULT_DECLARATION_OUT, DEFAULT_RUNTIME_OUT, runTypegen } from "./typegen.js";
+import { requirePositiveInteger } from "../utils.js";
+import {
+  DEFAULT_CAPABILITIES_OUT,
+  DEFAULT_DECLARATION_OUT,
+  DEFAULT_RUNTIME_OUT,
+  runTypegen,
+} from "./typegen.js";
 
 export default defineCommand({
   meta: {
@@ -16,13 +22,18 @@ export default defineCommand({
   },
   args: {
     port: {
-      type: "positional",
-      description: "Port number",
-      required: false,
+      type: "string",
+      description: "Port number (defaults to $PORT or 3000)",
     },
   },
   async run({ args }) {
-    const port = parseInt(process.env.PORT || args.port || "3000", 10);
+    // `pracht dev 4000` (legacy positional) still works alongside `--port`.
+    const positionalPort = args._?.[0] != null ? String(args._[0]) : undefined;
+    const port = requirePositiveInteger(
+      args.port ?? positionalPort ?? process.env.PORT,
+      "port",
+      3000,
+    );
     const root = process.cwd();
 
     const server = await createServer({
@@ -39,6 +50,7 @@ export default defineCommand({
       console.log(
         formatDevBanner({
           apiRoutes: graph.api,
+          capabilities: graph.capabilities,
           color: supportsColor(),
           localUrls: urls.local,
           networkUrls: urls.network,
@@ -79,7 +91,11 @@ function watchGeneratedRouteTypes(server: ViteDevServer, root: string): boolean 
     return false;
   }
 
-  const generatedPaths = new Set([declarationPath, resolve(root, DEFAULT_RUNTIME_OUT)]);
+  const generatedPaths = new Set([
+    declarationPath,
+    resolve(root, DEFAULT_RUNTIME_OUT),
+    resolve(root, DEFAULT_CAPABILITIES_OUT),
+  ]);
   const appFilePath = resolveProjectPath(root, readProjectConfig(root).appFile);
   let queued: ReturnType<typeof setTimeout> | null = null;
   let running = false;
@@ -93,6 +109,7 @@ function watchGeneratedRouteTypes(server: ViteDevServer, root: string): boolean 
     running = true;
     try {
       await runTypegen({
+        capabilitiesOut: DEFAULT_CAPABILITIES_OUT,
         check: false,
         declarationOut: DEFAULT_DECLARATION_OUT,
         root,

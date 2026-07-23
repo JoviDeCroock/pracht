@@ -75,16 +75,41 @@ export {
   detectApiMethods,
   serializeApiRoutes,
   serializeAppRoutes,
+  serializeCapabilities,
 } from "./app-graph.ts";
 export type {
   ApiRouteExports,
   AppGraph,
   AppGraphApiRoute,
+  AppGraphCapability,
   AppGraphModuleAccess,
   AppGraphRoute,
 } from "./app-graph.ts";
 export { filterPublicEnv, PRACHT_PUBLIC_ENV_PREFIX, publicEnv } from "./env.ts";
 export type { PrachtPublicEnv, PrachtServerEnv, PublicEnvOf } from "./env.ts";
+export {
+  capabilityHttpPath,
+  invokeCapability,
+  matchCapabilityRoute,
+  resolveAppCapabilities,
+  setCapabilityAuditHook,
+} from "./runtime-capabilities.ts";
+export type { InvokeCapabilityContext, ResolvedCapability } from "./runtime-capabilities.ts";
+export { resolveRegistryModule } from "./runtime-manifest.ts";
+export { createCapabilityTestHost } from "./testing-capabilities.ts";
+export type {
+  CapabilityTestHost,
+  CapabilityTestHostOptions,
+  CapabilityTestInvokeOptions,
+  CapabilityTestRequestOptions,
+} from "./testing-capabilities.ts";
+export { verifyAgentSignature } from "./runtime-agent-auth.ts";
+export type { VerifyAgentSignatureOptions } from "./runtime-agent-auth.ts";
+export {
+  CONFIRMATION_HEADER,
+  CONFIRMATION_SECRET_ENV,
+  setCapabilityConfirmationSecret,
+} from "./runtime-confirmation.ts";
 export { forwardRef } from "./forwardRef.ts";
 export { useIsHydrated } from "./hydration.ts";
 export { Suspense, lazy } from "preact-suspense";
@@ -140,7 +165,32 @@ export type {
   BuildHrefOptions,
   ApiRouteMatch,
   ApiRouteModule,
+  AgentPolicyMode,
   BaseRouteArgs,
+  CapabilityAuditEvent,
+  CapabilityAuditHook,
+  CapabilityConfirmationConfig,
+  CapabilityEffect,
+  PrachtAgentIdentity,
+  PrachtAgentsConfig,
+  WebBotAuthConfig,
+  WebBotAuthStaticKey,
+  CapabilityContext,
+  CapabilityEnvelope,
+  CapabilityErrorCode,
+  CapabilityErrorPayload,
+  CapabilityExposure,
+  CapabilityHttpExposure,
+  CapabilityInputFor,
+  CapabilityIssue,
+  CapabilityModule,
+  CapabilityOutputFor,
+  CapabilityRunArgs,
+  CapabilityValidationResult,
+  PrachtContextExtensions,
+  PrachtRequestContext,
+  RegisteredCapabilityName,
+  PrachtCapability,
   DataModule,
   ErrorBoundaryProps,
   GroupDefinition,

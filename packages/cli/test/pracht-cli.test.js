@@ -19,6 +19,7 @@ const cliPath = fileURLToPath(new URL("../bin/pracht.js", import.meta.url));
 const repoRoot = resolve(dirname(cliPath), "../../..");
 const repoTempRoot = resolve(dirname(cliPath), "../test/.tmp");
 const coreImportPath = resolve(repoRoot, "packages/framework/src/index.ts");
+const capabilitiesImportPath = resolve(repoRoot, "packages/capabilities/src/index.ts");
 const nodeAdapterImportPath = resolve(repoRoot, "packages/adapter-node/src/index.ts");
 const vitePluginImportPath = resolve(repoRoot, "packages/vite-plugin/src/index.ts");
 const standardSchemaImportPath = resolve(
@@ -374,9 +375,15 @@ export const app = defineApp({
       mode: "manifest",
     });
 
+    const capabilities = JSON.parse(
+      runCli(["inspect", "capabilities", "--json"], { cwd: appDir }).stdout,
+    );
+    expect(capabilities).toEqual({ capabilities: [], mode: "manifest" });
+
     expect(all).toEqual({
       ...routes,
       ...api,
+      ...capabilities,
       ...build,
     });
   }, 30_000);
@@ -644,6 +651,43 @@ export function Component() {
         error: expect.stringContaining("shares its basename"),
       });
     }
+  }, 30_000);
+
+  it("generates capability declarations from capability schemas", () => {
+    const appDir = createRepoTempDir("pracht-cli-typegen-capabilities-");
+    writeTypedManifestApp(appDir, { capabilities: true });
+
+    const result = JSON.parse(runCli(["typegen", "--json"], { cwd: appDir }).stdout);
+    const declaration = readFileSync(join(appDir, "src/pracht-capabilities.d.ts"), "utf-8");
+
+    expect(result).toMatchObject({
+      capabilities: 2,
+      files: ["src/pracht.d.ts", "src/pracht-routes.ts", "src/pracht-capabilities.d.ts"],
+      ok: true,
+    });
+    expect(declaration).toContain('declare module "@pracht/core"');
+    // Input: `limit` declares a default, so callers may omit it.
+    expect(declaration).toContain('"notes.search": {');
+    expect(declaration).toContain('input: { "query": string; "limit"?: number; };');
+    // Output: open objects keep an index signature; closed ones do not.
+    expect(declaration).toContain(
+      'output: { "notes": Array<Record<string, unknown>>; [key: string]: unknown; };',
+    );
+    expect(declaration).toContain('"notes.set-status": {');
+    expect(declaration).toContain('"status": "draft" | "published";');
+    expect(declaration).toContain('output: { "updated": true; };');
+
+    const check = JSON.parse(runCli(["typegen", "--check", "--json"], { cwd: appDir }).stdout);
+    expect(check).toMatchObject({ capabilities: 2, check: true, ok: true });
+
+    // Removing every capability rewrites the existing file to the empty
+    // registration instead of leaving it stale.
+    writeTypedManifestApp(appDir, { capabilities: false });
+    const emptied = JSON.parse(runCli(["typegen", "--json"], { cwd: appDir }).stdout);
+    expect(emptied).toMatchObject({ capabilities: 0, ok: true });
+    expect(readFileSync(join(appDir, "src/pracht-capabilities.d.ts"), "utf-8")).toContain(
+      "capabilities: Record<never, never>;",
+    );
   }, 30_000);
 
   it("generates typed route declarations for pages-router apps", () => {
@@ -1032,7 +1076,7 @@ export const app = defineApp({
   );
 }
 
-function writeTypedManifestApp(appDir) {
+function writeTypedManifestApp(appDir, { capabilities = false } = {}) {
   const vitePluginImport = pathToFileURL(vitePluginImportPath).href;
 
   writeProjectFile(
@@ -1059,6 +1103,7 @@ export default defineConfig({
   resolve: {
     alias: {
       "@pracht/adapter-node": ${JSON.stringify(nodeAdapterImportPath)},
+      "@pracht/capabilities": ${JSON.stringify(capabilitiesImportPath)},
       "@pracht/core": ${JSON.stringify(coreImportPath)},
     },
   },
@@ -1071,7 +1116,15 @@ export default defineConfig({
     `import { defineApp, route } from "@pracht/core";
 
 export const app = defineApp({
-  routes: [
+${
+  capabilities
+    ? `  capabilities: {
+    "notes.search": () => import("./capabilities/notes-search.ts"),
+    "notes.set-status": () => import("./capabilities/notes-set-status.ts"),
+  },
+`
+    : ""
+}  routes: [
     route("/", "./routes/home.tsx", { id: "home", render: "ssg" }),
     route("/products/:id", "./routes/product.tsx", { id: "product", render: "ssr" }),
     route("/dashboard", {
@@ -1084,6 +1137,68 @@ export const app = defineApp({
 });
 `,
   );
+  if (capabilities) {
+    writeProjectFile(
+      appDir,
+      "src/capabilities/notes-search.ts",
+      `import { defineCapability } from "@pracht/capabilities";
+
+export default defineCapability({
+  title: "Search notes",
+  description: "Find notes matching a query.",
+  input: {
+    type: "object",
+    properties: {
+      query: { type: "string", minLength: 1 },
+      limit: { type: "integer", minimum: 1, maximum: 20, default: 10 },
+    },
+    required: ["query"],
+    additionalProperties: false,
+  },
+  output: {
+    type: "object",
+    properties: { notes: { type: "array", items: { type: "object" } } },
+    required: ["notes"],
+  },
+  effect: "read",
+  expose: { http: true },
+  async run() {
+    return { notes: [] };
+  },
+});
+`,
+    );
+    writeProjectFile(
+      appDir,
+      "src/capabilities/notes-set-status.ts",
+      `import { defineCapability } from "@pracht/capabilities";
+
+export default defineCapability({
+  title: "Set note status",
+  description: "Move a note between draft and published.",
+  input: {
+    type: "object",
+    properties: {
+      id: { type: "string" },
+      status: { enum: ["draft", "published"] },
+    },
+    required: ["id", "status"],
+    additionalProperties: false,
+  },
+  output: {
+    type: "object",
+    properties: { updated: { const: true } },
+    required: ["updated"],
+    additionalProperties: false,
+  },
+  effect: "write",
+  async run() {
+    return { updated: true };
+  },
+});
+`,
+    );
+  }
   writeProjectFile(appDir, "src/routes/home.tsx", "export function Component() { return null; }\n");
   writeProjectFile(
     appDir,

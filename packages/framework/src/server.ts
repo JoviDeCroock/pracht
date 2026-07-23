@@ -52,14 +52,33 @@ export {
   detectApiMethods,
   serializeApiRoutes,
   serializeAppRoutes,
+  serializeCapabilities,
 } from "./app-graph.ts";
 export type {
   ApiRouteExports,
   AppGraph,
   AppGraphApiRoute,
+  AppGraphCapability,
   AppGraphModuleAccess,
   AppGraphRoute,
 } from "./app-graph.ts";
+export {
+  capabilityHttpPath,
+  invokeCapability,
+  matchCapabilityRoute,
+  resolveAppCapabilities,
+} from "./runtime-capabilities.ts";
+export type { InvokeCapabilityContext, ResolvedCapability } from "./runtime-capabilities.ts";
+export { resolveRegistryModule } from "./runtime-manifest.ts";
+export { createCapabilityTestHost } from "./testing-capabilities.ts";
+export type {
+  CapabilityTestHost,
+  CapabilityTestHostOptions,
+  CapabilityTestInvokeOptions,
+  CapabilityTestRequestOptions,
+} from "./testing-capabilities.ts";
+export { buildLlmsTxt } from "./llms-txt.ts";
+export type { BuildLlmsTxtOptions, LlmsTxtSection } from "./llms-txt.ts";
 export { prerenderApp } from "./prerender.ts";
 export {
   createISGRegenerationRequest,
@@ -98,6 +117,20 @@ export type {
   ApiRouteMatch,
   ApiRouteModule,
   BaseRouteArgs,
+  CapabilityContext,
+  CapabilityEffect,
+  CapabilityEnvelope,
+  CapabilityErrorCode,
+  CapabilityErrorPayload,
+  CapabilityExposure,
+  CapabilityHttpExposure,
+  CapabilityIssue,
+  CapabilityModule,
+  CapabilityRunArgs,
+  CapabilityValidationResult,
+  PrachtCapability,
+  PrachtContextExtensions,
+  PrachtRequestContext,
   DataModule,
   ErrorBoundaryProps,
   GroupDefinition,

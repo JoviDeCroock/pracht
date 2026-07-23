@@ -1,6 +1,8 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
+import { resolveRegistryModule, serializeCapabilities } from "@pracht/core";
+import type { AppGraphCapability } from "@pracht/core";
 import type { ViteDevServer } from "vite";
 
 import { HTTP_METHODS, type HttpMethod } from "./constants.js";
@@ -32,6 +34,7 @@ export interface AppGraphApiRoute {
 
 export interface AppGraph {
   api: AppGraphApiRoute[];
+  capabilities: AppGraphCapability[];
   routes: AppGraphRoute[];
 }
 
@@ -68,7 +71,33 @@ export async function collectAppGraph(
   const serverModule = await server.ssrLoadModule("virtual:pracht/server");
   return {
     api: await collectApiRoutes(server, root, serverModule.apiRoutes, options),
+    capabilities: await serializeCapabilities(serverModule.resolvedApp.capabilities, {
+      loadModule: capabilityModuleLoader(server, serverModule),
+      readSource: (file) => readFileSync(resolve(root, `.${file}`), "utf-8"),
+    }),
     routes: serializeResolvedRoutes(serverModule.resolvedApp.routes),
+  };
+}
+
+/**
+ * Manifest capability paths are relative to the app file (e.g.
+ * `./capabilities/notes-search.ts`), so they only load through the virtual
+ * server module's registry, which suffix-matches them against its glob keys.
+ * Fall back to a direct ssrLoadModule for absolute/root-relative paths.
+ */
+export function capabilityModuleLoader(
+  server: ViteDevServer,
+  serverModule: Record<string, unknown>,
+): (file: string) => Promise<Record<string, unknown>> {
+  const registry = serverModule.registry as
+    | { capabilityModules?: Record<string, () => Promise<unknown>> }
+    | undefined;
+  return async (file) => {
+    const viaRegistry = await resolveRegistryModule<Record<string, unknown>>(
+      registry?.capabilityModules,
+      file,
+    );
+    return viaRegistry ?? server.ssrLoadModule(file);
   };
 }
 

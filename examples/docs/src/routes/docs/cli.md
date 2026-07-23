@@ -18,10 +18,12 @@ Starts the Vite dev server with SSR middleware, HMR, and instant feedback.
 pracht dev
 
 # Custom port
-PORT=4000 pracht dev
+pracht dev --port 4000    # or PORT=4000 pracht dev
 ```
 
 Routes are rendered server-side on each request. Changes to routes, shells, loaders, and components are reflected immediately via HMR.
+
+The startup banner prints the resolved app graph: every route with its render mode, shell, and middleware, every API endpoint with its methods, and — when the app registers any — every [capability](/docs/capabilities) with its effect class, exposure, and dispatch path.
 
 ---
 

@@ -84,6 +84,10 @@ export const app = defineApp({
         id: "performance",
         render: "ssg",
       }),
+      route("/docs/agents", () => import("./routes/docs/agents.md"), {
+        id: "agents",
+        render: "ssg",
+      }),
       route("/docs/llms", () => import("./routes/docs/llms.md"), {
         id: "llms",
         render: "ssg",
@@ -94,6 +98,14 @@ export const app = defineApp({
       }),
       route("/docs/agent-skills", () => import("./routes/docs/agent-skills.md"), {
         id: "agent-skills",
+        render: "ssg",
+      }),
+      route("/docs/capabilities", () => import("./routes/docs/capabilities.md"), {
+        id: "capabilities",
+        render: "ssg",
+      }),
+      route("/docs/agent-trust", () => import("./routes/docs/agent-trust.md"), {
+        id: "agent-trust",
         render: "ssg",
       }),
       route("/docs/recipes/i18n", () => import("./routes/docs/recipes-i18n.md"), {

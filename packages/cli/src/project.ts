@@ -7,6 +7,7 @@ import { PROJECT_DEFAULTS } from "./constants.js";
 export interface ProjectConfig {
   apiDir: string;
   appFile: string;
+  capabilitiesDir: string;
   configFile: string | null;
   hasPrachtPlugin: boolean;
   middlewareDir: string;

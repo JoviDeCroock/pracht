@@ -1,0 +1,11 @@
+{
+  "name": "deliberately failing scenario",
+  "task": "Used by e2e to prove pracht eval exits 1 on failed expectations.",
+  "steps": [
+    {
+      "capability": "notes.search",
+      "input": { "query": "capabilities" },
+      "expect": { "ok": false, "errorCode": "should_not_happen" }
+    }
+  ]
+}

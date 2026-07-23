@@ -84,6 +84,7 @@
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
+    "@pracht/capabilities": "workspace:*",
     "@standard-schema/spec": "^1.0.0",
     "preact-suspense": "^0.3.0"
   },

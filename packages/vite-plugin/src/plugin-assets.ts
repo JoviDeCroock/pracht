@@ -5,6 +5,8 @@ import { stripPrachtClientModuleQuery } from "./client-module-query.ts";
 export const PRACHT_CLIENT_MODULE_ID = "virtual:pracht/client";
 export const PRACHT_SERVER_MODULE_ID = "virtual:pracht/server";
 export const PRACHT_ISLANDS_CLIENT_MODULE_ID = "virtual:pracht/islands-client";
+export const PRACHT_CAPABILITIES_MODULE_ID = "virtual:pracht/capabilities";
+export const PRACHT_WEBMCP_MODULE_ID = "virtual:pracht/webmcp";
 
 // Browser-safe path alias — the colon in "virtual:" is parsed as a protocol
 // scheme by browsers, so we serve the client module from a plain path.
@@ -124,4 +126,12 @@ export function isIslandsClientModule(id: string): boolean {
     id === ISLANDS_CLIENT_BROWSER_PATH ||
     id.endsWith(PRACHT_ISLANDS_CLIENT_MODULE_ID)
   );
+}
+
+export function isCapabilitiesModule(id: string): boolean {
+  return id === PRACHT_CAPABILITIES_MODULE_ID || id.endsWith(PRACHT_CAPABILITIES_MODULE_ID);
+}
+
+export function isWebmcpModule(id: string): boolean {
+  return id === PRACHT_WEBMCP_MODULE_ID || id.endsWith(PRACHT_WEBMCP_MODULE_ID);
 }

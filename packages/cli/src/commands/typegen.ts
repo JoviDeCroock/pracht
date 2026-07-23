@@ -4,6 +4,7 @@ import { dirname, isAbsolute, relative, resolve } from "node:path";
 import { defineCommand } from "citty";
 
 import { displayPath, readProjectConfig, resolveProjectPath } from "../project.js";
+import { schemaToTypeText } from "@pracht/capabilities";
 import { ensureTrailingNewline, handleCliError } from "../utils.js";
 import { runInspect, type InspectReport } from "./inspect.js";
 
@@ -13,10 +14,12 @@ import { runInspect, type InspectReport } from "./inspect.js";
 // the program, so its `Register` augmentation never applies.
 export const DEFAULT_DECLARATION_OUT = "src/pracht.d.ts";
 export const DEFAULT_RUNTIME_OUT = "src/pracht-routes.ts";
+export const DEFAULT_CAPABILITIES_OUT = "src/pracht-capabilities.d.ts";
 const LEGACY_DECLARATION_OUT = "src/pracht-routes.d.ts";
 
 type RouteEntry = NonNullable<InspectReport["routes"]>[number];
 type ApiRouteEntry = NonNullable<InspectReport["api"]>[number];
+type CapabilityEntry = NonNullable<InspectReport["capabilities"]>[number];
 
 export default defineCommand({
   meta: {
@@ -32,6 +35,10 @@ export default defineCommand({
       type: "string",
       description: `Runtime href helper output path (default: ${DEFAULT_RUNTIME_OUT})`,
     },
+    "capabilities-out": {
+      type: "string",
+      description: `Capability declaration output path (default: ${DEFAULT_CAPABILITIES_OUT})`,
+    },
     check: {
       type: "boolean",
       description: "Check whether generated route files are up to date without writing",
@@ -45,6 +52,10 @@ export default defineCommand({
     const json = Boolean(args.json);
     try {
       const result = await runTypegen({
+        capabilitiesOut:
+          typeof args["capabilities-out"] === "string"
+            ? args["capabilities-out"]
+            : DEFAULT_CAPABILITIES_OUT,
         check: Boolean(args.check),
         declarationOut: typeof args.out === "string" ? args.out : DEFAULT_DECLARATION_OUT,
         root: process.cwd(),
@@ -73,6 +84,7 @@ export default defineCommand({
 });
 
 export interface TypegenOptions {
+  capabilitiesOut: string;
   check: boolean;
   declarationOut: string;
   root: string;
@@ -81,6 +93,7 @@ export interface TypegenOptions {
 
 interface TypegenResult {
   apiRoutes: number;
+  capabilities: number;
   check: boolean;
   files: string[];
   mode: string;
@@ -91,20 +104,43 @@ export async function runTypegen(options: TypegenOptions): Promise<TypegenResult
   // Type generation only needs each API route's path and source file. Avoid
   // loading the modules themselves: top-level API code may initialize runtime
   // services or have other side effects that should never run during codegen.
-  const report = await runInspect(options.root, { inspectApiMethods: false, target: "all" });
+  const report = await runInspect(options.root, {
+    inspectApiMethods: false,
+    target: ["routes", "api", "capabilities"],
+  });
   const routes = report.routes ?? [];
   const apiRoutes = report.api ?? [];
+  const capabilities = report.capabilities ?? [];
   validateRoutes(routes);
   validateApiRoutes(apiRoutes);
 
   const project = readProjectConfig(options.root);
   const declarationPath = resolveOutputPath(options.root, options.declarationOut);
   const runtimePath = resolveOutputPath(options.root, options.runtimeOut);
+  const capabilitiesPath = resolveOutputPath(options.root, options.capabilitiesOut);
   if (outputsCollide(declarationPath, runtimePath)) {
     throw new Error(
       `Declaration output ${options.declarationOut} shares its basename with ${options.runtimeOut}. ` +
         "TypeScript drops a .d.ts input that sits next to a same-named .ts file, " +
         "so the generated route types would never apply. Pick a different --out.",
+    );
+  }
+  if (outputsCollide(capabilitiesPath, runtimePath)) {
+    throw new Error(
+      `Capabilities output ${options.capabilitiesOut} shares its basename with ${options.runtimeOut}. ` +
+        "TypeScript drops a .d.ts input that sits next to a same-named .ts file, " +
+        "so the generated capability types would never apply. Pick a different --capabilities-out.",
+    );
+  }
+  if (
+    capabilitiesPath === declarationPath ||
+    outputsCollide(declarationPath, capabilitiesPath) ||
+    outputsCollide(capabilitiesPath, declarationPath)
+  ) {
+    throw new Error(
+      `Capabilities output ${options.capabilitiesOut} collides with the declaration output ` +
+        `${options.declarationOut} — identical paths overwrite each other, and TypeScript drops ` +
+        "a .d.ts input that sits next to a same-named .ts file. Pick a different --capabilities-out.",
     );
   }
   const outputs = [
@@ -121,6 +157,16 @@ export async function runTypegen(options: TypegenOptions): Promise<TypegenResult
       source: buildRuntimeSource(routes),
     },
   ];
+
+  // The capability declaration file only exists for apps that register
+  // capabilities. When the last capability is removed, an already-generated
+  // file is rewritten to the empty registration instead of left stale.
+  if (capabilities.length > 0 || existsSync(capabilitiesPath)) {
+    outputs.push({
+      path: capabilitiesPath,
+      source: buildCapabilityDeclarationSource(capabilities),
+    });
+  }
 
   if (options.check) {
     const stale = outputs.filter((output) => !fileMatches(output.path, output.source));
@@ -143,6 +189,7 @@ export async function runTypegen(options: TypegenOptions): Promise<TypegenResult
 
   return {
     apiRoutes: apiRoutes.length,
+    capabilities: capabilities.length,
     check: options.check,
     files: outputs.map((output) => displayPath(options.root, output.path)),
     mode: report.mode,
@@ -254,6 +301,45 @@ function buildDeclarationSource(
   }
 
   lines.push("    };");
+  lines.push("  }");
+  lines.push("}");
+  lines.push("");
+  lines.push("export {};");
+  lines.push("");
+
+  return lines.join("\n");
+}
+
+/**
+ * Register capability input/output types on `Register["capabilities"]`, the
+ * capability counterpart of the route declaration file. `invokeCapability()`,
+ * `callCapability()`, and the capability test host infer their input and
+ * output types from the capability name once this file is in the program.
+ */
+function buildCapabilityDeclarationSource(capabilities: CapabilityEntry[]): string {
+  const lines = [
+    "// Generated by `pracht typegen`. Do not edit manually.",
+    'import "@pracht/core";',
+    "",
+    'declare module "@pracht/core" {',
+    "  interface Register {",
+  ];
+
+  if (capabilities.length === 0) {
+    lines.push("    capabilities: Record<never, never>;");
+  } else {
+    lines.push("    capabilities: {");
+    for (const capability of capabilities) {
+      // Broken registrations (module failed to load) fall back to `unknown`
+      // schemas here; `pracht verify` and `pracht doctor` report the wiring.
+      lines.push(`      ${JSON.stringify(capability.name)}: {`);
+      lines.push(`        input: ${schemaToTypeText(capability.input, "input")};`);
+      lines.push(`        output: ${schemaToTypeText(capability.output, "output")};`);
+      lines.push("      };");
+    }
+    lines.push("    };");
+  }
+
   lines.push("  }");
   lines.push("}");
   lines.push("");

@@ -1,3 +1,9 @@
+import type {
+  Capability,
+  CapabilityAgentPolicy,
+  CapabilityEffect,
+  PrachtAgentIdentity,
+} from "@pracht/capabilities";
 import type { ComponentChildren, FunctionComponent } from "preact";
 
 import type { RouteConstraint } from "./constraints.ts";
@@ -19,7 +25,29 @@ import type { RouteConstraint } from "./constraints.ts";
 // biome-ignore lint/suspicious/noEmptyInterface: augmented by users
 export interface Register {}
 
-export type RegisteredContext = Register extends { context: infer T } ? T : unknown;
+/**
+ * Fields the framework itself surfaces on the request context, merged into
+ * the app-registered context type so loaders, middleware, API routes, and
+ * capabilities all see them without casts.
+ */
+export interface PrachtContextExtensions {
+  /**
+   * Verified agent identity (Web Bot Auth); `null` when the request is
+   * unsigned or fails verification, absent when `defineApp({ agents })` is
+   * not configured.
+   */
+  agent?: PrachtAgentIdentity | null;
+}
+
+export type RegisteredContext = (Register extends { context: infer T } ? T : unknown) &
+  PrachtContextExtensions;
+
+/**
+ * The request context as application code receives it — the registered
+ * context plus the framework-surfaced fields. Use it to type standalone
+ * functions (e.g. the third `defineCapability()` generic).
+ */
+export type PrachtRequestContext = RegisteredContext;
 
 export type RenderMode = "spa" | "ssr" | "ssg" | "isg";
 
@@ -516,9 +544,112 @@ export interface GroupDefinition {
 
 export type RouteTreeNode = RouteDefinition | GroupDefinition;
 
+// ---------------------------------------------------------------------------
+// Agent trust layer (Web Bot Auth + destructive-capability confirmation)
+//
+// Everything in `agents` is plain serializable data — the app manifest is
+// bundled into the client too, so no secrets and no functions belong here.
+// Web Bot Auth keys are *public* Ed25519 keys; the confirmation secret comes
+// from the environment (PRACHT_CONFIRMATION_SECRET) or
+// `setCapabilityConfirmationSecret()`, never from the manifest.
+// ---------------------------------------------------------------------------
+
+export type AgentPolicyMode = CapabilityAgentPolicy;
+
+/** A statically configured agent verification key (public Ed25519 JWK material). */
+export interface WebBotAuthStaticKey {
+  /** Base64url raw Ed25519 public key — the JWK `x` member. */
+  x: string;
+  /**
+   * Key id the agent sends as `keyid`. Defaults to the RFC 8037 JWK SHA-256
+   * thumbprint computed from `x`, which is what Web Bot Auth agents send.
+   */
+  kid?: string;
+  /** Label reported as `agentDomain` when the request has no Signature-Agent header. */
+  agent?: string;
+}
+
+export interface WebBotAuthConfig {
+  /**
+   * App-wide default policy for capability HTTP endpoints.
+   * - `"observe"` (default): verify and surface `context.agent`, serve everyone.
+   * - `"require"`: unsigned/unverified requests to capability HTTP endpoints
+   *   get a 401 envelope. Individual capabilities can override via `agentPolicy`.
+   */
+  policy?: AgentPolicyMode;
+  /** Statically trusted keys (tests, air-gapped deploys, pinned agents). */
+  keys?: WebBotAuthStaticKey[];
+  /**
+   * Origins (e.g. `"https://signature-agent.example"`) whose
+   * `/.well-known/http-message-signatures-directory` may be fetched to
+   * resolve unknown key ids. Fetching is allowlist-only: an unlisted
+   * Signature-Agent fails verification instead of triggering a fetch
+   * (fail closed, no SSRF surface).
+   */
+  directories?: string[];
+  /** Allowed clock skew when checking `created`/`expires`, seconds. Default 60. */
+  clockSkewSeconds?: number;
+  /** Maximum accepted signature lifetime (`expires - created`), seconds. Default 86400 (24h, per draft guidance). */
+  maxLifetimeSeconds?: number;
+  /** In-memory TTL for fetched key directories, seconds. Default 300. */
+  directoryCacheTtlSeconds?: number;
+}
+
+export interface CapabilityConfirmationConfig {
+  /** Confirmation token TTL, seconds. Default 120. */
+  ttlSeconds?: number;
+  /**
+   * Best-effort single-use enforcement via an in-memory, per-instance cache.
+   * Stateless HMAC tokens cannot prevent replay across instances or
+   * restarts — see docs/AGENT_TRUST.md for the honest limitations.
+   */
+  singleUse?: boolean;
+}
+
+export interface PrachtAgentsConfig {
+  /** Verify RFC 9421 / Web Bot Auth agent signatures and surface `context.agent`. */
+  webBotAuth?: WebBotAuthConfig;
+  /** Prepare/commit confirmation flow options for destructive capabilities. */
+  confirmation?: CapabilityConfirmationConfig;
+}
+
+/** Structured audit event emitted for every capability dispatch. */
+export interface CapabilityAuditEvent {
+  capability: string;
+  effect: CapabilityEffect;
+  /**
+   * How the capability was invoked. `"webmcp"` reflects the transport marker
+   * the generated WebMCP shim sends with its dispatches — informational, not
+   * a trust signal (any HTTP client can send the header).
+   */
+  transport: "http" | "server" | "webmcp";
+  /** `"ok"` or the envelope error code (e.g. `"invalid_input"`, `"confirmation_required"`). */
+  outcome: string;
+  /** HTTP status the envelope maps to (also set for server-side invocation). */
+  status: number;
+  durationMs: number;
+  /** Verified agent identity, `null` when unsigned/unverified or Web Bot Auth is off. */
+  agent: PrachtAgentIdentity | null;
+}
+
+export type CapabilityAuditHook = (event: CapabilityAuditEvent) => void;
+
 export interface PrachtAppConfig {
   shells?: Record<string, ModuleRef>;
   middleware?: Record<string, ModuleRef>;
+  /**
+   * Named capabilities defined with `defineCapability()` from
+   * `@pracht/capabilities`, registered like shells and middleware:
+   * `{ "notes.search": () => import("./capabilities/notes-search.ts") }`.
+   * Capability modules are server-only and private by default — a capability
+   * without an `expose` config is only callable via `invokeCapability()`.
+   */
+  capabilities?: Record<string, ModuleRef>;
+  /**
+   * Agent trust configuration: Web Bot Auth verification policy/keys and the
+   * destructive-capability confirmation flow. Serializable data only.
+   */
+  agents?: PrachtAgentsConfig;
   api?: ApiConfig;
   routes: RouteTreeNode[];
   /**
@@ -539,6 +670,8 @@ export interface PrachtAppConfig {
 export interface PrachtApp {
   shells: Record<string, string>;
   middleware: Record<string, string>;
+  capabilities: Record<string, string>;
+  agents?: PrachtAgentsConfig;
   api: ApiConfig;
   routes: RouteTreeNode[];
   constraints?: RouteConstraint[];
@@ -713,7 +846,60 @@ export interface ModuleRegistry {
   middlewareModules?: Record<string, ModuleImporter<MiddlewareModule>>;
   apiModules?: Record<string, ModuleImporter<ApiRouteModule>>;
   dataModules?: Record<string, ModuleImporter<DataModule>>;
+  capabilityModules?: Record<string, ModuleImporter<CapabilityModule>>;
 }
+
+// ---------------------------------------------------------------------------
+// Capabilities
+//
+// The contract types live in `@pracht/capabilities` — the protocol-owning
+// leaf package — and are re-exported here so framework consumers keep one
+// import surface. `PrachtCapability` is the erased-generics view of
+// `defineCapability()`'s return value that the runtime executes.
+// ---------------------------------------------------------------------------
+
+export type {
+  CapabilityAgentPolicy,
+  CapabilityContext,
+  CapabilityEffect,
+  CapabilityEnvelope,
+  CapabilityErrorCode,
+  CapabilityErrorPayload,
+  CapabilityExposure,
+  CapabilityHttpExposure,
+  CapabilityIssue,
+  CapabilityRunArgs,
+  CapabilityValidationResult,
+  PrachtAgentIdentity,
+} from "@pracht/capabilities";
+
+export type PrachtCapability<TContext = any> = Capability<any, unknown, TContext>;
+
+export interface CapabilityModule<TContext = any> {
+  default: PrachtCapability<TContext>;
+}
+
+/**
+ * `pracht typegen` generates capability input/output types from the JSON
+ * Schemas in the app's capability graph and registers them on
+ * `Register["capabilities"]`, mirroring how route typegen registers
+ * `Register["routes"]`. Once registered, `invokeCapability()` (and the
+ * browser's `callCapability()`) infer input and output types from the
+ * capability name — no per-call generics needed.
+ */
+type RegisteredCapabilityMap = Register extends { capabilities: infer TCapabilities }
+  ? TCapabilities extends Record<string, unknown>
+    ? TCapabilities
+    : {}
+  : {};
+
+export type RegisteredCapabilityName = Extract<keyof RegisteredCapabilityMap, string>;
+
+export type CapabilityInputFor<TName extends RegisteredCapabilityName> =
+  RegisteredCapabilityMap[TName] extends { input: infer TInput } ? TInput : unknown;
+
+export type CapabilityOutputFor<TName extends RegisteredCapabilityName> =
+  RegisteredCapabilityMap[TName] extends { output: infer TOutput } ? TOutput : unknown;
 
 export class PrachtHttpError extends Error {
   readonly status: number;

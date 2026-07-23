@@ -91,6 +91,15 @@ test("pracht build emits a deployable Cloudflare Worker setup", async () => {
   expect(deploySource).not.toContain("cssManifest");
 
   expect(existsSync(resolve(exampleDir, "dist/client/_pracht/isg.json"))).toBe(true);
+
+  // llms.txt lands in the static assets dir the worker serves via the ASSETS
+  // binding; dynamic SSR routes without static paths are not listed.
+  const llmsTxtPath = resolve(exampleDir, "dist/client/llms.txt");
+  expect(existsSync(llmsTxtPath)).toBe(true);
+  const llmsTxt = readFileSync(llmsTxtPath, "utf-8");
+  expect(llmsTxt.startsWith("# Pracht Cloudflare Example\n")).toBe(true);
+  expect(llmsTxt).toContain("- [/pricing](/pricing)");
+  expect(llmsTxt).not.toContain("/products/:id");
 });
 
 test("prerendered SSG pages include client JS and working framework context", async () => {

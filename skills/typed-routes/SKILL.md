@@ -60,6 +60,10 @@ This writes:
 - `src/pracht.d.ts` — module augmentation for route ids, params, loader data
   types, and API route request/response types (consumed by `apiFetch()`).
 - `src/pracht-routes.ts` — runtime `href()` helper backed by the same route map.
+- `src/pracht-capabilities.d.ts` — only when the app registers capabilities:
+  input/output types from the capability schemas, so `invokeCapability()`,
+  `callCapability()`, and `<Form capability>`'s `onCapabilityResult` infer
+  types from the capability name.
 
 Earlier versions wrote the declaration to `src/pracht-routes.d.ts`; typegen
 removes that stale file automatically (TypeScript silently ignored it next to

@@ -1,0 +1,345 @@
+# Capabilities
+
+Capabilities are typed, protocol-neutral application operations: one explicit
+contract (JSON Schema input/output, an effect class, named middleware, a
+server-only `run()` function) that Pracht can project into multiple surfaces.
+Today those surfaces are:
+
+- **direct server invocation** — `invokeCapability()` from loaders, API
+  routes, and middleware;
+- **an HTTP endpoint** — generated `POST` dispatch when `expose.http` is set;
+- **a WebMCP page tool** — registered in the browser for in-page agents when
+  `expose.webmcp` is set (Chrome origin trial).
+
+Every projection calls the same validated pipeline, so business rules never
+diverge between transports:
+
+```text
+input validation → named middleware chain → run() → output validation
+```
+
+Capability inputs, outputs, and schema values are restricted to the JSON data
+model. JavaScript-only values such as `File`, `Blob`, `Date`, `Map`,
+`undefined`, and circular objects are rejected even when a schema is otherwise
+unconstrained. File uploads should stay in API routes rather than capability
+contracts.
+
+## Registration
+
+Capabilities are registered in the app manifest, exactly like shells and
+middleware. Registration is deliberately opt-in: no API route or loader is
+ever inferred as a capability.
+
+```ts
+// src/routes.ts
+import { defineApp } from "@pracht/core";
+
+export const app = defineApp({
+  capabilities: {
+    "notes.search": () => import("./capabilities/notes-search.ts"),
+    "notes.create": () => import("./capabilities/notes-create.ts"),
+  },
+  // shells, middleware, routes...
+});
+```
+
+Capability modules live in `src/capabilities/` by default (configurable via
+the `capabilitiesDir` plugin option). Names are dot-separated segments of
+letters, numbers, hyphens, and underscores. Capabilities are manifest-mode
+only for now — the pages router has no manifest to register them in.
+
+## defineCapability
+
+```ts
+// src/capabilities/notes-search.ts
+import { defineCapability } from "@pracht/capabilities";
+import { searchNotes } from "../server/notes-store.ts";
+
+export default defineCapability({
+  title: "Search notes",
+  description: "Find notes whose title or body matches the query.",
+  input: {
+    type: "object",
+    properties: {
+      query: { type: "string", minLength: 1 },
+      limit: { type: "integer", minimum: 1, maximum: 20, default: 10 },
+    },
+    required: ["query"],
+    additionalProperties: false,
+  },
+  output: {
+    type: "object",
+    properties: { notes: { type: "array", items: { type: "object" } } },
+    required: ["notes"],
+  },
+  effect: "read",
+  middleware: ["auth"], // optional — names from the app manifest
+  expose: { http: true, webmcp: true }, // optional — private without it
+  async run({ input, context, request, signal }) {
+    return { notes: searchNotes(input.query, input.limit) };
+  },
+});
+```
+
+`context` defaults to `CapabilityContext`: `context.agent` is typed as the
+verified Web Bot Auth identity (`PrachtAgentIdentity | null`, absent when
+`agents` is not configured — see [AGENT_TRUST.md](AGENT_TRUST.md)), and
+everything middleware attaches is reachable as `unknown`. Narrow it with your
+own type via the third generic (`defineCapability<In, Out, MyContext>`), or
+use the framework's `PrachtRequestContext` for the app-registered context.
+
+### Schemas
+
+`input` and `output` are plain JSON Schema objects validated by a
+dependency-free subset validator (no ajv/zod in your server or client
+bundles). Supported keywords:
+
+`type` (`object`/`array`/`string`/`number`/`integer`/`boolean`/`null`),
+`properties`, `required`, `additionalProperties`, `items` (single schema),
+`enum`, `const`, `minimum`, `maximum`, `minLength`, `maxLength`, `default`
+(applied to input before validation), plus the `title` and `description`
+annotations.
+
+Anything else — `oneOf`, `anyOf`, `allOf`, `$ref`, `pattern`, `format`,
+tuple-form `items`, array `type` unions, and the rest of full JSON Schema —
+is **rejected**: `defineCapability()` throws at definition time and
+`pracht verify` fails, naming the offending keyword. A keyword the validator
+would silently ignore could otherwise widen what an exposed capability
+accepts.
+
+Validation errors are path-scoped (`{ path: "/limit", message: "must be <= 20" }`)
+so humans and agents can pinpoint what to fix.
+
+### Effects
+
+Every capability declares one of `read`, `write`, or `destructive`.
+Destructive capabilities (delete, publish, pay, send, change access) may be
+exposed over HTTP only, and every dispatch is gated by a server-verified
+prepare/commit confirmation flow that requires `PRACHT_CONFIRMATION_SECRET`
+to be configured — see [AGENT_TRUST.md](AGENT_TRUST.md). Exposing them to
+agent projections (`expose.webmcp`/`expose.mcp`) stays disallowed:
+`defineCapability()`, the runtime registry, and `pracht verify` all enforce
+this.
+
+## Invocation
+
+### Server-side
+
+```ts
+import { invokeCapability } from "@pracht/core";
+
+export async function loader({ request, context, signal }: LoaderArgs) {
+  const result = await invokeCapability<{ notes: Note[] }>(
+    "notes.search",
+    { query: "roadmap" },
+    { request, context, signal },
+  );
+  if (!result.ok) {
+    // result.error: { code, message, issues? }
+  }
+  return result.ok ? result.data : { notes: [] };
+}
+```
+
+Direct invocation works for private capabilities too and runs the full
+pipeline, including the capability's middleware. It is available while
+`handlePrachtRequest()` is serving requests (loaders, API routes,
+middleware).
+
+### HTTP projection
+
+With `expose.http` set, the capability is dispatched at
+`POST /api/capabilities/<name-with-dots-as-slashes>` (e.g. `notes.search` →
+`/api/capabilities/notes/search`), or at a custom `expose.http.path`. Dispatch
+happens in the framework's request handler, so every adapter (Node,
+Cloudflare, Vercel) gets it without adapter changes. Explicit files in
+`src/api/` take precedence on path collisions.
+
+Requests and responses use a typed envelope:
+
+```jsonc
+// 200
+{ "ok": true, "data": { ... } }
+// 400 invalid input (path-scoped issues), 401/403 from middleware,
+// 404 unknown capability, 405 non-POST, 500 internal
+{ "ok": false, "error": { "code": "invalid_input", "message": "...", "issues": [ ... ] } }
+```
+
+Internal error details and output-schema violations are redacted in
+production; invalid `run()` output is always a 500 and never returned raw.
+State-changing capability calls enforce the same same-origin CSRF policy as
+API routes (`api.requireSameOrigin`, on by default).
+
+The wire contract has one home: `@pracht/capabilities` exports the path
+formula (`capabilityHttpPath`), the header names (`CONFIRMATION_HEADER`,
+`CAPABILITY_TRANSPORT_HEADER`), the envelope types, and the full
+`CapabilityErrorCode` union (`CAPABILITY_ERROR_CODES`) — the framework
+runtime, the generated client modules, and the CLI all import from it, so the
+protocol cannot drift between packages.
+
+### Browser
+
+```ts
+import { callCapability } from "virtual:pracht/capabilities";
+
+const result = await callCapability<{ note: Note }>("notes.create", { title });
+```
+
+`virtual:pracht/capabilities` is generated at build time from the manifest and
+contains only http-exposed capability names, endpoints, and effect classes —
+capability modules themselves are server-only and never enter the client graph
+(guarded by e2e bundle assertions). Apps without capabilities ship zero extra
+bytes.
+
+Options: `{ headers, signal, confirm, revalidate }`. `confirm` sets the
+confirmation header when committing a destructive call (take the token from
+the prior `confirmation_required` envelope). After a successful non-`read`
+call the active route's data revalidates automatically — the effect class the
+capability already declares drives the client cache; pass `revalidate: false`
+to opt a call out.
+
+### Forms
+
+The framework's `<Form>` posts directly to a capability, so the human form
+and the agent tool literally share one contract:
+
+```tsx
+import { Form } from "@pracht/core";
+
+<Form capability="notes.create" onCapabilityResult={(result) => { ... }}>
+  <input name="title" />
+  <button type="submit">Create</button>
+</Form>;
+```
+
+- Fields are coerced onto the capability's input schema server-side (numbers
+  parsed, checkbox `on` → boolean, repeated fields → arrays), then validated
+  like any other call.
+- After a successful submission the route's loader data revalidates
+  automatically; `onCapabilityResult` receives the typed envelope (inferred
+  from the capability name once typegen has run).
+- Progressive enhancement: without JavaScript the endpoint accepts the
+  form-encoded post and answers a successful document submission with a 303
+  back to the same-origin referring page. Failed posts keep the JSON envelope.
+- For capabilities with a custom `expose.http.path`, set `action` explicitly.
+
+## Generated types
+
+`pracht typegen` (the same command that generates typed routes) also emits
+`src/pracht-capabilities.d.ts` when the app registers capabilities: TypeScript
+input/output types generated from each capability's JSON Schemas, registered
+on `Register["capabilities"]`. With that file in the program,
+`invokeCapability()`, the browser's `callCapability()`, and
+`createCapabilityTestHost().invoke()` all infer both sides from the capability
+name — no per-call generics:
+
+```ts
+const result = await invokeCapability("notes.search", { query: "roadmap" }, args);
+// result.data: { notes: Array<...> } — inferred from the output schema
+```
+
+- An input property is optional when it is not `required` **or** declares a
+  schema `default` (defaults are applied before input validation); an output
+  property is optional exactly when it is not `required`.
+- Objects without `additionalProperties: false` keep an index signature, so
+  extra members remain reachable as `unknown`.
+- Unregistered names — and a mismatched input on a registered name — fall back
+  to the untyped `invokeCapability<Output>(name, ...)` overload; runtime
+  validation still rejects bad input either way.
+- `--capabilities-out` overrides the output path, `--check` covers the file in
+  CI, and removing the last capability rewrites an existing file to the empty
+  registration instead of leaving it stale.
+
+## WebMCP
+
+With `expose.webmcp: true` (which requires `expose.http`), the client runtime
+registers the capability as a WebMCP page tool for in-browser agents. The
+shim targets the Chrome origin-trial API — `document.modelContext.registerTool()`
+(Chrome 150+, with the deprecated `navigator.modelContext` as a fallback):
+
+- one tool per capability: `name`, `description`, `inputSchema` (the
+  capability's JSON Schema), `annotations.readOnlyHint` from the effect;
+- `execute()` calls the HTTP projection via `callCapability`, so the user's
+  session authenticates the call and validation, middleware, and policy all
+  stay server-side — the agent acts as the signed-in user, in their tab;
+- the shim lives in its own chunk (`virtual:pracht/webmcp`) behind feature
+  detection: browsers without the API never download it, and pages without
+  webmcp-exposed capabilities never reference it;
+- works in full-hydration and islands modes (the islands bootstrap pulls the
+  shim in too; `hydration: "none"` pages ship no JS and register no tools).
+
+If WebMCP does not graduate from its origin trial, the shim is deletable
+without touching the capability contract.
+
+### Build-time extraction constraint
+
+The browser modules are generated by static analysis: a capability's `expose`
+and (for webmcp-exposed capabilities) `input` must be **inline object
+literals** — not imported constants or spreads. Violations fail the build
+with a pointer to the file, and `pracht verify` warns when a schema cannot be
+analyzed statically.
+
+## Security defaults
+
+- **Private by default** — a capability without `expose` is never reachable
+  over the network.
+- **Exposure requires a complete contract** — `pracht verify` fails for
+  exposed capabilities missing a description, input schema, output schema, or
+  effect classification.
+- **`destructive` is confirmation-gated** — HTTP exposure requires the
+  prepare/commit confirmation flow (and its secret); `webmcp`/`mcp` exposure
+  is an error. See [AGENT_TRUST.md](AGENT_TRUST.md).
+- **Verified agent identity and policy** — Web Bot Auth (RFC 9421) puts
+  `context.agent` on every request when enabled; capability endpoints can
+  `agentPolicy: "require"` verified agents, and every dispatch emits an
+  audit event. See [AGENT_TRUST.md](AGENT_TRUST.md).
+- **Output is validated** — a handler returning data outside its output
+  schema produces a redacted 500, never the raw value.
+- **Same-origin enforcement** — cross-origin browser POSTs are rejected by
+  default, matching API-route CSRF policy.
+- **Fail closed** — a capability registry that cannot resolve (bad module,
+  duplicate paths, unknown middleware) answers capability requests with 500
+  and never partially serves.
+
+## Inspection
+
+The capability graph feeds every existing inspection surface:
+
+- the `pracht dev` startup banner prints a Capabilities table (name, effect,
+  exposure, dispatch path) whenever the app registers any;
+- `pracht inspect capabilities [--json]` — name, effect, transports, HTTP
+  path, middleware, source, plus the input/output JSON Schemas in `--json`
+  output;
+- the `/_pracht` devtools page gains a Capabilities table (dev only, rendered
+  only when capabilities exist);
+- the `pracht mcp` server exposes an `inspect_capabilities` tool;
+- `pracht verify` runs the static contract checks described above.
+
+## Testing agent flows
+
+`createCapabilityTestHost()` (from `@pracht/core`) runs the dispatch pipeline
+in-process for unit tests — no manifest, no Vite, no server. `invoke()`
+mirrors `invokeCapability()`; `request()` mirrors the HTTP projection,
+including Web Bot Auth policy (inject a simulated identity via the `agent`
+option) and the destructive prepare/commit confirmation flow (set
+`PRACHT_CONFIRMATION_SECRET` or call `setCapabilityConfirmationSecret()` in
+test setup). See `packages/framework/test/capability-test-host.test.ts` for
+worked examples.
+
+`pracht eval` runs scripted scenarios (search → validation failure →
+confirmation flow) against the capability HTTP projection and exits 1 on any
+failed expectation — `--start "<command>"` launches and stops the app itself.
+See [AGENT_TRUST.md](AGENT_TRUST.md#pracht-eval-scripted-agent-task-scenarios)
+and `examples/basic/evals/notes.eval.json`.
+
+## Not built yet
+
+- Remote MCP projection (`/mcp` Streamable HTTP endpoint) and `expose.mcp`
+  (accepted and recorded in the graph, but nothing serves it yet —
+  `pracht verify` warns and the dev banner shows it as `mcp(unserved)` so a
+  declared-but-dead transport is never mistaken for a live one).
+- MCP Apps UI (`ui` option) — `hasUi` is always `false` in the graph.
+- Destructive capabilities over WebMCP/MCP (HTTP-only, confirmation-gated —
+  see [AGENT_TRUST.md](AGENT_TRUST.md)).
+- Capability scaffolding (`pracht generate capability`).
+- Pages-router support.

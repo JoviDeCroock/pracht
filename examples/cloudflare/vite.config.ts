@@ -9,6 +9,7 @@ export default defineConfig({
         workerExportsFrom: "/src/cloudflare.ts",
         cache: true,
       }),
+      llmsTxt: { title: "Pracht Cloudflare Example" },
     }),
   ],
 });
