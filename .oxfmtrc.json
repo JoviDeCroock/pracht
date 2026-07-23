@@ -1,4 +1,11 @@
 {
   "$schema": "./node_modules/oxfmt/configuration_schema.json",
-  "ignorePatterns": ["**/*.md", "**/package.json", "**/LICENSE"]
+  "ignorePatterns": [
+    "**/*.md",
+    "**/package.json",
+    "**/LICENSE",
+    "**/pracht.d.ts",
+    "**/pracht-routes.ts",
+    "**/pracht-capabilities.d.ts"
+  ]
 }
