@@ -29,28 +29,55 @@ export function extractDefineCapabilityArgs(source: string): string | null {
   return source.slice(braceStart + 1, braceEnd);
 }
 
+const CALL_SITE = /defineCapability\s*(?:<[^(]*?>)?\s*\(/g;
+
 /**
  * Index of the `(` of the default-exported `defineCapability()` call, or -1
- * when the module has no analyzable default-exported call. Handles both
- * `export default defineCapability(...)` and `export default <id>` where
- * `<id>` is declared as `const <id> = defineCapability(...)`.
+ * when the module has no analyzable default-exported call. Handles
+ * `export default defineCapability(...)`, `export default <id>` (with or
+ * without a trailing `;`), and `export { <id> as default }`, resolving the
+ * identifier to its `const/let/var <id> = defineCapability(...)` declaration.
+ * As a backward-compatible fallback, a module with exactly one call site is
+ * unambiguous, so its call is used even without an explicit default export.
  */
 function findDefaultExportedCallParen(searchable: string): number {
   const direct = /export\s+default\s+defineCapability\s*(?:<[^(]*?>)?\s*\(/.exec(searchable);
   if (direct && direct.index != null) {
     return direct.index + direct[0].length - 1;
   }
-  const idMatch = /export\s+default\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*;/.exec(searchable);
-  if (idMatch && idMatch[1] !== "defineCapability") {
-    const id = idMatch[1].replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+  const localName = defaultExportLocalName(searchable);
+  if (localName) {
+    const id = localName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    // `[^;]*?` (not `[^=]*`) so an arrow-typed annotation like
+    // `const cap: () => Cap = defineCapability(...)` is not cut short at the
+    // `=` inside `=>`.
     const decl = new RegExp(
-      `\\b(?:const|let|var)\\s+${id}\\b[^=]*=\\s*defineCapability\\s*(?:<[^(]*?>)?\\s*\\(`,
+      `\\b(?:const|let|var)\\s+${id}\\b[^;]*?=\\s*defineCapability\\s*(?:<[^(]*?>)?\\s*\\(`,
     ).exec(searchable);
     if (decl && decl.index != null) {
       return decl.index + decl[0].length - 1;
     }
   }
+
+  const calls = [...searchable.matchAll(CALL_SITE)];
+  if (calls.length === 1) {
+    const only = calls[0];
+    return (only.index ?? 0) + only[0].length - 1;
+  }
   return -1;
+}
+
+/** Local binding name of a module's default export, or null. */
+function defaultExportLocalName(searchable: string): string | null {
+  const idMatch = /export\s+default\s+([A-Za-z_$][A-Za-z0-9_$]*)\b/.exec(searchable);
+  if (idMatch && idMatch[1] !== "defineCapability") {
+    return idMatch[1];
+  }
+  const asDefault = /export\s*\{[^}]*?\b([A-Za-z_$][A-Za-z0-9_$]*)\s+as\s+default\b/.exec(
+    searchable,
+  );
+  return asDefault ? asDefault[1] : null;
 }
 
 /**
