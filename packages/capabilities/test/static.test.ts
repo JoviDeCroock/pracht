@@ -74,6 +74,39 @@ describe("capability static extraction", () => {
     expect(extractDefineCapabilityArgs(source)).toContain('title: "Only call"');
   });
 
+  it("resolves the module-scope binding, not a shadowed inner declaration", () => {
+    const source = `
+      function make() {
+        const cap = defineCapability({ title: "Inner helper", run() {} });
+        return cap;
+      }
+      const cap = defineCapability({ title: "Module scope", run() {} });
+      export default cap;
+    `;
+
+    const args = extractDefineCapabilityArgs(source);
+    expect(args).toContain('title: "Module scope"');
+    expect(args).not.toContain('title: "Inner helper"');
+  });
+
+  it("does not truncate at a nested template literal in run()", () => {
+    const source = `
+      export default defineCapability({
+        title: "Templates",
+        run({ input }) {
+          const inner = \`prefix \${\`nested \${input.name}\`} suffix\`;
+          return { message: inner };
+        },
+        effect: "read",
+        expose: { http: true },
+      });
+    `;
+
+    const args = extractDefineCapabilityArgs(source);
+    expect(args).toContain('effect: "read"');
+    expect(args).toContain("expose:");
+  });
+
   it("does not truncate at a brace inside a regex literal", () => {
     const source = `
       export default defineCapability({

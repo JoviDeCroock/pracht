@@ -54,9 +54,15 @@ function findDefaultExportedCallParen(searchable: string): number {
     // `=` inside `=>`.
     const decl = new RegExp(
       `\\b(?:const|let|var)\\s+${id}\\b[^;]*?=\\s*defineCapability\\s*(?:<[^(]*?>)?\\s*\\(`,
-    ).exec(searchable);
-    if (decl && decl.index != null) {
-      return decl.index + decl[0].length - 1;
+      "g",
+    );
+    // The default export refers to the MODULE-scope binding; a shadowed
+    // declaration inside a function must not win. Prefer the match at brace
+    // depth 0.
+    for (const match of searchable.matchAll(decl)) {
+      if (match.index != null && braceDepthAt(searchable, match.index) === 0) {
+        return match.index + match[0].length - 1;
+      }
     }
   }
 
@@ -66,6 +72,20 @@ function findDefaultExportedCallParen(searchable: string): number {
     return (only.index ?? 0) + only[0].length - 1;
   }
   return -1;
+}
+
+/**
+ * Brace/paren/bracket nesting depth at `index` in an already comment- and
+ * string-masked source. Depth 0 means module scope.
+ */
+function braceDepthAt(searchable: string, index: number): number {
+  let depth = 0;
+  for (let cursor = 0; cursor < index; cursor += 1) {
+    const char = searchable[cursor];
+    if (char === "{" || char === "(" || char === "[") depth += 1;
+    else if (char === "}" || char === ")" || char === "]") depth -= 1;
+  }
+  return depth;
 }
 
 /** Local binding name of a module's default export, or null. */
@@ -307,6 +327,7 @@ function findQuotedObjectProperty(source: string, key: string): number | null {
 /** Index of the closing quote of the string starting at `start`. */
 function findStringEnd(source: string, start: number): number {
   const quote = source[start];
+  if (quote === "`") return findTemplateEnd(source, start);
   for (let index = start + 1; index < source.length; index += 1) {
     const char = source[index];
     if (char === "\\") {
@@ -314,6 +335,45 @@ function findStringEnd(source: string, start: number): number {
       continue;
     }
     if (char === quote) return index;
+  }
+  return -1;
+}
+
+/**
+ * Index of the closing backtick of the template literal starting at `start`.
+ * Tracks `${ ... }` interpolations (including nested strings and templates
+ * inside them) so an inner backtick or `}` does not end the template early.
+ */
+function findTemplateEnd(source: string, start: number): number {
+  for (let index = start + 1; index < source.length; index += 1) {
+    const char = source[index];
+    if (char === "\\") {
+      index += 1;
+      continue;
+    }
+    if (char === "`") return index;
+    if (char === "$" && source[index + 1] === "{") {
+      let depth = 1;
+      index += 2;
+      while (index < source.length && depth > 0) {
+        const inner = source[index];
+        if (inner === "\\") {
+          index += 2;
+          continue;
+        }
+        if (inner === '"' || inner === "'" || inner === "`") {
+          const end = findStringEnd(source, index);
+          if (end === -1) return -1;
+          index = end + 1;
+          continue;
+        }
+        if (inner === "{") depth += 1;
+        else if (inner === "}") depth -= 1;
+        index += 1;
+      }
+      if (depth > 0) return -1;
+      index -= 1;
+    }
   }
   return -1;
 }
