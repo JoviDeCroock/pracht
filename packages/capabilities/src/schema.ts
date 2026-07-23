@@ -421,7 +421,7 @@ function jsonEquals(left: unknown, right: unknown): boolean {
     const rightKeys = Object.keys(right);
     return (
       leftKeys.length === rightKeys.length &&
-      leftKeys.every((key) => key in right && jsonEquals(left[key], right[key]))
+      leftKeys.every((key) => Object.hasOwn(right, key) && jsonEquals(left[key], right[key]))
     );
   }
   return false;

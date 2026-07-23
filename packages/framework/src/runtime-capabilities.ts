@@ -236,6 +236,16 @@ interface CapabilityPipelineOptions<TContext> {
   url: URL;
   /** Include internal error details (dev / direct server use). HTTP redacts in production. */
   exposeErrors: boolean;
+  /**
+   * Runs inside the middleware chain — after every named middleware, just
+   * before the capability body — so gating (e.g. the destructive prepare/commit
+   * confirmation flow) is subject to rate-limiting middleware. Returning an
+   * envelope short-circuits `run()`; `null`/absent proceeds.
+   */
+  beforeRun?: (validatedInput: unknown) => Promise<{
+    status: number;
+    envelope: CapabilityEnvelope;
+  } | null>;
 }
 
 type CapabilityPipelineOutcome =
@@ -278,6 +288,14 @@ async function runCapabilityPipeline<TContext>(
   let terminalResponse: Response | null = null;
 
   const terminal = async (): Promise<Response> => {
+    if (options.beforeRun) {
+      const gate = await options.beforeRun(validatedInput.value);
+      if (gate) {
+        holder.settled = { status: gate.status, envelope: gate.envelope };
+        terminalResponse = envelopeResponse(gate.status, gate.envelope);
+        return terminalResponse;
+      }
+    }
     let output: unknown;
     try {
       output = await capability.run({
@@ -504,16 +522,15 @@ async function dispatchCapabilityHttp<TContext>(
 
   try {
     // Destructive capabilities never run on the first call: the prepare/commit
-    // confirmation gate answers before the pipeline unless a valid token for
-    // this exact principal + input is presented. Invalid input skips the gate
-    // so the pipeline can produce its usual 400 with issues.
-    if (capability.effect === "destructive") {
-      const validated = capability.validateInput(input);
-      if (validated.ok) {
-        const gate = await enforceDestructiveConfirmation(options, validated.value);
-        if (gate) return gate;
-      }
-    }
+    // confirmation gate answers unless a valid token for this exact principal +
+    // input is presented. It runs as the pipeline's `beforeRun` hook — after
+    // named middleware — so rate-limiting middleware sees prepare and
+    // invalid-token attempts too. Invalid input still yields the usual 400 with
+    // issues because the pipeline validates before reaching the hook.
+    const beforeRun =
+      capability.effect === "destructive"
+        ? (validatedInput: unknown) => enforceDestructiveConfirmation(options, validatedInput)
+        : undefined;
 
     const outcome = await runCapabilityPipeline({
       resolved: options.match,
@@ -524,6 +541,7 @@ async function dispatchCapabilityHttp<TContext>(
       signal: AbortSignal.timeout(CAPABILITY_TIMEOUT_MS),
       url: options.url,
       exposeErrors: options.exposeErrors,
+      beforeRun,
     });
 
     if (outcome.kind === "envelope") {
@@ -582,30 +600,29 @@ function envelopeOutcome(envelope: CapabilityEnvelope): string {
 
 /**
  * Prepare/commit gate for destructive capability HTTP calls. Returns the
- * response ending the request, or `null` when a valid confirmation token was
- * presented and the capability may run. See runtime-confirmation.ts for the
- * token construction and its documented replay limitations.
+ * envelope ending the request, or `null` when a valid confirmation token was
+ * presented and the capability may run. Runs as the pipeline's `beforeRun`
+ * hook — i.e. after named middleware — so rate limiting sees prepare and
+ * invalid-token attempts too. See runtime-confirmation.ts for the token
+ * construction and its documented replay limitations.
  */
 async function enforceDestructiveConfirmation<TContext>(
   options: HandleCapabilityRequestOptions<TContext>,
   validatedInput: unknown,
-): Promise<{ response: Response; outcome: string } | null> {
+): Promise<{ status: number; envelope: CapabilityEnvelope } | null> {
   const secret = resolveConfirmationSecret();
   if (!secret) {
     // Exposed destructive capability without a configured secret: fail closed.
     // `pracht verify` reports this at build time too.
-    return audited(
-      envelopeResponse(
-        403,
-        errorEnvelope({
-          code: "confirmation_unavailable",
-          message:
-            `Destructive capability "${options.match.name}" cannot run: no confirmation ` +
-            `secret is configured (set ${CONFIRMATION_SECRET_ENV}).`,
-        }),
-      ),
-      "confirmation_unavailable",
-    );
+    return {
+      status: 403,
+      envelope: errorEnvelope({
+        code: "confirmation_unavailable",
+        message:
+          `Destructive capability "${options.match.name}" cannot run: no confirmation ` +
+          `secret is configured (set ${CONFIRMATION_SECRET_ENV}).`,
+      }),
+    };
   }
 
   const binding = {
@@ -619,50 +636,41 @@ async function enforceDestructiveConfirmation<TContext>(
   if (!presented) {
     const ttlSeconds = options.agents?.confirmation?.ttlSeconds ?? DEFAULT_CONFIRMATION_TTL_SECONDS;
     const { token, expiresAt } = await createConfirmationToken({ ...binding, ttlSeconds });
-    return audited(
-      envelopeResponse(
-        409,
-        errorEnvelope({
-          code: "confirmation_required",
-          message:
-            `Capability "${options.match.name}" is destructive. Repeat the call with ` +
-            `identical input and the "${CONFIRMATION_HEADER}" header set to the confirmation token.`,
-          confirmationToken: token,
-          expiresAt,
-        }),
-      ),
-      "confirmation_required",
-    );
+    return {
+      status: 409,
+      envelope: errorEnvelope({
+        code: "confirmation_required",
+        message:
+          `Capability "${options.match.name}" is destructive. Repeat the call with ` +
+          `identical input and the "${CONFIRMATION_HEADER}" header set to the confirmation token.`,
+        confirmationToken: token,
+        expiresAt,
+      }),
+    };
   }
 
   const verification = await verifyConfirmationToken(presented, binding);
   if (!verification.ok) {
-    return audited(
-      envelopeResponse(
-        403,
-        errorEnvelope({
-          code: "confirmation_invalid",
-          message: `Confirmation token rejected (${verification.reason}).`,
-        }),
-      ),
-      "confirmation_invalid",
-    );
+    return {
+      status: 403,
+      envelope: errorEnvelope({
+        code: "confirmation_invalid",
+        message: `Confirmation token rejected (${verification.reason}).`,
+      }),
+    };
   }
 
   if (
     options.agents?.confirmation?.singleUse &&
     !consumeConfirmationToken(verification.signature, verification.expiresAt)
   ) {
-    return audited(
-      envelopeResponse(
-        403,
-        errorEnvelope({
-          code: "confirmation_invalid",
-          message: "Confirmation token rejected (already_used).",
-        }),
-      ),
-      "confirmation_invalid",
-    );
+    return {
+      status: 403,
+      envelope: errorEnvelope({
+        code: "confirmation_invalid",
+        message: "Confirmation token rejected (already_used).",
+      }),
+    };
   }
 
   return null;
@@ -790,17 +798,39 @@ export async function invokeCapabilityOnHost<T = unknown>(
 
   const started = performance.now();
   const context = ctx.context ?? {};
-  const outcome = await runCapabilityPipeline({
-    resolved,
-    input,
-    context,
-    registry: host.registry,
-    request: ctx.request,
-    signal: ctx.signal ?? AbortSignal.timeout(CAPABILITY_TIMEOUT_MS),
-    url: new URL(ctx.request.url),
-    // Direct invocation stays server-side, so real error messages are safe.
-    exposeErrors: true,
-  });
+  let outcome: CapabilityPipelineOutcome;
+  try {
+    outcome = await runCapabilityPipeline({
+      resolved,
+      input,
+      context,
+      registry: host.registry,
+      request: ctx.request,
+      signal: ctx.signal ?? AbortSignal.timeout(CAPABILITY_TIMEOUT_MS),
+      url: new URL(ctx.request.url),
+      // Direct invocation stays server-side, so real error messages are safe.
+      exposeErrors: true,
+    });
+  } catch (error: unknown) {
+    // Middleware resolution/execution can throw (bad module, a middleware that
+    // does not return a Response). HTTP dispatch turns these into an
+    // internal_error envelope; direct invocation must honor the same
+    // envelope-returning contract rather than rejecting.
+    const envelope = errorEnvelope({
+      code: "internal_error",
+      message: `Capability "${name}" failed: ${error instanceof Error ? error.message : String(error)}`,
+    });
+    emitCapabilityAudit({
+      capability: name,
+      effect: resolved.capability.effect,
+      transport: "server",
+      outcome: "internal_error",
+      status: 500,
+      durationMs: performance.now() - started,
+      agent: (context as { agent?: PrachtAgentIdentity | null }).agent ?? null,
+    });
+    return envelope as CapabilityEnvelope<T>;
+  }
 
   // Direct invocation audits like HTTP dispatch does, marked as the "server"
   // transport. The agent identity travels on the request context when Web

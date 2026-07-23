@@ -72,7 +72,12 @@ export function extractCapabilities(
 
   const appDir = dirname(appFileAbs);
   return registrations.map(({ name, file }) => {
-    const capabilityFileAbs = resolve(appDir, file);
+    // Root-relative refs (`/src/capabilities/x.ts`) resolve against the Vite
+    // root, matching the runtime registry loader; everything else is relative
+    // to the app manifest's directory.
+    const capabilityFileAbs = file.startsWith("/")
+      ? resolve(root, file.replace(/^\//, ""))
+      : resolve(appDir, file);
     let source: string;
     try {
       source = readFileSync(capabilityFileAbs, "utf-8");

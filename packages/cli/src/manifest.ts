@@ -49,13 +49,68 @@ export function toManifestModulePath(manifestPath: string, targetFilePath: strin
   return relativePath.startsWith(".") ? relativePath : `./${relativePath}`;
 }
 
+/**
+ * Replace `//` line and block comments with spaces, leaving string/template
+ * contents untouched so a `//` inside a path is not mistaken for a comment.
+ * Length is preserved so callers can still slice by original offsets.
+ */
+function maskComments(source: string): string {
+  let result = "";
+  let index = 0;
+  while (index < source.length) {
+    const char = source[index];
+    if (char === '"' || char === "'" || char === "`") {
+      const quote = char;
+      result += char;
+      index += 1;
+      while (index < source.length) {
+        const inner = source[index];
+        result += inner;
+        index += 1;
+        if (inner === "\\") {
+          if (index < source.length) {
+            result += source[index];
+            index += 1;
+          }
+          continue;
+        }
+        if (inner === quote) break;
+      }
+      continue;
+    }
+    if (char === "/" && source[index + 1] === "/") {
+      while (index < source.length && source[index] !== "\n") {
+        result += " ";
+        index += 1;
+      }
+      continue;
+    }
+    if (char === "/" && source[index + 1] === "*") {
+      while (index < source.length && !(source[index] === "*" && source[index + 1] === "/")) {
+        result += source[index] === "\n" ? "\n" : " ";
+        index += 1;
+      }
+      if (index < source.length) {
+        result += "  ";
+        index += 2;
+      }
+      continue;
+    }
+    result += char;
+    index += 1;
+  }
+  return result;
+}
+
 export function extractRegistryEntries(
   source: string,
   key: string,
 ): { name: string; path: string }[] {
   const block = findNamedBlock(source, key, "{", "}");
   if (!block) return [];
-  const inner = source.slice(block.openIndex + 1, block.closeIndex);
+  // Mask comments before matching so commented-out registrations are not
+  // treated as registered (mirrors the analyzer in @pracht/capabilities).
+  const inner = maskComments(source.slice(block.openIndex + 1, block.closeIndex));
   const entries: { name: string; path: string }[] = [];
   // Keys may be bare identifiers (shells, middleware) or quoted strings —
   // capability names like "notes.search" require quoting.

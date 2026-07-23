@@ -57,6 +57,14 @@ export default defineCommand({
 
     let urlOverride = args.url ? String(args.url) : undefined;
     let child: ChildProcess | undefined;
+    let signalHandler: ((signal: NodeJS.Signals) => void) | undefined;
+
+    const releaseSignalHandler = (): void => {
+      if (!signalHandler) return;
+      process.removeListener("SIGINT", signalHandler);
+      process.removeListener("SIGTERM", signalHandler);
+      signalHandler = undefined;
+    };
 
     if (args.start) {
       const startCommand = String(args.start);
@@ -84,12 +92,23 @@ export default defineCommand({
         exitReason = `the start command exited with code ${code ?? "unknown"} before the server answered`;
       });
 
+      // A detached child (its own process group) does not receive the
+      // terminal's Ctrl+C, so stop it explicitly before exiting — otherwise it
+      // orphans and keeps holding its port.
+      signalHandler = (signal) => {
+        stopStartedCommand(child!);
+        process.exit(signal === "SIGINT" ? 130 : 143);
+      };
+      process.once("SIGINT", signalHandler);
+      process.once("SIGTERM", signalHandler);
+
       if (!args.json) {
         console.log(`Starting app: ${startCommand}`);
         console.log(`Waiting for ${baseUrl} ...`);
       }
       const ready = await waitForServer(baseUrl, { earlyExit: () => exitReason });
       if (!ready.ok) {
+        releaseSignalHandler();
         stopStartedCommand(child);
         console.error(`Could not reach the app at ${baseUrl}: ${ready.reason}`);
         if (output.trim() !== "") {
@@ -116,6 +135,7 @@ export default defineCommand({
         process.exitCode = 1;
       }
     } finally {
+      releaseSignalHandler();
       if (child) {
         stopStartedCommand(child);
       }
@@ -134,6 +154,16 @@ function stopStartedCommand(child: ChildProcess): void {
       return;
     } catch {
       // Group already gone — fall through to the direct kill.
+    }
+  }
+  if (process.platform === "win32" && child.pid) {
+    // `shell: true` spawns a cmd.exe; SIGTERM only kills that shell, leaving
+    // the actual server (a descendant) running. taskkill /T ends the tree.
+    try {
+      spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], { stdio: "ignore" });
+      return;
+    } catch {
+      // Fall through to the direct kill.
     }
   }
   child.kill("SIGTERM");

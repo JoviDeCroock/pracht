@@ -12,19 +12,45 @@
  */
 
 /**
- * Extract the argument object text of the first `defineCapability({ ... })`
- * call. Matches the call site (optionally with a type argument), not the
- * import statement's `defineCapability` binding.
+ * Extract the argument object text of the *default-exported*
+ * `defineCapability({ ... })` call. The runtime resolves a capability module
+ * by its default export, so analysis must agree: a helper `defineCapability()`
+ * call earlier in the file must not be mistaken for the exported one. Matches
+ * the call site (optionally with a type argument), not the import binding.
  */
 export function extractDefineCapabilityArgs(source: string): string | null {
   const searchable = maskCommentsAndStrings(source);
-  const callMatch = /defineCapability\s*(?:<[^(]*?>)?\s*\(/.exec(searchable);
-  if (!callMatch || callMatch.index == null) return null;
-  const braceStart = searchable.indexOf("{", callMatch.index + callMatch[0].length - 1);
+  const parenIndex = findDefaultExportedCallParen(searchable);
+  if (parenIndex === -1) return null;
+  const braceStart = searchable.indexOf("{", parenIndex);
   if (braceStart === -1) return null;
   const braceEnd = findMatchingBrace(source, braceStart, "{", "}");
   if (braceEnd === -1) return null;
   return source.slice(braceStart + 1, braceEnd);
+}
+
+/**
+ * Index of the `(` of the default-exported `defineCapability()` call, or -1
+ * when the module has no analyzable default-exported call. Handles both
+ * `export default defineCapability(...)` and `export default <id>` where
+ * `<id>` is declared as `const <id> = defineCapability(...)`.
+ */
+function findDefaultExportedCallParen(searchable: string): number {
+  const direct = /export\s+default\s+defineCapability\s*(?:<[^(]*?>)?\s*\(/.exec(searchable);
+  if (direct && direct.index != null) {
+    return direct.index + direct[0].length - 1;
+  }
+  const idMatch = /export\s+default\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*;/.exec(searchable);
+  if (idMatch && idMatch[1] !== "defineCapability") {
+    const id = idMatch[1].replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const decl = new RegExp(
+      `\\b(?:const|let|var)\\s+${id}\\b[^=]*=\\s*defineCapability\\s*(?:<[^(]*?>)?\\s*\\(`,
+    ).exec(searchable);
+    if (decl && decl.index != null) {
+      return decl.index + decl[0].length - 1;
+    }
+  }
+  return -1;
 }
 
 /**
@@ -134,6 +160,13 @@ function skipToTopLevelComma(source: string, start: number): number {
     if (char === "/" && (source[index + 1] === "/" || source[index + 1] === "*")) {
       index = skipInsignificant(source, index);
       continue;
+    }
+    if (char === "/") {
+      const regexEnd = regexLiteralEnd(source, index);
+      if (regexEnd !== -1) {
+        index = regexEnd;
+        continue;
+      }
     }
     if (char === "{" || char === "[" || char === "(") depth += 1;
     if (char === "}" || char === "]" || char === ")") depth -= 1;
@@ -272,11 +305,104 @@ function findMatchingBrace(source: string, start: number, open: string, close: s
       index = skipInsignificant(source, index) - 1;
       continue;
     }
+    if (char === "/") {
+      const regexEnd = regexLiteralEnd(source, index);
+      if (regexEnd !== -1) {
+        index = regexEnd - 1;
+        continue;
+      }
+    }
     if (char === open) depth += 1;
     if (char === close) {
       depth -= 1;
       if (depth === 0) return index;
     }
+  }
+  return -1;
+}
+
+const REGEX_PRECEDING_PUNCTUATION = new Set([
+  "(",
+  ",",
+  "=",
+  ":",
+  "[",
+  "!",
+  "&",
+  "|",
+  "?",
+  "{",
+  "}",
+  ";",
+  "<",
+  ">",
+  "+",
+  "-",
+  "*",
+  "%",
+  "^",
+  "~",
+]);
+const REGEX_PRECEDING_KEYWORDS = new Set([
+  "return",
+  "typeof",
+  "instanceof",
+  "in",
+  "of",
+  "new",
+  "delete",
+  "void",
+  "do",
+  "else",
+  "yield",
+  "await",
+  "case",
+]);
+
+/**
+ * If the `/` at `slashIndex` begins a regex literal (decided from the previous
+ * significant token, the standard divide-vs-regex heuristic), return the index
+ * just after its closing `/` and flags; otherwise -1. Keeps the brace/comma
+ * scanners from miscounting a `}`/`]`/`,` inside a regex such as `/\}/`.
+ */
+function regexLiteralEnd(source: string, slashIndex: number): number {
+  let back = slashIndex - 1;
+  while (back >= 0 && /\s/.test(source[back])) back -= 1;
+  let isRegex: boolean;
+  if (back < 0) {
+    isRegex = true;
+  } else {
+    const prev = source[back];
+    if (REGEX_PRECEDING_PUNCTUATION.has(prev)) {
+      isRegex = true;
+    } else if (/[A-Za-z0-9_$]/.test(prev)) {
+      let wordStart = back;
+      while (wordStart >= 0 && /[A-Za-z0-9_$]/.test(source[wordStart])) wordStart -= 1;
+      isRegex = REGEX_PRECEDING_KEYWORDS.has(source.slice(wordStart + 1, back + 1));
+    } else {
+      // `)`, `]`, `.`, numbers → division operator, not a regex.
+      isRegex = false;
+    }
+  }
+  if (!isRegex) return -1;
+
+  let index = slashIndex + 1;
+  let inClass = false;
+  while (index < source.length) {
+    const char = source[index];
+    if (char === "\\") {
+      index += 2;
+      continue;
+    }
+    if (char === "\n") return -1;
+    if (char === "[") inClass = true;
+    else if (char === "]") inClass = false;
+    else if (char === "/" && !inClass) {
+      index += 1;
+      while (index < source.length && /[a-z]/i.test(source[index])) index += 1;
+      return index;
+    }
+    index += 1;
   }
   return -1;
 }

@@ -16,6 +16,43 @@ describe("capability static extraction", () => {
     expect(extractDefineCapabilityArgs(source)).toContain('title: "Live capability"');
   });
 
+  it("extracts the default-exported call, not a preceding helper", () => {
+    const source = `
+      const helper = defineCapability({ title: "Helper", run() {} });
+      export default defineCapability({
+        title: "Exported",
+        run() {},
+      });
+    `;
+
+    const args = extractDefineCapabilityArgs(source);
+    expect(args).toContain('title: "Exported"');
+    expect(args).not.toContain('title: "Helper"');
+  });
+
+  it("resolves an identifier default export to its declaration", () => {
+    const source = `
+      const cap = defineCapability({ title: "Via const", run() {} });
+      export default cap;
+    `;
+
+    expect(extractDefineCapabilityArgs(source)).toContain('title: "Via const"');
+  });
+
+  it("does not truncate at a brace inside a regex literal", () => {
+    const source = `
+      export default defineCapability({
+        title: "Regex",
+        run({ input }) {
+          return { ok: input.text.match(/[{}]/) !== null };
+        },
+        effect: "read",
+      });
+    `;
+
+    expect(extractDefineCapabilityArgs(source)).toContain('effect: "read"');
+  });
+
   it("ignores commented-out manifest registrations", () => {
     const source = `
       export const app = defineApp({

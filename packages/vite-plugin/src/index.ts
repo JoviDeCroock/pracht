@@ -282,7 +282,15 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
         if (relative.startsWith(resolved.capabilitiesDir)) {
           // Exposure metadata and schemas are baked into the generated
           // browser modules — regenerate them alongside the server module.
-          for (const moduleId of [PRACHT_CAPABILITIES_MODULE_ID, PRACHT_WEBMCP_MODULE_ID]) {
+          // The client entries embed the WebMCP bootstrap conditionally on
+          // `hasWebmcpCapabilities()`, so they must regenerate too when a
+          // capability adds or drops webmcp exposure.
+          for (const moduleId of [
+            PRACHT_CAPABILITIES_MODULE_ID,
+            PRACHT_WEBMCP_MODULE_ID,
+            PRACHT_CLIENT_MODULE_ID,
+            PRACHT_ISLANDS_CLIENT_MODULE_ID,
+          ]) {
             const capabilityMod = server.moduleGraph.getModuleById(moduleId);
             if (capabilityMod) server.moduleGraph.invalidateModule(capabilityMod);
           }

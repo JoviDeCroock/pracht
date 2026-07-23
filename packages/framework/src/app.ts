@@ -17,6 +17,7 @@ import type {
   WebhookRevalidatePolicy,
   PrachtApp,
   PrachtAppConfig,
+  PrachtAgentsConfig,
 } from "./types.ts";
 import { formatUnknownNameError } from "./name-suggestions.ts";
 import {
@@ -158,6 +159,7 @@ export function resolveApp(app: PrachtApp): ResolvedPrachtApp {
         );
       }
     }
+    validateAgentsConfig(app.agents);
   }
 
   for (const node of app.routes) {
@@ -291,6 +293,45 @@ function assertValidLoaderCache(loaderCache: ResolvedRoute["loaderCache"], conte
 /** `in` would also match `Object.prototype` keys such as `constructor`. */
 function hasOwnEntry(record: Record<string, string>, name: string): boolean {
   return Object.prototype.hasOwnProperty.call(record, name);
+}
+
+const AGENT_POLICY_MODES = ["observe", "require"];
+
+/**
+ * Validate `defineApp({ agents })`. The security-relevant setting — the Web
+ * Bot Auth `policy` — is compared with `=== "require"` at dispatch, so a typo
+ * (`"requre"`) would silently fail open. Reject unknown policies and
+ * non-positive numeric trust settings so the manifest fails closed instead.
+ */
+function validateAgentsConfig(agents: PrachtAgentsConfig | undefined): void {
+  if (!agents) return;
+  const { webBotAuth, confirmation } = agents;
+  if (webBotAuth) {
+    if (webBotAuth.policy !== undefined && !AGENT_POLICY_MODES.includes(webBotAuth.policy)) {
+      throw new Error(
+        `defineApp({ agents.webBotAuth.policy }) must be one of ${AGENT_POLICY_MODES.map((mode) => `"${mode}"`).join(", ")}, got ${JSON.stringify(webBotAuth.policy)}.`,
+      );
+    }
+    for (const key of [
+      "clockSkewSeconds",
+      "maxLifetimeSeconds",
+      "directoryCacheTtlSeconds",
+    ] as const) {
+      assertPositiveNumber(webBotAuth[key], `agents.webBotAuth.${key}`);
+    }
+  }
+  if (confirmation) {
+    assertPositiveNumber(confirmation.ttlSeconds, "agents.confirmation.ttlSeconds");
+  }
+}
+
+function assertPositiveNumber(value: number | undefined, label: string): void {
+  if (value === undefined) return;
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+    throw new Error(
+      `defineApp({ ${label} }) must be a positive number, got ${JSON.stringify(value)}.`,
+    );
+  }
 }
 
 function isResolvedApp(app: PrachtApp | ResolvedPrachtApp): app is ResolvedPrachtApp {
