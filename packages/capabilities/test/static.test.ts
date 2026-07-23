@@ -39,6 +39,41 @@ describe("capability static extraction", () => {
     expect(extractDefineCapabilityArgs(source)).toContain('title: "Via const"');
   });
 
+  it("resolves an identifier default export with no trailing semicolon (ASI)", () => {
+    const source = `
+      const cap = defineCapability({ title: "ASI", run() {} })
+      export default cap
+    `;
+
+    expect(extractDefineCapabilityArgs(source)).toContain('title: "ASI"');
+  });
+
+  it("resolves an `export { cap as default }` re-export", () => {
+    const source = `
+      const cap = defineCapability({ title: "As default", run() {} });
+      export { cap as default };
+    `;
+
+    expect(extractDefineCapabilityArgs(source)).toContain('title: "As default"');
+  });
+
+  it("resolves a declaration with an arrow-function type annotation", () => {
+    const source = `
+      const cap: () => unknown = defineCapability({ title: "Typed", run() {} });
+      export default cap;
+    `;
+
+    expect(extractDefineCapabilityArgs(source)).toContain('title: "Typed"');
+  });
+
+  it("falls back to the single call site when there is no explicit default export", () => {
+    const source = `
+      const cap = defineCapability({ title: "Only call", run() {} });
+    `;
+
+    expect(extractDefineCapabilityArgs(source)).toContain('title: "Only call"');
+  });
+
   it("does not truncate at a brace inside a regex literal", () => {
     const source = `
       export default defineCapability({
