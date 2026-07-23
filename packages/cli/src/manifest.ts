@@ -106,11 +106,15 @@ export function extractRegistryEntries(
   source: string,
   key: string,
 ): { name: string; path: string }[] {
-  const block = findNamedBlock(source, key, "{", "}");
-  if (!block) return [];
-  // Mask comments before matching so commented-out registrations are not
+  // Mask comments BEFORE locating the block so a block-commented example
+  // (`/* capabilities: { ... } */`) cannot be selected instead of the live
+  // registry, and commented-out registrations inside the live block are not
   // treated as registered (mirrors the analyzer in @pracht/capabilities).
-  const inner = maskComments(source.slice(block.openIndex + 1, block.closeIndex));
+  // Masking preserves offsets, so slicing the masked source is safe.
+  const masked = maskComments(source);
+  const block = findNamedBlock(masked, key, "{", "}");
+  if (!block) return [];
+  const inner = masked.slice(block.openIndex + 1, block.closeIndex);
   const entries: { name: string; path: string }[] = [];
   // Keys may be bare identifiers (shells, middleware) or quoted strings —
   // capability names like "notes.search" require quoting.

@@ -118,6 +118,32 @@ describe("collectCapabilityChecks", () => {
     );
   });
 
+  it("reads the live registry when a block-commented example precedes it", () => {
+    const checks: Check[] = [];
+    collectCapabilityChecks(
+      createProject({
+        capability: capabilitySource(COMPLETE_FIELDS),
+        middlewareBlock: [
+          "  /*",
+          "  capabilities: {",
+          '    "notes.fake": () => import("./capabilities/notes-fake.ts"),',
+          "  },",
+          "  */",
+        ].join("\n"),
+      }),
+      checks,
+    );
+
+    // The commented example must not shadow the live registry: the real
+    // capability is analyzed (its OK check appears) and the fake one is not.
+    expect(checks.map((check) => check.message)).toContainEqual(
+      expect.stringContaining("declares a complete exposed contract"),
+    );
+    expect(checks.map((check) => check.message)).not.toContainEqual(
+      expect.stringContaining("notes.fake"),
+    );
+  });
+
   it("does not count a commented-out registration", () => {
     const checks: Check[] = [];
     collectCapabilityChecks(

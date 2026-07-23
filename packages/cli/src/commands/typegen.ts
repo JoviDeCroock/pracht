@@ -132,11 +132,15 @@ export async function runTypegen(options: TypegenOptions): Promise<TypegenResult
         "so the generated capability types would never apply. Pick a different --capabilities-out.",
     );
   }
-  if (capabilitiesPath === declarationPath) {
+  if (
+    capabilitiesPath === declarationPath ||
+    outputsCollide(declarationPath, capabilitiesPath) ||
+    outputsCollide(capabilitiesPath, declarationPath)
+  ) {
     throw new Error(
-      `Capabilities output ${options.capabilitiesOut} is the same file as the declaration output ` +
-        `${options.declarationOut}; the two generated files would overwrite each other. ` +
-        "Pick a different --capabilities-out.",
+      `Capabilities output ${options.capabilitiesOut} collides with the declaration output ` +
+        `${options.declarationOut} — identical paths overwrite each other, and TypeScript drops ` +
+        "a .d.ts input that sits next to a same-named .ts file. Pick a different --capabilities-out.",
     );
   }
   const outputs = [

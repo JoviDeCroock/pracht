@@ -159,8 +159,14 @@ export function resolveApp(app: PrachtApp): ResolvedPrachtApp {
         );
       }
     }
-    validateAgentsConfig(app.agents);
   }
+
+  // Security validation, deliberately OUTSIDE the VALIDATE_MANIFEST guard:
+  // Vite compiles `import.meta.env.DEV` to `false` in production server/edge
+  // bundles, which would strip a dev-only check and let a typo'd policy
+  // (e.g. "requre") silently fail open at dispatch. This runs once per
+  // manifest resolution, so the cost is negligible.
+  validateAgentsConfig(app.agents);
 
   for (const node of app.routes) {
     flattenRouteNode(app, node, inherited, routes);
