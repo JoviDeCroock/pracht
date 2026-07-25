@@ -12,6 +12,7 @@ export interface DevBannerOptions {
   color?: boolean;
   localUrls: string[];
   networkUrls?: string[];
+  notFound?: DevBannerRoute | null;
   routes: DevBannerRoute[];
 }
 
@@ -36,7 +37,7 @@ const MODE_COLORS: Record<string, string> = {
  * of page routes (pattern, render mode, shell, middleware) and API routes.
  */
 export function formatDevBanner(options: DevBannerOptions): string {
-  const { apiRoutes, color = false, localUrls, networkUrls = [], routes } = options;
+  const { apiRoutes, color = false, localUrls, networkUrls = [], notFound, routes } = options;
   const paint = (text: string, code: string): string =>
     color ? `\u001b[${code}m${text}\u001b[0m` : text;
 
@@ -54,10 +55,12 @@ export function formatDevBanner(options: DevBannerOptions): string {
   lines.push("");
 
   lines.push(`  ${paint(`Routes (${routes.length})`, ANSI.bold)}`);
-  if (routes.length === 0) {
+  if (routes.length === 0 && !notFound) {
     lines.push("    (none)");
   } else {
-    const rows = routes.map((route) => [
+    // The not-found page is listed after the routes it can never shadow: its
+    // "path" is a label, not a pattern, so it is excluded from the count.
+    const rows = [...routes, ...(notFound ? [notFound] : [])].map((route) => [
       route.path,
       route.render ?? "ssr",
       route.shell ?? "-",

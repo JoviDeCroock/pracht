@@ -42,6 +42,7 @@ export default defineCommand({
           color: supportsColor(),
           localUrls: urls.local,
           networkUrls: urls.network,
+          notFound: graph.notFound,
           routes: graph.routes,
         }),
       );

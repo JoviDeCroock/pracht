@@ -79,6 +79,22 @@ test("pracht build emits a deployable Node server entry", async () => {
     expect(apiResponse.status).toBe(200);
     await expect(apiResponse.json()).resolves.toEqual({ status: "ok" });
 
+    // The app's notFound page renders for unmatched URLs, inside its shell.
+    const notFoundResponse = await fetch(`http://127.0.0.1:${port}/nope`);
+    expect(notFoundResponse.status).toBe(404);
+    expect(notFoundResponse.headers.get("content-type")).toContain("text/html");
+    expect(notFoundResponse.headers.get("x-pracht-shell")).toBe("public");
+    const notFoundHtml = await notFoundResponse.text();
+    expect(notFoundHtml).toContain("404 — page not found");
+    // It is not a route, so it is never prerendered to a path of its own.
+    expect(existsSync(resolve(exampleDir, "dist/client/nope/index.html"))).toBe(false);
+
+    // ...and it never shadows a static asset: the adapter serves those first.
+    const robotsResponse = await fetch(`http://127.0.0.1:${port}/robots.txt`);
+    expect(robotsResponse.status).toBe(200);
+    expect(robotsResponse.headers.get("content-type")).toContain("text/plain");
+    await expect(robotsResponse.text()).resolves.toContain("User-agent");
+
     const dashboardResponse = await fetch(`http://127.0.0.1:${port}/dashboard`, {
       headers: { cookie: "session=1" },
     });

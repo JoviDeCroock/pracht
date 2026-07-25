@@ -317,6 +317,7 @@ export const app = defineApp({
 
     expect(routes).toEqual({
       mode: "manifest",
+      notFound: null,
       routes: [
         {
           file: "./routes/dashboard.tsx",

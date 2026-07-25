@@ -172,6 +172,7 @@ export const app = defineApp({
 
     expect(report).toEqual({
       mode: "manifest",
+      notFound: null,
       routes: [
         {
           file: "./routes/dashboard.tsx",

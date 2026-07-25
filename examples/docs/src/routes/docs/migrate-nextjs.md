@@ -86,11 +86,12 @@ export const app = defineApp({
 
 ### Dynamic Routes
 
-| Next.js            | pracht          |
-| ------------------ | --------------- |
-| `[slug]` folder    | `:slug` in path |
-| `[...slug]` folder | `*` catch-all   |
-| `(group)` folder   | `group()` call  |
+| Next.js             | pracht                       |
+| ------------------- | ---------------------------- |
+| `[slug]` folder     | `:slug` in path              |
+| `[...slug]` folder  | `*` catch-all                |
+| `(group)` folder    | `group()` call               |
+| `app/not-found.tsx` | `notFound` in `defineApp` — see [Routing](/docs/routing#not-found-page) |
 
 ---
 

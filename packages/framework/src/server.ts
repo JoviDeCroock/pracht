@@ -86,7 +86,7 @@ export {
   type IslandDescriptor,
   type IslandUsage,
 } from "./islands-server.ts";
-export { PrachtHttpError } from "./types.ts";
+export { notFound, PrachtHttpError } from "./types.ts";
 
 export type {
   ApiConfig,
@@ -122,6 +122,8 @@ export type {
   MiddlewareNext,
   ModuleImporter,
   ModuleRef,
+  NotFoundConfig,
+  NotFoundDefinition,
   NavigateOptions,
   PrefetchStrategy,
   ModuleRegistry,

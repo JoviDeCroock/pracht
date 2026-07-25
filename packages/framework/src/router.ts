@@ -14,7 +14,11 @@ import {
 import { getCachedRouteState } from "./prefetch-cache.ts";
 import { registerPrefetchTarget } from "./prefetch-api.ts";
 import type { ModuleWarmFn } from "./prefetch-api.ts";
-import { PRESERVE_SCROLL_ATTRIBUTE, VIEW_TRANSITION_ATTRIBUTE } from "./runtime-constants.ts";
+import {
+  NOT_FOUND_ROUTE_ID,
+  PRESERVE_SCROLL_ATTRIBUTE,
+  VIEW_TRANSITION_ATTRIBUTE,
+} from "./runtime-constants.ts";
 import { normalizeSpeculation, supportsSpeculationRules } from "./runtime-speculation.ts";
 import {
   createScrollPositionStore,
@@ -440,6 +444,16 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
         }
 
         if (result.type === "error") {
+          if (result.error.status === 404 && app.notFound) {
+            const routeModule = (await routeModPromise?.catch(() => null)) as {
+              ErrorBoundary?: unknown;
+            } | null;
+            if (!routeModule?.ErrorBoundary) {
+              window.location.href = target.browserUrl;
+              return;
+            }
+          }
+
           state = {
             data: undefined,
             error: result.error,
@@ -509,7 +523,14 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
   const initialTarget = resolveBrowserRouteTarget(options.initialState.url);
   const initialRequestUrl = initialTarget?.requestUrl ?? options.initialState.url;
   const initialBrowserUrl = initialTarget?.browserUrl ?? options.initialState.url;
-  const initialMatch = matchResolvedRoute(app, initialTarget?.pathname ?? options.initialState.url);
+  const initialPathname = initialTarget?.pathname ?? options.initialState.url;
+  // The not-found page is served at a URL that matches no route, so matching
+  // cannot find it — the hydration state's reserved route id does.
+  const initialMatch =
+    matchResolvedRoute(app, initialPathname) ??
+    (options.initialState.routeId === NOT_FOUND_ROUTE_ID && app.notFound
+      ? { route: app.notFound, params: {}, pathname: initialPathname }
+      : undefined);
   if (initialMatch) {
     const initialShellPromise =
       initialMatch.route.render === "spa" && options.initialState.pending

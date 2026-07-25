@@ -4,6 +4,8 @@ export type {
   GroupDefinition,
   GroupMeta,
   ModuleRef,
+  NotFoundConfig,
+  NotFoundDefinition,
   PrachtApp,
   PrachtAppConfig,
   RenderMode,

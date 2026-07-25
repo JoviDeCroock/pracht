@@ -51,6 +51,12 @@ export interface AppGraphApiRoute {
 export interface AppGraph {
   api: AppGraphApiRoute[];
   routes: AppGraphRoute[];
+  /**
+   * The app-level not-found page, serialized like a route. `null` when the app
+   * declares none. It is reported separately from `routes` because it never
+   * participates in matching.
+   */
+  notFound?: AppGraphRoute | null;
 }
 
 export interface AppGraphModuleAccess {
@@ -101,8 +107,10 @@ export async function buildAppGraph(
     app: ResolvedPrachtApp;
   } & AppGraphModuleAccess,
 ): Promise<AppGraph> {
+  const notFound = options.app.notFound;
   return {
     api: await serializeApiRoutes(options.apiRoutes ?? [], options),
+    notFound: notFound ? serializeAppRoutes([notFound])[0] : null,
     routes: serializeAppRoutes(options.app.routes),
   };
 }

@@ -68,7 +68,7 @@ For pages router projects, you can **skip manual manifest wiring entirely** (Pha
 | `app/layout.tsx`                | `src/shells/*.tsx` + `shells` in `defineApp`                    | Shells are named, not directory-nested                                |
 | `app/loading.tsx`               | `Loading` export on the shell                                   | Rendered as SSR placeholder for SPA routes until the client router takes over |
 | `app/error.tsx`                 | `ErrorBoundary` export in route module                          | Same concept, different wiring                                        |
-| `app/not-found.tsx`             | 404 route: `route("*", () => import("./routes/not-found.tsx"))` | Catch-all at end of routes array                                      |
+| `app/not-found.tsx`             | `notFound:` in `defineApp` (or `pages/404.tsx` in pagesDir mode) | Not a route — never matches a URL, so it cannot shadow static assets  |
 | `middleware.ts`                 | `src/middleware/*.ts` + `middleware` in `defineApp`             | Named, applied per route/group                                        |
 | `app/api/*/route.ts`            | `src/api/*.ts` with `GET`/`POST` exports                        | Auto-discovered, no manifest entry                                    |
 | `generateStaticParams`          | `getStaticPaths()` export                                       | Returns `RouteParams[]` of param objects                              |
@@ -347,9 +347,12 @@ export const app = defineApp({
         middleware: ["auth"],
       }),
       route("/blog/:slug", () => import("./routes/blog-post.tsx"), { render: "isg" }),
-      route("*", () => import("./routes/not-found.tsx"), { render: "ssr" }),
     ]),
   ],
+  notFound: {
+    component: () => import("./routes/not-found.tsx"),
+    shell: "main",
+  },
 });
 ```
 

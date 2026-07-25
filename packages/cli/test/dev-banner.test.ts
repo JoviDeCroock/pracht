@@ -35,6 +35,23 @@ describe("formatDevBanner", () => {
     expect(banner).toContain("GET, POST");
   });
 
+  it("lists the notFound page after the routes without counting it as one", () => {
+    const banner = formatDevBanner({
+      apiRoutes: [],
+      color: false,
+      localUrls: ["http://localhost:3000/"],
+      notFound: { middleware: [], path: "(not found)", render: "ssr", shell: "public" },
+      routes,
+    });
+
+    expect(banner).toContain("Routes (5)");
+    expect(banner).toContain("(not found)");
+    const lines = banner.split("\n");
+    expect(lines.findIndex((line) => line.includes("(not found)"))).toBeGreaterThan(
+      lines.findIndex((line) => line.trimStart().startsWith("/settings")),
+    );
+  });
+
   it("aligns route columns", () => {
     const banner = formatDevBanner({
       apiRoutes: [],

@@ -703,8 +703,9 @@ Two ergonomics features are built in:
   dev-server URLs (`/src/routes/home.tsx`), which are joined onto the
   project root the dev middleware passes in (`server.config.root`).
 - **"Did you mean" wiring errors.** `resolveApp()` fails loudly when a
-  route or group references an unknown shell or middleware name (including
-  `api.middleware`), and `buildHref()` does the same for unknown route ids.
+  route, group, or the `notFound` page references an unknown shell or
+  middleware name (including `api.middleware`), and `buildHref()` does the
+  same for unknown route ids.
   The messages include a closest-match suggestion (small internal
   edit-distance helper in `name-suggestions.ts`, no dependency) and the
   full list of registered names, e.g.

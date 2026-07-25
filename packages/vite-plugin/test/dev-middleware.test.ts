@@ -156,6 +156,21 @@ describe("shouldBypassDevSSR", () => {
     ).toBe(false);
   });
 
+  it("yields the dev 404 page to an app-declared notFound page", () => {
+    const withNotFound = {
+      ...routeMatchers,
+      app: { notFound: { file: "./routes/not-found.tsx" } } as any,
+    };
+
+    expect(
+      isDevNotFoundRequest(
+        "/nope",
+        { headers: { accept: "text/html,application/xhtml+xml" }, method: "GET" },
+        withNotFound,
+      ),
+    ).toBe(false);
+  });
+
   it("still treats unmatched HTML navigations as document requests", () => {
     expect(
       shouldBypassDevSSR("/unknown/file.json", {

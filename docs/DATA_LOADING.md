@@ -138,39 +138,74 @@ Error boundaries compose: a route boundary catches route-level errors, while
 a shell boundary catches errors from any route inside that shell. If a route
 has no boundary, the error bubbles up to the shell, then to the global handler.
 
+404s take a different path when the app declares a
+[`notFound` page](#custom-404-pages): a route boundary still wins, but the
+not-found page takes over from there instead of the shell boundary. "Not
+found" is an outcome, not a failure.
+
 #### Custom 404 pages
 
-Throw `PrachtHttpError(404)` in a loader to trigger the route's error boundary
-with a 404 status. For a catch-all 404 page, add a wildcard route at the end
-of your manifest:
+Declare one page for "this URL has no content" and pracht uses it for both
+ways that happens — an unmatched URL, and a loader that cannot find what it
+was asked for:
 
 ```typescript
+// src/routes.ts
 export const app = defineApp({
+  shells: { public: () => import("./shells/public.tsx") },
+  notFound: {
+    component: () => import("./routes/not-found.tsx"),
+    shell: "public",
+  },
   routes: [
     // ... your routes
-    route("/:path*", () => import("./routes/not-found.tsx"), { render: "ssr" }),
   ],
 });
 ```
 
-```typescript
+```tsx
 // src/routes/not-found.tsx
-import { PrachtHttpError } from "@pracht/core";
+import { useLocation } from "@pracht/core";
 
-export function loader() {
-  throw new PrachtHttpError(404, "Page not found");
-}
+export function Component() {
+  const location = useLocation();
 
-export function ErrorBoundary() {
   return (
     <div>
       <h1>404</h1>
-      <p>This page doesn't exist.</p>
+      <p>No page lives at {location.pathname}.</p>
       <a href="/">Go home</a>
     </div>
   );
 }
 ```
+
+Inside a loader or middleware, `throw notFound()` — sugar for
+`new PrachtHttpError(404, message)`:
+
+```typescript
+import { notFound } from "@pracht/core";
+
+export async function loader({ params }: LoaderArgs) {
+  const post = await getPost(params.slug);
+  if (!post) throw notFound("Post not found");
+  return { post };
+}
+```
+
+The response is the `notFound` page with a 404 status — unless the route
+module exports its own `ErrorBoundary`, which stays the most specific handler
+and wins for that route. Shell-level error boundaries do not intercept 404s
+once `notFound` is configured; keep them for real failures.
+
+`notFound` is deliberately *not* a route: it never matches a URL, so it cannot
+shadow static assets the way a trailing `route("/*", ...)` does. See
+[ROUTING.md](ROUTING.md#not-found-page) for the full configuration and the
+exact matrix of when it renders.
+
+During a client-side navigation to a route whose loader throws a 404, the
+router falls back to a full document load so the server can render the
+not-found page with the correct status.
 
 #### Error sanitization
 

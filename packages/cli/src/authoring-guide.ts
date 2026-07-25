@@ -28,8 +28,10 @@ adapters for Node, Cloudflare Workers, and Vercel.
 
 ## Project layout (manifest apps)
 
-- \`src/routes.ts\` — the app manifest: \`defineApp({ shells, middleware, routes, constraints })\`.
+- \`src/routes.ts\` — the app manifest: \`defineApp({ shells, middleware, routes, notFound, constraints })\`.
   Every route's shell, middleware, render mode, and revalidation policy is declared here.
+  \`notFound\` names the page rendered with a 404 status when nothing matches — it is
+  not a route, so never add a catch-all \`route("/*", ...)\` for that purpose.
 - \`src/routes/\` — route modules: \`Component\`, optional \`loader\`, \`head\`, \`ErrorBoundary\`, \`getStaticPaths\`.
 - \`src/shells/\` — named layout wrappers (\`Shell\`, optional \`head\`, \`Loading\`).
 - \`src/middleware/\` — server middleware: \`export const middleware: MiddlewareFn\`.

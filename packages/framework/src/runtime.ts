@@ -6,6 +6,7 @@ import { ROUTE_STATE_REQUEST_HEADER, SAFE_METHODS } from "./runtime-constants.ts
 import {
   buildRuntimeDiagnostics,
   createSerializedRouteError,
+  isPrachtHttpError,
   shouldExposeServerErrors,
   type PrachtRuntimeDiagnosticPhase,
 } from "./runtime-errors.ts";
@@ -54,6 +55,7 @@ import type {
   PrachtApp,
   ResolvedApiRoute,
   ResolvedPrachtApp,
+  RouteMatch,
   RouteModule,
   ShellModule,
 } from "./types.ts";
@@ -304,6 +306,15 @@ export async function handlePrachtRequest<TContext>(
       );
     }
 
+    // Nothing matched. When the app declares a `notFound` page, render it
+    // with a 404 status — it lives outside the route table, so unlike a
+    // catch-all route it only ever runs *after* matching (and, in every
+    // first-party adapter, after static-asset serving) has failed.
+    const notFoundMatch = createNotFoundMatch(resolvedApp, url.pathname);
+    if (notFoundMatch && SAFE_METHODS.has(options.request.method)) {
+      return renderPageMatch(notFoundMatch, { isNotFoundPage: true, status: 404 });
+    }
+
     return withDefaultSecurityHeaders(
       new Response("Not found", {
         status: 404,
@@ -340,353 +351,404 @@ export async function handlePrachtRequest<TContext>(
     );
   }
 
-  const requestSignal = AbortSignal.timeout(30_000);
-  const pageContext = (options.context ?? {}) as TContext;
-  const routeArgs: BaseRouteArgs<TContext> = {
-    request: options.request,
-    params: match.params,
-    context: pageContext,
-    signal: requestSignal,
-    url,
-    route: match.route,
-  };
-  let routeModule: RouteModule | undefined;
-  let shellModule: ShellModule | undefined;
-  let loaderFile: string | undefined;
-  let currentPhase: PrachtRuntimeDiagnosticPhase = "middleware";
-  const timings = options.timings;
+  return renderPageMatch(match, { isNotFoundPage: false, status: 200 });
 
-  try {
-    // Kick off every piece of the pipeline that doesn't depend on the
-    // middleware chain's result up front, so they run concurrently with
-    // middleware rather than waiting in line:
-    //
-    //   • route module import                          (needs only match.route.file)
-    //   • shell module import                          (needs only match.route.shellFile)
-    //   • data-module resolution (separate loader file) (needs routeModule)
-    //
-    // Only the loader itself still waits for middleware, because it
-    // receives the (potentially middleware-mutated) context.
-    const routeModulePromise = resolveRegistryModule<RouteModule>(
-      registry.routeModules,
-      match.route.file,
-    );
+  /**
+   * Render one page match through the middleware → loader → render pipeline.
+   *
+   * `status` is the success status of the rendered document (200 for a normal
+   * route, 404 for the not-found page). `isNotFoundPage` marks a render that
+   * is already the not-found page, so a 404 thrown from *its* loader cannot
+   * re-enter this path.
+   */
+  async function renderPageMatch(
+    match: RouteMatch,
+    pageOptions: { isNotFoundPage: boolean; status: number },
+  ): Promise<Response> {
+    const requestSignal = AbortSignal.timeout(30_000);
+    const pageContext = (options.context ?? {}) as TContext;
+    const routeArgs: BaseRouteArgs<TContext> = {
+      request: options.request,
+      params: match.params,
+      context: pageContext,
+      signal: requestSignal,
+      url,
+      route: match.route,
+    };
+    let routeModulePromise: Promise<RouteModule | undefined> | undefined;
+    let routeModule: RouteModule | undefined;
+    let shellModule: ShellModule | undefined;
+    let loaderFile: string | undefined;
+    let currentPhase: PrachtRuntimeDiagnosticPhase = "middleware";
+    const timings = options.timings;
 
-    const shellModulePromise: Promise<ShellModule | undefined> = match.route.shellFile
-      ? resolveRegistryModule<ShellModule>(registry.shellModules, match.route.shellFile)
-      : Promise.resolve(undefined);
-
-    const dataFunctionsPromise = routeModulePromise.then((mod) =>
-      resolveDataFunctions(match.route, mod, registry),
-    );
-
-    // Suppress unhandled-rejection warnings for in-flight promises that we
-    // may not reach (e.g. middleware short-circuits with a response). Each
-    // promise is still awaited via the original reference below, so real
-    // errors still surface through the existing try/catch.
-    routeModulePromise.catch(() => {});
-    shellModulePromise.catch(() => {});
-    dataFunctionsPromise.catch(() => {});
-
-    const pageTerminal = async (): Promise<Response> => {
-      currentPhase = "render";
-      routeModule = await routeModulePromise;
-      if (!routeModule) {
-        throw new Error("Route module not found");
-      }
-
-      currentPhase = "loader";
-      const { loader, loaderFile: resolvedLoaderFile } = await dataFunctionsPromise;
-      loaderFile = resolvedLoaderFile;
-
-      let loaderResult: unknown;
-      if (loader) {
-        const loaderStart = timings ? performance.now() : 0;
-        loaderResult = await loader(routeArgs);
-        if (timings) {
-          timings.loader = performance.now() - loaderStart;
-        }
-      }
-
-      // Allow loaders to return a Response directly (e.g. for redirects)
-      if (loaderResult instanceof Response) {
-        return loaderResult;
-      }
-
-      const data = loaderResult;
-
-      if (isRouteStateRequest) {
-        return withRouteResponseHeaders(Response.json({ data }), {
-          isRouteStateRequest: true,
-          loaderCache: match.route.loaderCache,
-        });
-      }
-
-      // Shell import was kicked off up front; this await is usually already
-      // resolved by the time we get here (it runs in parallel with the loader).
-      currentPhase = "render";
-      shellModule = await shellModulePromise;
-
-      // head and document headers are independent; run them concurrently.
-      const [head, documentHeaders] = await Promise.all([
-        mergeHeadMetadata(shellModule, routeModule, routeArgs, data),
-        mergeDocumentHeaders(shellModule, routeModule, routeArgs, data),
-      ]);
-
-      // Both representations must carry the same Vary header so a cache
-      // filled by an HTML request can never satisfy a later markdown request
-      // (or vice versa). Keep the variance scoped to routes that actually
-      // export markdown: raw Accept values create distinct cache variants on
-      // CDNs such as Cloudflare Workers Caching.
-      const markdownRepresentation =
-        typeof routeModule.markdown === "string" ? routeModule.markdown : undefined;
-      if (markdownRepresentation !== undefined) {
-        appendVaryHeader(documentHeaders, "Accept");
-      }
-
-      // Markdown-for-Agents negotiation must run after loader + header
-      // resolution so auth redirects/401s and cache policies still apply.
-      if (
-        !isRouteStateRequest &&
-        markdownRepresentation !== undefined &&
-        prefersMarkdown(options.request.headers.get("accept"))
-      ) {
-        return markdownResponse(markdownRepresentation, documentHeaders);
-      }
-
-      const cssUrls = resolvePageCssUrls(
-        options.cssManifest,
-        match.route.shellFile,
+    try {
+      // Kick off every piece of the pipeline that doesn't depend on the
+      // middleware chain's result up front, so they run concurrently with
+      // middleware rather than waiting in line:
+      //
+      //   • route module import                          (needs only match.route.file)
+      //   • shell module import                          (needs only match.route.shellFile)
+      //   • data-module resolution (separate loader file) (needs routeModule)
+      //
+      // Only the loader itself still waits for middleware, because it
+      // receives the (potentially middleware-mutated) context.
+      routeModulePromise = resolveRegistryModule<RouteModule>(
+        registry.routeModules,
         match.route.file,
       );
-      const modulePreloadUrls = mergeEntryPreloadUrls(
-        options.jsManifest,
-        CLIENT_ENTRY_MANIFEST_KEY,
-        resolvePageJsUrls(options.jsManifest, match.route.shellFile, match.route.file),
+
+      const shellModulePromise: Promise<ShellModule | undefined> = match.route.shellFile
+        ? resolveRegistryModule<ShellModule>(registry.shellModules, match.route.shellFile)
+        : Promise.resolve(undefined);
+
+      const dataFunctionsPromise = routeModulePromise.then((mod) =>
+        resolveDataFunctions(match.route, mod, registry),
       );
 
-      if (match.route.render === "spa") {
-        let body = "";
-        const Shell = shellModule?.Shell as FunctionComponent | undefined;
-        const Loading = shellModule?.Loading as FunctionComponent | undefined;
-        const loadingTree =
-          Shell != null
-            ? h(Shell, null, Loading ? h(Loading, null) : null)
-            : Loading
-              ? h(Loading, null)
-              : null;
+      // Suppress unhandled-rejection warnings for in-flight promises that we
+      // may not reach (e.g. middleware short-circuits with a response). Each
+      // promise is still awaited via the original reference below, so real
+      // errors still surface through the existing try/catch.
+      routeModulePromise.catch(() => {});
+      shellModulePromise.catch(() => {});
+      dataFunctionsPromise.catch(() => {});
 
-        if (loadingTree) {
-          const tree = h(
-            PrachtRuntimeProvider as FunctionComponent<Record<string, unknown>>,
-            {
-              data: null,
-              params: match.params,
-              routeId: match.route.id ?? "",
-              routes: resolvedApp.routes,
-              url: requestPath,
-            },
-            loadingTree,
+      const pageTerminal = async (): Promise<Response> => {
+        currentPhase = "render";
+        routeModule = await routeModulePromise;
+        if (!routeModule) {
+          throw new Error(
+            pageOptions.isNotFoundPage
+              ? `notFound page module ${JSON.stringify(match.route.file)} was not found in the module registry. ` +
+                  "The not-found page is loaded from the same registry as route modules, so it has to live in the routes directory."
+              : "Route module not found",
           );
-          const renderFn = await getRenderToStringAsync();
-          body = await renderFn(tree);
         }
 
-        return htmlResponse(
-          buildHtmlDocument({
-            head,
-            body,
-            hydrationState: {
-              url: requestPath,
-              routeId: match.route.id ?? "",
-              data: null,
-              error: null,
-              pending: true,
-            },
-            clientEntryUrl: options.clientEntryUrl,
-            cssUrls,
-            modulePreloadUrls,
-            routeStatePreloadUrl: loader ? buildRouteStateUrl(requestPath) : undefined,
-            speculationRules: getAppSpeculationRules(resolvedApp),
-          }),
-          200,
-          documentHeaders,
-        );
-      }
+        currentPhase = "loader";
+        const { loader, loaderFile: resolvedLoaderFile } = await dataFunctionsPromise;
+        loaderFile = resolvedLoaderFile;
 
-      const DefaultComponent =
-        typeof routeModule.default === "function" ? routeModule.default : undefined;
-      const Component = (routeModule.Component ?? DefaultComponent) as
-        | FunctionComponent
-        | undefined;
-      if (!Component) {
-        throw new Error("Route has no Component or default export");
-      }
-
-      const Shell = shellModule?.Shell as FunctionComponent<Record<string, unknown>> | undefined;
-      const Comp = Component as FunctionComponent<Record<string, unknown>>;
-      const componentProps = { data, params: match.params };
-
-      const componentTree = Shell
-        ? h(Shell, null, h(Comp, componentProps))
-        : h(Comp, componentProps);
-
-      let tree = h(
-        PrachtRuntimeProvider as FunctionComponent<Record<string, unknown>>,
-        {
-          data,
-          params: match.params,
-          routeId: match.route.id ?? "",
-          routes: resolvedApp.routes,
-          url: requestPath,
-        },
-        componentTree,
-      );
-
-      const hydration = match.route.hydration ?? "full";
-      let islandCapture: IslandCapture | null = null;
-      if (hydration === "islands") {
-        // The capture collector travels through context (not module state),
-        // so concurrent async renders — e.g. parallel SSG prerendering —
-        // never attribute islands to the wrong page.
-        islandCapture = { islands: [] };
-        tree = h(
-          IslandCaptureContext.Provider as FunctionComponent<Record<string, unknown>>,
-          { value: islandCapture },
-          tree,
-        );
-      }
-
-      const renderToString = await getRenderToStringAsync();
-      const ssrContent = await renderToString(tree);
-
-      if (hydration !== "full") {
-        const islandFiles = [
-          ...new Set((islandCapture?.islands ?? []).map((usage) => usage.descriptor.file)),
-        ];
-        let islandsEntryUrl: string | undefined;
-        if (islandFiles.length > 0) {
-          islandsEntryUrl = options.islandsEntryUrl ?? getIslandsClientEntryUrl();
-          if (!islandsEntryUrl) {
-            throw new Error(
-              `Route "${match.route.path}" uses hydration: "islands" and rendered ` +
-                `${islandFiles.length} island(s), but no islands bootstrap URL is registered. ` +
-                "This usually means the @pracht/vite-plugin islands entry was not built — " +
-                "check that your islands live in the configured islands directory.",
-            );
+        let loaderResult: unknown;
+        if (loader) {
+          const loaderStart = timings ? performance.now() : 0;
+          loaderResult = await loader(routeArgs);
+          if (timings) {
+            timings.loader = performance.now() - loaderStart;
           }
         }
 
-        // Preload only islands that hydrate immediately ("load"). Preloading
-        // "visible"/"idle" islands would defeat those strategies' whole
-        // point: deferring the network cost until the island is needed.
-        const preloadFiles = new Set(
-          (islandCapture?.islands ?? [])
-            .filter((usage) => usage.strategy === "load")
-            .map((usage) => usage.descriptor.file),
+        // Allow loaders to return a Response directly (e.g. for redirects)
+        if (loaderResult instanceof Response) {
+          return loaderResult;
+        }
+
+        const data = loaderResult;
+
+        if (isRouteStateRequest) {
+          return withRouteResponseHeaders(Response.json({ data }), {
+            isRouteStateRequest: true,
+            loaderCache: match.route.loaderCache,
+          });
+        }
+
+        // Shell import was kicked off up front; this await is usually already
+        // resolved by the time we get here (it runs in parallel with the loader).
+        currentPhase = "render";
+        shellModule = await shellModulePromise;
+
+        // head and document headers are independent; run them concurrently.
+        const [head, documentHeaders] = await Promise.all([
+          mergeHeadMetadata(shellModule, routeModule, routeArgs, data),
+          mergeDocumentHeaders(shellModule, routeModule, routeArgs, data),
+        ]);
+
+        // Both representations must carry the same Vary header so a cache
+        // filled by an HTML request can never satisfy a later markdown request
+        // (or vice versa). Keep the variance scoped to routes that actually
+        // export markdown: raw Accept values create distinct cache variants on
+        // CDNs such as Cloudflare Workers Caching.
+        const markdownRepresentation =
+          typeof routeModule.markdown === "string" ? routeModule.markdown : undefined;
+        if (markdownRepresentation !== undefined) {
+          appendVaryHeader(documentHeaders, "Accept");
+        }
+
+        // Markdown-for-Agents negotiation must run after loader + header
+        // resolution so auth redirects/401s and cache policies still apply.
+        if (
+          !isRouteStateRequest &&
+          markdownRepresentation !== undefined &&
+          prefersMarkdown(options.request.headers.get("accept"))
+        ) {
+          return markdownResponse(markdownRepresentation, documentHeaders, pageOptions.status);
+        }
+
+        const cssUrls = resolvePageCssUrls(
+          options.cssManifest,
+          match.route.shellFile,
+          match.route.file,
         );
-        const islandPreloadUrls = new Set<string>();
-        if (options.jsManifest) {
-          for (const file of preloadFiles) {
-            for (const url of resolveManifestEntries(options.jsManifest, file) ?? []) {
-              islandPreloadUrls.add(url);
+        const modulePreloadUrls = mergeEntryPreloadUrls(
+          options.jsManifest,
+          CLIENT_ENTRY_MANIFEST_KEY,
+          resolvePageJsUrls(options.jsManifest, match.route.shellFile, match.route.file),
+        );
+
+        if (match.route.render === "spa") {
+          let body = "";
+          const Shell = shellModule?.Shell as FunctionComponent | undefined;
+          const Loading = shellModule?.Loading as FunctionComponent | undefined;
+          const loadingTree =
+            Shell != null
+              ? h(Shell, null, Loading ? h(Loading, null) : null)
+              : Loading
+                ? h(Loading, null)
+                : null;
+
+          if (loadingTree) {
+            const tree = h(
+              PrachtRuntimeProvider as FunctionComponent<Record<string, unknown>>,
+              {
+                data: null,
+                params: match.params,
+                routeId: match.route.id ?? "",
+                routes: resolvedApp.routes,
+                url: requestPath,
+              },
+              loadingTree,
+            );
+            const renderFn = await getRenderToStringAsync();
+            body = await renderFn(tree);
+          }
+
+          return htmlResponse(
+            buildHtmlDocument({
+              head,
+              body,
+              hydrationState: {
+                url: requestPath,
+                routeId: match.route.id ?? "",
+                data: null,
+                error: null,
+                pending: true,
+              },
+              clientEntryUrl: options.clientEntryUrl,
+              cssUrls,
+              modulePreloadUrls,
+              routeStatePreloadUrl: loader ? buildRouteStateUrl(requestPath) : undefined,
+              speculationRules: getAppSpeculationRules(resolvedApp),
+            }),
+            pageOptions.status,
+            documentHeaders,
+          );
+        }
+
+        const DefaultComponent =
+          typeof routeModule.default === "function" ? routeModule.default : undefined;
+        const Component = (routeModule.Component ?? DefaultComponent) as
+          | FunctionComponent
+          | undefined;
+        if (!Component) {
+          throw new Error("Route has no Component or default export");
+        }
+
+        const Shell = shellModule?.Shell as FunctionComponent<Record<string, unknown>> | undefined;
+        const Comp = Component as FunctionComponent<Record<string, unknown>>;
+        const componentProps = { data, params: match.params };
+
+        const componentTree = Shell
+          ? h(Shell, null, h(Comp, componentProps))
+          : h(Comp, componentProps);
+
+        let tree = h(
+          PrachtRuntimeProvider as FunctionComponent<Record<string, unknown>>,
+          {
+            data,
+            params: match.params,
+            routeId: match.route.id ?? "",
+            routes: resolvedApp.routes,
+            url: requestPath,
+          },
+          componentTree,
+        );
+
+        const hydration = match.route.hydration ?? "full";
+        let islandCapture: IslandCapture | null = null;
+        if (hydration === "islands") {
+          // The capture collector travels through context (not module state),
+          // so concurrent async renders — e.g. parallel SSG prerendering —
+          // never attribute islands to the wrong page.
+          islandCapture = { islands: [] };
+          tree = h(
+            IslandCaptureContext.Provider as FunctionComponent<Record<string, unknown>>,
+            { value: islandCapture },
+            tree,
+          );
+        }
+
+        const renderToString = await getRenderToStringAsync();
+        const ssrContent = await renderToString(tree);
+
+        if (hydration !== "full") {
+          const islandFiles = [
+            ...new Set((islandCapture?.islands ?? []).map((usage) => usage.descriptor.file)),
+          ];
+          let islandsEntryUrl: string | undefined;
+          if (islandFiles.length > 0) {
+            islandsEntryUrl = options.islandsEntryUrl ?? getIslandsClientEntryUrl();
+            if (!islandsEntryUrl) {
+              throw new Error(
+                `Route "${match.route.path}" uses hydration: "islands" and rendered ` +
+                  `${islandFiles.length} island(s), but no islands bootstrap URL is registered. ` +
+                  "This usually means the @pracht/vite-plugin islands entry was not built — " +
+                  "check that your islands live in the configured islands directory.",
+              );
             }
           }
+
+          // Preload only islands that hydrate immediately ("load"). Preloading
+          // "visible"/"idle" islands would defeat those strategies' whole
+          // point: deferring the network cost until the island is needed.
+          const preloadFiles = new Set(
+            (islandCapture?.islands ?? [])
+              .filter((usage) => usage.strategy === "load")
+              .map((usage) => usage.descriptor.file),
+          );
+          const islandPreloadUrls = new Set<string>();
+          if (options.jsManifest) {
+            for (const file of preloadFiles) {
+              for (const url of resolveManifestEntries(options.jsManifest, file) ?? []) {
+                islandPreloadUrls.add(url);
+              }
+            }
+          }
+
+          // No hydration state, no client runtime: islands routes ship only the
+          // islands bootstrap plus the islands present on the page, and
+          // hydration: "none" routes ship no JavaScript at all.
+          return htmlResponse(
+            buildHtmlDocument({
+              head,
+              body: ssrContent,
+              clientEntryUrl: islandsEntryUrl,
+              cssUrls,
+              modulePreloadUrls: islandsEntryUrl
+                ? mergeEntryPreloadUrls(options.jsManifest, ISLANDS_ENTRY_MANIFEST_KEY, [
+                    ...islandPreloadUrls,
+                  ])
+                : [...islandPreloadUrls],
+              speculationRules: getAppSpeculationRules(resolvedApp),
+            }),
+            pageOptions.status,
+            documentHeaders,
+          );
         }
 
-        // No hydration state, no client runtime: islands routes ship only the
-        // islands bootstrap plus the islands present on the page, and
-        // hydration: "none" routes ship no JavaScript at all.
         return htmlResponse(
           buildHtmlDocument({
             head,
             body: ssrContent,
-            clientEntryUrl: islandsEntryUrl,
+            hydrationState: {
+              url: requestPath,
+              routeId: match.route.id ?? "",
+              data,
+              error: null,
+            },
+            clientEntryUrl: options.clientEntryUrl,
             cssUrls,
-            modulePreloadUrls: islandsEntryUrl
-              ? mergeEntryPreloadUrls(options.jsManifest, ISLANDS_ENTRY_MANIFEST_KEY, [
-                  ...islandPreloadUrls,
-                ])
-              : [...islandPreloadUrls],
+            modulePreloadUrls,
             speculationRules: getAppSpeculationRules(resolvedApp),
           }),
-          200,
+          pageOptions.status,
           documentHeaders,
         );
+      };
+
+      // Dev-only instrumentation: wrap the terminal so middleware time can be
+      // derived as "chain total minus terminal", and terminal time minus the
+      // loader becomes the render phase. Production passes no collector and
+      // uses the un-wrapped terminal.
+      let terminal = pageTerminal;
+      let chainStart = 0;
+      if (timings) {
+        terminal = async () => {
+          const terminalStart = performance.now();
+          try {
+            return await pageTerminal();
+          } finally {
+            timings.render = performance.now() - terminalStart - (timings.loader ?? 0);
+          }
+        };
+        chainStart = performance.now();
       }
 
-      return htmlResponse(
-        buildHtmlDocument({
-          head,
-          body: ssrContent,
-          hydrationState: {
-            url: requestPath,
-            routeId: match.route.id ?? "",
-            data,
-            error: null,
-          },
-          clientEntryUrl: options.clientEntryUrl,
-          cssUrls,
-          modulePreloadUrls,
-          speculationRules: getAppSpeculationRules(resolvedApp),
-        }),
-        200,
-        documentHeaders,
-      );
-    };
-
-    // Dev-only instrumentation: wrap the terminal so middleware time can be
-    // derived as "chain total minus terminal", and terminal time minus the
-    // loader becomes the render phase. Production passes no collector and
-    // uses the un-wrapped terminal.
-    let terminal = pageTerminal;
-    let chainStart = 0;
-    if (timings) {
-      terminal = async () => {
-        const terminalStart = performance.now();
-        try {
-          return await pageTerminal();
-        } finally {
-          timings.render = performance.now() - terminalStart - (timings.loader ?? 0);
+      const response = await runMiddlewareChain({
+        context: pageContext,
+        middlewareFiles: match.route.middlewareFiles,
+        params: match.params,
+        registry,
+        request: options.request,
+        route: match.route,
+        signal: requestSignal,
+        url,
+        terminal,
+      });
+      if (timings) {
+        timings.mw = performance.now() - chainStart - (timings.render ?? 0) - (timings.loader ?? 0);
+      }
+      return normalizePageResponse(response, {
+        isRouteStateRequest,
+        loaderCache: match.route.loaderCache,
+      });
+    } catch (error: unknown) {
+      // A 404 thrown by a loader or middleware (`throw notFound()`) is not a
+      // crash — it means "this URL has no content". Render the app-level
+      // not-found page for it, unless the route declares its own
+      // ErrorBoundary (the more specific handler wins) or we are already
+      // rendering the not-found page.
+      if (!pageOptions.isNotFoundPage && isNotFoundError(error) && !isRouteStateRequest) {
+        const notFoundMatch = createNotFoundMatch(resolvedApp, url.pathname);
+        if (notFoundMatch) {
+          const module = routeModule ?? (await routeModulePromise?.catch(() => undefined));
+          if (!module?.ErrorBoundary) {
+            return renderPageMatch(notFoundMatch, { isNotFoundPage: true, status: 404 });
+          }
         }
-      };
-      chainStart = performance.now();
-    }
+      }
 
-    const response = await runMiddlewareChain({
-      context: pageContext,
-      middlewareFiles: match.route.middlewareFiles,
-      params: match.params,
-      registry,
-      request: options.request,
-      route: match.route,
-      signal: requestSignal,
-      url,
-      terminal,
-    });
-    if (timings) {
-      timings.mw = performance.now() - chainStart - (timings.render ?? 0) - (timings.loader ?? 0);
+      return renderRouteErrorResponse({
+        error,
+        isRouteStateRequest,
+        loaderFile,
+        options,
+        phase: currentPhase,
+        routeArgs,
+        routeId: match.route.id ?? "",
+        routeModule,
+        routes: resolvedApp.routes,
+        shellFile: match.route.shellFile,
+        shellModule,
+        requestPath,
+      });
     }
-    return normalizePageResponse(response, {
-      isRouteStateRequest,
-      loaderCache: match.route.loaderCache,
-    });
-  } catch (error: unknown) {
-    return renderRouteErrorResponse({
-      error,
-      isRouteStateRequest,
-      loaderFile,
-      options,
-      phase: currentPhase,
-      routeArgs,
-      routeId: match.route.id ?? "",
-      routeModule,
-      routes: resolvedApp.routes,
-      shellFile: match.route.shellFile,
-      shellModule,
-      requestPath,
-    });
   }
+}
+
+/**
+ * A `RouteMatch` for the app-level not-found page, or `undefined` when the
+ * app declares none. `pathname` is the request path so diagnostics and
+ * `useLocation()` still report where the visitor actually landed.
+ */
+function createNotFoundMatch(app: ResolvedPrachtApp, pathname: string): RouteMatch | undefined {
+  const route = app.notFound;
+  if (!route || !("segments" in route)) return undefined;
+  return { route, params: {}, pathname };
+}
+
+function isNotFoundError(error: unknown): boolean {
+  return isPrachtHttpError(error) && error.status === 404;
 }
 
 function getRequestPath(url: URL): string {
@@ -695,7 +757,8 @@ function getRequestPath(url: URL): string {
 
 function getResolvedApp(app: PrachtApp): ResolvedPrachtApp {
   const routes = (app as { routes: readonly unknown[] }).routes;
-  if (routes.length === 0 || isHrefRouteDefinition(routes[0])) {
+  const notFoundResolved = !app.notFound || "segments" in app.notFound;
+  if ((routes.length === 0 || isHrefRouteDefinition(routes[0])) && notFoundResolved) {
     return app as unknown as ResolvedPrachtApp;
   }
 
