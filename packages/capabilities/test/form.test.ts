@@ -72,4 +72,29 @@ describe("coerceFormInput", () => {
     expect(coerceFormInput({ type: "object" }, [["a", "1"]])).toEqual({ a: "1" });
     expect(coerceFormInput(null, [["a", "1"]])).toEqual({ a: "1" });
   });
+
+  it("keeps prototype-named fields as own properties so validation can reject them", () => {
+    const result = coerceFormInput(SCHEMA, [
+      ["__proto__", "polluted"],
+      ["constructor", "polluted"],
+      ["toString", "polluted"],
+    ]);
+
+    // Each field survives as a real own property rather than disappearing into
+    // a prototype setter — `additionalProperties: false` must be able to see it.
+    expect(Object.hasOwn(result, "__proto__")).toBe(true);
+    expect(Object.getOwnPropertyDescriptor(result, "__proto__")?.value).toBe("polluted");
+    expect(result.constructor).toBe("polluted");
+    expect(result.toString).toBe("polluted");
+
+    // Nothing leaked onto the prototype chain.
+    expect(Object.getPrototypeOf(result)).toBe(Object.prototype);
+    expect(({} as Record<string, unknown>).toString).toBeTypeOf("function");
+  });
+
+  it("does not treat inherited members as a field's schema", () => {
+    // `properties.constructor` only exists on Object.prototype; an own-property
+    // lookup must not resolve it, so the value stays an uncoerced string.
+    expect(coerceFormInput(SCHEMA, [["constructor", "5"]])).toMatchObject({ constructor: "5" });
+  });
 });

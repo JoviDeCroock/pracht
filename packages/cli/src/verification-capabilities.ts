@@ -48,9 +48,25 @@ export function collectCapabilityChecks(project: ProjectConfig, checks: Check[])
 
   const manifestDir = dirname(manifestPath);
   for (const entry of entries) {
-    const filePath = resolve(manifestDir, entry.path);
+    // Root-relative refs ("/src/capabilities/x.ts") resolve against the project
+    // root, matching the runtime registry and the Vite plugin; everything else
+    // is relative to the manifest. Resolving them all against the manifest
+    // directory would leave every root-relative capability unverified.
+    const rootRelative = entry.path.startsWith("/");
+    const filePath = rootRelative
+      ? resolveProjectPath(project.root, entry.path)
+      : resolve(manifestDir, entry.path);
     if (!existsSync(filePath)) {
-      // Missing manifest references are already reported by the manifest check.
+      // The manifest check only reports missing "./"-relative references, so
+      // root-relative ones have to be reported here or they pass silently.
+      if (rootRelative) {
+        checks.push(
+          createCheck(
+            "error",
+            `Capability ${JSON.stringify(entry.name)} references missing file ${JSON.stringify(entry.path)}.`,
+          ),
+        );
+      }
       continue;
     }
 

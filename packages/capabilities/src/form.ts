@@ -24,15 +24,30 @@ export function coerceFormInput(
 
   const result: Record<string, unknown> = {};
   for (const [name, values] of grouped) {
-    const propertySchema = isPlainObject(properties[name]) ? properties[name] : null;
+    // Own-property lookup so a field named "__proto__" or "constructor" cannot
+    // pick up an inherited member as its schema.
+    const declared = Object.hasOwn(properties, name) ? properties[name] : undefined;
+    const propertySchema = isPlainObject(declared) ? declared : null;
+
+    let coerced: unknown;
     if (propertySchema?.type === "array") {
       const itemType = isPlainObject(propertySchema.items) ? propertySchema.items.type : undefined;
-      result[name] = values.map((value) => coerceScalar(itemType, value));
+      coerced = values.map((value) => coerceScalar(itemType, value));
     } else {
       // Repeated fields collapse to the last value, like URLSearchParams.get
       // from the end — a non-array schema cannot accept more than one anyway.
-      result[name] = coerceScalar(propertySchema?.type, values[values.length - 1]);
+      coerced = coerceScalar(propertySchema?.type, values[values.length - 1]);
     }
+
+    // defineProperty rather than assignment: `result.__proto__ = value` hits
+    // the prototype setter, so the field would silently vanish instead of
+    // being rejected by the schema's `additionalProperties: false`.
+    Object.defineProperty(result, name, {
+      configurable: true,
+      enumerable: true,
+      value: coerced,
+      writable: true,
+    });
   }
   return result;
 }

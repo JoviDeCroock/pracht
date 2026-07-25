@@ -489,6 +489,48 @@ describe("collectCapabilityChecks", () => {
     expect(checks).toEqual([]);
   });
 
+  it("verifies capabilities registered with a root-relative path", () => {
+    // The runtime registry and the Vite plugin both resolve "/src/..." against
+    // the project root, so verification has to as well — otherwise the whole
+    // contract, including the destructive-exposure check, is silently skipped.
+    const checks: Check[] = [];
+    collectCapabilityChecks(
+      createProject({
+        capability: capabilitySource(`  title: "Purge notes",
+  description: "Delete notes.",
+  input: { type: "object" },
+  output: { type: "object" },
+  effect: "destructive",
+  expose: { http: true, webmcp: true },`),
+        registration: '    "notes.search": () => import("/src/capabilities/notes-search.ts"),',
+      }),
+      checks,
+    );
+
+    expect(checks.map((check) => check.message)).toContainEqual(
+      expect.stringContaining("exposed to agent projections (webmcp/mcp)"),
+    );
+  });
+
+  it("reports a missing root-relative capability file", () => {
+    // The manifest check only reports missing "./"-relative references.
+    const checks: Check[] = [];
+    collectCapabilityChecks(
+      createProject({
+        capability: "export default {};",
+        registration: '    "notes.search": () => import("/src/capabilities/nope.ts"),',
+      }),
+      checks,
+    );
+
+    expect(checks).toContainEqual(
+      expect.objectContaining({
+        message: expect.stringContaining('references missing file "/src/capabilities/nope.ts"'),
+        status: "error",
+      }),
+    );
+  });
+
   it("allows private capabilities without exposure metadata", () => {
     const checks = runChecks(
       capabilitySource(`  title: "Private op",
