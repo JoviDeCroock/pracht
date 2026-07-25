@@ -501,6 +501,35 @@ export interface RouteConfig extends RouteMeta {
   loader?: ModuleRef;
 }
 
+/**
+ * App-level not-found page. Rendered with a 404 status when a request matches
+ * no page route, and when a loader/middleware throws a 404 (`notFound()`).
+ *
+ * It is deliberately *not* a route: it never participates in path matching,
+ * so it cannot shadow static assets, API routes, or a later-registered page —
+ * the failure mode of the catch-all (`route("/*", ...)`) pattern it replaces.
+ * It is also excluded from typed routes, prefetching, speculation rules, and
+ * SSG/ISG prerendering.
+ */
+export interface NotFoundConfig {
+  component: ModuleRef;
+  /** Separate loader module, mirroring `route({ component, loader })`. */
+  loader?: ModuleRef;
+  shell?: string;
+  middleware?: string[];
+  hydration?: HydrationMode;
+}
+
+/** `NotFoundConfig` with module refs resolved to file paths. */
+export interface NotFoundDefinition {
+  file: string;
+  loaderFile?: string;
+  hasLoader?: boolean;
+  shell?: string;
+  middleware?: string[];
+  hydration?: HydrationMode;
+}
+
 export interface RouteDefinition extends RouteMeta {
   kind: "route";
   path: string;
@@ -522,6 +551,11 @@ export interface PrachtAppConfig {
   api?: ApiConfig;
   routes: RouteTreeNode[];
   /**
+   * Page rendered (with a 404 status) when no route matches, and when a
+   * loader or middleware throws a 404. See {@link NotFoundConfig}.
+   */
+  notFound?: ModuleRef | NotFoundConfig;
+  /**
    * Declarative invariants over the resolved route graph (e.g.
    * `requireMiddleware("/app/**", "auth")`). Enforced deterministically by
    * `pracht verify`; violations fail verification.
@@ -541,6 +575,7 @@ export interface PrachtApp {
   middleware: Record<string, string>;
   api: ApiConfig;
   routes: RouteTreeNode[];
+  notFound?: NotFoundDefinition;
   constraints?: RouteConstraint[];
   viewTransitions?: boolean;
 }
@@ -573,9 +608,15 @@ export interface ResolvedRoute extends Omit<RouteMeta, "middleware"> {
   segments: RouteSegment[];
 }
 
-export interface ResolvedPrachtApp extends Omit<PrachtApp, "routes"> {
+export interface ResolvedPrachtApp extends Omit<PrachtApp, "notFound" | "routes"> {
   routes: ResolvedRoute[];
   apiRoutes: ResolvedApiRoute[];
+  /**
+   * The not-found page as a route-shaped record so the render pipeline can
+   * treat it like any other route. It is never present in `routes`, so it
+   * never matches a URL.
+   */
+  notFound?: ResolvedRoute;
 }
 
 export interface RouteMatch {
@@ -723,4 +764,22 @@ export class PrachtHttpError extends Error {
     this.name = "PrachtHttpError";
     this.status = status;
   }
+}
+
+/**
+ * The 404 a loader or middleware throws when the thing it was asked for does
+ * not exist:
+ *
+ * ```ts
+ * const post = await getPost(params.slug);
+ * if (!post) throw notFound();
+ * ```
+ *
+ * Returns the error instead of throwing it so the throw stays visible to
+ * readers and to TypeScript's control-flow analysis (same shape as
+ * `redirect()`). The response renders the app's `notFound` page when one is
+ * configured and the route exports no `ErrorBoundary`.
+ */
+export function notFound(message = "Not found"): PrachtHttpError {
+  return new PrachtHttpError(404, message);
 }

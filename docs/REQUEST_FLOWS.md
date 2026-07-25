@@ -488,18 +488,32 @@ request arrives
 ## Error paths
 
 ```
-SSR / SPA navigation — loader throws PrachtHttpError(404):
+SSR / SPA navigation — loader throws notFound() / PrachtHttpError(404):
 
   ── GET /blog/missing (route-state) ──►
   ◄── 404 application/json { error: { status: 404, message: "Not found" } } ──
 
-  Client: render ErrorBoundary({ error }) instead of Component
+  Client: render ErrorBoundary({ error }) instead of Component.
+  No boundary → full document load, so the server can render the
+  app's notFound page with a 404 status.
 
-SSR first load — loader throws PrachtHttpError(404):
+SSR first load — loader throws notFound() / PrachtHttpError(404):
 
   ── GET /blog/missing ──────────────────►
-  Server: loader throws → render ErrorBoundary to HTML string
-  ◄── 404 text/html (ErrorBoundary HTML with hydration state) ──────────────
+  Server: loader throws → route ErrorBoundary, else the app's notFound
+          page (if declared), else the shell boundary / plain text
+  ◄── 404 text/html (with hydration state) ─────────────────────────────────
+
+Unmatched URL — no route and no API route matches:
+
+  ── GET /nope ──────────────────────────►
+  (adapter already tried static assets and missed)
+  Server: no match → render defineApp({ notFound }) with status 404
+  ◄── 404 text/html (notFound page, hydrates under a reserved route id) ────
+
+  Without a notFound page:  ◄── 404 text/plain "Not found" ──
+  Route-state request:      ◄── 404 application/json { error } ──
+  Non-GET/HEAD:             ◄── 404 text/plain "Not found" ──
 
 Unexpected 5xx errors are sanitized in both HTML and JSON responses by default.
 Pass debugErrors: true to handlePrachtRequest() to expose raw error details.

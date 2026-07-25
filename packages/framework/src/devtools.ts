@@ -39,6 +39,16 @@ export function buildDevtoolsHtml(graph: AppGraph): string {
     )
     .join("\n");
 
+  const notFoundRow = graph.notFound
+    ? `<tr>
+        <td>${escapeHtml(graph.notFound.path)}</td>
+        <td>404</td>
+        <td>${escapeHtml(graph.notFound.shell ?? "—")}</td>
+        <td>${escapeHtml(graph.notFound.middleware.length > 0 ? graph.notFound.middleware.join(" → ") : "—")}</td>
+        <td class="file">${escapeHtml(graph.notFound.file)}</td>
+      </tr>`
+    : "";
+
   const apiRows = graph.api
     .map(
       (route) => `<tr>
@@ -161,6 +171,7 @@ ${apiRows}
       <thead><tr><th>Route</th><th>Render</th><th>Shell</th><th>Middleware</th><th>Source</th></tr></thead>
       <tbody>
 ${routeRows}
+${notFoundRow}
       </tbody>
     </table>
     ${apiSection}

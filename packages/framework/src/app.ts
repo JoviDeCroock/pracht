@@ -3,6 +3,8 @@ import type {
   GroupDefinition,
   GroupMeta,
   ModuleRef,
+  NotFoundConfig,
+  NotFoundDefinition,
   ResolvedApiRoute,
   ResolvedRoute,
   ResolvedPrachtApp,
@@ -19,6 +21,7 @@ import type {
   PrachtAppConfig,
 } from "./types.ts";
 import { formatUnknownNameError } from "./name-suggestions.ts";
+import { NOT_FOUND_ROUTE_ID, NOT_FOUND_ROUTE_PATH } from "./runtime-constants.ts";
 import {
   matchResolvedRoute,
   matchRouteSegments,
@@ -122,8 +125,27 @@ export function defineApp(config: PrachtAppConfig): PrachtApp {
     middleware: resolveModuleRefRecord(config.middleware ?? {}),
     api: config.api ?? {},
     routes: config.routes,
+    notFound: resolveNotFoundDefinition(config.notFound),
     constraints: config.constraints,
     viewTransitions: config.viewTransitions,
+  };
+}
+
+function resolveNotFoundDefinition(
+  notFound: ModuleRef | NotFoundConfig | undefined,
+): NotFoundDefinition | undefined {
+  if (notFound === undefined) return undefined;
+
+  if (typeof notFound === "string" || typeof notFound === "function") {
+    return { file: resolveModuleRef(notFound) };
+  }
+
+  const { component, loader, ...meta } = notFound;
+  return {
+    file: resolveModuleRef(component),
+    loaderFile: resolveModuleRef(loader),
+    hasLoader: loader ? true : undefined,
+    ...meta,
   };
 }
 
@@ -168,8 +190,66 @@ export function resolveApp(app: PrachtApp): ResolvedPrachtApp {
     api: app.api,
     routes,
     apiRoutes: [],
+    notFound: resolveNotFoundRoute(app),
     constraints: app.constraints,
     viewTransitions: app.viewTransitions,
+  };
+}
+
+/**
+ * Shape the not-found page like a `ResolvedRoute` so the runtime and the
+ * client router can render it through the normal pipeline. It inherits
+ * nothing from groups (it sits outside the route tree), always renders on
+ * demand (`ssr` — never prerendered), and its `segments` are empty because
+ * matching never reaches it.
+ */
+function resolveNotFoundRoute(app: PrachtApp): ResolvedRoute | undefined {
+  const notFound = app.notFound;
+  if (!notFound) return undefined;
+
+  const middleware = notFound.middleware ?? [];
+
+  if (
+    VALIDATE_MANIFEST &&
+    notFound.shell !== undefined &&
+    !hasOwnEntry(app.shells, notFound.shell)
+  ) {
+    throw new Error(
+      formatUnknownNameError({
+        kind: "shell",
+        name: notFound.shell,
+        registered: Object.keys(app.shells),
+        context: "the notFound page",
+      }),
+    );
+  }
+
+  return {
+    id: NOT_FOUND_ROUTE_ID,
+    path: NOT_FOUND_ROUTE_PATH,
+    file: notFound.file,
+    loaderFile: notFound.loaderFile,
+    hasLoader: notFound.loaderFile ? true : notFound.hasLoader,
+    shell: notFound.shell,
+    shellFile: notFound.shell !== undefined ? app.shells[notFound.shell] : undefined,
+    render: "ssr",
+    hydration: notFound.hydration,
+    middleware,
+    middlewareFiles: middleware.map((name) => {
+      if (VALIDATE_MANIFEST && !hasOwnEntry(app.middleware, name)) {
+        throw new Error(
+          formatUnknownNameError({
+            kind: "middleware",
+            kindPlural: "middleware",
+            name,
+            registered: Object.keys(app.middleware),
+            context: "the notFound page",
+          }),
+        );
+      }
+      return app.middleware[name];
+    }),
+    segments: [],
   };
 }
 

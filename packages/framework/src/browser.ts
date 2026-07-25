@@ -67,7 +67,7 @@ export { prefetch, type PrefetchFn } from "./prefetch-api.ts";
 export { fetchPrachtRouteState, parseSafeNavigationUrl } from "./runtime-client-fetch.ts";
 export { initClientRouter, useNavigate } from "./router.ts";
 export { redirect, type RedirectOptions } from "./runtime-middleware.ts";
-export { PrachtHttpError } from "./types.ts";
+export { notFound, PrachtHttpError } from "./types.ts";
 
 export type {
   ApiConfig,
@@ -103,6 +103,8 @@ export type {
   MiddlewareNext,
   ModuleImporter,
   ModuleRef,
+  NotFoundConfig,
+  NotFoundDefinition,
   NavigateOptions,
   PrefetchStrategy,
   LinkPrefetchStrategy,

@@ -91,7 +91,11 @@ export function createDevSSRMiddleware(
         timings,
       });
 
-      if (response.status === 404) {
+      // A 404 from the runtime normally falls through to Vite (which has
+      // already had its shot at static files, since this middleware is
+      // installed after Vite's own). Apps that declare a `notFound` page get
+      // that page rendered here instead — same as in production.
+      if (response.status === 404 && !routeMatchers.app?.notFound) {
         return next();
       }
 
@@ -202,6 +206,9 @@ async function handleDevError(
  * route — the dev middleware then serves the rich dev-only 404 page instead
  * of falling through to Vite. Route-state (JSON) requests and non-document
  * fetches keep their existing 404 behavior.
+ *
+ * Apps that declare a `notFound` page own their 404s: dev renders that page
+ * (exactly as production does) rather than the framework's route table.
  */
 export function isDevNotFoundRequest(
   requestUrl: URL | string,
@@ -214,6 +221,10 @@ export function isDevNotFoundRequest(
   } = {},
 ): boolean {
   const url = typeof requestUrl === "string" ? new URL(requestUrl, "http://localhost") : requestUrl;
+
+  if (options.app?.notFound) {
+    return false;
+  }
 
   if (isRouteStateRequest(url, req)) {
     return false;

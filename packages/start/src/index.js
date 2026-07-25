@@ -757,6 +757,8 @@ function createRoutesFile() {
     "  routes: [",
     '    route("/", "./routes/home.tsx", { id: "home", render: "ssg", shell: "public" }),',
     "  ],",
+    "  // Custom 404 page — any module in ./routes, rendered when nothing matches:",
+    '  // notFound: "./routes/not-found.tsx",',
     "  // Declarative invariants enforced by `pracht verify` — uncomment to use",
     "  // (add the helpers to the @pracht/core import):",
     "  // constraints: [",

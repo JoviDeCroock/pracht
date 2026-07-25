@@ -109,6 +109,31 @@ route("/docs/*", "./routes/docs.tsx");
 
 ---
 
+## Not-Found Page
+
+`notFound` declares the page rendered — with a 404 status — when a request matches no route:
+
+```ts [src/routes.ts]
+export const app = defineApp({
+  shells: { public: () => import("./shells/public.tsx") },
+  notFound: {
+    component: () => import("./routes/not-found.tsx"),
+    shell: "public",
+  },
+  routes: [...],
+});
+```
+
+The shorthand `notFound: () => import("./routes/not-found.tsx")` takes the module ref directly; the full form also accepts `loader`, `middleware`, and `hydration`. The module is a normal route module — `Component`, `loader`, `head`, `headers` — and the page hydrates like any other.
+
+It is deliberately **not** a route. A trailing catch-all (`route("/*", ...)`) matches every URL, so it shadows static assets and paths you add later, and it shows up in typed routes, prefetching, speculation rules, and SSG path enumeration. `notFound` sits outside the route table: it runs only after matching fails, and after the adapter has already tried static assets.
+
+It also renders when a loader or middleware throws [`notFound()`](/docs/data-loading#custom-404-page), unless the route module exports its own `ErrorBoundary`. Route-state (JSON) requests and non-GET requests keep their existing 404 behavior, and apps without a `notFound` page still get a plain-text 404.
+
+In `pracht dev`, apps that declare a `notFound` page render it instead of the dev-only route-table 404, so dev matches production.
+
+---
+
 ## Typed Routes and Links
 
 Run `pracht typegen` to generate a type-safe route map from the same resolved app graph used by `pracht inspect routes --json`:
@@ -285,6 +310,10 @@ pracht({ pagesDir: "/src/pages", pagesDefaultRender: "ssg" });
 ### Route Priority
 
 Routes are sorted: static routes first, then dynamic (`:param`), then catch-all (`*`). This matches Next.js resolution order.
+
+### 404 page
+
+`pages/404.tsx` becomes the app's [not-found page](#not-found-page) automatically. It is removed from the route table, so — unlike in Next.js — `/404` is not a URL of its own.
 
 ### Ejecting to Explicit Manifest
 

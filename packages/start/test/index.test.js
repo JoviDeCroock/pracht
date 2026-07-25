@@ -63,6 +63,7 @@ describe("create-pracht", () => {
     expect(gitignore).not.toContain("\n.pracht\n");
     expect(gitignore).toContain("Keep .pracht/app-graph.json committed");
     expect(routes).toContain('route("/", "./routes/home.tsx"');
+    expect(routes).toContain('// notFound: "./routes/not-found.tsx",');
     expect(routes).toContain("// constraints: [");
     expect(routes).toContain('//   requireHead("**"),');
     expect(existsSync(join(targetDir, "wrangler.jsonc"))).toBe(false);

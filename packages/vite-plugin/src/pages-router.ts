@@ -171,8 +171,13 @@ export function generatePagesManifestSource(
   const lines: string[] = ['import { defineApp, group, route } from "@pracht/core/manifest";', ""];
 
   const routeEntries: string[] = [];
+  // `pages/404.tsx` is the app's not-found page, not a route: it renders with
+  // a 404 status when nothing matches, and it is never reachable at a URL of
+  // its own (which is what would let it shadow a static asset).
+  const notFoundPage = pages.find((page) => page.routePath === "/404");
 
   for (const page of pages) {
+    if (page === notFoundPage) continue;
     const render = page.renderMode ?? defaultRender;
     const filePath = prefix
       ? `${prefix}/${page.relativePath.replace(/\\/g, "/")}`
@@ -192,6 +197,10 @@ export function generatePagesManifestSource(
     );
   }
 
+  const notFoundEntry = notFoundPage
+    ? buildNotFoundEntry(notFoundPage, { prefix, useImport, withShell: !!appFile })
+    : null;
+
   if (appFile) {
     const appPath = prefix
       ? `${prefix}/_app.${extname(appFile).slice(1)}`
@@ -208,17 +217,37 @@ export function generatePagesManifestSource(
     lines.push(routeEntries.join(",\n"));
     lines.push("    ]),");
     lines.push("  ],");
+    if (notFoundEntry) lines.push(notFoundEntry);
     lines.push("});");
   } else {
     lines.push("const app = defineApp({");
     lines.push("  routes: [");
     lines.push(routeEntries.join(",\n"));
     lines.push("  ],");
+    if (notFoundEntry) lines.push(notFoundEntry);
     lines.push("});");
   }
 
   lines.push("");
   return lines.join("\n");
+}
+
+function buildNotFoundEntry(
+  page: ScannedPage,
+  options: { prefix?: string; useImport: boolean; withShell: boolean },
+): string {
+  const filePath = options.prefix
+    ? `${options.prefix}/${page.relativePath.replace(/\\/g, "/")}`
+    : `./${page.relativePath.replace(/\\/g, "/")}`;
+  const fileRef = options.useImport
+    ? `() => import(${JSON.stringify(filePath)})`
+    : JSON.stringify(filePath);
+
+  const configParts = [`component: ${fileRef}`];
+  if (options.withShell) configParts.push('shell: "pages"');
+  if (page.hydrationMode) configParts.push(`hydration: ${JSON.stringify(page.hydrationMode)}`);
+
+  return `  notFound: { ${configParts.join(", ")} },`;
 }
 
 function scanAllFiles(dir: string): string[] {

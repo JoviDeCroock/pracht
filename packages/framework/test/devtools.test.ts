@@ -119,6 +119,32 @@ describe("buildDevtoolsHtml", () => {
     expect(html).toContain("&lt;script&gt;alert(1)&lt;/script&gt;");
   });
 
+  it("lists the app notFound page alongside the routes", () => {
+    const html = buildDevtoolsHtml({
+      ...graphFixture,
+      notFound: {
+        file: "./routes/not-found.tsx",
+        hydration: null,
+        id: "__pracht_not_found__",
+        loaderCache: null,
+        loaderFile: null,
+        middleware: [],
+        path: "(not found)",
+        prefetch: null,
+        render: "ssr",
+        revalidate: null,
+        shell: "public",
+        shellFile: "./shells/public.tsx",
+        speculation: null,
+      },
+    });
+
+    expect(html).toContain("(not found)");
+    expect(html).toContain("./routes/not-found.tsx");
+    // Not a URL — never rendered as a link.
+    expect(html).not.toContain('href="(not found)"');
+  });
+
   it("renders an empty state when there are no API routes", () => {
     const html = buildDevtoolsHtml({ api: [], routes: graphFixture.routes });
 
@@ -155,6 +181,7 @@ describe("buildAppGraph", () => {
     });
 
     expect(graph).toEqual({
+      notFound: null,
       api: [
         {
           file: "/src/api/health.ts",

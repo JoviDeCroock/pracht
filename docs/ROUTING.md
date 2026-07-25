@@ -84,6 +84,7 @@ Top-level configuration:
 | `shells`     | `Record<string, ModuleRef>`              | Named shell modules — use `() => import("./path")` for IDE navigation |
 | `middleware` | `Record<string, ModuleRef>`              | Named middleware modules                                              |
 | `routes`     | `(RouteDefinition \| GroupDefinition)[]` | Route tree                                                            |
+| `notFound`   | `ModuleRef \| NotFoundConfig`            | Page rendered with a 404 status when nothing matches — see [Not-Found Page](#not-found-page) |
 
 ### `route(path, file, meta?)`
 
@@ -178,6 +179,83 @@ route("/docs/*", () => import("./routes/docs.tsx"));
 ```
 
 Matches `/docs/a/b/c` — the catch-all value is available in params.
+
+---
+
+## Not-Found Page
+
+`defineApp({ notFound })` declares the page pracht renders — with a `404`
+status — when a request matches no route:
+
+```typescript
+export const app = defineApp({
+  shells: { public: () => import("./shells/public.tsx") },
+  notFound: {
+    component: () => import("./routes/not-found.tsx"),
+    shell: "public",
+  },
+  routes: [...],
+});
+```
+
+The shorthand `notFound: () => import("./routes/not-found.tsx")` takes the
+module ref directly. The full form accepts:
+
+| Field       | Type                            | Description                                       |
+| ----------- | ------------------------------- | ------------------------------------------------- |
+| `component` | `ModuleRef`                     | The page module (must live in the routes directory) |
+| `loader`    | `ModuleRef`                     | Optional separate loader module                   |
+| `shell`     | `string`                        | Named shell from `defineApp.shells`               |
+| `middleware`| `string[]`                      | Named middleware to run for this page             |
+| `hydration` | `"full" \| "islands" \| "none"` | Defaults to `"full"`, like a route                |
+
+The module is a normal route module: `Component`/`default`, an optional
+`loader`, `head`, and `headers` all work, and the page hydrates so its links
+and event handlers behave like any other page.
+
+### Why it is not a route
+
+A not-found page defined as a trailing catch-all — `route("/*", ...)` — matches
+*every* URL. That is the wrong shape for "nothing matched":
+
+- it shadows requests for static assets and any path the app might serve later,
+  which turns a missing `/logo.png` into an HTML page and hides genuine wiring
+  mistakes;
+- it appears in typed routes, prefetching, speculation rules, and SSG path
+  enumeration, none of which make sense for a 404;
+- the client router matches it too, so an unknown URL never falls back to a
+  document navigation.
+
+`notFound` sits outside the route table instead. It never matches a URL, so it
+runs only after route matching has failed — and, on every first-party adapter,
+after static-asset serving has failed too (Node checks `staticDir` first,
+Cloudflare asks the `ASSETS` binding first, Vercel's `handle: filesystem`
+precedes the function). Existing catch-all routes keep working unchanged; they
+simply match before the not-found page is ever considered.
+
+### When it renders
+
+| Request                                              | Response                                  |
+| ---------------------------------------------------- | ----------------------------------------- |
+| GET/HEAD document, no route matches                   | The `notFound` page, status 404           |
+| A loader or middleware throws `notFound()`            | The `notFound` page, status 404           |
+| The matched route exports an `ErrorBoundary`          | That boundary (most specific wins)        |
+| Route-state (`x-pracht-route-state-request`) request  | JSON `{ error: { status: 404 } }`         |
+| Non-GET/HEAD request to an unmatched path             | Plain-text `404`                          |
+| No `notFound` declared                                | Plain-text `404` (unchanged)              |
+
+See [DATA_LOADING.md](DATA_LOADING.md#custom-404-pages) for `notFound()` in
+loaders and how it interacts with error boundaries.
+
+Because the page is not a route, `pracht verify` constraints (which describe
+the route graph) do not apply to it, and it is never prerendered to a path of
+its own — it is always rendered on demand.
+
+### Pages router
+
+In `pagesDir` mode, `pages/404.tsx` is wired as the app's not-found page
+automatically. It is removed from the route table, so — unlike in Next.js —
+`/404` is not a URL of its own.
 
 ---
 
@@ -676,8 +754,11 @@ clickable links. The page is self-contained HTML served by the dev middleware
 (`@pracht/core/dev-404`, same approach as the dev error overlay) and reloads
 automatically when a route is added.
 
-This page exists only in development:
+This page exists only in development, and only when the app has no 404 page of
+its own:
 
+- Apps that declare [`notFound`](#not-found-page) own their 404s — dev renders
+  that page, exactly as production does, and this page never appears.
 - Route-state (JSON) requests, non-document fetches, and non-GET methods keep
   their normal 404 behavior.
 - Apps that register a catch-all `route("*", ...)` match every path, so their

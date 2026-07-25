@@ -33,6 +33,8 @@ export interface AppGraphApiRoute {
 export interface AppGraph {
   api: AppGraphApiRoute[];
   routes: AppGraphRoute[];
+  /** The app-level not-found page (never part of `routes`), or `null`. */
+  notFound?: AppGraphRoute | null;
 }
 
 interface ResolvedRouteEntry {
@@ -66,8 +68,10 @@ export async function collectAppGraph(
   options: { executeApiModules?: boolean } = {},
 ): Promise<AppGraph> {
   const serverModule = await server.ssrLoadModule("virtual:pracht/server");
+  const notFound = serverModule.resolvedApp.notFound;
   return {
     api: await collectApiRoutes(server, root, serverModule.apiRoutes, options),
+    notFound: notFound ? serializeResolvedRoutes([notFound])[0] : null,
     routes: serializeResolvedRoutes(serverModule.resolvedApp.routes),
   };
 }

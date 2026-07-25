@@ -65,6 +65,20 @@ describe("scanPagesDirectory", () => {
     expect(source.match(/hydration:/g)).toHaveLength(1);
   });
 
+  it("wires pages/404 as the app notFound page instead of a route", () => {
+    const pagesDir = makeTempPagesDir();
+
+    writeFileSync(join(pagesDir, "index.tsx"), "export function Component() { return null; }\n");
+    writeFileSync(join(pagesDir, "404.tsx"), "export function Component() { return null; }\n");
+    writeFileSync(join(pagesDir, "_app.tsx"), "export function Shell() { return null; }\n");
+
+    const source = generatePagesManifestSource(scanPagesDirectory(pagesDir), { pagesDir });
+
+    expect(source).toContain('notFound: { component: "./404.tsx", shell: "pages" }');
+    // The 404 page is not reachable at a URL of its own.
+    expect(source).not.toContain('route("/404"');
+  });
+
   it("sorts nested dynamic folders after static routes", () => {
     const pagesDir = makeTempPagesDir();
     mkdirSync(join(pagesDir, "[slug]"), { recursive: true });

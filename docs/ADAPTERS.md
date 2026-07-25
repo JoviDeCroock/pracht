@@ -734,7 +734,12 @@ At the runtime level, an adapter also typically needs to:
    export a `markdown` source can respond from the framework.
 3. **Check for prerendered pages** -- SSG and ISG routes have HTML files on disk.
    For ISG, implement staleness checking.
-4. **Delegate dynamic requests** to `handlePrachtRequest()` from `pracht`
+4. **Delegate dynamic requests** to `handlePrachtRequest()` from `pracht`.
+   This ordering is what lets `defineApp({ notFound })` stay safe: the
+   not-found page only renders once matching *and* asset serving have missed,
+   so it can never shadow a real file. If the platform is configured to answer
+   misses itself (e.g. Cloudflare's `assets.not_found_handling`), that answer
+   wins and the app's not-found page never runs.
 5. **Convert the Web `Response`** back to the platform's response format
 6. **Provide a context factory** -- create app-level context from platform-specific
    inputs (env bindings, headers, etc.)

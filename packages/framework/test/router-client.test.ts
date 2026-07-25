@@ -355,6 +355,49 @@ describe("initClientRouter", () => {
       pathname: "/next",
     });
   });
+
+  it("hydrates the app notFound page at a url that matches no route", async () => {
+    const app = resolveApp(
+      defineApp({
+        routes: [route("/", "./routes/home.tsx", { id: "home", render: "ssr" })],
+        notFound: "./routes/not-found.tsx",
+      }),
+    );
+
+    function NotFound() {
+      const [clicked, setClicked] = useState(false);
+      return h(
+        "main",
+        null,
+        h("button", { id: "retry", onClick: () => setClicked(true) }, "Retry"),
+        clicked ? "clicked" : "not clicked",
+      );
+    }
+
+    history.replaceState(null, "", "/missing");
+    root.innerHTML = '<main><button id="retry">Retry</button>not clicked</main>';
+
+    await initClientRouter({
+      app,
+      routeModules: {
+        "./routes/home.tsx": async () => ({ default: () => h("main", null, "home") }),
+        "./routes/not-found.tsx": async () => ({ default: NotFound }),
+      },
+      shellModules: {},
+      initialState: {
+        data: null,
+        routeId: "__pracht_not_found__",
+        url: "/missing",
+      },
+      root,
+      findModuleKey: (_modules, file) => file,
+    });
+
+    // Hydrated, so the page's own interactivity works.
+    root.querySelector<HTMLButtonElement>("#retry")!.click();
+    await flush();
+    expect(root.textContent).toContain("clicked");
+  });
 });
 
 describe("navigate() URL-scheme safety", () => {

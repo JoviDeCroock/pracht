@@ -8,6 +8,10 @@ export const app = defineApp({
   middleware: {
     auth: () => import("./middleware/auth.ts"),
   },
+  notFound: {
+    component: () => import("./routes/not-found.tsx"),
+    shell: "public",
+  },
   routes: [
     group({ shell: "public" }, [
       route("/", () => import("./routes/home.tsx"), {

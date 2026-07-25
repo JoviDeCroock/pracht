@@ -118,29 +118,51 @@ Error boundaries compose — a route boundary catches route-level errors, a shel
 
 #### Custom 404 page
 
-Add a catch-all route at the end of your manifest to handle unmatched URLs:
+Declare a `notFound` page in the manifest. It handles both ways a page can be missing — an unmatched URL, and a loader that cannot find what it was asked for:
 
-```ts
-route("/:path*", "./routes/not-found.tsx", { render: "ssr" })
+```ts [src/routes.ts]
+export const app = defineApp({
+  shells: { public: () => import("./shells/public.tsx") },
+  notFound: {
+    component: () => import("./routes/not-found.tsx"),
+    shell: "public",
+  },
+  routes: [...],
+});
 ```
 
-```ts [src/routes/not-found.tsx]
-import { PrachtHttpError } from "@pracht/core";
+```tsx [src/routes/not-found.tsx]
+import { useLocation } from "@pracht/core";
 
-export function loader() {
-  throw new PrachtHttpError(404, "Page not found");
-}
+export function Component() {
+  const location = useLocation();
 
-export function ErrorBoundary() {
   return (
     <div>
       <h1>404</h1>
-      <p>This page doesn't exist.</p>
+      <p>No page lives at {location.pathname}.</p>
       <a href="/">Go home</a>
     </div>
   );
 }
 ```
+
+Inside a loader or middleware, `throw notFound()` renders the same page with a 404 status:
+
+```ts
+import { notFound } from "@pracht/core";
+
+export async function loader({ params }: LoaderArgs) {
+  const post = await getPost(params.slug);
+  if (!post) throw notFound("Post not found");
+  return { post };
+}
+```
+
+A route module's own `ErrorBoundary` still wins for that route. Shell-level boundaries do not intercept 404s once `notFound` is configured — "not found" is an outcome, not a failure.
+
+> [!NOTE]
+> The not-found page is deliberately not a route: it never matches a URL, so it cannot shadow static assets or a path you add later, and it never appears in typed routes, prefetching, or SSG output. Pages-router apps get the same behavior from `pages/404.tsx`.
 
 > [!NOTE]
 > Unexpected 5xx errors are sanitized by default — only `PrachtHttpError` messages are shown to users. Pass `debugErrors: true` to `handlePrachtRequest()` to see full error details during development; it is ignored when `NODE_ENV=production`.

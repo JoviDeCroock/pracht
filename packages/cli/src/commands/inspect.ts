@@ -56,6 +56,7 @@ export interface InspectReport {
     jsManifest: Record<string, string[]>;
   };
   mode: string;
+  notFound?: AppGraphRoute | null;
   routes?: AppGraphRoute[];
 }
 
@@ -70,6 +71,8 @@ export async function runInspect(
 
     if (target === "routes" || target === "all") {
       report.routes = serializeAppRoutes(serverModule.resolvedApp.routes);
+      const notFound = serverModule.resolvedApp.notFound;
+      report.notFound = notFound ? serializeAppRoutes([notFound])[0] : null;
     }
 
     if (target === "api" || target === "all") {
@@ -110,6 +113,13 @@ function printInspectReport(report: InspectReport): void {
         `  ${route.path}  id=${route.id}  render=${route.render ?? "n/a"}  hydration=${route.hydration ?? "n/a"}  file=${route.file}`,
       );
     }
+
+    console.log("\nNot found page");
+    console.log(
+      report.notFound
+        ? `  ${report.notFound.path}  shell=${report.notFound.shell ?? "n/a"}  hydration=${report.notFound.hydration ?? "n/a"}  file=${report.notFound.file}`
+        : "  None declared — unmatched URLs return a plain-text 404.",
+    );
   }
 
   if (report.api) {
