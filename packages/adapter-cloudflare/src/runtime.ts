@@ -127,13 +127,22 @@ export function createCloudflareFetchHandler<
       );
     }
 
+    // A WebSocket handshake has no static counterpart: it can only be
+    // answered by an API route (typically by forwarding the request to a
+    // Durable Object, which owns the socket's lifetime). Skipping the ISG and
+    // asset lookups keeps the handshake off a code path that would forward an
+    // `Upgrade` request to the assets binding — a wasted subrequest per
+    // connection, against a Fetcher that can never satisfy it.
+    const isUpgradeRequest = request.headers.has("upgrade");
+
     // ISG routes served through Workers Caching bypass both the prerendered
     // static snapshot and the worker-managed Cache API path — the framework
     // re-renders and the edge cache holds the response for the revalidate
     // window.
-    const cacheRoute = cacheOptions ? findCacheableIsgRoute(options.app, request) : null;
+    const cacheRoute =
+      cacheOptions && !isUpgradeRequest ? findCacheableIsgRoute(options.app, request) : null;
 
-    if (!cacheRoute) {
+    if (!cacheRoute && !isUpgradeRequest) {
       const isgResponse = await maybeServeISG(
         request,
         env,
@@ -193,6 +202,12 @@ async function maybeServeAsset(
   headersManifest: HeadersManifest = {},
 ): Promise<Response | null> {
   if (request.method !== "GET" && request.method !== "HEAD") {
+    return null;
+  }
+
+  // The handler short-circuits upgrades before reaching here; this keeps the
+  // guarantee local, so no future caller can forward a handshake to a Fetcher.
+  if (request.headers.has("upgrade")) {
     return null;
   }
 

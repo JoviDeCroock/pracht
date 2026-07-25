@@ -13,7 +13,14 @@
   },
   "kv_namespaces": [{ "binding": "MY_KV", "id": "abc123" }],
   "durable_objects": {
-    "bindings": [{ "name": "COUNTER", "class_name": "Counter" }],
+    "bindings": [
+      { "name": "COUNTER", "class_name": "Counter" },
+      // Owns the WebSocket connections served by src/api/ws.ts.
+      { "name": "CHAT_ROOM", "class_name": "ChatRoom" },
+    ],
   },
-  "migrations": [{ "tag": "v1", "new_classes": ["Counter"] }],
+  "migrations": [
+    { "tag": "v1", "new_classes": ["Counter"] },
+    { "tag": "v2", "new_classes": ["ChatRoom"] },
+  ],
 }

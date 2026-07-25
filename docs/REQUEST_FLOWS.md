@@ -463,6 +463,56 @@ request arrives
 
 ---
 
+## WebSocket upgrade (Cloudflare)
+
+An upgrade request is matched and routed like any other API request, but its
+response leaves the pipeline by a different door: pracht detects a
+protocol-switch response and returns the **same object** the handler produced,
+skipping the header and cache post-processing every other response goes through.
+
+```
+── GET /api/ws  (Upgrade: websocket) ──►
+│
+├─► adapter: skip ISG lookup + assets binding
+│     a handshake has no static counterpart, and the assets Fetcher
+│     can never satisfy an upgrade
+│
+├─► match API route
+│
+├─► same-origin check  ◄── applies here even though GET is a "safe"
+│     method: browsers do not apply CORS to WebSocket
+│     └─ cross-origin ─► 403 Cross-origin WebSocket upgrade blocked
+│
+├─► API middleware chain   (authenticate here — the handshake carries cookies)
+│
+└─► handler forwards the request to a Durable Object
+      DO calls ctx.acceptWebSocket(server)
+      DO returns new Response(null, { status: 101, webSocket: client })
+          │
+          ▼
+   isProtocolSwitchResponse(response) === true
+          │
+          ├─ skip withDefaultSecurityHeaders  (would throw on status 101,
+          │                                    and drop `webSocket`)
+          └─ skip preventHeuristicCaching     (nothing to cache)
+          │
+          ▼
+◄── 101 Switching Protocols (same Response object, webSocket intact) ──
+```
+
+**Why identity matters:** `webSocket` is a Cloudflare extension to
+`ResponseInit`, not part of the fetch standard, so
+`new Response(body, { status, headers })` silently discards it — and the
+Response constructor rejects any status below 200 outright. A copied handshake
+is not a degraded handshake; it is a socket nobody holds.
+
+The Node and Vercel adapters cannot serve upgrades at all. On Node this is
+structural: `http.Server` delivers upgrades to its `upgrade` event rather than
+to the request handler, so they never reach pracht. See
+[ADAPTERS.md](./ADAPTERS.md#websockets) for the `ws`-alongside-pracht pattern.
+
+---
+
 ## Module loading during navigation
 
 ```

@@ -1,6 +1,6 @@
 ---
 name: audit-headers
-version: 1.1.0
+version: 1.2.0
 description: |
   Audit security header coverage in a pracht app. The framework applies four
   default security headers on every response path; this skill audits the
@@ -34,6 +34,12 @@ The helper behind this (`applyDefaultSecurityHeaders`) only sets a header
 including when it weakens a default. The framework does NOT set
 `strict-transport-security`, `content-security-policy`, or `cross-origin-*`
 headers — those need a project decision.
+
+One deliberate exception: **protocol-switch responses** (a `101` WebSocket
+handshake, or any response carrying a `webSocket` handle) are returned exactly
+as the handler produced them, with no headers applied. This is not a gap —
+copying the response would destroy the socket, and a handshake has no body for
+a sniffing or framing policy to protect. Do not report it as a finding.
 
 The audit surface is therefore:
 

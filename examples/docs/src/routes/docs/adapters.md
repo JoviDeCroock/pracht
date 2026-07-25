@@ -100,6 +100,51 @@ export { Counter } from "./workers/counter.ts";
 
 Keep the matching bindings and migrations in `wrangler.jsonc`.
 
+### WebSockets
+
+Cloudflare is the one adapter that can serve WebSocket upgrades, because a
+Durable Object can own a connection for longer than a request. Serve the
+handshake from an [API route](/docs/api-routes#websockets) and forward it to the
+object:
+
+```ts [src/api/ws.ts]
+import type { BaseRouteArgs } from "@pracht/core";
+
+export async function GET({ context, request, url }: BaseRouteArgs) {
+  if (request.headers.get("upgrade") !== "websocket") {
+    return new Response("Expected a WebSocket upgrade", { status: 426 });
+  }
+
+  const { CHAT_ROOM } = context.env as { CHAT_ROOM: DurableObjectNamespace };
+  const room = url.searchParams.get("room") ?? "lobby";
+  return CHAT_ROOM.get(CHAT_ROOM.idFromName(room)).fetch(request);
+}
+```
+
+```ts [src/workers/chat-room.ts]
+import { DurableObject } from "cloudflare:workers";
+
+export class ChatRoom extends DurableObject {
+  override async fetch(request: Request) {
+    const { 0: client, 1: server } = new WebSocketPair();
+    this.ctx.acceptWebSocket(server); // hibernation-aware
+    return new Response(null, { status: 101, webSocket: client });
+  }
+
+  override webSocketMessage(ws: WebSocket, message: string | ArrayBuffer) {
+    for (const peer of this.ctx.getWebSockets()) peer.send(String(message));
+  }
+}
+```
+
+Pracht returns the `101` exactly as the handler produced it — copying it would
+drop the `webSocket` handle, since that property is a Cloudflare extension to
+`ResponseInit` rather than part of the fetch standard. Upgrades work in
+`pracht dev` too, because workerd serves dev for this adapter.
+
+Cross-origin upgrades are rejected by default: browsers do not apply CORS to
+WebSocket, so the check that guards mutations guards handshakes as well.
+
 ### Accessing Cloudflare bindings
 
 The `env` object is passed through to your loaders and API routes via the context:
@@ -186,6 +231,31 @@ pracht({ adapter: nodeAdapter() })
 pracht build
 node dist/server/server.js
 // Server listening on http://localhost:3000
+```
+
+### WebSockets
+
+Node's `http.Server` delivers upgrade requests to its `upgrade` event rather
+than to the request handler, so a handshake never reaches pracht. Attach a
+WebSocket server to the same HTTP server instead — the generated entry exports
+`handler`, and only starts a server of its own when run as the process
+entrypoint:
+
+```js
+import { createServer } from "node:http";
+import { WebSocketServer } from "ws";
+import { handler } from "./dist/server/index.js";
+
+const server = createServer(handler);
+const wss = new WebSocketServer({ noServer: true });
+
+server.on("upgrade", (req, socket, head) => {
+  // Check req.headers.origin yourself — this bypasses pracht entirely, so
+  // pracht's same-origin protection does not apply.
+  wss.handleUpgrade(req, socket, head, (ws) => wss.emit("connection", ws, req));
+});
+
+server.listen(3000);
 ```
 
 ---

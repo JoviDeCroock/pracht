@@ -396,6 +396,115 @@ describe("API CSRF / same-origin enforcement", () => {
   });
 });
 
+/**
+ * A WebSocket handshake is a GET, so the method-based CSRF check alone would
+ * wave it through — but browsers do not apply CORS to WebSocket. Without an
+ * origin check any page on the web could open a cookie-authenticated socket
+ * to the app (cross-site WebSocket hijacking).
+ */
+describe("API same-origin enforcement on WebSocket upgrades", () => {
+  const app = defineApp({
+    routes: [route("/", "./routes/home.tsx")],
+  });
+  const apiRoutes = resolveApiRoutes(["/src/api/ws.ts"]);
+  const registry = {
+    apiModules: {
+      "/src/api/ws.ts": async () => ({
+        GET: async () => new Response("would upgrade", { status: 200 }),
+      }),
+    },
+  };
+
+  function upgradeRequest(headers: Record<string, string>): Request {
+    return new Request("http://localhost/api/ws", {
+      headers: { connection: "Upgrade", upgrade: "websocket", ...headers },
+    });
+  }
+
+  it("blocks an upgrade with Sec-Fetch-Site: cross-site", async () => {
+    const response = await handlePrachtRequest({
+      app,
+      apiRoutes,
+      registry,
+      request: upgradeRequest({ "sec-fetch-site": "cross-site" }),
+    });
+
+    expect(response.status).toBe(403);
+    await expect(response.text()).resolves.toContain("WebSocket");
+  });
+
+  it("blocks an upgrade whose Origin mismatches the request URL", async () => {
+    const response = await handlePrachtRequest({
+      app,
+      apiRoutes,
+      registry,
+      request: upgradeRequest({ origin: "https://evil.example" }),
+    });
+
+    expect(response.status).toBe(403);
+  });
+
+  it("blocks an upgrade with Sec-Fetch-Site: same-site (sibling subdomains)", async () => {
+    const response = await handlePrachtRequest({
+      app,
+      apiRoutes,
+      registry,
+      request: upgradeRequest({ "sec-fetch-site": "same-site" }),
+    });
+
+    expect(response.status).toBe(403);
+  });
+
+  it("allows an upgrade with matching Origin", async () => {
+    const response = await handlePrachtRequest({
+      app,
+      apiRoutes,
+      registry,
+      request: upgradeRequest({ origin: "http://localhost" }),
+    });
+
+    expect(response.status).toBe(200);
+  });
+
+  it("allows an upgrade from non-browser callers (no provenance headers)", async () => {
+    const response = await handlePrachtRequest({
+      app,
+      apiRoutes,
+      registry,
+      request: upgradeRequest({}),
+    });
+
+    expect(response.status).toBe(200);
+  });
+
+  it("leaves ordinary cross-origin GETs alone", async () => {
+    const response = await handlePrachtRequest({
+      app,
+      apiRoutes,
+      registry,
+      request: new Request("http://localhost/api/ws", {
+        headers: { "sec-fetch-site": "cross-site" },
+      }),
+    });
+
+    expect(response.status).toBe(200);
+  });
+
+  it("can be opted out via api.requireSameOrigin: false", async () => {
+    const response = await handlePrachtRequest({
+      app: defineApp({
+        api: { requireSameOrigin: false },
+        routes: [route("/", "./routes/home.tsx")],
+      }),
+      apiRoutes,
+      registry,
+      request: upgradeRequest({ "sec-fetch-site": "cross-site" }),
+    });
+
+    expect(response.status).toBe(200);
+  });
+});
+
 describe("shouldExposeServerErrors in production", () => {
   it("returns false when NODE_ENV=production even if debugErrors is true", () => {
     const originalEnv = process.env.NODE_ENV;
