@@ -12,8 +12,9 @@
  * The static analyzer itself lives in `@pracht/capabilities/static` and is
  * shared with `pracht verify`, so the build and verification can never
  * disagree about what is analyzable. Constraint it imposes: a capability's
- * `expose` and `input` values must be inline object literals (no imported
- * constants or spreads) — the extractor parses the literal text as data.
+ * `expose`, HTTP-projected `effect`, and WebMCP `input` values must be inline
+ * literals (no imported constants or spreads) — the extractor parses the
+ * literal text as data.
  * Extraction failures fail the build with a pointer to the offending file
  * rather than silently dropping an endpoint.
  */
@@ -25,6 +26,7 @@ import {
   CAPABILITY_TRANSPORT_HEADER,
   capabilityHttpPath,
   CONFIRMATION_HEADER,
+  isValidCapabilityHttpPath,
 } from "@pracht/capabilities";
 import {
   evaluateLiteral,
@@ -133,6 +135,12 @@ function extractCapabilityMetadata(
   } else if (isPlainObject(http)) {
     httpPath = typeof http.path === "string" ? http.path : capabilityHttpPath(name);
   }
+  if (httpPath && !isValidCapabilityHttpPath(httpPath)) {
+    throw new Error(
+      `[pracht] Capability "${name}" (${file}): HTTP exposure "path" must be an exact ` +
+        'same-origin pathname starting with "/".',
+    );
+  }
 
   const webmcp = expose.webmcp === true;
   if (webmcp && !httpPath) {
@@ -151,6 +159,13 @@ function extractCapabilityMetadata(
   if (effectText) {
     const value = evaluateLiteral(effectText);
     if (typeof value === "string") effect = value;
+  }
+  if (httpPath && effect !== "read" && effect !== "write" && effect !== "destructive") {
+    throw new Error(
+      `[pracht] Capability "${name}" (${file}) is exposed via HTTP, but its "effect" ` +
+        'could not be extracted at build time. HTTP-exposed capabilities must declare "effect" ' +
+        'as an inline "read", "write", or "destructive" string literal.',
+    );
   }
 
   let inputSchema: Record<string, unknown> | null = null;

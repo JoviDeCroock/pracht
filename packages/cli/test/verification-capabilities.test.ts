@@ -18,6 +18,7 @@ afterEach(() => {
 
 function createProject(options: {
   capability: string;
+  manifestPrefix?: string;
   middlewareBlock?: string;
   registration?: string;
 }): ProjectConfig {
@@ -30,6 +31,7 @@ function createProject(options: {
     join(root, "src/routes.ts"),
     [
       'import { defineApp, route } from "@pracht/core";',
+      options.manifestPrefix ?? "",
       "export const app = defineApp({",
       options.middlewareBlock ?? "",
       "  capabilities: {",
@@ -278,7 +280,9 @@ describe("collectCapabilityChecks", () => {
       expect.stringContaining('HTTP exposure only supports method: "POST"'),
     );
     expect(errors).toContainEqual(
-      expect.stringContaining('HTTP exposure "path" must be a string starting with "/"'),
+      expect.stringContaining(
+        'HTTP exposure "path" must be an exact same-origin pathname starting with "/"',
+      ),
     );
   });
 
@@ -479,6 +483,66 @@ describe("collectCapabilityChecks", () => {
     );
     expect(checks.map((check) => check.message)).toContainEqual(
       expect.stringContaining('"effect" field is not an inline string literal'),
+    );
+  });
+
+  it("fails HTTP exposure when effect is not statically analyzable", () => {
+    const checks = runChecks(
+      capabilitySource(`  title: "Search",
+  description: "Find notes.",
+  input: { type: "object" },
+  output: { type: "object" },
+  effect: sharedEffect,
+  expose: { http: true },`),
+    );
+
+    expect(checks).toContainEqual(
+      expect.objectContaining({
+        message: expect.stringContaining('"effect" must be an inline "read", "write"'),
+        status: "error",
+      }),
+    );
+  });
+
+  it("rejects protocol-relative custom HTTP paths", () => {
+    const checks = runChecks(
+      capabilitySource(`  title: "Search",
+  description: "Find notes.",
+  input: { type: "object" },
+  output: { type: "object" },
+  effect: "read",
+  expose: { http: { path: "//evil.test/collect" } },`),
+    );
+
+    expect(checks).toContainEqual(
+      expect.objectContaining({
+        message: expect.stringContaining("exact same-origin pathname"),
+        status: "error",
+      }),
+    );
+  });
+
+  it("verifies the capability registry inside the exported app", () => {
+    const checks: Check[] = [];
+    collectCapabilityChecks(
+      createProject({
+        capability: capabilitySource(`${COMPLETE_FIELDS}
+  middleware: ["auth"],`),
+        manifestPrefix:
+          'const metadata = { capabilities: { "wrong.tool": () => import("./missing.ts") }, middleware: { wrong: "./wrong.ts" } };',
+        middlewareBlock: '  middleware: { auth: "./middleware/auth.ts" },',
+      }),
+      checks,
+    );
+
+    expect(checks.map((check) => check.message)).toContainEqual(
+      expect.stringContaining('Capability "notes.search"'),
+    );
+    expect(checks.map((check) => check.message)).not.toContainEqual(
+      expect.stringContaining("wrong.tool"),
+    );
+    expect(checks.map((check) => check.message)).not.toContainEqual(
+      expect.stringContaining('unknown middleware "auth"'),
     );
   });
 

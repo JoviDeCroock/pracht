@@ -14,6 +14,7 @@ export type {
   CapabilityValidationResult,
 } from "./capability.ts";
 export {
+  CAPABILITY_EFFECT_HEADER,
   CAPABILITY_ERROR_CODES,
   CAPABILITY_HTTP_PREFIX,
   CAPABILITY_SETTLED_EVENT,
@@ -21,6 +22,7 @@ export {
   capabilityHttpPath,
   CONFIRMATION_HEADER,
   CONFIRMATION_SECRET_ENV,
+  isValidCapabilityHttpPath,
   normalizeCapabilityHttpPath,
 } from "./protocol.ts";
 export type { CapabilityErrorCode, PrachtAgentIdentity } from "./protocol.ts";

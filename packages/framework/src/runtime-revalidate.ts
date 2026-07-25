@@ -33,9 +33,9 @@ export async function revalidateRouteData(
 
 /**
  * Detail shape of the CAPABILITY_SETTLED_EVENT window event. `effect` and
- * `revalidate` are absent when the dispatcher doesn't know them (e.g.
- * `<Form capability>` doesn't know the effect class; form posts are
- * mutations by nature so it revalidates unless the envelope failed).
+ * `revalidate` may be absent when an older or non-Pracht dispatcher doesn't
+ * know them; current generated clients and `<Form capability>` provide the
+ * effect class.
  */
 export interface CapabilitySettledDetail {
   name: string;

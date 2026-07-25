@@ -37,8 +37,8 @@ const CALL_SITE = /defineCapability\s*(?:<[^(]*?>)?\s*\(/g;
  * `export default defineCapability(...)`, `export default <id>` (with or
  * without a trailing `;`), and `export { <id> as default }`, resolving the
  * identifier to its `const/let/var <id> = defineCapability(...)` declaration.
- * As a backward-compatible fallback, a module with exactly one call site is
- * unambiguous, so its call is used even without an explicit default export.
+ * A named-only call is deliberately not accepted: the runtime requires the
+ * capability itself to be the module's default export.
  */
 function findDefaultExportedCallParen(searchable: string): number {
   const direct = /export\s+default\s+defineCapability\s*(?:<[^(]*?>)?\s*\(/.exec(searchable);
@@ -49,29 +49,78 @@ function findDefaultExportedCallParen(searchable: string): number {
   const localName = defaultExportLocalName(searchable);
   if (localName) {
     const id = localName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    // `[^;]*?` (not `[^=]*`) so an arrow-typed annotation like
-    // `const cap: () => Cap = defineCapability(...)` is not cut short at the
-    // `=` inside `=>`.
-    const decl = new RegExp(
-      `\\b(?:const|let|var)\\s+${id}\\b[^;]*?=\\s*defineCapability\\s*(?:<[^(]*?>)?\\s*\\(`,
-      "g",
-    );
+    const decl = new RegExp(`\\b(?:const|let|var)\\s+${id}\\b`, "g");
     // The default export refers to the MODULE-scope binding; a shadowed
     // declaration inside a function must not win. Prefer the match at brace
     // depth 0.
     for (const match of searchable.matchAll(decl)) {
       if (match.index != null && braceDepthAt(searchable, match.index) === 0) {
-        return match.index + match[0].length - 1;
+        const paren = findDefineCapabilityInitializer(searchable, match.index + match[0].length);
+        if (paren !== -1) return paren;
       }
     }
   }
 
-  const calls = [...searchable.matchAll(CALL_SITE)];
-  if (calls.length === 1) {
-    const only = calls[0];
-    return (only.index ?? 0) + only[0].length - 1;
+  return -1;
+}
+
+/**
+ * Resolve the first assignment of a variable declaration and accept it only
+ * when its initializer is immediately `defineCapability(...)`. This avoids
+ * crossing an ASI boundary into a later declaration while still supporting
+ * multiline and arrow-function type annotations.
+ */
+function findDefineCapabilityInitializer(searchable: string, start: number): number {
+  return findCallInitializer(searchable, start, "defineCapability", CALL_SITE.source);
+}
+
+function findCallInitializer(
+  searchable: string,
+  start: number,
+  callName: string,
+  callPattern = `${callName}\\s*(?:<[^(]*?>)?\\s*\\(`,
+): number {
+  let depth = 0;
+  for (let index = start; index < searchable.length; index += 1) {
+    const char = searchable[index];
+    if (char === "(" || char === "[" || char === "{") {
+      depth += 1;
+      continue;
+    }
+    if (char === ")" || char === "]" || char === "}") {
+      if (depth === 0) return -1;
+      depth -= 1;
+      continue;
+    }
+    if (depth !== 0) continue;
+    if (char === ";") return -1;
+    if (char === "\n" || char === "\r") {
+      const next = searchable.slice(skipWhitespace(searchable, index + 1));
+      if (/^(?:(?:export|import)\b|(?:const|let|var|function|class)\b)/.test(next)) {
+        return -1;
+      }
+      continue;
+    }
+    if (
+      char === "=" &&
+      searchable[index + 1] !== ">" &&
+      searchable[index - 1] !== "=" &&
+      searchable[index - 1] !== "!" &&
+      searchable[index - 1] !== "<" &&
+      searchable[index - 1] !== ">"
+    ) {
+      const initializerStart = skipWhitespace(searchable, index + 1);
+      const call = new RegExp(`^${callPattern}`).exec(searchable.slice(initializerStart));
+      return call ? initializerStart + call[0].length - 1 : -1;
+    }
   }
   return -1;
+}
+
+function skipWhitespace(source: string, start: number): number {
+  let index = start;
+  while (index < source.length && /\s/.test(source[index])) index += 1;
+  return index;
 }
 
 /**
@@ -150,8 +199,15 @@ export function scanTopLevelProperties(objectBody: string): Map<string, string> 
 export function extractCapabilityRegistrations(
   manifestSource: string,
 ): { name: string; file: string }[] {
-  const block = findTopLevelObjectProperty(manifestSource, "capabilities");
-  if (!block) return [];
+  const appBody = extractDefineAppObjectBody(manifestSource);
+  if (!appBody) return [];
+  const capabilitiesValue = scanTopLevelProperties(appBody).get("capabilities");
+  if (!capabilitiesValue) return [];
+  const braceStart = skipInsignificant(capabilitiesValue, 0);
+  if (capabilitiesValue[braceStart] !== "{") return [];
+  const braceEnd = findMatchingBrace(capabilitiesValue, braceStart, "{", "}");
+  if (braceEnd === -1) return [];
+  const block = capabilitiesValue.slice(braceStart + 1, braceEnd);
   const searchableBlock = maskComments(block);
 
   const entries: { name: string; file: string }[] = [];
@@ -163,6 +219,48 @@ export function extractCapabilityRegistrations(
     entries.push({ name: match[2] ?? match[3], file: match[5] ?? match[7] });
   }
   return entries;
+}
+
+/** Extract the inline object body passed to the exported app's `defineApp()`. */
+export function extractDefineAppObjectBody(source: string): string | null {
+  const searchable = maskCommentsAndStrings(source);
+  const defaultExport = /export\s+default\s+defineApp\s*(?:<[^(]*?>)?\s*\(/.exec(searchable);
+  let parenIndex =
+    defaultExport?.index != null ? defaultExport.index + defaultExport[0].length - 1 : -1;
+
+  if (parenIndex === -1) {
+    const declaration = /export\s+(?:const|let|var)\s+app\b/g;
+    for (const match of searchable.matchAll(declaration)) {
+      if (match.index == null || braceDepthAt(searchable, match.index) !== 0) continue;
+      parenIndex = findCallInitializer(searchable, match.index + match[0].length, "defineApp");
+      if (parenIndex !== -1) break;
+    }
+  }
+
+  if (parenIndex === -1) {
+    const localName = namedAppExportLocalName(searchable);
+    if (localName) {
+      const id = localName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const declaration = new RegExp(`\\b(?:const|let|var)\\s+${id}\\b`, "g");
+      for (const match of searchable.matchAll(declaration)) {
+        if (match.index == null || braceDepthAt(searchable, match.index) !== 0) continue;
+        parenIndex = findCallInitializer(searchable, match.index + match[0].length, "defineApp");
+        if (parenIndex !== -1) break;
+      }
+    }
+  }
+
+  if (parenIndex === -1) return null;
+  const braceStart = skipInsignificant(source, parenIndex + 1);
+  if (source[braceStart] !== "{") return null;
+  const braceEnd = findMatchingBrace(source, braceStart, "{", "}");
+  return braceEnd === -1 ? null : source.slice(braceStart + 1, braceEnd);
+}
+
+function namedAppExportLocalName(searchable: string): string | null {
+  const aliased = /export\s*\{[^}]*?\b([A-Za-z_$][A-Za-z0-9_$]*)\s+as\s+app\b/.exec(searchable);
+  if (aliased) return aliased[1];
+  return /export\s*\{[^}]*?\bapp\b(?:\s*,|\s*\})/.test(searchable) ? "app" : null;
 }
 
 /**

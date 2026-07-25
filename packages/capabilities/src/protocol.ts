@@ -19,6 +19,29 @@ export function normalizeCapabilityHttpPath(path: string): string {
 }
 
 /**
+ * Whether a custom capability endpoint is an exact same-origin pathname.
+ *
+ * Parsing against a fixed origin catches protocol-relative paths, backslashes,
+ * ASCII control characters, dot-segment normalization, queries, and fragments.
+ * Requiring the parsed pathname to equal the source keeps generated browser
+ * fetches on the application origin.
+ */
+export function isValidCapabilityHttpPath(path: unknown): path is string {
+  if (typeof path !== "string" || !path.startsWith("/")) return false;
+  try {
+    const parsed = new URL(path, "https://pracht.invalid");
+    return (
+      parsed.origin === "https://pracht.invalid" &&
+      parsed.pathname === path &&
+      parsed.search === "" &&
+      parsed.hash === ""
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Header that carries the prepare/commit confirmation token when committing a
  * destructive capability call (see docs/AGENT_TRUST.md).
  */
@@ -65,13 +88,20 @@ export type CapabilityErrorCode = (typeof CAPABILITY_ERROR_CODES)[number];
 export const CAPABILITY_TRANSPORT_HEADER = "x-pracht-transport";
 
 /**
+ * Response header carrying the matched capability's effect class. Enhanced
+ * `<Form capability>` submissions read it so successful `read` operations do
+ * not invalidate route data while mutations still do.
+ */
+export const CAPABILITY_EFFECT_HEADER = "x-pracht-capability-effect";
+
+/**
  * Window event dispatched after a browser-side capability call settles —
  * by the generated `callCapability()` helper and by `<Form capability>`.
  * The framework's route runtime listens and revalidates the active route's
  * data after successful non-`read` calls, so mutations made through the
  * agent surface and the human UI keep the page consistent the same way.
  * `detail`: `{ name, effect, ok, revalidate }` (`effect`/`revalidate` may be
- * absent when the caller doesn't know them).
+ * absent when an older or non-Pracht dispatcher doesn't know them).
  */
 export const CAPABILITY_SETTLED_EVENT = "pracht:capability-settled";
 

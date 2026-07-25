@@ -1,3 +1,5 @@
+import { extractDefineAppObjectBody, scanTopLevelProperties } from "@pracht/capabilities/static";
+
 export function ensureCoreNamedImport(source: string, name: string): string {
   const match = source.match(/import\s*\{([^}]+)\}\s*from\s*["']@pracht\/core["'];?/);
   if (!match) {
@@ -111,10 +113,14 @@ export function extractRegistryEntries(
   // registry, and commented-out registrations inside the live block are not
   // treated as registered (mirrors the analyzer in @pracht/capabilities).
   // Masking preserves offsets, so slicing the masked source is safe.
-  const masked = maskComments(source);
-  const block = findNamedBlock(masked, key, "{", "}");
-  if (!block) return [];
-  const inner = masked.slice(block.openIndex + 1, block.closeIndex);
+  const appBody = extractDefineAppObjectBody(source);
+  if (!appBody) return [];
+  const value = scanTopLevelProperties(appBody).get(key);
+  if (!value) return [];
+  const openIndex = value.search(/\S/);
+  if (openIndex === -1 || value[openIndex] !== "{") return [];
+  const closeIndex = findMatchingDelimiter(value, openIndex, "{", "}");
+  const inner = maskComments(value.slice(openIndex + 1, closeIndex));
   const entries: { name: string; path: string }[] = [];
   // Keys may be bare identifiers (shells, middleware) or quoted strings —
   // capability names like "notes.search" require quoting.

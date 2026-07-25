@@ -3,6 +3,10 @@ import { h, render } from "preact";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import {
+  CAPABILITY_EFFECT_HEADER,
+  CAPABILITY_SETTLED_EVENT,
+} from "../../capabilities/src/index.ts";
 import { Form, type ApiValidationIssue } from "../src/index.ts";
 
 const nameSchema: StandardSchemaV1<Record<string, unknown>> = {
@@ -248,6 +252,29 @@ describe("<Form> validation", () => {
     expect(responses).toHaveLength(1);
     expect(responses[0].status).toBe(201);
     await expect(responses[0].json()).resolves.toEqual(responseBody);
+  });
+
+  it("dispatches the server-provided effect for capability revalidation", async () => {
+    fetchSpy.mockResolvedValue(
+      new Response(JSON.stringify({ ok: true, data: {} }), {
+        headers: {
+          "content-type": "application/json",
+          [CAPABILITY_EFFECT_HEADER]: "read",
+        },
+      }),
+    );
+    const settled = vi.fn();
+    window.addEventListener(CAPABILITY_SETTLED_EVENT, settled, { once: true });
+
+    render(h(Form, { capability: "items.search" }), root);
+    await submit();
+
+    expect(settled).toHaveBeenCalledTimes(1);
+    expect((settled.mock.calls[0][0] as CustomEvent).detail).toEqual({
+      name: "items.search",
+      ok: true,
+      effect: "read",
+    });
   });
 
   it("uses the clicked button's formaction for enhanced submissions", async () => {

@@ -4,9 +4,11 @@ import { existsSync, readFileSync } from "node:fs";
 import {
   collectInvalidSchemaKeywordValues,
   collectUnsupportedSchemaKeywords,
+  isValidCapabilityHttpPath,
 } from "@pracht/capabilities";
 import {
   evaluateLiteral,
+  extractCapabilityRegistrations,
   extractDefineCapabilityArgs,
   scanTopLevelProperties,
 } from "@pracht/capabilities/static";
@@ -33,7 +35,10 @@ export function collectCapabilityChecks(project: ProjectConfig, checks: Check[])
   if (!existsSync(manifestPath)) return;
 
   const manifestSource = readFileSync(manifestPath, "utf-8");
-  const entries = extractRegistryEntries(manifestSource, "capabilities");
+  const entries = extractCapabilityRegistrations(manifestSource).map(({ name, file }) => ({
+    name,
+    path: file,
+  }));
   if (entries.length === 0) return;
   const registeredMiddleware = new Set(
     extractRegistryEntries(manifestSource, "middleware").map((entry) => entry.name),
@@ -116,10 +121,12 @@ function collectSingleCapabilityChecks(
     problems.push(`is missing required fields: ${missing.join(", ")}`);
   }
 
+  const exposeFlags = readExposeFlags(properties.get("expose"));
+  problems.push(...exposeFlags.problems);
+
   for (const [field, value] of [
     ["title", title],
     ["description", description],
-    ["effect", effect],
   ] as const) {
     if (value.kind === "invalid") {
       problems.push(`"${field}" must be a non-empty string`);
@@ -128,6 +135,23 @@ function collectSingleCapabilityChecks(
         createCheck(
           "warning",
           `${label}: the "${field}" field is not an inline string literal, so it could not be verified statically.`,
+        ),
+      );
+    }
+  }
+
+  if (effect.kind === "invalid") {
+    problems.push('"effect" must be a non-empty string');
+  } else if (effect.kind === "unknown") {
+    if (!exposeFlags.unknown && exposeFlags.hasHttp) {
+      problems.push(
+        '"effect" must be an inline "read", "write", or "destructive" string literal for HTTP exposure',
+      );
+    } else {
+      checks.push(
+        createCheck(
+          "warning",
+          `${label}: the "effect" field is not an inline string literal, so it could not be verified statically.`,
         ),
       );
     }
@@ -169,9 +193,6 @@ function collectSingleCapabilityChecks(
       }
     }
   }
-
-  const exposeFlags = readExposeFlags(properties.get("expose"));
-  problems.push(...exposeFlags.problems);
 
   if (exposeFlags.unknown) {
     checks.push(
@@ -320,8 +341,8 @@ function readExposeFlags(text: string | undefined): {
     if (http.method !== undefined && http.method !== "POST") {
       problems.push('HTTP exposure only supports method: "POST"');
     }
-    if (http.path !== undefined && (typeof http.path !== "string" || !http.path.startsWith("/"))) {
-      problems.push('HTTP exposure "path" must be a string starting with "/"');
+    if (http.path !== undefined && !isValidCapabilityHttpPath(http.path)) {
+      problems.push('HTTP exposure "path" must be an exact same-origin pathname starting with "/"');
     }
   } else if (expose.http !== undefined && expose.http !== false && expose.http !== null) {
     problems.push('"expose.http" must be true or an object');

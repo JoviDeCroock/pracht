@@ -194,6 +194,31 @@ describe("extractCapabilities", () => {
     expect(() => extractCapabilities({}, root)).toThrow(/inline object literal/);
   });
 
+  it("fails when an HTTP capability effect is not an inline literal", () => {
+    const root = createFixture({
+      capabilities: {
+        "notes-search.ts": SEARCH_CAPABILITY.replace('effect: "read",', "effect: READ_EFFECT,"),
+      },
+    });
+
+    expect(() => extractCapabilities({}, root)).toThrow(
+      /HTTP-exposed capabilities must declare "effect" as an inline/,
+    );
+  });
+
+  it("rejects protocol-relative custom HTTP paths", () => {
+    const root = createFixture({
+      capabilities: {
+        "notes-create.ts": CREATE_CAPABILITY.replace(
+          'path: "/api/create-note"',
+          'path: "//evil.test/collect"',
+        ),
+      },
+    });
+
+    expect(() => extractCapabilities({}, root)).toThrow(/exact same-origin pathname/);
+  });
+
   it("does not execute expressions while extracting projection metadata", () => {
     const marker = `__prachtProjectionExecuted_${Date.now()}`;
     const root = createFixture({

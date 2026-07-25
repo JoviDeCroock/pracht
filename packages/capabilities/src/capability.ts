@@ -1,4 +1,8 @@
-import type { CapabilityErrorCode, PrachtAgentIdentity } from "./protocol.ts";
+import {
+  isValidCapabilityHttpPath,
+  type CapabilityErrorCode,
+  type PrachtAgentIdentity,
+} from "./protocol.ts";
 import {
   applySchemaDefaults,
   collectInvalidSchemaKeywordValues,
@@ -258,8 +262,10 @@ function normalizeExposure(expose: CapabilityExposeConfig | undefined): Capabili
       throw new Error('Capability HTTP exposure only supports method: "POST" for now.');
     }
     if (expose.http.path !== undefined) {
-      if (typeof expose.http.path !== "string" || !expose.http.path.startsWith("/")) {
-        throw new Error('Capability HTTP exposure "path" must be a string starting with "/".');
+      if (!isValidCapabilityHttpPath(expose.http.path)) {
+        throw new Error(
+          'Capability HTTP exposure "path" must be an exact same-origin pathname starting with "/".',
+        );
       }
       http = { method: "POST", path: expose.http.path };
     } else {

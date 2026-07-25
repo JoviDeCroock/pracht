@@ -32,7 +32,11 @@ import {
   type PrachtHydrationState,
   type StartAppOptions,
 } from "./runtime-context.ts";
-import { CAPABILITY_SETTLED_EVENT, capabilityHttpPath } from "@pracht/capabilities";
+import {
+  CAPABILITY_EFFECT_HEADER,
+  CAPABILITY_SETTLED_EVENT,
+  capabilityHttpPath,
+} from "@pracht/capabilities";
 import { clearPrefetchCache } from "./prefetch-cache.ts";
 import { navigateToClientLocation } from "./runtime-client-fetch.ts";
 import { revalidateRouteData } from "./runtime-revalidate.ts";
@@ -306,12 +310,16 @@ export function Form<TName extends string = string>(props: FormProps<TName>) {
         if (envelope.ok) {
           form.reset();
         }
-        // The runtime provider revalidates route data on this event; the
-        // effect class is unknown client-side, but a form post is a mutation
-        // by nature, so successful submissions always refresh.
+        // The runtime provider revalidates route data on this event. The
+        // server returns the matched capability's effect class so read-only
+        // form submissions avoid invalidating the active route.
         window.dispatchEvent(
           new CustomEvent(CAPABILITY_SETTLED_EVENT, {
-            detail: { name: capability, ok: envelope.ok },
+            detail: {
+              name: capability,
+              ok: envelope.ok,
+              effect: response?.headers.get(CAPABILITY_EFFECT_HEADER) ?? null,
+            },
           }),
         );
         onCapabilityResult?.(envelope as CapabilityFormResult<TName>);

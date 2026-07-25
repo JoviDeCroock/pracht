@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { defineCapability } from "../../capabilities/src/index.ts";
+import { CAPABILITY_EFFECT_HEADER, defineCapability } from "../../capabilities/src/index.ts";
 import { defineApp, handlePrachtRequest, invokeCapability, route } from "../src/index.ts";
 import {
   capabilityHttpPath,
@@ -120,6 +120,16 @@ describe("resolveAppCapabilities", () => {
     expect(resolved[0].httpPath).toBe("/api/find-notes");
   });
 
+  it("rejects unsafe paths on hand-rolled capability objects", async () => {
+    const capability = createSearchCapability();
+    capability.expose!.http!.path = "//evil.test/collect";
+    const { app, registry } = createApp(capability);
+
+    await expect(resolveAppCapabilities(app, registry)).rejects.toThrow(
+      /exact same-origin pathname/,
+    );
+  });
+
   it("normalizes trailing slashes on custom HTTP paths", async () => {
     const { app, registry } = createApp(
       createSearchCapability({ expose: { http: { path: "/api/find-notes/" } } }),
@@ -217,6 +227,7 @@ describe("capability HTTP projection", () => {
 
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toContain("application/json");
+    expect(response.headers.get(CAPABILITY_EFFECT_HEADER)).toBe("read");
     // Input defaults were applied before run().
     expect(await response.json()).toEqual({ ok: true, data: { notes: ["hello:10"] } });
   });

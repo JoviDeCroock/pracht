@@ -66,12 +66,31 @@ describe("capability static extraction", () => {
     expect(extractDefineCapabilityArgs(source)).toContain('title: "Typed"');
   });
 
-  it("falls back to the single call site when there is no explicit default export", () => {
+  it("rejects a single call site that is not default-exported", () => {
     const source = `
       const cap = defineCapability({ title: "Only call", run() {} });
     `;
 
-    expect(extractDefineCapabilityArgs(source)).toContain('title: "Only call"');
+    expect(extractDefineCapabilityArgs(source)).toBeNull();
+  });
+
+  it("does not cross an ASI boundary to a later capability declaration", () => {
+    const source = `
+      const cap = factory()
+      const helper = defineCapability({ title: "Wrong", run() {} })
+      export default cap
+    `;
+
+    expect(extractDefineCapabilityArgs(source)).toBeNull();
+  });
+
+  it("rejects a named-only call when another value is default-exported", () => {
+    const source = `
+      export const helper = defineCapability({ title: "Wrong", run() {} });
+      export default {};
+    `;
+
+    expect(extractDefineCapabilityArgs(source)).toBeNull();
   });
 
   it("resolves the module-scope binding, not a shadowed inner declaration", () => {
@@ -151,6 +170,57 @@ describe("capability static extraction", () => {
 
     expect(extractCapabilityRegistrations(source)).toEqual([
       { name: "notes.search", file: "./capabilities/notes-search.ts" },
+    ]);
+  });
+
+  it("scopes registrations to the exported defineApp object", () => {
+    const source = `
+      const metadata = {
+        capabilities: {
+          "wrong.tool": () => import("./wrong.ts"),
+        },
+      };
+      export const app = defineApp({
+        capabilities: {
+          "right.tool": () => import("./right.ts"),
+        },
+        routes: [],
+      });
+    `;
+
+    expect(extractCapabilityRegistrations(source)).toEqual([
+      { name: "right.tool", file: "./right.ts" },
+    ]);
+  });
+
+  it("extracts registrations from a typed exported app binding", () => {
+    const source = `
+      export const app: PrachtApp = defineApp({
+        capabilities: {
+          "right.tool": () => import("./right.ts"),
+        },
+        routes: [],
+      });
+    `;
+
+    expect(extractCapabilityRegistrations(source)).toEqual([
+      { name: "right.tool", file: "./right.ts" },
+    ]);
+  });
+
+  it("extracts registrations from a local binding re-exported as app", () => {
+    const source = `
+      const manifest = defineApp({
+        capabilities: {
+          "right.tool": () => import("./right.ts"),
+        },
+        routes: [],
+      });
+      export { manifest as app };
+    `;
+
+    expect(extractCapabilityRegistrations(source)).toEqual([
+      { name: "right.tool", file: "./right.ts" },
     ]);
   });
 });

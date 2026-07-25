@@ -173,6 +173,21 @@ describe("defineCapability", () => {
     ).toThrow(/only supports method: "POST"/);
     expect(() =>
       defineCapability({ ...baseDefinition, expose: { http: { path: "no-slash" } } }),
-    ).toThrow(/must be a string starting with "\/"/);
+    ).toThrow(/exact same-origin pathname/);
+  });
+
+  it("rejects custom HTTP paths that URL parsing could reinterpret", () => {
+    for (const path of [
+      "//evil.test/collect",
+      "/\\evil.test/collect",
+      "/api/../collect",
+      "/api/collect?target=evil",
+      "/api/collect#fragment",
+      "/\t/evil.test/collect",
+    ]) {
+      expect(() => defineCapability({ ...baseDefinition, expose: { http: { path } } })).toThrow(
+        /exact same-origin pathname/,
+      );
+    }
   });
 });

@@ -13,10 +13,12 @@
  */
 
 import {
+  CAPABILITY_EFFECT_HEADER,
   CAPABILITY_HTTP_PREFIX,
   CAPABILITY_TRANSPORT_HEADER,
   capabilityHttpPath,
   coerceFormInput,
+  isValidCapabilityHttpPath,
   normalizeCapabilityHttpPath,
 } from "@pracht/capabilities";
 import { formatUnknownNameError } from "./name-suggestions.ts";
@@ -170,9 +172,14 @@ async function resolveAppCapabilitiesUncached(
 
     let httpPath: string | null = null;
     if (capability.expose?.http) {
-      httpPath = normalizeCapabilityHttpPath(
-        capability.expose.http.path ?? capabilityHttpPath(name),
-      );
+      const configuredPath = capability.expose.http.path ?? capabilityHttpPath(name);
+      if (!isValidCapabilityHttpPath(configuredPath)) {
+        throw new Error(
+          `Capability "${name}": HTTP exposure path must be an exact same-origin pathname ` +
+            'starting with "/".',
+        );
+      }
+      httpPath = normalizeCapabilityHttpPath(configuredPath);
       const existing = seenHttpPaths.get(httpPath);
       if (existing) {
         throw new Error(
@@ -425,6 +432,7 @@ export async function handleCapabilityRequest<TContext>(
 ): Promise<Response> {
   const started = performance.now();
   const { response, outcome } = await dispatchCapabilityHttp(options);
+  const responseWithEffect = withCapabilityEffect(response, options.match.capability.effect);
   emitCapabilityAudit(
     {
       capability: options.match.name,
@@ -435,13 +443,23 @@ export async function handleCapabilityRequest<TContext>(
       transport:
         options.request.headers.get(CAPABILITY_TRANSPORT_HEADER) === "webmcp" ? "webmcp" : "http",
       outcome,
-      status: response.status,
+      status: responseWithEffect.status,
       durationMs: performance.now() - started,
       agent: options.agent ?? null,
     },
     options.onAudit,
   );
-  return response;
+  return responseWithEffect;
+}
+
+function withCapabilityEffect(response: Response, effect: string): Response {
+  const headers = new Headers(response.headers);
+  headers.set(CAPABILITY_EFFECT_HEADER, effect);
+  return new Response(response.body, {
+    headers,
+    status: response.status,
+    statusText: response.statusText,
+  });
 }
 
 async function dispatchCapabilityHttp<TContext>(
