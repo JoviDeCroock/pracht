@@ -170,6 +170,29 @@ describe("app-level notFound page", () => {
     expect(response.headers.get("content-type")).toContain("text/plain");
   });
 
+  it("keeps the 404 status for a markdown representation", async () => {
+    const response = await handlePrachtRequest({
+      app: createApp(),
+      registry: {
+        ...registry,
+        routeModules: {
+          ...registry.routeModules,
+          "./routes/not-found.tsx": async () => ({
+            Component: () => h("h1", null, "Page not found"),
+            markdown: "# Page not found\n",
+          }),
+        },
+      },
+      request: new Request("http://localhost/missing", {
+        headers: { accept: "text/markdown" },
+      }),
+    });
+
+    expect(response.status).toBe(404);
+    expect(response.headers.get("content-type")).toContain("text/markdown");
+    await expect(response.text()).resolves.toBe("# Page not found\n");
+  });
+
   it("is not prerendered as a page of its own", async () => {
     const app = defineApp({
       routes: [route("/", "./routes/home.tsx", { render: "ssg" })],

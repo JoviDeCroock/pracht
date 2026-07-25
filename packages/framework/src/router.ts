@@ -444,6 +444,16 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
         }
 
         if (result.type === "error") {
+          if (result.error.status === 404 && app.notFound) {
+            const routeModule = (await routeModPromise?.catch(() => null)) as {
+              ErrorBoundary?: unknown;
+            } | null;
+            if (!routeModule?.ErrorBoundary) {
+              window.location.href = target.browserUrl;
+              return;
+            }
+          }
+
           state = {
             data: undefined,
             error: result.error,

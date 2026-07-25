@@ -482,7 +482,7 @@ export async function handlePrachtRequest<TContext>(
           markdownRepresentation !== undefined &&
           prefersMarkdown(options.request.headers.get("accept"))
         ) {
-          return markdownResponse(markdownRepresentation, documentHeaders);
+          return markdownResponse(markdownRepresentation, documentHeaders, pageOptions.status);
         }
 
         const cssUrls = resolvePageCssUrls(

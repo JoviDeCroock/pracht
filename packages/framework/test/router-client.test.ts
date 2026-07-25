@@ -398,6 +398,89 @@ describe("initClientRouter", () => {
     await flush();
     expect(root.textContent).toContain("clicked");
   });
+
+  it("uses a document navigation for loader 404s instead of a shell boundary", async () => {
+    const app = resolveApp(
+      defineApp({
+        shells: { public: "./shells/public.tsx" },
+        routes: [
+          route("/", "./routes/home.tsx", { id: "home", render: "ssr" }),
+          route("/posts/:slug", "./routes/post.tsx", {
+            id: "post",
+            render: "ssr",
+            shell: "public",
+          }),
+        ],
+        notFound: "./routes/not-found.tsx",
+      }),
+    );
+    const originalLocation = window.location;
+    const documentNavigations: string[] = [];
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: {
+        ...window.location,
+        get href() {
+          return "http://localhost/";
+        },
+        set href(value: string) {
+          documentNavigations.push(value);
+        },
+        hash: "",
+        origin: "http://localhost",
+        pathname: "/",
+        search: "",
+      },
+    });
+
+    try {
+      root.innerHTML = "<main>home</main>";
+      fetchSpy.mockResolvedValue(
+        createJsonResponse(
+          {
+            error: {
+              message: "Post not found",
+              name: "PrachtHttpError",
+              status: 404,
+            },
+          },
+          { status: 404 },
+        ),
+      );
+
+      await initClientRouter({
+        app,
+        routeModules: {
+          "./routes/home.tsx": async () => ({ default: () => h("main", null, "home") }),
+          "./routes/post.tsx": async () => ({ default: () => h("main", null, "post") }),
+          "./routes/not-found.tsx": async () => ({ default: () => h("main", null, "404") }),
+        },
+        shellModules: {
+          "./shells/public.tsx": async () => ({
+            Shell: ({ children }: { children: ComponentChildren }) => h("section", null, children),
+            ErrorBoundary: () => h("p", null, "shell boundary"),
+          }),
+        },
+        initialState: {
+          data: null,
+          routeId: "home",
+          url: "/",
+        },
+        root,
+        findModuleKey: (_modules, file) => file,
+      });
+
+      await window.__PRACHT_NAVIGATE__!("/posts/missing");
+
+      expect(documentNavigations).toEqual(["/posts/missing"]);
+      expect(root.textContent).not.toContain("shell boundary");
+    } finally {
+      Object.defineProperty(window, "location", {
+        configurable: true,
+        value: originalLocation,
+      });
+    }
+  });
 });
 
 describe("navigate() URL-scheme safety", () => {
