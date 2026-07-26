@@ -260,10 +260,14 @@ function validateJsonAgainstSchema(
   }
 
   if (typeof value === "string") {
-    if (typeof schema.minLength === "number" && value.length < schema.minLength) {
+    // JSON Schema measures string length in Unicode code points, while
+    // JavaScript's String#length counts UTF-16 code units. Count code points so
+    // astral characters such as emoji contribute one character, not two.
+    const length = Array.from(value).length;
+    if (typeof schema.minLength === "number" && length < schema.minLength) {
       issues.push({ path, message: `must be at least ${schema.minLength} character(s) long` });
     }
-    if (typeof schema.maxLength === "number" && value.length > schema.maxLength) {
+    if (typeof schema.maxLength === "number" && length > schema.maxLength) {
       issues.push({ path, message: `must be at most ${schema.maxLength} character(s) long` });
     }
   }

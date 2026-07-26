@@ -578,6 +578,69 @@ describe("invokeCapability", () => {
     });
   });
 
+  it("keeps each capability host scoped to its originating request", async () => {
+    const createNamedCapability = (name: string) =>
+      createSearchCapability({
+        async run() {
+          return { notes: [name] };
+        },
+      });
+    const appOptions = {
+      routes: [route("/notes", "./routes/notes.tsx", { id: "notes" })],
+    };
+    const first = createApp(createNamedCapability("first"), appOptions);
+    const second = createApp(createNamedCapability("second"), appOptions);
+
+    let releaseFirst!: () => void;
+    const firstMayContinue = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    let markFirstStarted!: () => void;
+    const firstStarted = new Promise<void>((resolve) => {
+      markFirstStarted = resolve;
+    });
+
+    first.registry.routeModules = {
+      "./routes/notes.tsx": async () => ({
+        loader: async ({ request, context, signal }: LoaderArgs) => {
+          markFirstStarted();
+          await firstMayContinue;
+          return invokeCapability("notes.search", { query: "first" }, { request, context, signal });
+        },
+        Component: () => null,
+      }),
+    };
+    second.registry.routeModules = {
+      "./routes/notes.tsx": async () => ({
+        loader: async ({ request, context, signal }: LoaderArgs) =>
+          invokeCapability("notes.search", { query: "second" }, { request, context, signal }),
+        Component: () => null,
+      }),
+    };
+
+    const firstResponsePromise = handlePrachtRequest({
+      app: first.app,
+      registry: first.registry,
+      request: new Request("http://first.local/notes?_data=1"),
+    });
+    await firstStarted;
+
+    const secondResponse = await handlePrachtRequest({
+      app: second.app,
+      registry: second.registry,
+      request: new Request("http://second.local/notes?_data=1"),
+    });
+    releaseFirst();
+    const firstResponse = await firstResponsePromise;
+
+    expect(await firstResponse.json()).toEqual({
+      data: { ok: true, data: { notes: ["first"] } },
+    });
+    expect(await secondResponse.json()).toEqual({
+      data: { ok: true, data: { notes: ["second"] } },
+    });
+  });
+
   it("works for private capabilities and returns validation envelopes", async () => {
     const { app, registry } = createApp(createSearchCapability({ expose: undefined }), {
       routes: [route("/notes", "./routes/notes.tsx", { id: "notes" })],

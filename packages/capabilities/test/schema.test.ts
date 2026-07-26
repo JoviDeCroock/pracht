@@ -104,6 +104,13 @@ describe("validateAgainstSchema", () => {
     ]);
   });
 
+  it("counts Unicode code points for minLength and maxLength", () => {
+    expect(validateAgainstSchema({ type: "string", minLength: 2 }, "😀")).toEqual([
+      { path: "", message: "must be at least 2 character(s) long" },
+    ]);
+    expect(validateAgainstSchema({ type: "string", maxLength: 1 }, "😀")).toEqual([]);
+  });
+
   it("rejects unknown properties when additionalProperties is false", () => {
     expect(validateAgainstSchema(schema, { query: "x", bogus: 1 })).toEqual([
       { path: "/bogus", message: "is not an allowed property" },

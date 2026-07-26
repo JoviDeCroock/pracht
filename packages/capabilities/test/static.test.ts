@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { extractCapabilityRegistrations, extractDefineCapabilityArgs } from "../src/static.ts";
+import {
+  evaluateLiteral,
+  extractCapabilityRegistrations,
+  extractDefineCapabilityArgs,
+  scanTopLevelProperties,
+} from "../src/static.ts";
 
 describe("capability static extraction", () => {
   it("ignores defineCapability examples in comments and strings", () => {
@@ -138,6 +143,25 @@ describe("capability static extraction", () => {
     `;
 
     expect(extractDefineCapabilityArgs(source)).toContain('effect: "read"');
+  });
+
+  it("parses Unicode code-point escapes in inline schemas", () => {
+    const source = String.raw`
+      export default defineCapability({
+        title: "Emoji",
+        description: "Accept one emoji.",
+        input: { type: "string", enum: ["\u{1F600}"] },
+        output: { type: "string" },
+        effect: "read",
+        expose: { http: true, webmcp: true },
+        run() {},
+      });
+    `;
+
+    const args = extractDefineCapabilityArgs(source);
+    expect(args).not.toBeNull();
+    const input = scanTopLevelProperties(args!).get("input");
+    expect(evaluateLiteral(input!)).toEqual({ type: "string", enum: ["😀"] });
   });
 
   it("ignores commented-out manifest registrations", () => {

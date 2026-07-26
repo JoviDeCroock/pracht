@@ -714,6 +714,17 @@ function parseStringLiteral(source: string, start: number): ParsedLiteral | null
         break;
       }
       case "u": {
+        if (body[index + 1] === "{") {
+          const close = body.indexOf("}", index + 2);
+          if (close === -1) return null;
+          const hex = body.slice(index + 2, close);
+          if (!/^[0-9a-fA-F]{1,6}$/.test(hex)) return null;
+          const codePoint = Number.parseInt(hex, 16);
+          if (codePoint > 0x10ffff) return null;
+          value += String.fromCodePoint(codePoint);
+          index = close;
+          break;
+        }
         const hex = body.slice(index + 1, index + 5);
         if (!/^[0-9a-fA-F]{4}$/.test(hex)) return null;
         value += String.fromCharCode(Number.parseInt(hex, 16));

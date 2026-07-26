@@ -734,13 +734,19 @@ export interface CapabilityHost {
   registry: ModuleRegistry;
 }
 
-// The app manifest and module registry are process-level constants, so a
-// single slot is safe under concurrent requests. `handlePrachtRequest`
-// refreshes it on every request (dev re-evaluates the server module).
-let activeCapabilityHost: CapabilityHost | null = null;
+// Bind each host to the incoming Request rather than a process-global slot.
+// Custom servers may serve multiple Pracht apps from one process, and dev HMR
+// can replace a registry while an older request is still awaiting its loader.
+// A WeakMap keeps those overlapping invocations isolated on every Web runtime
+// without retaining completed requests.
+const activeCapabilityHosts = new WeakMap<Request, CapabilityHost>();
 
-export function setActiveCapabilityHost(app: CapabilityHostApp, registry: ModuleRegistry): void {
-  activeCapabilityHost = { app, registry };
+export function setActiveCapabilityHost(
+  request: Request,
+  app: CapabilityHostApp,
+  registry: ModuleRegistry,
+): void {
+  activeCapabilityHosts.set(request, { app, registry });
 }
 
 export interface InvokeCapabilityContext<TContext = unknown> {
@@ -777,10 +783,10 @@ export async function invokeCapability<T = unknown>(
   input: unknown,
   ctx: InvokeCapabilityContext,
 ): Promise<CapabilityEnvelope<T>> {
-  const host = activeCapabilityHost;
+  const host = activeCapabilityHosts.get(ctx.request);
   if (!host) {
     throw new Error(
-      "invokeCapability() has no capability host yet. It is only available while " +
+      "invokeCapability() has no capability host for this request. It is only available while " +
         "handlePrachtRequest() is serving requests (loaders, API routes, middleware). " +
         "In tests, build a standalone host with createCapabilityTestHost() instead.",
     );
@@ -790,7 +796,7 @@ export async function invokeCapability<T = unknown>(
 
 /**
  * Run one capability through the full dispatch pipeline against an explicit
- * host. Shared by `invokeCapability()` (the process-level host installed by
+ * host. Shared by `invokeCapability()` (the request-bound host installed by
  * `handlePrachtRequest`) and `createCapabilityTestHost()` (a synthetic host
  * for tests).
  */
