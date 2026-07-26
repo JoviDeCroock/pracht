@@ -1,5 +1,42 @@
 # create-pracht
 
+## 0.4.0
+
+### Minor Changes
+
+- [#226](https://github.com/JoviDeCroock/pracht/pull/226) [`53e6a7b`](https://github.com/JoviDeCroock/pracht/commit/53e6a7bbb6caca65a5464edab92d17659ef65166) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Seed Claude Code agent tooling into scaffolded apps. New projects now get the full pracht skill catalog copied into `.claude/skills/` and a `.mcp.json` registering the `pracht mcp` server, behind a yes-default "Set up Claude Code skills + MCP?" prompt (`--agent-tools` / `--no-agent-tools` for non-interactive runs; `--yes` includes the tooling). The skills ship inside the published package via a build-time sync from the repo's `skills/` directory.
+
+### Patch Changes
+
+- [#229](https://github.com/JoviDeCroock/pracht/pull/229) [`7342039`](https://github.com/JoviDeCroock/pracht/commit/7342039ed530f4a1c2321ae6c3924dfa9fd491b9) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - First-class not-found page: `defineApp({ notFound })` and `notFound()`.
+
+  Until now the only way to ship a custom 404 was a trailing catch-all route
+  (`route("/*", ...)`), which matches _every_ URL — so it shadows requests for
+  static assets and paths the app might serve later, shows up in typed routes,
+  prefetching, speculation rules, and SSG path enumeration, and stops the client
+  router from ever falling back to a document navigation for an unknown URL.
+
+  - `defineApp({ notFound })` accepts a module ref or
+    `{ component, loader?, shell?, middleware?, hydration? }`. It is **not** a
+    route: it never participates in matching, so it runs only after matching (and,
+    on every first-party adapter, static-asset serving) has failed. It renders
+    through the normal pipeline — loader, shell, `head`, hydration — with a 404
+    status, and hydrates under a reserved route id.
+  - `notFound(message?)` returns a `PrachtHttpError(404)` to throw from a loader
+    or middleware: `if (!post) throw notFound()`. The response is the app's
+    not-found page unless the route module exports its own `ErrorBoundary`, which
+    still wins. Shell-level error boundaries no longer intercept 404s once
+    `notFound` is configured.
+  - Route-state (JSON) requests, non-GET/HEAD requests, and apps without a
+    `notFound` page keep their existing 404 behavior.
+  - Pages router: `pages/404.tsx` is wired as the not-found page automatically and
+    removed from the route table, so `/404` is not a URL of its own.
+  - `pracht dev` renders the app's own 404 page (instead of the dev-only route
+    table) when one is declared, matching production. `pracht inspect routes`,
+    the dev banner, and the `/_pracht` devtools page now report it.
+
+- [#227](https://github.com/JoviDeCroock/pracht/pull/227) [`488aeed`](https://github.com/JoviDeCroock/pracht/commit/488aeedd54c9beb97b6334c72580c579d24be2d3) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Teach the starter about the verify / plan / report loop. Manifest scaffolds now include a commented-out `constraints` example in `src/routes.ts` (enforced by `pracht verify` once uncommented), the generated `.gitignore` notes that `.pracht/app-graph.json` — the `pracht plan` snapshot — should stay committed, the generated README gains a short Checks section, and the agent instructions list `pracht verify`, `pracht plan --write`, `pracht report`, and `pracht llms --write`.
+
 ## 0.3.0
 
 ### Minor Changes

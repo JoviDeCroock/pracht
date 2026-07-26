@@ -1,6 +1,6 @@
 {
   "name": "@pracht/adapter-vercel",
-  "version": "0.1.5",
+  "version": "0.2.0",
   "description": "Vercel Edge adapter for deploying Pracht apps with Build Output API support.",
   "keywords": [
     "pracht",
