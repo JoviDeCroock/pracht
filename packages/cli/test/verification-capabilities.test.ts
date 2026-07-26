@@ -120,6 +120,42 @@ describe("collectCapabilityChecks", () => {
     );
   });
 
+  it.each(["true", "null", "[]"])("rejects a non-object inline expose value (%s)", (expose) => {
+    const checks = runChecks(
+      capabilitySource(`  title: "Search notes",
+  description: "Find notes.",
+  input: { type: "object" },
+  output: { type: "object" },
+  effect: "read",
+  expose: ${expose},`),
+    );
+
+    expect(checks).toContainEqual(
+      expect.objectContaining({
+        message: expect.stringContaining('"expose" must be an inline object literal'),
+        status: "error",
+      }),
+    );
+    expect(checks.map((check) => check.message)).not.toContainEqual(
+      expect.stringContaining("declares a complete"),
+    );
+  });
+
+  it("reports an empty exposure object as a private contract", () => {
+    const checks = runChecks(
+      capabilitySource(`  title: "Search notes",
+  description: "Find notes.",
+  input: { type: "object" },
+  output: { type: "object" },
+  effect: "read",
+  expose: {},`),
+    );
+
+    expect(checks.map((check) => check.message)).toContainEqual(
+      expect.stringContaining("declares a complete private contract"),
+    );
+  });
+
   it("reads the live registry when a block-commented example precedes it", () => {
     const checks: Check[] = [];
     collectCapabilityChecks(

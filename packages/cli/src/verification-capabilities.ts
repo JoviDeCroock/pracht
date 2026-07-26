@@ -105,7 +105,6 @@ function collectSingleCapabilityChecks(
   }
 
   const properties = scanTopLevelProperties(args);
-  const exposed = properties.has("expose");
   const title = readStaticString(properties.get("title"));
   const description = readStaticString(properties.get("description"));
   const effect = readStaticString(properties.get("effect"));
@@ -122,6 +121,7 @@ function collectSingleCapabilityChecks(
   }
 
   const exposeFlags = readExposeFlags(properties.get("expose"));
+  const exposed = exposeFlags.hasHttp || exposeFlags.hasMcp || exposeFlags.hasWebmcp;
   problems.push(...exposeFlags.problems);
 
   for (const [field, value] of [
@@ -323,12 +323,21 @@ function readExposeFlags(text: string | undefined): {
   unknown: boolean;
   problems: string[];
 } {
-  const value = text ? evaluateLiteral(text) : undefined;
-  if (text !== undefined && value === undefined) {
+  if (text === undefined) {
+    return { hasHttp: false, hasMcp: false, hasWebmcp: false, unknown: false, problems: [] };
+  }
+  const value = evaluateLiteral(text);
+  if (value === undefined) {
     return { hasHttp: false, hasMcp: false, hasWebmcp: false, unknown: true, problems: [] };
   }
   if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return { hasHttp: false, hasMcp: false, hasWebmcp: false, unknown: false, problems: [] };
+    return {
+      hasHttp: false,
+      hasMcp: false,
+      hasWebmcp: false,
+      unknown: false,
+      problems: ['"expose" must be an inline object literal'],
+    };
   }
   const expose = value as Record<string, unknown>;
   const problems: string[] = [];

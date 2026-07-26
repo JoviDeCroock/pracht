@@ -256,7 +256,8 @@ export function Form<TName extends string = string>(props: FormProps<TName>) {
 
       if (capability) {
         event.preventDefault();
-        const endpoint = actionAttribute ?? form.action;
+        const submitterAction = nativeSubmitter?.getAttribute("formaction");
+        const endpoint = submitterAction ?? actionAttribute ?? form.action;
         const formData = new FormData(form, nativeSubmitter);
 
         if (schema) {
@@ -280,7 +281,16 @@ export function Form<TName extends string = string>(props: FormProps<TName>) {
             method: "POST",
             body: formData,
             credentials: "same-origin",
+            redirect: "manual",
           });
+          if (
+            response.type === "opaqueredirect" ||
+            (response.status >= 300 && response.status < 400)
+          ) {
+            const location = response.headers.get("location");
+            await navigateToClientLocation(location ?? endpoint, { reloadRouteState: true });
+            return;
+          }
           try {
             envelope = (await response.clone().json()) as CapabilityEnvelope;
           } catch {

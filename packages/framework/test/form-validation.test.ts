@@ -51,6 +51,7 @@ describe("<Form> validation", () => {
   afterEach(() => {
     render(null, root);
     root.remove();
+    delete window.__PRACHT_NAVIGATE__;
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
@@ -275,6 +276,60 @@ describe("<Form> validation", () => {
       ok: true,
       effect: "read",
     });
+  });
+
+  it("uses the clicked button's formaction for capability submissions", async () => {
+    fetchSpy.mockResolvedValue(
+      new Response(JSON.stringify({ ok: true, data: {} }), {
+        headers: { "content-type": "application/json" },
+      }),
+    );
+
+    render(
+      h(
+        Form,
+        { capability: "items.save" },
+        h("button", { formAction: "/api/capabilities/items/alternate" }, "Save elsewhere"),
+      ),
+      root,
+    );
+
+    const form = root.querySelector("form")!;
+    const button = root.querySelector("button")!;
+    form.dispatchEvent(
+      new SubmitEvent("submit", { bubbles: true, cancelable: true, submitter: button }),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "/api/capabilities/items/alternate",
+      expect.objectContaining({ method: "POST" }),
+    );
+  });
+
+  it("navigates capability middleware redirects", async () => {
+    fetchSpy.mockResolvedValue(
+      new Response(null, {
+        status: 302,
+        headers: { location: "/login?returnTo=%2Fnotes" },
+      }),
+    );
+    const navigate = vi.fn(async () => undefined);
+    window.__PRACHT_NAVIGATE__ = navigate;
+    const results = vi.fn();
+
+    render(h(Form, { capability: "items.save", onCapabilityResult: results }), root);
+    await submit();
+
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "/api/capabilities/items/save",
+      expect.objectContaining({ redirect: "manual" }),
+    );
+    expect(navigate).toHaveBeenCalledWith("/login?returnTo=%2Fnotes", {
+      _reloadRouteState: true,
+      replace: undefined,
+    });
+    expect(results).not.toHaveBeenCalled();
   });
 
   it("uses the clicked button's formaction for enhanced submissions", async () => {
