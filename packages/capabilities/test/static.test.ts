@@ -145,6 +145,27 @@ describe("capability static extraction", () => {
     expect(extractDefineCapabilityArgs(source)).toContain('effect: "read"');
   });
 
+  it("recognizes regex expression statements after control-flow conditions", () => {
+    const source = `
+      export default defineCapability({
+        title: "Conditional regex",
+        description: "Tests input after a condition.",
+        input: { type: "object" },
+        output: { type: "object" },
+        run({ input }) {
+          if (input.text) /[}]/.test(input.text);
+          return {};
+        },
+        effect: "read",
+        expose: { http: true },
+      });
+    `;
+
+    const args = extractDefineCapabilityArgs(source);
+    expect(args).toContain('effect: "read"');
+    expect(args).toContain("expose:");
+  });
+
   it("ignores entry-point lookalikes inside regex literals", () => {
     const source = `
       const pattern = /export default defineCapability()/;
