@@ -172,7 +172,7 @@ only calls `createServer()` when it is the process entrypoint, so importing
 ```javascript
 import { createServer } from "node:http";
 import { WebSocketServer } from "ws";
-import { handler } from "./dist/server/index.js";
+import { handler } from "./dist/server/server.js";
 
 const server = createServer(handler); // pracht serves ordinary requests
 const wss = new WebSocketServer({ noServer: true });

@@ -402,7 +402,7 @@ describe("API CSRF / same-origin enforcement", () => {
  * origin check any page on the web could open a cookie-authenticated socket
  * to the app (cross-site WebSocket hijacking).
  */
-describe("API same-origin enforcement on WebSocket upgrades", () => {
+describe("same-origin enforcement on WebSocket upgrades", () => {
   const app = defineApp({
     routes: [route("/", "./routes/home.tsx")],
   });
@@ -431,6 +431,33 @@ describe("API same-origin enforcement on WebSocket upgrades", () => {
 
     expect(response.status).toBe(403);
     await expect(response.text()).resolves.toContain("WebSocket");
+  });
+
+  it("blocks cross-site upgrades before page loaders can return a handshake", async () => {
+    const loader = vi.fn(async () => new Response("would upgrade"));
+    const response = await handlePrachtRequest({
+      app: defineApp({
+        routes: [route("/chat", "./routes/chat.tsx")],
+      }),
+      registry: {
+        routeModules: {
+          "./routes/chat.tsx": async () => ({
+            loader,
+            default: () => null,
+          }),
+        },
+      },
+      request: new Request("http://localhost/chat", {
+        headers: {
+          connection: "Upgrade",
+          upgrade: "websocket",
+          "sec-fetch-site": "cross-site",
+        },
+      }),
+    });
+
+    expect(response.status).toBe(403);
+    expect(loader).not.toHaveBeenCalled();
   });
 
   it("blocks an upgrade whose Origin mismatches the request URL", async () => {

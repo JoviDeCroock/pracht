@@ -203,6 +203,21 @@ export async function handlePrachtRequest<TContext>(
   const dataParamIsFirstParty = hasDataParam && isFirstPartyFetch(options.request);
   const isRouteStateRequest = headerSignalsRouteState || dataParamIsFirstParty;
   const exposeDiagnostics = shouldExposeServerErrors(options);
+  const requireSameOrigin = options.app.api.requireSameOrigin ?? true;
+  // A WebSocket handshake is a GET, so the method check used for API
+  // mutations would wave it through — but browsers do not apply CORS to
+  // WebSocket. Apply the origin check before route dispatch because page
+  // middleware and loaders can also short-circuit with a Response; protocol
+  // switches from those paths must not create a bypass around the API guard.
+  const isUpgradeRequest = options.request.headers.has("upgrade");
+  if (requireSameOrigin && isUpgradeRequest && !isSameOriginRequest(options.request, url)) {
+    return withDefaultSecurityHeaders(
+      new Response("Cross-origin WebSocket upgrade blocked", {
+        status: 403,
+        headers: { "content-type": "text/plain; charset=utf-8" },
+      }),
+    );
+  }
 
   if (options.apiRoutes?.length) {
     const apiMatch = matchApiRoute(options.apiRoutes, url.pathname);
@@ -213,29 +228,16 @@ export async function handlePrachtRequest<TContext>(
       });
       let currentPhase: PrachtRuntimeDiagnosticPhase = "middleware";
 
-      const requireSameOrigin = options.app.api.requireSameOrigin ?? true;
-      // A WebSocket handshake is a GET, so the method check alone would wave
-      // it through — but browsers do not apply CORS to WebSocket. Any page on
-      // the web can open a socket to this app and the user's cookies ride
-      // along, with no preflight and no readable-response restriction to
-      // blunt it (cross-site WebSocket hijacking). Upgrade requests therefore
-      // face the same origin check as mutations.
-      const isUpgradeRequest = options.request.headers.has("upgrade");
       if (
         requireSameOrigin &&
-        (isUpgradeRequest || !SAFE_METHODS.has(options.request.method)) &&
+        !SAFE_METHODS.has(options.request.method) &&
         !isSameOriginRequest(options.request, url)
       ) {
         return withDefaultSecurityHeaders(
-          new Response(
-            isUpgradeRequest
-              ? "Cross-origin WebSocket upgrade blocked"
-              : "Cross-origin request blocked",
-            {
-              status: 403,
-              headers: { "content-type": "text/plain; charset=utf-8" },
-            },
-          ),
+          new Response("Cross-origin request blocked", {
+            status: 403,
+            headers: { "content-type": "text/plain; charset=utf-8" },
+          }),
         );
       }
 
