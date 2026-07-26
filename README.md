@@ -15,6 +15,12 @@
 
 Pick SPA, SSR, SSG, or ISG on a route-by-route basis. Ship less JavaScript by default. Deploy the same codebase to Node, Cloudflare, or Vercel.
 
+```bash
+npm create pracht@latest my-app
+```
+
+**[Documentation](https://pracht.resynapse.dev/docs)** · [Why pracht](https://pracht.resynapse.dev/docs/why-pracht) · [Getting started](https://pracht.resynapse.dev/docs/getting-started) · [Compare to other frameworks](https://pracht.resynapse.dev/docs/demo-comparison)
+
 ## Why pracht
 
 - **Preact-first** — the low bundle size that you know and love with a familiar API.
@@ -111,12 +117,11 @@ Pracht is built to be operated by coding agents as much as by humans — and for
 
 ## Agent skills
 
-The skills are distributed three ways ([docs](https://pracht.resynapse.dev/docs/agent-skills)):
+The skills are distributed three ways (see the [catalog](skills/README.md)):
 
 - **Discovery endpoint** — every skill is published at `https://pracht.resynapse.dev/skills/<name>/SKILL.md`, listed with SHA-256 digests in the manifest at [`/.well-known/agent-skills/index.json`](https://pracht.resynapse.dev/.well-known/agent-skills/index.json) and advertised via a `Link: rel="agent-skills"` header.
 - **create-pracht** — `npm create pracht@latest` seeds the full catalog into new apps' `.claude/skills/` and writes a `.mcp.json` registering the `pracht mcp` server (yes-default prompt, `--no-agent-tools` to skip).
 - **In this repo** — `.claude/skills` symlinks to [skills/](skills/README.md), so Claude Code loads them automatically for contributors.
->>>>>>> 463a134 (Ship the skills to users: create-pracht seeding, docs page, contributor loading)
 
 ## Repo map
 

@@ -161,7 +161,7 @@ Agent skills for framework authors and app builders live in [skills/](skills/REA
 (one `SKILL.md` per skill; `.claude/skills` symlinks there so Claude Code picks them up
 in this repo). They are published with a discovery manifest at
 `https://pracht.resynapse.dev/.well-known/agent-skills/index.json` and seeded into new
-apps by `create-pracht` — see the [agent skills docs](https://pracht.resynapse.dev/docs/agent-skills):
+apps by `create-pracht` — see the [skills catalog](skills/README.md):
 
 - **Scaffold**: generate routes, shells, middleware, API routes with correct wiring
 - **Debug**: framework-aware debugging (route matching, loader errors, hydration)
