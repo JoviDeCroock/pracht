@@ -73,6 +73,21 @@ describe("createCloudflareServerEntryModule", () => {
     expect(source).toContain("_pracht/isg.json");
   });
 
+  it("skips generated manifest asset reads for upgrade requests", () => {
+    const source = createCloudflareServerEntryModule();
+    const fetchStart = source.indexOf("async function fetch(request");
+    const handlerStart = source.indexOf("const handler = createCloudflareFetchHandler", fetchStart);
+    const fetchSetup = source.slice(fetchStart, handlerStart);
+
+    expect(fetchSetup).toContain('const isUpgradeRequest = request.headers.has("upgrade");');
+    expect(fetchSetup).toContain(
+      'const headersManifest = !isUpgradeRequest && assets && typeof assets.fetch === "function"',
+    );
+    expect(fetchSetup).toContain(
+      'const isgManifest = !isUpgradeRequest && assets && typeof assets.fetch === "function"',
+    );
+  });
+
   it.each([
     ["headers", "readPrachtHeadersManifest"],
     ["ISG", "readPrachtISGManifest"],

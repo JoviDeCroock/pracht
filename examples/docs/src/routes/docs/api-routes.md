@@ -85,6 +85,8 @@ API middleware runs before the handler, just like page middleware runs before lo
 
 By default, pracht rejects state-changing API requests (`POST`, `PUT`, `PATCH`, `DELETE`) that come from another origin with a `403` — before any API middleware runs. A request is considered same-origin when the browser says so (`Sec-Fetch-Site: same-origin`) or its `Origin`/`Referer` header matches the request URL's origin. `Sec-Fetch-Site: same-site` is not accepted, since sibling subdomains can be attacker-controlled. Requests without any browser provenance headers — curl, server-to-server calls, tests — pass through, because a browser form can't produce them.
 
+**WebSocket upgrade requests get the same check**, even though they are `GET`. Browsers do not apply CORS to WebSocket, so without it any page on the web could open a socket to your app with the user's cookies attached (cross-site WebSocket hijacking).
+
 This is controlled by `requireSameOrigin` on the API config and defaults to `true`:
 
 ```ts [src/routes.ts]
@@ -155,6 +157,30 @@ export function GET() {
   });
 }
 ```
+
+---
+
+## WebSockets
+
+API routes are also where WebSocket upgrades belong. Return a `101` response and pracht passes it through untouched — no security headers, no cache headers, and crucially no reconstruction, which would drop the response's `webSocket` handle.
+
+This requires a runtime that can hold a connection open, which today means the **Cloudflare adapter** with a Durable Object owning the socket:
+
+```ts [src/api/ws.ts]
+import type { BaseRouteArgs } from "@pracht/core";
+
+export async function GET({ context, request, url }: BaseRouteArgs) {
+  if (request.headers.get("upgrade") !== "websocket") {
+    return new Response("Expected a WebSocket upgrade", { status: 426 });
+  }
+
+  const { CHAT_ROOM } = context.env as { CHAT_ROOM: DurableObjectNamespace };
+  const room = url.searchParams.get("room") ?? "lobby";
+  return CHAT_ROOM.get(CHAT_ROOM.idFromName(room)).fetch(request);
+}
+```
+
+Cross-origin upgrades are blocked by default (see [Same-Origin Protection](#same-origin-protection-csrf)), but authenticating the connection is still yours to do — the handshake is an ordinary request carrying cookies, so API middleware works normally. The Node and Vercel adapters cannot serve upgrades; see [Adapters](/docs/adapters) for the Durable Object and `ws`-on-Node patterns.
 
 ---
 

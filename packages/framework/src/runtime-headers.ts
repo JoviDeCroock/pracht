@@ -85,7 +85,31 @@ export function applySecurityAndRouteHeaders(
   return headers;
 }
 
+/**
+ * True for responses that switch protocols instead of carrying a body —
+ * chiefly the `101 Switching Protocols` handshake a WebSocket upgrade
+ * returns.
+ *
+ * Such a response must be handed back to the runtime as the *same object*
+ * the handler produced. Copying it via `new Response(body, init)` fails
+ * twice over: the Response constructor rejects any status below 200, and
+ * the `webSocket` property (Cloudflare Workers' handle on the server end of
+ * the socket) is not part of `ResponseInit`, so it is silently dropped even
+ * where the status is tolerated. Header post-processing is skipped for the
+ * same reason — and costs nothing, because a handshake has no body for a
+ * sniffing or framing policy to protect.
+ *
+ * Detection reads `webSocket` explicitly rather than using `in`, because
+ * workerd defines a `webSocket` getter on `Response.prototype` — `in` is
+ * true there for every response.
+ */
+export function isProtocolSwitchResponse(response: Response): boolean {
+  return response.status < 200 || (response as { webSocket?: unknown }).webSocket != null;
+}
+
 export function withDefaultSecurityHeaders(response: Response): Response {
+  if (isProtocolSwitchResponse(response)) return response;
+
   const headers = new Headers(response.headers);
   applySecurityAndRouteHeaders(headers);
   return new Response(response.body, {
@@ -99,6 +123,8 @@ export function withRouteResponseHeaders(
   response: Response,
   options: { isRouteStateRequest: boolean; loaderCache?: LoaderCache },
 ): Response {
+  if (isProtocolSwitchResponse(response)) return response;
+
   const headers = new Headers(response.headers);
   applySecurityAndRouteHeaders(headers, options);
   return new Response(response.body, {

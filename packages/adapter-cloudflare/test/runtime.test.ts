@@ -1,6 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { defineApp, route, timeRevalidate, webhookRevalidate } from "@pracht/core";
+import {
+  defineApp,
+  resolveApiRoutes,
+  route,
+  timeRevalidate,
+  webhookRevalidate,
+} from "@pracht/core";
 import type { ModuleRegistry } from "@pracht/core";
 
 import { createCloudflareFetchHandler, type CloudflareExecutionContext } from "../src/runtime.ts";
@@ -441,5 +447,91 @@ describe("createCloudflareFetchHandler webhook revalidation", () => {
       revalidated: [],
       skipped: ["/pricing"],
     });
+  });
+});
+
+describe("WebSocket upgrades", () => {
+  /**
+   * Stand in for the handshake a Durable Object returns. workerd's
+   * `WebSocketPair` is unavailable under vitest and undici's Response
+   * constructor rejects status 101, so shadow the two properties the adapter
+   * and framework read.
+   */
+  function createUpgradeResponse(): Response {
+    const response = new Response(null, { status: 204 });
+    Object.defineProperty(response, "status", { value: 101 });
+    Object.defineProperty(response, "webSocket", { value: { accept() {} } });
+    return response;
+  }
+
+  function createChatApp(upgrade: Response) {
+    const app = defineApp({ routes: [route("/", "./routes/home.tsx")] });
+    const registry: ModuleRegistry = {
+      apiModules: { "/src/api/ws.ts": async () => ({ GET: async () => upgrade }) },
+    };
+    return { app, apiRoutes: resolveApiRoutes(["/src/api/ws.ts"]), registry, upgrade };
+  }
+
+  function createUpgradeRequest(): Request {
+    return new Request("https://chat.example/api/ws", {
+      headers: {
+        connection: "Upgrade",
+        upgrade: "websocket",
+        "sec-fetch-site": "same-origin",
+      },
+    });
+  }
+
+  it("returns the handshake untouched, without consulting the assets binding", async () => {
+    const { executionContext } = createExecutionContext();
+    const { app, apiRoutes, registry, upgrade } = createChatApp(createUpgradeResponse());
+    const assetFetch = vi.fn(async () => new Response("not found", { status: 404 }));
+
+    const handler = createCloudflareFetchHandler({ app, apiRoutes, registry });
+    const response = await handler(
+      createUpgradeRequest(),
+      { ASSETS: { fetch: assetFetch } },
+      executionContext,
+    );
+
+    // Identity: a copy would drop the `webSocket` handle and leave a socket
+    // nobody holds — the failure mode this whole path guards against.
+    expect(response).toBe(upgrade);
+    expect(response.status).toBe(101);
+    expect((response as { webSocket?: unknown }).webSocket).toBeTruthy();
+    // A handshake has no static counterpart; forwarding it to the assets
+    // Fetcher is a wasted subrequest per connection.
+    expect(assetFetch).not.toHaveBeenCalled();
+  });
+
+  it("does not stamp Cache-Control on the handshake", async () => {
+    const { executionContext } = createExecutionContext();
+    const { app, apiRoutes, registry } = createChatApp(createUpgradeResponse());
+
+    const handler = createCloudflareFetchHandler({ app, apiRoutes, registry, cache: true });
+    const response = await handler(
+      createUpgradeRequest(),
+      { ASSETS: create404Assets() },
+      executionContext,
+    );
+
+    expect(response.status).toBe(101);
+    expect(response.headers.get("cache-control")).toBeNull();
+  });
+
+  it("still serves assets for ordinary requests", async () => {
+    const { executionContext } = createExecutionContext();
+    const { app, apiRoutes, registry } = createChatApp(createUpgradeResponse());
+    const assetFetch = vi.fn(async () => new Response("logo", { status: 200 }));
+
+    const handler = createCloudflareFetchHandler({ app, apiRoutes, registry });
+    const response = await handler(
+      new Request("https://chat.example/logo.svg"),
+      { ASSETS: { fetch: assetFetch } },
+      executionContext,
+    );
+
+    expect(assetFetch).toHaveBeenCalled();
+    expect(response.status).toBe(200);
   });
 });

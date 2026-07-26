@@ -63,14 +63,16 @@ import type {
 const SAME_ORIGIN_FETCH_SITE = "same-origin";
 
 /**
- * Stricter variant of first-party detection used for CSRF protection on
- * state-changing API requests. It rejects any browser signal that points
- * outside this exact origin — a cross-origin form POST will send `Origin`
- * from the attacker, and `Sec-Fetch-Site: same-site` is not enough because
- * sibling subdomains can be attacker-controlled. Requests with no browser
+ * Stricter variant of first-party detection used to protect API requests
+ * that a cross-site page must not be able to make on the user's behalf:
+ * state-changing methods (CSRF) and WebSocket upgrades (cross-site
+ * WebSocket hijacking). It rejects any browser signal that points outside
+ * this exact origin — a cross-origin form POST will send `Origin` from the
+ * attacker, and `Sec-Fetch-Site: same-site` is not enough because sibling
+ * subdomains can be attacker-controlled. Requests with no browser
  * provenance headers are treated as non-browser callers.
  */
-function isSameOriginMutation(request: Request, url: URL): boolean {
+function isSameOriginRequest(request: Request, url: URL): boolean {
   const site = request.headers.get("sec-fetch-site");
   if (site && site !== SAME_ORIGIN_FETCH_SITE) {
     return false;
@@ -203,6 +205,21 @@ export async function handlePrachtRequest<TContext>(
   const dataParamIsFirstParty = hasDataParam && isFirstPartyFetch(options.request);
   const isRouteStateRequest = headerSignalsRouteState || dataParamIsFirstParty;
   const exposeDiagnostics = shouldExposeServerErrors(options);
+  const requireSameOrigin = options.app.api.requireSameOrigin ?? true;
+  // A WebSocket handshake is a GET, so the method check used for API
+  // mutations would wave it through — but browsers do not apply CORS to
+  // WebSocket. Apply the origin check before route dispatch because page
+  // middleware and loaders can also short-circuit with a Response; protocol
+  // switches from those paths must not create a bypass around the API guard.
+  const isUpgradeRequest = options.request.headers.has("upgrade");
+  if (requireSameOrigin && isUpgradeRequest && !isSameOriginRequest(options.request, url)) {
+    return withDefaultSecurityHeaders(
+      new Response("Cross-origin WebSocket upgrade blocked", {
+        status: 403,
+        headers: { "content-type": "text/plain; charset=utf-8" },
+      }),
+    );
+  }
 
   if (options.apiRoutes?.length) {
     const apiMatch = matchApiRoute(options.apiRoutes, url.pathname);
@@ -213,11 +230,10 @@ export async function handlePrachtRequest<TContext>(
       });
       let currentPhase: PrachtRuntimeDiagnosticPhase = "middleware";
 
-      const requireSameOrigin = options.app.api.requireSameOrigin ?? true;
       if (
         requireSameOrigin &&
         !SAFE_METHODS.has(options.request.method) &&
-        !isSameOriginMutation(options.request, url)
+        !isSameOriginRequest(options.request, url)
       ) {
         return withDefaultSecurityHeaders(
           new Response("Cross-origin request blocked", {
@@ -777,7 +793,7 @@ function isHrefRouteDefinition(value: unknown): value is HrefRouteDefinition {
 
 // Public runtime surface — re-exported so `./runtime.ts` remains the
 // single import entry for the framework's runtime API.
-export { applyDefaultSecurityHeaders } from "./runtime-headers.ts";
+export { applyDefaultSecurityHeaders, isProtocolSwitchResponse } from "./runtime-headers.ts";
 export { formatServerTimingHeader, type PrachtPhaseTimings } from "./runtime-timing.ts";
 export {
   deserializeRouteError,

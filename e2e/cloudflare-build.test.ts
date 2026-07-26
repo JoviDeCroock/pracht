@@ -80,12 +80,17 @@ test("pracht build emits a deployable Cloudflare Worker setup", async () => {
 
   // Cloudflare primitives configured via `workerExportsFrom` must be re-exported
   expect(workerSource).toContain("Counter");
+  // The Durable Object that owns the example's WebSocket connections. Its
+  // handshake response has to survive the whole worker bundle — see
+  // src/api/ws.ts.
+  expect(workerSource).toContain("ChatRoom");
+  expect(workerSource).toContain("acceptWebSocket");
 
   // The deploy entry re-exports only the default handler and entrypoint
   // classes: workerd rejects non-handler named exports (buildTarget,
   // manifests, ...) on the deployed entry module.
   const deploySource = readFileSync(deployEntryPath, "utf-8");
-  expect(deploySource).toContain('export { Counter } from "./server.js";');
+  expect(deploySource).toContain('export { ChatRoom, Counter } from "./server.js";');
   expect(deploySource).toContain('export { default } from "./server.js";');
   expect(deploySource).not.toContain("buildTarget");
   expect(deploySource).not.toContain("cssManifest");

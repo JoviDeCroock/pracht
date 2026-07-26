@@ -157,6 +157,41 @@ that manifest.
 - **Response headers**: preserves multiple `Set-Cookie` headers from framework
   responses by writing them as an array to Node's `ServerResponse`.
 
+### WebSockets
+
+Pracht's Node handler cannot serve WebSocket upgrades, and this is a property of
+Node rather than a gap in the adapter: `http.Server` routes upgrade requests to
+its `upgrade` event, not to the request handler, so a handshake never reaches
+`handler(req, res)` at all. (With no `upgrade` listener attached, Node closes
+those connections.)
+
+Attach a WebSocket server to the same HTTP server instead. The generated entry
+only calls `createServer()` when it is the process entrypoint, so importing
+`handler` and building the server yourself is supported:
+
+```javascript
+import { createServer } from "node:http";
+import { WebSocketServer } from "ws";
+import { handler } from "./dist/server/server.js";
+
+const server = createServer(handler); // pracht serves ordinary requests
+const wss = new WebSocketServer({ noServer: true });
+
+server.on("upgrade", (req, socket, head) => {
+  // Check the Origin header yourself here: browsers do not apply CORS to
+  // WebSocket, so a cross-site page can otherwise open an authenticated
+  // socket (cross-site WebSocket hijacking). Pracht's own
+  // `api.requireSameOrigin` check cannot help — this never reaches pracht.
+  wss.handleUpgrade(req, socket, head, (ws) => wss.emit("connection", ws, req));
+});
+
+server.listen(3000);
+```
+
+For upgrades served *through* pracht's routing (as an API route), use the
+[Cloudflare adapter](#websockets-1). The Vercel adapter cannot serve them
+either.
+
 ### Generated entry options
 
 When using `nodeAdapter()` in `vite.config.ts`, generated entries can import a context factory and tune body limits:
@@ -444,6 +479,91 @@ The generated entry becomes
 `export default { ...handlers, fetch }` — every named export of the module is
 merged in, but `fetch` always stays pracht's handler; export request handling
 belongs in API routes or middleware instead.
+
+### WebSockets
+
+A WebSocket upgrade is request handling, so it belongs in an **API route** —
+not in `workerHandlersFrom`. Pracht recognises protocol-switch responses
+(`101 Switching Protocols`, or any response carrying a `webSocket` handle) and
+returns them to the runtime untouched: no security headers, no cache headers,
+no reconstruction. That last part is the whole trick — copying the response
+would drop the `webSocket` property, since it is a Cloudflare extension to
+`ResponseInit` rather than part of the fetch standard.
+
+The socket itself has to be owned by something that outlives the request, which
+on Cloudflare means a **Durable Object**. Export it via
+[`workerExportsFrom`](#exporting-cloudflare-primitives-workflows-durable-objects-etc)
+and have the API route forward the upgrade to it:
+
+```typescript
+// src/api/ws.ts
+import type { BaseRouteArgs } from "@pracht/core";
+
+export async function GET({ context, request, url }: BaseRouteArgs) {
+  if (request.headers.get("upgrade") !== "websocket") {
+    return new Response("Expected a WebSocket upgrade", { status: 426 });
+  }
+
+  const { CHAT_ROOM } = context.env as { CHAT_ROOM: DurableObjectNamespace };
+  const room = url.searchParams.get("room") ?? "lobby";
+  // The 101 comes straight back out — pracht passes it through unchanged.
+  return CHAT_ROOM.get(CHAT_ROOM.idFromName(room)).fetch(request);
+}
+```
+
+```typescript
+// src/workers/chat-room.ts
+import { DurableObject } from "cloudflare:workers";
+
+export class ChatRoom extends DurableObject {
+  override async fetch(request: Request): Promise<Response> {
+    const { 0: client, 1: server } = new WebSocketPair();
+    // Hibernation-aware accept: an idle room is evicted from memory without
+    // dropping its sockets.
+    this.ctx.acceptWebSocket(server);
+    return new Response(null, { status: 101, webSocket: client });
+  }
+
+  override webSocketMessage(ws: WebSocket, message: string | ArrayBuffer) {
+    for (const peer of this.ctx.getWebSockets()) peer.send(String(message));
+  }
+}
+```
+
+Bind and register the class in `wrangler.jsonc` as with any Durable Object:
+
+```jsonc
+{
+  "durable_objects": {
+    "bindings": [{ "name": "CHAT_ROOM", "class_name": "ChatRoom" }],
+  },
+  "migrations": [{ "tag": "v1", "new_classes": ["ChatRoom"] }],
+}
+```
+
+Upgrades work in `pracht dev` the same way they do in production — the
+Cloudflare adapter owns the dev server, so requests are served by workerd
+rather than by pracht's Node dev handler.
+
+`examples/cloudflare` has the full version of both files.
+
+> **Cross-origin upgrades are blocked by default.** Browsers do not apply CORS
+> to WebSocket: without a check, any page on the web could open a socket to
+> your app and the user's cookies would ride along (cross-site WebSocket
+> hijacking). Pracht therefore applies its `api.requireSameOrigin` check to
+> upgrade requests as well as to unsafe methods. Requests with no browser
+> provenance headers at all (CLIs, server-to-server) still pass, as with
+> mutations.
+>
+> Two things pracht cannot do for you: **authenticate** the connection (do it
+> in API middleware or in the handler before forwarding — the handshake is a
+> normal request and carries cookies), and **authorize each message** once the
+> socket is open, which is entirely the Durable Object's business.
+
+The 30-second `signal` an API route receives covers the handshake, not the
+connection: forwarding to a Durable Object returns immediately, and the socket's
+lifetime is then the object's to manage. Do not hold the socket in the API
+route itself.
 
 ### Using Cloudflare bindings in dev
 

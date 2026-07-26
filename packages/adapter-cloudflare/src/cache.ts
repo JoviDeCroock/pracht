@@ -16,6 +16,7 @@
 import {
   getTimeRevalidateSeconds,
   isCacheableISGResponse,
+  isProtocolSwitchResponse,
   matchAppRoute,
 } from "@pracht/core/server";
 import type { PrachtApp, ResolvedPrachtApp, ResolvedRoute } from "@pracht/core/server";
@@ -178,8 +179,10 @@ export function applyWorkersCacheHeaders(
  */
 export function preventHeuristicCaching(request: Request, response: Response): Response {
   if (request.method !== "GET" && request.method !== "HEAD") return response;
-  // 101 (WebSocket upgrade) responses cannot be reconstructed and are never cached.
-  if (response.status === 101) return response;
+  // A WebSocket handshake carries no cacheable body, and the fallback branch
+  // below would destroy it: reconstructing the response drops the `webSocket`
+  // handle and the constructor rejects status 101 outright.
+  if (isProtocolSwitchResponse(response)) return response;
   if (response.headers.has("cache-control")) return response;
   if (response.headers.has("cloudflare-cdn-cache-control")) return response;
 

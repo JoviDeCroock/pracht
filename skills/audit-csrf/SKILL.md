@@ -1,6 +1,6 @@
 ---
 name: audit-csrf
-version: 1.1.0
+version: 1.2.0
 description: |
   Inventory every form submission and mutation API in the project, then verify
   the CSRF posture. Pracht enforces same-origin on mutation API requests by
@@ -28,6 +28,12 @@ browser provenance headers at all (curl, server-to-server) are allowed — the
 threat model is browser-form CSRF, which cannot strip those headers. Page
 routes reject unsafe methods outright, so the API surface is where mutations
 live.
+
+The same check also covers **WebSocket upgrade requests** (any request carrying
+an `Upgrade` header), even though they are `GET`. Browsers do not apply CORS to
+WebSocket, so an upgrade is a cross-site-reachable, cookie-carrying request —
+cross-site WebSocket hijacking. `requireSameOrigin: false` therefore opens
+sockets as well as mutations.
 
 The audit therefore targets the OPT-OUTS and the remaining layers, in order of
 preference:
@@ -75,6 +81,21 @@ methods but reports `methods: []` — check the `hasDefaultHandler` field
 (requires a current `@pracht/cli`) or, on older CLIs, grep the handler file
 for `export default`. A default handler counts as exposing all mutation
 methods unless it gates on `request.method` itself.
+
+### WebSocket upgrades
+
+Grep API handlers for `upgrade`, `WebSocketPair`, and `status: 101`. A route
+that returns a handshake is a mutation-equivalent surface: it is reachable
+cross-site, carries cookies, and — once open — is not covered by any
+per-request check. Treat it as a mutation surface in Step 5, and additionally
+verify:
+
+- The handler **authenticates the handshake** (session check in the handler or
+  in `api.middleware`). The built-in origin check stops other *websites*; it
+  does nothing about an unauthenticated client.
+- Authorization is re-checked per message where messages carry authority. The
+  socket outlives the request that opened it, so a session revoked afterwards
+  does not close it.
 
 ## Step 2: Inspect the session cookie
 

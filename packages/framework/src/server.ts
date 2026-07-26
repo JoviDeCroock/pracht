@@ -44,6 +44,7 @@ export {
   applyDefaultSecurityHeaders,
   formatServerTimingHeader,
   handlePrachtRequest,
+  isProtocolSwitchResponse,
   PrachtRuntimeProvider,
 } from "./runtime.ts";
 export {
