@@ -84,7 +84,7 @@ const SAME_ORIGIN_FETCH_SITE = "same-origin";
  * sibling subdomains can be attacker-controlled. Requests with no browser
  * provenance headers are treated as non-browser callers.
  */
-function isSameOriginMutation(request: Request, url: URL): boolean {
+function isSameOriginRequest(request: Request, url: URL): boolean {
   const site = request.headers.get("sec-fetch-site");
   if (site && site !== SAME_ORIGIN_FETCH_SITE) {
     return false;
@@ -258,7 +258,7 @@ export async function handlePrachtRequest<TContext>(
       if (
         requireSameOrigin &&
         !SAFE_METHODS.has(options.request.method) &&
-        !isSameOriginMutation(options.request, url)
+        !isSameOriginRequest(options.request, url)
       ) {
         return withDefaultSecurityHeaders(
           new Response("Cross-origin request blocked", {
@@ -368,7 +368,7 @@ export async function handlePrachtRequest<TContext>(
         if (
           requireSameOrigin &&
           !SAFE_METHODS.has(options.request.method) &&
-          !isSameOriginMutation(options.request, url)
+          !isSameOriginRequest(options.request, url)
         ) {
           return withDefaultSecurityHeaders(
             envelopeResponse(403, {
