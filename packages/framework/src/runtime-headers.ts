@@ -1,3 +1,8 @@
+import {
+  CAPABILITY_FORM_REDIRECT_HEADER,
+  CAPABILITY_FORM_REQUEST_HEADER,
+} from "@pracht/capabilities";
+
 import { ROUTE_STATE_CACHE_CONTROL, ROUTE_STATE_REQUEST_HEADER } from "./runtime-constants.ts";
 import type { LoaderCache } from "./types.ts";
 
@@ -93,6 +98,32 @@ export function withDefaultSecurityHeaders(response: Response): Response {
     statusText: response.statusText,
     headers,
   });
+}
+
+/**
+ * Keep enhanced capability-form redirects inside the original same-origin
+ * fetch. The client performs the browser navigation after reading the target,
+ * so cross-origin login pages are never fetched through CORS.
+ */
+export function withEnhancedCapabilityFormRedirect(response: Response, request: Request): Response {
+  if (request.headers.get(CAPABILITY_FORM_REQUEST_HEADER) !== "1") {
+    return response;
+  }
+  if (response.status < 300 || response.status >= 400) {
+    return response;
+  }
+  const location = response.headers.get("location");
+  if (!location) {
+    return response;
+  }
+
+  const headers = new Headers(response.headers);
+  headers.delete("content-length");
+  headers.delete("location");
+  headers.set(CAPABILITY_FORM_REDIRECT_HEADER, location);
+  headers.set("cache-control", "no-store");
+  appendVaryHeader(headers, CAPABILITY_FORM_REQUEST_HEADER);
+  return new Response(null, { status: 204, headers });
 }
 
 export function withRouteResponseHeaders(

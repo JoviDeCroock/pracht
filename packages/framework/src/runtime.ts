@@ -10,7 +10,11 @@ import {
   shouldExposeServerErrors,
   type PrachtRuntimeDiagnosticPhase,
 } from "./runtime-errors.ts";
-import { appendVaryHeader, withDefaultSecurityHeaders } from "./runtime-headers.ts";
+import {
+  appendVaryHeader,
+  withDefaultSecurityHeaders,
+  withEnhancedCapabilityFormRedirect,
+} from "./runtime-headers.ts";
 import { PrachtRuntimeProvider } from "./runtime-context.ts";
 import { buildHtmlDocument, htmlResponse } from "./runtime-html.ts";
 import { getAppSpeculationRules } from "./runtime-speculation.ts";
@@ -316,7 +320,9 @@ export async function handlePrachtRequest<TContext>(
           url,
           terminal: apiTerminal,
         });
-        return withDefaultSecurityHeaders(response);
+        return withDefaultSecurityHeaders(
+          withEnhancedCapabilityFormRedirect(response, options.request),
+        );
       } catch (error: unknown) {
         return renderApiErrorResponse({
           error,
@@ -389,7 +395,9 @@ export async function handlePrachtRequest<TContext>(
           agent,
           onAudit: options.onCapabilityAudit,
         });
-        return withDefaultSecurityHeaders(capabilityResponse);
+        return withDefaultSecurityHeaders(
+          withEnhancedCapabilityFormRedirect(capabilityResponse, options.request),
+        );
       }
 
       // Unmatched requests under the capability prefix get the typed 404

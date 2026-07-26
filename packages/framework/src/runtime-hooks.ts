@@ -34,11 +34,13 @@ import {
 } from "./runtime-context.ts";
 import {
   CAPABILITY_EFFECT_HEADER,
+  CAPABILITY_FORM_REDIRECT_HEADER,
+  CAPABILITY_FORM_REQUEST_HEADER,
   CAPABILITY_SETTLED_EVENT,
   capabilityHttpPath,
 } from "@pracht/capabilities";
 import { clearPrefetchCache } from "./prefetch-cache.ts";
-import { navigateToClientLocation } from "./runtime-client-fetch.ts";
+import { navigateToClientLocation, parseSafeNavigationUrl } from "./runtime-client-fetch.ts";
 import { revalidateRouteData } from "./runtime-revalidate.ts";
 import type {
   ApiPath,
@@ -255,9 +257,22 @@ export function Form<TName extends string = string>(props: FormProps<TName>) {
           : undefined;
 
       if (capability) {
-        event.preventDefault();
         const submitterAction = nativeSubmitter?.getAttribute("formaction");
         const endpoint = submitterAction ?? actionAttribute ?? form.action;
+        const endpointUrl = parseSafeNavigationUrl(endpoint, window.location.href);
+        if (!endpointUrl) {
+          event.preventDefault();
+          console.error(`[pracht] refused to submit capability form to unsafe URL: ${endpoint}`);
+          return;
+        }
+        const isCrossOriginEndpoint = endpointUrl.origin !== window.location.origin;
+        // A cross-origin form target cannot participate in the enhanced
+        // response handshake. Let the browser perform the native submission
+        // so redirects and authentication flows retain document semantics.
+        if (isCrossOriginEndpoint && !schema) {
+          return;
+        }
+        event.preventDefault();
         const formData = new FormData(form, nativeSubmitter);
 
         if (schema) {
@@ -266,6 +281,15 @@ export function Form<TName extends string = string>(props: FormProps<TName>) {
             onValidationIssues?.(result.issues);
             return;
           }
+        }
+        if (isCrossOriginEndpoint) {
+          validatedNativeSubmissions.add(form);
+          try {
+            form.requestSubmit(nativeSubmitter);
+          } finally {
+            validatedNativeSubmissions.delete(form);
+          }
+          return;
         }
 
         clearPrefetchCache();
@@ -281,9 +305,17 @@ export function Form<TName extends string = string>(props: FormProps<TName>) {
             method: "POST",
             body: formData,
             credentials: "same-origin",
+            headers: { [CAPABILITY_FORM_REQUEST_HEADER]: "1" },
           });
-          if (response.redirected || (response.status >= 300 && response.status < 400)) {
-            const location = response.redirected ? response.url : response.headers.get("location");
+          const enhancedRedirect = response.headers.get(CAPABILITY_FORM_REDIRECT_HEADER);
+          if (
+            enhancedRedirect ||
+            response.redirected ||
+            (response.status >= 300 && response.status < 400)
+          ) {
+            const location =
+              enhancedRedirect ??
+              (response.redirected ? response.url : response.headers.get("location"));
             await navigateToClientLocation(location ?? endpoint, { reloadRouteState: true });
             return;
           }

@@ -95,6 +95,17 @@ export const CAPABILITY_TRANSPORT_HEADER = "x-pracht-transport";
 export const CAPABILITY_EFFECT_HEADER = "x-pracht-capability-effect";
 
 /**
+ * Marker sent by enhanced `<Form capability>` submissions. Pracht API and
+ * capability dispatch turn redirect responses into a readable redirect
+ * header so the browser can navigate without following an external target as
+ * a CORS fetch.
+ */
+export const CAPABILITY_FORM_REQUEST_HEADER = "x-pracht-capability-form";
+
+/** Redirect target returned for an enhanced capability-form submission. */
+export const CAPABILITY_FORM_REDIRECT_HEADER = "x-pracht-capability-redirect";
+
+/**
  * Window event dispatched after a browser-side capability call settles —
  * by the generated `callCapability()` helper and by `<Form capability>`.
  * The framework's route runtime listens and revalidates the active route's

@@ -5,6 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   CAPABILITY_EFFECT_HEADER,
+  CAPABILITY_FORM_REDIRECT_HEADER,
+  CAPABILITY_FORM_REQUEST_HEADER,
   CAPABILITY_SETTLED_EVENT,
 } from "../../capabilities/src/index.ts";
 import { Form, type ApiValidationIssue } from "../src/index.ts";
@@ -308,12 +310,14 @@ describe("<Form> validation", () => {
   });
 
   it("navigates capability middleware redirects", async () => {
-    const redirectResponse = new Response("<h1>Login</h1>");
-    Object.defineProperties(redirectResponse, {
-      redirected: { value: true },
-      url: { value: `${window.location.origin}/login?returnTo=%2Fnotes` },
-    });
-    fetchSpy.mockResolvedValue(redirectResponse);
+    fetchSpy.mockResolvedValue(
+      new Response(null, {
+        status: 204,
+        headers: {
+          [CAPABILITY_FORM_REDIRECT_HEADER]: "/login?returnTo=%2Fnotes",
+        },
+      }),
+    );
     const navigate = vi.fn(async () => undefined);
     window.__PRACHT_NAVIGATE__ = navigate;
     const results = vi.fn();
@@ -323,13 +327,65 @@ describe("<Form> validation", () => {
 
     expect(fetchSpy).toHaveBeenCalledWith(
       "/api/capabilities/items/save",
-      expect.not.objectContaining({ redirect: "manual" }),
+      expect.objectContaining({
+        headers: { [CAPABILITY_FORM_REQUEST_HEADER]: "1" },
+      }),
     );
     expect(navigate).toHaveBeenCalledWith("/login?returnTo=%2Fnotes", {
       _reloadRouteState: true,
       replace: undefined,
     });
     expect(results).not.toHaveBeenCalled();
+  });
+
+  it("leaves cross-origin capability targets to native form navigation", async () => {
+    render(
+      h(
+        Form,
+        { capability: "items.save" },
+        h("button", { formAction: "https://auth.example/login" }, "Sign in"),
+      ),
+      root,
+    );
+
+    const form = root.querySelector("form")!;
+    const button = root.querySelector("button")!;
+    const event = new SubmitEvent("submit", {
+      bubbles: true,
+      cancelable: true,
+      submitter: button,
+    });
+    form.dispatchEvent(event);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(event.defaultPrevented).toBe(false);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("blocks unsafe capability form targets", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    render(
+      h(
+        Form,
+        { capability: "items.save" },
+        h("button", { formAction: "javascript:alert(1)" }, "Run"),
+      ),
+      root,
+    );
+
+    const form = root.querySelector("form")!;
+    const button = root.querySelector("button")!;
+    const event = new SubmitEvent("submit", {
+      bubbles: true,
+      cancelable: true,
+      submitter: button,
+    });
+    form.dispatchEvent(event);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(consoleError).toHaveBeenCalledWith(expect.stringContaining("unsafe URL"));
   });
 
   it("uses the clicked button's formaction for enhanced submissions", async () => {

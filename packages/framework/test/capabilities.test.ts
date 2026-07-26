@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { CAPABILITY_EFFECT_HEADER, defineCapability } from "../../capabilities/src/index.ts";
+import {
+  CAPABILITY_EFFECT_HEADER,
+  CAPABILITY_FORM_REDIRECT_HEADER,
+  CAPABILITY_FORM_REQUEST_HEADER,
+  defineCapability,
+} from "../../capabilities/src/index.ts";
 import { defineApp, handlePrachtRequest, invokeCapability, route } from "../src/index.ts";
 import {
   capabilityHttpPath,
@@ -44,6 +49,7 @@ function createApp(capabilityModule: unknown, options: Record<string, unknown> =
     middleware: {
       deny: "./middleware/deny.ts",
       passthrough: "./middleware/passthrough.ts",
+      redirect: "./middleware/redirect.ts",
     },
     capabilities: {
       "notes.search": "./capabilities/notes-search.ts",
@@ -68,6 +74,13 @@ function createApp(capabilityModule: unknown, options: Record<string, unknown> =
           args.context.fromMiddleware = true;
           return next();
         },
+      }),
+      "./middleware/redirect.ts": async () => ({
+        middleware: async () =>
+          new Response(null, {
+            status: 303,
+            headers: { location: "https://auth.example/login" },
+          }),
       }),
     },
     capabilityModules: {
@@ -216,6 +229,35 @@ describe("resolveAppCapabilities", () => {
 });
 
 describe("capability HTTP projection", () => {
+  it("returns enhanced form redirects without fetching the external target", async () => {
+    const { app, registry } = createApp(createSearchCapability({ middleware: ["redirect"] }));
+    const request = postCapability("/api/capabilities/notes/search", { query: "hello" });
+    request.headers.set(CAPABILITY_FORM_REQUEST_HEADER, "1");
+
+    const response = await handlePrachtRequest({ app, registry, request });
+
+    expect(response.status).toBe(204);
+    expect(response.headers.get("location")).toBeNull();
+    expect(response.headers.get(CAPABILITY_FORM_REDIRECT_HEADER)).toBe(
+      "https://auth.example/login",
+    );
+    expect(response.headers.get(CAPABILITY_EFFECT_HEADER)).toBe("read");
+  });
+
+  it("preserves redirects for non-enhanced capability callers", async () => {
+    const { app, registry } = createApp(createSearchCapability({ middleware: ["redirect"] }));
+
+    const response = await handlePrachtRequest({
+      app,
+      registry,
+      request: postCapability("/api/capabilities/notes/search", { query: "hello" }),
+    });
+
+    expect(response.status).toBe(303);
+    expect(response.headers.get("location")).toBe("https://auth.example/login");
+    expect(response.headers.get(CAPABILITY_FORM_REDIRECT_HEADER)).toBeNull();
+  });
+
   it("serves an exposed capability at the default path", async () => {
     const { app, registry } = createApp(createSearchCapability());
 

@@ -176,8 +176,8 @@ State-changing capability calls enforce the same same-origin CSRF policy as
 API routes (`api.requireSameOrigin`, on by default).
 
 The wire contract has one home: `@pracht/capabilities` exports the path
-formula (`capabilityHttpPath`), the header names (`CONFIRMATION_HEADER`,
-`CAPABILITY_TRANSPORT_HEADER`), the envelope types, and the full
+formula (`capabilityHttpPath`), the confirmation, transport, effect, and
+enhanced-form redirect header names, the envelope types, and the full
 `CapabilityErrorCode` union (`CAPABILITY_ERROR_CODES`) — the framework
 runtime, the generated client modules, and the CLI all import from it, so the
 protocol cannot drift between packages.
@@ -230,7 +230,10 @@ import { Form } from "@pracht/core";
 - Submit buttons can override that target with `formaction`; enhanced and
   no-JavaScript submissions resolve the same endpoint.
 - Redirects returned by capability middleware (for example, an authentication
-  redirect to a login page) navigate normally in enhanced forms.
+  redirect to a login page) navigate normally in enhanced forms, including
+  cross-origin OAuth/SSO destinations. Pracht returns the redirect target to
+  the same-origin form fetch and lets the browser navigate, so the external
+  page is never fetched through CORS.
 
 ## Generated types
 
