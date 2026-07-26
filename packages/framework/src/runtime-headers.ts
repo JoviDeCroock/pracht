@@ -120,7 +120,17 @@ export function withEnhancedCapabilityFormRedirect(response: Response, request: 
   const headers = new Headers(response.headers);
   headers.delete("content-length");
   headers.delete("location");
-  headers.set(CAPABILITY_FORM_REDIRECT_HEADER, location);
+  // Fetch resolves a relative Location against the response URL. Preserve
+  // those semantics when moving the target into the enhanced-form handshake
+  // instead of letting the client resolve it against the current page.
+  let redirectTarget = location;
+  try {
+    redirectTarget = new URL(location, request.url).toString();
+  } catch {
+    // The client applies the shared safe-navigation check before using the
+    // target, so keep an unparseable value for it to reject explicitly.
+  }
+  headers.set(CAPABILITY_FORM_REDIRECT_HEADER, redirectTarget);
   headers.set("cache-control", "no-store");
   appendVaryHeader(headers, CAPABILITY_FORM_REQUEST_HEADER);
   return new Response(null, { status: 204, headers });

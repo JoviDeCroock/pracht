@@ -50,6 +50,7 @@ function createApp(capabilityModule: unknown, options: Record<string, unknown> =
       deny: "./middleware/deny.ts",
       passthrough: "./middleware/passthrough.ts",
       redirect: "./middleware/redirect.ts",
+      relativeRedirect: "./middleware/relative-redirect.ts",
     },
     capabilities: {
       "notes.search": "./capabilities/notes-search.ts",
@@ -80,6 +81,13 @@ function createApp(capabilityModule: unknown, options: Record<string, unknown> =
           new Response(null, {
             status: 303,
             headers: { location: "https://auth.example/login" },
+          }),
+      }),
+      "./middleware/relative-redirect.ts": async () => ({
+        middleware: async () =>
+          new Response(null, {
+            status: 303,
+            headers: { location: "login" },
           }),
       }),
     },
@@ -256,6 +264,21 @@ describe("capability HTTP projection", () => {
     expect(response.status).toBe(303);
     expect(response.headers.get("location")).toBe("https://auth.example/login");
     expect(response.headers.get(CAPABILITY_FORM_REDIRECT_HEADER)).toBeNull();
+  });
+
+  it("resolves relative enhanced-form redirects against the capability endpoint", async () => {
+    const { app, registry } = createApp(
+      createSearchCapability({ middleware: ["relativeRedirect"] }),
+    );
+    const request = postCapability("/api/capabilities/notes/search", { query: "hello" });
+    request.headers.set(CAPABILITY_FORM_REQUEST_HEADER, "1");
+
+    const response = await handlePrachtRequest({ app, registry, request });
+
+    expect(response.status).toBe(204);
+    expect(response.headers.get(CAPABILITY_FORM_REDIRECT_HEADER)).toBe(
+      "http://localhost/api/capabilities/notes/login",
+    );
   });
 
   it("serves an exposed capability at the default path", async () => {

@@ -233,7 +233,8 @@ import { Form } from "@pracht/core";
   redirect to a login page) navigate normally in enhanced forms, including
   cross-origin OAuth/SSO destinations. Pracht returns the redirect target to
   the same-origin form fetch and lets the browser navigate, so the external
-  page is never fetched through CORS.
+  page is never fetched through CORS. Relative `Location` values resolve
+  against the capability endpoint, matching native HTTP redirect behavior.
 
 ## Generated types
 

@@ -345,9 +345,10 @@ function skipInsignificant(source: string, start: number): number {
 }
 
 /**
- * Replace comments (and optionally strings) with spaces while preserving
- * source offsets. Regex-based entry-point discovery can then only match live
- * code, while the real source remains available for brace-aware extraction.
+ * Replace comments, regex literals, and optionally strings with spaces while
+ * preserving source offsets. Regex-based entry-point discovery can then only
+ * match live code, while the real source remains available for brace-aware
+ * extraction.
  */
 function maskLexicalNoise(source: string, maskStrings: boolean): string {
   const chars = source.split("");
@@ -380,6 +381,16 @@ function maskLexicalNoise(source: string, maskStrings: boolean): string {
       }
       index = limit;
       continue;
+    }
+    if (char === "/") {
+      const end = regexLiteralEnd(source, index);
+      if (end !== -1) {
+        for (let cursor = index; cursor < end; cursor += 1) {
+          if (chars[cursor] !== "\n" && chars[cursor] !== "\r") chars[cursor] = " ";
+        }
+        index = end;
+        continue;
+      }
     }
     index += 1;
   }
@@ -718,7 +729,7 @@ function parseStringLiteral(source: string, start: number): ParsedLiteral | null
           const close = body.indexOf("}", index + 2);
           if (close === -1) return null;
           const hex = body.slice(index + 2, close);
-          if (!/^[0-9a-fA-F]{1,6}$/.test(hex)) return null;
+          if (!/^[0-9a-fA-F]+$/.test(hex)) return null;
           const codePoint = Number.parseInt(hex, 16);
           if (codePoint > 0x10ffff) return null;
           value += String.fromCodePoint(codePoint);

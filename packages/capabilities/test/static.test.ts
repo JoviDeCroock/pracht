@@ -145,6 +145,27 @@ describe("capability static extraction", () => {
     expect(extractDefineCapabilityArgs(source)).toContain('effect: "read"');
   });
 
+  it("ignores entry-point lookalikes inside regex literals", () => {
+    const source = `
+      const pattern = /export default defineCapability()/;
+      const decoy = { effect: "write", expose: { http: true } };
+      export default defineCapability({
+        title: "Real capability",
+        description: "The actual default export.",
+        input: { type: "object" },
+        output: { type: "object" },
+        effect: "read",
+        expose: { http: false },
+        run() { return {}; },
+      });
+    `;
+
+    const args = extractDefineCapabilityArgs(source);
+    expect(args).toContain('title: "Real capability"');
+    expect(args).toContain('effect: "read"');
+    expect(args).not.toContain('effect: "write"');
+  });
+
   it("parses Unicode code-point escapes in inline schemas", () => {
     const source = String.raw`
       export default defineCapability({
@@ -162,6 +183,11 @@ describe("capability static extraction", () => {
     expect(args).not.toBeNull();
     const input = scanTopLevelProperties(args!).get("input");
     expect(evaluateLiteral(input!)).toEqual({ type: "string", enum: ["😀"] });
+  });
+
+  it("parses code-point escapes with additional leading zeros", () => {
+    expect(evaluateLiteral(String.raw`"\u{00000001}"`)).toBe("\u0001");
+    expect(evaluateLiteral(String.raw`"\u{00010FFFF}"`)).toBe("\u{10ffff}");
   });
 
   it("ignores commented-out manifest registrations", () => {
@@ -205,6 +231,22 @@ describe("capability static extraction", () => {
         },
       };
       export const app = defineApp({
+        capabilities: {
+          "right.tool": () => import("./right.ts"),
+        },
+        routes: [],
+      });
+    `;
+
+    expect(extractCapabilityRegistrations(source)).toEqual([
+      { name: "right.tool", file: "./right.ts" },
+    ]);
+  });
+
+  it("ignores exported-app lookalikes inside regex literals", () => {
+    const source = `
+      const pattern = /export default defineApp()/;
+      export default defineApp({
         capabilities: {
           "right.tool": () => import("./right.ts"),
         },
