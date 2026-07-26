@@ -102,6 +102,29 @@ test("<Form capability> creates a note through the capability endpoint and auto-
   await expect(page.locator('[data-testid="notes-list"]')).toContainText("A browser note");
 });
 
+test("<Form capability> follows endpoint redirects in the browser", async ({ page }) => {
+  const endpointMethods: string[] = [];
+  page.on("request", (request) => {
+    if (new URL(request.url()).pathname === "/api/dashboard") {
+      endpointMethods.push(request.method());
+    }
+  });
+
+  await page.goto("/notes");
+  await expect(page.locator('[data-testid="create-note-form"]')).toHaveAttribute(
+    "data-hydrated",
+    "true",
+  );
+  await page
+    .locator('[data-testid="create-note-form"] button')
+    .evaluate((button) => button.setAttribute("formaction", "/api/dashboard?redirect=1"));
+  await page.fill('[data-testid="create-note-form"] input[name="title"]', "Redirect me");
+  await page.click('[data-testid="create-note-form"] button');
+
+  await expect(page).toHaveURL("/");
+  expect(endpointMethods).toEqual(["POST"]);
+});
+
 test("no-JS form posts hit the same capability contract and redirect back", async ({ request }) => {
   // The form-encoded fallback of <Form capability>: fields are coerced onto
   // the input schema and a successful document post 303s back to the page.

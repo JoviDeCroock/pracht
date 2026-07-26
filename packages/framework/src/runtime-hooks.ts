@@ -281,13 +281,9 @@ export function Form<TName extends string = string>(props: FormProps<TName>) {
             method: "POST",
             body: formData,
             credentials: "same-origin",
-            redirect: "manual",
           });
-          if (
-            response.type === "opaqueredirect" ||
-            (response.status >= 300 && response.status < 400)
-          ) {
-            const location = response.headers.get("location");
+          if (response.redirected || (response.status >= 300 && response.status < 400)) {
+            const location = response.redirected ? response.url : response.headers.get("location");
             await navigateToClientLocation(location ?? endpoint, { reloadRouteState: true });
             return;
           }

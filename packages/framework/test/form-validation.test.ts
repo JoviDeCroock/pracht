@@ -308,12 +308,12 @@ describe("<Form> validation", () => {
   });
 
   it("navigates capability middleware redirects", async () => {
-    fetchSpy.mockResolvedValue(
-      new Response(null, {
-        status: 302,
-        headers: { location: "/login?returnTo=%2Fnotes" },
-      }),
-    );
+    const redirectResponse = new Response("<h1>Login</h1>");
+    Object.defineProperties(redirectResponse, {
+      redirected: { value: true },
+      url: { value: `${window.location.origin}/login?returnTo=%2Fnotes` },
+    });
+    fetchSpy.mockResolvedValue(redirectResponse);
     const navigate = vi.fn(async () => undefined);
     window.__PRACHT_NAVIGATE__ = navigate;
     const results = vi.fn();
@@ -323,7 +323,7 @@ describe("<Form> validation", () => {
 
     expect(fetchSpy).toHaveBeenCalledWith(
       "/api/capabilities/items/save",
-      expect.objectContaining({ redirect: "manual" }),
+      expect.not.objectContaining({ redirect: "manual" }),
     );
     expect(navigate).toHaveBeenCalledWith("/login?returnTo=%2Fnotes", {
       _reloadRouteState: true,
