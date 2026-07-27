@@ -383,9 +383,43 @@ The client router owns scrolling (`history.scrollRestoration = "manual"`):
 - **Back/forward navigations** (popstate) restore the scroll position the page
   had when the user left it. Positions are keyed per history entry and stored
   in `sessionStorage`, so they survive reloads and back-navigation from
-  external sites.
+  external sites. If an entry has no saved position but its URL carries a
+  fragment, the fragment wins over a reset to the top.
+- **In-page fragment links** (`<a href="#section">`) are left to the browser.
+  These fire `popstate` for a *new* history entry rather than a traversal; the
+  router tells the two apart by the scroll key it stamps into `history.state`
+  for every entry it creates, and stays out of the way so the browser's own
+  jump stands.
 - Opt out per navigation with `<Link preserveScroll>` or
   `navigate(to, { preserveScroll: true })`.
+
+Whenever the router scrolls to a fragment itself — a client-side navigation to
+`/docs/routing#loaders`, or a traversal onto a URL with a fragment — it also
+moves focus to the target, adding a temporary `tabindex="-1"` when the element
+is not natively focusable and removing it again on blur. Without this a skip
+link scrolls but leaves the next Tab stop at the top of the page, sending the
+user back into the navigation they just skipped.
+
+`scrollIntoView()` is called with no `behavior` option, so how the page scrolls
+stays a CSS decision:
+
+```css
+html {
+  scroll-behavior: smooth;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+}
+```
+
+> **Caveat for apps that sync state into the URL.** Calling
+> `history.replaceState(null, "", url)` — a common pattern for reflecting filter
+> or tab state — wipes the router's scroll key along with everything else on
+> `history.state`, and that entry loses its saved scroll position. Merge into
+> the existing state instead: `history.replaceState({ ...history.state }, "", url)`.
 
 ### View Transitions
 
