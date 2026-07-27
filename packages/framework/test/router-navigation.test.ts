@@ -44,6 +44,15 @@ describe("navigation UX primitives (client router)", () => {
   let root: HTMLDivElement;
   let fetchSpy: ReturnType<typeof vi.fn>;
   let scrollToSpy: ReturnType<typeof vi.fn>;
+  // `initClientRouter` has no teardown, so without this every router from an
+  // earlier test stays subscribed to the shared jsdom window and reacts to
+  // events a later test dispatches.
+  let routerListeners: Array<{
+    target: EventTarget;
+    type: string;
+    handler: EventListenerOrEventListenerObject;
+    options?: boolean | AddEventListenerOptions;
+  }> = [];
 
   function createRouterApp(options?: { viewTransitions?: boolean }) {
     return resolveApp(
@@ -58,20 +67,40 @@ describe("navigation UX primitives (client router)", () => {
   }
 
   async function initRouter(options?: { viewTransitions?: boolean }): Promise<void> {
-    await initClientRouter({
-      app: createRouterApp(options),
-      routeModules: {
-        "./routes/home.tsx": async () => ({ default: () => h("main", null, "home") }),
-        "./routes/next.tsx": async () => ({ default: () => h("main", null, "next") }),
-      },
-      shellModules: {},
-      initialState: { data: null, routeId: "home", url: "/" },
-      root,
-      findModuleKey: (_modules, file) => file,
+    const targets: EventTarget[] = [window, document];
+    const originals = targets.map((target) => target.addEventListener.bind(target));
+    targets.forEach((target, i) => {
+      target.addEventListener = ((
+        type: string,
+        handler: EventListenerOrEventListenerObject,
+        opts?: boolean | AddEventListenerOptions,
+      ) => {
+        routerListeners.push({ target, type, handler, options: opts });
+        originals[i](type, handler, opts);
+      }) as typeof target.addEventListener;
     });
+
+    try {
+      await initClientRouter({
+        app: createRouterApp(options),
+        routeModules: {
+          "./routes/home.tsx": async () => ({ default: () => h("main", null, "home") }),
+          "./routes/next.tsx": async () => ({ default: () => h("main", null, "next") }),
+        },
+        shellModules: {},
+        initialState: { data: null, routeId: "home", url: "/" },
+        root,
+        findModuleKey: (_modules, file) => file,
+      });
+    } finally {
+      targets.forEach((target, i) => {
+        target.addEventListener = originals[i] as typeof target.addEventListener;
+      });
+    }
   }
 
   beforeEach(() => {
+    routerListeners = [];
     document.body.innerHTML = "";
     root = document.createElement("div");
     document.body.appendChild(root);
@@ -86,6 +115,10 @@ describe("navigation UX primitives (client router)", () => {
   });
 
   afterEach(() => {
+    for (const { target, type, handler, options } of routerListeners) {
+      target.removeEventListener(type, handler, options as EventListenerOptions);
+    }
+    routerListeners = [];
     render(null, root);
     root.remove();
     vi.unstubAllGlobals();
@@ -214,6 +247,71 @@ describe("navigation UX primitives (client router)", () => {
 
     expect(scrollToSpy).toHaveBeenCalledWith(0, 800);
     Object.defineProperty(window, "scrollY", { configurable: true, value: 0 });
+  });
+
+  it("leaves a same-document fragment navigation to the browser", async () => {
+    fetchSpy.mockImplementation(async () => createJsonResponse({ data: null }));
+    await initRouter();
+    document.body.insertAdjacentHTML("beforeend", `<main id="main">main content</main>`);
+
+    fetchSpy.mockClear();
+    scrollToSpy.mockClear();
+
+    // A fragment navigation from `<a href="#main">`: the browser pushes an
+    // entry of its own (no scroll key on `history.state`) and fires popstate
+    // *before* scrolling to the fragment.
+    history.pushState(null, "", "/#main");
+    window.dispatchEvent(new PopStateEvent("popstate", { state: null }));
+    await flush();
+    await flush();
+
+    // Nothing to re-resolve, and no scroll of the router's own — restoring a
+    // saved position here is what used to undo the browser's jump.
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(scrollToSpy).not.toHaveBeenCalled();
+    // Focus follows the fragment, which is the half a skip link depends on.
+    expect(document.activeElement).toBe(document.getElementById("main"));
+  });
+
+  it("still re-resolves the route when a keyless entry changes the path", async () => {
+    fetchSpy.mockImplementation(async () => createJsonResponse({ data: null }));
+    await initRouter();
+    fetchSpy.mockClear();
+
+    // App code that wipes `history.state` (a stray `replaceState(null, …)`)
+    // leaves entries without a scroll key. A missing key alone must not be
+    // read as "fragment navigation" when the document actually changed.
+    history.pushState(null, "", "/next");
+    window.dispatchEvent(new PopStateEvent("popstate", { state: null }));
+    await flush();
+    await flush();
+
+    expect(fetchSpy).toHaveBeenCalled();
+    expect(root.textContent).toContain("next");
+  });
+
+  it("lands on the fragment when a traversal has no saved position", async () => {
+    fetchSpy.mockImplementation(async () => createJsonResponse({ data: null }));
+    await initRouter();
+    document.body.insertAdjacentHTML("beforeend", `<main id="main">main content</main>`);
+    const target = document.getElementById("main")!;
+    const scrollIntoView = vi.fn();
+    target.scrollIntoView = scrollIntoView;
+
+    await window.__PRACHT_NAVIGATE__!("/next");
+    await flush();
+    scrollToSpy.mockClear();
+
+    // Traverse back onto a URL that carries a fragment, under a scroll key
+    // nothing was ever saved for.
+    const entryState = { [HISTORY_STATE_KEY]: "never-saved" };
+    history.replaceState(entryState, "", "/#main");
+    window.dispatchEvent(new PopStateEvent("popstate", { state: entryState }));
+    await flush();
+    await flush();
+
+    expect(scrollIntoView).toHaveBeenCalled();
+    expect(scrollToSpy).not.toHaveBeenCalledWith(0, 0);
   });
 
   it("sets history.scrollRestoration to manual when supported", async () => {

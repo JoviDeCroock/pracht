@@ -90,6 +90,66 @@ test("navigate with preserveScroll keeps the current scroll position", async ({ 
 });
 
 // ---------------------------------------------------------------------------
+// In-page fragment navigation
+// ---------------------------------------------------------------------------
+
+async function fragmentTargetOffset(page: Page): Promise<number> {
+  return page.evaluate(() => {
+    const el = document.getElementById("fragment-main")!;
+    return Math.round(el.getBoundingClientRect().top + window.scrollY);
+  });
+}
+
+test("an in-page fragment link scrolls to its target and stays there", async ({ page }) => {
+  await page.goto("/fragment");
+  await waitForRouter(page);
+
+  await page.click("#skip-link");
+  await page.waitForFunction(() => window.location.hash === "#fragment-main");
+
+  const target = await fragmentTargetOffset(page);
+  await page.waitForFunction((y) => Math.abs(window.scrollY - y) <= 1, target);
+
+  // The regression this guards: the router read the fragment navigation's
+  // popstate as a back/forward traversal and restored a saved scroll position,
+  // yanking the page back to the top a tick after the browser's jump.
+  await page.waitForTimeout(250);
+  expect(Math.abs((await page.evaluate(() => window.scrollY)) - target)).toBeLessThanOrEqual(1);
+});
+
+test("an in-page fragment link moves focus to its target", async ({ page }) => {
+  await page.goto("/fragment");
+  await waitForRouter(page);
+
+  await page.click("#skip-link");
+  await page.waitForFunction(() => window.location.hash === "#fragment-main");
+
+  // The point of a skip link: the next Tab must continue past the target, not
+  // drop the user back into the navigation they just skipped.
+  await expect(page.locator("#fragment-main")).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(page.locator("#fragment-home-link")).toBeFocused();
+});
+
+test("going back from a fragment link returns to the previous scroll position", async ({
+  page,
+}) => {
+  await page.goto("/fragment");
+  await waitForRouter(page);
+
+  await page.evaluate(() => window.scrollTo(0, 800));
+  await page.waitForFunction(() => window.scrollY === 800);
+
+  // Click through the DOM: Playwright's own click scrolls the link into view
+  // first, which would move the page before the fragment navigation happens.
+  await page.evaluate(() => document.getElementById("skip-link")!.click());
+  await page.waitForFunction(() => window.location.hash === "#fragment-main");
+
+  await page.goBack();
+  await page.waitForFunction(() => window.scrollY === 800);
+});
+
+// ---------------------------------------------------------------------------
 // <Link prefetch>
 // ---------------------------------------------------------------------------
 

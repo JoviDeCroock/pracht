@@ -4,6 +4,11 @@ import { useContext, useLayoutEffect, useMemo, useState } from "preact/hooks";
 import type { FunctionComponent } from "preact";
 
 import { buildHref, matchResolvedRoute } from "./route-matching.ts";
+import {
+  findFragmentTarget,
+  focusFragmentTarget,
+  scrollToFragmentTarget,
+} from "./fragment-navigation.ts";
 import { installHydrationMismatchWarning } from "./hydration-mismatch.ts";
 import { markHydrating } from "./hydration.ts";
 import {
@@ -170,6 +175,11 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
 
   window.addEventListener("pagehide", saveScrollPosition);
 
+  // The document (path + query) the router currently has rendered. Used on
+  // popstate to tell a same-document fragment navigation apart from a
+  // traversal that needs the route re-resolved.
+  let currentDocumentPath = window.location.pathname + window.location.search;
+
   function restoreOrResetScroll(
     opts: InternalNavigateOptions | undefined,
     browserUrl: string,
@@ -178,21 +188,20 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
 
     if (opts?._popstate) {
       const saved = scrollStore.get(currentScrollKey);
-      window.scrollTo(saved?.x ?? 0, saved?.y ?? 0);
-      return;
+      if (saved) {
+        window.scrollTo(saved.x, saved.y);
+        return;
+      }
+      // Nothing saved for this entry — fall through to the fragment lookup
+      // rather than hard-resetting to the top, so traversing onto a URL that
+      // carries a fragment still lands on the fragment.
     }
 
     const hashIndex = browserUrl.indexOf("#");
     if (hashIndex !== -1) {
-      let id = browserUrl.slice(hashIndex + 1);
-      try {
-        id = decodeURIComponent(id);
-      } catch {
-        // Keep the raw fragment when it is not valid percent-encoding.
-      }
-      const hashTarget = id ? document.getElementById(id) : null;
-      if (hashTarget && typeof hashTarget.scrollIntoView === "function") {
-        hashTarget.scrollIntoView();
+      const hashTarget = findFragmentTarget(document, browserUrl.slice(hashIndex));
+      if (hashTarget) {
+        scrollToFragmentTarget(hashTarget);
         return;
       }
     }
@@ -492,6 +501,9 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
           );
           currentScrollKey = nextScrollKey;
         }
+        const hashIndex = target.browserUrl.indexOf("#");
+        currentDocumentPath =
+          hashIndex === -1 ? target.browserUrl : target.browserUrl.slice(0, hashIndex);
       }
 
       // Module imports started above are already in-flight
@@ -661,9 +673,24 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
   window.addEventListener("popstate", () => {
     // The history entry already changed, but the on-screen scroll position
     // still belongs to the entry we are leaving — save it under its key
-    // before adopting the new entry's key.
+    // before adopting the new entry's key. A same-document fragment
+    // navigation fires popstate *before* the browser scrolls to the fragment,
+    // so this still records where the outgoing entry actually was.
     saveScrollPosition();
+
     let nextScrollKey = readScrollKeyFromHistoryState(history.state);
+    const nextDocumentPath = window.location.pathname + window.location.search;
+
+    // `<a href="#section">` fires popstate too, for a brand new entry rather
+    // than a traversal. Two signals separate the cases: the router stamps a
+    // scroll key into `history.state` for every entry it creates, so a
+    // missing key means this entry came from somewhere else; and a fragment
+    // navigation cannot change the path or query. Requiring both means an
+    // entry whose state was wiped by app code (a stray
+    // `history.replaceState(null, …)`) is still re-resolved when the route
+    // really did change.
+    const isFragmentNavigation = !nextScrollKey && nextDocumentPath === currentDocumentPath;
+
     if (!nextScrollKey) {
       nextScrollKey = generateScrollKey();
       try {
@@ -678,6 +705,18 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
     }
     currentScrollKey = nextScrollKey;
 
+    if (isFragmentNavigation) {
+      // The same route is already rendered, so there is nothing to
+      // re-resolve, and this entry has no saved position to restore. The
+      // browser's own scroll to the fragment is about to happen — treating
+      // this as a traversal would undo it. Focus still needs help: see
+      // `focusFragmentTarget`.
+      const fragmentTarget = findFragmentTarget(document, window.location.hash);
+      if (fragmentTarget) focusFragmentTarget(fragmentTarget);
+      return;
+    }
+
+    currentDocumentPath = nextDocumentPath;
     navigate(window.location.pathname + window.location.search + window.location.hash, {
       _popstate: true,
     });
