@@ -131,6 +131,34 @@ test("an in-page fragment link moves focus to its target", async ({ page }) => {
   await expect(page.locator("#fragment-home-link")).toBeFocused();
 });
 
+test("clicking the same fragment link again scrolls back to its target", async ({ page }) => {
+  await page.goto("/fragment");
+  await waitForRouter(page);
+
+  await page.evaluate(() => document.getElementById("skip-link")!.click());
+  await page.waitForFunction(() => window.location.hash === "#fragment-main");
+
+  const target = await fragmentTargetOffset(page);
+  await page.waitForFunction((y) => Math.abs(window.scrollY - y) <= 1, target);
+
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.waitForFunction(() => window.scrollY === 0);
+
+  // The regression this guards: a repeat click reuses the history entry rather
+  // than pushing a new one, so the entry already carries the router's scroll
+  // key. Read as a back/forward traversal, the router restored the position
+  // saved for it — the top of the page — and the click did nothing at all.
+  await page.evaluate(() => document.getElementById("skip-link")!.click());
+  await page.waitForFunction((y) => Math.abs(window.scrollY - y) <= 1, target);
+
+  await page.waitForTimeout(250);
+  expect(Math.abs((await page.evaluate(() => window.scrollY)) - target)).toBeLessThanOrEqual(1);
+
+  // Two clicks, one entry: going back once leaves the fragment behind.
+  await page.goBack();
+  await page.waitForFunction(() => window.location.hash === "");
+});
+
 test("going back from a fragment link returns to the previous scroll position", async ({
   page,
 }) => {
