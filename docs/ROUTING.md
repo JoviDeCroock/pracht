@@ -385,20 +385,34 @@ The client router owns scrolling (`history.scrollRestoration = "manual"`):
   in `sessionStorage`, so they survive reloads and back-navigation from
   external sites. If an entry has no saved position but its URL carries a
   fragment, the fragment wins over a reset to the top.
-- **In-page fragment links** (`<a href="#section">`) are left to the browser.
-  These fire `popstate` for a *new* history entry rather than a traversal; the
+- **In-page fragment links** (`<a href="#section">`) are committed by the router
+  itself: it pushes the history entry, scrolls to the target, and moves focus
+  there. Leaving them to the browser only works for the first click — clicking a
+  link to the fragment you are already at reuses the current history entry, and
+  the `popstate` that follows is indistinguishable from a back/forward
+  traversal, so the router would restore the position saved for that entry and
+  the click would do nothing. Because `history.pushState()` fires no
+  `hashchange` of its own, the router dispatches one, so app code listening for
+  the platform event still hears about the fragment change.
+- **Fragment entries the router did not create** — `location.hash = "…"`, say —
+  still arrive as a `popstate` for a *new* entry rather than a traversal. The
   router tells the two apart by the scroll key it stamps into `history.state`
-  for every entry it creates, and stays out of the way so the browser's own
-  jump stands.
+  for every entry it creates, and stays out of the way so the browser's own jump
+  stands.
 - Opt out per navigation with `<Link preserveScroll>` or
-  `navigate(to, { preserveScroll: true })`.
+  `navigate(to, { preserveScroll: true })`. On a fragment link this updates the
+  URL without moving the viewport.
 
-Whenever the router scrolls to a fragment itself — a client-side navigation to
-`/docs/routing#loaders`, or a traversal onto a URL with a fragment — it also
-moves focus to the target, adding a temporary `tabindex="-1"` when the element
-is not natively focusable and removing it again on blur. Without this a skip
-link scrolls but leaves the next Tab stop at the top of the page, sending the
-user back into the navigation they just skipped.
+Whenever the router scrolls to a fragment — an in-page fragment link, a
+client-side navigation to `/docs/routing#loaders`, or a traversal onto a URL
+with a fragment — it also moves focus to the target, adding a temporary
+`tabindex="-1"` when the element is not natively focusable and removing it again
+on blur. Without this a skip link scrolls but leaves the next Tab stop at the
+top of the page, sending the user back into the navigation they just skipped.
+
+When a fragment matches no element the router does what the browser does: it
+scrolls to the top of the document only for the empty fragment and the legacy
+`#top`, and stays exactly where it is otherwise.
 
 `scrollIntoView()` is called with no `behavior` option, so how the page scrolls
 stays a CSS decision:

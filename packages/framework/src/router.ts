@@ -5,6 +5,7 @@ import type { FunctionComponent } from "preact";
 
 import { buildHref, matchResolvedRoute } from "./route-matching.ts";
 import {
+  decodeFragmentId,
   findFragmentTarget,
   focusFragmentTarget,
   scrollToFragmentTarget,
@@ -207,6 +208,75 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
     }
 
     window.scrollTo(0, 0);
+  }
+
+  /**
+   * Scroll to (and focus) a fragment the way a browser would.
+   *
+   * When nothing matches there is no indicated part to scroll to: the browser
+   * goes to the top of the document only for the empty fragment and the
+   * legacy `#top`, and stays exactly where it is otherwise.
+   */
+  function scrollToFragment(hash: string): void {
+    const target = findFragmentTarget(document, hash);
+    if (target) {
+      scrollToFragmentTarget(target);
+      return;
+    }
+
+    const id = decodeFragmentId(hash);
+    if (id === "" || id.toLowerCase() === "top") {
+      window.scrollTo(0, 0);
+    }
+  }
+
+  /**
+   * Commit an in-page fragment navigation from a link click.
+   *
+   * The browser does this itself, but only the first time. Clicking a link to
+   * the fragment you are already at reuses the current history entry instead
+   * of pushing a new one, and `popstate` alone cannot tell that reuse apart
+   * from a back/forward traversal — the entry already carries a scroll key, so
+   * the router would read it as a traversal and restore the position saved for
+   * it, undoing the browser's jump. (The Navigation API's `navigationType`
+   * would separate the two, but it is not available everywhere.)
+   *
+   * Owning the whole interaction here makes a repeat click scroll every time
+   * and leaves `popstate` to mean "traversal", which is what the scroll-key
+   * logic assumes. The guard in the popstate handler stays as the fallback for
+   * fragment entries created some other way (`location.hash = …`).
+   */
+  function commitFragmentNavigation(url: URL, preserveScroll: boolean): void {
+    const previousUrl = window.location.href;
+
+    if (url.href !== previousUrl) {
+      // The entry being left keeps the position it was actually at.
+      saveScrollPosition();
+      const nextScrollKey = generateScrollKey();
+      try {
+        history.pushState(
+          withScrollKeyInHistoryState(null, nextScrollKey),
+          "",
+          url.pathname + url.search + url.hash,
+        );
+        currentScrollKey = nextScrollKey;
+      } catch {
+        // History mutation restricted — the scroll below still lands, the
+        // entry just is not recorded.
+      }
+    }
+    currentDocumentPath = url.pathname + url.search;
+
+    if (!preserveScroll) {
+      scrollToFragment(url.hash);
+    }
+
+    // `pushState` fires neither `hashchange` nor `popstate`, so app code
+    // listening for the platform event still needs to hear about this.
+    const nextUrl = window.location.href;
+    if (nextUrl !== previousUrl) {
+      dispatchHashChange(previousUrl, nextUrl);
+    }
   }
 
   // Runs after the DOM for a newly committed route state is in place —
@@ -640,18 +710,31 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
     if (anchor.hasAttribute("download")) return;
 
     const href = anchor.getAttribute("href");
-    if (!href || href.startsWith("#")) return;
+    if (!href) return;
 
-    // Resolve relative URLs
+    // Resolve relative URLs. A bare `#fragment` resolves against the full
+    // current URL — against the origin alone it would lose the path.
+    const isFragmentHref = href.startsWith("#");
     let url: URL;
     try {
-      url = new URL(href, window.location.origin);
+      url = new URL(href, isFragmentHref ? window.location.href : window.location.origin);
     } catch {
       return;
     }
 
     // Skip external origins
     if (url.origin !== window.location.origin) return;
+
+    // In-page fragment navigation: same document, only the fragment differs.
+    // Handled before the speculation check below because no document is
+    // fetched here, so prerendering has nothing to activate.
+    const isSameDocument =
+      url.pathname + url.search === window.location.pathname + window.location.search;
+    if (isSameDocument && (url.hash !== "" || isFragmentHref)) {
+      e.preventDefault();
+      commitFragmentNavigation(url, anchor.hasAttribute(PRESERVE_SCROLL_ATTRIBUTE));
+      return;
+    }
 
     // If the destination route opted into `prerender` speculation rules, let
     // the browser perform a normal navigation so it can activate the
@@ -681,14 +764,19 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
     let nextScrollKey = readScrollKeyFromHistoryState(history.state);
     const nextDocumentPath = window.location.pathname + window.location.search;
 
-    // `<a href="#section">` fires popstate too, for a brand new entry rather
-    // than a traversal. Two signals separate the cases: the router stamps a
-    // scroll key into `history.state` for every entry it creates, so a
+    // A fragment navigation the router did not commit itself — `location.hash
+    // = "…"`, or an anchor click it never saw — fires popstate for a brand new
+    // entry rather than a traversal. Two signals separate the cases: the router
+    // stamps a scroll key into `history.state` for every entry it creates, so a
     // missing key means this entry came from somewhere else; and a fragment
     // navigation cannot change the path or query. Requiring both means an
     // entry whose state was wiped by app code (a stray
     // `history.replaceState(null, …)`) is still re-resolved when the route
     // really did change.
+    //
+    // Link clicks no longer reach this branch: they are committed in the click
+    // handler, because a repeat click on the fragment you are already at reuses
+    // the entry and so arrives here indistinguishable from a traversal.
     const isFragmentNavigation = !nextScrollKey && nextDocumentPath === currentDocumentPath;
 
     if (!nextScrollKey) {
@@ -748,6 +836,23 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
   void import("./prefetch.ts").then(({ setupPrefetching }) => {
     setupPrefetching(app, warmModules);
   });
+}
+
+/**
+ * Fire the `hashchange` the platform would have fired for a fragment
+ * navigation the router intercepted. Both URLs are absolute, as the event's
+ * `oldURL`/`newURL` are specified to be.
+ */
+function dispatchHashChange(oldURL: string, newURL: string): void {
+  let event: Event;
+  try {
+    event = new HashChangeEvent("hashchange", { oldURL, newURL });
+  } catch {
+    // Environments without the HashChangeEvent constructor still get the
+    // notification, just without the URL details.
+    event = new Event("hashchange");
+  }
+  window.dispatchEvent(event);
 }
 
 interface ViewTransitionLike {

@@ -10,6 +10,7 @@ import {
   type Navigation,
 } from "../src/navigation-state.ts";
 import { clearPrefetchCache } from "../src/prefetch-cache.ts";
+import { PRESERVE_SCROLL_ATTRIBUTE } from "../src/runtime-constants.ts";
 import { HISTORY_STATE_KEY } from "../src/scroll-restoration.ts";
 
 function createJsonResponse(body: unknown, init?: ResponseInit): Response {
@@ -97,6 +98,27 @@ describe("navigation UX primitives (client router)", () => {
         target.addEventListener = originals[i] as typeof target.addEventListener;
       });
     }
+  }
+
+  /** A skip-link-shaped fragment link plus the target it points at. */
+  function mountFragmentLink(): {
+    link: HTMLAnchorElement;
+    target: HTMLElement;
+    scrollIntoView: ReturnType<typeof vi.fn>;
+  } {
+    document.body.insertAdjacentHTML(
+      "beforeend",
+      `<a id="fragment-link" href="#main">skip to content</a><main id="main">main content</main>`,
+    );
+    const target = document.getElementById("main")!;
+    // jsdom does not implement scrollIntoView unless a test provides it.
+    const scrollIntoView = vi.fn();
+    target.scrollIntoView = scrollIntoView;
+    return {
+      link: document.getElementById("fragment-link") as HTMLAnchorElement,
+      target,
+      scrollIntoView,
+    };
   }
 
   beforeEach(() => {
@@ -249,7 +271,7 @@ describe("navigation UX primitives (client router)", () => {
     Object.defineProperty(window, "scrollY", { configurable: true, value: 0 });
   });
 
-  it("leaves a same-document fragment navigation to the browser", async () => {
+  it("leaves a fragment entry the router did not create to the browser", async () => {
     fetchSpy.mockImplementation(async () => createJsonResponse({ data: null }));
     await initRouter();
     document.body.insertAdjacentHTML("beforeend", `<main id="main">main content</main>`);
@@ -257,9 +279,9 @@ describe("navigation UX primitives (client router)", () => {
     fetchSpy.mockClear();
     scrollToSpy.mockClear();
 
-    // A fragment navigation from `<a href="#main">`: the browser pushes an
-    // entry of its own (no scroll key on `history.state`) and fires popstate
-    // *before* scrolling to the fragment.
+    // A fragment navigation the click handler never saw — `location.hash =
+    // "…"`, say: the browser pushes an entry of its own (no scroll key on
+    // `history.state`) and fires popstate *before* scrolling to the fragment.
     history.pushState(null, "", "/#main");
     window.dispatchEvent(new PopStateEvent("popstate", { state: null }));
     await flush();
@@ -312,6 +334,113 @@ describe("navigation UX primitives (client router)", () => {
 
     expect(scrollIntoView).toHaveBeenCalled();
     expect(scrollToSpy).not.toHaveBeenCalledWith(0, 0);
+  });
+
+  it("commits an in-page fragment link click itself", async () => {
+    fetchSpy.mockImplementation(async () => createJsonResponse({ data: null }));
+    await initRouter();
+    const { link, target, scrollIntoView } = mountFragmentLink();
+    fetchSpy.mockClear();
+    scrollToSpy.mockClear();
+
+    link.click();
+    await flush();
+
+    expect(window.location.hash).toBe("#main");
+    expect(scrollIntoView).toHaveBeenCalled();
+    expect(document.activeElement).toBe(target);
+    // The route is already rendered — there is no document to fetch.
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(scrollToSpy).not.toHaveBeenCalled();
+    // The pushed entry carries a scroll key, so traversing back onto it later
+    // restores like any other entry the router created.
+    expect(typeof (history.state as Record<string, unknown>)?.[HISTORY_STATE_KEY]).toBe("string");
+  });
+
+  it("scrolls again when the same fragment link is clicked a second time", async () => {
+    fetchSpy.mockImplementation(async () => createJsonResponse({ data: null }));
+    await initRouter();
+    const { link, scrollIntoView } = mountFragmentLink();
+
+    link.click();
+    await flush();
+
+    const entriesAfterFirstClick = history.length;
+    scrollIntoView.mockClear();
+    scrollToSpy.mockClear();
+    fetchSpy.mockClear();
+
+    // The user scrolled away and clicked the same link again. The browser
+    // reuses the history entry for a repeat click, so the entry already
+    // carries a scroll key — read as a traversal, the router would restore the
+    // position saved for it (the top of the page) and the click would do
+    // nothing at all.
+    link.click();
+    await flush();
+
+    expect(scrollIntoView).toHaveBeenCalled();
+    expect(scrollToSpy).not.toHaveBeenCalled();
+    expect(fetchSpy).not.toHaveBeenCalled();
+    // …and it must not pile up a duplicate history entry either.
+    expect(history.length).toBe(entriesAfterFirstClick);
+  });
+
+  it("fires hashchange for a fragment link click, but not for a repeat click", async () => {
+    fetchSpy.mockImplementation(async () => createJsonResponse({ data: null }));
+    await initRouter();
+    const { link } = mountFragmentLink();
+
+    const events: HashChangeEvent[] = [];
+    const listener = (event: Event) => events.push(event as HashChangeEvent);
+    window.addEventListener("hashchange", listener);
+    try {
+      link.click();
+      await flush();
+
+      // `pushState` fires nothing on its own; app code listening for the
+      // platform event still needs to hear about the fragment change.
+      expect(events).toHaveLength(1);
+      expect(events[0].newURL).toContain("#main");
+
+      link.click();
+      await flush();
+
+      // The hash did not change this time, so neither would the platform.
+      expect(events).toHaveLength(1);
+    } finally {
+      window.removeEventListener("hashchange", listener);
+    }
+  });
+
+  it("skips the fragment scroll when the link opts out with preserveScroll", async () => {
+    fetchSpy.mockImplementation(async () => createJsonResponse({ data: null }));
+    await initRouter();
+    const { link, scrollIntoView } = mountFragmentLink();
+    link.setAttribute(PRESERVE_SCROLL_ATTRIBUTE, "");
+    scrollToSpy.mockClear();
+
+    link.click();
+    await flush();
+
+    // The URL still updates — only the viewport is left alone.
+    expect(window.location.hash).toBe("#main");
+    expect(scrollIntoView).not.toHaveBeenCalled();
+    expect(scrollToSpy).not.toHaveBeenCalled();
+  });
+
+  it("still resolves the route for a link that changes the path and carries a fragment", async () => {
+    fetchSpy.mockImplementation(async () => createJsonResponse({ data: null }));
+    await initRouter();
+    document.body.insertAdjacentHTML("beforeend", `<a id="cross-doc" href="/next#main">next</a>`);
+    fetchSpy.mockClear();
+
+    (document.getElementById("cross-doc") as HTMLAnchorElement).click();
+    await flush();
+    await flush();
+
+    expect(fetchSpy).toHaveBeenCalled();
+    expect(root.textContent).toContain("next");
+    expect(window.location.pathname).toBe("/next");
   });
 
   it("sets history.scrollRestoration to manual when supported", async () => {
