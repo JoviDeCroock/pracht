@@ -1,6 +1,6 @@
 {
   "name": "@pracht/example-pages-router",
-  "version": "0.0.21",
+  "version": "0.0.22",
   "private": true,
   "type": "module",
   "dependencies": {
