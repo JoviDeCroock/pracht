@@ -93,6 +93,9 @@ Mount it as an API route — this is the least invasive wiring and works with
 import { createImageHandler } from "@pracht/image/node";
 
 const imageHandler = createImageHandler({
+  // Required for relative sources outside local development. Use the same
+  // trusted value as nodeAdapter({ canonicalOrigin }).
+  localOrigin: process.env.PRACHT_ORIGIN,
   // remotePatterns: [{ protocol: "https", hostname: "images.example.com" }],
 });
 
@@ -108,7 +111,7 @@ That file maps to `/api/_pracht/image`, which is exactly what
 - Negotiates output format via the `Accept` header: WebP by default; pass
   `formats: ["image/avif", "image/webp"]` to opt in to AVIF (smaller, slower
   to encode). Falls back to PNG/JPEG for older clients.
-- Responds with `Cache-Control: public, max-age=31536000, immutable` (keyed
+- Responds with `Cache-Control: public, max-age=14400, must-revalidate` (keyed
   on the full query string), `Vary: Accept`, and
   `X-Content-Type-Options: nosniff`.
 - Never enlarges beyond the source width.
@@ -118,10 +121,15 @@ That file maps to `/api/_pracht/image`, which is exactly what
 
 ### Security
 
-- **Same-origin by default.** Only relative `url` values are accepted unless
-  `remotePatterns` allowlists specific hosts (exact hostname or `*.` suffix
-  wildcard, optional protocol/port/path prefix). Redirects are re-validated
-  against the same allowlist.
+- **Trusted local origin.** Relative `url` values resolve against `localOrigin`
+  in production, so a forged request `Host` cannot turn the endpoint into an
+  open proxy. Loopback request origins are accepted without configuration for
+  local development. With adapter-node, use the same trusted value for
+  `nodeAdapter({ canonicalOrigin })` and `createImageHandler({ localOrigin })`.
+- **Remote allowlist.** `remotePatterns` allowlists specific hosts (exact
+  hostname or `*.` suffix wildcard, optional protocol/port/path prefix).
+  Redirects use manual handling and every destination is validated before the
+  next request is sent.
 - **Width allowlist.** Only widths from the default breakpoint lists are
   served (reject otherwise), so callers cannot fill your cache with arbitrary
   variants. Pass `allowedWidths` when you customize `deviceSizes`/
@@ -134,14 +142,19 @@ That file maps to `/api/_pracht/image`, which is exactly what
 
 ```ts
 createImageHandler({
+  localOrigin: "https://app.example.com",
   remotePatterns: [{ protocol: "https", hostname: "*.example.com", pathname: "/uploads" }],
   allowedWidths: [640, 1280],
   maxWidth: 3840,
   formats: ["image/avif", "image/webp"],
-  cacheControl: "public, max-age=31536000, immutable",
+  cacheControl: "public, max-age=14400, must-revalidate",
   maxSourceBytes: 25 * 1024 * 1024,
+  maxRedirects: 3,
 });
 ```
+
+Use an immutable one-year `cacheControl` only when every source URL is
+content-addressed or otherwise guaranteed never to change.
 
 Custom `fetchImage(url, request, signal)` hooks receive the Pracht API route
 abort signal so upstream fetches can stop when the request times out or is
@@ -149,8 +162,8 @@ cancelled.
 
 ## Per-target guidance
 
-- **adapter-node** — mount the API route as above; done. Put a CDN in front
-  and the immutable cache headers do the rest.
+- **adapter-node** — set one trusted public origin on both the Node adapter and
+  image handler, then put a CDN in front of the cacheable endpoint.
 - **adapter-cloudflare** — prefer `configureImage({ loader: cloudflareLoader })`;
   Cloudflare Image Resizing handles resizing at the edge and the endpoint is
   not needed (sharp does not run on Workers).

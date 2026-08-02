@@ -14,7 +14,8 @@ next/image's loader pattern.
   Optimization, or plain passthrough.
 - A Node optimization endpoint (`@pracht/image/node`) backed by
   [sharp](https://sharp.pixelplumbing.com) (optional peer dependency) with a
-  same-origin/allowlist security model and immutable cache headers.
+  trusted-local-origin/remote-allowlist security model and revalidated cache
+  headers.
 
 ```bash
 pnpm add @pracht/image
@@ -31,11 +32,16 @@ import { Image } from "@pracht/image";
 // src/api/_pracht/image.ts — mounts the optimization endpoint
 import { createImageHandler } from "@pracht/image/node";
 
-const imageHandler = createImageHandler();
+const imageHandler = createImageHandler({
+  localOrigin: process.env.PRACHT_ORIGIN,
+});
 
 export const GET = imageHandler;
 export const HEAD = imageHandler;
 ```
+
+Set `localOrigin` to the same trusted public origin used by
+`nodeAdapter({ canonicalOrigin })`. It may be omitted for loopback development.
 
 See [docs/IMAGES.md](https://github.com/JoviDeCroock/pracht/blob/main/docs/IMAGES.md)
 for the full guide: loader configuration, endpoint security options, and

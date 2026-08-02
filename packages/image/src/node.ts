@@ -21,6 +21,13 @@ export interface CreateImageHandlerOptions {
   /** Remote sources to allow. Defaults to none (same-origin only). */
   remotePatterns?: RemotePattern[];
   /**
+   * Trusted public origin used to resolve relative image paths in production.
+   * Required for non-loopback requests so an attacker-controlled Host header
+   * cannot turn the endpoint into an open proxy. Loopback origins remain
+   * available without configuration for local development.
+   */
+  localOrigin?: string;
+  /**
    * Widths the endpoint will produce. Requests for other widths are rejected
    * so a caller cannot fill caches with arbitrary variants. Defaults to the
    * union of the default device and image sizes; keep this in sync with
@@ -35,11 +42,17 @@ export interface CreateImageHandlerOptions {
    * (smaller files, noticeably slower to encode).
    */
   formats?: Array<"image/avif" | "image/webp">;
-  /** Cache-Control for successful responses. Defaults to immutable, 1 year. */
+  /** Cache-Control for successful responses. Defaults to 4 hours with revalidation. */
   cacheControl?: string;
   /** Reject source images larger than this many bytes. Defaults to 25 MiB. */
   maxSourceBytes?: number;
-  /** Override how source images are fetched (useful for tests/CDNs). */
+  /** Maximum number of validated redirects to follow. Defaults to 3. */
+  maxRedirects?: number;
+  /**
+   * Override how source images are fetched (useful for tests/CDNs). Redirect
+   * responses must be returned without following them; the handler validates
+   * each Location before making the next request.
+   */
   fetchImage?: (url: URL, request: Request, signal?: AbortSignal) => Promise<Response>;
   /** Override how sharp is imported (useful for tests). */
   loadSharp?: () => Promise<unknown>;
@@ -50,9 +63,11 @@ const SHARP_INSTALL_HINT =
   'Install it in your app with "pnpm add sharp" (or npm install / yarn add) ' +
   "to enable the pracht image endpoint.";
 
-const DEFAULT_CACHE_CONTROL = "public, max-age=31536000, immutable";
+const DEFAULT_CACHE_CONTROL = "public, max-age=14400, must-revalidate";
 const DEFAULT_MAX_WIDTH = 3840;
 const DEFAULT_MAX_SOURCE_BYTES = 25 * 1024 * 1024;
+const DEFAULT_MAX_REDIRECTS = 3;
+const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
 
 /** Minimal structural typing for the parts of sharp we use. */
 interface SharpPipeline {
@@ -118,6 +133,62 @@ function matchesRemotePatterns(url: URL, patterns: RemotePattern[]): boolean {
   });
 }
 
+function normalizeLocalOrigin(value: string | undefined): string | undefined {
+  if (value === undefined) return undefined;
+
+  const url = new URL(value);
+  if (
+    (url.protocol !== "http:" && url.protocol !== "https:") ||
+    url.username ||
+    url.password ||
+    url.pathname !== "/" ||
+    url.search ||
+    url.hash
+  ) {
+    throw new Error(
+      "createImageHandler({ localOrigin }) expects an http(s) origin without a path.",
+    );
+  }
+  return url.origin;
+}
+
+function isLoopbackHostname(hostname: string): boolean {
+  const host = hostname.toLowerCase();
+  return (
+    host === "localhost" ||
+    host.endsWith(".localhost") ||
+    host === "[::1]" ||
+    /^127(?:\.\d{1,3}){3}$/.test(host)
+  );
+}
+
+function isAllowedTarget(
+  url: URL,
+  localOrigin: string | undefined,
+  patterns: RemotePattern[],
+): boolean {
+  if ((url.protocol !== "http:" && url.protocol !== "https:") || url.username || url.password) {
+    return false;
+  }
+  return (
+    (localOrigin !== undefined && url.origin === localOrigin) ||
+    matchesRemotePatterns(url, patterns)
+  );
+}
+
+function acceptsFormat(accept: string, format: string): boolean {
+  return accept.split(",").some((entry) => {
+    const [mediaType, ...parameters] = entry.split(";");
+    if (mediaType.trim().toLowerCase() !== format) return false;
+
+    for (const parameter of parameters) {
+      const [name, value] = parameter.trim().split("=");
+      if (name?.toLowerCase() === "q" && Number(value) === 0) return false;
+    }
+    return true;
+  });
+}
+
 async function readCappedBody(response: Response, maxBytes: number): Promise<Uint8Array | null> {
   if (!response.body) {
     return new Uint8Array(await response.arrayBuffer());
@@ -174,14 +245,15 @@ function imageResponseBody(request: Request, bytes: Uint8Array): ArrayBuffer | n
  *
  * The handler resizes and re-encodes images with sharp (an optional peer
  * dependency — install it in your app), negotiates WebP/AVIF via the `Accept`
- * header, and answers with long-lived immutable cache headers keyed on the
- * query string. Only relative `url` values (same origin) are allowed unless
+ * header, and answers with cacheable responses keyed on the query string.
+ * Relative sources resolve against a trusted `localOrigin` in production;
  * `remotePatterns` opts specific remote hosts in.
  */
 export function createImageHandler(
   options: CreateImageHandlerOptions = {},
 ): (args: ImageHandlerArgs) => Promise<Response> {
   const remotePatterns = options.remotePatterns ?? [];
+  const configuredLocalOrigin = normalizeLocalOrigin(options.localOrigin);
   const allowedWidths = new Set(
     options.allowedWidths ?? [...DEFAULT_IMAGE_SIZES, ...DEFAULT_DEVICE_SIZES],
   );
@@ -189,12 +261,16 @@ export function createImageHandler(
   const formats = options.formats ?? ["image/webp"];
   const cacheControl = options.cacheControl ?? DEFAULT_CACHE_CONTROL;
   const maxSourceBytes = options.maxSourceBytes ?? DEFAULT_MAX_SOURCE_BYTES;
+  const maxRedirects = options.maxRedirects ?? DEFAULT_MAX_REDIRECTS;
+  if (!Number.isInteger(maxRedirects) || maxRedirects < 0) {
+    throw new Error("createImageHandler({ maxRedirects }) expects a non-negative integer.");
+  }
   const fetchImage =
     options.fetchImage ??
     ((url: URL, _request: Request, signal?: AbortSignal) =>
       fetch(url, {
         headers: { accept: "image/*,*/*;q=0.8" },
-        redirect: "follow",
+        redirect: "manual",
         signal,
       }));
   const importSharp = createSharpImporter(options.loadSharp ?? (() => import("sharp")));
@@ -208,6 +284,9 @@ export function createImageHandler(
     }
 
     const requestUrl = new URL(request.url);
+    const localOrigin =
+      configuredLocalOrigin ??
+      (isLoopbackHostname(requestUrl.hostname) ? requestUrl.origin : undefined);
     const source = requestUrl.searchParams.get("url");
     const widthParam = requestUrl.searchParams.get("w");
     const qualityParam = requestUrl.searchParams.get("q");
@@ -226,6 +305,9 @@ export function createImageHandler(
       } catch {
         return errorResponse(400, `Invalid "url" parameter: ${source}`);
       }
+      if (target.username || target.password) {
+        return errorResponse(400, 'The "url" parameter may not contain credentials.');
+      }
       if (!matchesRemotePatterns(target, remotePatterns)) {
         return errorResponse(
           403,
@@ -234,7 +316,13 @@ export function createImageHandler(
         );
       }
     } else if (source.startsWith("/")) {
-      target = new URL(source, requestUrl.origin);
+      if (!localOrigin) {
+        return errorResponse(
+          500,
+          "Relative image sources require createImageHandler({ localOrigin }) outside local development.",
+        );
+      }
+      target = new URL(source, localOrigin);
     } else {
       return errorResponse(
         400,
@@ -270,14 +358,50 @@ export function createImageHandler(
     }
 
     let upstream: Response;
-    try {
-      upstream = await fetchImage(target, request, signal);
-    } catch {
-      return errorResponse(502, `Failed to fetch source image "${source}".`);
+    let currentTarget = target;
+    let redirectCount = 0;
+    while (true) {
+      try {
+        upstream = await fetchImage(currentTarget, request, signal);
+      } catch {
+        return errorResponse(502, `Failed to fetch source image "${source}".`);
+      }
+
+      if (!REDIRECT_STATUSES.has(upstream.status)) break;
+
+      const location = upstream.headers.get("location");
+      if (!location) {
+        return errorResponse(502, `Source image "${source}" returned a redirect without Location.`);
+      }
+      if (redirectCount >= maxRedirects) {
+        return errorResponse(502, `Source image "${source}" exceeded ${maxRedirects} redirects.`);
+      }
+
+      let nextTarget: URL;
+      try {
+        nextTarget = new URL(location, currentTarget);
+      } catch {
+        return errorResponse(502, `Source image "${source}" returned an invalid redirect.`);
+      }
+      if (!isAllowedTarget(nextTarget, localOrigin, remotePatterns)) {
+        return errorResponse(
+          403,
+          `Source image "${source}" redirected to a host that is not allowed.`,
+        );
+      }
+
+      try {
+        await upstream.body?.cancel();
+      } catch {
+        // The redirect response body is intentionally discarded.
+      }
+      currentTarget = nextTarget;
+      redirectCount += 1;
     }
 
-    // Redirects may escape the requested origin/allowlist; re-validate the
-    // final URL the fetch actually landed on.
+    // Custom fetch hooks may accidentally follow redirects themselves. Keep
+    // the final response check as defense in depth; the built-in fetcher uses
+    // manual redirects so every hop is checked before it is requested.
     if (upstream.url) {
       let finalUrl: URL | undefined;
       try {
@@ -285,11 +409,7 @@ export function createImageHandler(
       } catch {
         finalUrl = undefined;
       }
-      if (
-        finalUrl &&
-        finalUrl.origin !== requestUrl.origin &&
-        !matchesRemotePatterns(finalUrl, remotePatterns)
-      ) {
+      if (finalUrl && !isAllowedTarget(finalUrl, localOrigin, remotePatterns)) {
         return errorResponse(
           403,
           `Source image "${source}" redirected to a host that is not allowed.`,
@@ -342,10 +462,10 @@ export function createImageHandler(
     const accept = request.headers.get("accept") ?? "";
     let pipeline = sharp(sourceBytes).rotate().resize({ width, withoutEnlargement: true });
     let contentType: string;
-    if (formats.includes("image/avif") && accept.includes("image/avif")) {
+    if (formats.includes("image/avif") && acceptsFormat(accept, "image/avif")) {
       pipeline = pipeline.avif({ quality });
       contentType = "image/avif";
-    } else if (formats.includes("image/webp") && accept.includes("image/webp")) {
+    } else if (formats.includes("image/webp") && acceptsFormat(accept, "image/webp")) {
       pipeline = pipeline.webp({ quality });
       contentType = "image/webp";
     } else if (sourceType === "image/png") {

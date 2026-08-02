@@ -81,13 +81,15 @@ The default loader points at `/api/_pracht/image`. Add an API route at that path
 ```ts [src/api/_pracht/image.ts]
 import { createImageHandler } from "@pracht/image/node";
 
-const imageHandler = createImageHandler();
+const imageHandler = createImageHandler({
+  localOrigin: process.env.PRACHT_ORIGIN,
+});
 
 export const GET = imageHandler;
 export const HEAD = imageHandler;
 ```
 
-This endpoint works in `pracht dev`, adapter-node, and Node-compatible runtimes. It returns immutable cache headers, varies on `Accept`, and negotiates modern output formats such as WebP.
+This endpoint works in `pracht dev`, adapter-node, and Node-compatible runtimes. Set `localOrigin` to the same trusted public URL used by `nodeAdapter({ canonicalOrigin })`; loopback origins work without configuration during local development. The endpoint returns cacheable, revalidated responses, varies on `Accept`, and negotiates modern output formats such as WebP.
 
 ---
 
@@ -123,6 +125,7 @@ The Node endpoint accepts same-origin URLs by default. Allow remote hosts explic
 import { createImageHandler } from "@pracht/image/node";
 
 const imageHandler = createImageHandler({
+  localOrigin: process.env.PRACHT_ORIGIN,
   remotePatterns: [
     { protocol: "https", hostname: "images.example.com", pathname: "/uploads" },
   ],
@@ -132,7 +135,7 @@ export const GET = imageHandler;
 export const HEAD = imageHandler;
 ```
 
-Remote allowlists are rechecked after redirects. Widths are also restricted to configured breakpoints, which keeps attackers from filling your cache with arbitrary image variants.
+Every redirect destination is checked before it is requested. Widths are also restricted to configured breakpoints, which keeps attackers from filling your cache with arbitrary image variants.
 
 ---
 
@@ -140,7 +143,7 @@ Remote allowlists are rechecked after redirects. Widths are also restricted to c
 
 | Target | Recommendation |
 | ------ | -------------- |
-| Node | Mount `createImageHandler()` and use the default loader |
+| Node | Set the same trusted origin on `nodeAdapter({ canonicalOrigin })` and `createImageHandler({ localOrigin })`, then use the default loader |
 | Cloudflare Workers | Use `cloudflareLoader`; `sharp` does not run in Workers |
 | Vercel | Use `vercelLoader` and keep Vercel image sizes aligned with your Pracht breakpoints |
 | Static hosting | Use `passthroughLoader` so images render without an optimization backend |

@@ -70,6 +70,18 @@ describe("createImageHandler validation", () => {
     await expect(response.text()).resolves.toContain("remotePatterns");
   });
 
+  it("rejects absolute urls containing credentials", async () => {
+    const handler = createImageHandler({
+      fetchImage: pngFetcher(),
+      remotePatterns: [{ protocol: "https", hostname: "example.com" }],
+    });
+    const response = await handler(
+      imageRequest("url=https%3A%2F%2Fuser%3Apass%40example.com%2Fa.png&w=640"),
+    );
+    expect(response.status).toBe(400);
+    await expect(response.text()).resolves.toContain("credentials");
+  });
+
   it("rejects missing or non-integer widths", async () => {
     expect((await handler(imageRequest("url=%2Fa.png"))).status).toBe(400);
     expect((await handler(imageRequest("url=%2Fa.png&w=abc"))).status).toBe(400);
@@ -129,6 +141,42 @@ describe("createImageHandler validation", () => {
 });
 
 describe("createImageHandler remote allowlist", () => {
+  it("requires a trusted local origin for relative production requests", async () => {
+    let fetched = false;
+    const handler = createImageHandler({
+      fetchImage: async () => {
+        fetched = true;
+        return new Response(sourcePng, { headers: { "content-type": "image/png" } });
+      },
+    });
+
+    const response = await handler({
+      request: new Request("https://attacker.example/api/_pracht/image?url=%2Fa.png&w=640"),
+    });
+
+    expect(response.status).toBe(500);
+    expect(fetched).toBe(false);
+    await expect(response.text()).resolves.toContain("localOrigin");
+  });
+
+  it("pins relative fetches to localOrigin instead of the request Host", async () => {
+    let fetchedUrl: string | undefined;
+    const handler = createImageHandler({
+      localOrigin: "https://app.example.com",
+      fetchImage: async (url) => {
+        fetchedUrl = url.href;
+        return new Response(sourcePng, { headers: { "content-type": "image/png" } });
+      },
+    });
+
+    const response = await handler({
+      request: new Request("https://attacker.example/api/_pracht/image?url=%2Fa.png&w=640"),
+    });
+
+    expect(response.status).toBe(200);
+    expect(fetchedUrl).toBe("https://app.example.com/a.png");
+  });
+
   it("allows remote sources matching a remotePattern, including wildcards", async () => {
     const handler = createImageHandler({
       fetchImage: pngFetcher(),
@@ -165,6 +213,51 @@ describe("createImageHandler remote allowlist", () => {
     expect(response.status).toBe(403);
     await expect(response.text()).resolves.toContain("redirected");
   });
+
+  it("validates redirects before requesting the next hop", async () => {
+    const fetchedUrls: string[] = [];
+    const handler = createImageHandler({
+      localOrigin: "https://app.example.com",
+      fetchImage: async (url) => {
+        fetchedUrls.push(url.href);
+        return new Response(null, {
+          status: 302,
+          headers: { location: "http://169.254.169.254/latest/meta-data" },
+        });
+      },
+    });
+
+    const response = await handler({
+      request: new Request("https://attacker.example/api/_pracht/image?url=%2Fa.png&w=640"),
+    });
+
+    expect(response.status).toBe(403);
+    expect(fetchedUrls).toEqual(["https://app.example.com/a.png"]);
+  });
+
+  it("follows redirects that remain inside the allowlist", async () => {
+    const fetchedUrls: string[] = [];
+    const handler = createImageHandler({
+      fetchImage: async (url) => {
+        fetchedUrls.push(url.href);
+        if (url.pathname === "/images/a.png") {
+          return new Response(null, { status: 302, headers: { location: "/images/b.png" } });
+        }
+        return new Response(sourcePng, { headers: { "content-type": "image/png" } });
+      },
+      remotePatterns: [{ protocol: "https", hostname: "cdn.example.com", pathname: "/images" }],
+    });
+
+    const response = await handler(
+      imageRequest("url=https%3A%2F%2Fcdn.example.com%2Fimages%2Fa.png&w=640"),
+    );
+
+    expect(response.status).toBe(200);
+    expect(fetchedUrls).toEqual([
+      "https://cdn.example.com/images/a.png",
+      "https://cdn.example.com/images/b.png",
+    ]);
+  });
 });
 
 describe("createImageHandler optimization", () => {
@@ -174,7 +267,7 @@ describe("createImageHandler optimization", () => {
 
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toBe("image/webp");
-    expect(response.headers.get("cache-control")).toBe("public, max-age=31536000, immutable");
+    expect(response.headers.get("cache-control")).toBe("public, max-age=14400, must-revalidate");
     expect(response.headers.get("vary")).toBe("Accept");
     expect(response.headers.get("x-content-type-options")).toBe("nosniff");
 
@@ -190,7 +283,7 @@ describe("createImageHandler optimization", () => {
 
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toBe("image/webp");
-    expect(response.headers.get("cache-control")).toBe("public, max-age=31536000, immutable");
+    expect(response.headers.get("cache-control")).toBe("public, max-age=14400, must-revalidate");
     expect(response.body).toBeNull();
     expect((await response.arrayBuffer()).byteLength).toBe(0);
   });
@@ -222,6 +315,15 @@ describe("createImageHandler optimization", () => {
     );
 
     expect(response.headers.get("content-type")).toBe("image/avif");
+  });
+
+  it("does not select a format the client explicitly rejects", async () => {
+    const handler = createImageHandler({ fetchImage: pngFetcher() });
+    const response = await handler(
+      imageRequest("url=%2Fhero.png&w=640", "image/webp;q=0,image/png"),
+    );
+
+    expect(response.headers.get("content-type")).toBe("image/png");
   });
 
   it("passes svg through untouched with a download disposition", async () => {

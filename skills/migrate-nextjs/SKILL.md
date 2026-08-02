@@ -1,6 +1,6 @@
 ---
 name: migrate-nextjs
-version: 1.1.0
+version: 1.2.0
 description: |
   Migrate a Next.js application to Pracht. Converts App Router pages, layouts,
   middleware, API routes, data fetching, and metadata to pracht equivalents.
@@ -83,7 +83,7 @@ For pages router projects, you can **skip manual manifest wiring entirely** (Pha
 | `next/link` `<Link>`            | `<Link route="...">` or plain `<a>`                            | Prefer typed `<Link>` for known app routes after `pracht typegen`; plain anchors still work |
 | `next/link` `prefetch={false}`  | `<Link prefetch="none">`                                        | Pracht prefetches on hover/focus by default; also `"viewport"`, `"render"` |
 | `useLinkStatus()` / pending UI  | `useNavigation()`                                               | `{ state, location, formData }` — powers progress bars and optimistic UI |
-| `next/image`                    | Standard `<img>`                                                | Use `vite-imagetools` plugin if optimization needed                   |
+| `next/image`                    | `<Image>` from `@pracht/image`                                  | Responsive srcsets plus Node, Cloudflare, Vercel, or passthrough loaders |
 | `next/head` or Metadata API     | `head()` export on route/shell                                  | Per-route and per-shell head merging                                  |
 | `className`                     | `class`                                                         | Preact uses `class` attribute                                         |
 | `React.useState` etc.           | `import { useState } from "preact/hooks"`                       | Preact hooks API is compatible                                        |
@@ -117,6 +117,7 @@ For pages router projects, you can **skip manual manifest wiring entirely** (Pha
 3. Update `package.json`:
    - Replace `react`, `react-dom` → `preact`
    - Replace `next` → `@pracht/core` (framework runtime), `@pracht/cli` (provides the `pracht` bin), `@pracht/vite-plugin`, and `@pracht/adapter-node` (or target adapter). There is no package named `pracht`.
+   - If the app imports `next/image`, add `@pracht/image`; add `sharp` only for the built-in Node optimization endpoint.
    - Update scripts: `dev` → `pracht dev`, `build` → `pracht build`, `start` → `node dist/server/server.js` (Node.js) or a platform-specific deploy command; add `preview` → `pracht preview` to serve the production build locally
 4. Remove Next.js config files: `next.config.*`, `next-env.d.ts`, `.next/`
 5. If `tsconfig.json` has `"jsx": "preserve"`, change to `"jsx": "react-jsx"` and add `"jsxImportSource": "preact"`.
@@ -388,7 +389,7 @@ Plain anchors still work for simple, external, or user-provided URLs because the
 
 `<Link>` also accepts navigation-behavior props: `prefetch` (`"none" | "intent" | "viewport" | "render"`, default `"intent"` on hover/focus — the equivalent of `next/link`'s `prefetch` tuning), `preserveScroll` (skip the scroll-to-top reset), and `viewTransition` (wrap the navigation in `document.startViewTransition()` where supported). Scroll restoration on back/forward works out of the box, like Next.js.
 
-#### `next/image` → `<img>`
+#### `next/image` → `@pracht/image`
 
 ```tsx
 // Next.js
@@ -396,8 +397,23 @@ import Image from "next/image";
 <Image src="/photo.jpg" width={500} height={300} alt="Photo" />
 
 // Pracht
-<img src="/photo.jpg" width={500} height={300} alt="Photo" />
+import { Image } from "@pracht/image";
+<Image src="/photo.jpg" width={500} height={300} alt="Photo" />
 ```
+
+Choose the loader for the deployment target:
+
+- Node: mount `createImageHandler()` from `@pracht/image/node`, install
+  `sharp`, and set its `localOrigin` to the same trusted value as
+  `nodeAdapter({ canonicalOrigin })`.
+- Cloudflare Workers: configure `cloudflareLoader`; do not bundle the Node
+  handler because `sharp` does not run in Workers.
+- Vercel Edge: configure `vercelLoader` and keep Vercel's allowed image sizes
+  aligned with the Pracht breakpoints.
+- Static hosts: configure `passthroughLoader`.
+
+Preserve the original `width`, `height`, `fill`, `sizes`, `quality`, and
+priority intent. See `docs/IMAGES.md` for the endpoint and loader wiring.
 
 #### `useRouter` → navigation
 
@@ -483,6 +499,7 @@ export async function loader({ request }: LoaderArgs) {
 | Next.js package | Pracht equivalent                                                            |
 | --------------- | ---------------------------------------------------------------------------- |
 | `next`          | `@pracht/core` + `@pracht/cli` + `@pracht/vite-plugin` + `@pracht/adapter-node` (or target adapter) |
+| `next/image`    | `@pracht/image`                                         |
 | `react`         | `preact`                                                |
 | `react-dom`     | `preact`                                                |
 | `@next/font`    | CSS `@font-face` or `fontsource` packages               |

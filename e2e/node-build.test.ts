@@ -142,7 +142,9 @@ test("pracht build emits a deployable Node server entry", async () => {
     );
     expect(imageResponse.status).toBe(200);
     expect(imageResponse.headers.get("content-type")).toBe("image/webp");
-    expect(imageResponse.headers.get("cache-control")).toBe("public, max-age=31536000, immutable");
+    expect(imageResponse.headers.get("cache-control")).toBe(
+      "public, max-age=14400, must-revalidate",
+    );
 
     const imageHeadResponse = await fetch(
       `http://127.0.0.1:${port}/api/_pracht/image?url=%2Fbanner.jpg&w=640&q=75`,
@@ -151,7 +153,7 @@ test("pracht build emits a deployable Node server entry", async () => {
     expect(imageHeadResponse.status).toBe(200);
     expect(imageHeadResponse.headers.get("content-type")).toBe("image/webp");
     expect(imageHeadResponse.headers.get("cache-control")).toBe(
-      "public, max-age=31536000, immutable",
+      "public, max-age=14400, must-revalidate",
     );
     expect((await imageHeadResponse.arrayBuffer()).byteLength).toBe(0);
 

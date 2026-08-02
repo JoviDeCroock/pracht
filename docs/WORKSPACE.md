@@ -81,7 +81,8 @@ described in `VISION_MVP.md`.
   files, and `pracht doctor` validates app wiring across the whole project.
 - **Package builds** — `tsdown` compiles `pracht`, `@pracht/vite-plugin`,
   `@pracht/preact-ssr-precompile`, `@pracht/adapter-node`,
-  `@pracht/adapter-cloudflare`, and `@pracht/adapter-vercel` from TypeScript to
+  `@pracht/adapter-cloudflare`, `@pracht/adapter-vercel`, and `@pracht/image`
+  from TypeScript to
   ESM (`dist/index.mjs` + `.d.mts`). `@pracht/core` also publishes browser,
   client, manifest, and server subpath entries so the Vite plugin can keep
   server-only runtime code and route-only browser helpers out of the critical

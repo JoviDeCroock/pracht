@@ -13,9 +13,10 @@ are produced by pluggable loaders (`defaultLoader`, `cloudflareLoader`,
 exports `createImageHandler()`, a sharp-backed optimization endpoint (sharp is
 an optional peer dependency) mounted as the `src/api/_pracht/image.ts` API
 route: it negotiates WebP/AVIF via `Accept`, only serves allowlisted widths,
-restricts sources to same-origin unless `remotePatterns` opts hosts in, and
-stream-enforces the source image size cap before optimization. Answers with
-immutable cache headers, supports GET plus HEAD API route exports, forwards
-Pracht's API abort signal to upstream fetches, and keeps development-only image
-dimension warnings out of production browser runtimes while preserving them in
-browser development builds. See docs/IMAGES.md.
+resolves relative sources against an explicit trusted production origin,
+restricts remote sources to `remotePatterns`, validates redirects before each
+hop, and stream-enforces the source image size cap before optimization. Answers
+with revalidated cache headers by default, supports GET plus HEAD API route
+exports, forwards Pracht's API abort signal to upstream fetches, and keeps
+development-only image dimension warnings out of production browser runtimes
+while preserving them in browser development builds. See docs/IMAGES.md.
