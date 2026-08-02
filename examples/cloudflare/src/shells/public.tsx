@@ -1,5 +1,6 @@
 import { useNavigation } from "@pracht/core";
 import type { ShellProps } from "@pracht/core";
+import "../styles/global.css";
 
 function NavigationStatus() {
   const navigation = useNavigation();

@@ -1,6 +1,95 @@
 import { describe, expect, it } from "vitest";
 
-import { isDevNotFoundRequest, shouldBypassDevSSR } from "../src/plugin-dev-ssr.ts";
+import {
+  collectDevCssUrls,
+  createDevCssManifest,
+  injectDevCssLinks,
+  isDevNotFoundRequest,
+  shouldBypassDevSSR,
+} from "../src/plugin-dev-ssr.ts";
+
+function moduleNode(url: string, type: "js" | "css" = "js", importedModules: any[] = []): any {
+  return { importedModules: new Set(importedModules), type, url };
+}
+
+describe("development CSS discovery", () => {
+  it("collects transitive stylesheets once", () => {
+    const sharedCss = moduleNode("/src/styles/shared.css");
+    const component = moduleNode("/src/components/card.tsx", "js", [
+      moduleNode("/src/components/card.module.css"),
+      moduleNode("/src/styles/tokens.css?raw"),
+      sharedCss,
+    ]);
+    const entry = moduleNode("/src/routes/home.tsx", "js", [component, sharedCss]);
+
+    expect(collectDevCssUrls(entry)).toEqual([
+      "/src/components/card.module.css",
+      "/src/styles/shared.css",
+    ]);
+  });
+
+  it("builds a route and shell CSS manifest from Vite's SSR graph", async () => {
+    const routeEntry = moduleNode("/src/routes/home.tsx", "js", [
+      moduleNode("/src/routes/home.module.css", "css"),
+    ]);
+    const shellEntry = moduleNode("/src/shells/public.tsx", "js", [
+      moduleNode("/src/styles/global.css", "css"),
+    ]);
+    const graph = new Map([
+      ["/src/routes/home.tsx", routeEntry],
+      ["/src/shells/public.tsx", shellEntry],
+    ]);
+
+    const manifest = await createDevCssManifest(
+      {
+        environments: {
+          ssr: { moduleGraph: { getModuleByUrl: async (url: string) => graph.get(url) } },
+        },
+      } as any,
+      {
+        app: {
+          routes: [],
+        } as any,
+        matchAppRoute: () => ({
+          route: {
+            file: "./routes/home.tsx",
+            shellFile: "./shells/public.tsx",
+          } as any,
+        }),
+        pathname: "/",
+        registry: {
+          routeModules: {
+            "/src/routes/home.tsx": async () => ({}) as any,
+          },
+          shellModules: {
+            "/src/shells/public.tsx": async () => ({}) as any,
+          },
+        },
+      },
+    );
+
+    expect(manifest).toEqual({
+      "./shells/public.tsx": ["/src/styles/global.css"],
+      "./routes/home.tsx": ["/src/routes/home.module.css"],
+    });
+  });
+
+  it("injects discovered styles into the document head without duplicates", () => {
+    const html =
+      '<html><head><link rel="stylesheet" href="/existing.css"></head><body></body></html>';
+
+    expect(
+      injectDevCssLinks(html, {
+        route: ["/route.css", "/existing.css"],
+        shell: ["/global.css", "/route.css"],
+      }),
+    ).toBe(
+      '<html><head><link rel="stylesheet" href="/existing.css">    <link rel="stylesheet" href="/route.css">\n' +
+        '    <link rel="stylesheet" href="/global.css">\n' +
+        "  </head><body></body></html>",
+    );
+  });
+});
 
 const routeMatchers = {
   app: {} as any,

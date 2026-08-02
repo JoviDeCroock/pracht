@@ -1,0 +1,13 @@
+:root {
+  color: #172033;
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  background: #f7f8fc;
+}
+
+body {
+  margin: 0;
+}
+
+.public-shell {
+  min-height: 100vh;
+}

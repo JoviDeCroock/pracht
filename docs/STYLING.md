@@ -25,6 +25,12 @@ the relevant `<link rel="stylesheet">` tags into the server-rendered HTML. See
 [RENDERING_MODES.md](RENDERING_MODES.md) and the per-page CSS section in the
 performance docs.
 
+Development uses the same first-paint contract: `pracht dev` discovers the
+matched route and shell's transitive CSS in Vite's live module graph and adds
+stylesheet links to the initial HTML before the client entry. Apps should only
+need to import their CSS from a route, shell, or one of their dependencies — a
+development-only `<link>` in `head()` is unnecessary.
+
 ---
 
 ## CSS-in-JS

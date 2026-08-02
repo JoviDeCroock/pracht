@@ -4,6 +4,7 @@ import { stripPrachtClientModuleQuery } from "./client-module-query.ts";
 
 export const PRACHT_CLIENT_MODULE_ID = "virtual:pracht/client";
 export const PRACHT_SERVER_MODULE_ID = "virtual:pracht/server";
+export const PRACHT_DEV_MODULE_ID = "virtual:pracht/dev-metadata";
 export const PRACHT_ISLANDS_CLIENT_MODULE_ID = "virtual:pracht/islands-client";
 export const PRACHT_CAPABILITIES_MODULE_ID = "virtual:pracht/capabilities";
 export const PRACHT_WEBMCP_MODULE_ID = "virtual:pracht/webmcp";
@@ -118,6 +119,10 @@ export function isClientModule(id: string): boolean {
 
 export function isServerModule(id: string): boolean {
   return id === PRACHT_SERVER_MODULE_ID || id.endsWith(PRACHT_SERVER_MODULE_ID);
+}
+
+export function isDevModule(id: string): boolean {
+  return id === PRACHT_DEV_MODULE_ID || id.endsWith(PRACHT_DEV_MODULE_ID);
 }
 
 export function isIslandsClientModule(id: string): boolean {
