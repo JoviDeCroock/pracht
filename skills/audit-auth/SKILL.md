@@ -91,9 +91,11 @@ target. From `pracht inspect api --json`:
   serves ALL methods but reports `methods: []` — treat
   `hasDefaultHandler: true` as "every method exposed". On older CLIs where
   the field is missing, grep the handler file for `export default` instead.
-- For each mutation handler (named method export or default handler), check
-  whether `defineApp({ api: { middleware } })` applies a Gate, OR the handler
-  reads/validates a session itself.
+- For each mutation handler (named method export or default handler) and each
+  HTTP-exposed capability, check whether
+  `defineApp({ api: { middleware } })` applies a Gate, OR the handler/capability
+  reads and validates a session itself. App-level API middleware wraps generated
+  capability endpoints before capability-specific middleware.
 - Common bug: dashboard route is protected by middleware, but
   `POST /api/items` is not — attacker bypasses the UI entirely.
 

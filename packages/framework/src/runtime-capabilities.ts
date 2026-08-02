@@ -268,7 +268,7 @@ type CapabilityPipelineOutcome =
 async function runCapabilityPipeline<TContext>(
   options: CapabilityPipelineOptions<TContext>,
 ): Promise<CapabilityPipelineOutcome> {
-  const { capability, name, file, httpPath, middlewareFiles } = options.resolved;
+  const { capability, name, middlewareFiles } = options.resolved;
 
   const validatedInput = capability.validateInput(options.input);
   if (!validatedInput.ok) {
@@ -281,11 +281,7 @@ async function runCapabilityPipeline<TContext>(
   }
 
   // Synthetic route descriptor handed to middleware, mirroring API dispatch.
-  const syntheticRoute: ResolvedApiRoute = {
-    path: httpPath ?? `capability:${name}`,
-    file,
-    segments: [],
-  };
+  const syntheticRoute = capabilityMiddlewareRoute(options.resolved);
 
   // Holder object rather than a plain `let`: the value is assigned inside
   // the terminal closure, which TypeScript's control-flow analysis cannot see.
@@ -414,6 +410,8 @@ export interface HandleCapabilityRequestOptions<TContext> {
   request: Request;
   url: URL;
   exposeErrors: boolean;
+  /** App-level `api.middleware`, wrapped around the HTTP projection only. */
+  apiMiddlewareFiles?: string[];
   /** App-level agent trust config (`defineApp({ agents })`). */
   agents?: PrachtAgentsConfig;
   /** Verified agent identity for this request, `null` when unsigned/unverified. */
@@ -431,7 +429,7 @@ export async function handleCapabilityRequest<TContext>(
   options: HandleCapabilityRequestOptions<TContext>,
 ): Promise<Response> {
   const started = performance.now();
-  const { response, outcome } = await dispatchCapabilityHttp(options);
+  const { response, outcome } = await dispatchCapabilityHttpWithApiMiddleware(options);
   const responseWithEffect = withCapabilityEffect(response, options.match.capability.effect);
   emitCapabilityAudit(
     {
@@ -450,6 +448,61 @@ export async function handleCapabilityRequest<TContext>(
     options.onAudit,
   );
   return responseWithEffect;
+}
+
+/**
+ * Capability endpoints are part of the application's HTTP API surface, so the
+ * app-level API middleware chain wraps the complete dispatch. This deliberately
+ * stays outside `runCapabilityPipeline`: direct server invocation should run
+ * capability middleware, but must not inherit HTTP-only API policy.
+ */
+async function dispatchCapabilityHttpWithApiMiddleware<TContext>(
+  options: HandleCapabilityRequestOptions<TContext>,
+): Promise<{ response: Response; outcome: string }> {
+  const middlewareFiles = options.apiMiddlewareFiles ?? [];
+  if (middlewareFiles.length === 0) {
+    return dispatchCapabilityHttp(options);
+  }
+
+  // Holder object because the value is assigned inside the terminal closure;
+  // TypeScript does not carry that assignment into the outer control flow.
+  const holder: { dispatched: { response: Response; outcome: string } | null } = {
+    dispatched: null,
+  };
+  try {
+    const response = await runMiddlewareChain({
+      context: options.context,
+      middlewareFiles,
+      params: {},
+      registry: options.registry,
+      request: options.request,
+      route: capabilityMiddlewareRoute(options.match),
+      signal: AbortSignal.timeout(CAPABILITY_TIMEOUT_MS),
+      url: options.url,
+      terminal: async () => {
+        holder.dispatched = await dispatchCapabilityHttp(options);
+        return holder.dispatched.response;
+      },
+    });
+
+    const dispatched = holder.dispatched;
+    if (dispatched && response === dispatched.response) {
+      return dispatched;
+    }
+
+    const normalized = normalizeMiddlewareShortCircuit(response);
+    return audited(normalized, `middleware_${normalized.status}`);
+  } catch (error: unknown) {
+    return audited(capabilityInternalErrorResponse(options, error), "internal_error");
+  }
+}
+
+function capabilityMiddlewareRoute(resolved: ResolvedCapability): ResolvedApiRoute {
+  return {
+    path: resolved.httpPath ?? `capability:${resolved.name}`,
+    file: resolved.file,
+    segments: [],
+  };
 }
 
 function withCapabilityEffect(response: Response, effect: string): Response {
@@ -581,19 +634,23 @@ async function dispatchCapabilityHttp<TContext>(
     const normalized = normalizeMiddlewareShortCircuit(outcome.response);
     return audited(normalized, `middleware_${normalized.status}`);
   } catch (error: unknown) {
-    return audited(
-      envelopeResponse(
-        500,
-        errorEnvelope({
-          code: "internal_error",
-          message: options.exposeErrors
-            ? `Capability "${name}" failed: ${error instanceof Error ? error.message : String(error)}`
-            : "Capability failed.",
-        }),
-      ),
-      "internal_error",
-    );
+    return audited(capabilityInternalErrorResponse(options, error), "internal_error");
   }
+}
+
+function capabilityInternalErrorResponse<TContext>(
+  options: HandleCapabilityRequestOptions<TContext>,
+  error: unknown,
+): Response {
+  return envelopeResponse(
+    500,
+    errorEnvelope({
+      code: "internal_error",
+      message: options.exposeErrors
+        ? `Capability "${options.match.name}" failed: ${error instanceof Error ? error.message : String(error)}`
+        : "Capability failed.",
+    }),
+  );
 }
 
 function audited(response: Response, outcome: string): { response: Response; outcome: string } {

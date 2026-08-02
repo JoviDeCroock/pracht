@@ -49,6 +49,8 @@ function createApp(capabilityModule: unknown, options: Record<string, unknown> =
     middleware: {
       deny: "./middleware/deny.ts",
       passthrough: "./middleware/passthrough.ts",
+      apiMarker: "./middleware/api-marker.ts",
+      capabilityMarker: "./middleware/capability-marker.ts",
       redirect: "./middleware/redirect.ts",
       relativeRedirect: "./middleware/relative-redirect.ts",
     },
@@ -73,6 +75,24 @@ function createApp(capabilityModule: unknown, options: Record<string, unknown> =
           next: () => Promise<Response>,
         ) => {
           args.context.fromMiddleware = true;
+          return next();
+        },
+      }),
+      "./middleware/api-marker.ts": async () => ({
+        middleware: async (
+          args: { context: { middlewareOrder?: string[] } },
+          next: () => Promise<Response>,
+        ) => {
+          (args.context.middlewareOrder ??= []).push("api");
+          return next();
+        },
+      }),
+      "./middleware/capability-marker.ts": async () => ({
+        middleware: async (
+          args: { context: { middlewareOrder?: string[] } },
+          next: () => Promise<Response>,
+        ) => {
+          (args.context.middlewareOrder ??= []).push("capability");
           return next();
         },
       }),
@@ -237,6 +257,56 @@ describe("resolveAppCapabilities", () => {
 });
 
 describe("capability HTTP projection", () => {
+  it("runs app-level API middleware around exposed capability endpoints", async () => {
+    const capability = createSearchCapability({
+      middleware: ["capabilityMarker"],
+      async run({ context }: { context: Record<string, unknown> }) {
+        return { notes: [(context.middlewareOrder as string[]).join(",")] };
+      },
+    });
+    const { app, registry } = createApp(capability, {
+      api: { middleware: ["apiMarker"] },
+    });
+
+    const response = await handlePrachtRequest({
+      app,
+      registry,
+      request: postCapability("/api/capabilities/notes/search", { query: "hello" }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      ok: true,
+      data: { notes: ["api,capability"] },
+    });
+  });
+
+  it("lets app-level API middleware reject before capability input is parsed", async () => {
+    let capabilityRan = false;
+    const capability = createSearchCapability({
+      async run() {
+        capabilityRan = true;
+        return { notes: [] };
+      },
+    });
+    const { app, registry } = createApp(capability, {
+      api: { middleware: ["deny"] },
+    });
+
+    const response = await handlePrachtRequest({
+      app,
+      registry,
+      request: new Request("http://localhost/api/capabilities/notes/search", {
+        method: "POST",
+        body: "{malformed",
+      }),
+    });
+
+    expect(response.status).toBe(401);
+    expect((await response.json()).error.code).toBe("unauthorized");
+    expect(capabilityRan).toBe(false);
+  });
+
   it("returns enhanced form redirects without fetching the external target", async () => {
     const { app, registry } = createApp(createSearchCapability({ middleware: ["redirect"] }));
     const request = postCapability("/api/capabilities/notes/search", { query: "hello" });
@@ -577,6 +647,31 @@ describe("capability HTTP projection", () => {
 });
 
 describe("invokeCapability", () => {
+  it("does not apply HTTP-only API middleware to direct server invocation", async () => {
+    const { app, registry } = createApp(createSearchCapability(), {
+      api: { middleware: ["deny"] },
+      routes: [route("/notes", "./routes/notes.tsx", { id: "notes" })],
+    });
+    registry.routeModules = {
+      "./routes/notes.tsx": async () => ({
+        loader: async ({ request, context, signal }: LoaderArgs) =>
+          invokeCapability("notes.search", { query: "from-loader" }, { request, context, signal }),
+        Component: () => null,
+      }),
+    };
+
+    const response = await handlePrachtRequest({
+      app,
+      registry,
+      request: new Request("http://localhost/notes?_data=1"),
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      data: { ok: true, data: { notes: ["from-loader:10"] } },
+    });
+  });
+
   it("invokes a capability directly from a loader through the same pipeline", async () => {
     const { app, registry } = createApp(createSearchCapability(), {
       routes: [route("/notes", "./routes/notes.tsx", { id: "notes" })],

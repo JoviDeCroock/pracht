@@ -407,6 +407,10 @@ export async function handlePrachtRequest<TContext>(
           request: options.request,
           url,
           exposeErrors: exposeDiagnostics,
+          apiMiddlewareFiles: (options.app.api.middleware ?? []).flatMap((name) => {
+            const middlewareFile = options.app.middleware[name];
+            return middlewareFile ? [middlewareFile] : [];
+          }),
           agents: options.app.agents,
           agent,
           onAudit: options.onCapabilityAudit,

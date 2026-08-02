@@ -144,7 +144,8 @@ export async function loader({ request, context, signal }: LoaderArgs) {
 Direct invocation works for private capabilities too and runs the full
 pipeline, including the capability's middleware. It is available while
 `handlePrachtRequest()` is serving requests (loaders, API routes,
-middleware).
+middleware). App-level `api.middleware` is HTTP policy and does not run for
+direct invocation.
 
 ### HTTP projection
 
@@ -154,6 +155,12 @@ With `expose.http` set, the capability is dispatched at
 happens in the framework's request handler, so every adapter (Node,
 Cloudflare, Vercel) gets it without adapter changes. Explicit files in
 `src/api/` take precedence on path collisions.
+
+The app-level API middleware configured with
+`defineApp({ api: { middleware: [...] } })` wraps every matched capability HTTP
+endpoint before request parsing and before the capability's own middleware.
+This keeps centralized authentication, authorization, rate limiting, and
+custom CSRF policy consistent across explicit and generated API endpoints.
 
 Custom paths must be exact same-origin pathnames beginning with `/`. Protocol-
 relative URLs, backslashes, dot-segment normalization, query strings, and
@@ -298,6 +305,9 @@ file, and `pracht verify` reports the same projection constraints.
 
 - **Private by default** — a capability without `expose` is never reachable
   over the network.
+- **Shared API policy** — every HTTP-exposed capability runs app-level
+  `api.middleware` first, then its capability-specific middleware. Direct
+  server invocation runs only the capability-specific chain.
 - **Exposure requires a complete contract** — `pracht verify` fails for
   exposed capabilities missing a description, input schema, output schema, or
   effect classification.
