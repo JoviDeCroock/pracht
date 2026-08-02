@@ -55,6 +55,14 @@
       "browser": "./dist/env-server.browser.mjs",
       "default": "./dist/env-server.mjs"
     },
+    "./server-only": {
+      "types": "./dist/server-only.d.mts",
+      "default": "./dist/server-only.mjs"
+    },
+    "./client-only": {
+      "types": "./dist/client-only.d.mts",
+      "default": "./dist/client-only.mjs"
+    },
     "./server": {
       "types": "./dist/server.d.mts",
       "default": "./dist/server.mjs"

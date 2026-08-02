@@ -144,6 +144,7 @@ The skills are distributed three ways (see the [catalog](skills/README.md)):
 - [docs/MCP.md](docs/MCP.md) — built-in MCP server for coding agents
 - [docs/AGENT_WORKFLOW.md](docs/AGENT_WORKFLOW.md) — constraints, app-graph snapshots, `pracht plan`/`report`
 - [docs/ENV.md](docs/ENV.md) — typed env access, `PRACHT_PUBLIC_` prefix rule, leak detection
+- [docs/IMPORT_BOUNDARIES.md](docs/IMPORT_BOUNDARIES.md) — enforced `.server.*`, `.client.*`, and explicit graph markers
 - [packages/start/README.md](packages/start/README.md) — starter CLI details
 
 ## Contributing

@@ -25,7 +25,16 @@ export default defineConfig({
 - Generates virtual modules (`virtual:pracht/client`, `virtual:pracht/server`) from your route manifest
 - Builds client and SSR bundles via Vite's multi-environment mode
 - Pre-renders SSG and ISG routes at build time (`prerenderConcurrency` controls parallelism)
+- Enforces first-party `.server.*` / `.client.*` modules and explicit graph markers
 - Provides HMR during development
+
+## Import boundaries
+
+Client graphs reject `.server.*` files and `@pracht/core/server-only`; server
+graphs reject `.client.*` files and `@pracht/core/client-only`. Boundaries are
+enabled by default and can be temporarily disabled with
+`pracht({ importBoundaries: false })`. See
+[`docs/IMPORT_BOUNDARIES.md`](../../docs/IMPORT_BOUNDARIES.md).
 
 ## Optional Preact SSR JSX precompile
 

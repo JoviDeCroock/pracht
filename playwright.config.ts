@@ -9,7 +9,7 @@ export default defineConfig({
     {
       name: "basic",
       testMatch:
-        /basic\.test\.ts|navigation\.test\.ts|node-build\.test\.ts|cloudflare-build\.test\.ts|vercel-build\.test\.ts|client-bundle-strip\.test\.ts|tsrx-build\.test\.ts|islands-build\.test\.ts|env-safety\.test\.ts|not-found\.test\.ts/,
+        /basic\.test\.ts|navigation\.test\.ts|node-build\.test\.ts|cloudflare-build\.test\.ts|vercel-build\.test\.ts|client-bundle-strip\.test\.ts|tsrx-build\.test\.ts|islands-build\.test\.ts|env-safety\.test\.ts|import-boundaries\.test\.ts|not-found\.test\.ts/,
       use: {
         baseURL: "http://localhost:3100",
       },

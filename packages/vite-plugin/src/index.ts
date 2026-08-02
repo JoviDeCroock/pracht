@@ -11,6 +11,11 @@ import {
 import type { RenderMode } from "@pracht/core";
 import { createEnvSafetyPlugin, PUBLIC_ENV_PREFIX, SERVER_ENV_MODULE_ID } from "./env-safety.ts";
 import {
+  CLIENT_ONLY_MODULE_ID,
+  SERVER_ONLY_MODULE_ID,
+  createImportBoundariesPlugin,
+} from "./import-boundaries.ts";
+import {
   PRACHT_CAPABILITIES_MODULE_ID,
   PRACHT_CLIENT_MODULE_ID,
   PRACHT_ISLANDS_CLIENT_MODULE_ID,
@@ -62,6 +67,12 @@ export {
   type EnvLeakReference,
   type EnvSafetyOptions,
 } from "./env-safety.ts";
+export {
+  CLIENT_ONLY_MODULE_ID,
+  SERVER_ONLY_MODULE_ID,
+  createImportBoundariesPlugin,
+  filenameBoundary,
+} from "./import-boundaries.ts";
 export {
   createPrachtCapabilitiesClientModuleSource,
   createPrachtWebmcpModuleSource,
@@ -340,6 +351,7 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
     ...preact(),
     prachtPlugin,
     clientModuleTransformPlugin,
+    createImportBoundariesPlugin(resolved.importBoundaries),
     createEnvSafetyPlugin(resolved.envSafety),
   ];
 

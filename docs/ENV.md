@@ -103,6 +103,10 @@ immediately. Route files may import it freely for `loader`/`headers`/
 `getStaticPaths` — the client transform strips those exports and the import
 with them (see `docs/ARCHITECTURE.md`, client module transform).
 
+For broader structural enforcement, use `.server.*` / `.client.*` filenames
+or the `@pracht/core/server-only` / `@pracht/core/client-only` markers. See
+[IMPORT_BOUNDARIES.md](IMPORT_BOUNDARIES.md).
+
 `pracht verify` (and `pracht doctor`) read the build-time env-safety report
 emitted to `dist/client/_pracht/env-safety.json` and also re-run the literal
 chunk scan against an existing `dist/client` output when one is present.
