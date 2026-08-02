@@ -119,6 +119,40 @@ Standalone server endpoints independent of the page rendering pipeline:
   compile time and returns typed responses. See
   [docs/API_VALIDATION.md](docs/API_VALIDATION.md).
 
+### Capabilities (agent-ready operations)
+
+Typed, protocol-neutral application operations registered in the manifest via
+`defineApp({ capabilities: { ... } })` and defined with `defineCapability()`
+from `@pracht/capabilities`:
+
+- One contract (JSON Schema input/output, effect class, named middleware,
+  server-only `run()`), projected to direct server invocation
+  (`invokeCapability()`), a generated HTTP endpoint (`expose.http`), and a
+  WebMCP page tool for in-browser agents (`expose.webmcp`).
+- The same contract serves the human UI: `<Form capability>` posts to the
+  capability endpoint (with a no-JS form-encoded fallback), and successful
+  non-`read` browser calls revalidate route data automatically — the effect
+  class drives the client cache. The wire protocol (paths, headers, error
+  codes, envelope) has a single home in `@pracht/capabilities`.
+- Private by default; exposure requires a complete contract, `destructive`
+  effects are HTTP-only behind a server-verified prepare/commit confirmation
+  flow, and the graph feeds `pracht inspect capabilities`, `/_pracht`,
+  `pracht verify`, and the CLI MCP server.
+- Agent trust layer: Web Bot Auth (RFC 9421) verified agent identity as
+  `context.agent` with observe/require policies, capability audit events,
+  and a `pracht eval` harness for scripted agent-task checks.
+- Discovery: the opt-in `llmsTxt` plugin option emits an
+  [llms.txt](https://llmstxt.org) index from the app graph — pages, API
+  endpoints, and HTTP-exposed capabilities
+  ([docs/LLMS_TXT.md](docs/LLMS_TXT.md)).
+- `pracht typegen` generates capability input/output types from the graph, so
+  `invokeCapability()` and the browser's `callCapability()` infer both sides
+  from the capability name.
+- See [docs/CAPABILITIES.md](docs/CAPABILITIES.md) and
+  [docs/AGENT_TRUST.md](docs/AGENT_TRUST.md). The product bet, its decision
+  log, and the staged plan (remote MCP and MCP Apps are the unbuilt stages)
+  live in [docs/CAPABILITY_GRAPH.md](docs/CAPABILITY_GRAPH.md).
+
 ### Deployment Adapters
 
 Platform adapters export a request handler shaped for their runtime:

@@ -75,12 +75,24 @@ const AGENT_DOC_LINKS: { href: string; text: string }[] = [
     text: "Adapters — Cloudflare Workers, Vercel Edge Functions, and Node.js",
   },
   {
+    href: "/docs/agents",
+    text: "The agentic web — why pracht projects one app graph to humans and agents: capabilities, trust, and discovery",
+  },
+  {
     href: "/docs/llms",
     text: "LLM content negotiation — markdown on the same URLs as HTML, plus /llms.txt",
   },
   {
     href: "/docs/agent-skills",
     text: "Agent skills — installable Claude Code skills with a /.well-known discovery manifest",
+  },
+  {
+    href: "/docs/capabilities",
+    text: "Capabilities — typed operations defined once and projected to server calls, HTTP endpoints, and WebMCP page tools",
+  },
+  {
+    href: "/docs/agent-trust",
+    text: "Agent trust — Web Bot Auth verified identity, confirmation flow for destructive operations, and pracht eval",
   },
   {
     href: "/docs/demo-comparison",
@@ -104,7 +116,7 @@ const AGENT_DOC_LINKS: { href: string; text: string }[] = [
   },
   {
     href: "/docs/recipes/testing",
-    text: "Recipe: testing — Vitest for loaders and API routes, Playwright for E2E",
+    text: "Recipe: testing — Vitest for loaders and API routes, Playwright for E2E, and capability/agent-surface testing with pracht eval",
   },
   {
     href: "/docs/recipes/fullstack-cloudflare",

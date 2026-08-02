@@ -13,6 +13,7 @@ import {
   type ResolvedPrachtPluginOptions,
 } from "./plugin-options.ts";
 import { createRouteLoaderHints } from "./route-loader-hints.ts";
+import { createWebmcpBootstrapSource, hasWebmcpCapabilities } from "./plugin-capabilities.ts";
 
 const ROUTE_MODULE_EXTENSIONS = new Set([".ts", ".tsx", ".js", ".jsx", ".md", ".mdx", ".tsrx"]);
 const NON_FULL_HYDRATION_RE = /hydration\s*:\s*["'](?:islands|none)["']/;
@@ -250,6 +251,9 @@ export function createPrachtClientModuleSource(
     "  });",
     "}",
     "",
+    // WebMCP page-tool registration — only emitted when at least one
+    // capability opts in, so apps without WebMCP exposure ship zero extra bytes.
+    ...(hasWebmcpCapabilities(resolved, buildOptions.root) ? createWebmcpBootstrapSource() : []),
   ].join("\n");
 }
 
@@ -259,7 +263,10 @@ export function createPrachtClientModuleSource(
  * manifest, the router, or the full client runtime: it only scans the DOM
  * for island markers and hydrates the islands present on the page.
  */
-export function createPrachtIslandsClientModuleSource(options: PrachtPluginOptions = {}): string {
+export function createPrachtIslandsClientModuleSource(
+  options: PrachtPluginOptions = {},
+  buildOptions: { root?: string } = {},
+): string {
   const resolved = resolveOptions(options);
   const islandsGlob = `${resolved.islandsDir}/**/*.{ts,tsx,js,jsx}`;
 
@@ -270,6 +277,9 @@ export function createPrachtIslandsClientModuleSource(options: PrachtPluginOptio
     "",
     "hydrateIslands({ modules: islandModules });",
     "",
+    // Islands pages skip the full client runtime, so the bootstrap pulls in
+    // the WebMCP shim itself when a capability opts in.
+    ...(hasWebmcpCapabilities(resolved, buildOptions.root) ? createWebmcpBootstrapSource() : []),
   ].join("\n");
 }
 
@@ -288,14 +298,18 @@ export function createPrachtServerModuleSource(
     ? readClientBuildAssets(buildOptions.root)
     : { clientEntryUrl: null, islandsEntryUrl: null, cssManifest: {}, jsManifest: {} };
   const adapter = resolved.adapter;
+  const llmsTxtConfig = resolveLlmsTxtConfig(resolved, buildOptions.root);
 
   // The adapter tells us what extra imports it needs (e.g. handlePrachtRequest).
   // Always import prerenderApp so the CLI uses the same bundled copy of
   // @pracht/core/server (and therefore the same Preact context instances) as the
   // route/shell modules — avoids dual-copy issues during SSG prerendering.
-  const prachtImports = adapter?.serverImports
+  let prachtImports = adapter?.serverImports
     ? adapter.serverImports + '\nimport { prerenderApp } from "@pracht/core/server";'
     : 'import { resolveApp, resolveApiRoutes, prerenderApp } from "@pracht/core/server";';
+  if (llmsTxtConfig) {
+    prachtImports += '\nimport { buildLlmsTxt } from "@pracht/core/server";';
+  }
 
   const appImport = isPagesMode
     ? generatePagesAppInlineSource(resolved, buildOptions.root)
@@ -336,6 +350,16 @@ export function createPrachtServerModuleSource(
     `export const prerenderConcurrency = ${JSON.stringify(resolved.prerenderConcurrency)};`,
     `export const budgets = ${JSON.stringify(resolved.budgets)};`,
     "export { prerenderApp };",
+    ...(llmsTxtConfig
+      ? [
+          "// llms.txt (https://llmstxt.org) generated from the resolved app graph.",
+          "// `pracht build` writes it to dist/client/llms.txt; the dev SSR",
+          "// middleware serves it at /llms.txt.",
+          `const llmsTxtConfig = ${JSON.stringify(llmsTxtConfig)};`,
+          "export const generateLlmsTxt = () =>",
+          "  buildLlmsTxt({ ...llmsTxtConfig, apiRoutes, app: resolvedApp, registry });",
+        ]
+      : []),
     "",
   ];
 
@@ -344,6 +368,41 @@ export function createPrachtServerModuleSource(
   }
 
   return source.join("\n");
+}
+
+interface ResolvedLlmsTxtConfig {
+  title: string;
+  description?: string;
+  origin?: string;
+  include?: string[];
+}
+
+/**
+ * Fill llms.txt title/description from the app's package.json when the user
+ * did not set them explicitly. Returns null when the feature is disabled so
+ * the server module codegen stays byte-for-byte unchanged.
+ */
+function resolveLlmsTxtConfig(
+  resolved: ResolvedPrachtPluginOptions,
+  root = process.cwd(),
+): ResolvedLlmsTxtConfig | null {
+  if (!resolved.llmsTxt) return null;
+
+  let pkg: { name?: unknown; description?: unknown } = {};
+  try {
+    pkg = JSON.parse(readFileSync(resolve(root, "package.json"), "utf-8"));
+  } catch {}
+
+  const config: ResolvedLlmsTxtConfig = {
+    title: resolved.llmsTxt.title ?? (typeof pkg.name === "string" && pkg.name ? pkg.name : "App"),
+  };
+  const description =
+    resolved.llmsTxt.description ??
+    (typeof pkg.description === "string" && pkg.description ? pkg.description : undefined);
+  if (description) config.description = description;
+  if (resolved.llmsTxt.origin) config.origin = resolved.llmsTxt.origin;
+  if (resolved.llmsTxt.include) config.include = resolved.llmsTxt.include;
+  return config;
 }
 
 function createApplyRouteLoaderHintsSource(): string[] {
@@ -415,6 +474,7 @@ export function createPrachtRegistryModuleSource(options: PrachtPluginOptions = 
     `export const middlewareModules = import.meta.glob(${JSON.stringify(`${resolved.middlewareDir}/**/*.{ts,tsx,js,jsx}`)});`,
     `export const apiModules = import.meta.glob(${JSON.stringify(`${resolved.apiDir}/**/*.{ts,js,tsx,jsx}`)});`,
     `export const dataModules = import.meta.glob(${JSON.stringify(`${resolved.serverDir}/**/*.{ts,js,tsx,jsx}`)});`,
+    `export const capabilityModules = import.meta.glob(${JSON.stringify(`${resolved.capabilitiesDir}/**/*.{ts,js,tsx,jsx}`)});`,
     "",
     "export const registry = {",
     "  routeModules,",
@@ -422,6 +482,7 @@ export function createPrachtRegistryModuleSource(options: PrachtPluginOptions = 
     "  middlewareModules,",
     "  apiModules,",
     "  dataModules,",
+    "  capabilityModules,",
     "};",
   ].join("\n");
 }

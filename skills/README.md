@@ -76,7 +76,8 @@ collide with other skill packs installed in the same app.
   pracht plugin; `inspect build`, the analyze report, `headers.json`, and the
   env-safety report all need a prior `pracht build`.
 - Use `pracht typegen` to refresh `src/pracht.d.ts` and
-  `src/pracht-routes.ts` after route ids or paths change; use
+  `src/pracht-routes.ts` after route ids or paths change — and
+  `src/pracht-capabilities.d.ts` after capability schemas change; use
   `pracht typegen --check` in verification/CI. Generating skills end their
   verification with `pracht verify --json`.
 - Audit skills produce a report; they never auto-fix. They report with a

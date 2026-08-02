@@ -23,6 +23,7 @@
       "@pracht/core/env/server": ["./packages/framework/src/env-server.ts"],
       "@pracht/core/server": ["./packages/framework/src/server.ts"],
       "@pracht/core/islands-client": ["./packages/framework/src/islands-client.ts"],
+      "@pracht/capabilities": ["./packages/capabilities/src/index.ts"],
       "@pracht/vite-plugin": ["./packages/vite-plugin/src/index.ts"],
       "@pracht/preact-ssr-precompile": ["./packages/preact-ssr-precompile/src/index.ts"],
       "@pracht/adapter-node": ["./packages/adapter-node/src/index.ts"],

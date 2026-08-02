@@ -1,8 +1,9 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
 import type { Connect, ViteDevServer } from "vite";
 import type { PrachtPhaseTimings, ResolvedApiRoute, ResolvedPrachtApp } from "@pracht/core";
+import { resolveRegistryModule } from "@pracht/core";
 import {
   CLIENT_BROWSER_PATH,
   ISLANDS_CLIENT_BROWSER_PATH,
@@ -14,13 +15,30 @@ const DEFAULT_MAX_BODY_SIZE = 1024 * 1024; // 1 MiB
 
 export const DEVTOOLS_PATH = "/_pracht";
 export const DEVTOOLS_JSON_PATH = "/_pracht.json";
+export const LLMS_TXT_PATH = "/llms.txt";
 
 export function createDevSSRMiddleware(
   server: ViteDevServer,
-  options: { maxBodySize?: number } = {},
+  options: { maxBodySize?: number; llmsTxt?: boolean } = {},
 ): Connect.NextHandleFunction {
   const maxBodySize = options.maxBodySize ?? DEFAULT_MAX_BODY_SIZE;
   let warnedDevtoolsCollision = false;
+  let warnedLlmsTxtCollision = false;
+
+  // A hand-written public/llms.txt and the generated one disagree about who
+  // wins: Vite's publicDir middleware serves the static file in dev (before
+  // this handler runs), while `pracht build` overwrites it with generated
+  // content. Warn once so the divergence is not silent.
+  if (options.llmsTxt && typeof server.config.publicDir === "string") {
+    const publicLlmsTxt = join(server.config.publicDir, "llms.txt");
+    if (existsSync(publicLlmsTxt)) {
+      server.config.logger.warn(
+        `[pracht] Both public/llms.txt and the pracht({ llmsTxt }) option are present. ` +
+          `Dev serves the static public/llms.txt, but "pracht build" overwrites it with the ` +
+          `generated content. Remove one to avoid a dev/production mismatch.`,
+      );
+    }
+  }
   return async (req: IncomingMessage, res: ServerResponse, next: Connect.NextFunction) => {
     const url = req.url ?? "/";
     const requestUrl = new URL(url, "http://localhost");
@@ -59,6 +77,31 @@ export function createDevSSRMiddleware(
         return;
       }
 
+      // `/llms.txt` is served from the live app graph when the plugin's
+      // `llmsTxt` option is enabled — the same content `pracht build` writes
+      // to dist/client/llms.txt.
+      if (
+        options.llmsTxt &&
+        requestUrl.pathname === LLMS_TXT_PATH &&
+        BODYLESS_METHODS.has((req.method ?? "GET").toUpperCase()) &&
+        typeof serverMod.generateLlmsTxt === "function"
+      ) {
+        if (!warnedLlmsTxtCollision && matchesResolvedRoute(LLMS_TXT_PATH, routeMatchers)) {
+          warnedLlmsTxtCollision = true;
+          server.config.logger.warn(
+            `[pracht] An app route matches ${LLMS_TXT_PATH}, which is reserved by the ` +
+              `pracht({ llmsTxt }) option. The generated llms.txt wins; disable the option ` +
+              `to serve the app route instead.`,
+          );
+        }
+
+        const llmsTxt: string = await serverMod.generateLlmsTxt();
+        res.statusCode = 200;
+        res.setHeader("content-type", "text/plain; charset=utf-8");
+        res.end(llmsTxt);
+        return;
+      }
+
       if (shouldBypassDevSSR(requestUrl, req, routeMatchers)) {
         return next();
       }
@@ -93,9 +136,16 @@ export function createDevSSRMiddleware(
 
       // A 404 from the runtime normally falls through to Vite (which has
       // already had its shot at static files, since this middleware is
-      // installed after Vite's own). Apps that declare a `notFound` page get
-      // that page rendered here instead — same as in production.
-      if (response.status === 404 && !routeMatchers.app?.notFound) {
+      // installed after Vite's own). Two exceptions are served as-is: apps
+      // that declare a `notFound` page get that page rendered here — same as
+      // in production — and JSON 404s are typed API responses (route-state,
+      // capability envelopes) that must reach the client untouched.
+      const responseContentType = response.headers.get("content-type") ?? "";
+      if (
+        response.status === 404 &&
+        !responseContentType.includes("application/json") &&
+        !routeMatchers.app?.notFound
+      ) {
         return next();
       }
 
@@ -136,10 +186,25 @@ async function serveDevtools(
   },
 ): Promise<void> {
   const devtools = await server.ssrLoadModule("@pracht/core/devtools");
+  // Manifest capability paths are relative to the app file (e.g.
+  // `./capabilities/notes-search.ts`), which a bare ssrLoadModule resolves
+  // against the Vite root and fails to find. Resolve through the virtual
+  // server module's registry first (matching `pracht inspect`), falling back
+  // to a direct load for absolute/root-relative paths.
+  const serverModule = (await server.ssrLoadModule(PRACHT_SERVER_MODULE_ID)) as {
+    registry?: { capabilityModules?: Record<string, () => Promise<unknown>> };
+  };
+  const capabilityModules = serverModule.registry?.capabilityModules;
   const graph = await devtools.buildAppGraph({
     apiRoutes: options.apiRoutes,
     app: options.app,
-    loadModule: (file: string) => server.ssrLoadModule(file),
+    loadModule: async (file: string) => {
+      const viaRegistry = await resolveRegistryModule<Record<string, unknown>>(
+        capabilityModules,
+        file,
+      );
+      return viaRegistry ?? server.ssrLoadModule(file);
+    },
     readSource: (file: string) => readFileSync(resolve(server.config.root, `.${file}`), "utf-8"),
   });
 

@@ -19,6 +19,7 @@ function readPackageVersion(): string {
 export const PROJECT_DEFAULTS = {
   apiDir: "/src/api",
   appFile: "/src/routes.ts",
+  capabilitiesDir: "/src/capabilities",
   middlewareDir: "/src/middleware",
   pagesDefaultRender: "ssr",
   pagesDir: "",

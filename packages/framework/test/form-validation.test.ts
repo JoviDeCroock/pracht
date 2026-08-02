@@ -3,6 +3,12 @@ import { h, render } from "preact";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import {
+  CAPABILITY_EFFECT_HEADER,
+  CAPABILITY_FORM_REDIRECT_HEADER,
+  CAPABILITY_FORM_REQUEST_HEADER,
+  CAPABILITY_SETTLED_EVENT,
+} from "../../capabilities/src/index.ts";
 import { Form, type ApiValidationIssue } from "../src/index.ts";
 
 const nameSchema: StandardSchemaV1<Record<string, unknown>> = {
@@ -47,6 +53,7 @@ describe("<Form> validation", () => {
   afterEach(() => {
     render(null, root);
     root.remove();
+    delete window.__PRACHT_NAVIGATE__;
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
@@ -174,6 +181,211 @@ describe("<Form> validation", () => {
     expect(onValidationIssues).not.toHaveBeenCalled();
     const body = fetchSpy.mock.calls[0][1].body as FormData;
     expect(body.get("action")).toBe("save");
+  });
+
+  it("validates capability forms before submitting", async () => {
+    const issues: ApiValidationIssue[][] = [];
+
+    render(
+      h(
+        Form,
+        {
+          capability: "items.create",
+          schema: nameSchema,
+          onValidationIssues: (found) => issues.push(found),
+        },
+        h("input", { name: "name", value: "" }),
+      ),
+      root,
+    );
+
+    await submit();
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(issues).toEqual([[{ in: "body", message: "Name is required", path: ["name"] }]]);
+  });
+
+  it("includes the clicked button value in capability submissions", async () => {
+    fetchSpy.mockResolvedValue(
+      new Response(JSON.stringify({ ok: true, data: {} }), {
+        headers: { "content-type": "application/json" },
+      }),
+    );
+
+    render(
+      h(Form, { capability: "items.save" }, h("button", { name: "action", value: "save" }, "Save")),
+      root,
+    );
+
+    const form = root.querySelector("form")!;
+    const button = root.querySelector("button")!;
+    form.dispatchEvent(
+      new SubmitEvent("submit", { bubbles: true, cancelable: true, submitter: button }),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const body = fetchSpy.mock.calls[0][1].body as FormData;
+    expect(body.get("action")).toBe("save");
+  });
+
+  it("keeps capability response bodies readable in onResponse", async () => {
+    const responseBody = { ok: true, data: { created: "pracht" } };
+    fetchSpy.mockResolvedValue(
+      new Response(JSON.stringify(responseBody), {
+        status: 201,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    const responses: Response[] = [];
+
+    render(
+      h(
+        Form,
+        {
+          capability: "items.create",
+          onResponse: (response) => responses.push(response),
+        },
+        h("input", { name: "name", value: "pracht" }),
+      ),
+      root,
+    );
+
+    await submit();
+
+    expect(responses).toHaveLength(1);
+    expect(responses[0].status).toBe(201);
+    await expect(responses[0].json()).resolves.toEqual(responseBody);
+  });
+
+  it("dispatches the server-provided effect for capability revalidation", async () => {
+    fetchSpy.mockResolvedValue(
+      new Response(JSON.stringify({ ok: true, data: {} }), {
+        headers: {
+          "content-type": "application/json",
+          [CAPABILITY_EFFECT_HEADER]: "read",
+        },
+      }),
+    );
+    const settled = vi.fn();
+    window.addEventListener(CAPABILITY_SETTLED_EVENT, settled, { once: true });
+
+    render(h(Form, { capability: "items.search" }), root);
+    await submit();
+
+    expect(settled).toHaveBeenCalledTimes(1);
+    expect((settled.mock.calls[0][0] as CustomEvent).detail).toEqual({
+      name: "items.search",
+      ok: true,
+      effect: "read",
+    });
+  });
+
+  it("uses the clicked button's formaction for capability submissions", async () => {
+    fetchSpy.mockResolvedValue(
+      new Response(JSON.stringify({ ok: true, data: {} }), {
+        headers: { "content-type": "application/json" },
+      }),
+    );
+
+    render(
+      h(
+        Form,
+        { capability: "items.save" },
+        h("button", { formAction: "/api/capabilities/items/alternate" }, "Save elsewhere"),
+      ),
+      root,
+    );
+
+    const form = root.querySelector("form")!;
+    const button = root.querySelector("button")!;
+    form.dispatchEvent(
+      new SubmitEvent("submit", { bubbles: true, cancelable: true, submitter: button }),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "/api/capabilities/items/alternate",
+      expect.objectContaining({ method: "POST" }),
+    );
+  });
+
+  it("navigates capability middleware redirects", async () => {
+    fetchSpy.mockResolvedValue(
+      new Response(null, {
+        status: 204,
+        headers: {
+          [CAPABILITY_FORM_REDIRECT_HEADER]: "/login?returnTo=%2Fnotes",
+        },
+      }),
+    );
+    const navigate = vi.fn(async () => undefined);
+    window.__PRACHT_NAVIGATE__ = navigate;
+    const results = vi.fn();
+
+    render(h(Form, { capability: "items.save", onCapabilityResult: results }), root);
+    await submit();
+
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "/api/capabilities/items/save",
+      expect.objectContaining({
+        headers: { [CAPABILITY_FORM_REQUEST_HEADER]: "1" },
+      }),
+    );
+    expect(navigate).toHaveBeenCalledWith("/login?returnTo=%2Fnotes", {
+      _reloadRouteState: true,
+      replace: undefined,
+    });
+    expect(results).not.toHaveBeenCalled();
+  });
+
+  it("leaves cross-origin capability targets to native form navigation", async () => {
+    render(
+      h(
+        Form,
+        { capability: "items.save" },
+        h("button", { formAction: "https://auth.example/login" }, "Sign in"),
+      ),
+      root,
+    );
+
+    const form = root.querySelector("form")!;
+    const button = root.querySelector("button")!;
+    const event = new SubmitEvent("submit", {
+      bubbles: true,
+      cancelable: true,
+      submitter: button,
+    });
+    form.dispatchEvent(event);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(event.defaultPrevented).toBe(false);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("blocks unsafe capability form targets", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    render(
+      h(
+        Form,
+        { capability: "items.save" },
+        h("button", { formAction: "javascript:alert(1)" }, "Run"),
+      ),
+      root,
+    );
+
+    const form = root.querySelector("form")!;
+    const button = root.querySelector("button")!;
+    const event = new SubmitEvent("submit", {
+      bubbles: true,
+      cancelable: true,
+      submitter: button,
+    });
+    form.dispatchEvent(event);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(consoleError).toHaveBeenCalledWith(expect.stringContaining("unsafe URL"));
   });
 
   it("uses the clicked button's formaction for enhanced submissions", async () => {

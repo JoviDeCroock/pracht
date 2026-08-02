@@ -1,6 +1,8 @@
 import { h, hydrate } from "preact";
 import type { ComponentType } from "preact";
 
+import { CAPABILITY_SETTLED_EVENT } from "@pracht/capabilities";
+
 import {
   ISLAND_ELEMENT,
   ISLAND_EXPORT_ATTRIBUTE,
@@ -28,7 +30,29 @@ export interface HydrateIslandsOptions {
   modules: Record<string, () => Promise<unknown>>;
 }
 
+let capabilityRevalidationBound = false;
+
+/**
+ * Islands routes render server-side and mount no client router, so there is no
+ * route-data store to soft-refresh after a mutation the way full-hydration
+ * routes do. Reload the document instead when a non-`read` capability settles
+ * successfully, so loader-rendered content stays consistent with the mutation.
+ */
+function bindCapabilityRevalidation(): void {
+  if (capabilityRevalidationBound || typeof window === "undefined") return;
+  capabilityRevalidationBound = true;
+  window.addEventListener(CAPABILITY_SETTLED_EVENT, (event) => {
+    const detail = (event as CustomEvent).detail as
+      | { ok?: boolean; effect?: string; revalidate?: boolean }
+      | undefined;
+    if (detail?.ok === true && detail.effect !== "read" && detail.revalidate !== false) {
+      window.location.reload();
+    }
+  });
+}
+
 export async function hydrateIslands(options: HydrateIslandsOptions): Promise<void> {
+  bindCapabilityRevalidation();
   const elements = document.querySelectorAll(ISLAND_ELEMENT);
   const immediate: Promise<void>[] = [];
 

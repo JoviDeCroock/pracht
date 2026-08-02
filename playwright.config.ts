@@ -16,7 +16,7 @@ export default defineConfig({
     },
     {
       name: "pages-router",
-      testMatch: /pages-router\.test\.ts|dev-404\.test\.ts/,
+      testMatch: /pages-router\.test\.ts|dev-404\.test\.ts|llms-txt-dev\.test\.ts/,
       use: {
         baseURL: "http://localhost:3101",
       },
@@ -26,6 +26,13 @@ export default defineConfig({
       testMatch: /islands-dev\.test\.ts/,
       use: {
         baseURL: "http://localhost:3102",
+      },
+    },
+    {
+      name: "capabilities",
+      testMatch: /capabilities\.test\.ts/,
+      use: {
+        baseURL: "http://localhost:3103",
       },
     },
   ],
@@ -47,6 +54,17 @@ export default defineConfig({
       port: 3102,
       reuseExistingServer: !process.env.CI,
       timeout: 15_000,
+    },
+    {
+      command: "node e2e/start-dev-server.mjs examples/basic 3103",
+      port: 3103,
+      reuseExistingServer: !process.env.CI,
+      timeout: 15_000,
+      env: {
+        // Enables the destructive-capability confirmation flow that
+        // e2e/capabilities.test.ts and the example eval scenario exercise.
+        PRACHT_CONFIRMATION_SECRET: "pracht-e2e-confirmation-secret",
+      },
     },
   ],
 });

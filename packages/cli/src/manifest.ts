@@ -1,3 +1,5 @@
+import { extractDefineAppObjectBody, scanTopLevelProperties } from "@pracht/capabilities/static";
+
 export function ensureCoreNamedImport(source: string, name: string): string {
   const match = source.match(/import\s*\{([^}]+)\}\s*from\s*["']@pracht\/core["'];?/);
   if (!match) {
@@ -49,19 +51,84 @@ export function toManifestModulePath(manifestPath: string, targetFilePath: strin
   return relativePath.startsWith(".") ? relativePath : `./${relativePath}`;
 }
 
+/**
+ * Replace `//` line and block comments with spaces, leaving string/template
+ * contents untouched so a `//` inside a path is not mistaken for a comment.
+ * Length is preserved so callers can still slice by original offsets.
+ */
+function maskComments(source: string): string {
+  let result = "";
+  let index = 0;
+  while (index < source.length) {
+    const char = source[index];
+    if (char === '"' || char === "'" || char === "`") {
+      const quote = char;
+      result += char;
+      index += 1;
+      while (index < source.length) {
+        const inner = source[index];
+        result += inner;
+        index += 1;
+        if (inner === "\\") {
+          if (index < source.length) {
+            result += source[index];
+            index += 1;
+          }
+          continue;
+        }
+        if (inner === quote) break;
+      }
+      continue;
+    }
+    if (char === "/" && source[index + 1] === "/") {
+      while (index < source.length && source[index] !== "\n") {
+        result += " ";
+        index += 1;
+      }
+      continue;
+    }
+    if (char === "/" && source[index + 1] === "*") {
+      while (index < source.length && !(source[index] === "*" && source[index + 1] === "/")) {
+        result += source[index] === "\n" ? "\n" : " ";
+        index += 1;
+      }
+      if (index < source.length) {
+        result += "  ";
+        index += 2;
+      }
+      continue;
+    }
+    result += char;
+    index += 1;
+  }
+  return result;
+}
+
 export function extractRegistryEntries(
   source: string,
   key: string,
 ): { name: string; path: string }[] {
-  const block = findNamedBlock(source, key, "{", "}");
-  if (!block) return [];
-  const inner = source.slice(block.openIndex + 1, block.closeIndex);
+  // Mask comments BEFORE locating the block so a block-commented example
+  // (`/* capabilities: { ... } */`) cannot be selected instead of the live
+  // registry, and commented-out registrations inside the live block are not
+  // treated as registered (mirrors the analyzer in @pracht/capabilities).
+  // Masking preserves offsets, so slicing the masked source is safe.
+  const appBody = extractDefineAppObjectBody(source);
+  if (!appBody) return [];
+  const value = scanTopLevelProperties(appBody).get(key);
+  if (!value) return [];
+  const openIndex = value.search(/\S/);
+  if (openIndex === -1 || value[openIndex] !== "{") return [];
+  const closeIndex = findMatchingDelimiter(value, openIndex, "{", "}");
+  const inner = maskComments(value.slice(openIndex + 1, closeIndex));
   const entries: { name: string; path: string }[] = [];
+  // Keys may be bare identifiers (shells, middleware) or quoted strings —
+  // capability names like "notes.search" require quoting.
   const pattern =
-    /([A-Za-z0-9_-]+)\s*:\s*(?:(["'`])([^"'`]+)\2|\(\)\s*=>\s*import\(\s*(["'`])([^"'`]+)\4\s*\))/g;
+    /(?:(["'])([^"'\n]+)\1|([A-Za-z0-9_-]+))\s*:\s*(?:(["'`])([^"'`]+)\4|\(\)\s*=>\s*import\(\s*(["'`])([^"'`]+)\6\s*\))/g;
 
   for (const match of inner.matchAll(pattern)) {
-    entries.push({ name: match[1], path: match[3] ?? match[5] });
+    entries.push({ name: match[2] ?? match[3], path: match[5] ?? match[7] });
   }
 
   return entries;
