@@ -9,7 +9,11 @@ import { createCheck, type Check } from "./verification-helpers.js";
 const VITE_BUILTIN_ENV_VARS = new Set(["MODE", "DEV", "PROD", "SSR", "BASE_URL", "NODE_ENV"]);
 const PUBLIC_ENV_PREFIX = "PRACHT_PUBLIC_";
 const ENV_REFERENCE_RE =
-  /\b(process\.env|import\.meta\.env)(?:\.([A-Za-z_$][A-Za-z0-9_$]*)|\[\s*(["'])([A-Za-z_$][A-Za-z0-9_$]*)\3\s*\])/g;
+  /\b(process\.env|import\.meta\.env)(?:\??\.([A-Za-z_$][A-Za-z0-9_$]*)|(?:\?\.)?\[\s*(["'])([A-Za-z_$][A-Za-z0-9_$]*)\3\s*\])/g;
+// `import.meta.env` reads that are not a single-key access; Vite replaces those
+// with an object literal holding every exposed variable.
+const WHOLE_ENV_READ_RE = /\bimport\.meta\.env\b(?!\s*\??\.\s*[A-Za-z_$])/g;
+const WHOLE_ENV_READ = "*";
 
 export interface EnvLeakFinding {
   accessor: string;
@@ -30,19 +34,32 @@ export function scanSourceForEnvLeaks(
   code: string,
   allow: ReadonlySet<string>,
 ): { accessor: string; name: string }[] {
-  const findings: { accessor: string; name: string }[] = [];
-  const seen = new Set<string>();
   const codePositions = getCodePositionMask(code);
+  const matches: Array<{ accessor: string; index: number; name: string }> = [];
 
   for (const match of code.matchAll(ENV_REFERENCE_RE)) {
-    if (!codePositions[match.index ?? -1]) continue;
+    const index = match.index ?? -1;
+    if (!codePositions[index]) continue;
     const accessor = match[1];
     const name = match[2] ?? match[4];
     if (!name) continue;
     if (name.startsWith(PUBLIC_ENV_PREFIX)) continue;
     if (VITE_BUILTIN_ENV_VARS.has(name)) continue;
     if (allow.has(name)) continue;
+    matches.push({ accessor, index, name });
+  }
 
+  if (!allow.has(WHOLE_ENV_READ)) {
+    for (const match of code.matchAll(WHOLE_ENV_READ_RE)) {
+      const index = match.index ?? -1;
+      if (!codePositions[index]) continue;
+      matches.push({ accessor: "import.meta.env", index, name: WHOLE_ENV_READ });
+    }
+  }
+
+  const findings: { accessor: string; name: string }[] = [];
+  const seen = new Set<string>();
+  for (const { accessor, name } of matches.sort((a, b) => a.index - b.index)) {
     const key = `${accessor}.${name}`;
     if (seen.has(key)) continue;
     seen.add(key);
@@ -340,9 +357,13 @@ export function collectEnvLeakVerification(
       createCheck(
         "error",
         `Client bundle references non-public env vars: ${findings
-          .map(
-            (finding) => `${finding.accessor}.${finding.name} in ${JSON.stringify(finding.file)}`,
-          )
+          .map((finding) => {
+            const reference =
+              finding.name === WHOLE_ENV_READ
+                ? "import.meta.env read as a whole object"
+                : `${finding.accessor}.${finding.name}`;
+            return `${reference} in ${JSON.stringify(finding.file)}`;
+          })
           .join("; ")}. Only PRACHT_PUBLIC_-prefixed variables are safe client-side.`,
       ),
     );

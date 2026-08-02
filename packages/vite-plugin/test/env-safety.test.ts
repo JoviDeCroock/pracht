@@ -1,7 +1,7 @@
 import type { Plugin } from "vite";
 import { describe, expect, it } from "vitest";
 
-import { createEnvSafetyPlugin, scanCodeForEnvLeaks } from "../src/env-safety.ts";
+import { createEnvSafetyPlugin, scanCodeForEnvLeaks, WHOLE_ENV_READ } from "../src/env-safety.ts";
 import { pracht } from "../src/index.ts";
 
 function getHook<T>(plugin: Plugin, name: keyof Plugin): T {
@@ -70,6 +70,9 @@ describe("scanCodeForEnvLeaks", () => {
       { accessor: "import.meta.env", name: "API_TOKEN" },
       { accessor: "process.env", name: "DATABASE_URL" },
       { accessor: "import.meta.env", name: "STRIPE_KEY" },
+      // The bracket form is not statically replaced, so Vite also inlines the
+      // full env object at that site.
+      { accessor: "import.meta.env", name: WHOLE_ENV_READ },
     ]);
   });
 
@@ -86,6 +89,56 @@ describe("scanCodeForEnvLeaks", () => {
     );
 
     expect(findings).toEqual([]);
+  });
+
+  it("flags optional-chained references, which Vite replaces just like dot access", () => {
+    const findings = scanCodeForEnvLeaks(
+      `const a = import.meta.env?.VITE_SECRET;
+       const b = import.meta.env?.["API_TOKEN"];
+       const c = import.meta.env?.DEV;`,
+    );
+
+    expect(findings).toEqual([
+      { accessor: "import.meta.env", name: "VITE_SECRET" },
+      { accessor: "import.meta.env", name: "API_TOKEN" },
+      // `import.meta.env?.["API_TOKEN"]` also pulls in the whole object.
+      { accessor: "import.meta.env", name: WHOLE_ENV_READ },
+    ]);
+  });
+
+  it("flags whole-object import.meta.env reads that no accessor scan can see", () => {
+    for (const code of [
+      "const env = import.meta.env;",
+      "const { VITE_SECRET } = import.meta.env;",
+      "const merged = { ...import.meta.env };",
+      "report(import.meta.env);",
+      // Bracket access is not statically replaced, so Vite inlines everything.
+      `const mode = import.meta.env["MODE"];`,
+      "const value = import.meta.env[key];",
+    ]) {
+      expect(scanCodeForEnvLeaks(code)).toContainEqual({
+        accessor: "import.meta.env",
+        name: WHOLE_ENV_READ,
+      });
+    }
+  });
+
+  it("does not flag single-key import.meta.env access or a bare process.env read", () => {
+    const findings = scanCodeForEnvLeaks(
+      `const mode = import.meta.env.MODE;
+       const dev = import.meta.env?.DEV;
+       const name = import.meta.env.PRACHT_PUBLIC_APP_NAME;
+       const base = import.meta.env.BASE_URL;
+       const all = process.env;`,
+    );
+
+    expect(findings).toEqual([]);
+  });
+
+  it("allows whole-object reads when the sentinel is allowlisted", () => {
+    expect(scanCodeForEnvLeaks("const env = import.meta.env;", new Set([WHOLE_ENV_READ]))).toEqual(
+      [],
+    );
   });
 
   it("flags VITE-prefixed variables as non-public unless allowlisted", () => {
@@ -269,6 +322,29 @@ describe("pracht plugin env wiring", () => {
     const result = config.call({}, {}, { command: "build", mode: "production" });
 
     expect(result.envPrefix).toEqual(["VITE_", "PRACHT_PUBLIC_"]);
+  });
+
+  it("injects only PRACHT_PUBLIC_ values as the publicEnv define", () => {
+    const plugin = findPlugin("pracht");
+    const config = getHook<ConfigHook>(plugin, "config");
+    process.env.PRACHT_PUBLIC_FROM_TEST = "public-value";
+    process.env.VITE_FROM_TEST = "vite-value";
+    process.env.SECRET_FROM_TEST = "secret-value";
+
+    try {
+      const result = config.call({}, {}, { command: "build", mode: "production" });
+      const define = result.define as Record<string, string>;
+      const injected = JSON.parse(define.__PRACHT_PUBLIC_ENV__) as Record<string, string>;
+
+      expect(injected.PRACHT_PUBLIC_FROM_TEST).toBe("public-value");
+      expect(Object.keys(injected).every((key) => key.startsWith("PRACHT_PUBLIC_"))).toBe(true);
+      expect(define.__PRACHT_PUBLIC_ENV__).not.toContain("vite-value");
+      expect(define.__PRACHT_PUBLIC_ENV__).not.toContain("secret-value");
+    } finally {
+      delete process.env.PRACHT_PUBLIC_FROM_TEST;
+      delete process.env.VITE_FROM_TEST;
+      delete process.env.SECRET_FROM_TEST;
+    }
   });
 
   it("registers the env safety plugin", () => {

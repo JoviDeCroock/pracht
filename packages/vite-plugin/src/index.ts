@@ -2,7 +2,7 @@ import { preactSsrPrecompile } from "@pracht/preact-ssr-precompile";
 import preact from "@preact/preset-vite";
 import { createRequire } from "node:module";
 import { join, resolve } from "node:path";
-import type { Plugin, UserConfig } from "vite";
+import { loadEnv, type Plugin, type UserConfig } from "vite";
 import {
   isPrachtClientModuleId,
   stripServerOnlyExportsForClient,
@@ -114,11 +114,19 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
         !isSSRBuild &&
         existsSync(resolveConfigPath(configRoot, resolved.islandsDir));
 
+      // `publicEnv` needs every PRACHT_PUBLIC_ key, but reading the whole
+      // `import.meta.env` object to enumerate them makes Vite inline *all*
+      // exposed vars — VITE_ ones included — into the client bundle. Injecting
+      // the pre-filtered subset keeps that enumeration public-only.
+      const envDir = _config.envDir ? resolve(configRoot, _config.envDir) : configRoot;
+      const publicEnvDefine = JSON.stringify(loadEnv(env.mode, envDir, PUBLIC_ENV_PREFIX));
+
       return {
         appType: "custom" as const,
         // Expose PRACHT_PUBLIC_-prefixed vars on import.meta.env (client and
         // server) while keeping Vite's default VITE_ prefix working.
         envPrefix: ["VITE_", PUBLIC_ENV_PREFIX],
+        define: { __PRACHT_PUBLIC_ENV__: publicEnvDefine },
         // The vendor split only makes sense for the client bundle; SSR builds
         // that disable code splitting (e.g. webworker targets) reject
         // `manualChunks` outright.

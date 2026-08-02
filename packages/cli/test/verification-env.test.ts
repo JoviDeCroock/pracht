@@ -46,6 +46,30 @@ describe("scanSourceForEnvLeaks", () => {
     ]);
   });
 
+  it("flags optional-chained and whole-object import.meta.env reads", () => {
+    expect(scanSourceForEnvLeaks(`a(import.meta.env?.VITE_SECRET);`, new Set())).toEqual([
+      { accessor: "import.meta.env", name: "VITE_SECRET" },
+    ]);
+
+    for (const code of [
+      "const env = import.meta.env;",
+      "const { VITE_SECRET } = import.meta.env;",
+      `const mode = import.meta.env["MODE"];`,
+    ]) {
+      expect(scanSourceForEnvLeaks(code, new Set())).toContainEqual({
+        accessor: "import.meta.env",
+        name: "*",
+      });
+    }
+
+    expect(
+      scanSourceForEnvLeaks(
+        `a(import.meta.env.MODE, import.meta.env?.DEV, import.meta.env.PRACHT_PUBLIC_X, process.env);`,
+        new Set(),
+      ),
+    ).toEqual([]);
+  });
+
   it("ignores comments and literal text while preserving real code references", () => {
     const code = `
       // process.env.COMMENT_SECRET

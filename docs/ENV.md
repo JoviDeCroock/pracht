@@ -37,10 +37,32 @@ compatibility, Pracht does not treat `VITE_` as an intentionally public prefix:
 client references such as `import.meta.env.VITE_SECRET` fail env leak detection
 unless explicitly allowlisted.
 
-`publicEnv` reads `import.meta.env` when Vite provides it and falls back to
-`process.env` outside Vite (plain Node entries, tests). It is a snapshot of
-build-time values on the client; prefer reading it over `import.meta.env` for
-the typing below.
+In builds, `publicEnv` reads a `PRACHT_PUBLIC_`-only snapshot the pracht Vite
+plugin injects; in dev it reads Vite's live env, and outside Vite (plain Node
+entries, tests) it falls back to `process.env`. It is a snapshot of build-time
+values on the client; prefer reading it over `import.meta.env` for the typing
+below.
+
+### Read one key at a time
+
+Vite only replaces single-key `import.meta.env.KEY` accesses with their value.
+Any other read — a bare reference, destructuring, a spread, or bracket
+access — is replaced by an object literal holding **every** exposed variable,
+including the `VITE_` values Pracht does not treat as public:
+
+```ts
+// Leaks every VITE_ value into the client bundle.
+const env = import.meta.env;
+const { PRACHT_PUBLIC_API_BASE } = import.meta.env;
+const mode = import.meta.env["MODE"];
+
+// Fine — each access is replaced by just that value.
+const apiBase = import.meta.env.PRACHT_PUBLIC_API_BASE;
+const isDev = import.meta.env?.DEV;
+```
+
+Env leak detection fails the build on whole-object reads in first-party client
+code. Use `publicEnv` when you need to enumerate public values.
 
 ## Typing your env once
 
