@@ -92,6 +92,7 @@ export {
   useParams,
   useRevalidate,
   useRouteData,
+  useSearch,
 } from "./runtime-hooks.ts";
 export { prefetch, type PrefetchFn } from "./prefetch-api.ts";
 
@@ -182,6 +183,10 @@ export type {
   RouteLoaderData,
   RouteRevalidate,
   RouteSearchFor,
+  RouteSearchInput,
+  RouteSearchOutput,
+  RouteSearchOutputFor,
+  RouteSearchRecord,
   RouteTarget,
   RouteTreeNode,
   SearchParamPrimitive,

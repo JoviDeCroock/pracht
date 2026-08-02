@@ -1,4 +1,4 @@
-import type { RouteParams } from "./types.ts";
+import type { RouteParams, RouteSearchRecord } from "./types.ts";
 
 /**
  * Set to `"1"` by the pracht CLI around the short-lived Vite server it boots
@@ -18,6 +18,7 @@ export const HYDRATION_STATE_ELEMENT_ID = "pracht-state";
 export const ROUTE_STATE_REQUEST_HEADER = "x-pracht-route-state-request";
 export const ROUTE_STATE_CACHE_CONTROL = "no-store";
 export const EMPTY_ROUTE_PARAMS = {} as RouteParams;
+export const EMPTY_ROUTE_SEARCH = {} as RouteSearchRecord;
 
 // Identity of the app-level not-found page. It is route-shaped so the render
 // pipeline can treat it like any other route, but it lives outside the route

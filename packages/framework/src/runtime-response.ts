@@ -239,10 +239,17 @@ export async function renderRouteErrorResponse<TContext>(options: {
       data: null;
       routeId: string;
       routes?: readonly HrefRouteDefinition[];
+      search?: unknown;
       url: string;
       children?: ComponentChildren;
     }>,
-    { data: null, routeId: options.routeId, routes: options.routes, url: options.requestPath },
+    {
+      data: null,
+      routeId: options.routeId,
+      routes: options.routes,
+      search: options.routeArgs.search,
+      url: options.requestPath,
+    },
     componentTree,
   );
   const hydration = options.routeArgs.route.hydration ?? "full";
@@ -312,6 +319,7 @@ export async function renderRouteErrorResponse<TContext>(options: {
       hydrationState: {
         url: options.requestPath,
         routeId: options.routeId,
+        search: options.routeArgs.search,
         data: null,
         error: routeErrorWithDiagnostics,
       },

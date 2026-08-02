@@ -52,6 +52,7 @@ import {
   PrachtRuntimeProvider,
   RouteDataContext,
 } from "./runtime-context.ts";
+import { resolveRouteSearch } from "./route-search.ts";
 import type { RouteStateResult } from "./runtime-client-fetch.ts";
 
 interface RouteRenderState {
@@ -61,6 +62,7 @@ interface RouteRenderState {
   data: unknown;
   params: RouteParams;
   routeId: string;
+  search: unknown;
   url: string;
   version: number;
 }
@@ -316,7 +318,8 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
     updateRouteState = setRouteState;
     const navigateValue = useMemo(() => navigate, []);
 
-    const { Shell, Component, componentProps, data, params, routeId, url, version } = routeState;
+    const { Shell, Component, componentProps, data, params, routeId, search, url, version } =
+      routeState;
 
     useLayoutEffect(() => {
       if (!afterCommitCallback) return;
@@ -334,7 +337,7 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
       { value: navigateValue },
       h(
         PrachtRuntimeProvider as FunctionComponent<Record<string, unknown>>,
-        { data, params, routeId, routes: app.routes, stateVersion: version, url },
+        { data, params, routeId, routes: app.routes, search, stateVersion: version, url },
         componentTree,
       ),
     );
@@ -358,6 +361,16 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
   ): Promise<RouteRenderState | null> {
     const routeMod = await (routeModPromise ?? startRouteImport(match));
     if (!routeMod) return null;
+    let search: unknown = {};
+    let searchError: Error | null = null;
+    try {
+      search = await resolveRouteSearch(
+        routeMod,
+        new URL(currentUrl, window.location.origin).searchParams,
+      );
+    } catch (error) {
+      searchError = error instanceof Error ? error : new Error(String(error));
+    }
 
     let Shell: FunctionComponent | null = null;
     const resolvedShell = await (shellModPromise ?? startShellImport(match));
@@ -368,13 +381,15 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
     const DefaultComponent = typeof routeMod.default === "function" ? routeMod.default : undefined;
     const ErrorBoundary = routeMod.ErrorBoundary ?? resolvedShell?.ErrorBoundary;
     const Component = (
-      state.error ? ErrorBoundary : (routeMod.Component ?? DefaultComponent)
+      state.error || searchError ? ErrorBoundary : (routeMod.Component ?? DefaultComponent)
     ) as FunctionComponent<any>;
     if (!Component) return null;
 
     const componentProps: Record<string, unknown> = state.error
       ? { error: deserializeRouteError(state.error) }
-      : { data: state.data, params: match.params };
+      : searchError
+        ? { error: searchError }
+        : { data: state.data, params: match.params, search };
 
     return {
       Shell,
@@ -383,6 +398,7 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
       data: state.data,
       params: match.params,
       routeId: match.route.id ?? "",
+      search,
       url: currentUrl,
       version: ++routeStateVersion,
     };
@@ -408,6 +424,7 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
       data: undefined,
       params: match.params,
       routeId: match.route.id ?? "",
+      search: {},
       url: currentUrl,
       version: ++routeStateVersion,
     };

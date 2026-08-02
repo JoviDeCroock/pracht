@@ -3,7 +3,11 @@ import { createContext, h } from "preact";
 import type { ComponentChildren } from "preact";
 import { useEffect, useMemo, useState } from "preact/hooks";
 
-import { EMPTY_ROUTE_PARAMS, HYDRATION_STATE_ELEMENT_ID } from "./runtime-constants.ts";
+import {
+  EMPTY_ROUTE_PARAMS,
+  EMPTY_ROUTE_SEARCH,
+  HYDRATION_STATE_ELEMENT_ID,
+} from "./runtime-constants.ts";
 import { revalidateRouteData, shouldRevalidateAfterCapability } from "./runtime-revalidate.ts";
 import type { HrefRouteDefinition, RouteParams } from "./types.ts";
 
@@ -13,6 +17,7 @@ export interface PrachtHydrationState<TData = unknown> {
   data: TData;
   error?: import("./runtime-errors.ts").SerializedRouteError | null;
   pending?: boolean;
+  search?: unknown;
 }
 
 export interface StartAppOptions<TData = unknown> {
@@ -31,6 +36,7 @@ export interface PrachtRuntimeValue {
   data: unknown;
   params: RouteParams;
   routeId: string;
+  search: unknown;
   routes?: readonly HrefRouteDefinition[];
   url: string;
   setData: (data: unknown) => void;
@@ -43,6 +49,7 @@ export function PrachtRuntimeProvider<TData>({
   data,
   params = EMPTY_ROUTE_PARAMS,
   routeId,
+  search = EMPTY_ROUTE_SEARCH,
   routes,
   stateVersion = 0,
   url,
@@ -51,6 +58,7 @@ export function PrachtRuntimeProvider<TData>({
   data: TData;
   params?: RouteParams;
   routeId: string;
+  search?: unknown;
   routes?: readonly HrefRouteDefinition[];
   stateVersion?: number;
   url: string;
@@ -81,6 +89,7 @@ export function PrachtRuntimeProvider<TData>({
       data: routeData,
       params,
       routeId,
+      search,
       routes,
       // Stamped with the route state this context belongs to, never with
       // whatever the provider rendered last: a revalidation started on one
@@ -99,7 +108,7 @@ export function PrachtRuntimeProvider<TData>({
     // `data` is deliberately not a dependency: it is read only as the `source`
     // stamp, and adding it would fan out a new context value on every
     // re-render above the provider (see runtime-context.test.ts).
-    [routeData, params, routeId, routes, stateVersion, url],
+    [routeData, params, routeId, routes, search, stateVersion, url],
   );
 
   // A fresh `data` prop for the same route state (a re-render above the
@@ -123,14 +132,15 @@ export function PrachtRuntimeProvider<TData>({
   // from the browser — `callCapability()` and `<Form capability>` announce
   // themselves via CAPABILITY_SETTLED_EVENT instead of importing the router.
   useEffect(() => {
+    const eventTarget = window;
     const handleSettled = (event: Event) => {
       if (!shouldRevalidateAfterCapability((event as CustomEvent).detail)) return;
       void revalidateRouteData(context).catch(() => {
         // Revalidation is best-effort; the mutation itself already succeeded.
       });
     };
-    window.addEventListener(CAPABILITY_SETTLED_EVENT, handleSettled);
-    return () => window.removeEventListener(CAPABILITY_SETTLED_EVENT, handleSettled);
+    eventTarget.addEventListener(CAPABILITY_SETTLED_EVENT, handleSettled);
+    return () => eventTarget.removeEventListener(CAPABILITY_SETTLED_EVENT, handleSettled);
   }, [context]);
 
   return h(RouteDataContext.Provider, {

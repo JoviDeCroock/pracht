@@ -301,10 +301,12 @@ export function ProductActions({ id }: { id: string }) {
 ```
 
 Generated types infer required params from `:param`, `*`, and `:name*`
-segments, so missing or extra params fail at compile time. Search params are
-currently typed as `SearchParamsInput` (`string`, `URLSearchParams`, or an
-object of primitive values/arrays); route-specific search schemas can be added
-later through route metadata without changing the runtime helper shape.
+segments, so missing or extra params fail at compile time. A route module can
+export a Standard Schema as `search`; typegen then uses its input type for
+`href()`, `<Link>`, and `navigate()`, while `useSearch(routeId)`, loaders, and
+components receive the validated output. Routes without a schema continue to
+accept `SearchParamsInput` and expose a raw string/string-array record. Invalid
+search renders the nearest route or shell `ErrorBoundary` with HTTP 400.
 
 The declaration also registers each route's loader data type, so
 `useRouteData("product")` returns the awaited return type of that route's

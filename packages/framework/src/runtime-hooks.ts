@@ -53,6 +53,7 @@ import type {
   RouteDataFor,
   RouteId,
   RouteParams,
+  RouteSearchOutputFor,
   RouteTarget,
 } from "./types.ts";
 
@@ -163,6 +164,19 @@ export function useLocation(): Location {
 
 export function useParams(): RouteParams {
   return useContext(RouteDataContext)?.params ?? {};
+}
+
+/** Read the active route's parsed and Standard Schema-validated URL search state. */
+export function useSearch<TRoute extends RouteId>(routeId: TRoute): RouteSearchOutputFor<TRoute>;
+export function useSearch<TSearch = Record<string, string | string[]>>(): TSearch;
+export function useSearch(routeId?: string): unknown {
+  const runtime = useContext(RouteDataContext);
+  if (import.meta.env?.DEV && routeId !== undefined && runtime && runtime.routeId !== routeId) {
+    console.warn(
+      `useSearch("${routeId}") rendered inside route "${runtime.routeId}"; returning the active route's search state.`,
+    );
+  }
+  return runtime?.search ?? {};
 }
 
 export function useRevalidate() {

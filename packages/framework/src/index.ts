@@ -143,6 +143,7 @@ export {
   useParams,
   useRevalidate,
   useRouteData,
+  useSearch,
   PrachtRuntimeProvider,
 } from "./runtime.ts";
 export { prefetch, type PrefetchFn } from "./prefetch-api.ts";
@@ -280,6 +281,10 @@ export type {
   RouteRevalidate,
   RouteRevalidatePolicy,
   RouteSearchFor,
+  RouteSearchInput,
+  RouteSearchOutput,
+  RouteSearchOutputFor,
+  RouteSearchRecord,
   RouteTarget,
   RouteTreeNode,
   SearchParamPrimitive,

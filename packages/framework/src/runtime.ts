@@ -46,6 +46,7 @@ import {
   renderApiErrorResponse,
   renderRouteErrorResponse,
 } from "./runtime-response.ts";
+import { resolveRouteSearch } from "./route-search.ts";
 import { withRouteResponseHeaders } from "./runtime-headers.ts";
 import { markdownResponse, prefersMarkdown } from "./runtime-negotiation.ts";
 import type { PrachtPhaseTimings } from "./runtime-timing.ts";
@@ -638,13 +639,14 @@ export async function handlePrachtRequest<TContext>(
   ): Promise<Response> {
     const requestSignal = AbortSignal.timeout(30_000);
     const pageContext = requestContext;
-    const routeArgs: BaseRouteArgs<TContext> = {
+    const routeArgs: BaseRouteArgs<TContext> & { search: unknown } = {
       request: options.request,
       params: match.params,
       context: pageContext,
       signal: requestSignal,
       url,
       route: match.route,
+      search: {},
     };
     let routeModulePromise: Promise<RouteModule | undefined> | undefined;
     let routeModule: RouteModule | undefined;
@@ -696,6 +698,8 @@ export async function handlePrachtRequest<TContext>(
               : "Route module not found",
           );
         }
+
+        routeArgs.search = await resolveRouteSearch(routeModule, url.searchParams);
 
         currentPhase = "loader";
         const { loader, loaderFile: resolvedLoaderFile } = await dataFunctionsPromise;
@@ -785,6 +789,7 @@ export async function handlePrachtRequest<TContext>(
                 data: null,
                 params: match.params,
                 routeId: match.route.id ?? "",
+                search: routeArgs.search,
                 routes: resolvedApp.routes,
                 url: requestPath,
               },
@@ -801,6 +806,7 @@ export async function handlePrachtRequest<TContext>(
               hydrationState: {
                 url: requestPath,
                 routeId: match.route.id ?? "",
+                search: routeArgs.search,
                 data: null,
                 error: null,
                 pending: true,
@@ -827,7 +833,7 @@ export async function handlePrachtRequest<TContext>(
 
         const Shell = shellModule?.Shell as FunctionComponent<Record<string, unknown>> | undefined;
         const Comp = Component as FunctionComponent<Record<string, unknown>>;
-        const componentProps = { data, params: match.params };
+        const componentProps = { data, params: match.params, search: routeArgs.search };
 
         const componentTree = Shell
           ? h(Shell, null, h(Comp, componentProps))
@@ -839,6 +845,7 @@ export async function handlePrachtRequest<TContext>(
             data,
             params: match.params,
             routeId: match.route.id ?? "",
+            search: routeArgs.search,
             routes: resolvedApp.routes,
             url: requestPath,
           },
@@ -924,6 +931,7 @@ export async function handlePrachtRequest<TContext>(
             hydrationState: {
               url: requestPath,
               routeId: match.route.id ?? "",
+              search: routeArgs.search,
               data,
               error: null,
             },
@@ -1135,6 +1143,7 @@ export {
   useParams,
   useRevalidate,
   useRouteData,
+  useSearch,
   type FormProps,
   type LinkProps,
   type Location,

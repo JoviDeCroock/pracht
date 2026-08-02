@@ -33,12 +33,16 @@ describe("@pracht/cli typegen routes", () => {
       routes: 3,
     });
     expect(declaration).toContain(
-      'import type { ApiRouteMethodMap, RouteLoaderData, RouteParamInput, SearchParamsInput } from "@pracht/core";',
+      'import type { ApiRouteMethodMap, RouteLoaderData, RouteParamInput, RouteSearchInput, RouteSearchOutput, SearchParamsInput } from "@pracht/core";',
     );
     expect(declaration).toContain('"home": {');
     expect(declaration).toContain("params: Record<never, never>;");
     expect(declaration).toContain('"product": {');
     expect(declaration).toContain('params: { "id": RouteParamInput; };');
+    expect(declaration).toContain('search: RouteSearchInput<typeof import("./routes/product")>;');
+    expect(declaration).toContain(
+      'searchOutput: RouteSearchOutput<typeof import("./routes/product")>;',
+    );
     // Route without a loader still points at its module; RouteLoaderData
     // resolves to undefined until a loader export appears.
     expect(declaration).toContain('data: RouteLoaderData<typeof import("./routes/home")>;');
