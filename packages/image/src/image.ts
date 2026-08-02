@@ -5,8 +5,12 @@ import { getImageConfig } from "./config.ts";
 import type { ImageLoader } from "./loaders.ts";
 import type { PrachtImageMetadata } from "./metadata.ts";
 
+type ImageElementProps = JSX.IntrinsicElements["img"];
+type SignalValue = { value: unknown };
+type ImageCssProperties = Exclude<NonNullable<ImageElementProps["style"]>, string | SignalValue>;
+
 export interface ImageProps extends Omit<
-  JSX.HTMLAttributes<HTMLImageElement>,
+  ImageElementProps,
   | "src"
   | "srcset"
   | "srcSet"
@@ -63,10 +67,10 @@ export interface ImageProps extends Omit<
    * otherwise inject CSS via the style attribute).
    */
   blurDataURL?: string;
-  style?: string | JSX.CSSProperties;
+  style?: string | ImageCssProperties;
 }
 
-const FILL_STYLE: JSX.CSSProperties = {
+const FILL_STYLE: ImageCssProperties = {
   position: "absolute",
   height: "100%",
   width: "100%",
@@ -294,7 +298,7 @@ export function Image(props: ImageProps): VNode {
   // a plain CSS background on the <img> itself: SSR-safe, zero hydration —
   // the real image covers it as soon as it paints.
   const blur = safeBlurDataURL != null ? blurBackground(safeBlurDataURL) : undefined;
-  let mergedStyle: string | JSX.CSSProperties | undefined = style;
+  let mergedStyle: string | ImageCssProperties | undefined = style;
   if (blur || fill) {
     const baseString = `${blur?.styleString ?? ""}${fill ? FILL_STYLE_STRING : ""}`;
     mergedStyle =
@@ -303,7 +307,7 @@ export function Image(props: ImageProps): VNode {
         : {
             ...blur?.styleObject,
             ...(fill ? FILL_STYLE : undefined),
-            ...(style as JSX.CSSProperties | undefined),
+            ...(style as ImageCssProperties | undefined),
           };
   }
 

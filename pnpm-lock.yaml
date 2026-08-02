@@ -4,6 +4,10 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+overrides:
+  preact: 11.0.0-beta.2
+  preact-render-to-string: 6.7.0
+
 importers:
 
   .:
@@ -33,11 +37,11 @@ importers:
         specifier: ^1.58.0
         version: 1.58.0
       preact:
-        specifier: ^10.26.9
-        version: 10.29.1
+        specifier: 11.0.0-beta.2
+        version: 11.0.0-beta.2(preact-render-to-string@6.7.0)
       preact-render-to-string:
-        specifier: ^6.5.13
-        version: 6.6.7(preact@10.29.1)
+        specifier: 6.7.0
+        version: 6.7.0(preact@11.0.0-beta.2)
       tsdown:
         specifier: ^0.21.10
         version: 0.21.10(typescript@6.0.3)
@@ -49,7 +53,7 @@ importers:
         version: 8.0.3(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)(@types/node@22.19.17)(esbuild@0.27.3)(yaml@2.9.0)
       vitest:
         specifier: ^3.2.4
-        version: 3.2.4(@types/node@22.19.17)(jsdom@29.0.2)(lightningcss@1.32.0)(yaml@2.9.0)
+        version: 3.2.4(@types/node@22.19.17)(jsdom@29.0.2)(lightningcss@1.32.0)(supports-color@10.2.2)(yaml@2.9.0)
 
   examples/basic:
     dependencies:
@@ -91,11 +95,11 @@ importers:
         specifier: workspace:*
         version: link:../../packages/vite-plugin
       preact:
-        specifier: ^10.26.9
-        version: 10.29.1
+        specifier: 11.0.0-beta.2
+        version: 11.0.0-beta.2(preact-render-to-string@6.7.0)
       preact-render-to-string:
-        specifier: ^6.5.13
-        version: 6.6.7(preact@10.29.1)
+        specifier: 6.7.0
+        version: 6.7.0(preact@11.0.0-beta.2)
       vite:
         specifier: ^8.0.0
         version: 8.0.3(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)(@types/node@22.19.17)(esbuild@0.27.3)(yaml@2.9.0)
@@ -122,11 +126,11 @@ importers:
         specifier: workspace:*
         version: link:../../packages/vite-plugin
       preact:
-        specifier: ^10.26.9
-        version: 10.29.1
+        specifier: 11.0.0-beta.2
+        version: 11.0.0-beta.2(preact-render-to-string@6.7.0)
       preact-render-to-string:
-        specifier: ^6.5.13
-        version: 6.6.7(preact@10.29.1)
+        specifier: 6.7.0
+        version: 6.7.0(preact@11.0.0-beta.2)
       vite:
         specifier: ^8.0.0
         version: 8.0.3(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)(@types/node@22.19.17)(esbuild@0.27.3)(yaml@2.9.0)
@@ -144,7 +148,7 @@ importers:
         version: link:../../packages/framework
       '@tabler/icons-preact':
         specifier: ^3.41.1
-        version: 3.41.1(preact@10.29.1)
+        version: 3.41.1(preact@11.0.0-beta.2)
       wrangler:
         specifier: ^4.80.0
         version: 4.80.0
@@ -159,11 +163,11 @@ importers:
         specifier: ^18.0.0
         version: 18.0.0
       preact:
-        specifier: ^10.26.9
-        version: 10.29.1
+        specifier: 11.0.0-beta.2
+        version: 11.0.0-beta.2(preact-render-to-string@6.7.0)
       preact-render-to-string:
-        specifier: ^6.5.13
-        version: 6.6.7(preact@10.29.1)
+        specifier: 6.7.0
+        version: 6.7.0(preact@11.0.0-beta.2)
       vite:
         specifier: ^8.0.0
         version: 8.0.3(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)(@types/node@22.19.17)(esbuild@0.27.3)(yaml@2.9.0)
@@ -184,11 +188,11 @@ importers:
         specifier: workspace:*
         version: link:../../packages/vite-plugin
       preact:
-        specifier: ^10.26.9
-        version: 10.29.1
+        specifier: 11.0.0-beta.2
+        version: 11.0.0-beta.2(preact-render-to-string@6.7.0)
       preact-render-to-string:
-        specifier: ^6.5.13
-        version: 6.6.7(preact@10.29.1)
+        specifier: 6.7.0
+        version: 6.7.0(preact@11.0.0-beta.2)
       vite:
         specifier: ^8.0.0
         version: 8.0.3(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)(@types/node@22.19.17)(esbuild@0.27.3)(yaml@2.9.0)
@@ -218,11 +222,11 @@ importers:
         specifier: workspace:*
         version: link:../../packages/vite-plugin
       preact:
-        specifier: ^10.26.9
-        version: 10.29.1
+        specifier: 11.0.0-beta.2
+        version: 11.0.0-beta.2(preact-render-to-string@6.7.0)
       preact-render-to-string:
-        specifier: ^6.5.13
-        version: 6.6.7(preact@10.29.1)
+        specifier: 6.7.0
+        version: 6.7.0(preact@11.0.0-beta.2)
       vite:
         specifier: ^8.0.0
         version: 8.0.3(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)(@types/node@22.19.17)(esbuild@0.27.3)(yaml@2.9.0)
@@ -246,11 +250,11 @@ importers:
         specifier: workspace:*
         version: link:../../packages/vite-plugin
       preact:
-        specifier: ^10.26.9
-        version: 10.29.1
+        specifier: 11.0.0-beta.2
+        version: 11.0.0-beta.2(preact-render-to-string@6.7.0)
       preact-render-to-string:
-        specifier: ^6.5.13
-        version: 6.6.7(preact@10.29.1)
+        specifier: 6.7.0
+        version: 6.7.0(preact@11.0.0-beta.2)
       vite:
         specifier: ^8.0.0
         version: 8.0.3(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)(@types/node@22.19.17)(esbuild@0.27.3)(yaml@2.9.0)
@@ -272,13 +276,13 @@ importers:
         version: link:../../packages/vite-plugin
       '@tsrx/vite-plugin-preact':
         specifier: ^0.0.3
-        version: 0.0.3(preact@10.29.1)(vite@8.0.3(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)(@types/node@22.19.17)(esbuild@0.27.3)(yaml@2.9.0))
+        version: 0.0.3(preact@11.0.0-beta.2)(vite@8.0.3(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)(@types/node@22.19.17)(esbuild@0.27.3)(yaml@2.9.0))
       preact:
-        specifier: ^10.26.9
-        version: 10.29.1
+        specifier: 11.0.0-beta.2
+        version: 11.0.0-beta.2(preact-render-to-string@6.7.0)
       preact-render-to-string:
-        specifier: ^6.5.13
-        version: 6.6.7(preact@10.29.1)
+        specifier: 6.7.0
+        version: 6.7.0(preact@11.0.0-beta.2)
       vite:
         specifier: ^8.0.0
         version: 8.0.3(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)(@types/node@22.19.17)(esbuild@0.27.3)(yaml@2.9.0)
@@ -328,7 +332,7 @@ importers:
     dependencies:
       '@modelcontextprotocol/sdk':
         specifier: ^1.29.0
-        version: 1.29.0(zod@4.4.3)
+        version: 1.29.0(supports-color@10.2.2)(zod@4.4.3)
       '@pracht/capabilities':
         specifier: workspace:*
         version: link:../capabilities
@@ -351,20 +355,20 @@ importers:
         specifier: ^1.0.0
         version: 1.1.0
       preact:
-        specifier: ^10.0.0 || ^11.0.0-0
-        version: 10.29.1
+        specifier: 11.0.0-beta.2
+        version: 11.0.0-beta.2(preact-render-to-string@6.7.0)
       preact-render-to-string:
-        specifier: ^6.0.0
-        version: 6.6.7(preact@10.29.1)
+        specifier: 6.7.0
+        version: 6.7.0(preact@11.0.0-beta.2)
       preact-suspense:
         specifier: ^0.3.0
-        version: 0.3.0(preact@10.29.1)
+        version: 0.3.0(preact@11.0.0-beta.2)
 
   packages/image:
     dependencies:
       preact:
-        specifier: ^10.0.0 || ^11.0.0-0
-        version: 10.29.1
+        specifier: 11.0.0-beta.2
+        version: 11.0.0-beta.2(preact-render-to-string@6.7.0)
     devDependencies:
       sharp:
         specifier: ^0.34.0
@@ -391,11 +395,11 @@ importers:
   packages/preact-ssr-precompile:
     dependencies:
       preact:
-        specifier: ^10.26.0 || ^11.0.0-0
-        version: 10.29.1
+        specifier: 11.0.0-beta.2
+        version: 11.0.0-beta.2(preact-render-to-string@6.7.0)
       preact-render-to-string:
-        specifier: ^6.5.13
-        version: 6.6.7(preact@10.29.1)
+        specifier: 6.7.0
+        version: 6.7.0(preact@11.0.0-beta.2)
       rolldown:
         specifier: ^1.0.0-rc.12
         version: 1.0.0-rc.12(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)
@@ -434,10 +438,10 @@ importers:
         version: link:../preact-ssr-precompile
       '@preact/preset-vite':
         specifier: ^2.10.5
-        version: 2.10.5(@babel/core@7.29.0)(preact@10.29.1)(rollup@4.60.1)(vite@8.0.3(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)(@types/node@22.19.17)(esbuild@0.27.3)(yaml@2.9.0))
+        version: 2.10.5(@babel/core@7.29.0(supports-color@10.2.2))(preact@11.0.0-beta.2)(rollup@4.60.1)(supports-color@10.2.2)(vite@8.0.3(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)(@types/node@22.19.17)(esbuild@0.27.3)(yaml@2.9.0))
       '@prefresh/vite':
         specifier: ^2.0.0
-        version: 2.4.12(preact@10.29.1)(vite@8.0.3(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)(@types/node@22.19.17)(esbuild@0.27.3)(yaml@2.9.0))
+        version: 2.4.12(preact@11.0.0-beta.2)(supports-color@10.2.2)(vite@8.0.3(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)(@types/node@22.19.17)(esbuild@0.27.3)(yaml@2.9.0))
       vite:
         specifier: ^8.0.0
         version: 8.0.3(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)(@types/node@22.19.17)(esbuild@0.27.3)(yaml@2.9.0)
@@ -1603,7 +1607,7 @@ packages:
   '@prefresh/core@1.5.9':
     resolution: {integrity: sha512-IKBKCPaz34OFVC+adiQ2qaTF5qdztO2/4ZPf4KsRTgjKosWqxVXmEbxCiUydYZRY8GVie+DQlKzQr9gt6HQ+EQ==}
     peerDependencies:
-      preact: ^10.0.0 || ^11.0.0-0
+      preact: 11.0.0-beta.2
 
   '@prefresh/utils@1.2.1':
     resolution: {integrity: sha512-vq/sIuN5nYfYzvyayXI4C2QkprfNaHUQ9ZX+3xLD8nL3rWyzpxOm1+K7RtMbhd+66QcaISViK7amjnheQ/4WZw==}
@@ -1611,7 +1615,7 @@ packages:
   '@prefresh/vite@2.4.12':
     resolution: {integrity: sha512-FY1fzXpUjiuosznMV0YM7XAOPZjB5FIdWS0W24+XnlxYkt9hNAwwsiKYn+cuTEoMtD/ZVazS5QVssBr9YhpCQA==}
     peerDependencies:
-      preact: ^10.4.0 || ^11.0.0-0
+      preact: 11.0.0-beta.2
       vite: '>=2.0.0'
 
   '@quansync/fs@1.0.0':
@@ -1982,7 +1986,7 @@ packages:
   '@tabler/icons-preact@3.41.1':
     resolution: {integrity: sha512-H27Fzpk3lgj/AC4waJ/YGFPrvrR5MXeLbPhl23V6GWWC8uJ27rU7DVVVNI6hFoKVjpl+KlkmH2SUPissy5LJ+w==}
     peerDependencies:
-      preact: ^10.5.13
+      preact: 11.0.0-beta.2
 
   '@tabler/icons@3.41.1':
     resolution: {integrity: sha512-OaRnVbRmH2nHtFeg+RmMJ/7m2oBIF9XCJAUD5gQnMrpK9f05ydj8MZrAf3NZQqOXyxGN1UBL0D5IKLLEUfr74Q==}
@@ -1993,7 +1997,7 @@ packages:
   '@tsrx/preact@0.0.3':
     resolution: {integrity: sha512-OgbypbFLbLm/WJwSaRyUgR3Ew/qJGKhwzru9YHu8lj1DZNUf/NNiboiWlmfOahrg/r8MijSnUQKJH0Ubw3IeSg==}
     peerDependencies:
-      preact: '>=10'
+      preact: 11.0.0-beta.2
 
   '@tsrx/vite-plugin-preact@0.0.3':
     resolution: {integrity: sha512-0b0FEAema2TqmgguF/foiv/1jsMpiajylyK7seq9q3QLf+4evepupR0eDtD+xQV9Zt/rJ5A3g50qbCiSVaW6zg==}
@@ -2788,18 +2792,23 @@ packages:
     resolution: {integrity: sha512-OW/rX8O/jXnm82Ey1k44pObPtdblfiuWnrd8X7GJ7emImCOstunGbXUpp7HdBrFQX6rJzn3sPT397Wp5aCwCHg==}
     engines: {node: ^10 || ^12 || >=14}
 
-  preact-render-to-string@6.6.7:
-    resolution: {integrity: sha512-3XdbsX3+vn9dQW+jJI/FsI9rlkgl6dbeUpqLsChak6jp3j3auFqBCkno7VChbMFs5Q8ylBj6DrUkKRwtVN3nvw==}
+  preact-render-to-string@6.7.0:
+    resolution: {integrity: sha512-Z4WR8fmLMRpdYqJ9i7vrlXSsSrxVJydwrkEXHapexfARbWfGb7vGcnvNQnIzN0cXciMVOlz/XLoiMCi9gUsy9Q==}
     peerDependencies:
-      preact: '>=10 || >= 11.0.0-0'
+      preact: 11.0.0-beta.2
 
   preact-suspense@0.3.0:
     resolution: {integrity: sha512-mKcwdDwvpEtRQ8dG8eNN2//GRxP84bI6q+j4D+WVkF8fSc7Aikk3sAhCj6SpGG8gyFUxE+Nu5ej6vqzPFqe8dg==}
     peerDependencies:
-      preact: ^10.0.0
+      preact: 11.0.0-beta.2
 
-  preact@10.29.1:
-    resolution: {integrity: sha512-gQCLc/vWroE8lIpleXtdJhTFDogTdZG9AjMUpVkDf2iTCNwYNWA+u16dL41TqUDJO4gm2IgrcMv3uTpjd4Pwmg==}
+  preact@11.0.0-beta.2:
+    resolution: {integrity: sha512-7nIgtr4wtls48+fuazknYNuZ3tOuJoo9ZrT+dzXrMBWkcQH5xmOJiibJpmbU8sFmo2IKLFe3eMp84n0Lq0dCHg==}
+    peerDependencies:
+      preact-render-to-string: 6.7.0
+    peerDependenciesMeta:
+      preact-render-to-string:
+        optional: true
 
   proxy-addr@2.0.7:
     resolution: {integrity: sha512-llQsMLSUDUPT44jdrU/O37qlnifitDP+ZwrmmZcoSKyLKvtZxpyV0n2/bD/N4tBAAZ/gJEdZU7KMraoK1+XYAg==}
@@ -3384,20 +3393,20 @@ snapshots:
 
   '@babel/compat-data@7.29.0': {}
 
-  '@babel/core@7.29.0':
+  '@babel/core@7.29.0(supports-color@10.2.2)':
     dependencies:
       '@babel/code-frame': 7.29.0
       '@babel/generator': 7.29.1
       '@babel/helper-compilation-targets': 7.28.6
-      '@babel/helper-module-transforms': 7.28.6(@babel/core@7.29.0)
+      '@babel/helper-module-transforms': 7.28.6(@babel/core@7.29.0(supports-color@10.2.2))(supports-color@10.2.2)
       '@babel/helpers': 7.29.2
       '@babel/parser': 7.29.2
       '@babel/template': 7.28.6
-      '@babel/traverse': 7.29.0
+      '@babel/traverse': 7.29.0(supports-color@10.2.2)
       '@babel/types': 7.29.0
       '@jridgewell/remapping': 2.3.5
       convert-source-map: 2.0.0
-      debug: 4.4.3
+      debug: 4.4.3(supports-color@10.2.2)
       gensync: 1.0.0-beta.2
       json5: 2.2.3
       semver: 6.3.1
@@ -3435,19 +3444,19 @@ snapshots:
 
   '@babel/helper-globals@7.28.0': {}
 
-  '@babel/helper-module-imports@7.28.6':
+  '@babel/helper-module-imports@7.28.6(supports-color@10.2.2)':
     dependencies:
-      '@babel/traverse': 7.29.0
+      '@babel/traverse': 7.29.0(supports-color@10.2.2)
       '@babel/types': 7.29.0
     transitivePeerDependencies:
       - supports-color
 
-  '@babel/helper-module-transforms@7.28.6(@babel/core@7.29.0)':
+  '@babel/helper-module-transforms@7.28.6(@babel/core@7.29.0(supports-color@10.2.2))(supports-color@10.2.2)':
     dependencies:
-      '@babel/core': 7.29.0
-      '@babel/helper-module-imports': 7.28.6
+      '@babel/core': 7.29.0(supports-color@10.2.2)
+      '@babel/helper-module-imports': 7.28.6(supports-color@10.2.2)
       '@babel/helper-validator-identifier': 7.28.5
-      '@babel/traverse': 7.29.0
+      '@babel/traverse': 7.29.0(supports-color@10.2.2)
     transitivePeerDependencies:
       - supports-color
 
@@ -3476,25 +3485,25 @@ snapshots:
     dependencies:
       '@babel/types': 8.0.0-rc.3
 
-  '@babel/plugin-syntax-jsx@7.28.6(@babel/core@7.29.0)':
+  '@babel/plugin-syntax-jsx@7.28.6(@babel/core@7.29.0(supports-color@10.2.2))':
     dependencies:
-      '@babel/core': 7.29.0
+      '@babel/core': 7.29.0(supports-color@10.2.2)
       '@babel/helper-plugin-utils': 7.28.6
 
-  '@babel/plugin-transform-react-jsx-development@7.27.1(@babel/core@7.29.0)':
+  '@babel/plugin-transform-react-jsx-development@7.27.1(@babel/core@7.29.0(supports-color@10.2.2))(supports-color@10.2.2)':
     dependencies:
-      '@babel/core': 7.29.0
-      '@babel/plugin-transform-react-jsx': 7.28.6(@babel/core@7.29.0)
+      '@babel/core': 7.29.0(supports-color@10.2.2)
+      '@babel/plugin-transform-react-jsx': 7.28.6(@babel/core@7.29.0(supports-color@10.2.2))(supports-color@10.2.2)
     transitivePeerDependencies:
       - supports-color
 
-  '@babel/plugin-transform-react-jsx@7.28.6(@babel/core@7.29.0)':
+  '@babel/plugin-transform-react-jsx@7.28.6(@babel/core@7.29.0(supports-color@10.2.2))(supports-color@10.2.2)':
     dependencies:
-      '@babel/core': 7.29.0
+      '@babel/core': 7.29.0(supports-color@10.2.2)
       '@babel/helper-annotate-as-pure': 7.27.3
-      '@babel/helper-module-imports': 7.28.6
+      '@babel/helper-module-imports': 7.28.6(supports-color@10.2.2)
       '@babel/helper-plugin-utils': 7.28.6
-      '@babel/plugin-syntax-jsx': 7.28.6(@babel/core@7.29.0)
+      '@babel/plugin-syntax-jsx': 7.28.6(@babel/core@7.29.0(supports-color@10.2.2))
       '@babel/types': 7.29.0
     transitivePeerDependencies:
       - supports-color
@@ -3505,7 +3514,7 @@ snapshots:
       '@babel/parser': 7.29.2
       '@babel/types': 7.29.0
 
-  '@babel/traverse@7.29.0':
+  '@babel/traverse@7.29.0(supports-color@10.2.2)':
     dependencies:
       '@babel/code-frame': 7.29.0
       '@babel/generator': 7.29.1
@@ -3513,7 +3522,7 @@ snapshots:
       '@babel/parser': 7.29.2
       '@babel/template': 7.28.6
       '@babel/types': 7.29.0
-      debug: 4.4.3
+      debug: 4.4.3(supports-color@10.2.2)
     transitivePeerDependencies:
       - supports-color
 
@@ -4067,7 +4076,7 @@ snapshots:
       tinyglobby: 0.2.17
       yaml: 2.9.0
 
-  '@modelcontextprotocol/sdk@1.29.0(zod@4.4.3)':
+  '@modelcontextprotocol/sdk@1.29.0(supports-color@10.2.2)(zod@4.4.3)':
     dependencies:
       '@hono/node-server': 1.19.14(hono@4.12.27)
       ajv: 8.20.0
@@ -4077,8 +4086,8 @@ snapshots:
       cross-spawn: 7.0.6
       eventsource: 3.0.7
       eventsource-parser: 3.1.0
-      express: 5.2.1
-      express-rate-limit: 8.5.2(express@5.2.1)
+      express: 5.2.1(supports-color@10.2.2)
+      express-rate-limit: 8.5.2(express@5.2.1(supports-color@10.2.2))
       hono: 4.12.27
       jose: 6.2.3
       json-schema-typed: 8.0.2
@@ -4245,15 +4254,15 @@ snapshots:
 
   '@poppinss/exception@1.2.3': {}
 
-  '@preact/preset-vite@2.10.5(@babel/core@7.29.0)(preact@10.29.1)(rollup@4.60.1)(vite@8.0.3(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)(@types/node@22.19.17)(esbuild@0.27.3)(yaml@2.9.0))':
+  '@preact/preset-vite@2.10.5(@babel/core@7.29.0(supports-color@10.2.2))(preact@11.0.0-beta.2)(rollup@4.60.1)(supports-color@10.2.2)(vite@8.0.3(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)(@types/node@22.19.17)(esbuild@0.27.3)(yaml@2.9.0))':
     dependencies:
-      '@babel/core': 7.29.0
-      '@babel/plugin-transform-react-jsx': 7.28.6(@babel/core@7.29.0)
-      '@babel/plugin-transform-react-jsx-development': 7.27.1(@babel/core@7.29.0)
-      '@prefresh/vite': 2.4.12(preact@10.29.1)(vite@8.0.3(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)(@types/node@22.19.17)(esbuild@0.27.3)(yaml@2.9.0))
+      '@babel/core': 7.29.0(supports-color@10.2.2)
+      '@babel/plugin-transform-react-jsx': 7.28.6(@babel/core@7.29.0(supports-color@10.2.2))(supports-color@10.2.2)
+      '@babel/plugin-transform-react-jsx-development': 7.27.1(@babel/core@7.29.0(supports-color@10.2.2))(supports-color@10.2.2)
+      '@prefresh/vite': 2.4.12(preact@11.0.0-beta.2)(supports-color@10.2.2)(vite@8.0.3(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)(@types/node@22.19.17)(esbuild@0.27.3)(yaml@2.9.0))
       '@rollup/pluginutils': 5.3.0(rollup@4.60.1)
-      babel-plugin-transform-hook-names: 1.0.2(@babel/core@7.29.0)
-      debug: 4.4.3
+      babel-plugin-transform-hook-names: 1.0.2(@babel/core@7.29.0(supports-color@10.2.2))
+      debug: 4.4.3(supports-color@10.2.2)
       magic-string: 0.30.21
       picocolors: 1.1.1
       vite: 8.0.3(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)(@types/node@22.19.17)(esbuild@0.27.3)(yaml@2.9.0)
@@ -4266,20 +4275,20 @@ snapshots:
 
   '@prefresh/babel-plugin@0.5.3': {}
 
-  '@prefresh/core@1.5.9(preact@10.29.1)':
+  '@prefresh/core@1.5.9(preact@11.0.0-beta.2)':
     dependencies:
-      preact: 10.29.1
+      preact: 11.0.0-beta.2(preact-render-to-string@6.7.0)
 
   '@prefresh/utils@1.2.1': {}
 
-  '@prefresh/vite@2.4.12(preact@10.29.1)(vite@8.0.3(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)(@types/node@22.19.17)(esbuild@0.27.3)(yaml@2.9.0))':
+  '@prefresh/vite@2.4.12(preact@11.0.0-beta.2)(supports-color@10.2.2)(vite@8.0.3(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)(@types/node@22.19.17)(esbuild@0.27.3)(yaml@2.9.0))':
     dependencies:
-      '@babel/core': 7.29.0
+      '@babel/core': 7.29.0(supports-color@10.2.2)
       '@prefresh/babel-plugin': 0.5.3
-      '@prefresh/core': 1.5.9(preact@10.29.1)
+      '@prefresh/core': 1.5.9(preact@11.0.0-beta.2)
       '@prefresh/utils': 1.2.1
       '@rollup/pluginutils': 4.2.1
-      preact: 10.29.1
+      preact: 11.0.0-beta.2(preact-render-to-string@6.7.0)
       vite: 8.0.3(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)(@types/node@22.19.17)(esbuild@0.27.3)(yaml@2.9.0)
     transitivePeerDependencies:
       - supports-color
@@ -4489,10 +4498,10 @@ snapshots:
     dependencies:
       acorn: 8.16.0
 
-  '@tabler/icons-preact@3.41.1(preact@10.29.1)':
+  '@tabler/icons-preact@3.41.1(preact@11.0.0-beta.2)':
     dependencies:
       '@tabler/icons': 3.41.1
-      preact: 10.29.1
+      preact: 11.0.0-beta.2(preact-render-to-string@6.7.0)
 
   '@tabler/icons@3.41.1': {}
 
@@ -4510,18 +4519,18 @@ snapshots:
     transitivePeerDependencies:
       - '@typescript-eslint/types'
 
-  '@tsrx/preact@0.0.3(preact@10.29.1)':
+  '@tsrx/preact@0.0.3(preact@11.0.0-beta.2)':
     dependencies:
       '@tsrx/core': 0.0.8
       esrap: 2.2.5
-      preact: 10.29.1
+      preact: 11.0.0-beta.2(preact-render-to-string@6.7.0)
       zimmerframe: 1.1.4
     transitivePeerDependencies:
       - '@typescript-eslint/types'
 
-  '@tsrx/vite-plugin-preact@0.0.3(preact@10.29.1)(vite@8.0.3(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)(@types/node@22.19.17)(esbuild@0.27.3)(yaml@2.9.0))':
+  '@tsrx/vite-plugin-preact@0.0.3(preact@11.0.0-beta.2)(vite@8.0.3(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)(@types/node@22.19.17)(esbuild@0.27.3)(yaml@2.9.0))':
     dependencies:
-      '@tsrx/preact': 0.0.3(preact@10.29.1)
+      '@tsrx/preact': 0.0.3(preact@11.0.0-beta.2)
       vite: 8.0.3(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)(@types/node@22.19.17)(esbuild@0.27.3)(yaml@2.9.0)
     transitivePeerDependencies:
       - '@typescript-eslint/types'
@@ -4626,9 +4635,9 @@ snapshots:
       estree-walker: 3.0.3
       pathe: 2.0.3
 
-  babel-plugin-transform-hook-names@1.0.2(@babel/core@7.29.0):
+  babel-plugin-transform-hook-names@1.0.2(@babel/core@7.29.0(supports-color@10.2.2)):
     dependencies:
-      '@babel/core': 7.29.0
+      '@babel/core': 7.29.0(supports-color@10.2.2)
 
   baseline-browser-mapping@2.10.15: {}
 
@@ -4640,11 +4649,11 @@ snapshots:
 
   blake3-wasm@2.1.5: {}
 
-  body-parser@2.3.0:
+  body-parser@2.3.0(supports-color@10.2.2):
     dependencies:
       bytes: 3.1.2
       content-type: 2.0.0
-      debug: 4.4.3
+      debug: 4.4.3(supports-color@10.2.2)
       http-errors: 2.0.1
       iconv-lite: 0.7.2
       on-finished: 2.4.1
@@ -4747,9 +4756,11 @@ snapshots:
 
   dataloader@1.4.0: {}
 
-  debug@4.4.3:
+  debug@4.4.3(supports-color@10.2.2):
     dependencies:
       ms: 2.1.3
+    optionalDependencies:
+      supports-color: 10.2.2
 
   decimal.js@10.6.0: {}
 
@@ -4895,25 +4906,25 @@ snapshots:
 
   expect-type@1.3.0: {}
 
-  express-rate-limit@8.5.2(express@5.2.1):
+  express-rate-limit@8.5.2(express@5.2.1(supports-color@10.2.2)):
     dependencies:
-      express: 5.2.1
+      express: 5.2.1(supports-color@10.2.2)
       ip-address: 10.2.0
 
-  express@5.2.1:
+  express@5.2.1(supports-color@10.2.2):
     dependencies:
       accepts: 2.0.0
-      body-parser: 2.3.0
+      body-parser: 2.3.0(supports-color@10.2.2)
       content-disposition: 1.1.0
       content-type: 1.0.5
       cookie: 0.7.2
       cookie-signature: 1.2.2
-      debug: 4.4.3
+      debug: 4.4.3(supports-color@10.2.2)
       depd: 2.0.0
       encodeurl: 2.0.0
       escape-html: 1.0.3
       etag: 1.8.1
-      finalhandler: 2.1.1
+      finalhandler: 2.1.1(supports-color@10.2.2)
       fresh: 2.0.0
       http-errors: 2.0.1
       merge-descriptors: 2.0.0
@@ -4924,9 +4935,9 @@ snapshots:
       proxy-addr: 2.0.7
       qs: 6.15.3
       range-parser: 1.3.0
-      router: 2.2.0
-      send: 1.2.1
-      serve-static: 2.2.1
+      router: 2.2.0(supports-color@10.2.2)
+      send: 1.2.1(supports-color@10.2.2)
+      serve-static: 2.2.1(supports-color@10.2.2)
       statuses: 2.0.2
       type-is: 2.1.0
       vary: 1.1.2
@@ -4951,9 +4962,9 @@ snapshots:
     optionalDependencies:
       picomatch: 4.0.4
 
-  finalhandler@2.1.1:
+  finalhandler@2.1.1(supports-color@10.2.2):
     dependencies:
-      debug: 4.4.3
+      debug: 4.4.3(supports-color@10.2.2)
       encodeurl: 2.0.0
       escape-html: 1.0.3
       on-finished: 2.4.1
@@ -5327,15 +5338,17 @@ snapshots:
       picocolors: 1.1.1
       source-map-js: 1.2.1
 
-  preact-render-to-string@6.6.7(preact@10.29.1):
+  preact-render-to-string@6.7.0(preact@11.0.0-beta.2):
     dependencies:
-      preact: 10.29.1
+      preact: 11.0.0-beta.2(preact-render-to-string@6.7.0)
 
-  preact-suspense@0.3.0(preact@10.29.1):
+  preact-suspense@0.3.0(preact@11.0.0-beta.2):
     dependencies:
-      preact: 10.29.1
+      preact: 11.0.0-beta.2(preact-render-to-string@6.7.0)
 
-  preact@10.29.1: {}
+  preact@11.0.0-beta.2(preact-render-to-string@6.7.0):
+    optionalDependencies:
+      preact-render-to-string: 6.7.0(preact@11.0.0-beta.2)
 
   proxy-addr@2.0.7:
     dependencies:
@@ -5464,9 +5477,9 @@ snapshots:
       '@rollup/rollup-win32-x64-msvc': 4.60.1
       fsevents: 2.3.3
 
-  router@2.2.0:
+  router@2.2.0(supports-color@10.2.2):
     dependencies:
-      debug: 4.4.3
+      debug: 4.4.3(supports-color@10.2.2)
       depd: 2.0.0
       is-promise: 4.0.0
       parseurl: 1.3.3
@@ -5486,9 +5499,9 @@ snapshots:
 
   semver@7.8.5: {}
 
-  send@1.2.1:
+  send@1.2.1(supports-color@10.2.2):
     dependencies:
-      debug: 4.4.3
+      debug: 4.4.3(supports-color@10.2.2)
       encodeurl: 2.0.0
       escape-html: 1.0.3
       etag: 1.8.1
@@ -5502,12 +5515,12 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  serve-static@2.2.1:
+  serve-static@2.2.1(supports-color@10.2.2):
     dependencies:
       encodeurl: 2.0.0
       escape-html: 1.0.3
       parseurl: 1.3.3
-      send: 1.2.1
+      send: 1.2.1(supports-color@10.2.2)
     transitivePeerDependencies:
       - supports-color
 
@@ -5721,10 +5734,10 @@ snapshots:
 
   vary@1.1.2: {}
 
-  vite-node@3.2.4(@types/node@22.19.17)(lightningcss@1.32.0)(yaml@2.9.0):
+  vite-node@3.2.4(@types/node@22.19.17)(lightningcss@1.32.0)(supports-color@10.2.2)(yaml@2.9.0):
     dependencies:
       cac: 6.7.14
-      debug: 4.4.3
+      debug: 4.4.3(supports-color@10.2.2)
       es-module-lexer: 1.7.0
       pathe: 2.0.3
       vite: 6.4.1(@types/node@22.19.17)(lightningcss@1.32.0)(yaml@2.9.0)
@@ -5782,7 +5795,7 @@ snapshots:
       - '@emnapi/core'
       - '@emnapi/runtime'
 
-  vitest@3.2.4(@types/node@22.19.17)(jsdom@29.0.2)(lightningcss@1.32.0)(yaml@2.9.0):
+  vitest@3.2.4(@types/node@22.19.17)(jsdom@29.0.2)(lightningcss@1.32.0)(supports-color@10.2.2)(yaml@2.9.0):
     dependencies:
       '@types/chai': 5.2.3
       '@vitest/expect': 3.2.4
@@ -5793,7 +5806,7 @@ snapshots:
       '@vitest/spy': 3.2.4
       '@vitest/utils': 3.2.4
       chai: 5.3.3
-      debug: 4.4.3
+      debug: 4.4.3(supports-color@10.2.2)
       expect-type: 1.3.0
       magic-string: 0.30.21
       pathe: 2.0.3
@@ -5805,7 +5818,7 @@ snapshots:
       tinypool: 1.1.1
       tinyrainbow: 2.0.0
       vite: 6.4.1(@types/node@22.19.17)(lightningcss@1.32.0)(yaml@2.9.0)
-      vite-node: 3.2.4(@types/node@22.19.17)(lightningcss@1.32.0)(yaml@2.9.0)
+      vite-node: 3.2.4(@types/node@22.19.17)(lightningcss@1.32.0)(supports-color@10.2.2)(yaml@2.9.0)
       why-is-node-running: 2.3.0
     optionalDependencies:
       '@types/node': 22.19.17

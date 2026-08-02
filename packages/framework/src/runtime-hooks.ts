@@ -65,7 +65,7 @@ export type { Navigation, NavigationLocation } from "./navigation-state.ts";
 type CapabilityFormResult<TName extends string> = CapabilityEnvelope<CapabilityOutputFor<TName>>;
 
 export interface FormProps<TName extends HttpCapabilityName = HttpCapabilityName> extends Omit<
-  JSX.HTMLAttributes<HTMLFormElement>,
+  JSX.IntrinsicElements["form"],
   "action" | "method"
 > {
   /**
@@ -114,10 +114,7 @@ export interface FormProps<TName extends HttpCapabilityName = HttpCapabilityName
   onResponse?: (response: Response) => void;
 }
 
-export type LinkProps<TRoute extends RouteId = RouteId> = Omit<
-  JSX.HTMLAttributes<HTMLAnchorElement>,
-  "href"
-> &
+export type LinkProps<TRoute extends RouteId = RouteId> = Omit<JSX.IntrinsicElements["a"], "href"> &
   RouteTarget<TRoute> & {
     /**
      * Prefetch strategy for this link, overriding the route-level strategy:
@@ -243,7 +240,7 @@ export function Link<TRoute extends RouteId>(props: LinkProps<TRoute>) {
     [PREFETCH_ATTRIBUTE]: prefetch,
     [PRESERVE_SCROLL_ATTRIBUTE]: preserveScroll ? "" : undefined,
     [VIEW_TRANSITION_ATTRIBUTE]: viewTransition ? "" : undefined,
-  } as JSX.HTMLAttributes<HTMLAnchorElement>);
+  } as JSX.IntrinsicElements["a"] & { href: string });
 }
 
 export function Form<TName extends HttpCapabilityName = HttpCapabilityName>(
@@ -464,7 +461,7 @@ export function Form<TName extends HttpCapabilityName = HttpCapabilityName>(
         settleNavigation(navigationToken);
       }
     },
-  } as JSX.HTMLAttributes<HTMLFormElement>);
+  } as JSX.IntrinsicElements["form"]);
 }
 
 export function parseLocation(value: string): Location {

@@ -33,9 +33,10 @@ describe("useIsHydrated", () => {
     setupScratch();
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     if (scratch) {
       render(null, scratch);
+      await flush();
       scratch.remove();
     }
   });
