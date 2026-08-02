@@ -1,5 +1,15 @@
 # @pracht/example-basic
 
+## 0.0.24
+
+### Patch Changes
+
+- Updated dependencies [[`b367a1b`](https://github.com/JoviDeCroock/pracht/commit/b367a1bb5048f87c2201fdcacb8ec83df4a93eaa), [`dc568a4`](https://github.com/JoviDeCroock/pracht/commit/dc568a438b40de43a61ad6674fe8f934e727af00), [`21b192b`](https://github.com/JoviDeCroock/pracht/commit/21b192b8ce521e13249116c26b1d7b5298d4a59c)]:
+  - @pracht/core@0.11.1
+  - @pracht/image@0.1.1
+  - @pracht/adapter-node@0.3.4
+  - @pracht/adapter-vercel@0.2.4
+
 ## 0.0.23
 
 ### Patch Changes
