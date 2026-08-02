@@ -25,10 +25,12 @@ test("pracht build emits a deployable Node server entry", async () => {
   const { exampleDir, tempDir } = createTempExampleDir("pracht-node-build-");
   const distDir = resolve(exampleDir, "dist");
   const serverEntryPath = resolve(exampleDir, "dist/server/server.js");
+  const port = 4317;
+  const origin = `http://127.0.0.1:${port}`;
 
   rmSync(distDir, { force: true, recursive: true });
 
-  buildExample(exampleDir, { PRACHT_ADAPTER: "node" });
+  buildExample(exampleDir, { PRACHT_ADAPTER: "node", PRACHT_ORIGIN: origin });
 
   expect(existsSync(serverEntryPath)).toBe(true);
 
@@ -42,12 +44,12 @@ test("pracht build emits a deployable Node server entry", async () => {
   expect(serverSource).toContain("createNodeRequestHandler");
   expect(serverSource).toContain("createServer(handler)");
 
-  const port = 4317;
   const server = spawn(process.execPath, [serverEntryPath], {
     cwd: exampleDir,
     env: {
       ...process.env,
       PORT: String(port),
+      PRACHT_ORIGIN: origin,
     },
     stdio: "pipe",
   });

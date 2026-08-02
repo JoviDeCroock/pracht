@@ -40,8 +40,10 @@ export const GET = imageHandler;
 export const HEAD = imageHandler;
 ```
 
-Set `localOrigin` to the same trusted public origin used by
-`nodeAdapter({ canonicalOrigin })`. It may be omitted for loopback development.
+Set `localOrigin` to the same trusted origin used by
+`nodeAdapter({ canonicalOrigin })` in development and production. Relative
+sources fail closed when it is omitted; request and Host-derived origins are
+never trusted, even when they look like loopback addresses.
 
 See [docs/IMAGES.md](https://github.com/JoviDeCroock/pracht/blob/main/docs/IMAGES.md)
 for the full guide: loader configuration, endpoint security options, and

@@ -89,7 +89,7 @@ export const GET = imageHandler;
 export const HEAD = imageHandler;
 ```
 
-This endpoint works in `pracht dev`, adapter-node, and Node-compatible runtimes. Set `localOrigin` to the same trusted public URL used by `nodeAdapter({ canonicalOrigin })`; loopback origins work without configuration during local development. The endpoint returns cacheable, revalidated responses, varies on `Accept`, and negotiates modern output formats such as WebP.
+This endpoint works in `pracht dev`, adapter-node, and Node-compatible runtimes. Set `localOrigin` to the same trusted URL used by `nodeAdapter({ canonicalOrigin })` in every environment (for example, `http://localhost:3000` in local development). Relative sources fail closed when it is missing; the request `Host` is never trusted. The endpoint returns cacheable, revalidated responses, varies on `Accept`, and negotiates modern output formats such as WebP.
 
 ---
 

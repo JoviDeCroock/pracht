@@ -4,9 +4,10 @@ This example uses the Node adapter by default. Set `PRACHT_ADAPTER=vercel`
 before building to emit Vercel's `.vercel/output/` directory, or
 `PRACHT_ADAPTER=cloudflare` to build the Cloudflare Worker output.
 
-For a deployed Node build, set `PRACHT_ORIGIN` to the app's trusted public
-origin. The value pins both request URL construction and relative image source
-fetches; local loopback development works without it.
+Set `PRACHT_ORIGIN` to the app's trusted origin in every environment (for
+example, `http://localhost:3000` in local development). The value pins both
+request URL construction and relative image source fetches; the image endpoint
+fails closed without it.
 
 ## Commands
 

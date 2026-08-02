@@ -93,8 +93,8 @@ Mount it as an API route — this is the least invasive wiring and works with
 import { createImageHandler } from "@pracht/image/node";
 
 const imageHandler = createImageHandler({
-  // Required for relative sources outside local development. Use the same
-  // trusted value as nodeAdapter({ canonicalOrigin }).
+  // Required for relative sources in every environment. Use the same trusted
+  // value as nodeAdapter({ canonicalOrigin }).
   localOrigin: process.env.PRACHT_ORIGIN,
   // remotePatterns: [{ protocol: "https", hostname: "images.example.com" }],
 });
@@ -121,10 +121,11 @@ That file maps to `/api/_pracht/image`, which is exactly what
 
 ### Security
 
-- **Trusted local origin.** Relative `url` values resolve against `localOrigin`
-  in production, so a forged request `Host` cannot turn the endpoint into an
-  open proxy. Loopback request origins are accepted without configuration for
-  local development. With adapter-node, use the same trusted value for
+- **Trusted local origin.** Relative `url` values resolve only against the
+  explicitly configured `localOrigin`, so a forged request `Host` cannot turn
+  the endpoint into an open proxy. This is required in development too; the
+  handler never trusts the request origin, including loopback-looking origins.
+  With adapter-node, use the same trusted value for
   `nodeAdapter({ canonicalOrigin })` and `createImageHandler({ localOrigin })`.
 - **Remote allowlist.** `remotePatterns` allowlists specific hosts (exact
   hostname or `*.` suffix wildcard, optional protocol/port/path prefix).
@@ -162,8 +163,9 @@ cancelled.
 
 ## Per-target guidance
 
-- **adapter-node** — set one trusted public origin on both the Node adapter and
-  image handler, then put a CDN in front of the cacheable endpoint.
+- **adapter-node** — set one trusted origin on both the Node adapter and image
+  handler in development and production, then put a CDN in front of the
+  cacheable endpoint.
 - **adapter-cloudflare** — prefer `configureImage({ loader: cloudflareLoader })`;
   Cloudflare Image Resizing handles resizing at the edge and the endpoint is
   not needed (sharp does not run on Workers).
@@ -171,8 +173,9 @@ cancelled.
   an `images` section in your Vercel project config; keep `images.sizes` in
   sync with your device sizes.
 - **Static hosts** — use `passthroughLoader`.
-- **`pracht dev`** — API routes are served by the dev server, so the endpoint
-  works in dev exactly like in production (sharp required). Platform loaders
+- **`pracht dev`** — API routes are served by the dev server, so set
+  `PRACHT_ORIGIN` to its exact origin (for example,
+  `http://localhost:3000`) and install sharp. Platform loaders
   (`cloudflareLoader`, `vercelLoader`) generate URLs that only resolve on the
   deployed platform; if you want dev previews with those, pass
   `loader: passthroughLoader` conditionally (e.g. based on
