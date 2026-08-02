@@ -263,6 +263,8 @@ function buildDeclarationSource(
     ...(importsApiMethodMap ? ["ApiRouteMethodMap"] : []),
     "RouteLoaderData",
     "RouteParamInput",
+    "RouteSearchInput",
+    "RouteSearchOutput",
     "SearchParamsInput",
   ];
   const lines = [
@@ -279,7 +281,17 @@ function buildDeclarationSource(
     lines.push(`      ${JSON.stringify(route.id)}: {`);
     lines.push(`        path: ${JSON.stringify(route.path)};`);
     lines.push(`        params: ${formatParamsType(inferRouteParams(route.path))};`);
-    lines.push("        search: SearchParamsInput;");
+    const routeModule = formatModuleSpecifier(route.file, context);
+    lines.push(
+      routeModule
+        ? `        search: RouteSearchInput<typeof import(${routeModule})>;`
+        : "        search: SearchParamsInput;",
+    );
+    lines.push(
+      routeModule
+        ? `        searchOutput: RouteSearchOutput<typeof import(${routeModule})>;`
+        : "        searchOutput: Record<string, string | string[]>;",
+    );
     lines.push(`        data: ${formatRouteDataType(route, context)};`);
     lines.push("      };");
   }

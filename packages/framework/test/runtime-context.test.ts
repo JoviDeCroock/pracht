@@ -40,7 +40,7 @@ describe("PrachtRuntimeProvider", () => {
     scratch.remove();
   });
 
-  it("does not fan out a new context value when params are omitted and route state is unchanged", async () => {
+  it("does not fan out a new context value when params and search are omitted", async () => {
     let bump!: () => void;
     let consumerRenders = 0;
 

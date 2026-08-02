@@ -95,10 +95,13 @@ specified in the config, it takes precedence over inline exports.
 
 - **Head**: `export function head(args)` — per-route `<head>` metadata merged with
   shell-level head.
-- **Client hooks**: `useRouteData()`, `useRevalidate()`, `useNavigation()` (pending
+- **Client hooks**: `useRouteData()`, `useSearch()`, `useRevalidate()`, `useNavigation()` (pending
   navigation/submission state for progress bars and optimistic UI), `useNavigate()`,
   `useLocation()`, `useParams()`, `<Form>` component, `<Link>` (with `prefetch`,
   `preserveScroll`, `viewTransition` props), and imperative `prefetch()`.
+- **Validated route search**: route modules may export a Standard Schema;
+  generated navigation types follow its input and loaders/components receive
+  its validated output. Invalid search is a boundary-aware HTTP 400.
 
 ### API Routes
 

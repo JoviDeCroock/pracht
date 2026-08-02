@@ -1,6 +1,6 @@
 ---
 name: typed-routes
-version: 1.1.0
+version: 1.2.0
 description: |
   Add or maintain pracht typed routes, typed links, route-object navigation,
   and generated href helpers. Use when asked to "add typed routes", "fix typed
@@ -177,8 +177,13 @@ Generated param types accept `RouteParamInput = string | number | boolean`
 - `:path*` requires `params: { path: RouteParamInput }`.
 - Routes with no dynamic segments should omit `params`.
 - Missing and extra params should fail at typecheck time.
-- `search` currently accepts `string`, `URLSearchParams`, or an object of
-  primitive values/arrays; route-specific search schemas can be added later.
+- Without a route schema, `search` accepts `string`, `URLSearchParams`, or an
+  object of primitive values/arrays.
+- A route module can export a Standard Schema as `search`. Typegen uses its
+  input for navigation and its validated output for `useSearch(routeId)`.
+- Search schemas receive string values and arrays for repeated keys; coerce
+  numeric and boolean values at the schema boundary.
+- Invalid route search is an HTTP 400 handled by the nearest `ErrorBoundary`.
 
 ## Step 5: Verify
 

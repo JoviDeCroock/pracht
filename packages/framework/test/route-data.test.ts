@@ -2,8 +2,8 @@
 import { h, render } from "preact";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { PrachtRuntimeProvider, useRouteData } from "../src/index.ts";
-import type { LoaderArgs, RouteLoaderData } from "../src/index.ts";
+import { PrachtRuntimeProvider, useRouteData, useSearch } from "../src/index.ts";
+import type { LoaderArgs, RouteLoaderData, RouteSearchOutput } from "../src/index.ts";
 
 let scratch: HTMLDivElement;
 
@@ -115,5 +115,72 @@ describe("RouteLoaderData", () => {
       user: { name: "Ada" },
     };
     expect(data.user.name).toBe("Ada");
+  });
+});
+
+describe("useSearch", () => {
+  it("returns the active route's validated search state", () => {
+    let captured: unknown;
+
+    function Consumer() {
+      captured = useSearch("dashboard");
+      return null;
+    }
+
+    render(
+      h(PrachtRuntimeProvider, {
+        children: h(Consumer, null),
+        data: undefined,
+        routeId: "dashboard",
+        search: { page: 2 },
+        url: "/dashboard?page=2",
+      }),
+      scratch,
+    );
+
+    expect(captured).toEqual({ page: 2 });
+  });
+
+  it("warns in dev when the route id does not match the active route", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    function Consumer() {
+      useSearch("settings");
+      return null;
+    }
+
+    render(
+      h(PrachtRuntimeProvider, {
+        children: h(Consumer, null),
+        data: undefined,
+        routeId: "dashboard",
+        search: { page: 2 },
+        url: "/dashboard?page=2",
+      }),
+      scratch,
+    );
+
+    expect(warn).toHaveBeenCalledWith(
+      'useSearch("settings") rendered inside route "dashboard"; returning the active route\'s search state.',
+    );
+  });
+});
+
+describe("RouteSearchOutput", () => {
+  const search = {
+    "~standard": {
+      version: 1,
+      vendor: "test",
+      validate: (_value: unknown) => ({ value: { page: 1 } }),
+      types: undefined as unknown as {
+        input: { page?: string | number };
+        output: { page: number };
+      },
+    },
+  } as const;
+
+  it("extracts the Standard Schema output type", () => {
+    const value: RouteSearchOutput<{ search: typeof search }> = { page: 2 };
+    expect(value.page).toBe(2);
   });
 });
