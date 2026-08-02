@@ -128,7 +128,8 @@ The canonical shape is in `recipes-auth.md` (the `origin-check.ts` example).
 
 Verify the wiring: the middleware name must appear in
 `defineApp({ api: { middleware: [...] } })` — that single global list applies
-to every API route. There is no per-group API middleware, and
+to every API route and generated capability HTTP endpoint. There is no
+per-group API middleware, and
 `pracht inspect api --json` output has no middleware field, so the manifest is
 the only place to check.
 

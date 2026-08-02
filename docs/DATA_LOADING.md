@@ -602,7 +602,9 @@ API routes:
   or one default handler that branches on `args.request.method`
 - Return `Response` objects directly
 - Share the same request context shape as page routes
-- Can opt into app-level API middleware via `defineApp({ api: { middleware } })`
+- Can opt into app-level API middleware via `defineApp({ api: { middleware } })`;
+  this chain also wraps generated capability HTTP endpoints before their own
+  capability middleware
 - Are excluded from client bundles entirely
 
 For request validation with Standard Schema (zod, valibot, …) and an

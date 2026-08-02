@@ -110,7 +110,8 @@ Standalone server endpoints independent of the page rendering pipeline:
 - Receive the same `LoaderArgs`-style context (request, params, context, signal).
 - Return `Response` objects directly — full control over status, headers, body.
 - API routes are independent of page-route middleware by default. Shared API
-  policy can be attached explicitly via `defineApp({ api: { middleware: [...] } })`.
+  policy can be attached explicitly via `defineApp({ api: { middleware: [...] } })`;
+  the same chain wraps generated capability HTTP endpoints.
 - Opt-in request validation via `defineApi()` with any
   [Standard Schema](https://standardschema.dev) validator (body, query,
   params), standardized 422 issue responses, and JSON-value handler returns.
