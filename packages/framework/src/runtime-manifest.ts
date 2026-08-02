@@ -145,3 +145,29 @@ export async function resolveDataFunctions(
 
   return { loader, loaderFile };
 }
+
+export async function resolveGroupLoaderModules(
+  route: import("./types.ts").ResolvedRoute,
+  registry: ModuleRegistry,
+): Promise<
+  Array<
+    import("./types.ts").GroupLoaderDefinition & {
+      loader: import("./types.ts").GroupLoaderFn;
+    }
+  >
+> {
+  return Promise.all(
+    route.groupLoaders.map(async (definition) => {
+      const dataModule = await resolveRegistryModule<import("./types.ts").GroupLoaderModule>(
+        registry.dataModules,
+        definition.file,
+      );
+      if (!dataModule?.loader) {
+        throw new Error(
+          `Group loader ${JSON.stringify(definition.id)} at ${JSON.stringify(definition.file)} did not export a loader function.`,
+        );
+      }
+      return { ...definition, loader: dataModule.loader };
+    }),
+  );
+}

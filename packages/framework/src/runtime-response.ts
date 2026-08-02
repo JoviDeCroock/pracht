@@ -237,12 +237,19 @@ export async function renderRouteErrorResponse<TContext>(options: {
   let tree: VNode<any> = h(
     PrachtRuntimeProvider as unknown as FunctionComponent<{
       data: null;
+      groupData?: import("./types.ts").GroupData;
       routeId: string;
       routes?: readonly HrefRouteDefinition[];
       url: string;
       children?: ComponentChildren;
     }>,
-    { data: null, routeId: options.routeId, routes: options.routes, url: options.requestPath },
+    {
+      data: null,
+      groupData: options.routeArgs.groupData,
+      routeId: options.routeId,
+      routes: options.routes,
+      url: options.requestPath,
+    },
     componentTree,
   );
   const hydration = options.routeArgs.route.hydration ?? "full";
@@ -313,6 +320,7 @@ export async function renderRouteErrorResponse<TContext>(options: {
         url: options.requestPath,
         routeId: options.routeId,
         data: null,
+        groupData: options.routeArgs.groupData,
         error: routeErrorWithDiagnostics,
       },
       clientEntryUrl: options.options.clientEntryUrl,

@@ -262,6 +262,7 @@ Browser request
   → Adapter (Node/CF) converts to Web Request
   → Match route from manifest
   → Run middleware chain
+  → Execute named group loaders from parent to child
   → Execute loader
   → Render Preact component tree to string
   → Merge head metadata and document headers (shell + route)
@@ -288,12 +289,12 @@ Build starts
 ```
 User clicks <a> or calls navigate()
   → Client router matches new route
-  → If the route has a loader or middleware, in parallel:
+  → If the route has a loader, group loader, or middleware, in parallel:
       ├─ Fetch route state via GET with x-pracht-route-state-request header
       ├─ Import route module chunk
       └─ Import shell module chunk (if applicable)
   → Otherwise, import the route/shell modules only and skip the server fetch
-  → Server runs middleware + loader when needed and returns JSON (no HTML rendering)
+  → Server runs middleware + group loaders + route loader when needed and returns JSON (no HTML rendering)
     with no-store by default or the route's private loaderCache duration
   → Client updates component tree with new data + loaded modules
   → Update URL via history.pushState

@@ -8,10 +8,12 @@ import {
   Form,
   Link,
   defineApp,
+  group,
   initClientRouter,
   resolveApp,
   route,
   useLocation,
+  useGroupData,
   useNavigate,
   useRevalidate,
   useRouteData,
@@ -164,11 +166,13 @@ describe("initClientRouter", () => {
   it("bypasses the HTTP cache when revalidating route data", async () => {
     function Dashboard() {
       const data = useRouteData<{ count: number }>();
+      const session = useGroupData<{ user: string }>("session");
       const revalidate = useRevalidate();
       return h(
         "main",
         null,
         h("span", { id: "count" }, String(data.count)),
+        h("span", { id: "user" }, session.user),
         h("button", { id: "refresh", onClick: () => void revalidate() }, "Refresh"),
       );
     }
@@ -176,18 +180,23 @@ describe("initClientRouter", () => {
     const app = resolveApp(
       defineApp({
         routes: [
-          route("/dashboard", "./routes/dashboard.tsx", {
-            id: "dashboard",
-            loaderCache: 60,
-            render: "ssr",
-          }),
+          group({ loaders: { session: "./server/session.ts" } }, [
+            route("/dashboard", "./routes/dashboard.tsx", {
+              id: "dashboard",
+              loaderCache: 60,
+              render: "ssr",
+            }),
+          ]),
         ],
       }),
     );
 
-    root.innerHTML = '<main><span id="count">1</span><button id="refresh">Refresh</button></main>';
+    root.innerHTML =
+      '<main><span id="count">1</span><span id="user">Ada</span><button id="refresh">Refresh</button></main>';
     history.replaceState(null, "", "/dashboard");
-    fetchSpy.mockResolvedValue(createJsonResponse({ data: { count: 2 } }));
+    fetchSpy.mockResolvedValue(
+      createJsonResponse({ data: { count: 2 }, groupData: { session: { user: "Grace" } } }),
+    );
 
     await initClientRouter({
       app,
@@ -197,6 +206,7 @@ describe("initClientRouter", () => {
       shellModules: {},
       initialState: {
         data: { count: 1 },
+        groupData: { session: { user: "Ada" } },
         routeId: "dashboard",
         url: "/dashboard",
       },
@@ -204,6 +214,7 @@ describe("initClientRouter", () => {
       findModuleKey: (_modules, file) => file,
     });
 
+    await flush();
     root.querySelector<HTMLButtonElement>("#refresh")?.click();
     await flush();
     await flush();
@@ -217,6 +228,8 @@ describe("initClientRouter", () => {
       }),
     );
     expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(root.querySelector("#count")?.textContent).toBe("2");
+    expect(root.querySelector("#user")?.textContent).toBe("Grace");
   });
 
   it("bypasses the HTTP cache when a form redirect reloads cached route data", async () => {

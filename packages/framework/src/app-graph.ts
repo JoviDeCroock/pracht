@@ -29,6 +29,7 @@ export const API_METHOD_ORDER: readonly HttpMethod[] = [
 
 export interface AppGraphRoute {
   file: string;
+  groupLoaders?: Array<{ id: string; file: string }>;
   hydration: string | null;
   id: string;
   loaderCache: number | false | null;
@@ -89,6 +90,7 @@ export interface AppGraphModuleAccess {
 export function serializeAppRoutes(routes: readonly ResolvedRoute[]): AppGraphRoute[] {
   return routes.map((route) => ({
     file: route.file,
+    groupLoaders: route.groupLoaders,
     hydration: route.hydration ?? null,
     id: route.id ?? "",
     loaderCache: route.loaderCache ?? null,

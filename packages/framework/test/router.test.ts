@@ -59,6 +59,39 @@ describe("resolveApp", () => {
     expect(resolved.routes[1].loaderCache).toBe(false);
   });
 
+  it("composes named group loaders from parent to child", () => {
+    const app = defineApp({
+      routes: [
+        group({ loaders: { session: "./server/session.ts" } }, [
+          group({ loaders: { workspace: "./server/workspace.ts" } }, [
+            route("/dashboard", "./routes/dashboard.tsx"),
+          ]),
+        ]),
+      ],
+    });
+
+    expect(resolveApp(app).routes[0].groupLoaders).toEqual([
+      { id: "session", file: "./server/session.ts" },
+      { id: "workspace", file: "./server/workspace.ts" },
+    ]);
+  });
+
+  it("rejects duplicate group loader ids in one route lifecycle", () => {
+    const app = defineApp({
+      routes: [
+        group({ loaders: { session: "./server/session.ts" } }, [
+          group({ loaders: { session: "./server/other-session.ts" } }, [
+            route("/dashboard", "./routes/dashboard.tsx"),
+          ]),
+        ]),
+      ],
+    });
+
+    expect(() => resolveApp(app)).toThrow(
+      'Group loader "session" is declared more than once at "/".',
+    );
+  });
+
   it("rejects invalid loader cache durations", () => {
     const app = defineApp({
       routes: [route("/invalid", "./routes/invalid.tsx", { loaderCache: -1 })],

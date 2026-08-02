@@ -5,12 +5,15 @@ import { useEffect, useMemo, useState } from "preact/hooks";
 
 import { EMPTY_ROUTE_PARAMS, HYDRATION_STATE_ELEMENT_ID } from "./runtime-constants.ts";
 import { revalidateRouteData, shouldRevalidateAfterCapability } from "./runtime-revalidate.ts";
-import type { HrefRouteDefinition, RouteParams } from "./types.ts";
+import type { GroupData, HrefRouteDefinition, RouteParams } from "./types.ts";
+
+const EMPTY_GROUP_DATA: GroupData = {};
 
 export interface PrachtHydrationState<TData = unknown> {
   url: string;
   routeId: string;
   data: TData;
+  groupData?: GroupData;
   error?: import("./runtime-errors.ts").SerializedRouteError | null;
   pending?: boolean;
 }
@@ -29,11 +32,13 @@ declare global {
 
 export interface PrachtRuntimeValue {
   data: unknown;
+  groupData: GroupData;
   params: RouteParams;
   routeId: string;
   routes?: readonly HrefRouteDefinition[];
   url: string;
   setData: (data: unknown) => void;
+  setRouteState: (data: unknown, groupData?: GroupData) => void;
 }
 
 export const RouteDataContext = createContext<PrachtRuntimeValue | undefined>(undefined);
@@ -41,6 +46,7 @@ export const RouteDataContext = createContext<PrachtRuntimeValue | undefined>(un
 export function PrachtRuntimeProvider<TData>({
   children,
   data,
+  groupData = EMPTY_GROUP_DATA,
   params = EMPTY_ROUTE_PARAMS,
   routeId,
   routes,
@@ -49,6 +55,7 @@ export function PrachtRuntimeProvider<TData>({
 }: {
   children: ComponentChildren;
   data: TData;
+  groupData?: GroupData;
   params?: RouteParams;
   routeId: string;
   routes?: readonly HrefRouteDefinition[];
@@ -59,13 +66,17 @@ export function PrachtRuntimeProvider<TData>({
 
   const [routeDataState, setRouteDataState] = useState({
     data,
+    groupData,
     stateVersion,
   });
   const routeData = routeDataState.stateVersion === stateVersion ? routeDataState.data : data;
+  const activeGroupData =
+    routeDataState.stateVersion === stateVersion ? routeDataState.groupData : groupData;
 
   useEffect(() => {
     setRouteDataState({
       data,
+      groupData,
       stateVersion,
     });
   }, [data, routeId, stateVersion, url]);
@@ -73,17 +84,25 @@ export function PrachtRuntimeProvider<TData>({
   const context = useMemo(
     () => ({
       data: routeData,
+      groupData: activeGroupData,
       params,
       routeId,
       routes,
       setData: (nextData: unknown) =>
-        setRouteDataState({
+        setRouteDataState((previous) => ({
           data: nextData as TData,
+          groupData: previous.groupData,
           stateVersion,
-        }),
+        })),
+      setRouteState: (nextData: unknown, nextGroupData?: GroupData) =>
+        setRouteDataState((previous) => ({
+          data: nextData as TData,
+          groupData: nextGroupData ?? previous.groupData,
+          stateVersion,
+        })),
       url,
     }),
-    [routeData, params, routeId, routes, stateVersion, url],
+    [routeData, activeGroupData, params, routeId, routes, stateVersion, url],
   );
 
   // Effect-driven revalidation: capabilities are effect-classed, so the

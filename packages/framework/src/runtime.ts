@@ -31,6 +31,7 @@ import {
   resolvePageCssUrls,
   resolvePageJsUrls,
   resolveDataFunctions,
+  resolveGroupLoaderModules,
   resolveRegistryModule,
 } from "./runtime-manifest.ts";
 import {
@@ -74,6 +75,7 @@ import type {
   ResolvedApiRoute,
   ResolvedPrachtApp,
   RouteMatch,
+  GroupData,
   RouteModule,
   ShellModule,
 } from "./types.ts";
@@ -511,13 +513,15 @@ export async function handlePrachtRequest<TContext>(
   ): Promise<Response> {
     const requestSignal = AbortSignal.timeout(30_000);
     const pageContext = requestContext;
-    const routeArgs: BaseRouteArgs<TContext> = {
+    const groupData: GroupData = {};
+    const routeArgs: BaseRouteArgs<TContext> & { groupData: GroupData } = {
       request: options.request,
       params: match.params,
       context: pageContext,
       signal: requestSignal,
       url,
       route: match.route,
+      groupData,
     };
     let routeModulePromise: Promise<RouteModule | undefined> | undefined;
     let routeModule: RouteModule | undefined;
@@ -549,6 +553,7 @@ export async function handlePrachtRequest<TContext>(
       const dataFunctionsPromise = routeModulePromise.then((mod) =>
         resolveDataFunctions(match.route, mod, registry),
       );
+      const groupLoadersPromise = resolveGroupLoaderModules(match.route, registry);
 
       // Suppress unhandled-rejection warnings for in-flight promises that we
       // may not reach (e.g. middleware short-circuits with a response). Each
@@ -557,6 +562,7 @@ export async function handlePrachtRequest<TContext>(
       routeModulePromise.catch(() => {});
       shellModulePromise.catch(() => {});
       dataFunctionsPromise.catch(() => {});
+      groupLoadersPromise.catch(() => {});
 
       const pageTerminal = async (): Promise<Response> => {
         currentPhase = "render";
@@ -572,15 +578,21 @@ export async function handlePrachtRequest<TContext>(
 
         currentPhase = "loader";
         const { loader, loaderFile: resolvedLoaderFile } = await dataFunctionsPromise;
-        loaderFile = resolvedLoaderFile;
-
+        const groupLoaders = await groupLoadersPromise;
         let loaderResult: unknown;
+        const loaderStart = timings ? performance.now() : 0;
+        for (const groupLoader of groupLoaders) {
+          loaderFile = groupLoader.file;
+          const result = await groupLoader.loader(routeArgs);
+          if (result instanceof Response) return result;
+          groupData[groupLoader.id] = result;
+        }
+        loaderFile = resolvedLoaderFile;
         if (loader) {
-          const loaderStart = timings ? performance.now() : 0;
           loaderResult = await loader(routeArgs);
-          if (timings) {
-            timings.loader = performance.now() - loaderStart;
-          }
+        }
+        if (timings && (groupLoaders.length > 0 || loader)) {
+          timings.loader = performance.now() - loaderStart;
         }
 
         // Allow loaders to return a Response directly (e.g. for redirects)
@@ -591,10 +603,13 @@ export async function handlePrachtRequest<TContext>(
         const data = loaderResult;
 
         if (isRouteStateRequest) {
-          return withRouteResponseHeaders(Response.json({ data }), {
-            isRouteStateRequest: true,
-            loaderCache: match.route.loaderCache,
-          });
+          return withRouteResponseHeaders(
+            Response.json(groupLoaders.length > 0 ? { data, groupData } : { data }),
+            {
+              isRouteStateRequest: true,
+              loaderCache: match.route.loaderCache,
+            },
+          );
         }
 
         // Shell import was kicked off up front; this await is usually already
@@ -656,6 +671,7 @@ export async function handlePrachtRequest<TContext>(
               PrachtRuntimeProvider as FunctionComponent<Record<string, unknown>>,
               {
                 data: null,
+                groupData,
                 params: match.params,
                 routeId: match.route.id ?? "",
                 routes: resolvedApp.routes,
@@ -675,13 +691,15 @@ export async function handlePrachtRequest<TContext>(
                 url: requestPath,
                 routeId: match.route.id ?? "",
                 data: null,
+                groupData,
                 error: null,
                 pending: true,
               },
               clientEntryUrl: options.clientEntryUrl,
               cssUrls,
               modulePreloadUrls,
-              routeStatePreloadUrl: loader ? buildRouteStateUrl(requestPath) : undefined,
+              routeStatePreloadUrl:
+                loader || groupLoaders.length > 0 ? buildRouteStateUrl(requestPath) : undefined,
               speculationRules: getAppSpeculationRules(resolvedApp),
             }),
             pageOptions.status,
@@ -700,7 +718,7 @@ export async function handlePrachtRequest<TContext>(
 
         const Shell = shellModule?.Shell as FunctionComponent<Record<string, unknown>> | undefined;
         const Comp = Component as FunctionComponent<Record<string, unknown>>;
-        const componentProps = { data, params: match.params };
+        const componentProps = { data, groupData, params: match.params };
 
         const componentTree = Shell
           ? h(Shell, null, h(Comp, componentProps))
@@ -710,6 +728,7 @@ export async function handlePrachtRequest<TContext>(
           PrachtRuntimeProvider as FunctionComponent<Record<string, unknown>>,
           {
             data,
+            groupData,
             params: match.params,
             routeId: match.route.id ?? "",
             routes: resolvedApp.routes,
@@ -798,6 +817,7 @@ export async function handlePrachtRequest<TContext>(
               url: requestPath,
               routeId: match.route.id ?? "",
               data,
+              groupData,
               error: null,
             },
             clientEntryUrl: options.clientEntryUrl,
@@ -948,6 +968,7 @@ export {
   readHydrationState,
   startApp,
   useLocation,
+  useGroupData,
   useNavigation,
   useParams,
   useRevalidate,

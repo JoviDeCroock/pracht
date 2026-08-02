@@ -1,6 +1,6 @@
 ---
 name: audit-loaders
-version: 1.1.0
+version: 1.2.0
 description: |
   Audit pracht route loaders for serializability, leaked secrets,
   unsafe loader caching, browser-only API misuse, and missing AbortSignal plumbing.
@@ -32,15 +32,17 @@ pracht inspect routes --json
 Prerequisite: `pracht inspect` needs a vite config with the pracht plugin
 wired up.
 
-For every route entry, read `loaderFile ?? file` and inspect the `loader`
-export there. Loaders may live in a separate data module wired via the
+For every route entry, inspect each file in `groupLoaders` in listed order,
+then read `loaderFile ?? file` and inspect the route `loader` export there.
+Group loader names and files are included in the inspect graph. Route loaders
+may live in a separate data module wired via the
 manifest (`RouteConfig.loader`); the inspect JSON surfaces that as
 `loaderFile` (null when the loader lives in the route module itself). Reading
 only `file` misses every externalized loader.
 
 ## Step 2: Run the five checks
 
-For each `loader` (and `getStaticPaths` when present):
+For each group or route `loader` (and `getStaticPaths` when present):
 
 ### 2a. Serializability
 

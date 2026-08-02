@@ -509,6 +509,15 @@ export interface GroupMeta {
   loaderCache?: LoaderCache;
   pathPrefix?: string;
   speculation?: SpeculationOption;
+  /** Named server loaders composed parent-to-child for every route in this group. */
+  loaders?: Record<string, ModuleRef>;
+}
+
+export type GroupData = Record<string, unknown>;
+
+export interface GroupLoaderDefinition {
+  id: string;
+  file: string;
 }
 
 export interface ApiConfig {
@@ -738,6 +747,7 @@ export interface ResolvedRoute extends Omit<RouteMeta, "middleware"> {
   shellFile?: string;
   middleware: string[];
   middlewareFiles: string[];
+  groupLoaders: GroupLoaderDefinition[];
   segments: RouteSegment[];
 }
 
@@ -765,9 +775,16 @@ export interface BaseRouteArgs<TContext = RegisteredContext> {
   signal: AbortSignal;
   url: URL;
   route: ResolvedRoute;
+  groupData?: GroupData;
 }
 
-export interface LoaderArgs<TContext = RegisteredContext> extends BaseRouteArgs<TContext> {}
+export interface LoaderArgs<TContext = RegisteredContext> extends BaseRouteArgs<TContext> {
+  groupData: GroupData;
+}
+
+export interface GroupLoaderArgs<TContext = RegisteredContext> extends BaseRouteArgs<TContext> {
+  groupData: Readonly<GroupData>;
+}
 
 export interface MiddlewareArgs<TContext = RegisteredContext> extends BaseRouteArgs<TContext> {}
 
@@ -827,6 +844,7 @@ export interface HeadersArgs<
 
 export interface RouteComponentProps<TLoader extends LoaderLike = undefined> {
   data: LoaderData<TLoader>;
+  groupData: GroupData;
   params: RouteParams;
 }
 
@@ -840,6 +858,10 @@ export interface ShellProps {
 
 export type LoaderFn<TContext = any, TData = unknown> = (
   args: LoaderArgs<TContext>,
+) => MaybePromise<TData>;
+
+export type GroupLoaderFn<TContext = any, TData = unknown> = (
+  args: GroupLoaderArgs<TContext>,
 ) => MaybePromise<TData>;
 
 export interface RouteModule<TContext = any, TLoader extends LoaderLike = undefined> {
@@ -881,12 +903,16 @@ export interface DataModule<TContext = any> {
   loader?: LoaderFn<TContext>;
 }
 
+export interface GroupLoaderModule<TContext = any> {
+  loader?: GroupLoaderFn<TContext>;
+}
+
 export interface ModuleRegistry {
   routeModules?: Record<string, ModuleImporter<RouteModule>>;
   shellModules?: Record<string, ModuleImporter<ShellModule>>;
   middlewareModules?: Record<string, ModuleImporter<MiddlewareModule>>;
   apiModules?: Record<string, ModuleImporter<ApiRouteModule>>;
-  dataModules?: Record<string, ModuleImporter<DataModule>>;
+  dataModules?: Record<string, ModuleImporter<DataModule | GroupLoaderModule>>;
   capabilityModules?: Record<string, ModuleImporter<CapabilityModule>>;
 }
 

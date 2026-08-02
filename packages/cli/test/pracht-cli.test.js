@@ -322,6 +322,7 @@ export const app = defineApp({
       routes: [
         {
           file: "./routes/dashboard.tsx",
+          groupLoaders: [],
           hydration: "full",
           id: "dashboard",
           loaderCache: null,

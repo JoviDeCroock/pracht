@@ -2,7 +2,7 @@
 import { h, render } from "preact";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { PrachtRuntimeProvider, useRouteData } from "../src/index.ts";
+import { PrachtRuntimeProvider, useGroupData, useRouteData } from "../src/index.ts";
 import type { LoaderArgs, RouteLoaderData } from "../src/index.ts";
 
 let scratch: HTMLDivElement;
@@ -82,6 +82,43 @@ describe("useRouteData", () => {
     );
 
     expect(captured).toEqual({ user: { name: "Ada" } });
+  });
+});
+
+describe("useGroupData", () => {
+  beforeEach(() => {
+    scratch = document.createElement("div");
+    document.body.appendChild(scratch);
+  });
+
+  afterEach(() => {
+    render(null, scratch);
+    scratch.remove();
+  });
+
+  it("returns a named group loader result or the complete map", () => {
+    let named: unknown;
+    let complete: unknown;
+
+    function Consumer() {
+      named = useGroupData<{ user: string }>("session");
+      complete = useGroupData();
+      return null;
+    }
+
+    render(
+      h(PrachtRuntimeProvider, {
+        children: h(Consumer, null),
+        data: null,
+        groupData: { session: { user: "Ada" } },
+        routeId: "dashboard",
+        url: "/dashboard",
+      }),
+      scratch,
+    );
+
+    expect(named).toEqual({ user: "Ada" });
+    expect(complete).toEqual({ session: { user: "Ada" } });
   });
 });
 
