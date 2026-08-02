@@ -1,5 +1,35 @@
 # @pracht/core
 
+## 0.11.1
+
+### Patch Changes
+
+- [#244](https://github.com/JoviDeCroock/pracht/pull/244) [`b367a1b`](https://github.com/JoviDeCroock/pracht/commit/b367a1bb5048f87c2201fdcacb8ec83df4a93eaa) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Stop whole-object `import.meta.env` reads from inlining non-public env values
+  into client bundles.
+
+  Vite only replaces single-key `import.meta.env.KEY` accesses with their value.
+  Every other read — a bare reference, destructuring, a spread, or bracket
+  access — is replaced by an object literal holding all exposed variables,
+  including the `VITE_`-prefixed ones Pracht does not treat as public. Because
+  that leaves no accessor text behind, the name-based env leak scan could not see
+  those values in the output.
+
+  - `publicEnv` now reads a `PRACHT_PUBLIC_`-only snapshot injected by the pracht
+    Vite plugin instead of enumerating `import.meta.env`, so builds inline public
+    values only. Dev and non-Vite (plain Node, tests) behaviour is unchanged.
+  - `@pracht/image` reads `import.meta.env?.MODE` / `?.DEV` directly for its dev
+    warnings instead of pulling in the whole env object.
+  - Env leak detection (`pracht build` and `pracht verify`) now reports
+    whole-object `import.meta.env` reads in first-party client code, and also
+    matches optional-chained accesses such as `import.meta.env?.VITE_SECRET`,
+    which Vite replaces exactly like dot access but the scan previously ignored.
+    Allowlist a deliberate whole-object read with
+    `pracht({ envSafety: { allow: ["*"] } })`.
+
+- [#239](https://github.com/JoviDeCroock/pracht/pull/239) [`dc568a4`](https://github.com/JoviDeCroock/pracht/commit/dc568a438b40de43a61ad6674fe8f934e727af00) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Run app-level API middleware around generated capability HTTP endpoints before
+  capability-specific middleware and request parsing, so centralized API
+  authentication and authorization policies cannot be bypassed.
+
 ## 0.11.0
 
 ### Minor Changes
