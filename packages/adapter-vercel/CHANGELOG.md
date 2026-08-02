@@ -1,5 +1,12 @@
 # @pracht/adapter-vercel
 
+## 0.2.3
+
+### Patch Changes
+
+- Updated dependencies [[`82286b3`](https://github.com/JoviDeCroock/pracht/commit/82286b3a86e708c11e7287b9251ee62bf9cc0ae3)]:
+  - @pracht/core@0.11.0
+
 ## 0.2.2
 
 ### Patch Changes
