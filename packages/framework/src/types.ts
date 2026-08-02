@@ -49,7 +49,7 @@ export type RegisteredContext = (Register extends { context: infer T } ? T : unk
  */
 export type PrachtRequestContext = RegisteredContext;
 
-export type RenderMode = "spa" | "ssr" | "ssg" | "isg";
+export type RenderMode = "data" | "spa" | "ssr" | "ssg" | "isg";
 
 /**
  * Per-route hydration mode.

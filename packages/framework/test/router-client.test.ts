@@ -96,6 +96,37 @@ describe("initClientRouter", () => {
     expect(root.textContent).toContain("Hello Jovi");
   });
 
+  it("renders data-mode routes from embedded loader data without fetching", async () => {
+    const app = resolveApp(
+      defineApp({
+        routes: [route("/inbox", "./routes/inbox.tsx", { render: "data" })],
+      }),
+    );
+
+    await initClientRouter({
+      app,
+      routeModules: {
+        "./routes/inbox.tsx": async () => ({
+          default: function Inbox() {
+            const data = useRouteData<{ user: string }>();
+            return h("main", null, `Hello ${data.user}`);
+          },
+        }),
+      },
+      shellModules: {},
+      initialState: {
+        data: { user: "Ada" },
+        routeId: "inbox",
+        url: "/inbox",
+      },
+      root,
+      findModuleKey: (_modules, file) => file,
+    });
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(root.textContent).toContain("Hello Ada");
+  });
+
   it("renders typed links and navigates by route target objects", async () => {
     function Home() {
       const navigate = useNavigate();

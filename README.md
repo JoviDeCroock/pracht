@@ -13,7 +13,7 @@
 
 **Full-stack Preact, per route.** _(pracht /praxt/ — Dutch & German for splendor. Also: how you've always mispronounced Preact.)_
 
-Pick SPA, SSR, SSG, or ISG on a route-by-route basis. Ship less JavaScript by default. Deploy the same codebase to Node, Cloudflare, or Vercel.
+Pick data-only, SPA, SSR, SSG, or ISG rendering on a route-by-route basis. Ship less JavaScript by default. Deploy the same codebase to Node, Cloudflare, or Vercel.
 
 ```bash
 npm create pracht@latest my-app
@@ -24,7 +24,7 @@ npm create pracht@latest my-app
 ## Why pracht
 
 - **Preact-first** — the low bundle size that you know and love with a familiar API.
-- **Per-route render modes** — SPA, SSR, SSG, and ISG in the same app. No global default fighting you.
+- **Per-route render modes** — data-only, SPA, SSR, SSG, and ISG in the same app. No global default fighting you.
 - **Explicit over magic** — a typed `defineApp()` manifest wires routes, shells, and middleware. What runs where is never a mystery. Prefer file-based routing? Opt in to the pages router and skip the manifest entirely.
 - **Vite-native** — instant HMR, fast builds, multi-environment output out of the box.
 - **Performance budgets built in** — `pracht build --analyze` reports per-route client JS (gzip + raw), and per-route `budgets` fail the build when a route ships too much.

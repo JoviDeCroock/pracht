@@ -154,7 +154,7 @@ export function createPrachtMcpServer(): McpServer {
         ...cwdInput,
         path: z.string().describe("Route path, e.g. /dashboard or /blog/:slug"),
         render: z
-          .enum(["spa", "ssr", "ssg", "isg"])
+          .enum(["data", "spa", "ssr", "ssg", "isg"])
           .optional()
           .describe("Render mode (defaults to ssr)."),
         shell: z.string().optional().describe("Registered shell name (manifest apps only)."),

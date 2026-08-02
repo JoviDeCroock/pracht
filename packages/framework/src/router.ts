@@ -683,7 +683,7 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
         initialShellPromise,
       );
       if (initialRouteState) {
-        if (initialMatch.route.render === "spa") {
+        if (initialMatch.route.render === "spa" || initialMatch.route.render === "data") {
           render(h(RouterRoot, { initialState: initialRouteState }), root);
         } else {
           markHydrating();

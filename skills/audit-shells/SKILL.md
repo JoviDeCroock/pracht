@@ -1,9 +1,9 @@
 ---
 name: audit-shells
-version: 1.1.0
+version: 1.2.0
 description: |
-  Audit pracht shells for composition bugs: missing `Loading()` on SPA-using
-  shells, accidental `<html>`/`<head>`/`<body>` rendering, shells that swallow
+  Audit pracht shells for composition bugs: missing `Loading()` on browser-rendered
+  routes, accidental `<html>`/`<head>`/`<body>` rendering, shells that swallow
   children, unused shells, and redundant `ErrorBoundary` exports (shell-level
   boundaries are valid fallbacks; routes win when both declare one).
   Use when asked to "audit shells", "check shell composition", "find unused
@@ -58,11 +58,11 @@ removing the JSX tags.
 - Must render `{children}` somewhere — flag shells that never render
   `children` (hard to spot, blank page everywhere).
 
-### 2c. `Loading()` for SPA routes
+### 2c. `Loading()` for browser-rendered routes
 
-If any route assigned to this shell has `render: "spa"`, the shell SHOULD
-export a `Loading()` function that renders a placeholder during the
-client-only data fetch. Without it, users see blank content during navigation.
+If any route assigned to this shell has `render: "spa"` or `render: "data"`,
+the shell SHOULD export a `Loading()` function. It fills the initial document
+while SPA routes fetch state or data routes bootstrap from embedded state.
 
 ### 2d. `head()` export
 

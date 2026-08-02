@@ -59,7 +59,7 @@ const routeCommand = defineCommand({
   },
   args: {
     path: { type: "string", required: true, description: "Route path (e.g. /dashboard)" },
-    render: { type: "string", description: "Render mode: ssr, spa, ssg, or isg" },
+    render: { type: "string", description: "Render mode: ssr, data, spa, ssg, or isg" },
     shell: { type: "string", description: "Shell name" },
     middleware: { type: "string", description: "Middleware names (comma-separated)" },
     loader: { type: "boolean", description: "Include loader" },
@@ -173,7 +173,7 @@ export interface RouteArgs {
 
 export function generateRoute(args: RouteArgs, project: ProjectConfig): GenerateResult {
   const routePath = normalizeRoutePathString(args.path);
-  const render = requireEnum(args.render, "render", ["spa", "ssr", "ssg", "isg"], "ssr");
+  const render = requireEnum(args.render, "render", ["data", "spa", "ssr", "ssg", "isg"], "ssr");
   const includeLoader = Boolean(args.loader);
   const includeErrorBoundary = Boolean(args["error-boundary"]);
   const middleware = parseCommaList(args.middleware);
