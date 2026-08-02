@@ -370,6 +370,31 @@ export function createPrachtServerModuleSource(
   return source.join("\n");
 }
 
+/**
+ * Adapter-neutral app metadata used by development tooling. Keeping this
+ * separate from the server entry avoids evaluating worker-only imports (for
+ * example `cloudflare:workers`) in Vite's Node SSR environment.
+ */
+export function createPrachtDevModuleSource(
+  options: PrachtPluginOptions = {},
+  buildOptions: { root?: string } = {},
+): string {
+  const resolved = resolveOptions(options);
+  const appImport = resolved.pagesDir
+    ? generatePagesAppInlineSource(resolved, buildOptions.root)
+    : `import { app } from ${JSON.stringify(resolved.appFile)};`;
+
+  return [
+    'import { resolveApp } from "@pracht/core/server";',
+    appImport,
+    "",
+    createPrachtRegistryModuleSource(resolved),
+    "",
+    "export const resolvedApp = resolveApp(app);",
+    "",
+  ].join("\n");
+}
+
 interface ResolvedLlmsTxtConfig {
   title: string;
   description?: string;

@@ -39,6 +39,8 @@ export default defineConfig({
 
 See [Performance → CSS Per Page](/docs/performance) for how pracht maps routes to their transitive CSS dependencies.
 
+The same behavior applies during development. `pracht dev` discovers the matched route and shell's CSS through Vite's live module graph and places stylesheet links in the initial HTML before the client entry runs. Import the CSS normally from your route or shell; you do not need a development-only `<link>` in `head()`.
+
 ---
 
 ## CSS-in-JS — Use With Care

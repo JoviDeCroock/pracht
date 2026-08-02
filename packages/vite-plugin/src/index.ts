@@ -13,11 +13,13 @@ import { createEnvSafetyPlugin, PUBLIC_ENV_PREFIX, SERVER_ENV_MODULE_ID } from "
 import {
   PRACHT_CAPABILITIES_MODULE_ID,
   PRACHT_CLIENT_MODULE_ID,
+  PRACHT_DEV_MODULE_ID,
   PRACHT_ISLANDS_CLIENT_MODULE_ID,
   PRACHT_SERVER_MODULE_ID,
   PRACHT_WEBMCP_MODULE_ID,
   isCapabilitiesModule,
   isClientModule,
+  isDevModule,
   isIslandsClientModule,
   isServerModule,
   isWebmcpModule,
@@ -29,11 +31,16 @@ import {
 import {
   clearPagesAppSourceCache,
   createPrachtClientModuleSource,
+  createPrachtDevModuleSource,
   createPrachtIslandsClientModuleSource,
   createPrachtServerModuleSource,
 } from "./plugin-codegen.ts";
 import { existsSync } from "node:fs";
-import { createDevSSRMiddleware } from "./plugin-dev-ssr.ts";
+import {
+  createDevCssInjectionMiddleware,
+  createDevSSRMiddleware,
+  injectDevCssForPath,
+} from "./plugin-dev-ssr.ts";
 import {
   resolveOptions,
   type PrachtPluginOptions,
@@ -165,6 +172,7 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
     resolveId(id, importer, resolveIdOptions) {
       if (isIslandsClientModule(id)) return PRACHT_ISLANDS_CLIENT_MODULE_ID;
       if (isClientModule(id)) return PRACHT_CLIENT_MODULE_ID;
+      if (isDevModule(id)) return PRACHT_DEV_MODULE_ID;
       if (isServerModule(id)) return PRACHT_SERVER_MODULE_ID;
       if (isCapabilitiesModule(id)) return PRACHT_CAPABILITIES_MODULE_ID;
       if (isWebmcpModule(id)) return PRACHT_WEBMCP_MODULE_ID;
@@ -195,6 +203,9 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
       }
       if (isClientModule(id)) {
         return createPrachtClientModuleSource(resolved, { root });
+      }
+      if (isDevModule(id)) {
+        return createPrachtDevModuleSource(resolved, { root });
       }
       if (isServerModule(id)) {
         return createPrachtServerModuleSource(resolved, { root, isBuild });
@@ -230,7 +241,10 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
         watchPagesDirectory(server, resolved, root);
       }
 
-      if (resolved.adapter.ownsDevServer) return;
+      if (resolved.adapter.ownsDevServer) {
+        server.middlewares.use(createDevCssInjectionMiddleware(server));
+        return;
+      }
       return () => {
         server.middlewares.use(
           createDevSSRMiddleware(server, {
@@ -239,6 +253,19 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
           }),
         );
       };
+    },
+
+    async transformIndexHtml(html, context) {
+      if (isBuild || !context.server || !html.includes("</head>")) return html;
+
+      try {
+        return await injectDevCssForPath(context.server, context.path, html);
+      } catch {
+        // The original request path owns development error reporting. CSS
+        // discovery must not replace its overlay or response with a second
+        // module-loading failure from this HTML transform.
+        return html;
+      }
     },
 
     handleHotUpdate({ file, server }) {
@@ -271,6 +298,8 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
       if (dirs.some((dir) => relative.startsWith(dir))) {
         const serverMod = server.moduleGraph.getModuleById(PRACHT_SERVER_MODULE_ID);
         if (serverMod) server.moduleGraph.invalidateModule(serverMod);
+        const devMod = server.moduleGraph.getModuleById(PRACHT_DEV_MODULE_ID);
+        if (devMod) server.moduleGraph.invalidateModule(devMod);
         if (relative.startsWith(resolved.routesDir)) {
           const clientMod = server.moduleGraph.getModuleById(PRACHT_CLIENT_MODULE_ID);
           if (clientMod) server.moduleGraph.invalidateModule(clientMod);
@@ -497,8 +526,10 @@ function watchPagesDirectory(
 function invalidateVirtualModules(server: import("vite").ViteDevServer): void {
   const clientMod = server.moduleGraph.getModuleById(PRACHT_CLIENT_MODULE_ID);
   const serverMod = server.moduleGraph.getModuleById(PRACHT_SERVER_MODULE_ID);
+  const devMod = server.moduleGraph.getModuleById(PRACHT_DEV_MODULE_ID);
   if (clientMod) server.moduleGraph.invalidateModule(clientMod);
   if (serverMod) server.moduleGraph.invalidateModule(serverMod);
+  if (devMod) server.moduleGraph.invalidateModule(devMod);
 }
 
 const ROUTE_FILE_EXTENSIONS = new Set([".ts", ".tsx", ".js", ".jsx", ".md", ".mdx", ".tsrx"]);

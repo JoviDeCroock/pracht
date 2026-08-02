@@ -5,6 +5,7 @@ import type { ConfigEnv, UserConfig } from "vite";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { createPrachtRegistryModuleSource, pracht } from "../src/index.ts";
+import { createPrachtDevModuleSource } from "../src/plugin-codegen.ts";
 import { generatePagesManifestSource, scanPagesDirectory } from "../src/pages-router.ts";
 
 const tempDirs: string[] = [];
@@ -223,5 +224,14 @@ describe("createPrachtRegistryModuleSource", () => {
     expect(source).toContain("/src/api/**/*.{ts,js,tsx,jsx}");
     expect(source).toContain("/src/server/**/*.{ts,js,tsx,jsx}");
     expect(source).toContain("/src/middleware/**/*.{ts,tsx,js,jsx}");
+  });
+
+  it("creates adapter-neutral development metadata", () => {
+    const source = createPrachtDevModuleSource({ appFile: "/src/routes.ts" });
+
+    expect(source).toContain('import { app } from "/src/routes.ts"');
+    expect(source).toContain("export const resolvedApp = resolveApp(app)");
+    expect(source).toContain("export const registry = {");
+    expect(source).not.toContain("createCloudflareFetchHandler");
   });
 });

@@ -28,6 +28,15 @@ test("home page HTML includes hydration state", async ({ request }) => {
   expect(html).toContain("Hybrid route manifest");
 });
 
+test("home page HTML includes shell CSS before the client entry", async ({ request }) => {
+  const response = await request.get("/", { headers: { accept: "text/html" } });
+  const html = await response.text();
+
+  const stylesheet = '<link rel="stylesheet" href="/src/styles/global.css">';
+  expect(html).toContain(stylesheet);
+  expect(html.indexOf(stylesheet)).toBeLessThan(html.indexOf('src="/@pracht/client.js"'));
+});
+
 test("home page includes default security headers", async ({ request }) => {
   const response = await request.get("/");
 
