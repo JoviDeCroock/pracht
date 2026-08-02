@@ -35,6 +35,13 @@ export default defineConfig({
         baseURL: "http://localhost:3103",
       },
     },
+    {
+      name: "preact-v11-streaming",
+      testMatch: /preact-v11-streaming\.test\.ts/,
+      use: {
+        baseURL: "http://localhost:3104",
+      },
+    },
   ],
   webServer: [
     {
@@ -65,6 +72,12 @@ export default defineConfig({
         // e2e/capabilities.test.ts and the example eval scenario exercise.
         PRACHT_CONFIRMATION_SECRET: "pracht-e2e-confirmation-secret",
       },
+    },
+    {
+      command: "node e2e/start-v11-streaming-server.mjs",
+      port: 3104,
+      reuseExistingServer: !process.env.CI,
+      timeout: 15_000,
     },
   ],
 });

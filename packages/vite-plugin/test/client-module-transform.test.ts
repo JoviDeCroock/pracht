@@ -8,6 +8,7 @@ import {
   symlinkSync,
   writeFileSync,
 } from "node:fs";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -23,6 +24,11 @@ import { stripServerOnlyExportsForClient } from "../src/client-module-transform.
 
 const tempDirs: string[] = [];
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
+const require = createRequire(import.meta.url);
+
+function resolvePackageExport(specifier: string): string {
+  return require.resolve(specifier);
+}
 
 function makeTempProject(): string {
   const dir = mkdtempSync(join(tmpdir(), "pracht-client-route-"));
@@ -122,31 +128,25 @@ async function buildTempProject(
         },
         {
           find: "preact/jsx-dev-runtime",
-          replacement: resolve(
-            repoRoot,
-            "node_modules/preact/jsx-runtime/dist/jsxRuntime.module.js",
-          ),
+          replacement: resolvePackageExport("preact/jsx-dev-runtime"),
         },
         {
           find: "preact/jsx-runtime",
-          replacement: resolve(
-            repoRoot,
-            "node_modules/preact/jsx-runtime/dist/jsxRuntime.module.js",
-          ),
+          replacement: resolvePackageExport("preact/jsx-runtime"),
         },
         {
           find: "preact/hooks",
-          replacement: resolve(repoRoot, "node_modules/preact/hooks/dist/hooks.module.js"),
+          replacement: resolvePackageExport("preact/hooks"),
         },
         {
           find: "preact/devtools",
-          replacement: resolve(repoRoot, "node_modules/preact/devtools/dist/devtools.module.js"),
+          replacement: resolvePackageExport("preact/devtools"),
         },
         {
           find: "preact/debug",
-          replacement: resolve(repoRoot, "node_modules/preact/debug/dist/debug.module.js"),
+          replacement: resolvePackageExport("preact/debug"),
         },
-        { find: "preact", replacement: resolve(repoRoot, "node_modules/preact/dist/preact.mjs") },
+        { find: "preact", replacement: resolvePackageExport("preact") },
       ],
     },
     build: {

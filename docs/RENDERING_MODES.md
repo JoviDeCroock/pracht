@@ -72,6 +72,11 @@ component renders to a string, and the full HTML is returned with hydration stat
 After hydration, client-side navigation takes over — subsequent navigations
 fetch only the loader data as JSON, not full HTML.
 
+Pracht currently buffers SSR into a complete string. The
+[Preact v11 streaming experiment](PREACT_V11_STREAMING_EXPERIMENT.md) validates
+Hydration 2.0 and streamed Suspense behavior in an isolated browser fixture,
+but does not yet change this production rendering contract.
+
 ### When to use SSR
 
 - Pages that depend on the request (cookies, auth, personalization)

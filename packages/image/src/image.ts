@@ -4,8 +4,12 @@ import type { JSX, VNode } from "preact";
 import { getImageConfig } from "./config.ts";
 import type { ImageLoader } from "./loaders.ts";
 
+type ImageElementProps = JSX.IntrinsicElements["img"];
+type SignalValue = { value: unknown };
+type ImageCssProperties = Exclude<NonNullable<ImageElementProps["style"]>, string | SignalValue>;
+
 export interface ImageProps extends Omit<
-  JSX.HTMLAttributes<HTMLImageElement>,
+  ImageElementProps,
   "src" | "srcset" | "srcSet" | "width" | "height" | "sizes" | "loading" | "alt" | "style"
 > {
   /** Source path (`/hero.jpg`) or absolute URL. Passed to the loader. */
@@ -33,10 +37,10 @@ export interface ImageProps extends Omit<
   loading?: "lazy" | "eager";
   /** Per-component loader override; falls back to the configured loader. */
   loader?: ImageLoader;
-  style?: string | JSX.CSSProperties;
+  style?: string | ImageCssProperties;
 }
 
-const FILL_STYLE: JSX.CSSProperties = {
+const FILL_STYLE: ImageCssProperties = {
   position: "absolute",
   height: "100%",
   width: "100%",
@@ -205,12 +209,12 @@ export function Image(props: ImageProps): VNode {
         .join(", ")
     : undefined;
 
-  let mergedStyle: string | JSX.CSSProperties | undefined = style;
+  let mergedStyle: string | ImageCssProperties | undefined = style;
   if (fill) {
     mergedStyle =
       typeof style === "string"
         ? `${FILL_STYLE_STRING}${style}`
-        : { ...FILL_STYLE, ...(style as JSX.CSSProperties | undefined) };
+        : { ...FILL_STYLE, ...(style as ImageCssProperties | undefined) };
   }
 
   const imgProps: Record<string, unknown> = {
