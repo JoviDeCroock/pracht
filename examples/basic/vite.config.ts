@@ -13,7 +13,7 @@ async function resolveAdapter() {
   }
 
   const { nodeAdapter } = await import("@pracht/adapter-node");
-  return nodeAdapter();
+  return nodeAdapter({ canonicalOrigin: process.env.PRACHT_ORIGIN });
 }
 
 export default defineConfig(async () => ({

@@ -51,6 +51,10 @@ export const app = defineApp({
         revalidate: timeRevalidate(3600),
         speculation: "prefetch",
       }),
+      route("/gallery", () => import("./routes/gallery.tsx"), {
+        id: "gallery",
+        render: "ssr",
+      }),
     ]),
     group({ shell: "app", middleware: ["auth"] }, [
       route("/dashboard", () => import("./routes/dashboard.tsx"), {

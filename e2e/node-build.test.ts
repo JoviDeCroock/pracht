@@ -127,6 +127,41 @@ test("pracht build emits a deployable Node server entry", async () => {
     expect(robotsResponse.headers.get("content-type")).toContain("text/plain");
     await expect(robotsResponse.text()).resolves.toContain("User-agent");
 
+    // The @pracht/image endpoint resizes same-origin sources and negotiates
+    // modern formats via the Accept header.
+    const galleryResponse = await fetch(`http://127.0.0.1:${port}/gallery`);
+    expect(galleryResponse.status).toBe(200);
+    const galleryHtml = await galleryResponse.text();
+    expect(galleryHtml).toContain("srcset=");
+    expect(galleryHtml).toContain("/api/_pracht/image?url=%2Fbanner.jpg&amp;w=");
+    expect(galleryHtml).toContain('fetchpriority="high"');
+
+    const imageResponse = await fetch(
+      `http://127.0.0.1:${port}/api/_pracht/image?url=%2Fbanner.jpg&w=640&q=75`,
+      { headers: { accept: "image/webp,*/*" } },
+    );
+    expect(imageResponse.status).toBe(200);
+    expect(imageResponse.headers.get("content-type")).toBe("image/webp");
+    expect(imageResponse.headers.get("cache-control")).toBe(
+      "public, max-age=14400, must-revalidate",
+    );
+
+    const imageHeadResponse = await fetch(
+      `http://127.0.0.1:${port}/api/_pracht/image?url=%2Fbanner.jpg&w=640&q=75`,
+      { headers: { accept: "image/webp,*/*" }, method: "HEAD" },
+    );
+    expect(imageHeadResponse.status).toBe(200);
+    expect(imageHeadResponse.headers.get("content-type")).toBe("image/webp");
+    expect(imageHeadResponse.headers.get("cache-control")).toBe(
+      "public, max-age=14400, must-revalidate",
+    );
+    expect((await imageHeadResponse.arrayBuffer()).byteLength).toBe(0);
+
+    const disallowedImageResponse = await fetch(
+      `http://127.0.0.1:${port}/api/_pracht/image?url=${encodeURIComponent("https://example.com/a.png")}&w=640`,
+    );
+    expect(disallowedImageResponse.status).toBe(403);
+
     const dashboardResponse = await fetch(`http://127.0.0.1:${port}/dashboard`, {
       headers: { cookie: "session=1" },
     });

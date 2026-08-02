@@ -1,6 +1,6 @@
 ---
 name: pre-deploy
-version: 1.1.0
+version: 1.2.0
 description: |
   Adapter-aware pre-deployment checklist for pracht apps targeting Node,
   Cloudflare Workers, or Vercel. Catches the issues that only surface in the
@@ -75,6 +75,10 @@ a markdown summary (graph diff + verify + budgets) worth attaching to it.
 - Smoke test: `pracht preview --skip-build` (or `node dist/server/server.js`) boots and `curl localhost:3000` returns 200.
 - Required env vars (grep `process.env.*` across `src/`) are set in the
   deployment environment. List them for the user.
+- If the app mounts `createImageHandler()` from `@pracht/image/node`, confirm
+  `sharp` is installed and `localOrigin` is the same trusted public origin as
+  `nodeAdapter({ canonicalOrigin })`. A production-relative image endpoint
+  without both values is an error.
 - Reverse-proxy / TLS termination configured (out of scope for this skill —
   flag for confirmation).
 
@@ -101,6 +105,9 @@ a markdown summary (graph diff + verify + budgets) worth attaching to it.
   - Dev already runs inside workerd via `@cloudflare/vite-plugin`, so most
     incompatibilities surface in dev; this check is the backstop for code
     paths dev never hit.
+- An API route importing `@pracht/image/node` is an error on Workers because
+  its optimizer requires `sharp`. Require `cloudflareLoader` (or
+  `passthroughLoader`) instead.
 - ISG: worker-managed ISG via the per-colo Workers Cache API works out of the
   box. If time-revalidated routes should use the edge-tier Workers Caching
   upgrade instead, confirm both sides — `cloudflareAdapter({ cache: true })`
@@ -131,6 +138,9 @@ a markdown summary (graph diff + verify + budgets) worth attaching to it.
   variant, so run the same Node-only API check as Cloudflare
   **unconditionally** for Vercel builds. Do not skip it based on a runtime
   probe.
+- An API route importing `@pracht/image/node` is an error for the Vercel Edge
+  function. Require `vercelLoader` (with aligned allowed sizes) or
+  `passthroughLoader` instead.
 - Build Output API v3 sanity: `config.json` has `version: 3`.
 
 ## Step 4: Cross-cutting checks

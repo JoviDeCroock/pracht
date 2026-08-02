@@ -262,6 +262,7 @@ pracht/
     adapter-cloudflare/  # Cloudflare Workers adapter
     adapter-vercel/      # Vercel Edge adapter
     cli/              # Dev/build/generate/inspect/verify/plan/report/doctor commands
+    image/            # Responsive <Image> component + optimization loaders
     create-pracht/     # (Phase 2) Starter scaffolding
   example/            # Working example app
   docs/               # Architecture and design docs

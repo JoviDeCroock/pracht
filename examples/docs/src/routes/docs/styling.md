@@ -6,8 +6,8 @@ prev:
   href: /docs/shells
   title: Shells
 next:
-  href: /docs/env
-  title: Environment Variables
+  href: /docs/images
+  title: Images
 ---
 
 ## Recommended Approaches

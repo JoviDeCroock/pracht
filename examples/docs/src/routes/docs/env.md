@@ -3,8 +3,8 @@ title: Environment Variables
 lead: Typed, safe-by-default env access. Server secrets stay on the server, client-visible config is opt-in via a naming prefix, and the build fails when a non-public variable is referenced in client code.
 breadcrumb: Environment
 prev:
-  href: /docs/styling
-  title: Styling
+  href: /docs/images
+  title: Images
 next:
   href: /docs/cli
   title: CLI
