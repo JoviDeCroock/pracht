@@ -21,10 +21,9 @@ export interface CreateImageHandlerOptions {
   /** Remote sources to allow. Defaults to none (same-origin only). */
   remotePatterns?: RemotePattern[];
   /**
-   * Trusted public origin used to resolve relative image paths in production.
-   * Required for non-loopback requests so an attacker-controlled Host header
-   * cannot turn the endpoint into an open proxy. Loopback origins remain
-   * available without configuration for local development.
+   * Trusted origin used to resolve relative image paths. Required whenever
+   * relative sources are served so an attacker-controlled Host header cannot
+   * turn the endpoint into an open proxy.
    */
   localOrigin?: string;
   /**
@@ -152,16 +151,6 @@ function normalizeLocalOrigin(value: string | undefined): string | undefined {
   return url.origin;
 }
 
-function isLoopbackHostname(hostname: string): boolean {
-  const host = hostname.toLowerCase();
-  return (
-    host === "localhost" ||
-    host.endsWith(".localhost") ||
-    host === "[::1]" ||
-    /^127(?:\.\d{1,3}){3}$/.test(host)
-  );
-}
-
 function isAllowedTarget(
   url: URL,
   localOrigin: string | undefined,
@@ -238,7 +227,9 @@ function imageResponseBody(request: Request, bytes: Uint8Array): ArrayBuffer | n
  * ```ts
  * // src/api/_pracht/image.ts
  * import { createImageHandler } from "@pracht/image/node";
- * const imageHandler = createImageHandler();
+ * const imageHandler = createImageHandler({
+ *   localOrigin: process.env.PRACHT_ORIGIN,
+ * });
  * export const GET = imageHandler;
  * export const HEAD = imageHandler;
  * ```
@@ -246,7 +237,7 @@ function imageResponseBody(request: Request, bytes: Uint8Array): ArrayBuffer | n
  * The handler resizes and re-encodes images with sharp (an optional peer
  * dependency — install it in your app), negotiates WebP/AVIF via the `Accept`
  * header, and answers with cacheable responses keyed on the query string.
- * Relative sources resolve against a trusted `localOrigin` in production;
+ * Relative sources resolve only against a configured, trusted `localOrigin`;
  * `remotePatterns` opts specific remote hosts in.
  */
 export function createImageHandler(
@@ -284,9 +275,6 @@ export function createImageHandler(
     }
 
     const requestUrl = new URL(request.url);
-    const localOrigin =
-      configuredLocalOrigin ??
-      (isLoopbackHostname(requestUrl.hostname) ? requestUrl.origin : undefined);
     const source = requestUrl.searchParams.get("url");
     const widthParam = requestUrl.searchParams.get("w");
     const qualityParam = requestUrl.searchParams.get("q");
@@ -316,13 +304,19 @@ export function createImageHandler(
         );
       }
     } else if (source.startsWith("/")) {
-      if (!localOrigin) {
+      if (!configuredLocalOrigin) {
         return errorResponse(
           500,
-          "Relative image sources require createImageHandler({ localOrigin }) outside local development.",
+          "Relative image sources require createImageHandler({ localOrigin }).",
         );
       }
-      target = new URL(source, localOrigin);
+      target = new URL(source, configuredLocalOrigin);
+      if (target.origin !== configuredLocalOrigin) {
+        return errorResponse(
+          400,
+          'Relative "url" values must remain on the configured localOrigin.',
+        );
+      }
     } else {
       return errorResponse(
         400,
@@ -383,7 +377,7 @@ export function createImageHandler(
       } catch {
         return errorResponse(502, `Source image "${source}" returned an invalid redirect.`);
       }
-      if (!isAllowedTarget(nextTarget, localOrigin, remotePatterns)) {
+      if (!isAllowedTarget(nextTarget, configuredLocalOrigin, remotePatterns)) {
         return errorResponse(
           403,
           `Source image "${source}" redirected to a host that is not allowed.`,
@@ -409,7 +403,7 @@ export function createImageHandler(
       } catch {
         finalUrl = undefined;
       }
-      if (finalUrl && !isAllowedTarget(finalUrl, localOrigin, remotePatterns)) {
+      if (finalUrl && !isAllowedTarget(finalUrl, configuredLocalOrigin, remotePatterns)) {
         return errorResponse(
           403,
           `Source image "${source}" redirected to a host that is not allowed.`,

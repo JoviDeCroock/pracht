@@ -77,8 +77,9 @@ a markdown summary (graph diff + verify + budgets) worth attaching to it.
   deployment environment. List them for the user.
 - If the app mounts `createImageHandler()` from `@pracht/image/node`, confirm
   `sharp` is installed and `localOrigin` is the same trusted public origin as
-  `nodeAdapter({ canonicalOrigin })`. A production-relative image endpoint
-  without both values is an error.
+  `nodeAdapter({ canonicalOrigin })`. A relative image endpoint without both
+  values is an error in every environment; loopback-looking request origins
+  are intentionally not trusted.
 - Reverse-proxy / TLS termination configured (out of scope for this skill —
   flag for confirmation).
 

@@ -4,6 +4,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { createImageHandler, type CreateImageHandlerOptions } from "../src/node.ts";
 
 let sourcePng: Uint8Array<ArrayBuffer>;
+const LOCAL_ORIGIN = "http://localhost:3000";
 
 beforeAll(async () => {
   sourcePng = new Uint8Array(
@@ -22,6 +23,10 @@ beforeAll(async () => {
 
 function pngFetcher(): CreateImageHandlerOptions["fetchImage"] {
   return async () => new Response(sourcePng, { headers: { "content-type": "image/png" } });
+}
+
+function createLocalImageHandler(options: CreateImageHandlerOptions = {}) {
+  return createImageHandler({ localOrigin: LOCAL_ORIGIN, ...options });
 }
 
 function imageRequest(query: string, accept = "image/webp,image/png,*/*"): { request: Request } {
@@ -45,7 +50,7 @@ function headImageRequest(
 }
 
 describe("createImageHandler validation", () => {
-  const handler = createImageHandler({ fetchImage: pngFetcher() });
+  const handler = createLocalImageHandler({ fetchImage: pngFetcher() });
 
   it("rejects requests without a url parameter", async () => {
     const response = await handler(imageRequest("w=640"));
@@ -57,6 +62,12 @@ describe("createImageHandler validation", () => {
     const response = await handler(imageRequest("url=%2F%2Fevil.com%2Fa.png&w=640"));
     expect(response.status).toBe(400);
     await expect(response.text()).resolves.toContain("Protocol-relative");
+  });
+
+  it("rejects backslash-normalized network paths", async () => {
+    const response = await handler(imageRequest("url=%2F%5C%5C169.254.169.254%2Fa.png&w=640"));
+    expect(response.status).toBe(400);
+    await expect(response.text()).resolves.toContain("localOrigin");
   });
 
   it("rejects non-relative, non-http urls", async () => {
@@ -71,7 +82,7 @@ describe("createImageHandler validation", () => {
   });
 
   it("rejects absolute urls containing credentials", async () => {
-    const handler = createImageHandler({
+    const handler = createLocalImageHandler({
       fetchImage: pngFetcher(),
       remotePatterns: [{ protocol: "https", hostname: "example.com" }],
     });
@@ -95,7 +106,7 @@ describe("createImageHandler validation", () => {
   });
 
   it("caps the maximum width", async () => {
-    const capped = createImageHandler({
+    const capped = createLocalImageHandler({
       fetchImage: pngFetcher(),
       allowedWidths: [],
       maxWidth: 1024,
@@ -123,7 +134,7 @@ describe("createImageHandler validation", () => {
   it("passes the API route abort signal to custom source fetchers", async () => {
     const controller = new AbortController();
     let seenSignal: AbortSignal | undefined;
-    const signalAware = createImageHandler({
+    const signalAware = createLocalImageHandler({
       fetchImage: async (_url, _request, signal) => {
         seenSignal = signal;
         return new Response(sourcePng, { headers: { "content-type": "image/png" } });
@@ -141,27 +152,32 @@ describe("createImageHandler validation", () => {
 });
 
 describe("createImageHandler remote allowlist", () => {
-  it("requires a trusted local origin for relative production requests", async () => {
-    let fetched = false;
+  it.each([
+    "https://attacker.example",
+    "http://localhost:8080",
+    "http://127.0.0.1:8080",
+    "http://169.254.169.254",
+  ])("requires a trusted local origin for relative requests from %s", async (requestOrigin) => {
+    const fetchedUrls: string[] = [];
     const handler = createImageHandler({
-      fetchImage: async () => {
-        fetched = true;
+      fetchImage: async (url) => {
+        fetchedUrls.push(url.href);
         return new Response(sourcePng, { headers: { "content-type": "image/png" } });
       },
     });
 
     const response = await handler({
-      request: new Request("https://attacker.example/api/_pracht/image?url=%2Fa.png&w=640"),
+      request: new Request(`${requestOrigin}/api/_pracht/image?url=%2Fa.png&w=640`),
     });
 
     expect(response.status).toBe(500);
-    expect(fetched).toBe(false);
+    expect(fetchedUrls).toEqual([]);
     await expect(response.text()).resolves.toContain("localOrigin");
   });
 
   it("pins relative fetches to localOrigin instead of the request Host", async () => {
     let fetchedUrl: string | undefined;
-    const handler = createImageHandler({
+    const handler = createLocalImageHandler({
       localOrigin: "https://app.example.com",
       fetchImage: async (url) => {
         fetchedUrl = url.href;
@@ -207,7 +223,7 @@ describe("createImageHandler remote allowlist", () => {
   it("rejects fetches that redirect outside the allowlist", async () => {
     const redirected = new Response(sourcePng, { headers: { "content-type": "image/png" } });
     Object.defineProperty(redirected, "url", { value: "https://evil.com/a.png" });
-    const handler = createImageHandler({ fetchImage: async () => redirected });
+    const handler = createLocalImageHandler({ fetchImage: async () => redirected });
 
     const response = await handler(imageRequest("url=%2Fa.png&w=640"));
     expect(response.status).toBe(403);
@@ -216,7 +232,7 @@ describe("createImageHandler remote allowlist", () => {
 
   it("validates redirects before requesting the next hop", async () => {
     const fetchedUrls: string[] = [];
-    const handler = createImageHandler({
+    const handler = createLocalImageHandler({
       localOrigin: "https://app.example.com",
       fetchImage: async (url) => {
         fetchedUrls.push(url.href);
@@ -262,7 +278,7 @@ describe("createImageHandler remote allowlist", () => {
 
 describe("createImageHandler optimization", () => {
   it("resizes and re-encodes to webp when the client accepts it", async () => {
-    const handler = createImageHandler({ fetchImage: pngFetcher() });
+    const handler = createLocalImageHandler({ fetchImage: pngFetcher() });
     const response = await handler(imageRequest("url=%2Fhero.png&w=640&q=75"));
 
     expect(response.status).toBe(200);
@@ -278,7 +294,7 @@ describe("createImageHandler optimization", () => {
   });
 
   it("answers HEAD with image headers and no body", async () => {
-    const handler = createImageHandler({ fetchImage: pngFetcher() });
+    const handler = createLocalImageHandler({ fetchImage: pngFetcher() });
     const response = await handler(headImageRequest("url=%2Fhero.png&w=640&q=75"));
 
     expect(response.status).toBe(200);
@@ -289,7 +305,7 @@ describe("createImageHandler optimization", () => {
   });
 
   it("never enlarges beyond the source width", async () => {
-    const handler = createImageHandler({ fetchImage: pngFetcher() });
+    const handler = createLocalImageHandler({ fetchImage: pngFetcher() });
     const response = await handler(imageRequest("url=%2Fhero.png&w=1920"));
 
     const metadata = await sharp(new Uint8Array(await response.arrayBuffer())).metadata();
@@ -297,7 +313,7 @@ describe("createImageHandler optimization", () => {
   });
 
   it("keeps png output when the client does not accept modern formats", async () => {
-    const handler = createImageHandler({ fetchImage: pngFetcher() });
+    const handler = createLocalImageHandler({ fetchImage: pngFetcher() });
     const response = await handler(imageRequest("url=%2Fhero.png&w=640", "image/png"));
 
     expect(response.headers.get("content-type")).toBe("image/png");
@@ -306,7 +322,7 @@ describe("createImageHandler optimization", () => {
   });
 
   it("serves avif when opted in and accepted", async () => {
-    const handler = createImageHandler({
+    const handler = createLocalImageHandler({
       fetchImage: pngFetcher(),
       formats: ["image/avif", "image/webp"],
     });
@@ -318,7 +334,7 @@ describe("createImageHandler optimization", () => {
   });
 
   it("does not select a format the client explicitly rejects", async () => {
-    const handler = createImageHandler({ fetchImage: pngFetcher() });
+    const handler = createLocalImageHandler({ fetchImage: pngFetcher() });
     const response = await handler(
       imageRequest("url=%2Fhero.png&w=640", "image/webp;q=0,image/png"),
     );
@@ -328,7 +344,7 @@ describe("createImageHandler optimization", () => {
 
   it("passes svg through untouched with a download disposition", async () => {
     const svg = '<svg xmlns="http://www.w3.org/2000/svg"></svg>';
-    const handler = createImageHandler({
+    const handler = createLocalImageHandler({
       fetchImage: async () => new Response(svg, { headers: { "content-type": "image/svg+xml" } }),
     });
     const response = await handler(imageRequest("url=%2Flogo.svg&w=640"));
@@ -341,7 +357,7 @@ describe("createImageHandler optimization", () => {
 
   it("answers passthrough HEAD responses with headers and no body", async () => {
     const svg = '<svg xmlns="http://www.w3.org/2000/svg"></svg>';
-    const handler = createImageHandler({
+    const handler = createLocalImageHandler({
       fetchImage: async () => new Response(svg, { headers: { "content-type": "image/svg+xml" } }),
     });
     const response = await handler(headImageRequest("url=%2Flogo.svg&w=640"));
@@ -354,7 +370,7 @@ describe("createImageHandler optimization", () => {
   });
 
   it("propagates upstream failures as 502", async () => {
-    const handler = createImageHandler({
+    const handler = createLocalImageHandler({
       fetchImage: async () => new Response("nope", { status: 404 }),
     });
     const response = await handler(imageRequest("url=%2Fmissing.png&w=640"));
@@ -362,7 +378,7 @@ describe("createImageHandler optimization", () => {
   });
 
   it("rejects non-image sources", async () => {
-    const handler = createImageHandler({
+    const handler = createLocalImageHandler({
       fetchImage: async () =>
         new Response("<html></html>", { headers: { "content-type": "text/html" } }),
     });
@@ -371,7 +387,7 @@ describe("createImageHandler optimization", () => {
   });
 
   it("rejects oversized sources", async () => {
-    const handler = createImageHandler({ fetchImage: pngFetcher(), maxSourceBytes: 10 });
+    const handler = createLocalImageHandler({ fetchImage: pngFetcher(), maxSourceBytes: 10 });
     const response = await handler(imageRequest("url=%2Fhero.png&w=640"));
     expect(response.status).toBe(413);
   });
@@ -386,7 +402,7 @@ describe("createImageHandler optimization", () => {
         canceled = true;
       },
     });
-    const handler = createImageHandler({
+    const handler = createLocalImageHandler({
       fetchImage: async () => new Response(body, { headers: { "content-type": "image/png" } }),
       maxSourceBytes: 10,
     });
@@ -398,7 +414,7 @@ describe("createImageHandler optimization", () => {
   });
 
   it("explains how to install sharp when it is missing", async () => {
-    const handler = createImageHandler({
+    const handler = createLocalImageHandler({
       fetchImage: pngFetcher(),
       loadSharp: () => Promise.reject(new Error("Cannot find module 'sharp'")),
     });
