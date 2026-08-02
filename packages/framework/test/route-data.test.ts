@@ -119,6 +119,17 @@ describe("RouteLoaderData", () => {
 });
 
 describe("useSearch", () => {
+  beforeEach(() => {
+    scratch = document.createElement("div");
+    document.body.appendChild(scratch);
+  });
+
+  afterEach(() => {
+    render(null, scratch);
+    scratch.remove();
+    vi.restoreAllMocks();
+  });
+
   it("returns the active route's validated search state", () => {
     let captured: unknown;
 
