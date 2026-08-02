@@ -1,6 +1,9 @@
+import { readFile } from "node:fs/promises";
 import { h } from "preact";
 import { render } from "preact-render-to-string";
 import { afterEach, describe, expect, it, vi } from "vitest";
+
+import { scanCodeForEnvLeaks } from "../../vite-plugin/src/env-safety.ts";
 
 import {
   cloudflareLoader,
@@ -230,5 +233,14 @@ describe("<Image> dev warnings", () => {
     expect(error).toHaveBeenCalledWith(
       expect.stringContaining('missing required "width" and "height" props'),
     );
+  });
+
+  it("detects dev mode without enumerating the env object", async () => {
+    // A whole-object read is replaced at build time by an object literal
+    // holding every exposed variable, which would ship the app's VITE_ values
+    // in any client bundle that imports <Image>. Checked with the shipped
+    // scanner so comments and strings do not count.
+    const source = await readFile(new URL("../src/image.ts", import.meta.url), "utf-8");
+    expect(scanCodeForEnvLeaks(source)).toEqual([]);
   });
 });

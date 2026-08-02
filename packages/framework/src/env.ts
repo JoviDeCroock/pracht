@@ -58,11 +58,21 @@ export function filterPublicEnv(source: Record<string, unknown> | undefined): Fa
   return result;
 }
 
+/** Injected by the pracht Vite plugin; holds only the PRACHT_PUBLIC_ subset. */
+declare const __PRACHT_PUBLIC_ENV__: Record<string, string> | undefined;
+
 function readPublicEnvSource(): Record<string, unknown> | undefined {
-  // Vite injects `import.meta.env` in dev and statically replaces it at build
-  // time, so client and SSR bundles read the same build-time values.
-  const viteEnv = (import.meta as { env?: Record<string, unknown> }).env;
-  if (viteEnv) return viteEnv;
+  // Builds read the plugin-injected subset. Enumerating `import.meta.env`
+  // instead would make Vite inline the entire env object — including the
+  // `VITE_`-prefixed values pracht does not treat as public — into the client
+  // bundle, where the name-based leak scan cannot see them.
+  if (typeof __PRACHT_PUBLIC_ENV__ !== "undefined") return __PRACHT_PUBLIC_ENV__;
+  // Dev only: Vite serves a live `import.meta.env`. The computed access is
+  // deliberate — Vite's define pass matches the literal `import.meta.env` text,
+  // so this form is never replaced and cannot materialize the env object in a
+  // build. Outside Vite it is simply undefined.
+  const devEnv = (import.meta as { env?: Record<string, unknown> })["env"];
+  if (devEnv) return devEnv;
   // Outside Vite (plain Node server entries, tests) fall back to process.env.
   if (typeof process !== "undefined" && process.env) return process.env;
   return undefined;

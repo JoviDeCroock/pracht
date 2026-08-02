@@ -1,4 +1,7 @@
+import { readFile } from "node:fs/promises";
 import { afterEach, describe, expect, it } from "vitest";
+
+import { scanCodeForEnvLeaks } from "../../vite-plugin/src/env-safety.ts";
 
 import { filterPublicEnv, PRACHT_PUBLIC_ENV_PREFIX } from "../src/env.ts";
 import { serverEnv, setServerEnv } from "../src/env-server.ts";
@@ -41,6 +44,15 @@ describe("publicEnv", () => {
     for (const key of Object.keys(publicEnv)) {
       expect(key.startsWith(PRACHT_PUBLIC_ENV_PREFIX)).toBe(true);
     }
+  });
+
+  it("reads its source without enumerating the env object", async () => {
+    // Enumerating the whole object makes Vite inline every exposed variable —
+    // VITE_ values included — into the client bundle, so the source must only
+    // ever reach it through the plugin-injected define, a computed access, or
+    // process.env. Checked with the shipped scanner so comments do not count.
+    const source = await readFile(new URL("../src/env.ts", import.meta.url), "utf-8");
+    expect(scanCodeForEnvLeaks(source)).toEqual([]);
   });
 });
 

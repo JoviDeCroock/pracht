@@ -35,36 +35,66 @@ export interface EnvLeakReference {
   name: string;
 }
 
-// Matches `process.env.X`, `import.meta.env.X`, and the equivalent
-// bracket-string forms (`process.env["X"]`, `import.meta.env['X']`).
+/**
+ * Sentinel `name` for an `import.meta.env` read that is not a static single-key
+ * access. Vite only narrows `import.meta.env.KEY` / `import.meta.env?.KEY`
+ * member expressions to their value; every other read — a bare reference,
+ * destructuring, a spread, or bracket access — is replaced by an object literal
+ * holding every exposed variable, so the `VITE_` values Pracht treats as
+ * non-public end up verbatim in the client bundle. Those reads leave no
+ * accessor text behind, so the name-based scan below cannot see them.
+ */
+export const WHOLE_ENV_READ = "*";
+
+// Matches `process.env.X`, `import.meta.env.X`, their optional-chained forms
+// (`import.meta.env?.X`), and the equivalent bracket-string forms
+// (`process.env["X"]`, `import.meta.env['X']`).
 const ENV_REFERENCE_RE =
-  /\b(process\.env|import\.meta\.env)(?:\.([A-Za-z_$][A-Za-z0-9_$]*)|\[\s*(["'])([A-Za-z_$][A-Za-z0-9_$]*)\3\s*\])/g;
+  /\b(process\.env|import\.meta\.env)(?:\??\.([A-Za-z_$][A-Za-z0-9_$]*)|(?:\?\.)?\[\s*(["'])([A-Za-z_$][A-Za-z0-9_$]*)\3\s*\])/g;
+
+// Matches `import.meta.env` that is *not* followed by a single-key access, i.e.
+// exactly the reads Vite materializes into the full env object.
+const WHOLE_ENV_READ_RE = /\bimport\.meta\.env\b(?!\s*\??\.\s*[A-Za-z_$])/g;
 
 /**
  * Scans JavaScript source for references to environment variables that are
- * neither public-prefixed, Vite built-ins, nor explicitly allowed.
+ * neither public-prefixed, Vite built-ins, nor explicitly allowed, plus reads
+ * that pull in the whole `import.meta.env` object.
  */
 export function scanCodeForEnvLeaks(
   code: string,
   allow: ReadonlySet<string> = new Set(),
 ): EnvLeakReference[] {
-  const findings: EnvLeakReference[] = [];
-  const seen = new Set<string>();
   const codePositions = getCodePositionMask(code);
+  const matches: Array<{ index: number; reference: EnvLeakReference }> = [];
 
   for (const match of code.matchAll(ENV_REFERENCE_RE)) {
-    if (!codePositions[match.index ?? -1]) continue;
+    const index = match.index ?? -1;
+    if (!codePositions[index]) continue;
     const accessor = match[1] as EnvLeakReference["accessor"];
     const name = match[2] ?? match[4];
     if (!name) continue;
     if (name.startsWith(PUBLIC_ENV_PREFIX)) continue;
     if (VITE_BUILTIN_ENV_VARS.has(name)) continue;
     if (allow.has(name)) continue;
+    matches.push({ index, reference: { accessor, name } });
+  }
 
-    const key = `${accessor}.${name}`;
+  if (!allow.has(WHOLE_ENV_READ)) {
+    for (const match of code.matchAll(WHOLE_ENV_READ_RE)) {
+      const index = match.index ?? -1;
+      if (!codePositions[index]) continue;
+      matches.push({ index, reference: { accessor: "import.meta.env", name: WHOLE_ENV_READ } });
+    }
+  }
+
+  const findings: EnvLeakReference[] = [];
+  const seen = new Set<string>();
+  for (const { reference } of matches.sort((a, b) => a.index - b.index)) {
+    const key = `${reference.accessor}.${reference.name}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    findings.push({ accessor, name });
+    findings.push(reference);
   }
 
   return findings;
@@ -275,12 +305,26 @@ export function formatEnvLeakError(problems: EnvLeakProblem[]): string {
       problem.sources.length > 0
         ? ` (likely from ${problem.sources.map((file) => JSON.stringify(file)).join(", ")})`
         : "";
-    return `  - ${problem.accessor}.${problem.name} in chunk "${problem.chunk}"${source}`;
+    const reference =
+      problem.name === WHOLE_ENV_READ
+        ? "import.meta.env read as a whole object"
+        : `${problem.accessor}.${problem.name}`;
+    return `  - ${reference} in chunk "${problem.chunk}"${source}`;
   });
+
+  const wholeEnvGuidance = problems.some((problem) => problem.name === WHOLE_ENV_READ)
+    ? [
+        "",
+        "A whole-object `import.meta.env` read (bare reference, destructuring, spread, or bracket access)",
+        "is replaced at build time by an object literal containing every exposed variable — including the",
+        "`VITE_` values Pracht does not treat as public. Read one key at a time (`import.meta.env.KEY`).",
+      ]
+    : [];
 
   return [
     "[pracht] Environment variable leak detected in the client bundle:",
     ...lines,
+    ...wholeEnvGuidance,
     "",
     `Only PRACHT_PUBLIC_-prefixed variables may be referenced in client code (prefer publicEnv from "@pracht/core" for typed public values).`,
     `Move server-only reads into loaders/API routes and access them via serverEnv from "@pracht/core/env/server",`,

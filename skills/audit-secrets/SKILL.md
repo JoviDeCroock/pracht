@@ -115,6 +115,12 @@ Check for accidental exposure outside loaders:
   intentionally public, so flag client-side `VITE_*` references unless they are
   explicitly allowlisted and reviewed. Warn loudly if a public env name has a
   secret-shaped name.
+- Flag any client-side read of `import.meta.env` that is not a single-key
+  access — a bare reference, destructuring, a spread, or bracket access such as
+  `const env = import.meta.env` or `import.meta.env["MODE"]`. Vite replaces
+  those with an object literal holding **every** exposed variable, so the
+  `VITE_*` values land in the bundle with no accessor text left for a
+  name-based grep to find. Use `publicEnv` to enumerate public values.
 - Confirm server-side env access uses `serverEnv` (from
   `@pracht/core/env/server`) or `context.env` rather than ad-hoc globals.
 

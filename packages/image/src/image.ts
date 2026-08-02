@@ -54,11 +54,19 @@ function getNodeEnv(): string | undefined {
   return (globalThis as { process?: { env?: { NODE_ENV?: string } } }).process?.env?.NODE_ENV;
 }
 
+// Every read must spell out `import.meta.env?.<KEY>` literally. Vite statically
+// replaces those exact member expressions at build time, but a bare
+// `import.meta.env` read is materialized into an object literal holding every
+// exposed env value — including `VITE_`-prefixed ones — which would ship those
+// values in the client bundle and slip past the name-based env leak scan. In
+// Node (CLI builds, tests) `import.meta.env` is undefined and the optional
+// chain yields undefined.
 function getImportMetaDev(): boolean | undefined {
-  const env = (import.meta as ImportMeta & { env?: { DEV?: boolean; MODE?: string } }).env;
-  if (env?.MODE === "production") return false;
-  if (typeof env?.DEV === "boolean") return env.DEV;
-  if (typeof env?.MODE === "string") return env.MODE !== "production";
+  const mode = import.meta.env?.MODE;
+  if (mode === "production") return false;
+  const dev = import.meta.env?.DEV;
+  if (typeof dev === "boolean") return dev;
+  if (typeof mode === "string") return mode !== "production";
   return undefined;
 }
 
