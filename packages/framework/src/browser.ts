@@ -48,6 +48,10 @@ export type {
 } from "./types.ts";
 export { filterPublicEnv, PRACHT_PUBLIC_ENV_PREFIX, publicEnv } from "./env.ts";
 export type { PrachtPublicEnv, PrachtServerEnv, PublicEnvOf } from "./env.ts";
+// The generated `virtual:pracht/capabilities` module binds this to its
+// `callCapability` to produce `useCapability`. It must be reachable from the
+// browser entry — that is the one the client build resolves `@pracht/core` to.
+export { createUseCapability, type CapabilityHookResult } from "./capability-hook.ts";
 export { forwardRef } from "./forwardRef.ts";
 export { useIsHydrated } from "./hydration.ts";
 export { Suspense, lazy } from "preact-suspense";

@@ -240,11 +240,19 @@ describe("extractCapabilities", () => {
 });
 
 /**
- * Import the generated module standalone so its dispatch behaviour (the
- * endpoint table, fetch options, the settled event) can be exercised directly.
+ * Import the generated module standalone. It imports `createUseCapability`
+ * from `@pracht/core` (the hook's implementation lives there so it stays typed
+ * and unit-tested), and a bare specifier cannot be resolved from a `data:` URL
+ * — so swap just that specifier for an inline stub. Everything these tests
+ * exercise (the endpoint table, dispatch, the settled event) is untouched;
+ * the hook itself is covered by the framework's own tests.
  */
 async function importGeneratedModule<T>(source: string): Promise<T> {
-  const url = `data:text/javascript;base64,${Buffer.from(source).toString("base64")}#${Date.now()}`;
+  const standalone = source.replace(
+    'from "@pracht/core"',
+    'from "data:text/javascript,export const createUseCapability = () => () => {};"',
+  );
+  const url = `data:text/javascript;base64,${Buffer.from(standalone).toString("base64")}#${Date.now()}`;
   return (await import(url)) as T;
 }
 
