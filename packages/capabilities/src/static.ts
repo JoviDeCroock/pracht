@@ -1,15 +1,135 @@
 /**
  * Static analysis of capability sources — shared by the Vite plugin (client
- * projection codegen) and the CLI (`pracht verify`). Both consumers parse the
- * same `defineCapability({ ... })` call sites without executing application
- * code, so keeping the parser here guarantees the build and verification can
- * never disagree about what is statically analyzable.
+ * projection codegen) and the CLI (`pracht verify`, `pracht typegen`). Every
+ * consumer parses the same `defineCapability({ ... })` call sites without
+ * executing application code, so keeping the parser here guarantees the build,
+ * verification, and type generation can never disagree about what is
+ * statically analyzable.
  *
  * Constraint this imposes on capability authors: values the tools need
  * (`expose`, `effect`, `input`, string fields) must be inline literals — no
  * imported constants or spreads. `evaluateLiteral()` parses the literal text
  * as data and returns `undefined` for anything else.
  */
+
+import { capabilityHttpPath, isValidCapabilityHttpPath } from "./protocol.ts";
+
+/**
+ * The parts of a capability contract that decide what gets projected to the
+ * browser: whether it has an HTTP endpoint, its effect class, whether it
+ * registers a WebMCP page tool, and the input schema that tool advertises.
+ */
+export interface CapabilityProjection {
+  description: string;
+  effect: string | null;
+  httpPath: string | null;
+  webmcp: boolean;
+  inputSchema: Record<string, unknown> | null;
+}
+
+/**
+ * Derive a capability's projection from its source, without executing it.
+ *
+ * This is the single implementation behind three consumers that must agree:
+ * the Vite plugin builds the browser endpoint table from it, `pracht verify`
+ * checks the contract against it, and `pracht typegen` cross-checks it against
+ * the executed graph. If they disagreed, generated types could promise an
+ * endpoint the client bundle never registered.
+ *
+ * `name` supplies the default HTTP path; `describe` wraps error messages so
+ * each caller can phrase them its own way (the plugin fails the build, the CLI
+ * fails a check).
+ */
+export function extractCapabilityProjection(
+  name: string,
+  source: string,
+  describe: (detail: string) => string,
+): CapabilityProjection {
+  const args = extractDefineCapabilityArgs(source);
+  if (!args) {
+    throw new Error(
+      describe("does not contain a defineCapability({ ... }) call the build can analyze."),
+    );
+  }
+
+  const properties = scanTopLevelProperties(args);
+  const exposeText = properties.get("expose");
+  if (!exposeText) {
+    // Private capability: server-only, nothing to project to the client.
+    return { description: "", effect: null, httpPath: null, webmcp: false, inputSchema: null };
+  }
+
+  const expose = evaluateLiteral(exposeText);
+  if (!isPlainObject(expose)) {
+    throw new Error(
+      describe(
+        '"expose" must be an inline object literal so the client projection can be generated at build time.',
+      ),
+    );
+  }
+
+  const http = expose.http;
+  let httpPath: string | null = null;
+  if (http === true) {
+    httpPath = capabilityHttpPath(name);
+  } else if (isPlainObject(http)) {
+    httpPath = typeof http.path === "string" ? http.path : capabilityHttpPath(name);
+  }
+  if (httpPath && !isValidCapabilityHttpPath(httpPath)) {
+    throw new Error(
+      describe('HTTP exposure "path" must be an exact same-origin pathname starting with "/".'),
+    );
+  }
+
+  const webmcp = expose.webmcp === true;
+  if (webmcp && !httpPath) {
+    throw new Error(describe("expose.webmcp requires expose.http."));
+  }
+
+  let description = "";
+  const descriptionText = properties.get("description");
+  if (descriptionText) {
+    const value = evaluateLiteral(descriptionText);
+    if (typeof value === "string") description = value;
+  }
+
+  let effect: string | null = null;
+  const effectText = properties.get("effect");
+  if (effectText) {
+    const value = evaluateLiteral(effectText);
+    if (typeof value === "string") effect = value;
+  }
+  if (httpPath && effect !== "read" && effect !== "write" && effect !== "destructive") {
+    throw new Error(
+      describe(
+        'is exposed via HTTP, but its "effect" could not be extracted at build time. ' +
+          'HTTP-exposed capabilities must declare "effect" as an inline "read", "write", or ' +
+          '"destructive" string literal.',
+      ),
+    );
+  }
+
+  let inputSchema: Record<string, unknown> | null = null;
+  if (webmcp) {
+    const inputText = properties.get("input");
+    const value = inputText ? evaluateLiteral(inputText) : undefined;
+    if (!isPlainObject(value)) {
+      throw new Error(
+        describe(
+          'is exposed via WebMCP, but its "input" schema could not be extracted at build time. ' +
+            "WebMCP-exposed capabilities must declare their input schema as an inline object literal.",
+        ),
+      );
+    }
+    inputSchema = value;
+  }
+
+  return { description, effect, httpPath, webmcp, inputSchema };
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
 
 /**
  * Extract the argument object text of the *default-exported*
