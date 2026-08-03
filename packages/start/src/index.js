@@ -21,6 +21,7 @@ const FALLBACK_VERSION_RANGES = {
   "@pracht/vite-plugin": "^0.3.2",
   "@tailwindcss/vite": "^4.1.0",
   tailwindcss: "^4.1.0",
+  typescript: "^6.0.0",
   vercel: "^56.5.0",
 };
 
@@ -567,6 +568,7 @@ async function buildProjectFiles({
     "@pracht/vite-plugin",
     "@pracht/core",
     adapter.packageName,
+    "typescript",
   ];
   if (adapter.id === "vercel") {
     packagesToResolve.push("vercel");
@@ -664,6 +666,7 @@ function createPackageJson({ adapter, projectName, tailwind, versions }) {
   const scripts = {
     build: "pracht build",
     dev: "pracht dev",
+    typecheck: "tsc --noEmit",
   };
 
   if (adapter.id === "node") {
@@ -676,6 +679,7 @@ function createPackageJson({ adapter, projectName, tailwind, versions }) {
     "@pracht/vite-plugin": versions["@pracht/vite-plugin"],
     preact: "^10.26.9",
     "preact-render-to-string": "^6.5.13",
+    typescript: versions["typescript"],
     vite: "^8.0.0",
   };
 
@@ -1116,6 +1120,8 @@ function createReadme({ adapter, agentTools, packageManager, projectName, router
   const previewCommand = packageManager === "npm" ? "npm run preview" : `${packageManager} preview`;
   const startCommand = packageManager === "npm" ? "npm run start" : `${packageManager} start`;
   const deployCommand = packageManager === "npm" ? "npm run deploy" : `${packageManager} deploy`;
+  const typecheckCommand =
+    packageManager === "npm" ? "npm run typecheck" : `${packageManager} typecheck`;
 
   const lines = [
     `# ${projectName}`,
@@ -1126,6 +1132,7 @@ function createReadme({ adapter, agentTools, packageManager, projectName, router
     "",
     `- \`${installCommand}\``,
     `- \`${devCommand}\``,
+    `- \`${typecheckCommand}\``,
   ];
 
   if (adapter.id === "node") {

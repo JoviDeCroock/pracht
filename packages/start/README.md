@@ -17,7 +17,7 @@ npm run dev
 - Detects the active package manager from the current environment.
 - Lets the user choose between the Node.js, Cloudflare, and Vercel adapters.
 - Optionally wires up Tailwind CSS (`tailwindcss` + `@tailwindcss/vite`, a global stylesheet, and the shell import).
-- Scaffolds a minimal app with a route manifest or pages router, shell, home route, sample API route, runnable project README, and agent instructions.
+- Scaffolds a minimal app with a route manifest or pages router, shell, home route, sample API route, runnable project README, TypeScript typecheck script, and agent instructions.
 - Manifest scaffolds include a commented-out `constraints` example in `src/routes.ts`, ready for `pracht verify`.
 - The generated `.gitignore` keeps `.pracht/app-graph.json` committable, and the README and agent instructions cover the `pracht verify` / `pracht plan` / `pracht report` loop.
 - Seeds the pracht Claude Code skills into `.claude/skills/` and writes a `.mcp.json` registering the `pracht mcp` server (yes-default prompt; skipped with `--no-agent-tools`).
@@ -80,6 +80,7 @@ Cloudflare scaffolds also include:
 
 - `dev` -> `pracht dev`
 - `build` -> `pracht build`
+- `typecheck` -> `tsc --noEmit`
 
 Node starters also include:
 
