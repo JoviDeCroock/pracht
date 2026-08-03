@@ -181,6 +181,14 @@ Test tooling can wait for `html[data-pracht-islands-hydrated="true"]` (set
 after all `load` islands hydrate) and per-island `data-hydrated="true"`
 attributes.
 
+### Dev server updates
+
+Islands themselves hot-update in place like any client component. Everything
+else on an islands or `hydration: "none"` page — the route module, its shell,
+and the server-only components it imports — is not part of the client bundle,
+so there is no client module to patch: the dev server reloads the page instead.
+Either way, saving a file updates what you see without a manual refresh.
+
 ---
 
 ## Navigation
