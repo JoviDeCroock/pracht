@@ -192,15 +192,25 @@ protocol cannot drift between packages.
 ### Browser
 
 ```ts
-import { callCapability } from "virtual:pracht/capabilities";
+import { callCapability, capabilities } from "virtual:pracht/capabilities";
 
-const result = await callCapability<{ note: Note }>("notes.create", { title });
+const result = await callCapability("notes.create", { title });
+// or, through the generated client — dotted names become object paths:
+const same = await capabilities.notes.create({ title });
 ```
+
+Both forms take the identical path (endpoint table, settled event,
+revalidation); `capabilities` is a nested view of the same call, with each
+capability's title and description attached as JSDoc. Once `pracht typegen` has
+run, both infer input and output from the capability name, private capabilities
+are absent, and a `destructive` capability will not compile without its
+confirmation token.
 
 `virtual:pracht/capabilities` is generated at build time from the manifest and
 contains only http-exposed capability names, endpoints, and effect classes —
 capability modules themselves are server-only and never enter the client graph.
-Apps without capabilities ship zero extra bytes.
+Apps without capabilities ship zero extra bytes, and the `capabilities` client
+is tree-shaken away when only `callCapability` is imported.
 
 Importing a capability module from client code is a build error. Nothing strips
 one the way a route loader is stripped, so the import would bundle `run()` and
@@ -220,7 +230,9 @@ directions by tests:
 The one exception is `expose.webmcp`: an in-page agent cannot call a tool
 without its schema, so webmcp-exposed capabilities ship their description and
 input schema in the separate `virtual:pracht/webmcp` chunk, which only loads
-when the browser exposes the WebMCP API. Nothing else does.
+when the browser exposes the WebMCP API. Nothing else does. Titles and
+descriptions of other capabilities appear only as JSDoc in the generated
+`.d.ts`, which is types-only and never emitted.
 
 Options: `{ headers, signal, confirm, revalidate }`. `confirm` sets the
 confirmation header when committing a destructive call (take the token from
@@ -243,6 +255,9 @@ import { Form } from "@pracht/core";
 </Form>;
 ```
 
+- `capability` accepts only http-exposed capability names once typegen has run
+  — a private one has no endpoint to post to, so naming it is a compile error
+  rather than a 404 at submit time.
 - Fields are coerced onto the capability's input schema server-side (numbers
   parsed, checkbox `on` → boolean, repeated fields → arrays), then validated
   like any other call.
@@ -265,11 +280,12 @@ import { Form } from "@pracht/core";
 ## Generated types
 
 `pracht typegen` (the same command that generates typed routes) also emits
-`src/pracht-capabilities.d.ts` when the app registers capabilities: TypeScript
-input/output types generated from each capability's JSON Schemas, registered
-on `Register["capabilities"]`. With that file in the program,
-`invokeCapability()`, the browser's `callCapability()`, and
-`createCapabilityTestHost().invoke()` all infer both sides from the capability
+`src/pracht-capabilities.d.ts` when the app registers capabilities: each
+capability's input/output types generated from its JSON Schemas, plus its
+effect class and exposure, registered on `Register["capabilities"]`. With that
+file in the program, `invokeCapability()`, the browser's `callCapability()`,
+the generated `capabilities` client, `<Form capability>`, and
+`createCapabilityTestHost().invoke()` all read the contract from the capability
 name — no per-call generics:
 
 ```ts
@@ -277,14 +293,40 @@ const result = await invokeCapability("notes.search", { query: "roadmap" }, args
 // result.data: { notes: Array<...> } — inferred from the output schema
 ```
 
+What the compiler enforces once the file exists:
+
+| Mistake | Result |
+| --- | --- |
+| Unknown or misspelled capability name | compile error (with a "did you mean" suggestion) |
+| Input that does not match the schema | compile error |
+| Calling a private capability from the browser | compile error — no HTTP endpoint exists |
+| Committing a `destructive` call without `confirm` | compile error |
+| Passing an input to a capability whose schema requires none | argument may be omitted entirely |
+
 - An input property is optional when it is not `required` **or** declares a
   schema `default` (defaults are applied before input validation); an output
   property is optional exactly when it is not `required`.
 - Objects without `additionalProperties: false` keep an index signature, so
-  extra members remain reachable as `unknown`.
-- Unregistered names — and a mismatched input on a registered name — fall back
-  to the untyped `invokeCapability<Output>(name, ...)` overload; runtime
-  validation still rejects bad input either way.
+  extra members remain reachable as `unknown`. Extra properties on a closed
+  schema are rejected at runtime with a path-scoped 400; TypeScript's
+  excess-property check does not reliably reach through the generated types, so
+  do not rely on it to catch them.
+- Apps that have not run typegen keep the untyped
+  `invokeCapability<Output>(name, ...)` form and accept any capability name.
+  Once anything is registered that form no longer applies — which is what makes
+  a mistake fail the build instead of falling through to it. Drop the explicit
+  type argument and let inference do the work; runtime validation is unchanged
+  either way.
+- Typegen reads capability metadata by loading the modules, while the browser
+  projection is built by static analysis. Typegen cross-checks the two and
+  fails when they disagree, so generated types can never promise an endpoint
+  the client bundle does not register.
+- The confirmation gate closes whenever `destructive` is *possible*: a name
+  typed as a union of capabilities demands the token if any member is
+  destructive, as does a capability whose effect the build could not read.
+- A declaration file generated before `effect`/`exposed` existed keeps working
+  unchanged, but gets none of the exposure or confirmation checks. Re-run
+  `pracht typegen` (and `--check` in CI) after upgrading.
 - `--capabilities-out` overrides the output path, `--check` covers the file in
   CI, and removing the last capability rewrites an existing file to the empty
   registration instead of leaving it stale.

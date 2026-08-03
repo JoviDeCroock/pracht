@@ -1,6 +1,7 @@
 import { useState } from "preact/hooks";
 import { Form, useIsHydrated, useRouteData, type LoaderArgs } from "@pracht/core";
 import { invokeCapability } from "@pracht/core/server";
+import { capabilities } from "virtual:pracht/capabilities";
 
 // Direct server-side invocation: the loader calls the same capability the
 // HTTP projection serves, through the same validation + middleware pipeline.
@@ -23,6 +24,7 @@ export function Component() {
   const data = useRouteData<typeof loader>();
   const hydrated = useIsHydrated();
   const [status, setStatus] = useState<string | null>(null);
+  const [searchCount, setSearchCount] = useState<number | null>(null);
 
   return (
     <section>
@@ -56,6 +58,23 @@ export function Component() {
         <button type="submit">Create note</button>
       </Form>
       {status ? <p data-testid="create-note-status">{status}</p> : null}
+      {/*
+        The generated client: dotted capability names read as object paths.
+        Input and output are inferred from the name, private capabilities are
+        not on the object at all, and this dispatches through the same endpoint
+        the form above posts to.
+      */}
+      <button
+        type="button"
+        data-testid="search-notes-button"
+        onClick={async () => {
+          const result = await capabilities.notes.search({ query: "note" });
+          setSearchCount(result.ok ? result.data.notes.length : null);
+        }}
+      >
+        Count notes
+      </button>
+      {searchCount === null ? null : <p data-testid="search-notes-count">{searchCount} notes</p>}
     </section>
   );
 }

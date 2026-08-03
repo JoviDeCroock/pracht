@@ -165,6 +165,7 @@ describe("buildDevtoolsHtml", () => {
       capabilities: [
         {
           agentPolicy: null,
+          description: "Find notes whose title or body matches the query.",
           effect: "read",
           hasUi: false,
           httpPath: "/api/capabilities/notes/search",
@@ -178,6 +179,7 @@ describe("buildDevtoolsHtml", () => {
         },
         {
           agentPolicy: null,
+          description: null,
           effect: "write",
           hasUi: false,
           httpPath: null,

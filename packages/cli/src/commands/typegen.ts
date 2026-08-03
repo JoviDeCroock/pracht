@@ -316,10 +316,17 @@ function buildDeclarationSource(
 }
 
 /**
- * Register capability input/output types on `Register["capabilities"]`, the
+ * Register each capability's contract on `Register["capabilities"]`, the
  * capability counterpart of the route declaration file. `invokeCapability()`,
- * `callCapability()`, and the capability test host infer their input and
- * output types from the capability name once this file is in the program.
+ * `callCapability()`, the generated `capabilities` client, `<Form capability>`,
+ * and the capability test host all read this registration once the file is in
+ * the program.
+ *
+ * Beyond input/output types the entry carries the parts of the contract the
+ * type layer enforces: `effect` (so a `destructive` call must present a
+ * confirmation token) and `exposed` (so only http-exposed capabilities are
+ * reachable from the browser). `title`/`description` become JSDoc so hovering a
+ * capability name shows the same prose an agent reads.
  */
 function buildCapabilityDeclarationSource(capabilities: CapabilityEntry[]): string {
   const lines = [
@@ -337,9 +344,12 @@ function buildCapabilityDeclarationSource(capabilities: CapabilityEntry[]): stri
     for (const capability of capabilities) {
       // Broken registrations (module failed to load) fall back to `unknown`
       // schemas here; `pracht verify` and `pracht doctor` report the wiring.
+      lines.push(...formatCapabilityDoc(capability));
       lines.push(`      ${JSON.stringify(capability.name)}: {`);
       lines.push(`        input: ${schemaToTypeText(capability.input, "input")};`);
       lines.push(`        output: ${schemaToTypeText(capability.output, "output")};`);
+      lines.push(`        effect: ${formatCapabilityEffect(capability.effect)};`);
+      lines.push(`        exposed: ${formatCapabilityExposure(capability.transports)};`);
       lines.push("      };");
     }
     lines.push("    };");
@@ -352,6 +362,45 @@ function buildCapabilityDeclarationSource(capabilities: CapabilityEntry[]): stri
   lines.push("");
 
   return lines.join("\n");
+}
+
+/**
+ * The effect literal drives the type layer's confirmation gate. A registration
+ * whose module failed to load has no effect: widen to the full union rather
+ * than guessing, so a broken capability never silently loses its gate.
+ */
+function formatCapabilityEffect(effect: string | null | undefined): string {
+  return effect ? JSON.stringify(effect) : '"read" | "write" | "destructive"';
+}
+
+/** Exposure literals, so the browser client can drop private capabilities. */
+function formatCapabilityExposure(transports: string[] | undefined): string {
+  const list = transports ?? [];
+  const flag = (name: string) => (list.includes(name) ? "true" : "false");
+  return `{ http: ${flag("http")}; webmcp: ${flag("webmcp")}; mcp: ${flag("mcp")} }`;
+}
+
+/** `title`/`description` as JSDoc above the entry, so editors surface it. */
+function formatCapabilityDoc(capability: CapabilityEntry): string[] {
+  const parts = [capability.title, capability.description].filter(
+    (part): part is string => typeof part === "string" && part.trim().length > 0,
+  );
+  if (parts.length === 0) {
+    return [];
+  }
+
+  const lines = ["      /**"];
+  for (const [index, part] of parts.entries()) {
+    if (index > 0) {
+      lines.push("       *");
+    }
+    for (const line of part.trim().split(/\r?\n/)) {
+      // `*/` inside the contract prose would close the comment early.
+      lines.push(`       * ${line.replaceAll("*/", "*\\/")}`.trimEnd());
+    }
+  }
+  lines.push("       */");
+  return lines;
 }
 
 function buildRuntimeSource(routes: RouteEntry[]): string {

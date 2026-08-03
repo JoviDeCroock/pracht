@@ -766,7 +766,10 @@ describe("invokeCapability", () => {
     registry.routeModules = {
       "./routes/notes.tsx": async () => ({
         loader: async ({ request, context, signal }: LoaderArgs) =>
-          invokeCapability("notes.search", {}, { request, context, signal }),
+          // Deliberately invalid input: the generated types reject it, which is
+          // the point of the typed client. Cast past them to prove the runtime
+          // still validates for JavaScript callers.
+          invokeCapability("notes.search", {} as never, { request, context, signal }),
         Component: () => null,
       }),
     };
@@ -790,7 +793,10 @@ describe("invokeCapability", () => {
     registry.routeModules = {
       "./routes/notes.tsx": async () => ({
         loader: async ({ request, context, signal }: LoaderArgs) =>
-          invokeCapability("notes.serach", { query: "x" }, { request, context, signal }),
+          // Deliberately misspelled: a registered app now catches this at
+          // compile time, so cast past the types to reach the runtime path
+          // that JavaScript callers and agents still hit.
+          invokeCapability("notes.serach" as never, { query: "x" }, { request, context, signal }),
         Component: () => null,
       }),
     };

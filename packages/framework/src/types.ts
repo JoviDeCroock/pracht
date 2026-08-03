@@ -934,13 +934,142 @@ type RegisteredCapabilityMap = Register extends { capabilities: infer TCapabilit
     : {}
   : {};
 
+/**
+ * Whether the app generated capability types. Every alias below degrades to
+ * `string`/`unknown` when it is `false`, so the capability APIs stay usable
+ * before the first `pracht typegen` run — the same shape as `ApiPath` and
+ * `RouteId`.
+ */
+export type HasRegisteredCapabilities = keyof RegisteredCapabilityMap extends never ? false : true;
+
 export type RegisteredCapabilityName = Extract<keyof RegisteredCapabilityMap, string>;
 
-export type CapabilityInputFor<TName extends RegisteredCapabilityName> =
-  RegisteredCapabilityMap[TName] extends { input: infer TInput } ? TInput : unknown;
+/**
+ * Every registered capability name, including private ones: direct server
+ * invocation reaches capabilities that are never exposed over the network.
+ * Falls back to `string` before typegen has run.
+ */
+export type CapabilityName = HasRegisteredCapabilities extends true
+  ? RegisteredCapabilityName
+  : string;
 
-export type CapabilityOutputFor<TName extends RegisteredCapabilityName> =
-  RegisteredCapabilityMap[TName] extends { output: infer TOutput } ? TOutput : unknown;
+type ExposedHttpCapabilityName = {
+  [TName in keyof RegisteredCapabilityMap]: RegisteredCapabilityMap[TName] extends {
+    exposed: { http: true };
+  }
+    ? TName
+    : never;
+}[keyof RegisteredCapabilityMap] &
+  string;
+
+/**
+ * Capability names reachable from the browser — those with `expose.http`.
+ * `callCapability()`, the generated `capabilities` client, and
+ * `<Form capability>` use this so a private capability is a compile error
+ * rather than a runtime `unknown_capability` envelope.
+ *
+ * When no entry carries `exposed` the filter would yield `never` and lock every
+ * browser call out with an error that never mentions the real cause. That is
+ * what a `pracht-capabilities.d.ts` generated before `exposed` existed looks
+ * like, and those files are committed. Fall back to every registered name
+ * instead: exposure is then unchecked (as it was before), and the runtime still
+ * answers a private call with `unknown_capability`. Re-running `pracht typegen`
+ * restores the check.
+ */
+export type HttpCapabilityName = HasRegisteredCapabilities extends true
+  ? [ExposedHttpCapabilityName] extends [never]
+    ? RegisteredCapabilityName
+    : ExposedHttpCapabilityName
+  : string;
+
+/**
+ * The registration entry for a name, or `never` when the name is unregistered
+ * (which includes every name before typegen has run). Each alias below checks
+ * for that case explicitly: indexing an empty map yields `never`, and `never`
+ * satisfies every `extends` test, so an unguarded conditional would silently
+ * resolve to `never` instead of the intended `unknown`.
+ */
+type RegisteredCapabilityEntry<TName extends string> = TName extends keyof RegisteredCapabilityMap
+  ? RegisteredCapabilityMap[TName]
+  : never;
+
+export type CapabilityInputFor<TName extends string> = [RegisteredCapabilityEntry<TName>] extends [
+  never,
+]
+  ? unknown
+  : RegisteredCapabilityEntry<TName> extends { input: infer TInput }
+    ? TInput
+    : unknown;
+
+export type CapabilityOutputFor<TName extends string> = [RegisteredCapabilityEntry<TName>] extends [
+  never,
+]
+  ? unknown
+  : RegisteredCapabilityEntry<TName> extends { output: infer TOutput }
+    ? TOutput
+    : unknown;
+
+/** Declared effect class, or the full union when typegen has not run. */
+export type CapabilityEffectFor<TName extends string> = [RegisteredCapabilityEntry<TName>] extends [
+  never,
+]
+  ? CapabilityEffect
+  : RegisteredCapabilityEntry<TName> extends { effect: infer TEffect }
+    ? TEffect
+    : CapabilityEffect;
+
+/**
+ * The effect a registration actually states, or `never` when it states none.
+ *
+ * The confirmation gate has to tell apart two cases `CapabilityEffectFor`
+ * collapses into one. A `pracht-capabilities.d.ts` generated before `effect`
+ * was emitted declares nothing, and must keep behaving as it did — demanding a
+ * token on every call would break every upgrading app. A registration that
+ * declares the *full union* does so because the build could not read a broken
+ * capability's effect, and that one must fail closed.
+ */
+type DeclaredCapabilityEffect<TName extends string> =
+  RegisteredCapabilityEntry<TName> extends { effect: infer TEffect } ? TEffect : never;
+
+/**
+ * Argument list for a browser capability call — `callCapability()` and the
+ * generated `capabilities` client. A capability whose input schema requires
+ * nothing is callable with no argument at all; every other capability must
+ * pass one. `TOptions` stays generic so the virtual module can supply its own
+ * option type without `@pracht/core` importing it.
+ *
+ * Server-side `invokeCapability()` does not use this: its request context is
+ * always required, so it takes a plain `(name, input, ctx)` signature.
+ */
+export type CapabilityInputArgs<TName extends string, TOptions> = {} extends TOptions
+  ? {} extends CapabilityInputFor<TName>
+    ? [input?: CapabilityInputFor<TName>, options?: TOptions]
+    : [input: CapabilityInputFor<TName>, options?: TOptions]
+  : // Options carry a required member (a `destructive` capability's confirmation
+    // token), so neither argument may be omitted — an optional parameter cannot
+    // precede a required one.
+    [input: CapabilityInputFor<TName>, options: TOptions];
+
+/**
+ * Browser call options, narrowed per capability: a `destructive` capability is
+ * gated by the server-verified prepare/commit flow, so committing one without
+ * a confirmation token is a compile error rather than a runtime
+ * `confirmation_required` envelope. Take the token from the prior call's
+ * envelope. See AGENT_TRUST.md.
+ *
+ * The gate closes whenever `destructive` is *possible*, not only when it is
+ * certain: a name typed as a union (`"notes.search" | "notes.purge"`) and a
+ * capability whose effect could not be read at build time both demand the
+ * token. Erring toward requiring it costs a caller one argument; erring the
+ * other way silently drops the only compile-time half of the confirmation
+ * flow.
+ */
+export type CapabilityCallOptionsFor<
+  TName extends string,
+  TOptions extends { confirm?: string },
+> = [Extract<DeclaredCapabilityEffect<TName>, "destructive">] extends [never]
+  ? TOptions
+  : TOptions & { confirm: string };
 
 export class PrachtHttpError extends Error {
   readonly status: number;
