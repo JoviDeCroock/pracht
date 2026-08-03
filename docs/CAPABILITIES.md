@@ -199,9 +199,28 @@ const result = await callCapability<{ note: Note }>("notes.create", { title });
 
 `virtual:pracht/capabilities` is generated at build time from the manifest and
 contains only http-exposed capability names, endpoints, and effect classes —
-capability modules themselves are server-only and never enter the client graph
-(guarded by e2e bundle assertions). Apps without capabilities ship zero extra
-bytes.
+capability modules themselves are server-only and never enter the client graph.
+Apps without capabilities ship zero extra bytes.
+
+Importing a capability module from client code is a build error. Nothing strips
+one the way a route loader is stripped, so the import would bundle `run()` and
+everything it pulls in — a database client, an API key — for every visitor. Call
+the capability instead.
+
+What crosses to the browser is deliberately narrow, and guarded in both
+directions by tests:
+
+| Stays server-side | Reaches the browser |
+| --- | --- |
+| `run()` bodies and anything they import | capability name |
+| input/output JSON Schemas | HTTP endpoint path and method |
+| `title` and `description` prose | effect class (it drives revalidation) |
+| private capabilities — not even their names | — |
+
+The one exception is `expose.webmcp`: an in-page agent cannot call a tool
+without its schema, so webmcp-exposed capabilities ship their description and
+input schema in the separate `virtual:pracht/webmcp` chunk, which only loads
+when the browser exposes the WebMCP API. Nothing else does.
 
 Options: `{ headers, signal, confirm, revalidate }`. `confirm` sets the
 confirmation header when committing a destructive call (take the token from

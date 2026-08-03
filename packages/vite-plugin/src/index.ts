@@ -28,6 +28,7 @@ import {
 import {
   createPrachtCapabilitiesClientModuleSource,
   createPrachtWebmcpModuleSource,
+  resolveCapabilityModulePaths,
 } from "./plugin-capabilities.ts";
 import {
   clearPagesAppSourceCache,
@@ -88,6 +89,7 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
   const isPagesMode = !!resolved.pagesDir;
   let root = process.cwd();
   let routeFileDirs: string[] = [];
+  let capabilityModulePaths = new Set<string>();
 
   if (isPagesMode && options.appFile) {
     console.warn(
@@ -176,6 +178,9 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
       root = config.root;
       isBuild = config.command === "build";
       routeFileDirs = computeRouteFileDirs(root, resolved);
+      capabilityModulePaths = new Set(
+        resolveCapabilityModulePaths(resolved, root).map((path) => toPosixPath(path)),
+      );
     },
 
     resolveId(id, importer, resolveIdOptions) {
@@ -345,6 +350,22 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
     enforce: "post",
 
     transform(code, id, transformOptions) {
+      // Capability modules are server-only: they hold `run()` and everything it
+      // imports (database clients, secrets, internal stores). Nothing strips
+      // them the way route loaders are stripped, so a component importing one
+      // directly would ship the whole contract and its dependencies to every
+      // visitor. The generated browser projection exists precisely so that
+      // never has to happen — fail the build and point at it.
+      if (!transformOptions?.ssr && isCapabilityModule(id, capabilityModulePaths)) {
+        throw new Error(
+          `[pracht] Capability module ${JSON.stringify(toPosixPath(id))} was imported by client ` +
+            "code. Capability modules are server-only — their run() implementation and its " +
+            "imports would be bundled for every visitor. Call the capability instead: " +
+            '`callCapability`/`capabilities` from "virtual:pracht/capabilities" in the browser, ' +
+            'or `invokeCapability` from "@pracht/core/server" in loaders, middleware, and API routes.',
+        );
+      }
+
       const shouldStrip =
         isPrachtClientModuleId(id) ||
         (!transformOptions?.ssr && isRouteOrShellFile(id, routeFileDirs));
@@ -549,6 +570,21 @@ const ROUTE_FILE_EXTENSIONS = new Set([".ts", ".tsx", ".js", ".jsx", ".md", ".md
 function computeRouteFileDirs(root: string, resolved: ResolvedPrachtPluginOptions): string[] {
   const dirs = resolved.pagesDir ? [resolved.pagesDir] : [resolved.routesDir, resolved.shellsDir];
   return dirs.map((dir) => resolveConfigPath(root, dir)).map(withTrailingSep);
+}
+
+/**
+ * Whether `id` is one of the capability modules the manifest registers.
+ * Matching the registered set rather than a directory keeps ordinary files that
+ * merely live beside capabilities importable, and still catches a capability
+ * registered from anywhere else in the project. Extension-agnostic, because the
+ * comparison is against paths the manifest already resolved.
+ */
+function isCapabilityModule(id: string, capabilityModulePaths: Set<string>): boolean {
+  if (capabilityModulePaths.size === 0) return false;
+  const queryStart = id.indexOf("?");
+  const path = queryStart === -1 ? id : id.slice(0, queryStart);
+  if (path.startsWith("\0") || path.startsWith("virtual:")) return false;
+  return capabilityModulePaths.has(toPosixPath(path));
 }
 
 function isRouteOrShellFile(id: string, dirs: string[]): boolean {
