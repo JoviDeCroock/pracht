@@ -10,6 +10,7 @@ import {
 
 import type { RenderMode } from "@pracht/core";
 import { createEnvSafetyPlugin, PUBLIC_ENV_PREFIX, SERVER_ENV_MODULE_ID } from "./env-safety.ts";
+import { sendServerOnlyFullReload } from "./hot-update-reload.ts";
 import {
   PRACHT_CAPABILITIES_MODULE_ID,
   PRACHT_CLIENT_MODULE_ID,
@@ -286,6 +287,7 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
       if (isPagesMode && relative.startsWith(resolved.pagesDir)) {
         clearPagesAppSourceCache();
         invalidateVirtualModules(server);
+        sendServerOnlyFullReload(server, file);
         return;
       }
 
@@ -333,6 +335,8 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
           }
         }
       }
+
+      sendServerOnlyFullReload(server, file);
     },
   };
 

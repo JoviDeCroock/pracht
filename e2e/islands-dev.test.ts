@@ -1,4 +1,6 @@
 import { expect, test } from "@playwright/test";
+import { readFileSync, writeFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 
 // Dev-server coverage for islands routes: the vite plugin serves the islands
 // bootstrap from /@pracht/islands.js and the dev SSR middleware renders the
@@ -58,4 +60,29 @@ test("hydration none routes render without islands bootstrap or state", async ({
   expect(html).not.toContain("/@pracht/islands.js");
   expect(html).not.toContain("/@pracht/client.js");
   await expect(page.locator("h1")).toHaveText("Fully static");
+});
+
+// Routes without full hydration are excluded from the client bundle, so their
+// source files never enter the client module graph and Vite has no module to
+// push an update through. The plugin has to reload the page itself, otherwise
+// editing a static route in dev does nothing at all.
+test("editing a hydration none route reloads the open page", async ({ page }) => {
+  test.setTimeout(30_000);
+
+  const routeFile = fileURLToPath(
+    new URL("../examples/islands/src/routes/static-page.tsx", import.meta.url),
+  );
+  const original = readFileSync(routeFile, "utf-8");
+
+  await page.goto("/static");
+  await expect(page.locator("h1")).toHaveText("Fully static");
+
+  try {
+    writeFileSync(routeFile, original.replace("Fully static", "Edited in dev"));
+    await expect(page.locator("h1")).toHaveText("Edited in dev", { timeout: 15_000 });
+  } finally {
+    writeFileSync(routeFile, original);
+  }
+
+  await expect(page.locator("h1")).toHaveText("Fully static", { timeout: 15_000 });
 });
