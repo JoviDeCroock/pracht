@@ -1,5 +1,12 @@
 # @pracht/cli
 
+## 1.8.2
+
+### Patch Changes
+
+- Updated dependencies [[`fcc5e67`](https://github.com/JoviDeCroock/pracht/commit/fcc5e678feec745dd7e7b7fd295bad25eb16701a)]:
+  - @pracht/core@0.11.2
+
 ## 1.8.1
 
 ### Patch Changes
