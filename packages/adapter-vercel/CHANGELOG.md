@@ -1,5 +1,12 @@
 # @pracht/adapter-vercel
 
+## 0.2.6
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @pracht/core@0.11.3
+
 ## 0.2.5
 
 ### Patch Changes

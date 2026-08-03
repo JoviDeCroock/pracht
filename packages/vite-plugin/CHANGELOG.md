@@ -1,5 +1,49 @@
 # @pracht/vite-plugin
 
+## 0.7.3
+
+### Patch Changes
+
+- [#252](https://github.com/JoviDeCroock/pracht/pull/252) [`226638a`](https://github.com/JoviDeCroock/pracht/commit/226638a7340a6dc87ace0627a5033e9471d8e63b) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Fail the build when client code imports a capability module.
+
+  Capability modules are server-only, but nothing stripped them the way route
+  loaders are stripped, so a component importing one directly bundled `run()` and
+  everything it imports — database clients, secrets — for every visitor. The build
+  now rejects it and points at the browser projection instead: `callCapability` /
+  `capabilities` from `virtual:pracht/capabilities`, or `invokeCapability` from
+  `@pracht/core/server`.
+
+  The check matches the capability modules the manifest registers rather than a
+  `capabilitiesDir` prefix, so a capability registered from anywhere else in the
+  project is still caught, and ordinary files that merely sit beside capabilities
+  (shared constants, types) stay importable.
+
+- [#253](https://github.com/JoviDeCroock/pracht/pull/253) [`06da850`](https://github.com/JoviDeCroock/pracht/commit/06da850b103bc259ae25bd8c0de79a7ab8e409a0) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Give the capability projection rules one home, and cross-check them in typegen.
+
+  The HTTP path, effect, WebMCP exposure, and input schema of a capability were
+  derived twice: once by the Vite plugin's static analysis (capability modules
+  must never enter the client graph, so it cannot execute them) and once by the
+  app graph, which loads the modules. Both now share
+  `extractCapabilityProjection` from `@pracht/capabilities/static`.
+
+  `pracht typegen` cross-checks the executed graph against that static pass and
+  fails when they disagree — including when static analysis cannot read an exposed
+  capability at all, which is what a computed `expose` or `effect` looks like.
+  Without the check, generated types could describe an endpoint the client bundle
+  never registers.
+
+- [#249](https://github.com/JoviDeCroock/pracht/pull/249) [`c3ffdaa`](https://github.com/JoviDeCroock/pracht/commit/c3ffdaa66682b1d0815bd09b6066de174b4db656) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Reload the page in dev when a server-only module changes. Routes using
+  `hydration: "islands"` or `hydration: "none"` are excluded from the client
+  bundle, so their source files never enter the client module graph and Vite had
+  no module to push an update through — editing them left the open page stale
+  until a manual refresh. Files that exist only in the server graph now trigger a
+  full reload, while anything with a client module (islands, full-hydration
+  routes) keeps its granular HMR.
+- Updated dependencies [[`06da850`](https://github.com/JoviDeCroock/pracht/commit/06da850b103bc259ae25bd8c0de79a7ab8e409a0)]:
+  - @pracht/capabilities@0.1.1
+  - @pracht/core@0.11.3
+  - @pracht/adapter-node@0.3.6
+
 ## 0.7.2
 
 ### Patch Changes

@@ -1,5 +1,11 @@
 # create-pracht
 
+## 0.4.2
+
+### Patch Changes
+
+- [#250](https://github.com/JoviDeCroock/pracht/pull/250) [`7d097b7`](https://github.com/JoviDeCroock/pracht/commit/7d097b7aed9c45839cb73ba1fbb248c301c0937d) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Add TypeScript and a `typecheck` script to generated starters so scaffolded apps can run `tsc --noEmit` immediately.
+
 ## 0.4.1
 
 ### Patch Changes

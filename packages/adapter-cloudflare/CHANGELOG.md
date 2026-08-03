@@ -1,5 +1,12 @@
 # @pracht/adapter-cloudflare
 
+## 0.5.6
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @pracht/core@0.11.3
+
 ## 0.5.5
 
 ### Patch Changes

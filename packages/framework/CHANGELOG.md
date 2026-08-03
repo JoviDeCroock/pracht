@@ -1,5 +1,12 @@
 # @pracht/core
 
+## 0.11.3
+
+### Patch Changes
+
+- Updated dependencies [[`06da850`](https://github.com/JoviDeCroock/pracht/commit/06da850b103bc259ae25bd8c0de79a7ab8e409a0)]:
+  - @pracht/capabilities@0.1.1
+
 ## 0.11.2
 
 ### Patch Changes

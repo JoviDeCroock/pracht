@@ -1,5 +1,12 @@
 # @pracht/adapter-node
 
+## 0.3.6
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @pracht/core@0.11.3
+
 ## 0.3.5
 
 ### Patch Changes
