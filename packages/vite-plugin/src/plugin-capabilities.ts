@@ -24,15 +24,11 @@ import { dirname, resolve } from "node:path";
 import {
   CAPABILITY_SETTLED_EVENT,
   CAPABILITY_TRANSPORT_HEADER,
-  capabilityHttpPath,
   CONFIRMATION_HEADER,
-  isValidCapabilityHttpPath,
 } from "@pracht/capabilities";
 import {
-  evaluateLiteral,
+  extractCapabilityProjection,
   extractCapabilityRegistrations,
-  extractDefineCapabilityArgs,
-  scanTopLevelProperties,
 } from "@pracht/capabilities/static";
 import { resolveOptions, type PrachtPluginOptions } from "./plugin-options.ts";
 
@@ -97,92 +93,14 @@ function extractCapabilityMetadata(
   file: string,
   source: string,
 ): ExtractedCapability {
-  const args = extractDefineCapabilityArgs(source);
-  if (!args) {
-    throw new Error(
-      `[pracht] Capability "${name}" (${file}) does not contain a ` +
-        "defineCapability({ ... }) call the build can analyze.",
-    );
-  }
-
-  const properties = scanTopLevelProperties(args);
-  const exposeText = properties.get("expose");
-  if (!exposeText) {
-    // Private capability: server-only, nothing to project to the client.
-    return {
-      name,
-      file,
-      description: "",
-      effect: null,
-      httpPath: null,
-      webmcp: false,
-      inputSchema: null,
-    };
-  }
-
-  const expose = evaluateLiteral(exposeText);
-  if (!isPlainObject(expose)) {
-    throw new Error(
-      `[pracht] Capability "${name}" (${file}): "expose" must be an inline object ` +
-        "literal so the client projection can be generated at build time.",
-    );
-  }
-
-  const http = expose.http;
-  let httpPath: string | null = null;
-  if (http === true) {
-    httpPath = capabilityHttpPath(name);
-  } else if (isPlainObject(http)) {
-    httpPath = typeof http.path === "string" ? http.path : capabilityHttpPath(name);
-  }
-  if (httpPath && !isValidCapabilityHttpPath(httpPath)) {
-    throw new Error(
-      `[pracht] Capability "${name}" (${file}): HTTP exposure "path" must be an exact ` +
-        'same-origin pathname starting with "/".',
-    );
-  }
-
-  const webmcp = expose.webmcp === true;
-  if (webmcp && !httpPath) {
-    throw new Error(`[pracht] Capability "${name}" (${file}): expose.webmcp requires expose.http.`);
-  }
-
-  let description = "";
-  const descriptionText = properties.get("description");
-  if (descriptionText) {
-    const value = evaluateLiteral(descriptionText);
-    if (typeof value === "string") description = value;
-  }
-
-  let effect: string | null = null;
-  const effectText = properties.get("effect");
-  if (effectText) {
-    const value = evaluateLiteral(effectText);
-    if (typeof value === "string") effect = value;
-  }
-  if (httpPath && effect !== "read" && effect !== "write" && effect !== "destructive") {
-    throw new Error(
-      `[pracht] Capability "${name}" (${file}) is exposed via HTTP, but its "effect" ` +
-        'could not be extracted at build time. HTTP-exposed capabilities must declare "effect" ' +
-        'as an inline "read", "write", or "destructive" string literal.',
-    );
-  }
-
-  let inputSchema: Record<string, unknown> | null = null;
-  if (webmcp) {
-    const inputText = properties.get("input");
-    const value = inputText ? evaluateLiteral(inputText) : undefined;
-    if (!isPlainObject(value)) {
-      throw new Error(
-        `[pracht] Capability "${name}" (${file}) is exposed via WebMCP, but its "input" ` +
-          "schema could not be extracted at build time. WebMCP-exposed capabilities must " +
-          "declare their input schema as an inline object literal.",
-      );
-    }
-    inputSchema = value;
-  }
-
-  return { name, file, description, effect, httpPath, webmcp, inputSchema };
+  // The projection rules live in @pracht/capabilities so the build, `pracht
+  // verify`, and `pracht typegen` cannot drift on what a capability exposes.
+  const projection = extractCapabilityProjection(
+    name,
+    source,
+    (detail) => `[pracht] Capability ${JSON.stringify(name)} (${file}) ${detail}`,
+  );
+  return { name, file, ...projection };
 }
 
 /**
@@ -382,8 +300,4 @@ export function hasWebmcpCapabilities(
     // Extraction errors surface when the virtual modules are generated.
     return true;
   }
-}
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

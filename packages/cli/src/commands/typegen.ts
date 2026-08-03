@@ -5,6 +5,7 @@ import { defineCommand } from "citty";
 
 import { displayPath, readProjectConfig, resolveProjectPath } from "../project.js";
 import { schemaToTypeText } from "@pracht/capabilities";
+import { assertCapabilityProjectionsAgree } from "../capability-consistency.js";
 import { ensureTrailingNewline, handleCliError } from "../utils.js";
 import { runInspect, type InspectReport } from "./inspect.js";
 
@@ -115,6 +116,10 @@ export async function runTypegen(options: TypegenOptions): Promise<TypegenResult
   validateApiRoutes(apiRoutes);
 
   const project = readProjectConfig(options.root);
+  // Generated types claim which capabilities the browser can reach; the client
+  // bundle's endpoint table comes from a separate static pass. Prove they agree
+  // before writing types that would otherwise green-light a call that 404s.
+  assertCapabilityProjectionsAgree(project, capabilities);
   const declarationPath = resolveOutputPath(options.root, options.declarationOut);
   const runtimePath = resolveOutputPath(options.root, options.runtimeOut);
   const capabilitiesPath = resolveOutputPath(options.root, options.capabilitiesOut);
