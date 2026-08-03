@@ -8,6 +8,7 @@ export function Shell({ children }: ShellProps) {
         <nav>
           <a href="/">Home</a>
           <a href="/notes">Notes</a>
+          <a href="/gallery">Images</a>
           <a href="/pricing">Pricing</a>
         </nav>
       </header>

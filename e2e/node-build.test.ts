@@ -250,12 +250,12 @@ test("precompileSsrJsx opt-in precompiles server JSX and keeps the app deployabl
   const distDir = resolve(exampleDir, "dist");
 
   const viteConfig = readFileSync(viteConfigPath, "utf-8");
-  expect(viteConfig).toContain("adapter: await resolveAdapter(),");
+  expect(viteConfig).toContain("adapter: await resolveAdapter(target),");
   writeFileSync(
     viteConfigPath,
     viteConfig.replace(
-      "adapter: await resolveAdapter(),",
-      "adapter: await resolveAdapter(),\n      precompileSsrJsx: true,",
+      "adapter: await resolveAdapter(target),",
+      "adapter: await resolveAdapter(target),\n        precompileSsrJsx: true,",
     ),
     "utf-8",
   );

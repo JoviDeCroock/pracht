@@ -1,5 +1,6 @@
 import { useState } from "preact/hooks";
-import { Form, invokeCapability, useIsHydrated, useRouteData, type LoaderArgs } from "@pracht/core";
+import { Form, useIsHydrated, useRouteData, type LoaderArgs } from "@pracht/core";
+import { invokeCapability } from "@pracht/core/server";
 
 // Direct server-side invocation: the loader calls the same capability the
 // HTTP projection serves, through the same validation + middleware pipeline.

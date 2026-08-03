@@ -3,7 +3,12 @@
   "version": "0.0.24",
   "private": true,
   "type": "module",
+  "scripts": {
+    "build:cloudflare": "PRACHT_ADAPTER=cloudflare pracht build",
+    "deploy:cloudflare": "pnpm build:cloudflare && wrangler deploy"
+  },
   "dependencies": {
+    "@pracht/adapter-cloudflare": "workspace:*",
     "@pracht/adapter-node": "workspace:*",
     "@pracht/adapter-vercel": "workspace:*",
     "@pracht/capabilities": "workspace:*",
@@ -16,6 +21,7 @@
     "@pracht/vite-plugin": "workspace:*",
     "preact": "^10.26.9",
     "preact-render-to-string": "^6.5.13",
-    "vite": "^8.0.0"
+    "vite": "^8.0.0",
+    "wrangler": "^4.81.0"
   }
 }

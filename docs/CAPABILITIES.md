@@ -126,7 +126,7 @@ this.
 ### Server-side
 
 ```ts
-import { invokeCapability } from "@pracht/core";
+import { invokeCapability } from "@pracht/core/server";
 
 export async function loader({ request, context, signal }: LoaderArgs) {
   const result = await invokeCapability<{ notes: Note[] }>(

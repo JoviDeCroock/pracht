@@ -1,4 +1,15 @@
 import { defineApp, group, route, timeRevalidate } from "@pracht/core";
+import { cloudflareLoader, configureImage, passthroughLoader, vercelLoader } from "@pracht/image";
+
+declare const __PRACHT_IMAGE_BACKEND__: string;
+
+if (__PRACHT_IMAGE_BACKEND__ === "cloudflare") {
+  configureImage({ loader: cloudflareLoader });
+} else if (__PRACHT_IMAGE_BACKEND__ === "vercel") {
+  configureImage({ loader: vercelLoader });
+} else if (__PRACHT_IMAGE_BACKEND__ === "passthrough") {
+  configureImage({ loader: passthroughLoader });
+}
 
 export const app = defineApp({
   shells: {
