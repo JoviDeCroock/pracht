@@ -57,6 +57,8 @@ export interface AppGraphCapability {
    * otherwise tell whether an exposed capability demands a verified agent.
    */
   agentPolicy: string | null;
+  /** Prose contract description — feeds generated JSDoc and agent-facing inspection. */
+  description: string | null;
   effect: string | null;
   /** Reserved for the MCP Apps projection — always false for now. */
   hasUi: false;
@@ -152,6 +154,7 @@ export function serializeCapabilities(
 
         return {
           agentPolicy: capability.agentPolicy ?? null,
+          description: capability.description,
           effect: capability.effect,
           hasUi: false as const,
           httpPath: capability.expose?.http
@@ -168,6 +171,7 @@ export function serializeCapabilities(
       } catch {
         return {
           agentPolicy: null,
+          description: null,
           effect: null,
           hasUi: false as const,
           httpPath: null,

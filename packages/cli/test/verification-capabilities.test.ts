@@ -90,6 +90,46 @@ describe("collectCapabilityChecks", () => {
     );
   });
 
+  it("warns when a capability name is also a namespace on the generated client", () => {
+    // `capabilities.notes` cannot be both a callable and the object holding
+    // `capabilities.notes.search`, so the shorter name loses. It still works
+    // over HTTP and through callCapability(), hence a warning, not an error.
+    const checks: Check[] = [];
+    collectCapabilityChecks(
+      createProject({
+        capability: capabilitySource(COMPLETE_FIELDS),
+        registration: [
+          '    "notes": () => import("./capabilities/notes-search.ts"),',
+          '    "notes.search": () => import("./capabilities/notes-search.ts"),',
+        ].join("\n"),
+      }),
+      checks,
+    );
+
+    expect(checks.some((check) => check.status === "error")).toBe(false);
+    expect(checks.map((check) => check.message)).toContainEqual(
+      expect.stringContaining('Capability "notes" is also a namespace for "notes.search"'),
+    );
+  });
+
+  it("does not warn about namespaces for ordinary dotted names", () => {
+    const checks: Check[] = [];
+    collectCapabilityChecks(
+      createProject({
+        capability: capabilitySource(COMPLETE_FIELDS),
+        registration: [
+          '    "notes.search": () => import("./capabilities/notes-search.ts"),',
+          '    "notes.create": () => import("./capabilities/notes-search.ts"),',
+        ].join("\n"),
+      }),
+      checks,
+    );
+
+    expect(checks.map((check) => check.message)).not.toContainEqual(
+      expect.stringContaining("is also a namespace"),
+    );
+  });
+
   it("warns instead of passing when expose is not an inline literal", () => {
     const source = [
       'import { defineCapability } from "@pracht/capabilities";',

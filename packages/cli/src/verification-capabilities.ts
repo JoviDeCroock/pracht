@@ -51,6 +51,11 @@ export function collectCapabilityChecks(project: ProjectConfig, checks: Check[])
     ),
   );
 
+  collectShadowedNameChecks(
+    entries.map((entry) => entry.name),
+    checks,
+  );
+
   const manifestDir = dirname(manifestPath);
   for (const entry of entries) {
     // Root-relative refs ("/src/capabilities/x.ts") resolve against the project
@@ -82,6 +87,30 @@ export function collectCapabilityChecks(project: ProjectConfig, checks: Check[])
       registeredMiddleware,
       checks,
     );
+  }
+}
+
+/**
+ * The generated browser client turns dotted names into nested objects, so
+ * `notes.search` becomes `capabilities.notes.search`. A name that is also a
+ * prefix of another (`notes` alongside `notes.search`) cannot be both a
+ * function and a namespace: the namespace wins and the shorter name is only
+ * reachable through `callCapability()`. Warn rather than error — the capability
+ * still works over HTTP and through every other projection.
+ */
+function collectShadowedNameChecks(names: string[], checks: Check[]): void {
+  for (const name of names) {
+    const shadowedBy = names.filter((other) => other.startsWith(`${name}.`));
+    if (shadowedBy.length > 0) {
+      checks.push(
+        createCheck(
+          "warning",
+          `Capability ${JSON.stringify(name)} is also a namespace for ` +
+            `${shadowedBy.map((other) => JSON.stringify(other)).join(", ")}, so it is not reachable ` +
+            "on the generated capabilities client. Call it via callCapability() or rename it.",
+        ),
+      );
+    }
   }
 }
 

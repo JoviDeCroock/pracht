@@ -9,7 +9,16 @@ import {
   CAPABILITY_FORM_REQUEST_HEADER,
   CAPABILITY_SETTLED_EVENT,
 } from "../../capabilities/src/index.ts";
-import { Form, type ApiValidationIssue } from "../src/index.ts";
+import { Form, type ApiValidationIssue, type HttpCapabilityName } from "../src/index.ts";
+
+/**
+ * `<Form capability>` only accepts http-exposed capability names an app has
+ * registered via `pracht typegen`. These are framework tests: they must behave
+ * the same whatever `Register` the surrounding typecheck happens to see, so
+ * they use names no app registers and opt out of that check deliberately. The
+ * names here are incidental — what is under test is the submit pipeline.
+ */
+const unregistered = (name: string) => name as HttpCapabilityName;
 
 const nameSchema: StandardSchemaV1<Record<string, unknown>> = {
   "~standard": {
@@ -190,7 +199,7 @@ describe("<Form> validation", () => {
       h(
         Form,
         {
-          capability: "items.create",
+          capability: unregistered("items.create"),
           schema: nameSchema,
           onValidationIssues: (found) => issues.push(found),
         },
@@ -213,7 +222,11 @@ describe("<Form> validation", () => {
     );
 
     render(
-      h(Form, { capability: "items.save" }, h("button", { name: "action", value: "save" }, "Save")),
+      h(
+        Form,
+        { capability: unregistered("items.save") },
+        h("button", { name: "action", value: "save" }, "Save"),
+      ),
       root,
     );
 
@@ -242,7 +255,7 @@ describe("<Form> validation", () => {
       h(
         Form,
         {
-          capability: "items.create",
+          capability: unregistered("items.create"),
           onResponse: (response) => responses.push(response),
         },
         h("input", { name: "name", value: "pracht" }),
@@ -269,7 +282,7 @@ describe("<Form> validation", () => {
     const settled = vi.fn();
     window.addEventListener(CAPABILITY_SETTLED_EVENT, settled, { once: true });
 
-    render(h(Form, { capability: "items.search" }), root);
+    render(h(Form, { capability: unregistered("items.search") }), root);
     await submit();
 
     expect(settled).toHaveBeenCalledTimes(1);
@@ -290,7 +303,7 @@ describe("<Form> validation", () => {
     render(
       h(
         Form,
-        { capability: "items.save" },
+        { capability: unregistered("items.save") },
         h("button", { formAction: "/api/capabilities/items/alternate" }, "Save elsewhere"),
       ),
       root,
@@ -322,7 +335,7 @@ describe("<Form> validation", () => {
     window.__PRACHT_NAVIGATE__ = navigate;
     const results = vi.fn();
 
-    render(h(Form, { capability: "items.save", onCapabilityResult: results }), root);
+    render(h(Form, { capability: unregistered("items.save"), onCapabilityResult: results }), root);
     await submit();
 
     expect(fetchSpy).toHaveBeenCalledWith(
@@ -342,7 +355,7 @@ describe("<Form> validation", () => {
     render(
       h(
         Form,
-        { capability: "items.save" },
+        { capability: unregistered("items.save") },
         h("button", { formAction: "https://auth.example/login" }, "Sign in"),
       ),
       root,
@@ -367,7 +380,7 @@ describe("<Form> validation", () => {
     render(
       h(
         Form,
-        { capability: "items.save" },
+        { capability: unregistered("items.save") },
         h("button", { formAction: "javascript:alert(1)" }, "Run"),
       ),
       root,

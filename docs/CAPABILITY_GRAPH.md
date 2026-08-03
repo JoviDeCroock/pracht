@@ -722,8 +722,6 @@ and [AGENT_TRUST.md](AGENT_TRUST.md).
 - Framework-level rate limiting, write-idempotency helpers, and result-size
   limits — currently documented middleware/app responsibilities, not
   primitives.
-- Registered-name input mismatches fall back to the untyped overload (see
-  answer 1) instead of failing the build.
 
 ### Consolidation pass (2026-07-11)
 
@@ -770,6 +768,44 @@ history.
   in pages mode, which has no manifest. The split is: request-time trust
   config lives in the manifest (`agents`), build-time emission lives in the
   plugin (`llmsTxt`, `capabilitiesDir`).
+
+### Typed client pass (2026-08-03)
+
+Answer 1 above conceded that a mismatched input on a registered name fell back
+to the untyped overload, so the capability APIs were typed but not type-safe.
+That escape hatch is now closed, and the registration carries enough of the
+contract to enforce the rest.
+
+- **The registration grew.** `Register["capabilities"]` entries now carry
+  `effect` and `exposed` (`{ http, webmcp, mcp }`) alongside input/output, and
+  the capability's title/description are emitted as JSDoc. The graph already
+  had all of it; typegen was only projecting half.
+- **The untyped overloads are gated, not deleted.** Their `name` parameter
+  resolves to `never` once anything is registered, so apps that never ran
+  typegen behave exactly as before while registered apps can no longer fall
+  through. The cost is deliberate: `invokeCapability<Output>(...)` with an
+  explicit type argument is now a compile error in a registered app.
+- **Exposure and effect became type-level.** `callCapability` and
+  `<Form capability>` accept only http-exposed names, and a `destructive`
+  capability will not compile without its confirmation token — the effect class
+  and the prepare/commit flow are enforced by the compiler, not just at
+  dispatch.
+- **A nested `capabilities` client joined `callCapability`.** Dotted names
+  become object paths (`capabilities.notes.search({ query })`) over the same
+  endpoint table and settled event, so there is one runtime path and one
+  contract, not two.
+- **The two extractors are now cross-checked.** Typegen reads capability
+  metadata by executing modules; the browser projection is built by static
+  analysis, because capability modules must never enter the client graph. The
+  projection rules moved into `@pracht/capabilities/static` as one shared
+  implementation, and `pracht typegen` fails when the two readers disagree —
+  otherwise generated types could green-light a call the client bundle has no
+  endpoint for.
+- **Excess-property checking is not promised.** It fires on simple shapes but
+  drops out through the assembled generic types, so `additionalProperties:
+  false` schemas rely on the runtime's path-scoped 400 for extra fields. The
+  guarantees that do hold are pinned by a real `tsc` run over a generated
+  fixture rather than asserted in prose.
 
 ## Final Recommendation
 

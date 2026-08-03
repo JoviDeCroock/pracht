@@ -102,6 +102,27 @@ test("<Form capability> creates a note through the capability endpoint and auto-
   await expect(page.locator('[data-testid="notes-list"]')).toContainText("A browser note");
 });
 
+test("the generated capabilities client dispatches from the browser", async ({ page }) => {
+  const requests: string[] = [];
+  page.on("request", (request) => {
+    if (request.url().includes("/api/capabilities/"))
+      requests.push(new URL(request.url()).pathname);
+  });
+
+  await page.goto("/notes");
+  await expect(page.locator('[data-testid="create-note-form"]')).toHaveAttribute(
+    "data-hydrated",
+    "true",
+  );
+
+  // capabilities.notes.search(...) — the nested client, not a hand-written fetch.
+  await page.click('[data-testid="search-notes-button"]');
+
+  await expect(page.locator('[data-testid="search-notes-count"]')).toContainText("notes");
+  // It reaches the same endpoint an agent calls, not some parallel route.
+  expect(requests).toContain("/api/capabilities/notes/search");
+});
+
 test("<Form capability> follows endpoint redirects in the browser", async ({ page }) => {
   const endpointMethods: string[] = [];
   page.on("request", (request) => {

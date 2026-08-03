@@ -30,6 +30,11 @@ const standardSchemaImportPath = resolve(
 // project would (skipLibCheck leaves them unchecked); compiling the framework
 // *source* alongside a populated Register augmentation is not supported.
 const coreDistTypesPath = resolve(repoRoot, "packages/framework/dist/index.d.mts");
+const capabilitiesDistTypesPath = resolve(repoRoot, "packages/capabilities/dist/index.d.mts");
+// Ambient declarations for `virtual:pracht/capabilities`, the module the Vite
+// plugin generates. The capability-types compile test includes it so the typed
+// browser client is checked exactly as an app would see it.
+const virtualTypesPath = resolve(repoRoot, "packages/vite-plugin/virtual.d.ts");
 const tscPath = resolve(repoRoot, "node_modules/typescript/bin/tsc");
 const tempDirs = [];
 
@@ -665,7 +670,7 @@ export function Component() {
     const declaration = readFileSync(join(appDir, "src/pracht-capabilities.d.ts"), "utf-8");
 
     expect(result).toMatchObject({
-      capabilities: 2,
+      capabilities: 4,
       files: ["src/pracht.d.ts", "src/pracht-routes.ts", "src/pracht-capabilities.d.ts"],
       ok: true,
     });
@@ -681,8 +686,20 @@ export function Component() {
     expect(declaration).toContain('"status": "draft" | "published";');
     expect(declaration).toContain('output: { "updated": true; };');
 
+    // The effect class and exposure drive the typed client: `destructive`
+    // requires a confirmation token and private capabilities are unreachable
+    // from the browser, so both have to reach the registration.
+    expect(declaration).toContain('effect: "read";');
+    expect(declaration).toContain('effect: "destructive";');
+    expect(declaration).toContain("exposed: { http: true; webmcp: false; mcp: false };");
+    // notes.set-status declares no `expose` — it stays private.
+    expect(declaration).toContain("exposed: { http: false; webmcp: false; mcp: false };");
+    // Contract prose becomes JSDoc so hovering a name shows what an agent reads.
+    expect(declaration).toContain("* Search notes");
+    expect(declaration).toContain("* Find notes matching a query.");
+
     const check = JSON.parse(runCli(["typegen", "--check", "--json"], { cwd: appDir }).stdout);
-    expect(check).toMatchObject({ capabilities: 2, check: true, ok: true });
+    expect(check).toMatchObject({ capabilities: 4, check: true, ok: true });
 
     // Removing every capability rewrites the existing file to the empty
     // registration instead of leaving it stale.
@@ -825,6 +842,146 @@ export async function main() {
 
     // Throws (non-zero exit) when the generated declaration fails to
     // deliver end-to-end api types.
+    try {
+      execFileSync(process.execPath, [tscPath, "-p", "."], {
+        cwd: appDir,
+        encoding: "utf-8",
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+    } catch (error) {
+      throw new Error(error.stdout || error.stderr || error.message);
+    }
+  }, 60_000);
+
+  it("generated capability types make the client APIs type-safe end to end", () => {
+    const appDir = createRepoTempDir("pracht-cli-typegen-capability-types-");
+    writeTypedManifestApp(appDir, { capabilities: true });
+    runCli(["typegen"], { cwd: appDir });
+
+    writeProjectFile(
+      appDir,
+      "src/capability-consumer.ts",
+      `import { invokeCapability } from "@pracht/core";
+import { callCapability, capabilities } from "virtual:pracht/capabilities";
+
+declare const ctx: { request: Request };
+
+export async function server() {
+  // Input and output both come from the registration — no per-call generics.
+  const found = await invokeCapability("notes.search", { query: "roadmap" }, ctx);
+  if (found.ok) {
+    const _notes: Array<Record<string, unknown>> = found.data.notes;
+  }
+
+  // Private capabilities stay reachable from server code.
+  const updated = await invokeCapability("notes.set-status", { id: "1", status: "draft" }, ctx);
+  if (updated.ok) {
+    const _updated: true = updated.data.updated;
+  }
+
+  // @ts-expect-error - a mismatched input no longer falls through to an untyped overload
+  await invokeCapability("notes.search", { query: 42 }, ctx);
+
+  // @ts-expect-error - a missing required property is a compile error
+  await invokeCapability("notes.search", {}, ctx);
+
+  // @ts-expect-error - unknown capability name
+  await invokeCapability("notes.serach", { query: "x" }, ctx);
+
+  // @ts-expect-error - an explicit type argument cannot re-open the untyped form
+  await invokeCapability<{ notes: string[] }>("notes.search", { query: "x" }, ctx);
+
+  // @ts-expect-error - enums narrow to their literal members
+  await invokeCapability("notes.set-status", { id: "1", status: "archived" }, ctx);
+}
+
+export async function browser() {
+  const found = await callCapability("notes.search", { query: "roadmap" });
+  if (found.ok) {
+    const _notes: Array<Record<string, unknown>> = found.data.notes;
+  }
+
+  // An empty input schema means the argument may be omitted entirely.
+  const stats = await callCapability("notes.stats");
+  if (stats.ok) {
+    const _total: number = stats.data.total;
+  }
+
+  // Destructive capabilities are confirmation-gated, so the token is required.
+  await callCapability("notes.purge", { titlePrefix: "tmp" }, { confirm: "token" });
+
+  // @ts-expect-error - committing a destructive call without a confirmation token
+  await callCapability("notes.purge", { titlePrefix: "tmp" });
+
+  // @ts-expect-error - notes.set-status is private: there is no endpoint to call
+  await callCapability("notes.set-status", { id: "1", status: "draft" });
+
+  // @ts-expect-error - mismatched input
+  await callCapability("notes.search", { query: 42 });
+
+  // @ts-expect-error - unknown capability name
+  await callCapability("notes.serach", { query: "x" });
+}
+
+export async function client() {
+  // Dotted names become nested namespaces on the generated client.
+  const found = await capabilities.notes.search({ query: "roadmap" });
+  if (found.ok) {
+    const _notes: Array<Record<string, unknown>> = found.data.notes;
+  }
+
+  const stats = await capabilities.notes.stats();
+  if (stats.ok) {
+    const _total: number = stats.data.total;
+  }
+
+  await capabilities.notes.purge({ titlePrefix: "tmp" }, { confirm: "token" });
+
+  // @ts-expect-error - destructive calls still require their confirmation token
+  await capabilities.notes.purge({ titlePrefix: "tmp" });
+
+  // @ts-expect-error - mismatched input
+  await capabilities.notes.search({ query: 42 });
+
+  // @ts-expect-error - private capabilities are absent from the browser client
+  await capabilities.notes["set-status"]({ id: "1", status: "draft" });
+
+  // @ts-expect-error - unknown capability
+  await capabilities.notes.nope({});
+}
+`,
+    );
+    writeProjectFile(
+      appDir,
+      "tsconfig.json",
+      JSON.stringify(
+        {
+          compilerOptions: {
+            target: "ES2022",
+            module: "ESNext",
+            moduleResolution: "Bundler",
+            allowImportingTsExtensions: true,
+            noEmit: true,
+            strict: true,
+            skipLibCheck: true,
+            lib: ["ES2022", "DOM", "DOM.Iterable"],
+            types: ["node"],
+            paths: {
+              "@pracht/core": [coreDistTypesPath],
+              "@pracht/capabilities": [capabilitiesDistTypesPath],
+              "@standard-schema/spec": [standardSchemaImportPath],
+            },
+          },
+          files: [virtualTypesPath],
+          include: ["src"],
+        },
+        null,
+        2,
+      ),
+    );
+
+    // Throws (non-zero exit) when any guarantee above stops holding — either a
+    // valid call starts failing or an invalid one stops being rejected.
     try {
       execFileSync(process.execPath, [tscPath, "-p", "."], {
         cwd: appDir,
@@ -1125,6 +1282,8 @@ ${
     ? `  capabilities: {
     "notes.search": () => import("./capabilities/notes-search.ts"),
     "notes.set-status": () => import("./capabilities/notes-set-status.ts"),
+    "notes.purge": () => import("./capabilities/notes-purge.ts"),
+    "notes.stats": () => import("./capabilities/notes-stats.ts"),
   },
 `
     : ""
@@ -1198,6 +1357,57 @@ export default defineCapability({
   effect: "write",
   async run() {
     return { updated: true };
+  },
+});
+`,
+    );
+    writeProjectFile(
+      appDir,
+      "src/capabilities/notes-purge.ts",
+      `import { defineCapability } from "@pracht/capabilities";
+
+export default defineCapability({
+  title: "Purge notes",
+  description: "Permanently delete notes matching a prefix.",
+  input: {
+    type: "object",
+    properties: { titlePrefix: { type: "string" } },
+    required: ["titlePrefix"],
+    additionalProperties: false,
+  },
+  output: {
+    type: "object",
+    properties: { purged: { type: "integer" } },
+    required: ["purged"],
+    additionalProperties: false,
+  },
+  effect: "destructive",
+  expose: { http: true },
+  async run() {
+    return { purged: 0 };
+  },
+});
+`,
+    );
+    writeProjectFile(
+      appDir,
+      "src/capabilities/notes-stats.ts",
+      `import { defineCapability } from "@pracht/capabilities";
+
+export default defineCapability({
+  title: "Note stats",
+  description: "Counts across every note.",
+  input: { type: "object", properties: {}, additionalProperties: false },
+  output: {
+    type: "object",
+    properties: { total: { type: "integer" } },
+    required: ["total"],
+    additionalProperties: false,
+  },
+  effect: "read",
+  expose: { http: true },
+  async run() {
+    return { total: 0 };
   },
 });
 `,

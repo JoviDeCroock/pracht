@@ -239,6 +239,15 @@ describe("extractCapabilities", () => {
   });
 });
 
+/**
+ * Import the generated module standalone so its dispatch behaviour (the
+ * endpoint table, fetch options, the settled event) can be exercised directly.
+ */
+async function importGeneratedModule<T>(source: string): Promise<T> {
+  const url = `data:text/javascript;base64,${Buffer.from(source).toString("base64")}#${Date.now()}`;
+  return (await import(url)) as T;
+}
+
 describe("createPrachtCapabilitiesClientModuleSource", () => {
   it("types destructive confirmation metadata in browser envelopes", () => {
     const error = {
@@ -278,6 +287,85 @@ describe("createPrachtCapabilitiesClientModuleSource", () => {
     expect(source).toContain("const endpoints = {};");
   });
 
+  it("keeps contract details out of the client module, nested client included", () => {
+    // The browser projection may carry only what dispatch needs: names, paths,
+    // and effects. Schemas, prose, and handler bodies are server-side contract
+    // — WebMCP is the one place a schema legitimately crosses, and it lives in
+    // its own module. Adding anything richer to the client (a description for
+    // DX, a schema for client-side validation) would leak contract surface into
+    // every visitor's bundle, so guard the payload rather than trusting review.
+    const root = createFixture({
+      capabilities: {
+        "notes-search.ts": SEARCH_CAPABILITY,
+        "notes-create.ts": CREATE_CAPABILITY,
+        "notes-private.ts": PRIVATE_CAPABILITY,
+      },
+    });
+
+    const source = createPrachtCapabilitiesClientModuleSource({}, { root });
+
+    // Prose from the capability contracts.
+    expect(source).not.toContain("Find notes whose title matches the query.");
+    expect(source).not.toContain("Search notes");
+    // JSON Schema keywords — no schema should reach this module at all.
+    for (const keyword of [
+      "additionalProperties",
+      "minLength",
+      "properties",
+      "required",
+      'type":',
+    ]) {
+      expect(source).not.toContain(keyword);
+    }
+    // Handler bodies and the definition helper.
+    expect(source).not.toContain("defineCapability");
+    expect(source).not.toContain("run(");
+    // Private capabilities leave no trace: not even their name.
+    expect(source).not.toContain("private");
+  });
+
+  it("exposes dotted names as a nested client that dispatches like callCapability", async () => {
+    const root = createFixture({
+      capabilities: {
+        "notes-search.ts": SEARCH_CAPABILITY,
+        "notes-create.ts": CREATE_CAPABILITY,
+        "notes-private.ts": PRIVATE_CAPABILITY,
+      },
+    });
+    const source = createPrachtCapabilitiesClientModuleSource({}, { root });
+
+    let requestUrl: string | undefined;
+    let requestBody: string | undefined;
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (input, init) => {
+      requestUrl = String(input);
+      requestBody = init?.body as string;
+      return new Response(JSON.stringify({ ok: true, data: { notes: [] } }), {
+        headers: { "content-type": "application/json" },
+      });
+    }) as typeof fetch;
+
+    try {
+      const mod = await importGeneratedModule<{
+        capabilities: Record<string, Record<string, (input: unknown) => Promise<unknown>>>;
+      }>(source);
+
+      const result = await mod.capabilities.notes.search({ query: "roadmap" });
+
+      expect(requestUrl).toBe("/api/capabilities/notes/search");
+      expect(JSON.parse(requestBody ?? "{}")).toEqual({ query: "roadmap" });
+      expect(result).toEqual({ ok: true, data: { notes: [] } });
+
+      // Custom `expose.http.path` is honoured through the nested client too.
+      expect(typeof mod.capabilities.notes.create).toBe("function");
+      // Private capabilities have no endpoint, so they are absent entirely —
+      // the runtime counterpart of them being missing from the typed client.
+      expect(mod.capabilities.notes.private).toBeUndefined();
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   it("forwards caller-supplied headers for confirmation flows", async () => {
     const root = createFixture({
       capabilities: {
@@ -295,14 +383,13 @@ describe("createPrachtCapabilitiesClientModuleSource", () => {
     }) as typeof fetch;
 
     try {
-      const moduleUrl = `data:text/javascript;base64,${Buffer.from(source).toString("base64")}#${Date.now()}`;
-      const mod = (await import(moduleUrl)) as {
+      const mod = await importGeneratedModule<{
         callCapability: (
           name: string,
           input?: unknown,
           opts?: { headers?: HeadersInit },
         ) => Promise<unknown>;
-      };
+      }>(source);
       await mod.callCapability(
         "notes.create",
         { title: "Confirmed note" },
@@ -329,10 +416,9 @@ describe("createPrachtCapabilitiesClientModuleSource", () => {
     }) as typeof fetch;
 
     try {
-      const moduleUrl = `data:text/javascript;base64,${Buffer.from(source).toString("base64")}#${Date.now()}`;
-      const mod = (await import(moduleUrl)) as {
+      const mod = await importGeneratedModule<{
         callCapability: (name: string, input?: unknown) => Promise<unknown>;
-      };
+      }>(source);
       await mod.callCapability("notes.create", null);
     } finally {
       globalThis.fetch = originalFetch;

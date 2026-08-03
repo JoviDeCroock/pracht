@@ -41,13 +41,14 @@ import type {
   CapabilityErrorPayload,
   CapabilityInputFor,
   CapabilityModule,
+  CapabilityName,
   CapabilityOutputFor,
+  HasRegisteredCapabilities,
   ModuleRegistry,
   PrachtAgentIdentity,
   PrachtAgentsConfig,
   PrachtApp,
   PrachtCapability,
-  RegisteredCapabilityName,
   ResolvedApiRoute,
 } from "./types.ts";
 
@@ -821,17 +822,23 @@ export interface InvokeCapabilityContext<TContext = unknown> {
  * (non-exposed) capabilities too.
  *
  * When `pracht typegen` has registered the capability graph on
- * `Register["capabilities"]`, the input and output types are inferred from
- * the capability name; the explicit `invokeCapability<Output>(...)` form
- * keeps working for unregistered names.
+ * `Register["capabilities"]`, the name, input, and output types all come from
+ * the registration: an unknown name or a mismatched input is a compile error,
+ * not a runtime envelope.
+ *
+ * The untyped `invokeCapability<Output>(name, ...)` form remains for apps that
+ * have not run typegen. Once anything is registered its `name` parameter
+ * resolves to `never`, so a mistake can no longer fall through to it — which
+ * is the whole point, but it does mean an explicit type argument is a compile
+ * error in a registered app. Drop the type argument and let it infer.
  */
-export async function invokeCapability<TName extends RegisteredCapabilityName>(
+export async function invokeCapability<TName extends CapabilityName>(
   name: TName,
   input: CapabilityInputFor<TName>,
   ctx: InvokeCapabilityContext,
 ): Promise<CapabilityEnvelope<CapabilityOutputFor<TName>>>;
 export async function invokeCapability<T = unknown>(
-  name: string,
+  name: HasRegisteredCapabilities extends true ? never : string,
   input: unknown,
   ctx: InvokeCapabilityContext,
 ): Promise<CapabilityEnvelope<T>>;
