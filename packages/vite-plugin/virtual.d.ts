@@ -118,6 +118,45 @@ declare module "virtual:pracht/capabilities" {
       ? CapabilityMethod<`${TPrefix}${TSeg}`>
       : CapabilityClientNode<TAll, `${TPrefix}${TSeg}.`>;
   };
+
+  /**
+   * Call state for a user-triggered capability call — a button, a search box, a
+   * picker. `call()` takes the same arguments as `callCapability` minus the
+   * name, and resolves to the same envelope.
+   *
+   * This is a mutation-shaped hook, not a fetch-on-render one: it dispatches
+   * when you call it, never during render. For data a page needs on load, run
+   * the capability in a `loader` with `invokeCapability()` — that result is
+   * server-rendered into the HTML and revalidates automatically after
+   * non-`read` calls, which a render-time fetch cannot do.
+   *
+   * ```tsx
+   * const search = useCapability("notes.search");
+   * await search.call({ query });
+   * // search.data / search.error / search.pending / search.reset()
+   * ```
+   *
+   * Concurrent calls are last-one-wins: an earlier response that arrives after
+   * a later one is discarded, so typing into a search box cannot show a stale
+   * result. `data` stays visible while a follow-up call is `pending`.
+   */
+  export function useCapability<TName extends HttpCapabilityName>(
+    name: TName,
+  ): PrachtCapabilityHook<TName>;
+
+  export interface PrachtCapabilityHook<TName extends HttpCapabilityName> {
+    call: (
+      ...args: CapabilityInputArgs<TName, OptionsFor<TName>>
+    ) => Promise<CapabilityEnvelope<CapabilityOutputFor<TName>>>;
+    /** Data from the most recent successful call, until `reset()`. */
+    data: CapabilityOutputFor<TName> | undefined;
+    /** Error payload from the most recent failed call, until `reset()`. */
+    error: CapabilityErrorPayload | undefined;
+    /** Whether a call is in flight. */
+    pending: boolean;
+    /** Clear `data`/`error`/`pending` and abandon any in-flight result. */
+    reset: () => void;
+  }
 }
 
 declare module "virtual:pracht/webmcp" {

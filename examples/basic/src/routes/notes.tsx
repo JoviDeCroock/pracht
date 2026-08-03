@@ -1,7 +1,7 @@
 import { useState } from "preact/hooks";
 import { Form, useIsHydrated, useRouteData, type LoaderArgs } from "@pracht/core";
 import { invokeCapability } from "@pracht/core/server";
-import { capabilities } from "virtual:pracht/capabilities";
+import { capabilities, useCapability } from "virtual:pracht/capabilities";
 
 // Direct server-side invocation: the loader calls the same capability the
 // HTTP projection serves, through the same validation + middleware pipeline.
@@ -25,6 +25,9 @@ export function Component() {
   const hydrated = useIsHydrated();
   const [status, setStatus] = useState<string | null>(null);
   const [searchCount, setSearchCount] = useState<number | null>(null);
+  // useCapability owns the pending/error/result state for a user-triggered
+  // call, so the component does not hand-roll it.
+  const search = useCapability("notes.search");
 
   return (
     <section>
@@ -75,6 +78,24 @@ export function Component() {
         Count notes
       </button>
       {searchCount === null ? null : <p data-testid="search-notes-count">{searchCount} notes</p>}
+      {/*
+        useCapability: the same call, with pending/error/result state handled
+        for you. Dispatches on click, never during render — data the page needs
+        on load belongs in the loader above, which server-renders.
+      */}
+      <button
+        type="button"
+        data-testid="hook-search-button"
+        disabled={search.pending}
+        onClick={() => void search.call({ query: "routing" })}
+      >
+        {search.pending ? "Searching…" : "Search routing notes"}
+      </button>
+      {search.error ? (
+        <p data-testid="hook-search-error">{search.error.message}</p>
+      ) : search.data ? (
+        <p data-testid="hook-search-result">Found {search.data.notes.length}</p>
+      ) : null}
     </section>
   );
 }

@@ -123,6 +123,25 @@ test("the generated capabilities client dispatches from the browser", async ({ p
   expect(requests).toContain("/api/capabilities/notes/search");
 });
 
+test("useCapability tracks pending state and exposes the result", async ({ page }) => {
+  await page.goto("/notes");
+  await expect(page.locator('[data-testid="create-note-form"]')).toHaveAttribute(
+    "data-hydrated",
+    "true",
+  );
+
+  // Nothing rendered before the call: the hook dispatches on interaction, not
+  // during render, so the SSR'd HTML carries no hook result.
+  await expect(page.locator('[data-testid="hook-search-result"]')).toHaveCount(0);
+
+  await page.click('[data-testid="hook-search-button"]');
+
+  await expect(page.locator('[data-testid="hook-search-result"]')).toContainText("Found");
+  await expect(page.locator('[data-testid="hook-search-error"]')).toHaveCount(0);
+  // Pending cleared, so the button is interactive again.
+  await expect(page.locator('[data-testid="hook-search-button"]')).toBeEnabled();
+});
+
 test("<Form capability> follows endpoint redirects in the browser", async ({ page }) => {
   const endpointMethods: string[] = [];
   page.on("request", (request) => {

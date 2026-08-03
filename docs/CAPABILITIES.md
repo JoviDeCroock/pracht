@@ -234,6 +234,40 @@ when the browser exposes the WebMCP API. Nothing else does. Titles and
 descriptions of other capabilities appear only as JSDoc in the generated
 `.d.ts`, which is types-only and never emitted.
 
+For a call driven by user interaction — a button, a search box, a picker —
+`useCapability()` owns the pending/error/result state so components do not
+hand-roll it:
+
+```tsx
+import { useCapability } from "virtual:pracht/capabilities";
+
+function NoteSearch() {
+  const search = useCapability("notes.search");
+
+  return (
+    <>
+      <button disabled={search.pending} onClick={() => search.call({ query: "roadmap" })}>
+        {search.pending ? "Searching…" : "Search"}
+      </button>
+      {search.error ? <p>{search.error.message}</p> : null}
+      {search.data ? <p>{search.data.notes.length} found</p> : null}
+    </>
+  );
+}
+```
+
+`call()` takes the same arguments as `callCapability` minus the name and
+resolves to the same envelope, so you can also branch at the call site.
+`reset()` clears the state. Concurrent calls are last-one-wins — an earlier
+response arriving after a later one is discarded, so a search box cannot render
+a stale result — and `data` stays visible while a follow-up call is `pending`.
+
+> **It dispatches when called, never during render.** For data a page needs on
+> load, run the capability in a `loader` with `invokeCapability()`: that result
+> is server-rendered into the HTML and revalidates automatically after
+> non-`read` calls. A render-time fetch would add a client-side waterfall and
+> render nothing during SSR.
+
 Options: `{ headers, signal, confirm, revalidate }`. `confirm` sets the
 confirmation header when committing a destructive call (take the token from
 the prior `confirmation_required` envelope). After a successful non-`read`
