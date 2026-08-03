@@ -82,7 +82,7 @@ Schemas are validated by a dependency-free JSON Schema subset validator — no a
 Server-side — including private capabilities that have no `expose` at all:
 
 ```ts [src/routes/notes.tsx]
-import { invokeCapability } from "@pracht/core";
+import { invokeCapability } from "@pracht/core/server";
 
 export async function loader({ request, context, signal }) {
   const result = await invokeCapability("notes.search", { query: "roadmap" }, { request, context, signal });

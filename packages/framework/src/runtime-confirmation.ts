@@ -20,6 +20,7 @@
  */
 
 import { CONFIRMATION_HEADER, CONFIRMATION_SECRET_ENV } from "@pracht/capabilities";
+import { serverEnv } from "./env-server.ts";
 
 export { CONFIRMATION_HEADER, CONFIRMATION_SECRET_ENV };
 export const DEFAULT_CONFIRMATION_TTL_SECONDS = 120;
@@ -41,10 +42,14 @@ export function setCapabilityConfirmationSecret(secret: string | null): void {
 
 export function resolveConfirmationSecret(): string | null {
   if (programmaticSecret) return programmaticSecret;
-  const env = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process
-    ?.env;
-  const secret = env?.[CONFIRMATION_SECRET_ENV];
-  return typeof secret === "string" && secret !== "" ? secret : null;
+  try {
+    const secret = serverEnv[CONFIRMATION_SECRET_ENV];
+    return typeof secret === "string" && secret !== "" ? secret : null;
+  } catch {
+    // Cloudflare bindings are installed when a request enters the adapter.
+    // Before that point there is intentionally no ambient environment.
+    return null;
+  }
 }
 
 /**

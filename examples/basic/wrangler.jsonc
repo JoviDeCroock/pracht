@@ -1,0 +1,18 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "pracht-example-basic",
+  "main": "dist/server/worker.js",
+  "compatibility_date": "2026-04-06",
+  "workers_dev": true,
+  "routes": [
+    {
+      "pattern": "pracht-example.resynapse.dev",
+      "custom_domain": true,
+    },
+  ],
+  "assets": {
+    "binding": "ASSETS",
+    "directory": "dist/client",
+    "run_worker_first": true,
+  },
+}

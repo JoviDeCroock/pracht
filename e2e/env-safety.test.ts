@@ -99,8 +99,8 @@ test("envSafety allowlist lets an intentional env reference through", async () =
     writeFileSync(
       configPath,
       configSource.replace(
-        "adapter: await resolveAdapter(),",
-        `adapter: await resolveAdapter(),\n      envSafety: { allow: [${JSON.stringify(LEAKED_ENV_VAR)}] },`,
+        "adapter: await resolveAdapter(target),",
+        `adapter: await resolveAdapter(target),\n        envSafety: { allow: [${JSON.stringify(LEAKED_ENV_VAR)}] },`,
       ),
       "utf-8",
     );

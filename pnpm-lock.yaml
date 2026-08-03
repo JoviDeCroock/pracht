@@ -53,6 +53,9 @@ importers:
 
   examples/basic:
     dependencies:
+      '@pracht/adapter-cloudflare':
+        specifier: workspace:*
+        version: link:../../packages/adapter-cloudflare
       '@pracht/adapter-node':
         specifier: workspace:*
         version: link:../../packages/adapter-node
@@ -87,6 +90,9 @@ importers:
       vite:
         specifier: ^8.0.0
         version: 8.0.3(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)(@types/node@22.19.17)(esbuild@0.27.3)
+      wrangler:
+        specifier: ^4.81.0
+        version: 4.81.0
 
   examples/cloudflare:
     dependencies:

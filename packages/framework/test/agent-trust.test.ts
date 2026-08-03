@@ -13,9 +13,11 @@ import {
   clearConsumedConfirmationTokens,
   consumeConfirmationToken,
   createConfirmationToken,
+  resolveConfirmationSecret,
   setCapabilityConfirmationSecret,
   verifyConfirmationToken,
 } from "../src/runtime-confirmation.ts";
+import { setServerEnv } from "../src/env-server.ts";
 import type { CapabilityAuditEvent, ModuleRegistry, PrachtAgentsConfig } from "../src/types.ts";
 
 type CapabilityDefinition = Parameters<typeof defineCapability>[0];
@@ -82,6 +84,7 @@ beforeEach(() => {
 
 afterEach(() => {
   setCapabilityConfirmationSecret(null);
+  setServerEnv(undefined);
   clearConsumedConfirmationTokens();
   setCapabilityAuditHook(null);
 });
@@ -103,6 +106,13 @@ describe("confirmation tokens", () => {
     expect(expiresAt).toBeGreaterThan(Math.floor(Date.now() / 1000));
     const result = await verifyConfirmationToken(token, binding);
     expect(result.ok).toBe(true);
+  });
+
+  it("reads the confirmation secret from adapter-installed server env", () => {
+    setCapabilityConfirmationSecret(null);
+    setServerEnv({ PRACHT_CONFIRMATION_SECRET: "worker-binding-secret" });
+
+    expect(resolveConfirmationSecret()).toBe("worker-binding-secret");
   });
 
   it("rejects expired tokens", async () => {
