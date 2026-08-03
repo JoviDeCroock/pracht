@@ -1,5 +1,15 @@
 # @pracht/example-basic
 
+## 0.0.25
+
+### Patch Changes
+
+- Updated dependencies [[`fcc5e67`](https://github.com/JoviDeCroock/pracht/commit/fcc5e678feec745dd7e7b7fd295bad25eb16701a)]:
+  - @pracht/core@0.11.2
+  - @pracht/adapter-cloudflare@0.5.5
+  - @pracht/adapter-node@0.3.5
+  - @pracht/adapter-vercel@0.2.5
+
 ## 0.0.24
 
 ### Patch Changes

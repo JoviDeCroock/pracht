@@ -1,5 +1,11 @@
 # @pracht/core
 
+## 0.11.2
+
+### Patch Changes
+
+- [#246](https://github.com/JoviDeCroock/pracht/pull/246) [`fcc5e67`](https://github.com/JoviDeCroock/pracht/commit/fcc5e678feec745dd7e7b7fd295bad25eb16701a) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Read destructive-capability confirmation secrets from adapter-installed server environment bindings so the prepare/commit flow works on Cloudflare Workers.
+
 ## 0.11.1
 
 ### Patch Changes
