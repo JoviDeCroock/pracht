@@ -92,6 +92,40 @@ export function extractCapabilities(
   });
 }
 
+/**
+ * Absolute paths of the capability modules the manifest registers.
+ *
+ * The client-import guard uses this rather than a `capabilitiesDir` prefix
+ * test: registration is what makes a module server-only, and the manifest may
+ * point anywhere. A directory test both misses capabilities registered from
+ * elsewhere and wrongly rejects ordinary co-located files (shared constants,
+ * types) that happen to sit in the capability folder.
+ *
+ * Returns an empty list when the manifest cannot be read or parsed — the
+ * virtual-module generation raises its own precise error for those, and
+ * guessing here would turn one clear failure into two confusing ones.
+ */
+export function resolveCapabilityModulePaths(
+  options: PrachtPluginOptions = {},
+  root: string = process.cwd(),
+): string[] {
+  const resolved = resolveOptions(options);
+  if (resolved.pagesDir) return [];
+
+  const appFileAbs = resolve(root, resolved.appFile.replace(/^\//, ""));
+  let manifestSource: string;
+  try {
+    manifestSource = readFileSync(appFileAbs, "utf-8");
+  } catch {
+    return [];
+  }
+
+  const appDir = dirname(appFileAbs);
+  return extractCapabilityRegistrations(manifestSource).map(({ file }) =>
+    file.startsWith("/") ? resolve(root, file.replace(/^\//, "")) : resolve(appDir, file),
+  );
+}
+
 function extractCapabilityMetadata(
   name: string,
   file: string,

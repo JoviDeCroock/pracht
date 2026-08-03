@@ -21,6 +21,59 @@ function makeTempProject(): string {
   return dir;
 }
 
+const MANIFEST_PLUGIN_OPTIONS = { appFile: "/src/routes.ts" } as const;
+
+/**
+ * Scaffold a manifest-mode project with one registered capability. Capabilities
+ * only exist in manifest mode, so the pages-router fixture cannot exercise them.
+ * `capabilityPath` is the manifest-relative module ref, which may point outside
+ * the conventional capabilities directory.
+ */
+function writeCapabilityManifestProject(
+  root: string,
+  { capabilityPath = "./capabilities/notes-search.ts" } = {},
+): void {
+  mkdirSync(join(root, "src", "routes"), { recursive: true });
+  mkdirSync(join(root, "src", "capabilities"), { recursive: true });
+  mkdirSync(join(root, "src", "server"), { recursive: true });
+
+  writeFileSync(
+    join(root, "src", capabilityPath.replace(/^\.\//, "")),
+    // A local `defineCapability` keeps the module statically analyzable without
+    // pulling @pracht/capabilities into this fixture's resolver. No `expose`,
+    // so it stays private and needs no client projection.
+    `function defineCapability(definition) {
+  return { kind: "capability", ...definition };
+}
+
+const SERVER_SECRET = "CAPABILITY_SERVER_SECRET_MARKER";
+
+export default defineCapability({
+  title: "Search notes",
+  description: "Find notes.",
+  input: { type: "object" },
+  output: { type: "object" },
+  effect: "read",
+  run() {
+    return { secret: SERVER_SECRET };
+  },
+});
+`,
+  );
+  writeFileSync(
+    join(root, "src", "routes.ts"),
+    `import { defineApp, route } from "@pracht/core";
+
+export const app = defineApp({
+  capabilities: {
+    "notes.search": () => import(${JSON.stringify(capabilityPath)}),
+  },
+  routes: [route("/", () => import("./routes/home.tsx"), { id: "home" })],
+});
+`,
+  );
+}
+
 function readBuiltJs(root: string): string {
   const assetsDir = join(root, "dist", "assets");
   return readdirSync(assetsDir)
@@ -33,12 +86,17 @@ function expectValidModuleSource(code: string): void {
   expect(() => parseAst(code, { lang: "tsx" })).not.toThrow();
 }
 
-async function buildTempProject(root: string): Promise<void> {
+async function buildTempProject(
+  root: string,
+  // Capabilities are manifest-mode only, so tests that involve them must build
+  // with an `appFile` rather than the default pages-router fixture.
+  pluginOptions: Parameters<typeof pracht>[0] = { pagesDir: "/src/pages" },
+): Promise<void> {
   await build({
     root,
     configFile: false,
     logLevel: "silent",
-    plugins: pracht({ pagesDir: "/src/pages" }),
+    plugins: pracht(pluginOptions),
     resolve: {
       alias: [
         {
@@ -511,6 +569,78 @@ describe("client route module build", () => {
     expect(clientSource).toContain('"/src/routes/about.tsx":false');
     expect(serverSource).toContain('"./routes/index.tsx":true');
     expect(serverSource).toContain('"./routes/about.tsx":false');
+  });
+
+  it("fails the build when client code imports a capability module directly", async () => {
+    // Nothing strips a capability module the way a route loader is stripped, so
+    // importing one from a component would bundle run() and everything it
+    // imports — a database client, an API key — for every visitor. The browser
+    // projection exists so that never has to happen; the build must say so
+    // rather than quietly shipping it.
+    const root = makeTempProject();
+    writeCapabilityManifestProject(root);
+    writeFileSync(
+      join(root, "src", "routes", "home.tsx"),
+      `
+import capability from "../capabilities/notes-search";
+
+export function Component() {
+  return <main>{capability.title}</main>;
+}
+`,
+    );
+
+    await expect(buildTempProject(root, MANIFEST_PLUGIN_OPTIONS)).rejects.toThrow(
+      /Capability module .* was imported by client code/,
+    );
+  });
+
+  it("guards capability modules registered outside the capabilities directory", async () => {
+    // Registration is what makes a module server-only, not where it sits. A
+    // directory-based guard would miss this one entirely.
+    const root = makeTempProject();
+    writeCapabilityManifestProject(root, { capabilityPath: "./server/elsewhere.ts" });
+    writeFileSync(
+      join(root, "src", "routes", "home.tsx"),
+      `
+import capability from "../server/elsewhere";
+
+export function Component() {
+  return <main>{capability.title}</main>;
+}
+`,
+    );
+
+    await expect(buildTempProject(root, MANIFEST_PLUGIN_OPTIONS)).rejects.toThrow(
+      /Capability module .* was imported by client code/,
+    );
+  });
+
+  it("lets client code import a non-capability file that lives beside capabilities", async () => {
+    // The guard matches the manifest's registered capability modules, not a
+    // directory. Shared constants and types co-located with capabilities are
+    // ordinary modules and must stay importable — rejecting them would fail the
+    // build with advice ("call the capability instead") that makes no sense.
+    const root = makeTempProject();
+    writeCapabilityManifestProject(root);
+    writeFileSync(
+      join(root, "src", "capabilities", "labels.ts"),
+      'export const LABEL = "CO_LOCATED_CONSTANT_MARKER";\n',
+    );
+    writeFileSync(
+      join(root, "src", "routes", "home.tsx"),
+      `
+import { LABEL } from "../capabilities/labels";
+
+export function Component() {
+  return <main>{LABEL}</main>;
+}
+`,
+    );
+
+    await buildTempProject(root, MANIFEST_PLUGIN_OPTIONS);
+
+    expect(readBuiltJs(root)).toContain("CO_LOCATED_CONSTANT_MARKER");
   });
 
   it("excludes imports used only by typed inline loaders from browser bundles", async () => {

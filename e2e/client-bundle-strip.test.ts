@@ -118,6 +118,21 @@ test("server-only route exports and their imports are stripped from client bundl
     // stay out of every client asset while remaining in the server bundle.
     expect(clientJs).not.toContain(CAPABILITY_SERVER_MARKER);
     expect(serverJs).toContain(CAPABILITY_SERVER_MARKER);
+
+    // The generated browser client (`callCapability` and the nested
+    // `capabilities` object) carries only names, endpoints, and effects.
+    // Contract prose and input schemas are server-side detail, and reach the
+    // browser for WebMCP-exposed capabilities only — an in-page agent needs
+    // the tool schema. notes.purge is destructive and never webmcp-exposed, so
+    // neither its description nor its schema may appear in any client asset.
+    expect(clientJs).not.toContain("Permanently delete every note whose title");
+    expect(clientJs).not.toContain("titlePrefix");
+    expect(serverJs).toContain("titlePrefix");
+
+    // notes.search *is* webmcp-exposed, so its schema is expected in the
+    // client — proof the assertions above test exposure, not merely that
+    // capability text never ships.
+    expect(clientJs).toContain("Find notes whose title or body matches the query.");
   } finally {
     rmSync(tempDir, { force: true, recursive: true });
   }
