@@ -1,5 +1,13 @@
 # @pracht/example-islands
 
+## 0.0.8
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @pracht/core@0.11.3
+  - @pracht/adapter-node@0.3.6
+
 ## 0.0.7
 
 ### Patch Changes

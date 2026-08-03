@@ -1,5 +1,13 @@
 # @pracht/example-tsrx
 
+## 0.0.13
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @pracht/core@0.11.3
+  - @pracht/adapter-node@0.3.6
+
 ## 0.0.12
 
 ### Patch Changes

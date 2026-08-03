@@ -1,5 +1,13 @@
 # @pracht/example-showcase
 
+## 0.0.19
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @pracht/core@0.11.3
+  - @pracht/adapter-vercel@0.2.6
+
 ## 0.0.18
 
 ### Patch Changes
