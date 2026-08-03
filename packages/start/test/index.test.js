@@ -56,6 +56,8 @@ describe("create-pracht", () => {
     expect(packageJson).toMatch(/"@pracht\/adapter-node": "\^\d+\.\d+\.\d+"/);
     expect(packageJson).toContain('"preview": "pracht preview"');
     expect(packageJson).toContain('"start": "node dist/server/server.js"');
+    expect(packageJson).toContain('"typecheck": "tsc --noEmit"');
+    expect(packageJson).toMatch(/"typescript": "\^\d+\.\d+\.\d+"/);
     expect(packageJson).not.toContain("wrangler");
     expect(gitignore).toContain(".env*");
     expect(gitignore).toContain("!.env.example");
@@ -79,6 +81,7 @@ describe("create-pracht", () => {
     expect(dockerignore).toContain("node_modules");
     expect(dockerignore).toContain(".env*");
     expect(readme).toContain("docker build");
+    expect(readme).toContain("pnpm typecheck");
     expect(readme).toContain("`pracht verify` validates routes and constraints.");
     expect(readme).toContain("`pracht plan --write`");
     expect(readme).toContain("`pracht report`");
@@ -152,6 +155,7 @@ describe("create-pracht", () => {
     expect(packageJson).toMatch(/"@pracht\/adapter-cloudflare": "\^\d+\.\d+\.\d+"/);
 
     expect(packageJson).toContain('"preview": "pracht preview"');
+    expect(packageJson).toContain('"typecheck": "tsc --noEmit"');
     expect(packageJson).toContain('"wrangler": "^4.81.0"');
     expect(packageJson).not.toContain('"@cloudflare/vite-plugin"');
     expect(wranglerConfig).toContain('"main": "dist/server/server.js"');
@@ -218,6 +222,7 @@ describe("create-pracht", () => {
     expect(packageJson).toMatch(/"vercel": "\^\d+\.\d+\.\d+"/);
 
     expect(packageJson).toContain('"deploy": "pracht build && vercel deploy --prebuilt"');
+    expect(packageJson).toContain('"typecheck": "tsc --noEmit"');
     expect(packageJson).not.toContain('"preview"');
     expect(readme).toContain("configured for Vercel");
     expect(readme).toContain("pnpm deploy");

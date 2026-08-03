@@ -25,13 +25,29 @@ yarn create pracht my-app
 bunx create-pracht my-app
 ```
 
-The CLI will ask you to choose an adapter (Node.js, Cloudflare Workers, or Vercel). You can change this later in your `vite.config.ts`.
+The CLI will ask you to choose an adapter (Node.js, Cloudflare Workers, or Vercel), whether to use the explicit manifest router or the file-system pages router, whether to add Tailwind CSS, and whether to seed the agent tooling. You can change the adapter and router later in `vite.config.ts`.
+
+For reproducible setup in CI, demos, or agents, pass the same choices as flags:
+
+```sh
+pnpm create pracht my-app --adapter=node --router=manifest --template=tailwind --yes
+pnpm create pracht my-app --adapter=cf --router=pages --no-tailwind --no-agent-tools --yes
+pnpm create pracht my-app --adapter=vercel --skip-install --yes
+```
+
+Useful creation flags:
+
+- `--adapter=node|cf|vercel` chooses the deployment target.
+- `--router=manifest|pages` chooses explicit `src/routes.ts` routing or file-system `src/pages/` routing.
+- `--template=minimal|tailwind`, `--tailwind`, and `--no-tailwind` control styling setup.
+- `--agent-tools` and `--no-agent-tools` control `.claude/skills/` and `.mcp.json` setup.
+- `--skip-install`, `--no-git`, `--json`, and `--dry-run` are handy for automation.
 
 ---
 
 ## Project Structure
 
-After scaffolding, your project looks like this:
+A manifest-router scaffold looks like this:
 
 ```
 my-app/
@@ -43,6 +59,20 @@ my-app/
   vite.config.ts       # Vite + pracht plugin config
   package.json
 ```
+
+A pages-router scaffold uses `src/pages/` instead:
+
+```
+my-app/
+  src/
+    pages/_app.tsx     # App shell
+    pages/index.tsx    # First page component + loader
+    api/health.ts      # Sample API endpoint
+  vite.config.ts       # Vite + pracht plugin config
+  package.json
+```
+
+Depending on your choices, the starter can also include Tailwind's `src/styles/global.css`, adapter files such as `wrangler.jsonc` or `Dockerfile`, and agent files under `.claude/skills/` plus `.mcp.json`.
 
 ---
 

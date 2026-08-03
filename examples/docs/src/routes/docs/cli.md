@@ -10,6 +10,39 @@ next:
   title: Deployment
 ---
 
+## create-pracht
+
+`create-pracht` bootstraps a new application. It can run interactively, or fully non-interactively for agents and CI.
+
+```sh
+# Interactive
+pnpm create pracht my-app
+
+# Non-interactive manifest app for Node.js
+pnpm create pracht my-app --adapter=node --router=manifest --yes
+
+# Pages router, Cloudflare adapter, no install step
+pnpm create pracht my-app --adapter=cf --router=pages --skip-install --yes
+
+# Tailwind starter for Vercel
+pnpm create pracht my-app --adapter=vercel --template=tailwind --yes
+```
+
+Options:
+
+- `--adapter=node|cf|vercel` — choose Node.js, Cloudflare Workers, or Vercel output.
+- `--router=manifest|pages` — choose explicit `src/routes.ts` routing or file-system `src/pages/` routing.
+- `--template=minimal|tailwind`, `--tailwind`, `--no-tailwind` — control Tailwind setup.
+- `--agent-tools`, `--no-agent-tools` — seed or skip the pracht Claude Code skills and `.mcp.json`.
+- `--skip-install` — write files without installing dependencies.
+- `--no-git` — skip `git init` and the initial commit.
+- `--json` — print a machine-readable summary.
+- `--dry-run` — list files without writing them.
+
+Generated apps include `dev`, `build`, and `typecheck` scripts. Node and Cloudflare starters also include `preview`; Node starters include `start`; Cloudflare and Vercel starters include `deploy`.
+
+---
+
 ## pracht dev
 
 Starts the Vite dev server with SSR middleware, HMR, and instant feedback.
@@ -64,6 +97,8 @@ pracht generate middleware --name auth
 pracht generate route --path /dashboard --render ssr --shell app --middleware auth
 pracht generate api --path /health --methods GET,POST
 ```
+
+> On Windows Git Bash/MSYS shells, leading `/` arguments may be rewritten as absolute Windows paths before Node sees them. If `--path /dashboard` reports that it would write outside `src/routes`, use PowerShell/CMD or pass `MSYS_NO_PATHCONV=1` when invoking the `pracht` binary directly.
 
 - Manifest apps update `src/routes.ts` automatically for routes, shells, and middleware.
 - Pages-router apps scaffold route files into `src/pages/`.
