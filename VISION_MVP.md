@@ -151,8 +151,8 @@ from `@pracht/capabilities`:
   `invokeCapability()`, `callCapability()`, the nested `capabilities` client
   (`capabilities.notes.search({ query })`), and `<Form capability>` all read the
   contract from the capability name. Unknown names, mismatched inputs, browser
-  calls to private capabilities, and `destructive` calls missing their
-  confirmation token are compile errors.
+  calls to private capabilities, and `destructive` calls that neither prepare
+  nor provide their confirmation token are compile errors.
 - See [docs/CAPABILITIES.md](docs/CAPABILITIES.md) and
   [docs/AGENT_TRUST.md](docs/AGENT_TRUST.md). The product bet, its decision
   log, and the staged plan (remote MCP and MCP Apps are the unbuilt stages)

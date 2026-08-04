@@ -60,20 +60,35 @@ export function createUseCapability(
   return function useCapability<TOutput = unknown, TArgs extends unknown[] = unknown[]>(
     name: string,
   ): CapabilityHookResult<TOutput, TArgs> {
-    // State carries the capability it came from. A component that switches
-    // capability (a picker, a tab) would otherwise keep rendering the previous
-    // one's `data` under the new one's output type — and a call still in flight
-    // when the switch happened would land on the new name. Deriving the visible
-    // state from a name match handles both without a render-phase update.
-    const [state, setState] = useState<CapabilityCallState<TOutput> & { name: string }>({
-      ...IDLE,
-      name,
-    });
-    const current = state.name === name ? state : { ...IDLE, name };
+    // Every name change starts a new generation. Keeping this separate from the
+    // name itself matters when a component switches A -> B -> A: state from the
+    // first A must not become visible again under the second A.
+    const activeName = useRef(name);
+    const nameGeneration = useRef(0);
     // Only the newest call may write state. Without this, a slow first request
     // resolving after a fast second one would overwrite the newer result —
     // exactly what happens when a user types into a search box.
     const latestCallId = useRef(0);
+    if (activeName.current !== name) {
+      activeName.current = name;
+      nameGeneration.current += 1;
+      // Abandon every call from the prior name immediately; an effect would be
+      // too late if its response settles between render and effect flushing.
+      latestCallId.current += 1;
+    }
+    const generation = nameGeneration.current;
+
+    const [state, setState] = useState<
+      CapabilityCallState<TOutput> & { generation: number; name: string }
+    >({
+      ...IDLE,
+      generation,
+      name,
+    });
+    const current =
+      state.name === name && state.generation === generation
+        ? state
+        : { ...IDLE, generation, name };
     const mounted = useRef(true);
 
     useEffect(() => {
@@ -86,14 +101,19 @@ export function createUseCapability(
     const call = useCallback(
       async (...args: TArgs): Promise<CapabilityEnvelope<TOutput>> => {
         const callId = ++latestCallId.current;
-        const isCurrent = () => mounted.current && callId === latestCallId.current;
+        const isCurrent = () =>
+          mounted.current &&
+          callId === latestCallId.current &&
+          activeName.current === name &&
+          nameGeneration.current === generation;
         if (isCurrent()) {
           // Keep the previous data visible while refetching; clear the stale
           // error so a retry does not render as still-failing. A call made
           // right after a name change starts from idle, not the old state.
           setState((previous) => ({
-            ...(previous.name === name ? previous : IDLE),
+            ...(previous.name === name && previous.generation === generation ? previous : IDLE),
             error: undefined,
+            generation,
             name,
             pending: true,
           }));
@@ -111,25 +131,34 @@ export function createUseCapability(
         }
 
         if (isCurrent()) {
-          setState(
+          setState((previous) =>
             envelope.ok
-              ? { data: envelope.data, error: undefined, name, pending: false }
-              : { data: undefined, error: envelope.error, name, pending: false },
+              ? { data: envelope.data, error: undefined, generation, name, pending: false }
+              : {
+                  data:
+                    previous.name === name && previous.generation === generation
+                      ? previous.data
+                      : undefined,
+                  error: envelope.error,
+                  generation,
+                  name,
+                  pending: false,
+                },
           );
         }
         return envelope;
       },
-      [name],
+      [generation, name],
     );
 
     const reset = useCallback(() => {
       // Bumping the id abandons in-flight calls: their results are no longer
       // "current", so a late response cannot repopulate what was just cleared.
       latestCallId.current += 1;
-      setState({ ...IDLE, name });
-    }, [name]);
+      setState({ ...IDLE, generation, name });
+    }, [generation, name]);
 
-    const { name: _stateName, ...visible } = current;
+    const { generation: _stateGeneration, name: _stateName, ...visible } = current;
     return { ...visible, call, reset };
   };
 }

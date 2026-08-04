@@ -152,7 +152,8 @@ export function createPrachtCapabilitiesClientModuleSource(
   buildOptions: { root?: string } = {},
 ): string {
   const capabilities = extractCapabilities(options, buildOptions.root);
-  const endpoints: Record<string, { method: string; path: string; effect: string | null }> = {};
+  const endpoints: Record<string, { method: string; path: string; effect: string | null }> =
+    Object.create(null);
   for (const capability of capabilities) {
     if (capability.httpPath) {
       endpoints[capability.name] = {
@@ -169,7 +170,12 @@ export function createPrachtCapabilitiesClientModuleSource(
     "// capability modules themselves are server-only and never reach the client graph.",
     'import { createUseCapability } from "@pracht/core";',
     "",
-    `const endpoints = ${JSON.stringify(endpoints)};`,
+    // A null prototype makes unknown names such as "toString" miss normally;
+    // JSON.parse preserves an own "__proto__" key instead of invoking the
+    // object-literal prototype setter.
+    `const endpoints = Object.assign(Object.create(null), JSON.parse(${JSON.stringify(
+      JSON.stringify(endpoints),
+    )}));`,
     "",
     "export const capabilityEndpoints = endpoints;",
     "",
@@ -240,7 +246,7 @@ export function createPrachtCapabilitiesClientModuleSource(
     '// `capabilities.notes.search(input)` calls `callCapability("notes.search", input)`.',
     "// Built from the same endpoint table, so there is one dispatch path.",
     "function buildCapabilityClient(names) {",
-    "  const root = {};",
+    "  const root = Object.create(null);",
     "  for (const name of names) {",
     '    const segments = name.split(".");',
     "    const leaf = segments.pop();",
@@ -250,7 +256,7 @@ export function createPrachtCapabilitiesClientModuleSource(
     "      // collide; the namespace wins and the leaf stays reachable through",
     "      // callCapability(). `pracht verify` reports the shadowed name.",
     '      if (typeof node[segment] !== "object" || node[segment] === null) {',
-    "        node[segment] = {};",
+    "        node[segment] = Object.create(null);",
     "      }",
     "      node = node[segment];",
     "    }",

@@ -787,9 +787,9 @@ contract to enforce the rest.
   explicit type argument is now a compile error in a registered app.
 - **Exposure and effect became type-level.** `callCapability` and
   `<Form capability>` accept only http-exposed names, and a `destructive`
-  capability will not compile without its confirmation token — the effect class
-  and the prepare/commit flow are enforced by the compiler, not just at
-  dispatch.
+  browser call will not compile unless it explicitly prepares for a token or
+  provides that token to commit — the effect class and both phases of the flow
+  are enforced by the compiler, not just at dispatch.
 - **A nested `capabilities` client joined `callCapability`.** Dotted names
   become object paths (`capabilities.notes.search({ query })`) over the same
   endpoint table and settled event, so there is one runtime path and one

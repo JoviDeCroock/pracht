@@ -203,8 +203,8 @@ Both forms take the identical path (endpoint table, settled event,
 revalidation); `capabilities` is a nested view of the same call, with each
 capability's title and description attached as JSDoc. Once `pracht typegen` has
 run, both infer input and output from the capability name, private capabilities
-are absent, and a `destructive` capability will not compile without its
-confirmation token.
+are absent, and a `destructive` capability must explicitly prepare for a token
+or provide that token to commit.
 
 `virtual:pracht/capabilities` is generated at build time from the manifest and
 contains only http-exposed capability names, endpoints, and effect classes —
@@ -260,7 +260,9 @@ function NoteSearch() {
 resolves to the same envelope, so you can also branch at the call site.
 `reset()` clears the state. Concurrent calls are last-one-wins — an earlier
 response arriving after a later one is discarded, so a search box cannot render
-a stale result — and `data` stays visible while a follow-up call is `pending`.
+a stale result — and `data` stays visible while a follow-up call is `pending` or
+fails. Switching the capability name starts a fresh state generation, including
+when switching away and back to the original name.
 
 > **It dispatches when called, never during render.** For data a page needs on
 > load, run the capability in a `loader` with `invokeCapability()`: that result
@@ -268,12 +270,14 @@ a stale result — and `data` stays visible while a follow-up call is `pending`.
 > non-`read` calls. A render-time fetch would add a client-side waterfall and
 > render nothing during SSR.
 
-Options: `{ headers, signal, confirm, revalidate }`. `confirm` sets the
-confirmation header when committing a destructive call (take the token from
-the prior `confirmation_required` envelope). After a successful non-`read`
-call the active route's data revalidates automatically — the effect class the
-capability already declares drives the client cache; pass `revalidate: false`
-to opt a call out.
+Options: `{ headers, signal, prepare, confirm, revalidate }`. For a destructive
+capability, make the first call with `{ prepare: true }`; it cannot run the
+operation and returns the `confirmation_required` envelope. Repeat the call
+with identical input and `{ confirm: envelope.error.confirmationToken }` to
+commit. The types require exactly one of those options. After a successful
+non-`read` call the active route's data revalidates automatically — the effect
+class the capability already declares drives the client cache; pass
+`revalidate: false` to opt a call out.
 
 ### Forms
 
@@ -334,7 +338,7 @@ What the compiler enforces once the file exists:
 | Unknown or misspelled capability name | compile error (with a "did you mean" suggestion) |
 | Input that does not match the schema | compile error |
 | Calling a private capability from the browser | compile error — no HTTP endpoint exists |
-| Committing a `destructive` call without `confirm` | compile error |
+| Calling a `destructive` capability without `prepare` or `confirm` | compile error |
 | Passing an input to a capability whose schema requires none | argument may be omitted entirely |
 
 - An input property is optional when it is not `required` **or** declares a
@@ -356,8 +360,9 @@ What the compiler enforces once the file exists:
   fails when they disagree, so generated types can never promise an endpoint
   the client bundle does not register.
 - The confirmation gate closes whenever `destructive` is *possible*: a name
-  typed as a union of capabilities demands the token if any member is
-  destructive, as does a capability whose effect the build could not read.
+  typed as a union of capabilities demands an explicit prepare marker or token
+  if any member is destructive, as does a capability whose effect the build
+  could not read.
 - A declaration file generated before `effect`/`exposed` existed keeps working
   unchanged, but gets none of the exposure or confirmation checks. Re-run
   `pracht typegen` (and `--check` in CI) after upgrading.

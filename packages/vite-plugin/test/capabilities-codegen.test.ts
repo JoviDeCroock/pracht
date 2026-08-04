@@ -278,12 +278,10 @@ describe("createPrachtCapabilitiesClientModuleSource", () => {
     });
 
     const source = createPrachtCapabilitiesClientModuleSource({}, { root });
-    expect(source).toContain(
-      '"notes.search":{"method":"POST","path":"/api/capabilities/notes/search","effect":"read"}',
-    );
-    expect(source).toContain(
-      '"notes.create":{"method":"POST","path":"/api/create-note","effect":"write"}',
-    );
+    expect(source).toContain("notes.search");
+    expect(source).toContain("/api/capabilities/notes/search");
+    expect(source).toContain("notes.create");
+    expect(source).toContain("/api/create-note");
     expect(source).not.toContain("notes.private");
     expect(source).not.toContain("defineCapability");
     expect(source).toContain("export async function callCapability");
@@ -292,7 +290,7 @@ describe("createPrachtCapabilitiesClientModuleSource", () => {
   it("emits an empty endpoint map for apps without capabilities", () => {
     const root = createFixture({});
     const source = createPrachtCapabilitiesClientModuleSource({}, { root });
-    expect(source).toContain("const endpoints = {};");
+    expect(source).toContain('JSON.parse("{}")');
   });
 
   it("keeps contract details out of the client module, nested client included", () => {
@@ -371,6 +369,46 @@ describe("createPrachtCapabilitiesClientModuleSource", () => {
       expect(mod.capabilities.notes.private).toBeUndefined();
     } finally {
       globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("builds special-name paths without inherited lookups or prototype pollution", async () => {
+    const root = createFixture({
+      capabilities: { "special.ts": CREATE_CAPABILITY },
+      manifestCapabilitiesBlock: `capabilities: {
+    "safe.__proto__.polluted": () => import("./capabilities/special.ts"),
+    "__proto__": () => import("./capabilities/special.ts"),
+  },`,
+    });
+    const source = createPrachtCapabilitiesClientModuleSource({}, { root });
+    const originalFetch = globalThis.fetch;
+    let requestUrl: string | undefined;
+    globalThis.fetch = (async (input) => {
+      requestUrl = String(input);
+      return Response.json({ ok: true, data: { id: "n1" } });
+    }) as typeof fetch;
+
+    try {
+      const mod = await importGeneratedModule<{
+        callCapability: (name: string, input?: unknown) => Promise<unknown>;
+        capabilities: Record<string, unknown>;
+      }>(source);
+
+      expect(Object.getPrototypeOf(mod.capabilities)).toBeNull();
+      expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+      expect(
+        (
+          mod.capabilities.safe as {
+            __proto__: { polluted: unknown };
+          }
+        ).__proto__.polluted,
+      ).toBeTypeOf("function");
+
+      await mod.callCapability("__proto__", { title: "safe" });
+      expect(requestUrl).toBe("/api/create-note");
+    } finally {
+      globalThis.fetch = originalFetch;
+      delete (Object.prototype as Record<string, unknown>).polluted;
     }
   });
 
