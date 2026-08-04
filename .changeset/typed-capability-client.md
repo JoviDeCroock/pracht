@@ -25,6 +25,18 @@ With generated types in the program, the compiler now rejects:
 Capabilities whose input schema requires nothing are callable with no argument
 at all (`callCapability("notes.stats")`).
 
+`prepare` is the one option with no runtime half: nothing is sent for it, and a
+prepare call is on the wire just a call without a confirmation header. It exists
+so an unconfirmed destructive call cannot be spelled the same way as a forgotten
+one. Refusing to run that call stays the server's job, and it fails closed —
+including with `confirmation_unavailable` when no `PRACHT_CONFIRMATION_SECRET`
+is configured.
+
+The exported `capabilityEndpoints` table now has a **null prototype**, so a
+capability named `toString` cannot shadow an inherited member during lookup.
+Indexing and enumeration are unchanged; `capabilityEndpoints.hasOwnProperty(name)`
+is not — use `Object.hasOwn(capabilityEndpoints, name)`.
+
 `virtual:pracht/capabilities` also exports a nested `capabilities` client, so
 dotted names read as object paths — `capabilities.notes.search({ query })`. It
 shares the endpoint table, settled event, and revalidation behaviour of

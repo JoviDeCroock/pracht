@@ -253,6 +253,55 @@ describe("useCapability", () => {
     expect(latest).toMatchObject({ data: undefined, error: undefined, pending: false });
   });
 
+  // `call` and `reset` are recreated when the name changes, but a component can
+  // hold on to the previous ones — a debounce wrapper, an interval, a listener
+  // bound in a mount effect. Neither may touch the state of the capability that
+  // replaced theirs. (An inline `onClick` handler is rebuilt every render and so
+  // never hits this.)
+  it("ignores a call retained from before the name changed", async () => {
+    renderHook("notes.search");
+    const staleCall = latest!.call;
+
+    probe("notes.archive");
+    await tick();
+
+    const current = latest!.call({ query: "current" });
+    await tick();
+    expect(latest!.pending).toBe(true);
+
+    // Fires after the switch. It still dispatches and still resolves for its
+    // own caller, but claiming the call id here would strand the call above.
+    void staleCall({ query: "old" });
+    await tick();
+
+    pending[0].resolve({ data: { notes: ["current"] }, ok: true });
+    await current;
+    await tick();
+
+    expect(latest).toMatchObject({ data: { notes: ["current"] }, pending: false });
+  });
+
+  it("ignores a reset retained from before the name changed", async () => {
+    renderHook("notes.search");
+    const staleReset = latest!.reset;
+
+    probe("notes.archive");
+    await tick();
+
+    const current = latest!.call({ query: "current" });
+    await tick();
+    staleReset();
+    await tick();
+
+    pending[0].resolve({ data: { notes: ["current"] }, ok: true });
+    await current;
+    await tick();
+
+    // Clearing state the previous capability owned must not swallow this one's
+    // result — reset() only clears the generation it was created in.
+    expect(latest).toMatchObject({ data: { notes: ["current"] }, pending: false });
+  });
+
   it("clears pending and rethrows when the dispatcher itself throws", async () => {
     renderHook();
 

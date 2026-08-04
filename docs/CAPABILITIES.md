@@ -270,14 +270,32 @@ when switching away and back to the original name.
 > non-`read` calls. A render-time fetch would add a client-side waterfall and
 > render nothing during SSR.
 
-Options: `{ headers, signal, prepare, confirm, revalidate }`. For a destructive
-capability, make the first call with `{ prepare: true }`; it cannot run the
-operation and returns the `confirmation_required` envelope. Repeat the call
-with identical input and `{ confirm: envelope.error.confirmationToken }` to
-commit. The types require exactly one of those options. After a successful
+Options: `{ headers, signal, confirm, revalidate }`. After a successful
 non-`read` call the active route's data revalidates automatically — the effect
 class the capability already declares drives the client cache; pass
 `revalidate: false` to opt a call out.
+
+Destructive capabilities take one more, `prepare`, and it is the odd one out:
+it is a **compile-time marker, not a request option**. Nothing is sent for it
+and no runtime behaviour depends on it. The types accept a destructive call
+only with exactly one of `{ prepare: true }` or `{ confirm }`, so the two
+phases of the flow have to be written out rather than inferred from an absent
+argument:
+
+```ts
+const prepared = await callCapability("notes.purge", input, { prepare: true });
+// -> 409 confirmation_required, carrying the token
+await callCapability("notes.purge", input, {
+  confirm: prepared.error.confirmationToken,
+});
+```
+
+The prepare call is, on the wire, simply a call without a confirmation header —
+the marker records the caller's intent for the compiler. The guarantee that it
+cannot run the operation is the server's: the gate rejects an unconfirmed
+destructive call before `run()`, and fails closed with `confirmation_unavailable`
+when no `PRACHT_CONFIRMATION_SECRET` is configured. See
+[AGENT_TRUST.md](AGENT_TRUST.md).
 
 ### Forms
 

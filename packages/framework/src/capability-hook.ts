@@ -100,12 +100,17 @@ export function createUseCapability(
 
     const call = useCallback(
       async (...args: TArgs): Promise<CapabilityEnvelope<TOutput>> => {
-        const callId = ++latestCallId.current;
+        const isCurrentGeneration = () =>
+          activeName.current === name && nameGeneration.current === generation;
+        // A `call` retained from before a name change — a debounce wrapper, an
+        // interval, a listener bound in a mount effect — must not claim the
+        // call id. Claiming it would abandon the *current* capability's call
+        // in flight and latch its `pending`. Such a call still dispatches and
+        // still resolves to its envelope; it simply owns no state.
+        const stale = !isCurrentGeneration();
+        const callId = stale ? -1 : ++latestCallId.current;
         const isCurrent = () =>
-          mounted.current &&
-          callId === latestCallId.current &&
-          activeName.current === name &&
-          nameGeneration.current === generation;
+          !stale && mounted.current && callId === latestCallId.current && isCurrentGeneration();
         if (isCurrent()) {
           // Keep the previous data visible while refetching; clear the stale
           // error so a retry does not render as still-failing. A call made
@@ -152,6 +157,10 @@ export function createUseCapability(
     );
 
     const reset = useCallback(() => {
+      // Same staleness rule as `call`: a `reset` retained from before a name
+      // change clears state the current capability never wrote, and bumping
+      // the id on its behalf would silently drop the current call's result.
+      if (activeName.current !== name || nameGeneration.current !== generation) return;
       // Bumping the id abandons in-flight calls: their results are no longer
       // "current", so a late response cannot repopulate what was just cleared.
       latestCallId.current += 1;

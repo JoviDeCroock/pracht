@@ -134,7 +134,24 @@ test("useCapability tracks pending state and exposes the result", async ({ page 
   // during render, so the SSR'd HTML carries no hook result.
   await expect(page.locator('[data-testid="hook-search-result"]')).toHaveCount(0);
 
+  // Hold the response open so `pending` is observable. Asserting on it after an
+  // unthrottled call would pass whether or not the flag was ever set.
+  let release: () => void = () => {};
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route("**/api/capabilities/notes/search", async (route) => {
+    await held;
+    await route.continue();
+  });
+
   await page.click('[data-testid="hook-search-button"]');
+
+  await expect(page.locator('[data-testid="hook-search-button"]')).toBeDisabled();
+  await expect(page.locator('[data-testid="hook-search-button"]')).toContainText("Searching");
+  await expect(page.locator('[data-testid="hook-search-result"]')).toHaveCount(0);
+
+  release();
 
   await expect(page.locator('[data-testid="hook-search-result"]')).toContainText("Found");
   await expect(page.locator('[data-testid="hook-search-error"]')).toHaveCount(0);

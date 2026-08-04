@@ -293,6 +293,17 @@ describe("createPrachtCapabilitiesClientModuleSource", () => {
     expect(source).toContain('JSON.parse("{}")');
   });
 
+  it("binds useCapability to its own callCapability", () => {
+    // `importGeneratedModule` stubs the @pracht/core import out, so assert on
+    // the emitted text: renaming the export or the entry point it comes from
+    // would otherwise only surface in e2e, at build time, in an example app.
+    const root = createFixture({ capabilities: { "notes-search.ts": SEARCH_CAPABILITY } });
+    const source = createPrachtCapabilitiesClientModuleSource({}, { root });
+    expect(source).toContain('import { createUseCapability } from "@pracht/core";');
+    expect(source).toContain("export const useCapability = /*@__PURE__*/ createUseCapability(");
+    expect(source).toContain("createUseCapability(callCapability)");
+  });
+
   it("keeps contract details out of the client module, nested client included", () => {
     // The browser projection may carry only what dispatch needs: names, paths,
     // and effects. Schemas, prose, and handler bodies are server-side contract
