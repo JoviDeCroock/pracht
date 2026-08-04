@@ -80,6 +80,20 @@ describe("assertCapabilityProjectionsAgree", () => {
     ).not.toThrow();
   });
 
+  it("leaves module-load failures to the wiring checks", () => {
+    const project = createApp({ "notes-search.ts": capabilitySource() });
+
+    // serializeCapabilities() retains a null-metadata graph entry when the
+    // module fails to load. Its source can still be perfectly analyzable, so
+    // comparing the fallback null endpoint would misdiagnose the load failure
+    // as a computed expose/effect value.
+    expect(() =>
+      assertCapabilityProjectionsAgree(project, [
+        graphEntry({ effect: null, httpPath: null, transports: [] }),
+      ]),
+    ).not.toThrow();
+  });
+
   it("reports an endpoint the browser bundle would never register", () => {
     // The graph says http-exposed (so generated types would allow a browser
     // call); the source says private (so the client has no endpoint for it).

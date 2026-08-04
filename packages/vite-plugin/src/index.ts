@@ -1,5 +1,6 @@
 import { preactSsrPrecompile } from "@pracht/preact-ssr-precompile";
 import preact from "@preact/preset-vite";
+import { existsSync, realpathSync } from "node:fs";
 import { createRequire } from "node:module";
 import { join, resolve } from "node:path";
 import { loadEnv, type Plugin, type UserConfig } from "vite";
@@ -37,7 +38,6 @@ import {
   createPrachtIslandsClientModuleSource,
   createPrachtServerModuleSource,
 } from "./plugin-codegen.ts";
-import { existsSync } from "node:fs";
 import {
   createDevCssInjectionMiddleware,
   createDevSSRMiddleware,
@@ -179,7 +179,7 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
       isBuild = config.command === "build";
       routeFileDirs = computeRouteFileDirs(root, resolved);
       capabilityModulePaths = new Set(
-        resolveCapabilityModulePaths(resolved, root).map((path) => toPosixPath(path)),
+        resolveCapabilityModulePaths(resolved, root).map(canonicalFilePath),
       );
     },
 
@@ -237,8 +237,8 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
       // Transform () => import("./path") to "./path" in the app manifest file.
       // This lets users write import() for IDE click-to-navigate while keeping
       // the framework's string-based file resolution intact.
-      const appFileAbs = resolveConfigPath(root, resolved.appFile);
-      const normalizedId = toPosixPath(id.split("?")[0]);
+      const appFileAbs = canonicalFilePath(resolveConfigPath(root, resolved.appFile));
+      const normalizedId = canonicalFilePath(id.split("?")[0]);
       if (normalizedId !== appFileAbs) return null;
 
       const withStringModuleRefs = code.replace(
@@ -569,7 +569,7 @@ const ROUTE_FILE_EXTENSIONS = new Set([".ts", ".tsx", ".js", ".jsx", ".md", ".md
 
 function computeRouteFileDirs(root: string, resolved: ResolvedPrachtPluginOptions): string[] {
   const dirs = resolved.pagesDir ? [resolved.pagesDir] : [resolved.routesDir, resolved.shellsDir];
-  return dirs.map((dir) => resolveConfigPath(root, dir)).map(withTrailingSep);
+  return dirs.map((dir) => canonicalFilePath(resolveConfigPath(root, dir))).map(withTrailingSep);
 }
 
 /**
@@ -584,7 +584,21 @@ function isCapabilityModule(id: string, capabilityModulePaths: Set<string>): boo
   const queryStart = id.indexOf("?");
   const path = queryStart === -1 ? id : id.slice(0, queryStart);
   if (path.startsWith("\0") || path.startsWith("virtual:")) return false;
-  return capabilityModulePaths.has(toPosixPath(path));
+  return capabilityModulePaths.has(canonicalFilePath(path));
+}
+
+/**
+ * Match Vite's canonical module ids even when the manifest path crosses a
+ * symlink (including macOS' /var -> /private/var alias). Missing paths keep
+ * their lexical identity so the projection code can raise its precise missing
+ * capability error later.
+ */
+function canonicalFilePath(path: string): string {
+  try {
+    return toPosixPath(realpathSync.native(path));
+  } catch {
+    return toPosixPath(path);
+  }
 }
 
 function isRouteOrShellFile(id: string, dirs: string[]): boolean {
