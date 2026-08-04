@@ -42,10 +42,24 @@ declare module "virtual:pracht/capabilities" {
     revalidate?: boolean;
   }
 
-  /** Destructive calls require exactly one of `{ prepare: true }` or `{ confirm }`. */
+  /**
+   * Destructive calls require exactly one of `{ prepare: true }` or
+   * `{ confirm }`. `prepare` is a compile-time marker only — nothing is sent
+   * for it; a prepare call is a call without a confirmation header, and the
+   * server is what refuses to run it.
+   */
   type OptionsFor<TName extends string> = CapabilityCallOptionsFor<TName, CallCapabilityOptions>;
 
-  /** HTTP endpoints of http-exposed capabilities, keyed by capability name. */
+  /**
+   * HTTP endpoints of http-exposed capabilities, keyed by capability name.
+   *
+   * Has a **null prototype**, so a capability named `toString` cannot shadow an
+   * inherited member during lookup. Index it and enumerate it as usual, but
+   * reach for `Object.hasOwn(capabilityEndpoints, name)` rather than
+   * `capabilityEndpoints.hasOwnProperty(name)` — there is no `Object.prototype`
+   * to inherit that from. TypeScript cannot express the missing prototype, so
+   * the `Record` type below overstates what is available.
+   */
   export const capabilityEndpoints: Record<
     string,
     { method: string; path: string; effect: CapabilityEffect | null }

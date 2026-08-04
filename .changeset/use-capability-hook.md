@@ -28,4 +28,12 @@ one cannot render a stale result; `data` stays visible while a follow-up call is
 pending or fails; nothing writes after unmount; `pending` never latches, including
 when the dispatcher throws; and switching the capability name drops the previous
 one's state — even after switching away and back — rather than carrying it under
-the new one's output type.
+the new one's output type. `call` and `reset` are scoped to the capability name
+they were created for, so a handler a component still holds from before a name
+change (a debounce wrapper, an interval, a listener bound in a mount effect)
+cannot abandon the current capability's call.
+
+`@pracht/core` also exports `createUseCapability`, the factory the generated
+`virtual:pracht/capabilities` module binds to its own `callCapability`.
+Applications import `useCapability` from that module; the factory is exported
+only so one dispatch path can serve every projection.

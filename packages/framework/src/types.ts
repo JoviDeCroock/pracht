@@ -1070,6 +1070,11 @@ export type CapabilityInputArgs<TName extends string, TOptions> = {} extends TOp
  * `{ prepare: true }`; committing instead requires the confirmation token from
  * that call's `confirmation_required` envelope. See AGENT_TRUST.md.
  *
+ * `prepare` exists only in this type — no dispatcher reads it and nothing is
+ * sent for it. Its job is to stop an unconfirmed destructive call from being
+ * spelled the same way as a forgotten one; refusing to run it is the server's
+ * job, and it fails closed.
+ *
  * The gate closes whenever `destructive` is *possible*, not only when it is
  * certain: a name typed as a union (`"notes.search" | "notes.purge"`) and a
  * capability whose effect could not be read at build time both demand the
