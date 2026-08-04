@@ -262,7 +262,9 @@ resolves to the same envelope, so you can also branch at the call site.
 response arriving after a later one is discarded, so a search box cannot render
 a stale result — and `data` stays visible while a follow-up call is `pending` or
 fails. Switching the capability name starts a fresh state generation, including
-when switching away and back to the original name.
+when switching away and back to the original name. A retained `call` or `reset`
+from an older generation cannot cancel the current generation's request, and a
+malformed custom-dispatch result clears `pending` before it is surfaced.
 
 > **It dispatches when called, never during render.** For data a page needs on
 > load, run the capability in a `loader` with `invokeCapability()`: that result
@@ -369,10 +371,14 @@ What the compiler enforces once the file exists:
   do not rely on it to catch them.
 - Apps that have not run typegen keep the untyped
   `invokeCapability<Output>(name, ...)` form and accept any capability name.
-  Once anything is registered that form no longer applies — which is what makes
-  a mistake fail the build instead of falling through to it. Drop the explicit
-  type argument and let inference do the work; runtime validation is unchanged
-  either way.
+  Once the generated registration exists that form no longer applies — even
+  when removing the last capability rewrites it to an empty map. That is what
+  makes stale names fail the build instead of falling through to a runtime 404.
+  Drop the explicit type argument and let inference do the work; runtime
+  validation is unchanged either way.
+- A name typed as a union accepts only input valid for every possible member.
+  Narrow the name before calling when the schemas differ; otherwise an input
+  for one member could be dispatched under another member's runtime name.
 - Typegen reads capability metadata by loading the modules, while the browser
   projection is built by static analysis. Typegen cross-checks the two and
   fails when they disagree, so generated types can never promise an endpoint
@@ -386,7 +392,8 @@ What the compiler enforces once the file exists:
   `pracht typegen` (and `--check` in CI) after upgrading.
 - `--capabilities-out` overrides the output path, `--check` covers the file in
   CI, and removing the last capability rewrites an existing file to the empty
-  registration instead of leaving it stale.
+  registration instead of leaving it stale. The empty registration keeps the
+  typed APIs closed; it is distinct from never having run typegen.
 
 ## WebMCP
 

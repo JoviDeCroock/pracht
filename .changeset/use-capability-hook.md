@@ -33,6 +33,11 @@ they were created for, so a handler a component still holds from before a name
 change (a debounce wrapper, an interval, a listener bound in a mount effect)
 cannot abandon the current capability's call.
 
+A dispatcher rejection or malformed fulfilled value always clears `pending`
+before surfacing the programming error. The generated browser dispatcher turns
+malformed JSON envelopes into `invalid_response`; the factory keeps the same
+no-latched-spinner guarantee for custom dispatchers.
+
 `@pracht/core` also exports `createUseCapability`, the factory the generated
 `virtual:pracht/capabilities` module binds to its own `callCapability`.
 Applications import `useCapability` from that module; the factory is exported

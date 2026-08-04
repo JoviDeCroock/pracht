@@ -781,10 +781,15 @@ contract to enforce the rest.
   the capability's title/description are emitted as JSDoc. The graph already
   had all of it; typegen was only projecting half.
 - **The untyped overloads are gated, not deleted.** Their `name` parameter
-  resolves to `never` once anything is registered, so apps that never ran
-  typegen behave exactly as before while registered apps can no longer fall
+  resolves to `never` once a generated registration exists, including the
+  empty registration left after removing the last capability. Apps that never
+  ran typegen behave exactly as before while generated apps can no longer fall
   through. The cost is deliberate: `invokeCapability<Output>(...)` with an
   explicit type argument is now a compile error in a registered app.
+- **Union names are input-safe.** Their accepted input is the intersection of
+  the members' input types, not the union, so a value valid only for capability
+  A cannot be dispatched when the runtime name may be capability B. Narrow the
+  name when the schemas differ.
 - **Exposure and effect became type-level.** `callCapability` and
   `<Form capability>` accept only http-exposed names, and a `destructive`
   browser call will not compile unless it explicitly prepares for a token or
