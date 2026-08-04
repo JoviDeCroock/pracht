@@ -132,6 +132,20 @@ describe("useCapability", () => {
 
     // Data persists so the UI does not flash empty during a refetch.
     expect(latest).toMatchObject({ data: { notes: ["first"] }, error: undefined, pending: true });
+
+    pending[1].resolve({
+      error: { code: "invalid_input", message: "bad retry" },
+      ok: false,
+    });
+    await tick();
+
+    // `data` is the most recent successful result until reset; a failed retry
+    // adds its error without erasing content the UI was already rendering.
+    expect(latest).toMatchObject({
+      data: { notes: ["first"] },
+      error: { code: "invalid_input", message: "bad retry" },
+      pending: false,
+    });
   });
 
   it("discards a slow earlier response when a newer call has been made", async () => {
@@ -219,6 +233,24 @@ describe("useCapability", () => {
     await tick();
 
     expect(latest!.data).toBeUndefined();
+  });
+
+  it("does not resurrect state or an in-flight result after switching away and back", async () => {
+    renderHook("notes.search");
+    void latest!.call({ query: "a" });
+    await tick();
+
+    probe("notes.archive");
+    await tick();
+    probe("notes.search");
+    await tick();
+
+    // Returning to the original name is a new generation, not a cache lookup.
+    // The first generation's eventual response must stay abandoned.
+    pending[0].resolve({ data: { notes: ["stale-search"] }, ok: true });
+    await tick();
+
+    expect(latest).toMatchObject({ data: undefined, error: undefined, pending: false });
   });
 
   it("clears pending and rethrows when the dispatcher itself throws", async () => {

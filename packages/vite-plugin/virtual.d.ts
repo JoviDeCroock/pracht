@@ -30,8 +30,9 @@ declare module "virtual:pracht/capabilities" {
     /**
      * Confirmation token for committing a destructive capability, taken from
      * the prior call's `confirmation_required` error envelope. Sets the
-     * confirmation header for you. Required by the types on `destructive`
-     * capabilities once `pracht typegen` has registered their effect class.
+     * confirmation header for you. A destructive call must either prepare with
+     * `{ prepare: true }` or commit with this token once `pracht typegen` has
+     * registered its effect class.
      */
     confirm?: string;
     /**
@@ -41,7 +42,7 @@ declare module "virtual:pracht/capabilities" {
     revalidate?: boolean;
   }
 
-  /** Per-capability options: `confirm` is required for `destructive` effects. */
+  /** Destructive calls require exactly one of `{ prepare: true }` or `{ confirm }`. */
   type OptionsFor<TName extends string> = CapabilityCallOptionsFor<TName, CallCapabilityOptions>;
 
   /** HTTP endpoints of http-exposed capabilities, keyed by capability name. */
@@ -139,6 +140,8 @@ declare module "virtual:pracht/capabilities" {
    * Concurrent calls are last-one-wins: an earlier response that arrives after
    * a later one is discarded, so typing into a search box cannot show a stale
    * result. `data` stays visible while a follow-up call is `pending`.
+   * It also remains the most recent successful result when that follow-up fails;
+   * only `reset()` or changing the capability name clears it.
    */
   export function useCapability<TName extends HttpCapabilityName>(
     name: TName,

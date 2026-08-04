@@ -19,7 +19,8 @@ With generated types in the program, the compiler now rejects:
 - unknown or misspelled capability names;
 - inputs that do not match the capability's input schema;
 - browser calls to capabilities that are not http-exposed;
-- committing a `destructive` capability without its confirmation token.
+- calling a `destructive` capability without explicitly preparing for a token
+  or providing that token to commit.
 
 Capabilities whose input schema requires nothing are callable with no argument
 at all (`callCapability("notes.stats")`).
@@ -43,9 +44,10 @@ existed only as the fallback that is now closed. Apps that have not run
 `pracht typegen` are unaffected.
 
 Two notes on how the checks behave at the edges. A capability name typed as a
-union (`"notes.search" | "notes.purge"`) demands a confirmation token if *any*
-member is `destructive`, and the same applies when the build could not read a
-capability's effect — the gate closes when `destructive` is possible, not only
-when it is certain. And when a name is also a namespace (`notes` alongside
-`notes.search`), the generated client exposes the namespace, so the shorter name
-is reachable only through `callCapability()`; `pracht verify` warns about it.
+union (`"notes.search" | "notes.purge"`) demands an explicit prepare marker or
+confirmation token if *any* member is `destructive`, and the same applies when
+the build could not read a capability's effect — the gate closes when
+`destructive` is possible, not only when it is certain. And when a name is also
+a namespace (`notes` alongside `notes.search`), the generated client exposes the
+namespace, so the shorter name is reachable only through `callCapability()`;
+`pracht verify` warns about it.

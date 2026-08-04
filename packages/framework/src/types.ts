@@ -963,6 +963,20 @@ type ExposedHttpCapabilityName = {
   string;
 
 /**
+ * Whether every generated entry carries the exposure metadata introduced with
+ * the typed browser client. Checking for the field — rather than checking
+ * whether any capability is exposed — distinguishes a legacy declaration from
+ * a current app whose capabilities are all deliberately private.
+ */
+type HasCapabilityExposureMetadata = HasRegisteredCapabilities extends true
+  ? RegisteredCapabilityMap[RegisteredCapabilityName] extends {
+      exposed: { http: boolean };
+    }
+    ? true
+    : false
+  : false;
+
+/**
  * Capability names reachable from the browser — those with `expose.http`.
  * `callCapability()`, the generated `capabilities` client, and
  * `<Form capability>` use this so a private capability is a compile error
@@ -977,9 +991,9 @@ type ExposedHttpCapabilityName = {
  * restores the check.
  */
 export type HttpCapabilityName = HasRegisteredCapabilities extends true
-  ? [ExposedHttpCapabilityName] extends [never]
-    ? RegisteredCapabilityName
-    : ExposedHttpCapabilityName
+  ? HasCapabilityExposureMetadata extends true
+    ? ExposedHttpCapabilityName
+    : RegisteredCapabilityName
   : string;
 
 /**
@@ -1045,17 +1059,16 @@ export type CapabilityInputArgs<TName extends string, TOptions> = {} extends TOp
   ? {} extends CapabilityInputFor<TName>
     ? [input?: CapabilityInputFor<TName>, options?: TOptions]
     : [input: CapabilityInputFor<TName>, options?: TOptions]
-  : // Options carry a required member (a `destructive` capability's confirmation
-    // token), so neither argument may be omitted — an optional parameter cannot
-    // precede a required one.
+  : // Options carry a required member (a `destructive` capability's prepare
+    // marker or confirmation token), so neither argument may be omitted — an
+    // optional parameter cannot precede a required one.
     [input: CapabilityInputFor<TName>, options: TOptions];
 
 /**
  * Browser call options, narrowed per capability: a `destructive` capability is
- * gated by the server-verified prepare/commit flow, so committing one without
- * a confirmation token is a compile error rather than a runtime
- * `confirmation_required` envelope. Take the token from the prior call's
- * envelope. See AGENT_TRUST.md.
+ * gated by the server-verified prepare/commit flow. Mark the first call with
+ * `{ prepare: true }`; committing instead requires the confirmation token from
+ * that call's `confirmation_required` envelope. See AGENT_TRUST.md.
  *
  * The gate closes whenever `destructive` is *possible*, not only when it is
  * certain: a name typed as a union (`"notes.search" | "notes.purge"`) and a
@@ -1069,7 +1082,9 @@ export type CapabilityCallOptionsFor<
   TOptions extends { confirm?: string },
 > = [Extract<DeclaredCapabilityEffect<TName>, "destructive">] extends [never]
   ? TOptions
-  : TOptions & { confirm: string };
+  :
+      | (Omit<TOptions, "confirm"> & { confirm?: never; prepare: true })
+      | (TOptions & { confirm: string; prepare?: never });
 
 export class PrachtHttpError extends Error {
   readonly status: number;

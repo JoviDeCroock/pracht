@@ -862,7 +862,7 @@ export async function main() {
       appDir,
       "src/capability-consumer.ts",
       `import { invokeCapability } from "@pracht/core";
-import { callCapability, capabilities } from "virtual:pracht/capabilities";
+import { callCapability, capabilities, useCapability } from "virtual:pracht/capabilities";
 
 declare const ctx: { request: Request };
 
@@ -907,11 +907,20 @@ export async function browser() {
     const _total: number = stats.data.total;
   }
 
-  // Destructive capabilities are confirmation-gated, so the token is required.
+  // Destructive calls make their two phases explicit: prepare obtains the
+  // token without committing, then confirm commits the identical input.
+  await callCapability("notes.purge", { titlePrefix: "tmp" }, { prepare: true });
   await callCapability("notes.purge", { titlePrefix: "tmp" }, { confirm: "token" });
 
-  // @ts-expect-error - committing a destructive call without a confirmation token
+  // @ts-expect-error - destructive calls must explicitly prepare or confirm
   await callCapability("notes.purge", { titlePrefix: "tmp" });
+
+  // @ts-expect-error - one call cannot prepare and commit simultaneously
+  await callCapability(
+    "notes.purge",
+    { titlePrefix: "tmp" },
+    { prepare: true, confirm: "token" },
+  );
 
   // @ts-expect-error - notes.set-status is private: there is no endpoint to call
   await callCapability("notes.set-status", { id: "1", status: "draft" });
@@ -935,10 +944,17 @@ export async function client() {
     const _total: number = stats.data.total;
   }
 
+  await capabilities.notes.purge({ titlePrefix: "tmp" }, { prepare: true });
   await capabilities.notes.purge({ titlePrefix: "tmp" }, { confirm: "token" });
 
-  // @ts-expect-error - destructive calls still require their confirmation token
+  // @ts-expect-error - destructive calls must explicitly prepare or confirm
   await capabilities.notes.purge({ titlePrefix: "tmp" });
+
+  const purge = useCapability("notes.purge");
+  await purge.call({ titlePrefix: "tmp" }, { prepare: true });
+  await purge.call({ titlePrefix: "tmp" }, { confirm: "token" });
+  // @ts-expect-error - the hook has the same destructive-call gate
+  await purge.call({ titlePrefix: "tmp" });
 
   // @ts-expect-error - mismatched input
   await capabilities.notes.search({ query: 42 });
@@ -982,6 +998,48 @@ export async function client() {
 
     // Throws (non-zero exit) when any guarantee above stops holding — either a
     // valid call starts failing or an invalid one stops being rejected.
+    try {
+      execFileSync(process.execPath, [tscPath, "-p", "."], {
+        cwd: appDir,
+        encoding: "utf-8",
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+    } catch (error) {
+      throw new Error(error.stdout || error.stderr || error.message);
+    }
+
+    // A current typegen file with no HTTP exposure is not a legacy file. Every
+    // capability must stay absent from all browser projections.
+    writeProjectFile(
+      appDir,
+      "src/routes.ts",
+      `import { defineApp } from "@pracht/core";
+
+export const app = defineApp({
+  capabilities: {
+    "notes.set-status": () => import("./capabilities/notes-set-status.ts"),
+  },
+  routes: [],
+});
+`,
+    );
+    runCli(["typegen"], { cwd: appDir });
+    writeProjectFile(
+      appDir,
+      "src/capability-consumer.ts",
+      `import { callCapability, capabilities, useCapability } from "virtual:pracht/capabilities";
+
+export async function browser() {
+  // @ts-expect-error - an all-private graph exposes no browser call names
+  await callCapability("notes.set-status", { id: "1", status: "draft" });
+  // @ts-expect-error - the nested client is empty for an all-private graph
+  await capabilities.notes["set-status"]({ id: "1", status: "draft" });
+  // @ts-expect-error - hooks cannot bind to private capabilities either
+  useCapability("notes.set-status");
+}
+`,
+    );
+
     try {
       execFileSync(process.execPath, [tscPath, "-p", "."], {
         cwd: appDir,
