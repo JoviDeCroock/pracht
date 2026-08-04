@@ -935,12 +935,13 @@ type RegisteredCapabilityMap = Register extends { capabilities: infer TCapabilit
   : {};
 
 /**
- * Whether the app generated capability types. Every alias below degrades to
- * `string`/`unknown` when it is `false`, so the capability APIs stay usable
- * before the first `pracht typegen` run — the same shape as `ApiPath` and
- * `RouteId`.
+ * Whether the app generated a capability registration. Test for the property,
+ * not for entries: after the last capability is removed, typegen deliberately
+ * emits an empty registration and stale calls must remain compile errors.
+ * Every alias below degrades to `string`/`unknown` only when the property is
+ * absent, so the APIs stay usable before the first `pracht typegen` run.
  */
-export type HasRegisteredCapabilities = keyof RegisteredCapabilityMap extends never ? false : true;
+export type HasRegisteredCapabilities = "capabilities" extends keyof Register ? true : false;
 
 export type RegisteredCapabilityName = Extract<keyof RegisteredCapabilityMap, string>;
 
@@ -1007,13 +1008,29 @@ type RegisteredCapabilityEntry<TName extends string> = TName extends keyof Regis
   ? RegisteredCapabilityMap[TName]
   : never;
 
-export type CapabilityInputFor<TName extends string> = [RegisteredCapabilityEntry<TName>] extends [
+type CapabilityInputForName<TName extends string> = [RegisteredCapabilityEntry<TName>] extends [
   never,
 ]
   ? unknown
   : RegisteredCapabilityEntry<TName> extends { input: infer TInput }
     ? TInput
     : unknown;
+
+/**
+ * Input accepted safely for every possible capability name. The conditional
+ * distributes over `TName`, then contravariant inference intersects the input
+ * types from each member. A union name therefore has to be narrowed unless one
+ * value satisfies every member's schema; accepting the union of inputs would
+ * let an input for capability A reach capability B at runtime.
+ *
+ * A single capability whose schema itself produces a union remains a union —
+ * only the outer capability-name alternatives are intersected.
+ */
+export type CapabilityInputFor<TName extends string> = (
+  TName extends unknown ? (input: CapabilityInputForName<TName>) => void : never
+) extends (input: infer TInput) => void
+  ? TInput
+  : unknown;
 
 export type CapabilityOutputFor<TName extends string> = [RegisteredCapabilityEntry<TName>] extends [
   never,

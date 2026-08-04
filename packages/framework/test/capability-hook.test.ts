@@ -314,4 +314,25 @@ describe("useCapability", () => {
     // A stuck spinner is worse than a surfaced bug: pending must not latch.
     expect(latest!.pending).toBe(false);
   });
+
+  it.each([null, { ok: false }] as const)(
+    "clears pending when a custom dispatcher fulfills with malformed envelope %#",
+    async (malformedEnvelope) => {
+      const useMalformedCapability = createUseCapability(async () => malformedEnvelope as never);
+      let malformed: ReturnType<typeof useMalformedCapability> | undefined;
+
+      function MalformedProbe() {
+        malformed = useMalformedCapability("notes.search");
+        return null;
+      }
+
+      render(h(MalformedProbe, {}), root);
+      await expect(malformed!.call({ query: "a" })).rejects.toThrow(
+        "Capability dispatcher returned an invalid envelope",
+      );
+      await tick();
+
+      expect(malformed!.pending).toBe(false);
+    },
+  );
 });

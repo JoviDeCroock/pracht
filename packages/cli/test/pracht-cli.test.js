@@ -893,6 +893,10 @@ export async function server() {
 
   // @ts-expect-error - enums narrow to their literal members
   await invokeCapability("notes.set-status", { id: "1", status: "archived" }, ctx);
+
+  const serverName = Math.random() > 0.5 ? "notes.search" as const : "notes.set-status" as const;
+  // @ts-expect-error - a union name cannot take input valid for only one possible capability
+  await invokeCapability(serverName, { query: "roadmap" }, ctx);
 }
 
 export async function browser() {
@@ -930,6 +934,16 @@ export async function browser() {
 
   // @ts-expect-error - unknown capability name
   await callCapability("notes.serach", { query: "x" });
+
+  const browserName = Math.random() > 0.5 ? "notes.search" as const : "notes.stats" as const;
+  // @ts-expect-error - stats may omit input, but search may not
+  await callCapability(browserName);
+  // @ts-expect-error - search input is not valid for every member of the name union
+  await callCapability(browserName, { query: "roadmap" });
+
+  const dynamic = useCapability(browserName);
+  // @ts-expect-error - the bound name must be narrowed before supplying member-specific input
+  await dynamic.call({ query: "roadmap" });
 }
 
 export async function client() {
@@ -1036,6 +1050,40 @@ export async function browser() {
   await capabilities.notes["set-status"]({ id: "1", status: "draft" });
   // @ts-expect-error - hooks cannot bind to private capabilities either
   useCapability("notes.set-status");
+}
+`,
+    );
+
+    try {
+      execFileSync(process.execPath, [tscPath, "-p", "."], {
+        cwd: appDir,
+        encoding: "utf-8",
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+    } catch (error) {
+      throw new Error(error.stdout || error.stderr || error.message);
+    }
+
+    // Removing the last capability leaves an intentionally empty generated
+    // registration. That is still evidence typegen has run, so stale names
+    // must not regain the pre-typegen untyped fallback.
+    writeTypedManifestApp(appDir, { capabilities: false });
+    runCli(["typegen"], { cwd: appDir });
+    writeProjectFile(
+      appDir,
+      "src/capability-consumer.ts",
+      `import { invokeCapability } from "@pracht/core";
+import { callCapability, useCapability } from "virtual:pracht/capabilities";
+
+declare const ctx: { request: Request };
+
+export async function removed() {
+  // @ts-expect-error - an emitted empty graph exposes no stale browser names
+  await callCapability("notes.search", { query: "roadmap" });
+  // @ts-expect-error - hooks cannot bind to a removed capability
+  useCapability("notes.search");
+  // @ts-expect-error - direct invocation also knows the generated graph is empty
+  await invokeCapability("notes.search", { query: "roadmap" }, ctx);
 }
 `,
     );

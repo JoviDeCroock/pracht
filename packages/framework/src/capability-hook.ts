@@ -126,7 +126,23 @@ export function createUseCapability(
 
         let envelope: CapabilityEnvelope<TOutput>;
         try {
-          envelope = (await dispatch(name, ...args)) as CapabilityEnvelope<TOutput>;
+          const dispatched = await dispatch(name, ...args);
+          // The generated dispatcher validates the wire envelope, but this
+          // factory is also public and can be bound to a custom dispatcher. A
+          // malformed fulfillment (notably JSON `null`) must follow the same
+          // path as a thrown dispatcher error so `pending` cannot latch.
+          const record = dispatched as unknown as Record<string, unknown> | null;
+          const error = record?.error as Record<string, unknown> | null | undefined;
+          if (
+            !record ||
+            (record.ok !== true && record.ok !== false) ||
+            (record.ok === true && !("data" in record)) ||
+            (record.ok === false &&
+              (!error || typeof error.code !== "string" || typeof error.message !== "string"))
+          ) {
+            throw new TypeError("Capability dispatcher returned an invalid envelope.");
+          }
+          envelope = dispatched as CapabilityEnvelope<TOutput>;
         } catch (error) {
           // `callCapability` folds network failures into an envelope, so this
           // is a programming error (a bad argument, a broken custom dispatch).

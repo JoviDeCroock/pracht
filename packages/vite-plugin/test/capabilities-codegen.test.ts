@@ -483,6 +483,32 @@ describe("createPrachtCapabilitiesClientModuleSource", () => {
 
     expect(requestInit?.body).toBe("null");
   });
+
+  it("turns valid JSON with an invalid envelope shape into invalid_response", async () => {
+    const root = createFixture({ capabilities: { "notes-search.ts": SEARCH_CAPABILITY } });
+    const source = createPrachtCapabilitiesClientModuleSource({}, { root });
+    const originalFetch = globalThis.fetch;
+    const malformedEnvelopes = [null, { ok: true }, { error: {}, ok: false }];
+    globalThis.fetch = (async () => Response.json(malformedEnvelopes.shift())) as typeof fetch;
+
+    try {
+      const mod = await importGeneratedModule<{
+        callCapability: (name: string, input?: unknown) => Promise<unknown>;
+      }>(source);
+
+      for (let index = 0; index < 3; index += 1) {
+        await expect(mod.callCapability("notes.search", { query: "roadmap" })).resolves.toEqual({
+          error: {
+            code: "invalid_response",
+            message: "Capability endpoint returned an invalid envelope (status 200).",
+          },
+          ok: false,
+        });
+      }
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
 });
 
 describe("createPrachtWebmcpModuleSource", () => {

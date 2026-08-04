@@ -22,6 +22,12 @@ With generated types in the program, the compiler now rejects:
 - calling a `destructive` capability without explicitly preparing for a token
   or providing that token to commit.
 
+An emitted empty registration still counts as generated: removing the last
+capability does not reopen the pre-typegen fallback, so stale names remain
+compile errors. When a capability name is a union, its input must be valid for
+every possible member rather than merely one of them; narrow the name first
+when the member schemas differ.
+
 Capabilities whose input schema requires nothing are callable with no argument
 at all (`callCapability("notes.stats")`).
 
@@ -36,6 +42,10 @@ The exported `capabilityEndpoints` table now has a **null prototype**, so a
 capability named `toString` cannot shadow an inherited member during lookup.
 Indexing and enumeration are unchanged; `capabilityEndpoints.hasOwnProperty(name)`
 is not — use `Object.hasOwn(capabilityEndpoints, name)`.
+
+The browser dispatcher also validates that parsed JSON has the capability
+envelope shape. Valid JSON such as `null` is returned as `invalid_response`
+instead of escaping the typed client as an impossible value.
 
 `virtual:pracht/capabilities` also exports a nested `capabilities` client, so
 dotted names read as object paths — `capabilities.notes.search({ query })`. It
