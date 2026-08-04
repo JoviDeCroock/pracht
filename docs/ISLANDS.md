@@ -187,6 +187,11 @@ Islands themselves hot-update in place like any client component. Everything
 else on an islands or `hydration: "none"` page — the route module, its shell,
 and the server-only components it imports — is not part of the client bundle,
 so there is no client module to patch: the dev server reloads the page instead.
+A plugin that watches source files from a CSS transform — any content scanner,
+Tailwind and UnoCSS among them — makes Vite record those sources as file-only
+asset entries in the client graph. Those entries are watch dependencies rather
+than browser modules, so they do not suppress this reload. CSS updates still
+hot-update normally alongside it.
 Either way, saving a file updates what you see without a manual refresh.
 
 ---

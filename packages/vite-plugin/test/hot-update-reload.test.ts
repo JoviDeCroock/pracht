@@ -5,17 +5,35 @@ import {
   type HotUpdateServerLike,
 } from "../src/hot-update-reload.ts";
 
-function createServer(graphs: Record<string, string[]>): {
+interface GraphEntry {
+  file: string;
+  type?: "js" | "css" | "asset";
+}
+
+// Vite never resolves or transforms the file-only entries it creates for plugin
+// watch dependencies, so they carry an `/@fs/`-prefixed url and a null id. Real
+// modules always carry a resolved id. Mirror both shapes so the fixture matches
+// what the dev server actually hands `handleHotUpdate`.
+function createModuleNode(entry: string | GraphEntry) {
+  const { file, type = "js" } = typeof entry === "string" ? { file: entry } : entry;
+  return type === "asset"
+    ? { file, id: null, type, url: `/@fs/${file}` }
+    : { file, id: file, type, url: file };
+}
+
+function createServer(graphs: Record<string, Array<string | GraphEntry>>): {
   server: HotUpdateServerLike;
   send: ReturnType<typeof vi.fn>;
 } {
   const send = vi.fn();
   const environments: Record<string, unknown> = {};
-  for (const [name, files] of Object.entries(graphs)) {
+  for (const [name, entries] of Object.entries(graphs)) {
     environments[name] = {
       moduleGraph: {
-        getModulesByFile: (file: string) =>
-          files.includes(file) ? new Set([{ file }]) : undefined,
+        getModulesByFile: (file: string) => {
+          const modules = entries.map(createModuleNode).filter((module) => module.file === file);
+          return modules.length > 0 ? new Set(modules) : undefined;
+        },
       },
       ...(name === "client" ? { hot: { send } } : {}),
     };
@@ -36,8 +54,32 @@ describe("isServerOnlyModuleFile", () => {
     expect(isServerOnlyModuleFile(server, ROUTE)).toBe(false);
   });
 
+  it("ignores client file-only asset entries created by content scanners", () => {
+    const { server } = createServer({
+      client: [{ file: ROUTE, type: "asset" }],
+      ssr: [ROUTE, { file: ROUTE, type: "asset" }],
+    });
+    expect(isServerOnlyModuleFile(server, ROUTE)).toBe(true);
+  });
+
+  it("leaves real client CSS modules to client HMR", () => {
+    const { server } = createServer({
+      client: [{ file: ROUTE, type: "css" }],
+      ssr: [ROUTE],
+    });
+    expect(isServerOnlyModuleFile(server, ROUTE)).toBe(false);
+  });
+
   it("ignores files no environment has loaded", () => {
     const { server } = createServer({ client: [], ssr: [] });
+    expect(isServerOnlyModuleFile(server, ROUTE)).toBe(false);
+  });
+
+  it("ignores files represented only by file-only assets in every graph", () => {
+    const { server } = createServer({
+      client: [{ file: ROUTE, type: "asset" }],
+      ssr: [{ file: ROUTE, type: "asset" }],
+    });
     expect(isServerOnlyModuleFile(server, ROUTE)).toBe(false);
   });
 

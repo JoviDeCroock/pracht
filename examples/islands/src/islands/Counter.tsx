@@ -1,5 +1,6 @@
 import { useState } from "preact/hooks";
 import type { IslandProps } from "@pracht/core";
+import "../styles.css";
 
 interface CounterProps {
   start?: number;

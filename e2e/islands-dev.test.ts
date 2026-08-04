@@ -62,10 +62,33 @@ test("hydration none routes render without islands bootstrap or state", async ({
   await expect(page.locator("h1")).toHaveText("Fully static");
 });
 
-// Routes without full hydration are excluded from the client bundle, so their
-// source files never enter the client module graph and Vite has no module to
-// push an update through. The plugin has to reload the page itself, otherwise
-// editing a static route in dev does nothing at all.
+// Routes without full hydration are excluded from the client bundle. Content
+// scanners such as Tailwind still register their source files as file-only
+// assets in Vite's client graph, but those watch entries cannot update the
+// rendered HTML. The plugin has to reload the page itself.
+test("editing a hydration islands route reloads the open page with CSS scanning active", async ({
+  page,
+}) => {
+  test.setTimeout(30_000);
+
+  const routeFile = fileURLToPath(
+    new URL("../examples/islands/src/routes/home.tsx", import.meta.url),
+  );
+  const original = readFileSync(routeFile, "utf-8");
+
+  await page.goto("/");
+  await expect(page.locator("h1")).toHaveText("Islands architecture");
+
+  try {
+    writeFileSync(routeFile, original.replace("Islands architecture", "Edited islands in dev"));
+    await expect(page.locator("h1")).toHaveText("Edited islands in dev", { timeout: 15_000 });
+  } finally {
+    writeFileSync(routeFile, original);
+  }
+
+  await expect(page.locator("h1")).toHaveText("Islands architecture", { timeout: 15_000 });
+});
+
 test("editing a hydration none route reloads the open page", async ({ page }) => {
   test.setTimeout(30_000);
 
@@ -85,4 +108,33 @@ test("editing a hydration none route reloads the open page", async ({ page }) =>
   }
 
   await expect(page.locator("h1")).toHaveText("Fully static", { timeout: 15_000 });
+});
+
+test("editing an island keeps client state while file-only asset entries exist", async ({
+  page,
+}) => {
+  test.setTimeout(30_000);
+
+  const islandFile = fileURLToPath(
+    new URL("../examples/islands/src/islands/Counter.tsx", import.meta.url),
+  );
+  const original = readFileSync(islandFile, "utf-8");
+
+  await page.goto("/");
+  await page.waitForSelector('html[data-pracht-islands-hydrated="true"]');
+  await page.getByTestId("increment").click();
+  await expect(page.getByTestId("count")).toHaveText("Count: 6");
+
+  try {
+    writeFileSync(islandFile, original.replace("Increment", "Increment updated"));
+    await expect(page.getByTestId("increment")).toHaveText("Increment updated", {
+      timeout: 15_000,
+    });
+    await expect(page.getByTestId("count")).toHaveText("Count: 6");
+  } finally {
+    writeFileSync(islandFile, original);
+  }
+
+  await expect(page.getByTestId("increment")).toHaveText("Increment", { timeout: 15_000 });
+  await expect(page.getByTestId("count")).toHaveText("Count: 6");
 });
