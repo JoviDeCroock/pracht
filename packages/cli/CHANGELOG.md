@@ -1,5 +1,21 @@
 # @pracht/cli
 
+## 1.8.4
+
+### Patch Changes
+
+- [#257](https://github.com/JoviDeCroock/pracht/pull/257) [`7b7e5ca`](https://github.com/JoviDeCroock/pracht/commit/7b7e5ca278f357f297e15df52d984d4d489dac19) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Harden capability boundary checks across canonical file paths and module-load
+  failures.
+
+  The Vite plugin now compares canonical paths for app manifests, route module
+  directories, registered capability modules, and client imports, so symlinked
+  modules and path aliases cannot bypass manifest rewriting or server-only
+  client guards.
+
+  Type generation now leaves capability module-load failures to the existing
+  wiring checks instead of misreporting their null graph metadata as exposure
+  drift with an unrelated inline-literal remediation.
+
 ## 1.8.3
 
 ### Patch Changes
