@@ -16,8 +16,12 @@
  * modules, islands, prefresh component updates) already handles them.
  */
 
+interface ModuleNodeLike {
+  type?: "js" | "css" | "asset";
+}
+
 interface ModuleGraphLike {
-  getModulesByFile(file: string): Set<unknown> | undefined;
+  getModulesByFile(file: string): Set<ModuleNodeLike> | undefined;
 }
 
 interface EnvironmentLike {
@@ -30,8 +34,10 @@ export interface HotUpdateServerLike {
 }
 
 /**
- * True when `file` participates in server rendering but has no counterpart in
- * the client module graph, meaning client HMR can never deliver its change.
+ * True when `file` participates in server rendering but has no runtime
+ * counterpart in the client module graph, meaning client HMR can never deliver
+ * its change. File-only asset entries created by content scanners are watchers,
+ * not browser modules, so they do not make an update client-reachable.
  */
 export function isServerOnlyModuleFile(server: HotUpdateServerLike, file: string): boolean {
   const environments = server.environments;
@@ -39,11 +45,11 @@ export function isServerOnlyModuleFile(server: HotUpdateServerLike, file: string
   // Without the client environment there is no browser graph to compare
   // against — leave the update to Vite's own handling.
   if (!client) return false;
-  if (hasModules(client, file)) return false;
+  if (hasRuntimeModules(client, file)) return false;
 
   for (const [name, environment] of Object.entries(environments ?? {})) {
     if (name === "client" || !environment) continue;
-    if (hasModules(environment, file)) return true;
+    if (hasRuntimeModules(environment, file)) return true;
   }
   return false;
 }
@@ -55,6 +61,9 @@ export function sendServerOnlyFullReload(server: HotUpdateServerLike, file: stri
   return true;
 }
 
-function hasModules(environment: EnvironmentLike, file: string): boolean {
-  return (environment.moduleGraph.getModulesByFile(file)?.size ?? 0) > 0;
+function hasRuntimeModules(environment: EnvironmentLike, file: string): boolean {
+  for (const module of environment.moduleGraph.getModulesByFile(file) ?? []) {
+    if (module.type !== "asset") return true;
+  }
+  return false;
 }
