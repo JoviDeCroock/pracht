@@ -21,6 +21,8 @@
  * exercising destructive capabilities.
  */
 
+import type { Capability } from "@pracht/capabilities";
+
 import { formatUnknownNameError } from "./name-suggestions.ts";
 import {
   handleCapabilityRequest,
@@ -43,9 +45,11 @@ import type {
 
 const TEST_ORIGIN = "http://capability-test.local";
 
-export interface CapabilityTestHostOptions {
+export interface CapabilityTestHostOptions<
+  TCapabilities extends Record<string, PrachtCapability> = Record<string, PrachtCapability>,
+> {
   /** Capability name → the object `defineCapability()` returns. */
-  capabilities: Record<string, PrachtCapability>;
+  capabilities: TCapabilities;
   /** Middleware name → function, for capabilities declaring `middleware: [name]`. */
   middleware?: Record<string, MiddlewareFn>;
   /** App-level agent trust config — the `defineApp({ agents })` equivalent. */
@@ -70,23 +74,51 @@ export interface CapabilityTestRequestOptions {
   agent?: PrachtAgentIdentity | null;
 }
 
-export interface CapabilityTestHost {
-  /** Direct server invocation — same pipeline and envelope as `invokeCapability()`. */
-  invoke<TName extends RegisteredCapabilityName>(
+type RegisteredCapabilityTestMap = HasRegisteredCapabilities extends true
+  ? {
+      [TName in RegisteredCapabilityName]: {
+        input: CapabilityInputFor<TName>;
+        output: CapabilityOutputFor<TName>;
+      };
+    }
+  : Record<string, { input: unknown; output: unknown }>;
+
+type CapabilityTestInput<TCapability> =
+  TCapability extends Capability<infer TInput, any, any>
+    ? TInput
+    : TCapability extends { input: infer TInput }
+      ? TInput
+      : unknown;
+
+type CapabilityTestOutput<TCapability> =
+  TCapability extends Capability<any, infer TOutput, any>
+    ? TOutput
+    : TCapability extends { output: infer TOutput }
+      ? TOutput
+      : unknown;
+
+export interface CapabilityTestHost<
+  TCapabilities extends Record<string, unknown> = RegisteredCapabilityTestMap,
+> {
+  /**
+   * Direct server invocation — same pipeline and envelope as
+   * `invokeCapability()`. Factory-created hosts infer this contract from their
+   * own capability map, including test-only names that are absent from the app
+   * manifest. The bare `CapabilityTestHost` type keeps using the generated app
+   * registration for callers that declare a host separately.
+   */
+  invoke<TName extends Extract<keyof TCapabilities, string>>(
     name: TName,
-    input: CapabilityInputFor<TName>,
+    input: CapabilityTestInput<TCapabilities[TName]>,
     options?: CapabilityTestInvokeOptions,
-  ): Promise<CapabilityEnvelope<CapabilityOutputFor<TName>>>;
-  invoke<T = unknown>(
-    name: HasRegisteredCapabilities extends true ? never : string,
-    input: unknown,
-    options?: CapabilityTestInvokeOptions,
-  ): Promise<CapabilityEnvelope<T>>;
+  ): Promise<CapabilityEnvelope<CapabilityTestOutput<TCapabilities[TName]>>>;
   /** HTTP dispatch — same handler the generated `/api/capabilities/*` endpoints use. */
   request(name: string, input: unknown, options?: CapabilityTestRequestOptions): Promise<Response>;
 }
 
-export function createCapabilityTestHost(options: CapabilityTestHostOptions): CapabilityTestHost {
+export function createCapabilityTestHost<
+  const TCapabilities extends Record<string, PrachtCapability>,
+>(options: CapabilityTestHostOptions<TCapabilities>): CapabilityTestHost<TCapabilities> {
   const capabilityFiles: Record<string, string> = {};
   const capabilityModules: NonNullable<ModuleRegistry["capabilityModules"]> = {};
   for (const [name, capability] of Object.entries(options.capabilities)) {
@@ -109,12 +141,12 @@ export function createCapabilityTestHost(options: CapabilityTestHostOptions): Ca
   };
 
   return {
-    invoke<T = unknown>(
-      name: string,
-      input: unknown,
+    invoke<TName extends Extract<keyof TCapabilities, string>>(
+      name: TName,
+      input: CapabilityTestInput<TCapabilities[TName]>,
       invokeOptions: CapabilityTestInvokeOptions = {},
-    ): Promise<CapabilityEnvelope<T>> {
-      return invokeCapabilityOnHost<T>(host, name, input, {
+    ): Promise<CapabilityEnvelope<CapabilityTestOutput<TCapabilities[TName]>>> {
+      return invokeCapabilityOnHost<CapabilityTestOutput<TCapabilities[TName]>>(host, name, input, {
         request: invokeOptions.request ?? new Request(`${TEST_ORIGIN}/`),
         context: invokeOptions.context ?? {},
         signal: invokeOptions.signal,

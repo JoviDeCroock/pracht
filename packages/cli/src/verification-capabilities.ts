@@ -51,12 +51,8 @@ export function collectCapabilityChecks(project: ProjectConfig, checks: Check[])
     ),
   );
 
-  collectShadowedNameChecks(
-    entries.map((entry) => entry.name),
-    checks,
-  );
-
   const manifestDir = dirname(manifestPath);
+  const httpExposedNames: string[] = [];
   for (const entry of entries) {
     // Root-relative refs ("/src/capabilities/x.ts") resolve against the project
     // root, matching the runtime registry and the Vite plugin; everything else
@@ -80,14 +76,14 @@ export function collectCapabilityChecks(project: ProjectConfig, checks: Check[])
       continue;
     }
 
-    collectSingleCapabilityChecks(
-      entry.name,
-      entry.path,
-      readFileSync(filePath, "utf-8"),
-      registeredMiddleware,
-      checks,
-    );
+    const source = readFileSync(filePath, "utf-8");
+    if (hasValidStaticHttpExposure(source)) {
+      httpExposedNames.push(entry.name);
+    }
+    collectSingleCapabilityChecks(entry.name, entry.path, source, registeredMiddleware, checks);
   }
+
+  collectShadowedNameChecks(httpExposedNames, checks);
 }
 
 /**
@@ -112,6 +108,19 @@ function collectShadowedNameChecks(names: string[], checks: Check[]): void {
       );
     }
   }
+}
+
+/**
+ * The nested client contains only endpoints that the build can prove are
+ * HTTP-exposed. Private, WebMCP-only, and invalid or dynamic exposure entries
+ * cannot create a runtime namespace collision and must not trigger the warning.
+ */
+function hasValidStaticHttpExposure(source: string): boolean {
+  const args = extractDefineCapabilityArgs(source);
+  if (!args) return false;
+  const properties = scanTopLevelProperties(args);
+  const exposeFlags = readExposeFlags(properties.get("expose"));
+  return exposeFlags.hasHttp && !exposeFlags.unknown && exposeFlags.problems.length === 0;
 }
 
 function collectSingleCapabilityChecks(

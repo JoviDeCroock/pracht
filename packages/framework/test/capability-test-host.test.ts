@@ -6,12 +6,7 @@ import {
   setCapabilityAuditHook,
   setCapabilityConfirmationSecret,
 } from "../src/index.ts";
-import type {
-  CapabilityAuditEvent,
-  PrachtAgentIdentity,
-  PrachtCapability,
-  RegisteredCapabilityName,
-} from "../src/types.ts";
+import type { CapabilityAuditEvent, PrachtAgentIdentity, PrachtCapability } from "../src/types.ts";
 
 type CapabilityDefinition = Parameters<typeof defineCapability>[0];
 
@@ -105,7 +100,7 @@ describe("createCapabilityTestHost — invoke()", () => {
 
     // Deliberately bypass generated-name checking to exercise the runtime
     // unknown-capability envelope and suggestion.
-    const result = await host.invoke("notes.serach" as RegisteredCapabilityName, { query: "x" });
+    const result = await host.invoke("notes.serach" as "notes.search", { query: "x" });
     expect(result.ok).toBe(false);
     if (result.ok) throw new Error("expected error envelope");
     expect(result.error.code).toBe("unknown_capability");

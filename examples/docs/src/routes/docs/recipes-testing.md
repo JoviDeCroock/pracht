@@ -430,7 +430,7 @@ Note the boundary: calling `run()` directly skips validation, the middleware cha
 
 ### The full pipeline without a server
 
-`createCapabilityTestHost()` runs the real dispatch pipeline in-process — no manifest, no Vite, no port. `invoke()` mirrors `invokeCapability()`; `request()` mirrors the generated HTTP endpoints, including agent policy and the confirmation flow:
+`createCapabilityTestHost()` runs the real dispatch pipeline in-process — no manifest, no Vite, no port. `invoke()` mirrors `invokeCapability()` and infers names, inputs, and outputs from the capability map supplied to that host, including test-only aliases; `request()` mirrors the generated HTTP endpoints, including agent policy and the confirmation flow:
 
 ```ts [src/capabilities/notes.test.ts]
 import { CONFIRMATION_HEADER, createCapabilityTestHost, setCapabilityConfirmationSecret } from "@pracht/core";

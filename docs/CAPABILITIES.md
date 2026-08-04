@@ -129,7 +129,7 @@ this.
 import { invokeCapability } from "@pracht/core/server";
 
 export async function loader({ request, context, signal }: LoaderArgs) {
-  const result = await invokeCapability<{ notes: Note[] }>(
+  const result = await invokeCapability(
     "notes.search",
     { query: "roadmap" },
     { request, context, signal },
@@ -369,9 +369,11 @@ import { Form } from "@pracht/core";
 capability's input/output types generated from its JSON Schemas, plus its
 effect class and exposure, registered on `Register["capabilities"]`. With that
 file in the program, `invokeCapability()`, the browser's `callCapability()`,
-the generated `capabilities` client, `<Form capability>`, and
-`createCapabilityTestHost().invoke()` all read the contract from the capability
-name — no per-call generics:
+the generated `capabilities` client, and `<Form capability>` all read the
+contract from the capability name — no per-call generics. A factory-created
+`createCapabilityTestHost()` instead infers `invoke()` names, inputs, and
+outputs from the capability map supplied to that host, so test-only names do
+not have to appear in the app manifest:
 
 ```ts
 const result = await invokeCapability("notes.search", { query: "roadmap" }, args);
@@ -502,7 +504,8 @@ The capability graph feeds every existing inspection surface:
 
 `createCapabilityTestHost()` (from `@pracht/core`) runs the dispatch pipeline
 in-process for unit tests — no manifest, no Vite, no server. `invoke()`
-mirrors `invokeCapability()`; `request()` mirrors the HTTP projection,
+mirrors `invokeCapability()` and is typed from that host's supplied capability
+map, including test-only aliases; `request()` mirrors the HTTP projection,
 including Web Bot Auth policy (inject a simulated identity via the `agent`
 option) and the destructive prepare/commit confirmation flow (set
 `PRACHT_CONFIRMATION_SECRET` or call `setCapabilityConfirmationSecret()` in

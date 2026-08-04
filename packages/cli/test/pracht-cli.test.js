@@ -925,6 +925,31 @@ declare const ctx: { request: Request };
 declare const host: CapabilityTestHost;
 declare const readName: "notes.search" | "notes.stats";
 
+const fixtureHost = createCapabilityTestHost({
+  capabilities: {
+    "fixture.only": defineCapability<{ value: string }, { seen: string }>({
+      title: "Fixture only",
+      description: "A capability that exists only in this standalone test host.",
+      input: {
+        type: "object",
+        properties: { value: { type: "string" } },
+        required: ["value"],
+        additionalProperties: false,
+      },
+      output: {
+        type: "object",
+        properties: { seen: { type: "string" } },
+        required: ["seen"],
+        additionalProperties: false,
+      },
+      effect: "read",
+      async run({ input }) {
+        return { seen: input.value };
+      },
+    }),
+  },
+});
+
 export async function server() {
   // Input and output both come from the registration — no per-call generics.
   const found = await invokeCapability("notes.search", { query: "roadmap" }, ctx);
