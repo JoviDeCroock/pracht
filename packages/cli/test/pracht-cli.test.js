@@ -922,6 +922,8 @@ export async function browser() {
 import { callCapability, capabilities, useCapability } from "virtual:pracht/capabilities";
 
 declare const ctx: { request: Request };
+declare const host: CapabilityTestHost;
+declare const readName: "notes.search" | "notes.stats";
 
 export async function server() {
   // Input and output both come from the registration — no per-call generics.
@@ -1017,6 +1019,7 @@ export async function client() {
 
   await capabilities.notes.purge({ titlePrefix: "tmp" }, { prepare: true });
   await capabilities.notes.purge({ titlePrefix: "tmp" }, { confirm: "token" });
+  await capabilities.notes.purge({ titlePrefix: "tmp" }, { prepare: true });
 
   // @ts-expect-error - destructive calls must explicitly prepare or confirm
   await capabilities.notes.purge({ titlePrefix: "tmp" });
@@ -1312,6 +1315,78 @@ export async function mistakes() {
     expect(diagnostics).toContain(
       `error TS2345: Argument of type '"notes.purge"' is not assignable to parameter of type '"notes.search" | "notes.stats"'`,
     );
+  }, 60_000);
+
+  it("keeps all-private capability registrations out of browser client types", () => {
+    const appDir = createRepoTempDir("pracht-cli-typegen-private-capability-types-");
+    writeTypedManifestApp(appDir, { capabilities: true });
+
+    const manifestPath = join(appDir, "src/routes.ts");
+    const manifest = readFileSync(manifestPath, "utf-8").replace(
+      /  capabilities: \{[\s\S]*?\n  \},/,
+      `  capabilities: {
+    "notes.set-status": () => import("./capabilities/notes-set-status.ts"),
+  },`,
+    );
+    writeFileSync(manifestPath, manifest, "utf-8");
+    runCli(["typegen"], { cwd: appDir });
+
+    writeProjectFile(
+      appDir,
+      "src/private-capability-consumer.tsx",
+      `import { Form } from "@pracht/core";
+import { callCapability, capabilities } from "virtual:pracht/capabilities";
+
+// @ts-expect-error - the only registered capability has no HTTP endpoint
+callCapability("notes.set-status", { id: "1", status: "draft" });
+
+// @ts-expect-error - an all-private app has an empty nested browser client
+capabilities.notes["set-status"]({ id: "1", status: "draft" });
+
+// @ts-expect-error - capability forms also require an HTTP-exposed name
+const form = <Form capability="notes.set-status" />;
+`,
+    );
+    writeProjectFile(
+      appDir,
+      "tsconfig.json",
+      JSON.stringify(
+        {
+          compilerOptions: {
+            target: "ES2022",
+            module: "ESNext",
+            moduleResolution: "Bundler",
+            allowImportingTsExtensions: true,
+            noEmit: true,
+            strict: true,
+            skipLibCheck: true,
+            lib: ["ES2022", "DOM", "DOM.Iterable"],
+            jsx: "react-jsx",
+            jsxImportSource: "preact",
+            types: ["node"],
+            paths: {
+              "@pracht/core": [coreDistTypesPath],
+              "@pracht/capabilities": [capabilitiesDistTypesPath],
+              "@standard-schema/spec": [standardSchemaImportPath],
+            },
+          },
+          files: [virtualTypesPath],
+          include: ["src"],
+        },
+        null,
+        2,
+      ),
+    );
+
+    try {
+      execFileSync(process.execPath, [tscPath, "-p", "."], {
+        cwd: appDir,
+        encoding: "utf-8",
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+    } catch (error) {
+      throw new Error(error.stdout || error.stderr || error.message);
+    }
   }, 60_000);
 
   it("pracht dev explains how to enable generated route types", async () => {

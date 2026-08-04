@@ -38,6 +38,13 @@ declare module "virtual:pracht/capabilities" {
      */
     confirm?: string;
     /**
+     * Start the prepare half of a destructive call. The server returns a
+     * `confirmation_required` envelope containing the token; repeat the call
+     * with `confirm` to commit. Typed destructive calls require exactly one of
+     * `prepare: true` or `confirm`.
+     */
+    prepare?: true;
+    /**
      * Successful non-`read` calls revalidate the active route's data
      * automatically; pass `false` to skip it for this call.
      */
@@ -99,8 +106,9 @@ declare module "virtual:pracht/capabilities" {
    * Once `pracht typegen` has registered the capability graph on
    * `Register["capabilities"]`, the name, input, output, and confirmation
    * requirement all come from the registration: a private capability, an
-   * unknown name, a mismatched input, or a `destructive` call missing its
-   * confirmation token are compile errors rather than runtime envelopes.
+   * unknown name, a mismatched input, or a `destructive` call without an
+   * explicit prepare/commit choice are compile errors rather than runtime
+   * envelopes.
    *
    * Declared as a conditionally-typed value rather than as an overload pair
    * whose fallback `name` resolves to `never`. That fallback survived overload

@@ -30,6 +30,7 @@ import {
 } from "./runtime-capabilities.ts";
 import type {
   CapabilityEnvelope,
+  HasRegisteredCapabilities,
   CapabilityInputFor,
   CapabilityOutputFor,
   MiddlewareFn,
@@ -77,7 +78,7 @@ export interface CapabilityTestHost {
     options?: CapabilityTestInvokeOptions,
   ): Promise<CapabilityEnvelope<CapabilityOutputFor<TName>>>;
   invoke<T = unknown>(
-    name: string,
+    name: HasRegisteredCapabilities extends true ? never : string,
     input: unknown,
     options?: CapabilityTestInvokeOptions,
   ): Promise<CapabilityEnvelope<T>>;
