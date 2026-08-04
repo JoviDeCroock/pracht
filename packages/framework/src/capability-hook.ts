@@ -78,17 +78,14 @@ export function createUseCapability(
     }
     const generation = nameGeneration.current;
 
-    const [state, setState] = useState<
-      CapabilityCallState<TOutput> & { generation: number; name: string }
-    >({
+    // Keyed by generation alone: it is bumped on every name change, so a
+    // generation value belongs to exactly one name and comparing the name too
+    // would be a condition that can never fail.
+    const [state, setState] = useState<CapabilityCallState<TOutput> & { generation: number }>({
       ...IDLE,
       generation,
-      name,
     });
-    const current =
-      state.name === name && state.generation === generation
-        ? state
-        : { ...IDLE, generation, name };
+    const current = state.generation === generation ? state : { ...IDLE, generation };
     const mounted = useRef(true);
 
     useEffect(() => {
@@ -116,10 +113,9 @@ export function createUseCapability(
           // error so a retry does not render as still-failing. A call made
           // right after a name change starts from idle, not the old state.
           setState((previous) => ({
-            ...(previous.name === name && previous.generation === generation ? previous : IDLE),
+            ...(previous.generation === generation ? previous : IDLE),
             error: undefined,
             generation,
-            name,
             pending: true,
           }));
         }
@@ -154,15 +150,11 @@ export function createUseCapability(
         if (isCurrent()) {
           setState((previous) =>
             envelope.ok
-              ? { data: envelope.data, error: undefined, generation, name, pending: false }
+              ? { data: envelope.data, error: undefined, generation, pending: false }
               : {
-                  data:
-                    previous.name === name && previous.generation === generation
-                      ? previous.data
-                      : undefined,
+                  data: previous.generation === generation ? previous.data : undefined,
                   error: envelope.error,
                   generation,
-                  name,
                   pending: false,
                 },
           );
@@ -180,10 +172,10 @@ export function createUseCapability(
       // Bumping the id abandons in-flight calls: their results are no longer
       // "current", so a late response cannot repopulate what was just cleared.
       latestCallId.current += 1;
-      setState({ ...IDLE, generation, name });
+      setState({ ...IDLE, generation });
     }, [generation, name]);
 
-    const { generation: _stateGeneration, name: _stateName, ...visible } = current;
+    const { generation: _stateGeneration, ...visible } = current;
     return { ...visible, call, reset };
   };
 }

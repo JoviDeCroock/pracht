@@ -1097,6 +1097,164 @@ export async function removed() {
     } catch (error) {
       throw new Error(error.stdout || error.stderr || error.message);
     }
+
+    // A declaration generated before `effect`/`exposed` existed is committed in
+    // real apps, so it cannot be regenerated on the user's behalf. It must keep
+    // compiling exactly as it did: every registered name reachable from the
+    // browser, no confirmation gate, unknown names still rejected. This file is
+    // handwritten rather than generated precisely because no current typegen
+    // can emit it.
+    writeProjectFile(
+      appDir,
+      "src/pracht-capabilities.d.ts",
+      `import "@pracht/core";
+
+declare module "@pracht/core" {
+  interface Register {
+    capabilities: {
+      "notes.search": {
+        input: { "query": string; };
+        output: { "notes": string[]; };
+      };
+      "notes.purge": {
+        input: { "titlePrefix": string; };
+        output: { "purged": number; };
+      };
+      "notes.set-status": {
+        input: { "id": string; };
+        output: { "updated": true; };
+      };
+    };
+  }
+}
+`,
+    );
+    writeProjectFile(
+      appDir,
+      "src/capability-consumer.ts",
+      `import { invokeCapability } from "@pracht/core";
+import { callCapability, capabilities, useCapability } from "virtual:pracht/capabilities";
+
+declare const ctx: { request: Request };
+
+export async function legacyDeclaration() {
+  // Input and output types still apply — those fields have always been there.
+  const found = await callCapability("notes.search", { query: "roadmap" });
+  if (found.ok) {
+    const _notes: string[] = found.data.notes;
+  }
+  await invokeCapability("notes.search", { query: "roadmap" }, ctx);
+
+  // No \`effect\` recorded, so the confirmation gate cannot close. Demanding a
+  // token here would break every app upgrading with a committed declaration.
+  await callCapability("notes.purge", { titlePrefix: "tmp" });
+  const purge = useCapability("notes.purge");
+  await purge.call({ titlePrefix: "tmp" });
+
+  // No \`exposed\` recorded, so exposure goes unchecked and every registered
+  // name stays reachable — as it was before the field existed.
+  await callCapability("notes.set-status", { id: "1" });
+  await capabilities.notes["set-status"]({ id: "1" });
+
+  // @ts-expect-error - unknown names are rejected even by a legacy declaration
+  await callCapability("notes.serach", { query: "roadmap" });
+  // @ts-expect-error - and mismatched inputs still are too
+  await callCapability("notes.search", { query: 42 });
+}
+`,
+    );
+
+    try {
+      execFileSync(process.execPath, [tscPath, "-p", "."], {
+        cwd: appDir,
+        encoding: "utf-8",
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+    } catch (error) {
+      throw new Error(error.stdout || error.stderr || error.message);
+    }
+  }, 60_000);
+
+  it("names the valid capabilities when a call does not resolve", () => {
+    // Both lines below are compile errors under any of these designs, so only
+    // the message distinguishes them and only an assertion on the message keeps
+    // it from regressing. Gating the untyped form by resolving its `name` to
+    // `never` left that signature in place to absorb whatever arity filtering
+    // rejected, reporting every mistake as "not assignable to type 'never'";
+    // making one signature's arity depend on the name reported every mistake as
+    // an argument count. Splitting by effect class means an unresolved name is
+    // always arity-compatible with the first signature, which answers with the
+    // set of names that would have worked.
+    const appDir = createRepoTempDir("pracht-cli-typegen-capability-messages-");
+    writeTypedManifestApp(appDir, { capabilities: true });
+    runCli(["typegen"], { cwd: appDir });
+
+    writeProjectFile(
+      appDir,
+      "src/capability-consumer.ts",
+      `import { callCapability } from "virtual:pracht/capabilities";
+
+export async function mistakes() {
+  await callCapability("notes.serach", { query: "roadmap" });
+  await callCapability("notes.purge", { titlePrefix: "tmp" });
+}
+`,
+    );
+    writeProjectFile(
+      appDir,
+      "tsconfig.json",
+      JSON.stringify(
+        {
+          compilerOptions: {
+            target: "ES2022",
+            module: "ESNext",
+            moduleResolution: "Bundler",
+            allowImportingTsExtensions: true,
+            noEmit: true,
+            strict: true,
+            skipLibCheck: true,
+            lib: ["ES2022", "DOM", "DOM.Iterable"],
+            types: ["node"],
+            paths: {
+              "@pracht/core": [coreDistTypesPath],
+              "@pracht/capabilities": [capabilitiesDistTypesPath],
+              "@standard-schema/spec": [standardSchemaImportPath],
+            },
+          },
+          files: [virtualTypesPath],
+          include: ["src"],
+        },
+        null,
+        2,
+      ),
+    );
+
+    let diagnostics = "";
+    try {
+      execFileSync(process.execPath, [tscPath, "-p", ".", "--pretty", "false"], {
+        cwd: appDir,
+        encoding: "utf-8",
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+      throw new Error("expected the consumer to fail typechecking");
+    } catch (error) {
+      diagnostics = error.stdout || error.stderr || "";
+    }
+
+    // Nothing is reported against `never`, and nothing is reported as an
+    // argument count — both of those hide which name the compiler wanted.
+    expect(diagnostics).not.toContain("parameter of type 'never'");
+    expect(diagnostics).not.toContain("Expected 3 arguments, but got 2");
+    // The misspelled name is answered with the names that would have worked.
+    expect(diagnostics).toContain(
+      `error TS2345: Argument of type '"notes.serach"' is not assignable to parameter of type '"notes.search" | "notes.stats"'`,
+    );
+    // A destructive name is excluded from that same set, which is how "this
+    // one needs prepare/confirm" surfaces. Blunter than naming the rule, but it
+    // points at a real, listed distinction rather than at `never`.
+    expect(diagnostics).toContain(
+      `error TS2345: Argument of type '"notes.purge"' is not assignable to parameter of type '"notes.search" | "notes.stats"'`,
+    );
   }, 60_000);
 
   it("pracht dev explains how to enable generated route types", async () => {

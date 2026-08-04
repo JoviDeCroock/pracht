@@ -9,9 +9,11 @@ declare module "virtual:pracht/capabilities" {
   import type {
     CapabilityCallOptionsFor,
     CapabilityInputArgs,
+    CapabilityInputFor,
     CapabilityOutputFor,
     HasRegisteredCapabilities,
     HttpCapabilityName,
+    NonDestructiveCapabilityName,
   } from "@pracht/core";
   import type {
     CapabilityEffect,
@@ -65,6 +67,33 @@ declare module "virtual:pracht/capabilities" {
     { method: string; path: string; effect: CapabilityEffect | null }
   >;
 
+  interface TypedCallCapability {
+    /**
+     * Names that cannot be `destructive`. Listed first and with an optional
+     * options argument, so it is always arity-compatible with a one- or
+     * two-argument call — which makes it the signature that reports what is
+     * wrong with an unresolvable name, instead of an argument count.
+     */
+    <TName extends NonDestructiveCapabilityName>(
+      name: TName,
+      ...args: CapabilityInputArgs<TName, CallCapabilityOptions>
+    ): Promise<CapabilityEnvelope<CapabilityOutputFor<TName>>>;
+    /** Possibly `destructive`: the prepare marker or the token is required. */
+    <TName extends HttpCapabilityName>(
+      name: TName,
+      input: CapabilityInputFor<TName>,
+      options: OptionsFor<TName>,
+    ): Promise<CapabilityEnvelope<CapabilityOutputFor<TName>>>;
+  }
+
+  interface UntypedCallCapability {
+    <T = unknown>(
+      name: string,
+      input?: unknown,
+      opts?: CallCapabilityOptions,
+    ): Promise<CapabilityEnvelope<T>>;
+  }
+
   /**
    * Invoke an http-exposed capability from the browser via its HTTP projection.
    * Once `pracht typegen` has registered the capability graph on
@@ -73,25 +102,36 @@ declare module "virtual:pracht/capabilities" {
    * unknown name, a mismatched input, or a `destructive` call missing its
    * confirmation token are compile errors rather than runtime envelopes.
    *
-   * The untyped form below stays available for apps that have not run typegen;
-   * once anything is registered its `name` parameter resolves to `never` so
-   * mistakes can no longer fall through to it.
+   * Declared as a conditionally-typed value rather than as an overload pair
+   * whose fallback `name` resolves to `never`. That fallback survived overload
+   * resolution and absorbed anything arity filtering rejected, so every
+   * mistake — including a `destructive` call that merely forgot its options —
+   * came back as `'"notes.purge"' is not assignable to 'never'`: blaming the
+   * name, never naming the cause. Here the untyped form is simply absent for a
+   * registered app, and the two typed signatures split by effect class so that
+   * an unresolvable name is always arity-compatible with the first one and gets
+   * reported as a name.
+   *
+   * A dynamic name is no longer accepted once typegen has run; assert it with
+   * `name as HttpCapabilityName` when the name genuinely comes from data, and
+   * keep in mind the runtime still answers an unknown one with
+   * `unknown_capability`.
    */
-  export function callCapability<TName extends HttpCapabilityName>(
-    name: TName,
-    ...args: CapabilityInputArgs<TName, OptionsFor<TName>>
-  ): Promise<CapabilityEnvelope<CapabilityOutputFor<TName>>>;
-  export function callCapability<T = unknown>(
-    name: HasRegisteredCapabilities extends true ? never : string,
-    input?: unknown,
-    opts?: CallCapabilityOptions,
-  ): Promise<CapabilityEnvelope<T>>;
+  export const callCapability: HasRegisteredCapabilities extends true
+    ? TypedCallCapability
+    : UntypedCallCapability;
 
   /**
    * The same calls as `callCapability`, reached as a nested object built from
    * the dotted capability names — `capabilities.notes.search({ query })`.
-   * Private capabilities are simply absent from it, and each method carries
-   * the capability's title/description as JSDoc.
+   * Private capabilities are simply absent from it. Because the members are
+   * real property accesses, a typo here reports as "Property 'serach' does not
+   * exist … Did you mean 'search'?" — which `callCapability("notes.serach")`
+   * cannot do, since a string literal argument has no such suggestion.
+   *
+   * The nodes are built by parsing the dotted names into a mapped type, so
+   * they are *not* homomorphic over the registration and carry none of its
+   * JSDoc; hovering a method shows its signature, not the capability's prose.
    *
    * Identical runtime path to `callCapability` (same endpoint table, same
    * settled event, same revalidation), so nothing forks between the two.

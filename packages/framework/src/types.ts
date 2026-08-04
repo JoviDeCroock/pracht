@@ -1063,6 +1063,27 @@ type DeclaredCapabilityEffect<TName extends string> =
   RegisteredCapabilityEntry<TName> extends { effect: infer TEffect } ? TEffect : never;
 
 /**
+ * Http-exposed names that cannot be `destructive`, so their call takes its
+ * options optionally. Splitting the name space this way is what keeps the
+ * confirmation gate from swallowing every other diagnostic: a signature whose
+ * *arity* depends on the name reports every name mistake as an argument-count
+ * error, because TypeScript checks arity before it checks the constraint. With
+ * the two effect classes in separate signatures, an unresolvable name always
+ * has one signature it satisfies on arity, and that signature is the one that
+ * gets to say what is actually wrong with the name.
+ *
+ * A legacy declaration that records no `effect` lands here for every name, so
+ * it keeps its pre-gate behaviour.
+ */
+export type NonDestructiveCapabilityName = HttpCapabilityName extends infer TName
+  ? TName extends string
+    ? [Extract<DeclaredCapabilityEffect<TName>, "destructive">] extends [never]
+      ? TName
+      : never
+    : never
+  : never;
+
+/**
  * Argument list for a browser capability call — `callCapability()` and the
  * generated `capabilities` client. A capability whose input schema requires
  * nothing is callable with no argument at all; every other capability must

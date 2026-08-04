@@ -11,8 +11,8 @@ capability entry point had an untyped fallback overload: a mismatched input or a
 misspelled name silently matched it and failed at runtime instead of at compile
 time. The generated registration now carries each capability's `effect` and
 `exposed` transports alongside its schemas (plus its title/description as
-JSDoc), and the fallback overloads are gated so they no longer apply once an app
-has registered capabilities.
+JSDoc), and the untyped fallback no longer applies once an app has registered
+capabilities.
 
 With generated types in the program, the compiler now rejects:
 
@@ -59,11 +59,26 @@ exactly as before — calls are accepted, exposure is unchecked, and `destructiv
 capabilities are gated only at runtime — but you get none of the new compile-time
 checks until the file is regenerated. `pracht typegen --check` in CI catches it.
 
-Breaking for apps that already generated capability types: the explicit
-`invokeCapability<Output>(name, input, ctx)` type-argument form no longer
-applies to registered names. Drop the type argument and let it infer — that form
-existed only as the fallback that is now closed. Apps that have not run
-`pracht typegen` are unaffected.
+Breaking for apps that already generated capability types. Apps that have not
+run `pracht typegen` are unaffected.
+
+- The explicit `invokeCapability<Output>(name, input, ctx)` type-argument form
+  no longer applies to registered names. Drop the type argument and let it
+  infer — that form existed only as the fallback that is now closed.
+- `callCapability`'s name parameter and `<Form capability>`'s prop narrowed from
+  `string` to `HttpCapabilityName`, so a name computed at runtime — including
+  one read back out of `capabilityEndpoints` — no longer compiles. Assert it
+  with `name as HttpCapabilityName` (exported from `@pracht/core`); the runtime
+  still answers an unknown name with an `unknown_capability` envelope.
+
+`@pracht/core` exports `HttpCapabilityName` (for the assertion above) and
+`NonDestructiveCapabilityName`, the effect-class split `callCapability` uses to
+keep an unresolved name from being reported as an argument count.
+
+`title`/`description` are emitted as JSDoc on each generated entry, which
+documents the file itself. It does not reach call sites: capability names are
+consumed as string literal arguments and as template-literal-derived client
+members, and TypeScript propagates JSDoc to neither.
 
 Two notes on how the checks behave at the edges. A capability name typed as a
 union (`"notes.search" | "notes.purge"`) demands an explicit prepare marker or
