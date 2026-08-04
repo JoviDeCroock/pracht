@@ -200,11 +200,21 @@ const same = await capabilities.notes.create({ title });
 ```
 
 Both forms take the identical path (endpoint table, settled event,
-revalidation); `capabilities` is a nested view of the same call, with each
-capability's title and description attached as JSDoc. Once `pracht typegen` has
-run, both infer input and output from the capability name, private capabilities
-are absent, and a `destructive` capability must explicitly prepare for a token
-or provide that token to commit.
+revalidation); `capabilities` is a nested view of the same call. Once
+`pracht typegen` has run, both infer input and output from the capability name,
+private capabilities are absent, and a `destructive` capability must explicitly
+prepare for a token or provide that token to commit.
+
+Prefer the nested client when you are typing a name by hand: its members are
+real property accesses, so a typo gets `Did you mean 'search'?`. A string
+literal argument to `callCapability` gets no such suggestion — it is answered
+with the list of names that would have worked instead. A `destructive` name is
+absent from that list until the call carries `prepare` or `confirm`, which is
+how the confirmation gate shows up at a call site that forgot it.
+
+Once typegen has run, neither form accepts a name computed at runtime. When a
+name genuinely comes from data, assert it (`name as HttpCapabilityName`) and
+handle the `unknown_capability` envelope the runtime still returns.
 
 `virtual:pracht/capabilities` is generated at build time from the manifest and
 contains only http-exposed capability names, endpoints, and effect classes —
@@ -266,6 +276,19 @@ when switching away and back to the original name. A retained `call` or `reset`
 from an older generation cannot cancel the current generation's request, and a
 malformed custom-dispatch result clears `pending` before it is surfaced.
 
+Discarding a response is not the same as cancelling a request. `reset()`, a
+newer call, and a name change all abandon the *result* — the HTTP request keeps
+running to completion. A search box that calls on every keystroke will have as
+many requests in flight as the user has typed, so pass a `signal` when that
+matters:
+
+```tsx
+const controller = useRef<AbortController>();
+controller.current?.abort();
+controller.current = new AbortController();
+search.call({ query }, { signal: controller.current.signal });
+```
+
 > **It dispatches when called, never during render.** For data a page needs on
 > load, run the capability in a `loader` with `invokeCapability()`: that result
 > is server-rendered into the HTML and revalidates automatically after
@@ -315,7 +338,9 @@ import { Form } from "@pracht/core";
 
 - `capability` accepts only http-exposed capability names once typegen has run
   — a private one has no endpoint to post to, so naming it is a compile error
-  rather than a 404 at submit time.
+  rather than a 404 at submit time. That also rules out `capability={someString}`;
+  assert with `as HttpCapabilityName` (exported from `@pracht/core`) when the
+  name is genuinely dynamic.
 - Fields are coerced onto the capability's input schema server-side (numbers
   parsed, checkbox `on` → boolean, repeated fields → arrays), then validated
   like any other call.
@@ -355,11 +380,14 @@ What the compiler enforces once the file exists:
 
 | Mistake | Result |
 | --- | --- |
-| Unknown or misspelled capability name | compile error (with a "did you mean" suggestion) |
+| Unknown or misspelled capability name | compile error (a "did you mean" suggestion only through the nested `capabilities` client) |
 | Input that does not match the schema | compile error |
 | Calling a private capability from the browser | compile error — no HTTP endpoint exists |
-| Calling a `destructive` capability without `prepare` or `confirm` | compile error |
-| Passing an input to a capability whose schema requires none | argument may be omitted entirely |
+| Calling a `destructive` capability without `prepare` or `confirm` | compile error (the name is reported as outside the set callable without one) |
+| Passing a capability name computed at runtime | compile error — assert `as HttpCapabilityName` |
+
+A capability whose input schema requires nothing is callable with no argument
+at all: `callCapability("notes.stats")`.
 
 - An input property is optional when it is not `required` **or** declares a
   schema `default` (defaults are applied before input validation); an output

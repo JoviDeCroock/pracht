@@ -100,7 +100,7 @@ const result = await callCapability("notes.create", { title });
 const same = await capabilities.notes.create({ title });
 ```
 
-Both take the same path (one endpoint table, one settled event, one revalidation rule); `capabilities` is a nested view with each capability's title and description attached as JSDoc. Private capabilities are absent from it entirely.
+Both take the same path (one endpoint table, one settled event, one revalidation rule); `capabilities` is a nested view of the same call, and private capabilities are absent from it entirely. Reach for the nested form when typing a name by hand — its members are real property accesses, so a typo gets `Did you mean 'search'?` where a string literal argument gets no suggestion.
 
 For calls driven by interaction — a button, a search box, a picker — `useCapability()` owns the pending/error/result state:
 
@@ -147,10 +147,11 @@ And every call above is fully typed: `pracht typegen` writes each capability's i
 
 | Mistake | Result |
 | --- | --- |
-| Unknown or misspelled capability name | compile error, with a "did you mean" suggestion |
+| Unknown or misspelled capability name | compile error (a "did you mean" suggestion through the nested `capabilities` client) |
 | Input that does not match the schema | compile error |
 | Calling a private capability from the browser | compile error — it has no HTTP endpoint |
 | Committing a `destructive` call without `confirm` | compile error |
+| A capability name computed at runtime | compile error — assert `as HttpCapabilityName` |
 
 A capability whose input schema requires nothing is callable with no argument at all: `capabilities.notes.stats()`. Apps that have not run `pracht typegen` keep the untyped form and accept any name.
 

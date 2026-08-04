@@ -190,6 +190,7 @@ export type {
   CapabilityModule,
   CapabilityName,
   CapabilityOutputFor,
+  NonDestructiveCapabilityName,
   CapabilityRunArgs,
   CapabilityValidationResult,
   HasRegisteredCapabilities,

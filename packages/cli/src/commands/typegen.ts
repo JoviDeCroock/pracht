@@ -325,8 +325,14 @@ function buildDeclarationSource(
  * Beyond input/output types the entry carries the parts of the contract the
  * type layer enforces: `effect` (so a `destructive` call must present a
  * confirmation token) and `exposed` (so only http-exposed capabilities are
- * reachable from the browser). `title`/`description` become JSDoc so hovering a
- * capability name shows the same prose an agent reads.
+ * reachable from the browser).
+ *
+ * `title`/`description` are emitted as JSDoc on each entry so the generated
+ * file reads as the contract inventory it is. That prose does *not* reach call
+ * sites: capability names are consumed as string literal arguments and as
+ * template-literal-derived client members, and TypeScript propagates JSDoc to
+ * neither. Treat it as documentation for whoever opens this file, not as
+ * editor tooling.
  */
 function buildCapabilityDeclarationSource(capabilities: CapabilityEntry[]): string {
   const lines = [
