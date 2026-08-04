@@ -1,4 +1,13 @@
-import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  renameSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -615,6 +624,63 @@ export function Component() {
       /Capability module .* was imported by client code/,
     );
   });
+
+  it.runIf(process.platform !== "win32")(
+    "guards a registered capability whose manifest path is a symlink",
+    async () => {
+      // Vite resolves symlinks before passing module ids to transforms. The
+      // registered path must use the same canonical identity or the equality
+      // check misses the module and ships its server implementation.
+      const root = makeTempProject();
+      writeCapabilityManifestProject(root);
+      const registeredPath = join(root, "src", "capabilities", "notes-search.ts");
+      const realPath = join(root, "src", "server", "notes-search.ts");
+      renameSync(registeredPath, realPath);
+      symlinkSync(realPath, registeredPath);
+      writeFileSync(
+        join(root, "src", "routes", "home.tsx"),
+        `
+import capability from "../capabilities/notes-search";
+
+export function Component() {
+  return <main>{capability.title}</main>;
+}
+`,
+      );
+
+      await expect(buildTempProject(root, MANIFEST_PLUGIN_OPTIONS)).rejects.toThrow(
+        /Capability module .* was imported by client code/,
+      );
+    },
+  );
+
+  it.runIf(process.platform !== "win32")(
+    "rewrites capability registrations through a symlinked project root",
+    async () => {
+      // If the app-manifest transform compares the lexical root with Vite's
+      // real module id, its lazy capability import survives as client code and
+      // either ships the server module or triggers the capability guard even
+      // though no component imported it.
+      const parent = makeTempProject();
+      const realRoot = join(parent, "real-project");
+      const linkedRoot = join(parent, "linked-project");
+      mkdirSync(realRoot);
+      symlinkSync(realRoot, linkedRoot);
+      writeCapabilityManifestProject(linkedRoot);
+      writeFileSync(
+        join(linkedRoot, "src", "routes", "home.tsx"),
+        `
+export function Component() {
+  return <main>Symlinked root</main>;
+}
+`,
+      );
+
+      await buildTempProject(linkedRoot, MANIFEST_PLUGIN_OPTIONS);
+
+      expect(readBuiltJs(linkedRoot)).not.toContain("CAPABILITY_SERVER_SECRET_MARKER");
+    },
+  );
 
   it("lets client code import a non-capability file that lives beside capabilities", async () => {
     // The guard matches the manifest's registered capability modules, not a

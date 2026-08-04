@@ -62,6 +62,13 @@ export function assertCapabilityProjectionsAgree(
       : resolve(manifestDir, capability.source);
     if (!existsSync(filePath)) continue;
 
+    // serializeCapabilities() uses a null effect to retain a graph entry when
+    // its module failed to load. That is a wiring failure for verify/doctor to
+    // report, not projection drift; comparing its other null fallback fields
+    // against valid source text would hide the real cause behind an unrelated
+    // instruction to inline expose/effect.
+    if (capability.effect === null) continue;
+
     let projection: CapabilityProjection;
     try {
       projection = extractCapabilityProjection(
