@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 
 import { createServer, type ViteDevServer } from "vite";
 
+import { loadAppMetadataModule } from "./app-graph.js";
 import { readProjectConfig, resolveProjectPath, type ProjectConfig } from "./project.js";
 
 export interface AppServerContext {
@@ -12,7 +13,7 @@ export interface AppServerContext {
 
 /**
  * Boot a silent middleware-mode Vite server for the app at `root`, load the
- * `virtual:pracht/server` module, run `fn`, and always close the server.
+ * app's resolved graph metadata, run `fn`, and always close the server.
  * Shared by `pracht inspect`, `pracht plan`, and graph-aware verification so
  * they all observe the exact same resolved app graph.
  */
@@ -46,7 +47,7 @@ export async function withAppServer<T>(
   });
 
   try {
-    const serverModule = await server.ssrLoadModule("virtual:pracht/server");
+    const serverModule = await loadAppMetadataModule(server);
     return await fn({ project, server, serverModule });
   } finally {
     await server.close();

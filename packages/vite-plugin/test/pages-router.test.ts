@@ -234,4 +234,31 @@ describe("createPrachtRegistryModuleSource", () => {
     expect(source).toContain("export const registry = {");
     expect(source).not.toContain("createCloudflareFetchHandler");
   });
+
+  // The dev banner, `pracht inspect`, and the graph snapshot read the whole
+  // app graph from this module, so it carries the adapter-neutral exports the
+  // server entry has — without the adapter's runtime-only imports.
+  it("exposes the app graph the CLI reads without the adapter entry", () => {
+    const source = createPrachtDevModuleSource({
+      adapter: {
+        id: "cloudflare",
+        serverImports: 'import { x } from "@pracht/adapter-cloudflare/runtime";',
+        createServerEntryModule: () => 'export * from "/src/cloudflare.ts";',
+      },
+      appFile: "/src/routes.ts",
+    });
+
+    expect(source).toContain(
+      'export const apiRoutes = resolveApiRoutes(Object.keys(apiModules), "/src/api");',
+    );
+    expect(source).toContain('export const buildTarget = "cloudflare";');
+    expect(source).not.toContain("/src/cloudflare.ts");
+    expect(source).not.toContain("@pracht/adapter-cloudflare/runtime");
+  });
+
+  it("reports the node build target when no adapter is configured", () => {
+    expect(createPrachtDevModuleSource({ appFile: "/src/routes.ts" })).toContain(
+      'export const buildTarget = "node";',
+    );
+  });
 });
