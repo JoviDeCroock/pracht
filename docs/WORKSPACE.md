@@ -83,11 +83,14 @@ described in `VISION_MVP.md`.
   `@pracht/preact-ssr-precompile`, `@pracht/adapter-node`,
   `@pracht/adapter-cloudflare`, `@pracht/adapter-vercel`, and `@pracht/image`
   from TypeScript to
-  ESM (`dist/index.mjs` + `.d.mts`). `@pracht/core` also publishes browser,
-  client, manifest, and server subpath entries so the Vite plugin can keep
-  server-only runtime code and route-only browser helpers out of the critical
-  client bootstrap graph while generated server modules avoid the browser export
-  condition. The CLI remains plain JS.
+  ESM (`dist/index.mjs` + `.d.mts`). `@pracht/core` preserves its source-module
+  boundaries in the published ESM so downstream builds can tree-shake named
+  public imports. Its prerender module remains explicitly side-effectful because
+  edge bundlers must retain its module initialization. The package also publishes
+  browser, client, manifest, and server subpath entries so the Vite plugin can
+  keep server-only runtime code and route-only browser helpers out of the
+  critical client bootstrap graph while generated server modules avoid the
+  browser export condition. The CLI remains plain JS.
 - **Node adapter** — Translates Node requests to Web `Request` objects, calls
   `handlePrachtRequest()`, and implements ISG stale-while-revalidate plus
   webhook regeneration of on-disk HTML.
