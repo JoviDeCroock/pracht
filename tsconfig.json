@@ -24,6 +24,8 @@
       "@pracht/core/server": ["./packages/framework/src/server.ts"],
       "@pracht/core/islands-client": ["./packages/framework/src/islands-client.ts"],
       "@pracht/capabilities": ["./packages/capabilities/src/index.ts"],
+      "@pracht/openapi": ["./packages/openapi/src/index.ts"],
+      "@pracht/openapi/vite": ["./packages/openapi/src/vite.ts"],
       "@pracht/vite-plugin": ["./packages/vite-plugin/src/index.ts"],
       "@pracht/preact-ssr-precompile": ["./packages/preact-ssr-precompile/src/index.ts"],
       "@pracht/adapter-node": ["./packages/adapter-node/src/index.ts"],

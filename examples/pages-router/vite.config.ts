@@ -1,4 +1,5 @@
 import { defineConfig } from "vite";
+import { prachtOpenApi } from "@pracht/openapi/vite";
 import { pracht } from "@pracht/vite-plugin";
 
 type DeployTarget = "cloudflare" | "node" | "vercel";
@@ -24,6 +25,10 @@ export default defineConfig(async () => {
         pagesDir: "/src/pages",
         adapter: await resolveAdapter(target),
         llmsTxt: { title: "Pracht Pages Example" },
+      }),
+      prachtOpenApi({
+        info: { title: "Pracht Pages Example API", version: "1.0.0" },
+        ui: "scalar",
       }),
     ],
   };

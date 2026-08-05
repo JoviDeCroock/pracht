@@ -21,6 +21,7 @@
     "@pracht/capabilities": "workspace:*",
     "@pracht/core": "workspace:*",
     "@pracht/image": "workspace:*",
+    "@pracht/openapi": "workspace:*",
     "sharp": "^0.34.0"
   },
   "devDependencies": {

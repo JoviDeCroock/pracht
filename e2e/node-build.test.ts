@@ -137,6 +137,26 @@ test("pracht build emits a deployable Node server entry", async () => {
     expect(llmsTxtResponse.headers.get("content-type")).toContain("text/plain");
     expect(await llmsTxtResponse.text()).toBe(llmsTxt);
 
+    const openApiPath = resolve(exampleDir, "dist/client/openapi.json");
+    const openApiUiPath = resolve(exampleDir, "dist/client/docs/index.html");
+    expect(existsSync(openApiPath)).toBe(true);
+    expect(existsSync(openApiUiPath)).toBe(true);
+    const openApi = JSON.parse(readFileSync(openApiPath, "utf-8"));
+    expect(openApi).toMatchObject({
+      openapi: "3.1.0",
+      info: { title: "Pracht Example API", version: "1.0.0" },
+    });
+    expect(openApi.paths["/api/health"].get).toBeDefined();
+    expect(readFileSync(openApiUiPath, "utf-8")).toContain('{"url":"/openapi.json"}');
+
+    const openApiResponse = await fetch(`http://127.0.0.1:${port}/openapi.json`);
+    expect(openApiResponse.status).toBe(200);
+    await expect(openApiResponse.json()).resolves.toEqual(openApi);
+
+    const openApiUiResponse = await fetch(`http://127.0.0.1:${port}/docs`);
+    expect(openApiUiResponse.status).toBe(200);
+    expect(await openApiUiResponse.text()).toContain("Scalar.createApiReference");
+
     const apiResponse = await fetch(`http://127.0.0.1:${port}/api/health`);
     expect(apiResponse.status).toBe(200);
     await expect(apiResponse.json()).resolves.toEqual({ status: "ok" });
