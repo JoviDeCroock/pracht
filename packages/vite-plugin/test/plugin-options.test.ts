@@ -1,7 +1,10 @@
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
-import { createPrachtServerModuleSource } from "../src/plugin-codegen.ts";
+import {
+  createPrachtDevModuleSource,
+  createPrachtServerModuleSource,
+} from "../src/plugin-codegen.ts";
 import { resolveOptions } from "../src/plugin-options.ts";
 
 describe("resolveOptions budgets", () => {
@@ -84,6 +87,16 @@ describe("createPrachtServerModuleSource llmsTxt export", () => {
     const packageRoot = fileURLToPath(new URL("..", import.meta.url));
     const source = createPrachtServerModuleSource({ llmsTxt: {} }, { root: packageRoot });
     expect(source).toContain('"title":"@pracht/vite-plugin"');
+  });
+});
+
+describe("createPrachtDevModuleSource API graph", () => {
+  it("exports adapter-neutral resolved API routes for companion tooling", () => {
+    const source = createPrachtDevModuleSource({ apiDir: "/src/http" });
+    expect(source).toContain('import { resolveApp, resolveApiRoutes } from "@pracht/core/server";');
+    expect(source).toContain(
+      'export const apiRoutes = resolveApiRoutes(Object.keys(apiModules), "/src/http");',
+    );
   });
 });
 

@@ -118,6 +118,16 @@ response from your own handlers or middleware.
 Plain handlers (`export function GET(args)`) keep working unchanged —
 `defineApi` is opt-in per export, and both styles can mix in one module.
 
+### Optional OpenAPI metadata
+
+OpenAPI documentation is deliberately separate from validation. Apps that
+need an OpenAPI 3.1 document can wrap a `defineApi()` handler with
+`defineOpenApi()` from the optional `@pracht/openapi` package. The wrapper
+preserves the handler and its `apiFetch()` inference while attaching explicit
+operation and response metadata. Its sibling Vite plugin can serve the
+generated document at `/openapi.json`, mount an optional Scalar or Swagger UI,
+and emit both as static production assets. See [OPENAPI.md](OPENAPI.md).
+
 ---
 
 ## Registered API Types with `pracht typegen`

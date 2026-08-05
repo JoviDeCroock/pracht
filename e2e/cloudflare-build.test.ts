@@ -105,6 +105,19 @@ test("pracht build emits a deployable Cloudflare Worker setup", async () => {
   expect(llmsTxt.startsWith("# Pracht Cloudflare Example\n")).toBe(true);
   expect(llmsTxt).toContain("- [/pricing](/pricing)");
   expect(llmsTxt).not.toContain("/products/:id");
+
+  // OpenAPI JSON and its optional UI are regular static assets, so workerd
+  // serves them through the same ASSETS binding without runtime-only code.
+  const openApiPath = resolve(exampleDir, "dist/client/openapi.json");
+  const openApiUiPath = resolve(exampleDir, "dist/client/docs/index.html");
+  expect(existsSync(openApiPath)).toBe(true);
+  expect(existsSync(openApiUiPath)).toBe(true);
+  const openApi = JSON.parse(readFileSync(openApiPath, "utf-8"));
+  expect(openApi).toMatchObject({
+    openapi: "3.1.0",
+    info: { title: "Pracht Cloudflare Example API", version: "1.0.0" },
+  });
+  expect(readFileSync(openApiUiPath, "utf-8")).toContain('{"url":"/openapi.json"}');
 });
 
 test("prerendered SSG pages include client JS and working framework context", async () => {

@@ -1,4 +1,5 @@
 import { defineConfig } from "vite";
+import { prachtOpenApi } from "@pracht/openapi/vite";
 import { pracht } from "@pracht/vite-plugin";
 
 type DeployTarget = "cloudflare" | "node" | "vercel";
@@ -37,6 +38,14 @@ export default defineConfig(async () => {
           title: "Pracht Example",
           description: "Example app for the pracht framework.",
         },
+      }),
+      prachtOpenApi({
+        info: {
+          title: "Pracht Example API",
+          version: "1.0.0",
+          description: "HTTP endpoints exposed by the basic Pracht example.",
+        },
+        ui: "scalar",
       }),
     ],
   };

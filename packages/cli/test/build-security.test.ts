@@ -2,11 +2,14 @@ import { resolve } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { resolvePrerenderOutputPath } from "../src/commands/build.ts";
+import {
+  resolveGeneratedArtifactOutputPath,
+  resolvePrerenderOutputPath,
+} from "../src/commands/build.ts";
+
+const clientDir = resolve("/tmp/pracht-app/dist/client");
 
 describe("resolvePrerenderOutputPath", () => {
-  const clientDir = resolve("/tmp/pracht-app/dist/client");
-
   it("resolves normal prerender routes inside dist/client", () => {
     expect(resolvePrerenderOutputPath(clientDir, "/products/1")).toBe(
       resolve(clientDir, "products/1/index.html"),
@@ -31,5 +34,25 @@ describe("resolvePrerenderOutputPath", () => {
 
   it("rejects NUL bytes before calling filesystem APIs", () => {
     expect(() => resolvePrerenderOutputPath(clientDir, "/safe\0evil")).toThrow(/NUL byte/);
+  });
+});
+
+describe("resolveGeneratedArtifactOutputPath", () => {
+  it("resolves nested static artifacts inside dist/client", () => {
+    expect(resolveGeneratedArtifactOutputPath(clientDir, "openapi.json")).toBe(
+      "/tmp/pracht-app/dist/client/openapi.json",
+    );
+    expect(resolveGeneratedArtifactOutputPath(clientDir, "docs/index.html")).toBe(
+      "/tmp/pracht-app/dist/client/docs/index.html",
+    );
+  });
+
+  it("rejects absolute paths and traversal", () => {
+    expect(() => resolveGeneratedArtifactOutputPath(clientDir, "/tmp/openapi.json")).toThrow(
+      /unsafe output path/,
+    );
+    expect(() => resolveGeneratedArtifactOutputPath(clientDir, "../openapi.json")).toThrow(
+      /outside dist\/client/,
+    );
   });
 });
