@@ -1,5 +1,5 @@
 ---
-"@pracht/framework": patch
+"@pracht/core": patch
 ---
 
 Group form and query fields in a single pass. `formDataToRecord()` and
