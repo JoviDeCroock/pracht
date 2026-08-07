@@ -6,8 +6,8 @@ prev:
   href: /docs/api-routes
   title: API Routes
 next:
-  href: /docs/middleware
-  title: Middleware
+  href: /docs/openapi
+  title: OpenAPI
 ---
 
 ## Define a validated handler
