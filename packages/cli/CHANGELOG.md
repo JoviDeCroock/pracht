@@ -1,5 +1,38 @@
 # @pracht/cli
 
+## 1.9.0
+
+### Minor Changes
+
+- [#266](https://github.com/JoviDeCroock/pracht/pull/266) [`6a84a27`](https://github.com/JoviDeCroock/pracht/commit/6a84a27203f7a8f7d440030d8583c6306fd6ed9c) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Extend `pracht plan` and `pracht report` to the agent-facing surface.
+
+  The app-graph snapshot (`.pracht/app-graph.json`) now records registered
+  capabilities, so a change that widens what agents can reach finally produces a
+  diff. Previously the snapshot held only routes, API endpoints, and constraints
+  — adding `expose: { mcp: true }`, downgrading `agentPolicy` from `require`,
+  dropping a capability's auth middleware, reclassifying a `destructive`
+  capability out of the confirmation flow, or loosening an input schema all
+  showed up as nothing at all.
+
+  Capability lines are marked `!` when they widen the agent-reachable surface,
+  `--markdown` puts a callout above the diff, and `GraphDiff` gains
+  `capabilityChanges` and `widensAgentSurface`. Input-schema widenings are
+  detected structurally: dropped `required` fields, opened
+  `additionalProperties`, widened enums, and raised or removed bounds, including
+  nested ones (`input.limit: maximum raised (50 → 5000)`). Narrowings stay quiet.
+
+  `AppGraphCapability` gains `agentPolicy`, which `pracht inspect capabilities`
+  did not previously surface.
+
+  Snapshots committed before this release have no capabilities recorded, so the
+  first `pracht plan` after upgrading reports them as added; `pracht plan
+--write` settles it.
+
+### Patch Changes
+
+- Updated dependencies [[`6a84a27`](https://github.com/JoviDeCroock/pracht/commit/6a84a27203f7a8f7d440030d8583c6306fd6ed9c)]:
+  - @pracht/core@0.12.0
+
 ## 1.8.5
 
 ### Patch Changes

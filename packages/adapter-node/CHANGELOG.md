@@ -1,5 +1,12 @@
 # @pracht/adapter-node
 
+## 0.3.8
+
+### Patch Changes
+
+- Updated dependencies [[`6a84a27`](https://github.com/JoviDeCroock/pracht/commit/6a84a27203f7a8f7d440030d8583c6306fd6ed9c)]:
+  - @pracht/core@0.12.0
+
 ## 0.3.7
 
 ### Patch Changes
