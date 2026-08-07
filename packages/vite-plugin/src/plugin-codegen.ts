@@ -385,12 +385,14 @@ export function createPrachtDevModuleSource(
     : `import { app } from ${JSON.stringify(resolved.appFile)};`;
 
   return [
-    'import { resolveApp } from "@pracht/core/server";',
+    'import { resolveApp, resolveApiRoutes } from "@pracht/core/server";',
     appImport,
     "",
     createPrachtRegistryModuleSource(resolved),
     "",
     "export const resolvedApp = resolveApp(app);",
+    `export const apiRoutes = resolveApiRoutes(Object.keys(apiModules), ${JSON.stringify(resolved.apiDir)});`,
+    `export const buildTarget = ${JSON.stringify(resolved.adapter?.id ?? "node")};`,
     "",
   ].join("\n");
 }

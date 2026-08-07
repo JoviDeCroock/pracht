@@ -61,6 +61,38 @@ interface ApiRouteEntry {
   path: string;
 }
 
+const PRACHT_DEV_METADATA_MODULE_ID = "virtual:pracht/dev-metadata";
+
+/**
+ * Adapter-neutral app metadata (`resolvedApp`, `apiRoutes`, `registry`,
+ * `buildTarget`) for graph-reading commands. It comes from a dedicated virtual
+ * module rather than the adapter's server entry because that entry can pull in
+ * imports Vite's Node SSR environment cannot resolve — Cloudflare Durable
+ * Objects re-exported through `workerExportsFrom` import `cloudflare:workers`,
+ * which only exists inside workerd.
+ */
+export async function loadAppMetadataModule(server: ViteDevServer): Promise<Record<string, any>> {
+  try {
+    return await server.ssrLoadModule(PRACHT_DEV_METADATA_MODULE_ID);
+  } catch (error) {
+    if (!isMissingDevMetadataModule(error)) throw error;
+
+    // Apps on a @pracht/vite-plugin older than the dev-metadata module.
+    return server.ssrLoadModule("virtual:pracht/server");
+  }
+}
+
+function isMissingDevMetadataModule(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    "code" in error &&
+    error.code === "ERR_LOAD_URL" &&
+    error.message.includes(
+      `Failed to load url ${PRACHT_DEV_METADATA_MODULE_ID} (resolved id: ${PRACHT_DEV_METADATA_MODULE_ID})`,
+    )
+  );
+}
+
 /**
  * Load the resolved app graph (page routes + API routes) from a running Vite
  * dev server. Shared by `pracht inspect` and the `pracht dev` startup banner.
@@ -70,7 +102,7 @@ export async function collectAppGraph(
   root: string,
   options: { executeApiModules?: boolean } = {},
 ): Promise<AppGraph> {
-  const serverModule = await server.ssrLoadModule("virtual:pracht/server");
+  const serverModule = await loadAppMetadataModule(server);
   const notFound = serverModule.resolvedApp.notFound;
   return {
     api: await collectApiRoutes(server, root, serverModule.apiRoutes, options),

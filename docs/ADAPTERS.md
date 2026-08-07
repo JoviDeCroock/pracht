@@ -845,6 +845,14 @@ The generated server entry module has access to `resolvedApp`, `registry`,
 `apiRoutes`, `clientEntryUrl`, `cssManifest`, and `jsManifest` -- your
 `createServerEntryModule()` code can reference these directly.
 
+The entry may import modules that only resolve inside the target runtime (the
+Cloudflare adapter re-exports Durable Objects that import `cloudflare:workers`).
+Graph-reading tooling -- the `pracht dev` banner, `pracht inspect`, `pracht plan`,
+`pracht verify`, and dev-time CSS discovery -- therefore never evaluates
+`virtual:pracht/server`. It reads `virtual:pracht/dev-metadata`, an
+adapter-neutral module exporting `resolvedApp`, `apiRoutes`, `registry`, and
+`buildTarget`, so an adapter is free to emit runtime-only imports.
+
 At the runtime level, an adapter also typically needs to:
 
 1. **Accept a platform request** and convert it to a Web `Request` object
