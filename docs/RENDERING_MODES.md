@@ -75,7 +75,10 @@ fetch only the loader data as JSON, not full HTML.
 Pracht currently buffers SSR into a complete string. The
 [Preact v11 streaming experiment](PREACT_V11_STREAMING_EXPERIMENT.md) validates
 Hydration 2.0 and streamed Suspense behavior in an isolated browser fixture,
-but does not yet change this production rendering contract.
+but does not yet change this production rendering contract. Its standing
+guidance for any future streaming mode: render `<head>` in the shell and stream
+only `<body>`, because a suspended `<head>` serves placeholder metadata to any
+client that does not run the stream's patcher script.
 
 ### When to use SSR
 
