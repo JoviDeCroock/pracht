@@ -9,12 +9,13 @@ import { expect, test } from "@playwright/test";
 const execFileAsync = promisify(execFile);
 
 // Runs against examples/basic (port 3103), which registers five capabilities:
-//   notes.search — read, expose.http + expose.webmcp
-//   notes.create — write, expose.http
+//   notes.search — read, expose.http + expose.webmcp + expose.mcp
+//   notes.create — write, expose.http + expose.mcp
 //   notes.purge  — destructive, expose.http (prepare/commit confirmation flow)
 //   agent.whoami — read, expose.http (echoes the Web Bot Auth identity)
 //   agent.ping   — read, expose.http, agentPolicy: "require"
-// The dev server runs with PRACHT_CONFIRMATION_SECRET set (playwright.config.ts).
+// The app serves the remote MCP projection at /mcp (`agents.mcp`), and the dev
+// server runs with PRACHT_CONFIRMATION_SECRET set (playwright.config.ts).
 
 // ---------------------------------------------------------------------------
 // HTTP projection
@@ -437,6 +438,90 @@ test("destructive capability requires confirmation, then commits with the token"
     data: { query: "E2E purge target" },
   });
   expect((await searchAfterCommit.json()).data.notes).toEqual([]);
+});
+
+// ---------------------------------------------------------------------------
+// Remote MCP projection
+// ---------------------------------------------------------------------------
+
+/** One JSON-RPC round trip against the app's MCP endpoint. */
+async function rpc(
+  request: { post: (url: string, init: Record<string, unknown>) => Promise<any> },
+  method: string,
+  params?: unknown,
+) {
+  const response = await request.post("/mcp", {
+    data: { jsonrpc: "2.0", id: 1, method, ...(params === undefined ? {} : { params }) },
+    headers: { "content-type": "application/json" },
+  });
+  return { status: response.status(), body: await response.json() };
+}
+
+test("MCP initialize negotiates and reports the app's server info", async ({ request }) => {
+  const { status, body } = await rpc(request, "initialize", {
+    protocolVersion: "2025-06-18",
+    capabilities: {},
+  });
+
+  expect(status).toBe(200);
+  expect(body.result.protocolVersion).toBe("2025-06-18");
+  expect(body.result.capabilities.tools).toBeDefined();
+  expect(body.result.serverInfo).toEqual({ name: "pracht-basic-example", version: "0.0.0" });
+});
+
+test("MCP tools/list projects only capabilities that set expose.mcp", async ({ request }) => {
+  const { body } = await rpc(request, "tools/list");
+  const names = body.result.tools.map((tool: { name: string }) => tool.name).sort();
+
+  expect(names).toEqual(["notes_create", "notes_search"]);
+  // Destructive and non-mcp capabilities stay off the agent surface.
+  expect(names).not.toContain("notes_purge");
+  expect(names).not.toContain("agent_whoami");
+
+  const search = body.result.tools.find((tool: { name: string }) => tool.name === "notes_search");
+  expect(search.inputSchema.required).toEqual(["query"]);
+  expect(search.annotations).toMatchObject({ readOnlyHint: true, destructiveHint: false });
+});
+
+test("MCP tools/call runs the capability and returns structured content", async ({ request }) => {
+  const { body } = await rpc(request, "tools/call", {
+    name: "notes_search",
+    arguments: { query: "capabilities" },
+  });
+
+  expect(body.result.isError).toBe(false);
+  expect(body.result.structuredContent.notes.length).toBeGreaterThan(0);
+  expect(body.result.structuredContent.notes[0]).toMatchObject({ title: "Capabilities" });
+});
+
+test("MCP tools/call reports validation failures as tool errors", async ({ request }) => {
+  const { body } = await rpc(request, "tools/call", {
+    name: "notes_search",
+    arguments: { query: "" },
+  });
+
+  expect(body.result.isError).toBe(true);
+  expect(body.result.structuredContent.code).toBe("invalid_input");
+  expect(body.result.structuredContent.issues.length).toBeGreaterThan(0);
+});
+
+test("MCP rejects an unknown tool as a JSON-RPC error", async ({ request }) => {
+  const { body } = await rpc(request, "tools/call", { name: "notes_purge", arguments: {} });
+
+  expect(body.error.code).toBe(-32602);
+  expect(body.error.message).toContain("Unknown tool");
+});
+
+test("MCP refuses GET and cross-origin requests", async ({ request }) => {
+  const get = await request.get("/mcp");
+  expect(get.status()).toBe(405);
+  expect(get.headers().allow).toBe("POST");
+
+  const crossOrigin = await request.post("/mcp", {
+    data: { jsonrpc: "2.0", id: 1, method: "ping" },
+    headers: { "content-type": "application/json", origin: "https://evil.example" },
+  });
+  expect(crossOrigin.status()).toBe(403);
 });
 
 // ---------------------------------------------------------------------------

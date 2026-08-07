@@ -17,6 +17,7 @@ A capability is a typed, protocol-neutral application operation: JSON Schema inp
 - **Direct server invocation** — `invokeCapability()` from loaders, API routes, and middleware.
 - **An HTTP endpoint** — `POST /api/capabilities/<name>` when `expose.http` is set.
 - **A WebMCP page tool** — registered for in-browser agents when `expose.webmcp` is set.
+- **A remote MCP tool** — served at your app's own endpoint when `expose.mcp` is set, for agents that never open a browser. See [Remote MCP](/docs/remote-mcp).
 
 Every projection runs the same pipeline, so business rules never diverge between transports:
 
@@ -218,10 +219,10 @@ The capability graph feeds every inspection surface: the `pracht dev` startup ba
 
 ```sh
 pracht inspect capabilities
-# notes.search   read   http,webmcp   /api/capabilities/notes/search
-# notes.create   write  http          /api/capabilities/notes/create
+# notes.search   read   http,webmcp,mcp   /api/capabilities/notes/search
+# notes.create   write  http,mcp          /api/capabilities/notes/create
 ```
 
-Coming next: a remote MCP endpoint (`/mcp`) projecting the same capabilities to out-of-browser agents, and MCP Apps UI views rendered with Preact.
+Coming next: MCP Apps UI views rendered with Preact, so a capability can return an interactive result into an agent's chat.
 
 For the story behind the design, read [The Agentic Web](/docs/agents); for unit, E2E, and WebMCP testing patterns, see the [Testing recipe](/docs/recipes/testing).

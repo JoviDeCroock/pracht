@@ -747,11 +747,27 @@ export interface CapabilityApprovalStore {
   consume(id: string): Promise<CapabilityApprovalConsumeResult>;
 }
 
+/**
+ * Serve capabilities that set `expose.mcp` over stateless Streamable HTTP at
+ * a single endpoint. Omitting this leaves `expose.mcp` recorded in the graph
+ * but unserved.
+ */
+export interface McpProjectionConfig {
+  /** Endpoint path. Default `/mcp`. */
+  path?: string;
+  /** Reported by `initialize`. Defaults to `{ name: "pracht", version: "0.0.0" }`. */
+  serverInfo?: { name: string; version: string };
+  /** Optional free-text guidance returned by `initialize`. */
+  instructions?: string;
+}
+
 export interface PrachtAgentsConfig {
   /** Verify RFC 9421 / Web Bot Auth agent signatures and surface `context.agent`. */
   webBotAuth?: WebBotAuthConfig;
   /** Prepare/commit confirmation flow options for destructive capabilities. */
   confirmation?: CapabilityConfirmationConfig;
+  /** Serve `expose.mcp` capabilities as MCP tools. See {@link McpProjectionConfig}. */
+  mcp?: McpProjectionConfig;
 }
 
 /** Structured audit event emitted for every capability dispatch. */
@@ -759,11 +775,12 @@ export interface CapabilityAuditEvent {
   capability: string;
   effect: CapabilityEffect;
   /**
-   * How the capability was invoked. `"webmcp"` reflects the transport marker
-   * the generated WebMCP shim sends with its dispatches — informational, not
-   * a trust signal (any HTTP client can send the header).
+   * How the capability was invoked. `"mcp"` is set by the remote MCP
+   * projection itself and is trustworthy. `"webmcp"` reflects the transport
+   * marker the generated WebMCP shim sends with its dispatches —
+   * informational, not a trust signal (any HTTP client can send the header).
    */
-  transport: "http" | "server" | "webmcp";
+  transport: "http" | "server" | "webmcp" | "mcp";
   /** `"ok"` or the envelope error code (e.g. `"invalid_input"`, `"confirmation_required"`). */
   outcome: string;
   /** HTTP status the envelope maps to (also set for server-side invocation). */

@@ -442,11 +442,12 @@ export async function handleCapabilityRequest<TContext>(
     {
       capability: options.match.name,
       effect: options.match.capability.effect,
-      // The generated WebMCP shim marks its dispatches so audit trails can
-      // tell in-browser agent traffic (cookie-authenticated) apart from
-      // remote HTTP callers. Client-declared, so informational only.
-      transport:
-        options.request.headers.get(CAPABILITY_TRANSPORT_HEADER) === "webmcp" ? "webmcp" : "http",
+      // The generated WebMCP shim and the remote MCP projection both mark
+      // their dispatches so audit trails can tell agent traffic apart from
+      // plain HTTP callers. `"mcp"` is set by the projection on a request it
+      // synthesized itself, so it is trustworthy; `"webmcp"` is
+      // client-declared and informational only.
+      transport: capabilityTransport(options.request.headers.get(CAPABILITY_TRANSPORT_HEADER)),
       outcome,
       status: responseWithEffect.status,
       durationMs: performance.now() - started,
@@ -502,6 +503,12 @@ async function dispatchCapabilityHttpWithApiMiddleware<TContext>(
   } catch (error: unknown) {
     return audited(capabilityInternalErrorResponse(options, error), "internal_error");
   }
+}
+
+function capabilityTransport(marker: string | null): CapabilityAuditEvent["transport"] {
+  if (marker === "webmcp") return "webmcp";
+  if (marker === "mcp") return "mcp";
+  return "http";
 }
 
 function capabilityMiddlewareRoute(resolved: ResolvedCapability): ResolvedApiRoute {

@@ -78,6 +78,12 @@ export interface AppGraphCapability {
 export interface AppGraph {
   api: AppGraphApiRoute[];
   capabilities: AppGraphCapability[];
+  /**
+   * Path the remote MCP projection is served from, or `null` when the app does
+   * not configure `agents.mcp` — in which case `expose.mcp` is recorded in the
+   * graph but nothing serves it.
+   */
+  mcpEndpoint?: string | null;
   routes: AppGraphRoute[];
   /**
    * The app-level not-found page, serialized like a route. `null` when the app

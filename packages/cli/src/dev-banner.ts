@@ -19,6 +19,8 @@ export interface DevBannerOptions {
   capabilities?: DevBannerCapability[];
   color?: boolean;
   localUrls: string[];
+  /** Path the remote MCP projection is served from, `null` when unconfigured. */
+  mcpEndpoint?: string | null;
   networkUrls?: string[];
   notFound?: DevBannerRoute | null;
   routes: DevBannerRoute[];
@@ -57,6 +59,7 @@ export function formatDevBanner(options: DevBannerOptions): string {
     capabilities = [],
     color = false,
     localUrls,
+    mcpEndpoint = null,
     networkUrls = [],
     notFound,
     routes,
@@ -125,15 +128,20 @@ export function formatDevBanner(options: DevBannerOptions): string {
   // Apps without capabilities skip the section entirely — most apps don't
   // register any, and an empty table would only add noise.
   if (capabilities.length > 0) {
-    lines.push(`  ${paint(`Capabilities (${capabilities.length})`, ANSI.bold)}`);
+    const heading = `Capabilities (${capabilities.length})`;
+    lines.push(
+      mcpEndpoint
+        ? `  ${paint(heading, ANSI.bold)}  ${paint(`MCP endpoint ${mcpEndpoint}`, ANSI.dim)}`
+        : `  ${paint(heading, ANSI.bold)}`,
+    );
     const rows = capabilities.map((capability) => [
       capability.name,
       capability.effect ?? "?",
       capability.transports.length > 0
         ? capability.transports
-            // Remote MCP is recorded in the graph but not served yet
-            // (capability-graph Stage 2) — don't let the banner imply it is.
-            .map((transport) => (transport === "mcp" ? "mcp(unserved)" : transport))
+            // `expose.mcp` is only served when the app configures
+            // `agents.mcp` — don't let the banner imply it otherwise.
+            .map((transport) => (transport === "mcp" && !mcpEndpoint ? "mcp(unserved)" : transport))
             .join(",")
         : "private",
       capability.httpPath ?? "-",

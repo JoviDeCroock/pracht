@@ -4,6 +4,7 @@ import { existsSync, readFileSync } from "node:fs";
 import {
   collectInvalidSchemaKeywordValues,
   collectUnsupportedSchemaKeywords,
+  findMcpToolNameCollisions,
   isValidCapabilityHttpPath,
 } from "@pracht/capabilities";
 import {
@@ -53,6 +54,7 @@ export function collectCapabilityChecks(project: ProjectConfig, checks: Check[])
 
   const manifestDir = dirname(manifestPath);
   const httpExposedNames: string[] = [];
+  const mcpExposed: string[] = [];
   for (const entry of entries) {
     // Root-relative refs ("/src/capabilities/x.ts") resolve against the project
     // root, matching the runtime registry and the Vite plugin; everything else
@@ -80,10 +82,68 @@ export function collectCapabilityChecks(project: ProjectConfig, checks: Check[])
     if (hasValidStaticHttpExposure(source)) {
       httpExposedNames.push(entry.name);
     }
-    collectSingleCapabilityChecks(entry.name, entry.path, source, registeredMiddleware, checks);
+    collectSingleCapabilityChecks(
+      entry.name,
+      entry.path,
+      source,
+      registeredMiddleware,
+      checks,
+      mcpExposed,
+    );
   }
 
   collectShadowedNameChecks(httpExposedNames, checks);
+  collectMcpProjectionChecks(mcpExposed, manifestSource, checks);
+}
+
+/**
+ * Checks that only make sense across the whole graph: MCP tool names have to
+ * be unique, and `expose.mcp` does nothing until the app configures
+ * `agents.mcp`.
+ */
+function collectMcpProjectionChecks(
+  mcpExposed: string[],
+  manifestSource: string,
+  checks: Check[],
+): void {
+  if (mcpExposed.length === 0) return;
+
+  for (const collision of findMcpToolNameCollisions(mcpExposed)) {
+    checks.push(
+      createCheck(
+        "error",
+        `Capabilities ${collision.capabilities.map((name) => JSON.stringify(name)).join(" and ")} ` +
+          `both project to the MCP tool name ${JSON.stringify(collision.toolName)} ` +
+          "(dots become underscores). Rename one — the runtime refuses to serve an ambiguous tool list.",
+      ),
+    );
+  }
+
+  if (!manifestConfiguresMcpProjection(manifestSource)) {
+    checks.push(
+      createCheck(
+        "warning",
+        `${mcpExposed.length} capabilit${mcpExposed.length === 1 ? "y sets" : "ies set"} ` +
+          "expose.mcp, but the manifest does not configure agents.mcp — the exposure is recorded " +
+          "in the graph and nothing serves it. Add `agents: { mcp: {} }` to defineApp() to serve " +
+          "them at /mcp.",
+      ),
+    );
+  }
+}
+
+/**
+ * Conservative source scan for `agents: { … mcp: … }` in the manifest.
+ *
+ * Verification is static (no Vite server), so a manifest that builds its
+ * `agents` config in a separate variable reads as unconfigured. That only
+ * costs one spurious warning, never a failed build — which is why this stays
+ * a warning.
+ */
+function manifestConfiguresMcpProjection(manifestSource: string): boolean {
+  const agentsIndex = manifestSource.search(/\bagents\s*:\s*\{/);
+  if (agentsIndex === -1) return false;
+  return /\bmcp\s*:/.test(manifestSource.slice(agentsIndex));
 }
 
 /**
@@ -129,6 +189,7 @@ function collectSingleCapabilityChecks(
   source: string,
   registeredMiddleware: Set<string>,
   checks: Check[],
+  mcpExposed: string[],
 ): void {
   const label = `Capability ${JSON.stringify(name)} (${displayPath})`;
   const args = extractDefineCapabilityArgs(source);
@@ -245,19 +306,10 @@ function collectSingleCapabilityChecks(
 
   if (exposed && !exposeFlags.unknown) {
     const { hasHttp, hasMcp, hasWebmcp } = exposeFlags;
+    if (hasMcp) mcpExposed.push(name);
     if (hasWebmcp && !hasHttp) {
       problems.push(
         "sets expose.webmcp without expose.http — WebMCP tools dispatch through the HTTP projection",
-      );
-    }
-
-    if (hasMcp && effectValue !== "destructive") {
-      checks.push(
-        createCheck(
-          "warning",
-          `${label} sets expose.mcp, which is recorded in the graph but not served yet — ` +
-            "the remote MCP projection is capability-graph Stage 2 (see docs/CAPABILITY_GRAPH.md).",
-        ),
       );
     }
 

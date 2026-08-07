@@ -24,10 +24,13 @@ export {
   capabilityHttpPath,
   CONFIRMATION_HEADER,
   CONFIRMATION_SECRET_ENV,
+  DEFAULT_MCP_ENDPOINT,
+  findMcpToolNameCollisions,
   isValidCapabilityHttpPath,
+  mcpToolName,
   normalizeCapabilityHttpPath,
 } from "./protocol.ts";
-export type { CapabilityErrorCode, PrachtAgentIdentity } from "./protocol.ts";
+export type { CapabilityErrorCode, McpToolNameCollision, PrachtAgentIdentity } from "./protocol.ts";
 export {
   applySchemaDefaults,
   collectInvalidSchemaKeywordValues,

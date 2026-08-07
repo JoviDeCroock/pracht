@@ -41,6 +41,44 @@ export function isValidCapabilityHttpPath(path: unknown): path is string {
   }
 }
 
+/** Default path the remote MCP projection is served from. */
+export const DEFAULT_MCP_ENDPOINT = "/mcp";
+
+/**
+ * MCP tool name for a capability.
+ *
+ * Capability names are dot-separated (`notes.search`), but MCP hosts widely
+ * constrain tool names to `^[a-zA-Z0-9_-]{1,64}$` — the function-name rule
+ * most clients inherit. Dots become underscores, which is unambiguous only as
+ * long as no two capabilities collide; see {@link findMcpToolNameCollisions}.
+ */
+export function mcpToolName(capabilityName: string): string {
+  return capabilityName.split(".").join("_");
+}
+
+export interface McpToolNameCollision {
+  toolName: string;
+  capabilities: string[];
+}
+
+/**
+ * Capability names that would produce the same MCP tool name (e.g.
+ * `notes.search` and `notes_search`). `pracht verify` rejects these, and the
+ * runtime refuses to serve an ambiguous graph.
+ */
+export function findMcpToolNameCollisions(names: readonly string[]): McpToolNameCollision[] {
+  const byToolName = new Map<string, string[]>();
+  for (const name of names) {
+    const toolName = mcpToolName(name);
+    const bucket = byToolName.get(toolName);
+    if (bucket) bucket.push(name);
+    else byToolName.set(toolName, [name]);
+  }
+  return [...byToolName]
+    .filter(([, capabilities]) => capabilities.length > 1)
+    .map(([toolName, capabilities]) => ({ toolName, capabilities }));
+}
+
 /**
  * Header that carries the prepare/commit confirmation token when committing a
  * destructive capability call (see docs/AGENT_TRUST.md).

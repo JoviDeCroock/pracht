@@ -106,6 +106,16 @@ export type {
 export { verifyAgentSignature } from "./runtime-agent-auth.ts";
 export type { VerifyAgentSignatureOptions } from "./runtime-agent-auth.ts";
 export {
+  handleMcpRequest,
+  MCP_CONFIRMATION_META_KEY,
+  MCP_LATEST_PROTOCOL_VERSION,
+  MCP_PROTOCOL_VERSION_HEADER,
+  MCP_PROTOCOL_VERSIONS,
+  mcpExposedCapabilities,
+  resolveMcpEndpoint,
+} from "./runtime-mcp.ts";
+export type { HandleMcpRequestOptions } from "./runtime-mcp.ts";
+export {
   CONFIRMATION_HEADER,
   CONFIRMATION_SECRET_ENV,
   setCapabilityConfirmationSecret,
@@ -211,6 +221,7 @@ export type {
   CapabilityValidationResult,
   HasRegisteredCapabilities,
   HttpCapabilityName,
+  McpProjectionConfig,
   PrachtContextExtensions,
   PrachtRequestContext,
   RegisteredCapabilityName,

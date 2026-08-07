@@ -49,6 +49,7 @@ import {
   type ResolvedCapability,
 } from "./runtime-capabilities.ts";
 import { verifyAgentSignature } from "./runtime-agent-auth.ts";
+import { handleMcpRequest, resolveMcpEndpoint } from "./runtime-mcp.ts";
 import { buildRouteStateUrl } from "./runtime-client-fetch.ts";
 import {
   getRenderToStringAsync,
@@ -381,6 +382,30 @@ export async function handlePrachtRequest<TContext>(
     }
 
     if (capabilities) {
+      // Remote MCP projection. Opt-in via `defineApp({ agents: { mcp } })`;
+      // the endpoint is a transport adapter over the same dispatch used
+      // below, so nothing is enforced twice.
+      const mcpConfig = options.app.agents?.mcp;
+      if (mcpConfig && url.pathname === resolveMcpEndpoint(options.app.agents)) {
+        const mcpResponse = await handleMcpRequest({
+          capabilities,
+          context: requestContext,
+          registry,
+          request: options.request,
+          url,
+          exposeErrors: exposeDiagnostics,
+          mcp: mcpConfig,
+          apiMiddlewareFiles: (options.app.api.middleware ?? []).flatMap((name) => {
+            const middlewareFile = options.app.middleware[name];
+            return middlewareFile ? [middlewareFile] : [];
+          }),
+          agents: options.app.agents,
+          agent,
+          onAudit: options.onCapabilityAudit,
+        });
+        return withDefaultSecurityHeaders(mcpResponse);
+      }
+
       const capabilityMatch = matchCapabilityRoute(capabilities, url.pathname);
       if (capabilityMatch) {
         // Same CSRF stance as state-changing API requests: capability calls
