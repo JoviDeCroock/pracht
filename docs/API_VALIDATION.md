@@ -317,3 +317,7 @@ The docs use zod in examples for familiarity; nothing in pracht assumes it.
   middleware short-circuit still prevents body parsing.
 - `formDataToRecord`, `searchParamsToRecord`, and `validateStandardSchema`
   are exported for reuse in custom handlers or middleware.
+- Both record helpers group entries in a single pass, so their cost is linear
+  in the number of fields. A field that appears once maps to its value, a
+  repeated field maps to an array in submission order, and the returned record
+  has a null prototype so a `__proto__` field stays an ordinary own property.

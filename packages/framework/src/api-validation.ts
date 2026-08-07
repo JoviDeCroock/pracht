@@ -437,12 +437,7 @@ async function runSchema(
 export function searchParamsToRecord(
   searchParams: URLSearchParams,
 ): Record<string, string | string[]> {
-  const record = Object.create(null) as Record<string, string | string[]>;
-  for (const key of new Set(searchParams.keys())) {
-    const values = searchParams.getAll(key);
-    record[key] = values.length === 1 ? values[0] : values;
-  }
-  return record;
+  return groupEntriesByKey(searchParams);
 }
 
 /**
@@ -452,11 +447,36 @@ export function searchParamsToRecord(
 export function formDataToRecord(
   formData: FormData,
 ): Record<string, FormDataEntryValue | FormDataEntryValue[]> {
-  const record = Object.create(null) as Record<string, FormDataEntryValue | FormDataEntryValue[]>;
-  for (const key of new Set(formData.keys())) {
-    const values = formData.getAll(key);
-    record[key] = values.length === 1 ? values[0] : values;
+  return groupEntriesByKey(formData);
+}
+
+/**
+ * Group `[key, value]` pairs into one record: the value itself for a key that
+ * appears once, an array for a key that repeats.
+ *
+ * Deliberately a single pass. Iterating unique keys and calling `getAll(key)`
+ * per key reads as the obvious implementation, but `getAll` rescans the whole
+ * entry list, making the cost O(n²) in the number of distinct keys — bodies and
+ * query strings with many fields get slow fast. The record stays null-prototype
+ * so a `__proto__` field remains an ordinary own property.
+ */
+function groupEntriesByKey<TValue>(
+  entries: Iterable<[string, TValue]>,
+): Record<string, TValue | TValue[]> {
+  const record = Object.create(null) as Record<string, TValue | TValue[]>;
+  const repeated = new Set<string>();
+
+  for (const [key, value] of entries) {
+    if (!(key in record)) {
+      record[key] = value;
+    } else if (repeated.has(key)) {
+      (record[key] as TValue[]).push(value);
+    } else {
+      repeated.add(key);
+      record[key] = [record[key] as TValue, value];
+    }
   }
+
   return record;
 }
 
