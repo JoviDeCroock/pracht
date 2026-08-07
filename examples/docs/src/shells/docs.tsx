@@ -49,6 +49,7 @@ const NAV = [
       { href: "/docs/data-loading", Icon: IconServerBolt, title: "Data Loading" },
       { href: "/docs/api-routes", Icon: IconPlug, title: "API Routes" },
       { href: "/docs/api-validation", Icon: IconTestPipe, title: "API Validation" },
+      { href: "/docs/openapi", Icon: IconSitemap, title: "OpenAPI" },
       { href: "/docs/middleware", Icon: IconShield, title: "Middleware" },
       { href: "/docs/shells", Icon: IconLayout, title: "Shells" },
       { href: "/docs/styling", Icon: IconPalette, title: "Styling" },
