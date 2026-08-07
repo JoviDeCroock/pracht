@@ -51,6 +51,12 @@ export interface AppGraphApiRoute {
 }
 
 export interface AppGraphCapability {
+  /**
+   * Per-capability Web Bot Auth policy override, or `null` when the capability
+   * inherits the app default. Part of the graph because a reviewer cannot
+   * otherwise tell whether an exposed capability demands a verified agent.
+   */
+  agentPolicy: string | null;
   effect: string | null;
   /** Reserved for the MCP Apps projection — always false for now. */
   hasUi: false;
@@ -145,6 +151,7 @@ export function serializeCapabilities(
         if (capability.expose?.webmcp) transports.push("webmcp");
 
         return {
+          agentPolicy: capability.agentPolicy ?? null,
           effect: capability.effect,
           hasUi: false as const,
           httpPath: capability.expose?.http
@@ -160,6 +167,7 @@ export function serializeCapabilities(
         };
       } catch {
         return {
+          agentPolicy: null,
           effect: null,
           hasUi: false as const,
           httpPath: null,

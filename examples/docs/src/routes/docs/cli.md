@@ -128,7 +128,7 @@ The doctor command checks:
 
 ## pracht plan
 
-Semantic app-graph diff against a base git ref. Prints added, removed, and changed routes, API endpoints, and constraints — an intent-level changelog for reviewers.
+Semantic app-graph diff against a base git ref. Prints added, removed, and changed routes, API endpoints, capabilities, and constraints — an intent-level changelog for reviewers.
 
 ```sh
 # Snapshot the resolved app graph to .pracht/app-graph.json (commit it)
@@ -144,6 +144,8 @@ pracht plan --markdown
 ```
 
 The snapshot works like a lockfile for the route graph: `pracht verify` fails when `.pracht/app-graph.json` is stale, with the fix in the message (run `pracht plan --write`). See [AI-Assisted Authoring & Review](/docs/agent-workflow) for the full workflow.
+
+Capability changes are marked `!` when they widen what agents can reach — a new exposure, a downgraded `agentPolicy`, dropped middleware, or a loosened input schema — and `--markdown` puts a callout above the diff so the line is not missed.
 
 ---
 

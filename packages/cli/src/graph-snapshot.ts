@@ -2,9 +2,15 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 
-import { serializeApiRoutes, serializeAppRoutes } from "@pracht/core";
-import type { AppGraphApiRoute, AppGraphRoute, RouteConstraint } from "@pracht/core";
+import { serializeApiRoutes, serializeAppRoutes, serializeCapabilities } from "@pracht/core";
+import type {
+  AppGraphApiRoute,
+  AppGraphCapability,
+  AppGraphRoute,
+  RouteConstraint,
+} from "@pracht/core";
 
+import { capabilityModuleLoader } from "./app-graph.js";
 import { withAppServer } from "./app-server.js";
 import { formatBytes } from "./bundle-report.js";
 
@@ -24,6 +30,13 @@ export interface GraphSnapshot {
   mode: "manifest" | "pages";
   routes: AppGraphRoute[];
   api: AppGraphApiRoute[];
+  /**
+   * Registered capabilities — the agent-facing half of the app's surface.
+   * Snapshotting them is what lets `pracht plan` show a reviewer that a change
+   * widened what agents can reach or weakened a guard; without it those edits
+   * produce no signal at all.
+   */
+  capabilities: AppGraphCapability[];
   constraints: RouteConstraint[];
 }
 
@@ -34,12 +47,17 @@ export async function resolveLiveGraph(root: string): Promise<GraphSnapshot> {
       loadModule: (file) => server.ssrLoadModule(file),
       readSource: (file) => readFileSync(resolve(root, `.${file}`), "utf-8"),
     });
+    const capabilities = await serializeCapabilities(serverModule.resolvedApp.capabilities, {
+      loadModule: capabilityModuleLoader(server, serverModule),
+      readSource: (file) => readFileSync(resolve(root, `.${file}`), "utf-8"),
+    });
 
     return normalizeGraphSnapshot({
       prachtGraphVersion: GRAPH_SNAPSHOT_VERSION,
       mode: project.mode,
       routes,
       api,
+      capabilities,
       constraints: serverModule.resolvedApp.constraints ?? [],
     });
   });
@@ -52,6 +70,9 @@ export function normalizeGraphSnapshot(snapshot: GraphSnapshot): GraphSnapshot {
     mode: snapshot.mode,
     routes: [...snapshot.routes].sort((left, right) => left.path.localeCompare(right.path)),
     api: [...snapshot.api].sort((left, right) => left.path.localeCompare(right.path)),
+    capabilities: [...(snapshot.capabilities ?? [])].sort((left, right) =>
+      left.name.localeCompare(right.name),
+    ),
     constraints: snapshot.constraints ?? [],
   };
   return JSON.parse(JSON.stringify(normalized));
@@ -100,6 +121,10 @@ function parseSnapshot(contents: string): GraphSnapshot | null {
       mode: parsed.mode ?? "manifest",
       routes: parsed.routes,
       api: parsed.api,
+      // Snapshots committed before capabilities were tracked simply have none;
+      // the first plan after upgrading reports them as added, and
+      // `pracht plan --write` settles it.
+      capabilities: Array.isArray(parsed.capabilities) ? parsed.capabilities : [],
       constraints: Array.isArray(parsed.constraints) ? parsed.constraints : [],
     };
   } catch {
@@ -118,16 +143,44 @@ export interface ChangedEntry {
   changes: FieldChange[];
 }
 
+/**
+ * `warn` means the agent-reachable surface got wider or one of its guards got
+ * weaker — the lines a reviewer must not scroll past.
+ */
+export type CapabilityChangeSeverity = "info" | "warn";
+
+export interface CapabilityChange {
+  kind:
+    | "added"
+    | "removed"
+    | "exposure-added"
+    | "exposure-removed"
+    | "effect-changed"
+    | "policy-weakened"
+    | "policy-strengthened"
+    | "middleware-removed"
+    | "middleware-added"
+    | "input-widened"
+    | "output-changed"
+    | "path-changed";
+  capability: string;
+  severity: CapabilityChangeSeverity;
+  detail: string;
+}
+
 export interface GraphDiff {
   addedApi: AppGraphApiRoute[];
   addedConstraints: RouteConstraint[];
   addedRoutes: AppGraphRoute[];
+  capabilityChanges: CapabilityChange[];
   changedApi: ChangedEntry[];
   changedRoutes: ChangedEntry[];
   identical: boolean;
   removedApi: AppGraphApiRoute[];
   removedConstraints: RouteConstraint[];
   removedRoutes: AppGraphRoute[];
+  /** True when any capability change is a widening — the headline for `report`. */
+  widensAgentSurface: boolean;
 }
 
 const ROUTE_DIFF_FIELDS = [
@@ -159,6 +212,8 @@ export function diffGraphSnapshots(base: GraphSnapshot, head: GraphSnapshot): Gr
     (entry) => !headConstraints.has(JSON.stringify(entry)),
   );
 
+  const capabilityChanges = diffCapabilities(base.capabilities ?? [], head.capabilities ?? []);
+
   const identical =
     routeDiff.added.length === 0 &&
     routeDiff.removed.length === 0 &&
@@ -167,19 +222,244 @@ export function diffGraphSnapshots(base: GraphSnapshot, head: GraphSnapshot): Gr
     apiDiff.removed.length === 0 &&
     apiDiff.changed.length === 0 &&
     addedConstraints.length === 0 &&
-    removedConstraints.length === 0;
+    removedConstraints.length === 0 &&
+    capabilityChanges.length === 0;
 
   return {
     addedApi: apiDiff.added,
     addedConstraints,
     addedRoutes: routeDiff.added,
+    capabilityChanges,
     changedApi: apiDiff.changed,
     changedRoutes: routeDiff.changed,
     identical,
     removedApi: apiDiff.removed,
     removedConstraints,
     removedRoutes: routeDiff.removed,
+    widensAgentSurface: capabilityChanges.some((change) => change.severity === "warn"),
   };
+}
+
+const AGENT_TRANSPORTS = new Set(["mcp", "webmcp"]);
+
+/**
+ * Capability changes, classified by whether they widen the agent-reachable
+ * surface. Registration, exposure, effect class, policy, middleware, and the
+ * input schema all decide what an agent may do — and all of them are easy to
+ * change without any visible route diff.
+ */
+export function diffCapabilities(
+  base: readonly AppGraphCapability[],
+  head: readonly AppGraphCapability[],
+): CapabilityChange[] {
+  const baseByName = new Map(base.map((entry) => [entry.name, entry]));
+  const headByName = new Map(head.map((entry) => [entry.name, entry]));
+  const changes: CapabilityChange[] = [];
+
+  for (const entry of head) {
+    if (baseByName.has(entry.name)) continue;
+    const exposed = entry.transports.length > 0;
+    changes.push({
+      kind: "added",
+      capability: entry.name,
+      severity: exposed ? "warn" : "info",
+      detail: exposed
+        ? `new ${entry.effect ?? "?"} capability exposed via ${entry.transports.join(", ")}`
+        : `new private ${entry.effect ?? "?"} capability`,
+    });
+  }
+
+  for (const entry of base) {
+    if (headByName.has(entry.name)) continue;
+    changes.push({
+      kind: "removed",
+      capability: entry.name,
+      severity: "info",
+      detail: `removed (was ${entry.transports.join(", ") || "private"})`,
+    });
+  }
+
+  for (const entry of head) {
+    const previous = baseByName.get(entry.name);
+    if (previous) changes.push(...diffCapability(previous, entry));
+  }
+
+  return changes.sort(
+    (left, right) =>
+      Number(right.severity === "warn") - Number(left.severity === "warn") ||
+      left.capability.localeCompare(right.capability),
+  );
+}
+
+function diffCapability(base: AppGraphCapability, head: AppGraphCapability): CapabilityChange[] {
+  const changes: CapabilityChange[] = [];
+  const capability = head.name;
+
+  const addedTransports = head.transports.filter(
+    (transport) => !base.transports.includes(transport),
+  );
+  const removedTransports = base.transports.filter(
+    (transport) => !head.transports.includes(transport),
+  );
+  if (addedTransports.length > 0) {
+    changes.push({
+      kind: "exposure-added",
+      capability,
+      severity: "warn",
+      detail: `now exposed via ${addedTransports.join(", ")}${
+        addedTransports.some((transport) => AGENT_TRANSPORTS.has(transport))
+          ? " — reachable by agents"
+          : ""
+      }`,
+    });
+  }
+  if (removedTransports.length > 0) {
+    changes.push({
+      kind: "exposure-removed",
+      capability,
+      severity: "info",
+      detail: `no longer exposed via ${removedTransports.join(", ")}`,
+    });
+  }
+
+  if (base.effect !== head.effect) {
+    changes.push({
+      kind: "effect-changed",
+      capability,
+      // Reclassifying away from destructive silently drops the prepare/commit gate.
+      severity: base.effect === "destructive" ? "warn" : "info",
+      detail: `effect ${base.effect ?? "none"} → ${head.effect ?? "none"}`,
+    });
+  }
+
+  const basePolicy = base.agentPolicy ?? null;
+  const headPolicy = head.agentPolicy ?? null;
+  if (basePolicy !== headPolicy) {
+    const weakened = basePolicy === "require" && headPolicy !== "require";
+    changes.push({
+      kind: weakened ? "policy-weakened" : "policy-strengthened",
+      capability,
+      severity: weakened ? "warn" : "info",
+      detail: `agentPolicy ${basePolicy ?? "(app default)"} → ${headPolicy ?? "(app default)"}`,
+    });
+  }
+
+  const droppedMiddleware = base.middleware.filter((name) => !head.middleware.includes(name));
+  const addedMiddleware = head.middleware.filter((name) => !base.middleware.includes(name));
+  if (droppedMiddleware.length > 0) {
+    changes.push({
+      kind: "middleware-removed",
+      capability,
+      severity: "warn",
+      detail: `middleware removed: ${droppedMiddleware.join(", ")}`,
+    });
+  }
+  if (addedMiddleware.length > 0) {
+    changes.push({
+      kind: "middleware-added",
+      capability,
+      severity: "info",
+      detail: `middleware added: ${addedMiddleware.join(", ")}`,
+    });
+  }
+
+  if (base.httpPath && head.httpPath && base.httpPath !== head.httpPath) {
+    changes.push({
+      kind: "path-changed",
+      capability,
+      severity: "info",
+      detail: `HTTP path ${base.httpPath} → ${head.httpPath}`,
+    });
+  }
+
+  for (const detail of schemaWidenings(base.input, head.input)) {
+    changes.push({ kind: "input-widened", capability, severity: "warn", detail });
+  }
+
+  if (JSON.stringify(base.output) !== JSON.stringify(head.output)) {
+    changes.push({
+      kind: "output-changed",
+      capability,
+      severity: "info",
+      detail: "output schema changed — check what agents can now read",
+    });
+  }
+
+  return changes;
+}
+
+/**
+ * Structural widenings of an input schema. Accepting more than before is the
+ * schema equivalent of loosening a guard, and it disappears into a line diff
+ * as soon as a schema is more than a few lines long.
+ */
+function schemaWidenings(
+  base: Record<string, unknown> | null,
+  head: Record<string, unknown> | null,
+  path = "",
+): string[] {
+  if (!base || !head) return [];
+  const label = path || "input";
+  const reasons: string[] = [];
+
+  const noLongerRequired = stringArray(base.required).filter(
+    (key) => !stringArray(head.required).includes(key),
+  );
+  if (noLongerRequired.length > 0) {
+    reasons.push(`${label}: no longer requires ${noLongerRequired.join(", ")}`);
+  }
+
+  if (base.additionalProperties === false && head.additionalProperties !== false) {
+    reasons.push(`${label}: additionalProperties opened up`);
+  }
+
+  const baseEnum = stringArray(base.enum);
+  if (baseEnum.length > 0 && stringArray(head.enum).some((value) => !baseEnum.includes(value))) {
+    reasons.push(`${label}: enum widened`);
+  }
+
+  for (const keyword of ["maximum", "maxLength"] as const) {
+    const before = base[keyword];
+    const after = head[keyword];
+    if (
+      typeof before === "number" &&
+      (after === undefined || (typeof after === "number" && after > before))
+    ) {
+      reasons.push(`${label}: ${keyword} raised (${before} → ${after ?? "unbounded"})`);
+    }
+  }
+  for (const keyword of ["minimum", "minLength"] as const) {
+    const before = base[keyword];
+    const after = head[keyword];
+    if (
+      typeof before === "number" &&
+      (after === undefined || (typeof after === "number" && after < before))
+    ) {
+      reasons.push(`${label}: ${keyword} lowered (${before} → ${after ?? "unbounded"})`);
+    }
+  }
+
+  const baseProperties = asRecord(base.properties);
+  for (const [key, headSchema] of Object.entries(asRecord(head.properties))) {
+    const baseSchema = baseProperties[key];
+    if (baseSchema) {
+      reasons.push(
+        ...schemaWidenings(asRecord(baseSchema), asRecord(headSchema), `${label}.${key}`),
+      );
+    }
+  }
+
+  return reasons;
+}
+
+function stringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((entry) => typeof entry === "string") : [];
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
 }
 
 function diffByPath<T extends { path: string }>(
@@ -280,6 +560,11 @@ export function formatPlanLines(diff: GraphDiff, options: FormatPlanOptions): st
   for (const api of diff.removedApi) {
     lines.push(`- api   ${api.path}`);
   }
+  for (const change of diff.capabilityChanges) {
+    lines.push(
+      `${capabilityChangeMarker(change)} capability ${change.capability}  ${change.detail}`,
+    );
+  }
   for (const constraint of diff.addedConstraints) {
     lines.push(`+ constraint ${describeConstraint(constraint)}`);
   }
@@ -288,6 +573,17 @@ export function formatPlanLines(diff: GraphDiff, options: FormatPlanOptions): st
   }
 
   return lines;
+}
+
+/**
+ * Diff-block prefix. `!` marks a widening so it reads as a warning in the
+ * rendered diff rather than blending into ordinary additions.
+ */
+function capabilityChangeMarker(change: CapabilityChange): string {
+  if (change.severity === "warn") return "!";
+  if (change.kind === "added") return "+";
+  if (change.kind === "removed") return "-";
+  return "~";
 }
 
 export function formatPlanText(diff: GraphDiff, options: FormatPlanOptions): string {
@@ -299,7 +595,10 @@ export function formatPlanText(diff: GraphDiff, options: FormatPlanOptions): str
   if (diff.identical) {
     return `${header}\n\nNo app graph changes.`;
   }
-  return `${header}\n\n${lines.join("\n")}`;
+  const footer = diff.widensAgentSurface
+    ? "\n\nThis change widens what agents can reach or weakens a guard (! lines)."
+    : "";
+  return `${header}\n\n${lines.join("\n")}${footer}`;
 }
 
 export function formatPlanMarkdown(diff: GraphDiff, options: FormatPlanOptions): string {
@@ -316,11 +615,17 @@ export function formatPlanMarkdown(diff: GraphDiff, options: FormatPlanOptions):
     countLabel(diff.addedRoutes.length + diff.addedApi.length, "added"),
     countLabel(diff.changedRoutes.length + diff.changedApi.length, "changed"),
     countLabel(diff.removedRoutes.length + diff.removedApi.length, "removed"),
+    countLabel(diff.capabilityChanges.length, "capability change"),
   ]
     .filter(Boolean)
     .join(", ");
+  // The one thing in a plan that is a security decision rather than a
+  // structural one, so it goes above the diff instead of inside it.
+  const warning = diff.widensAgentSurface
+    ? "> ⚠️ **This change widens what agents can reach or weakens a guard.**"
+    : "";
 
-  return [heading, "", summary ? `${summary}.` : "", "```diff", ...lines, "```"]
+  return [heading, "", summary ? `${summary}.` : "", warning, "```diff", ...lines, "```"]
     .filter((line, index) => line !== "" || index === 1)
     .join("\n");
 }

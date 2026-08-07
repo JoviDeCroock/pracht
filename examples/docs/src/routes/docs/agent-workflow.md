@@ -93,10 +93,17 @@ Pracht plan (base: origin/main)
 + route /pricing  render=isg  shell=public  middleware=[]
 ~ route /app/billing  middleware: [auth] → [auth, audit]
 - api   /api/legacy-webhook
+! capability notes.purge  now exposed via mcp — reachable by agents
 + constraint require-middleware /app/**  middleware=["auth"]
 ```
 
-That is the review artifact: added, removed, and changed routes, API endpoints, and constraints — not four hundred lines of moved imports. `--json` emits the full report for tooling, and `--markdown` formats the diff for PR comments.
+That is the review artifact: added, removed, and changed routes, API endpoints, capabilities, and constraints — not four hundred lines of moved imports. `--json` emits the full report for tooling, and `--markdown` formats the diff for PR comments.
+
+### The Line You Cannot Afford to Miss
+
+A `!` marks a change that widened what agents can reach or weakened one of their guards: a new exposure, a `destructive` capability reclassified out of the confirmation flow, an `agentPolicy` downgraded from `require`, middleware dropped, or an input schema that now accepts more than it used to — a removed `required` field, an opened `additionalProperties`, a raised bound, including nested ones (`input.limit: maximum raised (50 → 5000)`). Narrowings and removals stay quiet.
+
+These are precisely the edits a line diff hides. Moving `mcp: true` into an `expose` object is one word; loosening a schema bound is one number. When anything widened, `--markdown` puts a callout above the diff so a reviewer meets it before the fence, and `pracht report` carries it into the PR body.
 
 `pracht verify` fails when the committed snapshot no longer matches the live graph, with the fix in the message: run `pracht plan --write`. So route changes can't land without the snapshot — and therefore the reviewable diff — updating alongside them.
 
