@@ -22,7 +22,14 @@ const vite = await createViteServer({
 
 const server = createServer(async (request, response) => {
   const url = new URL(request.url ?? "/", `http://${request.headers.host ?? `localhost:${port}`}`);
-  if (url.pathname !== "/stream" && url.pathname !== "/hydration-2") {
+  const routes = {
+    "/stream": "stream",
+    "/hydration-2": "hydration-2",
+    "/head-body": "head-body",
+    "/shell-head": "shell-head",
+  };
+  const mode = routes[url.pathname];
+  if (!mode) {
     vite.middlewares(request, response, () => {
       response.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
       response.end("Not found");
@@ -30,11 +37,13 @@ const server = createServer(async (request, response) => {
     return;
   }
 
-  const mode = url.pathname === "/hydration-2" ? "hydration-2" : "stream";
+  const serverDelay = Number(url.searchParams.get("serverDelay") ?? 250);
   const config = {
+    bodyDelay: Number(url.searchParams.get("bodyDelay") ?? serverDelay),
     clientDelay: Number(url.searchParams.get("clientDelay") ?? 800),
+    headDelay: Number(url.searchParams.get("headDelay") ?? serverDelay),
     mode,
-    serverDelay: Number(url.searchParams.get("serverDelay") ?? 250),
+    serverDelay,
   };
 
   try {
