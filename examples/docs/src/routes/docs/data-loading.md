@@ -329,6 +329,25 @@ function NavigationProgress() {
 - `location` — the target `{ pathname, search, hash, href }` while not idle
 - `formData` — the submitted `FormData` while a submission is pending (great for optimistic UI)
 
+### useCapability()
+
+Pending/error/result state for a user-triggered [capability](/docs/capabilities) call — a button, a search box, a picker. Imported from `virtual:pracht/capabilities` rather than `@pracht/core`, because the hook is bound to your app's generated capability names:
+
+```tsx
+import { useCapability } from "virtual:pracht/capabilities";
+
+function NoteSearch() {
+  const search = useCapability("notes.search");
+  return (
+    <button disabled={search.pending} onClick={() => search.call({ query: "roadmap" })}>
+      {search.pending ? "Searching…" : "Search"}
+    </button>
+  );
+}
+```
+
+It dispatches when you call it, never during render — so it complements loaders rather than replacing them. Data a page needs on load belongs in a `loader` calling `invokeCapability()`, which server-renders and revalidates; the hook covers the interaction a loader cannot.
+
 ### \<Form\> Component
 
 Declarative form submission with progressive enhancement. Use the `action` prop to target an API route:

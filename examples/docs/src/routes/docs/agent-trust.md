@@ -82,6 +82,22 @@ The first call never runs the capability — it answers with a short-lived token
 
 The token is an HMAC over the caller's principal (verified agent key, or `"anonymous"`), the capability name, the canonicalized input, and an expiry. Committing means repeating the call with identical input plus the `x-pracht-confirm` header — tampered, expired, different-input, or different-principal tokens are rejected with `403`, fail closed.
 
+From the browser, the [typed client](/docs/capabilities) makes both phases explicit rather than letting an unconfirmed call look like a forgotten one — a destructive call takes exactly one of `{ prepare: true }` or `{ confirm }`, and omitting both is a compile error:
+
+```ts [src/islands/PurgeButton.tsx]
+import { callCapability } from "virtual:pracht/capabilities";
+
+const prepared = await callCapability("notes.purge", { titlePrefix: "Old" }, { prepare: true });
+
+// prepared.error.code === "confirmation_required"; the token rides along.
+const token = prepared.ok ? undefined : prepared.error.confirmationToken;
+if (token) {
+  await callCapability("notes.purge", { titlePrefix: "Old" }, { confirm: token });
+}
+```
+
+`prepare` never reaches the wire — it is a marker for the compiler, and a prepare call is just a call without the confirmation header. The guarantee that it cannot run the operation is the server's: the gate rejects an unconfirmed destructive call before `run()`, and answers `confirmation_unavailable` when no `PRACHT_CONFIRMATION_SECRET` is configured.
+
 Agent hosts cannot yet be trusted to carry this two-step flow faithfully, so destructive capabilities cannot be exposed over WebMCP — `defineCapability()`, the runtime, and `pracht verify` all enforce it.
 
 ---

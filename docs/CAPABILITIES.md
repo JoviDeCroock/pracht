@@ -310,9 +310,8 @@ argument:
 ```ts
 const prepared = await callCapability("notes.purge", input, { prepare: true });
 // -> 409 confirmation_required, carrying the token
-await callCapability("notes.purge", input, {
-  confirm: prepared.error.confirmationToken,
-});
+const token = prepared.ok ? undefined : prepared.error.confirmationToken;
+if (token) await callCapability("notes.purge", input, { confirm: token });
 ```
 
 The prepare call is, on the wire, simply a call without a confirmation header —

@@ -503,6 +503,47 @@ test("invalid input returns path-scoped issues", async ({ request }) => {
 });
 ```
 
+### Testing the browser call surface
+
+Calls made through `callCapability()`, the generated `capabilities` client, and `useCapability()` all reach the same endpoint an agent calls — so assert the request path, not just the rendered output, and a parallel route can never creep in unnoticed:
+
+```ts [e2e/capabilities.test.ts]
+test("the generated client dispatches to the capability endpoint", async ({ page }) => {
+  const requests: string[] = [];
+  page.on("request", (request) => {
+    if (request.url().includes("/api/capabilities/"))
+      requests.push(new URL(request.url()).pathname);
+  });
+
+  await page.goto("/notes");
+  await page.click('[data-testid="search-notes-button"]');
+
+  await expect(page.locator('[data-testid="search-notes-count"]')).toContainText("notes");
+  expect(requests).toContain("/api/capabilities/notes/search");
+});
+```
+
+`useCapability()`'s `pending` flag needs one more step. Asserting on it after an unthrottled call passes whether or not the flag was ever set — the response usually wins the race. Hold the response open instead, so the pending window is observable:
+
+```ts [e2e/capabilities.test.ts]
+let release: () => void = () => {};
+const held = new Promise<void>((resolve) => {
+  release = resolve;
+});
+await page.route("**/api/capabilities/notes/search", async (route) => {
+  await held;
+  await route.continue();
+});
+
+await page.click('[data-testid="hook-search-button"]');
+await expect(page.locator('[data-testid="hook-search-button"]')).toBeDisabled();
+
+release();
+await expect(page.locator('[data-testid="hook-search-result"]')).toContainText("Found");
+```
+
+Worth asserting too: nothing the hook produces appears in the SSR'd HTML, since it dispatches on interaction rather than during render.
+
 ### Testing the destructive confirmation flow
 
 `destructive` capabilities need `PRACHT_CONFIRMATION_SECRET` in the server environment — set it on Playwright's `webServer` so the flow works in CI:

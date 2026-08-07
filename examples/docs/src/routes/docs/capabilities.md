@@ -107,16 +107,26 @@ For calls driven by interaction — a button, a search box, a picker — `useCap
 ```tsx [src/routes/notes.tsx]
 import { useCapability } from "virtual:pracht/capabilities";
 
-const search = useCapability("notes.search");
+function NoteSearch() {
+  const search = useCapability("notes.search");
 
-<button disabled={search.pending} onClick={() => search.call({ query })}>
-  {search.pending ? "Searching…" : "Search"}
-</button>;
-{search.error ? <p>{search.error.message}</p> : null}
-{search.data ? <p>{search.data.notes.length} found</p> : null}
+  return (
+    <>
+      <button disabled={search.pending} onClick={() => search.call({ query: "roadmap" })}>
+        {search.pending ? "Searching…" : "Search"}
+      </button>
+      {search.error ? <p>{search.error.message}</p> : null}
+      {search.data ? <p>{search.data.notes.length} found</p> : null}
+    </>
+  );
+}
 ```
 
-Concurrent calls are last-one-wins, so a search box never renders a stale response, and `data` stays visible while a follow-up call is pending. It dispatches when you call it, never during render: for data a page needs on load, run the capability in a `loader` with `invokeCapability()` so the result is server-rendered instead of fetched after hydration.
+`call()` takes the same arguments as `callCapability` minus the name and resolves to the same envelope, so you can also branch at the call site; `reset()` clears the state. Concurrent calls are last-one-wins — an earlier response arriving after a later one is discarded, so a search box never renders a stale result — and `data` stays visible while a follow-up call is pending or fails. Changing the capability name starts a fresh state.
+
+Discarding a response is not the same as cancelling a request: `reset()`, a newer call, and a name change all abandon the *result*, but the HTTP request runs to completion. Pass a `signal` when that matters — a box that calls on every keystroke otherwise has one request in flight per character typed.
+
+It dispatches when you call it, never during render: for data a page needs on load, run the capability in a `loader` with `invokeCapability()` so the result is server-rendered instead of fetched after hydration.
 
 Capability modules are server-only, and the build enforces that: importing one from client code fails with a pointer to these helpers rather than silently bundling `run()` and everything it imports for every visitor.
 
@@ -135,6 +145,20 @@ import { Form } from "@pracht/core";
 
 Mutations keep the page honest automatically: capabilities are effect-classed, so after any successful non-`read` call from the browser (`callCapability` or `<Form capability>`) the active route's loader data revalidates — no manual `revalidate()` bookkeeping. Opt out per call with `{ revalidate: false }`.
 
+A `destructive` capability is the one case where the browser call takes a required option, because its [prepare/commit flow](/docs/agent-trust) has two phases the compiler makes you write out — exactly one of `{ prepare: true }` or `{ confirm }`:
+
+```ts [src/islands/PurgeButton.tsx]
+const prepared = await callCapability("notes.purge", { titlePrefix: "Old" }, { prepare: true });
+// → 409 confirmation_required, carrying the token
+
+const token = prepared.ok ? undefined : prepared.error.confirmationToken;
+if (token) {
+  await callCapability("notes.purge", { titlePrefix: "Old" }, { confirm: token });
+}
+```
+
+`prepare` is a compile-time marker, not a request option: nothing is sent for it, and on the wire a prepare call is simply a call without a confirmation header. Its only job is to stop an unconfirmed destructive call from being spelled the same way as a forgotten one — refusing to run it is the server's job, and it fails closed.
+
 Over HTTP — every response uses a typed envelope, with path-scoped validation issues an agent can act on:
 
 ```sh
@@ -150,10 +174,12 @@ And every call above is fully typed: `pracht typegen` writes each capability's i
 | Unknown or misspelled capability name | compile error (a "did you mean" suggestion through the nested `capabilities` client) |
 | Input that does not match the schema | compile error |
 | Calling a private capability from the browser | compile error — it has no HTTP endpoint |
-| Committing a `destructive` call without `confirm` | compile error |
+| A `destructive` browser call carrying neither `prepare` nor `confirm` | compile error |
 | A capability name computed at runtime | compile error — assert `as HttpCapabilityName` |
 
-A capability whose input schema requires nothing is callable with no argument at all: `capabilities.notes.stats()`. Apps that have not run `pracht typegen` keep the untyped form and accept any name.
+The confirmation gate closes whenever `destructive` is *possible*, not only when it is certain: a name typed as a union of capabilities demands the marker or the token if any member is destructive, as does a capability whose effect the build could not read.
+
+A capability whose input schema requires nothing is callable with no argument at all: `capabilities.notes.stats()`. Apps that have not run `pracht typegen` keep the untyped form and accept any name — but once the generated file exists that fallback is gone, including the empty registration left after removing the last capability. That is what makes a stale name fail the build instead of falling through to a runtime 404, so re-run `pracht typegen` (and `--check` in CI) after upgrading.
 
 ---
 

@@ -108,6 +108,27 @@ pracht generate api --path /health --methods GET,POST
 
 ---
 
+## pracht typegen
+
+Generate typed declarations from the resolved app graph — the same graph `pracht inspect` reads, so generated types can never claim a route or endpoint the app does not have.
+
+```sh
+pracht typegen
+pracht typegen --check    # fail instead of writing when a file is stale (CI)
+```
+
+Up to three files:
+
+- `src/pracht.d.ts` — [route ids and params](/docs/routing), plus the [`apiFetch()` contract](/docs/api-routes)
+- `src/pracht-routes.ts` — the runtime `href()` helpers
+- `src/pracht-capabilities.d.ts` — each [capability](/docs/capabilities)'s input/output types, effect class, and exposure. Written only for apps that register capabilities; removing the last one rewrites an existing file to the empty registration rather than leaving it stale
+
+Paths are overridable with `--out`, `--runtime-out`, and `--capabilities-out`; `--json` reports what was written. After the first run, `pracht dev` regenerates on route and manifest changes.
+
+Capability typegen loads capability modules to read their metadata, while the browser's endpoint table is built by static analysis. Typegen cross-checks the two and fails when they disagree, rather than emitting types that would green-light a call the client bundle has no endpoint for.
+
+---
+
 ## pracht doctor
 
 Validate the current app wiring and surface missing files or configuration drift.
