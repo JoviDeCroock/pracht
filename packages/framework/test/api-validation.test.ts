@@ -341,6 +341,44 @@ describe("record helpers", () => {
     expect(formDataToRecord(formData)).toEqual({ a: "1", b: ["2", "3"] });
   });
 
+  it("keeps every value, in order, when a key repeats more than twice", () => {
+    const formData = new FormData();
+    for (const value of ["1", "2", "3", "4"]) {
+      formData.append("tag", value);
+    }
+
+    expect(formDataToRecord(formData)).toEqual({ tag: ["1", "2", "3", "4"] });
+    expect(searchParamsToRecord(new URLSearchParams("tag=1&tag=2&tag=3&tag=4"))).toEqual({
+      tag: ["1", "2", "3", "4"],
+    });
+  });
+
+  it("groups many distinct keys in a single pass", () => {
+    // Grouping by re-reading every entry per unique key is quadratic: at this
+    // size it costs tens of seconds, so the budget below fails loudly if the
+    // per-key rescan ever comes back. A single pass lands in ~20ms.
+    const COUNT = 100_000;
+    const formData = new FormData();
+    const pairs: string[] = [];
+    for (let index = 0; index < COUNT; index++) {
+      const key = index.toString(36);
+      formData.append(key, "");
+      pairs.push(`${key}=`);
+    }
+    const searchParams = new URLSearchParams(pairs.join("&"));
+
+    const started = performance.now();
+    const form = formDataToRecord(formData);
+    const query = searchParamsToRecord(searchParams);
+    const elapsed = performance.now() - started;
+
+    expect(Object.keys(form)).toHaveLength(COUNT);
+    expect(Object.keys(query)).toHaveLength(COUNT);
+    expect(form[(COUNT - 1).toString(36)]).toBe("");
+    expect(query[(COUNT - 1).toString(36)]).toBe("");
+    expect(elapsed).toBeLessThan(5_000);
+  });
+
   it("preserves special field names without changing the record prototype", () => {
     const query = searchParamsToRecord(new URLSearchParams("__proto__=query&constructor=value"));
     const formData = new FormData();
