@@ -22,6 +22,7 @@ const EMPTY_GRAPH: GraphSnapshot = {
   mode: "manifest",
   routes: [],
   api: [],
+  capabilities: [],
   constraints: [],
 };
 

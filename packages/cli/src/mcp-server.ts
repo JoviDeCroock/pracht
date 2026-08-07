@@ -101,7 +101,7 @@ export function createPrachtMcpServer(): McpServer {
     "plan",
     {
       description:
-        "Semantic app-graph diff against a base git ref: routes/API/constraints added, removed, and changed. Same payload as `pracht plan --json`. Set write=true to refresh the committed .pracht/app-graph.json snapshot instead.",
+        "Semantic app-graph diff against a base git ref: routes/API/capabilities/constraints added, removed, and changed, plus `widensAgentSurface` when a capability change widened the agent-reachable surface. Same payload as `pracht plan --json`. Set write=true to refresh the committed .pracht/app-graph.json snapshot instead.",
       inputSchema: {
         ...cwdInput,
         base: z

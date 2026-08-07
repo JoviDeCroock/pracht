@@ -397,6 +397,9 @@ export const app = defineApp({
     const snapshot = JSON.parse(readFileSync(join(appDir, ".pracht/app-graph.json"), "utf-8"));
     expect(snapshot.routes.map((route) => route.path)).toEqual(["/dashboard"]);
     expect(snapshot.api.map((route) => route.path)).toEqual(["/api/health", "/api/webhook"]);
+    // The agent-facing half of the graph is snapshotted too, so a change to it
+    // shows up in `pracht plan` like a route change does.
+    expect(snapshot.capabilities).toEqual([]);
 
     initializeGitRepo(appDir);
 

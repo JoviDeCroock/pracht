@@ -34,6 +34,7 @@ function makeSnapshot(overrides: Partial<GraphSnapshot> = {}): GraphSnapshot {
     mode: "manifest",
     routes: [],
     api: [],
+    capabilities: [],
     constraints: [],
     ...overrides,
   };
@@ -190,5 +191,206 @@ describe("plan formatters", () => {
     expect(formatPlanText(diffGraphSnapshots(base, base), { base: "origin/main" })).toContain(
       "No app graph changes.",
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Capabilities: the agent-facing half of the graph
+// ---------------------------------------------------------------------------
+
+function makeCapability(overrides: Record<string, unknown> = {}) {
+  return {
+    agentPolicy: "require",
+    effect: "read",
+    hasUi: false as const,
+    httpPath: "/api/capabilities/notes/search",
+    input: {
+      type: "object",
+      properties: {
+        query: { type: "string", minLength: 1 },
+        limit: { type: "integer", minimum: 1, maximum: 50 },
+      },
+      required: ["query"],
+      additionalProperties: false,
+    },
+    middleware: ["auth"],
+    name: "notes.search",
+    output: { type: "object", properties: { notes: { type: "array" } } },
+    source: "./capabilities/notes-search.ts",
+    title: "Search notes",
+    transports: ["http"],
+    ...overrides,
+  };
+}
+
+function diffCapability(overrides: Record<string, unknown>) {
+  return diffGraphSnapshots(
+    makeSnapshot({ capabilities: [makeCapability()] }),
+    makeSnapshot({ capabilities: [makeCapability(overrides)] }),
+  );
+}
+
+describe("capability diff", () => {
+  it("flags a capability becoming reachable by remote agents", () => {
+    const diff = diffCapability({ transports: ["http", "mcp"] });
+
+    expect(diff.widensAgentSurface).toBe(true);
+    expect(diff.capabilityChanges[0]).toMatchObject({
+      kind: "exposure-added",
+      capability: "notes.search",
+      severity: "warn",
+    });
+    expect(diff.capabilityChanges[0].detail).toContain("reachable by agents");
+  });
+
+  it("flags agentPolicy being downgraded, but not strengthened", () => {
+    expect(diffCapability({ agentPolicy: "observe" }).capabilityChanges[0]).toMatchObject({
+      kind: "policy-weakened",
+      severity: "warn",
+    });
+
+    const strengthened = diffGraphSnapshots(
+      makeSnapshot({ capabilities: [makeCapability({ agentPolicy: null })] }),
+      makeSnapshot({ capabilities: [makeCapability()] }),
+    );
+    expect(strengthened.widensAgentSurface).toBe(false);
+    expect(strengthened.capabilityChanges[0].kind).toBe("policy-strengthened");
+  });
+
+  it("flags middleware being dropped", () => {
+    const diff = diffCapability({ middleware: [] });
+
+    expect(diff.capabilityChanges[0]).toMatchObject({
+      kind: "middleware-removed",
+      severity: "warn",
+    });
+    expect(diff.capabilityChanges[0].detail).toContain("auth");
+  });
+
+  it("flags a destructive capability being reclassified", () => {
+    const diff = diffGraphSnapshots(
+      makeSnapshot({ capabilities: [makeCapability({ effect: "destructive" })] }),
+      makeSnapshot({ capabilities: [makeCapability({ effect: "write" })] }),
+    );
+
+    expect(diff.capabilityChanges[0]).toMatchObject({ kind: "effect-changed", severity: "warn" });
+  });
+
+  it("separates a new exposed capability from a new private one", () => {
+    const exposed = diffGraphSnapshots(
+      makeSnapshot(),
+      makeSnapshot({
+        capabilities: [makeCapability()],
+      }),
+    );
+    expect(exposed.capabilityChanges[0]).toMatchObject({ kind: "added", severity: "warn" });
+    expect(exposed.widensAgentSurface).toBe(true);
+
+    const privateOne = diffGraphSnapshots(
+      makeSnapshot(),
+      makeSnapshot({ capabilities: [makeCapability({ transports: [], httpPath: null })] }),
+    );
+    expect(privateOne.capabilityChanges[0]).toMatchObject({ kind: "added", severity: "info" });
+    expect(privateOne.widensAgentSurface).toBe(false);
+  });
+
+  it("reports removals without alarm", () => {
+    const diff = diffGraphSnapshots(
+      makeSnapshot({ capabilities: [makeCapability()] }),
+      makeSnapshot(),
+    );
+
+    expect(diff.capabilityChanges[0]).toMatchObject({ kind: "removed", severity: "info" });
+    expect(diff.widensAgentSurface).toBe(false);
+  });
+
+  it("catches input schema widenings, including nested bounds", () => {
+    const details = (input: Record<string, unknown>) =>
+      diffCapability({ input }).capabilityChanges.map((change) => change.detail);
+
+    expect(details({ ...makeCapability().input, required: [] })).toContain(
+      "input: no longer requires query",
+    );
+
+    expect(details({ ...makeCapability().input, additionalProperties: true })).toContain(
+      "input: additionalProperties opened up",
+    );
+
+    expect(
+      details({
+        ...makeCapability().input,
+        properties: {
+          query: { type: "string", minLength: 1 },
+          limit: { type: "integer", minimum: 1, maximum: 5000 },
+        },
+      }),
+    ).toContain("input.limit: maximum raised (50 → 5000)");
+
+    expect(
+      details({
+        ...makeCapability().input,
+        properties: {
+          query: { type: "string", minLength: 1 },
+          limit: { type: "integer", minimum: 1 },
+        },
+      }),
+    ).toContain("input.limit: maximum raised (50 → unbounded)");
+  });
+
+  it("stays quiet on narrowings and on no change", () => {
+    const narrowed = diffCapability({
+      input: {
+        ...makeCapability().input,
+        properties: {
+          query: { type: "string", minLength: 1 },
+          limit: { type: "integer", minimum: 1, maximum: 20 },
+        },
+      },
+    });
+    expect(narrowed.capabilityChanges).toEqual([]);
+
+    const unchanged = diffCapability({});
+    expect(unchanged.capabilityChanges).toEqual([]);
+    expect(unchanged.identical).toBe(true);
+  });
+
+  it("treats a snapshot without capabilities as having none", () => {
+    const legacy = makeSnapshot();
+    // @ts-expect-error — a snapshot committed before capabilities were tracked.
+    delete legacy.capabilities;
+
+    expect(diffGraphSnapshots(legacy, makeSnapshot()).capabilityChanges).toEqual([]);
+  });
+});
+
+describe("plan formatters with capability changes", () => {
+  const base = makeSnapshot({ capabilities: [makeCapability()] });
+  const head = makeSnapshot({ capabilities: [makeCapability({ transports: ["http", "mcp"] })] });
+
+  it("marks widenings in the text plan", () => {
+    const text = formatPlanText(diffGraphSnapshots(base, head), { base: "origin/main" });
+
+    expect(text).toContain("! capability notes.search  now exposed via mcp");
+    expect(text).toContain("widens what agents can reach");
+  });
+
+  it("headlines widenings above the markdown diff", () => {
+    const markdown = formatPlanMarkdown(diffGraphSnapshots(base, head), { base: "origin/main" });
+
+    expect(markdown).toContain("⚠️ **This change widens what agents can reach");
+    expect(markdown).toContain("1 capability change.");
+    expect(markdown).toContain("! capability notes.search");
+  });
+
+  it("says nothing extra when the agent surface did not move", () => {
+    const renamed = makeSnapshot({
+      capabilities: [makeCapability({ httpPath: "/api/search" })],
+    });
+    const markdown = formatPlanMarkdown(diffGraphSnapshots(base, renamed), {
+      base: "origin/main",
+    });
+
+    expect(markdown).not.toContain("widens what agents can reach");
+    expect(markdown).toContain("~ capability notes.search  HTTP path");
   });
 });

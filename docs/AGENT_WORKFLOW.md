@@ -17,8 +17,8 @@ together. See [MCP.md](MCP.md) for the MCP tool surface agents use to drive them
 ## 1. The app-graph snapshot and `pracht plan`
 
 Because pracht resolves the whole app into an explicit graph (routes, render modes,
-shells, middleware, API endpoints, constraints), "what did this change do" has a
-canonical answer that is not the raw code diff.
+shells, middleware, API endpoints, capabilities, constraints), "what did this change
+do" has a canonical answer that is not the raw code diff.
 
 - `.pracht/app-graph.json` is a committed, canonically-ordered serialization of the
   resolved graph — a route-graph lockfile. `pracht plan --write` refreshes it.
@@ -32,14 +32,29 @@ canonical answer that is not the raw code diff.
   ~ route /dashboard  middleware: [auth] → [auth, audit]
   - route /legacy
   + api   /api/webhooks/stripe  methods=[POST]
+  ! capability notes.purge  now exposed via mcp — reachable by agents
+  ~ capability notes.search  HTTP path /api/capabilities/notes/search → /api/search
   + constraint require-middleware /app/**  middleware=["auth"]
   ```
+
+- Capability lines answer the question a route diff cannot: **did this change
+  widen what agents can reach?** A `!` marks a widening — a new exposure, a
+  `destructive` capability reclassified out of the confirmation flow, an
+  `agentPolicy` downgraded from `require`, middleware dropped, or an input schema
+  that now accepts more than it did (a dropped `required` field, an opened
+  `additionalProperties`, a raised or removed bound, including nested ones like
+  `input.limit: maximum raised (50 → 5000)`). Narrowings and removals stay quiet.
+  When anything widened, `--markdown` puts a callout above the diff instead of
+  leaving it to be spotted in the fence.
 
 - `--markdown` emits the same diff fenced for a PR comment; `--json` is the full
   structured payload (`PlanReport`). Per-route gzip sizes are annotated when the
   last build produced a budget report.
 - `pracht verify` fails when the snapshot is stale, so a committed snapshot is
   always trustworthy — the plan in a PR cannot drift from the code.
+- A snapshot committed before capabilities were tracked simply has none, so the
+  first plan after upgrading reports every capability as added; `pracht plan
+  --write` settles it.
 
 Review flow this enables: the reviewer reads the plan first ("did the agent add
 exactly the route it was asked to, behind the right middleware?"), then reads only

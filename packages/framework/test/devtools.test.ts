@@ -164,6 +164,7 @@ describe("buildDevtoolsHtml", () => {
       ...graphFixture,
       capabilities: [
         {
+          agentPolicy: null,
           effect: "read",
           hasUi: false,
           httpPath: "/api/capabilities/notes/search",
@@ -176,6 +177,7 @@ describe("buildDevtoolsHtml", () => {
           transports: ["http", "webmcp"],
         },
         {
+          agentPolicy: null,
           effect: "write",
           hasUi: false,
           httpPath: null,
