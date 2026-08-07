@@ -1,5 +1,20 @@
 # @pracht/cli
 
+## 1.8.5
+
+### Patch Changes
+
+- [#261](https://github.com/JoviDeCroock/pracht/pull/261) [`934e262`](https://github.com/JoviDeCroock/pracht/commit/934e2628eb09b4062820189970576d6db980c311) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Stop evaluating the adapter's server entry when reading the app graph. `pracht
+dev`'s startup banner, `pracht inspect`, `pracht plan`, and `pracht verify` now
+  load the adapter-neutral `virtual:pracht/dev-metadata` module (which gained
+  `apiRoutes` and `buildTarget` exports) instead of `virtual:pracht/server`. On
+  Cloudflare apps using `workerExportsFrom`, loading the server entry in Vite's
+  Node SSR environment logged `Cannot find module 'cloudflare:workers'` on every
+  `pracht dev` start and swallowed the route/API banner. Metadata evaluation
+  errors remain intact instead of falling back to that runtime-specific entry.
+- Updated dependencies [[`aa32069`](https://github.com/JoviDeCroock/pracht/commit/aa320692339c1d1a7d4d4cd9467be113472d271d)]:
+  - @pracht/core@0.11.4
+
 ## 1.8.4
 
 ### Patch Changes
