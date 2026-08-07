@@ -15,7 +15,7 @@ next:
 Exposing [capabilities](/docs/capabilities) to agents raises questions a schema cannot answer. The agent trust layer answers all three, and everything is opt-in — an app without `defineApp({ agents })` and without destructive capabilities pays a single property check per request.
 
 - **Who is calling?** — Web Bot Auth puts a cryptographically verified agent identity on the request context.
-- **May they do this?** — policy modes per app and per capability, plus a server-verified confirmation flow for destructive effects.
+- **May they do this?** — policy modes per app and per capability, plus a server-verified confirmation flow for destructive effects, optionally backed by a durable approval store for exactly-once commits and real human approval.
 - **What happened?** — one structured audit event per capability dispatch.
 
 ---
@@ -83,6 +83,52 @@ The first call never runs the capability — it answers with a short-lived token
 The token is an HMAC over the caller's principal (verified agent key, or `"anonymous"`), the capability name, the canonicalized input, and an expiry. Committing means repeating the call with identical input plus the `x-pracht-confirm` header — tampered, expired, different-input, or different-principal tokens are rejected with `403`, fail closed.
 
 Agent hosts cannot yet be trusted to carry this two-step flow faithfully, so destructive capabilities cannot be exposed over WebMCP — `defineCapability()`, the runtime, and `pracht verify` all enforce it.
+
+Two things a stateless HMAC cannot do on its own: stop a captured token being replayed until it expires, and prove a *person* agreed — the calling agent receives the token and can hand it straight back to itself. Registering an approval store fixes both.
+
+---
+
+## Durable Approvals
+
+Register a store and prepare records a **proposal**; commit consumes it exactly once. The wire protocol is unchanged — callers still just echo the token they were handed.
+
+```ts [src/server/approvals.ts]
+import { createMemoryApprovalStore, setCapabilityApprovalStore } from "@pracht/core";
+
+setCapabilityApprovalStore(createMemoryApprovalStore());
+```
+
+The proposal id is derived server-side from the principal, the capability, and the canonicalized input — never supplied by a caller. Repeated prepares address one proposal, so a person approves *the action* rather than one particular token. The HMAC is verified before the store is touched, so a forged token can never destroy a live proposal.
+
+`agents.confirmation.mode` picks who decides:
+
+| Mode | Commit requires | Adds |
+| --- | --- | --- |
+| `"token"` (default) | a valid token | exactly-once across replicas |
+| `"human"` | a valid token **and** an approved proposal | a real human decision |
+
+```ts [src/routes.ts]
+export const app = defineApp({
+  agents: { confirmation: { mode: "human", ttlSeconds: 900 } },
+});
+```
+
+In `"human"` mode a commit for an undecided proposal answers `409` with `code: "confirmation_pending"` and the `approvalId`. A person decides out of band, through a surface you build and gate with your own auth — pracht ships no approval endpoint, because who may approve is an application decision:
+
+```ts [src/api/admin/approvals.ts]
+export async function GET() {
+  return Response.json(await store.listPending());
+}
+
+export async function POST({ request, context }: ApiRouteArgs) {
+  const { id, decision } = await request.json();
+  return Response.json({ ok: await store.decide(id, decision, context.user.email) });
+}
+```
+
+`createMemoryApprovalStore()` is correct for one instance — use it in tests and development. For a real deployment, implement `CapabilityApprovalStore` over a backend with **conditional writes** (D1, Durable Objects, Postgres, Redis; *not* Cloudflare KV): `consume()` must be a compare-and-set, so two replicas committing the same token concurrently produce exactly one success.
+
+Three behaviours to know before enabling it: `mode: "human"` without a store fails closed rather than self-approving; a valid token whose proposal is unknown is refused, so prepare and commit must reach the same store; and any store exception closes the gate.
 
 ---
 

@@ -7,7 +7,8 @@ The agent trust layer answers three questions about the capability graph
   verified agent identity on the request context.
 - **May they do this?** — policy modes per app and per capability, plus a
   server-verified prepare/commit confirmation flow for destructive
-  capabilities.
+  capabilities, optionally backed by a durable approval store for
+  exactly-once commits and real human approval.
 - **What happened?** — a structured audit event for every capability
   dispatch, and `pracht eval` to test agent task flows in CI.
 
@@ -201,17 +202,121 @@ Set `PRACHT_CONFIRMATION_SECRET` in the server environment (or call
    }
    ```
 
-### Honest limitations
+### Honest limitations of the stateless flow
 
 - **Stateless HMAC cannot prevent replay within the TTL.** A captured token
   authorizes the same principal + capability + input until it expires.
   `agents.confirmation.singleUse: true` enables a best-effort in-memory
-  cache — per instance, lost on restart, not shared across replicas. True
-  single-use needs shared storage (deliberately out of scope for v1).
+  cache — per instance, lost on restart, not shared across replicas.
+- **Confirmation is not a human decision.** The calling agent receives the
+  token and can immediately hand it back to itself. The round trip proves
+  deliberateness, not consent.
 - **Principal binding is only as strong as the principal.** Without Web Bot
   Auth (or your own auth middleware), both prepare and commit run as
   `"anonymous"` — the flow still forces the two-step round trip with
   identical input, but does not tie the token to a caller.
+
+Registering an approval store removes the first two.
+
+## Durable approvals
+
+Register a `CapabilityApprovalStore` and the prepare/commit flow gains
+storage: prepare records a **proposal**, commit consumes it exactly once. The
+wire protocol does not change — callers still just echo the token they were
+handed.
+
+```ts
+// src/server/approvals.ts — any server-only module
+import { createMemoryApprovalStore, setCapabilityApprovalStore } from "@pracht/core";
+
+setCapabilityApprovalStore(createMemoryApprovalStore());
+```
+
+A proposal's id is derived server-side from the principal, the capability
+name, and the canonicalized input — never supplied by a caller. Repeated
+prepare calls for the same operation therefore address **one** proposal, so a
+person approves an action rather than one particular token, and re-preparing
+cannot extend a proposal's life.
+
+The confirmation HMAC keeps doing its job: the signature is verified *before*
+the store is touched, so a forged token can never consume (and thereby
+destroy) a live proposal.
+
+### Two modes
+
+`agents.confirmation.mode` picks who decides:
+
+| Mode | Commit requires | Adds |
+| --- | --- | --- |
+| `"token"` (default) | a valid token | exactly-once across replicas |
+| `"human"` | a valid token **and** an approved proposal | a real human decision |
+
+```ts
+export const app = defineApp({
+  agents: { confirmation: { mode: "human", ttlSeconds: 900 } },
+  // capabilities, routes, ...
+});
+```
+
+In `"human"` mode a commit for an undecided proposal answers `409
+{ error: { code: "confirmation_pending", approvalId } }` — the agent waits or
+gives up, and a person decides out of band:
+
+```ts
+// src/api/admin/approvals.ts — mount behind your own auth
+export async function GET() {
+  return Response.json(await store.listPending());
+}
+
+export async function POST({ request, context }: ApiRouteArgs) {
+  const { id, decision } = await request.json();
+  return Response.json({ ok: await store.decide(id, decision, context.user.email) });
+}
+```
+
+Who may approve is an application decision, so pracht ships no approval
+endpoint or UI — a framework-default approval route would be the same mistake
+as trusting host-reported approval.
+
+`mode: "human"` without a registered store fails closed with `403
+confirmation_unavailable` rather than silently degrading to self-approval.
+
+### Writing a store
+
+The reference `createMemoryApprovalStore()` is correct for one instance, and
+it is what tests and development should use — but it is lost on restart and
+not shared across replicas. For a real deployment, implement
+`CapabilityApprovalStore` over a backend with **conditional writes**:
+
+```sql
+-- consume(): the only method with a concurrency contract.
+UPDATE pracht_approvals
+   SET state = 'consumed', consumed_at = ?now
+ WHERE id = ?id
+   AND expires_at >= ?now
+   AND state IN ('pending', 'approved')
+   AND (?requireApproval = 0 OR state = 'approved');
+-- ok = (rows_affected == 1)
+```
+
+It **must** be a compare-and-set, not a read followed by a write: two
+replicas committing the same token concurrently must produce exactly one
+success. Cloudflare KV cannot do this (no conditional write); D1, Durable
+Objects, Postgres, and Redis can.
+
+Two operational consequences worth knowing before you turn this on:
+
+- **Prepare and commit must reach the same store.** With a store registered, a
+  valid token whose proposal is unknown is refused. That is deliberate — a
+  misconfigured deployment fails loudly instead of executing twice — but it
+  means a per-instance store on a multi-replica deployment breaks commits
+  rather than merely weakening them.
+- **A failing store closes the gate.** Any exception from `create()` or
+  `consume()` answers `403 confirmation_unavailable`; the capability does not
+  run.
+
+`singleUse` is ignored while a store is registered — the store enforces single
+use durably.
 
 ## Operational hardening: what the framework does not do (yet)
 
@@ -333,8 +438,9 @@ example):
 ## Not built yet
 
 - Directory fetching without an allowlist (needs an SSRF story).
-- `nonce` uniqueness enforcement and shared-storage single-use confirmation
-  tokens.
+- `nonce` uniqueness enforcement.
+- A first-party approval store for D1/Postgres/Durable Objects — the SPI ships,
+  the adapters do not.
 - RSA-PSS agent keys (the Web Bot Auth ecosystem is Ed25519-first).
 - Destructive capabilities over WebMCP/MCP, and `pracht eval` speaking MCP
   instead of the HTTP projection.

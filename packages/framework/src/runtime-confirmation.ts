@@ -13,6 +13,8 @@
  * Honest limitation: a stateless HMAC cannot prevent replay *within* the TTL.
  * True single-use requires shared storage; the optional in-memory cache below
  * is best effort and per-instance only (documented in docs/AGENT_TRUST.md).
+ * Register a `CapabilityApprovalStore` (see runtime-approval.ts) for durable
+ * exactly-once commits and optional human approval.
  *
  * The secret comes from `PRACHT_CONFIRMATION_SECRET` or
  * `setCapabilityConfirmationSecret()` — never from the app manifest, which is
@@ -204,7 +206,7 @@ async function hmacSign(secret: string, message: string): Promise<string> {
   return base64UrlEncode(new Uint8Array(signature));
 }
 
-async function sha256Base64Url(value: string): Promise<string> {
+export async function sha256Base64Url(value: string): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", encoder.encode(value));
   return base64UrlEncode(new Uint8Array(digest));
 }

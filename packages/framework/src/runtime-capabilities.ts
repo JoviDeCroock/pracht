@@ -22,6 +22,7 @@ import {
   normalizeCapabilityHttpPath,
 } from "@pracht/capabilities";
 import { formatUnknownNameError } from "./name-suggestions.ts";
+import { capabilityApprovalId, resolveCapabilityApprovalStore } from "./runtime-approval.ts";
 import {
   canonicalJson,
   CONFIRMATION_HEADER,
@@ -30,6 +31,7 @@ import {
   createConfirmationToken,
   DEFAULT_CONFIRMATION_TTL_SECONDS,
   resolveConfirmationSecret,
+  sha256Base64Url,
   verifyConfirmationToken,
 } from "./runtime-confirmation.ts";
 import { resolveRegistryModule } from "./runtime-manifest.ts";
@@ -680,7 +682,8 @@ function envelopeOutcome(envelope: CapabilityEnvelope): string {
  * presented and the capability may run. Runs as the pipeline's `beforeRun`
  * hook — i.e. after named middleware — so rate limiting sees prepare and
  * invalid-token attempts too. See runtime-confirmation.ts for the token
- * construction and its documented replay limitations.
+ * construction and its documented replay limitations, and runtime-approval.ts
+ * for the durable store that removes them.
  */
 async function enforceDestructiveConfirmation<TContext>(
   options: HandleCapabilityRequestOptions<TContext>,
@@ -701,30 +704,84 @@ async function enforceDestructiveConfirmation<TContext>(
     };
   }
 
-  const binding = {
-    secret,
-    principal: options.agent ? `agent:${options.agent.keyId}` : "anonymous",
-    capability: options.match.name,
-    canonicalInput: canonicalJson(validatedInput),
-  };
+  const name = options.match.name;
+  const store = resolveCapabilityApprovalStore();
+  const mode = options.agents?.confirmation?.mode ?? "token";
+
+  // A manifest asking for human approval without a store to hold proposals in
+  // would silently degrade to self-approval. Fail closed and say why.
+  if (mode === "human" && !store) {
+    return {
+      status: 403,
+      envelope: errorEnvelope({
+        code: "confirmation_unavailable",
+        message:
+          `Destructive capability "${name}" cannot run: agents.confirmation.mode is ` +
+          '"human" but no approval store is registered (call ' +
+          "setCapabilityApprovalStore() from a server-only module).",
+      }),
+    };
+  }
+
+  const principal = options.agent ? `agent:${options.agent.keyId}` : "anonymous";
+  const canonicalInput = canonicalJson(validatedInput);
+  const binding = { secret, principal, capability: name, canonicalInput };
   const presented = options.request.headers.get(CONFIRMATION_HEADER);
+  const ttlSeconds = options.agents?.confirmation?.ttlSeconds ?? DEFAULT_CONFIRMATION_TTL_SECONDS;
+
+  // Proposal identity is derived from what the operation *is*, so repeated
+  // prepares address one proposal instead of accumulating one per token.
+  const inputHash = store ? await sha256Base64Url(canonicalInput) : null;
+  const approvalId = inputHash ? await capabilityApprovalId(principal, name, inputHash) : null;
 
   if (!presented) {
-    const ttlSeconds = options.agents?.confirmation?.ttlSeconds ?? DEFAULT_CONFIRMATION_TTL_SECONDS;
-    const { token, expiresAt } = await createConfirmationToken({ ...binding, ttlSeconds });
+    let expiresAtLimit = 0;
+    if (store && approvalId && inputHash) {
+      const now = Math.floor(Date.now() / 1000);
+      const created = await withApprovalStore(name, options.exposeErrors, () =>
+        store.create({
+          id: approvalId,
+          principal,
+          capability: name,
+          inputHash,
+          input: validatedInput,
+          createdAt: now,
+          expiresAt: now + ttlSeconds,
+          state: "pending",
+          decidedBy: null,
+          decidedAt: null,
+        }),
+      );
+      if (!created.ok) return created.failure;
+      // Re-preparing an existing proposal must not extend its life, so the
+      // token expires with the proposal rather than `now + ttlSeconds`.
+      expiresAtLimit = created.value.expiresAt - now;
+    }
+
+    const { token, expiresAt } = await createConfirmationToken({
+      ...binding,
+      ttlSeconds: store ? Math.max(1, expiresAtLimit) : ttlSeconds,
+    });
     return {
       status: 409,
       envelope: errorEnvelope({
         code: "confirmation_required",
         message:
-          `Capability "${options.match.name}" is destructive. Repeat the call with ` +
-          `identical input and the "${CONFIRMATION_HEADER}" header set to the confirmation token.`,
+          mode === "human"
+            ? `Capability "${name}" is destructive and needs human approval. Repeat the call ` +
+              `with identical input and the "${CONFIRMATION_HEADER}" header once the proposal ` +
+              "is approved."
+            : `Capability "${name}" is destructive. Repeat the call with identical input and ` +
+              `the "${CONFIRMATION_HEADER}" header set to the confirmation token.`,
         confirmationToken: token,
         expiresAt,
+        ...(approvalId ? { approvalId } : {}),
       }),
     };
   }
 
+  // Signature first, always: a forged or tampered token must never be able to
+  // consume — and thereby destroy — a legitimate proposal.
   const verification = await verifyConfirmationToken(presented, binding);
   if (!verification.ok) {
     return {
@@ -734,6 +791,34 @@ async function enforceDestructiveConfirmation<TContext>(
         message: `Confirmation token rejected (${verification.reason}).`,
       }),
     };
+  }
+
+  if (store && approvalId) {
+    const consumed = await withApprovalStore(name, options.exposeErrors, () =>
+      store.consume(approvalId, { requireApproval: mode === "human" }),
+    );
+    if (!consumed.ok) return consumed.failure;
+
+    if (!consumed.value.ok) {
+      if (consumed.value.reason === "awaiting_approval") {
+        return {
+          status: 409,
+          envelope: errorEnvelope({
+            code: "confirmation_pending",
+            message: `Capability "${name}" is awaiting human approval.`,
+            approvalId,
+          }),
+        };
+      }
+      return {
+        status: 403,
+        envelope: errorEnvelope({
+          code: "confirmation_invalid",
+          message: `Confirmation token rejected (${consumed.value.reason}).`,
+        }),
+      };
+    }
+    return null;
   }
 
   if (
@@ -750,6 +835,36 @@ async function enforceDestructiveConfirmation<TContext>(
   }
 
   return null;
+}
+
+/**
+ * Approval stores talk to a database, so they can fail. A store that is down
+ * must never wave a destructive call through: any rejection becomes a closed
+ * gate.
+ */
+async function withApprovalStore<T>(
+  capability: string,
+  exposeErrors: boolean,
+  operation: () => Promise<T>,
+): Promise<
+  { ok: true; value: T } | { ok: false; failure: { status: number; envelope: CapabilityEnvelope } }
+> {
+  try {
+    return { ok: true, value: await operation() };
+  } catch (error: unknown) {
+    return {
+      ok: false,
+      failure: {
+        status: 403,
+        envelope: errorEnvelope({
+          code: "confirmation_unavailable",
+          message:
+            `Destructive capability "${capability}" cannot run: the approval store failed` +
+            (exposeErrors ? ` (${error instanceof Error ? error.message : String(error)}).` : "."),
+        }),
+      },
+    };
+  }
 }
 
 /**
