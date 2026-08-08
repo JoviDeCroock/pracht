@@ -125,39 +125,45 @@ export function formatDevBanner(options: DevBannerOptions): string {
   }
   lines.push("");
 
-  // Apps without capabilities skip the section entirely — most apps don't
-  // register any, and an empty table would only add noise.
-  if (capabilities.length > 0) {
+  // Apps without capabilities skip the section unless an MCP endpoint is
+  // configured. The endpoint remains active even when the graph is empty.
+  if (capabilities.length > 0 || mcpEndpoint) {
     const heading = `Capabilities (${capabilities.length})`;
     lines.push(
       mcpEndpoint
         ? `  ${paint(heading, ANSI.bold)}  ${paint(`MCP endpoint ${mcpEndpoint}`, ANSI.dim)}`
         : `  ${paint(heading, ANSI.bold)}`,
     );
-    const rows = capabilities.map((capability) => [
-      capability.name,
-      capability.effect ?? "?",
-      capability.transports.length > 0
-        ? capability.transports
-            // `expose.mcp` is only served when the app configures
-            // `agents.mcp` — don't let the banner imply it otherwise.
-            .map((transport) => (transport === "mcp" && !mcpEndpoint ? "mcp(unserved)" : transport))
-            .join(",")
-        : "private",
-      capability.httpPath ?? "-",
-    ]);
-    const header = ["NAME", "EFFECT", "EXPOSURE", "HTTP"];
-    const widths = columnWidths([header, ...rows]);
-    lines.push(`    ${paint(formatRow(header, widths), ANSI.dim)}`);
-    for (const row of rows) {
-      const [name, effect, exposure, httpPath] = row;
-      const cells = [
-        name.padEnd(widths[0]),
-        paint(effect.padEnd(widths[1]), EFFECT_COLORS[effect] ?? ANSI.dim),
-        exposure.padEnd(widths[2]),
-        httpPath,
-      ];
-      lines.push(`    ${cells.join("  ")}`.trimEnd());
+    if (capabilities.length === 0) {
+      lines.push("    (none)");
+    } else {
+      const rows = capabilities.map((capability) => [
+        capability.name,
+        capability.effect ?? "?",
+        capability.transports.length > 0
+          ? capability.transports
+              // `expose.mcp` is only served when the app configures
+              // `agents.mcp` — don't let the banner imply it otherwise.
+              .map((transport) =>
+                transport === "mcp" && !mcpEndpoint ? "mcp(unserved)" : transport,
+              )
+              .join(",")
+          : "private",
+        capability.httpPath ?? "-",
+      ]);
+      const header = ["NAME", "EFFECT", "EXPOSURE", "HTTP"];
+      const widths = columnWidths([header, ...rows]);
+      lines.push(`    ${paint(formatRow(header, widths), ANSI.dim)}`);
+      for (const row of rows) {
+        const [name, effect, exposure, httpPath] = row;
+        const cells = [
+          name.padEnd(widths[0]),
+          paint(effect.padEnd(widths[1]), EFFECT_COLORS[effect] ?? ANSI.dim),
+          exposure.padEnd(widths[2]),
+          httpPath,
+        ];
+        lines.push(`    ${cells.join("  ")}`.trimEnd());
+      }
     }
     lines.push("");
   }

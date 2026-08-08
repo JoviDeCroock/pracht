@@ -387,6 +387,16 @@ describe("transport", () => {
     expect(text).toBe("");
   });
 
+  it.each([null, true, {}, []])("rejects invalid MCP request ids (%j)", async (id) => {
+    const { status, json } = await mcp({ jsonrpc: "2.0", id, method: "ping" });
+    expect(status).toBe(400);
+    expect(json).toMatchObject({
+      jsonrpc: "2.0",
+      id: null,
+      error: { code: -32600 },
+    });
+  });
+
   it("reports unknown methods as method-not-found", async () => {
     const { json } = await mcp({ jsonrpc: "2.0", id: 1, method: "resources/list" });
     expect(json?.error.code).toBe(-32601);
@@ -451,6 +461,7 @@ describe("tools/list", () => {
     expect(search.inputSchema.required).toEqual(["query"]);
     expect(search.outputSchema.required).toEqual(["notes"]);
     expect(search.annotations).toMatchObject({ readOnlyHint: true, destructiveHint: false });
+    expect(search.annotations).not.toHaveProperty("openWorldHint");
     expect(search._meta["io.pracht/capability"]).toBe("notes.search");
 
     const create = json?.result.tools.find(

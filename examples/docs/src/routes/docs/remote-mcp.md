@@ -79,13 +79,12 @@ The endpoint is stateless: no session id, no server→client stream, no resumabi
   "annotations": {
     "readOnlyHint": true,      // derived from effect: "read"
     "destructiveHint": false,
-    "idempotentHint": true,
-    "openWorldHint": false
+    "idempotentHint": true
   }
 }
 ```
 
-Annotations are hints for the client's UX — never enforcement. The effect class that produced them is what the server actually enforces.
+Annotations are hints for the client's UX — never enforcement. The effect class that produced them is what the server actually enforces. Pracht does not claim that a tool is closed-world, so it leaves `openWorldHint` unset and preserves MCP's default.
 
 Capability names are dot-separated; MCP hosts widely constrain tool names to `^[a-zA-Z0-9_-]{1,64}$`, so `notes.search` becomes `notes_search`. Two capabilities that would collide (`notes.search` and `notes_search`) are a `pracht verify` error, and the runtime refuses to serve an ambiguous tool list rather than picking a winner. Projected names longer than 64 characters are rejected by verification and the runtime as well.
 

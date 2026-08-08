@@ -104,15 +104,15 @@ regenerated or re-described:
   "annotations": {
     "readOnlyHint": true,      // derived from effect: "read"
     "destructiveHint": false,
-    "idempotentHint": true,
-    "openWorldHint": false
+    "idempotentHint": true
   },
   "_meta": { "io.pracht/capability": "notes.search", "io.pracht/effect": "read" }
 }
 ```
 
 Annotations are client UX hints, never enforcement — the effect class that
-produced them is what the server enforces.
+produced them is what the server enforces. Pracht does not claim that a tool is
+closed-world, so it leaves `openWorldHint` unset and preserves MCP's default.
 
 Results carry both `structuredContent` (the validated output) and a text
 rendering, so hosts that only read text still get something useful:

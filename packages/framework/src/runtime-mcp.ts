@@ -190,11 +190,19 @@ export async function handleMcpRequest<TContext>(
     });
   }
 
-  // Notifications carry no id and get no body.
-  if (message.id === undefined || message.id === null) {
+  // Notifications omit the id and get no body. MCP request ids are strings or
+  // numbers; JSON-RPC's discouraged null id is not a valid MCP RequestId.
+  if (message.id === undefined) {
     return new Response(null, { status: 202 });
   }
-  const id = message.id as string | number;
+  if (typeof message.id !== "string" && typeof message.id !== "number") {
+    return jsonRpcResponse(400, {
+      jsonrpc: "2.0",
+      id: null,
+      error: { code: JSONRPC_INVALID_REQUEST, message: "Invalid JSON-RPC 2.0 request id." },
+    });
+  }
+  const id = message.id;
 
   if (options.resolutionError !== undefined) {
     const detail =
@@ -304,7 +312,6 @@ function toolDescriptor(entry: ResolvedCapability) {
       readOnlyHint: capability.effect === "read",
       destructiveHint: false,
       idempotentHint: capability.effect === "read",
-      openWorldHint: false,
     },
     _meta: { "io.pracht/capability": entry.name, "io.pracht/effect": capability.effect },
   };
