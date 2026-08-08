@@ -130,6 +130,32 @@ describe("collectCapabilityChecks", () => {
     );
   });
 
+  it("does not warn when a private longer name cannot shadow the generated client", () => {
+    const project = createProject({
+      capability: capabilitySource(COMPLETE_FIELDS),
+      registration: [
+        '    "notes": () => import("./capabilities/notes-search.ts"),',
+        '    "notes.search": () => import("./capabilities/notes-private.ts"),',
+      ].join("\n"),
+    });
+    writeFileSync(
+      join(project.root, "src/capabilities/notes-private.ts"),
+      capabilitySource(`  title: "Private search",
+  description: "Search notes on the server only.",
+  input: { type: "object" },
+  output: { type: "object" },
+  effect: "read",`),
+      "utf-8",
+    );
+
+    const checks: Check[] = [];
+    collectCapabilityChecks(project, checks);
+
+    expect(checks.map((check) => check.message)).not.toContainEqual(
+      expect.stringContaining("is also a namespace"),
+    );
+  });
+
   it("warns instead of passing when expose is not an inline literal", () => {
     const source = [
       'import { defineCapability } from "@pracht/capabilities";',

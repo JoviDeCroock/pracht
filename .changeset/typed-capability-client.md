@@ -31,12 +31,11 @@ when the member schemas differ.
 Capabilities whose input schema requires nothing are callable with no argument
 at all (`callCapability("notes.stats")`).
 
-`prepare` is the one option with no runtime half: nothing is sent for it, and a
-prepare call is on the wire just a call without a confirmation header. It exists
-so an unconfirmed destructive call cannot be spelled the same way as a forgotten
-one. Refusing to run that call stays the server's job, and it fails closed —
-including with `confirmation_unavailable` when no `PRACHT_CONFIRMATION_SECRET`
-is configured.
+`prepare` is not sent over the wire. The browser dispatcher uses it locally to
+remove any confirmation token inherited through caller-supplied headers, so a
+prepare call cannot accidentally commit. Refusing to run that unconfirmed call
+stays the server's job, and it fails closed — including with
+`confirmation_unavailable` when no `PRACHT_CONFIRMATION_SECRET` is configured.
 
 The exported `capabilityEndpoints` table now has a **null prototype**, so a
 capability named `toString` cannot shadow an inherited member during lookup.
@@ -77,10 +76,17 @@ run `pracht typegen` are unaffected.
 `NonDestructiveCapabilityName`, the effect-class split `callCapability` uses to
 keep an unresolved name from being reported as an argument count.
 
-`title`/`description` are emitted as JSDoc on each generated entry, which
-documents the file itself. It does not reach call sites: capability names are
-consumed as string literal arguments and as template-literal-derived client
-members, and TypeScript propagates JSDoc to neither.
+`title`/`description` are emitted as JSDoc on each generated registration entry
+and nested-client method, so editor hovers on `capabilities.notes.search`
+surface the same contract prose. String arguments to `callCapability()` do not
+carry property documentation.
+
+The standalone `createCapabilityTestHost()` reads names and the input/output
+generics retained by the capability objects supplied to it. To keep an input
+typed while allowing the output to infer from `run()`, annotate the handler with
+`CapabilityRunArgs<Input>`; alternatively provide both
+`defineCapability<Input, Output>` generics. Supplying only the first generic
+uses TypeScript's default `unknown` output, which the host cannot recover later.
 
 Two notes on how the checks behave at the edges. A capability name typed as a
 union (`"notes.search" | "notes.purge"`) demands an explicit prepare marker or

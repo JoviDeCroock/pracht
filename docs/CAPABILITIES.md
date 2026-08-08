@@ -52,8 +52,13 @@ only for now — the pages router has no manifest to register them in.
 
 ```ts
 // src/capabilities/notes-search.ts
-import { defineCapability } from "@pracht/capabilities";
+import { defineCapability, type CapabilityRunArgs } from "@pracht/capabilities";
 import { searchNotes } from "../server/notes-store.ts";
+
+interface SearchInput {
+  query: string;
+  limit: number;
+}
 
 export default defineCapability({
   title: "Search notes",
@@ -75,11 +80,19 @@ export default defineCapability({
   effect: "read",
   middleware: ["auth"], // optional — names from the app manifest
   expose: { http: true, webmcp: true }, // optional — private without it
-  async run({ input, context, request, signal }) {
+  async run({ input, context, request, signal }: CapabilityRunArgs<SearchInput>) {
     return { notes: searchNotes(input.query, input.limit) };
   },
 });
 ```
+
+Annotating `run()` with `CapabilityRunArgs<Input>` keeps its input typed while
+letting TypeScript infer the concrete output from the return value. This also
+lets `createCapabilityTestHost()` preserve both types from the capability
+object. Avoid supplying only `defineCapability<Input>`: because TypeScript does
+not partially infer defaulted generics, that form leaves the output as
+`unknown`. When you want to state it explicitly, pass both
+`defineCapability<Input, Output>`.
 
 `context` defaults to `CapabilityContext`: `context.agent` is typed as the
 verified Web Bot Auth identity (`PrachtAgentIdentity | null`, absent when
@@ -129,7 +142,7 @@ this.
 import { invokeCapability } from "@pracht/core/server";
 
 export async function loader({ request, context, signal }: LoaderArgs) {
-  const result = await invokeCapability<{ notes: Note[] }>(
+  const result = await invokeCapability(
     "notes.search",
     { query: "roadmap" },
     { request, context, signal },
@@ -208,11 +221,13 @@ name, private capabilities are absent, and a `destructive` capability must
 explicitly prepare for a token or provide that token to commit.
 
 Prefer the nested client when you are typing a name by hand: its members are
-real property accesses, so a typo gets `Did you mean 'search'?`. A string
-literal argument to `callCapability` gets no such suggestion — it is answered
-with the list of names that would have worked instead. A `destructive` name is
-absent from that list until the call carries `prepare` or `confirm`, which is
-how the confirmation gate shows up at a call site that forgot it.
+real property accesses, so a typo gets `Did you mean 'search'?` and a hover
+shows the capability's generated title and description. A string literal
+argument to `callCapability` gets neither property documentation nor that
+suggestion — it is answered with the list of names that would have worked
+instead. A `destructive` name is absent from that list until the call carries
+`prepare` or `confirm`, which is how the confirmation gate shows up at a call
+site that forgot it.
 
 Once typegen has run, neither form accepts a name computed at runtime. When a
 name genuinely comes from data, assert it (`name as HttpCapabilityName`) and
@@ -302,10 +317,10 @@ non-`read` call the active route's data revalidates automatically — the effect
 class the capability already declares drives the client cache; pass
 `revalidate: false` to opt a call out.
 
-Destructive capabilities take one more, `prepare`, and it is the odd one out:
-it is a **compile-time marker, not a request option**. Nothing is sent for it
-and no runtime behaviour depends on it. The types accept a destructive call
-only with exactly one of `{ prepare: true }` or `{ confirm }`, so the two
+Destructive capabilities take one more, `prepare`. Nothing is sent for it over
+the wire; locally, the browser dispatcher uses it to remove any confirmation
+token inherited through caller-supplied headers. The types accept a destructive
+call only with exactly one of `{ prepare: true }` or `{ confirm }`, so the two
 phases of the flow have to be written out rather than inferred from an absent
 argument:
 
@@ -317,11 +332,11 @@ await callCapability("notes.purge", input, {
 });
 ```
 
-The prepare call is, on the wire, simply a call without a confirmation header —
-the marker records the caller's intent for the compiler. The guarantee that it
-cannot run the operation is the server's: the gate rejects an unconfirmed
-destructive call before `run()`, and fails closed with `confirmation_unavailable`
-when no `PRACHT_CONFIRMATION_SECRET` is configured. See
+The prepare call is, on the wire, simply a call without a confirmation header.
+The client actively enforces that shape even when a wrapper forwards headers.
+The final guarantee that it cannot run the operation is the server's: the gate
+rejects an unconfirmed destructive call before `run()`, and fails closed with
+`confirmation_unavailable` when no `PRACHT_CONFIRMATION_SECRET` is configured. See
 [AGENT_TRUST.md](AGENT_TRUST.md).
 
 ### Forms
@@ -369,9 +384,13 @@ import { Form } from "@pracht/core";
 capability's input/output types generated from its JSON Schemas, plus its
 effect class and exposure, registered on `Register["capabilities"]`. With that
 file in the program, `invokeCapability()`, the browser's `callCapability()`,
-the generated `capabilities` client, `<Form capability>`, and
-`createCapabilityTestHost().invoke()` all read the contract from the capability
-name — no per-call generics:
+the generated `capabilities` client, and `<Form capability>` all read the
+contract from the capability name — no per-call generics. A factory-created
+`createCapabilityTestHost()` instead reads `invoke()` names and the
+input/output generics preserved by the capability map supplied to that host, so
+test-only names do not have to appear in the app manifest. Annotate `run()` with
+`CapabilityRunArgs<Input>` to infer its output, or provide both
+`defineCapability<Input, Output>` generics:
 
 ```ts
 const result = await invokeCapability("notes.search", { query: "roadmap" }, args);
@@ -394,6 +413,9 @@ at all: `callCapability("notes.stats")`.
 - An input property is optional when it is not `required` **or** declares a
   schema `default` (defaults are applied before input validation); an output
   property is optional exactly when it is not `required`.
+- A capability name typed as a union may omit its input only when every member
+  accepts empty input, and any supplied input must be valid for every possible
+  member. Narrow the name first when their contracts differ.
 - Objects without `additionalProperties: false` keep an index signature, so
   extra members remain reachable as `unknown`. Extra properties on a closed
   schema are rejected at runtime with a path-scoped 400; TypeScript's
@@ -499,7 +521,8 @@ The capability graph feeds every existing inspection surface:
 
 `createCapabilityTestHost()` (from `@pracht/core`) runs the dispatch pipeline
 in-process for unit tests — no manifest, no Vite, no server. `invoke()`
-mirrors `invokeCapability()`; `request()` mirrors the HTTP projection,
+mirrors `invokeCapability()` and is typed from the generics retained by that
+host's supplied capability map, including test-only aliases; `request()` mirrors the HTTP projection,
 including Web Bot Auth policy (inject a simulated identity via the `agent`
 option) and the destructive prepare/commit confirmation flow (set
 `PRACHT_CONFIRMATION_SECRET` or call `setCapabilityConfirmationSecret()` in

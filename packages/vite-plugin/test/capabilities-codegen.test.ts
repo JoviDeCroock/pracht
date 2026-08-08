@@ -462,6 +462,45 @@ describe("createPrachtCapabilitiesClientModuleSource", () => {
     expect((headers as Headers).get("x-pracht-confirm")).toBe("token-1");
   });
 
+  it("never forwards a confirmation token from a prepare-only call", async () => {
+    const root = createFixture({
+      capabilities: {
+        "notes-create.ts": CREATE_CAPABILITY,
+      },
+    });
+    const source = createPrachtCapabilitiesClientModuleSource({}, { root });
+    let requestInit: RequestInit | undefined;
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (_input, init) => {
+      requestInit = init;
+      return Response.json({
+        ok: false,
+        error: { code: "confirmation_required", message: "Confirm", confirmationToken: "fresh" },
+      });
+    }) as typeof fetch;
+
+    try {
+      const mod = await importGeneratedModule<{
+        callCapability: (
+          name: string,
+          input?: unknown,
+          opts?: { headers?: HeadersInit; prepare?: true },
+        ) => Promise<unknown>;
+      }>(source);
+      await mod.callCapability(
+        "notes.create",
+        { title: "Prepare only" },
+        { prepare: true, headers: { "x-pracht-confirm": "must-not-commit" } },
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+
+    const headers = requestInit?.headers;
+    if (!(headers instanceof Headers)) throw new Error("expected generated client headers");
+    expect(headers.get("x-pracht-confirm")).toBeNull();
+  });
+
   it("preserves explicit null input in browser calls", async () => {
     const root = createFixture({ capabilities: { "notes-create.ts": CREATE_CAPABILITY } });
     const source = createPrachtCapabilitiesClientModuleSource({}, { root });

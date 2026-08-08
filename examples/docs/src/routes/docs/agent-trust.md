@@ -82,6 +82,23 @@ The first call never runs the capability — it answers with a short-lived token
 
 The token is an HMAC over the caller's principal (verified agent key, or `"anonymous"`), the capability name, the canonicalized input, and an expiry. Committing means repeating the call with identical input plus the `x-pracht-confirm` header — tampered, expired, different-input, or different-principal tokens are rejected with `403`, fail closed.
 
+From your own browser code, the typed client spells out both halves and sets the header for you. Once `pracht typegen` has registered the effect class, omitting both options is a compile error rather than a 409 you discover at runtime:
+
+```ts [src/islands/PurgeButton.tsx]
+import { callCapability } from "virtual:pracht/capabilities";
+
+const prepared = await callCapability("notes.purge", { titlePrefix: "Old" }, { prepare: true });
+
+const confirmationToken =
+  !prepared.ok && prepared.error.code === "confirmation_required"
+    ? prepared.error.confirmationToken
+    : undefined;
+
+if (confirmationToken) {
+  await callCapability("notes.purge", { titlePrefix: "Old" }, { confirm: confirmationToken });
+}
+```
+
 Agent hosts cannot yet be trusted to carry this two-step flow faithfully, so destructive capabilities cannot be exposed over WebMCP — `defineCapability()`, the runtime, and `pracht verify` all enforce it.
 
 ---

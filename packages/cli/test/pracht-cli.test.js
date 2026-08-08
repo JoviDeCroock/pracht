@@ -14,6 +14,7 @@ import { tmpdir } from "node:os";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { afterEach, describe, expect, it } from "vitest";
+import ts from "typescript";
 
 const cliPath = fileURLToPath(new URL("../bin/pracht.js", import.meta.url));
 const repoRoot = resolve(dirname(cliPath), "../../..");
@@ -697,6 +698,48 @@ export function Component() {
     // Contract prose becomes JSDoc so hovering a name shows what an agent reads.
     expect(declaration).toContain("* Search notes");
     expect(declaration).toContain("* Find notes matching a query.");
+    expect(declaration).toContain("capabilityClient: {");
+    expect(declaration).toContain('"notes": {');
+    expect(declaration).toContain('"search": CapabilityClientMethod<"notes.search">;');
+
+    const hoverPath = join(appDir, "src/capability-hover.ts");
+    writeProjectFile(
+      appDir,
+      "src/capability-hover.ts",
+      `import { capabilities } from "virtual:pracht/capabilities";
+capabilities.notes.search({ query: "roadmap" });
+`,
+    );
+    const hoverProgram = ts.createProgram(
+      [hoverPath, join(appDir, "src/pracht-capabilities.d.ts"), virtualTypesPath],
+      {
+        target: ts.ScriptTarget.ES2022,
+        module: ts.ModuleKind.ESNext,
+        moduleResolution: ts.ModuleResolutionKind.Bundler,
+        noEmit: true,
+        skipLibCheck: true,
+        strict: true,
+        paths: {
+          "@pracht/core": [coreDistTypesPath],
+          "@pracht/capabilities": [capabilitiesDistTypesPath],
+          "@standard-schema/spec": [standardSchemaImportPath],
+        },
+      },
+    );
+    const hoverSource = hoverProgram.getSourceFile(hoverPath);
+    const hoverChecker = hoverProgram.getTypeChecker();
+    let searchProperty;
+    const findSearchProperty = (node) => {
+      if (ts.isPropertyAccessExpression(node) && node.name.text === "search") {
+        searchProperty = node.name;
+      }
+      ts.forEachChild(node, findSearchProperty);
+    };
+    findSearchProperty(hoverSource);
+    const searchSymbol = hoverChecker.getSymbolAtLocation(searchProperty);
+    expect(ts.displayPartsToString(searchSymbol.getDocumentationComment(hoverChecker))).toBe(
+      "Search notes\n\nFind notes matching a query.",
+    );
 
     const check = JSON.parse(runCli(["typegen", "--check", "--json"], { cwd: appDir }).stdout);
     expect(check).toMatchObject({ capabilities: 4, check: true, ok: true });
@@ -918,12 +961,53 @@ export async function browser() {
     writeProjectFile(
       appDir,
       "src/capability-consumer.ts",
-      `import { invokeCapability } from "@pracht/core";
+      `import { createCapabilityTestHost, invokeCapability } from "@pracht/core";
+import type { CapabilityTestHost } from "@pracht/core";
+import { defineCapability } from "@pracht/capabilities";
+import type { CapabilityRunArgs } from "@pracht/capabilities";
 import { callCapability, capabilities, useCapability } from "virtual:pracht/capabilities";
 
 declare const ctx: { request: Request };
+declare const host: CapabilityTestHost;
+declare const readName: "notes.search" | "notes.stats";
+declare const mixedName: "notes.search" | "notes.stats";
+
+const fixtureHost = createCapabilityTestHost({
+  capabilities: {
+    "fixture.only": defineCapability({
+      title: "Fixture only",
+      description: "A capability that exists only in this standalone test host.",
+      input: {
+        type: "object",
+        properties: { value: { type: "string" } },
+        required: ["value"],
+        additionalProperties: false,
+      },
+      output: {
+        type: "object",
+        properties: { seen: { type: "string" } },
+        required: ["seen"],
+        additionalProperties: false,
+      },
+      effect: "read",
+      async run({ input }: CapabilityRunArgs<{ value: string }>) {
+        return { seen: input.value };
+      },
+    }),
+  },
+});
 
 export async function server() {
+  // A factory-created host reads both generics retained on the capability
+  // object. Typing run()'s input lets defineCapability infer its output.
+  const fixture = await fixtureHost.invoke("fixture.only", { value: "roadmap" });
+  if (fixture.ok) {
+    const _seen: string = fixture.data.seen;
+  }
+
+  // @ts-expect-error - the inferred standalone-host input rejects mismatches
+  await fixtureHost.invoke("fixture.only", { value: 42 });
+
   // Input and output both come from the registration — no per-call generics.
   const found = await invokeCapability("notes.search", { query: "roadmap" }, ctx);
   if (found.ok) {
@@ -1017,6 +1101,7 @@ export async function client() {
 
   await capabilities.notes.purge({ titlePrefix: "tmp" }, { prepare: true });
   await capabilities.notes.purge({ titlePrefix: "tmp" }, { confirm: "token" });
+  await capabilities.notes.purge({ titlePrefix: "tmp" }, { prepare: true });
 
   // @ts-expect-error - destructive calls must explicitly prepare or confirm
   await capabilities.notes.purge({ titlePrefix: "tmp" });
@@ -1312,6 +1397,78 @@ export async function mistakes() {
     expect(diagnostics).toContain(
       `error TS2345: Argument of type '"notes.purge"' is not assignable to parameter of type '"notes.search" | "notes.stats"'`,
     );
+  }, 60_000);
+
+  it("keeps all-private capability registrations out of browser client types", () => {
+    const appDir = createRepoTempDir("pracht-cli-typegen-private-capability-types-");
+    writeTypedManifestApp(appDir, { capabilities: true });
+
+    const manifestPath = join(appDir, "src/routes.ts");
+    const manifest = readFileSync(manifestPath, "utf-8").replace(
+      /  capabilities: \{[\s\S]*?\n  \},/,
+      `  capabilities: {
+    "notes.set-status": () => import("./capabilities/notes-set-status.ts"),
+  },`,
+    );
+    writeFileSync(manifestPath, manifest, "utf-8");
+    runCli(["typegen"], { cwd: appDir });
+
+    writeProjectFile(
+      appDir,
+      "src/private-capability-consumer.tsx",
+      `import { Form } from "@pracht/core";
+import { callCapability, capabilities } from "virtual:pracht/capabilities";
+
+// @ts-expect-error - the only registered capability has no HTTP endpoint
+callCapability("notes.set-status", { id: "1", status: "draft" });
+
+// @ts-expect-error - an all-private app has an empty nested browser client
+capabilities.notes["set-status"]({ id: "1", status: "draft" });
+
+// @ts-expect-error - capability forms also require an HTTP-exposed name
+const form = <Form capability="notes.set-status" />;
+`,
+    );
+    writeProjectFile(
+      appDir,
+      "tsconfig.json",
+      JSON.stringify(
+        {
+          compilerOptions: {
+            target: "ES2022",
+            module: "ESNext",
+            moduleResolution: "Bundler",
+            allowImportingTsExtensions: true,
+            noEmit: true,
+            strict: true,
+            skipLibCheck: true,
+            lib: ["ES2022", "DOM", "DOM.Iterable"],
+            jsx: "react-jsx",
+            jsxImportSource: "preact",
+            types: ["node"],
+            paths: {
+              "@pracht/core": [coreDistTypesPath],
+              "@pracht/capabilities": [capabilitiesDistTypesPath],
+              "@standard-schema/spec": [standardSchemaImportPath],
+            },
+          },
+          files: [virtualTypesPath],
+          include: ["src"],
+        },
+        null,
+        2,
+      ),
+    );
+
+    try {
+      execFileSync(process.execPath, [tscPath, "-p", "."], {
+        cwd: appDir,
+        encoding: "utf-8",
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+    } catch (error) {
+      throw new Error(error.stdout || error.stderr || error.message);
+    }
   }, 60_000);
 
   it("pracht dev explains how to enable generated route types", async () => {

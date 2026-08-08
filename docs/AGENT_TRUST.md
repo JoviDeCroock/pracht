@@ -153,7 +153,16 @@ Set `PRACHT_CONFIRMATION_SECRET` in the server environment (or call
 `process.env`). Without it, destructive HTTP calls fail closed with
 `403 confirmation_unavailable`, and `pracht verify` fails.
 
-1. **Prepare** — a call without a token never runs the capability:
+1. **Prepare** — a call without a token never runs the capability. The typed
+   browser client makes that intent explicit with `{ prepare: true }`:
+
+   ```ts
+   const prepared = await callCapability(
+     "notes.purge",
+     { titlePrefix: "Old" },
+     { prepare: true },
+   );
+   ```
 
    ```jsonc
    // POST /api/capabilities/notes/purge  { "titlePrefix": "Old" }
@@ -169,16 +178,6 @@ Set `PRACHT_CONFIRMATION_SECRET` in the server environment (or call
    }
    ```
 
-   The typed browser client makes this phase explicit:
-
-   ```ts
-   const prepared = await callCapability(
-     "notes.purge",
-     { titlePrefix: "Old" },
-     { prepare: true },
-   );
-   ```
-
    The token is an HMAC-SHA256 (WebCrypto) over the caller's principal
    (verified agent `keyid`, or `"anonymous"`), the capability name, a hash of
    the canonicalized validated input (stable JSON, sorted keys, defaults
@@ -192,11 +191,16 @@ Set `PRACHT_CONFIRMATION_SECRET` in the server environment (or call
    confirmation_invalid`, fail closed.
 
    ```ts
-   if (!prepared.ok && prepared.error.code === "confirmation_required") {
+   const confirmationToken =
+     !prepared.ok && prepared.error.code === "confirmation_required"
+       ? prepared.error.confirmationToken
+       : undefined;
+
+   if (confirmationToken) {
      await callCapability(
        "notes.purge",
        { titlePrefix: "Old" },
-       { confirm: prepared.error.confirmationToken! },
+       { confirm: confirmationToken },
      );
    }
    ```

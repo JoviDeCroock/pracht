@@ -2,6 +2,7 @@ import type {
   Capability,
   CapabilityAgentPolicy,
   CapabilityEffect,
+  CapabilityEnvelope,
   PrachtAgentIdentity,
 } from "@pracht/capabilities";
 import type { ComponentChildren, FunctionComponent } from "preact";
@@ -983,13 +984,11 @@ type HasCapabilityExposureMetadata = HasRegisteredCapabilities extends true
  * `<Form capability>` use this so a private capability is a compile error
  * rather than a runtime `unknown_capability` envelope.
  *
- * When no entry carries `exposed` the filter would yield `never` and lock every
- * browser call out with an error that never mentions the real cause. That is
- * what a `pracht-capabilities.d.ts` generated before `exposed` existed looks
- * like, and those files are committed. Fall back to every registered name
- * instead: exposure is then unchecked (as it was before), and the runtime still
- * answers a private call with `unknown_capability`. Re-running `pracht typegen`
- * restores the check.
+ * A declaration generated before `exposed` existed falls back to every
+ * registered name so upgrades remain source-compatible. Current declarations
+ * are distinguishable by the presence of exposure metadata on every entry: an
+ * app whose current registration is entirely private therefore resolves to
+ * `never`, not to the legacy fallback.
  */
 export type HttpCapabilityName = HasRegisteredCapabilities extends true
   ? HasCapabilityExposureMetadata extends true
@@ -1031,6 +1030,9 @@ export type CapabilityInputFor<TName extends string> = (
 ) extends (input: infer TInput) => void
   ? TInput
   : unknown;
+
+/** Input accepted safely at a capability call boundary. */
+export type CapabilityCallInputFor<TName extends string> = CapabilityInputFor<TName>;
 
 export type CapabilityOutputFor<TName extends string> = [RegisteredCapabilityEntry<TName>] extends [
   never,
@@ -1087,16 +1089,25 @@ export type NonDestructiveCapabilityName = HttpCapabilityName extends infer TNam
  * Argument list for a browser capability call — `callCapability()` and the
  * generated `capabilities` client. A capability whose input schema requires
  * nothing is callable with no argument at all; every other capability must
- * pass one. `TOptions` stays generic so the virtual module can supply its own
- * option type without `@pracht/core` importing it.
+ * pass one. When the name is a union, omission is allowed only if every member
+ * accepts empty input. `TOptions` stays generic so the virtual module can
+ * supply its own option type without `@pracht/core` importing it.
  *
  * Server-side `invokeCapability()` does not use this: its request context is
  * always required, so it takes a plain `(name, input, ctx)` signature.
  */
-export type CapabilityInputArgs<TName extends string, TOptions> = {} extends TOptions
+type CapabilityInputRequirement<TName extends string> = TName extends string
   ? {} extends CapabilityInputFor<TName>
-    ? [input?: CapabilityInputFor<TName>, options?: TOptions]
-    : [input: CapabilityInputFor<TName>, options?: TOptions]
+    ? "optional"
+    : "required"
+  : never;
+
+export type CapabilityInputArgs<TName extends string, TOptions> = {} extends TOptions
+  ? "required" extends CapabilityInputRequirement<TName>
+    ? [input: CapabilityInputFor<TName>, options?: TOptions]
+    : {} extends CapabilityInputFor<TName>
+      ? [input?: CapabilityInputFor<TName>, options?: TOptions]
+      : [input: CapabilityInputFor<TName>, options?: TOptions]
   : // Options carry a required member (a `destructive` capability's prepare
     // marker or confirmation token), so neither argument may be omitted — an
     // optional parameter cannot precede a required one.
@@ -1108,26 +1119,43 @@ export type CapabilityInputArgs<TName extends string, TOptions> = {} extends TOp
  * `{ prepare: true }`; committing instead requires the confirmation token from
  * that call's `confirmation_required` envelope. See AGENT_TRUST.md.
  *
- * `prepare` exists only in this type — no dispatcher reads it and nothing is
- * sent for it. Its job is to stop an unconfirmed destructive call from being
- * spelled the same way as a forgotten one; refusing to run it is the server's
- * job, and it fails closed.
+ * `prepare` is not sent over the wire. The browser dispatcher uses it only to
+ * strip any confirmation token inherited through caller-supplied headers, so
+ * a prepare call cannot accidentally commit. Refusing to run the resulting
+ * unconfirmed call remains the server's job, and it fails closed.
  *
  * The gate closes whenever `destructive` is *possible*, not only when it is
  * certain: a name typed as a union (`"notes.search" | "notes.purge"`) and a
- * capability whose effect could not be read at build time both demand the
- * token. Erring toward requiring it costs a caller one argument; erring the
- * other way silently drops the only compile-time half of the confirmation
- * flow.
+ * capability whose effect could not be read at build time both demand an
+ * explicit prepare or commit option. Erring toward requiring a flow marker
+ * costs a caller one argument; erring the other way silently drops the only
+ * compile-time half of the confirmation flow.
  */
 export type CapabilityCallOptionsFor<
   TName extends string,
-  TOptions extends { confirm?: string },
+  TOptions extends { confirm?: string; prepare?: true },
 > = [Extract<DeclaredCapabilityEffect<TName>, "destructive">] extends [never]
   ? TOptions
   :
       | (Omit<TOptions, "confirm"> & { confirm?: never; prepare: true })
       | (TOptions & { confirm: string; prepare?: never });
+
+/** Browser options shared by `callCapability()` and the nested client. */
+export interface CapabilityBrowserCallOptions {
+  headers?: HeadersInit;
+  signal?: AbortSignal;
+  /** Confirmation token for committing a prepared destructive capability. */
+  confirm?: string;
+  /** Begin a destructive call without allowing it to commit. */
+  prepare?: true;
+  /** Skip automatic route-data revalidation after a successful mutation. */
+  revalidate?: boolean;
+}
+
+/** One generated nested-client method, including its effect-specific options. */
+export type CapabilityClientMethod<TName extends string> = (
+  ...args: CapabilityInputArgs<TName, CapabilityCallOptionsFor<TName, CapabilityBrowserCallOptions>>
+) => Promise<CapabilityEnvelope<CapabilityOutputFor<TName>>>;
 
 export class PrachtHttpError extends Error {
   readonly status: number;
