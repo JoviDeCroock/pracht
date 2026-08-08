@@ -48,6 +48,10 @@ export const app = defineApp({
         id: "api-validation",
         render: "ssg",
       }),
+      route("/docs/openapi", () => import("./routes/docs/openapi.md"), {
+        id: "openapi",
+        render: "ssg",
+      }),
       route("/docs/middleware", () => import("./routes/docs/middleware.md"), {
         id: "middleware",
         render: "ssg",

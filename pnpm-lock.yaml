@@ -71,6 +71,9 @@ importers:
       '@pracht/image':
         specifier: workspace:*
         version: link:../../packages/image
+      '@pracht/openapi':
+        specifier: workspace:*
+        version: link:../../packages/openapi
       sharp:
         specifier: ^0.34.0
         version: 0.34.5
@@ -102,6 +105,9 @@ importers:
       '@pracht/core':
         specifier: workspace:*
         version: link:../../packages/framework
+      '@pracht/openapi':
+        specifier: workspace:*
+        version: link:../../packages/openapi
     devDependencies:
       '@pracht/cli':
         specifier: workspace:*
@@ -189,6 +195,9 @@ importers:
       '@pracht/core':
         specifier: workspace:*
         version: link:../../packages/framework
+      '@pracht/openapi':
+        specifier: workspace:*
+        version: link:../../packages/openapi
     devDependencies:
       '@pracht/cli':
         specifier: workspace:*
@@ -333,6 +342,21 @@ importers:
       sharp:
         specifier: ^0.34.0
         version: 0.34.5
+
+  packages/openapi:
+    dependencies:
+      '@pracht/cli':
+        specifier: workspace:*
+        version: link:../cli
+      '@pracht/core':
+        specifier: workspace:*
+        version: link:../framework
+      '@pracht/vite-plugin':
+        specifier: workspace:*
+        version: link:../vite-plugin
+      vite:
+        specifier: ^8.0.0
+        version: 8.0.3(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)(@types/node@22.19.17)(esbuild@0.27.3)
 
   packages/preact-ssr-precompile:
     dependencies:

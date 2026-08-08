@@ -8,6 +8,7 @@ described in `VISION_MVP.md`.
 | Path                          | Package                      | Current role                                                                                                 |
 | ----------------------------- | ---------------------------- | ------------------------------------------------------------------------------------------------------------ |
 | `packages/framework`          | `@pracht/core`               | Core manifest API, route resolution, API routes, SSR rendering, client runtime                               |
+| `packages/openapi`            | `@pracht/openapi`            | Opt-in OpenAPI 3.1 descriptors, live JSON/UI endpoints, and static build artifacts for API routes            |
 | `packages/vite-plugin`        | `@pracht/vite-plugin`        | Virtual modules, `import.meta.glob()` registries, API route auto-discovery, HMR, dev SSR middleware          |
 | `packages/preact-ssr-precompile` | `@pracht/preact-ssr-precompile` | Experimental Rolldown/Vite plugin that precompiles safe Preact JSX DOM subtrees into server-only `jsxTemplate()` calls |
 | `packages/adapter-node`       | `@pracht/adapter-node`       | Node `IncomingMessage`/`ServerResponse` bridge, ISG stale-while-revalidate, and webhook revalidation         |
@@ -62,6 +63,10 @@ described in `VISION_MVP.md`.
   `configureServer` hook adds SSR middleware to the Vite dev server. The
   `handleHotUpdate` hook invalidates virtual modules when route/shell/middleware/API files change and
   triggers full reload when the app manifest (`src/routes.ts`) changes.
+- **OpenAPI companion** — `prachtOpenApi()` augments the generated server graph
+  without changing core API authoring. It serves a live OpenAPI JSON document
+  and optional Scalar/Swagger page in development; `pracht build` writes the
+  same artifacts under `dist/client/` for every adapter.
 - **Client hydration** — The generated client module matches the current route,
   lazy-loads the route and shell modules via `import.meta.glob()`, and calls
   `hydrate()` from Preact.
@@ -79,7 +84,7 @@ described in `VISION_MVP.md`.
   from the resolved route graph for typed links and href helpers,
   `pracht generate route|shell|middleware|api` scaffolds framework-native
   files, and `pracht doctor` validates app wiring across the whole project.
-- **Package builds** — `tsdown` compiles `pracht`, `@pracht/vite-plugin`,
+- **Package builds** — `tsdown` compiles `pracht`, `@pracht/openapi`, `@pracht/vite-plugin`,
   `@pracht/preact-ssr-precompile`, `@pracht/adapter-node`,
   `@pracht/adapter-cloudflare`, `@pracht/adapter-vercel`, and `@pracht/image`
   from TypeScript to

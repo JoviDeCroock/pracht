@@ -212,6 +212,57 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
       log("\n  llms.txt → dist/client/llms.txt\n");
     }
 
+    const generatedStaticRoutes: string[] = [];
+
+    // Companion artifact generators can inspect the bundled server graph and
+    // return static files without coupling their authoring API to core. The
+    // OpenAPI plugin uses this for /openapi.json and its optional docs page.
+    if (typeof serverMod.generatePrachtOpenApiArtifacts === "function") {
+      const generated = await serverMod.generatePrachtOpenApiArtifacts();
+      const artifacts = Array.isArray(generated?.artifacts) ? generated.artifacts : [];
+      const seenOutputPaths = new Set<string>();
+      for (const artifact of artifacts) {
+        if (
+          !artifact ||
+          typeof artifact.outputPath !== "string" ||
+          typeof artifact.content !== "string"
+        ) {
+          throw new Error("OpenAPI generator returned an invalid build artifact.");
+        }
+        const filePath = resolveGeneratedArtifactOutputPath(clientDir, artifact.outputPath);
+        if (seenOutputPaths.has(filePath)) {
+          throw new Error(
+            `OpenAPI generator returned duplicate output path ${JSON.stringify(artifact.outputPath)}.`,
+          );
+        }
+        seenOutputPaths.add(filePath);
+        if (
+          typeof artifact.path === "string" &&
+          artifact.path.startsWith("/") &&
+          artifact.outputPath ===
+            (artifact.path === "/" ? "index.html" : `${artifact.path.slice(1)}/index.html`)
+        ) {
+          generatedStaticRoutes.push(artifact.path);
+        }
+        if (existsSync(filePath)) {
+          log(
+            `\n  Warning: OpenAPI artifact ${artifact.outputPath} replaces an existing public/build file.\n`,
+          );
+        }
+        mkdirSync(dirname(filePath), { recursive: true });
+        writeFileSync(filePath, artifact.content, "utf-8");
+        log(`\n  OpenAPI → dist/client/${artifact.outputPath}\n`);
+      }
+
+      const warnings = Array.isArray(generated?.warnings) ? generated.warnings : [];
+      for (const warning of warnings) {
+        const method = typeof warning?.method === "string" ? `${warning.method} ` : "";
+        const path = typeof warning?.path === "string" ? warning.path : "unknown route";
+        const message = typeof warning?.message === "string" ? warning.message : String(warning);
+        log(`  OpenAPI warning: ${method}${path}: ${message}\n`);
+      }
+    }
+
     if (Object.keys(headersManifest).length > 0) {
       const headersManifestJson = `${JSON.stringify(headersManifest, null, 2)}\n`;
       writeFileSync(
@@ -275,9 +326,12 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
         headersManifest,
         regions: serverMod.vercelRegions,
         root,
-        staticRoutes: pages
-          .map((page: { path: string }) => page.path)
-          .filter((path: string) => !(path in isgManifest)),
+        staticRoutes: [
+          ...pages
+            .map((page: { path: string }) => page.path)
+            .filter((path: string) => !(path in isgManifest)),
+          ...generatedStaticRoutes,
+        ],
       });
 
       log(`\n  Vercel build output → ${outputPath}\n`);
@@ -384,5 +438,33 @@ export function resolvePrerenderOutputPath(clientDir: string, routePath: string)
     );
   }
 
+  return filePath;
+}
+
+export function resolveGeneratedArtifactOutputPath(clientDir: string, outputPath: string): string {
+  if (
+    !outputPath ||
+    outputPath.includes("\0") ||
+    outputPath.includes("\\") ||
+    isAbsolute(outputPath)
+  ) {
+    throw new Error(
+      `Refusing to write generated artifact with unsafe output path ${JSON.stringify(outputPath)}.`,
+    );
+  }
+
+  const root = resolve(clientDir);
+  const filePath = resolve(root, outputPath);
+  const relativePath = relative(root, filePath);
+  if (
+    relativePath === "" ||
+    relativePath === ".." ||
+    relativePath.startsWith(`..${sep}`) ||
+    isAbsolute(relativePath)
+  ) {
+    throw new Error(
+      `Refusing to write generated artifact ${JSON.stringify(outputPath)} outside dist/client.`,
+    );
+  }
   return filePath;
 }

@@ -135,6 +135,7 @@ The skills are distributed three ways (see the [catalog](skills/README.md)):
 - [docs/PERFORMANCE.md](docs/PERFORMANCE.md) — bundle analysis and per-route client JS budgets
 - [docs/DATA_LOADING.md](docs/DATA_LOADING.md) — loaders, forms, client hooks
 - [docs/API_VALIDATION.md](docs/API_VALIDATION.md) — Standard Schema validation for API routes, typed `apiFetch()`
+- [docs/OPENAPI.md](docs/OPENAPI.md) — optional OpenAPI 3.1 JSON/UI endpoints and build output
 - [docs/CAPABILITIES.md](docs/CAPABILITIES.md) — typed capabilities, HTTP projection, WebMCP page tools
 - [docs/AGENT_TRUST.md](docs/AGENT_TRUST.md) — Web Bot Auth, effect-class confirmation flow, audit hook, `pracht eval`
 - [docs/CAPABILITY_GRAPH.md](docs/CAPABILITY_GRAPH.md) — the capability graph product bet: proposal, decision log, staged plan
