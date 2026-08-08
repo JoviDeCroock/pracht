@@ -728,14 +728,17 @@ async function enforceDestructiveConfirmation<TContext>(
   }
 
   let principal: string;
+  let confirmationPrincipal: string;
   try {
-    principal =
-      (await resolveCapabilityApprovalPrincipal({
-        context: options.context,
-        request: options.request,
-        capability: name,
-        agent: options.agent ?? null,
-      })) ?? "anonymous";
+    const resolvedPrincipal = await resolveCapabilityApprovalPrincipal({
+      context: options.context,
+      request: options.request,
+      capability: name,
+      agent: options.agent ?? null,
+      confirmationSecret: secret,
+    });
+    principal = resolvedPrincipal?.record ?? "anonymous";
+    confirmationPrincipal = resolvedPrincipal?.tokenBinding ?? "anonymous";
   } catch (error: unknown) {
     return {
       status: 403,
@@ -762,7 +765,7 @@ async function enforceDestructiveConfirmation<TContext>(
     };
   }
   const canonicalInput = canonicalJson(validatedInput);
-  const binding = { secret, principal, capability: name, canonicalInput };
+  const binding = { secret, principal: confirmationPrincipal, capability: name, canonicalInput };
   const presented = options.request.headers.get(CONFIRMATION_HEADER);
   const ttlSeconds = options.agents?.confirmation?.ttlSeconds ?? DEFAULT_CONFIRMATION_TTL_SECONDS;
 

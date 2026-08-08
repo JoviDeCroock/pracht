@@ -21,7 +21,7 @@
  * token they were handed.
  */
 
-import { sha256Base64Url } from "./runtime-confirmation.ts";
+import { hmacSha256Base64Url, sha256Base64Url } from "./runtime-confirmation.ts";
 import type {
   CapabilityApprovalConsumeResult,
   CapabilityApprovalPrincipalResolver,
@@ -61,12 +61,20 @@ export function setCapabilityApprovalPrincipalResolver<TContext = PrachtRequestC
   approvalPrincipalResolver = resolver as CapabilityApprovalPrincipalResolver | null;
 }
 
+export interface ResolvedCapabilityApprovalPrincipal {
+  /** Identity persisted with the proposal for review and correlation. */
+  record: string;
+  /** Opaque identity bound into the caller-visible confirmation token. */
+  tokenBinding: string;
+}
+
 export async function resolveCapabilityApprovalPrincipal<TContext>(options: {
   context: TContext;
   request: Request;
   capability: string;
   agent: PrachtAgentIdentity | null;
-}): Promise<string | null> {
+  confirmationSecret: string;
+}): Promise<ResolvedCapabilityApprovalPrincipal | null> {
   const applicationPrincipal = approvalPrincipalResolver
     ? await approvalPrincipalResolver({
         ...options,
@@ -83,7 +91,20 @@ export async function resolveCapabilityApprovalPrincipal<TContext>(options: {
   const parts: string[] = [];
   if (options.agent) parts.push(`agent:${options.agent.keyId}`);
   if (applicationPrincipal) parts.push(`app:${applicationPrincipal}`);
-  return parts.length > 0 ? JSON.stringify(parts) : null;
+  if (parts.length === 0) return null;
+
+  // Preserve the original agent-only binding so confirmation tokens remain
+  // valid across a rolling upgrade. Application identities are different:
+  // they may be internal user or tenant ids, and confirmation-token claims are
+  // only encoded, not encrypted, so bind an opaque digest instead.
+  if (options.agent && !applicationPrincipal) {
+    return { record: parts[0], tokenBinding: parts[0] };
+  }
+  const record = JSON.stringify(parts);
+  return {
+    record,
+    tokenBinding: `approval:${await hmacSha256Base64Url(options.confirmationSecret, record)}`,
+  };
 }
 
 /**

@@ -8,7 +8,9 @@ import {
   setCapabilityApprovalStore,
 } from "../src/index.ts";
 import {
+  canonicalJson,
   clearConsumedConfirmationTokens,
+  createConfirmationToken,
   setCapabilityConfirmationSecret,
 } from "../src/runtime-confirmation.ts";
 import type {
@@ -69,6 +71,14 @@ function commit(
   input: unknown = { titlePrefix: "Old" },
 ) {
   return host.request("notes.purge", input, { headers: { "x-pracht-confirm": token } });
+}
+
+function decodeConfirmationClaims(token: string): Record<string, unknown> {
+  const payload = token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
+  const padded = payload.padEnd(Math.ceil(payload.length / 4) * 4, "=");
+  return JSON.parse(
+    new TextDecoder().decode(Uint8Array.from(atob(padded), (char) => char.charCodeAt(0))),
+  ) as Record<string, unknown>;
 }
 
 beforeEach(() => {
@@ -224,6 +234,25 @@ describe("createMemoryApprovalStore", () => {
 // ---------------------------------------------------------------------------
 
 describe("token mode with an approval store", () => {
+  it("keeps agent-only confirmation tokens compatible across rolling upgrades", async () => {
+    const input = { titlePrefix: "Old" };
+    const { token } = await createConfirmationToken({
+      secret: SECRET,
+      principal: "agent:key-1",
+      capability: "notes.purge",
+      canonicalInput: canonicalJson(input),
+      ttlSeconds: 120,
+    });
+
+    const response = await createHost().request("notes.purge", input, {
+      agent: { verified: true, agentDomain: "bot.example", keyId: "key-1" },
+      headers: { "x-pracht-confirm": token },
+    });
+
+    expect(response.status).toBe(200);
+    expect(purged).toEqual(["Old"]);
+  });
+
   it("commits once and rejects the replay", async () => {
     setCapabilityApprovalStore(createMemoryApprovalStore());
     const host = createHost();
@@ -449,6 +478,21 @@ describe("human mode", () => {
     );
     expect(crossUserCommit.status).toBe(403);
     expect(purged).toEqual([]);
+  });
+
+  it("keeps application principals out of caller-visible confirmation claims", async () => {
+    const store = createMemoryApprovalStore();
+    setCapabilityApprovalStore(store);
+    setCapabilityApprovalPrincipalResolver(() => "internal-user-42");
+
+    const { token } = await prepare(createHost(agents));
+    const claims = decodeConfirmationClaims(token);
+
+    expect(claims.p).toMatch(/^approval:/);
+    expect(claims.p).not.toContain("internal-user-42");
+    expect(await store.listPending()).toEqual([
+      expect.objectContaining({ principal: JSON.stringify(["app:internal-user-42"]) }),
+    ]);
   });
 });
 

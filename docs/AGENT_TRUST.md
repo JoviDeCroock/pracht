@@ -235,7 +235,8 @@ import {
   setCapabilityApprovalStore,
 } from "@pracht/core";
 
-setCapabilityApprovalStore(createMemoryApprovalStore());
+export const approvalStore = createMemoryApprovalStore();
+setCapabilityApprovalStore(approvalStore);
 setCapabilityApprovalPrincipalResolver<{ user: { id: string } }>(
   ({ context }) => context.user.id,
 );
@@ -245,7 +246,9 @@ Import this setup module from a server entry or a registered server-only
 middleware/capability module so it actually runs. The resolver executes after
 API and capability middleware, and must return a stable authenticated user or
 tenant id — never a display name or caller-controlled value. When Web Bot Auth
-is also present, the proposal binds both identities.
+is also present, the proposal binds both identities. The raw application
+identity stays in the server-side approval record; caller-visible confirmation
+tokens bind a secret-keyed digest instead of exposing that identity.
 
 A proposal's id is derived server-side from the principal, the capability
 name, and the canonicalized input — never supplied by a caller. Repeated
@@ -279,13 +282,17 @@ gives up, and a person decides out of band:
 
 ```ts
 // src/api/admin/approvals.ts — mount behind your own auth
+import { approvalStore } from "../../server/approvals.ts";
+
 export async function GET() {
-  return Response.json(await store.listPending());
+  return Response.json(await approvalStore.listPending());
 }
 
 export async function POST({ request, context }: ApiRouteArgs) {
   const { id, decision } = await request.json();
-  return Response.json({ ok: await store.decide(id, decision, context.user.email) });
+  return Response.json({
+    ok: await approvalStore.decide(id, decision, context.user.email),
+  });
 }
 ```
 

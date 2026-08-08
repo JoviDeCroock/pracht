@@ -99,13 +99,14 @@ import {
   setCapabilityApprovalStore,
 } from "@pracht/core";
 
-setCapabilityApprovalStore(createMemoryApprovalStore());
+export const approvalStore = createMemoryApprovalStore();
+setCapabilityApprovalStore(approvalStore);
 setCapabilityApprovalPrincipalResolver<{ user: { id: string } }>(
   ({ context }) => context.user.id,
 );
 ```
 
-Import this setup from a server entry or registered server-only module. The resolver runs after middleware and must return a stable authenticated user or tenant id, never caller-controlled input. When Web Bot Auth is present, the proposal binds both the application user and verified agent.
+Import this setup from a server entry or registered server-only module. The resolver runs after middleware and must return a stable authenticated user or tenant id, never caller-controlled input. When Web Bot Auth is present, the proposal binds both the application user and verified agent. The raw application identity stays in the server-side approval record; caller-visible confirmation tokens bind a secret-keyed digest instead of exposing it.
 
 The proposal id is derived server-side from the principal, the capability, and the canonicalized input — never supplied by a caller. Repeated prepares address one proposal, so a person approves *the action* rather than one particular token. The HMAC is verified before the store is touched, so a forged token can never destroy a live proposal.
 
@@ -125,13 +126,17 @@ export const app = defineApp({
 In `"human"` mode a commit for an undecided proposal answers `409` with `code: "confirmation_pending"` and the `approvalId`. A person decides out of band, through a surface you build and gate with your own auth — pracht ships no approval endpoint, because who may approve is an application decision:
 
 ```ts [src/api/admin/approvals.ts]
+import { approvalStore } from "../../server/approvals.ts";
+
 export async function GET() {
-  return Response.json(await store.listPending());
+  return Response.json(await approvalStore.listPending());
 }
 
 export async function POST({ request, context }: ApiRouteArgs) {
   const { id, decision } = await request.json();
-  return Response.json({ ok: await store.decide(id, decision, context.user.email) });
+  return Response.json({
+    ok: await approvalStore.decide(id, decision, context.user.email),
+  });
 }
 ```
 

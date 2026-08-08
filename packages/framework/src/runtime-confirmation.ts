@@ -104,7 +104,7 @@ export async function createConfirmationToken(
     exp: now + binding.ttlSeconds,
   };
   const payload = base64UrlEncode(encoder.encode(JSON.stringify(claims)));
-  const signature = await hmacSign(binding.secret, `${TOKEN_VERSION}.${payload}`);
+  const signature = await hmacSha256Base64Url(binding.secret, `${TOKEN_VERSION}.${payload}`);
   return { token: `${TOKEN_VERSION}.${payload}.${signature}`, expiresAt: claims.exp };
 }
 
@@ -136,7 +136,7 @@ export async function verifyConfirmationToken(
   }
   const [, payload, signature] = parts;
 
-  const expected = await hmacSign(binding.secret, `${TOKEN_VERSION}.${payload}`);
+  const expected = await hmacSha256Base64Url(binding.secret, `${TOKEN_VERSION}.${payload}`);
   if (!timingSafeEqual(signature, expected)) {
     return { ok: false, reason: "bad_signature" };
   }
@@ -194,7 +194,7 @@ export function clearConsumedConfirmationTokens(): void {
 // WebCrypto helpers
 // ---------------------------------------------------------------------------
 
-async function hmacSign(secret: string, message: string): Promise<string> {
+export async function hmacSha256Base64Url(secret: string, message: string): Promise<string> {
   const key = await crypto.subtle.importKey(
     "raw",
     encoder.encode(secret),
