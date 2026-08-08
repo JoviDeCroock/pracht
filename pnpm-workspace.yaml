@@ -4,6 +4,10 @@ packages:
 
 minimumReleaseAge: 10080
 
+overrides:
+  preact: 11.0.0-beta.2
+  preact-render-to-string: 6.7.0
+
 blockExoticSubdeps: true
 
 allowBuilds:
