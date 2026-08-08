@@ -90,6 +90,12 @@ type CapabilityTestInput<TCapability> =
       ? TInput
       : unknown;
 
+type CapabilityTestInputFor<TCapabilities, TName extends Extract<keyof TCapabilities, string>> = (
+  TName extends string ? (input: CapabilityTestInput<TCapabilities[TName]>) => void : never
+) extends (input: infer TInput) => void
+  ? TInput
+  : never;
+
 type CapabilityTestOutput<TCapability> =
   TCapability extends Capability<any, infer TOutput, any>
     ? TOutput
@@ -109,7 +115,7 @@ export interface CapabilityTestHost<
    */
   invoke<TName extends Extract<keyof TCapabilities, string>>(
     name: TName,
-    input: CapabilityTestInput<TCapabilities[TName]>,
+    input: CapabilityTestInputFor<TCapabilities, TName>,
     options?: CapabilityTestInvokeOptions,
   ): Promise<CapabilityEnvelope<CapabilityTestOutput<TCapabilities[TName]>>>;
   /** HTTP dispatch — same handler the generated `/api/capabilities/*` endpoints use. */
@@ -143,7 +149,7 @@ export function createCapabilityTestHost<
   return {
     invoke<TName extends Extract<keyof TCapabilities, string>>(
       name: TName,
-      input: CapabilityTestInput<TCapabilities[TName]>,
+      input: CapabilityTestInputFor<TCapabilities, TName>,
       invokeOptions: CapabilityTestInvokeOptions = {},
     ): Promise<CapabilityEnvelope<CapabilityTestOutput<TCapabilities[TName]>>> {
       return invokeCapabilityOnHost<CapabilityTestOutput<TCapabilities[TName]>>(host, name, input, {

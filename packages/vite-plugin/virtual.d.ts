@@ -7,6 +7,7 @@ declare module "virtual:pracht/client" {}
 
 declare module "virtual:pracht/capabilities" {
   import type {
+    CapabilityBrowserCallOptions,
     CapabilityCallOptionsFor,
     CapabilityInputArgs,
     CapabilityInputFor,
@@ -26,9 +27,7 @@ declare module "virtual:pracht/capabilities" {
   // `import type { ... } from "virtual:pracht/capabilities"` keeps working.
   export type { CapabilityEnvelope, CapabilityErrorPayload, CapabilityIssue };
 
-  export interface CallCapabilityOptions {
-    headers?: HeadersInit;
-    signal?: AbortSignal;
+  export interface CallCapabilityOptions extends CapabilityBrowserCallOptions {
     /**
      * Confirmation token for committing a destructive capability, taken from
      * the prior call's `confirmation_required` error envelope. Sets the

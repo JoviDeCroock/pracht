@@ -14,6 +14,7 @@ import { tmpdir } from "node:os";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { afterEach, describe, expect, it } from "vitest";
+import ts from "typescript";
 
 const cliPath = fileURLToPath(new URL("../bin/pracht.js", import.meta.url));
 const repoRoot = resolve(dirname(cliPath), "../../..");
@@ -697,6 +698,48 @@ export function Component() {
     // Contract prose becomes JSDoc so hovering a name shows what an agent reads.
     expect(declaration).toContain("* Search notes");
     expect(declaration).toContain("* Find notes matching a query.");
+    expect(declaration).toContain("capabilityClient: {");
+    expect(declaration).toContain('"notes": {');
+    expect(declaration).toContain('"search": CapabilityClientMethod<"notes.search">;');
+
+    const hoverPath = join(appDir, "src/capability-hover.ts");
+    writeProjectFile(
+      appDir,
+      "src/capability-hover.ts",
+      `import { capabilities } from "virtual:pracht/capabilities";
+capabilities.notes.search({ query: "roadmap" });
+`,
+    );
+    const hoverProgram = ts.createProgram(
+      [hoverPath, join(appDir, "src/pracht-capabilities.d.ts"), virtualTypesPath],
+      {
+        target: ts.ScriptTarget.ES2022,
+        module: ts.ModuleKind.ESNext,
+        moduleResolution: ts.ModuleResolutionKind.Bundler,
+        noEmit: true,
+        skipLibCheck: true,
+        strict: true,
+        paths: {
+          "@pracht/core": [coreDistTypesPath],
+          "@pracht/capabilities": [capabilitiesDistTypesPath],
+          "@standard-schema/spec": [standardSchemaImportPath],
+        },
+      },
+    );
+    const hoverSource = hoverProgram.getSourceFile(hoverPath);
+    const hoverChecker = hoverProgram.getTypeChecker();
+    let searchProperty;
+    const findSearchProperty = (node) => {
+      if (ts.isPropertyAccessExpression(node) && node.name.text === "search") {
+        searchProperty = node.name;
+      }
+      ts.forEachChild(node, findSearchProperty);
+    };
+    findSearchProperty(hoverSource);
+    const searchSymbol = hoverChecker.getSymbolAtLocation(searchProperty);
+    expect(ts.displayPartsToString(searchSymbol.getDocumentationComment(hoverChecker))).toBe(
+      "Search notes\n\nFind notes matching a query.",
+    );
 
     const check = JSON.parse(runCli(["typegen", "--check", "--json"], { cwd: appDir }).stdout);
     expect(check).toMatchObject({ capabilities: 4, check: true, ok: true });
@@ -924,6 +967,7 @@ import { callCapability, capabilities, useCapability } from "virtual:pracht/capa
 declare const ctx: { request: Request };
 declare const host: CapabilityTestHost;
 declare const readName: "notes.search" | "notes.stats";
+declare const mixedName: "notes.search" | "notes.stats";
 
 const fixtureHost = createCapabilityTestHost({
   capabilities: {

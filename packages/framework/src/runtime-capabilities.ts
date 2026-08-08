@@ -39,7 +39,7 @@ import type {
   CapabilityAuditHook,
   CapabilityEnvelope,
   CapabilityErrorPayload,
-  CapabilityInputFor,
+  CapabilityCallInputFor,
   CapabilityModule,
   CapabilityName,
   CapabilityOutputFor,
@@ -834,7 +834,7 @@ export interface InvokeCapabilityContext<TContext = unknown> {
  */
 export async function invokeCapability<TName extends CapabilityName>(
   name: TName,
-  input: CapabilityInputFor<TName>,
+  input: CapabilityCallInputFor<TName>,
   ctx: InvokeCapabilityContext,
 ): Promise<CapabilityEnvelope<CapabilityOutputFor<TName>>>;
 export async function invokeCapability<T = unknown>(

@@ -89,8 +89,13 @@ import { callCapability } from "virtual:pracht/capabilities";
 
 const prepared = await callCapability("notes.purge", { titlePrefix: "Old" }, { prepare: true });
 
-if (!prepared.ok && prepared.error.code === "confirmation_required") {
-  await callCapability("notes.purge", { titlePrefix: "Old" }, { confirm: prepared.error.confirmationToken });
+const confirmationToken =
+  !prepared.ok && prepared.error.code === "confirmation_required"
+    ? prepared.error.confirmationToken
+    : undefined;
+
+if (confirmationToken) {
+  await callCapability("notes.purge", { titlePrefix: "Old" }, { confirm: confirmationToken });
 }
 ```
 

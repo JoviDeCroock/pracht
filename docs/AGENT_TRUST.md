@@ -201,7 +201,12 @@ Set `PRACHT_CONFIRMATION_SECRET` in the server environment (or call
    confirmation_invalid`, fail closed.
 
    ```ts
-   if (!prepared.ok && prepared.error.code === "confirmation_required") {
+   const confirmationToken =
+     !prepared.ok && prepared.error.code === "confirmation_required"
+       ? prepared.error.confirmationToken
+       : undefined;
+
+   if (confirmationToken) {
      await callCapability(
        "notes.purge",
        { titlePrefix: "Old" },

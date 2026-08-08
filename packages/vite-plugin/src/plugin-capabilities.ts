@@ -184,7 +184,12 @@ export function createPrachtCapabilitiesClientModuleSource(
     "  try {",
     "    const headers = new Headers(opts && opts.headers);",
     '    headers.set("content-type", "application/json");',
-    "    if (opts && opts.confirm) {",
+    "    if (opts && opts.prepare) {",
+    // `prepare` is a safety promise, not only a type marker. A wrapper may
+    // forward caller headers that already contain a token; remove it so this
+    // request can only receive a fresh token and can never commit.
+    `      headers.delete(${JSON.stringify(CONFIRMATION_HEADER)});`,
+    "    } else if (opts && opts.confirm) {",
     `      headers.set(${JSON.stringify(CONFIRMATION_HEADER)}, opts.confirm);`,
     "    }",
     "    response = await fetch(endpoint.path, {",

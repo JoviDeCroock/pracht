@@ -397,8 +397,8 @@ at all: `callCapability("notes.stats")`.
   schema `default` (defaults are applied before input validation); an output
   property is optional exactly when it is not `required`.
 - A capability name typed as a union may omit its input only when every member
-  accepts empty input. Narrow the name or pass an input when any member requires
-  one.
+  accepts empty input, and any supplied input must be valid for every possible
+  member. Narrow the name first when their contracts differ.
 - Objects without `additionalProperties: false` keep an index signature, so
   extra members remain reachable as `unknown`. Extra properties on a closed
   schema are rejected at runtime with a path-scoped 400; TypeScript's

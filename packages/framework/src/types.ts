@@ -2,6 +2,7 @@ import type {
   Capability,
   CapabilityAgentPolicy,
   CapabilityEffect,
+  CapabilityEnvelope,
   PrachtAgentIdentity,
 } from "@pracht/capabilities";
 import type { ComponentChildren, FunctionComponent } from "preact";
@@ -1127,6 +1128,23 @@ export type CapabilityCallOptionsFor<
   :
       | (Omit<TOptions, "confirm"> & { confirm?: never; prepare: true })
       | (TOptions & { confirm: string; prepare?: never });
+
+/** Browser options shared by `callCapability()` and the nested client. */
+export interface CapabilityBrowserCallOptions {
+  headers?: HeadersInit;
+  signal?: AbortSignal;
+  /** Confirmation token for committing a prepared destructive capability. */
+  confirm?: string;
+  /** Begin a destructive call without allowing it to commit. */
+  prepare?: true;
+  /** Skip automatic route-data revalidation after a successful mutation. */
+  revalidate?: boolean;
+}
+
+/** One generated nested-client method, including its effect-specific options. */
+export type CapabilityClientMethod<TName extends string> = (
+  ...args: CapabilityInputArgs<TName, CapabilityCallOptionsFor<TName, CapabilityBrowserCallOptions>>
+) => Promise<CapabilityEnvelope<CapabilityOutputFor<TName>>>;
 
 export class PrachtHttpError extends Error {
   readonly status: number;

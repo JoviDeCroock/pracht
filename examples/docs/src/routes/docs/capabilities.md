@@ -131,8 +131,13 @@ import { capabilities } from "virtual:pracht/capabilities";
 
 const prepared = await capabilities.notes.purge({ titlePrefix: "Old" }, { prepare: true });
 
-if (!prepared.ok && prepared.error.code === "confirmation_required") {
-  await capabilities.notes.purge({ titlePrefix: "Old" }, { confirm: prepared.error.confirmationToken });
+const confirmationToken =
+  !prepared.ok && prepared.error.code === "confirmation_required"
+    ? prepared.error.confirmationToken
+    : undefined;
+
+if (confirmationToken) {
+  await capabilities.notes.purge({ titlePrefix: "Old" }, { confirm: confirmationToken });
 }
 ```
 
@@ -171,7 +176,7 @@ And every call above is fully typed: `pracht typegen` writes each capability's i
 | Committing a `destructive` call without `confirm` | compile error |
 | A capability name computed at runtime | compile error — assert `as HttpCapabilityName` |
 
-A capability whose input schema requires nothing is callable with no argument at all: `capabilities.notes.stats()`. Where the name is a union rather than one literal, the input may be omitted only if every member accepts empty input, and an explicit `prepare` or `confirm` is required if any member is `destructive` — the gate closes when `destructive` is possible, not only when it is certain.
+A capability whose input schema requires nothing is callable with no argument at all: `capabilities.notes.stats()`. Where the name is a union rather than one literal, the input may be omitted only if every member accepts empty input, and any supplied input must be valid for every possible member — narrow the name first when their contracts differ. An explicit `prepare` or `confirm` is required if any member is `destructive`; the gate closes when `destructive` is possible, not only when it is certain.
 
 Apps that have not run `pracht typegen` keep the untyped form and accept any name. Two things to know when adopting it:
 
