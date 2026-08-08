@@ -18,5 +18,6 @@ export default defineConfig({
   ],
   format: "esm",
   dts: true,
+  unbundle: true,
   external: ["preact", "preact/hooks", "preact-render-to-string"],
 });

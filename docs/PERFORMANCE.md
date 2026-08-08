@@ -4,6 +4,24 @@ Pracht's core promise is shipping less JavaScript. Two built-in tools keep that
 promise honest as an app grows: `pracht build --analyze` (visibility) and
 per-route client-JS budgets (enforcement).
 
+## Tree-shaking framework imports
+
+`@pracht/core` is published as unbundled ESM so downstream bundlers can follow
+the dependency graph for each named export. Import the public API you need from
+the package normally; Vite can remove unrelated framework modules from the
+client bundle:
+
+```ts
+import { createHref } from "@pracht/core";
+```
+
+Type-only imports disappear entirely. Browser components and hooks such as
+`Form` and `useLocation` still bring their required Preact and router runtime,
+while small helpers such as `createHref`, `publicEnv`, and `apiFetch` do not pull
+in unrelated client features. The dedicated `@pracht/core/client`, `/manifest`,
+`/env`, `/env/server`, and `/server` entry points remain available for generated
+framework code and explicit environment separation.
+
 ## `pracht build --analyze`
 
 After a successful production build, `--analyze` prints a per-route report of
