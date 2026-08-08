@@ -858,6 +858,11 @@ differently than this proposal assumed.
   must also configure `defineApp({ agents: { mcp } })`. Exposure alone opening
   a network endpoint would be exactly the "auto-generated tool sprawl" failure
   this proposal set out to avoid.
+- **Wire-version support is conservative.** The first projection advertises
+  `2025-11-25` and `2025-06-18`, whose initialization and tool-result shapes it
+  implements completely. The `2026-07-28` stateless core informed the design,
+  but its self-describing headers and result codec remain a follow-up and are
+  not advertised prematurely.
 
 Two constraints surfaced that the plan did not anticipate: MCP hosts widely
 require `^[a-zA-Z0-9_-]{1,64}$` tool names, so dotted capability names are

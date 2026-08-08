@@ -230,6 +230,17 @@ describe("resolveAppCapabilities", () => {
     );
   });
 
+  it("rejects hand-rolled MCP capabilities with non-object schema roots", async () => {
+    const capability = {
+      ...createSearchCapability({ expose: { mcp: true } }),
+      output: { type: "array", items: { type: "string" } },
+    };
+    const { app, registry } = createApp(capability);
+    await expect(resolveAppCapabilities(app, registry)).rejects.toThrow(
+      /expose\.mcp requires "input" and "output" schemas with type: "object"/,
+    );
+  });
+
   it("accepts destructive capabilities exposed over HTTP only", async () => {
     const capability = { ...createSearchCapability(), effect: "destructive" as const };
     const { app, registry } = createApp(capability);

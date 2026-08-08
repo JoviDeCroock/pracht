@@ -753,7 +753,7 @@ export interface CapabilityApprovalStore {
  * but unserved.
  */
 export interface McpProjectionConfig {
-  /** Endpoint path. Default `/mcp`. */
+  /** Exact same-origin endpoint pathname. Default `/mcp`. */
   path?: string;
   /** Reported by `initialize`. Defaults to `{ name: "pracht", version: "0.0.0" }`. */
   serverInfo?: { name: string; version: string };
@@ -775,10 +775,10 @@ export interface CapabilityAuditEvent {
   capability: string;
   effect: CapabilityEffect;
   /**
-   * How the capability was invoked. `"mcp"` is set by the remote MCP
-   * projection itself and is trustworthy. `"webmcp"` reflects the transport
-   * marker the generated WebMCP shim sends with its dispatches —
-   * informational, not a trust signal (any HTTP client can send the header).
+   * How the capability was invoked. `"mcp"` is trusted internal dispatch
+   * state from the remote MCP projection. `"webmcp"` reflects the transport
+   * marker the generated WebMCP shim sends with its dispatches — informational,
+   * not a trust signal (any HTTP client can send the header).
    */
   transport: "http" | "server" | "webmcp" | "mcp";
   /** `"ok"` or the envelope error code (e.g. `"invalid_input"`, `"confirmation_required"`). */

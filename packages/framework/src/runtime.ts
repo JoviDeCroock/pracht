@@ -352,20 +352,29 @@ export async function handlePrachtRequest<TContext>(
     }
   }
 
-  // Capability HTTP projection. Only runs when the manifest registers
-  // capabilities — apps without them pay a single `Object.keys` call.
-  // Explicit API route files take precedence (they matched above).
-  if (Object.keys(options.app.capabilities ?? {}).length > 0) {
-    let capabilities: ResolvedCapability[] | null = null;
+  // Capability projections. Explicit API route files take precedence (they
+  // matched above). A configured MCP endpoint remains live with an empty or
+  // broken graph so clients receive an empty list or a protocol error instead
+  // of falling through to the application's page router.
+  const hasCapabilities = Object.keys(options.app.capabilities ?? {}).length > 0;
+  const mcpConfig = options.app.agents?.mcp;
+  const isMcpRequest = !!mcpConfig && url.pathname === resolveMcpEndpoint(options.app.agents);
+  if (hasCapabilities || isMcpRequest) {
+    let capabilities: ResolvedCapability[] | null = hasCapabilities ? null : [];
+    let capabilityResolutionError: unknown;
     try {
-      capabilities = await resolveAppCapabilities(options.app, registry);
+      if (hasCapabilities) {
+        capabilities = await resolveAppCapabilities(options.app, registry);
+      }
     } catch (error: unknown) {
+      capabilityResolutionError = error;
       warnCapabilityResolutionFailure(error);
       // A broken capability definition must not take down page rendering;
       // requests to capability paths still fail closed below.
       if (
-        url.pathname.startsWith(CAPABILITY_HTTP_PREFIX) ||
-        (await isRegisteredCapabilityHttpPath(options.app, registry, url.pathname))
+        !isMcpRequest &&
+        (url.pathname.startsWith(CAPABILITY_HTTP_PREFIX) ||
+          (await isRegisteredCapabilityHttpPath(options.app, registry, url.pathname)))
       ) {
         return withDefaultSecurityHeaders(
           envelopeResponse(500, {
@@ -381,31 +390,28 @@ export async function handlePrachtRequest<TContext>(
       }
     }
 
-    if (capabilities) {
-      // Remote MCP projection. Opt-in via `defineApp({ agents: { mcp } })`;
-      // the endpoint is a transport adapter over the same dispatch used
-      // below, so nothing is enforced twice.
-      const mcpConfig = options.app.agents?.mcp;
-      if (mcpConfig && url.pathname === resolveMcpEndpoint(options.app.agents)) {
-        const mcpResponse = await handleMcpRequest({
-          capabilities,
-          context: requestContext,
-          registry,
-          request: options.request,
-          url,
-          exposeErrors: exposeDiagnostics,
-          mcp: mcpConfig,
-          apiMiddlewareFiles: (options.app.api.middleware ?? []).flatMap((name) => {
-            const middlewareFile = options.app.middleware[name];
-            return middlewareFile ? [middlewareFile] : [];
-          }),
-          agents: options.app.agents,
-          agent,
-          onAudit: options.onCapabilityAudit,
-        });
-        return withDefaultSecurityHeaders(mcpResponse);
-      }
+    if (isMcpRequest && mcpConfig) {
+      const mcpResponse = await handleMcpRequest({
+        capabilities: capabilities ?? [],
+        context: requestContext,
+        registry,
+        request: options.request,
+        url,
+        exposeErrors: exposeDiagnostics,
+        mcp: mcpConfig,
+        apiMiddlewareFiles: (options.app.api.middleware ?? []).flatMap((name) => {
+          const middlewareFile = options.app.middleware[name];
+          return middlewareFile ? [middlewareFile] : [];
+        }),
+        agents: options.app.agents,
+        agent,
+        onAudit: options.onCapabilityAudit,
+        resolutionError: capabilityResolutionError,
+      });
+      return withDefaultSecurityHeaders(mcpResponse);
+    }
 
+    if (capabilities) {
       const capabilityMatch = matchCapabilityRoute(capabilities, url.pathname);
       if (capabilityMatch) {
         // Same CSRF stance as state-changing API requests: capability calls

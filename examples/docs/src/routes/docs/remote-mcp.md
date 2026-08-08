@@ -40,7 +40,11 @@ export default defineCapability({
 
 `pracht dev` prints the endpoint next to the capability table, and `pracht verify` warns when a capability declares `expose.mcp` that no endpoint serves — a declared-but-dead transport is never mistaken for a live one.
 
+Custom paths must be exact same-origin pathnames beginning with `/`; invalid values fail manifest validation. Once configured, the endpoint remains active with an empty capability graph (`tools/list` returns an empty list), and graph resolution failures stay on the endpoint as JSON-RPC errors.
+
 `expose.mcp` does **not** require `expose.http`. A capability can be reachable by remote agents with no public browser endpoint at all.
+
+The supported MCP versions require both tool schemas to be rooted at `{ type: "object" }`. `defineCapability()`, the runtime registry, and `pracht verify` reject `expose.mcp` when either the input or output schema uses another root; those schemas remain valid for private, HTTP, and WebMCP capabilities.
 
 ---
 
@@ -109,7 +113,7 @@ Every capability guarantee carries over. The projection adds three of its own:
 
 **Destructive capabilities are not exposed.** `expose.mcp` on a `destructive` capability is rejected by `defineCapability()`, the registry, and `pracht verify` — and filtered again at serve time. Agent hosts cannot yet be trusted to carry the [prepare/commit flow](/docs/agent-trust) faithfully.
 
-Authentication is your app's, in the capability's named middleware. Every dispatch emits an audit event with `transport: "mcp"` — set by the projection on a request it synthesized itself, so unlike the client-declared `"webmcp"` marker it is trustworthy.
+Authentication is your app's, in the capability's named middleware. Every dispatch emits an audit event with `transport: "mcp"` — passed as internal dispatch state rather than read from the public transport-marker header, so unlike the client-declared `"webmcp"` marker it is trustworthy.
 
 ---
 
@@ -126,7 +130,7 @@ curl -sX POST http://localhost:3000/mcp \
        "params":{"name":"notes_search","arguments":{"query":"roadmap"}}}'
 ```
 
-Protocol versions are negotiated on `initialize`, newest first: `2026-07-28`, `2025-11-25`, `2025-06-18`.
+Protocol versions are negotiated on `initialize`, newest first: `2025-11-25`, `2025-06-18`. The `2026-07-28` profile is not advertised until its self-describing request headers and result codec are implemented together.
 
 Not built yet: OAuth resource-server metadata (authentication lives in your middleware for now), `resources/*` and `prompts/*`, streaming and progress, and MCP Apps UI views.
 

@@ -18,7 +18,6 @@
  */
 
 import {
-  CAPABILITY_TRANSPORT_HEADER,
   CONFIRMATION_HEADER,
   DEFAULT_MCP_ENDPOINT,
   findMcpToolNameCollisions,
@@ -35,7 +34,7 @@ import type {
 } from "./types.ts";
 
 /** Newest first; `initialize` negotiates down to a version both sides know. */
-export const MCP_PROTOCOL_VERSIONS = ["2026-07-28", "2025-11-25", "2025-06-18"] as const;
+export const MCP_PROTOCOL_VERSIONS = ["2025-11-25", "2025-06-18"] as const;
 export const MCP_LATEST_PROTOCOL_VERSION = MCP_PROTOCOL_VERSIONS[0];
 export const MCP_PROTOCOL_VERSION_HEADER = "mcp-protocol-version";
 
@@ -88,6 +87,8 @@ export interface HandleMcpRequestOptions<TContext> {
   agent?: PrachtAgentIdentity | null;
   apiMiddlewareFiles?: string[];
   onAudit?: CapabilityAuditHook;
+  /** Registry resolution failure captured by the outer application runtime. */
+  resolutionError?: unknown;
 }
 
 /**
@@ -180,6 +181,21 @@ export async function handleMcpRequest<TContext>(
     return new Response(null, { status: 202 });
   }
   const id = message.id as string | number;
+
+  if (options.resolutionError !== undefined) {
+    const detail =
+      options.exposeErrors && options.resolutionError instanceof Error
+        ? `: ${options.resolutionError.message}`
+        : ".";
+    return jsonRpcResponse(500, {
+      jsonrpc: "2.0",
+      id,
+      error: {
+        code: JSONRPC_INTERNAL_ERROR,
+        message: `Capability registry failed to resolve${detail}`,
+      },
+    });
+  }
 
   const collisions = findMcpToolNameCollisions(
     mcpExposedCapabilities(options.capabilities).map((entry) => entry.name),
@@ -314,6 +330,7 @@ async function handleToolsCall<TContext>(
     apiMiddlewareFiles: options.apiMiddlewareFiles,
     agents: options.agents,
     agent: options.agent ?? null,
+    transport: "mcp",
     onAudit: options.onAudit,
   });
 
@@ -362,8 +379,6 @@ function synthesizeCapabilityRequest<TContext>(
   if (typeof confirmation === "string" && confirmation !== "") {
     headers.set(CONFIRMATION_HEADER, confirmation);
   }
-  headers.set(CAPABILITY_TRANSPORT_HEADER, "mcp");
-
   // Capabilities exposed only over MCP have no HTTP path; a stable internal
   // URL keeps `request.url` meaningful for middleware without opening an
   // endpoint.

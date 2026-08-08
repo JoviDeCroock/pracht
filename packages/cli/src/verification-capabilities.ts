@@ -6,6 +6,7 @@ import {
   collectUnsupportedSchemaKeywords,
   findMcpToolNameCollisions,
   isValidCapabilityHttpPath,
+  MCP_SCHEMA_ROOT_ERROR,
 } from "@pracht/capabilities";
 import {
   evaluateLiteral,
@@ -221,6 +222,7 @@ function collectSingleCapabilityChecks(
 
   const exposeFlags = readExposeFlags(properties.get("expose"));
   const exposed = exposeFlags.hasHttp || exposeFlags.hasMcp || exposeFlags.hasWebmcp;
+  const hasMcp = !exposeFlags.unknown && exposeFlags.hasMcp;
   problems.push(...exposeFlags.problems);
 
   for (const [field, value] of [
@@ -305,7 +307,7 @@ function collectSingleCapabilityChecks(
   }
 
   if (exposed && !exposeFlags.unknown) {
-    const { hasHttp, hasMcp, hasWebmcp } = exposeFlags;
+    const { hasHttp, hasWebmcp } = exposeFlags;
     if (hasMcp) mcpExposed.push(name);
     if (hasWebmcp && !hasHttp) {
       problems.push(
@@ -329,6 +331,7 @@ function collectSingleCapabilityChecks(
     }
   }
 
+  const invalidMcpSchemaRoots: string[] = [];
   for (const field of ["input", "output"] as const) {
     const schemaText = properties.get(field);
     if (!schemaText) continue;
@@ -342,6 +345,15 @@ function collectSingleCapabilityChecks(
       );
       continue;
     }
+    if (
+      hasMcp &&
+      (!schema ||
+        typeof schema !== "object" ||
+        Array.isArray(schema) ||
+        (schema as { type?: unknown }).type !== "object")
+    ) {
+      invalidMcpSchemaRoots.push(field);
+    }
     const unsupported = collectUnsupportedSchemaKeywords(schema);
     if (unsupported.length > 0) {
       problems.push(
@@ -352,6 +364,9 @@ function collectSingleCapabilityChecks(
     if (invalid.length > 0) {
       problems.push(`"${field}" schema has invalid JSON Schema values: ${invalid.join(", ")}`);
     }
+  }
+  if (invalidMcpSchemaRoots.length > 0) {
+    problems.push(`${MCP_SCHEMA_ROOT_ERROR} (invalid: ${invalidMcpSchemaRoots.join(", ")})`);
   }
 
   if (problems.length > 0) {

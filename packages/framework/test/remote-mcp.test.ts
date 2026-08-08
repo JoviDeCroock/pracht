@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
+  CAPABILITY_TRANSPORT_HEADER,
   defineCapability,
   findMcpToolNameCollisions,
   mcpToolName,
@@ -227,6 +228,51 @@ describe("serving is opt-in", () => {
     expect(resolveMcpEndpoint({ mcp: {} })).toBe("/mcp");
     expect(resolveMcpEndpoint({ mcp: { path: "/agent/mcp/" } })).toBe("/agent/mcp");
   });
+
+  it("serves an empty tool list when the endpoint is configured without capabilities", async () => {
+    const app = defineApp({ agents: { mcp: {} }, routes: [] });
+    const response = await handlePrachtRequest({
+      app,
+      registry: { routeModules: {} },
+      request: new Request(`${ORIGIN}/mcp`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ result: { tools: [] } });
+  });
+
+  it("keeps registry failures on the MCP protocol surface", async () => {
+    const app = defineApp({
+      agents: { mcp: {} },
+      capabilities: { broken: "./capabilities/broken.ts" },
+      routes: [],
+    });
+    const response = await handlePrachtRequest({
+      app,
+      registry: {
+        routeModules: {},
+        capabilityModules: {
+          "./capabilities/broken.ts": async () => ({ default: {} }) as never,
+        },
+      },
+      request: new Request(`${ORIGIN}/mcp`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
+      }),
+    });
+
+    expect(response.status).toBe(500);
+    expect(await response.json()).toMatchObject({
+      jsonrpc: "2.0",
+      id: 1,
+      error: { code: -32603 },
+    });
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -309,7 +355,7 @@ describe("transport", () => {
       method: "initialize",
       params: { protocolVersion: "1999-01-01" },
     });
-    expect(unknown.json?.result.protocolVersion).toBe("2026-07-28");
+    expect(unknown.json?.result.protocolVersion).toBe("2025-11-25");
   });
 
   it("reports configured server info", async () => {
@@ -441,6 +487,21 @@ describe("tools/call runs the same pipeline as the HTTP projection", () => {
       outcome: "ok",
       transport: "mcp",
     });
+  });
+
+  it("does not trust an MCP transport marker on the public HTTP endpoint", async () => {
+    const events: CapabilityAuditEvent[] = [];
+    setCapabilityAuditHook((event) => events.push(event));
+
+    const { status } = await mcp(null, {
+      path: "/api/capabilities/notes/search",
+      body: { query: "x" },
+      headers: { [CAPABILITY_TRANSPORT_HEADER]: "mcp" },
+    });
+
+    expect(status).toBe(200);
+    expect(events).toHaveLength(1);
+    expect(events[0].transport).toBe("http");
   });
 });
 

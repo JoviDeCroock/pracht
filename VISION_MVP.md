@@ -153,10 +153,11 @@ from `@pracht/capabilities`:
   contract from the capability name. Unknown names, mismatched inputs, browser
   calls to private capabilities, and `destructive` calls that neither prepare
   nor provide their confirmation token are compile errors.
-- See [docs/CAPABILITIES.md](docs/CAPABILITIES.md) and
+- See [docs/CAPABILITIES.md](docs/CAPABILITIES.md),
+  [docs/REMOTE_MCP.md](docs/REMOTE_MCP.md), and
   [docs/AGENT_TRUST.md](docs/AGENT_TRUST.md). The product bet, its decision
-  log, and the staged plan (remote MCP and MCP Apps are the unbuilt stages)
-  live in [docs/CAPABILITY_GRAPH.md](docs/CAPABILITY_GRAPH.md).
+  log, and the staged plan (MCP Apps remains unbuilt) live in
+  [docs/CAPABILITY_GRAPH.md](docs/CAPABILITY_GRAPH.md).
 
 ### Deployment Adapters
 

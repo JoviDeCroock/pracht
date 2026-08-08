@@ -42,8 +42,19 @@ A capability without `expose.mcp` is invisible to the endpoint, and without
 capability declares `expose.mcp` that no endpoint serves, and `pracht dev`
 prints the endpoint next to the capability table.
 
+Custom paths must be exact same-origin pathnames beginning with `/`; invalid
+values fail manifest validation. Once configured, the endpoint remains active
+with an empty capability graph (`tools/list` returns an empty list), and graph
+resolution failures stay on the endpoint as JSON-RPC errors.
+
 `expose.mcp` does **not** require `expose.http`: a capability can be reachable
 by remote agents without any public browser endpoint.
+
+The currently supported MCP protocol versions require tool input and output
+schemas rooted at `{ type: "object" }`. `defineCapability()`, the runtime
+registry, and `pracht verify` reject `expose.mcp` when either schema has a
+different root. Non-object schemas remain valid for private, HTTP, and WebMCP
+capabilities.
 
 ## It is a transport, not a second pipeline
 
@@ -146,9 +157,9 @@ The projection inherits every capability guarantee and adds three of its own:
 
 Authentication is your app's: put it in the capability's named middleware,
 which sees the forwarded `Authorization` header and `context.agent`. Every
-dispatch emits an audit event with `transport: "mcp"` — set by the projection
-on a request it synthesized itself, so unlike the client-declared `"webmcp"`
-marker it is trustworthy.
+dispatch emits an audit event with `transport: "mcp"` — passed as internal
+dispatch state by the projection, never read from the public transport-marker
+header, so unlike the client-declared `"webmcp"` marker it is trustworthy.
 
 ## Talking to it
 
@@ -164,8 +175,8 @@ curl -sX POST http://localhost:3000/mcp \
 ```
 
 Supported protocol versions are negotiated on `initialize`, newest first:
-`2026-07-28`, `2025-11-25`, `2025-06-18`. An `MCP-Protocol-Version` header
-outside that set is a 400.
+`2025-11-25`, `2025-06-18`. An `MCP-Protocol-Version` header outside that set
+is a 400.
 
 `examples/basic` serves this endpoint; `e2e/capabilities.test.ts` exercises
 it end to end.
@@ -176,6 +187,9 @@ it end to end.
   `WWW-Authenticate` on 401). Authentication currently lives in your
   middleware.
 - **`resources/*` and `prompts/*`** — only `tools/*` is projected.
+- **The `2026-07-28` wire profile.** It replaces the initialization exchange
+  with self-describing requests and requires its own header/result codec; the
+  endpoint does not advertise that version until the complete profile ships.
 - **Destructive capabilities over MCP.** The prepare/commit flow itself
   transfers to the transport unchanged; what it needs first is exactly-once
   commit, which is what the [approval store](AGENT_TRUST.md#durable-approvals)

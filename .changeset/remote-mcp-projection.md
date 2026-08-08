@@ -19,9 +19,17 @@ by remote agents without a public browser endpoint. Dotted capability names map
 to underscored tool names (`notes.search` → `notes_search`); collisions are a
 `pracht verify` error and the runtime refuses to serve an ambiguous tool list.
 Cookies are never forwarded to the capability, `Authorization` is; `Origin` is
-validated; destructive capabilities stay off the MCP surface.
+validated; destructive capabilities stay off the MCP surface. The endpoint
+supports the `2025-11-25` and `2025-06-18` protocol profiles; MCP-exposed input
+and output schemas must be object-rooted until the complete `2026-07-28` wire
+codec ships.
 
 `CapabilityAuditEvent.transport` gains `"mcp"`, `AppGraph` gains
 `mcpEndpoint`, and `pracht dev` prints the endpoint next to the capability
 table (`mcp(unserved)` when `expose.mcp` is declared but no endpoint is
 configured).
+
+MCP audit attribution is internal dispatch state rather than a client-set
+header. A configured endpoint remains protocol-active with an empty graph and
+returns JSON-RPC errors when registry resolution fails. Custom endpoint paths
+are validated as exact same-origin pathnames.

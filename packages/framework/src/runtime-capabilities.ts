@@ -19,6 +19,7 @@ import {
   capabilityHttpPath,
   coerceFormInput,
   isValidCapabilityHttpPath,
+  MCP_SCHEMA_ROOT_ERROR,
   normalizeCapabilityHttpPath,
 } from "@pracht/capabilities";
 import { formatUnknownNameError } from "./name-suggestions.ts";
@@ -145,6 +146,12 @@ async function resolveAppCapabilitiesUncached(
     }
     if (capability.expose?.webmcp && !capability.expose.http) {
       throw new Error(`Capability "${name}": expose.webmcp requires expose.http.`);
+    }
+    if (
+      capability.expose?.mcp &&
+      (capability.input?.type !== "object" || capability.output?.type !== "object")
+    ) {
+      throw new Error(`Capability "${name}": ${MCP_SCHEMA_ROOT_ERROR}.`);
     }
     if (
       capability.expose &&
@@ -423,6 +430,8 @@ export interface HandleCapabilityRequestOptions<TContext> {
   agents?: PrachtAgentsConfig;
   /** Verified agent identity for this request, `null` when unsigned/unverified. */
   agent?: PrachtAgentIdentity | null;
+  /** Trusted transport selected by an internal framework projection. */
+  transport?: "mcp";
   onAudit?: CapabilityAuditHook;
 }
 
@@ -442,12 +451,12 @@ export async function handleCapabilityRequest<TContext>(
     {
       capability: options.match.name,
       effect: options.match.capability.effect,
-      // The generated WebMCP shim and the remote MCP projection both mark
-      // their dispatches so audit trails can tell agent traffic apart from
-      // plain HTTP callers. `"mcp"` is set by the projection on a request it
-      // synthesized itself, so it is trustworthy; `"webmcp"` is
-      // client-declared and informational only.
-      transport: capabilityTransport(options.request.headers.get(CAPABILITY_TRANSPORT_HEADER)),
+      // MCP is trusted internal dispatch state. WebMCP remains a
+      // client-declared marker and is therefore informational only.
+      transport: capabilityTransport(
+        options.request.headers.get(CAPABILITY_TRANSPORT_HEADER),
+        options.transport,
+      ),
       outcome,
       status: responseWithEffect.status,
       durationMs: performance.now() - started,
@@ -505,9 +514,12 @@ async function dispatchCapabilityHttpWithApiMiddleware<TContext>(
   }
 }
 
-function capabilityTransport(marker: string | null): CapabilityAuditEvent["transport"] {
+function capabilityTransport(
+  marker: string | null,
+  trustedTransport: HandleCapabilityRequestOptions<unknown>["transport"],
+): CapabilityAuditEvent["transport"] {
+  if (trustedTransport === "mcp") return "mcp";
   if (marker === "webmcp") return "webmcp";
-  if (marker === "mcp") return "mcp";
   return "http";
 }
 

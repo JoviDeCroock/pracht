@@ -446,4 +446,13 @@ describe("agents config validation", () => {
       /positive number/,
     );
   });
+
+  it("rejects MCP endpoint paths that cannot match a request pathname", () => {
+    expect(() => resolveApp(buildApp({ mcp: { path: "mcp" } }))).toThrow(
+      /exact same-origin pathname/,
+    );
+    expect(() => resolveApp(buildApp({ mcp: { path: "/mcp?tenant=one" } }))).toThrow(
+      /exact same-origin pathname/,
+    );
+  });
 });

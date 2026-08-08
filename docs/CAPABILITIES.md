@@ -486,6 +486,8 @@ adds a transport rather than a second set of rules.
 `expose.mcp` does not require `expose.http` — a capability can be reachable by
 remote agents with no public browser endpoint. Cookies are never forwarded to
 the capability, and `destructive` capabilities cannot be exposed this way.
+The supported MCP versions require both `input` and `output` schemas to declare
+`type: "object"`; other schema roots remain available to non-MCP projections.
 Full contract in [REMOTE_MCP.md](REMOTE_MCP.md).
 
 ### Build-time extraction constraint

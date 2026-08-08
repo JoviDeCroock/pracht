@@ -415,14 +415,15 @@ interface CapabilityAuditEvent {
 }
 ```
 
-`"mcp"` is set by the [remote MCP projection](REMOTE_MCP.md) on a request it
-synthesized itself, so it is trustworthy. `"webmcp"` reflects the transport
-marker header (`CAPABILITY_TRANSPORT_HEADER` from `@pracht/capabilities`)
-that the generated WebMCP shim sends with its dispatches, so audit trails can
-tell in-browser agent traffic (cookie-authenticated) apart from remote HTTP
-callers — like any client-sent header it is informational, not a trust
-signal. `outcome` values come from the `CapabilityErrorCode` union exported
-by `@pracht/capabilities` (plus `"ok"` and middleware short-circuits).
+`"mcp"` is passed as internal dispatch state by the [remote MCP
+projection](REMOTE_MCP.md), never inferred from a public request header, so it
+is trustworthy. `"webmcp"` reflects the transport marker header
+(`CAPABILITY_TRANSPORT_HEADER` from `@pracht/capabilities`) that the generated
+WebMCP shim sends with its dispatches, so audit trails can tell in-browser
+agent traffic (cookie-authenticated) apart from remote HTTP callers — like any
+client-sent header it is informational, not a trust signal. `outcome` values
+come from the `CapabilityErrorCode` union exported by `@pracht/capabilities`
+(plus `"ok"` and middleware short-circuits).
 
 Subscribe from any server-only module (audit hooks observe: exceptions are
 swallowed, never breaking a request):

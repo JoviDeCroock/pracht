@@ -400,6 +400,26 @@ describe("collectCapabilityChecks", () => {
     );
   });
 
+  it("fails MCP exposure with non-object schema roots", () => {
+    const checks = runChecks(
+      capabilitySource(`  title: "Search notes",
+  description: "Find notes.",
+  input: { type: "string" },
+  output: { type: "array", items: { type: "string" } },
+  effect: "read",
+  expose: { mcp: true },`),
+    );
+
+    expect(checks).toContainEqual(
+      expect.objectContaining({
+        message: expect.stringContaining(
+          'expose.mcp requires "input" and "output" schemas with type: "object"',
+        ),
+        status: "error",
+      }),
+    );
+  });
+
   it("fails destructive http exposure without the confirmation secret", () => {
     const previous = process.env.PRACHT_CONFIRMATION_SECRET;
     delete process.env.PRACHT_CONFIRMATION_SECRET;

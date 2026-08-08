@@ -1,4 +1,8 @@
-export { defineCapability, DESTRUCTIVE_EXPOSURE_ERROR } from "./capability.ts";
+export {
+  defineCapability,
+  DESTRUCTIVE_EXPOSURE_ERROR,
+  MCP_SCHEMA_ROOT_ERROR,
+} from "./capability.ts";
 export type {
   Capability,
   CapabilityAgentPolicy,
