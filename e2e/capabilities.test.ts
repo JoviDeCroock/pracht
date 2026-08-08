@@ -501,8 +501,9 @@ test("MCP tools/call reports validation failures as tool errors", async ({ reque
   });
 
   expect(body.result.isError).toBe(true);
-  expect(body.result.structuredContent.code).toBe("invalid_input");
-  expect(body.result.structuredContent.issues.length).toBeGreaterThan(0);
+  expect(body.result.structuredContent).toBeUndefined();
+  expect(body.result._meta["io.pracht/error"].code).toBe("invalid_input");
+  expect(body.result._meta["io.pracht/error"].issues.length).toBeGreaterThan(0);
 });
 
 test("MCP rejects an unknown tool as a JSON-RPC error", async ({ request }) => {
@@ -512,7 +513,7 @@ test("MCP rejects an unknown tool as a JSON-RPC error", async ({ request }) => {
   expect(body.error.message).toContain("Unknown tool");
 });
 
-test("MCP refuses GET and cross-origin requests", async ({ request }) => {
+test("MCP refuses GET, cross-origin, and cookie-authenticated requests", async ({ request }) => {
   const get = await request.get("/mcp");
   expect(get.status()).toBe(405);
   expect(get.headers().allow).toBe("POST");
@@ -522,6 +523,12 @@ test("MCP refuses GET and cross-origin requests", async ({ request }) => {
     headers: { "content-type": "application/json", origin: "https://evil.example" },
   });
   expect(crossOrigin.status()).toBe(403);
+
+  const cookieAuthenticated = await request.post("/mcp", {
+    data: { jsonrpc: "2.0", id: 1, method: "ping" },
+    headers: { "content-type": "application/json", cookie: "session=abc" },
+  });
+  expect(cookieAuthenticated.status()).toBe(403);
 });
 
 // ---------------------------------------------------------------------------

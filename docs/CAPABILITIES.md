@@ -484,8 +484,8 @@ capability is served as an MCP tool over stateless Streamable HTTP at `/mcp`
 adds a transport rather than a second set of rules.
 
 `expose.mcp` does not require `expose.http` — a capability can be reachable by
-remote agents with no public browser endpoint. Cookies are never forwarded to
-the capability, and `destructive` capabilities cannot be exposed this way.
+remote agents with no public browser endpoint. Cookie-bearing MCP requests are
+rejected, and `destructive` capabilities cannot be exposed this way.
 The supported MCP versions require both `input` and `output` schemas to declare
 `type: "object"`; other schema roots remain available to non-MCP projections.
 Full contract in [REMOTE_MCP.md](REMOTE_MCP.md).
@@ -514,9 +514,10 @@ file, and `pracht verify` reports the same projection constraints.
   prepare/commit confirmation flow (and its secret); `webmcp`/`mcp` exposure
   is an error, enforced by `defineCapability()`, the registry, `pracht verify`,
   and the MCP projection at serve time. See [AGENT_TRUST.md](AGENT_TRUST.md).
-- **Remote MCP never sees cookies** — the MCP endpoint drops `cookie` when it
-  dispatches, so a browser session can never authenticate the remote agent
-  transport. See [REMOTE_MCP.md](REMOTE_MCP.md).
+- **Remote MCP never accepts cookies** — the MCP endpoint rejects cookie-bearing
+  requests before capability dispatch, so even a session decoded by an adapter
+  context factory cannot authenticate the remote agent transport. See
+  [REMOTE_MCP.md](REMOTE_MCP.md).
 - **Verified agent identity and policy** — Web Bot Auth (RFC 9421) puts
   `context.agent` on every request when enabled; capability endpoints can
   `agentPolicy: "require"` verified agents, and every dispatch emits an

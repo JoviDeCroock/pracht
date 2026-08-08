@@ -131,22 +131,25 @@ The split follows what actually failed:
 | Situation | Answer |
 | --- | --- |
 | Unknown tool, malformed params, bad JSON-RPC | JSON-RPC `error` |
-| Unsupported protocol version, non-POST, cross-origin | HTTP 400 / 405 / 403 |
+| Unsupported protocol version, non-POST, cross-origin, cookie-bearing request | HTTP 400 / 405 / 403 |
 | Validation failure, middleware rejection, policy denial | `isError: true` result |
 
 Execution failures stay results because the call itself succeeded and the
-model needs to *read* the failure to react to it. The envelope's error code
-and issues travel in `structuredContent`.
+model needs to *read* the failure to react to it. Their text content names the
+error code and issues; the machine-readable payload lives in
+`_meta["io.pracht/error"]`. Error results omit `structuredContent`, because any
+structured result must match the capability's advertised output schema.
 
 ## Security
 
 The projection inherits every capability guarantee and adds three of its own:
 
-- **Cookies are never forwarded.** The synthesized request deliberately drops
-  `cookie`, so a browser session can never authenticate the remote agent
-  transport. `authorization` *is* forwarded, so middleware sees the MCP
-  credential. This is a mechanism, not a convention — there is no code path
-  that passes a cookie through.
+- **Cookie-bearing requests are rejected.** Adapters can derive `context` from
+  the original request before framework dispatch, so merely dropping `cookie`
+  from the synthesized capability request would be too late. The endpoint
+  answers 403 whenever the transport request carries a cookie; a browser
+  session can therefore never authenticate remote MCP. `authorization` *is*
+  forwarded, so middleware sees the MCP credential.
 - **Origin is validated.** A page on another origin cannot drive the endpoint
   (DNS rebinding). Non-browser callers send no `Origin` and are unaffected.
 - **Destructive capabilities are not exposed.** `expose.mcp` on a

@@ -115,6 +115,39 @@ const authProbe = defineCapability({
   },
 } as CapabilityDefinition);
 
+const urlProbe = defineCapability({
+  title: "URL probe",
+  description: "Reports the URL seen by capability middleware.",
+  input: { type: "object", properties: {}, additionalProperties: false },
+  output: {
+    type: "object",
+    properties: {
+      requestPath: { type: "string" },
+      urlPath: { type: "string" },
+    },
+    required: ["requestPath", "urlPath"],
+  },
+  effect: "read",
+  middleware: ["recordUrl"],
+  expose: { http: true, mcp: true },
+  async run({ context }) {
+    return context as { requestPath: string; urlPath: string };
+  },
+} as CapabilityDefinition);
+
+const jsonShortCircuit = defineCapability({
+  title: "JSON short circuit",
+  description: "Stops in middleware with non-envelope JSON.",
+  input: { type: "object", properties: {}, additionalProperties: false },
+  output: { type: "object", properties: { ok: { type: "boolean" } }, required: ["ok"] },
+  effect: "read",
+  middleware: ["jsonShortCircuit"],
+  expose: { mcp: true },
+  async run() {
+    return { ok: true };
+  },
+} as CapabilityDefinition);
+
 function createApp(agents: PrachtAgentsConfig | undefined) {
   const capabilities = {
     "notes.search": notesSearch,
@@ -123,11 +156,17 @@ function createApp(agents: PrachtAgentsConfig | undefined) {
     "notes.guarded": guarded,
     "agent.only": agentOnly,
     "auth.probe": authProbe,
+    "url.probe": urlProbe,
+    "json.short-circuit": jsonShortCircuit,
   };
 
   const app = defineApp({
     agents,
-    middleware: { deny: "./middleware/deny.ts" },
+    middleware: {
+      deny: "./middleware/deny.ts",
+      recordUrl: "./middleware/record-url.ts",
+      jsonShortCircuit: "./middleware/json-short-circuit.ts",
+    },
     capabilities: Object.fromEntries(
       Object.keys(capabilities).map((name) => [name, `./capabilities/${name}.ts`]),
     ),
@@ -139,6 +178,19 @@ function createApp(agents: PrachtAgentsConfig | undefined) {
     middlewareModules: {
       "./middleware/deny.ts": async () => ({
         middleware: async () => new Response("denied", { status: 401 }),
+      }),
+      "./middleware/record-url.ts": async () => ({
+        middleware: async (
+          args: { context: Record<string, unknown>; request: Request; url: URL },
+          next: () => Promise<Response>,
+        ) => {
+          args.context.requestPath = new URL(args.request.url).pathname;
+          args.context.urlPath = args.url.pathname;
+          return next();
+        },
+      }),
+      "./middleware/json-short-circuit.ts": async () => ({
+        middleware: async () => Response.json({ cached: true }),
       }),
     },
     capabilityModules: Object.fromEntries(
@@ -379,9 +431,11 @@ describe("tools/list", () => {
     expect(names).toEqual([
       "agent_only",
       "auth_probe",
+      "json_short-circuit",
       "notes_create",
       "notes_guarded",
       "notes_search",
+      "url_probe",
     ]);
     expect(names).not.toContain("notes_internal");
   });
@@ -432,8 +486,9 @@ describe("tools/call runs the same pipeline as the HTTP projection", () => {
   it("reports schema violations as tool errors carrying the issues", async () => {
     const { json } = await callTool("notes_search", { query: "" });
     expect(json?.result.isError).toBe(true);
-    expect(json?.result.structuredContent.code).toBe("invalid_input");
-    expect(json?.result.structuredContent.issues.length).toBeGreaterThan(0);
+    expect(json?.result.structuredContent).toBeUndefined();
+    expect(json?.result._meta["io.pracht/error"].code).toBe("invalid_input");
+    expect(json?.result._meta["io.pracht/error"].issues.length).toBeGreaterThan(0);
   });
 
   it("treats an unknown tool as a JSON-RPC error, not a tool error", async () => {
@@ -450,19 +505,38 @@ describe("tools/call runs the same pipeline as the HTTP projection", () => {
   it("runs the capability's named middleware", async () => {
     const { json } = await callTool("notes_guarded", {});
     expect(json?.result.isError).toBe(true);
-    expect(json?.result.structuredContent.code).toBe("unauthorized");
+    expect(json?.result._meta["io.pracht/error"].code).toBe("unauthorized");
   });
 
   it("enforces agentPolicy: require", async () => {
     const { json } = await callTool("agent_only", {});
-    expect(json?.result.structuredContent.code).toBe("agent_required");
+    expect(json?.result._meta["io.pracht/error"].code).toBe("agent_required");
   });
 
-  it("never forwards cookies to the capability", async () => {
-    await callTool("notes_create", { title: "spike" }, { headers: { cookie: "session=abc" } });
-    // A browser session cookie must not authenticate the remote agent
-    // transport, so the projection drops it structurally.
-    expect(created).toEqual(["spike|"]);
+  it("rejects cookie-bearing requests before they can use cookie-derived context", async () => {
+    const { status, text } = await callTool(
+      "notes_create",
+      { title: "spike" },
+      { headers: { cookie: "session=abc" } },
+    );
+    expect(status).toBe(403);
+    expect(text).toContain("Cookie-authenticated requests are not allowed");
+    expect(created).toEqual([]);
+  });
+
+  it("passes a consistent synthesized capability URL to middleware", async () => {
+    const { json } = await callTool("url_probe", {});
+    expect(json?.result.structuredContent).toEqual({
+      requestPath: "/api/capabilities/url/probe",
+      urlPath: "/api/capabilities/url/probe",
+    });
+  });
+
+  it("turns non-envelope JSON middleware responses into tool errors", async () => {
+    const { json } = await callTool("json_short-circuit", {});
+    expect(json?.result).toMatchObject({ isError: true });
+    expect(json?.result.structuredContent).toBeUndefined();
+    expect(json?.result._meta["io.pracht/error"].code).toBe("middleware_rejected");
   });
 
   it("forwards Authorization so middleware sees the MCP credential", async () => {

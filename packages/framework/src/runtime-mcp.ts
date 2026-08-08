@@ -119,6 +119,18 @@ export async function handleMcpRequest<TContext>(
     });
   }
 
+  // Adapters may have already derived `context` from the original request
+  // (for example via a createContext factory that decodes session cookies).
+  // Dropping the header only from the synthesized capability request would
+  // therefore be too late: the authenticated context could still authorize
+  // the call. Reject ambient browser credentials at the transport boundary.
+  if (request.headers.has("cookie")) {
+    return new Response("Cookie-authenticated requests are not allowed", {
+      status: 403,
+      headers: { "content-type": "text/plain; charset=utf-8" },
+    });
+  }
+
   const declaredVersion = request.headers.get(MCP_PROTOCOL_VERSION_HEADER);
   if (declaredVersion && !isSupportedProtocolVersion(declaredVersion)) {
     return jsonRpcResponse(400, {
@@ -320,12 +332,18 @@ async function handleToolsCall<TContext>(
     });
   }
 
+  const capabilityRequest = synthesizeCapabilityRequest(
+    options,
+    match,
+    params.arguments,
+    params._meta,
+  );
   const response = await handleCapabilityRequest({
     match,
     context: options.context,
     registry: options.registry,
-    request: synthesizeCapabilityRequest(options, match, params.arguments, params._meta),
-    url: options.url,
+    request: capabilityRequest,
+    url: new URL(capabilityRequest.url),
     exposeErrors: options.exposeErrors,
     apiMiddlewareFiles: options.apiMiddlewareFiles,
     agents: options.agents,
@@ -336,7 +354,9 @@ async function handleToolsCall<TContext>(
 
   let envelope: CapabilityEnvelope;
   try {
-    envelope = (await response.json()) as CapabilityEnvelope;
+    const parsed: unknown = await response.json();
+    if (!isCapabilityEnvelope(parsed)) throw new Error("Response is not a capability envelope.");
+    envelope = parsed;
   } catch {
     // Middleware short-circuited with something that is not an envelope (a
     // login redirect, say). Meaningless to an MCP client, and its body may not
@@ -415,13 +435,16 @@ function toolResult(match: ResolvedCapability, envelope: CapabilityEnvelope, sta
 
   return {
     content: [{ type: "text", text: lines.join("\n") }],
-    structuredContent: {
-      code: error.code,
-      message: error.message,
-      ...(error.issues ? { issues: error.issues } : {}),
-    },
     isError: true,
-    _meta: { "io.pracht/capability": match.name, "io.pracht/status": status },
+    _meta: {
+      "io.pracht/capability": match.name,
+      "io.pracht/status": status,
+      "io.pracht/error": {
+        code: error.code,
+        message: error.message,
+        ...(error.issues ? { issues: error.issues } : {}),
+      },
+    },
   };
 }
 
@@ -431,6 +454,25 @@ function toolResult(match: ResolvedCapability, envelope: CapabilityEnvelope, sta
 
 function isSupportedProtocolVersion(version: string): boolean {
   return (MCP_PROTOCOL_VERSIONS as readonly string[]).includes(version);
+}
+
+function isCapabilityEnvelope(value: unknown): value is CapabilityEnvelope {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Partial<CapabilityEnvelope>;
+  if (candidate.ok === true) return "data" in candidate;
+  if (candidate.ok !== false || !candidate.error || typeof candidate.error !== "object") {
+    return false;
+  }
+  if (typeof candidate.error.code !== "string" || typeof candidate.error.message !== "string") {
+    return false;
+  }
+  return (
+    candidate.error.issues === undefined ||
+    (Array.isArray(candidate.error.issues) &&
+      candidate.error.issues.every(
+        (issue) => !!issue && typeof issue.path === "string" && typeof issue.message === "string",
+      ))
+  );
 }
 
 function negotiateProtocolVersion(requested: unknown): string {

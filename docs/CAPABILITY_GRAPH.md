@@ -852,8 +852,10 @@ differently than this proposal assumed.
   Validation, middleware, `agentPolicy`, output validation, and audit events
   are identical across transports by construction rather than by discipline.
   The one thing the projection decides for itself is the header policy:
-  `cookie` is dropped, so "browser session cookies must never authenticate the
-  remote agent transport" became a mechanism instead of a rule.
+  cookie-bearing transport requests are rejected before capability dispatch,
+  so even sessions decoded by adapter context factories cannot authenticate
+  remote MCP. "Browser session cookies must never authenticate the remote
+  agent transport" became a mechanism instead of a rule.
 - **Serving is a second opt-in.** `expose.mcp` marks a capability; the app
   must also configure `defineApp({ agents: { mcp } })`. Exposure alone opening
   a network endpoint would be exactly the "auto-generated tool sprawl" failure

@@ -99,7 +99,7 @@ Results carry both the validated output and a text rendering, so hosts that only
 }
 ```
 
-Failures split by what actually failed. An unknown tool or malformed params is a JSON-RPC `error`; a validation failure, middleware rejection, or policy denial is an `isError: true` result carrying the envelope's error code and issues — because the call itself succeeded, and the model needs to read the failure to react to it.
+Failures split by what actually failed. An unknown tool or malformed params is a JSON-RPC `error`; a validation failure, middleware rejection, or policy denial is an `isError: true` result whose text names the error and whose `_meta["io.pracht/error"]` carries the machine-readable code and issues. Error results omit `structuredContent`, because structured results must match the capability's advertised output schema.
 
 ---
 
@@ -107,7 +107,7 @@ Failures split by what actually failed. An unknown tool or malformed params is a
 
 Every capability guarantee carries over. The projection adds three of its own:
 
-**Cookies are never forwarded.** The synthesized request drops `cookie`, so a browser session can never authenticate the remote agent transport. `Authorization` *is* forwarded, so your middleware sees the MCP credential. This is a mechanism rather than a convention — there is no code path that passes a cookie through.
+**Cookie-bearing requests are rejected.** Adapter context factories can decode a session before framework dispatch, so dropping `cookie` only from the synthesized capability request would be too late. The MCP endpoint returns 403 whenever its transport request carries a cookie, ensuring a browser session cannot authenticate remote MCP. `Authorization` *is* forwarded, so your middleware sees the MCP credential.
 
 **Origin is validated.** A page on another origin cannot drive the endpoint. Non-browser callers send no `Origin` and are unaffected.
 

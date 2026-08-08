@@ -18,8 +18,10 @@ dependency.
 by remote agents without a public browser endpoint. Dotted capability names map
 to underscored tool names (`notes.search` → `notes_search`); collisions are a
 `pracht verify` error and the runtime refuses to serve an ambiguous tool list.
-Cookies are never forwarded to the capability, `Authorization` is; `Origin` is
-validated; destructive capabilities stay off the MCP surface. The endpoint
+Cookie-bearing requests are rejected before capability dispatch,
+`Authorization` is forwarded, `Origin` is validated, and destructive
+capabilities stay off the MCP surface. Error results keep machine-readable
+details in `_meta` instead of off-schema `structuredContent`. The endpoint
 supports the `2025-11-25` and `2025-06-18` protocol profiles; MCP-exposed input
 and output schemas must be object-rooted until the complete `2026-07-28` wire
 codec ships.
