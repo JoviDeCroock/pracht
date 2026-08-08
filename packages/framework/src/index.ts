@@ -111,6 +111,12 @@ export {
   setCapabilityConfirmationSecret,
 } from "./runtime-confirmation.ts";
 export { createUseCapability, type CapabilityHookResult } from "./capability-hook.ts";
+export {
+  createMemoryApprovalStore,
+  setCapabilityApprovalStore,
+  setCapabilityApprovalPrincipalResolver,
+} from "./runtime-approval.ts";
+export type { MemoryApprovalStoreOptions } from "./runtime-approval.ts";
 export { forwardRef } from "./forwardRef.ts";
 export { useIsHydrated } from "./hydration.ts";
 export { Suspense, lazy } from "preact-suspense";
@@ -168,6 +174,13 @@ export type {
   ApiRouteModule,
   AgentPolicyMode,
   BaseRouteArgs,
+  CapabilityApprovalConsumeFailure,
+  CapabilityApprovalConsumeResult,
+  CapabilityApprovalPrincipalArgs,
+  CapabilityApprovalPrincipalResolver,
+  CapabilityApprovalRecord,
+  CapabilityApprovalState,
+  CapabilityApprovalStore,
   CapabilityAuditEvent,
   CapabilityAuditHook,
   CapabilityConfirmationConfig,

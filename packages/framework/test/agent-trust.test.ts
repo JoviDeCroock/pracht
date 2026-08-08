@@ -428,6 +428,16 @@ describe("agents config validation", () => {
     expect(() => resolveApp(buildApp({ webBotAuth: { policy: "observe" } }))).not.toThrow();
   });
 
+  it("rejects an unknown confirmation mode instead of falling back to token mode", () => {
+    const app = buildApp({ confirmation: { mode: "humna" as never } });
+    expect(() => resolveApp(app)).toThrow(/confirmation\.mode/);
+  });
+
+  it("accepts the valid confirmation modes", () => {
+    expect(() => resolveApp(buildApp({ confirmation: { mode: "token" } }))).not.toThrow();
+    expect(() => resolveApp(buildApp({ confirmation: { mode: "human" } }))).not.toThrow();
+  });
+
   it("rejects non-positive numeric trust settings", () => {
     expect(() => resolveApp(buildApp({ confirmation: { ttlSeconds: 0 } }))).toThrow(
       /positive number/,

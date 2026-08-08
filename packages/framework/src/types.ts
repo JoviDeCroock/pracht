@@ -631,9 +631,120 @@ export interface CapabilityConfirmationConfig {
   /**
    * Best-effort single-use enforcement via an in-memory, per-instance cache.
    * Stateless HMAC tokens cannot prevent replay across instances or
-   * restarts — see docs/AGENT_TRUST.md for the honest limitations.
+   * restarts — see docs/AGENT_TRUST.md for the honest limitations. Ignored
+   * when an approval store is registered: the store enforces single use
+   * durably.
    */
   singleUse?: boolean;
+  /**
+   * Who decides that a destructive call may proceed.
+   *
+   * - `"token"` (default) — the caller commits with the confirmation token it
+   *   was handed. With an approval store registered this also becomes
+   *   exactly-once across replicas.
+   * - `"human"` — the commit is refused with `confirmation_pending` until a
+   *   person approves the proposal out of band. Requires an approval store and
+   *   an authenticated principal from Web Bot Auth or
+   *   `setCapabilityApprovalPrincipalResolver()`; without both, destructive
+   *   calls fail closed.
+   */
+  mode?: "token" | "human";
+}
+
+/** Lifecycle of a destructive-capability approval proposal. */
+export type CapabilityApprovalState = "pending" | "approved" | "rejected" | "consumed";
+
+/**
+ * One pending destructive operation, keyed by what it *is* rather than by the
+ * token that happened to be minted for it: `id` is a secret-keyed digest of the
+ * principal, capability name, canonicalized input, and approval mode. Repeated
+ * prepare calls for the same operation and mode therefore address the same
+ * proposal, so a person approves an action rather than one particular token.
+ */
+export interface CapabilityApprovalRecord {
+  /** Secret-keyed from principal + capability + input hash + mode; never client-supplied. */
+  id: string;
+  /** Verified agent and/or application identity, or `"anonymous"` in token mode. */
+  principal: string;
+  capability: string;
+  /** Base64url SHA-256 of the canonicalized validated input. */
+  inputHash: string;
+  /** The validated input, so a reviewer can see what they are approving. */
+  input: unknown;
+  /** Whether this proposal must be approved before it can be consumed. */
+  requiresApproval: boolean;
+  /** Unix seconds. */
+  createdAt: number;
+  /** Unix seconds; the proposal is dead after this even if still stored. */
+  expiresAt: number;
+  state: CapabilityApprovalState;
+  /** Whoever called `decide()`; application-defined (user id, email, ...). */
+  decidedBy: string | null;
+  decidedAt: number | null;
+}
+
+export interface CapabilityApprovalPrincipalArgs<TContext = PrachtRequestContext> {
+  /** Request context after API and capability middleware have run. */
+  context: TContext;
+  request: Request;
+  capability: string;
+  agent: PrachtAgentIdentity | null;
+}
+
+/**
+ * Resolve the application-authenticated identity bound to a destructive
+ * proposal. Return a stable user/tenant id, never a display name or a value
+ * supplied directly by the caller.
+ */
+export type CapabilityApprovalPrincipalResolver<TContext = PrachtRequestContext> = (
+  args: CapabilityApprovalPrincipalArgs<TContext>,
+) => string | null | Promise<string | null>;
+
+export type CapabilityApprovalConsumeFailure =
+  | "unknown"
+  | "expired"
+  | "already_used"
+  | "awaiting_approval"
+  | "rejected";
+
+export type CapabilityApprovalConsumeResult =
+  | { ok: true; record: CapabilityApprovalRecord }
+  | { ok: false; reason: CapabilityApprovalConsumeFailure };
+
+/**
+ * Durable storage for destructive-capability approvals, registered with
+ * `setCapabilityApprovalStore()`.
+ *
+ * `create()` and `consume()` both carry hard concurrency requirements:
+ * `create()` MUST atomically insert-if-absent and return the existing live
+ * proposal on conflict; `consume()` MUST be a compare-and-set, not a read
+ * followed by a write. A prepare racing a commit must never resurrect a
+ * consumed proposal, and two replicas committing concurrently must produce
+ * exactly one `ok: true`. A backend without conditional writes (e.g.
+ * Cloudflare KV) cannot implement this; D1, Durable Objects, Postgres, and
+ * Redis can. See docs/AGENT_TRUST.md for reference SQL statements.
+ *
+ * Implementations own their clock and compare against `record.expiresAt`.
+ */
+export interface CapabilityApprovalStore {
+  /**
+   * Record a proposal with an atomic insert-if-absent. When a live proposal
+   * with the same `id` already exists it must be returned unchanged, so a
+   * concurrent re-prepare cannot extend its life, reset a decision, or
+   * resurrect it after consumption. Consumed/rejected records remain live
+   * until `expiresAt`; the same operation can be proposed again after expiry.
+   */
+  create(record: CapabilityApprovalRecord): Promise<CapabilityApprovalRecord>;
+  get(id: string): Promise<CapabilityApprovalRecord | null>;
+  /** Unexpired proposals still awaiting a decision, for a review surface. */
+  listPending(): Promise<CapabilityApprovalRecord[]>;
+  /**
+   * Record a human decision. Returns `false` when the proposal is unknown,
+   * expired, or already decided or consumed.
+   */
+  decide(id: string, decision: "approved" | "rejected", by: string): Promise<boolean>;
+  /** Atomically consume an eligible proposal, enforcing its stored approval requirement. */
+  consume(id: string): Promise<CapabilityApprovalConsumeResult>;
 }
 
 export interface PrachtAgentsConfig {

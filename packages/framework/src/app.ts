@@ -382,6 +382,7 @@ function hasOwnEntry(record: Record<string, string>, name: string): boolean {
 }
 
 const AGENT_POLICY_MODES = ["observe", "require"];
+const CONFIRMATION_MODES = ["token", "human"];
 
 /**
  * Validate `defineApp({ agents })`. The security-relevant setting — the Web
@@ -407,6 +408,11 @@ function validateAgentsConfig(agents: PrachtAgentsConfig | undefined): void {
     }
   }
   if (confirmation) {
+    if (confirmation.mode !== undefined && !CONFIRMATION_MODES.includes(confirmation.mode)) {
+      throw new Error(
+        `defineApp({ agents.confirmation.mode }) must be one of ${CONFIRMATION_MODES.map((mode) => `"${mode}"`).join(", ")}, got ${JSON.stringify(confirmation.mode)}.`,
+      );
+    }
     assertPositiveNumber(confirmation.ttlSeconds, "agents.confirmation.ttlSeconds");
   }
 }

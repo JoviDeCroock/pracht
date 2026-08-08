@@ -65,6 +65,7 @@ export const CAPABILITY_ERROR_CODES = [
   "method_not_allowed",
   "agent_required",
   "confirmation_required",
+  "confirmation_pending",
   "confirmation_unavailable",
   "confirmation_invalid",
   "unknown_capability",

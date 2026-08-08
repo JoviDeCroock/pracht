@@ -7,7 +7,8 @@ The agent trust layer answers three questions about the capability graph
   verified agent identity on the request context.
 - **May they do this?** — policy modes per app and per capability, plus a
   server-verified prepare/commit confirmation flow for destructive
-  capabilities.
+  capabilities, optionally backed by a durable approval store for
+  exactly-once commits and, in human mode, real human approval.
 - **What happened?** — a structured audit event for every capability
   dispatch, and `pracht eval` to test agent task flows in CI.
 
@@ -205,17 +206,175 @@ Set `PRACHT_CONFIRMATION_SECRET` in the server environment (or call
    }
    ```
 
-### Honest limitations
+### Honest limitations of the stateless flow
 
 - **Stateless HMAC cannot prevent replay within the TTL.** A captured token
   authorizes the same principal + capability + input until it expires.
   `agents.confirmation.singleUse: true` enables a best-effort in-memory
-  cache — per instance, lost on restart, not shared across replicas. True
-  single-use needs shared storage (deliberately out of scope for v1).
+  cache — per instance, lost on restart, not shared across replicas.
+- **Confirmation is not a human decision.** The calling agent receives the
+  token and can immediately hand it back to itself. The round trip proves
+  deliberateness, not consent.
 - **Principal binding is only as strong as the principal.** Without Web Bot
-  Auth (or your own auth middleware), both prepare and commit run as
-  `"anonymous"` — the flow still forces the two-step round trip with
-  identical input, but does not tie the token to a caller.
+  Auth or `setCapabilityApprovalPrincipalResolver()`, both prepare and commit
+  run as `"anonymous"` in token mode. Auth middleware alone does not tell the
+  confirmation flow which context field identifies the caller.
+
+Registering an approval store removes the replay gap. Enabling human mode also
+removes the self-approval gap; registering an application-principal resolver
+binds proposals to your authenticated users.
+
+## Durable approvals
+
+Register a `CapabilityApprovalStore` and the prepare/commit flow gains
+storage: prepare records a **proposal**, commit consumes it exactly once. The
+caller interaction does not change — callers still just echo the token they
+were handed. Store-backed tokens use a distinct version and bind the approval
+mode, so an older replica or one still configured for token mode rejects a
+human-mode token instead of bypassing the store or approval decision.
+
+```ts
+// src/server/approvals.ts — any server-only module
+import {
+  createMemoryApprovalStore,
+  setCapabilityApprovalPrincipalResolver,
+  setCapabilityApprovalStore,
+} from "@pracht/core";
+
+export const approvalStore = createMemoryApprovalStore();
+setCapabilityApprovalStore(approvalStore);
+setCapabilityApprovalPrincipalResolver<{ user: { id: string } }>(
+  ({ context }) => context.user.id,
+);
+```
+
+Import this setup module from a server entry or a registered server-only
+middleware/capability module so it actually runs. The resolver executes after
+API and capability middleware, and must return a stable authenticated user or
+tenant id — never a display name or caller-controlled value. When Web Bot Auth
+is also present, the proposal binds both identities. The raw application
+identity stays in the server-side approval record; caller-visible confirmation
+tokens bind a secret-keyed digest instead of exposing that identity.
+
+A proposal's id is a secret-keyed digest derived server-side from the
+principal, capability name, canonicalized input, and approval mode — never
+supplied by a caller. Keying keeps a caller-visible id from becoming an
+offline oracle for low-entropy application user or tenant ids. Repeated
+prepare calls for the same operation and mode address **one** proposal, so a
+person approves an action rather than one particular token, and re-preparing
+cannot extend a proposal's life.
+
+The confirmation HMAC keeps doing its job: the signature is verified *before*
+the store is touched, so a forged token can never consume (and thereby
+destroy) a live proposal.
+
+### Two modes
+
+`agents.confirmation.mode` picks who decides:
+
+| Mode | Commit requires | Adds |
+| --- | --- | --- |
+| `"token"` (default) | a valid token | exactly-once across replicas |
+| `"human"` | a valid token **and** an approved proposal | a real human decision |
+
+```ts
+export const app = defineApp({
+  agents: { confirmation: { mode: "human", ttlSeconds: 900 } },
+  // capabilities, routes, ...
+});
+```
+
+In `"human"` mode a commit for an undecided proposal answers `409
+{ error: { code: "confirmation_pending", approvalId } }` — the agent waits or
+gives up, and a person decides out of band:
+
+```ts
+// src/api/admin/approvals.ts — mount behind your own auth
+import { approvalStore } from "../../server/approvals.ts";
+
+export async function GET() {
+  return Response.json(await approvalStore.listPending());
+}
+
+export async function POST({ request, context }: ApiRouteArgs) {
+  const { id, decision } = await request.json();
+  return Response.json({
+    ok: await approvalStore.decide(id, decision, context.user.email),
+  });
+}
+```
+
+Who may approve is an application decision, so pracht ships no approval
+endpoint or UI — a framework-default approval route would be the same mistake
+as trusting host-reported approval.
+
+`mode: "human"` without both a registered store and an authenticated principal
+(from Web Bot Auth or the resolver) fails closed with `403
+confirmation_unavailable` rather than silently degrading to self-approval or
+sharing one approval across unrelated application users.
+
+### Writing a store
+
+The reference `createMemoryApprovalStore()` is correct for one instance, and
+it is what tests and development should use — but it is lost on restart and
+not shared across replicas. For a real deployment, implement
+`CapabilityApprovalStore` over a backend with **conditional writes**:
+
+```sql
+-- create(): insert if absent, or replace only an expired row.
+INSERT INTO pracht_approvals (...)
+VALUES (...)
+ON CONFLICT (id) DO UPDATE
+   SET principal = EXCLUDED.principal,
+       capability = EXCLUDED.capability,
+       input_hash = EXCLUDED.input_hash,
+       input = EXCLUDED.input,
+       requires_approval = EXCLUDED.requires_approval,
+       created_at = EXCLUDED.created_at,
+       expires_at = EXCLUDED.expires_at,
+       state = EXCLUDED.state,
+       decided_by = EXCLUDED.decided_by,
+       decided_at = EXCLUDED.decided_at
+ WHERE pracht_approvals.expires_at < ?now;
+-- Return the inserted/replaced row; if no row was returned, read and return
+-- the unchanged live conflicting row.
+
+-- consume(): compare-and-set.
+UPDATE pracht_approvals
+   SET state = 'consumed', consumed_at = ?now
+ WHERE id = ?id
+   AND expires_at >= ?now
+   AND state IN ('pending', 'approved')
+   AND (requires_approval = FALSE OR state = 'approved');
+-- ok = (rows_affected == 1)
+```
+
+Both operations must be atomic. `create()` must never overwrite a proposal
+when a prepare races a decision or commit, while `consume()` must be a
+compare-and-set rather than a read followed by a write. Otherwise a concurrent
+prepare can resurrect a consumed proposal, or two commits can both succeed.
+`consume()` must enforce the immutable `requiresApproval` value stored on the
+proposal rather than taking that policy from the replica handling the commit.
+Cloudflare KV cannot provide these conditional writes; D1, Durable Objects,
+Postgres, and Redis can.
+
+Two operational consequences worth knowing before you turn this on:
+
+- **Prepare and commit must reach the same store.** With a store registered, a
+  valid token whose proposal is unknown is refused. That is deliberate — a
+  misconfigured deployment fails loudly instead of executing twice — but it
+  means a per-instance store on a multi-replica deployment breaks commits
+  rather than merely weakening them.
+- **A failing store closes the gate.** Any exception from `create()` or
+  `consume()` answers `403 confirmation_unavailable`; the capability does not
+  run.
+- **Consumed and rejected proposals stay closed until expiry.** Re-preparing
+  the identical operation during that window is refused, which prevents an
+  old still-valid token from becoming reusable. After expiry, the operation
+  can create a fresh proposal.
+
+`singleUse` is ignored while a store is registered — the store enforces single
+use durably.
 
 ## Operational hardening: what the framework does not do (yet)
 
@@ -337,8 +496,9 @@ example):
 ## Not built yet
 
 - Directory fetching without an allowlist (needs an SSRF story).
-- `nonce` uniqueness enforcement and shared-storage single-use confirmation
-  tokens.
+- `nonce` uniqueness enforcement.
+- A first-party approval store for D1/Postgres/Durable Objects — the SPI ships,
+  the adapters do not.
 - RSA-PSS agent keys (the Web Bot Auth ecosystem is Ed25519-first).
 - Destructive capabilities over WebMCP/MCP, and `pracht eval` speaking MCP
   instead of the HTTP projection.

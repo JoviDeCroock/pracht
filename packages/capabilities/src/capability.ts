@@ -129,6 +129,13 @@ export interface CapabilityErrorPayload {
   confirmationToken?: string;
   /** Unix seconds when `confirmationToken` expires. */
   expiresAt?: number;
+  /**
+   * Present on `confirmation_required`/`confirmation_pending` when an approval
+   * store is registered: the proposal's id, for correlating with a review
+   * surface. Derived server-side from the principal, capability, and input —
+   * never accepted from a caller.
+   */
+  approvalId?: string;
 }
 
 export const DESTRUCTIVE_EXPOSURE_ERROR =

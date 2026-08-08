@@ -15,7 +15,7 @@ next:
 Exposing [capabilities](/docs/capabilities) to agents raises questions a schema cannot answer. The agent trust layer answers all three, and everything is opt-in — an app without `defineApp({ agents })` and without destructive capabilities pays a single property check per request.
 
 - **Who is calling?** — Web Bot Auth puts a cryptographically verified agent identity on the request context.
-- **May they do this?** — policy modes per app and per capability, plus a server-verified confirmation flow for destructive effects.
+- **May they do this?** — policy modes per app and per capability, plus a server-verified confirmation flow for destructive effects, optionally backed by a durable approval store for exactly-once commits and, in human mode, real human approval.
 - **What happened?** — one structured audit event per capability dispatch.
 
 ---
@@ -100,6 +100,81 @@ if (confirmationToken) {
 ```
 
 Agent hosts cannot yet be trusted to carry this two-step flow faithfully, so destructive capabilities cannot be exposed over WebMCP — `defineCapability()`, the runtime, and `pracht verify` all enforce it.
+
+Two things a stateless HMAC cannot do on its own: stop a captured token being replayed until it expires, and prove a *person* agreed — the calling agent receives the token and can hand it straight back to itself. Registering an approval store fixes replay; enabling human mode additionally requires a person's decision.
+
+---
+
+## Durable Approvals
+
+Register a store and prepare records a **proposal**; commit consumes it exactly once. Callers still just echo the token they were handed. Store-backed tokens use a distinct version and bind the approval mode, so an older replica or one still configured for token mode rejects a human-mode token instead of bypassing the store or approval decision.
+
+```ts [src/server/approvals.ts]
+import {
+  createMemoryApprovalStore,
+  setCapabilityApprovalPrincipalResolver,
+  setCapabilityApprovalStore,
+} from "@pracht/core";
+
+export const approvalStore = createMemoryApprovalStore();
+setCapabilityApprovalStore(approvalStore);
+setCapabilityApprovalPrincipalResolver<{ user: { id: string } }>(
+  ({ context }) => context.user.id,
+);
+```
+
+Import this setup from a server entry or registered server-only module. The resolver runs after middleware and must return a stable authenticated user or tenant id, never caller-controlled input. When Web Bot Auth is present, the proposal binds both the application user and verified agent. The raw application identity stays in the server-side approval record; caller-visible confirmation tokens bind a secret-keyed digest instead of exposing it.
+
+The proposal id is a secret-keyed digest derived server-side from the principal, capability, canonicalized input, and approval mode — never supplied by a caller. Keying prevents caller-visible ids from revealing low-entropy application user or tenant ids through offline guessing. Repeated prepares for the same operation and mode address one proposal, so a person approves *the action* rather than one particular token. The HMAC is verified before the store is touched, so a forged token can never destroy a live proposal.
+
+`agents.confirmation.mode` picks who decides:
+
+| Mode | Commit requires | Adds |
+| --- | --- | --- |
+| `"token"` (default) | a valid token | exactly-once across replicas |
+| `"human"` | a valid token **and** an approved proposal | a real human decision |
+
+```ts [src/routes.ts]
+export const app = defineApp({
+  agents: { confirmation: { mode: "human", ttlSeconds: 900 } },
+});
+```
+
+In `"human"` mode a commit for an undecided proposal answers `409` with `code: "confirmation_pending"` and the `approvalId`. A person decides out of band, through a surface you build and gate with your own auth — pracht ships no approval endpoint, because who may approve is an application decision:
+
+```ts [src/api/admin/approvals.ts]
+import { approvalStore } from "../../server/approvals.ts";
+
+export async function GET() {
+  return Response.json(await approvalStore.listPending());
+}
+
+export async function POST({ request, context }: ApiRouteArgs) {
+  const { id, decision } = await request.json();
+  return Response.json({
+    ok: await approvalStore.decide(id, decision, context.user.email),
+  });
+}
+```
+
+`createMemoryApprovalStore()` is correct for one instance — use it in tests and development. For a real deployment, implement `CapabilityApprovalStore` over a backend with **conditional writes** (D1, Durable Objects, Postgres, Redis; *not* Cloudflare KV): `create()` must atomically insert-if-absent without overwriting an existing proposal, and `consume()` must be a compare-and-set.
+
+### Production Store Checklist
+
+Every method participates in the approval boundary. A production adapter should preserve these semantics:
+
+| Method | Required behaviour |
+| --- | --- |
+| `create(record)` | Insert atomically. On a live id conflict, return the stored proposal unchanged; replace it only after expiry. A repeated prepare must not reset a decision, resurrect a consumed proposal, or extend its lifetime. |
+| `get(id)` / `listPending()` | Return snapshots rather than mutable references to backing state. `listPending()` includes only unexpired proposals still awaiting a decision. |
+| `decide(id, decision, by)` | Atomically move an unexpired `pending` proposal to `approved` or `rejected`. Refuse unknown, expired, already-decided, or consumed proposals. |
+| `consume(id)` | Compare-and-set the eligible proposal to `consumed`, enforcing the proposal's stored `requiresApproval` value. When approval is required, only `approved` is eligible; otherwise `pending` or `approved` may be consumed. Concurrent commits must produce exactly one success. |
+
+Approval records contain the validated capability input and the raw application principal so a reviewer can understand who requested what. Treat both as sensitive server-side data: protect review endpoints with your own authentication and authorization, avoid logging records wholesale, and apply retention or deletion after expiry according to your application's policy.
+
+The in-memory reference store defensively clones records on input and output. Custom stores should provide the same snapshot behaviour even when their database client already deserializes rows into new objects; it keeps application code from changing approval state without an atomic store operation.
+
+Four behaviours to know before enabling it: `mode: "human"` without both a store and an authenticated principal fails closed; a valid token whose proposal is unknown is refused, so prepare and commit must reach the same store; consumed or rejected operations cannot be proposed again until their TTL expires; and any store or principal-resolver exception closes the gate.
 
 ---
 
