@@ -110,6 +110,7 @@ export {
   CONFIRMATION_SECRET_ENV,
   setCapabilityConfirmationSecret,
 } from "./runtime-confirmation.ts";
+export { createUseCapability, type CapabilityHookResult } from "./capability-hook.ts";
 export { forwardRef } from "./forwardRef.ts";
 export { useIsHydrated } from "./hydration.ts";
 export { Suspense, lazy } from "preact-suspense";
@@ -181,12 +182,19 @@ export type {
   CapabilityErrorPayload,
   CapabilityExposure,
   CapabilityHttpExposure,
+  CapabilityCallOptionsFor,
+  CapabilityEffectFor,
+  CapabilityInputArgs,
   CapabilityInputFor,
   CapabilityIssue,
   CapabilityModule,
+  CapabilityName,
   CapabilityOutputFor,
+  NonDestructiveCapabilityName,
   CapabilityRunArgs,
   CapabilityValidationResult,
+  HasRegisteredCapabilities,
+  HttpCapabilityName,
   PrachtContextExtensions,
   PrachtRequestContext,
   RegisteredCapabilityName,

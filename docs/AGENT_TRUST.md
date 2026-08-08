@@ -169,6 +169,16 @@ Set `PRACHT_CONFIRMATION_SECRET` in the server environment (or call
    }
    ```
 
+   The typed browser client makes this phase explicit:
+
+   ```ts
+   const prepared = await callCapability(
+     "notes.purge",
+     { titlePrefix: "Old" },
+     { prepare: true },
+   );
+   ```
+
    The token is an HMAC-SHA256 (WebCrypto) over the caller's principal
    (verified agent `keyid`, or `"anonymous"`), the capability name, a hash of
    the canonicalized validated input (stable JSON, sorted keys, defaults
@@ -180,6 +190,16 @@ Set `PRACHT_CONFIRMATION_SECRET` in the server environment (or call
    capability only if everything matches. Tampered, expired,
    different-input, or different-principal tokens → `403
    confirmation_invalid`, fail closed.
+
+   ```ts
+   if (!prepared.ok && prepared.error.code === "confirmation_required") {
+     await callCapability(
+       "notes.purge",
+       { titlePrefix: "Old" },
+       { confirm: prepared.error.confirmationToken! },
+     );
+   }
+   ```
 
 ### Honest limitations
 

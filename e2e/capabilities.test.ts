@@ -102,6 +102,63 @@ test("<Form capability> creates a note through the capability endpoint and auto-
   await expect(page.locator('[data-testid="notes-list"]')).toContainText("A browser note");
 });
 
+test("the generated capabilities client dispatches from the browser", async ({ page }) => {
+  const requests: string[] = [];
+  page.on("request", (request) => {
+    if (request.url().includes("/api/capabilities/"))
+      requests.push(new URL(request.url()).pathname);
+  });
+
+  await page.goto("/notes");
+  await expect(page.locator('[data-testid="create-note-form"]')).toHaveAttribute(
+    "data-hydrated",
+    "true",
+  );
+
+  // capabilities.notes.search(...) — the nested client, not a hand-written fetch.
+  await page.click('[data-testid="search-notes-button"]');
+
+  await expect(page.locator('[data-testid="search-notes-count"]')).toContainText("notes");
+  // It reaches the same endpoint an agent calls, not some parallel route.
+  expect(requests).toContain("/api/capabilities/notes/search");
+});
+
+test("useCapability tracks pending state and exposes the result", async ({ page }) => {
+  await page.goto("/notes");
+  await expect(page.locator('[data-testid="create-note-form"]')).toHaveAttribute(
+    "data-hydrated",
+    "true",
+  );
+
+  // Nothing rendered before the call: the hook dispatches on interaction, not
+  // during render, so the SSR'd HTML carries no hook result.
+  await expect(page.locator('[data-testid="hook-search-result"]')).toHaveCount(0);
+
+  // Hold the response open so `pending` is observable. Asserting on it after an
+  // unthrottled call would pass whether or not the flag was ever set.
+  let release: () => void = () => {};
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route("**/api/capabilities/notes/search", async (route) => {
+    await held;
+    await route.continue();
+  });
+
+  await page.click('[data-testid="hook-search-button"]');
+
+  await expect(page.locator('[data-testid="hook-search-button"]')).toBeDisabled();
+  await expect(page.locator('[data-testid="hook-search-button"]')).toContainText("Searching");
+  await expect(page.locator('[data-testid="hook-search-result"]')).toHaveCount(0);
+
+  release();
+
+  await expect(page.locator('[data-testid="hook-search-result"]')).toContainText("Found");
+  await expect(page.locator('[data-testid="hook-search-error"]')).toHaveCount(0);
+  // Pending cleared, so the button is interactive again.
+  await expect(page.locator('[data-testid="hook-search-button"]')).toBeEnabled();
+});
+
 test("<Form capability> follows endpoint redirects in the browser", async ({ page }) => {
   const endpointMethods: string[] = [];
   page.on("request", (request) => {

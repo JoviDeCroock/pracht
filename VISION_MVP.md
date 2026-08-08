@@ -146,9 +146,13 @@ from `@pracht/capabilities`:
   [llms.txt](https://llmstxt.org) index from the app graph — pages, API
   endpoints, and HTTP-exposed capabilities
   ([docs/LLMS_TXT.md](docs/LLMS_TXT.md)).
-- `pracht typegen` generates capability input/output types from the graph, so
-  `invokeCapability()` and the browser's `callCapability()` infer both sides
-  from the capability name.
+- `pracht typegen` generates a typed client from the graph: input/output types,
+  effect class, and exposure land on `Register["capabilities"]`, so
+  `invokeCapability()`, `callCapability()`, the nested `capabilities` client
+  (`capabilities.notes.search({ query })`), and `<Form capability>` all read the
+  contract from the capability name. Unknown names, mismatched inputs, browser
+  calls to private capabilities, and `destructive` calls that neither prepare
+  nor provide their confirmation token are compile errors.
 - See [docs/CAPABILITIES.md](docs/CAPABILITIES.md) and
   [docs/AGENT_TRUST.md](docs/AGENT_TRUST.md). The product bet, its decision
   log, and the staged plan (remote MCP and MCP Apps are the unbuilt stages)

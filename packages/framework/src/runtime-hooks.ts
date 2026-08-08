@@ -46,10 +46,10 @@ import type {
   ApiPath,
   CapabilityEnvelope,
   CapabilityOutputFor,
+  HttpCapabilityName,
   LinkPrefetchStrategy,
   LoaderData,
   LoaderLike,
-  RegisteredCapabilityName,
   RouteDataFor,
   RouteId,
   RouteParams,
@@ -61,11 +61,9 @@ export type { PrachtHydrationState, StartAppOptions };
 export type { Navigation, NavigationLocation } from "./navigation-state.ts";
 
 /** Envelope data type for a capability name, when typegen has registered it. */
-type CapabilityFormResult<TName extends string> = TName extends RegisteredCapabilityName
-  ? CapabilityEnvelope<CapabilityOutputFor<TName>>
-  : CapabilityEnvelope;
+type CapabilityFormResult<TName extends string> = CapabilityEnvelope<CapabilityOutputFor<TName>>;
 
-export interface FormProps<TName extends string = string> extends Omit<
+export interface FormProps<TName extends HttpCapabilityName = HttpCapabilityName> extends Omit<
   JSX.HTMLAttributes<HTMLFormElement>,
   "action" | "method"
 > {
@@ -85,6 +83,10 @@ export interface FormProps<TName extends string = string> extends Omit<
    * the endpoint accepts the form-encoded fallback and redirects back to the
    * page. Set `action` explicitly for capabilities with a custom
    * `expose.http.path`.
+   *
+   * Only http-exposed capabilities are accepted: a private one has no endpoint
+   * to post to, so naming it here is a compile error rather than a 404 at
+   * submit time. Before `pracht typegen` has run, any name is accepted.
    */
   capability?: TName;
   /** Called with the typed envelope after a `capability` submission settles. */
@@ -213,7 +215,9 @@ export function Link<TRoute extends RouteId>(props: LinkProps<TRoute>) {
   } as JSX.HTMLAttributes<HTMLAnchorElement>);
 }
 
-export function Form<TName extends string = string>(props: FormProps<TName>) {
+export function Form<TName extends HttpCapabilityName = HttpCapabilityName>(
+  props: FormProps<TName>,
+) {
   const {
     onSubmit,
     method,

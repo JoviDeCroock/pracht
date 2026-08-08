@@ -4,25 +4,60 @@ import "@pracht/core";
 declare module "@pracht/core" {
   interface Register {
     capabilities: {
+      /**
+       * Search notes
+       *
+       * Find notes whose title or body matches the query.
+       */
       "notes.search": {
         input: { "query": string; "limit"?: number; };
         output: { "notes": Array<{ "id": string; "title": string; "body": string; [key: string]: unknown; }>; [key: string]: unknown; };
+        effect: "read";
+        exposed: { http: true; webmcp: true; mcp: false };
       };
+      /**
+       * Create note
+       *
+       * Add a new note with a title and body.
+       */
       "notes.create": {
         input: { "title": string; "body"?: string; };
         output: { "note": { "id": string; "title": string; "body": string; [key: string]: unknown; }; [key: string]: unknown; };
+        effect: "write";
+        exposed: { http: true; webmcp: false; mcp: false };
       };
+      /**
+       * Purge notes
+       *
+       * Permanently delete every note whose title starts with the prefix.
+       */
       "notes.purge": {
         input: { "titlePrefix": string; };
         output: { "purged": number; [key: string]: unknown; };
+        effect: "destructive";
+        exposed: { http: true; webmcp: false; mcp: false };
       };
+      /**
+       * Agent whoami
+       *
+       * Report the verified Web Bot Auth agent identity for this request.
+       */
       "agent.whoami": {
         input: Record<string, never>;
         output: { "verified": boolean; "agentDomain"?: string; "keyId"?: string; [key: string]: unknown; };
+        effect: "read";
+        exposed: { http: true; webmcp: false; mcp: false };
       };
+      /**
+       * Agent ping
+       *
+       * Answers only verified agents (Web Bot Auth required).
+       */
       "agent.ping": {
         input: Record<string, never>;
         output: { "pong": boolean; [key: string]: unknown; };
+        effect: "read";
+        exposed: { http: true; webmcp: false; mcp: false };
       };
     };
   }

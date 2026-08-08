@@ -192,15 +192,37 @@ protocol cannot drift between packages.
 ### Browser
 
 ```ts
-import { callCapability } from "virtual:pracht/capabilities";
+import { callCapability, capabilities } from "virtual:pracht/capabilities";
 
-const result = await callCapability<{ note: Note }>("notes.create", { title });
+const result = await callCapability("notes.create", { title });
+// or, through the generated client — dotted names become object paths:
+const same = await capabilities.notes.create({ title });
 ```
+
+Both forms take the identical path (endpoint table, settled event,
+revalidation); `capabilities` is a nested view of the same call. Before typegen,
+both keep permissive fallbacks: names and inputs are unchecked, and the nested
+client's output defaults to `unknown` (or an explicit result type argument).
+Once `pracht typegen` has run, both infer input and output from the capability
+name, private capabilities are absent, and a `destructive` capability must
+explicitly prepare for a token or provide that token to commit.
+
+Prefer the nested client when you are typing a name by hand: its members are
+real property accesses, so a typo gets `Did you mean 'search'?`. A string
+literal argument to `callCapability` gets no such suggestion — it is answered
+with the list of names that would have worked instead. A `destructive` name is
+absent from that list until the call carries `prepare` or `confirm`, which is
+how the confirmation gate shows up at a call site that forgot it.
+
+Once typegen has run, neither form accepts a name computed at runtime. When a
+name genuinely comes from data, assert it (`name as HttpCapabilityName`) and
+handle the `unknown_capability` envelope the runtime still returns.
 
 `virtual:pracht/capabilities` is generated at build time from the manifest and
 contains only http-exposed capability names, endpoints, and effect classes —
 capability modules themselves are server-only and never enter the client graph.
-Apps without capabilities ship zero extra bytes.
+Apps without capabilities ship zero extra bytes, and the `capabilities` client
+is tree-shaken away when only `callCapability` is imported.
 
 Importing a capability module from client code is a build error. Nothing strips
 one the way a route loader is stripped, so the import would bundle `run()` and
@@ -220,14 +242,87 @@ directions by tests:
 The one exception is `expose.webmcp`: an in-page agent cannot call a tool
 without its schema, so webmcp-exposed capabilities ship their description and
 input schema in the separate `virtual:pracht/webmcp` chunk, which only loads
-when the browser exposes the WebMCP API. Nothing else does.
+when the browser exposes the WebMCP API. Nothing else does. Titles and
+descriptions of other capabilities appear only as JSDoc in the generated
+`.d.ts`, which is types-only and never emitted.
 
-Options: `{ headers, signal, confirm, revalidate }`. `confirm` sets the
-confirmation header when committing a destructive call (take the token from
-the prior `confirmation_required` envelope). After a successful non-`read`
-call the active route's data revalidates automatically — the effect class the
-capability already declares drives the client cache; pass `revalidate: false`
-to opt a call out.
+For a call driven by user interaction — a button, a search box, a picker —
+`useCapability()` owns the pending/error/result state so components do not
+hand-roll it:
+
+```tsx
+import { useCapability } from "virtual:pracht/capabilities";
+
+function NoteSearch() {
+  const search = useCapability("notes.search");
+
+  return (
+    <>
+      <button disabled={search.pending} onClick={() => search.call({ query: "roadmap" })}>
+        {search.pending ? "Searching…" : "Search"}
+      </button>
+      {search.error ? <p>{search.error.message}</p> : null}
+      {search.data ? <p>{search.data.notes.length} found</p> : null}
+    </>
+  );
+}
+```
+
+`call()` takes the same arguments as `callCapability` minus the name and
+resolves to the same envelope, so you can also branch at the call site.
+`reset()` clears the state. Concurrent calls are last-one-wins — an earlier
+response arriving after a later one is discarded, so a search box cannot render
+a stale result — and `data` stays visible while a follow-up call is `pending` or
+fails. Switching the capability name starts a fresh state generation, including
+when switching away and back to the original name. A retained `call` or `reset`
+from an older generation cannot cancel the current generation's request, and a
+malformed custom-dispatch result clears `pending` before it is surfaced.
+
+Discarding a response is not the same as cancelling a request. `reset()`, a
+newer call, and a name change all abandon the *result* — the HTTP request keeps
+running to completion. A search box that calls on every keystroke will have as
+many requests in flight as the user has typed, so pass a `signal` when that
+matters:
+
+```tsx
+const controller = useRef<AbortController>();
+controller.current?.abort();
+controller.current = new AbortController();
+search.call({ query }, { signal: controller.current.signal });
+```
+
+> **It dispatches when called, never during render.** For data a page needs on
+> load, run the capability in a `loader` with `invokeCapability()`: that result
+> is server-rendered into the HTML and revalidates automatically after
+> non-`read` calls. A render-time fetch would add a client-side waterfall and
+> render nothing during SSR.
+
+Options: `{ headers, signal, confirm, revalidate }`. After a successful
+non-`read` call the active route's data revalidates automatically — the effect
+class the capability already declares drives the client cache; pass
+`revalidate: false` to opt a call out.
+
+Destructive capabilities take one more, `prepare`, and it is the odd one out:
+it is a **compile-time marker, not a request option**. Nothing is sent for it
+and no runtime behaviour depends on it. The types accept a destructive call
+only with exactly one of `{ prepare: true }` or `{ confirm }`, so the two
+phases of the flow have to be written out rather than inferred from an absent
+argument:
+
+```ts
+const prepared = await callCapability("notes.purge", input, { prepare: true });
+// -> 409 confirmation_required, carrying the token
+await callCapability("notes.purge", input, {
+  confirm: prepared.error.confirmationToken,
+});
+```
+
+The prepare call is, on the wire, simply a call without a confirmation header —
+the marker records the caller's intent for the compiler. The guarantee that it
+cannot run the operation is the server's: the gate rejects an unconfirmed
+destructive call before `run()`, and fails closed with `confirmation_unavailable`
+when no `PRACHT_CONFIRMATION_SECRET` is configured. See
+[AGENT_TRUST.md](AGENT_TRUST.md).
 
 ### Forms
 
@@ -243,6 +338,11 @@ import { Form } from "@pracht/core";
 </Form>;
 ```
 
+- `capability` accepts only http-exposed capability names once typegen has run
+  — a private one has no endpoint to post to, so naming it is a compile error
+  rather than a 404 at submit time. That also rules out `capability={someString}`;
+  assert with `as HttpCapabilityName` (exported from `@pracht/core`) when the
+  name is genuinely dynamic.
 - Fields are coerced onto the capability's input schema server-side (numbers
   parsed, checkbox `on` → boolean, repeated fields → arrays), then validated
   like any other call.
@@ -265,11 +365,12 @@ import { Form } from "@pracht/core";
 ## Generated types
 
 `pracht typegen` (the same command that generates typed routes) also emits
-`src/pracht-capabilities.d.ts` when the app registers capabilities: TypeScript
-input/output types generated from each capability's JSON Schemas, registered
-on `Register["capabilities"]`. With that file in the program,
-`invokeCapability()`, the browser's `callCapability()`, and
-`createCapabilityTestHost().invoke()` all infer both sides from the capability
+`src/pracht-capabilities.d.ts` when the app registers capabilities: each
+capability's input/output types generated from its JSON Schemas, plus its
+effect class and exposure, registered on `Register["capabilities"]`. With that
+file in the program, `invokeCapability()`, the browser's `callCapability()`,
+the generated `capabilities` client, `<Form capability>`, and
+`createCapabilityTestHost().invoke()` all read the contract from the capability
 name — no per-call generics:
 
 ```ts
@@ -277,17 +378,52 @@ const result = await invokeCapability("notes.search", { query: "roadmap" }, args
 // result.data: { notes: Array<...> } — inferred from the output schema
 ```
 
+What the compiler enforces once the file exists:
+
+| Mistake | Result |
+| --- | --- |
+| Unknown or misspelled capability name | compile error (a "did you mean" suggestion only through the nested `capabilities` client) |
+| Input that does not match the schema | compile error |
+| Calling a private capability from the browser | compile error — no HTTP endpoint exists |
+| Calling a `destructive` capability without `prepare` or `confirm` | compile error (the name is reported as outside the set callable without one) |
+| Passing a capability name computed at runtime | compile error — assert `as HttpCapabilityName` |
+
+A capability whose input schema requires nothing is callable with no argument
+at all: `callCapability("notes.stats")`.
+
 - An input property is optional when it is not `required` **or** declares a
   schema `default` (defaults are applied before input validation); an output
   property is optional exactly when it is not `required`.
 - Objects without `additionalProperties: false` keep an index signature, so
-  extra members remain reachable as `unknown`.
-- Unregistered names — and a mismatched input on a registered name — fall back
-  to the untyped `invokeCapability<Output>(name, ...)` overload; runtime
-  validation still rejects bad input either way.
+  extra members remain reachable as `unknown`. Extra properties on a closed
+  schema are rejected at runtime with a path-scoped 400; TypeScript's
+  excess-property check does not reliably reach through the generated types, so
+  do not rely on it to catch them.
+- Apps that have not run typegen keep the untyped
+  `invokeCapability<Output>(name, ...)` form and accept any capability name.
+  Once the generated registration exists that form no longer applies — even
+  when removing the last capability rewrites it to an empty map. That is what
+  makes stale names fail the build instead of falling through to a runtime 404.
+  Drop the explicit type argument and let inference do the work; runtime
+  validation is unchanged either way.
+- A name typed as a union accepts only input valid for every possible member.
+  Narrow the name before calling when the schemas differ; otherwise an input
+  for one member could be dispatched under another member's runtime name.
+- Typegen reads capability metadata by loading the modules, while the browser
+  projection is built by static analysis. Typegen cross-checks the two and
+  fails when they disagree, so generated types can never promise an endpoint
+  the client bundle does not register.
+- The confirmation gate closes whenever `destructive` is *possible*: a name
+  typed as a union of capabilities demands an explicit prepare marker or token
+  if any member is destructive, as does a capability whose effect the build
+  could not read.
+- A declaration file generated before `effect`/`exposed` existed keeps working
+  unchanged, but gets none of the exposure or confirmation checks. Re-run
+  `pracht typegen` (and `--check` in CI) after upgrading.
 - `--capabilities-out` overrides the output path, `--check` covers the file in
   CI, and removing the last capability rewrites an existing file to the empty
-  registration instead of leaving it stale.
+  registration instead of leaving it stale. The empty registration keeps the
+  typed APIs closed; it is distinct from never having run typegen.
 
 ## WebMCP
 

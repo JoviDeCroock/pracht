@@ -239,6 +239,23 @@ describe("extractCapabilities", () => {
   });
 });
 
+/**
+ * Import the generated module standalone. It imports `createUseCapability`
+ * from `@pracht/core` (the hook's implementation lives there so it stays typed
+ * and unit-tested), and a bare specifier cannot be resolved from a `data:` URL
+ * — so swap just that specifier for an inline stub. Everything these tests
+ * exercise (the endpoint table, dispatch, the settled event) is untouched;
+ * the hook itself is covered by the framework's own tests.
+ */
+async function importGeneratedModule<T>(source: string): Promise<T> {
+  const standalone = source.replace(
+    'from "@pracht/core"',
+    'from "data:text/javascript,export const createUseCapability = () => () => {};"',
+  );
+  const url = `data:text/javascript;base64,${Buffer.from(standalone).toString("base64")}#${Date.now()}`;
+  return (await import(url)) as T;
+}
+
 describe("createPrachtCapabilitiesClientModuleSource", () => {
   it("types destructive confirmation metadata in browser envelopes", () => {
     const error = {
@@ -261,12 +278,10 @@ describe("createPrachtCapabilitiesClientModuleSource", () => {
     });
 
     const source = createPrachtCapabilitiesClientModuleSource({}, { root });
-    expect(source).toContain(
-      '"notes.search":{"method":"POST","path":"/api/capabilities/notes/search","effect":"read"}',
-    );
-    expect(source).toContain(
-      '"notes.create":{"method":"POST","path":"/api/create-note","effect":"write"}',
-    );
+    expect(source).toContain("notes.search");
+    expect(source).toContain("/api/capabilities/notes/search");
+    expect(source).toContain("notes.create");
+    expect(source).toContain("/api/create-note");
     expect(source).not.toContain("notes.private");
     expect(source).not.toContain("defineCapability");
     expect(source).toContain("export async function callCapability");
@@ -275,7 +290,137 @@ describe("createPrachtCapabilitiesClientModuleSource", () => {
   it("emits an empty endpoint map for apps without capabilities", () => {
     const root = createFixture({});
     const source = createPrachtCapabilitiesClientModuleSource({}, { root });
-    expect(source).toContain("const endpoints = {};");
+    expect(source).toContain('JSON.parse("{}")');
+  });
+
+  it("binds useCapability to its own callCapability", () => {
+    // `importGeneratedModule` stubs the @pracht/core import out, so assert on
+    // the emitted text: renaming the export or the entry point it comes from
+    // would otherwise only surface in e2e, at build time, in an example app.
+    const root = createFixture({ capabilities: { "notes-search.ts": SEARCH_CAPABILITY } });
+    const source = createPrachtCapabilitiesClientModuleSource({}, { root });
+    expect(source).toContain('import { createUseCapability } from "@pracht/core";');
+    expect(source).toContain("export const useCapability = /*@__PURE__*/ createUseCapability(");
+    expect(source).toContain("createUseCapability(callCapability)");
+  });
+
+  it("keeps contract details out of the client module, nested client included", () => {
+    // The browser projection may carry only what dispatch needs: names, paths,
+    // and effects. Schemas, prose, and handler bodies are server-side contract
+    // — WebMCP is the one place a schema legitimately crosses, and it lives in
+    // its own module. Adding anything richer to the client (a description for
+    // DX, a schema for client-side validation) would leak contract surface into
+    // every visitor's bundle, so guard the payload rather than trusting review.
+    const root = createFixture({
+      capabilities: {
+        "notes-search.ts": SEARCH_CAPABILITY,
+        "notes-create.ts": CREATE_CAPABILITY,
+        "notes-private.ts": PRIVATE_CAPABILITY,
+      },
+    });
+
+    const source = createPrachtCapabilitiesClientModuleSource({}, { root });
+
+    // Prose from the capability contracts.
+    expect(source).not.toContain("Find notes whose title matches the query.");
+    expect(source).not.toContain("Search notes");
+    // JSON Schema keywords — no schema should reach this module at all.
+    for (const keyword of [
+      "additionalProperties",
+      "minLength",
+      "properties",
+      "required",
+      'type":',
+    ]) {
+      expect(source).not.toContain(keyword);
+    }
+    // Handler bodies and the definition helper.
+    expect(source).not.toContain("defineCapability");
+    expect(source).not.toContain("run(");
+    // Private capabilities leave no trace: not even their name.
+    expect(source).not.toContain("private");
+  });
+
+  it("exposes dotted names as a nested client that dispatches like callCapability", async () => {
+    const root = createFixture({
+      capabilities: {
+        "notes-search.ts": SEARCH_CAPABILITY,
+        "notes-create.ts": CREATE_CAPABILITY,
+        "notes-private.ts": PRIVATE_CAPABILITY,
+      },
+    });
+    const source = createPrachtCapabilitiesClientModuleSource({}, { root });
+
+    let requestUrl: string | undefined;
+    let requestBody: string | undefined;
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (input, init) => {
+      requestUrl = String(input);
+      requestBody = init?.body as string;
+      return new Response(JSON.stringify({ ok: true, data: { notes: [] } }), {
+        headers: { "content-type": "application/json" },
+      });
+    }) as typeof fetch;
+
+    try {
+      const mod = await importGeneratedModule<{
+        capabilities: Record<string, Record<string, (input: unknown) => Promise<unknown>>>;
+      }>(source);
+
+      const result = await mod.capabilities.notes.search({ query: "roadmap" });
+
+      expect(requestUrl).toBe("/api/capabilities/notes/search");
+      expect(JSON.parse(requestBody ?? "{}")).toEqual({ query: "roadmap" });
+      expect(result).toEqual({ ok: true, data: { notes: [] } });
+
+      // Custom `expose.http.path` is honoured through the nested client too.
+      expect(typeof mod.capabilities.notes.create).toBe("function");
+      // Private capabilities have no endpoint, so they are absent entirely —
+      // the runtime counterpart of them being missing from the typed client.
+      expect(mod.capabilities.notes.private).toBeUndefined();
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("builds special-name paths without inherited lookups or prototype pollution", async () => {
+    const root = createFixture({
+      capabilities: { "special.ts": CREATE_CAPABILITY },
+      manifestCapabilitiesBlock: `capabilities: {
+    "safe.__proto__.polluted": () => import("./capabilities/special.ts"),
+    "__proto__": () => import("./capabilities/special.ts"),
+  },`,
+    });
+    const source = createPrachtCapabilitiesClientModuleSource({}, { root });
+    const originalFetch = globalThis.fetch;
+    let requestUrl: string | undefined;
+    globalThis.fetch = (async (input) => {
+      requestUrl = String(input);
+      return Response.json({ ok: true, data: { id: "n1" } });
+    }) as typeof fetch;
+
+    try {
+      const mod = await importGeneratedModule<{
+        callCapability: (name: string, input?: unknown) => Promise<unknown>;
+        capabilities: Record<string, unknown>;
+      }>(source);
+
+      expect(Object.getPrototypeOf(mod.capabilities)).toBeNull();
+      expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+      expect(
+        (
+          mod.capabilities.safe as {
+            __proto__: { polluted: unknown };
+          }
+        ).__proto__.polluted,
+      ).toBeTypeOf("function");
+
+      await mod.callCapability("__proto__", { title: "safe" });
+      expect(requestUrl).toBe("/api/create-note");
+    } finally {
+      globalThis.fetch = originalFetch;
+      delete (Object.prototype as Record<string, unknown>).polluted;
+    }
   });
 
   it("forwards caller-supplied headers for confirmation flows", async () => {
@@ -295,14 +440,13 @@ describe("createPrachtCapabilitiesClientModuleSource", () => {
     }) as typeof fetch;
 
     try {
-      const moduleUrl = `data:text/javascript;base64,${Buffer.from(source).toString("base64")}#${Date.now()}`;
-      const mod = (await import(moduleUrl)) as {
+      const mod = await importGeneratedModule<{
         callCapability: (
           name: string,
           input?: unknown,
           opts?: { headers?: HeadersInit },
         ) => Promise<unknown>;
-      };
+      }>(source);
       await mod.callCapability(
         "notes.create",
         { title: "Confirmed note" },
@@ -329,16 +473,41 @@ describe("createPrachtCapabilitiesClientModuleSource", () => {
     }) as typeof fetch;
 
     try {
-      const moduleUrl = `data:text/javascript;base64,${Buffer.from(source).toString("base64")}#${Date.now()}`;
-      const mod = (await import(moduleUrl)) as {
+      const mod = await importGeneratedModule<{
         callCapability: (name: string, input?: unknown) => Promise<unknown>;
-      };
+      }>(source);
       await mod.callCapability("notes.create", null);
     } finally {
       globalThis.fetch = originalFetch;
     }
 
     expect(requestInit?.body).toBe("null");
+  });
+
+  it("turns valid JSON with an invalid envelope shape into invalid_response", async () => {
+    const root = createFixture({ capabilities: { "notes-search.ts": SEARCH_CAPABILITY } });
+    const source = createPrachtCapabilitiesClientModuleSource({}, { root });
+    const originalFetch = globalThis.fetch;
+    const malformedEnvelopes = [null, { ok: true }, { error: {}, ok: false }];
+    globalThis.fetch = (async () => Response.json(malformedEnvelopes.shift())) as typeof fetch;
+
+    try {
+      const mod = await importGeneratedModule<{
+        callCapability: (name: string, input?: unknown) => Promise<unknown>;
+      }>(source);
+
+      for (let index = 0; index < 3; index += 1) {
+        await expect(mod.callCapability("notes.search", { query: "roadmap" })).resolves.toEqual({
+          error: {
+            code: "invalid_response",
+            message: "Capability endpoint returned an invalid envelope (status 200).",
+          },
+          ok: false,
+        });
+      }
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 });
 

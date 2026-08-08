@@ -201,6 +201,7 @@ describe("plan formatters", () => {
 function makeCapability(overrides: Record<string, unknown> = {}) {
   return {
     agentPolicy: "require",
+    description: "Find notes matching a query.",
     effect: "read",
     hasUi: false as const,
     httpPath: "/api/capabilities/notes/search",

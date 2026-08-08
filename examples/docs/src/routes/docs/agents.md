@@ -39,7 +39,7 @@ One contract. pracht projects it everywhere.
 
 **Your own code calls it.** The loader behind the booking page runs `invokeCapability("appointments.book", …)` — same validation, same middleware, same pipeline. The human UI and the agent surface can't drift apart, because they are the same function.
 
-**The browser calls it.** Your form's submit handler uses `callCapability()` against the generated endpoint. The capability module itself never ships to the client — only its name and URL.
+**The browser calls it.** Your form's submit handler uses `callCapability()` — or the generated `capabilities.notes.create({ title })` client — against the generated endpoint. The capability module itself never ships to the client: only its name, URL, and effect class cross, and importing the module from client code fails the build rather than bundling it.
 
 **An agent in the user's tab calls it.** With `expose.webmcp`, the page registers the operation as a [WebMCP](https://developer.chrome.com/docs/ai/webmcp) page tool. The agent stops guessing at your DOM and instead sees: *"book_appointment — reserve an open slot. Input: service, time."* It acts as the signed-in user, in their session — and every check still runs on your server.
 
