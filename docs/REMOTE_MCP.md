@@ -45,7 +45,8 @@ prints the endpoint next to the capability table.
 Custom paths must be exact same-origin pathnames beginning with `/`; invalid
 values fail manifest validation. Once configured, the endpoint remains active
 with an empty capability graph (`tools/list` returns an empty list), and graph
-resolution failures stay on the endpoint as JSON-RPC errors.
+resolution failures stay on the endpoint as JSON-RPC errors. Endpoint matching
+accepts one trailing slash, so `/mcp` and `/mcp/` address the same projection.
 
 `expose.mcp` does **not** require `expose.http`: a capability can be reachable
 by remote agents without any public browser endpoint.

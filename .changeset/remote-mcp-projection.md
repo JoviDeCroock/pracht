@@ -37,4 +37,8 @@ configured).
 MCP audit attribution is internal dispatch state rather than a client-set
 header. A configured endpoint remains protocol-active with an empty graph and
 returns JSON-RPC errors when registry resolution fails. Custom endpoint paths
-are validated as exact same-origin pathnames.
+are validated as exact same-origin pathnames and accept one trailing slash.
+Malformed non-object `tools/call.arguments` are rejected as JSON-RPC invalid
+params before capability dispatch. App-graph snapshots record MCP endpoint
+activation, moves, and removal, with activation flagged as an agent-surface
+widening by `pracht plan`.

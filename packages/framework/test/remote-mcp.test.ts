@@ -271,9 +271,14 @@ describe("serving is opt-in", () => {
   it("serves a custom path", async () => {
     const { json } = await mcp(
       { jsonrpc: "2.0", id: 1, method: "ping" },
-      { agents: { mcp: { path: "/agent/mcp" } }, path: "/agent/mcp" },
+      { agents: { mcp: { path: "/agent/mcp/" } }, path: "/agent/mcp/" },
     );
     expect(json?.result).toEqual({});
+  });
+
+  it("serves the default endpoint with a trailing slash", async () => {
+    const { json } = await mcp({ jsonrpc: "2.0", id: 1, method: "tools/list" }, { path: "/mcp/" });
+    expect(json?.result.tools).toBeDefined();
   });
 
   it("resolves the endpoint path", () => {
@@ -515,6 +520,15 @@ describe("tools/call runs the same pipeline as the HTTP projection", () => {
     const { json } = await mcp({ jsonrpc: "2.0", id: 1, method: "tools/call", params: {} });
     expect(json?.error.code).toBe(-32602);
   });
+
+  it.each([null, [], "query", 1, true])(
+    "rejects non-object tools/call arguments (%j) before dispatch",
+    async (args) => {
+      const { json } = await callTool("notes_create", args);
+      expect(json?.error.code).toBe(-32602);
+      expect(created).toEqual([]);
+    },
+  );
 
   it("runs the capability's named middleware", async () => {
     const { json } = await callTool("notes_guarded", {});

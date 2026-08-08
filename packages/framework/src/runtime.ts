@@ -1,5 +1,6 @@
 import { h } from "preact";
 import type { FunctionComponent } from "preact";
+import { normalizeCapabilityHttpPath } from "@pracht/capabilities";
 
 import { matchApiRoute, matchAppRoute, resolveApp } from "./app.ts";
 import { ROUTE_STATE_REQUEST_HEADER, SAFE_METHODS } from "./runtime-constants.ts";
@@ -358,7 +359,9 @@ export async function handlePrachtRequest<TContext>(
   // of falling through to the application's page router.
   const hasCapabilities = Object.keys(options.app.capabilities ?? {}).length > 0;
   const mcpConfig = options.app.agents?.mcp;
-  const isMcpRequest = !!mcpConfig && url.pathname === resolveMcpEndpoint(options.app.agents);
+  const isMcpRequest =
+    !!mcpConfig &&
+    normalizeCapabilityHttpPath(url.pathname) === resolveMcpEndpoint(options.app.agents);
   if (hasCapabilities || isMcpRequest) {
     let capabilities: ResolvedCapability[] | null = hasCapabilities ? null : [];
     let capabilityResolutionError: unknown;

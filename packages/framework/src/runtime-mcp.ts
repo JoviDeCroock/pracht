@@ -339,6 +339,19 @@ async function handleToolsCall<TContext>(
       error: { code: JSONRPC_INVALID_PARAMS, message: "tools/call requires a string `name`." },
     });
   }
+  if (
+    params.arguments !== undefined &&
+    (!params.arguments || typeof params.arguments !== "object" || Array.isArray(params.arguments))
+  ) {
+    return jsonRpcResponse(200, {
+      jsonrpc: "2.0",
+      id,
+      error: {
+        code: JSONRPC_INVALID_PARAMS,
+        message: "tools/call `arguments` must be an object when provided.",
+      },
+    });
+  }
 
   const exposed = mcpExposedCapabilities(options.capabilities);
   const match = exposed.find((entry) => mcpToolName(entry.name) === params.name);
