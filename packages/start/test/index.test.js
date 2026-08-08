@@ -73,6 +73,8 @@ describe("create-pracht", () => {
     expect(notFound).toContain("Page not found.");
     expect(notFound).toContain('<a href="/">Back to home</a>');
     expect(notFound).toContain('content: "noindex", name: "robots"');
+    expect(notFound).toContain("Use a typed <Link>");
+    expect(notFound).not.toContain('route="home"');
     expect(routes).toContain("// constraints: [");
     expect(routes).toContain('//   requireHead("**"),');
     expect(existsSync(join(targetDir, "wrangler.jsonc"))).toBe(false);
