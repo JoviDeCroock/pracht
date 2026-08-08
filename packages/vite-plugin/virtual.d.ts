@@ -15,6 +15,7 @@ declare module "virtual:pracht/capabilities" {
     HasRegisteredCapabilities,
     HttpCapabilityName,
     NonDestructiveCapabilityName,
+    Register,
   } from "@pracht/core";
   import type {
     CapabilityEffect,
@@ -52,9 +53,9 @@ declare module "virtual:pracht/capabilities" {
 
   /**
    * Destructive calls require exactly one of `{ prepare: true }` or
-   * `{ confirm }`. `prepare` is a compile-time marker only — nothing is sent
-   * for it; a prepare call is a call without a confirmation header, and the
-   * server is what refuses to run it.
+   * `{ confirm }`. `prepare` is not sent over the wire; the dispatcher uses it
+   * only to remove any confirmation token inherited through caller-supplied
+   * headers. The server is what refuses to run the unconfirmed call.
    */
   type OptionsFor<TName extends string> = CapabilityCallOptionsFor<TName, CallCapabilityOptions>;
 
@@ -136,22 +137,29 @@ declare module "virtual:pracht/capabilities" {
    * exist … Did you mean 'search'?" — which `callCapability("notes.serach")`
    * cannot do, since a string literal argument has no such suggestion.
    *
-   * The nodes are built by parsing the dotted names into a mapped type, so
-   * they are *not* homomorphic over the registration and carry none of its
-   * JSDoc; hovering a method shows its signature, not the capability's prose.
+   * Current typegen output declares the nested client explicitly, so each leaf
+   * carries the capability's title and description as JSDoc. The mapped type
+   * below remains the compatibility fallback for older generated files.
    *
    * Identical runtime path to `callCapability` (same endpoint table, same
    * settled event, same revalidation), so nothing forks between the two.
    */
   export const capabilities: PrachtCapabilityClient;
 
+  type GeneratedCapabilityClient = Register extends { capabilityClient: infer TClient }
+    ? TClient
+    : never;
+
   /**
-   * Dotted names expanded into nested namespaces, http-exposed only. Before
-   * typegen has run, every segment stays callable with unknown input/output —
-   * the nested counterpart of `callCapability`'s untyped fallback.
+   * Dotted names expanded into nested namespaces, http-exposed only. Current
+   * typegen output supplies the explicit client (including JSDoc); older
+   * generated files use the mapped fallback. Before typegen has run, every
+   * segment stays callable with unknown input/output.
    */
   export type PrachtCapabilityClient = HasRegisteredCapabilities extends true
-    ? CapabilityClientNode<HttpCapabilityName>
+    ? [GeneratedCapabilityClient] extends [never]
+      ? CapabilityClientNode<HttpCapabilityName>
+      : GeneratedCapabilityClient
     : Record<string, UntypedCapabilityClientNode>;
 
   interface UntypedCapabilityClientNode {

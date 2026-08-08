@@ -1031,6 +1031,9 @@ export type CapabilityInputFor<TName extends string> = (
   ? TInput
   : unknown;
 
+/** Input accepted safely at a capability call boundary. */
+export type CapabilityCallInputFor<TName extends string> = CapabilityInputFor<TName>;
+
 export type CapabilityOutputFor<TName extends string> = [RegisteredCapabilityEntry<TName>] extends [
   never,
 ]
@@ -1095,8 +1098,16 @@ export type NonDestructiveCapabilityName = HttpCapabilityName extends infer TNam
  */
 type CapabilityInputRequirement<TName extends string> = TName extends string
   ? {} extends CapabilityInputFor<TName>
-    ? [input?: CapabilityInputFor<TName>, options?: TOptions]
-    : [input: CapabilityInputFor<TName>, options?: TOptions]
+    ? "optional"
+    : "required"
+  : never;
+
+export type CapabilityInputArgs<TName extends string, TOptions> = {} extends TOptions
+  ? "required" extends CapabilityInputRequirement<TName>
+    ? [input: CapabilityInputFor<TName>, options?: TOptions]
+    : {} extends CapabilityInputFor<TName>
+      ? [input?: CapabilityInputFor<TName>, options?: TOptions]
+      : [input: CapabilityInputFor<TName>, options?: TOptions]
   : // Options carry a required member (a `destructive` capability's prepare
     // marker or confirmation token), so neither argument may be omitted — an
     // optional parameter cannot precede a required one.
@@ -1108,10 +1119,10 @@ type CapabilityInputRequirement<TName extends string> = TName extends string
  * `{ prepare: true }`; committing instead requires the confirmation token from
  * that call's `confirmation_required` envelope. See AGENT_TRUST.md.
  *
- * `prepare` exists only in this type — no dispatcher reads it and nothing is
- * sent for it. Its job is to stop an unconfirmed destructive call from being
- * spelled the same way as a forgotten one; refusing to run it is the server's
- * job, and it fails closed.
+ * `prepare` is not sent over the wire. The browser dispatcher uses it only to
+ * strip any confirmation token inherited through caller-supplied headers, so
+ * a prepare call cannot accidentally commit. Refusing to run the resulting
+ * unconfirmed call remains the server's job, and it fails closed.
  *
  * The gate closes whenever `destructive` is *possible*, not only when it is
  * certain: a name typed as a union (`"notes.search" | "notes.purge"`) and a

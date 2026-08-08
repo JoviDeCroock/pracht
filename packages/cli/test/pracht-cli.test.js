@@ -961,7 +961,9 @@ export async function browser() {
     writeProjectFile(
       appDir,
       "src/capability-consumer.ts",
-      `import { invokeCapability } from "@pracht/core";
+      `import { createCapabilityTestHost, invokeCapability } from "@pracht/core";
+import type { CapabilityTestHost } from "@pracht/core";
+import { defineCapability } from "@pracht/capabilities";
 import { callCapability, capabilities, useCapability } from "virtual:pracht/capabilities";
 
 declare const ctx: { request: Request };

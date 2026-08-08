@@ -327,12 +327,9 @@ function buildDeclarationSource(
  * confirmation token) and `exposed` (so only http-exposed capabilities are
  * reachable from the browser).
  *
- * `title`/`description` are emitted as JSDoc on each entry so the generated
- * file reads as the contract inventory it is. That prose does *not* reach call
- * sites: capability names are consumed as string literal arguments and as
- * template-literal-derived client members, and TypeScript propagates JSDoc to
- * neither. Treat it as documentation for whoever opens this file, not as
- * editor tooling.
+ * `title`/`description` are emitted as JSDoc on each registration entry and on
+ * each explicit nested-client leaf. String arguments to `callCapability()` do
+ * not carry that prose, but editor hovers on `capabilities.notes.search` do.
  */
 function buildCapabilityDeclarationSource(capabilities: CapabilityEntry[]): string {
   const lines = [
@@ -444,7 +441,7 @@ function formatCapabilityExposure(transports: string[] | undefined): string {
   return `{ http: ${flag("http")}; webmcp: ${flag("webmcp")}; mcp: ${flag("mcp")} }`;
 }
 
-/** `title`/`description` as JSDoc above the entry, so editors surface it. */
+/** `title`/`description` as JSDoc above a registration or client entry. */
 function formatCapabilityDoc(capability: CapabilityEntry, indent = "      "): string[] {
   const parts = [capability.title, capability.description].filter(
     (part): part is string => typeof part === "string" && part.trim().length > 0,
