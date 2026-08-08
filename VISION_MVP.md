@@ -39,14 +39,15 @@ Pracht is a full-stack Preact framework built on Vite. It draws routing and rend
 
 ### Rendering Modes
 
-Per-route render mode via `{ render: "spa" | "ssr" | "ssg" | "isg" }`:
+Per-route render mode via `{ render: "data" | "spa" | "ssr" | "ssg" | "isg" }`:
 
-| Mode | When HTML is generated | Use case                      |
-| ---- | ---------------------- | ----------------------------- |
-| SPA  | Client only            | Dashboards, auth-gated UI     |
-| SSR  | Every request          | Personalized / dynamic pages  |
-| SSG  | Build time             | Marketing, docs, blog         |
-| ISG  | Build + revalidation   | Pricing, catalog, semi-static |
+| Mode | When route HTML is generated | Use case                              |
+| ---- | ---------------------------- | ------------------------------------- |
+| Data | Browser from embedded data   | Browser-heavy personalized app routes |
+| SPA  | Browser after state fetch    | Dashboards that avoid embedded data   |
+| SSR  | Every request                | Personalized / dynamic pages          |
+| SSG  | Build time                   | Marketing, docs, blog                 |
+| ISG  | Build + revalidation         | Pricing, catalog, semi-static         |
 
 ISG supports time-based and webhook-based revalidation policies.
 

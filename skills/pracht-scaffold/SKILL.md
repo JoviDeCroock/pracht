@@ -1,6 +1,6 @@
 ---
 name: pracht-scaffold
-version: 1.1.0
+version: 1.2.0
 description: |
   Pracht code scaffolding. Prefer the framework-native CLI generators
   (`pracht generate route|shell|middleware|api`) and only fall back to manual
@@ -173,7 +173,7 @@ Only when you created module files by hand, update `src/routes.ts` to register t
 - **Middleware**: Add to the `middleware` record: `mwName: () => import("./middleware/filename.ts")` (or `"./middleware/filename.ts"`).
 - **API routes**: No manifest change needed — auto-discovered from `src/api/` by the Vite plugin.
 
-Available render modes: `"ssr"` (default), `"ssg"` (static at build), `"isg"` (incremental static with `revalidate: timeRevalidate(seconds)`), `"spa"` (client-only).
+Available render modes: `"ssr"` (default), `"data"` (server-loaded data with browser-rendered components), `"ssg"` (static at build), `"isg"` (incremental static with `revalidate: timeRevalidate(seconds)`), `"spa"` (client-only startup fetch).
 
 Import `timeRevalidate` from `"@pracht/core"` when using ISG.
 

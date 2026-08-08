@@ -121,7 +121,7 @@ Group properties cascade to children. A route's own meta overrides the group's.
 interface RouteMeta {
   id?: string; // Explicit route ID (auto-generated if omitted)
   shell?: string; // Named shell from defineApp.shells
-  render?: "spa" | "ssr" | "ssg" | "isg";
+  render?: "data" | "spa" | "ssr" | "ssg" | "isg";
   hydration?: "full" | "islands" | "none"; // Partial hydration (see ISLANDS.md)
   middleware?: string[]; // Named middleware from defineApp.middleware
   revalidate?: RouteRevalidate; // ISG revalidation policy
@@ -704,7 +704,7 @@ export default function About() {
 }
 ```
 
-Valid values: `"ssr"` | `"ssg"` | `"isg"` | `"spa"`. The default is `"ssr"`,
+Valid values: `"ssr"` | `"data"` | `"ssg"` | `"isg"` | `"spa"`. The default is `"ssr"`,
 overridable globally via `pagesDefaultRender`:
 
 ```typescript

@@ -1,8 +1,8 @@
 ---
 name: tune-render-mode
-version: 1.1.0
+version: 1.2.0
 description: |
-  Recommend the right pracht render mode (ssg, isg, ssr, spa) for each route
+  Recommend the right pracht render mode (ssg, isg, ssr, data, spa) for each route
   based on what its loader actually does. Most apps pick a mode once and never
   revisit; this skill surfaces routes that are mis-tuned.
   Use when asked to "tune render modes", "make my site faster", "should this
@@ -55,9 +55,11 @@ For each route:
    - Auth dashboards, anything user-specific, anything that varies by user
      identity at request time.
 
-6. **Heavy client interactivity, no SEO need, auth-gated** → **`spa`**
-   - Internal admin tools, post-login dashboards where the first paint can be a
-     skeleton.
+6. **Heavy client interactivity, no SEO need, auth-gated** → **`data`** or **`spa`**
+   - Pick `data` when loader results may be embedded and avoiding a second
+     startup request matters. The server renders only shell/loading UI.
+   - Pick `spa` when initial loader data must not appear in the document; it
+     starts with shell/loading UI and fetches route state separately.
 
 ## Step 1: Enumerate
 
@@ -139,7 +141,7 @@ on the router `mode` from Step 1:
   way.
 - **Pages apps**: render mode is a per-file constant —
   `export const RENDER_MODE = "ssg"` in the page module (valid values
-  `"ssr" | "ssg" | "isg" | "spa"`; the default is `"ssr"`, overridable
+  `"ssr" | "data" | "ssg" | "isg" | "spa"`; the default is `"ssr"`, overridable
   globally via `pracht({ pagesDefaultRender: "..." })` in vite config).
   Hydration is `export const HYDRATION = "..."` in the same file. If most
   pages want the same mode, prefer changing `pagesDefaultRender` over adding

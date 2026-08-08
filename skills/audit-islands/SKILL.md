@@ -1,6 +1,6 @@
 ---
 name: audit-islands
-version: 1.0.0
+version: 1.1.0
 description: |
   Audit pracht islands usage: find over-hydrated routes that should use
   `hydration: "islands"` or `"none"`, dead interactivity outside the islands
@@ -105,9 +105,9 @@ suggest `client="visible"` or `client="idle"`.
 
 ### 3e. Invalid combinations (`error`)
 
-`render: "spa"` always implies full hydration; combining it with
-`hydration: "islands"` or `"none"` is a configuration error. Flag any such
-route (manifest field or pages-router `RENDER_MODE`/`HYDRATION` pair).
+`render: "spa"` and `render: "data"` always imply full hydration; combining
+either with `hydration: "islands"` or `"none"` is a configuration error. Flag
+any such route (manifest field or pages-router `RENDER_MODE`/`HYDRATION` pair).
 
 ### 3f. MPA navigation assumptions (`warn`)
 

@@ -84,8 +84,8 @@ route(path, file, { render: "ssg", hydration: "islands" });
 
 - `hydration` works with `ssg`, `isg`, and `ssr` render modes and can be set
   per route or inherited from a `group(...)`.
-- `render: "spa"` always uses full hydration; combining it with
-  `hydration: "islands"` or `"none"` is a configuration error.
+- `render: "spa"` and `render: "data"` always use full hydration; combining
+  either with `hydration: "islands"` or `"none"` is a configuration error.
 - Groups inherit: `group({ hydration: "islands" }, [...])` applies to every
   route in the group unless a route overrides it.
 

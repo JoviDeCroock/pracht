@@ -311,10 +311,14 @@ function flattenRouteNode(
   if (VALIDATE_MANIFEST) {
     assertValidLoaderCache(node.loaderCache, `route "${fullPath}"`);
 
-    if (render === "spa" && hydration !== undefined && hydration !== "full") {
+    if (
+      (render === "spa" || render === "data") &&
+      hydration !== undefined &&
+      hydration !== "full"
+    ) {
       throw new Error(
-        `Route "${fullPath}" combines render: "spa" with hydration: "${hydration}". ` +
-          "SPA routes render entirely in the browser and always use full hydration — " +
+        `Route "${fullPath}" combines render: "${render}" with hydration: "${hydration}". ` +
+          "Browser-rendered routes always use full hydration — " +
           'remove the hydration option or use render: "ssg" / "isg" / "ssr".',
       );
     }

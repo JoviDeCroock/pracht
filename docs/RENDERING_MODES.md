@@ -1,6 +1,6 @@
 # Rendering Modes
 
-Pracht supports four rendering modes, configured per-route. Each route declares
+Pracht supports five rendering modes, configured per-route. Each route declares
 how and when its HTML is generated.
 
 ---
@@ -12,7 +12,8 @@ how and when its HTML is generated.
 | **SSG** | Build time           | Build time               | Static content: marketing, docs, blog |
 | **SSR** | Every request        | Every request            | Personalized/dynamic pages            |
 | **ISG** | Build + revalidation | Build + on stale request | Semi-static: pricing, catalogs        |
-| **SPA** | Client only          | Client navigation        | Auth-gated dashboards, admin UI       |
+| **Data** | Browser from embedded state | Initial server request | Personalized apps without component SSR |
+| **SPA** | Client only          | Route-state request      | Shell-first apps that avoid embedded data |
 
 ---
 
@@ -219,6 +220,35 @@ export function Loading() {
 This improves first paint for auth-gated apps without serializing loader data
 into the initial document by default.
 
+---
+
+## Data — Server Data, Browser Rendering
+
+```typescript
+route("/inbox", () => import("./routes/inbox.tsx"), { render: "data" });
+```
+
+Data mode runs middleware, the loader, and document metadata on the initial
+server request, then embeds the loader result in the hydration state. The
+server sends the assigned shell and its `Loading` placeholder instead of route
+component HTML. The browser renders the component directly from the embedded
+data, so startup needs no second route-state request.
+
+Use it when loader data must be ready immediately but component SSR is too
+expensive, browser-only libraries dominate the route, or you want to isolate
+hydration mismatch risk. Embedded data remains visible in the document; use
+`spa` when the initial response must not contain it.
+
+Data routes require full hydration. Subsequent client navigations use the same
+server-owned route-state endpoint as the other interactive modes, so loaders
+never move into the browser.
+
+### When to use Data
+
+- Personalized app screens where SEO and route-component HTML are unnecessary
+- Routes dominated by browser-only UI with server-owned loading
+- Pages where avoiding a duplicate startup data request matters more than SSR
+
 ### When to use SPA
 
 - Auth-gated pages where SEO doesn't matter, but shell chrome should paint fast
@@ -277,9 +307,9 @@ route("/", () => import("./routes/home.tsx"), {
 | `"islands"`          | Only components from `src/islands/` hydrate; the page is otherwise static. |
 | `"none"`             | Fully static output — no JavaScript is injected at all.                  |
 
-`hydration` combines with `ssg`, `isg`, and `ssr`. `render: "spa"` always
-implies full hydration (combining it with `"islands"`/`"none"` is a config
-error). Routes with `"islands"` or `"none"` use regular full-document
+`hydration` combines with `ssg`, `isg`, and `ssr`. `render: "spa"` and
+`render: "data"` always imply full hydration (combining either with
+`"islands"`/`"none"` is a config error). Routes with `"islands"` or `"none"` use regular full-document
 navigation instead of the client router. See [ISLANDS.md](ISLANDS.md) for the
 full picture: island discovery, hydration strategies (`load`/`idle`/`visible`),
 prop serialization rules, and limitations.

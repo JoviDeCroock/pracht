@@ -644,7 +644,7 @@ export async function handlePrachtRequest<TContext>(
           resolvePageJsUrls(options.jsManifest, match.route.shellFile, match.route.file),
         );
 
-        if (match.route.render === "spa") {
+        if (match.route.render === "spa" || match.route.render === "data") {
           let body = "";
           const Shell = shellModule?.Shell as FunctionComponent | undefined;
           const Loading = shellModule?.Loading as FunctionComponent | undefined;
@@ -678,14 +678,17 @@ export async function handlePrachtRequest<TContext>(
               hydrationState: {
                 url: requestPath,
                 routeId: match.route.id ?? "",
-                data: null,
+                data: match.route.render === "data" ? data : null,
                 error: null,
-                pending: true,
+                pending: match.route.render === "spa" ? true : undefined,
               },
               clientEntryUrl: options.clientEntryUrl,
               cssUrls,
               modulePreloadUrls,
-              routeStatePreloadUrl: loader ? buildRouteStateUrl(requestPath) : undefined,
+              routeStatePreloadUrl:
+                match.route.render === "spa" && loader
+                  ? buildRouteStateUrl(requestPath)
+                  : undefined,
               speculationRules: getAppSpeculationRules(resolvedApp),
             }),
             pageOptions.status,

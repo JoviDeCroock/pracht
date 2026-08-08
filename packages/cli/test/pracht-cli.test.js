@@ -963,6 +963,13 @@ export const routes = [
     expect(routeSource).toContain('export const RENDER_MODE = "ssg";');
     expect(routeSource).toContain("export function getStaticPaths()");
     expect(routeSource).toContain('slug: "example-slug"');
+
+    runCli(["generate", "route", "--path", "/inbox", "--render", "data"], {
+      cwd: appDir,
+    });
+    expect(readFileSync(join(appDir, "src/pages/inbox.tsx"), "utf-8")).toContain(
+      'export const RENDER_MODE = "data";',
+    );
   });
 });
 

@@ -1043,6 +1043,46 @@ describe("handlePrachtRequest document headers", () => {
 });
 
 describe("handlePrachtRequest SPA shell fallback", () => {
+  it("serializes loader data without server-rendering the route in data mode", async () => {
+    const app = defineApp({
+      shells: { app: "./shells/app.tsx" },
+      routes: [route("/inbox", "./routes/inbox.tsx", { render: "data", shell: "app" })],
+    });
+    let loaderCalls = 0;
+
+    const response = await handlePrachtRequest({
+      app,
+      registry: {
+        routeModules: {
+          "./routes/inbox.tsx": async () => ({
+            Component: ({ data }) => h("main", null, `Hello ${(data as any).user}`),
+            loader: async () => {
+              loaderCalls += 1;
+              return { user: "Ada" };
+            },
+          }),
+        },
+        shellModules: {
+          "./shells/app.tsx": async () => ({
+            Shell: ({ children }) => h("div", { class: "app-shell" }, children),
+            Loading: () => h("p", null, "Opening inbox..."),
+          }),
+        },
+      },
+      request: new Request("http://localhost/inbox"),
+    });
+
+    expect(response.status).toBe(200);
+    expect(loaderCalls).toBe(1);
+    const html = await response.text();
+    expect(html).toContain("app-shell");
+    expect(html).toContain("Opening inbox...");
+    expect(html).toContain('"user":"Ada"');
+    expect(html).not.toContain("Hello Ada");
+    expect(html).not.toContain("?_data=1");
+    expect(html).not.toContain('"pending":true');
+  });
+
   it("renders shell chrome and loading UI for SPA routes without serializing loader data", async () => {
     const app = defineApp({
       shells: {

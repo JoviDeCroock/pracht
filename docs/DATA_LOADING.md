@@ -54,6 +54,7 @@ instead of rendering the component. Both the HTML and markdown responses carry
 | ----------------- | ----------------------------------------------------------------- |
 | SSG build         | Build machine, once per path                                      |
 | SSR request       | Server, every request                                             |
+| Data initial load | Server, embedded once; the browser renders the route component    |
 | ISG initial       | Build machine, then adapter runtime where supported              |
 | SPA               | Server, during route-state fetches; initial HTML stays shell-only |
 | Client navigation | Server (fetched as JSON via `x-pracht-route-state-request`)       |

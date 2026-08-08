@@ -94,6 +94,14 @@ describe("islands route config", () => {
     expect(() => resolveApp(app)).toThrowError(/render: "spa" with hydration: "islands"/);
   });
 
+  it("rejects data render combined with islands hydration", () => {
+    const app = defineApp({
+      routes: [route("/inbox", "./routes/inbox.tsx", { render: "data", hydration: "islands" })],
+    });
+
+    expect(() => resolveApp(app)).toThrowError(/render: "data" with hydration: "islands"/);
+  });
+
   it("allows spa render with explicit full hydration", () => {
     const app = defineApp({
       routes: [route("/settings", "./routes/settings.tsx", { render: "spa", hydration: "full" })],
