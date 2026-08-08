@@ -115,6 +115,7 @@ export {
   capabilityApprovalId,
   createMemoryApprovalStore,
   setCapabilityApprovalStore,
+  setCapabilityApprovalPrincipalResolver,
 } from "./runtime-approval.ts";
 export type { MemoryApprovalStoreOptions } from "./runtime-approval.ts";
 export { forwardRef } from "./forwardRef.ts";
@@ -176,6 +177,8 @@ export type {
   BaseRouteArgs,
   CapabilityApprovalConsumeFailure,
   CapabilityApprovalConsumeResult,
+  CapabilityApprovalPrincipalArgs,
+  CapabilityApprovalPrincipalResolver,
   CapabilityApprovalRecord,
   CapabilityApprovalState,
   CapabilityApprovalStore,

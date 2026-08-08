@@ -14,8 +14,13 @@ by a server-derived digest of principal + capability + input, so repeated
 prepares address one proposal); commit verifies the HMAC first, then consumes
 the proposal exactly once. `agents.confirmation.mode: "human"` additionally
 refuses the commit with `confirmation_pending` until a person approves out of
-band. `createMemoryApprovalStore()` ships as the reference implementation for
-tests, development, and single-instance deployments.
+band. `setCapabilityApprovalPrincipalResolver()` binds proposals to an
+application-authenticated user or tenant; human mode fails closed without that
+identity or a verified Web Bot Auth agent. `createMemoryApprovalStore()` ships
+as the reference implementation for tests, development, and single-instance
+deployments. Durable implementations must atomically insert proposals and
+compare-and-set consumption so concurrent prepares cannot resurrect a commit;
+consumed and rejected proposals stay closed until their TTL expires.
 
 The wire protocol is unchanged: callers still just echo the confirmation
 token. `CapabilityErrorCode` gains `confirmation_pending`, and the error

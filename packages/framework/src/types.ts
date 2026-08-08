@@ -642,9 +642,10 @@ export interface CapabilityConfirmationConfig {
    *   was handed. With an approval store registered this also becomes
    *   exactly-once across replicas.
    * - `"human"` — the commit is refused with `confirmation_pending` until a
-   *   person approves the proposal out of band. Requires an approval store
-   *   (`setCapabilityApprovalStore()`); without one, destructive calls fail
-   *   closed.
+   *   person approves the proposal out of band. Requires an approval store and
+   *   an authenticated principal from Web Bot Auth or
+   *   `setCapabilityApprovalPrincipalResolver()`; without both, destructive
+   *   calls fail closed.
    */
   mode?: "token" | "human";
 }
@@ -662,7 +663,7 @@ export type CapabilityApprovalState = "pending" | "approved" | "rejected" | "con
 export interface CapabilityApprovalRecord {
   /** Derived from principal + capability + input hash; never client-supplied. */
   id: string;
-  /** Verified agent key id (`agent:<keyid>`) or `"anonymous"`. */
+  /** Verified agent and/or application identity, or `"anonymous"` in token mode. */
   principal: string;
   capability: string;
   /** Base64url SHA-256 of the canonicalized validated input. */
@@ -679,6 +680,23 @@ export interface CapabilityApprovalRecord {
   decidedAt: number | null;
 }
 
+export interface CapabilityApprovalPrincipalArgs<TContext = PrachtRequestContext> {
+  /** Request context after API and capability middleware have run. */
+  context: TContext;
+  request: Request;
+  capability: string;
+  agent: PrachtAgentIdentity | null;
+}
+
+/**
+ * Resolve the application-authenticated identity bound to a destructive
+ * proposal. Return a stable user/tenant id, never a display name or a value
+ * supplied directly by the caller.
+ */
+export type CapabilityApprovalPrincipalResolver<TContext = PrachtRequestContext> = (
+  args: CapabilityApprovalPrincipalArgs<TContext>,
+) => string | null | Promise<string | null>;
+
 export type CapabilityApprovalConsumeFailure =
   | "unknown"
   | "expired"
@@ -694,20 +712,24 @@ export type CapabilityApprovalConsumeResult =
  * Durable storage for destructive-capability approvals, registered with
  * `setCapabilityApprovalStore()`.
  *
- * `consume()` carries the only concurrency requirement, and it is a hard one:
- * it MUST be a compare-and-set, not a read followed by a write. Two replicas
- * committing the same token concurrently must produce exactly one `ok: true`.
- * A backend without conditional writes (e.g. Cloudflare KV) cannot implement
- * this; D1, Durable Objects, Postgres, and Redis can. See docs/AGENT_TRUST.md
- * for a reference SQL statement.
+ * `create()` and `consume()` both carry hard concurrency requirements:
+ * `create()` MUST atomically insert-if-absent and return the existing live
+ * proposal on conflict; `consume()` MUST be a compare-and-set, not a read
+ * followed by a write. A prepare racing a commit must never resurrect a
+ * consumed proposal, and two replicas committing concurrently must produce
+ * exactly one `ok: true`. A backend without conditional writes (e.g.
+ * Cloudflare KV) cannot implement this; D1, Durable Objects, Postgres, and
+ * Redis can. See docs/AGENT_TRUST.md for reference SQL statements.
  *
  * Implementations own their clock and compare against `record.expiresAt`.
  */
 export interface CapabilityApprovalStore {
   /**
-   * Record a proposal. Idempotent: when a live proposal with the same `id`
-   * already exists it must be returned unchanged, so re-preparing cannot
-   * extend a proposal's life or reset a decision.
+   * Record a proposal with an atomic insert-if-absent. When a live proposal
+   * with the same `id` already exists it must be returned unchanged, so a
+   * concurrent re-prepare cannot extend its life, reset a decision, or
+   * resurrect it after consumption. Consumed/rejected records remain live
+   * until `expiresAt`; the same operation can be proposed again after expiry.
    */
   create(record: CapabilityApprovalRecord): Promise<CapabilityApprovalRecord>;
   get(id: string): Promise<CapabilityApprovalRecord | null>;

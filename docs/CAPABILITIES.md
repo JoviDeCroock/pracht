@@ -117,7 +117,8 @@ Destructive capabilities (delete, publish, pay, send, change access) may be
 exposed over HTTP only, and every dispatch is gated by a server-verified
 prepare/commit confirmation flow that requires `PRACHT_CONFIRMATION_SECRET`
 to be configured — optionally backed by a durable approval store for
-exactly-once commits and human approval, see
+exactly-once commits and human approval (which also requires an authenticated
+principal from Web Bot Auth or `setCapabilityApprovalPrincipalResolver()`), see
 [AGENT_TRUST.md](AGENT_TRUST.md). Exposing them to
 agent projections (`expose.webmcp`/`expose.mcp`) stays disallowed:
 `defineCapability()`, the runtime registry, and `pracht verify` all enforce

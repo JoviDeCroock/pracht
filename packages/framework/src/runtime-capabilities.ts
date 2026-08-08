@@ -22,7 +22,11 @@ import {
   normalizeCapabilityHttpPath,
 } from "@pracht/capabilities";
 import { formatUnknownNameError } from "./name-suggestions.ts";
-import { capabilityApprovalId, resolveCapabilityApprovalStore } from "./runtime-approval.ts";
+import {
+  capabilityApprovalId,
+  resolveCapabilityApprovalPrincipal,
+  resolveCapabilityApprovalStore,
+} from "./runtime-approval.ts";
 import {
   canonicalJson,
   CONFIRMATION_HEADER,
@@ -723,7 +727,40 @@ async function enforceDestructiveConfirmation<TContext>(
     };
   }
 
-  const principal = options.agent ? `agent:${options.agent.keyId}` : "anonymous";
+  let principal: string;
+  try {
+    principal =
+      (await resolveCapabilityApprovalPrincipal({
+        context: options.context,
+        request: options.request,
+        capability: name,
+        agent: options.agent ?? null,
+      })) ?? "anonymous";
+  } catch (error: unknown) {
+    return {
+      status: 403,
+      envelope: errorEnvelope({
+        code: "confirmation_unavailable",
+        message:
+          `Destructive capability "${name}" cannot run: the approval principal resolver failed` +
+          (options.exposeErrors
+            ? ` (${error instanceof Error ? error.message : String(error)}).`
+            : "."),
+      }),
+    };
+  }
+  if (mode === "human" && principal === "anonymous") {
+    return {
+      status: 403,
+      envelope: errorEnvelope({
+        code: "confirmation_unavailable",
+        message:
+          `Destructive capability "${name}" cannot run in human approval mode without an ` +
+          "authenticated principal (use Web Bot Auth or call " +
+          "setCapabilityApprovalPrincipalResolver() from a server-only module).",
+      }),
+    };
+  }
   const canonicalInput = canonicalJson(validatedInput);
   const binding = { secret, principal, capability: name, canonicalInput };
   const presented = options.request.headers.get(CONFIRMATION_HEADER);
@@ -753,6 +790,16 @@ async function enforceDestructiveConfirmation<TContext>(
         }),
       );
       if (!created.ok) return created.failure;
+      if (created.value.state === "consumed" || created.value.state === "rejected") {
+        const reason = created.value.state === "consumed" ? "already_used" : "rejected";
+        return {
+          status: 403,
+          envelope: errorEnvelope({
+            code: "confirmation_invalid",
+            message: `Confirmation request rejected (${reason}).`,
+          }),
+        };
+      }
       // Re-preparing an existing proposal must not extend its life, so the
       // token expires with the proposal rather than `now + ttlSeconds`.
       expiresAtLimit = created.value.expiresAt - now;

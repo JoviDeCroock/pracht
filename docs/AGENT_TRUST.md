@@ -212,11 +212,12 @@ Set `PRACHT_CONFIRMATION_SECRET` in the server environment (or call
   token and can immediately hand it back to itself. The round trip proves
   deliberateness, not consent.
 - **Principal binding is only as strong as the principal.** Without Web Bot
-  Auth (or your own auth middleware), both prepare and commit run as
-  `"anonymous"` — the flow still forces the two-step round trip with
-  identical input, but does not tie the token to a caller.
+  Auth or `setCapabilityApprovalPrincipalResolver()`, both prepare and commit
+  run as `"anonymous"` in token mode. Auth middleware alone does not tell the
+  confirmation flow which context field identifies the caller.
 
-Registering an approval store removes the first two.
+Registering an approval store removes the first two; registering an
+application-principal resolver binds proposals to your authenticated users.
 
 ## Durable approvals
 
@@ -227,10 +228,23 @@ handed.
 
 ```ts
 // src/server/approvals.ts — any server-only module
-import { createMemoryApprovalStore, setCapabilityApprovalStore } from "@pracht/core";
+import {
+  createMemoryApprovalStore,
+  setCapabilityApprovalPrincipalResolver,
+  setCapabilityApprovalStore,
+} from "@pracht/core";
 
 setCapabilityApprovalStore(createMemoryApprovalStore());
+setCapabilityApprovalPrincipalResolver<{ user: { id: string } }>(
+  ({ context }) => context.user.id,
+);
 ```
+
+Import this setup module from a server entry or a registered server-only
+middleware/capability module so it actually runs. The resolver executes after
+API and capability middleware, and must return a stable authenticated user or
+tenant id — never a display name or caller-controlled value. When Web Bot Auth
+is also present, the proposal binds both identities.
 
 A proposal's id is derived server-side from the principal, the capability
 name, and the canonicalized input — never supplied by a caller. Repeated
@@ -278,8 +292,10 @@ Who may approve is an application decision, so pracht ships no approval
 endpoint or UI — a framework-default approval route would be the same mistake
 as trusting host-reported approval.
 
-`mode: "human"` without a registered store fails closed with `403
-confirmation_unavailable` rather than silently degrading to self-approval.
+`mode: "human"` without both a registered store and an authenticated principal
+(from Web Bot Auth or the resolver) fails closed with `403
+confirmation_unavailable` rather than silently degrading to self-approval or
+sharing one approval across unrelated application users.
 
 ### Writing a store
 
@@ -289,7 +305,13 @@ not shared across replicas. For a real deployment, implement
 `CapabilityApprovalStore` over a backend with **conditional writes**:
 
 ```sql
--- consume(): the only method with a concurrency contract.
+-- create(): insert-if-absent; never update a live/decided/consumed row.
+INSERT INTO pracht_approvals (...)
+VALUES (...)
+ON CONFLICT (id) DO NOTHING;
+-- Then return the inserted row or the unchanged conflicting row.
+
+-- consume(): compare-and-set.
 UPDATE pracht_approvals
    SET state = 'consumed', consumed_at = ?now
  WHERE id = ?id
@@ -299,10 +321,12 @@ UPDATE pracht_approvals
 -- ok = (rows_affected == 1)
 ```
 
-It **must** be a compare-and-set, not a read followed by a write: two
-replicas committing the same token concurrently must produce exactly one
-success. Cloudflare KV cannot do this (no conditional write); D1, Durable
-Objects, Postgres, and Redis can.
+Both operations must be atomic. `create()` must never overwrite a proposal
+when a prepare races a decision or commit, while `consume()` must be a
+compare-and-set rather than a read followed by a write. Otherwise a concurrent
+prepare can resurrect a consumed proposal, or two commits can both succeed.
+Cloudflare KV cannot provide these conditional writes; D1, Durable Objects,
+Postgres, and Redis can.
 
 Two operational consequences worth knowing before you turn this on:
 
@@ -314,6 +338,10 @@ Two operational consequences worth knowing before you turn this on:
 - **A failing store closes the gate.** Any exception from `create()` or
   `consume()` answers `403 confirmation_unavailable`; the capability does not
   run.
+- **Consumed and rejected proposals stay closed until expiry.** Re-preparing
+  the identical operation during that window is refused, which prevents an
+  old still-valid token from becoming reusable. After expiry, the operation
+  can create a fresh proposal.
 
 `singleUse` is ignored while a store is registered — the store enforces single
 use durably.

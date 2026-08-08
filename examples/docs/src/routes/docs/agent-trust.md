@@ -93,10 +93,19 @@ Two things a stateless HMAC cannot do on its own: stop a captured token being re
 Register a store and prepare records a **proposal**; commit consumes it exactly once. The wire protocol is unchanged — callers still just echo the token they were handed.
 
 ```ts [src/server/approvals.ts]
-import { createMemoryApprovalStore, setCapabilityApprovalStore } from "@pracht/core";
+import {
+  createMemoryApprovalStore,
+  setCapabilityApprovalPrincipalResolver,
+  setCapabilityApprovalStore,
+} from "@pracht/core";
 
 setCapabilityApprovalStore(createMemoryApprovalStore());
+setCapabilityApprovalPrincipalResolver<{ user: { id: string } }>(
+  ({ context }) => context.user.id,
+);
 ```
+
+Import this setup from a server entry or registered server-only module. The resolver runs after middleware and must return a stable authenticated user or tenant id, never caller-controlled input. When Web Bot Auth is present, the proposal binds both the application user and verified agent.
 
 The proposal id is derived server-side from the principal, the capability, and the canonicalized input — never supplied by a caller. Repeated prepares address one proposal, so a person approves *the action* rather than one particular token. The HMAC is verified before the store is touched, so a forged token can never destroy a live proposal.
 
@@ -126,9 +135,9 @@ export async function POST({ request, context }: ApiRouteArgs) {
 }
 ```
 
-`createMemoryApprovalStore()` is correct for one instance — use it in tests and development. For a real deployment, implement `CapabilityApprovalStore` over a backend with **conditional writes** (D1, Durable Objects, Postgres, Redis; *not* Cloudflare KV): `consume()` must be a compare-and-set, so two replicas committing the same token concurrently produce exactly one success.
+`createMemoryApprovalStore()` is correct for one instance — use it in tests and development. For a real deployment, implement `CapabilityApprovalStore` over a backend with **conditional writes** (D1, Durable Objects, Postgres, Redis; *not* Cloudflare KV): `create()` must atomically insert-if-absent without overwriting an existing proposal, and `consume()` must be a compare-and-set.
 
-Three behaviours to know before enabling it: `mode: "human"` without a store fails closed rather than self-approving; a valid token whose proposal is unknown is refused, so prepare and commit must reach the same store; and any store exception closes the gate.
+Four behaviours to know before enabling it: `mode: "human"` without both a store and an authenticated principal fails closed; a valid token whose proposal is unknown is refused, so prepare and commit must reach the same store; consumed or rejected operations cannot be proposed again until their TTL expires; and any store or principal-resolver exception closes the gate.
 
 ---
 

@@ -4,6 +4,7 @@ import { defineCapability } from "../../capabilities/src/index.ts";
 import {
   createCapabilityTestHost,
   createMemoryApprovalStore,
+  setCapabilityApprovalPrincipalResolver,
   setCapabilityApprovalStore,
 } from "../src/index.ts";
 import {
@@ -77,6 +78,7 @@ beforeEach(() => {
 
 afterEach(() => {
   setCapabilityConfirmationSecret(null);
+  setCapabilityApprovalPrincipalResolver(null);
   setCapabilityApprovalStore(null);
   clearConsumedConfirmationTokens();
 });
@@ -123,6 +125,19 @@ describe("createMemoryApprovalStore", () => {
 
     expect(results.filter((result) => result.ok)).toHaveLength(1);
     expect(results.find((result) => !result.ok)).toEqual({ ok: false, reason: "already_used" });
+  });
+
+  it("does not resurrect a consumed proposal when the same action is prepared again", async () => {
+    const store = createMemoryApprovalStore({ now: () => 1_000_000 });
+    await store.create(record());
+    expect((await store.consume("proposal-1", { requireApproval: false })).ok).toBe(true);
+
+    const preparedAgain = await store.create(record());
+    expect(preparedAgain.state).toBe("consumed");
+    expect(await store.consume("proposal-1", { requireApproval: false })).toEqual({
+      ok: false,
+      reason: "already_used",
+    });
   });
 
   it("reports why a consume failed", async () => {
@@ -194,6 +209,21 @@ describe("token mode with an approval store", () => {
     const envelope = await envelopeOf(replay);
     expect(envelope.ok).toBe(false);
     expect(!envelope.ok && envelope.error.message).toContain("already_used");
+    expect(purged).toEqual(["Old"]);
+  });
+
+  it("does not let a repeated prepare make an old token reusable", async () => {
+    setCapabilityApprovalStore(createMemoryApprovalStore());
+    const host = createHost();
+    const { token } = await prepare(host);
+
+    expect((await commit(host, token)).status).toBe(200);
+    const prepareAgain = await host.request("notes.purge", { titlePrefix: "Old" });
+    expect(prepareAgain.status).toBe(403);
+    const prepareEnvelope = await envelopeOf(prepareAgain);
+    expect(!prepareEnvelope.ok && prepareEnvelope.error.message).toContain("already_used");
+
+    expect((await commit(host, token)).status).toBe(403);
     expect(purged).toEqual(["Old"]);
   });
 
@@ -286,6 +316,10 @@ describe("token mode with an approval store", () => {
 describe("human mode", () => {
   const agents: PrachtAgentsConfig = { confirmation: { mode: "human" } };
 
+  beforeEach(() => {
+    setCapabilityApprovalPrincipalResolver(() => "test-user");
+  });
+
   it("parks the commit until a person approves, then runs exactly once", async () => {
     const store = createMemoryApprovalStore();
     setCapabilityApprovalStore(store);
@@ -340,6 +374,50 @@ describe("human mode", () => {
     const envelope = await envelopeOf(await host.request("notes.purge", { titlePrefix: "Old" }));
     expect(!envelope.ok && envelope.error.code).toBe("confirmation_unavailable");
     expect(!envelope.ok && envelope.error.message).toContain("setCapabilityApprovalStore");
+    expect(purged).toEqual([]);
+  });
+
+  it("fails closed without an authenticated principal", async () => {
+    setCapabilityApprovalPrincipalResolver(null);
+    setCapabilityApprovalStore(createMemoryApprovalStore());
+
+    const response = await createHost(agents).request("notes.purge", { titlePrefix: "Old" });
+    expect(response.status).toBe(403);
+    const envelope = await envelopeOf(response);
+    expect(!envelope.ok && envelope.error.code).toBe("confirmation_unavailable");
+    expect(!envelope.ok && envelope.error.message).toContain("authenticated principal");
+    expect(purged).toEqual([]);
+  });
+
+  it("keeps application-authenticated users on separate proposals", async () => {
+    const store = createMemoryApprovalStore();
+    setCapabilityApprovalStore(store);
+    setCapabilityApprovalPrincipalResolver<{ userId: string }>(({ context }) =>
+      typeof context.userId === "string" ? context.userId : null,
+    );
+    const host = createHost(agents);
+
+    const aliceEnvelope = await envelopeOf(
+      await host.request("notes.purge", { titlePrefix: "Old" }, { context: { userId: "alice" } }),
+    );
+    const bobEnvelope = await envelopeOf(
+      await host.request("notes.purge", { titlePrefix: "Old" }, { context: { userId: "bob" } }),
+    );
+    if (aliceEnvelope.ok || bobEnvelope.ok) throw new Error("prepare unexpectedly succeeded");
+
+    expect(bobEnvelope.error.approvalId).not.toBe(aliceEnvelope.error.approvalId);
+    expect(bobEnvelope.error.confirmationToken).not.toBe(aliceEnvelope.error.confirmationToken);
+    await store.decide(aliceEnvelope.error.approvalId!, "approved", "reviewer@example");
+
+    const crossUserCommit = await host.request(
+      "notes.purge",
+      { titlePrefix: "Old" },
+      {
+        context: { userId: "bob" },
+        headers: { "x-pracht-confirm": aliceEnvelope.error.confirmationToken! },
+      },
+    );
+    expect(crossUserCommit.status).toBe(403);
     expect(purged).toEqual([]);
   });
 });
