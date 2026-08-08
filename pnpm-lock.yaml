@@ -345,9 +345,15 @@ importers:
 
   packages/openapi:
     dependencies:
+      '@pracht/cli':
+        specifier: workspace:*
+        version: link:../cli
       '@pracht/core':
         specifier: workspace:*
         version: link:../framework
+      '@pracht/vite-plugin':
+        specifier: workspace:*
+        version: link:../vite-plugin
       vite:
         specifier: ^8.0.0
         version: 8.0.3(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)(@types/node@22.19.17)(esbuild@0.27.3)
