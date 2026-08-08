@@ -5,6 +5,7 @@ import {
   Link,
   PrachtHttpError,
   defineApp,
+  group,
   handlePrachtRequest,
   prerenderApp,
   redirect,
@@ -14,6 +15,7 @@ import {
   useLocation,
   useParams,
 } from "../src/index.ts";
+import type { GroupLoaderArgs } from "../src/index.ts";
 
 function parseHydrationState(html: string) {
   const match = html.match(
@@ -24,6 +26,7 @@ function parseHydrationState(html: string) {
   }
 
   return JSON.parse(match[1]) as {
+    groupData?: Record<string, unknown>;
     error?: {
       diagnostics?: Record<string, unknown>;
       message: string;
@@ -462,6 +465,63 @@ describe("handlePrachtRequest API errors", () => {
 });
 
 describe("handlePrachtRequest with separate data modules", () => {
+  it("runs named group loaders parent-to-child before the route loader", async () => {
+    const events: string[] = [];
+    const app = defineApp({
+      routes: [
+        group({ loaders: { session: "./server/session.ts" } }, [
+          group({ loaders: { workspace: "./server/workspace.ts" } }, [
+            route("/dashboard", "./routes/dashboard.tsx", { render: "ssr" }),
+          ]),
+        ]),
+      ],
+    });
+
+    const response = await handlePrachtRequest({
+      app,
+      registry: {
+        routeModules: {
+          "./routes/dashboard.tsx": async () => ({
+            loader: async ({ groupData }) => {
+              events.push(`route:${(groupData.workspace as { name: string }).name}`);
+              return { ready: true };
+            },
+            Component: ({ data, groupData }) =>
+              h(
+                "main",
+                null,
+                `${(groupData.session as { user: string }).user}:${(groupData.workspace as { name: string }).name}:${(data as { ready: boolean }).ready}`,
+              ),
+          }),
+        },
+        dataModules: {
+          "./server/session.ts": async () => ({
+            loader: async () => {
+              events.push("session");
+              return { user: "Ada" };
+            },
+          }),
+          "./server/workspace.ts": async () => ({
+            loader: async ({ groupData }: GroupLoaderArgs) => {
+              events.push(`workspace:${(groupData.session as { user: string }).user}`);
+              return { name: "Core" };
+            },
+          }),
+        },
+      },
+      request: new Request("http://localhost/dashboard"),
+    });
+
+    expect(response.status).toBe(200);
+    const html = await response.text();
+    expect(html).toContain("Ada:Core:true");
+    expect(events).toEqual(["session", "workspace:Ada", "route:Core"]);
+    expect(parseHydrationState(html).groupData).toEqual({
+      session: { user: "Ada" },
+      workspace: { name: "Core" },
+    });
+  });
+
   it("resolves loader from a separate dataModule via loaderFile", async () => {
     const app = defineApp({
       routes: [

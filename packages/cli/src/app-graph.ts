@@ -11,6 +11,7 @@ const METHOD_ORDER: HttpMethod[] = [...HTTP_METHODS];
 
 export interface AppGraphRoute {
   file: string;
+  groupLoaders?: Array<{ id: string; file: string }>;
   hydration: string | null;
   id: string;
   loaderCache: number | false | null;
@@ -42,6 +43,7 @@ export interface AppGraph {
 
 interface ResolvedRouteEntry {
   file: string;
+  groupLoaders: Array<{ id: string; file: string }>;
   hydration?: string;
   id: string;
   loaderCache?: number | false;
@@ -140,6 +142,7 @@ export function capabilityModuleLoader(
 export function serializeResolvedRoutes(routes: ResolvedRouteEntry[]): AppGraphRoute[] {
   return routes.map((route) => ({
     file: route.file,
+    groupLoaders: route.groupLoaders,
     hydration: route.hydration ?? null,
     id: route.id,
     loaderCache: route.loaderCache ?? null,

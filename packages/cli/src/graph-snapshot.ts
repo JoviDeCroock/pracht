@@ -191,6 +191,7 @@ const ROUTE_DIFF_FIELDS = [
   "file",
   "loaderFile",
   "loaderCache",
+  "groupLoaders",
   "revalidate",
   "id",
 ] as const;
@@ -636,6 +637,9 @@ function describeRoute(route: AppGraphRoute): string {
   parts.push(`shell=${route.shell ?? "none"}`);
   parts.push(`middleware=[${route.middleware.join(", ")}]`);
   if (route.loaderFile) parts.push(`loader=${route.loaderFile}`);
+  if ((route.groupLoaders?.length ?? 0) > 0) {
+    parts.push(`group-loaders=[${route.groupLoaders?.map(({ id }) => id).join(", ")}]`);
+  }
   if (route.revalidate) parts.push(`revalidate=${JSON.stringify(route.revalidate)}`);
   return parts.join("  ");
 }

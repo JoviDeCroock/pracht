@@ -27,7 +27,7 @@ export async function revalidateRouteData(
     throw deserializeRouteError(result.error);
   }
 
-  runtime?.setData(result.data);
+  runtime?.setRouteState(result.data, result.groupData);
   return result.data;
 }
 

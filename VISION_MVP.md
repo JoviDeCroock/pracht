@@ -33,7 +33,8 @@ Pracht is a full-stack Preact framework built on Vite. It draws routing and rend
   structure; assigned per route or group.
 - **Middleware**: named middleware defined in `src/middleware/`, applied per route
   or group; runs server-side before loaders.
-- **Route groups**: inherit shell, middleware, render mode, and path prefix.
+- **Route groups**: inherit shell, middleware, render mode, and path prefix, and
+  compose named data loaders from parent to child independently of shell nesting.
 - **Navigation UX**: automatic scroll restoration, link prefetching
   (`intent`/`viewport`/`render`), and opt-in View Transitions.
 
@@ -93,9 +94,13 @@ Two styles, both fully supported — pick whichever fits your mental model:
 Both styles can coexist in the same app. When a separate `loader` file is
 specified in the config, it takes precedence over inline exports.
 
+Groups may also declare named loader modules. Their results flow through
+`groupData` to child group loaders, the route loader, components, hydration,
+and client navigation.
+
 - **Head**: `export function head(args)` — per-route `<head>` metadata merged with
   shell-level head.
-- **Client hooks**: `useRouteData()`, `useRevalidate()`, `useNavigation()` (pending
+- **Client hooks**: `useRouteData()`, `useGroupData()`, `useRevalidate()`, `useNavigation()` (pending
   navigation/submission state for progress bars and optimistic UI), `useNavigate()`,
   `useLocation()`, `useParams()`, `<Form>` component, `<Link>` (with `prefetch`,
   `preserveScroll`, `viewTransition` props), and imperative `prefetch()`.

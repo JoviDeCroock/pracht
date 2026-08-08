@@ -34,6 +34,7 @@ import {
   withScrollKeyInHistoryState,
 } from "./scroll-restoration.ts";
 import type {
+  GroupData,
   NavigateOptions,
   ResolvedPrachtApp,
   RouteId,
@@ -55,6 +56,7 @@ interface RouteRenderState {
   Component: FunctionComponent;
   componentProps: Record<string, unknown>;
   data: unknown;
+  groupData: GroupData;
   params: RouteParams;
   routeId: string;
   url: string;
@@ -289,7 +291,8 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
     updateRouteState = setRouteState;
     const navigateValue = useMemo(() => navigate, []);
 
-    const { Shell, Component, componentProps, data, params, routeId, url, version } = routeState;
+    const { Shell, Component, componentProps, data, groupData, params, routeId, url, version } =
+      routeState;
 
     useLayoutEffect(() => {
       if (!afterCommitCallback) return;
@@ -310,7 +313,7 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
       { value: navigateValue },
       h(
         PrachtRuntimeProvider as FunctionComponent<Record<string, unknown>>,
-        { data, params, routeId, routes: app.routes, stateVersion: version, url },
+        { data, groupData, params, routeId, routes: app.routes, stateVersion: version, url },
         componentTree,
       ),
     );
@@ -327,7 +330,7 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
 
   async function resolveRouteState(
     match: RouteMatch,
-    state: { data: unknown; error?: SerializedRouteError | null },
+    state: { data: unknown; groupData?: GroupData; error?: SerializedRouteError | null },
     currentUrl: string,
     routeModPromise?: Promise<any> | null,
     shellModPromise?: Promise<any> | null,
@@ -350,13 +353,14 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
 
     const componentProps: Record<string, unknown> = state.error
       ? { error: deserializeRouteError(state.error) }
-      : { data: state.data, params: match.params };
+      : { data: state.data, groupData: state.groupData ?? {}, params: match.params };
 
     return {
       Shell,
       Component,
       componentProps,
       data: state.data,
+      groupData: state.groupData ?? {},
       params: match.params,
       routeId: match.route.id ?? "",
       url: currentUrl,
@@ -382,6 +386,7 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
       Component: Loading ?? (() => null),
       componentProps: {},
       data: undefined,
+      groupData: {},
       params: match.params,
       routeId: match.route.id ?? "",
       url: currentUrl,
@@ -482,7 +487,7 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
       const shellModPromise = startShellImport(match);
 
       // Await route state (need it to handle redirects before rendering)
-      let state: { data: unknown; error?: SerializedRouteError | null } = {
+      let state: { data: unknown; groupData?: GroupData; error?: SerializedRouteError | null } = {
         data: undefined,
         error: null,
       };
@@ -540,6 +545,7 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
         } else {
           state = {
             data: result.data,
+            groupData: result.groupData,
             error: null,
           };
         }
@@ -620,6 +626,7 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
         : null;
     let state = {
       data: options.initialState.data,
+      groupData: options.initialState.groupData,
       error: options.initialState.error ?? null,
     };
 
@@ -651,11 +658,13 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
         if (result.type === "error") {
           state = {
             data: undefined,
+            groupData: undefined,
             error: result.error,
           };
         } else {
           state = {
             data: result.data,
+            groupData: result.groupData,
             error: null,
           };
         }

@@ -46,6 +46,7 @@ import type {
   ApiPath,
   CapabilityEnvelope,
   CapabilityOutputFor,
+  GroupData,
   LinkPrefetchStrategy,
   LoaderData,
   LoaderLike,
@@ -150,6 +151,13 @@ export function useRouteData(routeId?: string): unknown {
     );
   }
   return runtime?.data;
+}
+
+export function useGroupData<TData = unknown>(id: string): TData;
+export function useGroupData(): GroupData;
+export function useGroupData(id?: string): unknown {
+  const groupData = useContext(RouteDataContext)?.groupData ?? {};
+  return id === undefined ? groupData : groupData[id];
 }
 
 export function useLocation(): Location {

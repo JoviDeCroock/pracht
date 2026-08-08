@@ -108,10 +108,13 @@ Groups routes with shared configuration:
 
 | Param    | Type                | Description                                           |
 | -------- | ------------------- | ----------------------------------------------------- |
-| `meta`   | `GroupMeta`         | Shell, middleware, render mode, loader cache, pathPrefix to inherit |
+| `meta`   | `GroupMeta`         | Shell, middleware, render mode, loader cache, named loaders, and path prefix to inherit |
 | `routes` | `RouteDefinition[]` | Routes in this group                                  |
 
 Group properties cascade to children. A route's own meta overrides the group's.
+Named group loaders compose instead of overriding: parent loaders run before
+child loaders, and duplicate names in one route lifecycle are rejected. See
+[Group loaders](DATA_LOADING.md#group-loaders).
 
 ---
 

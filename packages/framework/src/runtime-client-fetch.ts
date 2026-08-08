@@ -1,9 +1,9 @@
 import { ROUTE_STATE_REQUEST_HEADER } from "./runtime-constants.ts";
 import type { SerializedRouteError } from "./runtime-errors.ts";
-import type { ResolvedRoute } from "./types.ts";
+import type { GroupData, ResolvedRoute } from "./types.ts";
 
 export type RouteStateResult =
-  | { type: "data"; data: unknown }
+  | { type: "data"; data: unknown; groupData?: GroupData }
   | { type: "redirect"; location: string }
   | { type: "error"; error: SerializedRouteError };
 
@@ -33,6 +33,7 @@ export function parseSafeNavigationUrl(location: string, base: string | URL): UR
 }
 
 export function routeNeedsServerFetch(route: ResolvedRoute): boolean {
+  if (route.groupLoaders.length > 0) return true;
   if (route.hasLoader === false && route.middlewareFiles.length === 0) return false;
   return true;
 }
@@ -64,6 +65,7 @@ export async function fetchPrachtRouteState(
 
   const json = (await response.json()) as {
     data?: unknown;
+    groupData?: GroupData;
     error?: SerializedRouteError;
     redirect?: string;
   };
@@ -87,6 +89,7 @@ export async function fetchPrachtRouteState(
 
   return {
     data: json.data,
+    groupData: json.groupData,
     type: "data",
   };
 }

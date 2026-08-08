@@ -47,6 +47,7 @@ instead of rendering the component. Both the HTML and markdown responses carry
 | `signal`  | `AbortSignal`   | Cancellation signal for timeouts                   |
 | `url`     | `URL`           | Parsed URL                                         |
 | `route`   | `ResolvedRoute` | Matched route metadata                             |
+| `groupData` | `GroupData`   | Named results from parent-to-child group loaders   |
 
 ### When loaders run
 
@@ -60,6 +61,38 @@ instead of rendering the component. Both the HTML and markdown responses carry
 
 Loaders **never** run in the browser. This keeps server secrets (DB connections,
 API keys) safe.
+
+### Group loaders
+
+Route groups can declare named server loaders for data shared by every child
+route. They compose from parent to child independently of URL prefixes and
+shell nesting:
+
+```typescript
+group({ loaders: { session: "./server/session.ts" } }, [
+  group({ loaders: { workspace: "./server/workspace.ts" } }, [
+    route("/dashboard", "./routes/dashboard.tsx"),
+  ]),
+]);
+```
+
+Each referenced module exports `loader`. Group loaders run sequentially after
+middleware and before the matched route loader. A child loader can read earlier
+results through `groupData`, and the route loader receives the complete map:
+
+```typescript
+import type { GroupLoaderArgs } from "@pracht/core";
+
+export async function loader({ groupData, request }: GroupLoaderArgs) {
+  const session = groupData.session as { userId: string };
+  return findWorkspace(request, session.userId);
+}
+```
+
+Components receive `groupData` in their props and can read one named value with
+`useGroupData<T>("workspace")`. The same data is serialized for hydration and
+route-state navigation. Names must be unique across the parent-to-child chain;
+a group loader may return a `Response` to short-circuit the remaining lifecycle.
 
 For inline loaders, pracht also loads a client-transformed copy of the route
 module in the browser. Server-only route exports such as `loader`, `head`,

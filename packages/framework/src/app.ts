@@ -49,6 +49,7 @@ interface InheritedRouteConfig {
   loaderCache?: ResolvedRoute["loaderCache"];
   middleware: string[];
   speculation?: SpeculationOption;
+  groupLoaders: import("./types.ts").GroupLoaderDefinition[];
 }
 
 export function timeRevalidate(seconds: number): TimeRevalidatePolicy {
@@ -113,9 +114,10 @@ function resolveModuleRef(ref: ModuleRef | undefined): string | undefined {
 }
 
 export function group(meta: GroupMeta, routes: RouteTreeNode[]): GroupDefinition {
+  const loaders = meta.loaders ? resolveModuleRefRecord(meta.loaders) : undefined;
   return {
     kind: "group",
-    meta,
+    meta: { ...meta, loaders },
     routes,
   };
 }
@@ -165,6 +167,7 @@ export function resolveApp(app: PrachtApp): ResolvedPrachtApp {
   const inherited: InheritedRouteConfig = {
     pathPrefix: "/",
     middleware: [],
+    groupLoaders: [],
   };
 
   if (VALIDATE_MANIFEST) {
@@ -261,6 +264,7 @@ function resolveNotFoundRoute(app: PrachtApp): ResolvedRoute | undefined {
       }
       return app.middleware[name];
     }),
+    groupLoaders: [],
     segments: [],
   };
 }
@@ -292,6 +296,7 @@ function flattenRouteNode(
       loaderCache: node.meta.loaderCache ?? inherited.loaderCache,
       middleware: [...inherited.middleware, ...(node.meta.middleware ?? [])],
       speculation: node.meta.speculation ?? inherited.speculation,
+      groupLoaders: appendGroupLoaders(inherited.groupLoaders, node.meta.loaders, pathPrefix),
     };
 
     for (const child of node.routes) {
@@ -357,11 +362,30 @@ function flattenRouteNode(
       }
       return app.middleware[name];
     }),
+    groupLoaders: inherited.groupLoaders,
     prefetch: node.prefetch,
     revalidate: node.revalidate,
     speculation: node.speculation ?? inherited.speculation,
     segments: parseRouteSegments(fullPath),
   });
+}
+
+function appendGroupLoaders(
+  inherited: import("./types.ts").GroupLoaderDefinition[],
+  loaders: Record<string, ModuleRef> | undefined,
+  pathPrefix: string,
+): import("./types.ts").GroupLoaderDefinition[] {
+  const next = [...inherited];
+  for (const [id, ref] of Object.entries(loaders ?? {})) {
+    if (!id) throw new Error(`Group at "${pathPrefix}" has an empty loader id.`);
+    if (next.some((loader) => loader.id === id)) {
+      throw new Error(
+        `Group loader ${JSON.stringify(id)} is declared more than once at "${pathPrefix}".`,
+      );
+    }
+    next.push({ id, file: resolveModuleRef(ref) });
+  }
+  return next;
 }
 
 function assertValidLoaderCache(loaderCache: ResolvedRoute["loaderCache"], context: string): void {

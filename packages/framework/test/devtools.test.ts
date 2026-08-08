@@ -243,6 +243,7 @@ describe("buildAppGraph", () => {
       routes: [
         {
           file: "./routes/home.tsx",
+          groupLoaders: [],
           hydration: "islands",
           id: "home",
           loaderCache: 60,
@@ -258,6 +259,7 @@ describe("buildAppGraph", () => {
         },
         {
           file: "./routes/user.tsx",
+          groupLoaders: [],
           hydration: null,
           id: expect.any(String),
           loaderCache: null,
@@ -356,6 +358,7 @@ describe("serializeAppRoutes", () => {
     const [serialized] = serializeAppRoutes([
       {
         file: "./routes/home.tsx",
+        groupLoaders: [],
         middleware: [],
         middlewareFiles: [],
         path: "/",
@@ -365,6 +368,7 @@ describe("serializeAppRoutes", () => {
 
     expect(serialized).toEqual({
       file: "./routes/home.tsx",
+      groupLoaders: [],
       hydration: null,
       id: "",
       loaderCache: null,
