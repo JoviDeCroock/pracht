@@ -230,6 +230,29 @@ describe("resolveAppCapabilities", () => {
     );
   });
 
+  it("rejects hand-rolled MCP capabilities with non-object schema roots", async () => {
+    const capability = {
+      ...createSearchCapability({ expose: { mcp: true } }),
+      output: { type: "array", items: { type: "string" } },
+    };
+    const { app, registry } = createApp(capability);
+    await expect(resolveAppCapabilities(app, registry)).rejects.toThrow(
+      /expose\.mcp requires "input" and "output" schemas with type: "object"/,
+    );
+  });
+
+  it("rejects MCP capability names that project beyond the host limit", async () => {
+    const name = "a".repeat(65);
+    const capability = createSearchCapability({ expose: { mcp: true } });
+    const { app, registry } = createApp(capability, {
+      capabilities: { [name]: "./capabilities/notes-search.ts" },
+    });
+
+    await expect(resolveAppCapabilities(app, registry)).rejects.toThrow(
+      /projected MCP tool names must match/,
+    );
+  });
+
   it("accepts destructive capabilities exposed over HTTP only", async () => {
     const capability = { ...createSearchCapability(), effect: "destructive" as const };
     const { app, registry } = createApp(capability);

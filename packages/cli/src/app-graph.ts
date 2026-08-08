@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-import { resolveRegistryModule, serializeCapabilities } from "@pracht/core";
+import { resolveMcpEndpoint, resolveRegistryModule, serializeCapabilities } from "@pracht/core";
 import type { AppGraphCapability } from "@pracht/core";
 import type { ViteDevServer } from "vite";
 
@@ -35,6 +35,12 @@ export interface AppGraphApiRoute {
 export interface AppGraph {
   api: AppGraphApiRoute[];
   capabilities: AppGraphCapability[];
+  /**
+   * Path the remote MCP projection is served from, or `null` when the app does
+   * not configure `agents.mcp` (in which case `expose.mcp` is recorded in the
+   * graph but nothing serves it).
+   */
+  mcpEndpoint: string | null;
   routes: AppGraphRoute[];
   /** The app-level not-found page (never part of `routes`), or `null`. */
   notFound?: AppGraphRoute | null;
@@ -110,6 +116,7 @@ export async function collectAppGraph(
       loadModule: capabilityModuleLoader(server, serverModule),
       readSource: (file) => readFileSync(resolve(root, `.${file}`), "utf-8"),
     }),
+    mcpEndpoint: resolveMcpEndpoint(serverModule.resolvedApp.agents),
     notFound: notFound ? serializeResolvedRoutes([notFound])[0] : null,
     routes: serializeResolvedRoutes(serverModule.resolvedApp.routes),
   };

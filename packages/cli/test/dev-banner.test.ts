@@ -159,6 +159,20 @@ describe("formatDevBanner", () => {
 
     expect(banner).not.toContain("Capabilities");
   });
+
+  it("shows a configured MCP endpoint when no capabilities are registered", () => {
+    const banner = formatDevBanner({
+      apiRoutes,
+      capabilities: [],
+      color: false,
+      localUrls: ["http://localhost:3000/"],
+      mcpEndpoint: "/mcp",
+      routes,
+    });
+
+    expect(banner).toContain("Capabilities (0)  MCP endpoint /mcp");
+    expect(banner).toContain("    (none)");
+  });
 });
 
 describe("supportsColor", () => {

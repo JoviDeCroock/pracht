@@ -142,10 +142,10 @@ Every capability declares `read`, `write`, or `destructive`
 
 - **may set `expose.http`** — every dispatch is gated by the prepare/commit
   flow below, and only when a confirmation secret is configured;
-- **may not set `expose.webmcp` or `expose.mcp` (v1)** — host-side approval
-  UX is not a security boundary, and agent hosts cannot yet be trusted to
-  carry the two-step flow faithfully; `defineCapability()`, the registry, and
-  `pracht verify` all reject it.
+- **may not set `expose.webmcp` or `expose.mcp`** — host-side approval UX is
+  not a security boundary, and agent hosts cannot yet be trusted to carry the
+  two-step flow faithfully; `defineCapability()`, the registry, `pracht verify`,
+  and the [remote MCP projection](REMOTE_MCP.md) all reject it.
 
 ### Prepare/commit
 
@@ -407,7 +407,7 @@ structured event:
 interface CapabilityAuditEvent {
   capability: string;          // "notes.purge"
   effect: "read" | "write" | "destructive";
-  transport: "http" | "server" | "webmcp";
+  transport: "http" | "server" | "webmcp" | "mcp";
   outcome: string;             // "ok" | "invalid_input" | "confirmation_required" | ...
   status: number;
   durationMs: number;
@@ -415,13 +415,15 @@ interface CapabilityAuditEvent {
 }
 ```
 
-`"webmcp"` reflects the transport marker header
-(`CAPABILITY_TRANSPORT_HEADER` from `@pracht/capabilities`) that the
-generated WebMCP shim sends with its dispatches, so audit trails can tell
-in-browser agent traffic (cookie-authenticated) apart from remote HTTP
-callers. Like any client-sent header it is informational, not a trust
-signal. `outcome` values come from the `CapabilityErrorCode` union exported
-by `@pracht/capabilities` (plus `"ok"` and middleware short-circuits).
+`"mcp"` is passed as internal dispatch state by the [remote MCP
+projection](REMOTE_MCP.md), never inferred from a public request header, so it
+is trustworthy. `"webmcp"` reflects the transport marker header
+(`CAPABILITY_TRANSPORT_HEADER` from `@pracht/capabilities`) that the generated
+WebMCP shim sends with its dispatches, so audit trails can tell in-browser
+agent traffic (cookie-authenticated) apart from remote HTTP callers — like any
+client-sent header it is informational, not a trust signal. `outcome` values
+come from the `CapabilityErrorCode` union exported by `@pracht/capabilities`
+(plus `"ok"` and middleware short-circuits).
 
 Subscribe from any server-only module (audit hooks observe: exceptions are
 swallowed, never breaking a request):
@@ -500,8 +502,11 @@ example):
 - A first-party approval store for D1/Postgres/Durable Objects — the SPI ships,
   the adapters do not.
 - RSA-PSS agent keys (the Web Bot Auth ecosystem is Ed25519-first).
-- Destructive capabilities over WebMCP/MCP, and `pracht eval` speaking MCP
-  instead of the HTTP projection.
+- Destructive capabilities over WebMCP/MCP. The prepare/commit flow itself
+  transfers to the MCP transport unchanged; what it needs first is
+  exactly-once commit, which the [approval store](#durable-approvals) now
+  provides — unblocking this is a follow-up.
+- `pracht eval` speaking MCP instead of the HTTP projection.
 - Framework-level rate limiting, write-idempotency helpers, and result-size
   limits — see [operational
   hardening](#operational-hardening-what-the-framework-does-not-do-yet) for

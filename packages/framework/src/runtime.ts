@@ -1,5 +1,6 @@
 import { h } from "preact";
 import type { FunctionComponent } from "preact";
+import { normalizeCapabilityHttpPath } from "@pracht/capabilities";
 
 import { matchApiRoute, matchAppRoute, resolveApp } from "./app.ts";
 import { ROUTE_STATE_REQUEST_HEADER, SAFE_METHODS } from "./runtime-constants.ts";
@@ -49,6 +50,7 @@ import {
   type ResolvedCapability,
 } from "./runtime-capabilities.ts";
 import { verifyAgentSignature } from "./runtime-agent-auth.ts";
+import { handleMcpRequest, resolveMcpEndpoint } from "./runtime-mcp.ts";
 import { buildRouteStateUrl } from "./runtime-client-fetch.ts";
 import {
   getRenderToStringAsync,
@@ -351,20 +353,31 @@ export async function handlePrachtRequest<TContext>(
     }
   }
 
-  // Capability HTTP projection. Only runs when the manifest registers
-  // capabilities — apps without them pay a single `Object.keys` call.
-  // Explicit API route files take precedence (they matched above).
-  if (Object.keys(options.app.capabilities ?? {}).length > 0) {
-    let capabilities: ResolvedCapability[] | null = null;
+  // Capability projections. Explicit API route files take precedence (they
+  // matched above). A configured MCP endpoint remains live with an empty or
+  // broken graph so clients receive an empty list or a protocol error instead
+  // of falling through to the application's page router.
+  const hasCapabilities = Object.keys(options.app.capabilities ?? {}).length > 0;
+  const mcpConfig = options.app.agents?.mcp;
+  const isMcpRequest =
+    !!mcpConfig &&
+    normalizeCapabilityHttpPath(url.pathname) === resolveMcpEndpoint(options.app.agents);
+  if (hasCapabilities || isMcpRequest) {
+    let capabilities: ResolvedCapability[] | null = hasCapabilities ? null : [];
+    let capabilityResolutionError: unknown;
     try {
-      capabilities = await resolveAppCapabilities(options.app, registry);
+      if (hasCapabilities) {
+        capabilities = await resolveAppCapabilities(options.app, registry);
+      }
     } catch (error: unknown) {
+      capabilityResolutionError = error;
       warnCapabilityResolutionFailure(error);
       // A broken capability definition must not take down page rendering;
       // requests to capability paths still fail closed below.
       if (
-        url.pathname.startsWith(CAPABILITY_HTTP_PREFIX) ||
-        (await isRegisteredCapabilityHttpPath(options.app, registry, url.pathname))
+        !isMcpRequest &&
+        (url.pathname.startsWith(CAPABILITY_HTTP_PREFIX) ||
+          (await isRegisteredCapabilityHttpPath(options.app, registry, url.pathname)))
       ) {
         return withDefaultSecurityHeaders(
           envelopeResponse(500, {
@@ -378,6 +391,27 @@ export async function handlePrachtRequest<TContext>(
           }),
         );
       }
+    }
+
+    if (isMcpRequest && mcpConfig) {
+      const mcpResponse = await handleMcpRequest({
+        capabilities: capabilities ?? [],
+        context: requestContext,
+        registry,
+        request: options.request,
+        url,
+        exposeErrors: exposeDiagnostics,
+        mcp: mcpConfig,
+        apiMiddlewareFiles: (options.app.api.middleware ?? []).flatMap((name) => {
+          const middlewareFile = options.app.middleware[name];
+          return middlewareFile ? [middlewareFile] : [];
+        }),
+        agents: options.app.agents,
+        agent,
+        onAudit: options.onCapabilityAudit,
+        resolutionError: capabilityResolutionError,
+      });
+      return withDefaultSecurityHeaders(mcpResponse);
     }
 
     if (capabilities) {
@@ -906,7 +940,7 @@ function warnCapabilityResolutionFailure(error: unknown): void {
   if (warnedCapabilityResolutionFailure) return;
   warnedCapabilityResolutionFailure = true;
   console.error(
-    "[pracht] Capability registry failed to resolve; capability requests will return 500:",
+    "[pracht] Capability registry failed to resolve; capability requests will fail closed:",
     error,
   );
 }

@@ -717,8 +717,7 @@ and [AGENT_TRUST.md](AGENT_TRUST.md).
 
 ### Still open
 
-- Remote MCP projection (`/mcp` Streamable HTTP) and MCP Apps views —
-  Stages 2 and 3, unchanged.
+- MCP Apps views — Stage 3, unchanged.
 - Framework-level rate limiting, write-idempotency helpers, and result-size
   limits — currently documented middleware/app responsibilities, not
   primitives.
@@ -760,7 +759,8 @@ history.
   transport header; `CapabilityAuditEvent.transport` gained `"webmcp"`
   (client-declared, informational).
 - **Declared-but-unserved `expose.mcp` is labeled.** `pracht verify` warns
-  and the dev banner prints `mcp(unserved)` until Stage 2 ships.
+  and the dev banner prints `mcp(unserved)` when the app does not configure
+  `agents.mcp`.
 - **Eval scenarios gained `confirm`.** Sugar for the confirmation header;
   raw `headers` still work.
 - **`llmsTxt` deliberately stays a plugin option.** The cohesion review
@@ -834,6 +834,48 @@ contract to enforce the rest.
   false` schemas rely on the runtime's path-scoped 400 for extra fields. The
   guarantees that do hold are pinned by a real `tsc` run over a generated
   fixture rather than asserted in prose.
+## Decision Log (Stage 2: remote MCP)
+
+Stage 2 shipped as [REMOTE_MCP.md](REMOTE_MCP.md). Three things went
+differently than this proposal assumed.
+
+- **Spike question 5 has a better answer: no SDK.** The plan asked which MCP
+  SDK version could be isolated cleanly enough that protocol updates would
+  not force core framework releases. Stateless Streamable HTTP turned out to
+  be one POST handler over `Request`/`Response` — the projection is a few
+  hundred lines with no dependency, which is also the only shape that runs
+  unmodified on Workers and Vercel Edge. The SDK stays where it already is:
+  `@pracht/cli`, for the dev-time stdio server.
+- **The projection is a transport adapter, not a pipeline.** `tools/call`
+  synthesizes the request the HTTP projection would have received and calls
+  `handleCapabilityRequest()` — the same function `/api/capabilities/*` uses.
+  Validation, middleware, `agentPolicy`, output validation, and audit events
+  are identical across transports by construction rather than by discipline.
+  The one thing the projection decides for itself is the header policy:
+  cookie-bearing transport requests are rejected before capability dispatch,
+  so even sessions decoded by adapter context factories cannot authenticate
+  remote MCP. "Browser session cookies must never authenticate the remote
+  agent transport" became a mechanism instead of a rule.
+- **Serving is a second opt-in.** `expose.mcp` marks a capability; the app
+  must also configure `defineApp({ agents: { mcp } })`. Exposure alone opening
+  a network endpoint would be exactly the "auto-generated tool sprawl" failure
+  this proposal set out to avoid.
+- **Wire-version support is conservative.** The first projection advertises
+  `2025-11-25` and `2025-06-18`, whose initialization and tool-result shapes it
+  implements completely. The `2026-07-28` stateless core informed the design,
+  but its self-describing headers and result codec remain a follow-up and are
+  not advertised prematurely.
+
+Two constraints surfaced that the plan did not anticipate: MCP hosts widely
+require `^[a-zA-Z0-9_-]{1,64}$` tool names, so dotted capability names are
+mapped and collisions are a verification error; and `expose.mcp` does not
+require `expose.http`, which turned out to be worth keeping — a capability can
+serve remote agents without any public browser endpoint.
+
+Destructive capabilities remain off the MCP surface. The prepare/commit flow
+transfers to the transport unchanged, so the ban is now a policy choice rather
+than a mechanism gap: what it waits on is exactly-once commit, which the
+[approval store](AGENT_TRUST.md#durable-approvals) provides.
 
 ## Final Recommendation
 

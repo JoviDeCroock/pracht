@@ -2,7 +2,12 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 
-import { serializeApiRoutes, serializeAppRoutes, serializeCapabilities } from "@pracht/core";
+import {
+  resolveMcpEndpoint,
+  serializeApiRoutes,
+  serializeAppRoutes,
+  serializeCapabilities,
+} from "@pracht/core";
 import type {
   AppGraphApiRoute,
   AppGraphCapability,
@@ -37,6 +42,8 @@ export interface GraphSnapshot {
    * produce no signal at all.
    */
   capabilities: AppGraphCapability[];
+  /** Served remote MCP endpoint, or `null` when the projection is disabled. */
+  mcpEndpoint: string | null;
   constraints: RouteConstraint[];
 }
 
@@ -58,6 +65,7 @@ export async function resolveLiveGraph(root: string): Promise<GraphSnapshot> {
       routes,
       api,
       capabilities,
+      mcpEndpoint: resolveMcpEndpoint(serverModule.resolvedApp.agents),
       constraints: serverModule.resolvedApp.constraints ?? [],
     });
   });
@@ -73,6 +81,7 @@ export function normalizeGraphSnapshot(snapshot: GraphSnapshot): GraphSnapshot {
     capabilities: [...(snapshot.capabilities ?? [])].sort((left, right) =>
       left.name.localeCompare(right.name),
     ),
+    mcpEndpoint: snapshot.mcpEndpoint ?? null,
     constraints: snapshot.constraints ?? [],
   };
   return JSON.parse(JSON.stringify(normalized));
@@ -125,6 +134,9 @@ function parseSnapshot(contents: string): GraphSnapshot | null {
       // the first plan after upgrading reports them as added, and
       // `pracht plan --write` settles it.
       capabilities: Array.isArray(parsed.capabilities) ? parsed.capabilities : [],
+      // Snapshots committed before the remote MCP projection was served have
+      // no endpoint field and therefore represent an unserved projection.
+      mcpEndpoint: typeof parsed.mcpEndpoint === "string" ? parsed.mcpEndpoint : null,
       constraints: Array.isArray(parsed.constraints) ? parsed.constraints : [],
     };
   } catch {
@@ -176,6 +188,7 @@ export interface GraphDiff {
   changedApi: ChangedEntry[];
   changedRoutes: ChangedEntry[];
   identical: boolean;
+  mcpEndpointChange: FieldChange | null;
   removedApi: AppGraphApiRoute[];
   removedConstraints: RouteConstraint[];
   removedRoutes: AppGraphRoute[];
@@ -213,6 +226,12 @@ export function diffGraphSnapshots(base: GraphSnapshot, head: GraphSnapshot): Gr
   );
 
   const capabilityChanges = diffCapabilities(base.capabilities ?? [], head.capabilities ?? []);
+  const baseMcpEndpoint = base.mcpEndpoint ?? null;
+  const headMcpEndpoint = head.mcpEndpoint ?? null;
+  const mcpEndpointChange =
+    baseMcpEndpoint === headMcpEndpoint
+      ? null
+      : { field: "mcpEndpoint", from: baseMcpEndpoint, to: headMcpEndpoint };
 
   const identical =
     routeDiff.added.length === 0 &&
@@ -223,6 +242,7 @@ export function diffGraphSnapshots(base: GraphSnapshot, head: GraphSnapshot): Gr
     apiDiff.changed.length === 0 &&
     addedConstraints.length === 0 &&
     removedConstraints.length === 0 &&
+    mcpEndpointChange === null &&
     capabilityChanges.length === 0;
 
   return {
@@ -233,10 +253,13 @@ export function diffGraphSnapshots(base: GraphSnapshot, head: GraphSnapshot): Gr
     changedApi: apiDiff.changed,
     changedRoutes: routeDiff.changed,
     identical,
+    mcpEndpointChange,
     removedApi: apiDiff.removed,
     removedConstraints,
     removedRoutes: routeDiff.removed,
-    widensAgentSurface: capabilityChanges.some((change) => change.severity === "warn"),
+    widensAgentSurface:
+      capabilityChanges.some((change) => change.severity === "warn") ||
+      (baseMcpEndpoint === null && headMcpEndpoint !== null),
   };
 }
 
@@ -560,6 +583,9 @@ export function formatPlanLines(diff: GraphDiff, options: FormatPlanOptions): st
   for (const api of diff.removedApi) {
     lines.push(`- api   ${api.path}`);
   }
+  if (diff.mcpEndpointChange) {
+    lines.push(formatMcpEndpointChange(diff.mcpEndpointChange));
+  }
   for (const change of diff.capabilityChanges) {
     lines.push(
       `${capabilityChangeMarker(change)} capability ${change.capability}  ${change.detail}`,
@@ -584,6 +610,16 @@ function capabilityChangeMarker(change: CapabilityChange): string {
   if (change.kind === "added") return "+";
   if (change.kind === "removed") return "-";
   return "~";
+}
+
+function formatMcpEndpointChange(change: FieldChange): string {
+  const from = typeof change.from === "string" ? change.from : null;
+  const to = typeof change.to === "string" ? change.to : null;
+  if (!from && to) {
+    return `! mcp endpoint ${to} enabled — declared MCP capabilities are now reachable by agents`;
+  }
+  if (from && !to) return `- mcp endpoint ${from} disabled`;
+  return `~ mcp endpoint ${from} → ${to}`;
 }
 
 export function formatPlanText(diff: GraphDiff, options: FormatPlanOptions): string {
@@ -615,6 +651,7 @@ export function formatPlanMarkdown(diff: GraphDiff, options: FormatPlanOptions):
     countLabel(diff.addedRoutes.length + diff.addedApi.length, "added"),
     countLabel(diff.changedRoutes.length + diff.changedApi.length, "changed"),
     countLabel(diff.removedRoutes.length + diff.removedApi.length, "removed"),
+    countLabel(diff.mcpEndpointChange ? 1 : 0, "MCP endpoint change"),
     countLabel(diff.capabilityChanges.length, "capability change"),
   ]
     .filter(Boolean)

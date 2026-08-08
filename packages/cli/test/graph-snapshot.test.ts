@@ -35,6 +35,7 @@ function makeSnapshot(overrides: Partial<GraphSnapshot> = {}): GraphSnapshot {
     routes: [],
     api: [],
     capabilities: [],
+    mcpEndpoint: null,
     constraints: [],
     ...overrides,
   };
@@ -232,6 +233,41 @@ function diffCapability(overrides: Record<string, unknown>) {
 }
 
 describe("capability diff", () => {
+  it("flags enabling the MCP endpoint as an agent-surface widening", () => {
+    const capability = makeCapability({ transports: ["mcp"], httpPath: null });
+    const diff = diffGraphSnapshots(
+      makeSnapshot({ capabilities: [capability] }),
+      makeSnapshot({ capabilities: [capability], mcpEndpoint: "/mcp" }),
+    );
+
+    expect(diff.mcpEndpointChange).toEqual({
+      field: "mcpEndpoint",
+      from: null,
+      to: "/mcp",
+    });
+    expect(diff.widensAgentSurface).toBe(true);
+    expect(formatPlanText(diff, { base: "origin/main" })).toContain(
+      "! mcp endpoint /mcp enabled — declared MCP capabilities are now reachable by agents",
+    );
+  });
+
+  it("reports moving or disabling the MCP endpoint without a widening alarm", () => {
+    const moved = diffGraphSnapshots(
+      makeSnapshot({ mcpEndpoint: "/mcp" }),
+      makeSnapshot({ mcpEndpoint: "/agent/mcp" }),
+    );
+    expect(moved.widensAgentSurface).toBe(false);
+    expect(formatPlanText(moved, { base: "origin/main" })).toContain(
+      "~ mcp endpoint /mcp → /agent/mcp",
+    );
+
+    const disabled = diffGraphSnapshots(makeSnapshot({ mcpEndpoint: "/mcp" }), makeSnapshot());
+    expect(disabled.widensAgentSurface).toBe(false);
+    expect(formatPlanText(disabled, { base: "origin/main" })).toContain(
+      "- mcp endpoint /mcp disabled",
+    );
+  });
+
   it("flags a capability becoming reachable by remote agents", () => {
     const diff = diffCapability({ transports: ["http", "mcp"] });
 

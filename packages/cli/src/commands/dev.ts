@@ -53,6 +53,7 @@ export default defineCommand({
           capabilities: graph.capabilities,
           color: supportsColor(),
           localUrls: urls.local,
+          mcpEndpoint: graph.mcpEndpoint ?? null,
           networkUrls: urls.network,
           notFound: graph.notFound,
           routes: graph.routes,

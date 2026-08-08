@@ -400,6 +400,50 @@ describe("collectCapabilityChecks", () => {
     );
   });
 
+  it("fails MCP exposure with non-object schema roots", () => {
+    const checks = runChecks(
+      capabilitySource(`  title: "Search notes",
+  description: "Find notes.",
+  input: { type: "string" },
+  output: { type: "array", items: { type: "string" } },
+  effect: "read",
+  expose: { mcp: true },`),
+    );
+
+    expect(checks).toContainEqual(
+      expect.objectContaining({
+        message: expect.stringContaining(
+          'expose.mcp requires "input" and "output" schemas with type: "object"',
+        ),
+        status: "error",
+      }),
+    );
+  });
+
+  it("fails MCP capability names that project beyond the host limit", () => {
+    const name = "a".repeat(65);
+    const checks: Check[] = [];
+    collectCapabilityChecks(
+      createProject({
+        capability: capabilitySource(`  title: "Search notes",
+  description: "Find notes.",
+  input: { type: "object" },
+  output: { type: "object" },
+  effect: "read",
+  expose: { mcp: true },`),
+        registration: `    "${name}": () => import("./capabilities/notes-search.ts"),`,
+      }),
+      checks,
+    );
+
+    expect(checks).toContainEqual(
+      expect.objectContaining({
+        message: expect.stringContaining("projected MCP tool names must match"),
+        status: "error",
+      }),
+    );
+  });
+
   it("fails destructive http exposure without the confirmation secret", () => {
     const previous = process.env.PRACHT_CONFIRMATION_SECRET;
     delete process.env.PRACHT_CONFIRMATION_SECRET;

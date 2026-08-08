@@ -112,6 +112,10 @@ export const app = defineApp({
         id: "agent-trust",
         render: "ssg",
       }),
+      route("/docs/remote-mcp", () => import("./routes/docs/remote-mcp.md"), {
+        id: "remote-mcp",
+        render: "ssg",
+      }),
       route("/docs/recipes/i18n", () => import("./routes/docs/recipes-i18n.md"), {
         id: "recipes-i18n",
         render: "ssg",

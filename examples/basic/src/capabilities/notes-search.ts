@@ -40,6 +40,7 @@ export default defineCapability({
   expose: {
     http: true,
     webmcp: true,
+    mcp: true,
   },
   async run({ input }: CapabilityRunArgs<SearchInput>) {
     return { notes: searchNotes(input.query, input.limit) };

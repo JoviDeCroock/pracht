@@ -36,6 +36,7 @@ export default defineCapability({
   effect: "write",
   expose: {
     http: true,
+    mcp: true,
   },
   async run({ input }: CapabilityRunArgs<CreateInput>) {
     return { note: createNote(input.title, input.body) };

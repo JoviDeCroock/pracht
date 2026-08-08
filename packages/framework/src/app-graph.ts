@@ -8,6 +8,7 @@
  */
 
 import { capabilityHttpPath } from "./runtime-capabilities.ts";
+import { resolveMcpEndpoint } from "./runtime-mcp.ts";
 import type {
   HttpMethod,
   PrachtCapability,
@@ -78,6 +79,12 @@ export interface AppGraphCapability {
 export interface AppGraph {
   api: AppGraphApiRoute[];
   capabilities: AppGraphCapability[];
+  /**
+   * Path the remote MCP projection is served from, or `null` when the app does
+   * not configure `agents.mcp` — in which case `expose.mcp` is recorded in the
+   * graph but nothing serves it.
+   */
+  mcpEndpoint?: string | null;
   routes: AppGraphRoute[];
   /**
    * The app-level not-found page, serialized like a route. `null` when the app
@@ -198,6 +205,7 @@ export async function buildAppGraph(
   return {
     api: await serializeApiRoutes(options.apiRoutes ?? [], options),
     capabilities: await serializeCapabilities(options.app.capabilities, options),
+    mcpEndpoint: resolveMcpEndpoint(options.app.agents),
     notFound: notFound ? serializeAppRoutes([notFound])[0] : null,
     routes: serializeAppRoutes(options.app.routes),
   };
