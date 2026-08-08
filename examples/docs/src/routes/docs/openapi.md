@@ -82,8 +82,10 @@ export const POST = defineOpenApi(
 );
 ```
 
-Standard JSON Schema request validators use their input projection. Response schemas use their
-output projection. Raw JSON Schema objects also work for response bodies.
+Standard JSON Schema request validators use their input projection. Request bodies are marked
+optional when their validator accepts the `undefined` value that `defineApi()` receives for an empty
+body. Response schemas use their output projection. Raw JSON Schema objects also work for response
+bodies.
 
 Pracht adds its known `400` body-parsing and `422` validation responses. A handler without an
 explicit response descriptor receives a valid undocumented `default` response and a scoped warning,

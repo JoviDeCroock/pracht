@@ -9,12 +9,18 @@ import {
   getOpenApiDescriptor,
 } from "../src/index.ts";
 
-function standardSchema(jsonSchema: Record<string, unknown>) {
+function standardSchema(
+  jsonSchema: Record<string, unknown>,
+  options: { acceptsUndefined?: boolean } = {},
+) {
   return {
     "~standard": {
       version: 1 as const,
       vendor: "pracht-openapi-test",
-      validate: (value: unknown) => ({ value }),
+      validate: (value: unknown) =>
+        value === undefined && !options.acceptsUndefined
+          ? { issues: [{ message: "Required" }] }
+          : { value },
       jsonSchema: {
         input: () => jsonSchema,
         output: () => jsonSchema,
@@ -200,6 +206,20 @@ describe("generateOpenApiDocument", () => {
         schema: { type: "string", enum: ["yes", "no"] },
       },
     ]);
+  });
+
+  it("keeps request bodies optional when the runtime validator accepts undefined", async () => {
+    const body = standardSchema({ type: "object", properties: {} }, { acceptsUndefined: true });
+    const handler = defineApi({ body, handler: () => ({ ok: true }) });
+    const result = await generateOpenApiDocument({
+      info: { title: "Example", version: "1.0.0" },
+      routes: [graphRoute()],
+      loadModule: async () => ({ POST: handler }),
+    });
+
+    expect(result.document.paths["/api/items/{id}"]?.post?.requestBody).toMatchObject({
+      required: false,
+    });
   });
 
   it("emits an honest fallback and warnings for undocumented or unloadable handlers", async () => {

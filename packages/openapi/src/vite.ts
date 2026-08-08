@@ -104,11 +104,14 @@ export function resolvePrachtOpenApiOptions(
     );
   }
   const ui = resolveUiOptions(options.ui);
-  if (
-    ui?.path === documentPath ||
-    (ui && documentPath.slice(1) === `${ui.path.slice(1)}/index.html`)
-  ) {
-    throw new TypeError("prachtOpenApi() UI and document paths must be different.");
+  if (ui) {
+    const documentOutputPath = documentPath.slice(1);
+    const uiOutputPath = `${ui.path.slice(1)}/index.html`;
+    if (outputPathsOverlap(documentOutputPath, uiOutputPath)) {
+      throw new TypeError(
+        "prachtOpenApi() UI and document paths must not overlap in static build output.",
+      );
+    }
   }
 
   return {
@@ -154,11 +157,16 @@ function normalizeEndpointPath(path: string, name: string): string {
   ) {
     throw new TypeError(`prachtOpenApi() ${name} must be a safe root-relative URL path.`);
   }
-  const normalized = path.length > 1 ? path.replace(/\/+$/, "") : path;
+  const canonicalPath = new URL(path, "http://pracht.local").pathname.replace(/\/{2,}/g, "/");
+  const normalized = canonicalPath.length > 1 ? canonicalPath.replace(/\/+$/, "") : canonicalPath;
   if (normalized === "/") {
     throw new TypeError(`prachtOpenApi() ${name} must not replace the app root.`);
   }
   return normalized;
+}
+
+function outputPathsOverlap(left: string, right: string): boolean {
+  return left === right || left.startsWith(`${right}/`) || right.startsWith(`${left}/`);
 }
 
 function pathHasUnsafeSegment(path: string): boolean {

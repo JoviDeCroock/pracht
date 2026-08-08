@@ -127,7 +127,7 @@ export async function generateOpenApiDocument(
 
     const pathItem = (document.paths[openApiPath] ??= {});
     for (const method of methods) {
-      const operation = buildOperation({
+      const operation = await buildOperation({
         handler: module[method],
         method,
         options,
@@ -174,7 +174,7 @@ function discoverMethods(module: Record<string, unknown>): string[] {
   return HTTP_METHODS.filter((method) => typeof module[method] === "function");
 }
 
-function buildOperation({
+async function buildOperation({
   handler,
   method,
   options,
@@ -191,7 +191,7 @@ function buildOperation({
     message: string,
     method?: string,
   ) => void;
-}): OpenApiOperationObject {
+}): Promise<OpenApiOperationObject> {
   const runtimeHandler = typeof handler === "function" ? (handler as RuntimeApiHandler) : undefined;
   const schemas = runtimeHandler?.schemas;
   const descriptor = getOpenApiDescriptor(handler);
@@ -208,13 +208,24 @@ function buildOperation({
     const schema = resolveSchema(schemas.body, "input", false, options, route, method, warn);
     if (schema) {
       operation.requestBody = {
-        required: true,
+        required: await bodySchemaRequiresValue(schemas.body),
         content: { "application/json": { schema } },
       };
     }
   }
 
   return operation;
+}
+
+async function bodySchemaRequiresValue(
+  schema: NonNullable<ApiRouteSchemas["body"]>,
+): Promise<boolean> {
+  try {
+    const result = await schema["~standard"].validate(undefined);
+    return result.issues !== undefined;
+  } catch {
+    return true;
+  }
 }
 
 function descriptorOperationFields(
