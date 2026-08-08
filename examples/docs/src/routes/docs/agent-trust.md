@@ -15,7 +15,7 @@ next:
 Exposing [capabilities](/docs/capabilities) to agents raises questions a schema cannot answer. The agent trust layer answers all three, and everything is opt-in — an app without `defineApp({ agents })` and without destructive capabilities pays a single property check per request.
 
 - **Who is calling?** — Web Bot Auth puts a cryptographically verified agent identity on the request context.
-- **May they do this?** — policy modes per app and per capability, plus a server-verified confirmation flow for destructive effects, optionally backed by a durable approval store for exactly-once commits and real human approval.
+- **May they do this?** — policy modes per app and per capability, plus a server-verified confirmation flow for destructive effects, optionally backed by a durable approval store for exactly-once commits and, in human mode, real human approval.
 - **What happened?** — one structured audit event per capability dispatch.
 
 ---
@@ -84,7 +84,7 @@ The token is an HMAC over the caller's principal (verified agent key, or `"anony
 
 Agent hosts cannot yet be trusted to carry this two-step flow faithfully, so destructive capabilities cannot be exposed over WebMCP — `defineCapability()`, the runtime, and `pracht verify` all enforce it.
 
-Two things a stateless HMAC cannot do on its own: stop a captured token being replayed until it expires, and prove a *person* agreed — the calling agent receives the token and can hand it straight back to itself. Registering an approval store fixes both.
+Two things a stateless HMAC cannot do on its own: stop a captured token being replayed until it expires, and prove a *person* agreed — the calling agent receives the token and can hand it straight back to itself. Registering an approval store fixes replay; enabling human mode additionally requires a person's decision.
 
 ---
 

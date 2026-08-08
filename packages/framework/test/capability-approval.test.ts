@@ -127,6 +127,36 @@ describe("createMemoryApprovalStore", () => {
     expect(results.find((result) => !result.ok)).toEqual({ ok: false, reason: "already_used" });
   });
 
+  it("does not expose mutable references to stored proposals", async () => {
+    const store = createMemoryApprovalStore({ now: () => 1_000_000 });
+    const source = record();
+    const created = await store.create(source);
+
+    source.state = "approved";
+    (source.input as { titlePrefix: string }).titlePrefix = "Everything";
+    created.state = "approved";
+    (created.input as { titlePrefix: string }).titlePrefix = "Everything";
+
+    const fetched = await store.get("proposal-1");
+    expect(fetched).toMatchObject({ state: "pending", input: { titlePrefix: "Old" } });
+    fetched!.state = "approved";
+    (fetched!.input as { titlePrefix: string }).titlePrefix = "Everything";
+
+    const [listed] = await store.listPending();
+    expect(listed).toMatchObject({ state: "pending", input: { titlePrefix: "Old" } });
+    listed.state = "approved";
+    (listed.input as { titlePrefix: string }).titlePrefix = "Everything";
+
+    expect(await store.consume("proposal-1", { requireApproval: true })).toEqual({
+      ok: false,
+      reason: "awaiting_approval",
+    });
+    expect(await store.get("proposal-1")).toMatchObject({
+      state: "pending",
+      input: { titlePrefix: "Old" },
+    });
+  });
+
   it("does not resurrect a consumed proposal when the same action is prepared again", async () => {
     const store = createMemoryApprovalStore({ now: () => 1_000_000 });
     await store.create(record());

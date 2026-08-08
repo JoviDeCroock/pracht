@@ -8,7 +8,7 @@ The agent trust layer answers three questions about the capability graph
 - **May they do this?** — policy modes per app and per capability, plus a
   server-verified prepare/commit confirmation flow for destructive
   capabilities, optionally backed by a durable approval store for
-  exactly-once commits and real human approval.
+  exactly-once commits and, in human mode, real human approval.
 - **What happened?** — a structured audit event for every capability
   dispatch, and `pracht eval` to test agent task flows in CI.
 
@@ -216,8 +216,9 @@ Set `PRACHT_CONFIRMATION_SECRET` in the server environment (or call
   run as `"anonymous"` in token mode. Auth middleware alone does not tell the
   confirmation flow which context field identifies the caller.
 
-Registering an approval store removes the first two; registering an
-application-principal resolver binds proposals to your authenticated users.
+Registering an approval store removes the replay gap. Enabling human mode also
+removes the self-approval gap; registering an application-principal resolver
+binds proposals to your authenticated users.
 
 ## Durable approvals
 
