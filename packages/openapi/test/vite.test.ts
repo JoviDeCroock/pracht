@@ -33,6 +33,19 @@ describe("prachtOpenApi options", () => {
     });
   });
 
+  it("canonicalizes endpoint paths for browser requests and static output", () => {
+    expect(
+      resolvePrachtOpenApiOptions({
+        documentPath: "/schéma//openapi.json",
+        info: { title: "Example", version: "1.0.0" },
+        ui: { path: "/référence", provider: "scalar" },
+      }),
+    ).toMatchObject({
+      documentPath: "/sch%C3%A9ma/openapi.json",
+      ui: { path: "/r%C3%A9f%C3%A9rence", provider: "scalar" },
+    });
+  });
+
   it("rejects unsafe and colliding paths", () => {
     expect(() =>
       resolvePrachtOpenApiOptions({
@@ -64,7 +77,21 @@ describe("prachtOpenApi options", () => {
         info: { title: "Example", version: "1.0.0" },
         ui: { path: "/docs.json", provider: "swagger" },
       }),
-    ).toThrow(/must be different/);
+    ).toThrow(/must not overlap/);
+    expect(() =>
+      resolvePrachtOpenApiOptions({
+        documentPath: "/docs/index.html/openapi.json",
+        info: { title: "Example", version: "1.0.0" },
+        ui: "scalar",
+      }),
+    ).toThrow(/must not overlap/);
+    expect(() =>
+      resolvePrachtOpenApiOptions({
+        documentPath: "/docs/openapi.json",
+        info: { title: "Example", version: "1.0.0" },
+        ui: { path: "/docs/openapi.json/reference", provider: "scalar" },
+      }),
+    ).toThrow(/must not overlap/);
   });
 });
 

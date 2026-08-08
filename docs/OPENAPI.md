@@ -100,9 +100,11 @@ For each named method, generation:
 1. Converts Pracht `:param` paths to OpenAPI `{param}` paths.
 2. Reads path, query, and body validators from `defineApi()`.
 3. Uses Standard JSON Schema's input projection for wire request schemas.
-4. Adds framework-known 400 and 422 validation responses.
-5. Uses explicit response descriptors and their output schemas when present.
-6. Emits a valid undocumented `default` response and a scoped warning when
+4. Marks a request body optional when its validator accepts the same
+   `undefined` value that `defineApi()` passes for an empty body.
+5. Adds framework-known 400 and 422 validation responses.
+6. Uses explicit response descriptors and their output schemas when present.
+7. Emits a valid undocumented `default` response and a scoped warning when
    the response contract is unknown.
 
 Route module and schema conversion failures are warnings, so one unsupported
