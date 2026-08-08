@@ -1,5 +1,13 @@
 # @pracht/example-tsrx
 
+## 0.0.16
+
+### Patch Changes
+
+- Updated dependencies [[`7de4718`](https://github.com/JoviDeCroock/pracht/commit/7de4718761cb2fe1427f1a3c5ece8ffe6f2a1778), [`9058c8e`](https://github.com/JoviDeCroock/pracht/commit/9058c8e0c79a6888003cd804f8449ec0d3e57843), [`4b31b30`](https://github.com/JoviDeCroock/pracht/commit/4b31b305f563d509aec10ea1047d4af1ffb9268c), [`14fce3b`](https://github.com/JoviDeCroock/pracht/commit/14fce3b22e25965dc047265221c5fb3ee18d3f35)]:
+  - @pracht/core@0.13.0
+  - @pracht/adapter-node@0.3.9
+
 ## 0.0.15
 
 ### Patch Changes
