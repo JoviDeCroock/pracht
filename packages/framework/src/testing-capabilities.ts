@@ -108,10 +108,13 @@ export interface CapabilityTestHost<
 > {
   /**
    * Direct server invocation — same pipeline and envelope as
-   * `invokeCapability()`. Factory-created hosts infer this contract from their
-   * own capability map, including test-only names that are absent from the app
-   * manifest. The bare `CapabilityTestHost` type keeps using the generated app
-   * registration for callers that declare a host separately.
+   * `invokeCapability()`. Factory-created hosts read the input/output generics
+   * retained by their own capability map, including test-only names that are
+   * absent from the app manifest. Annotating a definition's `run()` argument
+   * lets `defineCapability()` infer both generics; supplying only its first
+   * generic leaves the defaulted output as `unknown`. The bare
+   * `CapabilityTestHost` type keeps using the generated app registration for
+   * callers that declare a host separately.
    */
   invoke<TName extends Extract<keyof TCapabilities, string>>(
     name: TName,

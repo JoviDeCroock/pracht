@@ -52,8 +52,13 @@ only for now — the pages router has no manifest to register them in.
 
 ```ts
 // src/capabilities/notes-search.ts
-import { defineCapability } from "@pracht/capabilities";
+import { defineCapability, type CapabilityRunArgs } from "@pracht/capabilities";
 import { searchNotes } from "../server/notes-store.ts";
+
+interface SearchInput {
+  query: string;
+  limit: number;
+}
 
 export default defineCapability({
   title: "Search notes",
@@ -75,11 +80,19 @@ export default defineCapability({
   effect: "read",
   middleware: ["auth"], // optional — names from the app manifest
   expose: { http: true, webmcp: true }, // optional — private without it
-  async run({ input, context, request, signal }) {
+  async run({ input, context, request, signal }: CapabilityRunArgs<SearchInput>) {
     return { notes: searchNotes(input.query, input.limit) };
   },
 });
 ```
+
+Annotating `run()` with `CapabilityRunArgs<Input>` keeps its input typed while
+letting TypeScript infer the concrete output from the return value. This also
+lets `createCapabilityTestHost()` preserve both types from the capability
+object. Avoid supplying only `defineCapability<Input>`: because TypeScript does
+not partially infer defaulted generics, that form leaves the output as
+`unknown`. When you want to state it explicitly, pass both
+`defineCapability<Input, Output>`.
 
 `context` defaults to `CapabilityContext`: `context.agent` is typed as the
 verified Web Bot Auth identity (`PrachtAgentIdentity | null`, absent when
@@ -373,9 +386,11 @@ effect class and exposure, registered on `Register["capabilities"]`. With that
 file in the program, `invokeCapability()`, the browser's `callCapability()`,
 the generated `capabilities` client, and `<Form capability>` all read the
 contract from the capability name — no per-call generics. A factory-created
-`createCapabilityTestHost()` instead infers `invoke()` names, inputs, and
-outputs from the capability map supplied to that host, so test-only names do
-not have to appear in the app manifest:
+`createCapabilityTestHost()` instead reads `invoke()` names and the
+input/output generics preserved by the capability map supplied to that host, so
+test-only names do not have to appear in the app manifest. Annotate `run()` with
+`CapabilityRunArgs<Input>` to infer its output, or provide both
+`defineCapability<Input, Output>` generics:
 
 ```ts
 const result = await invokeCapability("notes.search", { query: "roadmap" }, args);
@@ -506,8 +521,8 @@ The capability graph feeds every existing inspection surface:
 
 `createCapabilityTestHost()` (from `@pracht/core`) runs the dispatch pipeline
 in-process for unit tests — no manifest, no Vite, no server. `invoke()`
-mirrors `invokeCapability()` and is typed from that host's supplied capability
-map, including test-only aliases; `request()` mirrors the HTTP projection,
+mirrors `invokeCapability()` and is typed from the generics retained by that
+host's supplied capability map, including test-only aliases; `request()` mirrors the HTTP projection,
 including Web Bot Auth policy (inject a simulated identity via the `agent`
 option) and the destructive prepare/commit confirmation flow (set
 `PRACHT_CONFIRMATION_SECRET` or call `setCapabilityConfirmationSecret()` in

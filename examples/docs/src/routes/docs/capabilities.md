@@ -45,8 +45,13 @@ export const app = defineApp({
 ## Define the Contract
 
 ```ts [src/capabilities/notes-search.ts]
-import { defineCapability } from "@pracht/capabilities";
+import { defineCapability, type CapabilityRunArgs } from "@pracht/capabilities";
 import { searchNotes } from "../server/notes-store.ts";
+
+interface SearchInput {
+  query: string;
+  limit: number;
+}
 
 export default defineCapability({
   title: "Search notes",
@@ -67,13 +72,15 @@ export default defineCapability({
   },
   effect: "read",
   expose: { http: true, webmcp: true },
-  async run({ input }) {
+  async run({ input }: CapabilityRunArgs<SearchInput>) {
     return { notes: searchNotes(input.query, input.limit) };
   },
 });
 ```
 
 Schemas are validated by a dependency-free JSON Schema subset validator — no ajv or zod in your bundles. Unsupported keywords (`oneOf`, `$ref`, `pattern`, …) are rejected at definition time and by `pracht verify`, so an exposed capability can never silently accept more than its schema says.
+
+Annotate `run()` with `CapabilityRunArgs<Input>` to type its input while letting TypeScript infer the concrete output. That preserves both types when the capability is passed to `createCapabilityTestHost()`. Avoid supplying only `defineCapability<Input>` — TypeScript then uses the default `unknown` output instead of inferring it. Use `defineCapability<Input, Output>` when you prefer to state both explicitly.
 
 ---
 

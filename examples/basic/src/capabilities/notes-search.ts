@@ -1,4 +1,4 @@
-import { defineCapability } from "@pracht/capabilities";
+import { defineCapability, type CapabilityRunArgs } from "@pracht/capabilities";
 import { searchNotes } from "../server/notes-store.ts";
 
 interface SearchInput {
@@ -6,7 +6,7 @@ interface SearchInput {
   limit: number;
 }
 
-export default defineCapability<SearchInput>({
+export default defineCapability({
   title: "Search notes",
   description: "Find notes whose title or body matches the query.",
   input: {
@@ -41,7 +41,7 @@ export default defineCapability<SearchInput>({
     http: true,
     webmcp: true,
   },
-  async run({ input }) {
+  async run({ input }: CapabilityRunArgs<SearchInput>) {
     return { notes: searchNotes(input.query, input.limit) };
   },
 });

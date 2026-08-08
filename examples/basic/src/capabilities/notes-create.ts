@@ -1,4 +1,4 @@
-import { defineCapability } from "@pracht/capabilities";
+import { defineCapability, type CapabilityRunArgs } from "@pracht/capabilities";
 import { createNote } from "../server/notes-store.ts";
 
 interface CreateInput {
@@ -6,7 +6,7 @@ interface CreateInput {
   body: string;
 }
 
-export default defineCapability<CreateInput>({
+export default defineCapability({
   title: "Create note",
   description: "Add a new note with a title and body.",
   input: {
@@ -37,7 +37,7 @@ export default defineCapability<CreateInput>({
   expose: {
     http: true,
   },
-  async run({ input }) {
+  async run({ input }: CapabilityRunArgs<CreateInput>) {
     return { note: createNote(input.title, input.body) };
   },
 });

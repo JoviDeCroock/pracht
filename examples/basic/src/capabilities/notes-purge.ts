@@ -1,4 +1,4 @@
-import { defineCapability } from "@pracht/capabilities";
+import { defineCapability, type CapabilityRunArgs } from "@pracht/capabilities";
 import { purgeNotes } from "../server/notes-store.ts";
 
 interface PurgeInput {
@@ -10,7 +10,7 @@ interface PurgeInput {
 // first call answers 409 confirmation_required with a token, and only a
 // second call with identical input plus the x-pracht-confirm header runs.
 // Requires PRACHT_CONFIRMATION_SECRET in the environment.
-export default defineCapability<PurgeInput>({
+export default defineCapability({
   title: "Purge notes",
   description: "Permanently delete every note whose title starts with the prefix.",
   input: {
@@ -32,7 +32,7 @@ export default defineCapability<PurgeInput>({
   expose: {
     http: true,
   },
-  async run({ input }) {
+  async run({ input }: CapabilityRunArgs<PurgeInput>) {
     return { purged: purgeNotes(input.titlePrefix) };
   },
 });

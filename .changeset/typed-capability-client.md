@@ -81,6 +81,13 @@ and nested-client method, so editor hovers on `capabilities.notes.search`
 surface the same contract prose. String arguments to `callCapability()` do not
 carry property documentation.
 
+The standalone `createCapabilityTestHost()` reads names and the input/output
+generics retained by the capability objects supplied to it. To keep an input
+typed while allowing the output to infer from `run()`, annotate the handler with
+`CapabilityRunArgs<Input>`; alternatively provide both
+`defineCapability<Input, Output>` generics. Supplying only the first generic
+uses TypeScript's default `unknown` output, which the host cannot recover later.
+
 Two notes on how the checks behave at the edges. A capability name typed as a
 union (`"notes.search" | "notes.purge"`) demands an explicit prepare marker or
 confirmation token if *any* member is `destructive`, and the same applies when

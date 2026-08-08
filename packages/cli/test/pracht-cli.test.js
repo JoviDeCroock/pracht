@@ -964,6 +964,7 @@ export async function browser() {
       `import { createCapabilityTestHost, invokeCapability } from "@pracht/core";
 import type { CapabilityTestHost } from "@pracht/core";
 import { defineCapability } from "@pracht/capabilities";
+import type { CapabilityRunArgs } from "@pracht/capabilities";
 import { callCapability, capabilities, useCapability } from "virtual:pracht/capabilities";
 
 declare const ctx: { request: Request };
@@ -973,7 +974,7 @@ declare const mixedName: "notes.search" | "notes.stats";
 
 const fixtureHost = createCapabilityTestHost({
   capabilities: {
-    "fixture.only": defineCapability<{ value: string }, { seen: string }>({
+    "fixture.only": defineCapability({
       title: "Fixture only",
       description: "A capability that exists only in this standalone test host.",
       input: {
@@ -989,7 +990,7 @@ const fixtureHost = createCapabilityTestHost({
         additionalProperties: false,
       },
       effect: "read",
-      async run({ input }) {
+      async run({ input }: CapabilityRunArgs<{ value: string }>) {
         return { seen: input.value };
       },
     }),
@@ -997,6 +998,16 @@ const fixtureHost = createCapabilityTestHost({
 });
 
 export async function server() {
+  // A factory-created host reads both generics retained on the capability
+  // object. Typing run()'s input lets defineCapability infer its output.
+  const fixture = await fixtureHost.invoke("fixture.only", { value: "roadmap" });
+  if (fixture.ok) {
+    const _seen: string = fixture.data.seen;
+  }
+
+  // @ts-expect-error - the inferred standalone-host input rejects mismatches
+  await fixtureHost.invoke("fixture.only", { value: 42 });
+
   // Input and output both come from the registration — no per-call generics.
   const found = await invokeCapability("notes.search", { query: "roadmap" }, ctx);
   if (found.ok) {
