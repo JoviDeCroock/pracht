@@ -87,7 +87,7 @@ The endpoint is stateless: no session id, no server→client stream, no resumabi
 
 Annotations are hints for the client's UX — never enforcement. The effect class that produced them is what the server actually enforces.
 
-Capability names are dot-separated; MCP hosts widely constrain tool names to `^[a-zA-Z0-9_-]{1,64}$`, so `notes.search` becomes `notes_search`. Two capabilities that would collide (`notes.search` and `notes_search`) are a `pracht verify` error, and the runtime refuses to serve an ambiguous tool list rather than picking a winner.
+Capability names are dot-separated; MCP hosts widely constrain tool names to `^[a-zA-Z0-9_-]{1,64}$`, so `notes.search` becomes `notes_search`. Two capabilities that would collide (`notes.search` and `notes_search`) are a `pracht verify` error, and the runtime refuses to serve an ambiguous tool list rather than picking a winner. Projected names longer than 64 characters are rejected by verification and the runtime as well.
 
 Results carry both the validated output and a text rendering, so hosts that only read text still get something useful:
 
@@ -100,6 +100,8 @@ Results carry both the validated output and a text rendering, so hosts that only
 ```
 
 Failures split by what actually failed. An unknown tool or malformed params is a JSON-RPC `error`; a validation failure, middleware rejection, or policy denial is an `isError: true` result whose text names the error and whose `_meta["io.pracht/error"]` carries the machine-readable code and issues. Error results omit `structuredContent`, because structured results must match the capability's advertised output schema.
+
+Once a valid JSON-RPC request has been accepted, JSON-RPC errors use HTTP 200 so standard Streamable HTTP clients parse the error payload. Non-2xx statuses are reserved for transport failures such as invalid HTTP methods, origins, or protocol versions.
 
 ---
 

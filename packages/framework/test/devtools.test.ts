@@ -207,6 +207,7 @@ describe("buildAppGraph", () => {
   it("produces the same payload shape as pracht inspect", async () => {
     const app = resolveApp(
       defineApp({
+        agents: { mcp: { path: "/agents/mcp" } },
         middleware: { auth: "./middleware/auth.ts" },
         routes: [
           route("/", "./routes/home.tsx", {
@@ -233,6 +234,7 @@ describe("buildAppGraph", () => {
 
     expect(graph).toEqual({
       capabilities: [],
+      mcpEndpoint: "/agents/mcp",
       notFound: null,
       api: [
         {
@@ -287,6 +289,7 @@ describe("buildAppGraph", () => {
     });
 
     expect(graph.api).toEqual([]);
+    expect(graph.mcpEndpoint).toBeNull();
     expect(graph.routes).toHaveLength(1);
   });
 });

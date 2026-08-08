@@ -8,6 +8,7 @@
  */
 
 import { capabilityHttpPath } from "./runtime-capabilities.ts";
+import { resolveMcpEndpoint } from "./runtime-mcp.ts";
 import type {
   HttpMethod,
   PrachtCapability,
@@ -204,6 +205,7 @@ export async function buildAppGraph(
   return {
     api: await serializeApiRoutes(options.apiRoutes ?? [], options),
     capabilities: await serializeCapabilities(options.app.capabilities, options),
+    mcpEndpoint: resolveMcpEndpoint(options.app.agents),
     notFound: notFound ? serializeAppRoutes([notFound])[0] : null,
     routes: serializeAppRoutes(options.app.routes),
   };

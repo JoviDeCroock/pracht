@@ -937,7 +937,7 @@ function warnCapabilityResolutionFailure(error: unknown): void {
   if (warnedCapabilityResolutionFailure) return;
   warnedCapabilityResolutionFailure = true;
   console.error(
-    "[pracht] Capability registry failed to resolve; capability requests will return 500:",
+    "[pracht] Capability registry failed to resolve; capability requests will fail closed:",
     error,
   );
 }

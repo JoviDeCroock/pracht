@@ -44,6 +44,11 @@ export function isValidCapabilityHttpPath(path: unknown): path is string {
 /** Default path the remote MCP projection is served from. */
 export const DEFAULT_MCP_ENDPOINT = "/mcp";
 
+export const MCP_TOOL_NAME_ERROR =
+  "projected MCP tool names must match ^[a-zA-Z0-9_-]{1,64}$ after dots become underscores";
+
+const MCP_TOOL_NAME_RE = /^[a-zA-Z0-9_-]{1,64}$/;
+
 /**
  * MCP tool name for a capability.
  *
@@ -54,6 +59,11 @@ export const DEFAULT_MCP_ENDPOINT = "/mcp";
  */
 export function mcpToolName(capabilityName: string): string {
   return capabilityName.split(".").join("_");
+}
+
+/** Whether a projected tool name is accepted by the MCP hosts Pracht targets. */
+export function isValidMcpToolName(toolName: unknown): toolName is string {
+  return typeof toolName === "string" && MCP_TOOL_NAME_RE.test(toolName);
 }
 
 export interface McpToolNameCollision {

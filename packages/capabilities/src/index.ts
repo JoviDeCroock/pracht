@@ -31,6 +31,8 @@ export {
   DEFAULT_MCP_ENDPOINT,
   findMcpToolNameCollisions,
   isValidCapabilityHttpPath,
+  isValidMcpToolName,
+  MCP_TOOL_NAME_ERROR,
   mcpToolName,
   normalizeCapabilityHttpPath,
 } from "./protocol.ts";

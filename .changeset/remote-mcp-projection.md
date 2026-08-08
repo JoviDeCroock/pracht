@@ -18,6 +18,9 @@ dependency.
 by remote agents without a public browser endpoint. Dotted capability names map
 to underscored tool names (`notes.search` → `notes_search`); collisions are a
 `pracht verify` error and the runtime refuses to serve an ambiguous tool list.
+Projected names beyond the 64-character host limit are rejected by verification
+and the runtime as well. Accepted JSON-RPC requests keep protocol errors on HTTP
+200 so Streamable HTTP clients can parse the structured error response.
 Cookie-bearing requests are rejected before capability dispatch,
 `Authorization` is forwarded, `Origin` is validated, and destructive
 capabilities stay off the MCP surface. Error results keep machine-readable

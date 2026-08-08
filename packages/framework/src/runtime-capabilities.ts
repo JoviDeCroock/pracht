@@ -19,7 +19,10 @@ import {
   capabilityHttpPath,
   coerceFormInput,
   isValidCapabilityHttpPath,
+  isValidMcpToolName,
   MCP_SCHEMA_ROOT_ERROR,
+  MCP_TOOL_NAME_ERROR,
+  mcpToolName,
   normalizeCapabilityHttpPath,
 } from "@pracht/capabilities";
 import { formatUnknownNameError } from "./name-suggestions.ts";
@@ -152,6 +155,9 @@ async function resolveAppCapabilitiesUncached(
       (capability.input?.type !== "object" || capability.output?.type !== "object")
     ) {
       throw new Error(`Capability "${name}": ${MCP_SCHEMA_ROOT_ERROR}.`);
+    }
+    if (capability.expose?.mcp && !isValidMcpToolName(mcpToolName(name))) {
+      throw new Error(`Capability "${name}": ${MCP_TOOL_NAME_ERROR}.`);
     }
     if (
       capability.expose &&

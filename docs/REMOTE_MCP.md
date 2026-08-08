@@ -86,7 +86,8 @@ Capability names are dot-separated; MCP hosts widely constrain tool names to
 
 Two capabilities that map to the same tool name (`notes.search` and
 `notes_search`) are a `pracht verify` error, and the runtime refuses to serve
-an ambiguous tool list rather than picking a winner.
+an ambiguous tool list rather than picking a winner. Projected names longer
+than 64 characters are rejected by verification and the runtime as well.
 
 ## What a tool looks like
 
@@ -139,6 +140,11 @@ model needs to *read* the failure to react to it. Their text content names the
 error code and issues; the machine-readable payload lives in
 `_meta["io.pracht/error"]`. Error results omit `structuredContent`, because any
 structured result must match the capability's advertised output schema.
+
+Once a valid JSON-RPC request has been accepted, JSON-RPC errors use HTTP 200
+so standard Streamable HTTP clients parse the error payload. Non-2xx statuses
+are reserved for transport failures such as invalid HTTP methods, origins, or
+protocol versions.
 
 ## Security
 

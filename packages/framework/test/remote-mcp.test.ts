@@ -4,6 +4,7 @@ import {
   CAPABILITY_TRANSPORT_HEADER,
   defineCapability,
   findMcpToolNameCollisions,
+  isValidMcpToolName,
   mcpToolName,
 } from "../../capabilities/src/index.ts";
 import { defineApp, handlePrachtRequest, route, setCapabilityAuditHook } from "../src/index.ts";
@@ -318,7 +319,7 @@ describe("serving is opt-in", () => {
       }),
     });
 
-    expect(response.status).toBe(500);
+    expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({
       jsonrpc: "2.0",
       id: 1,
@@ -460,6 +461,8 @@ describe("tools/list", () => {
 
   it("maps dots to underscores and detects collisions", () => {
     expect(mcpToolName("notes.search")).toBe("notes_search");
+    expect(isValidMcpToolName("a".repeat(64))).toBe(true);
+    expect(isValidMcpToolName("a".repeat(65))).toBe(false);
     expect(findMcpToolNameCollisions(["notes.search", "notes_search", "notes.create"])).toEqual([
       { toolName: "notes_search", capabilities: ["notes.search", "notes_search"] },
     ]);

@@ -21,6 +21,8 @@ import {
   CONFIRMATION_HEADER,
   DEFAULT_MCP_ENDPOINT,
   findMcpToolNameCollisions,
+  isValidMcpToolName,
+  MCP_TOOL_NAME_ERROR,
   mcpToolName,
 } from "@pracht/capabilities";
 import { handleCapabilityRequest, type ResolvedCapability } from "./runtime-capabilities.ts";
@@ -199,7 +201,7 @@ export async function handleMcpRequest<TContext>(
       options.exposeErrors && options.resolutionError instanceof Error
         ? `: ${options.resolutionError.message}`
         : ".";
-    return jsonRpcResponse(500, {
+    return jsonRpcResponse(200, {
       jsonrpc: "2.0",
       id,
       error: {
@@ -209,13 +211,28 @@ export async function handleMcpRequest<TContext>(
     });
   }
 
-  const collisions = findMcpToolNameCollisions(
-    mcpExposedCapabilities(options.capabilities).map((entry) => entry.name),
+  const exposedCapabilities = mcpExposedCapabilities(options.capabilities);
+  const invalidToolNames = exposedCapabilities.filter(
+    (entry) => !isValidMcpToolName(mcpToolName(entry.name)),
   );
+  if (invalidToolNames.length > 0) {
+    return jsonRpcResponse(200, {
+      jsonrpc: "2.0",
+      id,
+      error: {
+        code: JSONRPC_INTERNAL_ERROR,
+        message:
+          `${MCP_TOOL_NAME_ERROR}: ` +
+          invalidToolNames.map((entry) => `${entry.name} → ${mcpToolName(entry.name)}`).join("; "),
+      },
+    });
+  }
+
+  const collisions = findMcpToolNameCollisions(exposedCapabilities.map((entry) => entry.name));
   if (collisions.length > 0) {
     // `pracht verify` reports this at build time; refuse to serve an
     // ambiguous tool list rather than picking a winner at random.
-    return jsonRpcResponse(500, {
+    return jsonRpcResponse(200, {
       jsonrpc: "2.0",
       id,
       error: {

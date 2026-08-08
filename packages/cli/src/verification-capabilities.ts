@@ -6,7 +6,10 @@ import {
   collectUnsupportedSchemaKeywords,
   findMcpToolNameCollisions,
   isValidCapabilityHttpPath,
+  isValidMcpToolName,
   MCP_SCHEMA_ROOT_ERROR,
+  MCP_TOOL_NAME_ERROR,
+  mcpToolName,
 } from "@pracht/capabilities";
 import {
   evaluateLiteral,
@@ -308,7 +311,12 @@ function collectSingleCapabilityChecks(
 
   if (exposed && !exposeFlags.unknown) {
     const { hasHttp, hasWebmcp } = exposeFlags;
-    if (hasMcp) mcpExposed.push(name);
+    if (hasMcp) {
+      mcpExposed.push(name);
+      if (!isValidMcpToolName(mcpToolName(name))) {
+        problems.push(MCP_TOOL_NAME_ERROR);
+      }
+    }
     if (hasWebmcp && !hasHttp) {
       problems.push(
         "sets expose.webmcp without expose.http — WebMCP tools dispatch through the HTTP projection",
