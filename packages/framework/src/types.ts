@@ -4,6 +4,7 @@ import type {
   CapabilityEffect,
   PrachtAgentIdentity,
 } from "@pracht/capabilities";
+import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type { ComponentChildren, FunctionComponent } from "preact";
 
 import type { RouteConstraint } from "./constraints.ts";
@@ -92,6 +93,7 @@ export type SearchParamValue =
   | undefined
   | readonly (SearchParamPrimitive | null | undefined)[];
 export type SearchParamsInput = string | URLSearchParams | Record<string, SearchParamValue>;
+export type RouteSearchRecord = Record<string, string | string[]>;
 
 export interface BuildHrefOptions {
   params?: Record<string, RouteParamInput>;
@@ -151,6 +153,14 @@ export type RouteSearchFor<TRoute extends RouteId> = HasRegisteredRoutes extends
       : SearchParamsInput
     : never
   : SearchParamsInput;
+
+export type RouteSearchOutputFor<TRoute extends RouteId> = HasRegisteredRoutes extends true
+  ? TRoute extends keyof RegisteredRouteMap
+    ? RegisteredRouteMap[TRoute] extends { searchOutput: infer TSearch }
+      ? TSearch
+      : RouteSearchRecord
+    : never
+  : RouteSearchRecord;
 
 export type RouteDataFor<TRoute extends RouteId> = HasRegisteredRoutes extends true
   ? TRoute extends keyof RegisteredRouteMap
@@ -765,9 +775,13 @@ export interface BaseRouteArgs<TContext = RegisteredContext> {
   signal: AbortSignal;
   url: URL;
   route: ResolvedRoute;
+  /** Parsed and, when the route exports `search`, Standard Schema-validated URL search state. */
+  search?: unknown;
 }
 
-export interface LoaderArgs<TContext = RegisteredContext> extends BaseRouteArgs<TContext> {}
+export interface LoaderArgs<TContext = RegisteredContext> extends BaseRouteArgs<TContext> {
+  search: unknown;
+}
 
 export interface MiddlewareArgs<TContext = RegisteredContext> extends BaseRouteArgs<TContext> {}
 
@@ -811,6 +825,20 @@ export type RouteLoaderData<TModule, TFallbackModule = TModule> = TModule extend
     ? Awaited<TFallbackResult>
     : undefined;
 
+/** Infer the accepted link/navigation search input from a route module's `search` schema. */
+export type RouteSearchInput<TModule> = TModule extends { search: infer TSchema }
+  ? TSchema extends StandardSchemaV1
+    ? StandardSchemaV1.InferInput<TSchema>
+    : SearchParamsInput
+  : SearchParamsInput;
+
+/** Infer the validated search value exposed to loaders and `useSearch()`. */
+export type RouteSearchOutput<TModule> = TModule extends { search: infer TSchema }
+  ? TSchema extends StandardSchemaV1
+    ? StandardSchemaV1.InferOutput<TSchema>
+    : RouteSearchRecord
+  : RouteSearchRecord;
+
 export interface HeadArgs<
   TLoader extends LoaderLike = undefined,
   TContext = any,
@@ -828,6 +856,7 @@ export interface HeadersArgs<
 export interface RouteComponentProps<TLoader extends LoaderLike = undefined> {
   data: LoaderData<TLoader>;
   params: RouteParams;
+  search: unknown;
 }
 
 export interface ErrorBoundaryProps {
@@ -843,6 +872,8 @@ export type LoaderFn<TContext = any, TData = unknown> = (
 ) => MaybePromise<TData>;
 
 export interface RouteModule<TContext = any, TLoader extends LoaderLike = undefined> {
+  /** Isomorphic Standard Schema for parsing and validating URL search parameters. */
+  search?: StandardSchemaV1;
   loader?: LoaderFn<TContext>;
   head?: (args: HeadArgs<TLoader, TContext>) => MaybePromise<HeadMetadata>;
   headers?: (args: HeadersArgs<TLoader, TContext>) => MaybePromise<HeadersInit>;

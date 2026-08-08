@@ -39,14 +39,43 @@ instead of rendering the component. Both the HTML and markdown responses carry
 
 ### LoaderArgs
 
-| Field     | Type            | Description                                        |
-| --------- | --------------- | -------------------------------------------------- |
-| `request` | `Request`       | The incoming Web Request                           |
-| `params`  | `RouteParams`   | Dynamic URL params (e.g. `{ slug: "hello" }`)      |
-| `context` | `TContext`      | App-level context (from adapter's context factory) |
-| `signal`  | `AbortSignal`   | Cancellation signal for timeouts                   |
-| `url`     | `URL`           | Parsed URL                                         |
-| `route`   | `ResolvedRoute` | Matched route metadata                             |
+| Field     | Type            | Description                                             |
+| --------- | --------------- | ------------------------------------------------------- |
+| `request` | `Request`       | The incoming Web Request                                |
+| `params`  | `RouteParams`   | Dynamic URL params (e.g. `{ slug: "hello" }`)           |
+| `search`  | `unknown`       | Parsed search record or the route schema's output       |
+| `context` | `TContext`      | App-level context (from adapter's context factory)      |
+| `signal`  | `AbortSignal`   | Cancellation signal for timeouts                        |
+| `url`     | `URL`           | Parsed URL                                              |
+| `route`   | `ResolvedRoute` | Matched route metadata                                  |
+
+### Validated route search
+
+A route module can export a [Standard Schema](https://standardschema.dev/) as
+`search`. The framework converts `URLSearchParams` to an object, preserving
+repeated keys as arrays, then validates it before calling the loader, `head`,
+or the route component:
+
+```tsx
+import { z } from "zod";
+import type { LoaderArgs } from "@pracht/core";
+
+export const search = z.object({
+  page: z.coerce.number().int().positive().default(1),
+  tag: z.union([z.string(), z.array(z.string())]).optional(),
+});
+type Search = z.output<typeof search>;
+
+export async function loader({ search }: LoaderArgs) {
+  const { page } = search as Search;
+  return { page };
+}
+```
+
+Generated route types use the schema input for `href()`, `<Link>`, and
+`navigate()`, and the schema output for `useSearch(routeId)`. Invalid search
+returns HTTP 400 and is handled by the route or shell `ErrorBoundary`. Routes
+without a schema receive `Record<string, string | string[]>`.
 
 ### When loaders run
 

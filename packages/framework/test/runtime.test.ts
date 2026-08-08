@@ -24,6 +24,7 @@ function parseHydrationState(html: string) {
   }
 
   return JSON.parse(match[1]) as {
+    search?: unknown;
     error?: {
       diagnostics?: Record<string, unknown>;
       message: string;
@@ -1433,6 +1434,85 @@ describe("useLocation", () => {
 });
 
 describe("handlePrachtRequest ErrorBoundary", () => {
+  it("validates route search before loaders and rendering", async () => {
+    const app = defineApp({
+      routes: [route("/products", "./routes/products.tsx", { id: "products" })],
+    });
+    let loaderSearch: unknown;
+
+    const response = await handlePrachtRequest({
+      app,
+      registry: {
+        routeModules: {
+          "./routes/products.tsx": async () => ({
+            search: {
+              "~standard": {
+                version: 1,
+                vendor: "test",
+                validate(value: unknown) {
+                  const page = Number((value as Record<string, string>).page ?? "1");
+                  return Number.isInteger(page) && page > 0
+                    ? { value: { page } }
+                    : { issues: [{ message: "must be a positive integer", path: ["page"] }] };
+                },
+              },
+            },
+            loader: async ({ search }) => {
+              loaderSearch = search;
+              return { page: (search as { page: number }).page };
+            },
+            Component: ({ data, search }) =>
+              h(
+                "main",
+                null,
+                `${(data as { page: number }).page}:${(search as { page: number }).page}`,
+              ),
+          }),
+        },
+      },
+      request: new Request("http://localhost/products?page=2"),
+    });
+
+    expect(response.status).toBe(200);
+    expect(loaderSearch).toEqual({ page: 2 });
+    const html = await response.text();
+    expect(html).toContain("2:2");
+    expect(parseHydrationState(html).search).toEqual({ page: 2 });
+  });
+
+  it("renders a 400 boundary when route search is invalid", async () => {
+    const app = defineApp({
+      routes: [route("/products", "./routes/products.tsx")],
+    });
+
+    const response = await handlePrachtRequest({
+      app,
+      registry: {
+        routeModules: {
+          "./routes/products.tsx": async () => ({
+            search: {
+              "~standard": {
+                version: 1,
+                vendor: "test",
+                validate: () => ({
+                  issues: [{ message: "must be a positive integer", path: ["page"] }],
+                }),
+              },
+            },
+            Component: () => h("main", null, "products"),
+            ErrorBoundary: ({ error }) => h("p", null, `Error: ${error.message}`),
+          }),
+        },
+      },
+      request: new Request("http://localhost/products?page=nope"),
+    });
+
+    expect(response.status).toBe(400);
+    await expect(response.text()).resolves.toContain(
+      "Error: Invalid search parameters: page: must be a positive integer",
+    );
+  });
+
   it("renders the route error boundary for loader failures", async () => {
     const app = defineApp({
       routes: [route("/posts/:slug", "./routes/post.tsx")],

@@ -18,5 +18,7 @@ export type {
   RouteMeta,
   RouteRevalidate,
   RouteTreeNode,
+  RouteSearchInput,
+  RouteSearchOutput,
   TimeRevalidatePolicy,
 } from "./types.ts";
