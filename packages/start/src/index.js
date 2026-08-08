@@ -600,9 +600,11 @@ async function buildProjectFiles({
   if (router === "pages") {
     files["src/pages/_app.tsx"] = createShellFile(projectName, tailwind);
     files["src/pages/index.tsx"] = createPagesHomeRoute(adapter);
+    files["src/pages/404.tsx"] = createNotFoundRoute();
   } else {
     files["src/routes.ts"] = createRoutesFile();
     files["src/routes/home.tsx"] = createHomeRoute(adapter);
+    files["src/routes/not-found.tsx"] = createNotFoundRoute();
     files["src/shells/public.tsx"] = createShellFile(projectName, tailwind);
   }
 
@@ -761,8 +763,12 @@ function createRoutesFile() {
     "  routes: [",
     '    route("/", "./routes/home.tsx", { id: "home", render: "ssg", shell: "public" }),',
     "  ],",
-    "  // Custom 404 page — any module in ./routes, rendered when nothing matches:",
-    '  // notFound: "./routes/not-found.tsx",',
+    "  // Rendered with a 404 status when nothing matches. Not a route: it never",
+    "  // matches a URL, so it cannot shadow static assets or later pages.",
+    "  notFound: {",
+    '    component: "./routes/not-found.tsx",',
+    '    shell: "public",',
+    "  },",
     "  // Declarative invariants enforced by `pracht verify` — uncomment to use",
     "  // (add the helpers to the @pracht/core import):",
     "  // constraints: [",
@@ -836,6 +842,33 @@ function createHomeRoute(adapter) {
     '      <p style={{ marginTop: "24px" }}>',
     "        Check <code>/api/health</code> for a simple API route.",
     "      </p>",
+    "    </section>",
+    "  );",
+    "}",
+    "",
+  ].join("\n");
+}
+
+function createNotFoundRoute() {
+  return [
+    "export function head() {",
+    "  return {",
+    '    title: "Page not found",',
+    '    meta: [{ content: "noindex", name: "robots" }],',
+    "  };",
+    "}",
+    "",
+    "export function Component() {",
+    "  return (",
+    "    <section>",
+    '      <p style={{ color: "#555", marginBottom: "8px" }}>404</p>',
+    '      <h1 style={{ fontSize: "2.5rem", lineHeight: 1.1, margin: "0 0 16px" }}>Page not found.</h1>',
+    '      <p style={{ fontSize: "1.1rem", lineHeight: 1.6, marginBottom: "24px" }}>',
+    "        The page you asked for does not exist. It may have moved, or the link may be wrong.",
+    "      </p>",
+    "      {/* A plain anchor keeps this page independent of the route table.",
+    "          Use a typed <Link> once you want client-side navigation. */}",
+    '      <a href="/">Back to home</a>',
     "    </section>",
     "  );",
     "}",
@@ -1073,11 +1106,17 @@ function createAgentInstructions({ adapter, agentTools, packageManager, router, 
     lines.push("");
     lines.push("- `src/pages/` — file-system routes (each file becomes a route)");
     lines.push("- `src/pages/_app.tsx` — app shell (layout and head)");
+    lines.push(
+      "- `src/pages/404.tsx` — not-found page, wired automatically (never a URL of its own)",
+    );
   } else {
     lines.push("This app uses **manifest routing**.");
     lines.push("");
     lines.push("- `src/routes.ts` — route manifest (defines all routes and shells)");
     lines.push("- `src/routes/` — route components and loaders");
+    lines.push(
+      "- `src/routes/not-found.tsx` — not-found page, wired via `notFound` in the manifest",
+    );
     lines.push("- `src/shells/` — shell components (layouts)");
   }
 
@@ -1163,9 +1202,11 @@ function createReadme({ adapter, agentTools, packageManager, projectName, router
     lines.push("- `src/pages/` contains your file-system routes.");
     lines.push("- `src/pages/_app.tsx` is the app shell.");
     lines.push("- `src/pages/index.tsx` is the home page.");
+    lines.push("- `src/pages/404.tsx` is the not-found page; pracht wires it automatically.");
   } else {
     lines.push("- `src/routes.ts` defines your app manifest.");
     lines.push("- `src/routes/home.tsx` is the first page.");
+    lines.push("- `src/routes/not-found.tsx` is the not-found page, wired via `notFound`.");
   }
 
   lines.push("- `src/api/health.ts` is a sample API route.");

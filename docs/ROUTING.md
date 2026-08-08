@@ -198,6 +198,10 @@ export const app = defineApp({
 });
 ```
 
+New apps ship with this wired already: `create-pracht` generates
+`src/routes/not-found.tsx` and the matching `notFound` entry (or
+`src/pages/404.tsx` in pages mode). Edit or delete it like any other page.
+
 The shorthand `notFound: () => import("./routes/not-found.tsx")` takes the
 module ref directly. The full form accepts:
 

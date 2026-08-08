@@ -124,6 +124,8 @@ export const app = defineApp({
 });
 ```
 
+New apps ship with this wired already: `create-pracht` generates `src/routes/not-found.tsx` and the matching `notFound` entry, or `src/pages/404.tsx` in pages mode. Edit or delete it like any other page.
+
 The shorthand `notFound: () => import("./routes/not-found.tsx")` takes the module ref directly; the full form also accepts `loader`, `middleware`, and `hydration`. The module is a normal route module — `Component`, `loader`, `head`, `headers` — and the page hydrates like any other.
 
 It is deliberately **not** a route. A trailing catch-all (`route("/*", ...)`) matches every URL, so it shadows static assets and paths you add later, and it shows up in typed routes, prefetching, speculation rules, and SSG path enumeration. `notFound` sits outside the route table: it runs only after matching fails, and after the adapter has already tried static assets.
