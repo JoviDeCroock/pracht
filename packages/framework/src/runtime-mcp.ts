@@ -111,11 +111,13 @@ export async function handleMcpRequest<TContext>(
     });
   }
 
-  // DNS-rebinding protection: a page on another origin must not be able to
-  // drive the MCP endpoint. Non-browser callers send no Origin and are
-  // unaffected.
-  if (!isSameOriginOrNonBrowser(request, options.url)) {
-    return new Response("Cross-origin request blocked", {
+  // DNS-rebinding protection: remote MCP has no browser use case, so reject
+  // browser provenance instead of comparing Origin to `request.url`. Adapters
+  // may derive that URL from the attacker-controlled Host header, which makes
+  // a same-origin comparison bypassable after DNS rebinding. Ordinary MCP
+  // clients send neither header and are unaffected.
+  if (!isNonBrowserRequest(request)) {
+    return new Response("Browser-originated requests are not allowed", {
       status: 403,
       headers: { "content-type": "text/plain; charset=utf-8" },
     });
@@ -524,19 +526,9 @@ function acceptsJson(request: Request): boolean {
   return accept.includes("application/json") || accept.includes("*/*");
 }
 
-/** The framework's CSRF stance, applied to the MCP endpoint. */
-function isSameOriginOrNonBrowser(request: Request, url: URL): boolean {
-  const site = request.headers.get("sec-fetch-site");
-  if (site && site !== "same-origin") return false;
-  const origin = request.headers.get("origin");
-  if (origin) {
-    try {
-      return new URL(origin).origin === url.origin;
-    } catch {
-      return false;
-    }
-  }
-  return true;
+/** Reject browser fetches/forms; remote MCP clients send neither header. */
+function isNonBrowserRequest(request: Request): boolean {
+  return !request.headers.has("origin") && !request.headers.has("sec-fetch-site");
 }
 
 function jsonRpcResponse(status: number, body: unknown): Response {

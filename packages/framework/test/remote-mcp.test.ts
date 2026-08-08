@@ -352,6 +352,15 @@ describe("transport", () => {
     expect(status).toBe(403);
   });
 
+  it("blocks browser requests when Origin matches the Host-derived request URL", async () => {
+    const { status, text } = await mcp(
+      { jsonrpc: "2.0", id: 1, method: "ping" },
+      { headers: { origin: ORIGIN, "sec-fetch-site": "same-origin" } },
+    );
+    expect(status).toBe(403);
+    expect(text).toContain("Browser-originated requests are not allowed");
+  });
+
   it("serves non-browser callers that send no Origin", async () => {
     const { status, json } = await mcp({ jsonrpc: "2.0", id: 1, method: "ping" });
     expect(status).toBe(200);

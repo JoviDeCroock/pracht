@@ -133,7 +133,7 @@ The split follows what actually failed:
 | Situation | Answer |
 | --- | --- |
 | Unknown tool, malformed params, bad JSON-RPC | JSON-RPC `error` |
-| Unsupported protocol version, non-POST, cross-origin, cookie-bearing request | HTTP 400 / 405 / 403 |
+| Unsupported protocol version, non-POST, browser-originated, cookie-bearing request | HTTP 400 / 405 / 403 |
 | Validation failure, middleware rejection, policy denial | `isError: true` result |
 
 Execution failures stay results because the call itself succeeded and the
@@ -157,8 +157,11 @@ The projection inherits every capability guarantee and adds three of its own:
   answers 403 whenever the transport request carries a cookie; a browser
   session can therefore never authenticate remote MCP. `authorization` *is*
   forwarded, so middleware sees the MCP credential.
-- **Origin is validated.** A page on another origin cannot drive the endpoint
-  (DNS rebinding). Non-browser callers send no `Origin` and are unaffected.
+- **Browser-originated requests are rejected.** Remote MCP has no browser use
+  case, so requests carrying `Origin` or `Sec-Fetch-Site` receive 403. This
+  avoids trusting a Host-derived request URL during Origin validation, closing
+  the DNS-rebinding path. Non-browser MCP clients send neither header and are
+  unaffected.
 - **Destructive capabilities are not exposed.** `expose.mcp` on a
   `destructive` capability is rejected by `defineCapability()`, the registry,
   and `pracht verify`, and the projection filters them again at serve time.

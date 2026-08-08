@@ -110,7 +110,7 @@ Every capability guarantee carries over. The projection adds three of its own:
 
 **Cookie-bearing requests are rejected.** Adapter context factories can decode a session before framework dispatch, so dropping `cookie` only from the synthesized capability request would be too late. The MCP endpoint returns 403 whenever its transport request carries a cookie, ensuring a browser session cannot authenticate remote MCP. `Authorization` *is* forwarded, so your middleware sees the MCP credential.
 
-**Origin is validated.** A page on another origin cannot drive the endpoint. Non-browser callers send no `Origin` and are unaffected.
+**Browser-originated requests are rejected.** Remote MCP has no browser use case, so requests carrying `Origin` or `Sec-Fetch-Site` receive 403. This avoids trusting a Host-derived request URL during Origin validation, closing the DNS-rebinding path. Non-browser MCP clients send neither header and are unaffected.
 
 **Destructive capabilities are not exposed.** `expose.mcp` on a `destructive` capability is rejected by `defineCapability()`, the registry, and `pracht verify` — and filtered again at serve time. Agent hosts cannot yet be trusted to carry the [prepare/commit flow](/docs/agent-trust) faithfully.
 

@@ -21,13 +21,14 @@ to underscored tool names (`notes.search` → `notes_search`); collisions are a
 Projected names beyond the 64-character host limit are rejected by verification
 and the runtime as well. Accepted JSON-RPC requests keep protocol errors on HTTP
 200 so Streamable HTTP clients can parse the structured error response.
-Cookie-bearing requests are rejected before capability dispatch,
-`Authorization` is forwarded, `Origin` is validated, and destructive
-capabilities stay off the MCP surface. Error results keep machine-readable
-details in `_meta` instead of off-schema `structuredContent`. The endpoint
-supports the `2025-11-25` and `2025-06-18` protocol profiles; MCP-exposed input
-and output schemas must be object-rooted until the complete `2026-07-28` wire
-codec ships.
+Cookie-bearing and browser-originated requests are rejected before capability
+dispatch, `Authorization` is forwarded, and destructive capabilities stay off
+the MCP surface. Rejecting `Origin` and `Sec-Fetch-Site` avoids trusting a
+Host-derived request URL and closes the DNS-rebinding path. Error results keep
+machine-readable details in `_meta` instead of off-schema `structuredContent`.
+The endpoint supports the `2025-11-25` and `2025-06-18` protocol profiles;
+MCP-exposed input and output schemas must be object-rooted until the complete
+`2026-07-28` wire codec ships.
 
 `CapabilityAuditEvent.transport` gains `"mcp"`, `AppGraph` gains
 `mcpEndpoint`, and `pracht dev` prints the endpoint next to the capability
