@@ -112,7 +112,6 @@ export {
 } from "./runtime-confirmation.ts";
 export { createUseCapability, type CapabilityHookResult } from "./capability-hook.ts";
 export {
-  capabilityApprovalId,
   createMemoryApprovalStore,
   setCapabilityApprovalStore,
   setCapabilityApprovalPrincipalResolver,

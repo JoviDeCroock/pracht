@@ -224,8 +224,10 @@ binds proposals to your authenticated users.
 
 Register a `CapabilityApprovalStore` and the prepare/commit flow gains
 storage: prepare records a **proposal**, commit consumes it exactly once. The
-wire protocol does not change — callers still just echo the token they were
-handed.
+caller interaction does not change — callers still just echo the token they
+were handed. Store-backed tokens use a distinct version and bind the approval
+mode, so an older replica or one still configured for token mode rejects a
+human-mode token instead of bypassing the store or approval decision.
 
 ```ts
 // src/server/approvals.ts — any server-only module
@@ -250,9 +252,11 @@ is also present, the proposal binds both identities. The raw application
 identity stays in the server-side approval record; caller-visible confirmation
 tokens bind a secret-keyed digest instead of exposing that identity.
 
-A proposal's id is derived server-side from the principal, the capability
-name, and the canonicalized input — never supplied by a caller. Repeated
-prepare calls for the same operation therefore address **one** proposal, so a
+A proposal's id is a secret-keyed digest derived server-side from the
+principal, capability name, canonicalized input, and approval mode — never
+supplied by a caller. Keying keeps a caller-visible id from becoming an
+offline oracle for low-entropy application user or tenant ids. Repeated
+prepare calls for the same operation and mode address **one** proposal, so a
 person approves an action rather than one particular token, and re-preparing
 cannot extend a proposal's life.
 
@@ -321,6 +325,7 @@ ON CONFLICT (id) DO UPDATE
        capability = EXCLUDED.capability,
        input_hash = EXCLUDED.input_hash,
        input = EXCLUDED.input,
+       requires_approval = EXCLUDED.requires_approval,
        created_at = EXCLUDED.created_at,
        expires_at = EXCLUDED.expires_at,
        state = EXCLUDED.state,
@@ -336,7 +341,7 @@ UPDATE pracht_approvals
  WHERE id = ?id
    AND expires_at >= ?now
    AND state IN ('pending', 'approved')
-   AND (?requireApproval = 0 OR state = 'approved');
+   AND (requires_approval = FALSE OR state = 'approved');
 -- ok = (rows_affected == 1)
 ```
 
@@ -344,6 +349,8 @@ Both operations must be atomic. `create()` must never overwrite a proposal
 when a prepare races a decision or commit, while `consume()` must be a
 compare-and-set rather than a read followed by a write. Otherwise a concurrent
 prepare can resurrect a consumed proposal, or two commits can both succeed.
+`consume()` must enforce the immutable `requiresApproval` value stored on the
+proposal rather than taking that policy from the replica handling the commit.
 Cloudflare KV cannot provide these conditional writes; D1, Durable Objects,
 Postgres, and Redis can.
 

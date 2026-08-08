@@ -12,7 +12,9 @@ import {
   clearConsumedConfirmationTokens,
   createConfirmationToken,
   setCapabilityConfirmationSecret,
+  verifyConfirmationToken,
 } from "../src/runtime-confirmation.ts";
+import { capabilityApprovalId } from "../src/runtime-approval.ts";
 import type {
   CapabilityApprovalConsumeResult,
   CapabilityApprovalRecord,
@@ -104,6 +106,7 @@ describe("createMemoryApprovalStore", () => {
     capability: "notes.purge",
     inputHash: "hash",
     input: { titlePrefix: "Old" },
+    requiresApproval: false,
     createdAt: 1_000_000,
     expiresAt: 1_000_120,
     state: "pending",
@@ -128,10 +131,7 @@ describe("createMemoryApprovalStore", () => {
     const store = createMemoryApprovalStore({ now: () => 1_000_000 });
     await store.create(record());
 
-    const results = await Promise.all([
-      store.consume("proposal-1", { requireApproval: false }),
-      store.consume("proposal-1", { requireApproval: false }),
-    ]);
+    const results = await Promise.all([store.consume("proposal-1"), store.consume("proposal-1")]);
 
     expect(results.filter((result) => result.ok)).toHaveLength(1);
     expect(results.find((result) => !result.ok)).toEqual({ ok: false, reason: "already_used" });
@@ -139,7 +139,7 @@ describe("createMemoryApprovalStore", () => {
 
   it("does not expose mutable references to stored proposals", async () => {
     const store = createMemoryApprovalStore({ now: () => 1_000_000 });
-    const source = record();
+    const source = record({ requiresApproval: true });
     const created = await store.create(source);
 
     source.state = "approved";
@@ -157,7 +157,7 @@ describe("createMemoryApprovalStore", () => {
     listed.state = "approved";
     (listed.input as { titlePrefix: string }).titlePrefix = "Everything";
 
-    expect(await store.consume("proposal-1", { requireApproval: true })).toEqual({
+    expect(await store.consume("proposal-1")).toEqual({
       ok: false,
       reason: "awaiting_approval",
     });
@@ -170,11 +170,11 @@ describe("createMemoryApprovalStore", () => {
   it("does not resurrect a consumed proposal when the same action is prepared again", async () => {
     const store = createMemoryApprovalStore({ now: () => 1_000_000 });
     await store.create(record());
-    expect((await store.consume("proposal-1", { requireApproval: false })).ok).toBe(true);
+    expect((await store.consume("proposal-1")).ok).toBe(true);
 
     const preparedAgain = await store.create(record());
     expect(preparedAgain.state).toBe("consumed");
-    expect(await store.consume("proposal-1", { requireApproval: false })).toEqual({
+    expect(await store.consume("proposal-1")).toEqual({
       ok: false,
       reason: "already_used",
     });
@@ -184,26 +184,26 @@ describe("createMemoryApprovalStore", () => {
     let clock = 1_000_000;
     const store = createMemoryApprovalStore({ now: () => clock });
 
-    expect(await store.consume("nope", { requireApproval: false })).toEqual({
+    expect(await store.consume("nope")).toEqual({
       ok: false,
       reason: "unknown",
     });
 
-    await store.create(record());
-    expect(await store.consume("proposal-1", { requireApproval: true })).toEqual({
+    await store.create(record({ requiresApproval: true }));
+    expect(await store.consume("proposal-1")).toEqual({
       ok: false,
       reason: "awaiting_approval",
     });
 
     await store.decide("proposal-1", "rejected", "reviewer");
-    expect(await store.consume("proposal-1", { requireApproval: false })).toEqual({
+    expect(await store.consume("proposal-1")).toEqual({
       ok: false,
       reason: "rejected",
     });
 
     await store.create(record({ id: "proposal-2" }));
     clock += 200;
-    expect(await store.consume("proposal-2", { requireApproval: false })).toEqual({
+    expect(await store.consume("proposal-2")).toEqual({
       ok: false,
       reason: "expired",
     });
@@ -226,6 +226,14 @@ describe("createMemoryApprovalStore", () => {
     await store.create(record({ id: "proposal-2" }));
     clock += 200;
     expect(await store.decide("proposal-2", "approved", "reviewer")).toBe(false);
+  });
+
+  it("keys proposal ids and scopes them by approval mode", async () => {
+    const args = ["app:user-42", "notes.purge", "input-hash"] as const;
+    const tokenId = await capabilityApprovalId("secret-a", ...args, "token");
+
+    expect(await capabilityApprovalId("secret-b", ...args, "token")).not.toBe(tokenId);
+    expect(await capabilityApprovalId("secret-a", ...args, "human")).not.toBe(tokenId);
   });
 });
 
@@ -271,6 +279,22 @@ describe("token mode with an approval store", () => {
     expect(purged).toEqual(["Old"]);
   });
 
+  it("uses a durable token version that stateless replicas reject", async () => {
+    setCapabilityApprovalStore(createMemoryApprovalStore());
+    const input = { titlePrefix: "Old" };
+    const { token } = await prepare(createHost(), input);
+
+    expect(token).toMatch(/^v2\./);
+    expect(
+      await verifyConfirmationToken(token, {
+        secret: SECRET,
+        principal: "anonymous",
+        capability: "notes.purge",
+        canonicalInput: canonicalJson(input),
+      }),
+    ).toEqual({ ok: false, reason: "malformed" });
+  });
+
   it("does not let a repeated prepare make an old token reusable", async () => {
     setCapabilityApprovalStore(createMemoryApprovalStore());
     const host = createHost();
@@ -292,6 +316,7 @@ describe("token mode with an approval store", () => {
 
     // Documented stateless-HMAC behaviour, unchanged: the store is what fixes it.
     expect(approvalId).toBeUndefined();
+    expect(token).toMatch(/^v1\./);
     expect((await commit(host, token)).status).toBe(200);
     expect((await commit(host, token)).status).toBe(200);
     expect(purged).toEqual(["Old", "Old"]);
@@ -403,6 +428,23 @@ describe("human mode", () => {
     expect(purged).toEqual(["Old"]);
   });
 
+  it("does not let a token-mode replica consume a human-mode proposal", async () => {
+    const store = createMemoryApprovalStore();
+    setCapabilityApprovalStore(store);
+    const { token, approvalId } = await prepare(createHost(agents));
+
+    const response = await commit(createHost({ confirmation: { mode: "token" } }), token);
+
+    expect(response.status).toBe(403);
+    const envelope = await envelopeOf(response);
+    expect(!envelope.ok && envelope.error.message).toContain("approval_mode_mismatch");
+    expect(await store.get(approvalId!)).toMatchObject({
+      state: "pending",
+      requiresApproval: true,
+    });
+    expect(purged).toEqual([]);
+  });
+
   it("says approval is needed on prepare", async () => {
     setCapabilityApprovalStore(createMemoryApprovalStore());
     const host = createHost(agents);
@@ -509,9 +551,9 @@ describe("a failing store never opens the gate", () => {
         if (failOn === "create") throw new Error("database unreachable");
         return inner.create(record);
       },
-      async consume(id, options): Promise<CapabilityApprovalConsumeResult> {
+      async consume(id): Promise<CapabilityApprovalConsumeResult> {
         if (failOn === "consume") throw new Error("database unreachable");
-        return inner.consume(id, options);
+        return inner.consume(id);
       },
     };
   }

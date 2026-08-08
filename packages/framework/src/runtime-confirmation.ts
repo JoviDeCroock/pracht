@@ -27,7 +27,8 @@ import { serverEnv } from "./env-server.ts";
 export { CONFIRMATION_HEADER, CONFIRMATION_SECRET_ENV };
 export const DEFAULT_CONFIRMATION_TTL_SECONDS = 120;
 
-const TOKEN_VERSION = "v1";
+const STATELESS_TOKEN_VERSION = "v1";
+const DURABLE_TOKEN_VERSION = "v2";
 
 const encoder = new TextEncoder();
 
@@ -83,13 +84,19 @@ interface ConfirmationClaims {
   i: string;
   /** Unix seconds expiry. */
   exp: number;
+  /** Approval policy bound into durable (v2) confirmation tokens. */
+  m?: CapabilityConfirmationMode;
 }
+
+export type CapabilityConfirmationMode = "token" | "human";
 
 export interface ConfirmationBinding {
   secret: string;
   principal: string;
   capability: string;
   canonicalInput: string;
+  /** Present when a durable approval store backs this confirmation. */
+  approvalMode?: CapabilityConfirmationMode;
   now?: number;
 }
 
@@ -97,15 +104,17 @@ export async function createConfirmationToken(
   binding: ConfirmationBinding & { ttlSeconds: number },
 ): Promise<{ token: string; expiresAt: number }> {
   const now = binding.now ?? Math.floor(Date.now() / 1000);
+  const version = confirmationTokenVersion(binding);
   const claims: ConfirmationClaims = {
     p: binding.principal,
     c: binding.capability,
     i: await sha256Base64Url(binding.canonicalInput),
     exp: now + binding.ttlSeconds,
+    ...(binding.approvalMode ? { m: binding.approvalMode } : {}),
   };
   const payload = base64UrlEncode(encoder.encode(JSON.stringify(claims)));
-  const signature = await hmacSha256Base64Url(binding.secret, `${TOKEN_VERSION}.${payload}`);
-  return { token: `${TOKEN_VERSION}.${payload}.${signature}`, expiresAt: claims.exp };
+  const signature = await hmacSha256Base64Url(binding.secret, `${version}.${payload}`);
+  return { token: `${version}.${payload}.${signature}`, expiresAt: claims.exp };
 }
 
 export type ConfirmationFailure =
@@ -115,6 +124,7 @@ export type ConfirmationFailure =
   | "principal_mismatch"
   | "capability_mismatch"
   | "input_mismatch"
+  | "approval_mode_mismatch"
   | "already_used";
 
 export type ConfirmationVerification =
@@ -131,12 +141,13 @@ export async function verifyConfirmationToken(
   binding: ConfirmationBinding,
 ): Promise<ConfirmationVerification> {
   const parts = token.split(".");
-  if (parts.length !== 3 || parts[0] !== TOKEN_VERSION) {
+  const version = confirmationTokenVersion(binding);
+  if (parts.length !== 3 || parts[0] !== version) {
     return { ok: false, reason: "malformed" };
   }
   const [, payload, signature] = parts;
 
-  const expected = await hmacSha256Base64Url(binding.secret, `${TOKEN_VERSION}.${payload}`);
+  const expected = await hmacSha256Base64Url(binding.secret, `${version}.${payload}`);
   if (!timingSafeEqual(signature, expected)) {
     return { ok: false, reason: "bad_signature" };
   }
@@ -155,11 +166,18 @@ export async function verifyConfirmationToken(
   if (claims.exp < now) return { ok: false, reason: "expired" };
   if (claims.p !== binding.principal) return { ok: false, reason: "principal_mismatch" };
   if (claims.c !== binding.capability) return { ok: false, reason: "capability_mismatch" };
+  if (claims.m !== binding.approvalMode) {
+    return { ok: false, reason: "approval_mode_mismatch" };
+  }
   if (claims.i !== (await sha256Base64Url(binding.canonicalInput))) {
     return { ok: false, reason: "input_mismatch" };
   }
 
   return { ok: true, signature, expiresAt: claims.exp };
+}
+
+function confirmationTokenVersion(binding: ConfirmationBinding): string {
+  return binding.approvalMode ? DURABLE_TOKEN_VERSION : STATELESS_TOKEN_VERSION;
 }
 
 // ---------------------------------------------------------------------------

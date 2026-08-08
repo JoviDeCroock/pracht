@@ -765,14 +765,22 @@ async function enforceDestructiveConfirmation<TContext>(
     };
   }
   const canonicalInput = canonicalJson(validatedInput);
-  const binding = { secret, principal: confirmationPrincipal, capability: name, canonicalInput };
+  const binding = {
+    secret,
+    principal: confirmationPrincipal,
+    capability: name,
+    canonicalInput,
+    ...(store ? { approvalMode: mode } : {}),
+  };
   const presented = options.request.headers.get(CONFIRMATION_HEADER);
   const ttlSeconds = options.agents?.confirmation?.ttlSeconds ?? DEFAULT_CONFIRMATION_TTL_SECONDS;
 
   // Proposal identity is derived from what the operation *is*, so repeated
   // prepares address one proposal instead of accumulating one per token.
   const inputHash = store ? await sha256Base64Url(canonicalInput) : null;
-  const approvalId = inputHash ? await capabilityApprovalId(principal, name, inputHash) : null;
+  const approvalId = inputHash
+    ? await capabilityApprovalId(secret, principal, name, inputHash, mode)
+    : null;
 
   if (!presented) {
     let expiresAtLimit = 0;
@@ -785,6 +793,7 @@ async function enforceDestructiveConfirmation<TContext>(
           capability: name,
           inputHash,
           input: validatedInput,
+          requiresApproval: mode === "human",
           createdAt: now,
           expiresAt: now + ttlSeconds,
           state: "pending",
@@ -845,7 +854,7 @@ async function enforceDestructiveConfirmation<TContext>(
 
   if (store && approvalId) {
     const consumed = await withApprovalStore(name, options.exposeErrors, () =>
-      store.consume(approvalId, { requireApproval: mode === "human" }),
+      store.consume(approvalId),
     );
     if (!consumed.ok) return consumed.failure;
 

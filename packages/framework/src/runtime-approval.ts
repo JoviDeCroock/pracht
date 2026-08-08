@@ -17,11 +17,13 @@
  * Bot Auth or `setCapabilityApprovalPrincipalResolver()` before an out-of-band
  * decision can authorize the operation.
  *
- * The wire protocol does not change: callers still just echo the confirmation
- * token they were handed.
+ * The caller interaction does not change: callers still just echo the
+ * confirmation token they were handed. Store-backed tokens use a distinct
+ * version and bind the approval mode so older or differently configured
+ * replicas reject them instead of bypassing the store.
  */
 
-import { hmacSha256Base64Url, sha256Base64Url } from "./runtime-confirmation.ts";
+import { hmacSha256Base64Url, type CapabilityConfirmationMode } from "./runtime-confirmation.ts";
 import type {
   CapabilityApprovalConsumeResult,
   CapabilityApprovalPrincipalResolver,
@@ -108,18 +110,23 @@ export async function resolveCapabilityApprovalPrincipal<TContext>(options: {
 }
 
 /**
- * The proposal id for one destructive operation: base64url SHA-256 over the
- * principal, the capability name, and the input hash. Deriving it rather than
- * generating one means two prepare calls for the same operation address the
- * same proposal — a person approves the action, not a token — and no
- * client-supplied value ever selects a proposal.
+ * The proposal id for one destructive operation: a secret-keyed digest over
+ * the principal, capability name, input hash, and approval mode. Deriving it
+ * means two prepare calls for the same operation address the same proposal,
+ * while keying it keeps caller-visible ids from revealing low-entropy
+ * application principals through offline guessing.
  */
 export async function capabilityApprovalId(
+  confirmationSecret: string,
   principal: string,
   capability: string,
   inputHash: string,
+  approvalMode: CapabilityConfirmationMode,
 ): Promise<string> {
-  return sha256Base64Url(JSON.stringify([principal, capability, inputHash]));
+  return hmacSha256Base64Url(
+    confirmationSecret,
+    `pracht-approval-id:${JSON.stringify([principal, capability, inputHash, approvalMode])}`,
+  );
 }
 
 export interface MemoryApprovalStoreOptions {
@@ -190,7 +197,7 @@ export function createMemoryApprovalStore(
 
     // Read and write with no await in between: on a single-threaded runtime
     // that is the compare-and-set the store contract requires.
-    async consume(id, consumeOptions): Promise<CapabilityApprovalConsumeResult> {
+    async consume(id): Promise<CapabilityApprovalConsumeResult> {
       const timestamp = now();
       const record = records.get(id);
       if (!record) return { ok: false, reason: "unknown" };
@@ -200,7 +207,7 @@ export function createMemoryApprovalStore(
       }
       if (record.state === "consumed") return { ok: false, reason: "already_used" };
       if (record.state === "rejected") return { ok: false, reason: "rejected" };
-      if (consumeOptions.requireApproval && record.state !== "approved") {
+      if (record.requiresApproval && record.state !== "approved") {
         return { ok: false, reason: "awaiting_approval" };
       }
       const consumed: CapabilityApprovalRecord = {

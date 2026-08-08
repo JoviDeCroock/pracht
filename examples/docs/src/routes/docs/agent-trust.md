@@ -90,7 +90,7 @@ Two things a stateless HMAC cannot do on its own: stop a captured token being re
 
 ## Durable Approvals
 
-Register a store and prepare records a **proposal**; commit consumes it exactly once. The wire protocol is unchanged — callers still just echo the token they were handed.
+Register a store and prepare records a **proposal**; commit consumes it exactly once. Callers still just echo the token they were handed. Store-backed tokens use a distinct version and bind the approval mode, so an older replica or one still configured for token mode rejects a human-mode token instead of bypassing the store or approval decision.
 
 ```ts [src/server/approvals.ts]
 import {
@@ -108,7 +108,7 @@ setCapabilityApprovalPrincipalResolver<{ user: { id: string } }>(
 
 Import this setup from a server entry or registered server-only module. The resolver runs after middleware and must return a stable authenticated user or tenant id, never caller-controlled input. When Web Bot Auth is present, the proposal binds both the application user and verified agent. The raw application identity stays in the server-side approval record; caller-visible confirmation tokens bind a secret-keyed digest instead of exposing it.
 
-The proposal id is derived server-side from the principal, the capability, and the canonicalized input — never supplied by a caller. Repeated prepares address one proposal, so a person approves *the action* rather than one particular token. The HMAC is verified before the store is touched, so a forged token can never destroy a live proposal.
+The proposal id is a secret-keyed digest derived server-side from the principal, capability, canonicalized input, and approval mode — never supplied by a caller. Keying prevents caller-visible ids from revealing low-entropy application user or tenant ids through offline guessing. Repeated prepares for the same operation and mode address one proposal, so a person approves *the action* rather than one particular token. The HMAC is verified before the store is touched, so a forged token can never destroy a live proposal.
 
 `agents.confirmation.mode` picks who decides:
 
@@ -151,7 +151,7 @@ Every method participates in the approval boundary. A production adapter should 
 | `create(record)` | Insert atomically. On a live id conflict, return the stored proposal unchanged; replace it only after expiry. A repeated prepare must not reset a decision, resurrect a consumed proposal, or extend its lifetime. |
 | `get(id)` / `listPending()` | Return snapshots rather than mutable references to backing state. `listPending()` includes only unexpired proposals still awaiting a decision. |
 | `decide(id, decision, by)` | Atomically move an unexpired `pending` proposal to `approved` or `rejected`. Refuse unknown, expired, already-decided, or consumed proposals. |
-| `consume(id, { requireApproval })` | Compare-and-set the eligible proposal to `consumed`. When approval is required, only `approved` is eligible; otherwise `pending` or `approved` may be consumed. Concurrent commits must produce exactly one success. |
+| `consume(id)` | Compare-and-set the eligible proposal to `consumed`, enforcing the proposal's stored `requiresApproval` value. When approval is required, only `approved` is eligible; otherwise `pending` or `approved` may be consumed. Concurrent commits must produce exactly one success. |
 
 Approval records contain the validated capability input and the raw application principal so a reviewer can understand who requested what. Treat both as sensitive server-side data: protect review endpoints with your own authentication and authorization, avoid logging records wholesale, and apply retention or deletion after expiry according to your application's policy.
 

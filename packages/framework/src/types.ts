@@ -655,13 +655,13 @@ export type CapabilityApprovalState = "pending" | "approved" | "rejected" | "con
 
 /**
  * One pending destructive operation, keyed by what it *is* rather than by the
- * token that happened to be minted for it: `id` is a digest of the principal,
- * the capability name, and the canonicalized input. Repeated prepare calls for
- * the same operation therefore address the same proposal, so a person approves
- * an action rather than one particular token.
+ * token that happened to be minted for it: `id` is a secret-keyed digest of the
+ * principal, capability name, canonicalized input, and approval mode. Repeated
+ * prepare calls for the same operation and mode therefore address the same
+ * proposal, so a person approves an action rather than one particular token.
  */
 export interface CapabilityApprovalRecord {
-  /** Derived from principal + capability + input hash; never client-supplied. */
+  /** Secret-keyed from principal + capability + input hash + mode; never client-supplied. */
   id: string;
   /** Verified agent and/or application identity, or `"anonymous"` in token mode. */
   principal: string;
@@ -670,6 +670,8 @@ export interface CapabilityApprovalRecord {
   inputHash: string;
   /** The validated input, so a reviewer can see what they are approving. */
   input: unknown;
+  /** Whether this proposal must be approved before it can be consumed. */
+  requiresApproval: boolean;
   /** Unix seconds. */
   createdAt: number;
   /** Unix seconds; the proposal is dead after this even if still stored. */
@@ -740,11 +742,8 @@ export interface CapabilityApprovalStore {
    * expired, or already decided or consumed.
    */
   decide(id: string, decision: "approved" | "rejected", by: string): Promise<boolean>;
-  /** Atomically mark a proposal consumed. See the concurrency note above. */
-  consume(
-    id: string,
-    options: { requireApproval: boolean },
-  ): Promise<CapabilityApprovalConsumeResult>;
+  /** Atomically consume an eligible proposal, enforcing its stored approval requirement. */
+  consume(id: string): Promise<CapabilityApprovalConsumeResult>;
 }
 
 export interface PrachtAgentsConfig {
