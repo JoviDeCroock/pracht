@@ -22,6 +22,7 @@ interface RuntimeApiHandler {
 }
 
 const HTTP_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"] as const;
+const BODYLESS_METHODS = new Set(["GET", "HEAD"]);
 
 export interface GenerateOpenApiOptions {
   info: OpenApiInfo;
@@ -204,7 +205,7 @@ async function buildOperation({
   const parameters = buildParameters(route, schemas, options, method, warn);
   if (parameters.length > 0) operation.parameters = parameters;
 
-  if (schemas?.body) {
+  if (schemas?.body && !BODYLESS_METHODS.has(method.toUpperCase())) {
     const schema = resolveSchema(schemas.body, "input", false, options, route, method, warn);
     if (schema) {
       operation.requestBody = {
@@ -265,7 +266,7 @@ function buildResponses(
 ): Record<string, OpenApiResponseObject> {
   const responses: Record<string, OpenApiResponseObject> = {};
 
-  if (schemas?.body) {
+  if (schemas?.body && !BODYLESS_METHODS.has(method.toUpperCase())) {
     responses["400"] = validationResponse("Request body could not be parsed.");
   }
   if (schemas?.body || schemas?.query || schemas?.params) {
@@ -325,12 +326,12 @@ function buildParameters(
     : undefined;
   const paramProperties = objectProperties(paramsSchema);
 
-  for (const name of pathParameterNames(route.path)) {
+  for (const { name, schemaName } of pathParameters(route.path)) {
     parameters.push({
       name,
       in: "path",
       required: true,
-      schema: paramProperties?.[name] ?? { type: "string" },
+      schema: paramProperties?.[schemaName] ?? { type: "string" },
     });
   }
 
@@ -430,13 +431,16 @@ function objectProperties(schema: OpenApiSchema | undefined): Record<string, Ope
   return properties;
 }
 
-function pathParameterNames(path: string): string[] {
-  const names: string[] = [];
+function pathParameters(path: string): Array<{ name: string; schemaName: string }> {
+  const parameters: Array<{ name: string; schemaName: string }> = [];
   for (const segment of path.split("/")) {
-    if (segment.startsWith(":")) names.push(segment.slice(1));
-    if (segment === "*") names.push("path");
+    if (segment.startsWith(":")) {
+      const name = segment.slice(1);
+      parameters.push({ name, schemaName: name });
+    }
+    if (segment === "*") parameters.push({ name: "path", schemaName: "*" });
   }
-  return names;
+  return parameters;
 }
 
 function toOpenApiPath(path: string): string {

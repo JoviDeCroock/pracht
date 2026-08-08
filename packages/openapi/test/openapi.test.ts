@@ -222,6 +222,55 @@ describe("generateOpenApiDocument", () => {
     });
   });
 
+  it("does not document request bodies or parse errors for bodyless methods", async () => {
+    const body = standardSchema({ type: "object", properties: { value: { type: "string" } } });
+    const handler = defineOpenApi(defineApi({ body, handler: () => ({ ok: true }) }), {
+      responses: { 200: { description: "Success" } },
+    });
+    const result = await generateOpenApiDocument({
+      info: { title: "Example", version: "1.0.0" },
+      routes: [graphRoute({ methods: ["GET"] })],
+      loadModule: async () => ({ GET: handler }),
+    });
+
+    const operation = result.document.paths["/api/items/{id}"]?.get;
+    expect(operation?.requestBody).toBeUndefined();
+    expect(operation?.responses["400"]).toBeUndefined();
+    expect(operation?.responses["422"]).toEqual(
+      expect.objectContaining({ description: "Request validation failed." }),
+    );
+  });
+
+  it("preserves catch-all parameter schema constraints from the runtime wildcard key", async () => {
+    const params = standardSchema({
+      type: "object",
+      properties: { "*": { type: "string", pattern: "^docs/" } },
+    });
+    const handler = defineOpenApi(defineApi({ params, handler: () => ({ ok: true }) }), {
+      responses: { 200: { description: "Success" } },
+    });
+    const result = await generateOpenApiDocument({
+      info: { title: "Example", version: "1.0.0" },
+      routes: [
+        graphRoute({
+          file: "/src/api/files/[...path].ts",
+          methods: ["GET"],
+          path: "/api/files/*",
+        }),
+      ],
+      loadModule: async () => ({ GET: handler }),
+    });
+
+    expect(result.document.paths["/api/files/{path}"]?.get?.parameters).toEqual([
+      {
+        name: "path",
+        in: "path",
+        required: true,
+        schema: { type: "string", pattern: "^docs/" },
+      },
+    ]);
+  });
+
   it("emits an honest fallback and warnings for undocumented or unloadable handlers", async () => {
     const onWarning = vi.fn();
     const result = await generateOpenApiDocument({
