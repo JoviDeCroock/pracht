@@ -305,11 +305,22 @@ not shared across replicas. For a real deployment, implement
 `CapabilityApprovalStore` over a backend with **conditional writes**:
 
 ```sql
--- create(): insert-if-absent; never update a live/decided/consumed row.
+-- create(): insert if absent, or replace only an expired row.
 INSERT INTO pracht_approvals (...)
 VALUES (...)
-ON CONFLICT (id) DO NOTHING;
--- Then return the inserted row or the unchanged conflicting row.
+ON CONFLICT (id) DO UPDATE
+   SET principal = EXCLUDED.principal,
+       capability = EXCLUDED.capability,
+       input_hash = EXCLUDED.input_hash,
+       input = EXCLUDED.input,
+       created_at = EXCLUDED.created_at,
+       expires_at = EXCLUDED.expires_at,
+       state = EXCLUDED.state,
+       decided_by = EXCLUDED.decided_by,
+       decided_at = EXCLUDED.decided_at
+ WHERE pracht_approvals.expires_at < ?now;
+-- Return the inserted/replaced row; if no row was returned, read and return
+-- the unchanged live conflicting row.
 
 -- consume(): compare-and-set.
 UPDATE pracht_approvals
