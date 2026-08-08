@@ -68,6 +68,8 @@ export interface PrachtPluginOptions {
    * variables, or `false` to disable the check entirely.
    */
   envSafety?: false | EnvSafetyOptions;
+  /** Enforce .server.* / .client.* files and core boundary markers. Enabled by default. */
+  importBoundaries?: boolean;
   /**
    * Opt into emitting an llms.txt file (https://llmstxt.org) generated from
    * the resolved app graph. `pracht build` writes `dist/client/llms.txt` and
@@ -95,6 +97,7 @@ const DEFAULTS: ResolvedPrachtPluginOptions = {
   budgets: {},
   precompileSsrJsx: false,
   envSafety: {},
+  importBoundaries: true,
   llmsTxt: false,
 };
 
@@ -107,6 +110,9 @@ export function resolveOptions(options: PrachtPluginOptions): ResolvedPrachtPlug
   // spread over the `false` default — treat it as disabled, not invalid.
   if (resolved.llmsTxt === undefined) {
     resolved.llmsTxt = false;
+  }
+  if (resolved.importBoundaries === undefined) {
+    resolved.importBoundaries = true;
   }
   if (!Number.isInteger(resolved.prerenderConcurrency) || resolved.prerenderConcurrency <= 0) {
     throw new Error("pracht({ prerenderConcurrency }) expects a positive integer.");

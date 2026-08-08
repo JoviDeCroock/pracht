@@ -10,6 +10,8 @@ export default defineConfig({
     "src/env.ts",
     "src/env-server.ts",
     "src/env-server.browser.ts",
+    "src/server-only.ts",
+    "src/client-only.ts",
     "src/server.ts",
     "src/islands-client.ts",
     "src/error-overlay.ts",

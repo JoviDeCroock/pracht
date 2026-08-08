@@ -4,6 +4,17 @@ import { describe, expect, it } from "vitest";
 import { createPrachtServerModuleSource } from "../src/plugin-codegen.ts";
 import { resolveOptions } from "../src/plugin-options.ts";
 
+describe("resolveOptions import boundaries", () => {
+  it("defaults to enabled, including when undefined is spread explicitly", () => {
+    expect(resolveOptions({}).importBoundaries).toBe(true);
+    expect(resolveOptions({ importBoundaries: undefined }).importBoundaries).toBe(true);
+  });
+
+  it("supports a migration escape hatch", () => {
+    expect(resolveOptions({ importBoundaries: false }).importBoundaries).toBe(false);
+  });
+});
+
 describe("resolveOptions budgets", () => {
   it("defaults to no budgets", () => {
     expect(resolveOptions({}).budgets).toEqual({});

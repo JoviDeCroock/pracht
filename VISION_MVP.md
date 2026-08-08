@@ -36,6 +36,9 @@ Pracht is a full-stack Preact framework built on Vite. It draws routing and rend
 - **Route groups**: inherit shell, middleware, render mode, and path prefix.
 - **Navigation UX**: automatic scroll restoration, link prefetching
   (`intent`/`viewport`/`render`), and opt-in View Transitions.
+- **Import graph boundaries**: client builds reject `.server.*` modules and
+  `server-only` markers; server builds reject `.client.*` modules and
+  `client-only` markers, with importer-aware diagnostics.
 
 ### Rendering Modes
 

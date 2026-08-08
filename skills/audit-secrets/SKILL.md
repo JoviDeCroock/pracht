@@ -1,6 +1,6 @@
 ---
 name: audit-secrets
-version: 1.1.0
+version: 1.2.0
 description: |
   Detect environment variables and secrets that leak from the server into
   the client bundle via loader return values, hydration state, or accidental
@@ -37,6 +37,8 @@ Pracht has built-in env leak detection (see `docs/ENV.md`):
 - `pracht verify` (and `pracht doctor`) check the build-time env-safety report
   and re-run the literal chunk scan against an existing `dist/client` output.
 - Client-side imports of `@pracht/core/env/server` (`serverEnv`) fail the build.
+- The build enforces `.server.*` / `.client.*` filenames and
+  `@pracht/core/server-only` / `@pracht/core/client-only` markers.
 
 Run `pracht verify` or `pracht doctor` (or a build) first and fold the
 findings into the report.
@@ -74,6 +76,10 @@ risk in the report.
 
 ## Step 3: Module import boundaries
 
+Run a build first so native import-boundary violations are reported with the
+restricted module, importer, and target graph. Check for
+`importBoundaries: false` in `vite.config.*`; disabling the gate is a finding.
+
 Grep client-rendered files (route components, shells, anything imported from
 them) for imports of:
 
@@ -86,8 +92,10 @@ The Vite plugin strips the server-only exports `loader`, `head`, `headers`,
 `getStaticPaths`, and `markdown` from route files when serving the client
 query (`middleware` is not a route-file export — middleware lives in the
 manifest); see the client module transform notes in `docs/ARCHITECTURE.md`
-and `docs/ENV.md`. But a component that imports `../server/db` will still
-pull `db` into the client bundle. Flag those imports.
+and `docs/ENV.md`. Prefer renaming sensitive modules to `.server.*` or adding
+the `server-only` marker so the build makes the boundary durable. A component
+that imports an unmarked `../server/db` can still pull it into the client
+bundle; flag those imports.
 
 ## Step 4: Hidden surfaces
 
@@ -136,6 +144,7 @@ Severities:
 - `error` — `PRACHT_PUBLIC_*_SECRET` style client-public or allowlisted `VITE_*_SECRET`
   secret-shaped name.
 - `error` — `envSafety: false` or an allowlisted name that looks secret-shaped.
+- `error` — `importBoundaries: false` without a documented migration window.
 - `warn` — spread of a row that may contain secret columns.
 - `warn` — client component imports a module that reads `process.env`.
 - `info` — header value that looks like a token.

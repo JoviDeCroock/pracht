@@ -520,6 +520,9 @@ The published core package also exposes small browser-oriented entries:
   browser condition points at a throwing stub as a backstop for other bundlers.
 - The root `@pracht/core` export has a browser condition that points at a
   client-safe public entry for route and shell modules.
+- `@pracht/core/server-only` and `@pracht/core/client-only` are side-effect
+  markers enforced by the Vite plugin, alongside `.server.*` and `.client.*`
+  filename conventions. See [IMPORT_BOUNDARIES.md](IMPORT_BOUNDARIES.md).
 
 **Important:** `runtime.ts` imports `resolveApp` and `buildPathFromSegments` directly from
 `app.ts` via a static import. Earlier versions used `await import("./app.ts")` dynamic
