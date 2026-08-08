@@ -853,6 +853,63 @@ export async function main() {
     }
   }, 60_000);
 
+  it("keeps the nested capability client usable before typegen", () => {
+    const appDir = createRepoTempDir("pracht-cli-untyped-capability-client-");
+
+    writeProjectFile(
+      appDir,
+      "src/capability-consumer.ts",
+      `import { capabilities } from "virtual:pracht/capabilities";
+
+export async function browser() {
+  const result = await capabilities.notes.search<{ notes: string[] }>({ query: "roadmap" });
+  if (result.ok) {
+    const _notes: string[] = result.data.notes;
+  }
+
+  const namespace = Math.random() > 0.5 ? "notes" : "projects";
+  await capabilities[namespace].search({ query: "dynamic" });
+}
+`,
+    );
+    writeProjectFile(
+      appDir,
+      "tsconfig.json",
+      JSON.stringify(
+        {
+          compilerOptions: {
+            target: "ES2022",
+            module: "ESNext",
+            moduleResolution: "Bundler",
+            noEmit: true,
+            strict: true,
+            skipLibCheck: true,
+            lib: ["ES2022", "DOM", "DOM.Iterable"],
+            paths: {
+              "@pracht/core": [coreDistTypesPath],
+              "@pracht/capabilities": [capabilitiesDistTypesPath],
+              "@standard-schema/spec": [standardSchemaImportPath],
+            },
+          },
+          files: [virtualTypesPath],
+          include: ["src"],
+        },
+        null,
+        2,
+      ),
+    );
+
+    try {
+      execFileSync(process.execPath, [tscPath, "-p", "."], {
+        cwd: appDir,
+        encoding: "utf-8",
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+    } catch (error) {
+      throw new Error(error.stdout || error.stderr || error.message);
+    }
+  }, 60_000);
+
   it("generated capability types make the client APIs type-safe end to end", () => {
     const appDir = createRepoTempDir("pracht-cli-typegen-capability-types-");
     writeTypedManifestApp(appDir, { capabilities: true });

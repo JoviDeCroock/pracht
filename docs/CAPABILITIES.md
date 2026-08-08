@@ -200,10 +200,12 @@ const same = await capabilities.notes.create({ title });
 ```
 
 Both forms take the identical path (endpoint table, settled event,
-revalidation); `capabilities` is a nested view of the same call. Once
-`pracht typegen` has run, both infer input and output from the capability name,
-private capabilities are absent, and a `destructive` capability must explicitly
-prepare for a token or provide that token to commit.
+revalidation); `capabilities` is a nested view of the same call. Before typegen,
+both keep permissive fallbacks: names and inputs are unchecked, and the nested
+client's output defaults to `unknown` (or an explicit result type argument).
+Once `pracht typegen` has run, both infer input and output from the capability
+name, private capabilities are absent, and a `destructive` capability must
+explicitly prepare for a token or provide that token to commit.
 
 Prefer the nested client when you are typing a name by hand: its members are
 real property accesses, so a typo gets `Did you mean 'search'?`. A string

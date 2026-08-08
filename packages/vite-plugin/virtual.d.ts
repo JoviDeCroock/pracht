@@ -138,8 +138,19 @@ declare module "virtual:pracht/capabilities" {
    */
   export const capabilities: PrachtCapabilityClient;
 
-  /** Dotted names expanded into nested namespaces, http-exposed only. */
-  export type PrachtCapabilityClient = CapabilityClientNode<HttpCapabilityName>;
+  /**
+   * Dotted names expanded into nested namespaces, http-exposed only. Before
+   * typegen has run, every segment stays callable with unknown input/output —
+   * the nested counterpart of `callCapability`'s untyped fallback.
+   */
+  export type PrachtCapabilityClient = HasRegisteredCapabilities extends true
+    ? CapabilityClientNode<HttpCapabilityName>
+    : Record<string, UntypedCapabilityClientNode>;
+
+  interface UntypedCapabilityClientNode {
+    <T = unknown>(input?: unknown, opts?: CallCapabilityOptions): Promise<CapabilityEnvelope<T>>;
+    [segment: string]: UntypedCapabilityClientNode;
+  }
 
   type CapabilityMethod<TName extends string> = (
     ...args: CapabilityInputArgs<TName, OptionsFor<TName>>
