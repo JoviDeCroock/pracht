@@ -54,6 +54,7 @@ my-app/
   src/
     routes.ts          # Route manifest (the central wiring file)
     routes/home.tsx    # First page component + loader
+    routes/not-found.tsx # Not-found page, wired from the manifest
     shells/public.tsx  # Layout wrapper
     api/health.ts      # Sample API endpoint
   vite.config.ts       # Vite + pracht plugin config
@@ -67,6 +68,7 @@ my-app/
   src/
     pages/_app.tsx     # App shell
     pages/index.tsx    # First page component + loader
+    pages/404.tsx      # Not-found page, wired automatically
     api/health.ts      # Sample API endpoint
   vite.config.ts       # Vite + pracht plugin config
   package.json

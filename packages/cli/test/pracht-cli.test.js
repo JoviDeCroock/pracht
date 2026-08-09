@@ -197,6 +197,80 @@ export const app = defineApp({
     expect(report.checks.some((check) => check.message.includes("missing files"))).toBe(true);
   });
 
+  it.each(["404.tsx", "404/index.tsx"])(
+    "reports a pages-router %s as the not-found page instead of a route",
+    (notFoundFile) => {
+      const appDir = createTempDir("pracht-cli-doctor-pages-not-found-");
+      writePagesApp(appDir);
+      writeProjectFile(appDir, "src/pages/_app.tsx", "export function Shell() { return null; }");
+      writeProjectFile(
+        appDir,
+        "src/pages/index.tsx",
+        "export function Component() { return null; }",
+      );
+      writeProjectFile(
+        appDir,
+        `src/pages/${notFoundFile}`,
+        "export function Component() { return null; }",
+      );
+
+      const result = runCli(["doctor", "--json"], { cwd: appDir });
+      const report = JSON.parse(result.stdout);
+
+      expect(report.ok).toBe(true);
+      expect(report.checks.some((check) => check.message === "Found 1 page route.")).toBe(true);
+      expect(
+        report.checks.some((check) => check.message === "Found a pages-router not-found page."),
+      ).toBe(true);
+      expect(report.checks.some((check) => check.message === "Found 2 page routes.")).toBe(false);
+    },
+  );
+
+  it("rejects multiple pages-router not-found files", () => {
+    const appDir = createTempDir("pracht-cli-doctor-pages-not-found-duplicate-");
+    writePagesApp(appDir);
+    writeProjectFile(appDir, "src/pages/index.tsx", "export function Component() { return null; }");
+    writeProjectFile(appDir, "src/pages/404.tsx", "export function Component() { return null; }");
+    writeProjectFile(
+      appDir,
+      "src/pages/404/index.tsx",
+      "export function Component() { return null; }",
+    );
+
+    const result = runCliStatus(["doctor", "--json"], { cwd: appDir });
+    expect(result.status).toBe(1);
+
+    const report = JSON.parse(result.stdout);
+    expect(report.ok).toBe(false);
+    expect(report.checks.some((check) => check.message.includes("multiple not-found pages"))).toBe(
+      true,
+    );
+  });
+
+  it("rejects a second pages-router not-found file in changed verification", () => {
+    const appDir = createTempDir("pracht-cli-verify-pages-not-found-duplicate-");
+    writePagesApp(appDir);
+    writeProjectFile(appDir, "src/pages/index.tsx", "export function Component() { return null; }");
+    writeProjectFile(appDir, "src/pages/404.tsx", "export function Component() { return null; }");
+    initializeGitRepo(appDir);
+    writeProjectFile(
+      appDir,
+      "src/pages/404/index.tsx",
+      "export function Component() { return null; }",
+    );
+
+    const result = runCliStatus(["verify", "--changed", "--json"], { cwd: appDir });
+    expect(result.status).toBe(1);
+
+    const report = JSON.parse(result.stdout);
+    expect(report.ok).toBe(false);
+    expect(report.scope).toBe("changed");
+    expect(report.frameworkFiles).toContain("src/pages/404/index.tsx");
+    expect(report.checks.some((check) => check.message.includes("multiple not-found pages"))).toBe(
+      true,
+    );
+  });
+
   it("reports a healthy manifest app in verify json output", () => {
     const appDir = createTempDir("pracht-cli-verify-ok-");
     writeManifestApp(appDir, {

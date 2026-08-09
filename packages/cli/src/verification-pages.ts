@@ -5,6 +5,7 @@ import { normalizeRoutePath, PAGE_SOURCE_RE } from "./verification-helpers.js";
 
 export type PagesFile =
   | { file: string; kind: "shell" }
+  | { file: string; kind: "not-found" }
   | { file: string; kind: "ignored" }
   | PagesRoute;
 
@@ -33,11 +34,15 @@ export function describePagesFile(pagesDir: string, file: string): PagesFile {
     return { file, kind: "ignored" };
   }
 
+  const withoutIndex = routePath.replace(/\/index$/, "");
+  if (withoutIndex === "404") {
+    return { file, kind: "not-found" };
+  }
+
   if (routePath === "index") {
     return { file, kind: "route", routePath: "/" };
   }
 
-  const withoutIndex = routePath.replace(/\/index$/, "");
   const normalized = withoutIndex
     .replace(/\[\.\.\.([^\]]+)\]/g, "*")
     .replace(/\[([^\].]+)\]/g, ":$1");

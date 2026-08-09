@@ -196,6 +196,7 @@ export function collectPagesVerification(
 
   const pages = scanPagesDirectory(pagesDir);
   const routes = pages.filter((page) => page.kind === "route");
+  const notFoundPages = pages.filter((page) => page.kind === "not-found");
   const duplicates = collectDuplicateRoutePaths(routes as PagesRoute[]).map((entry) => ({
     ...entry,
     files: entry.files.map((file) => displayPath(project.root, file)),
@@ -218,8 +219,23 @@ export function collectPagesVerification(
     } else {
       checks.push(createCheck("ok", "Found a pages-router `_app` shell."));
     }
+
+    if (notFoundPages.length === 1) {
+      checks.push(createCheck("ok", "Found a pages-router not-found page."));
+    }
   } else {
     collectChangedPagesChecks(project, checks, pagesDir, changedFiles);
+  }
+
+  if (notFoundPages.length > 1) {
+    checks.push(
+      createCheck(
+        "error",
+        `Pages router resolves multiple not-found pages: ${notFoundPages
+          .map((page) => JSON.stringify(displayPath(project.root, page.file)))
+          .join(", ")}. Only one file may resolve to "/404".`,
+      ),
+    );
   }
 
   if (duplicates.length > 0) {
@@ -281,6 +297,16 @@ function collectChangedPagesChecks(
         createCheck(
           "warning",
           `Changed pages file ${JSON.stringify(display)} is ignored by the pages router.`,
+        ),
+      );
+      continue;
+    }
+
+    if (page.kind === "not-found") {
+      checks.push(
+        createCheck(
+          "ok",
+          `Changed pages not-found file ${JSON.stringify(display)} is wired automatically.`,
         ),
       );
       continue;

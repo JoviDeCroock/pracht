@@ -49,11 +49,20 @@ describe("create-pracht", () => {
     });
 
     const packageJson = await readFile(join(targetDir, "package.json"), "utf-8");
+    const parsedPackageJson = JSON.parse(packageJson);
     const gitignore = await readFile(join(targetDir, ".gitignore"), "utf-8");
     const routes = await readFile(join(targetDir, "src/routes.ts"), "utf-8");
 
     expect(packageJson).toMatch(/"@pracht\/cli": "\^\d+\.\d+\.\d+"/);
     expect(packageJson).toMatch(/"@pracht\/adapter-node": "\^\d+\.\d+\.\d+"/);
+    expect(parsedPackageJson.dependencies).toMatchObject({
+      "@pracht/adapter-node": "^0.3.8",
+      "@pracht/core": "^0.12.0",
+    });
+    expect(parsedPackageJson.devDependencies).toMatchObject({
+      "@pracht/cli": "^1.9.0",
+      "@pracht/vite-plugin": "^0.7.6",
+    });
     expect(packageJson).toContain('"preview": "pracht preview"');
     expect(packageJson).toContain('"start": "node dist/server/server.js"');
     expect(packageJson).toContain('"typecheck": "tsc --noEmit"');
@@ -65,7 +74,16 @@ describe("create-pracht", () => {
     expect(gitignore).not.toContain("\n.pracht\n");
     expect(gitignore).toContain("Keep .pracht/app-graph.json committed");
     expect(routes).toContain('route("/", "./routes/home.tsx"');
-    expect(routes).toContain('// notFound: "./routes/not-found.tsx",');
+    expect(routes).toContain('component: "./routes/not-found.tsx",');
+    expect(routes).toContain('shell: "public",');
+    expect(routes).not.toContain("// notFound:");
+
+    const notFound = await readFile(join(targetDir, "src/routes/not-found.tsx"), "utf-8");
+    expect(notFound).toContain("Page not found.");
+    expect(notFound).toContain('<a href="/">Back to home</a>');
+    expect(notFound).toContain('content: "noindex", name: "robots"');
+    expect(notFound).toContain("Use a typed <Link>");
+    expect(notFound).not.toContain('route="home"');
     expect(routes).toContain("// constraints: [");
     expect(routes).toContain('//   requireHead("**"),');
     expect(existsSync(join(targetDir, "wrangler.jsonc"))).toBe(false);
@@ -281,6 +299,8 @@ describe("create-pracht", () => {
     expect(viteConfig).toContain('pagesDir: "/src/pages"');
     expect(existsSync(join(targetDir, "src/pages/index.tsx"))).toBe(true);
     expect(existsSync(join(targetDir, "src/pages/_app.tsx"))).toBe(true);
+    expect(existsSync(join(targetDir, "src/pages/404.tsx"))).toBe(true);
+    expect(existsSync(join(targetDir, "src/routes/not-found.tsx"))).toBe(false);
     expect(existsSync(join(targetDir, "src/routes.ts"))).toBe(false);
     expect(readme).toContain("src/pages/");
 
