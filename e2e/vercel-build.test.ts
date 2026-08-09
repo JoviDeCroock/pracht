@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, rmSync } from "node:fs";
 import { resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { expect, test } from "@playwright/test";
 
@@ -15,7 +15,9 @@ test("pracht build emits a deployable Vercel Build Output setup", async () => {
   const configPath = resolve(vercelDir, "config.json");
   const functionConfigPath = resolve(vercelDir, "functions/render.func/.vc-config.json");
   const serverEntryPath = resolve(vercelDir, "functions/render.func/server.js");
-  const pricingFunctionConfigPath = resolve(vercelDir, "functions/pricing.func/.vc-config.json");
+  const pricingFunctionDir = resolve(vercelDir, "functions/pricing.func");
+  const pricingFunctionConfigPath = resolve(pricingFunctionDir, ".vc-config.json");
+  const pricingFunctionEntryPath = resolve(pricingFunctionDir, "_pracht-node-entry.cjs");
   const pricingPrerenderConfigPath = resolve(vercelDir, "functions/pricing.prerender-config.json");
   const pricingFallbackPath = resolve(vercelDir, "functions/pricing.prerender-fallback.html");
   const staticIndexPath = resolve(vercelDir, "static/index.html");
@@ -91,8 +93,20 @@ test("pracht build emits a deployable Vercel Build Output setup", async () => {
     runtime: "edge",
     entrypoint: "server.js",
   });
+
+  // Vercel rejects a deployment that pairs `.prerender-config.json` with an
+  // edge function ('Unexpected function type "EdgeFunction"'), so ISG routes
+  // must be emitted as Node serverless functions.
   const pricingFunctionConfig = JSON.parse(readFileSync(pricingFunctionConfigPath, "utf-8"));
-  expect(pricingFunctionConfig).toMatchObject(functionConfig);
+  expect(pricingFunctionConfig).toMatchObject({
+    handler: "_pracht-node-entry.cjs",
+    launcherType: "Nodejs",
+    runtime: expect.stringMatching(/^nodejs\d+\.x$/),
+  });
+  expect(JSON.parse(readFileSync(resolve(pricingFunctionDir, "package.json"), "utf-8"))).toEqual({
+    type: "module",
+  });
+  expect(existsSync(resolve(pricingFunctionDir, "server.js"))).toBe(true);
 
   const pricingPrerenderConfig = JSON.parse(readFileSync(pricingPrerenderConfigPath, "utf-8"));
   expect(pricingPrerenderConfig).toMatchObject({
@@ -108,4 +122,35 @@ test("pracht build emits a deployable Vercel Build Output setup", async () => {
   expect(functionSource).toContain('buildTarget = "vercel"');
   expect(functionSource).toContain("createVercelEdgeHandler");
   expect(functionSource).toContain("async function handle(request, context)");
+  expect(functionSource).toContain("createVercelNodeListener");
+
+  // The prerender function runs on Node with the same Web-API-only bundle the
+  // edge function uses — drive its launcher the way Vercel's Node launcher
+  // does to prove the emitted function boots and renders.
+  const { default: nodeListener } = await import(pathToFileURL(pricingFunctionEntryPath).href);
+  const chunks: Buffer[] = [];
+  const responseHeaders: Record<string, string | string[]> = {};
+  const res = {
+    statusCode: 0,
+    setHeader(key: string, value: string | string[]) {
+      responseHeaders[key] = value;
+    },
+    write(chunk: Uint8Array) {
+      chunks.push(Buffer.from(chunk));
+    },
+    end() {},
+  };
+  await nodeListener(
+    {
+      headers: { host: "example.com", "x-forwarded-proto": "https" },
+      method: "GET",
+      url: "/pricing",
+      async *[Symbol.asyncIterator]() {},
+    },
+    res,
+  );
+
+  expect(res.statusCode).toBe(200);
+  expect(responseHeaders["content-type"]).toContain("text/html");
+  expect(Buffer.concat(chunks).toString("utf-8")).toContain("MVP plan");
 });

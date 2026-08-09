@@ -7,6 +7,29 @@ import { VERSION } from "./constants.js";
 
 const ROUTE_STATE_REQUEST_HEADER = "x-pracht-route-state-request";
 
+/**
+ * Vercel only accepts `.prerender-config.json` (ISR) next to a Serverless
+ * Function — pairing one with an Edge Function fails the deployment with
+ * `Unexpected function type "EdgeFunction"`. ISG routes therefore run on Node
+ * while the main handler stays on the edge; both load the same Web-API-only
+ * server bundle.
+ */
+const VERCEL_NODE_RUNTIME = "nodejs22.x";
+/**
+ * Named so it cannot collide with a chunk emitted into `dist/server`. It is
+ * CommonJS (like Next.js' `___next_launcher.cjs`) so Vercel's Node launcher can
+ * require it without relying on ES module interop; the ESM server bundle is
+ * pulled in through a dynamic import.
+ */
+const VERCEL_NODE_ENTRY_FILE = "_pracht-node-entry.cjs";
+const VERCEL_NODE_ENTRY_SOURCE = `let listener;
+
+module.exports = async (req, res) => {
+  listener ??= (await import("./server.js")).nodeListener;
+  return listener(req, res);
+};
+`;
+
 interface VercelBuildOutputOptions {
   functionName?: string;
   headersManifest?: Record<string, Record<string, string>>;
@@ -53,6 +76,7 @@ export function writeVercelBuildOutput({
     functionsDir,
     headersManifest,
     isgManifest,
+    regions,
     revalidateToken,
     staticDir,
   });
@@ -102,6 +126,7 @@ function writeVercelPrerenderFunctions({
   functionsDir,
   headersManifest,
   isgManifest,
+  regions,
   revalidateToken,
   staticDir,
 }: {
@@ -109,23 +134,22 @@ function writeVercelPrerenderFunctions({
   functionsDir: string;
   headersManifest: Record<string, Record<string, string>>;
   isgManifest: Record<string, ISGManifestEntry>;
+  regions?: string[];
   revalidateToken: string;
   staticDir: string;
 }): void {
+  // The first ISG route materializes the Node function; the rest symlink to it
+  // so that N ISG paths don't each duplicate the server bundle.
+  let sharedNodeFunctionDir: string | undefined;
+
   for (const [route, entry] of Object.entries(isgManifest)) {
     const prerenderName = routeToPrerenderFunctionName(route);
     const routeFunctionDir = join(functionsDir, `${prerenderName}.func`);
-    if (routeFunctionDir !== functionDir) {
-      mkdirSync(dirname(routeFunctionDir), { recursive: true });
-      // Symlink rather than copy so that N ISG routes don't each duplicate the
-      // full server bundle. Vercel resolves symlinked `.func` directories; fall
-      // back to a copy where symlinks aren't available (e.g. Windows without
-      // the required privileges).
-      try {
-        symlinkSync(relative(dirname(routeFunctionDir), functionDir), routeFunctionDir, "dir");
-      } catch {
-        cpSync(functionDir, routeFunctionDir, { recursive: true });
-      }
+    if (sharedNodeFunctionDir) {
+      linkVercelPrerenderFunction({ routeFunctionDir, sharedNodeFunctionDir });
+    } else {
+      writeVercelPrerenderFunction({ functionDir, regions, routeFunctionDir });
+      sharedNodeFunctionDir = routeFunctionDir;
     }
 
     const configPath = join(functionsDir, `${prerenderName}.prerender-config.json`);
@@ -154,6 +178,61 @@ function writeVercelPrerenderFunctions({
       )}\n`,
       "utf-8",
     );
+  }
+}
+
+/**
+ * Emit the Serverless Function ISG routes render through. It gets its own copy
+ * of the server bundle rather than linking to the edge function's: Node
+ * resolves a symlinked module at its real path, so a linked `server.js` would
+ * be typed by the edge function directory — which carries no ESM
+ * `package.json` — and fail to parse as CommonJS.
+ */
+function writeVercelPrerenderFunction({
+  functionDir,
+  regions,
+  routeFunctionDir,
+}: {
+  functionDir: string;
+  regions?: string[];
+  routeFunctionDir: string;
+}): void {
+  mkdirSync(dirname(routeFunctionDir), { recursive: true });
+  cpSync(functionDir, routeFunctionDir, { recursive: true });
+
+  // The bundle is ESM and Vite emits no `package.json` beside it, so without
+  // this Node would load `server.js` as CommonJS and fail to parse it.
+  writeFileSync(
+    join(routeFunctionDir, "package.json"),
+    `${JSON.stringify({ type: "module" }, null, 2)}\n`,
+    "utf-8",
+  );
+  writeFileSync(join(routeFunctionDir, VERCEL_NODE_ENTRY_FILE), VERCEL_NODE_ENTRY_SOURCE, "utf-8");
+  writeFileSync(
+    join(routeFunctionDir, ".vc-config.json"),
+    `${JSON.stringify(createVercelNodeFunctionConfig({ regions }), null, 2)}\n`,
+    "utf-8",
+  );
+}
+
+function linkVercelPrerenderFunction({
+  routeFunctionDir,
+  sharedNodeFunctionDir,
+}: {
+  routeFunctionDir: string;
+  sharedNodeFunctionDir: string;
+}): void {
+  mkdirSync(dirname(routeFunctionDir), { recursive: true });
+  // Vercel resolves symlinked `.func` directories; fall back to a copy where
+  // symlinks aren't available (e.g. Windows without the required privileges).
+  try {
+    symlinkSync(
+      relative(dirname(routeFunctionDir), sharedNodeFunctionDir),
+      routeFunctionDir,
+      "dir",
+    );
+  } catch {
+    cpSync(sharedNodeFunctionDir, routeFunctionDir, { recursive: true });
   }
 }
 
@@ -238,6 +317,25 @@ function createVercelFunctionConfig({ regions }: { regions?: string[] }): Record
   const config: Record<string, unknown> = {
     entrypoint: "server.js",
     runtime: "edge",
+  };
+
+  if (regions) {
+    config.regions = regions;
+  }
+
+  return config;
+}
+
+function createVercelNodeFunctionConfig({
+  regions,
+}: {
+  regions?: string[];
+}): Record<string, unknown> {
+  const config: Record<string, unknown> = {
+    handler: VERCEL_NODE_ENTRY_FILE,
+    launcherType: "Nodejs",
+    runtime: VERCEL_NODE_RUNTIME,
+    shouldAddHelpers: false,
   };
 
   if (regions) {

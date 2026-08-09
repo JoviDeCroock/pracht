@@ -1,4 +1,4 @@
-import { defineApp, group, route, timeRevalidate } from "@pracht/core";
+import { defineApp, group, route } from "@pracht/core";
 
 export const app = defineApp({
   shells: {
@@ -20,11 +20,12 @@ export const app = defineApp({
         render: "ssg",
       }),
 
-      // Pricing changes when plans update — ISG keeps it fast AND fresh
+      // Plans are hard-coded in this demo, so there is nothing to revalidate:
+      // SSG keeps the whole marketing shell on the CDN with no function
+      // invocation. examples/basic covers the ISG build path.
       route("/pricing", () => import("./routes/pricing.tsx"), {
         id: "pricing",
-        render: "isg",
-        revalidate: timeRevalidate(3600),
+        render: "ssg",
       }),
       route("/agents", () => import("./routes/agents.tsx"), {
         id: "agents",

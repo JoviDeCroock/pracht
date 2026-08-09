@@ -23,7 +23,7 @@ const STRENGTHS = [
 
 const AGENT_TASKS = [
   "Find every authenticated route",
-  "Convert pricing from SSR to ISG",
+  "Convert pricing from SSG to ISG",
   "Add a public docs page with SSG",
   "Audit loaders for secret leakage",
   "Generate a sitemap from the manifest",
@@ -45,7 +45,7 @@ This page is the agent-readable briefing for the Pracht showcase.
 ## Demo tasks
 
 1. Find every route protected by auth middleware.
-2. Explain why /pricing uses ISG instead of SSR.
+2. Explain why /pricing uses SSG instead of SSR.
 3. Add a new SSG docs route without changing layout folders.
 4. Audit all loaders and confirm they run server-side.
 5. Produce a deployment note for Node, Cloudflare, and Vercel.

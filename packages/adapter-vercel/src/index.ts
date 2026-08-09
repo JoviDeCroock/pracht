@@ -45,6 +45,27 @@ export interface VercelServerEntryModuleOptions {
   createContextFrom?: string;
 }
 
+/**
+ * Structural subset of Node's `IncomingMessage` used by the serverless
+ * launcher. Typed inline so this edge-targeted package keeps no dependency on
+ * `@types/node`.
+ */
+export interface VercelNodeRequest {
+  headers: Record<string, string | string[] | undefined>;
+  method?: string;
+  url?: string;
+  [Symbol.asyncIterator](): AsyncIterator<Uint8Array | string>;
+}
+
+/** Structural subset of Node's `ServerResponse` used by the serverless launcher. */
+export interface VercelNodeResponse {
+  statusCode: number;
+  statusMessage?: string;
+  setHeader(name: string, value: string | string[]): unknown;
+  write(chunk: Uint8Array): unknown;
+  end(): unknown;
+}
+
 export function createVercelEdgeHandler<
   TVercelContext extends VercelExecutionContext = VercelExecutionContext,
   TContext = TVercelContext,
@@ -69,6 +90,108 @@ export function createVercelEdgeHandler<
       jsManifest: options.jsManifest,
     } satisfies HandlePrachtRequestOptions<TContext>);
   };
+}
+
+/**
+ * Wrap a `fetch`-style handler as a Node request listener.
+ *
+ * Vercel only supports ISR (`.prerender-config.json`) on Serverless Functions,
+ * so ISG routes are deployed as Node functions even though the main handler
+ * stays on the edge. Both share the same server bundle: it is built against Web
+ * APIs only, which Node provides natively.
+ *
+ * Only web globals are used here — pulling in `node:http`/`node:stream` would
+ * break the webworker-targeted bundle the edge function is built from.
+ */
+export function createVercelNodeListener(
+  handler: (request: Request, context: VercelExecutionContext) => Promise<Response>,
+): (req: VercelNodeRequest, res: VercelNodeResponse) => Promise<void> {
+  return async (req, res) => {
+    const response = await handler(await createNodeWebRequest(req), {});
+    await writeNodeResponse(res, response);
+  };
+}
+
+const BODYLESS_METHODS = new Set(["GET", "HEAD"]);
+
+async function createNodeWebRequest(req: VercelNodeRequest): Promise<Request> {
+  const headers = new Headers();
+  for (const [key, value] of Object.entries(req.headers)) {
+    if (value === undefined) continue;
+    if (Array.isArray(value)) {
+      for (const entry of value) headers.append(key, entry);
+      continue;
+    }
+    headers.set(key, value);
+  }
+
+  // Vercel terminates TLS in front of the function and always sets the
+  // forwarded headers itself, so there is no untrusted hop to distrust here.
+  const protocol = headers.get("x-forwarded-proto") ?? "https";
+  const host = headers.get("x-forwarded-host") ?? headers.get("host") ?? "localhost";
+  const url = new URL(req.url ?? "/", `${protocol}://${host}`);
+  const method = req.method ?? "GET";
+  const init: RequestInit = { headers, method };
+
+  if (!BODYLESS_METHODS.has(method.toUpperCase())) {
+    const body = await readNodeRequestBody(req);
+    if (body.byteLength > 0) init.body = body;
+  }
+
+  return new Request(url, init);
+}
+
+async function readNodeRequestBody(req: VercelNodeRequest): Promise<ArrayBuffer> {
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+
+  for await (const chunk of req) {
+    const bytes = typeof chunk === "string" ? new TextEncoder().encode(chunk) : chunk;
+    chunks.push(bytes);
+    size += bytes.byteLength;
+  }
+
+  const body = new ArrayBuffer(size);
+  const view = new Uint8Array(body);
+  let offset = 0;
+  for (const chunk of chunks) {
+    view.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+
+  return body;
+}
+
+async function writeNodeResponse(res: VercelNodeResponse, response: Response): Promise<void> {
+  res.statusCode = response.status;
+  if (response.statusText) res.statusMessage = response.statusText;
+
+  const setCookie =
+    (response.headers as Headers & { getSetCookie?: () => string[] }).getSetCookie?.call(
+      response.headers,
+    ) ?? [];
+  response.headers.forEach((value, key) => {
+    if (key.toLowerCase() === "set-cookie" && setCookie.length > 0) return;
+    res.setHeader(key, value);
+  });
+  if (setCookie.length > 0) res.setHeader("set-cookie", setCookie);
+
+  if (!response.body) {
+    res.end();
+    return;
+  }
+
+  const reader = response.body.getReader();
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (value) res.write(value);
+    }
+  } finally {
+    reader.releaseLock();
+    res.end();
+  }
 }
 
 export function createVercelServerEntryModule(
@@ -97,6 +220,10 @@ export function createVercelServerEntryModule(
     "  });",
     "  return handler(request, context);",
     "}",
+    "",
+    "// Entry point of the Node serverless functions emitted for ISG routes;",
+    "// Vercel rejects `.prerender-config.json` next to an edge function.",
+    "export const nodeListener = createVercelNodeListener(handle);",
     "",
   ].join("\n");
 }
@@ -190,7 +317,7 @@ export function vercelAdapter(options: VercelServerEntryModuleOptions = {}): Pra
     id: "vercel",
     edge: true,
     serverImports:
-      'import { resolveApp, resolveApiRoutes } from "@pracht/core/server";\nimport { createVercelEdgeHandler } from "@pracht/adapter-vercel";',
+      'import { resolveApp, resolveApiRoutes } from "@pracht/core/server";\nimport { createVercelEdgeHandler, createVercelNodeListener } from "@pracht/adapter-vercel";',
     createServerEntryModule() {
       return createVercelServerEntryModule(options);
     },

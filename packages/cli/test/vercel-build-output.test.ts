@@ -1,4 +1,12 @@
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -24,6 +32,64 @@ describe("writeVercelBuildOutput", () => {
     writeFileSync(join(root, "dist/server/server.js"), "export default {}\n", "utf-8");
     return root;
   }
+
+  it("emits ISG routes as Node serverless functions", () => {
+    const root = createBuildRoot();
+
+    writeVercelBuildOutput({
+      isgManifest: { "/pricing": { revalidate: timeRevalidate(60) } },
+      root,
+      staticRoutes: ["/"],
+    });
+
+    const functionDir = join(root, ".vercel/output/functions/pricing.func");
+    // Vercel fails the deployment when a `.prerender-config.json` sits next to
+    // an edge function, so this one has to be a serverless function.
+    expect(JSON.parse(readFileSync(join(functionDir, ".vc-config.json"), "utf-8"))).toEqual({
+      handler: "_pracht-node-entry.cjs",
+      launcherType: "Nodejs",
+      runtime: expect.stringMatching(/^nodejs\d+\.x$/),
+      shouldAddHelpers: false,
+    });
+    expect(readFileSync(join(functionDir, "_pracht-node-entry.cjs"), "utf-8")).toContain(
+      'await import("./server.js")).nodeListener',
+    );
+    // Node types a module by its real path, so the bundle has to live inside
+    // the function directory next to a `package.json` marking it as ESM.
+    expect(lstatSync(join(functionDir, "server.js")).isFile()).toBe(true);
+    expect(JSON.parse(readFileSync(join(functionDir, "package.json"), "utf-8"))).toEqual({
+      type: "module",
+    });
+    expect(existsSync(join(root, ".vercel/output/functions/pricing.prerender-config.json"))).toBe(
+      true,
+    );
+    // The main handler stays on the edge.
+    expect(
+      JSON.parse(
+        readFileSync(join(root, ".vercel/output/functions/render.func/.vc-config.json"), "utf-8"),
+      ),
+    ).toMatchObject({ runtime: "edge" });
+  });
+
+  it("shares one serverless bundle across ISG routes", () => {
+    const root = createBuildRoot();
+
+    writeVercelBuildOutput({
+      isgManifest: {
+        "/pricing": { revalidate: timeRevalidate(60) },
+        "/products/1": { revalidate: timeRevalidate(60) },
+      },
+      root,
+      staticRoutes: [],
+    });
+
+    const functionsDir = join(root, ".vercel/output/functions");
+    expect(lstatSync(join(functionsDir, "products/1.func")).isSymbolicLink()).toBe(true);
+    expect(
+      JSON.parse(readFileSync(join(functionsDir, "products/1.func/.vc-config.json"), "utf-8")),
+    ).toMatchObject({ launcherType: "Nodejs" });
+    expect(existsSync(join(functionsDir, "products/1.prerender-config.json"))).toBe(true);
+  });
 
   it("rejects an ISG route that collides with the default edge function", () => {
     const root = createBuildRoot();
