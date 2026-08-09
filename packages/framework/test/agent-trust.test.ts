@@ -383,6 +383,7 @@ describe("agent policy and audit", () => {
       capability: "notes.purge",
       effect: "destructive",
       transport: "http",
+      via: null,
       outcome: "confirmation_required",
       status: 409,
       agent: null,

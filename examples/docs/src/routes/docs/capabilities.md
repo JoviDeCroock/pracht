@@ -98,6 +98,8 @@ export async function loader({ request, context, signal }) {
 }
 ```
 
+`invokeCapability()` is trusted server composition. It runs the callee's input validation, named middleware, body, and output validation, but not transport policy such as app-level API middleware, `agentPolicy`, or destructive confirmation. If an HTTP, WebMCP, or MCP-exposed capability composes another operation, put the required authorization or approval gate in that composing capability. The nested audit event uses `transport: "server"` and `via` to retain the request transport that caused it.
+
 From the browser — `virtual:pracht/capabilities` contains only http-exposed names, endpoints, and effect classes; capability modules never enter the client bundle:
 
 ```ts [src/islands/NoteForm.tsx]

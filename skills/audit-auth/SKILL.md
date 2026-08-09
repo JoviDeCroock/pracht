@@ -1,6 +1,6 @@
 ---
 name: audit-auth
-version: 1.1.0
+version: 1.2.0
 description: |
   Find pracht routes that look protected but aren't — missing auth middleware,
   middleware that augments context but never gates, client-side auth checks
@@ -100,6 +100,12 @@ target. From `pracht inspect api --json`:
   capability dispatch and only `Authorization` is forwarded. Flag MCP-exposed
   capabilities whose gate depends on a browser session cookie or a custom
   credential header that the projection does not carry.
+- Inspect every HTTP-, WebMCP-, or MCP-exposed capability body for
+  `invokeCapability()`. Direct composition does not re-apply the callee's
+  app-level API middleware, `agentPolicy`, or destructive confirmation gate, so
+  the exposed composing capability lends its reachability to every callee.
+  Flag composition of private or destructive capabilities unless the composing
+  capability itself performs the required authorization or approval check.
 - Common bug: dashboard route is protected by middleware, but
   `POST /api/items` is not — attacker bypasses the UI entirely.
 
@@ -146,5 +152,8 @@ Severity is the primary scale; the verdict is a secondary domain label:
 4. Public routes deliberately exposed (login, signup, marketing) should be
    listed but not flagged.
 5. Do not auto-add middleware. Auth wiring is policy.
+6. Treat composed capability reachability as transitive. Audit events identify
+   nested calls with `transport: "server"` and trusted request provenance in
+   `via`, but observability is not an authorization gate.
 
 $ARGUMENTS
