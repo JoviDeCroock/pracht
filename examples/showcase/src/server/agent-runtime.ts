@@ -50,35 +50,30 @@ setCapabilityApprovalPrincipalResolver(({ request }) => {
 /**
  * Destructive capabilities fail closed without a confirmation secret.
  *
- * Read it through `serverEnv`, never a bare `process.env` — the latter is
- * define-replaced during the build and silently returns `undefined` in the
- * shipped bundle.
+ * Read it through `serverEnv`, never a bare `process.env`: the build inlines
+ * `process.env.NODE_ENV` and app code has no business depending on which reads
+ * survive that. `serverEnv` resolves to `process.env` on Node and Vercel and to
+ * the worker bindings on Cloudflare — where they only exist per request, hence
+ * the try/catch around this module-level read.
  *
- * Known limitation on **edge** targets (this app's Vercel adapter, and
- * Cloudflare outside a request): the SSR bundle is built with
- * `ssr.target: "webworker"`, which resolves `@pracht/core/env/server` through
- * the `browser` condition — a stub that throws — and rewrites the framework's
- * own `process.env` lookup to `{}`. So on a deployed edge build the platform
- * environment is unreachable and `PRACHT_CONFIRMATION_SECRET` never arrives,
- * no matter how it is set. `pracht dev` and Node builds read it fine.
- *
- * `setCapabilityConfirmationSecret()` is the documented escape hatch for
- * "platforms without `process.env`", and it is what keeps the deployed demo's
- * archive flow working. A production app must feed it a real secret from
- * wherever that platform *can* provide one.
+ * The fallback keeps `pracht dev` usable with no setup, and doubles as the
+ * `setCapabilityConfirmationSecret()` escape hatch for platforms that hand
+ * their secrets to application code some other way. It shouts, because a
+ * committed secret makes confirmation tokens forgeable.
  */
 let configuredSecret: unknown;
 try {
   configuredSecret = serverEnv[CONFIRMATION_SECRET_ENV];
 } catch {
+  // Cloudflare: bindings arrive per request, so there is nothing to read yet.
   configuredSecret = undefined;
 }
 
 if (typeof configuredSecret !== "string" || configuredSecret === "") {
   console.warn(
-    `[showcase] ${CONFIRMATION_SECRET_ENV} is unreachable in this runtime — falling back ` +
-      "to the demo secret. Confirmation tokens are forgeable by anyone reading this repo; " +
-      "that is acceptable for a public playground over in-memory data and nowhere else.",
+    `[showcase] ${CONFIRMATION_SECRET_ENV} is not set — falling back to the demo secret. ` +
+      "Confirmation tokens are then forgeable by anyone reading this repo: fine for a public " +
+      "playground over in-memory data, and nowhere else.",
   );
   setCapabilityConfirmationSecret("showcase-development-confirmation-secret");
 }

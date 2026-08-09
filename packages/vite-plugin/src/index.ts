@@ -162,6 +162,44 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
                 // startup.
                 target: "webworker" as const,
               },
+              // `ssr.target: "webworker"` makes Vite treat this environment as
+              // a *client* for two decisions that are wrong for a server
+              // bundle. Both are corrected here rather than worked around in
+              // application code.
+              environments: {
+                ssr: {
+                  // 1. Vite defaults `keepProcessEnv` to false for a webworker
+                  //    target, which rewrites every `process.env` read to `{}`.
+                  //    That silently emptied the platform environment on
+                  //    runtimes that do provide it (Vercel), so `serverEnv`
+                  //    returned `undefined` for every variable and secrets like
+                  //    PRACHT_CONFIRMATION_SECRET could never arrive. Runtimes
+                  //    without `process` are still fine: every read in the
+                  //    framework is guarded by `typeof process !== "undefined"`,
+                  //    and adapters that own the bindings call `setServerEnv()`.
+                  keepProcessEnv: true,
+                  resolve: {
+                    // 2. It also applies the client condition list, so a
+                    //    package's `browser` entry wins in a server bundle —
+                    //    which resolved `@pracht/core/env/server` to the stub
+                    //    that exists to make a *client* import fail loudly.
+                    //    `worker` goes first so worker-aware packages (this one
+                    //    included) can answer an edge server build with server
+                    //    code; `browser` stays as the fallback that keeps
+                    //    browser-only dependencies resolvable.
+                    conditions: ["worker", "module", "browser", "development|production"],
+                  },
+                },
+              },
+              define: {
+                // `keepProcessEnv: true` also stops Vite inlining NODE_ENV.
+                // Dependencies branch on it at module scope, so keep that one
+                // key static instead of handing them a runtime lookup that
+                // throws where `process` does not exist.
+                "process.env.NODE_ENV": JSON.stringify(
+                  env.mode === "development" ? "development" : "production",
+                ),
+              },
               build: {
                 rollupOptions: {
                   // Platform-scheme modules only exist inside the target

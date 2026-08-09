@@ -98,12 +98,11 @@ transport that reached it.
   database, and `createMemoryApprovalStore()` in particular must be replaced by
   a store with conditional writes (D1, Durable Objects, Postgres, Redis) — see
   [docs/AGENT_TRUST.md](../../docs/AGENT_TRUST.md#writing-a-store).
-- **The confirmation secret is not a secret here.** Edge SSR builds cannot read
-  the platform environment (see the note in `src/server/agent-runtime.ts`), so
-  the deployed demo registers a committed development secret via
-  `setCapabilityConfirmationSecret()`. Confirmation tokens are therefore
-  forgeable by anyone reading this repo — fine for a public playground over
-  throwaway data, unacceptable anywhere else.
+- **The confirmation secret comes from the environment.** Set
+  `PRACHT_CONFIRMATION_SECRET`; without it the app falls back to a committed
+  development secret and says so loudly, which makes confirmation tokens
+  forgeable. The `pnpm` scripts supply a development value so `pracht dev`,
+  `pracht verify` and `pracht eval` work with no setup.
 - **The session cookie is a login button.** It is not authentication and the
   approval principal derived from it is caller-controlled. A real resolver must
   read a verified session.
