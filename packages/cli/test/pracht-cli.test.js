@@ -196,6 +196,24 @@ export const app = defineApp({
     expect(report.checks.some((check) => check.message.includes("missing files"))).toBe(true);
   });
 
+  it("reports a pages-router 404 as the not-found page instead of a route", () => {
+    const appDir = createTempDir("pracht-cli-doctor-pages-not-found-");
+    writePagesApp(appDir);
+    writeProjectFile(appDir, "src/pages/_app.tsx", "export function Shell() { return null; }");
+    writeProjectFile(appDir, "src/pages/index.tsx", "export function Component() { return null; }");
+    writeProjectFile(appDir, "src/pages/404.tsx", "export function Component() { return null; }");
+
+    const result = runCli(["doctor", "--json"], { cwd: appDir });
+    const report = JSON.parse(result.stdout);
+
+    expect(report.ok).toBe(true);
+    expect(report.checks.some((check) => check.message === "Found 1 page route.")).toBe(true);
+    expect(
+      report.checks.some((check) => check.message === "Found a pages-router not-found page."),
+    ).toBe(true);
+    expect(report.checks.some((check) => check.message === "Found 2 page routes.")).toBe(false);
+  });
+
   it("reports a healthy manifest app in verify json output", () => {
     const appDir = createTempDir("pracht-cli-verify-ok-");
     writeManifestApp(appDir, {

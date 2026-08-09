@@ -5,6 +5,7 @@ import { normalizeRoutePath, PAGE_SOURCE_RE } from "./verification-helpers.js";
 
 export type PagesFile =
   | { file: string; kind: "shell" }
+  | { file: string; kind: "not-found" }
   | { file: string; kind: "ignored" }
   | PagesRoute;
 
@@ -31,6 +32,10 @@ export function describePagesFile(pagesDir: string, file: string): PagesFile {
 
   if (name.startsWith("_")) {
     return { file, kind: "ignored" };
+  }
+
+  if (routePath === "404") {
+    return { file, kind: "not-found" };
   }
 
   if (routePath === "index") {

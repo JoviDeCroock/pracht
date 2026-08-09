@@ -49,11 +49,20 @@ describe("create-pracht", () => {
     });
 
     const packageJson = await readFile(join(targetDir, "package.json"), "utf-8");
+    const parsedPackageJson = JSON.parse(packageJson);
     const gitignore = await readFile(join(targetDir, ".gitignore"), "utf-8");
     const routes = await readFile(join(targetDir, "src/routes.ts"), "utf-8");
 
     expect(packageJson).toMatch(/"@pracht\/cli": "\^\d+\.\d+\.\d+"/);
     expect(packageJson).toMatch(/"@pracht\/adapter-node": "\^\d+\.\d+\.\d+"/);
+    expect(parsedPackageJson.dependencies).toMatchObject({
+      "@pracht/adapter-node": "^0.3.8",
+      "@pracht/core": "^0.12.0",
+    });
+    expect(parsedPackageJson.devDependencies).toMatchObject({
+      "@pracht/cli": "^1.9.0",
+      "@pracht/vite-plugin": "^0.7.6",
+    });
     expect(packageJson).toContain('"preview": "pracht preview"');
     expect(packageJson).toContain('"start": "node dist/server/server.js"');
     expect(packageJson).toContain('"typecheck": "tsc --noEmit"');

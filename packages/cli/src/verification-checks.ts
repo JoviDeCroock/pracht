@@ -218,6 +218,10 @@ export function collectPagesVerification(
     } else {
       checks.push(createCheck("ok", "Found a pages-router `_app` shell."));
     }
+
+    if (pages.some((page) => page.kind === "not-found")) {
+      checks.push(createCheck("ok", "Found a pages-router not-found page."));
+    }
   } else {
     collectChangedPagesChecks(project, checks, pagesDir, changedFiles);
   }
@@ -281,6 +285,16 @@ function collectChangedPagesChecks(
         createCheck(
           "warning",
           `Changed pages file ${JSON.stringify(display)} is ignored by the pages router.`,
+        ),
+      );
+      continue;
+    }
+
+    if (page.kind === "not-found") {
+      checks.push(
+        createCheck(
+          "ok",
+          `Changed pages not-found file ${JSON.stringify(display)} is wired automatically.`,
         ),
       );
       continue;
