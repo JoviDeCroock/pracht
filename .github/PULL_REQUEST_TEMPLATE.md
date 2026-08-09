@@ -5,10 +5,7 @@
 
 ## Testing
 
-- [ ] `pnpm e2e`
-- [ ] `pnpm format`
-- [ ] `pnpm lint`
-- [ ] `pnpm test`
+- [ ] `pnpm run verify` (build, format, lint, typecheck, test, e2e)
 
 ## Checklist
 

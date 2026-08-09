@@ -7,6 +7,7 @@
   "scripts": {
     "build": "pnpm -r --filter @pracht/core --filter @pracht/capabilities --filter @pracht/vite-plugin --filter @pracht/preact-ssr-precompile --filter @pracht/adapter-node --filter @pracht/adapter-cloudflare --filter @pracht/adapter-vercel --filter @pracht/image --filter @pracht/cli --filter create-pracht run build",
     "check": "pnpm build && pnpm typecheck && pnpm test",
+    "verify": "node ./scripts/verify.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "prepare": "playwright install chromium",

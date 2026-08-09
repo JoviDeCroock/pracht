@@ -138,6 +138,39 @@ described in `VISION_MVP.md`.
   - **End-user app primitives**: `/add-auth`, `/add-db`, `/add-i18n`,
     `/add-observability`.
 
+## Verifying a Change
+
+`pnpm run verify` is the pre-commit gate. It builds, formats, lints, and then
+runs typecheck, unit tests, and E2E together, printing output only for the
+steps that fail:
+
+| Flag           | Effect                                                     |
+| -------------- | ---------------------------------------------------------- |
+| `--skip-build` | Reuse `packages/*/dist` from a previous build               |
+| `--skip-e2e`   | Unit tests only — no dev servers, no browser                |
+| `VERIFY_VERBOSE=1` | Print output for passing steps too                     |
+
+The individual scripts (`pnpm run build|format|lint|typecheck|test|e2e`) still
+work on their own; `verify` only changes how they are scheduled. Two properties
+of the suite keep it fast, and both are easy to regress:
+
+- **Unit tests parallelise per file, never within one.** Vitest gives each test
+  file its own worker but runs the tests inside a file in sequence, and the CLI
+  tests block on `execFileSync`, so `it.concurrent` buys nothing there. A single
+  file that spawns a dozen CLI processes therefore sets the floor for the whole
+  run. That is why the `pracht` CLI tests live in several `cli-*.test.js` files
+  sharing `packages/cli/test/helpers/cli-fixtures.js` rather than in one file.
+- **E2E worker count is derived, not fixed.** `playwright.config.ts` sizes
+  workers from `cpus()` (capped at 8) and drops to 4 on CI. The four dev servers
+  are shared across projects, so workers are the scaling knob, not servers.
+  Specs that bind a fixed port (`node-build`, `islands-build`) must keep using
+  distinct ports as parallelism rises.
+- **E2E timeouts bound hangs, not latency.** The per-test and dev-server-boot
+  budgets are deliberately generous. Timing-sensitive specs (pending navigation
+  state, hover prefetch) assert on ordering and request counts, so a tight
+  budget adds no coverage — it only turns a busy machine into a false failure.
+  Assert on the observable behaviour instead of on how fast it happened.
+
 ## Later (Phase 2 remaining)
 
 No Phase 2 adapter ISG items are currently tracked here.
