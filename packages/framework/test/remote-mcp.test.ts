@@ -149,6 +149,19 @@ const jsonShortCircuit = defineCapability({
   },
 } as CapabilityDefinition);
 
+const invalidOutputShortCircuit = defineCapability({
+  title: "Invalid output short circuit",
+  description: "Stops in middleware with an invalid success envelope.",
+  input: { type: "object", properties: {}, additionalProperties: false },
+  output: { type: "object", properties: { ok: { type: "boolean" } }, required: ["ok"] },
+  effect: "read",
+  middleware: ["invalidOutputShortCircuit"],
+  expose: { mcp: true },
+  async run() {
+    return { ok: true };
+  },
+} as CapabilityDefinition);
+
 function createApp(agents: PrachtAgentsConfig | undefined) {
   const capabilities = {
     "notes.search": notesSearch,
@@ -159,6 +172,7 @@ function createApp(agents: PrachtAgentsConfig | undefined) {
     "auth.probe": authProbe,
     "url.probe": urlProbe,
     "json.short-circuit": jsonShortCircuit,
+    "invalid-output.short-circuit": invalidOutputShortCircuit,
   };
 
   const app = defineApp({
@@ -167,6 +181,7 @@ function createApp(agents: PrachtAgentsConfig | undefined) {
       deny: "./middleware/deny.ts",
       recordUrl: "./middleware/record-url.ts",
       jsonShortCircuit: "./middleware/json-short-circuit.ts",
+      invalidOutputShortCircuit: "./middleware/invalid-output-short-circuit.ts",
     },
     capabilities: Object.fromEntries(
       Object.keys(capabilities).map((name) => [name, `./capabilities/${name}.ts`]),
@@ -192,6 +207,9 @@ function createApp(agents: PrachtAgentsConfig | undefined) {
       }),
       "./middleware/json-short-circuit.ts": async () => ({
         middleware: async () => Response.json({ cached: true }),
+      }),
+      "./middleware/invalid-output-short-circuit.ts": async () => ({
+        middleware: async () => Response.json({ ok: true, data: { cached: true } }),
       }),
     },
     capabilityModules: Object.fromEntries(
@@ -496,6 +514,7 @@ describe("tools/list", () => {
     expect(names).toEqual([
       "agent_only",
       "auth_probe",
+      "invalid-output_short-circuit",
       "json_short-circuit",
       "notes_create",
       "notes_guarded",
@@ -615,6 +634,13 @@ describe("tools/call runs the same pipeline as the HTTP projection", () => {
     expect(json?.result).toMatchObject({ isError: true });
     expect(json?.result.structuredContent).toBeUndefined();
     expect(json?.result._meta["io.pracht/error"].code).toBe("middleware_rejected");
+  });
+
+  it("revalidates success envelopes returned by middleware", async () => {
+    const { json } = await callTool("invalid-output_short-circuit", {});
+    expect(json?.result).toMatchObject({ isError: true });
+    expect(json?.result.structuredContent).toBeUndefined();
+    expect(json?.result._meta["io.pracht/error"].code).toBe("invalid_output");
   });
 
   it("forwards Authorization so middleware sees the MCP credential", async () => {

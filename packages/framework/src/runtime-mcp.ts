@@ -423,6 +423,28 @@ async function handleToolsCall<TContext>(
     };
   }
 
+  // Middleware may short-circuit with an envelope-shaped JSON response, which
+  // bypasses the capability pipeline's output validation. Revalidate every
+  // successful envelope before advertising its data as structuredContent so
+  // it cannot violate the output schema exposed by tools/list.
+  if (envelope.ok) {
+    const validatedOutput = match.capability.validateOutput(envelope.data);
+    if (validatedOutput.ok) {
+      envelope = { ok: true, data: validatedOutput.value };
+    } else {
+      envelope = {
+        ok: false,
+        error: {
+          code: "invalid_output",
+          message: options.exposeErrors
+            ? `Capability "${match.name}" produced output that does not match its output schema.`
+            : "Capability failed.",
+          issues: options.exposeErrors ? validatedOutput.issues : undefined,
+        },
+      };
+    }
+  }
+
   return jsonRpcResponse(200, {
     jsonrpc: "2.0",
     id,
