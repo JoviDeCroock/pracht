@@ -1,7 +1,7 @@
 # Pracht Capability Graph
 
-**Status:** Accepted — Stage 1, Stage 2b, and the trust layer shipped; see the
-[decision log](#decision-log-2026-07-11)
+**Status:** Accepted — Stage 1, Stage 2, Stage 2b, and the trust layer shipped;
+see the [remote MCP contract](REMOTE_MCP.md) and dated decision logs below.
 
 **Date:** 2026-07-10 (decision log added 2026-07-11)
 
@@ -636,7 +636,10 @@ agent surfaces. Package downloads alone would not validate the product thesis.
 9. Where does Web Bot Auth verification live in each adapter's request pipeline, and what does the
    verified agent identity look like on the principal?
 
-## Decision Log (2026-07-11)
+## Decision Log (2026-07-11 snapshot)
+
+The statuses in this section describe the repository as of 2026-07-11. Later
+stages are recorded in the dated entries that follow.
 
 Stage 1 (capability core), Stage 2b (WebMCP), and the trust layer shipped —
 plus `pracht eval` and the prepare/commit confirmation flow, both pulled
@@ -674,9 +677,9 @@ and [AGENT_TRUST.md](AGENT_TRUST.md).
    Confirmation tokens bind to the verified `keyid` or `"anonymous"` —
    [AGENT_TRUST.md](AGENT_TRUST.md#honest-limitations) records what anonymous
    binding does and does not give you.
-5. **MCP SDK isolation: deferred with the remote MCP projection.** Stage 2 is
-   unbuilt; `expose.mcp` is accepted and recorded in the graph but nothing
-   serves it, so no SDK dependency decision was needed yet.
+5. **MCP SDK isolation was deferred with the remote MCP projection.** At this
+   point, Stage 2 was unbuilt; `expose.mcp` was accepted and recorded in the
+   graph but nothing served it, so no SDK dependency decision was needed yet.
 6. **MCP Apps component sharing: deferred with Stage 3.** `hasUi` is always
    `false` in the graph.
 7. **Verification owns the static contract; middleware owns deployment
@@ -707,15 +710,15 @@ and [AGENT_TRUST.md](AGENT_TRUST.md).
   HMAC's replay window and anonymous-principal limits are documented rather
   than papered over.
 - **Stage 2b (WebMCP) landed before Stage 2 (remote MCP).** The in-browser
-  story plus the trust layer is the differentiator no other framework ships;
-  remote MCP remains the next projection and its graph seam (`expose.mcp`)
-  already exists.
+  story plus the trust layer was the differentiator no other framework
+  shipped; remote MCP was the next projection and its graph seam
+  (`expose.mcp`) already existed.
 - **`pracht eval` arrived early, speaking HTTP.** The Stage 2 plan attached it
   to a scripted MCP client; the shipped harness runs scenarios against the
   capability HTTP projection (including the confirmation flow) and will grow
   an MCP transport with the remote projection.
 
-### Still open
+### Still open as of 2026-07-11
 
 - MCP Apps views — Stage 3, unchanged.
 - Framework-level rate limiting, write-idempotency helpers, and result-size
@@ -834,9 +837,9 @@ contract to enforce the rest.
   false` schemas rely on the runtime's path-scoped 400 for extra fields. The
   guarantees that do hold are pinned by a real `tsc` run over a generated
   fixture rather than asserted in prose.
-## Decision Log (Stage 2: remote MCP)
+## Decision Log (2026-08-09 — Stage 2: remote MCP)
 
-Stage 2 shipped as [REMOTE_MCP.md](REMOTE_MCP.md). Three things went
+Stage 2 shipped as [REMOTE_MCP.md](REMOTE_MCP.md). Four things went
 differently than this proposal assumed.
 
 - **Spike question 5 has a better answer: no SDK.** The plan asked which MCP
