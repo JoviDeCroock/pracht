@@ -34,7 +34,8 @@ export function describePagesFile(pagesDir: string, file: string): PagesFile {
     return { file, kind: "ignored" };
   }
 
-  if (routePath === "404") {
+  const withoutIndex = routePath.replace(/\/index$/, "");
+  if (withoutIndex === "404") {
     return { file, kind: "not-found" };
   }
 
@@ -42,7 +43,6 @@ export function describePagesFile(pagesDir: string, file: string): PagesFile {
     return { file, kind: "route", routePath: "/" };
   }
 
-  const withoutIndex = routePath.replace(/\/index$/, "");
   const normalized = withoutIndex
     .replace(/\[\.\.\.([^\]]+)\]/g, "*")
     .replace(/\[([^\].]+)\]/g, ":$1");
