@@ -501,6 +501,7 @@
       "transports": ["http", "mcp", "webmcp"]
     }
   ],
+  "mcpEndpoint": "/mcp",
   "constraints": [
     {
       "kind": "require-middleware",

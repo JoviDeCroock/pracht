@@ -1789,7 +1789,7 @@ button,
 
 .surfaces-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(176px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(134px, 1fr));
   gap: 12px;
   margin-bottom: 44px;
   text-align: left;
@@ -1829,6 +1829,10 @@ button,
 .mode-tag.http {
   background: var(--orange-dim);
   color: var(--orange);
+}
+.mode-tag.mcp {
+  background: rgba(251, 191, 36, 0.14);
+  color: var(--amber);
 }
 
 .band {

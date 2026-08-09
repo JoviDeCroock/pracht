@@ -2,19 +2,19 @@ const TOOLS = [
   {
     name: "projects.search",
     effect: "read",
-    exposure: "http · webmcp · mcp*",
+    exposure: "http · webmcp · mcp",
     detail: "Find projects by name or summary. Safe to call freely.",
   },
   {
     name: "projects.create",
     effect: "write",
-    exposure: "http · webmcp · mcp*",
+    exposure: "http · webmcp · mcp",
     detail: "Create a project. Rate limited per principal by named middleware.",
   },
   {
     name: "projects.deploy",
     effect: "write",
-    exposure: "http · webmcp · mcp*",
+    exposure: "http · webmcp · mcp",
     detail: "Ship a build. Takes an idempotencyKey so retries do not double-deploy.",
   },
   {
@@ -26,14 +26,14 @@ const TOOLS = [
   {
     name: "agent.whoami",
     effect: "read",
-    exposure: "http · webmcp · mcp*",
+    exposure: "http · webmcp · mcp",
     detail: "Echoes the verified Web Bot Auth identity, or verified: false.",
   },
   {
     name: "agent.brief",
     effect: "read",
-    exposure: "http · mcp*",
-    detail: "agentPolicy: require — verified agents only, 401 for everyone else.",
+    exposure: "http · mcp",
+    detail: "agentPolicy: require — verified agents only, on every transport.",
   },
 ];
 
@@ -77,21 +77,39 @@ with one JSON Schema contract each.
   HTTP-exposed capabilities.
 - \`POST /api/capabilities/agent/whoami\` — what identity the server established for you.
 - \`POST /api/capabilities/agent/brief\` — house rules. Verified agents only.
+- \`POST /mcp\` — the same capabilities as MCP tools over Streamable HTTP.
 
 ## Tools
 
 | Capability | Effect | Exposure | Endpoint |
 | --- | --- | --- | --- |
-| \`projects.search\` | read | http, webmcp, mcp\\* | \`POST /api/capabilities/projects/search\` |
-| \`projects.create\` | write | http, webmcp, mcp\\* | \`POST /api/capabilities/projects/create\` |
-| \`projects.deploy\` | write | http, webmcp, mcp\\* | \`POST /api/capabilities/projects/deploy\` |
+| \`projects.search\` | read | http, webmcp, mcp | \`POST /api/capabilities/projects/search\` |
+| \`projects.create\` | write | http, webmcp, mcp | \`POST /api/capabilities/projects/create\` |
+| \`projects.deploy\` | write | http, webmcp, mcp | \`POST /api/capabilities/projects/deploy\` |
 | \`projects.archive\` | destructive | http only | \`POST /api/capabilities/projects/archive\` |
-| \`agent.whoami\` | read | http, webmcp, mcp\\* | \`POST /api/capabilities/agent/whoami\` |
-| \`agent.brief\` | read | http, mcp\\* | \`POST /api/capabilities/agent/brief\` |
+| \`agent.whoami\` | read | http, webmcp, mcp | \`POST /api/capabilities/agent/whoami\` |
+| \`agent.brief\` | read | http, mcp | \`POST /api/capabilities/agent/brief\` |
 
-\\* \`expose.mcp\` is declared and recorded in the app graph, but this build serves
-no remote MCP endpoint yet — \`pracht verify\` reports it as unserved rather than
-letting a dead transport look live.
+## Remote MCP
+
+\`POST /mcp\` serves the mcp-exposed capabilities as MCP tools over stateless
+Streamable HTTP. \`tools/list\` is projected from the same graph, so the schemas
+are the capability's own. Dots become underscores: \`projects.search\` →
+\`projects_search\`.
+
+\`\`\`bash
+curl -sX POST /mcp -H 'content-type: application/json' \\
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+\`\`\`
+
+\`projects.archive\` is **not** in that list. It is destructive, so the
+projection filters it out regardless of what it declares — the prepare/commit
+flow stays on the HTTP endpoint where a human can be in the loop. The endpoint
+also rejects any request carrying a cookie or an \`Origin\`: a browser session
+can never authenticate remote MCP. \`Authorization\` is forwarded, and Web Bot
+Auth signatures verify on \`POST /mcp\` exactly as they do on the HTTP
+projection, so \`agent_brief\` answers a signed MCP client and denies an
+unsigned one.
 
 ## Envelope
 
@@ -137,7 +155,10 @@ will not extend its life or reset the decision.
    idempotencyKey and show that the second call was deduped.
 3. Archive Corvus end to end, including waiting for the human decision.
 4. Fetch /llms.txt and report which capabilities are exposed over HTTP.
-5. Explain why \`projects.archive\` has no WebMCP tool.
+5. Explain why \`projects.archive\` appears in neither the WebMCP nor the MCP
+   tool list.
+6. Connect over \`POST /mcp\`, call \`projects_search\`, then explain what
+   \`tools/list\` does *not* contain and why.
 `;
 
 export function head() {
@@ -252,11 +273,48 @@ export function Component() {
           </tbody>
         </table>
         <p class="footnote">
-          <code>mcp</code> is declared in the graph but unserved in this build — the remote
-          Streamable HTTP projection is the next stage. <code>pracht verify</code> warns and the dev
-          banner prints <code>mcp(unserved)</code>, so a declared-but-dead transport is never
-          mistaken for a live one.
+          <code>mcp</code> tools are served at <code>POST /mcp</code> — stateless Streamable HTTP,
+          with <code>tools/list</code> projected from this same graph and dots replaced by
+          underscores (<code>projects_search</code>). <code>projects.archive</code> is absent from
+          that list by construction: the projection filters <code>destructive</code> capabilities
+          out however they are declared. Drop <code>agents.mcp</code> from the manifest and the
+          exposures stay in the graph but the dev banner prints <code>mcp(unserved)</code>, so a
+          declared-but-dead transport is never mistaken for a live one.
         </p>
+      </section>
+
+      <section class="agent-terminal" aria-label="Remote MCP transcript">
+        <div class="code-header">
+          <div class="code-dots">
+            <span />
+            <span />
+            <span />
+          </div>
+          <span class="code-title">remote mcp</span>
+        </div>
+        <pre>
+          <code>
+            <span class="cmt"># One endpoint, no session handshake</span>
+            {"\n"}
+            <span class="kw">curl</span>
+            {" -sX POST https://launchpad.example/mcp -d "}
+            <span class="str">{'\'{"jsonrpc":"2.0","id":1,"method":"tools/list"}\''}</span>
+            {"\n"}
+            <span class="cmt">
+              {"# → projects_search, projects_create, projects_deploy, agent_whoami, agent_brief"}
+            </span>
+            {"\n"}
+            <span class="cmt">{"#   (no projects_archive — destructive is filtered out)"}</span>
+            {"\n\n"}
+            <span class="cmt"># A cookie, or an Origin header, is a 403 — not a login</span>
+            {"\n"}
+            <span class="kw">curl</span>
+            {" -sX POST .../mcp -H "}
+            <span class="str">"cookie: session=demo"</span>
+            {" …  "}
+            <span class="cmt">{"# → 403"}</span>
+          </code>
+        </pre>
       </section>
 
       <section class="agent-grid">

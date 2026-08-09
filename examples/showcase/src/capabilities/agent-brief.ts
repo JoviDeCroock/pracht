@@ -9,6 +9,10 @@ import "../server/agent-runtime.ts";
  *
  * Not exposed to WebMCP on purpose — an in-page agent inherits the human's
  * cookie session, not a signed agent identity, so it would only ever see 401.
+ * It *is* exposed over remote MCP, where the policy still applies: an unsigned
+ * MCP client gets the denial as an `isError` result, and a client that signs
+ * its `POST /mcp` per RFC 9421 gets the brief. Policy is a property of the
+ * capability, not of the transport that reached it.
  */
 export default defineCapability({
   title: "Agent operating brief",
@@ -43,6 +47,8 @@ export default defineCapability({
         "projects.archive — destructive, needs a human approval",
       ],
       rules: [
+        "Prefer the MCP endpoint at POST /mcp; tools/list is generated from the same graph. Dots become underscores: projects_search.",
+        "projects.archive is absent from the tool list on purpose. It is destructive, so it lives only on the HTTP projection.",
         "Archiving is two-phase: call once without a token to receive one, then repeat the identical input with the x-pracht-confirm header.",
         "A commit answered with 409 confirmation_pending is waiting on a reviewer at /app/approvals. Poll, do not re-prepare.",
         "Retry deploys with the same idempotencyKey; the server dedupes rather than shipping twice.",

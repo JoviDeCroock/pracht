@@ -49,6 +49,17 @@ export const app = defineApp({
       mode: "human",
       ttlSeconds: 900,
     },
+    // Serve the mcp-exposed capabilities as MCP tools over stateless
+    // Streamable HTTP at /mcp. Two opt-ins, both explicit: this block, and
+    // `expose.mcp` on each capability. `projects.archive` is destructive, so
+    // it is filtered out of the tool list no matter what it declares.
+    mcp: {
+      serverInfo: { name: "launchpad", version: "1.0.0" },
+      instructions:
+        "Launchpad project management. Search and create projects, and deploy them idempotently. " +
+        "Archiving is deliberately not a tool here: it is destructive and needs a human approval, " +
+        "so it stays on the HTTP projection at /api/capabilities/projects/archive.",
+    },
   },
 
   // ── Invariants `pracht verify` enforces ─────────────────────────────────

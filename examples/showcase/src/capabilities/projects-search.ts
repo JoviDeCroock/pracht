@@ -11,12 +11,13 @@ interface SearchInput {
 /**
  * The read capability every surface uses:
  *
- *   /playground   → `useCapability("projects.search")` in the browser
- *   /app          → `invokeCapability()` in the SSR loader
- *   an agent      → POST /api/capabilities/projects/search
+ *   /playground      → `useCapability("projects.search")` in the browser
+ *   /app             → `invokeCapability()` in the SSR loader
+ *   an HTTP agent    → POST /api/capabilities/projects/search
  *   Gemini in Chrome → the same tool, registered on the page via WebMCP
+ *   a remote agent   → the `projects_search` tool at POST /mcp
  *
- * One contract, four callers, no duplicated business rules.
+ * One contract, five callers, no duplicated business rules.
  */
 export default defineCapability({
   title: "Search projects",
@@ -68,9 +69,9 @@ export default defineCapability({
   expose: {
     http: true,
     webmcp: true,
-    // Accepted and recorded in the graph today; nothing serves it until the
-    // remote MCP projection lands. `pracht verify` says so, and the dev banner
-    // prints `mcp(unserved)` rather than letting a dead transport look live.
+    // Served at /mcp as the `projects_search` tool because the manifest also
+    // configures `agents.mcp`. Without that block this would be recorded in
+    // the graph and reported as `mcp(unserved)` rather than looking live.
     mcp: true,
   },
   async run({ input }: CapabilityRunArgs<SearchInput>) {

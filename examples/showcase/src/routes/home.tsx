@@ -25,6 +25,12 @@ const SURFACES = [
     detail:
       "A remote agent signs its request with RFC 9421 and gets a verified identity, policy checks, and an audit event.",
   },
+  {
+    tag: "mcp",
+    title: "The tool list",
+    detail:
+      "POST /mcp serves the same capabilities as MCP tools over stateless Streamable HTTP — minus the destructive one.",
+  },
 ];
 
 const MODES = [
@@ -105,8 +111,8 @@ export function Component({ data }: RouteComponentProps<typeof loader>) {
           <p class="hero-sub">
             Launchpad is a small project-management app. Its six operations are defined once, with
             one schema, one middleware chain and one <code>run()</code> — then projected to the
-            browser, to progressive-enhancement forms, to in-page agents, and to signed remote
-            callers. Same business rules, by construction.
+            browser, to progressive-enhancement forms, to in-page agents, to signed remote callers,
+            and to MCP tools at <code>/mcp</code>. Same business rules, by construction.
           </p>
 
           <div class="hero-actions">

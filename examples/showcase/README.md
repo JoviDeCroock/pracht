@@ -3,7 +3,8 @@
 A fictional project-management tool that demonstrates the whole capability graph
 and agent trust layer in one small Preact app: six operations defined once, then
 projected to the browser, to progressively-enhanced forms, to in-page WebMCP
-agents, and to signed remote callers — behind one set of rules.
+agents, to signed remote callers, and to MCP tools at `/mcp` — behind one set
+of rules.
 
 It is still a per-route-rendering demo too (SSG, SSR, SPA in one manifest);
 that story just stopped being the headline.
@@ -34,20 +35,25 @@ pnpm inspect                        # the capability graph, with schemas
    it runs, once. Replay the same token and it is refused as `already_used`.
 5. **`/app/audit`** — every dispatch above, with its transport, outcome, latency
    and verified agent identity.
-6. **`node scripts/agent.mjs`** — the same journey as a cryptographically
-   verified agent, which stops dead at the human approval just like you did.
+6. **`POST /mcp`** — `tools/list` projects the same graph, minus
+   `projects_archive`: `destructive` capabilities are filtered out of the MCP
+   tool list however they are declared. A cookie or an `Origin` header on that
+   endpoint is a 403.
+7. **`node scripts/agent.mjs`** — the same journey as a cryptographically
+   verified agent, over the HTTP projection *and* `/mcp`, stopping dead at the
+   human approval just like you did.
 
 ## What each piece demonstrates
 
 | File | Feature |
 | --- | --- |
-| `src/routes.ts` | Capability registration, `agents.webBotAuth`, `agents.confirmation.mode: "human"`, machine-enforced `constraints` |
-| `src/capabilities/projects-search.ts` | `read` — HTTP + WebMCP + (declared) MCP, called from a loader, the browser, and agents |
+| `src/routes.ts` | Capability registration, `agents.webBotAuth`, `agents.confirmation.mode: "human"`, `agents.mcp`, machine-enforced `constraints` |
+| `src/capabilities/projects-search.ts` | `read` — HTTP + WebMCP + remote MCP, called from a loader, the browser, and agents |
 | `src/capabilities/projects-create.ts` | `write` behind named rate-limit middleware; the target of `<Form capability>` |
 | `src/capabilities/projects-deploy.ts` | `write` with a caller-supplied `idempotencyKey` — the retry story agents need |
 | `src/capabilities/projects-archive.ts` | `destructive` — HTTP-only, prepare/commit, human approval |
 | `src/capabilities/agent-whoami.ts` | `context.agent`, the app-wide `observe` policy |
-| `src/capabilities/agent-brief.ts` | `agentPolicy: "require"` — verified agents only |
+| `src/capabilities/agent-brief.ts` | `agentPolicy: "require"` — verified agents only, on HTTP and MCP alike |
 | `src/middleware/rate-limit.ts` | Per-principal limits, the documented middleware seam |
 | `src/server/agent-runtime.ts` | `setCapabilityAuditHook`, `setCapabilityApprovalStore`, `setCapabilityApprovalPrincipalResolver` |
 | `src/routes/approvals.tsx` + `src/api/admin/approvals.ts` | The application's own approval inbox — pracht deliberately ships none |
@@ -55,7 +61,7 @@ pnpm inspect                        # the capability graph, with schemas
 | `src/routes/agents.tsx` | Markdown content negotiation (`Accept: text/markdown`) |
 | `src/components/archive-flow.tsx` | The typed client forcing `{ prepare }` / `{ confirm }` at the call site |
 | `evals/*.eval.json` | `pracht eval` scenarios, including "the agent cannot archive alone" |
-| `scripts/agent.mjs` | An RFC 9421 Web Bot Auth agent, no dependencies |
+| `scripts/agent.mjs` | An RFC 9421 Web Bot Auth agent speaking both the HTTP projection and MCP, no dependencies |
 | `vite.config.ts` | `llmsTxt` emission from the resolved graph |
 
 ## Per-route rendering, still
@@ -79,6 +85,11 @@ node scripts/agent.mjs --url https://…       # against a deployment
 node scripts/agent.mjs --unsigned            # watch agent.brief answer 401
 ```
 
+It walks the HTTP projection and then `/mcp` with the same signature headers,
+which is the point: `agent.brief` answers a signed caller and denies an unsigned
+one on both, because `agentPolicy` belongs to the capability rather than to the
+transport that reached it.
+
 ## Known demo limitations
 
 - **State is in memory.** Projects, approvals and the audit trail live in module
@@ -93,11 +104,6 @@ node scripts/agent.mjs --unsigned            # watch agent.brief answer 401
   `setCapabilityConfirmationSecret()`. Confirmation tokens are therefore
   forgeable by anyone reading this repo — fine for a public playground over
   throwaway data, unacceptable anywhere else.
-- **`expose.mcp` is declared but unserved.** The remote MCP projection is the
-  next stage; `pracht verify` warns and `pracht dev` prints `mcp(unserved)`
-  rather than letting a dead transport look live. When it lands, this app opts
-  in by adding `agents: { mcp: {} }` to the manifest — the capabilities already
-  declare their exposure.
 - **The session cookie is a login button.** It is not authentication and the
   approval principal derived from it is caller-controlled. A real resolver must
   read a verified session.

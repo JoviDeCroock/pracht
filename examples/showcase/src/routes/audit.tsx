@@ -7,10 +7,11 @@ import { readAudit } from "../server/audit.ts";
  * page renders the last 50.
  *
  * The `transport` column is the interesting one: `server` is a loader calling
- * `invokeCapability()`, `http` is a browser fetch or a remote agent, and
- * `webmcp` is the marker the in-page WebMCP shim sends. That marker is
- * client-declared and therefore informational, not a trust signal — the
- * `agent` column is the one that is cryptographically verified.
+ * `invokeCapability()`, `http` is a browser fetch or a remote agent, `mcp` is
+ * a `tools/call` at /mcp, and `webmcp` is the marker the in-page shim sends.
+ * Only that last one is client-declared, so it is informational rather than a
+ * trust signal; `mcp` is set by the projection itself. The `agent` column is
+ * the one that is cryptographically verified.
  */
 export async function loader(_args: LoaderArgs) {
   const now = Date.now();
@@ -41,8 +42,9 @@ export function Component({ data }: RouteComponentProps<typeof loader>) {
           <h1>Capability audit trail</h1>
           <p class="page-sub">
             One event per dispatch — browser fetch, progressively-enhanced form post, in-page WebMCP
-            tool call, signed remote agent, or a loader's own server-side invocation. Audit hooks
-            observe: an exception in one is swallowed rather than breaking the request.
+            tool call, a <code>tools/call</code> at <code>/mcp</code>, a signed remote agent, or a
+            loader's own server-side invocation. Audit hooks observe: an exception in one is
+            swallowed rather than breaking the request.
           </p>
         </div>
       </header>

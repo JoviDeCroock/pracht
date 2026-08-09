@@ -7,7 +7,8 @@
  *   node scripts/agent.mjs --unsigned             # no signature: watch the policy bite
  *   node scripts/agent.mjs --keys                 # print the public key to pin
  *
- * It signs every request per draft-meunier-web-bot-auth-architecture-02
+ * It walks the HTTP projection, then the remote MCP endpoint at /mcp, signing
+ * every request per draft-meunier-web-bot-auth-architecture-02
  * (Ed25519 over `("@authority" "signature-agent")`, tag `web-bot-auth`) using a
  * keypair derived from the seed constant below. The *public* half is pinned in
  * src/routes.ts, so the server can verify it with no network fetch.
@@ -94,6 +95,53 @@ async function call(capability, input = {}, options = {}) {
   return { status: response.status, ms: Date.now() - started, ...body };
 }
 
+let rpcId = 0;
+
+/**
+ * The remote MCP projection: one stateless Streamable HTTP endpoint, no session
+ * handshake. The same Web Bot Auth headers verify here, so a signed client gets
+ * the same identity it gets on `/api/capabilities/*` — policy belongs to the
+ * capability, not the transport.
+ */
+async function rpc(method, params) {
+  const url = `${baseUrl}/mcp`;
+  const headers = { "content-type": "application/json", accept: "application/json" };
+  if (signed) Object.assign(headers, signatureHeaders(url));
+
+  const started = Date.now();
+  const response = await fetch(url, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ jsonrpc: "2.0", id: ++rpcId, method, ...(params ? { params } : {}) }),
+  });
+  const body = await response.json().catch(() => null);
+  const ms = Date.now() - started;
+
+  if (!response.ok || body?.error) {
+    return {
+      status: response.status,
+      ms,
+      ok: false,
+      error: { code: body?.error?.code ?? "transport_error", message: body?.error?.message ?? "" },
+    };
+  }
+  const result = body?.result;
+  // An execution failure is a *result*, not a JSON-RPC error: the call worked,
+  // and the model has to read the failure to react to it.
+  if (result?.isError) {
+    return {
+      status: response.status,
+      ms,
+      ok: false,
+      error: {
+        code: result._meta?.["io.pracht/error"]?.code ?? "tool_error",
+        message: result.content?.[0]?.text ?? "",
+      },
+    };
+  }
+  return { status: response.status, ms, ok: true, data: result?.structuredContent ?? result };
+}
+
 // --- output -----------------------------------------------------------------
 
 const c = {
@@ -148,6 +196,26 @@ report(
   "projects.deploy (same key, retry)",
   await call("projects.deploy", { projectId, idempotencyKey }),
 );
+
+console.log();
+console.log(c.cyan("  Remote MCP — the same graph, one endpoint at /mcp"));
+
+const listed = await rpc("tools/list");
+report("mcp: tools/list", listed);
+if (listed.ok) {
+  const names = (listed.data.tools ?? []).map((tool) => tool.name);
+  console.log(c.dim(`   tools: ${names.join(", ") || "(none)"}`));
+  console.log(
+    names.includes("projects_archive")
+      ? c.red("   projects_archive is listed — the destructive filter did not hold")
+      : c.dim("   projects_archive absent: destructive capabilities are filtered out"),
+  );
+}
+report(
+  "mcp: tools/call projects_search",
+  await rpc("tools/call", { name: "projects_search", arguments: { query: "", limit: 3 } }),
+);
+report("mcp: tools/call agent_brief", await rpc("tools/call", { name: "agent_brief" }));
 
 console.log();
 console.log(c.cyan("  Destructive flow — projects.archive"));
