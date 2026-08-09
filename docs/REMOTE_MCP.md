@@ -43,7 +43,8 @@ capability declares `expose.mcp` that no endpoint serves, and `pracht dev`
 prints the endpoint next to the capability table.
 
 Custom paths must be exact same-origin pathnames beginning with `/`; invalid
-values fail manifest validation. Once configured, the endpoint remains active
+values fail manifest validation. The endpoint must not equal a capability's
+HTTP exposure path; capability resolution fails until one of them moves. Once configured, the endpoint remains active
 with an empty capability graph (`tools/list` returns an empty list), and graph
 resolution failures stay on the endpoint as JSON-RPC errors. Endpoint matching
 accepts one trailing slash, so `/mcp` and `/mcp/` address the same projection.
@@ -114,6 +115,9 @@ regenerated or re-described:
 Annotations are client UX hints, never enforcement — the effect class that
 produced them is what the server enforces. Pracht does not claim that a tool is
 closed-world, so it leaves `openWorldHint` unset and preserves MCP's default.
+For the same reason, `write` capabilities omit `destructiveHint`: `write` says
+that an operation mutates state, but does not prove that it is purely additive,
+so MCP's conservative default applies.
 
 Results carry both `structuredContent` (the validated output) and a text
 rendering, so hosts that only read text still get something useful:

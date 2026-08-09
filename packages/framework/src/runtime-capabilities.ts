@@ -18,6 +18,7 @@ import {
   CAPABILITY_TRANSPORT_HEADER,
   capabilityHttpPath,
   coerceFormInput,
+  DEFAULT_MCP_ENDPOINT,
   isValidCapabilityHttpPath,
   isValidMcpToolName,
   MCP_SCHEMA_ROOT_ERROR,
@@ -79,7 +80,7 @@ export interface ResolvedCapability {
   middlewareFiles: string[];
 }
 
-export type CapabilityHostApp = Pick<PrachtApp, "capabilities" | "middleware">;
+export type CapabilityHostApp = Pick<PrachtApp, "agents" | "capabilities" | "middleware">;
 
 // Resolution loads every registered capability module once per manifest +
 // registry instance. Dev HMR can keep the same app manifest object while
@@ -116,6 +117,9 @@ async function resolveAppCapabilitiesUncached(
 ): Promise<ResolvedCapability[]> {
   const resolved: ResolvedCapability[] = [];
   const seenHttpPaths = new Map<string, string>();
+  const mcpEndpoint = app.agents?.mcp
+    ? normalizeCapabilityHttpPath(app.agents.mcp.path ?? DEFAULT_MCP_ENDPOINT)
+    : null;
 
   for (const [name, file] of Object.entries(app.capabilities ?? {})) {
     if (!CAPABILITY_NAME_RE.test(name)) {
@@ -200,6 +204,12 @@ async function resolveAppCapabilitiesUncached(
         );
       }
       httpPath = normalizeCapabilityHttpPath(configuredPath);
+      if (httpPath === mcpEndpoint) {
+        throw new Error(
+          `Capability "${name}" exposes HTTP path "${httpPath}", which is also the configured ` +
+            "MCP endpoint. Choose a distinct agents.mcp.path or capability HTTP path.",
+        );
+      }
       const existing = seenHttpPaths.get(httpPath);
       if (existing) {
         throw new Error(

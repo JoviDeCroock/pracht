@@ -421,7 +421,11 @@ describe("transport", () => {
       jsonrpc: "2.0",
       id: 1,
       method: "initialize",
-      params: { protocolVersion: "2025-06-18", capabilities: {} },
+      params: {
+        protocolVersion: "2025-06-18",
+        capabilities: {},
+        clientInfo: { name: "test-client", version: "1.0.0" },
+      },
     });
     expect(known.json?.result.protocolVersion).toBe("2025-06-18");
     expect(known.json?.result.capabilities.tools).toBeDefined();
@@ -430,18 +434,54 @@ describe("transport", () => {
       jsonrpc: "2.0",
       id: 1,
       method: "initialize",
-      params: { protocolVersion: "1999-01-01" },
+      params: {
+        protocolVersion: "1999-01-01",
+        capabilities: {},
+        clientInfo: { name: "test-client", version: "1.0.0" },
+      },
     });
     expect(unknown.json?.result.protocolVersion).toBe("2025-11-25");
   });
 
   it("reports configured server info", async () => {
     const { json } = await mcp(
-      { jsonrpc: "2.0", id: 1, method: "initialize", params: {} },
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: {
+          protocolVersion: "2025-11-25",
+          capabilities: {},
+          clientInfo: { name: "test-client", version: "1.0.0" },
+        },
+      },
       { agents: { mcp: { serverInfo: { name: "notes", version: "1.2.3" }, instructions: "Hi." } } },
     );
     expect(json?.result.serverInfo).toEqual({ name: "notes", version: "1.2.3" });
     expect(json?.result.instructions).toBe("Hi.");
+  });
+
+  it.each([
+    undefined,
+    {},
+    { protocolVersion: 7, capabilities: {}, clientInfo: { name: "client", version: "1" } },
+    {
+      protocolVersion: "2025-11-25",
+      capabilities: null,
+      clientInfo: { name: "client", version: "1" },
+    },
+    { protocolVersion: "2025-11-25", capabilities: {}, clientInfo: null },
+    { protocolVersion: "2025-11-25", capabilities: {}, clientInfo: { name: "", version: "1" } },
+  ])("rejects invalid initialize params (%j)", async (params) => {
+    const { status, json } = await mcp({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "initialize",
+      ...(params === undefined ? {} : { params }),
+    });
+
+    expect(status).toBe(200);
+    expect(json?.error).toMatchObject({ code: -32602 });
   });
 });
 
@@ -482,6 +522,7 @@ describe("tools/list", () => {
       (tool: { name: string }) => tool.name === "notes_create",
     );
     expect(create.annotations).toMatchObject({ readOnlyHint: false, idempotentHint: false });
+    expect(create.annotations).not.toHaveProperty("destructiveHint");
   });
 
   it("maps dots to underscores and detects collisions", () => {

@@ -43,3 +43,8 @@ Malformed non-object `tools/call.arguments` are rejected as JSON-RPC invalid
 params before capability dispatch. App-graph snapshots record MCP endpoint
 activation, moves, and removal, with activation flagged as an agent-surface
 widening by `pracht plan`.
+
+Capability HTTP paths may not collide with the configured MCP endpoint, and
+malformed `initialize` parameters now return JSON-RPC invalid params. MCP tool
+annotations also leave `destructiveHint` unset for `write` capabilities because
+the write effect alone does not prove an operation is purely additive.

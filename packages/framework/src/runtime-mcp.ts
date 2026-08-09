@@ -257,19 +257,30 @@ export async function handleMcpRequest<TContext>(
   }
 
   switch (message.method) {
-    case "initialize":
+    case "initialize": {
+      const params = readInitializeParams(message.params);
+      if (!params) {
+        return jsonRpcResponse(200, {
+          jsonrpc: "2.0",
+          id,
+          error: {
+            code: JSONRPC_INVALID_PARAMS,
+            message:
+              "initialize requires a string protocolVersion, object capabilities, and clientInfo with string name and version.",
+          },
+        });
+      }
       return jsonRpcResponse(200, {
         jsonrpc: "2.0",
         id,
         result: {
-          protocolVersion: negotiateProtocolVersion(
-            (message.params as { protocolVersion?: unknown } | undefined)?.protocolVersion,
-          ),
+          protocolVersion: negotiateProtocolVersion(params.protocolVersion),
           capabilities: { tools: { listChanged: false } },
           serverInfo: options.mcp.serverInfo ?? { name: "pracht", version: "0.0.0" },
           instructions: options.mcp.instructions,
         },
       });
+    }
 
     case "ping":
       return jsonRpcResponse(200, { jsonrpc: "2.0", id, result: {} });
@@ -312,7 +323,10 @@ function toolDescriptor(entry: ResolvedCapability) {
     // them is what the server actually enforces.
     annotations: {
       readOnlyHint: capability.effect === "read",
-      destructiveHint: false,
+      // `write` only says the capability mutates state; it does not prove the
+      // operation is additive. Omit the hint so MCP's conservative default
+      // applies unless Pracht grows a more precise effect classification.
+      ...(capability.effect === "read" ? { destructiveHint: false } : {}),
       idempotentHint: capability.effect === "read",
     },
     _meta: { "io.pracht/capability": entry.name, "io.pracht/effect": capability.effect },
@@ -518,6 +532,36 @@ function negotiateProtocolVersion(requested: unknown): string {
   return typeof requested === "string" && isSupportedProtocolVersion(requested)
     ? requested
     : MCP_LATEST_PROTOCOL_VERSION;
+}
+
+interface McpInitializeParams {
+  protocolVersion: string;
+  capabilities: Record<string, unknown>;
+  clientInfo: { name: string; version: string };
+}
+
+function readInitializeParams(value: unknown): McpInitializeParams | null {
+  if (!isObjectRecord(value)) return null;
+  const { protocolVersion, capabilities, clientInfo } = value;
+  if (typeof protocolVersion !== "string" || !isObjectRecord(capabilities)) return null;
+  if (
+    !isObjectRecord(clientInfo) ||
+    typeof clientInfo.name !== "string" ||
+    clientInfo.name.trim() === "" ||
+    typeof clientInfo.version !== "string" ||
+    clientInfo.version.trim() === ""
+  ) {
+    return null;
+  }
+  return {
+    protocolVersion,
+    capabilities,
+    clientInfo: { name: clientInfo.name, version: clientInfo.version },
+  };
+}
+
+function isObjectRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
 function acceptsJson(request: Request): boolean {

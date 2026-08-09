@@ -201,6 +201,17 @@ describe("resolveAppCapabilities", () => {
     await expect(resolveAppCapabilities(app, registry)).rejects.toThrow(/both expose HTTP path/);
   });
 
+  it("rejects capability HTTP paths that collide with the MCP endpoint", async () => {
+    const { app, registry } = createApp(
+      createSearchCapability({ expose: { http: { path: "/agent/mcp" } } }),
+      { agents: { mcp: { path: "/agent/mcp/" } } },
+    );
+
+    await expect(resolveAppCapabilities(app, registry)).rejects.toThrow(
+      /also the configured MCP endpoint/,
+    );
+  });
+
   it("keeps unexposed capabilities private (no HTTP path)", async () => {
     const { app, registry } = createApp(createSearchCapability({ expose: undefined }));
     const resolved = await resolveAppCapabilities(app, registry);

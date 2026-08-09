@@ -40,7 +40,7 @@ export default defineCapability({
 
 `pracht dev` prints the endpoint next to the capability table, and `pracht verify` warns when a capability declares `expose.mcp` that no endpoint serves — a declared-but-dead transport is never mistaken for a live one.
 
-Custom paths must be exact same-origin pathnames beginning with `/`; invalid values fail manifest validation. Once configured, the endpoint remains active with an empty capability graph (`tools/list` returns an empty list), and graph resolution failures stay on the endpoint as JSON-RPC errors. Endpoint matching accepts one trailing slash, so `/mcp` and `/mcp/` address the same projection.
+Custom paths must be exact same-origin pathnames beginning with `/`; invalid values fail manifest validation. The endpoint must not equal a capability's HTTP exposure path; capability resolution fails until one path moves. Once configured, the endpoint remains active with an empty capability graph (`tools/list` returns an empty list), and graph resolution failures stay on the endpoint as JSON-RPC errors. Endpoint matching accepts one trailing slash, so `/mcp` and `/mcp/` address the same projection.
 
 `expose.mcp` does **not** require `expose.http`. A capability can be reachable by remote agents with no public browser endpoint at all.
 
@@ -84,7 +84,7 @@ The endpoint is stateless: no session id, no server→client stream, no resumabi
 }
 ```
 
-Annotations are hints for the client's UX — never enforcement. The effect class that produced them is what the server actually enforces. Pracht does not claim that a tool is closed-world, so it leaves `openWorldHint` unset and preserves MCP's default.
+Annotations are hints for the client's UX — never enforcement. The effect class that produced them is what the server actually enforces. Pracht does not claim that a tool is closed-world, so it leaves `openWorldHint` unset and preserves MCP's default. Likewise, `write` capabilities omit `destructiveHint`: a write mutates state but is not necessarily purely additive, so MCP's conservative default applies.
 
 Capability names are dot-separated; MCP hosts widely constrain tool names to `^[a-zA-Z0-9_-]{1,64}$`, so `notes.search` becomes `notes_search`. Two capabilities that would collide (`notes.search` and `notes_search`) are a `pracht verify` error, and the runtime refuses to serve an ambiguous tool list rather than picking a winner. Projected names longer than 64 characters are rejected by verification and the runtime as well.
 

@@ -461,6 +461,7 @@ test("MCP initialize negotiates and reports the app's server info", async ({ req
   const { status, body } = await rpc(request, "initialize", {
     protocolVersion: "2025-06-18",
     capabilities: {},
+    clientInfo: { name: "playwright", version: "1.0.0" },
   });
 
   expect(status).toBe(200);
