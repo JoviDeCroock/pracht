@@ -1067,6 +1067,8 @@ function normalizeMiddlewareShortCircuit(response: Response): Response {
 export interface CapabilityHost {
   app: CapabilityHostApp;
   registry: ModuleRegistry;
+  /** Request-local audit hook supplied by a custom server entry. */
+  onAudit?: CapabilityAuditHook;
   /**
    * Transport of the request this host was installed for. Carried onto the
    * audit event of every capability composed through `invokeCapability()`
@@ -1089,8 +1091,9 @@ export function setActiveCapabilityHost(
   registry: ModuleRegistry,
   /** Transport of the request being served; audits nested composition. */
   via: NonNullable<CapabilityAuditEvent["via"]> = "http",
+  onAudit?: CapabilityAuditHook,
 ): void {
-  activeCapabilityHosts.set(request, { app, registry, via });
+  activeCapabilityHosts.set(request, { app, registry, via, onAudit });
 }
 
 export interface InvokeCapabilityContext<TContext = unknown> {
@@ -1204,16 +1207,19 @@ export async function invokeCapabilityOnHost<T = unknown>(
       code: "internal_error",
       message: `Capability "${name}" failed: ${error instanceof Error ? error.message : String(error)}`,
     });
-    emitCapabilityAudit({
-      capability: name,
-      effect: resolved.capability.effect,
-      transport: "server",
-      via: host.via ?? null,
-      outcome: "internal_error",
-      status: 500,
-      durationMs: performance.now() - started,
-      agent: (context as { agent?: PrachtAgentIdentity | null }).agent ?? null,
-    });
+    emitCapabilityAudit(
+      {
+        capability: name,
+        effect: resolved.capability.effect,
+        transport: "server",
+        via: host.via ?? null,
+        outcome: "internal_error",
+        status: 500,
+        durationMs: performance.now() - started,
+        agent: (context as { agent?: PrachtAgentIdentity | null }).agent ?? null,
+      },
+      host.onAudit,
+    );
     return envelope as CapabilityEnvelope<T>;
   }
 
@@ -1225,16 +1231,19 @@ export async function invokeCapabilityOnHost<T = unknown>(
   const status = outcome.kind === "envelope" ? outcome.status : outcome.response.status;
   const auditOutcome =
     outcome.kind === "envelope" ? envelopeOutcome(outcome.envelope) : `middleware_${status}`;
-  emitCapabilityAudit({
-    capability: name,
-    effect: resolved.capability.effect,
-    transport: "server",
-    via: host.via ?? null,
-    outcome: auditOutcome,
-    status,
-    durationMs: performance.now() - started,
-    agent,
-  });
+  emitCapabilityAudit(
+    {
+      capability: name,
+      effect: resolved.capability.effect,
+      transport: "server",
+      via: host.via ?? null,
+      outcome: auditOutcome,
+      status,
+      durationMs: performance.now() - started,
+      agent,
+    },
+    host.onAudit,
+  );
 
   if (outcome.kind === "envelope") {
     return outcome.envelope as CapabilityEnvelope<T>;

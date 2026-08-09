@@ -756,7 +756,6 @@ describe("invokeCapability", () => {
 
   it("attributes a composed dispatch to the request transport it ran under", async () => {
     const events: CapabilityAuditEvent[] = [];
-    setCapabilityAuditHook((event) => events.push(event));
 
     const { app, registry } = createApp(createSearchCapability(), {
       routes: [route("/notes", "./routes/notes.tsx", { id: "notes" })],
@@ -773,6 +772,7 @@ describe("invokeCapability", () => {
       app,
       registry,
       request: new Request("http://localhost/notes?_data=1"),
+      onCapabilityAudit: (event) => events.push(event),
     });
 
     expect(events).toHaveLength(1);

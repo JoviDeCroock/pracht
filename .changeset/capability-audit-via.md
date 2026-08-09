@@ -20,7 +20,8 @@ triggered through a composing tool is recorded as
 loader call. It is `null` for top-level dispatches and outside a served request
 (test hosts, scripts), and never reports `"webmcp"` — that marker is
 client-declared, so it is not trustworthy enough to attribute a nested effect
-to.
+to. Both the module-level audit hook and `handlePrachtRequest()`'s request-local
+`onCapabilityAudit` callback receive the composed event.
 
 The guard boundary itself is unchanged and now documented in
 `docs/AGENT_TRUST.md`: gate composed effects inside the composing capability

@@ -403,7 +403,7 @@ async function handleToolsCall<TContext>(
   // host before either can compose another capability. The host records the
   // originating transport, so anything composed while serving this tool call
   // audits as `via: "mcp"` rather than looking like an ordinary server call.
-  setActiveCapabilityHost(capabilityRequest, options.app, options.registry, "mcp");
+  setActiveCapabilityHost(capabilityRequest, options.app, options.registry, "mcp", options.onAudit);
   const response = await handleCapabilityRequest({
     match,
     context: options.context,
