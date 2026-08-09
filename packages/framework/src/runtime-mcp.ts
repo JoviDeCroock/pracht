@@ -25,7 +25,12 @@ import {
   MCP_TOOL_NAME_ERROR,
   mcpToolName,
 } from "@pracht/capabilities";
-import { handleCapabilityRequest, type ResolvedCapability } from "./runtime-capabilities.ts";
+import {
+  handleCapabilityRequest,
+  setActiveCapabilityHost,
+  type CapabilityHostApp,
+  type ResolvedCapability,
+} from "./runtime-capabilities.ts";
 import type {
   CapabilityAuditHook,
   CapabilityEnvelope,
@@ -78,6 +83,7 @@ export function mcpExposedCapabilities(
 }
 
 export interface HandleMcpRequestOptions<TContext> {
+  app: CapabilityHostApp;
   capabilities: readonly ResolvedCapability[];
   context: TContext;
   registry: ModuleRegistry;
@@ -391,6 +397,11 @@ async function handleToolsCall<TContext>(
     params.arguments,
     params._meta,
   );
+  // `invokeCapability()` resolves its host by Request identity. MCP dispatch
+  // uses a synthesized request so middleware and capability bodies see the
+  // projected URL and credential policy; bind that request to the same app
+  // host before either can compose another capability.
+  setActiveCapabilityHost(capabilityRequest, options.app, options.registry);
   const response = await handleCapabilityRequest({
     match,
     context: options.context,

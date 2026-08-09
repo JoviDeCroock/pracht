@@ -66,6 +66,10 @@ validation, named middleware, `agentPolicy`, output validation, and the audit
 event are therefore identical across HTTP, WebMCP, and MCP by construction —
 there is no second copy of the rules to drift.
 
+The synthesized request carries the same request-bound capability host, so
+named middleware and capability bodies can compose registered operations with
+`invokeCapability()` exactly as they can during ordinary HTTP dispatch.
+
 ```text
 POST /mcp
   → transport checks (method, Accept, Origin, protocol version)

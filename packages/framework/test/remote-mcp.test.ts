@@ -7,7 +7,13 @@ import {
   isValidMcpToolName,
   mcpToolName,
 } from "../../capabilities/src/index.ts";
-import { defineApp, handlePrachtRequest, route, setCapabilityAuditHook } from "../src/index.ts";
+import {
+  defineApp,
+  handlePrachtRequest,
+  invokeCapability,
+  route,
+  setCapabilityAuditHook,
+} from "../src/index.ts";
 import { MCP_PROTOCOL_VERSION_HEADER, resolveMcpEndpoint } from "../src/runtime-mcp.ts";
 import type { CapabilityAuditEvent, ModuleRegistry, PrachtAgentsConfig } from "../src/types.ts";
 
@@ -71,6 +77,24 @@ const notesInternal = defineCapability({
   effect: "read",
   async run() {
     return { count: 1 };
+  },
+} as CapabilityDefinition);
+
+/** MCP entry point that composes another capability through the request-bound host. */
+const notesCompose = defineCapability({
+  title: "Compose notes",
+  description: "Invoke another notes capability.",
+  input: { type: "object", properties: {}, additionalProperties: false },
+  output: { type: "object", properties: { count: { type: "integer" } }, required: ["count"] },
+  effect: "read",
+  expose: { mcp: true },
+  async run({ request, context, signal }) {
+    const result = await invokeCapability(
+      "notes.search",
+      { query: "composed" },
+      { request, context, signal },
+    );
+    return { count: result.ok ? result.data.notes.length : -1 };
   },
 } as CapabilityDefinition);
 
@@ -166,6 +190,7 @@ function createApp(agents: PrachtAgentsConfig | undefined) {
   const capabilities = {
     "notes.search": notesSearch,
     "notes.create": notesCreate,
+    "notes.compose": notesCompose,
     "notes.internal": notesInternal,
     "notes.guarded": guarded,
     "agent.only": agentOnly,
@@ -516,6 +541,7 @@ describe("tools/list", () => {
       "auth_probe",
       "invalid-output_short-circuit",
       "json_short-circuit",
+      "notes_compose",
       "notes_create",
       "notes_guarded",
       "notes_search",
@@ -569,6 +595,14 @@ describe("tools/call runs the same pipeline as the HTTP projection", () => {
   it("serves a capability that has no HTTP endpoint", async () => {
     const { json } = await callTool("notes_create", { title: "spike" });
     expect(json?.result.structuredContent).toEqual({ id: "note-spike" });
+  });
+
+  it("keeps invokeCapability composition available on the synthesized request", async () => {
+    const { json } = await callTool("notes_compose", {});
+    expect(json?.result).toMatchObject({
+      isError: false,
+      structuredContent: { count: 1 },
+    });
   });
 
   it("reports schema violations as tool errors carrying the issues", async () => {

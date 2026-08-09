@@ -51,3 +51,6 @@ the write effect alone does not prove an operation is purely additive.
 Middleware-produced success envelopes are revalidated against the advertised
 output schema before their data is returned as MCP `structuredContent` and
 before the audit outcome and status are finalized.
+Synthesized MCP requests retain the request-bound capability host, so named
+middleware and capability bodies can compose registered capabilities through
+`invokeCapability()` without losing the active application registry.

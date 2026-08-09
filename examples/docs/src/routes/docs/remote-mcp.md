@@ -61,6 +61,8 @@ POST /mcp
 
 Input validation, named middleware, `agentPolicy`, output validation, and the audit event are identical across HTTP, WebMCP, and MCP *by construction* — there is no second copy of the rules that could drift from the first.
 
+The synthesized request carries the same request-bound capability host, so named middleware and capability bodies can compose registered operations with `invokeCapability()` exactly as they can during ordinary HTTP dispatch.
+
 The endpoint is stateless: no session id, no server→client stream, no resumability. That is what the Node, Cloudflare, and Vercel adapters already serve, so the same app runs unchanged on all three.
 
 ---
