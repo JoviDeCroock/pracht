@@ -150,9 +150,11 @@ Every capability declares `read`, `write`, or `destructive`
 ### Prepare/commit
 
 Set `PRACHT_CONFIRMATION_SECRET` in the server environment (or call
-`setCapabilityConfirmationSecret()` from server code on platforms without
-`process.env`). Without it, destructive HTTP calls fail closed with
-`403 confirmation_unavailable`, and `pracht verify` fails.
+`setCapabilityConfirmationSecret()` from `@pracht/core/server` on platforms
+without `process.env`). Without it, destructive HTTP calls fail closed with
+`403 confirmation_unavailable`, and `pracht verify` fails — verify reads the
+environment, so it cannot see a programmatically registered secret and needs the
+variable set even for apps that use the escape hatch.
 
 1. **Prepare** — a call without a token never runs the capability. The typed
    browser client makes that intent explicit with `{ prepare: true }`:
@@ -239,7 +241,7 @@ import {
   createMemoryApprovalStore,
   setCapabilityApprovalPrincipalResolver,
   setCapabilityApprovalStore,
-} from "@pracht/core";
+} from "@pracht/core/server";
 
 export const approvalStore = createMemoryApprovalStore();
 setCapabilityApprovalStore(approvalStore);
@@ -457,7 +459,7 @@ Subscribe from any server-only module (audit hooks observe: exceptions are
 swallowed, never breaking a request):
 
 ```ts
-import { setCapabilityAuditHook } from "@pracht/core";
+import { setCapabilityAuditHook } from "@pracht/core/server";
 
 setCapabilityAuditHook((event) => log.info("capability", event));
 ```

@@ -7,7 +7,33 @@ export {
   resolveApp,
   route,
   timeRevalidate,
+  webhookRevalidate,
 } from "./app.ts";
+/**
+ * Constraint factories are plain data builders with no server dependency, and
+ * they are called *inside* `defineApp({ constraints })` — which means they run
+ * in the client bundle too, because the manifest is the one module both
+ * environments share. Omitting them here made a documented manifest feature a
+ * silent, whole-app hydration failure.
+ */
+export {
+  forbidRenderMode,
+  matchRoutePattern,
+  requireHead,
+  requireMiddleware,
+  requireRenderMode,
+  requireShell,
+} from "./constraints.ts";
+export type {
+  ConstraintRoute,
+  ConstraintViolation,
+  ForbidRenderModeConstraint,
+  RequireHeadConstraint,
+  RequireMiddlewareConstraint,
+  RequireRenderModeConstraint,
+  RequireShellConstraint,
+  RouteConstraint,
+} from "./constraints.ts";
 export { createHref } from "./href.ts";
 export {
   apiValidationErrorResponse,

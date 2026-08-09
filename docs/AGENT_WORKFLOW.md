@@ -76,6 +76,8 @@ LLM, can merge a violation** because `pracht verify` (run in CI) fails.
 
 ```ts
 import { defineApp, forbidRenderMode, requireHead, requireMiddleware, requireShell } from "@pracht/core";
+// The manifest is bundled into the client too, so these come from the
+// browser-safe entry as well — no separate import path needed.
 
 export const app = defineApp({
   // ...
