@@ -255,6 +255,7 @@ interface McpCallOptions {
   path?: string;
   body?: unknown;
   rawBody?: string;
+  onCapabilityAudit?: (event: CapabilityAuditEvent) => void;
 }
 
 async function mcp(message: unknown, options: McpCallOptions = {}) {
@@ -270,6 +271,7 @@ async function mcp(message: unknown, options: McpCallOptions = {}) {
       body:
         method === "GET" ? undefined : (options.rawBody ?? JSON.stringify(options.body ?? message)),
     }),
+    onCapabilityAudit: options.onCapabilityAudit,
   });
   const text = await response.clone().text();
   let json: Record<string, any> | null = null;
@@ -602,6 +604,29 @@ describe("tools/call runs the same pipeline as the HTTP projection", () => {
     expect(json?.result).toMatchObject({
       isError: false,
       structuredContent: { count: 1 },
+    });
+  });
+
+  it("attributes composed dispatches to the mcp transport that caused them", async () => {
+    const events: CapabilityAuditEvent[] = [];
+
+    await callTool("notes_compose", {}, { onCapabilityAudit: (event) => events.push(event) });
+
+    // Composition runs the callee's own pipeline only — no HTTP/MCP dispatch
+    // guards — so the audit trail is what ties the nested effect back to the
+    // remote agent that triggered it.
+    expect(events).toHaveLength(2);
+    expect(events[0]).toMatchObject({
+      capability: "notes.search",
+      transport: "server",
+      via: "mcp",
+      outcome: "ok",
+    });
+    expect(events[1]).toMatchObject({
+      capability: "notes.compose",
+      transport: "mcp",
+      via: null,
+      outcome: "ok",
     });
   });
 

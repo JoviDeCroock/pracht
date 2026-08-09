@@ -880,6 +880,18 @@ transfers to the transport unchanged, so the ban is now a policy choice rather
 than a mechanism gap: what it waits on is exactly-once commit, which the
 [approval store](AGENT_TRUST.md#durable-approvals) provides.
 
+The ban covers the tool surface, not composition. Binding the synthesized
+request to the capability host let an MCP tool call `invokeCapability()` like
+any other server code — including on a private or destructive capability,
+whose transport guards (`agentPolicy`, the confirmation gate) that path has
+never applied. Re-applying them there was rejected: it would give the same
+composition two different meanings depending on which transport happened to be
+serving, and would break the composing capability that gates the work itself.
+Instead composition is documented as trusted first-party code that lends its
+caller's reachability to its callee, and `CapabilityAuditEvent` gained `via` —
+the transport of the request a `"server"` dispatch ran under — so an effect a
+remote agent caused indirectly is attributable rather than invisible.
+
 ## Final Recommendation
 
 Proceed with Stage 0 as the next product exploration. Continue streaming SSR and other framework

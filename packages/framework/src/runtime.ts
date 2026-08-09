@@ -251,7 +251,13 @@ export async function handlePrachtRequest<TContext>(
   // Register the capability host so `invokeCapability()` works from loaders,
   // API routes, and middleware during this request. One assignment — free
   // for apps without capabilities.
-  setActiveCapabilityHost(options.request, options.app, registry);
+  setActiveCapabilityHost(
+    options.request,
+    options.app,
+    registry,
+    "http",
+    options.onCapabilityAudit,
+  );
 
   // Web Bot Auth: verify the agent signature once per request when the app
   // opted in via `defineApp({ agents: { webBotAuth } })`. The result (identity

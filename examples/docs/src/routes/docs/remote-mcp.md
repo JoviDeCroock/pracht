@@ -61,7 +61,7 @@ POST /mcp
 
 Input validation, named middleware, `agentPolicy`, output validation, and the audit event are identical across HTTP, WebMCP, and MCP *by construction* — there is no second copy of the rules that could drift from the first.
 
-The synthesized request carries the same request-bound capability host, so named middleware and capability bodies can compose registered operations with `invokeCapability()` exactly as they can during ordinary HTTP dispatch.
+The synthesized request carries the same request-bound capability host, so named middleware and capability bodies can compose registered operations with `invokeCapability()` exactly as they can during ordinary HTTP dispatch. That composition is trusted first-party code and runs only the callee's own pipeline — `agentPolicy` and the confirmation gate guard *dispatch*, not `invokeCapability()` — so an exposed tool lends its reachability to whatever it composes. Composed dispatches audit as `{ transport: "server", via: "mcp" }`, keeping indirect effects attributable to the agent that caused them.
 
 The endpoint is stateless: no session id, no server→client stream, no resumability. That is what the Node, Cloudflare, and Vercel adapters already serve, so the same app runs unchanged on all three.
 
@@ -114,9 +114,9 @@ Every capability guarantee carries over. The projection adds three of its own:
 
 **Browser-originated requests are rejected.** Remote MCP has no browser use case, so requests carrying `Origin` or `Sec-Fetch-Site` receive 403. This avoids trusting a Host-derived request URL during Origin validation, closing the DNS-rebinding path. Non-browser MCP clients send neither header and are unaffected.
 
-**Destructive capabilities are not exposed.** `expose.mcp` on a `destructive` capability is rejected by `defineCapability()`, the registry, and `pracht verify` — and filtered again at serve time. Agent hosts cannot yet be trusted to carry the [prepare/commit flow](/docs/agent-trust) faithfully.
+**Destructive capabilities are not exposed.** `expose.mcp` on a `destructive` capability is rejected by `defineCapability()`, the registry, and `pracht verify` — and filtered again at serve time. Agent hosts cannot yet be trusted to carry the [prepare/commit flow](/docs/agent-trust) faithfully. That covers the *tool surface*, not composition: an exposed tool whose `run()` invokes a destructive capability still performs that effect, unconfirmed, because `invokeCapability()` is trusted server code. Gate it in the composing capability.
 
-Authentication is your app's, in the capability's named middleware. Every dispatch emits an audit event with `transport: "mcp"` — passed as internal dispatch state rather than read from the public transport-marker header, so unlike the client-declared `"webmcp"` marker it is trustworthy.
+Authentication is your app's, in the capability's named middleware. Every dispatch emits an audit event with `transport: "mcp"` — passed as internal dispatch state rather than read from the public transport-marker header, so unlike the client-declared `"webmcp"` marker it is trustworthy — and anything the tool composes emits its own event carrying `via: "mcp"`.
 
 ---
 

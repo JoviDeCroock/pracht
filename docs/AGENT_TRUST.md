@@ -408,6 +408,7 @@ interface CapabilityAuditEvent {
   capability: string;          // "notes.purge"
   effect: "read" | "write" | "destructive";
   transport: "http" | "server" | "webmcp" | "mcp";
+  via: "http" | "mcp" | null; // request a "server" dispatch was composed under
   outcome: string;             // "ok" | "invalid_input" | "confirmation_required" | ...
   status: number;
   durationMs: number;
@@ -424,6 +425,33 @@ agent traffic (cookie-authenticated) apart from remote HTTP callers — like any
 client-sent header it is informational, not a trust signal. `outcome` values
 come from the `CapabilityErrorCode` union exported by `@pracht/capabilities`
 (plus `"ok"` and middleware short-circuits).
+
+`via` answers "who caused this?" for composition. A capability that calls
+`invokeCapability()` produces a second event with `transport: "server"`, and
+`via` carries the transport of the request being served — so an effect a
+remote agent triggered through a composing MCP tool reads as
+`{ transport: "server", via: "mcp" }` instead of looking like an ordinary
+loader call. It is `null` for top-level dispatches (`transport` already says
+how they arrived) and outside a served request (test hosts, scripts). It never
+reports `"webmcp"`: that marker is client-declared, so it is not trustworthy
+enough to attribute a nested effect to.
+
+### Composition does not inherit transport guards
+
+`invokeCapability()` is trusted first-party composition. It runs the callee's
+own pipeline — input validation, its named middleware, `run()`, output
+validation — and deliberately *not* the transport policy that guards the
+projections: no app-level `api.middleware`, no `agentPolicy` check, and no
+prepare/commit confirmation gate.
+
+That is what makes private capabilities useful as building blocks, and it
+means the reachability of a composing capability is the reachability of
+everything it composes. An MCP-exposed tool whose `run()` calls a
+`destructive` capability grants remote agents that effect, even though
+`expose.mcp` on the destructive capability itself is rejected. Put the gate in
+the composing capability — check `context.agent`, require your own approval,
+or keep the composition out of an exposed capability — and use `via` to see
+what actually ran.
 
 Subscribe from any server-only module (audit hooks observe: exceptions are
 swallowed, never breaking a request):

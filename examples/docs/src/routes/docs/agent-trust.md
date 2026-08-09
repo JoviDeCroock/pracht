@@ -190,6 +190,14 @@ setCapabilityAuditHook((event) => log.info("capability", event));
 
 Hook exceptions are swallowed — auditing observes, it never breaks a request.
 
+A capability that calls `invokeCapability()` produces a second event with `transport: "server"` and `via` set to the transport of the request it ran under, so an effect a remote agent triggered through a composing MCP tool reads as `{ transport: "server", via: "mcp" }` rather than looking like an ordinary loader call. `via` is `null` for top-level dispatches and outside a served request.
+
+### Composition Does Not Inherit Transport Guards
+
+`invokeCapability()` is trusted first-party composition. It runs the callee's own pipeline — input validation, its named middleware, `run()`, output validation — and deliberately *not* the transport policy guarding the projections: no app-level `api.middleware`, no `agentPolicy` check, no prepare/commit gate.
+
+That is what makes private capabilities useful as building blocks, and it means the reachability of a composing capability is the reachability of everything it composes. An MCP-exposed tool whose `run()` calls a `destructive` capability grants remote agents that effect, even though `expose.mcp` on the destructive capability itself is rejected. Put the gate in the composing capability, and use `via` to see what actually ran.
+
 ---
 
 ## pracht eval: Prove Agent Flows in CI

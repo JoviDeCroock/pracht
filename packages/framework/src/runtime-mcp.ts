@@ -400,8 +400,10 @@ async function handleToolsCall<TContext>(
   // `invokeCapability()` resolves its host by Request identity. MCP dispatch
   // uses a synthesized request so middleware and capability bodies see the
   // projected URL and credential policy; bind that request to the same app
-  // host before either can compose another capability.
-  setActiveCapabilityHost(capabilityRequest, options.app, options.registry);
+  // host before either can compose another capability. The host records the
+  // originating transport, so anything composed while serving this tool call
+  // audits as `via: "mcp"` rather than looking like an ordinary server call.
+  setActiveCapabilityHost(capabilityRequest, options.app, options.registry, "mcp", options.onAudit);
   const response = await handleCapabilityRequest({
     match,
     context: options.context,
