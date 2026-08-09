@@ -164,6 +164,31 @@ describe("defineCapability", () => {
     );
   });
 
+  it("requires object-rooted schemas for MCP exposure", () => {
+    expect(() =>
+      defineCapability({
+        ...baseDefinition,
+        input: { type: "string" },
+        expose: { mcp: true },
+      }),
+    ).toThrow(/expose\.mcp requires "input" and "output" schemas with type: "object"/);
+    expect(() =>
+      defineCapability({
+        ...baseDefinition,
+        output: { type: "array", items: { type: "string" } },
+        expose: { mcp: true },
+      }),
+    ).toThrow(/expose\.mcp requires "input" and "output" schemas with type: "object"/);
+
+    expect(() =>
+      defineCapability({
+        ...baseDefinition,
+        output: { type: "array", items: { type: "string" } },
+        expose: { http: true },
+      }),
+    ).not.toThrow();
+  });
+
   it("rejects non-POST HTTP methods and invalid paths", () => {
     expect(() =>
       defineCapability({

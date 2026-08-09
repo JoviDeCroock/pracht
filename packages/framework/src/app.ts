@@ -21,6 +21,7 @@ import type {
   PrachtAppConfig,
   PrachtAgentsConfig,
 } from "./types.ts";
+import { isValidCapabilityHttpPath } from "@pracht/capabilities";
 import { formatUnknownNameError } from "./name-suggestions.ts";
 import { NOT_FOUND_ROUTE_ID, NOT_FOUND_ROUTE_PATH } from "./runtime-constants.ts";
 import {
@@ -392,7 +393,7 @@ const CONFIRMATION_MODES = ["token", "human"];
  */
 function validateAgentsConfig(agents: PrachtAgentsConfig | undefined): void {
   if (!agents) return;
-  const { webBotAuth, confirmation } = agents;
+  const { webBotAuth, confirmation, mcp } = agents;
   if (webBotAuth) {
     if (webBotAuth.policy !== undefined && !AGENT_POLICY_MODES.includes(webBotAuth.policy)) {
       throw new Error(
@@ -414,6 +415,11 @@ function validateAgentsConfig(agents: PrachtAgentsConfig | undefined): void {
       );
     }
     assertPositiveNumber(confirmation.ttlSeconds, "agents.confirmation.ttlSeconds");
+  }
+  if (mcp?.path !== undefined && !isValidCapabilityHttpPath(mcp.path)) {
+    throw new Error(
+      'defineApp({ agents.mcp.path }) must be an exact same-origin pathname starting with "/".',
+    );
   }
 }
 

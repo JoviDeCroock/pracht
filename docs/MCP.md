@@ -10,6 +10,11 @@ Every tool is a thin wrapper over the CLI internals and returns the same JSON pa
 the `--json` flags of `pracht inspect`, `pracht doctor`, and `pracht verify`, so agents
 work with the resolved graph instead of globbing `src/`.
 
+> This is the **development-time** server: it exposes your app's *graph* to coding agents.
+> To expose your app's *operations* to end-user agents in production, see
+> [REMOTE_MCP.md](REMOTE_MCP.md) — the deployed app serves its capabilities as MCP tools
+> over Streamable HTTP.
+
 ## Starting the server
 
 ```bash

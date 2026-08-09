@@ -42,6 +42,12 @@ export const app = defineApp({
     confirmation: {
       ttlSeconds: 120,
     },
+    // Serve the `expose.mcp` capabilities as MCP tools at /mcp, for agents
+    // that never open a browser.
+    mcp: {
+      serverInfo: { name: "pracht-basic-example", version: "0.0.0" },
+      instructions: "Search and create notes in the pracht basic example app.",
+    },
   },
   routes: [
     group({ shell: "public" }, [

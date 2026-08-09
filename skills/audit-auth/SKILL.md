@@ -92,10 +92,14 @@ target. From `pracht inspect api --json`:
   `hasDefaultHandler: true` as "every method exposed". On older CLIs where
   the field is missing, grep the handler file for `export default` instead.
 - For each mutation handler (named method export or default handler) and each
-  HTTP-exposed capability, check whether
+  HTTP- or remote-MCP-exposed capability, check whether
   `defineApp({ api: { middleware } })` applies a Gate, OR the handler/capability
   reads and validates a session itself. App-level API middleware wraps generated
   capability endpoints before capability-specific middleware.
+- For remote MCP, cookie-bearing transport requests are rejected before
+  capability dispatch and only `Authorization` is forwarded. Flag MCP-exposed
+  capabilities whose gate depends on a browser session cookie or a custom
+  credential header that the projection does not carry.
 - Common bug: dashboard route is protected by middleware, but
   `POST /api/items` is not — attacker bypasses the UI entirely.
 

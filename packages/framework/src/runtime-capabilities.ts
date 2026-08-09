@@ -18,7 +18,12 @@ import {
   CAPABILITY_TRANSPORT_HEADER,
   capabilityHttpPath,
   coerceFormInput,
+  DEFAULT_MCP_ENDPOINT,
   isValidCapabilityHttpPath,
+  isValidMcpToolName,
+  MCP_SCHEMA_ROOT_ERROR,
+  MCP_TOOL_NAME_ERROR,
+  mcpToolName,
   normalizeCapabilityHttpPath,
 } from "@pracht/capabilities";
 import { formatUnknownNameError } from "./name-suggestions.ts";
@@ -75,12 +80,14 @@ export interface ResolvedCapability {
   middlewareFiles: string[];
 }
 
-export type CapabilityHostApp = Pick<PrachtApp, "capabilities" | "middleware">;
+export type CapabilityHostApp = Pick<PrachtApp, "agents" | "capabilities" | "middleware">;
 
-// Resolution loads every registered capability module once per manifest +
-// registry instance. Dev HMR can keep the same app manifest object while
-// replacing the generated registry after a capability edit, so both identities
-// participate in the cache key.
+// Resolution loads every registered capability module once per app manifest +
+// registry instance. Resolution also depends on app-level middleware and MCP
+// configuration, so keying only by the capabilities record could leak a result
+// between distinct app manifests that happen to share that record. Dev HMR can
+// keep the same app manifest object while replacing the generated registry
+// after a capability edit, so both identities participate in the cache key.
 const resolvedCapabilitiesCache = new WeakMap<
   object,
   WeakMap<object, Promise<ResolvedCapability[]>>
@@ -91,12 +98,11 @@ export function resolveAppCapabilities(
   app: CapabilityHostApp,
   registry: ModuleRegistry,
 ): Promise<ResolvedCapability[]> {
-  const capabilities = app.capabilities ?? {};
   const capabilityModules = registry.capabilityModules ?? EMPTY_CAPABILITY_MODULES;
-  let registryCache = resolvedCapabilitiesCache.get(capabilities);
+  let registryCache = resolvedCapabilitiesCache.get(app);
   if (!registryCache) {
     registryCache = new WeakMap();
-    resolvedCapabilitiesCache.set(capabilities, registryCache);
+    resolvedCapabilitiesCache.set(app, registryCache);
   }
   let resolved = registryCache.get(capabilityModules);
   if (!resolved) {
@@ -112,6 +118,9 @@ async function resolveAppCapabilitiesUncached(
 ): Promise<ResolvedCapability[]> {
   const resolved: ResolvedCapability[] = [];
   const seenHttpPaths = new Map<string, string>();
+  const mcpEndpoint = app.agents?.mcp
+    ? normalizeCapabilityHttpPath(app.agents.mcp.path ?? DEFAULT_MCP_ENDPOINT)
+    : null;
 
   for (const [name, file] of Object.entries(app.capabilities ?? {})) {
     if (!CAPABILITY_NAME_RE.test(name)) {
@@ -145,6 +154,15 @@ async function resolveAppCapabilitiesUncached(
     }
     if (capability.expose?.webmcp && !capability.expose.http) {
       throw new Error(`Capability "${name}": expose.webmcp requires expose.http.`);
+    }
+    if (
+      capability.expose?.mcp &&
+      (capability.input?.type !== "object" || capability.output?.type !== "object")
+    ) {
+      throw new Error(`Capability "${name}": ${MCP_SCHEMA_ROOT_ERROR}.`);
+    }
+    if (capability.expose?.mcp && !isValidMcpToolName(mcpToolName(name))) {
+      throw new Error(`Capability "${name}": ${MCP_TOOL_NAME_ERROR}.`);
     }
     if (
       capability.expose &&
@@ -187,6 +205,12 @@ async function resolveAppCapabilitiesUncached(
         );
       }
       httpPath = normalizeCapabilityHttpPath(configuredPath);
+      if (httpPath === mcpEndpoint) {
+        throw new Error(
+          `Capability "${name}" exposes HTTP path "${httpPath}", which is also the configured ` +
+            "MCP endpoint. Choose a distinct agents.mcp.path or capability HTTP path.",
+        );
+      }
       const existing = seenHttpPaths.get(httpPath);
       if (existing) {
         throw new Error(
@@ -423,6 +447,8 @@ export interface HandleCapabilityRequestOptions<TContext> {
   agents?: PrachtAgentsConfig;
   /** Verified agent identity for this request, `null` when unsigned/unverified. */
   agent?: PrachtAgentIdentity | null;
+  /** Trusted transport selected by an internal framework projection. */
+  transport?: "mcp";
   onAudit?: CapabilityAuditHook;
 }
 
@@ -436,17 +462,22 @@ export async function handleCapabilityRequest<TContext>(
   options: HandleCapabilityRequestOptions<TContext>,
 ): Promise<Response> {
   const started = performance.now();
-  const { response, outcome } = await dispatchCapabilityHttpWithApiMiddleware(options);
+  let dispatched = await dispatchCapabilityHttpWithApiMiddleware(options);
+  if (options.transport === "mcp") {
+    dispatched = await revalidateMcpSuccessEnvelope(options, dispatched);
+  }
+  const { response, outcome } = dispatched;
   const responseWithEffect = withCapabilityEffect(response, options.match.capability.effect);
   emitCapabilityAudit(
     {
       capability: options.match.name,
       effect: options.match.capability.effect,
-      // The generated WebMCP shim marks its dispatches so audit trails can
-      // tell in-browser agent traffic (cookie-authenticated) apart from
-      // remote HTTP callers. Client-declared, so informational only.
-      transport:
-        options.request.headers.get(CAPABILITY_TRANSPORT_HEADER) === "webmcp" ? "webmcp" : "http",
+      // MCP is trusted internal dispatch state. WebMCP remains a
+      // client-declared marker and is therefore informational only.
+      transport: capabilityTransport(
+        options.request.headers.get(CAPABILITY_TRANSPORT_HEADER),
+        options.transport,
+      ),
       outcome,
       status: responseWithEffect.status,
       durationMs: performance.now() - started,
@@ -455,6 +486,67 @@ export async function handleCapabilityRequest<TContext>(
     options.onAudit,
   );
   return responseWithEffect;
+}
+
+/**
+ * MCP advertises the capability's output schema in `tools/list`. Middleware
+ * can short-circuit with its own success envelope before the capability
+ * pipeline validates output, so validate that envelope before the audit event
+ * and status are finalized. The MCP adapter can then translate the same
+ * settled response without making its audit trail disagree with the client.
+ */
+async function revalidateMcpSuccessEnvelope<TContext>(
+  options: HandleCapabilityRequestOptions<TContext>,
+  dispatched: { response: Response; outcome: string },
+): Promise<{ response: Response; outcome: string }> {
+  if (!dispatched.outcome.startsWith("middleware_")) return dispatched;
+
+  let parsed: unknown;
+  try {
+    parsed = await dispatched.response.clone().json();
+  } catch {
+    return dispatched;
+  }
+  if (
+    !parsed ||
+    typeof parsed !== "object" ||
+    (parsed as { ok?: unknown }).ok !== true ||
+    !("data" in parsed)
+  ) {
+    return dispatched;
+  }
+
+  const validatedOutput = options.match.capability.validateOutput(
+    (parsed as { data: unknown }).data,
+  );
+  const headers = new Headers(dispatched.response.headers);
+  headers.set("content-type", "application/json; charset=utf-8");
+  headers.delete("content-length");
+  if (validatedOutput.ok) {
+    return {
+      response: new Response(JSON.stringify({ ok: true, data: validatedOutput.value }), {
+        status: dispatched.response.status,
+        headers,
+      }),
+      outcome: dispatched.outcome,
+    };
+  }
+
+  return audited(
+    new Response(
+      JSON.stringify(
+        errorEnvelope({
+          code: "invalid_output",
+          message: options.exposeErrors
+            ? `Capability "${options.match.name}" produced output that does not match its output schema.`
+            : "Capability failed.",
+          issues: options.exposeErrors ? validatedOutput.issues : undefined,
+        }),
+      ),
+      { status: 500, headers },
+    ),
+    "invalid_output",
+  );
 }
 
 /**
@@ -502,6 +594,15 @@ async function dispatchCapabilityHttpWithApiMiddleware<TContext>(
   } catch (error: unknown) {
     return audited(capabilityInternalErrorResponse(options, error), "internal_error");
   }
+}
+
+function capabilityTransport(
+  marker: string | null,
+  trustedTransport: HandleCapabilityRequestOptions<unknown>["transport"],
+): CapabilityAuditEvent["transport"] {
+  if (trustedTransport === "mcp") return "mcp";
+  if (marker === "webmcp") return "webmcp";
+  return "http";
 }
 
 function capabilityMiddlewareRoute(resolved: ResolvedCapability): ResolvedApiRoute {

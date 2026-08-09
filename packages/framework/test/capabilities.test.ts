@@ -201,6 +201,31 @@ describe("resolveAppCapabilities", () => {
     await expect(resolveAppCapabilities(app, registry)).rejects.toThrow(/both expose HTTP path/);
   });
 
+  it("rejects capability HTTP paths that collide with the MCP endpoint", async () => {
+    const { app, registry } = createApp(
+      createSearchCapability({ expose: { http: { path: "/agent/mcp" } } }),
+      { agents: { mcp: { path: "/agent/mcp/" } } },
+    );
+
+    await expect(resolveAppCapabilities(app, registry)).rejects.toThrow(
+      /also the configured MCP endpoint/,
+    );
+  });
+
+  it("isolates cached resolution between app manifests with different MCP endpoints", async () => {
+    const { app, registry } = createApp(createSearchCapability());
+    await resolveAppCapabilities(app, registry);
+
+    const appWithCollidingMcpEndpoint = {
+      ...app,
+      agents: { mcp: { path: "/api/capabilities/notes/search" } },
+    };
+
+    await expect(resolveAppCapabilities(appWithCollidingMcpEndpoint, registry)).rejects.toThrow(
+      /also the configured MCP endpoint/,
+    );
+  });
+
   it("keeps unexposed capabilities private (no HTTP path)", async () => {
     const { app, registry } = createApp(createSearchCapability({ expose: undefined }));
     const resolved = await resolveAppCapabilities(app, registry);
@@ -227,6 +252,29 @@ describe("resolveAppCapabilities", () => {
     const { app, registry } = createApp(capability);
     await expect(resolveAppCapabilities(app, registry)).rejects.toThrow(
       /destructive capabilities cannot be exposed to agent projections/,
+    );
+  });
+
+  it("rejects hand-rolled MCP capabilities with non-object schema roots", async () => {
+    const capability = {
+      ...createSearchCapability({ expose: { mcp: true } }),
+      output: { type: "array", items: { type: "string" } },
+    };
+    const { app, registry } = createApp(capability);
+    await expect(resolveAppCapabilities(app, registry)).rejects.toThrow(
+      /expose\.mcp requires "input" and "output" schemas with type: "object"/,
+    );
+  });
+
+  it("rejects MCP capability names that project beyond the host limit", async () => {
+    const name = "a".repeat(65);
+    const capability = createSearchCapability({ expose: { mcp: true } });
+    const { app, registry } = createApp(capability, {
+      capabilities: { [name]: "./capabilities/notes-search.ts" },
+    });
+
+    await expect(resolveAppCapabilities(app, registry)).rejects.toThrow(
+      /projected MCP tool names must match/,
     );
   });
 

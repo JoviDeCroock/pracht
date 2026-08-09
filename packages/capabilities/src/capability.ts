@@ -38,7 +38,7 @@ export interface CapabilityHttpExposure {
 export interface CapabilityExposeConfig {
   /** Serve the capability over HTTP. `true` uses `POST` at the default path. */
   http?: true | { method?: "POST"; path?: string };
-  /** Advertise the capability to the remote MCP projection (not built yet — recorded in the graph only). */
+  /** Advertise the capability to the configured remote MCP projection. */
   mcp?: boolean;
   /** Register the capability as a WebMCP page tool. Requires `http` — calls dispatch through the HTTP projection. */
   webmcp?: boolean;
@@ -142,6 +142,9 @@ export const DESTRUCTIVE_EXPOSURE_ERROR =
   "destructive capabilities cannot be exposed to agent projections (webmcp/mcp) yet — " +
   "only expose.http, where the prepare/commit confirmation flow gates every call";
 
+export const MCP_SCHEMA_ROOT_ERROR =
+  'expose.mcp requires "input" and "output" schemas with type: "object" for the supported MCP protocol versions';
+
 /**
  * Define a protocol-neutral application capability.
  *
@@ -167,6 +170,9 @@ export function defineCapability<TInput = unknown, TOutput = unknown, TContext =
       `defineCapability("${definition.title}"): expose.webmcp requires expose.http — ` +
         "WebMCP page tools dispatch through the HTTP projection so all enforcement stays server-side.",
     );
+  }
+  if (expose?.mcp && (definition.input.type !== "object" || definition.output.type !== "object")) {
+    throw new Error(`defineCapability("${definition.title}"): ${MCP_SCHEMA_ROOT_ERROR}.`);
   }
 
   return {

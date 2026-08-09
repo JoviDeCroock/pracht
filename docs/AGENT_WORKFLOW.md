@@ -44,6 +44,9 @@ do" has a canonical answer that is not the raw code diff.
   that now accepts more than it did (a dropped `required` field, an opened
   `additionalProperties`, a raised or removed bound, including nested ones like
   `input.limit: maximum raised (50 → 5000)`). Narrowings and removals stay quiet.
+  Enabling `agents.mcp` is also a widening because it turns every declared
+  `expose.mcp` capability from graph metadata into a remotely served tool; the
+  plan records endpoint enablement, moves, and removal explicitly.
   When anything widened, `--markdown` puts a callout above the diff instead of
   leaving it to be spotted in the fence.
 

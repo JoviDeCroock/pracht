@@ -6,8 +6,8 @@ prev:
   href: /docs/capabilities
   title: Capabilities
 next:
-  href: /docs/recipes/i18n
-  title: i18n
+  href: /docs/remote-mcp
+  title: Remote MCP
 ---
 
 ## Three Questions

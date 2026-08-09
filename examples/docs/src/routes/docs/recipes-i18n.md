@@ -3,8 +3,8 @@ title: Internationalization (i18n)
 lead: Serve your app in multiple languages using middleware for locale detection, loaders for translated content, and context for passing the active locale through your app.
 breadcrumb: i18n
 prev:
-  href: /docs/agent-trust
-  title: Agent Trust
+  href: /docs/remote-mcp
+  title: Remote MCP
 next:
   href: /docs/recipes/auth
   title: Authentication

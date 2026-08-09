@@ -116,6 +116,6 @@ Visit [`/notes`](http://localhost:3000/notes) in the browser to see the human pr
 
 ## Where This Goes Next
 
-The same contracts are one projection away from a remote MCP endpoint (for agents that never open a browser) and MCP Apps views (capabilities that return Preact UI into an agent's chat). Write the operation down once; every new agent surface is a build target.
+The same contracts already serve a [remote MCP endpoint](/docs/remote-mcp) for agents that never open a browser, and they are one projection away from MCP Apps views (capabilities that return Preact UI into an agent's chat). Write the operation down once; every new agent surface is a build target.
 
 The one-liner: other frameworks render your app for humans and leave agents to scrape it. pracht projects one explicit app graph to both — components for people, typed and trust-gated tools for agents.

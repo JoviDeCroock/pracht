@@ -79,6 +79,7 @@ const NAV = [
       { href: "/docs/agent-skills", Icon: IconSparkles, title: "Agent Skills" },
       { href: "/docs/capabilities", Icon: IconRobot, title: "Capabilities" },
       { href: "/docs/agent-trust", Icon: IconShieldCheck, title: "Agent Trust" },
+      { href: "/docs/remote-mcp", Icon: IconWorldBolt, title: "Remote MCP" },
     ],
   },
   {

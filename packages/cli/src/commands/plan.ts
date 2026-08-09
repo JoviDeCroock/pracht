@@ -23,6 +23,7 @@ const EMPTY_GRAPH: GraphSnapshot = {
   routes: [],
   api: [],
   capabilities: [],
+  mcpEndpoint: null,
   constraints: [],
 };
 
