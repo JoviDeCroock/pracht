@@ -461,7 +461,11 @@ export async function handleCapabilityRequest<TContext>(
   options: HandleCapabilityRequestOptions<TContext>,
 ): Promise<Response> {
   const started = performance.now();
-  const { response, outcome } = await dispatchCapabilityHttpWithApiMiddleware(options);
+  let dispatched = await dispatchCapabilityHttpWithApiMiddleware(options);
+  if (options.transport === "mcp") {
+    dispatched = await revalidateMcpSuccessEnvelope(options, dispatched);
+  }
+  const { response, outcome } = dispatched;
   const responseWithEffect = withCapabilityEffect(response, options.match.capability.effect);
   emitCapabilityAudit(
     {
@@ -481,6 +485,67 @@ export async function handleCapabilityRequest<TContext>(
     options.onAudit,
   );
   return responseWithEffect;
+}
+
+/**
+ * MCP advertises the capability's output schema in `tools/list`. Middleware
+ * can short-circuit with its own success envelope before the capability
+ * pipeline validates output, so validate that envelope before the audit event
+ * and status are finalized. The MCP adapter can then translate the same
+ * settled response without making its audit trail disagree with the client.
+ */
+async function revalidateMcpSuccessEnvelope<TContext>(
+  options: HandleCapabilityRequestOptions<TContext>,
+  dispatched: { response: Response; outcome: string },
+): Promise<{ response: Response; outcome: string }> {
+  if (!dispatched.outcome.startsWith("middleware_")) return dispatched;
+
+  let parsed: unknown;
+  try {
+    parsed = await dispatched.response.clone().json();
+  } catch {
+    return dispatched;
+  }
+  if (
+    !parsed ||
+    typeof parsed !== "object" ||
+    (parsed as { ok?: unknown }).ok !== true ||
+    !("data" in parsed)
+  ) {
+    return dispatched;
+  }
+
+  const validatedOutput = options.match.capability.validateOutput(
+    (parsed as { data: unknown }).data,
+  );
+  const headers = new Headers(dispatched.response.headers);
+  headers.set("content-type", "application/json; charset=utf-8");
+  headers.delete("content-length");
+  if (validatedOutput.ok) {
+    return {
+      response: new Response(JSON.stringify({ ok: true, data: validatedOutput.value }), {
+        status: dispatched.response.status,
+        headers,
+      }),
+      outcome: dispatched.outcome,
+    };
+  }
+
+  return audited(
+    new Response(
+      JSON.stringify(
+        errorEnvelope({
+          code: "invalid_output",
+          message: options.exposeErrors
+            ? `Capability "${options.match.name}" produced output that does not match its output schema.`
+            : "Capability failed.",
+          issues: options.exposeErrors ? validatedOutput.issues : undefined,
+        }),
+      ),
+      { status: 500, headers },
+    ),
+    "invalid_output",
+  );
 }
 
 /**

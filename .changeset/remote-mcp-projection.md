@@ -49,4 +49,5 @@ malformed `initialize` parameters now return JSON-RPC invalid params. MCP tool
 annotations also leave `destructiveHint` unset for `write` capabilities because
 the write effect alone does not prove an operation is purely additive.
 Middleware-produced success envelopes are revalidated against the advertised
-output schema before their data is returned as MCP `structuredContent`.
+output schema before their data is returned as MCP `structuredContent` and
+before the audit outcome and status are finalized.

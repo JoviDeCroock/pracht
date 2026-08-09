@@ -637,10 +637,21 @@ describe("tools/call runs the same pipeline as the HTTP projection", () => {
   });
 
   it("revalidates success envelopes returned by middleware", async () => {
+    const events: CapabilityAuditEvent[] = [];
+    setCapabilityAuditHook((event) => events.push(event));
+
     const { json } = await callTool("invalid-output_short-circuit", {});
     expect(json?.result).toMatchObject({ isError: true });
     expect(json?.result.structuredContent).toBeUndefined();
     expect(json?.result._meta["io.pracht/error"].code).toBe("invalid_output");
+    expect(json?.result._meta["io.pracht/status"]).toBe(500);
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      capability: "invalid-output.short-circuit",
+      outcome: "invalid_output",
+      status: 500,
+      transport: "mcp",
+    });
   });
 
   it("forwards Authorization so middleware sees the MCP credential", async () => {
