@@ -1,0 +1,525 @@
+{
+  "prachtGraphVersion": 1,
+  "mode": "manifest",
+  "routes": [
+    {
+      "file": "./routes/home.tsx",
+      "hydration": null,
+      "id": "home",
+      "loaderCache": null,
+      "loaderFile": null,
+      "middleware": [],
+      "path": "/",
+      "prefetch": null,
+      "render": "ssg",
+      "revalidate": null,
+      "shell": "marketing",
+      "shellFile": "./shells/marketing.tsx",
+      "speculation": null
+    },
+    {
+      "file": "./routes/agents.tsx",
+      "hydration": null,
+      "id": "agents",
+      "loaderCache": null,
+      "loaderFile": null,
+      "middleware": [],
+      "path": "/agents",
+      "prefetch": null,
+      "render": "ssg",
+      "revalidate": null,
+      "shell": "marketing",
+      "shellFile": "./shells/marketing.tsx",
+      "speculation": null
+    },
+    {
+      "file": "./routes/dashboard.tsx",
+      "hydration": null,
+      "id": "dashboard",
+      "loaderCache": null,
+      "loaderFile": null,
+      "middleware": ["auth"],
+      "path": "/app",
+      "prefetch": null,
+      "render": "ssr",
+      "revalidate": null,
+      "shell": "app",
+      "shellFile": "./shells/app.tsx",
+      "speculation": null
+    },
+    {
+      "file": "./routes/approvals.tsx",
+      "hydration": null,
+      "id": "approvals",
+      "loaderCache": null,
+      "loaderFile": null,
+      "middleware": ["auth"],
+      "path": "/app/approvals",
+      "prefetch": null,
+      "render": "ssr",
+      "revalidate": null,
+      "shell": "app",
+      "shellFile": "./shells/app.tsx",
+      "speculation": null
+    },
+    {
+      "file": "./routes/audit.tsx",
+      "hydration": null,
+      "id": "audit",
+      "loaderCache": null,
+      "loaderFile": null,
+      "middleware": ["auth"],
+      "path": "/app/audit",
+      "prefetch": null,
+      "render": "ssr",
+      "revalidate": null,
+      "shell": "app",
+      "shellFile": "./shells/app.tsx",
+      "speculation": null
+    },
+    {
+      "file": "./routes/project.tsx",
+      "hydration": null,
+      "id": "project",
+      "loaderCache": null,
+      "loaderFile": null,
+      "middleware": ["auth"],
+      "path": "/app/projects/:projectId",
+      "prefetch": null,
+      "render": "ssr",
+      "revalidate": null,
+      "shell": "app",
+      "shellFile": "./shells/app.tsx",
+      "speculation": null
+    },
+    {
+      "file": "./routes/settings.tsx",
+      "hydration": null,
+      "id": "settings",
+      "loaderCache": null,
+      "loaderFile": null,
+      "middleware": ["auth"],
+      "path": "/app/settings",
+      "prefetch": null,
+      "render": "spa",
+      "revalidate": null,
+      "shell": "app",
+      "shellFile": "./shells/app.tsx",
+      "speculation": null
+    },
+    {
+      "file": "./routes/blog-post.tsx",
+      "hydration": null,
+      "id": "blog-post",
+      "loaderCache": null,
+      "loaderFile": null,
+      "middleware": [],
+      "path": "/blog/:slug",
+      "prefetch": null,
+      "render": "ssg",
+      "revalidate": null,
+      "shell": "marketing",
+      "shellFile": "./shells/marketing.tsx",
+      "speculation": null
+    },
+    {
+      "file": "./routes/playground.tsx",
+      "hydration": null,
+      "id": "playground",
+      "loaderCache": null,
+      "loaderFile": null,
+      "middleware": [],
+      "path": "/playground",
+      "prefetch": null,
+      "render": "ssr",
+      "revalidate": null,
+      "shell": "marketing",
+      "shellFile": "./shells/marketing.tsx",
+      "speculation": null
+    },
+    {
+      "file": "./routes/pricing.tsx",
+      "hydration": null,
+      "id": "pricing",
+      "loaderCache": null,
+      "loaderFile": null,
+      "middleware": [],
+      "path": "/pricing",
+      "prefetch": null,
+      "render": "ssg",
+      "revalidate": null,
+      "shell": "marketing",
+      "shellFile": "./shells/marketing.tsx",
+      "speculation": null
+    }
+  ],
+  "api": [
+    {
+      "file": "/src/api/admin/approvals.ts",
+      "hasDefaultHandler": false,
+      "methods": ["GET", "POST"],
+      "path": "/api/admin/approvals"
+    },
+    {
+      "file": "/src/api/auth/login.ts",
+      "hasDefaultHandler": false,
+      "methods": ["POST"],
+      "path": "/api/auth/login"
+    },
+    {
+      "file": "/src/api/auth/logout.ts",
+      "hasDefaultHandler": false,
+      "methods": ["POST"],
+      "path": "/api/auth/logout"
+    },
+    {
+      "file": "/src/api/demo/reset.ts",
+      "hasDefaultHandler": false,
+      "methods": ["POST"],
+      "path": "/api/demo/reset"
+    },
+    {
+      "file": "/src/api/health.ts",
+      "hasDefaultHandler": false,
+      "methods": ["GET"],
+      "path": "/api/health"
+    }
+  ],
+  "capabilities": [
+    {
+      "agentPolicy": "require",
+      "description": "House rules for autonomous callers: which tools exist, which are gated, and how the archive approval flow works. Verified agents only.",
+      "effect": "read",
+      "hasUi": false,
+      "httpPath": "/api/capabilities/agent/brief",
+      "input": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "middleware": [],
+      "name": "agent.brief",
+      "output": {
+        "type": "object",
+        "properties": {
+          "agentDomain": {
+            "type": "string"
+          },
+          "tools": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "rules": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": ["tools", "rules"]
+      },
+      "source": "./capabilities/agent-brief.ts",
+      "title": "Agent operating brief",
+      "transports": ["http", "mcp"]
+    },
+    {
+      "agentPolicy": null,
+      "description": "Report the verified Web Bot Auth (RFC 9421) identity Launchpad established for this request.",
+      "effect": "read",
+      "hasUi": false,
+      "httpPath": "/api/capabilities/agent/whoami",
+      "input": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "middleware": [],
+      "name": "agent.whoami",
+      "output": {
+        "type": "object",
+        "properties": {
+          "verified": {
+            "type": "boolean"
+          },
+          "agentDomain": {
+            "type": "string"
+          },
+          "keyId": {
+            "type": "string"
+          },
+          "policy": {
+            "type": "string"
+          }
+        },
+        "required": ["verified", "policy"]
+      },
+      "source": "./capabilities/agent-whoami.ts",
+      "title": "Who am I",
+      "transports": ["http", "mcp", "webmcp"]
+    },
+    {
+      "agentPolicy": null,
+      "description": "Permanently archive a project. Requires a human approval before it runs — the caller receives a confirmation token, then waits for a reviewer.",
+      "effect": "destructive",
+      "hasUi": false,
+      "httpPath": "/api/capabilities/projects/archive",
+      "input": {
+        "type": "object",
+        "properties": {
+          "projectId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 200,
+            "description": "Shown to the reviewer in the approval inbox."
+          }
+        },
+        "required": ["projectId"],
+        "additionalProperties": false
+      },
+      "middleware": [],
+      "name": "projects.archive",
+      "output": {
+        "type": "object",
+        "properties": {
+          "archived": {
+            "type": "boolean"
+          },
+          "projectId": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": ["archived", "projectId"]
+      },
+      "source": "./capabilities/projects-archive.ts",
+      "title": "Archive project",
+      "transports": ["http"]
+    },
+    {
+      "agentPolicy": null,
+      "description": "Create a new Launchpad project. The project starts in the 'building' status.",
+      "effect": "write",
+      "hasUi": false,
+      "httpPath": "/api/capabilities/projects/create",
+      "input": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 40,
+            "description": "Human-readable project name."
+          },
+          "summary": {
+            "type": "string",
+            "maxLength": 160,
+            "description": "One line about what it is."
+          },
+          "environment": {
+            "type": "string",
+            "enum": ["production", "preview"],
+            "default": "preview"
+          }
+        },
+        "required": ["name"],
+        "additionalProperties": false
+      },
+      "middleware": ["rateLimit"],
+      "name": "projects.create",
+      "output": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string"
+              },
+              "environment": {
+                "type": "string"
+              },
+              "deploys": {
+                "type": "integer"
+              },
+              "lastDeploy": {
+                "type": "string"
+              },
+              "summary": {
+                "type": "string"
+              }
+            },
+            "required": ["id", "name", "status", "environment", "deploys", "lastDeploy", "summary"]
+          }
+        },
+        "required": ["project"]
+      },
+      "source": "./capabilities/projects-create.ts",
+      "title": "Create project",
+      "transports": ["http", "mcp", "webmcp"]
+    },
+    {
+      "agentPolicy": null,
+      "description": "Ship the current build of a project. Pass a stable idempotencyKey to make retries safe.",
+      "effect": "write",
+      "hasUi": false,
+      "httpPath": "/api/capabilities/projects/deploy",
+      "input": {
+        "type": "object",
+        "properties": {
+          "projectId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Project id from projects.search."
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "maxLength": 80,
+            "description": "Repeat the same key to retry without deploying twice."
+          }
+        },
+        "required": ["projectId"],
+        "additionalProperties": false
+      },
+      "middleware": ["rateLimit"],
+      "name": "projects.deploy",
+      "output": {
+        "type": "object",
+        "properties": {
+          "deployed": {
+            "type": "boolean"
+          },
+          "deduped": {
+            "type": "boolean"
+          },
+          "deploys": {
+            "type": "integer"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": ["deployed", "deduped", "deploys", "status"]
+      },
+      "source": "./capabilities/projects-deploy.ts",
+      "title": "Deploy project",
+      "transports": ["http", "mcp", "webmcp"]
+    },
+    {
+      "agentPolicy": null,
+      "description": "Find Launchpad projects by name or summary. Returns id, name, status, environment and deploy count.",
+      "effect": "read",
+      "hasUi": false,
+      "httpPath": "/api/capabilities/projects/search",
+      "input": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "maxLength": 120,
+            "default": "",
+            "description": "Free text matched against project name and summary. Empty matches all."
+          },
+          "status": {
+            "type": "string",
+            "enum": ["any", "live", "building", "paused", "archived"],
+            "default": "any",
+            "description": "Restrict results to one lifecycle status."
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 20,
+            "default": 10
+          }
+        },
+        "additionalProperties": false
+      },
+      "middleware": [],
+      "name": "projects.search",
+      "output": {
+        "type": "object",
+        "properties": {
+          "projects": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string"
+                },
+                "environment": {
+                  "type": "string"
+                },
+                "deploys": {
+                  "type": "integer"
+                },
+                "lastDeploy": {
+                  "type": "string"
+                },
+                "summary": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "status",
+                "environment",
+                "deploys",
+                "lastDeploy",
+                "summary"
+              ]
+            }
+          },
+          "count": {
+            "type": "integer"
+          }
+        },
+        "required": ["projects", "count"]
+      },
+      "source": "./capabilities/projects-search.ts",
+      "title": "Search projects",
+      "transports": ["http", "mcp", "webmcp"]
+    }
+  ],
+  "constraints": [
+    {
+      "kind": "require-middleware",
+      "pattern": "/app/**",
+      "middleware": ["auth"]
+    },
+    {
+      "kind": "require-shell",
+      "pattern": "/app/**",
+      "shells": ["app"]
+    },
+    {
+      "kind": "forbid-render-mode",
+      "pattern": "/app/**",
+      "modes": ["ssg", "isg"]
+    },
+    {
+      "kind": "require-head",
+      "pattern": "**"
+    }
+  ]
+}

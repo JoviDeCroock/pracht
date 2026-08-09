@@ -1,0 +1,31 @@
+{
+  "name": "destructive archive stops at the human",
+  "task": "A caller with an application principal opens an archive proposal, receives a valid token, and still cannot commit — approval is not something the caller can grant itself.",
+  "steps": [
+    {
+      "capability": "projects.archive",
+      "input": { "projectId": "corvus", "reason": "eval" },
+      "headers": { "cookie": "session=demo" },
+      "expect": { "ok": false, "status": 409, "errorCode": "confirmation_required" }
+    },
+    {
+      "capability": "projects.archive",
+      "input": { "projectId": "corvus", "reason": "eval" },
+      "headers": { "cookie": "session=demo" },
+      "confirm": "$steps[0].error.confirmationToken",
+      "expect": { "ok": false, "status": 409, "errorCode": "confirmation_pending" }
+    },
+    {
+      "capability": "projects.archive",
+      "input": { "projectId": "corvus", "reason": "eval" },
+      "headers": { "cookie": "session=demo" },
+      "confirm": "not-a-real-token",
+      "expect": { "ok": false, "status": 403, "errorCode": "confirmation_invalid" }
+    },
+    {
+      "capability": "projects.search",
+      "input": { "status": "archived" },
+      "expect": { "ok": true, "output": { "count": 0 } }
+    }
+  ]
+}

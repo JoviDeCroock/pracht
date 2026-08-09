@@ -12,9 +12,10 @@ export function Shell({ children }: ShellProps) {
           </a>
           <nav class="header-nav">
             <a href="/">Home</a>
-            <a href="/blog/why-pracht">Blog</a>
-            <a href="/pricing">Pricing</a>
+            <a href="/playground">Playground</a>
             <a href="/agents">Agents</a>
+            <a href="/pricing">Pricing</a>
+            <a href="/blog/why-pracht">Blog</a>
             <form action="/api/auth/login" method="post">
               <button type="submit" class="btn-signin">
                 Sign in
@@ -25,7 +26,10 @@ export function Shell({ children }: ShellProps) {
       </header>
       <main>{children}</main>
       <footer class="site-footer">
-        <p>Built with Pracht — Preact-first, Vite-native, per-route rendering.</p>
+        <p>
+          Built with Pracht — one capability contract for browsers, forms, in-page agents and signed
+          remote callers. <a href="/llms.txt">/llms.txt</a>
+        </p>
       </footer>
     </div>
   );
@@ -33,12 +37,13 @@ export function Shell({ children }: ShellProps) {
 
 export function head() {
   return {
-    title: "Launchpad — Ship faster",
+    title: "Launchpad — one product, two audiences",
     meta: [
       { name: "viewport", content: "width=device-width, initial-scale=1" },
       {
         name: "description",
-        content: "Launchpad helps teams ship software faster. A Pracht showcase.",
+        content:
+          "Launchpad is a Pracht showcase: one capability contract serving humans and agents, with a real trust layer.",
       },
     ],
   };

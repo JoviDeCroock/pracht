@@ -33,6 +33,8 @@
       "@pracht/image/node": ["./packages/image/src/node.ts"]
     }
   },
+  // examples/showcase has its own program — see examples/showcase/tsconfig.json.
+  "exclude": ["examples/showcase"],
   "include": [
     "packages/**/*.ts",
     "packages/**/*.tsx",

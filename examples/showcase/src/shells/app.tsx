@@ -13,7 +13,10 @@ export function Shell({ children }: ShellProps) {
         </div>
         <nav>
           <a href="/app">Dashboard</a>
+          <a href="/app/approvals">Approvals</a>
+          <a href="/app/audit">Audit trail</a>
           <a href="/app/settings">Settings</a>
+          <a href="/playground">Playground</a>
         </nav>
         <form action="/api/auth/logout" method="post" class="sidebar-back-form">
           <button type="submit" class="sidebar-back">
