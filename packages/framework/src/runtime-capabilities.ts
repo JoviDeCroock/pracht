@@ -478,6 +478,8 @@ export async function handleCapabilityRequest<TContext>(
         options.request.headers.get(CAPABILITY_TRANSPORT_HEADER),
         options.transport,
       ),
+      // A dispatch that arrived on a transport is not composed under one.
+      via: null,
       outcome,
       status: responseWithEffect.status,
       durationMs: performance.now() - started,
@@ -1065,6 +1067,13 @@ function normalizeMiddlewareShortCircuit(response: Response): Response {
 export interface CapabilityHost {
   app: CapabilityHostApp;
   registry: ModuleRegistry;
+  /**
+   * Transport of the request this host was installed for. Carried onto the
+   * audit event of every capability composed through `invokeCapability()`
+   * while that request is being served. Absent on synthetic hosts (test
+   * hosts), which serve no request.
+   */
+  via?: CapabilityAuditEvent["via"];
 }
 
 // Bind each host to the incoming Request rather than a process-global slot.
@@ -1078,8 +1087,10 @@ export function setActiveCapabilityHost(
   request: Request,
   app: CapabilityHostApp,
   registry: ModuleRegistry,
+  /** Transport of the request being served; audits nested composition. */
+  via: NonNullable<CapabilityAuditEvent["via"]> = "http",
 ): void {
-  activeCapabilityHosts.set(request, { app, registry });
+  activeCapabilityHosts.set(request, { app, registry, via });
 }
 
 export interface InvokeCapabilityContext<TContext = unknown> {
@@ -1095,6 +1106,16 @@ export interface InvokeCapabilityContext<TContext = unknown> {
  * input validation, the capability's named middleware, `run()`, output
  * validation — and resolves to the same typed envelope. Works for private
  * (non-exposed) capabilities too.
+ *
+ * This is trusted first-party composition, so the *transport* policy of the
+ * callee is deliberately not re-applied: no app-level `api.middleware`, no
+ * `agentPolicy` check, and no destructive prepare/commit confirmation gate —
+ * those guard the HTTP and MCP projections. A capability an untrusted caller
+ * can reach therefore lends that reachability to everything it composes.
+ * Decide the gating in the composing capability; do not rely on the callee's
+ * exposure rules to supply it. Composed dispatches are audited with
+ * `transport: "server"` and `via` set to the transport of the request being
+ * served, so a remote-agent-caused effect stays attributable.
  *
  * When `pracht typegen` has registered the capability graph on
  * `Register["capabilities"]`, the name, input, and output types all come from
@@ -1187,6 +1208,7 @@ export async function invokeCapabilityOnHost<T = unknown>(
       capability: name,
       effect: resolved.capability.effect,
       transport: "server",
+      via: host.via ?? null,
       outcome: "internal_error",
       status: 500,
       durationMs: performance.now() - started,
@@ -1196,7 +1218,8 @@ export async function invokeCapabilityOnHost<T = unknown>(
   }
 
   // Direct invocation audits like HTTP dispatch does, marked as the "server"
-  // transport. The agent identity travels on the request context when Web
+  // transport and attributed to the transport of the request it was composed
+  // under (`via`). The agent identity travels on the request context when Web
   // Bot Auth is enabled.
   const agent = (context as { agent?: PrachtAgentIdentity | null }).agent ?? null;
   const status = outcome.kind === "envelope" ? outcome.status : outcome.response.status;
@@ -1206,6 +1229,7 @@ export async function invokeCapabilityOnHost<T = unknown>(
     capability: name,
     effect: resolved.capability.effect,
     transport: "server",
+    via: host.via ?? null,
     outcome: auditOutcome,
     status,
     durationMs: performance.now() - started,

@@ -68,7 +68,14 @@ there is no second copy of the rules to drift.
 
 The synthesized request carries the same request-bound capability host, so
 named middleware and capability bodies can compose registered operations with
-`invokeCapability()` exactly as they can during ordinary HTTP dispatch.
+`invokeCapability()` exactly as they can during ordinary HTTP dispatch. That
+composition is trusted first-party code and runs only the callee's own
+pipeline: the guards below, `agentPolicy`, and the confirmation gate belong to
+*dispatch*, not to `invokeCapability()`. An exposed tool therefore lends its
+reachability to whatever it composes — see [Composition does not inherit
+transport guards](AGENT_TRUST.md#composition-does-not-inherit-transport-guards).
+Composed dispatches audit as `{ transport: "server", via: "mcp" }`, so the
+effects a remote agent caused indirectly stay attributable to it.
 
 ```text
 POST /mcp
@@ -174,13 +181,18 @@ The projection inherits every capability guarantee and adds three of its own:
   `destructive` capability is rejected by `defineCapability()`, the registry,
   and `pracht verify`, and the projection filters them again at serve time.
   Agent hosts cannot yet be trusted to carry the prepare/commit flow
-  faithfully. See [AGENT_TRUST.md](AGENT_TRUST.md).
+  faithfully. See [AGENT_TRUST.md](AGENT_TRUST.md). This covers the *tool
+  surface*, not composition: an exposed tool whose `run()` invokes a
+  destructive capability still performs that effect, unconfirmed, because
+  `invokeCapability()` is trusted server code. Gate it in the composing
+  capability.
 
 Authentication is your app's: put it in the capability's named middleware,
 which sees the forwarded `Authorization` header and `context.agent`. Every
 dispatch emits an audit event with `transport: "mcp"` — passed as internal
 dispatch state by the projection, never read from the public transport-marker
-header, so unlike the client-declared `"webmcp"` marker it is trustworthy.
+header, so unlike the client-declared `"webmcp"` marker it is trustworthy —
+and anything the tool composes emits its own event carrying `via: "mcp"`.
 
 ## Talking to it
 

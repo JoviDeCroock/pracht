@@ -165,6 +165,8 @@ describe("createCapabilityTestHost — invoke()", () => {
       capability: "notes.search",
       effect: "read",
       transport: "server",
+      // A test host serves no request, so there is nothing to attribute to.
+      via: null,
       outcome: "ok",
       status: 200,
       agent: null,
@@ -329,6 +331,7 @@ describe("createCapabilityTestHost — request()", () => {
     expect(events[0]).toMatchObject({
       capability: "notes.search",
       transport: "http",
+      via: null,
       outcome: "ok",
       agent: TEST_AGENT,
     });

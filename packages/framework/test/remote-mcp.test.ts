@@ -605,6 +605,30 @@ describe("tools/call runs the same pipeline as the HTTP projection", () => {
     });
   });
 
+  it("attributes composed dispatches to the mcp transport that caused them", async () => {
+    const events: CapabilityAuditEvent[] = [];
+    setCapabilityAuditHook((event) => events.push(event));
+
+    await callTool("notes_compose", {});
+
+    // Composition runs the callee's own pipeline only — no HTTP/MCP dispatch
+    // guards — so the audit trail is what ties the nested effect back to the
+    // remote agent that triggered it.
+    expect(events).toHaveLength(2);
+    expect(events[0]).toMatchObject({
+      capability: "notes.search",
+      transport: "server",
+      via: "mcp",
+      outcome: "ok",
+    });
+    expect(events[1]).toMatchObject({
+      capability: "notes.compose",
+      transport: "mcp",
+      via: null,
+      outcome: "ok",
+    });
+  });
+
   it("reports schema violations as tool errors carrying the issues", async () => {
     const { json } = await callTool("notes_search", { query: "" });
     expect(json?.result.isError).toBe(true);

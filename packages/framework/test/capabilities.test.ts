@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import {
   CAPABILITY_EFFECT_HEADER,
@@ -6,13 +6,23 @@ import {
   CAPABILITY_FORM_REQUEST_HEADER,
   defineCapability,
 } from "../../capabilities/src/index.ts";
-import { defineApp, handlePrachtRequest, invokeCapability, route } from "../src/index.ts";
+import {
+  defineApp,
+  handlePrachtRequest,
+  invokeCapability,
+  route,
+  setCapabilityAuditHook,
+} from "../src/index.ts";
 import {
   capabilityHttpPath,
   matchCapabilityRoute,
   resolveAppCapabilities,
 } from "../src/runtime-capabilities.ts";
-import type { LoaderArgs, ModuleRegistry } from "../src/types.ts";
+import type { CapabilityAuditEvent, LoaderArgs, ModuleRegistry } from "../src/types.ts";
+
+afterEach(() => {
+  setCapabilityAuditHook(null);
+});
 
 type CapabilityDefinition = Parameters<typeof defineCapability>[0];
 
@@ -742,6 +752,31 @@ describe("invokeCapability", () => {
     expect(await response.json()).toEqual({
       data: { ok: true, data: { notes: ["from-loader:10"] } },
     });
+  });
+
+  it("attributes a composed dispatch to the request transport it ran under", async () => {
+    const events: CapabilityAuditEvent[] = [];
+    setCapabilityAuditHook((event) => events.push(event));
+
+    const { app, registry } = createApp(createSearchCapability(), {
+      routes: [route("/notes", "./routes/notes.tsx", { id: "notes" })],
+    });
+    registry.routeModules = {
+      "./routes/notes.tsx": async () => ({
+        loader: async ({ request, context, signal }: LoaderArgs) =>
+          invokeCapability("notes.search", { query: "from-loader" }, { request, context, signal }),
+        Component: () => null,
+      }),
+    };
+
+    await handlePrachtRequest({
+      app,
+      registry,
+      request: new Request("http://localhost/notes?_data=1"),
+    });
+
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ transport: "server", via: "http", outcome: "ok" });
   });
 
   it("keeps each capability host scoped to its originating request", async () => {
