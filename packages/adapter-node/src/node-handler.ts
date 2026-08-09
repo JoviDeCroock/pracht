@@ -16,14 +16,21 @@ import {
   type ModuleRegistry,
   PRACHT_REVALIDATE_ENDPOINT,
   PRACHT_REVALIDATE_TOKEN_ENV,
+  prefersMarkdown,
   readRevalidationRequest,
   type ResolvedApiRoute,
   type PrachtApp,
+  routeVariesOnAccept,
 } from "@pracht/core/server";
 
 import { regenerateISGPage } from "./node-isg.ts";
 import { createWebRequest, writeNodeResponseHeaders, writeWebResponse } from "./node-request.ts";
-import { applyHeadersManifest, resolveStaticFile, type HeadersManifest } from "./node-static.ts";
+import {
+  applyHeadersManifest,
+  getManifestHeaders,
+  resolveStaticFile,
+  type HeadersManifest,
+} from "./node-static.ts";
 
 const ROUTE_STATE_REQUEST_HEADER = "x-pracht-route-state-request";
 
@@ -112,7 +119,15 @@ export function createNodeRequestHandler<TContext = unknown>(
     }
     const url = new URL(request.url);
     const isTransportRouteStateRequest = isRouteStateRequest(url, request.headers);
-    const wantsMarkdown = (request.headers.get("accept") ?? "").includes("text/markdown");
+    // Only routes that can actually answer with markdown skip the static and
+    // ISG fast paths: the client has to prefer markdown over HTML (a browser's
+    // `*/*` or a q-weighted `text/markdown;q=0.1` does not), and the route has
+    // to declare `Vary: Accept` in the headers manifest — which the build emits
+    // for routes exporting `markdown`. Apps without markdown routes therefore
+    // keep serving prerendered HTML to every client, agent or not.
+    const wantsMarkdown =
+      prefersMarkdown(request.headers.get("accept")) &&
+      routeVariesOnAccept(getManifestHeaders(headersManifest, url.pathname));
 
     if (url.pathname === PRACHT_REVALIDATE_ENDPOINT) {
       const response = await handleRevalidationEndpoint(request, options, staticDir, isgManifest, {

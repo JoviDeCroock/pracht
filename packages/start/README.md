@@ -17,10 +17,10 @@ npm run dev
 - Detects the active package manager from the current environment.
 - Lets the user choose between the Node.js, Cloudflare, and Vercel adapters.
 - Optionally wires up Tailwind CSS (`tailwindcss` + `@tailwindcss/vite`, a global stylesheet, and the shell import).
-- Scaffolds a minimal app with a route manifest or pages router, shell, home route, not-found page, sample API route, runnable project README, TypeScript typecheck script, and agent instructions.
+- Scaffolds a minimal app with a route manifest or pages router, shell, home route, not-found page, sample API route, runnable project README, TypeScript typecheck script, and (with agent tooling enabled) agent instructions.
 - Manifest scaffolds include a commented-out `constraints` example in `src/routes.ts`, ready for `pracht verify`.
 - The generated `.gitignore` keeps `.pracht/app-graph.json` committable, and the README and agent instructions cover the `pracht verify` / `pracht plan` / `pracht report` loop.
-- Seeds the pracht Claude Code skills into `.claude/skills/` and writes a `.mcp.json` registering the `pracht mcp` server (yes-default prompt; skipped with `--no-agent-tools`).
+- Seeds the pracht Claude Code skills into `.claude/skills/`, writes a `.mcp.json` registering the `pracht mcp` server, and writes `AGENTS.md` (yes-default prompt; all of it skipped with `--no-agent-tools`, which leaves a project with no agent files at all).
 - Initializes a git repository with an initial commit (skipped with `--no-git`, when git is unavailable, or when the target is already inside a repository).
 - `--dry-run` uses pinned fallback versions and does not require npm registry access.
 
@@ -40,7 +40,7 @@ node ./packages/start/bin/create-pracht.js my-app --adapter=node --no-tailwind -
 - `--router=manifest|pages` — choose the routing system (default: manifest).
 - `--template=minimal|tailwind` — non-interactive template selection; `minimal` is the default output, `tailwind` is minimal plus Tailwind CSS wiring.
 - `--tailwind` / `--no-tailwind` — enable or disable Tailwind CSS without going through the prompt.
-- `--agent-tools` / `--no-agent-tools` — seed the Claude Code skills and `.mcp.json` (or skip them) without going through the prompt.
+- `--agent-tools` / `--no-agent-tools` — seed the Claude Code skills, `.mcp.json`, and `AGENTS.md`/`CLAUDE.md` (or skip all of them) without going through the prompt.
 - `--no-git` — skip `git init` and the initial commit.
 - `--skip-install` — skip dependency installation.
 - `--yes`, `-y` — accept defaults (node adapter, manifest router, no Tailwind, agent tooling on) and skip all prompts.
@@ -59,6 +59,8 @@ node ./packages/start/bin/create-pracht.js my-app --adapter=node --no-tailwind -
 - `.gitignore`
 - `.claude/skills/<name>/SKILL.md` — the pracht agent skills (unless `--no-agent-tools`)
 - `.mcp.json` — registers the `pracht mcp` server for MCP clients (unless `--no-agent-tools`)
+- `AGENTS.md` (plus a `CLAUDE.md` symlink pointing at it) — project conventions for coding
+  agents (unless `--no-agent-tools`; `README.md` documents the same commands for humans)
 
 The skills are copied from the repo's [skills/](../../skills/README.md) directory into this
 package at build/publish time (`scripts/sync-skills.js`), so the published npm tarball is

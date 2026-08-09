@@ -245,6 +245,11 @@ export async function scaffoldProject({
     await writeFile(filePath, content, "utf-8");
   }
 
+  // AGENTS.md (and the CLAUDE.md alias pointing at it) are agent tooling too —
+  // `--no-agent-tools` means a project with none of it, not "all of it except
+  // the instruction files". README.md carries the same commands for humans.
+  if (!agentTools) return;
+
   try {
     await symlink("AGENTS.md", resolve(targetDir, "CLAUDE.md"));
   } catch (error) {
@@ -594,8 +599,17 @@ async function buildProjectFiles({
     "src/api/health.ts": createHealthRoute(adapter),
     "vite.config.ts": createViteConfig(adapter, router, tailwind),
     "tsconfig.json": createBaseTSConfig(adapter),
-    "AGENTS.md": createAgentInstructions({ adapter, agentTools, packageManager, router, tailwind }),
   };
+
+  if (agentTools) {
+    files["AGENTS.md"] = createAgentInstructions({
+      adapter,
+      agentTools,
+      packageManager,
+      router,
+      tailwind,
+    });
+  }
 
   if (router === "pages") {
     files["src/pages/_app.tsx"] = createShellFile(projectName, tailwind);

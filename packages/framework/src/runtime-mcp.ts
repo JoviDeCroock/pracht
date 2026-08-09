@@ -69,6 +69,11 @@ export function resolveMcpEndpoint(agents: PrachtAgentsConfig | undefined): stri
   return path.endsWith("/") && path.length > 1 ? path.slice(0, -1) : path;
 }
 
+/** Normalize an incoming MCP request path without retaining protocol helpers in unrelated apps. */
+export function normalizeMcpRequestPath(path: string): string {
+  return path.length > 1 && path.endsWith("/") ? path.slice(0, -1) : path;
+}
+
 /** Capabilities the MCP projection serves, in graph order. */
 export function mcpExposedCapabilities(
   capabilities: readonly ResolvedCapability[],

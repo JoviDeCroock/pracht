@@ -25,6 +25,8 @@ Platform request (Node / CF / Vercel)
 
 Adapters also preserve route and shell document headers for prerendered HTML so static SSG/ISG responses match dynamic document responses.
 
+For prerendered routes that export `markdown`, the Node and Cloudflare adapters bypass the static document only when the request prefers `text/markdown` over HTML and the generated headers manifest declares `Vary: Accept`. Routes without a markdown representation stay on the static fast path even when an agent requests markdown.
+
 ---
 
 ## Cloudflare Workers

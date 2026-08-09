@@ -33,7 +33,7 @@ Options:
 - `--adapter=node|cf|vercel` — choose Node.js, Cloudflare Workers, or Vercel output.
 - `--router=manifest|pages` — choose explicit `src/routes.ts` routing or file-system `src/pages/` routing.
 - `--template=minimal|tailwind`, `--tailwind`, `--no-tailwind` — control Tailwind setup.
-- `--agent-tools`, `--no-agent-tools` — seed or skip the pracht Claude Code skills and `.mcp.json`.
+- `--agent-tools`, `--no-agent-tools` — seed or skip the pracht Claude Code skills, `.mcp.json`, and `AGENTS.md`/`CLAUDE.md`.
 - `--skip-install` — write files without installing dependencies.
 - `--no-git` — skip `git init` and the initial commit.
 - `--json` — print a machine-readable summary.

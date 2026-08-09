@@ -349,7 +349,9 @@ With the option on:
 - Responses carry `Cache-Tag: pracht:isg,pracht:route:<id>` so they can be
   purged. Routes that export `markdown` also carry `Vary: Accept` on both
   their HTML and markdown responses so the representations stay separate;
-  routes without that export do not vary on `Accept`.
+  routes without that export do not vary on `Accept`, and their cached
+  document answers markdown-preferring requests too (see
+  [Markdown and the static fast path](#markdown-and-the-static-fast-path)).
 - A route/shell `headers()` export that sets `Cache-Control` (or
   `cloudflare-cdn-cache-control`) takes full precedence — pracht adds
   nothing, so individual routes can opt out or tune their own policy.
@@ -770,6 +772,27 @@ export const nodeListener = createVercelNodeListener(handle);
 
 ---
 
+## Markdown and the static fast path
+
+Routes that export `markdown` answer `Accept: text/markdown` with their raw
+source instead of HTML (see [DATA_LOADING.md](DATA_LOADING.md)). Prerendered
+documents are served by the adapter before the framework runs, so the Node and
+Cloudflare adapters have to decide up front whether a cached document can answer
+a given request. Both require **two** conditions before skipping the static file
+(Node), the assets binding, or the edge cache (Cloudflare):
+
+1. the request prefers markdown over HTML — the same `prefersMarkdown()`
+   negotiation the runtime uses, so `*/*`, `text/html,*/*`, and a q-weighted
+   `text/html,text/markdown;q=0.1` all keep getting HTML; and
+2. the route declares `Vary: Accept` in the headers manifest, which the build
+   emits for exactly the routes that export `markdown`.
+
+An app with no markdown routes therefore never leaves its static fast path,
+whoever is asking: agent traffic cannot force SSR renders of prerendered pages,
+and hashed assets are never re-rendered because a client sent an odd `Accept`.
+
+---
+
 ## ISG Webhook Revalidation
 
 Routes opt into webhook revalidation with `webhookRevalidate()` or by combining
@@ -897,8 +920,9 @@ At the runtime level, an adapter also typically needs to:
 1. **Accept a platform request** and convert it to a Web `Request` object
 2. **Check for static assets** -- serve files from `dist/client/` with appropriate
    headers (content-type, cache-control with immutable for hashed assets). Skip
-   asset serving when the request has `Accept: text/markdown` so routes that
-   export a `markdown` source can respond from the framework.
+   asset serving only for requests that `prefersMarkdown()` accepts *and* whose
+   route declares `Vary: Accept` in the headers manifest, so routes that export
+   a `markdown` source can respond from the framework — see below.
 3. **Check for prerendered pages** -- SSG and ISG routes have HTML files on disk.
    For ISG, implement staleness checking.
 4. **Delegate dynamic requests** to `handlePrachtRequest()` from `pracht`.

@@ -29,6 +29,7 @@ import {
 import {
   createPrachtCapabilitiesClientModuleSource,
   createPrachtWebmcpModuleSource,
+  hasAgentSurface,
   resolveCapabilityModulePaths,
 } from "./plugin-capabilities.ts";
 import {
@@ -124,12 +125,23 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
       const envDir = _config.envDir ? resolve(configRoot, _config.envDir) : configRoot;
       const publicEnvDefine = JSON.stringify(loadEnv(env.mode, envDir, PUBLIC_ENV_PREFIX));
 
+      // Apps that register no capabilities and configure no agents get the
+      // capability + Web Bot Auth runtimes dead-code-eliminated out of the
+      // server bundle instead of shipping them unused. Build only: `config()`
+      // runs once, and in dev the manifest is edited live — a stale `false`
+      // would make a freshly added capability 404 until the server restarts.
+      const agentSurfaceDefine =
+        env.command === "build" ? String(hasAgentSurface(resolved, configRoot)) : "true";
+
       return {
         appType: "custom" as const,
         // Expose PRACHT_PUBLIC_-prefixed vars on import.meta.env (client and
         // server) while keeping Vite's default VITE_ prefix working.
         envPrefix: ["VITE_", PUBLIC_ENV_PREFIX],
-        define: { __PRACHT_PUBLIC_ENV__: publicEnvDefine },
+        define: {
+          __PRACHT_PUBLIC_ENV__: publicEnvDefine,
+          __PRACHT_AGENT_SURFACE__: agentSurfaceDefine,
+        },
         // The vendor split only makes sense for the client bundle; SSR builds
         // that disable code splitting (e.g. webworker targets) reject
         // `manualChunks` outright.

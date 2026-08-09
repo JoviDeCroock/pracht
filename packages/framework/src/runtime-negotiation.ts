@@ -40,6 +40,30 @@ export function prefersMarkdown(accept: string | null): boolean {
   return md.quality >= html.quality;
 }
 
+/**
+ * Whether a route's prerendered document headers declare that the route
+ * varies on `Accept`.
+ *
+ * Adapters serve prerendered SSG/ISG documents from disk (or the assets
+ * binding) before the framework runs, so they need a cheap way to tell whether
+ * a cached HTML file can answer a markdown-preferring request. Routes that
+ * export `markdown` carry `Vary: Accept` in the headers manifest the build
+ * emits; every other route — and every app without markdown routes — keeps its
+ * cached response, so agent traffic can never push ordinary apps off their
+ * static fast path.
+ */
+export function routeVariesOnAccept(routeHeaders: Record<string, string> | undefined): boolean {
+  if (!routeHeaders) return false;
+  for (const [key, value] of Object.entries(routeHeaders)) {
+    if (key.toLowerCase() !== "vary") continue;
+    for (const part of value.split(",")) {
+      const token = part.trim().toLowerCase();
+      if (token === "accept" || token === "*") return true;
+    }
+  }
+  return false;
+}
+
 export function markdownResponse(
   source: string,
   initHeaders?: HeadersInit,

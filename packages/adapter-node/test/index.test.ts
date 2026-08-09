@@ -501,4 +501,92 @@ describe("createNodeRequestHandler", () => {
       }
     }
   });
+
+  describe("markdown negotiation and the static fast path", () => {
+    async function serveStaticApp(headersManifest: Record<string, Record<string, string>>) {
+      const staticDir = makeTempDir();
+      const htmlDir = join(staticDir, "docs");
+      mkdirSync(htmlDir, { recursive: true });
+      writeFileSync(join(htmlDir, "index.html"), "<html><body>prerendered</body></html>", "utf-8");
+
+      let rendered = 0;
+      const app = defineApp({
+        routes: [route("/docs", "./routes/docs.tsx", { render: "ssg" })],
+      });
+      const handler = createNodeRequestHandler({
+        app,
+        headersManifest,
+        registry: {
+          routeModules: {
+            "./routes/docs.tsx": async () => ({
+              Component: () => {
+                rendered += 1;
+                return "<main>rendered</main>";
+              },
+              markdown: "# Docs\n",
+            }),
+          },
+        },
+        staticDir,
+      });
+
+      const server = createServer((req: IncomingMessage, res: ServerResponse) => {
+        void handler(req, res);
+      });
+      servers.add(server);
+      server.listen(0, "127.0.0.1");
+      await once(server, "listening");
+      const address = server.address();
+      if (!address || typeof address === "string") {
+        throw new Error("Expected TCP server address");
+      }
+
+      return {
+        get rendered() {
+          return rendered;
+        },
+        url: `http://127.0.0.1:${address.port}/docs`,
+      };
+    }
+
+    it("keeps serving the prerendered document when the route cannot answer with markdown", async () => {
+      const { rendered, url } = await serveStaticApp({
+        "/docs": { vary: "x-pracht-route-state-request" },
+      });
+
+      // A browser-shaped Accept that merely mentions markdown at a lower
+      // quality must not knock the request off the static file.
+      const response = await fetch(url, {
+        headers: { accept: "text/html,text/markdown;q=0.1" },
+      });
+
+      expect(response.status).toBe(200);
+      expect(response.headers.get("content-type")).toContain("text/html");
+      expect(await response.text()).toContain("prerendered");
+      expect(response.headers.get("etag")).not.toBeNull();
+      expect(rendered).toBe(0);
+    });
+
+    it("keeps serving the prerendered document to markdown clients when no route varies on Accept", async () => {
+      const { rendered, url } = await serveStaticApp({});
+
+      const response = await fetch(url, { headers: { accept: "text/markdown" } });
+
+      expect(response.status).toBe(200);
+      expect(response.headers.get("content-type")).toContain("text/html");
+      expect(rendered).toBe(0);
+    });
+
+    it("falls through to the framework when the route declares Vary: Accept", async () => {
+      const { url } = await serveStaticApp({
+        "/docs": { vary: "x-pracht-route-state-request, Accept" },
+      });
+
+      const response = await fetch(url, { headers: { accept: "text/markdown" } });
+
+      expect(response.status).toBe(200);
+      expect(response.headers.get("content-type")).toContain("text/markdown");
+      expect(await response.text()).toBe("# Docs\n");
+    });
+  });
 });

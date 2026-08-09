@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import { defineApp, handlePrachtRequest, route } from "../src/index.ts";
-import { markdownResponse, prefersMarkdown } from "../src/runtime-negotiation.ts";
+import {
+  markdownResponse,
+  prefersMarkdown,
+  routeVariesOnAccept,
+} from "../src/runtime-negotiation.ts";
 
 describe("prefersMarkdown", () => {
   it("returns false when the header is absent or empty", () => {
@@ -22,6 +26,25 @@ describe("prefersMarkdown", () => {
     expect(prefersMarkdown("text/html;q=0.9, text/markdown;q=1.0")).toBe(true);
     expect(prefersMarkdown("text/markdown;q=0.5, text/html;q=0.9")).toBe(false);
     expect(prefersMarkdown("text/markdown;q=0")).toBe(false);
+  });
+});
+
+describe("routeVariesOnAccept", () => {
+  it("returns false without headers or without a Vary entry", () => {
+    expect(routeVariesOnAccept(undefined)).toBe(false);
+    expect(routeVariesOnAccept({})).toBe(false);
+    expect(routeVariesOnAccept({ vary: "x-pracht-route-state-request" })).toBe(false);
+  });
+
+  it("detects Accept in a multi-value Vary regardless of casing", () => {
+    expect(routeVariesOnAccept({ vary: "x-pracht-route-state-request, Accept" })).toBe(true);
+    expect(routeVariesOnAccept({ Vary: "accept" })).toBe(true);
+    expect(routeVariesOnAccept({ vary: "*" })).toBe(true);
+  });
+
+  it("does not match headers that merely contain the word", () => {
+    expect(routeVariesOnAccept({ vary: "accept-encoding" })).toBe(false);
+    expect(routeVariesOnAccept({ "accept-ranges": "bytes" })).toBe(false);
   });
 });
 

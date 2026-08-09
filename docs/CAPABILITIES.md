@@ -540,6 +540,29 @@ file, and `pracht verify` reports the same projection constraints.
   duplicate paths, unknown middleware) answers capability requests with 500
   and never partially serves.
 
+## Cost when unused
+
+Apps that register no capabilities and configure no `agents` do not ship the
+agent surface at all:
+
+- **Server bundle** — the vite plugin reads the manifest at build time and, when
+  it finds neither, defines `__PRACHT_AGENT_SURFACE__` as `false`. The capability
+  dispatch and the Web Bot Auth verifier become unreachable and the bundler drops
+  both (~15 KB gzip of an example app's server bundle). The define is only
+  emitted for builds — in dev the manifest is edited live, so the runtime keeps
+  deciding per request.
+- **Analysis is one-sided** — an unreadable manifest, a parse failure, or a
+  spread inside the manifest leaves the define unset and the runtime decides, so
+  a registration the analyzer cannot see is never silently dropped. If a build
+  did elide the runtime while capabilities are registered at runtime, the server
+  logs a loud error on the first request rather than 404ing quietly.
+- **Client bundle** — capability metadata only reaches the browser through
+  `virtual:pracht/capabilities`, and the WebMCP shim is only emitted when a
+  capability sets `expose.webmcp`.
+- **Per request** — with the runtime present but no capabilities registered, the
+  cost is a single `Object.keys` check; Web Bot Auth costs one property check
+  until it is configured.
+
 ## Inspection
 
 The capability graph feeds every existing inspection surface:

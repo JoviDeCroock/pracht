@@ -90,6 +90,11 @@ export {
 export type { MemoryApprovalStoreOptions } from "./runtime-approval.ts";
 export { verifyAgentSignature } from "./runtime-agent-auth.ts";
 export type { VerifyAgentSignatureOptions } from "./runtime-agent-auth.ts";
+export {
+  MARKDOWN_MEDIA_TYPE,
+  prefersMarkdown,
+  routeVariesOnAccept,
+} from "./runtime-negotiation.ts";
 export { resolveRegistryModule } from "./runtime-manifest.ts";
 export { createCapabilityTestHost } from "./testing-capabilities.ts";
 export type {

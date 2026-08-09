@@ -12,9 +12,12 @@ The agent trust layer answers three questions about the capability graph
 - **What happened?** — a structured audit event for every capability
   dispatch, and `pracht eval` to test agent task flows in CI.
 
-Everything is opt-in and zero-cost when unused: an app without
+Everything is opt-in and zero-cost when unused. An app without
 `defineApp({ agents })` and without destructive capabilities pays a single
-property check per request.
+property check per request — and when the build can prove the manifest
+registers neither capabilities nor agents, the verifier and the capability
+dispatch are dropped from the server bundle entirely (see
+[CAPABILITIES.md](CAPABILITIES.md#cost-when-unused)).
 
 ## Web Bot Auth: verified agent identity
 

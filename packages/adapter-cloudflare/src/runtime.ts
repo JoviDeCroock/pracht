@@ -13,8 +13,10 @@ import {
   prefersMarkdown,
   PRACHT_REVALIDATE_ENDPOINT,
   PRACHT_REVALIDATE_TOKEN_ENV,
+  prefersMarkdown,
   type ResolvedApiRoute,
   readRevalidationRequest,
+  routeVariesOnAccept,
   setServerEnv,
   type PrachtApp,
 } from "@pracht/core/server";
@@ -232,7 +234,7 @@ async function maybeServeAsset(
     return null;
   }
 
-  if ((request.headers.get("accept") ?? "").includes("text/markdown")) {
+  if (wantsRouteMarkdown(request, headersManifest, url.pathname)) {
     return null;
   }
 
@@ -266,7 +268,7 @@ async function maybeServeISG<TEnv extends Record<string, unknown>>(
   headersManifest: HeadersManifest,
   renderISGPage: (pathname: string, originalRequest: Request) => Promise<Response>,
 ): Promise<Response | null> {
-  if (!isDocumentAssetRequest(request)) return null;
+  if (!isDocumentAssetRequest(request, headersManifest)) return null;
 
   const url = new URL(request.url);
   const entry = isgManifest[url.pathname];
@@ -408,10 +410,7 @@ function applyHeadersManifest(
   headersManifest: HeadersManifest,
   pathname: string,
 ): void {
-  const withoutIndex = pathname.replace(/\/index\.html$/, "") || "/";
-  const withoutSlash = pathname.replace(/\/$/, "") || "/";
-  const routeHeaders =
-    headersManifest[pathname] ?? headersManifest[withoutSlash] ?? headersManifest[withoutIndex];
+  const routeHeaders = getManifestHeaders(headersManifest, pathname);
   if (!routeHeaders) return;
 
   for (const [key, value] of Object.entries(routeHeaders)) {
@@ -419,11 +418,40 @@ function applyHeadersManifest(
   }
 }
 
+function getManifestHeaders(
+  headersManifest: HeadersManifest,
+  pathname: string,
+): Record<string, string> | undefined {
+  const withoutIndex = pathname.replace(/\/index\.html$/, "") || "/";
+  const withoutSlash = pathname.replace(/\/$/, "") || "/";
+  return (
+    headersManifest[pathname] ?? headersManifest[withoutSlash] ?? headersManifest[withoutIndex]
+  );
+}
+
+/**
+ * A request may only skip the assets binding / edge cache when it explicitly
+ * prefers markdown over HTML *and* the route declares `Vary: Accept` (which the
+ * build emits for routes exporting `markdown`). Without both, apps that ship no
+ * markdown keep answering every request — agent or browser — from the
+ * prerendered document.
+ */
+function wantsRouteMarkdown(
+  request: Request,
+  headersManifest: HeadersManifest,
+  pathname: string,
+): boolean {
+  return (
+    prefersMarkdown(request.headers.get("accept")) &&
+    routeVariesOnAccept(getManifestHeaders(headersManifest, pathname))
+  );
+}
+
 function isFetcher(value: unknown): value is CloudflareFetcher {
   return typeof value === "object" && value !== null && "fetch" in value;
 }
 
-function isDocumentAssetRequest(request: Request): boolean {
+function isDocumentAssetRequest(request: Request, headersManifest: HeadersManifest): boolean {
   if (request.method !== "GET" && request.method !== "HEAD") return false;
 
   const url = new URL(request.url);
@@ -434,7 +462,7 @@ function isDocumentAssetRequest(request: Request): boolean {
     return false;
   }
 
-  return !(request.headers.get("accept") ?? "").includes("text/markdown");
+  return !wantsRouteMarkdown(request, headersManifest, url.pathname);
 }
 
 function createISGCacheKey(request: Request, pathname: string): Request {

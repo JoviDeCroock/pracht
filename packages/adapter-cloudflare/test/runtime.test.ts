@@ -388,6 +388,56 @@ describe("createCloudflareFetchHandler ISG", () => {
     expect(response.headers.get("cloudflare-cdn-cache-control")).toContain("max-age=60");
     await expect(response.text()).resolves.toBe("# Markdown pricing");
   });
+
+  it("keeps serving cached ISG HTML unless the route declares Vary: Accept", async () => {
+    const { cache, store } = createMockCaches();
+    vi.stubGlobal("caches", { default: cache });
+    const { executionContext } = createExecutionContext();
+    const host = "markdown.example";
+    putCachedISGPage(store, cacheKeyUrl("/pricing", host), "<html>cached</html>", Date.now());
+
+    const { app, registry } = createPricingApp();
+    const handler = createCloudflareFetchHandler({
+      app,
+      registry,
+      isgManifest: { "/pricing": { revalidate: isgRevalidate } },
+      headersManifest: { "/pricing": { vary: "x-pracht-route-state-request" } },
+    });
+
+    // Markdown-preferring agent traffic must not push a route that ships no
+    // markdown off the edge cache.
+    const response = await handler(
+      new Request(`https://${host}/pricing`, { headers: { accept: "text/markdown" } }),
+      { ASSETS: create404Assets() },
+      executionContext,
+    );
+
+    await expect(response.text()).resolves.toContain("cached");
+  });
+
+  it("bypasses the ISG cache for markdown-capable routes", async () => {
+    const { cache, store } = createMockCaches();
+    vi.stubGlobal("caches", { default: cache });
+    const { executionContext } = createExecutionContext();
+    const host = "markdown-route.example";
+    putCachedISGPage(store, cacheKeyUrl("/pricing", host), "<html>cached</html>", Date.now());
+
+    const { app, registry } = createPricingApp();
+    const handler = createCloudflareFetchHandler({
+      app,
+      registry,
+      isgManifest: { "/pricing": { revalidate: isgRevalidate } },
+      headersManifest: { "/pricing": { vary: "x-pracht-route-state-request, Accept" } },
+    });
+
+    const response = await handler(
+      new Request(`https://${host}/pricing`, { headers: { accept: "text/markdown" } }),
+      { ASSETS: create404Assets() },
+      executionContext,
+    );
+
+    await expect(response.text()).resolves.not.toContain("cached");
+  });
 });
 
 describe("createCloudflareFetchHandler webhook revalidation", () => {
