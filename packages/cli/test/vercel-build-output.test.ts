@@ -87,6 +87,27 @@ describe("writeVercelBuildOutput", () => {
     expect(functionConfig.regions).toEqual(["iad1"]);
   });
 
+  it("keeps the all sentinel on edge and uses the project default for ISG", () => {
+    const root = createBuildRoot();
+
+    writeVercelBuildOutput({
+      isgManifest: { "/pricing": { revalidate: timeRevalidate(60) } },
+      regions: "all",
+      root,
+      staticRoutes: [],
+    });
+
+    const functionsDir = join(root, ".vercel/output/functions");
+    const edgeConfig = JSON.parse(
+      readFileSync(join(functionsDir, "render.func/.vc-config.json"), "utf-8"),
+    );
+    const nodeConfig = JSON.parse(
+      readFileSync(join(functionsDir, "pricing.func/.vc-config.json"), "utf-8"),
+    );
+    expect(edgeConfig.regions).toBe("all");
+    expect(nodeConfig).not.toHaveProperty("regions");
+  });
+
   it("shares one serverless bundle across ISG routes", () => {
     const root = createBuildRoot();
 

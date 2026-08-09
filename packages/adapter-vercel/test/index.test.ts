@@ -2,7 +2,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { defineApp, route, timeRevalidate, webhookRevalidate } from "@pracht/core";
 
-import { createVercelEdgeHandler, createVercelServerEntryModule } from "../src/index.ts";
+import {
+  createVercelEdgeHandler,
+  createVercelNodeListener,
+  createVercelServerEntryModule,
+} from "../src/index.ts";
 
 describe("createVercelServerEntryModule", () => {
   it("imports an app createContext module when configured", () => {
@@ -18,6 +22,50 @@ describe("createVercelServerEntryModule", () => {
     expect(source).toContain("createContext: createPrachtContext");
     expect(source).toContain("createVercelEdgeHandler");
     expect(source).toContain('export const vercelFunctionName = "app";');
+  });
+});
+
+describe("createVercelNodeListener", () => {
+  it("provides waitUntil and drains registered work", async () => {
+    let releaseTask: (() => void) | undefined;
+    const backgroundTask = new Promise<void>((resolve) => {
+      releaseTask = resolve;
+    });
+    let receivedWaitUntil = false;
+    let listenerSettled = false;
+    const chunks: Uint8Array[] = [];
+    const listener = createVercelNodeListener(async (_request, context) => {
+      receivedWaitUntil = typeof context.waitUntil === "function";
+      context.waitUntil?.(backgroundTask);
+      return new Response("ok");
+    });
+
+    const invocation = listener(
+      {
+        headers: { host: "example.com" },
+        method: "GET",
+        url: "/pricing",
+        async *[Symbol.asyncIterator]() {},
+      },
+      {
+        statusCode: 0,
+        setHeader() {},
+        write(chunk) {
+          chunks.push(chunk);
+        },
+        end() {},
+      },
+    ).then(() => {
+      listenerSettled = true;
+    });
+
+    await vi.waitFor(() => expect(receivedWaitUntil).toBe(true));
+    expect(listenerSettled).toBe(false);
+    releaseTask?.();
+    await invocation;
+
+    expect(listenerSettled).toBe(true);
+    expect(new TextDecoder().decode(chunks[0])).toBe("ok");
   });
 });
 

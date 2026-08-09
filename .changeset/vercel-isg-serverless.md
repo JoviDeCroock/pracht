@@ -12,4 +12,6 @@ Node Serverless Functions while the main handler stays on the edge; both load
 the same Web-API-only server bundle. Generated Vercel entries export a
 `nodeListener` (`createVercelNodeListener(handle)`) for those functions to use,
 and a custom server entry that omits it now fails the build with a descriptive
-error instead of at request time.
+error instead of at request time. The Node listener exposes a compatible
+`waitUntil()` context, and Edge's `regions: "all"` sentinel is omitted from Node
+function configs so they use the project's default Serverless region.

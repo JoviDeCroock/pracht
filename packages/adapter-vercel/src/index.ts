@@ -107,9 +107,34 @@ export function createVercelNodeListener(
   handler: (request: Request, context: VercelExecutionContext) => Promise<Response>,
 ): (req: VercelNodeRequest, res: VercelNodeResponse) => Promise<void> {
   return async (req, res) => {
-    const response = await handler(await createNodeWebRequest(req), {});
-    await writeNodeResponse(res, response);
+    const waitUntilTasks: Promise<unknown>[] = [];
+    const context: VercelExecutionContext = {
+      waitUntil(promise) {
+        const task = Promise.resolve(promise);
+        // Attach a rejection handler immediately so a task that rejects while
+        // the response is streaming is not reported as unhandled. The drain
+        // below still observes the original promise's final state.
+        void task.catch(() => {});
+        waitUntilTasks.push(task);
+      },
+    };
+
+    try {
+      const response = await handler(await createNodeWebRequest(req), context);
+      await writeNodeResponse(res, response);
+    } finally {
+      await drainWaitUntilTasks(waitUntilTasks);
+    }
   };
+}
+
+async function drainWaitUntilTasks(tasks: Promise<unknown>[]): Promise<void> {
+  let drained = 0;
+  while (drained < tasks.length) {
+    const batch = tasks.slice(drained);
+    drained = tasks.length;
+    await Promise.allSettled(batch);
+  }
 }
 
 const BODYLESS_METHODS = new Set(["GET", "HEAD"]);

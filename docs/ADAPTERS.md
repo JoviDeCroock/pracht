@@ -692,7 +692,10 @@ export default {
 - **Node launcher**: generated entries also export `nodeListener`
   (`createVercelNodeListener(handle)`), which the ISG functions re-export as
   their handler. A custom server entry that omits it fails the build with a
-  descriptive error rather than at request time in production.
+  descriptive error rather than at request time in production. The listener
+  supplies a `waitUntil()`-compatible context and drains registered work after
+  ending the response; other Edge-only context fields are unavailable on Node
+  ISG invocations.
 - **Static security headers**: the generated `config.json` includes a `headers`
   section that applies the same baseline security headers to all responses,
   including static assets served by Vercel's CDN. Static prerendered routes also
@@ -713,14 +716,18 @@ vercelAdapter({
 });
 ```
 
-The context module must export `createContext(args)`. Vercel passes `{ request, context }`.
+The context module must export `createContext(args)`. Edge invocations receive
+Vercel's execution context; Node ISG invocations receive the compatibility
+context described above. `regions: "all"` keeps the Edge function global and
+leaves Node ISG functions on the project's default Serverless region because
+`all` is not a Node region identifier.
 
 ### Entry module
 
 ```javascript
 // virtual:pracht/server (generated in vercel mode)
 import { resolveApp, resolveApiRoutes } from "@pracht/core/server";
-import { createVercelEdgeHandler } from "@pracht/adapter-vercel";
+import { createVercelEdgeHandler, createVercelNodeListener } from "@pracht/adapter-vercel";
 import { app } from "./src/routes.ts";
 
 const resolvedApp = resolveApp(app);

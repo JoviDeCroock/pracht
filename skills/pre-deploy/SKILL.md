@@ -143,6 +143,10 @@ a markdown summary (graph diff + verify + budgets) worth attaching to it.
   **Serverless** `<route>.func` (`.vc-config.json` with `launcherType:
   "Nodejs"`). Vercel rejects a prerender config paired with an edge function:
   `Unexpected function type "EdgeFunction" at path "<route>"`.
+- Region configuration: `vercelAdapter({ regions: "all" })` is valid for the
+  Edge render function, but generated Node ISG function configs must omit
+  `regions` so the project's default Serverless region applies. Node configs
+  may only contain arrays of concrete region identifiers.
 - An API route importing `@pracht/image/node` is an error for the Vercel Edge
   function. Require `vercelLoader` (with aligned allowed sizes) or
   `passthroughLoader` instead.

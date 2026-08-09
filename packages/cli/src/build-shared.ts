@@ -344,7 +344,9 @@ function createVercelNodeFunctionConfig({
     shouldAddHelpers: false,
   };
 
-  if (regions) {
+  // `all` is an Edge-only sentinel. Node functions must name concrete regions;
+  // omitting the field lets the project-level Serverless default apply.
+  if (regions && regions !== "all") {
     config.regions = Array.isArray(regions) ? regions : [regions];
   }
 

@@ -186,6 +186,8 @@ pracht({ adapter: vercelAdapter() })
 
 Static prerendered routes receive document headers through the generated Build Output `headers` config.
 
+If `vercelAdapter({ regions: "all" })` is configured, the Edge function remains global while Node ISG functions use the project's default Serverless region. Node functions require concrete region identifiers and cannot use Edge's `all` sentinel.
+
 ### Build output
 
 ```
@@ -280,7 +282,8 @@ export function createContext({ request }: { request: Request }) {
 }
 
 // Cloudflare receives { request, env, executionContext }.
-// Vercel receives { request, context }.
+// Vercel Edge receives { request, context }. Node ISG provides a
+// waitUntil-compatible context, without other Edge-only fields.
 ```
 
 The context object is available as `args.context` in every loader, middleware, and API route handler.

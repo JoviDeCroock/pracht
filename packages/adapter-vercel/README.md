@@ -1,6 +1,6 @@
 # @pracht/adapter-vercel
 
-Vercel Edge adapter for pracht. Emits Vercel Build Output API v3 output with an Edge Function entry.
+Vercel adapter for pracht. Emits Vercel Build Output API v3 output with an Edge Function entry for SSR/API routes and Node Serverless Functions for ISG routes.
 
 ## Install
 
@@ -26,6 +26,7 @@ pracht build && vercel deploy --prebuilt
 
 - Build Output API v3 integration
 - Edge Function runtime support
+- Native ISR through Node Serverless prerender functions
 - Static SSG rewrites with route-state bypasses for client navigation
 
 ## Context factory
@@ -41,3 +42,10 @@ pracht({
 ```
 
 `/src/server/context.ts` should export `createContext({ request, context })`.
+Edge invocations receive Vercel's execution context. Node ISG invocations
+receive a compatibility context with `waitUntil()`; other Edge-only fields are
+unavailable.
+
+`vercelAdapter({ regions: "all" })` keeps the Edge function global and leaves
+Node ISG functions on the project's default Serverless region. Configure one or
+more concrete region identifiers to place both runtimes explicitly.
