@@ -103,6 +103,32 @@ const notesCompose = defineCapability({
   },
 } as CapabilityDefinition);
 
+/**
+ * Composition is server authority, not a way around policy: the composed
+ * capability's own named middleware still decides. Pins that seam, since it is
+ * where authorization for a nested call has to live.
+ */
+const notesComposeGuarded = defineCapability({
+  title: "Compose guarded notes",
+  description: "Invoke a capability that is behind denying middleware.",
+  input: { type: "object", properties: {}, additionalProperties: false },
+  output: { type: "object", properties: { code: { type: "string" } }, required: ["code"] },
+  effect: "read",
+  expose: { mcp: true },
+  async run({ request, context, signal }) {
+    const result = await invokeCapability(
+      "notes.guarded" as never,
+      {},
+      {
+        request,
+        context,
+        signal,
+      },
+    );
+    return { code: result.ok ? "ok" : result.error.code };
+  },
+} as CapabilityDefinition);
+
 const agentOnly = defineCapability({
   title: "Agent only",
   description: "Requires a verified agent.",
@@ -196,6 +222,7 @@ function createApp(agents: PrachtAgentsConfig | undefined) {
     "notes.search": notesSearch,
     "notes.create": notesCreate,
     "notes.compose": notesCompose,
+    "notes.compose-guarded": notesComposeGuarded,
     "notes.internal": notesInternal,
     "notes.guarded": guarded,
     "agent.only": agentOnly,
@@ -549,6 +576,7 @@ describe("tools/list", () => {
       "invalid-output_short-circuit",
       "json_short-circuit",
       "notes_compose",
+      "notes_compose-guarded",
       "notes_create",
       "notes_guarded",
       "notes_search",
@@ -633,6 +661,27 @@ describe("tools/call runs the same pipeline as the HTTP projection", () => {
       via: null,
       outcome: "ok",
     });
+  });
+
+  it("still runs the composed capability's named middleware", async () => {
+    const events: CapabilityAuditEvent[] = [];
+
+    const { json } = await callTool(
+      "notes_compose-guarded",
+      {},
+      {
+        onCapabilityAudit: (event) => events.push(event),
+      },
+    );
+
+    // The composed capability's own middleware is the seam that authorizes a
+    // nested call — the transport gates belong to the incoming dispatch — so
+    // composing into a guarded capability is still denied by it.
+    expect(json?.result.structuredContent).toEqual({ code: "unauthorized" });
+    expect(events.map((event) => [event.capability, event.transport, event.via])).toEqual([
+      ["notes.guarded", "server", "mcp"],
+      ["notes.compose-guarded", "mcp", null],
+    ]);
   });
 
   it("reports schema violations as tool errors carrying the issues", async () => {

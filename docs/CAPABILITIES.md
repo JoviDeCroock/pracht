@@ -167,6 +167,11 @@ pipeline, including the capability's middleware. It is available while
 middleware). App-level `api.middleware` is HTTP policy and does not run for
 direct invocation.
 
+The same is true of the other transport gates — `agentPolicy` and the
+`destructive` prepare/commit confirmation answer *incoming* calls, not
+composition — so a composing capability decides what it may reach:
+[AGENT_TRUST.md](AGENT_TRUST.md#composition-does-not-inherit-transport-guards).
+
 ### HTTP projection
 
 With `expose.http` set, the capability is dispatched at
