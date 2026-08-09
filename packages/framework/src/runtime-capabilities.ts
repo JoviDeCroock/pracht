@@ -82,10 +82,12 @@ export interface ResolvedCapability {
 
 export type CapabilityHostApp = Pick<PrachtApp, "agents" | "capabilities" | "middleware">;
 
-// Resolution loads every registered capability module once per manifest +
-// registry instance. Dev HMR can keep the same app manifest object while
-// replacing the generated registry after a capability edit, so both identities
-// participate in the cache key.
+// Resolution loads every registered capability module once per app manifest +
+// registry instance. Resolution also depends on app-level middleware and MCP
+// configuration, so keying only by the capabilities record could leak a result
+// between distinct app manifests that happen to share that record. Dev HMR can
+// keep the same app manifest object while replacing the generated registry
+// after a capability edit, so both identities participate in the cache key.
 const resolvedCapabilitiesCache = new WeakMap<
   object,
   WeakMap<object, Promise<ResolvedCapability[]>>
@@ -96,12 +98,11 @@ export function resolveAppCapabilities(
   app: CapabilityHostApp,
   registry: ModuleRegistry,
 ): Promise<ResolvedCapability[]> {
-  const capabilities = app.capabilities ?? {};
   const capabilityModules = registry.capabilityModules ?? EMPTY_CAPABILITY_MODULES;
-  let registryCache = resolvedCapabilitiesCache.get(capabilities);
+  let registryCache = resolvedCapabilitiesCache.get(app);
   if (!registryCache) {
     registryCache = new WeakMap();
-    resolvedCapabilitiesCache.set(capabilities, registryCache);
+    resolvedCapabilitiesCache.set(app, registryCache);
   }
   let resolved = registryCache.get(capabilityModules);
   if (!resolved) {

@@ -212,6 +212,20 @@ describe("resolveAppCapabilities", () => {
     );
   });
 
+  it("isolates cached resolution between app manifests with different MCP endpoints", async () => {
+    const { app, registry } = createApp(createSearchCapability());
+    await resolveAppCapabilities(app, registry);
+
+    const appWithCollidingMcpEndpoint = {
+      ...app,
+      agents: { mcp: { path: "/api/capabilities/notes/search" } },
+    };
+
+    await expect(resolveAppCapabilities(appWithCollidingMcpEndpoint, registry)).rejects.toThrow(
+      /also the configured MCP endpoint/,
+    );
+  });
+
   it("keeps unexposed capabilities private (no HTTP path)", async () => {
     const { app, registry } = createApp(createSearchCapability({ expose: undefined }));
     const resolved = await resolveAppCapabilities(app, registry);
