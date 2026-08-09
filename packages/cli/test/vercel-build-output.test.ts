@@ -71,6 +71,22 @@ describe("writeVercelBuildOutput", () => {
     ).toMatchObject({ runtime: "edge" });
   });
 
+  it("normalizes a scalar region for ISG serverless functions", () => {
+    const root = createBuildRoot();
+
+    writeVercelBuildOutput({
+      isgManifest: { "/pricing": { revalidate: timeRevalidate(60) } },
+      regions: "iad1",
+      root,
+      staticRoutes: [],
+    });
+
+    const functionConfig = JSON.parse(
+      readFileSync(join(root, ".vercel/output/functions/pricing.func/.vc-config.json"), "utf-8"),
+    );
+    expect(functionConfig.regions).toEqual(["iad1"]);
+  });
+
   it("shares one serverless bundle across ISG routes", () => {
     const root = createBuildRoot();
 

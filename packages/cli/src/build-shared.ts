@@ -30,12 +30,14 @@ module.exports = async (req, res) => {
 };
 `;
 
+type VercelRegions = string | string[];
+
 interface VercelBuildOutputOptions {
   functionName?: string;
   headersManifest?: Record<string, Record<string, string>>;
   isgManifest: Record<string, ISGManifestEntry>;
   revalidateToken?: string;
-  regions?: string[];
+  regions?: VercelRegions;
   root: string;
   staticRoutes: string[];
 }
@@ -134,7 +136,7 @@ function writeVercelPrerenderFunctions({
   functionsDir: string;
   headersManifest: Record<string, Record<string, string>>;
   isgManifest: Record<string, ISGManifestEntry>;
-  regions?: string[];
+  regions?: VercelRegions;
   revalidateToken: string;
   staticDir: string;
 }): void {
@@ -194,7 +196,7 @@ function writeVercelPrerenderFunction({
   routeFunctionDir,
 }: {
   functionDir: string;
-  regions?: string[];
+  regions?: VercelRegions;
   routeFunctionDir: string;
 }): void {
   mkdirSync(dirname(routeFunctionDir), { recursive: true });
@@ -313,7 +315,11 @@ function createVercelOutputConfig({
   };
 }
 
-function createVercelFunctionConfig({ regions }: { regions?: string[] }): Record<string, unknown> {
+function createVercelFunctionConfig({
+  regions,
+}: {
+  regions?: VercelRegions;
+}): Record<string, unknown> {
   const config: Record<string, unknown> = {
     entrypoint: "server.js",
     runtime: "edge",
@@ -329,7 +335,7 @@ function createVercelFunctionConfig({ regions }: { regions?: string[] }): Record
 function createVercelNodeFunctionConfig({
   regions,
 }: {
-  regions?: string[];
+  regions?: VercelRegions;
 }): Record<string, unknown> {
   const config: Record<string, unknown> = {
     handler: VERCEL_NODE_ENTRY_FILE,
@@ -339,7 +345,7 @@ function createVercelNodeFunctionConfig({
   };
 
   if (regions) {
-    config.regions = regions;
+    config.regions = Array.isArray(regions) ? regions : [regions];
   }
 
   return config;
