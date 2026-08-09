@@ -225,6 +225,51 @@ export const app = defineApp({
     },
   );
 
+  it("rejects multiple pages-router not-found files", () => {
+    const appDir = createTempDir("pracht-cli-doctor-pages-not-found-duplicate-");
+    writePagesApp(appDir);
+    writeProjectFile(appDir, "src/pages/index.tsx", "export function Component() { return null; }");
+    writeProjectFile(appDir, "src/pages/404.tsx", "export function Component() { return null; }");
+    writeProjectFile(
+      appDir,
+      "src/pages/404/index.tsx",
+      "export function Component() { return null; }",
+    );
+
+    const result = runCliStatus(["doctor", "--json"], { cwd: appDir });
+    expect(result.status).toBe(1);
+
+    const report = JSON.parse(result.stdout);
+    expect(report.ok).toBe(false);
+    expect(report.checks.some((check) => check.message.includes("multiple not-found pages"))).toBe(
+      true,
+    );
+  });
+
+  it("rejects a second pages-router not-found file in changed verification", () => {
+    const appDir = createTempDir("pracht-cli-verify-pages-not-found-duplicate-");
+    writePagesApp(appDir);
+    writeProjectFile(appDir, "src/pages/index.tsx", "export function Component() { return null; }");
+    writeProjectFile(appDir, "src/pages/404.tsx", "export function Component() { return null; }");
+    initializeGitRepo(appDir);
+    writeProjectFile(
+      appDir,
+      "src/pages/404/index.tsx",
+      "export function Component() { return null; }",
+    );
+
+    const result = runCliStatus(["verify", "--changed", "--json"], { cwd: appDir });
+    expect(result.status).toBe(1);
+
+    const report = JSON.parse(result.stdout);
+    expect(report.ok).toBe(false);
+    expect(report.scope).toBe("changed");
+    expect(report.frameworkFiles).toContain("src/pages/404/index.tsx");
+    expect(report.checks.some((check) => check.message.includes("multiple not-found pages"))).toBe(
+      true,
+    );
+  });
+
   it("reports a healthy manifest app in verify json output", () => {
     const appDir = createTempDir("pracht-cli-verify-ok-");
     writeManifestApp(appDir, {
