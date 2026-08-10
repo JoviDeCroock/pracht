@@ -10,6 +10,7 @@ import {
   isCacheableISGResponse,
   jsonResponse,
   type ModuleRegistry,
+  prefersMarkdown,
   PRACHT_REVALIDATE_ENDPOINT,
   PRACHT_REVALIDATE_TOKEN_ENV,
   type ResolvedApiRoute,
@@ -165,14 +166,15 @@ export function createCloudflareFetchHandler<
       }
     }
 
+    const renderRequest = cacheRoute ? createWorkersCacheRenderRequest(request) : request;
     const context = options.createContext
-      ? await options.createContext({ request, env, executionContext })
+      ? await options.createContext({ request: renderRequest, env, executionContext })
       : ({ env, executionContext } as TContext);
 
     const response = await handlePrachtRequest({
       app: options.app,
       registry: options.registry,
-      request,
+      request: renderRequest,
       context,
       apiRoutes: options.apiRoutes,
       clientEntryUrl: options.clientEntryUrl,
@@ -193,6 +195,17 @@ export function createCloudflareFetchHandler<
     // `"cache": { "enabled": true }` in wrangler config is independent.
     return preventHeuristicCaching(request, finalResponse);
   };
+}
+
+function createWorkersCacheRenderRequest(originalRequest: Request): Request {
+  const request = createISGRegenerationRequest(
+    new URL(originalRequest.url).pathname,
+    originalRequest,
+  );
+  if (prefersMarkdown(originalRequest.headers.get("accept"))) {
+    request.headers.set("accept", "text/markdown");
+  }
+  return request;
 }
 
 async function maybeServeAsset(

@@ -327,6 +327,11 @@ With the option on:
   time. The first request after a deploy renders fresh (Workers Caching
   partitions the cache per Worker version, so deploys always start cold).
   Webhook-only ISG routes keep their snapshots and the worker-managed path.
+- Cold and stale Workers Caching renders use a sanitized `GET` request with the
+  pathname only and a canonical representation header (`Accept: text/html`, or
+  `text/markdown` for that cache variant). Cookies, authorization, query
+  parameters, and the request body never reach `createContext`, middleware, or
+  loaders while producing a shared response.
 - Routes with both a time and a webhook policy are edge-cached, and
   `POST /__pracht/revalidate` purges their edge entries after regenerating
   the worker-managed copy.
@@ -382,9 +387,9 @@ enabling Workers Caching, keep ISG query shapes bounded and canonical:
 - If query parameters do not affect the page, have that gateway call a cached
   entrypoint with a pathname-only `cf.cacheKey`. This adds a gateway invocation
   but collapses tracking and attacker-chosen values onto one cache entry.
-- If a route genuinely renders different content for an unbounded query space,
-  opt it out with a route `Cache-Control: private, no-store` header or do not
-  enable Workers Caching for that deployment.
+- If query parameters must affect the rendered page, use SSR or opt the route
+  out with `Cache-Control: private, no-store`; sanitized ISG renders never pass
+  the query string to application code.
 
 Cloudflare compares request-header values named by `Vary` verbatim. Pracht
 therefore adds `Vary: Accept` only to routes that actually export `markdown`,
@@ -696,6 +701,19 @@ export default {
   supplies a `waitUntil()`-compatible context and drains registered work after
   ending the response; other Edge-only context fields are unavailable on Node
   ISG invocations.
+- **Sanitized ISG renders**: Vercel keys the prerender cache on the path alone
+  (`allowQuery: []`) and replays the stored response to every later visitor, so
+  the launcher renders on the same sanitized ISG request the Node and Cloudflare
+  regeneration paths use — `GET`, `Accept: text/html`, path only. The triggering
+  visitor's `Cookie`/`Authorization` headers, query string, and body never reach
+  loaders, middleware, or `createContext`, so a cache miss cannot materialize a
+  personalized page into shared cache. On the way out, credential headers
+  (`Set-Cookie`, `Authorization`, `WWW-Authenticate`, `Proxy-Authenticate`,
+  secret-shaped `x-*`) are stripped with a logged error — the same set
+  build-time prerendering refuses outright — and a response that marks itself
+  uncacheable (`Cache-Control: private`/`no-store`, `Vary: Cookie`/
+  `Authorization`) is logged as a warning, because Vercel's prerender cache
+  stores it regardless. Render such routes as `ssr` instead.
 - **Static security headers**: the generated `config.json` includes a `headers`
   section that applies the same baseline security headers to all responses,
   including static assets served by Vercel's CDN. Static prerendered routes also

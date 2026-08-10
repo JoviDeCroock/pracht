@@ -70,6 +70,8 @@ dist/
 
 Prerendered HTML receives document headers from the generated `_pracht/headers.json` asset.
 
+Every shared-cache ISG render, including a cold render with `cloudflareAdapter({ cache: true })`, uses a sanitized request: path only, a canonical HTML or markdown `Accept` header, and no cookies, credentials, query string, or body. This prevents the visitor who triggers the render from personalizing the stored response.
+
 Keep your `wrangler.jsonc` in the project root so you can add bindings without the build overwriting them.
 
 ### Exporting Durable Objects and other primitives
@@ -185,6 +187,8 @@ pracht({ adapter: vercelAdapter() })
 ```
 
 Static prerendered routes receive document headers through the generated Build Output `headers` config.
+
+ISG Serverless invocations render on a sanitized request — path only, `Accept: text/html`, no cookies, credentials, query string, or body — because Vercel keys the prerender cache on the path alone and replays the stored response to every visitor. Credential headers on the rendered response (`Set-Cookie`, `Authorization`, secret-shaped `x-*`) are stripped before Vercel stores it.
 
 If `vercelAdapter({ regions: "all" })` is configured, the Edge function remains global while Node ISG functions use the project's default Serverless region. Node functions require concrete region identifiers and cannot use Edge's `all` sentinel.
 

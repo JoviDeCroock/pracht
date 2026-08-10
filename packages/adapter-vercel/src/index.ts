@@ -1,8 +1,11 @@
 import type { PrachtAdapter } from "@pracht/vite-plugin";
 import {
+  createISGRegenerationRequest,
   handlePrachtRequest,
   hasWebhookRevalidate,
   type HandlePrachtRequestOptions,
+  isCacheableISGResponse,
+  isDangerousPrerenderHeader,
   jsonResponse,
   matchAppRoute,
   type ModuleRegistry,
@@ -54,7 +57,6 @@ export interface VercelNodeRequest {
   headers: Record<string, string | string[] | undefined>;
   method?: string;
   url?: string;
-  [Symbol.asyncIterator](): AsyncIterator<Uint8Array | string>;
 }
 
 /** Structural subset of Node's `ServerResponse` used by the serverless launcher. */
@@ -93,12 +95,21 @@ export function createVercelEdgeHandler<
 }
 
 /**
- * Wrap a `fetch`-style handler as a Node request listener.
+ * Wrap a `fetch`-style handler as the Node request listener the ISG prerender
+ * functions run on.
  *
  * Vercel only supports ISR (`.prerender-config.json`) on Serverless Functions,
  * so ISG routes are deployed as Node functions even though the main handler
  * stays on the edge. Both share the same server bundle: it is built against Web
  * APIs only, which Node provides natively.
+ *
+ * Every invocation here renders into Vercel's prerender cache, which is keyed
+ * on the path alone (`allowQuery: []`) and replayed to every later visitor. The
+ * listener therefore renders on a sanitized ISG request rather than the
+ * visitor's own — the triggering visitor's `Cookie`/`Authorization` headers,
+ * query string, and body never reach loaders, so a cache miss cannot
+ * materialize a personalized page into shared cache. This mirrors the Node and
+ * Cloudflare adapters' regeneration path.
  *
  * Only web globals are used here — pulling in `node:http`/`node:stream` would
  * break the webworker-targeted bundle the edge function is built from.
@@ -120,8 +131,9 @@ export function createVercelNodeListener(
     };
 
     try {
-      const response = await handler(await createNodeWebRequest(req), context);
-      await writeNodeResponse(res, response);
+      const request = createNodeISGRequest(req);
+      const response = await handler(request, context);
+      await writeNodeResponse(res, prepareVercelISGResponse(request, response));
     } finally {
       await drainWaitUntilTasks(waitUntilTasks);
     }
@@ -137,54 +149,64 @@ async function drainWaitUntilTasks(tasks: Promise<unknown>[]): Promise<void> {
   }
 }
 
-const BODYLESS_METHODS = new Set(["GET", "HEAD"]);
-
-async function createNodeWebRequest(req: VercelNodeRequest): Promise<Request> {
-  const headers = new Headers();
-  for (const [key, value] of Object.entries(req.headers)) {
-    if (value === undefined) continue;
-    if (Array.isArray(value)) {
-      for (const entry of value) headers.append(key, entry);
-      continue;
-    }
-    headers.set(key, value);
-  }
-
+/**
+ * Derive the ISG regeneration request from the raw Node request. Only the
+ * forwarded origin and the path survive: everything else is request-specific
+ * state that must not influence output destined for a shared cache.
+ */
+function createNodeISGRequest(req: VercelNodeRequest): Request {
   // Vercel terminates TLS in front of the function and always sets the
   // forwarded headers itself, so there is no untrusted hop to distrust here.
-  const protocol = headers.get("x-forwarded-proto") ?? "https";
-  const host = headers.get("x-forwarded-host") ?? headers.get("host") ?? "localhost";
+  const protocol = readNodeHeader(req, "x-forwarded-proto") ?? "https";
+  const host =
+    readNodeHeader(req, "x-forwarded-host") ?? readNodeHeader(req, "host") ?? "localhost";
   const url = new URL(req.url ?? "/", `${protocol}://${host}`);
-  const method = req.method ?? "GET";
-  const init: RequestInit = { headers, method };
 
-  if (!BODYLESS_METHODS.has(method.toUpperCase())) {
-    const body = await readNodeRequestBody(req);
-    if (body.byteLength > 0) init.body = body;
-  }
-
-  return new Request(url, init);
+  return createISGRegenerationRequest(url.pathname, url);
 }
 
-async function readNodeRequestBody(req: VercelNodeRequest): Promise<ArrayBuffer> {
-  const chunks: Uint8Array[] = [];
-  let size = 0;
+function readNodeHeader(req: VercelNodeRequest, name: string): string | undefined {
+  // Node lowercases incoming header names, but the type allows any casing.
+  const value = req.headers[name] ?? req.headers[name.toUpperCase()];
+  return Array.isArray(value) ? value[0] : value;
+}
 
-  for await (const chunk of req) {
-    const bytes = typeof chunk === "string" ? new TextEncoder().encode(chunk) : chunk;
-    chunks.push(bytes);
-    size += bytes.byteLength;
+/**
+ * Vercel stores whatever a prerender function returns in the ISR cache and
+ * replays it to every later visitor. Build-time prerendering refuses to emit
+ * documents carrying credential headers at all; a runtime regeneration cannot
+ * fail the build, so strip them and keep serving the page.
+ */
+function prepareVercelISGResponse(request: Request, response: Response): Response {
+  const pathname = new URL(request.url).pathname;
+  const dangerous = [...response.headers.keys()].filter(isDangerousPrerenderHeader);
+
+  let prepared = response;
+  if (dangerous.length > 0) {
+    const headers = new Headers(response.headers);
+    for (const name of dangerous) headers.delete(name);
+    console.error(
+      `Stripped ${dangerous.map((name) => `"${name}"`).join(", ")} from the ISG response for ` +
+        `"${pathname}" before Vercel's prerender cache stored it — cached ISG output is replayed ` +
+        "to every visitor. Move cookies and credential headers to API routes, middleware " +
+        "responses, or an SSR route.",
+    );
+    prepared = new Response(response.body, {
+      headers,
+      status: response.status,
+      statusText: response.statusText,
+    });
   }
 
-  const body = new ArrayBuffer(size);
-  const view = new Uint8Array(body);
-  let offset = 0;
-  for (const chunk of chunks) {
-    view.set(chunk, offset);
-    offset += chunk.byteLength;
+  if (prepared.status === 200 && !isCacheableISGResponse(prepared)) {
+    console.warn(
+      `The ISG response for "${pathname}" marks itself uncacheable (Cache-Control private/no-store ` +
+        "or Vary on Cookie/Authorization), but Vercel's prerender cache stores it regardless. " +
+        "Render this route as SSR instead if its output is request-specific.",
+    );
   }
 
-  return body;
+  return prepared;
 }
 
 async function writeNodeResponse(res: VercelNodeResponse, response: Response): Promise<void> {
