@@ -25,6 +25,28 @@ const FALLBACK_VERSION_RANGES = {
   vercel: "^56.5.0",
 };
 
+/**
+ * Cloudflare `compatibility_date` for scaffolded apps.
+ *
+ * This has to be a date the installed workerd already knows about — workerd
+ * refuses to start when asked for a date newer than the one its binary was
+ * built with ("This Worker requires compatibility date X, but the newest date
+ * supported by this server binary is Y"). Using today's date is therefore
+ * always wrong: it is, by construction, at or beyond the newest released
+ * workerd, so a freshly scaffolded app could not run `wrangler dev` on the day
+ * it was created.
+ *
+ * Keep it at or below the ceiling of the oldest wrangler this scaffold accepts
+ * (see `devDependencies.wrangler` below). That ceiling is *not* the workerd
+ * version date — it usually runs a little ahead of it — so check it rather
+ * than infer it: install that wrangler and start a worker with a candidate
+ * date; the error message names the newest date the binary supports.
+ *
+ * `packages/start/test/index.test.js` fails once this drifts too far behind, so
+ * a new app never silently opts out of years of default-on runtime behaviour.
+ */
+const WRANGLER_COMPATIBILITY_DATE = "2026-04-06";
+
 async function fetchLatestVersion(packageName) {
   const res = await fetch(`https://registry.npmjs.org/${packageName}/latest`);
   if (!res.ok) {
@@ -964,7 +986,7 @@ function createHealthRoute(adapter) {
 }
 
 function createWranglerConfig(projectName) {
-  const compatibilityDate = new Date().toISOString().slice(0, 10);
+  const compatibilityDate = WRANGLER_COMPATIBILITY_DATE;
 
   return [
     "{",

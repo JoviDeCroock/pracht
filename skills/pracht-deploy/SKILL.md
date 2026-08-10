@@ -112,7 +112,7 @@ To smoke-test the built worker locally first, run `pracht preview` — it builds
 {
   "name": "my-pracht-app",
   "main": "dist/server/worker.js",
-  "compatibility_date": "2024-01-01",
+  "compatibility_date": "2026-04-06",
   "assets": {
     "binding": "ASSETS",
     "directory": "dist/client",

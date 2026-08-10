@@ -175,6 +175,11 @@ describe("create-pracht", () => {
     expect(packageJson).toContain('"preview": "pracht preview"');
     expect(packageJson).toContain('"typecheck": "tsc --noEmit"');
     expect(packageJson).toContain('"wrangler": "^4.81.0"');
+    // A fixed date, never a generated one: workerd refuses to start when asked
+    // for a compatibility date newer than its own binary, so "today" is by
+    // construction at or beyond the newest release and breaks the app on the
+    // day it is scaffolded.
+    expect(wranglerConfig).toMatch(/"compatibility_date": "\d{4}-\d{2}-\d{2}"/);
     expect(packageJson).not.toContain('"@cloudflare/vite-plugin"');
     // Not server.js: workerd rejects the build metadata that module also
     // exports, so the deployed entry has to be the wrapper `pracht build` emits.
@@ -217,6 +222,37 @@ describe("create-pracht", () => {
     const agents = await readFile(join(targetDir, "AGENTS.md"), "utf-8");
     expect(agents).toContain("wrangler.jsonc");
     expect(agents).toContain("Cloudflare Workers adapter");
+  });
+
+  it("keeps the scaffolded Cloudflare compatibility date from going stale", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pracht-start-cf-compat-"));
+    const targetDir = join(root, "my-cf-app");
+
+    await scaffoldProject({
+      adapter: {
+        description: "Cloudflare Workers with wrangler deploy",
+        id: "cloudflare",
+        label: "Cloudflare Workers",
+        packageName: "@pracht/adapter-cloudflare",
+        short: "cf",
+      },
+      packageManager: "pnpm",
+      resolveRemoteVersions: false,
+      targetDir,
+    });
+
+    const wranglerConfig = await readFile(join(targetDir, "wrangler.jsonc"), "utf-8");
+    const date = /"compatibility_date": "([^"]+)"/.exec(wranglerConfig)?.[1];
+    const ageDays = (Date.now() - Date.parse(`${date}T00:00:00Z`)) / 86_400_000;
+
+    // The date is pinned because workerd rejects anything newer than its own
+    // binary. Pinned dates rot silently, so fail once it is far enough behind
+    // that new apps are opting out of a year of default-on runtime behaviour:
+    // bump WRANGLER_COMPATIBILITY_DATE (and the wrangler pin) in
+    // packages/start/src/index.js to the newest date that wrangler's workerd
+    // accepts, then update this expectation's sibling docs.
+    expect(ageDays).toBeGreaterThan(0);
+    expect(ageDays).toBeLessThan(365);
   });
 
   it("scaffolds a vercel starter", async () => {
