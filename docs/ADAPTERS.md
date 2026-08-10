@@ -796,6 +796,21 @@ and hashed assets are never re-rendered because a client sent an odd `Accept`.
 The build emits an empty manifest for SSR-only apps too, so public files keep
 the same guarantee even when the app has no prerendered documents.
 
+Vercel reaches the same outcome through its routing table rather than adapter
+code, because the platform serves prerendered files before any function runs.
+The build emits an `Accept`-conditional route to the render function, ahead of
+the static rewrite, for each prerendered route in the markdown manifest — and
+only those. The header match there is coarser than `prefersMarkdown()` by
+necessity (Vercel's `has` takes a regex, not a q-value parser), so anything
+mentioning `text/markdown` reaches the function, which then applies the real
+negotiation and still answers HTML when HTML is preferred. The trade is that on
+those routes a client can force a function invocation with the header alone,
+even at `q=0` — so the entry is emitted only for routes that actually export
+`markdown`. Every other prerendered page keeps its static fast path whatever
+the client sends. ISG routes that export `markdown` route to the render
+function rather than their prerender function, which re-renders on a sanitized
+`Accept: text/html` and can only produce HTML.
+
 ---
 
 ## ISG Webhook Revalidation
