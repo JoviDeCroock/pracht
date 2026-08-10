@@ -302,6 +302,7 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
         functionName: serverMod.vercelFunctionName,
         isgManifest,
         headersManifest,
+        markdownRoutes: Object.keys(markdownManifest),
         regions: serverMod.vercelRegions,
         root,
         staticRoutes: pages

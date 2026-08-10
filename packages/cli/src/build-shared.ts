@@ -36,6 +36,8 @@ interface VercelBuildOutputOptions {
   functionName?: string;
   headersManifest?: Record<string, Record<string, string>>;
   isgManifest: Record<string, ISGManifestEntry>;
+  /** Prerendered routes whose module exports `markdown`. */
+  markdownRoutes?: string[];
   revalidateToken?: string;
   regions?: VercelRegions;
   root: string;
@@ -46,6 +48,7 @@ export function writeVercelBuildOutput({
   functionName,
   headersManifest = {},
   isgManifest,
+  markdownRoutes = [],
   revalidateToken = process.env.PRACHT_REVALIDATE_TOKEN || randomBytes(32).toString("hex"),
   regions,
   root,
@@ -89,6 +92,7 @@ export function writeVercelBuildOutput({
       createVercelOutputConfig({
         functionName,
         headersManifest,
+        markdownRoutes,
         staticRoutes,
         isgRoutes: Object.keys(isgManifest),
       }),
@@ -238,14 +242,23 @@ function linkVercelPrerenderFunction({
   }
 }
 
+// `has.value` is compiled without the `i` flag, so case-insensitivity has to be
+// written out. Media types are case-insensitive per RFC 9110, and the runtime's
+// own negotiation lowercases before comparing — a client sending
+// `Accept: TEXT/MARKDOWN` must not get a different answer on Vercel than it
+// gets on Node or Cloudflare.
+const ACCEPT_MARKDOWN_PATTERN = ".*[tT][eE][xX][tT]/[mM][aA][rR][kK][dD][oO][wW][nN].*";
+
 function createVercelOutputConfig({
   functionName,
   headersManifest,
+  markdownRoutes,
   staticRoutes,
   isgRoutes,
 }: {
   functionName?: string;
   headersManifest: Record<string, Record<string, string>>;
+  markdownRoutes: string[];
   isgRoutes: string[];
   staticRoutes: string[];
 }): Record<string, unknown> {
@@ -263,7 +276,31 @@ function createVercelOutputConfig({
     },
   ];
 
+  // Routes that export `markdown` answer `Accept: text/markdown` with their
+  // source instead of HTML, which only the function can do — so they have to
+  // reach it before the static rewrite below claims them. Node and Cloudflare
+  // make the same decision inside the adapter; on Vercel the routing table is
+  // the adapter, and without this entry a markdown-preferring agent silently
+  // gets HTML while `llms.txt` advertises markdown support.
+  //
+  // The header match is intentionally coarser than the runtime's negotiation:
+  // `has` takes a regex, not a q-value parser. Anything mentioning
+  // `text/markdown` is handed to the function, which then runs the real
+  // `prefersMarkdown()` check and still answers HTML when HTML is preferred.
+  //
+  // The cost, stated plainly: on these routes a client can force a function
+  // invocation by sending the header, even with `q=0`. It is bounded to routes
+  // that actually export `markdown` — every other prerendered page keeps its
+  // static fast path whatever the client asks for.
+  const markdownRouteSet = new Set(markdownRoutes);
+  const markdownRouteEntry = (route: string) => ({
+    dest: target,
+    has: [{ type: "header", key: "accept", value: ACCEPT_MARKDOWN_PATTERN }],
+    src: routeToRouteExpression(route),
+  });
+
   for (const route of sortStaticRoutes(staticRoutes)) {
+    if (markdownRouteSet.has(route)) routes.push(markdownRouteEntry(route));
     routes.push({
       dest: routeToStaticHtmlPath(route),
       src: routeToRouteExpression(route),
@@ -271,6 +308,10 @@ function createVercelOutputConfig({
   }
 
   for (const route of isgRoutes) {
+    // ISG markdown routes go to the render function, not to their prerender
+    // function: that one re-renders on a sanitized `Accept: text/html` to keep
+    // the shared cache entry correct, so it can only ever produce HTML.
+    if (markdownRouteSet.has(route)) routes.push(markdownRouteEntry(route));
     routes.push({
       dest: route,
       src: routeToRouteExpression(route),
