@@ -89,6 +89,21 @@ const notesInternal = defineCapability({
   },
 } as CapabilityDefinition);
 
+const agentContextProbe = defineCapability({
+  title: "Agent context probe",
+  description: "Reports whether the framework surfaced agent identity.",
+  input: { type: "object", properties: {}, additionalProperties: false },
+  output: {
+    type: "object",
+    properties: { hasAgent: { type: "boolean" } },
+    required: ["hasAgent"],
+  },
+  effect: "read",
+  async run({ context }) {
+    return { hasAgent: "agent" in (context as object) };
+  },
+} as CapabilityDefinition);
+
 /** MCP entry point that composes another capability through the request-bound host. */
 const notesCompose = defineCapability({
   title: "Compose notes",
@@ -297,6 +312,7 @@ function createApp(agents: PrachtAgentsConfig | undefined) {
     "notes.destroy": notesDestroy,
     "notes.internal": notesInternal,
     "notes.guarded": guarded,
+    "agent.context-probe": agentContextProbe,
     "agent.only": agentOnly,
     "auth.probe": authProbe,
     "url.probe": urlProbe,
@@ -803,6 +819,23 @@ describe("tools/call runs the same pipeline as the HTTP projection", () => {
       outcome: "ok",
     });
     expect(observedAgentKeys).toEqual([]);
+  });
+
+  it("leaves agent absent from nested context when Web Bot Auth is disabled", async () => {
+    const { app, registry } = createApp({ mcp: {} });
+    const request = new Request(`${ORIGIN}/__pracht/mcp/tools/composer`, {
+      method: "POST",
+      body: "{}",
+    });
+
+    const result = await invokeCapabilityOnHost(
+      { app, registry, via: "mcp" },
+      "agent.context-probe",
+      {},
+      { request, context: {} },
+    );
+
+    expect(result).toEqual({ ok: true, data: { hasAgent: false } });
   });
 
   it("binds the verified MCP identity into nested middleware and capability context", async () => {
