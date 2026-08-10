@@ -7,7 +7,8 @@ import type { PrachtContextExtensions } from "./types.ts";
  * Mutable contexts keep their shared identity. Frozen and sealed contexts get
  * an extensible overlay so framework fields do not turn a valid request into a
  * runtime exception while class and built-in instances keep their internal
- * slots.
+ * slots. Writes to existing application fields keep using the original
+ * receiver; fields added by middleware live on the overlay.
  */
 export function bindAgentContext<TContext>(
   supplied: TContext | undefined,
@@ -80,6 +81,17 @@ function immutableAgentContext<TContext>(
         boundMethods.set(method, bound);
       }
       return bound;
+    },
+    set(target, property, value) {
+      if (Object.prototype.hasOwnProperty.call(target, property)) {
+        return Reflect.set(target, property, value, target);
+      }
+
+      if (Object.prototype.hasOwnProperty.call(context, property)) {
+        return Reflect.set(context, property, value, context);
+      }
+
+      return Reflect.set(target, property, value, target);
     },
     getOwnPropertyDescriptor(target, property) {
       const ownDescriptor = Reflect.getOwnPropertyDescriptor(target, property);
