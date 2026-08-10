@@ -144,6 +144,18 @@ describe("bindAgentContext", () => {
     expect(Object.isFrozen(context)).toBe(true);
   });
 
+  it("synchronizes retained source writes before freezing the overlay", () => {
+    const original = Object.seal({ tenant: "one" });
+    const context = bindAgentContext(original, null);
+
+    Object.preventExtensions(context);
+    original.tenant = "two";
+
+    expect(() => Object.freeze(context)).not.toThrow();
+    expect(context.tenant).toBe("two");
+    expect(Object.isFrozen(context)).toBe(true);
+  });
+
   it("does not let reflective operations shadow immutable source fields", () => {
     const original = Object.freeze({ tenant: "one" });
     const context = bindAgentContext(original, null);

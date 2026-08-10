@@ -92,6 +92,13 @@ function immutableAgentContext<TContext>(
     }
     return bound;
   };
+  const targetContextDescriptor = (
+    property: PropertyKey,
+    descriptor: PropertyDescriptor,
+  ): PropertyDescriptor =>
+    "value" in descriptor && typeof descriptor.value === "function" && property !== "constructor"
+      ? { ...descriptor, value: bindContextMethod(descriptor.value as ContextMethod) }
+      : descriptor;
   const materializedContextKeys = new Set<PropertyKey>();
   return new Proxy(target, {
     apply(_target, thisArg, args) {
@@ -132,7 +139,15 @@ function immutableAgentContext<TContext>(
 
         const descriptor = Reflect.getOwnPropertyDescriptor(target, property);
         if (descriptor && "value" in descriptor) {
-          return Reflect.set(target, property, Reflect.get(context, property, context), target);
+          const contextDescriptor = Reflect.getOwnPropertyDescriptor(context, property);
+          return (
+            !!contextDescriptor &&
+            Reflect.defineProperty(
+              target,
+              property,
+              targetContextDescriptor(property, contextDescriptor),
+            )
+          );
         }
         return true;
       }
@@ -153,7 +168,15 @@ function immutableAgentContext<TContext>(
     defineProperty(target, property, descriptor) {
       if (materializedContextKeys.has(property)) {
         if (!Reflect.defineProperty(context, property, descriptor)) return false;
-        return Reflect.defineProperty(target, property, descriptor);
+        const contextDescriptor = Reflect.getOwnPropertyDescriptor(context, property);
+        return (
+          !!contextDescriptor &&
+          Reflect.defineProperty(
+            target,
+            property,
+            targetContextDescriptor(property, contextDescriptor),
+          )
+        );
       }
 
       if (Object.prototype.hasOwnProperty.call(target, property)) {
@@ -195,22 +218,13 @@ function immutableAgentContext<TContext>(
     preventExtensions(target) {
       for (const property of Reflect.ownKeys(context)) {
         if (Object.prototype.hasOwnProperty.call(target, property)) continue;
-        let descriptor: PropertyDescriptor | undefined = Reflect.getOwnPropertyDescriptor(
-          context,
-          property,
-        );
+        const descriptor = Reflect.getOwnPropertyDescriptor(context, property);
         if (
-          descriptor &&
-          "value" in descriptor &&
-          typeof descriptor.value === "function" &&
-          property !== "constructor"
+          !descriptor ||
+          !Reflect.defineProperty(target, property, targetContextDescriptor(property, descriptor))
         ) {
-          descriptor = {
-            ...descriptor,
-            value: bindContextMethod(descriptor.value as ContextMethod),
-          };
+          return false;
         }
-        if (!descriptor || !Reflect.defineProperty(target, property, descriptor)) return false;
         materializedContextKeys.add(property);
       }
 
