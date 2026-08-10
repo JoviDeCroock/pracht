@@ -610,5 +610,15 @@ describe("createNodeRequestHandler", () => {
       expect(response.headers.get("content-type")).toContain("text/markdown");
       expect(await response.text()).toBe("# Docs\n");
     });
+
+    it("falls through when the request path normalizes to a markdown route", async () => {
+      const { url } = await serveStaticApp({ markdownManifest: { "/docs": true } });
+
+      const response = await fetch(`${url}//`, { headers: { accept: "text/markdown" } });
+
+      expect(response.status).toBe(200);
+      expect(response.headers.get("content-type")).toContain("text/markdown");
+      expect(await response.text()).toBe("# Docs\n");
+    });
   });
 });

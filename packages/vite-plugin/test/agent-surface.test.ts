@@ -143,6 +143,18 @@ export const app = defineApp({
     expect(hasAgentSurface({}, root)).toBe(true);
   });
 
+  it("stays true when a regex literal precedes a computed agent-surface key", () => {
+    const root = createManifest(`import { defineApp } from "@pracht/core";
+import { agentConfig, key, makeRoutes } from "./app-config.ts";
+
+export const app = defineApp({
+  routes: makeRoutes(/\\[/),
+  [key]: agentConfig,
+});
+`);
+    expect(hasAgentSurface({}, root)).toBe(true);
+  });
+
   it("stays true when the manifest cannot be read", () => {
     const root = mkdtempSync(join(tmpdir(), "pracht-agent-surface-empty-"));
     tempDirs.push(root);

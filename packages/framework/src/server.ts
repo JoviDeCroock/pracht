@@ -106,7 +106,6 @@ export type {
 } from "./testing-capabilities.ts";
 export { buildLlmsTxt } from "./llms-txt.ts";
 export type { BuildLlmsTxtOptions, LlmsTxtSection } from "./llms-txt.ts";
-export { prefersMarkdown } from "./runtime-negotiation.ts";
 export { prerenderApp } from "./prerender.ts";
 export {
   createISGRegenerationRequest,

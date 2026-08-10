@@ -132,6 +132,11 @@ function hasOpaqueTopLevelProperty(objectBody: string): boolean {
       index = end + 1;
       continue;
     }
+    // Distinguishing division from a regular-expression literal requires a
+    // full lexer. Treat either as opaque: counting delimiters inside a regex
+    // could otherwise hide a later computed agent-surface key and make this
+    // production-only optimization incorrectly answer false.
+    if (char === "/") return true;
 
     const atTopLevel = braces === 0 && brackets === 0 && parentheses === 0;
     if (atTopLevel && expectingKey && char === "[") return true;

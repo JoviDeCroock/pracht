@@ -30,10 +30,11 @@ describe("prefersMarkdown", () => {
 });
 
 describe("routeSupportsMarkdown", () => {
-  it("matches exact, trailing-slash, and index-document paths", () => {
+  it("matches exact, normalized, trailing-slash, and index-document paths", () => {
     const manifest = { "/docs": true } as const;
     expect(routeSupportsMarkdown(manifest, "/docs")).toBe(true);
     expect(routeSupportsMarkdown(manifest, "/docs/")).toBe(true);
+    expect(routeSupportsMarkdown(manifest, "//docs//")).toBe(true);
     expect(routeSupportsMarkdown(manifest, "/docs/index.html")).toBe(true);
   });
 

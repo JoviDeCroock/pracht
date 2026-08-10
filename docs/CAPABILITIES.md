@@ -552,11 +552,12 @@ agent surface at all:
   `llmsTxt` only indexes pages and API routes. The define is only emitted for
   builds — in dev the manifest is edited live, so the runtime keeps deciding
   per request.
-- **Analysis is one-sided** — an unreadable manifest, a parse failure, or a
-  spread inside the manifest leaves the define unset and the runtime decides, so
-  a registration the analyzer cannot see is never silently dropped. If a build
-  did elide the runtime while capabilities are registered at runtime, the server
-  logs a loud error on the first request rather than 404ing quietly.
+- **Analysis is one-sided** — an unreadable manifest, a parse failure, a spread,
+  or opaque syntax such as a regular-expression literal inside the manifest
+  leaves the define unset and the runtime decides, so a registration the analyzer
+  cannot see is never silently dropped. If a build did elide the runtime while
+  capabilities are registered at runtime, the server logs a loud error on the
+  first request rather than 404ing quietly.
 - **Client bundle** — capability metadata only reaches the browser through
   `virtual:pracht/capabilities`, and the WebMCP shim is only emitted when a
   capability sets `expose.webmcp`.

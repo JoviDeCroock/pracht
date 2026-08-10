@@ -21,5 +21,7 @@ Markdown representation, while custom or legacy entries without the optional
 metadata preserve correct negotiation by falling through to the framework.
 Apps without Markdown routes keep serving their prerendered documents to every
 client, and SSR-only builds emit an authoritative empty manifest so public
-assets receive the same protection. `prefersMarkdown`, `routeSupportsMarkdown`,
-and `MarkdownManifest` are exported from `@pracht/core/server` for custom adapters.
+assets receive the same protection. Manifest lookups normalize repeated and
+trailing slashes the same way the route matcher does. `prefersMarkdown`,
+`routeSupportsMarkdown`, and `MarkdownManifest` are exported from
+`@pracht/core/server` for custom adapters.

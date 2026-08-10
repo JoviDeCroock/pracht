@@ -1,4 +1,5 @@
 import { applyDefaultSecurityHeaders, appendVaryHeader } from "./runtime-headers.ts";
+import { normalizeRoutePath } from "./route-matching.ts";
 
 export const MARKDOWN_MEDIA_TYPE = "text/markdown";
 
@@ -47,11 +48,9 @@ export function routeSupportsMarkdown(
   markdownManifest: MarkdownManifest,
   pathname: string,
 ): boolean {
-  const withoutIndex = pathname.replace(/\/index\.html$/, "") || "/";
-  const withoutSlash = pathname.replace(/\/$/, "") || "/";
-  return Boolean(
-    markdownManifest[pathname] ?? markdownManifest[withoutSlash] ?? markdownManifest[withoutIndex],
-  );
+  const normalized = normalizeRoutePath(pathname);
+  const withoutIndex = normalized.replace(/\/index\.html$/, "") || "/";
+  return Boolean(markdownManifest[normalized] ?? markdownManifest[withoutIndex]);
 }
 
 export function markdownResponse(
