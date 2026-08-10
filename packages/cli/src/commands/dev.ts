@@ -5,6 +5,7 @@ import { defineCommand } from "citty";
 import { createServer, type ViteDevServer } from "vite";
 
 import { collectAppGraph } from "../app-graph.js";
+import { loadDotEnvIntoProcess } from "../dotenv.js";
 import { formatDevBanner, supportsColor } from "../dev-banner.js";
 import { readProjectConfig, resolveProjectPath } from "../project.js";
 import { requirePositiveInteger } from "../utils.js";
@@ -27,6 +28,15 @@ export default defineCommand({
     },
   },
   async run({ args }) {
+    const root = process.cwd();
+    // Server-side code reads `process.env`; Vite only surfaces `.env` through
+    // `import.meta.env`. Without this a secret in `.env` is invisible to
+    // loaders, middleware, API routes, and the capability confirmation gate.
+    // Ahead of the port resolution below so a `PORT` in `.env` is honoured
+    // rather than half-applied. Vite's dev server is always mode
+    // `development`, whatever NODE_ENV says.
+    loadDotEnvIntoProcess(root, "development");
+
     // `pracht dev 4000` (legacy positional) still works alongside `--port`.
     const positionalPort = args._?.[0] != null ? String(args._[0]) : undefined;
     const port = requirePositiveInteger(
@@ -34,7 +44,6 @@ export default defineCommand({
       "port",
       3000,
     );
-    const root = process.cwd();
 
     const server = await createServer({
       root,
