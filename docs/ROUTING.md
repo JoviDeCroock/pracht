@@ -668,9 +668,12 @@ directory and generates the route manifest automatically.
 | `pages/_app.tsx`        | _(shell, not a route)_ |
 | `pages/_anything.tsx`   | _(ignored)_            |
 
-Markdown and MDX pages are routed the same way as `.tsx` pages. If you want to
-render `.mdx` files, add the corresponding Vite transform plugin such as
-`@mdx-js/rollup` alongside `pracht()`.
+Markdown and MDX pages are routed the same way as `.tsx` pages, but pracht does
+not transform them: `.md` **and** `.mdx` both need a Vite transform plugin such
+as `@mdx-js/rollup` registered alongside `pracht()`. Without one, Vite hands the
+raw Markdown to the JS parser and the route fails at request time (`Invalid
+Character`) and at build time. `pracht doctor` and `pracht verify` warn when a
+Markdown page is routed and no such plugin is registered.
 
 ### Shell via `_app.tsx`
 

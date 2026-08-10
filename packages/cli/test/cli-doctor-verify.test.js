@@ -434,4 +434,95 @@ export const app = defineApp({
     // recognize, so a clean pass is "nothing provably wrong", not "verified".
     expect(report.checks.some((check) => check.message.includes("wrangler"))).toBe(false);
   });
+  it("warns when a Markdown page is routed with no transform plugin", () => {
+    const appDir = createTempDir("pracht-cli-doctor-md-page-");
+    writePagesApp(appDir);
+    writeProjectFile(appDir, "src/pages/guide.md", "# Guide\n\nHello.\n");
+
+    const result = runCli(["doctor", "--json"], { cwd: appDir });
+    const report = JSON.parse(result.stdout);
+
+    // A warning, not an error: the app is only broken if it is actually built
+    // or requested, and a plugin this list does not know about may well handle it.
+    expect(report.ok).toBe(true);
+    expect(
+      report.checks.some(
+        (check) =>
+          check.status === "warning" &&
+          check.message.includes("Markdown route") &&
+          check.message.includes("src/pages/guide.md"),
+      ),
+    ).toBe(true);
+  });
+
+  it("stays quiet about Markdown routes when a transform plugin is registered", () => {
+    const withPlugin = createTempDir("pracht-cli-doctor-md-plugin-");
+    const withoutPlugin = createTempDir("pracht-cli-doctor-md-no-plugin-");
+
+    for (const appDir of [withPlugin, withoutPlugin]) {
+      writePagesApp(appDir);
+      writeProjectFile(appDir, "src/pages/guide.md", "# Guide\n\nHello.\n");
+    }
+    writeProjectFile(
+      withPlugin,
+      "vite.config.ts",
+      `import { defineConfig } from "vite";
+import { pracht } from "@pracht/vite-plugin";
+import mdx from "@mdx-js/rollup";
+
+export default defineConfig({
+  plugins: [mdx(), pracht({ pagesDir: "/src/pages" })],
+});
+`,
+    );
+
+    const hasWarning = (appDir) =>
+      JSON.parse(runCli(["doctor", "--json"], { cwd: appDir }).stdout).checks.some((check) =>
+        check.message.includes("Markdown route"),
+      );
+
+    // Paired: the negative case only means something next to a positive one in
+    // the same shape, otherwise it passes with the feature deleted.
+    expect(hasWarning(withoutPlugin)).toBe(true);
+    expect(hasWarning(withPlugin)).toBe(false);
+  });
+
+  it("warns about a Markdown not-found page and under --changed scope", () => {
+    const appDir = createTempDir("pracht-cli-doctor-md-404-");
+    writePagesApp(appDir);
+    writeProjectFile(appDir, "src/pages/404.md", "# Gone\n");
+
+    const full = JSON.parse(runCli(["doctor", "--json"], { cwd: appDir }).stdout);
+    expect(
+      full.checks.some(
+        (check) => check.status === "warning" && check.message.includes("src/pages/404.md"),
+      ),
+    ).toBe(true);
+
+    initializeGitRepo(appDir);
+    writeProjectFile(appDir, "src/pages/404.md", "# Gone for good\n");
+    const changed = JSON.parse(runCli(["verify", "--changed", "--json"], { cwd: appDir }).stdout);
+    expect(changed.checks.some((check) => check.message.includes("Markdown route"))).toBe(true);
+  });
+
+  it("warns about a Markdown route module in a manifest app", () => {
+    const appDir = createTempDir("pracht-cli-doctor-md-manifest-");
+    writeManifestApp(appDir, {
+      routesSource: `import { defineApp, route } from "@pracht/core";
+
+export const app = defineApp({
+  routes: [route("/guide", "./routes/guide.md", { id: "guide", render: "ssg" })],
+});
+`,
+    });
+    writeProjectFile(appDir, "src/routes/guide.md", "# Guide\n");
+
+    const report = JSON.parse(runCli(["doctor", "--json"], { cwd: appDir }).stdout);
+
+    expect(
+      report.checks.some(
+        (check) => check.status === "warning" && check.message.includes("src/routes/guide.md"),
+      ),
+    ).toBe(true);
+  });
 });
