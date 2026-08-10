@@ -388,8 +388,9 @@ deployment responsibilities, not solved problems:
   limits. Put rate limiting in the capability's named middleware: it runs
   before `run()` on every projection (HTTP and direct invocation), sees
   `context.agent` when Web Bot Auth is enabled, and can short-circuit with a
-  429 response. The audit hook provides per-capability outcome and latency
-  data to alert on.
+  429 response. Capability dispatch maps that status to the typed
+  `rate_limited` error code and preserves `Retry-After` for HTTP callers. The
+  audit hook provides per-capability outcome and latency data to alert on.
 - **Write idempotency.** `write` capabilities have no framework idempotency
   helper. Agents retry, and confirmation tokens only gate `destructive`
   effects — so design write inputs to be safely repeatable: accept a

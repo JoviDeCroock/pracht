@@ -27,10 +27,16 @@ import { readSession } from "./session.ts";
  * Durable Objects, Postgres, Redis) — see the reference SQL in
  * docs/AGENT_TRUST.md#writing-a-store.
  */
-export const approvalStore = createMemoryApprovalStore();
+export let approvalStore = createMemoryApprovalStore();
 
 setCapabilityAuditHook(recordAudit);
 setCapabilityApprovalStore(approvalStore);
+
+/** Restore the public demo's approval lifecycle alongside its project data. */
+export function resetApprovalStore(): void {
+  approvalStore = createMemoryApprovalStore();
+  setCapabilityApprovalStore(approvalStore);
+}
 
 /**
  * Which application identity owns a destructive proposal. Returning `null`

@@ -94,9 +94,10 @@ transport that reached it.
 
 - **State is in memory.** Projects, approvals and the audit trail live in module
   scope, so on a serverless deployment they are per-instance and vanish when an
-  instance recycles. `/playground` has a reset button. A real app needs a
-  database, and `createMemoryApprovalStore()` in particular must be replaced by
-  a store with conditional writes (D1, Durable Objects, Postgres, Redis) — see
+  instance recycles. `/playground` has a reset button that restores all three
+  stores on the current instance. A real app needs a database, and
+  `createMemoryApprovalStore()` in particular must be replaced by a store with
+  conditional writes (D1, Durable Objects, Postgres, Redis) — see
   [docs/AGENT_TRUST.md](../../docs/AGENT_TRUST.md#writing-a-store).
 - **The confirmation secret comes from the environment.** Set
   `PRACHT_CONFIRMATION_SECRET`; without it the app falls back to a committed

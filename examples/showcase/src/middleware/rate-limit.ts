@@ -30,16 +30,12 @@ export const middleware: MiddlewareFn = async ({ request, context }, next) => {
 
   if (bucket.count >= MAX_CALLS) {
     const retryAfter = Math.max(1, Math.ceil((bucket.resetAt - now) / 1000));
-    return Response.json(
-      {
-        ok: false,
-        error: {
-          code: "rate_limited",
-          message: `Too many write calls for ${principal}. Retry in ${retryAfter}s.`,
-        },
-      },
-      { status: 429, headers: { "retry-after": String(retryAfter) } },
-    );
+    // Capability dispatch maps a middleware 429 onto the shared
+    // `rate_limited` error code and preserves Retry-After for HTTP callers.
+    return new Response(`Too many write calls for ${principal}.`, {
+      status: 429,
+      headers: { "retry-after": String(retryAfter) },
+    });
   }
 
   bucket.count += 1;

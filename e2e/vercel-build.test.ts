@@ -154,15 +154,13 @@ test("pracht build emits a deployable Vercel Build Output setup", async () => {
   expect(responseHeaders["content-type"]).toContain("text/html");
   expect(Buffer.concat(chunks).toString("utf-8")).toContain("MVP plan");
 
-  // `ssr.target: "webworker"` used to make Vite treat this bundle as a client:
-  // `process.env` was rewritten to `{}` and `@pracht/core/env/server` resolved
-  // to the browser stub, so `serverEnv` returned nothing (or threw) and no
-  // platform secret could reach the app. Both are asserted on the emitted
-  // bundle because both were invisible until something read an env var in
-  // production.
-  expect(functionSource).toContain('typeof process !== "undefined" && process.env');
+  // `ssr.target: "webworker"` used to resolve `@pracht/core/env/server` to its
+  // browser stub and rewrite its `process.env` fallback to `{}`. The server
+  // entry now reaches Vercel's ambient process through globalThis without
+  // preserving every raw process.env read in the noExternal edge bundle.
+  expect(functionSource).toContain("globalThis.process");
+  expect(functionSource).not.toContain('typeof process !== "undefined" && process.env');
   expect(functionSource).not.toContain("@pracht/core/env/server was imported in client code");
-  // NODE_ENV stays inlined: dependencies branch on it at module scope, where a
-  // runtime lookup would throw on runtimes with no `process`.
+  // Vite keeps ownership of NODE_ENV inlining and its mode/NODE_ENV semantics.
   expect(functionSource).not.toContain("process.env.NODE_ENV");
 });

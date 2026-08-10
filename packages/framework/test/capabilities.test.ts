@@ -61,6 +61,7 @@ function createApp(capabilityModule: unknown, options: Record<string, unknown> =
       passthrough: "./middleware/passthrough.ts",
       apiMarker: "./middleware/api-marker.ts",
       capabilityMarker: "./middleware/capability-marker.ts",
+      throttle: "./middleware/throttle.ts",
       redirect: "./middleware/redirect.ts",
       relativeRedirect: "./middleware/relative-redirect.ts",
     },
@@ -105,6 +106,10 @@ function createApp(capabilityModule: unknown, options: Record<string, unknown> =
           (args.context.middlewareOrder ??= []).push("capability");
           return next();
         },
+      }),
+      "./middleware/throttle.ts": async () => ({
+        middleware: async () =>
+          new Response("slow down", { status: 429, headers: { "retry-after": "30" } }),
       }),
       "./middleware/redirect.ts": async () => ({
         middleware: async () =>
@@ -534,6 +539,20 @@ describe("capability HTTP projection", () => {
     const body = await response.json();
     expect(body.ok).toBe(false);
     expect(body.error.code).toBe("unauthorized");
+  });
+
+  it("maps middleware throttling to the typed rate_limited envelope", async () => {
+    const { app, registry } = createApp(createSearchCapability({ middleware: ["throttle"] }));
+
+    const response = await handlePrachtRequest({
+      app,
+      registry,
+      request: postCapability("/api/capabilities/notes/search", { query: "hello" }),
+    });
+
+    expect(response.status).toBe(429);
+    expect(response.headers.get("retry-after")).toBe("30");
+    expect((await response.json()).error.code).toBe("rate_limited");
   });
 
   it("runs middleware before the handler with a shared mutable context", async () => {

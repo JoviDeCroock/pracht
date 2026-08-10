@@ -1,4 +1,5 @@
 import type { ApiRouteArgs } from "@pracht/core";
+import { resetApprovalStore } from "../../server/agent-runtime.ts";
 import { clearAudit } from "../../server/audit.ts";
 import { resetProjects } from "../../server/projects-store.ts";
 
@@ -10,6 +11,7 @@ import { resetProjects } from "../../server/projects-store.ts";
  */
 export async function POST({ request }: ApiRouteArgs) {
   resetProjects();
+  resetApprovalStore();
   clearAudit();
 
   if ((request.headers.get("accept") ?? "").includes("text/html")) {

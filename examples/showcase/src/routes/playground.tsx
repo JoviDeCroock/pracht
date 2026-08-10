@@ -79,7 +79,8 @@ export function Component({ data }: RouteComponentProps<typeof loader>) {
         <p class="eyebrow">Housekeeping</p>
         <h2>Reset the demo</h2>
         <p class="panel-sub">
-          This is a public playground with in-memory state. Put the three seed projects back.
+          This is a public playground with in-memory state. Restore the three seed projects and
+          clear the approval inbox and audit trail.
         </p>
         <form method="post" action="/api/demo/reset">
           <button type="submit" class="btn-small">
