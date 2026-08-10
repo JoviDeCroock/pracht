@@ -11,6 +11,13 @@ const edgeAdapter: PrachtAdapter = {
 
 interface BuildConfig {
   ssr?: { noExternal?: boolean; target?: string };
+  define?: Record<string, unknown>;
+  environments?: {
+    ssr?: {
+      keepProcessEnv?: boolean;
+      resolve?: { conditions?: string[] };
+    };
+  };
   build?: {
     rollupOptions?: {
       external?: unknown[];
@@ -39,6 +46,19 @@ describe("pracht plugin build config", () => {
     expect(
       external.some((entry) => entry instanceof RegExp && entry.test("cloudflare:workers")),
     ).toBe(true);
+  });
+
+  it("uses server package conditions without preserving raw process.env reads", () => {
+    const config = runConfigHook(edgeAdapter, true);
+
+    expect(config.environments?.ssr?.resolve?.conditions).toEqual([
+      "worker",
+      "module",
+      "browser",
+      "development|production",
+    ]);
+    expect(config.environments?.ssr?.keepProcessEnv).toBeUndefined();
+    expect(config.define?.["process.env.NODE_ENV"]).toBeUndefined();
   });
 
   it("keeps the vendor manualChunks split on client builds only", () => {

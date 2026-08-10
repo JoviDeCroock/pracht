@@ -162,6 +162,24 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
                 // startup.
                 target: "webworker" as const,
               },
+              // `ssr.target: "webworker"` applies the client condition list,
+              // so a package's `browser` entry wins in a server bundle. Correct
+              // that resolution without enabling `keepProcessEnv`: preserving
+              // raw `process.env` reads across the entire noExternal bundle
+              // would make unguarded dependency code throw on Cloudflare.
+              environments: {
+                ssr: {
+                  resolve: {
+                    // The client list resolved `@pracht/core/env/server` to the
+                    // stub that exists to make a *client* import fail loudly.
+                    // `worker` goes first so worker-aware packages (this one
+                    // included) can answer an edge server build with server
+                    // code; `browser` stays as the fallback that keeps
+                    // browser-only dependencies resolvable.
+                    conditions: ["worker", "module", "browser", "development|production"],
+                  },
+                },
+              },
               build: {
                 rollupOptions: {
                   // Platform-scheme modules only exist inside the target

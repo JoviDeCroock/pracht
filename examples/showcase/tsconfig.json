@@ -1,0 +1,18 @@
+{
+  // The showcase gets its own TypeScript program on purpose.
+  //
+  // `pracht typegen` emits `declare module "@pracht/core" { interface Register }`
+  // augmentations — capability names, input/output types, effect classes. Those
+  // are global to a program, so two apps' generated registrations cannot share
+  // one `tsc` invocation: whichever declaration wins makes the other app's
+  // capability names look unregistered. examples/basic holds the root program's
+  // registration; this app holds its own.
+  "extends": "../../tsconfig.json",
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.tsx",
+    "test/**/*.ts",
+    "vite.config.ts",
+    "../../packages/vite-plugin/virtual.d.ts"
+  ]
+}

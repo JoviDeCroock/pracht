@@ -55,6 +55,7 @@
     },
     "./env/server": {
       "types": "./dist/env-server.d.mts",
+      "worker": "./dist/env-server.mjs",
       "browser": "./dist/env-server.browser.mjs",
       "default": "./dist/env-server.mjs"
     },

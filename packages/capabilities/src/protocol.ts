@@ -119,6 +119,7 @@ export const CAPABILITY_ERROR_CODES = [
   "unknown_capability",
   "unauthorized",
   "forbidden",
+  "rate_limited",
   "middleware_rejected",
   "redirect",
   "cross_origin_blocked",

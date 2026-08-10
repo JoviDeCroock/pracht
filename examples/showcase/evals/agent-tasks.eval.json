@@ -1,0 +1,41 @@
+{
+  "name": "launchpad agent tasks",
+  "task": "An unauthenticated agent reads the graph, creates and deploys a project idempotently, and is refused the two gated capabilities.",
+  "steps": [
+    {
+      "capability": "projects.search",
+      "input": { "query": "", "limit": 5 },
+      "expect": { "ok": true, "status": 200 }
+    },
+    {
+      "capability": "projects.search",
+      "input": { "limit": 99 },
+      "expect": { "ok": false, "status": 400, "errorCode": "invalid_input" }
+    },
+    {
+      "capability": "projects.create",
+      "input": { "name": "Vega", "summary": "Created by pracht eval." },
+      "expect": { "ok": true, "output": { "project": { "name": "Vega", "status": "building" } } }
+    },
+    {
+      "capability": "projects.deploy",
+      "input": { "projectId": "$steps[2].data.project.id", "idempotencyKey": "eval-run-1" },
+      "expect": { "ok": true, "output": { "deployed": true, "deduped": false, "deploys": 1 } }
+    },
+    {
+      "capability": "projects.deploy",
+      "input": { "projectId": "$steps[2].data.project.id", "idempotencyKey": "eval-run-1" },
+      "expect": { "ok": true, "output": { "deployed": false, "deduped": true, "deploys": 1 } }
+    },
+    {
+      "capability": "agent.brief",
+      "input": {},
+      "expect": { "ok": false, "status": 401, "errorCode": "agent_required" }
+    },
+    {
+      "capability": "projects.archive",
+      "input": { "projectId": "corvus" },
+      "expect": { "ok": false, "status": 403, "errorCode": "confirmation_unavailable" }
+    }
+  ]
+}

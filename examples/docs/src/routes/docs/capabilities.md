@@ -174,6 +174,10 @@ curl -X POST /api/capabilities/notes/search -H 'content-type: application/json' 
 # { "ok": false, "error": { "code": "invalid_input", "issues": [{ "path": "/limit", "message": "must be <= 20" }] } }
 ```
 
+A capability middleware that short-circuits with status 429 produces the typed
+`rate_limited` error code on every projection. HTTP callers also keep the
+middleware's `Retry-After` header.
+
 And every call above is fully typed: `pracht typegen` writes each capability's input/output types, effect class, and exposure into `src/pracht-capabilities.d.ts`, so `invokeCapability()`, `callCapability()`, the `capabilities` client, and `<Form capability>` all read the contract from the capability name — no per-call generics. With that file in the program the compiler rejects:
 
 | Mistake | Result |

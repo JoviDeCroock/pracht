@@ -199,6 +199,9 @@ Requests and responses use a typed envelope:
 
 Internal error details and output-schema violations are redacted in
 production; invalid `run()` output is always a 500 and never returned raw.
+Capability middleware that short-circuits with status 429 becomes the typed
+`rate_limited` error code on every projection; its `Retry-After` header remains
+available to HTTP callers.
 State-changing capability calls enforce the same same-origin CSRF policy as
 API routes (`api.requireSameOrigin`, on by default).
 

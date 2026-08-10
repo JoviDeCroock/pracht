@@ -49,6 +49,7 @@ import type {
   CapabilityAuditEvent,
   CapabilityAuditHook,
   CapabilityEnvelope,
+  CapabilityErrorCode,
   CapabilityErrorPayload,
   CapabilityCallInputFor,
   CapabilityModule,
@@ -1040,12 +1041,7 @@ function normalizeMiddlewareShortCircuit(response: Response): Response {
     return response;
   }
 
-  const code =
-    response.status === 401
-      ? "unauthorized"
-      : response.status === 403
-        ? "forbidden"
-        : "middleware_rejected";
+  const code = middlewareErrorCode(response.status);
   const headers = new Headers(response.headers);
   headers.set("content-type", "application/json; charset=utf-8");
   headers.delete("content-length");
@@ -1058,6 +1054,14 @@ function normalizeMiddlewareShortCircuit(response: Response): Response {
     ),
     { status: response.status, headers },
   );
+}
+
+function middlewareErrorCode(status: number): CapabilityErrorCode {
+  if (status === 401) return "unauthorized";
+  if (status === 403) return "forbidden";
+  if (status === 429) return "rate_limited";
+  if (status >= 300 && status < 400) return "redirect";
+  return "middleware_rejected";
 }
 
 // ---------------------------------------------------------------------------
@@ -1249,14 +1253,7 @@ export async function invokeCapabilityOnHost<T = unknown>(
     return outcome.envelope as CapabilityEnvelope<T>;
   }
 
-  const code =
-    status === 401
-      ? "unauthorized"
-      : status === 403
-        ? "forbidden"
-        : status >= 300 && status < 400
-          ? "redirect"
-          : "middleware_rejected";
+  const code = middlewareErrorCode(status);
   return errorEnvelope({
     code,
     message: `Capability middleware short-circuited with status ${status}.`,

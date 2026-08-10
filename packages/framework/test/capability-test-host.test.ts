@@ -121,6 +121,20 @@ describe("createCapabilityTestHost — invoke()", () => {
     expect(result.error.code).toBe("unauthorized");
   });
 
+  it("maps middleware throttling to the typed rate_limited envelope", async () => {
+    const host = createCapabilityTestHost({
+      capabilities: { "notes.search": createSearchCapability({ middleware: ["throttle"] }) },
+      middleware: {
+        throttle: async () => new Response("slow down", { status: 429 }),
+      },
+    });
+
+    const result = await host.invoke("notes.search", { query: "roadmap" });
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("expected error envelope");
+    expect(result.error.code).toBe("rate_limited");
+  });
+
   it("honors a middleware response that replaces the result after next()", async () => {
     const host = createCapabilityTestHost({
       capabilities: { "notes.search": createSearchCapability({ middleware: ["deny-after"] }) },

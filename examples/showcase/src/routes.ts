@@ -1,4 +1,12 @@
-import { defineApp, group, route } from "@pracht/core";
+import {
+  defineApp,
+  forbidRenderMode,
+  group,
+  requireHead,
+  requireMiddleware,
+  requireShell,
+  route,
+} from "@pracht/core";
 
 export const app = defineApp({
   shells: {
@@ -7,7 +15,63 @@ export const app = defineApp({
   },
   middleware: {
     auth: () => import("./middleware/auth.ts"),
+    rateLimit: () => import("./middleware/rate-limit.ts"),
   },
+
+  // ── The capability graph ────────────────────────────────────────────────
+  // Six operations, registered as explicitly as shells and middleware. No
+  // loader and no API route is ever inferred as an agent tool; what is here is
+  // what agents can reach, and `pracht inspect capabilities` prints exactly
+  // this list with its schemas, effects, and exposures.
+  capabilities: {
+    "projects.search": () => import("./capabilities/projects-search.ts"),
+    "projects.create": () => import("./capabilities/projects-create.ts"),
+    "projects.deploy": () => import("./capabilities/projects-deploy.ts"),
+    "projects.archive": () => import("./capabilities/projects-archive.ts"),
+    "agent.whoami": () => import("./capabilities/agent-whoami.ts"),
+    "agent.brief": () => import("./capabilities/agent-brief.ts"),
+  },
+
+  // ── The trust layer ─────────────────────────────────────────────────────
+  agents: {
+    webBotAuth: {
+      // "observe" identifies signed agents and serves everybody; `agent.brief`
+      // opts itself up to "require". The key below is *public* — it is the
+      // demo agent in scripts/agent.mjs, whose private half is derived from a
+      // seed constant in that script. Committing it is safe and deliberate.
+      policy: "observe",
+      keys: [{ x: "Z9G_yWTMVrKrgm2PLrAXxDgGmRVEuft7oHn4dNh_ku8", agent: "demo-agent.launchpad" }],
+    },
+    confirmation: {
+      // A destructive call is not authorised by the caller holding a token —
+      // a person decides, at /app/approvals. Requires the approval store and
+      // principal resolver registered in src/server/agent-runtime.ts.
+      mode: "human",
+      ttlSeconds: 900,
+    },
+    // Serve the mcp-exposed capabilities as MCP tools over stateless
+    // Streamable HTTP at /mcp. Two opt-ins, both explicit: this block, and
+    // `expose.mcp` on each capability. `projects.archive` is destructive, so
+    // it is filtered out of the tool list no matter what it declares.
+    mcp: {
+      serverInfo: { name: "launchpad", version: "1.0.0" },
+      instructions:
+        "Launchpad project management. Search and create projects, and deploy them idempotently. " +
+        "Archiving is deliberately not a tool here: it is destructive and needs a human approval, " +
+        "so it stays on the HTTP projection at /api/capabilities/projects/archive.",
+    },
+  },
+
+  // ── Invariants `pracht verify` enforces ─────────────────────────────────
+  // Reviewed once by a human; from then on no author, human or agent, can
+  // merge a violation.
+  constraints: [
+    requireMiddleware("/app/**", "auth"),
+    requireShell("/app/**", "app"),
+    forbidRenderMode("/app/**", "ssg", "isg"),
+    requireHead("**"),
+  ],
+
   routes: [
     // Public marketing — static, CDN-fast, great SEO
     group({ shell: "marketing" }, [
@@ -15,20 +79,25 @@ export const app = defineApp({
         id: "home",
         render: "ssg",
       }),
+      route("/agents", () => import("./routes/agents.tsx"), {
+        id: "agents",
+        render: "ssg",
+      }),
+      // The interactive console needs the live capability graph, so it renders
+      // per request.
+      route("/playground", () => import("./routes/playground.tsx"), {
+        id: "playground",
+        render: "ssr",
+      }),
       route("/blog/:slug", () => import("./routes/blog-post.tsx"), {
         id: "blog-post",
         render: "ssg",
       }),
-
       // Plans are hard-coded in this demo, so there is nothing to revalidate:
       // SSG keeps the whole marketing shell on the CDN with no function
       // invocation. examples/basic covers the ISG build path.
       route("/pricing", () => import("./routes/pricing.tsx"), {
         id: "pricing",
-        render: "ssg",
-      }),
-      route("/agents", () => import("./routes/agents.tsx"), {
-        id: "agents",
         render: "ssg",
       }),
     ]),
@@ -41,6 +110,14 @@ export const app = defineApp({
       }),
       route("/app/projects/:projectId", () => import("./routes/project.tsx"), {
         id: "project",
+        render: "ssr",
+      }),
+      route("/app/approvals", () => import("./routes/approvals.tsx"), {
+        id: "approvals",
+        render: "ssr",
+      }),
+      route("/app/audit", () => import("./routes/audit.tsx"), {
+        id: "audit",
         render: "ssr",
       }),
 

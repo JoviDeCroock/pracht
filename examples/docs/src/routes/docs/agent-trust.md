@@ -114,7 +114,7 @@ import {
   createMemoryApprovalStore,
   setCapabilityApprovalPrincipalResolver,
   setCapabilityApprovalStore,
-} from "@pracht/core";
+} from "@pracht/core/server";
 
 export const approvalStore = createMemoryApprovalStore();
 setCapabilityApprovalStore(approvalStore);
@@ -183,7 +183,7 @@ Four behaviours to know before enabling it: `mode: "human"` without both a store
 Every capability dispatch — HTTP or direct `invokeCapability()` — emits one structured event with the capability name, effect, transport, outcome, status, latency, and the verified agent identity (or `null`):
 
 ```ts [src/server/audit.ts]
-import { setCapabilityAuditHook } from "@pracht/core";
+import { setCapabilityAuditHook } from "@pracht/core/server";
 
 setCapabilityAuditHook((event) => log.info("capability", event));
 ```

@@ -100,3 +100,39 @@ describe("defineApp constraints", () => {
     expect(resolveApp(app).constraints).toBe(constraints);
   });
 });
+
+describe("browser entry surface", () => {
+  /**
+   * The app manifest is the one module both environments share: the Vite plugin
+   * rewrites its `@pracht/core` import to the browser entry and bundles it into
+   * the client. Anything a manifest can legally call therefore has to be
+   * re-exported from `browser.ts`, or the manifest fails to link and the whole
+   * app silently stops hydrating.
+   */
+  it("re-exports every manifest-callable helper", async () => {
+    const browser = await import("../src/browser.ts");
+
+    for (const name of [
+      "defineApp",
+      "group",
+      "route",
+      "timeRevalidate",
+      "webhookRevalidate",
+      "requireMiddleware",
+      "requireShell",
+      "requireRenderMode",
+      "forbidRenderMode",
+      "requireHead",
+    ] as const) {
+      expect(typeof browser[name], `browser entry is missing ${name}`).toBe("function");
+    }
+  });
+
+  it("builds the same constraint objects as the server entry", async () => {
+    const browser = await import("../src/browser.ts");
+    expect(browser.requireMiddleware("/app/**", "auth")).toEqual(
+      requireMiddleware("/app/**", "auth"),
+    );
+    expect(browser.forbidRenderMode("/app/**", "ssg")).toEqual(forbidRenderMode("/app/**", "ssg"));
+  });
+});

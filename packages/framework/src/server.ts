@@ -68,8 +68,28 @@ export {
   invokeCapability,
   matchCapabilityRoute,
   resolveAppCapabilities,
+  setCapabilityAuditHook,
 } from "./runtime-capabilities.ts";
 export type { InvokeCapabilityContext, ResolvedCapability } from "./runtime-capabilities.ts";
+/**
+ * The agent-trust registration SPIs are server-only, and a bundled app reaches
+ * `@pracht/core` through the `browser` condition even in its SSR build — so
+ * importing them from the package root fails the build with a missing export.
+ * They belong on the server entry alongside `invokeCapability`.
+ */
+export {
+  CONFIRMATION_HEADER,
+  CONFIRMATION_SECRET_ENV,
+  setCapabilityConfirmationSecret,
+} from "./runtime-confirmation.ts";
+export {
+  createMemoryApprovalStore,
+  setCapabilityApprovalPrincipalResolver,
+  setCapabilityApprovalStore,
+} from "./runtime-approval.ts";
+export type { MemoryApprovalStoreOptions } from "./runtime-approval.ts";
+export { verifyAgentSignature } from "./runtime-agent-auth.ts";
+export type { VerifyAgentSignatureOptions } from "./runtime-agent-auth.ts";
 export { resolveRegistryModule } from "./runtime-manifest.ts";
 export { createCapabilityTestHost } from "./testing-capabilities.ts";
 export type {
