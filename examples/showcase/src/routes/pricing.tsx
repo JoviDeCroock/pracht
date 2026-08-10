@@ -52,11 +52,12 @@ export function head() {
 export function Component({ data }: RouteComponentProps<typeof loader>) {
   return (
     <section class="pricing">
-      <span class="pricing-badge">ISG — revalidates every hour</span>
+      <span class="pricing-badge">SSG — prerendered at build</span>
       <h1>Simple pricing</h1>
       <p class="pricing-sub">
-        This page uses <strong>Incremental Static Generation</strong>. Pre-rendered at build, served
-        instantly from the CDN, and refreshed in the background every hour.
+        This page uses <strong>Static Site Generation</strong>: rendered once at build time and
+        served straight from the CDN. Swap <code>render</code> to <code>"isg"</code> and add{" "}
+        <code>revalidate</code> to refresh it in the background instead.
       </p>
       <div class="pricing-grid">
         {data.plans.map((plan) => (

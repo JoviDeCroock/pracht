@@ -10,7 +10,7 @@ Deployed at https://showcase-ten-eosin.vercel.app
 |---|---|---|
 | `/` | **SSG** | Marketing page. Pre-built at deploy, served from CDN, zero server cost. |
 | `/blog/:slug` | **SSG** | Blog posts with `getStaticPaths`. Static content, great SEO. |
-| `/pricing` | **ISG** | Revalidates every hour. Fast like static, fresh when plans change. |
+| `/pricing` | **SSG** | Plans are hard-coded here, so there is nothing to revalidate. Add `revalidate` and it becomes ISG. |
 | `/app` | **SSR** | Dashboard with per-request data. Personalized, always current. |
 | `/app/projects/:id` | **SSR** | Project detail. Needs request context for auth + live data. |
 | `/app/settings` | **SPA** | Client-only interactive UI. Shell paints instantly, no SEO needed. |

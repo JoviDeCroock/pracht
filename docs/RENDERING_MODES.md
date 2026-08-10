@@ -108,7 +108,8 @@ import { timeRevalidate } from "@pracht/core";
 Node checks the file's mtime against the revalidation window. Cloudflare checks
 the generated timestamp stored in the Cache API entry and falls back to the
 build-time asset timestamp. Vercel writes native `.prerender-config.json` files
-with `expiration` set from the time policy.
+with `expiration` set from the time policy, next to a Node Serverless Function
+per ISG route — Vercel does not accept ISR on an Edge Function.
 
 > **Cloudflare Workers Caching:** with `cloudflareAdapter({ cache: true })`
 > (plus `"cache": { "enabled": true }` in wrangler config), time-revalidated

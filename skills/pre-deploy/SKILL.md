@@ -134,11 +134,19 @@ a markdown summary (graph diff + verify + budgets) worth attaching to it.
 - Required env vars are configured in the Vercel project (cannot verify from
   CLI without `vercel env pull` — run that and diff against `process.env.*`
   references).
-- Edge runtime constraints: pracht **always** writes the function's
-  `.vc-config.json` with `runtime: "edge"` — there is no Node runtime
-  variant, so run the same Node-only API check as Cloudflare
-  **unconditionally** for Vercel builds. Do not skip it based on a runtime
-  probe.
+- Edge runtime constraints: the render function's `.vc-config.json` is
+  **always** written with `runtime: "edge"`, so run the same Node-only API
+  check as Cloudflare **unconditionally** for Vercel builds. Do not skip it
+  based on a runtime probe — ISG routes run the same bundle on Node, but any
+  Node-only API still breaks the edge function.
+- ISG functions: every `<route>.prerender-config.json` must sit next to a
+  **Serverless** `<route>.func` (`.vc-config.json` with `launcherType:
+  "Nodejs"`). Vercel rejects a prerender config paired with an edge function:
+  `Unexpected function type "EdgeFunction" at path "<route>"`.
+- Region configuration: `vercelAdapter({ regions: "all" })` is valid for the
+  Edge render function, but generated Node ISG function configs must omit
+  `regions` so the project's default Serverless region applies. Node configs
+  may only contain arrays of concrete region identifiers.
 - An API route importing `@pracht/image/node` is an error for the Vercel Edge
   function. Require `vercelLoader` (with aligned allowed sizes) or
   `passthroughLoader` instead.

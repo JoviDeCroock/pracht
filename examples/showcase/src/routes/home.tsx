@@ -10,7 +10,8 @@ const MODES = [
   {
     tag: "isg",
     title: "Pricing & catalogs",
-    description: "Our pricing page revalidates hourly. Fast like static, fresh like dynamic.",
+    description:
+      "Add a revalidate policy and the page rebuilds on a timer. Fast like static, fresh like dynamic.",
   },
   {
     tag: "ssr",
@@ -60,7 +61,7 @@ export function Component({ data }: RouteComponentProps<typeof loader>) {
         </h1>
 
         <p class="hero-sub">
-          Static marketing. Dynamic dashboards. Revalidating pricing. Client-only settings. One
+          Static marketing. Dynamic dashboards. Timed revalidation. Client-only settings. One
           codebase, one manifest, one build.
         </p>
 
@@ -101,9 +102,9 @@ export function Component({ data }: RouteComponentProps<typeof loader>) {
               {", ...  { "}
               <span class="prop">render</span>
               {": "}
-              <span class="str">"isg"</span>
+              <span class="str">"ssg"</span>
               {" })  "}
-              <span class="cmt">// revalidates hourly</span>
+              <span class="cmt">// prerendered</span>
               {"\n"}
               <span class="kw">route</span>
               {"("}

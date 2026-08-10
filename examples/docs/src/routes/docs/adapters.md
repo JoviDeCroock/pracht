@@ -171,7 +171,7 @@ npx wrangler deploy
 
 ## Vercel Edge Functions
 
-Deploy using Vercel's Build Output API v3. SSG pages are served from the static file system; SSR and ISG routes go through the Edge Function.
+Deploy using Vercel's Build Output API v3. SSG pages are served from the static file system and SSR/API routes go through the Edge Function. ISG routes get one Serverless Function each — Vercel only supports ISR (`.prerender-config.json`) on serverless, and rejects a deployment that pairs it with an Edge Function.
 
 ### Setup
 
@@ -186,6 +186,8 @@ pracht({ adapter: vercelAdapter() })
 
 Static prerendered routes receive document headers through the generated Build Output `headers` config.
 
+If `vercelAdapter({ regions: "all" })` is configured, the Edge function remains global while Node ISG functions use the project's default Serverless region. Node functions require concrete region identifiers and cannot use Edge's `all` sentinel.
+
 ### Build output
 
 ```
@@ -195,7 +197,7 @@ Static prerendered routes receive document headers through the generated Build O
     static/        // SSG pages served from the filesystem
     functions/
       render.func/ // Edge Function for SSR/API routes and webhook bridge
-      pricing.func/
+      pricing.func/ // Serverless Function for one ISG route
       pricing.prerender-config.json
 ```
 
@@ -280,7 +282,8 @@ export function createContext({ request }: { request: Request }) {
 }
 
 // Cloudflare receives { request, env, executionContext }.
-// Vercel receives { request, context }.
+// Vercel Edge receives { request, context }. Node ISG provides a
+// waitUntil-compatible context, without other Edge-only fields.
 ```
 
 The context object is available as `args.context` in every loader, middleware, and API route handler.

@@ -269,6 +269,17 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
     }
 
     if (serverMod.buildTarget === "vercel") {
+      // ISG routes deploy as Node serverless functions that re-export
+      // `nodeListener` from the bundle; catch a custom server entry that
+      // doesn't provide it here instead of at request time in production.
+      if (Object.keys(isgManifest).length > 0 && typeof serverMod.nodeListener !== "function") {
+        throw new Error(
+          "The Vercel server entry does not export `nodeListener`, which the ISG routes' " +
+            "serverless functions import. Generate the entry with `vercelAdapter()` or export " +
+            "`createVercelNodeListener(handle)` from your custom entry module.",
+        );
+      }
+
       const outputPath = writeVercelBuildOutput({
         functionName: serverMod.vercelFunctionName,
         isgManifest,

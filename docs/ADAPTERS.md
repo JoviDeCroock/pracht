@@ -663,7 +663,14 @@ export default {
   `x-pracht-route-state-request: 1` and `?_data=1`, so route-state requests go
   to the edge function before any static SSG rewrite can serve cached HTML.
 - **Native ISR**: ISG routes are emitted as Build Output API prerender functions
-  with `.prerender-config.json` files. Time policies become Vercel
+  with `.prerender-config.json` files. Vercel only supports ISR on Serverless
+  Functions — a `.prerender-config.json` next to an Edge Function fails the
+  deployment with `Unexpected function type "EdgeFunction"` — so these run on
+  Node (`nodejs22.x`) while the main handler stays on the edge. Both load the
+  same server bundle: it is built against Web APIs only, which Node provides
+  natively. The first ISG route materializes the function directory and the
+  rest are symlinks to it, so N ISG paths don't duplicate the bundle. Time
+  policies become Vercel
   `expiration` values, build-time HTML becomes the prerender fallback, and
   `PRACHT_REVALIDATE_TOKEN` is used as the `bypassToken` when present at build
   time. If the env var is absent during build, Pracht writes a random bypass
@@ -682,6 +689,13 @@ export default {
   function. ISG document requests are handled by route-named prerender functions,
   while route-state requests still bypass static/prerender output and reach the
   edge function.
+- **Node launcher**: generated entries also export `nodeListener`
+  (`createVercelNodeListener(handle)`), which the ISG functions re-export as
+  their handler. A custom server entry that omits it fails the build with a
+  descriptive error rather than at request time in production. The listener
+  supplies a `waitUntil()`-compatible context and drains registered work after
+  ending the response; other Edge-only context fields are unavailable on Node
+  ISG invocations.
 - **Static security headers**: the generated `config.json` includes a `headers`
   section that applies the same baseline security headers to all responses,
   including static assets served by Vercel's CDN. Static prerendered routes also
@@ -702,14 +716,18 @@ vercelAdapter({
 });
 ```
 
-The context module must export `createContext(args)`. Vercel passes `{ request, context }`.
+The context module must export `createContext(args)`. Edge invocations receive
+Vercel's execution context; Node ISG invocations receive the compatibility
+context described above. `regions: "all"` keeps the Edge function global and
+leaves Node ISG functions on the project's default Serverless region because
+`all` is not a Node region identifier.
 
 ### Entry module
 
 ```javascript
 // virtual:pracht/server (generated in vercel mode)
 import { resolveApp, resolveApiRoutes } from "@pracht/core/server";
-import { createVercelEdgeHandler } from "@pracht/adapter-vercel";
+import { createVercelEdgeHandler, createVercelNodeListener } from "@pracht/adapter-vercel";
 import { app } from "./src/routes.ts";
 
 const resolvedApp = resolveApp(app);
@@ -727,6 +745,9 @@ export default async function handle(request, context) {
   });
   return handler(request, context);
 }
+
+// Entry point of the Node serverless functions emitted for ISG routes.
+export const nodeListener = createVercelNodeListener(handle);
 ```
 
 ---

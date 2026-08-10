@@ -100,7 +100,7 @@ curl -X POST https://example.com/__pracht/revalidate \
 | Node | File mtime vs window; serves stale, refreshes in background | Regenerates the on-disk HTML synchronously |
 | Cloudflare (default) | Worker-managed Cache API timestamp, `env.ASSETS` fallback — **per colo** | Overwrites the Cache API entry in the receiving colo only |
 | Cloudflare (`cache: true`) | Edge-tier Workers Caching in front of the Worker for time-revalidated routes | Webhook-only routes keep the worker-managed path; time+webhook routes also get their edge entry purged |
-| Vercel | Build Output prerender functions: `.prerender-config.json` with `expiration` from the time policy and build HTML as fallback | `x-vercel-cache`-verified bypass; `PRACHT_REVALIDATE_TOKEN` becomes the `bypassToken` and **must be set at build time** (runtime-only setting → webhook paths report `failed` until you rebuild) |
+| Vercel | Build Output prerender functions: `.prerender-config.json` with `expiration` from the time policy and build HTML as fallback, next to a Node Serverless Function per ISG route (Vercel rejects ISR on an Edge Function) | `x-vercel-cache`-verified bypass; `PRACHT_REVALIDATE_TOKEN` becomes the `bypassToken` and **must be set at build time** (runtime-only setting → webhook paths report `failed` until you rebuild) |
 
 Cloudflare specifics (`docs/ADAPTERS.md#isg-via-workers-caching-cache`):
 
