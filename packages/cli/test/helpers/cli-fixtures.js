@@ -5,10 +5,12 @@
 // own worker) but never within one, so these tests are split into several
 // focused files that all pull their app fixtures from here.
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+
+import { removeTempDir } from "./remove-temp-dir.ts";
 
 export const cliPath = fileURLToPath(new URL("../../bin/pracht.js", import.meta.url));
 export const repoRoot = resolve(dirname(cliPath), "../../..");
@@ -40,7 +42,35 @@ const tempDirs = [];
 /** Removes every temp dir created since the last cleanup. Call from afterEach. */
 export function cleanupTempDirs() {
   while (tempDirs.length > 0) {
-    rmSync(tempDirs.pop(), { force: true, recursive: true });
+    removeTempDir(tempDirs.pop());
+  }
+}
+
+/**
+ * Terminate a spawned CLI process and wait for it to actually exit.
+ *
+ * `child.kill()` only delivers the signal; without awaiting the exit the
+ * process keeps writing into its temp directory while `cleanupTempDirs()`
+ * removes it.
+ */
+export async function stopChild(child, timeoutMs = 10_000) {
+  if (child.exitCode !== null || child.signalCode !== null) return;
+
+  const exited = new Promise((resolve) => child.once("exit", resolve));
+  child.kill("SIGTERM");
+
+  let timer;
+  const timedOut = new Promise((resolve) => {
+    timer = setTimeout(() => resolve("timeout"), timeoutMs);
+  });
+
+  try {
+    if ((await Promise.race([exited, timedOut])) === "timeout") {
+      child.kill("SIGKILL");
+      await exited;
+    }
+  } finally {
+    clearTimeout(timer);
   }
 }
 
