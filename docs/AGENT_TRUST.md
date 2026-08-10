@@ -466,7 +466,10 @@ HTTP and WebMCP composition therefore keep the ordinary server-composition
 semantics: if an exposed capability composes sensitive work, its own policy and
 the callee's named middleware must authorize it. Every nested attempt, allowed
 or denied, carries `transport: "server"` and the trusted causal transport in
-`via` for audit attribution.
+`via` for audit attribution. For any composition running under a served HTTP or
+MCP request, the nested context and audit event keep the identity verified by
+that transport; a replacement `context.agent` passed to `invokeCapability()` is
+never treated as verified identity.
 
 Subscribe from any server-only module. Audit hooks receive frozen event and
 agent snapshots; exceptions are swallowed, so an observer can neither rewrite

@@ -798,6 +798,49 @@ describe("invokeCapability", () => {
     expect(events[0]).toMatchObject({ transport: "server", via: "http", outcome: "ok" });
   });
 
+  it("keeps HTTP composition bound to the transport-verified identity", async () => {
+    const events: CapabilityAuditEvent[] = [];
+    const capability = createSearchCapability({
+      async run({ context }: { context: { agent?: { keyId?: string } | null } }) {
+        return { notes: [context.agent?.keyId ?? "missing"] };
+      },
+    });
+    const { app, registry } = createApp(capability, {
+      agents: { webBotAuth: { policy: "observe" } },
+      routes: [route("/notes", "./routes/notes.tsx", { id: "notes" })],
+    });
+    registry.routeModules = {
+      "./routes/notes.tsx": async () => ({
+        loader: async ({ request, signal }: LoaderArgs) =>
+          invokeCapability(
+            "notes.search",
+            { query: "from-loader" },
+            {
+              request,
+              context: {
+                agent: { verified: true, agentDomain: "forged.example", keyId: "forged-key" },
+              },
+              signal,
+            },
+          ),
+        Component: () => null,
+      }),
+    };
+
+    const response = await handlePrachtRequest({
+      app,
+      registry,
+      request: new Request("http://localhost/notes?_data=1"),
+      onCapabilityAudit: (event) => events.push(event),
+    });
+
+    expect(await response.json()).toEqual({
+      data: { ok: true, data: { notes: ["missing"] } },
+    });
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ transport: "server", via: "http", agent: null });
+  });
+
   it("keeps each capability host scoped to its originating request", async () => {
     const createNamedCapability = (name: string) =>
       createSearchCapability({

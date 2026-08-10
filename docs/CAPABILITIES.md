@@ -173,6 +173,9 @@ re-applies the callee's `agentPolicy` and refuses `destructive` effects. Private
 non-destructive capabilities remain available as building blocks, and their
 named middleware still runs. See
 [AGENT_TRUST.md](AGENT_TRUST.md#remote-mcp-composition-is-guarded).
+When composition runs under a served HTTP or MCP request, `context.agent` and
+the audit event remain bound to the identity verified by that transport; an
+alternate context object cannot substitute a caller-supplied identity.
 
 ### HTTP projection
 

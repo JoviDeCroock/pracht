@@ -1324,7 +1324,9 @@ function capabilityPipelineContext<TContext>(
   supplied: TContext | undefined,
 ): TContext | PrachtContextExtensions {
   const context = supplied ?? {};
-  if (host.via !== "mcp") return context;
+  const carriesTransportIdentity =
+    host.via === "mcp" || (host.via === "http" && !!host.app.agents?.webBotAuth);
+  if (!carriesTransportIdentity) return context;
   return bindAgentContext(context, host.agent ?? null);
 }
 
@@ -1332,7 +1334,7 @@ function capabilityHostAgent<TContext>(
   host: CapabilityHost,
   context: TContext,
 ): PrachtAgentIdentity | null {
-  return host.via === "mcp"
+  return host.via === "http" || host.via === "mcp"
     ? (host.agent ?? null)
     : ((context as { agent?: PrachtAgentIdentity | null }).agent ?? null);
 }

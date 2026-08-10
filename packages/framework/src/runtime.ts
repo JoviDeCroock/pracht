@@ -291,6 +291,7 @@ export async function handlePrachtRequest<TContext>(
         registry,
         "http",
         options.onCapabilityAudit,
+        agent,
       );
     }
   } else if (hasCapabilities || options.app.agents) {

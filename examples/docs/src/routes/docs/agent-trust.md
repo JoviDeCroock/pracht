@@ -197,7 +197,7 @@ A capability that calls `invokeCapability()` produces a second event with `trans
 
 `invokeCapability()` is trusted first-party composition. It runs the callee's own pipeline — input validation, its named middleware, `run()`, output validation — without re-running app-level `api.middleware`, so private capabilities remain useful as server-side building blocks.
 
-Remote MCP adds two fail-closed rules: nested calls re-apply the callee's `agentPolicy` and refuse `destructive` effects before middleware or the body can run. Private non-destructive capabilities remain composable, with named middleware as their authorization seam. HTTP and WebMCP composition keep the ordinary server semantics and must own any transport-specific authorization they need. Every nested attempt still audits with `transport: "server"` and trusted provenance in `via`.
+Remote MCP adds two fail-closed rules: nested calls re-apply the callee's `agentPolicy` and refuse `destructive` effects before middleware or the body can run. Private non-destructive capabilities remain composable, with named middleware as their authorization seam. HTTP and WebMCP composition keep the ordinary server semantics and must own any transport-specific authorization they need. Under any served HTTP or MCP request, nested context and audit identity remain bound to what the transport verified rather than a replacement `context.agent` passed to `invokeCapability()`. Every nested attempt still audits with `transport: "server"` and trusted provenance in `via`.
 
 ---
 

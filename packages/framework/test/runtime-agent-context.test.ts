@@ -109,18 +109,43 @@ describe("bindAgentContext", () => {
   });
 
   it("preserves construction through immutable callable contexts", () => {
-    class CallableContext extends RequestContext {}
-    const BoundContext = bindAgentContext(Object.freeze(CallableContext), null);
+    class CallableContext extends RequestContext {
+      constructor(_tenant: string, _region: string) {
+        super();
+      }
+    }
+    const immutableContext = Object.freeze(CallableContext);
+    const BoundContext = bindAgentContext(immutableContext, null);
     class DerivedContext extends BoundContext {}
 
-    const direct = new BoundContext();
-    const derived = new DerivedContext();
+    const direct = new BoundContext("one", "eu");
+    const derived = new DerivedContext("one", "eu");
 
+    expect(BoundContext.name).toBe(CallableContext.name);
+    expect(BoundContext.length).toBe(CallableContext.length);
+    expect(Object.getOwnPropertyDescriptor(BoundContext, "name")).toEqual(
+      Object.getOwnPropertyDescriptor(CallableContext, "name"),
+    );
+    expect(Object.getOwnPropertyDescriptor(BoundContext, "length")).toEqual(
+      Object.getOwnPropertyDescriptor(CallableContext, "length"),
+    );
     expect(direct).toBeInstanceOf(CallableContext);
     expect(direct.tenant).toBe("one");
     expect(derived).toBeInstanceOf(CallableContext);
     expect(derived).toBeInstanceOf(DerivedContext);
     expect(derived.tenant).toBe("one");
+  });
+
+  it("preserves non-constructable callable context reflection", () => {
+    const callable = Object.freeze((tenant: string, region: string) => `${tenant}:${region}`);
+    const context = bindAgentContext(callable, null);
+
+    expect(context("one", "eu")).toBe("one:eu");
+    expect(context.name).toBe(callable.name);
+    expect(context.length).toBe(callable.length);
+    expect(Reflect.ownKeys(context)).toEqual([...Reflect.ownKeys(callable), "agent"]);
+    expect(Object.hasOwn(context, "prototype")).toBe(false);
+    expect(() => Reflect.construct(Object, [], context)).toThrow(TypeError);
   });
 
   it("supports preventing extensions without violating proxy own-key invariants", () => {

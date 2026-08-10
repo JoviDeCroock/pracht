@@ -69,24 +69,21 @@ function immutableAgentContext<TContext>(
   agent: PrachtAgentIdentity | null,
 ): TContext & PrachtContextExtensions {
   const prototype = Object.getPrototypeOf(context);
+  const materializedContextKeys = new Set<PropertyKey>();
   const target =
     typeof context === "function"
-      ? function (this: unknown, ...args: unknown[]) {
-          return Reflect.apply(context, this, args);
-        }
+      ? isConstructableContext(context)
+        ? function (this: unknown, ...args: unknown[]) {
+            return Reflect.apply(context, this, args);
+          }.bind(undefined)
+        : (...args: unknown[]) => Reflect.apply(context, undefined, args)
       : Object.create(prototype);
   if (typeof context === "function") {
-    const contextPrototype = Reflect.getOwnPropertyDescriptor(context, "prototype");
-    const targetPrototype = Reflect.getOwnPropertyDescriptor(target, "prototype");
-    if (targetPrototype) {
-      Reflect.defineProperty(target, "prototype", {
-        ...targetPrototype,
-        value: contextPrototype && "value" in contextPrototype ? contextPrototype.value : undefined,
-        writable:
-          contextPrototype && "writable" in contextPrototype
-            ? contextPrototype.writable
-            : targetPrototype.writable,
-      });
+    for (const property of ["name", "length", "prototype"] as const) {
+      const descriptor = Reflect.getOwnPropertyDescriptor(context, property);
+      if (descriptor && Reflect.defineProperty(target, property, descriptor)) {
+        materializedContextKeys.add(property);
+      }
     }
   }
   Object.setPrototypeOf(target, prototype);
@@ -113,7 +110,6 @@ function immutableAgentContext<TContext>(
     "value" in descriptor && typeof descriptor.value === "function" && property !== "constructor"
       ? { ...descriptor, value: bindContextMethod(descriptor.value as ContextMethod) }
       : descriptor;
-  const materializedContextKeys = new Set<PropertyKey>();
   const synchronizeMaterializedContextDescriptor = (property: PropertyKey): void => {
     if (!materializedContextKeys.has(property)) return;
 
@@ -308,6 +304,15 @@ function sameAgentIdentity(left: unknown, right: Readonly<PrachtAgentIdentity> |
     candidate.agentDomain === right.agentDomain &&
     candidate.keyId === right.keyId
   );
+}
+
+function isConstructableContext(context: ContextMethod): boolean {
+  try {
+    Reflect.construct(Object, [], context);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** Prototype accessors must keep the original class instance as `this`. */
