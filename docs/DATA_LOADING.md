@@ -30,6 +30,13 @@ The route component can be a function default export or a named `Component`
 export. Named route exports such as `loader`, `head`, `headers`, `markdown`,
 `ErrorBoundary`, and `getStaticPaths` remain separate special exports.
 
+The `data` prop is reactive: it tracks navigation *and* revalidation
+(`useRevalidate()`, a successful non-`read` capability call, a `<Form capability>`
+submission), so it always holds the same value
+[`useRouteData()`](#useroutedata) would return. Pick whichever reads better —
+the prop for a component that only needs its own route's data, the hook for
+components nested below the route.
+
 A `markdown` string export opts the route into Markdown-for-Agents content
 negotiation: when a request arrives with `Accept: text/markdown`, the runtime
 still executes middleware, the route loader, and document header resolution

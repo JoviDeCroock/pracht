@@ -57,18 +57,24 @@ export function PrachtRuntimeProvider<TData>({
 }) {
   registerRuntimeRoutes(routes);
 
-  const [routeDataState, setRouteDataState] = useState({
+  // A locally committed value (revalidation) is stored with the props that
+  // were current when it was committed, so later renders can tell whether it
+  // still belongs to the route on screen.
+  const [routeDataState, setRouteDataState] = useState(() => ({
     data,
+    routeId,
+    source: data,
     stateVersion,
-  });
-  const routeData = routeDataState.stateVersion === stateVersion ? routeDataState.data : data;
-
-  useEffect(() => {
-    setRouteDataState({
-      data,
-      stateVersion,
-    });
-  }, [data, routeId, stateVersion, url]);
+    url,
+  }));
+  // A new route state (navigation) supersedes anything committed for the
+  // previous one. This is derived during render rather than reset from an
+  // effect so it cannot lag behind the props.
+  const isStaleRoute =
+    routeDataState.stateVersion !== stateVersion ||
+    routeDataState.routeId !== routeId ||
+    routeDataState.url !== url;
+  const routeData = isStaleRoute ? data : routeDataState.data;
 
   const context = useMemo(
     () => ({
@@ -76,15 +82,41 @@ export function PrachtRuntimeProvider<TData>({
       params,
       routeId,
       routes,
+      // Stamped with the route state this context belongs to, never with
+      // whatever the provider rendered last: a revalidation started on one
+      // route can settle after a navigation, and the commit has to be
+      // discarded as stale rather than published as the new route's data.
       setData: (nextData: unknown) =>
         setRouteDataState({
           data: nextData as TData,
+          routeId,
+          source: data,
           stateVersion,
+          url,
         }),
       url,
     }),
+    // `data` is deliberately not a dependency: it is read only as the `source`
+    // stamp, and adding it would fan out a new context value on every
+    // re-render above the provider (see runtime-context.test.ts).
     [routeData, params, routeId, routes, stateVersion, url],
   );
+
+  // A fresh `data` prop for the same route state (a re-render above the
+  // provider) replaces the committed value. The functional update is what
+  // makes this safe: effects are deferred to a frame, so this can run *after*
+  // a revalidation has already committed newer data, and comparing against the
+  // source the commit was made from keeps it from overwriting that.
+  useEffect(() => {
+    setRouteDataState((current) =>
+      current.source === data &&
+      current.stateVersion === stateVersion &&
+      current.routeId === routeId &&
+      current.url === url
+        ? current
+        : { data, routeId, source: data, stateVersion, url },
+    );
+  }, [data, routeId, stateVersion, url]);
 
   // Effect-driven revalidation: capabilities are effect-classed, so the
   // runtime can refresh route data after any successful non-`read` call made

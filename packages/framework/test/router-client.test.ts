@@ -219,6 +219,177 @@ describe("initClientRouter", () => {
     expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
 
+  it("refreshes the route component's data prop when route data revalidates", async () => {
+    // `RouteComponentProps` is what `create-pracht` and `pracht generate route`
+    // emit, so the prop has to track revalidation exactly like `useRouteData()`.
+    function Dashboard({ data }: { data: { count: number } }) {
+      const hookData = useRouteData<{ count: number }>();
+      const revalidate = useRevalidate();
+      return h(
+        "main",
+        null,
+        h("span", { id: "prop-count" }, String(data.count)),
+        h("span", { id: "hook-count" }, String(hookData.count)),
+        h("button", { id: "refresh", onClick: () => void revalidate() }, "Refresh"),
+      );
+    }
+
+    const app = resolveApp(
+      defineApp({
+        routes: [route("/dashboard", "./routes/dashboard.tsx", { id: "dashboard", render: "ssr" })],
+      }),
+    );
+
+    history.replaceState(null, "", "/dashboard");
+    fetchSpy.mockResolvedValue(createJsonResponse({ data: { count: 2 } }));
+
+    await initClientRouter({
+      app,
+      routeModules: {
+        "./routes/dashboard.tsx": async () => ({ default: Dashboard }),
+      },
+      shellModules: {},
+      initialState: {
+        data: { count: 1 },
+        routeId: "dashboard",
+        url: "/dashboard",
+      },
+      root,
+      findModuleKey: (_modules, file) => file,
+    });
+
+    expect(root.querySelector("#prop-count")?.textContent).toBe("1");
+    expect(root.querySelector("#hook-count")?.textContent).toBe("1");
+
+    root.querySelector<HTMLButtonElement>("#refresh")?.click();
+    await flush();
+    await flush();
+
+    expect(root.querySelector("#hook-count")?.textContent).toBe("2");
+    expect(root.querySelector("#prop-count")?.textContent).toBe("2");
+  });
+
+  it("discards a revalidation that settles after navigating away", async () => {
+    // A revalidation started on one route must never publish its result as the
+    // next route's data — not through `useRouteData()` and not through the
+    // `data` prop.
+    function Dashboard({ data }: { data: { label: string } }) {
+      const revalidate = useRevalidate();
+      const navigate = useNavigate();
+      return h(
+        "main",
+        null,
+        h("span", { id: "label" }, data.label),
+        h("button", { id: "refresh", onClick: () => void revalidate() }, "Refresh"),
+        h("button", { id: "to-settings", onClick: () => void navigate("/settings") }, "Settings"),
+      );
+    }
+
+    function Settings({ data }: { data: { label: string } }) {
+      return h("main", null, h("span", { id: "label" }, data.label));
+    }
+
+    const app = resolveApp(
+      defineApp({
+        routes: [
+          route("/dashboard", "./routes/dashboard.tsx", { id: "dashboard", render: "ssr" }),
+          route("/settings", "./routes/settings.tsx", { id: "settings", render: "ssr" }),
+        ],
+      }),
+    );
+
+    root.innerHTML =
+      '<main><span id="label">DASHBOARD-1</span><button id="refresh">Refresh</button>' +
+      '<button id="to-settings">Settings</button></main>';
+    history.replaceState(null, "", "/dashboard");
+
+    let releaseDashboardRevalidation!: () => void;
+    const heldDashboardRevalidation = new Promise<Response>((resolve) => {
+      releaseDashboardRevalidation = () =>
+        resolve(createJsonResponse({ data: { label: "DASHBOARD-2" } }));
+    });
+
+    fetchSpy.mockImplementation((input: string) =>
+      input.startsWith("/settings")
+        ? Promise.resolve(createJsonResponse({ data: { label: "SETTINGS" } }))
+        : heldDashboardRevalidation,
+    );
+
+    await initClientRouter({
+      app,
+      routeModules: {
+        "./routes/dashboard.tsx": async () => ({ default: Dashboard }),
+        "./routes/settings.tsx": async () => ({ default: Settings }),
+      },
+      shellModules: {},
+      initialState: {
+        data: { label: "DASHBOARD-1" },
+        routeId: "dashboard",
+        url: "/dashboard",
+      },
+      root,
+      findModuleKey: (_modules, file) => file,
+    });
+
+    root.querySelector<HTMLButtonElement>("#refresh")?.click();
+    await flush();
+
+    root.querySelector<HTMLButtonElement>("#to-settings")?.click();
+    await flush();
+    await flush();
+    expect(root.querySelector("#label")?.textContent).toBe("SETTINGS");
+
+    releaseDashboardRevalidation();
+    await flush();
+    await flush();
+
+    expect(root.querySelector("#label")?.textContent).toBe("SETTINGS");
+  });
+
+  it("keeps the error prop when an error boundary renders", async () => {
+    // Error and SPA-pending states pass props without loader data; the runtime
+    // must not graft `data` onto them.
+    function Boom() {
+      return h("main", null, "never");
+    }
+
+    function ErrorBoundary(props: { error: Error }) {
+      return h(
+        "main",
+        null,
+        h("span", { id: "message" }, props.error.message),
+        h("span", { id: "prop-keys" }, Object.keys(props).sort().join(",")),
+      );
+    }
+
+    const app = resolveApp(
+      defineApp({
+        routes: [route("/boom", "./routes/boom.tsx", { id: "boom", render: "ssr" })],
+      }),
+    );
+
+    history.replaceState(null, "", "/boom");
+
+    await initClientRouter({
+      app,
+      routeModules: {
+        "./routes/boom.tsx": async () => ({ ErrorBoundary, default: Boom }),
+      },
+      shellModules: {},
+      initialState: {
+        data: null,
+        error: { message: "loader exploded", name: "Error", status: 500 },
+        routeId: "boom",
+        url: "/boom",
+      },
+      root,
+      findModuleKey: (_modules, file) => file,
+    });
+
+    expect(root.querySelector("#message")?.textContent).toBe("loader exploded");
+    expect(root.querySelector("#prop-keys")?.textContent).toBe("error");
+  });
+
   it("bypasses the HTTP cache when a form redirect reloads cached route data", async () => {
     function Cart() {
       const data = useRouteData<{ count: number }>();
