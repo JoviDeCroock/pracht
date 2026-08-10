@@ -27,8 +27,10 @@ import {
   CONFIRMATION_HEADER,
 } from "@pracht/capabilities";
 import {
+  extractDefineAppObjectBody,
   extractCapabilityProjection,
   extractCapabilityRegistrations,
+  scanTopLevelProperties,
 } from "@pracht/capabilities/static";
 import { resolveOptions, type PrachtPluginOptions } from "./plugin-options.ts";
 
@@ -43,6 +45,114 @@ export interface ExtractedCapability {
   httpPath: string | null;
   webmcp: boolean;
   inputSchema: Record<string, unknown> | null;
+}
+
+/**
+ * Whether the app can reach the agent surface at all — registered capabilities
+ * or a `defineApp({ agents })` config. Drives the `__PRACHT_AGENT_SURFACE__`
+ * define, which lets the bundler drop the capability and Web Bot Auth runtimes
+ * from the server bundle of apps that use neither.
+ *
+ * Deliberately one-sided: it only answers `false` when the manifest is readable
+ * and provably free of both. An unreadable manifest, a parse failure, or any
+ * spread inside the manifest file (which could carry registrations this
+ * analyzer cannot see) answers `true`, so the runtime keeps deciding for
+ * itself. Being wrong the other way would 404 a capability in production that
+ * works in dev.
+ */
+export function hasAgentSurface(
+  options: PrachtPluginOptions = {},
+  root: string = process.cwd(),
+): boolean {
+  const resolved = resolveOptions(options);
+  // The pages router has no manifest: nowhere to register capabilities or agents.
+  if (resolved.pagesDir) return false;
+
+  const appFileAbs = resolve(root, resolved.appFile.replace(/^\//, ""));
+  let manifestSource: string;
+  try {
+    manifestSource = readFileSync(appFileAbs, "utf-8");
+  } catch {
+    return true;
+  }
+
+  const appBody = extractDefineAppObjectBody(manifestSource);
+  // A non-literal defineApp(config) call is opaque to static analysis. It may
+  // carry capabilities or agents, so keep the runtime rather than silently
+  // changing production behavior.
+  if (appBody === null) return true;
+
+  // Decode quoted property keys before deciding. The regex also covers
+  // ordinary identifier and shorthand properties without requiring a value.
+  const properties = scanTopLevelProperties(appBody);
+  if (properties.has("agents") || properties.has("capabilities")) return true;
+  if (/\b(?:agents|capabilities)\b/.test(appBody)) return true;
+  // Spreads, computed keys, and escaped identifier keys can hide either name
+  // behind syntax this lightweight analyzer does not fully evaluate.
+  if (appBody.includes("...") || hasOpaqueTopLevelProperty(appBody)) return true;
+
+  try {
+    return extractCapabilityRegistrations(manifestSource).length > 0;
+  } catch {
+    return true;
+  }
+}
+
+/** Whether an object literal body contains an opaque key at its top level. */
+function hasOpaqueTopLevelProperty(objectBody: string): boolean {
+  let braces = 0;
+  let brackets = 0;
+  let parentheses = 0;
+  let expectingKey = true;
+
+  for (let index = 0; index < objectBody.length; index += 1) {
+    const char = objectBody[index];
+    const next = objectBody[index + 1];
+
+    if (char === '"' || char === "'" || char === "`") {
+      const quote = char;
+      for (index += 1; index < objectBody.length; index += 1) {
+        if (objectBody[index] === "\\") {
+          index += 1;
+        } else if (objectBody[index] === quote) {
+          break;
+        }
+      }
+      continue;
+    }
+
+    if (char === "/" && next === "/") {
+      index = objectBody.indexOf("\n", index + 2);
+      if (index === -1) break;
+      continue;
+    }
+    if (char === "/" && next === "*") {
+      const end = objectBody.indexOf("*/", index + 2);
+      if (end === -1) return true;
+      index = end + 1;
+      continue;
+    }
+    // Distinguishing division from a regular-expression literal requires a
+    // full lexer. Treat either as opaque: counting delimiters inside a regex
+    // could otherwise hide a later computed agent-surface key and make this
+    // production-only optimization incorrectly answer false.
+    if (char === "/") return true;
+
+    const atTopLevel = braces === 0 && brackets === 0 && parentheses === 0;
+    if (atTopLevel && expectingKey && char === "[") return true;
+    if (atTopLevel && expectingKey && char === "\\") return true;
+    if (atTopLevel && char === ":") expectingKey = false;
+    if (atTopLevel && char === ",") expectingKey = true;
+
+    if (char === "{") braces += 1;
+    else if (char === "}") braces -= 1;
+    else if (char === "[") brackets += 1;
+    else if (char === "]") brackets -= 1;
+    else if (char === "(") parentheses += 1;
+    else if (char === ")") parentheses -= 1;
+  }
+
+  return false;
 }
 
 /**

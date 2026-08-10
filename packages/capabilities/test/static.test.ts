@@ -244,6 +244,21 @@ describe("capability static extraction", () => {
     ]);
   });
 
+  it("decodes escaped quoted manifest property names", () => {
+    const source = String.raw`
+      export const app = defineApp({
+        "capabil\u0069ties": {
+          "notes.search": "./capabilities/notes-search.ts",
+        },
+        routes: [],
+      });
+    `;
+
+    expect(extractCapabilityRegistrations(source)).toEqual([
+      { name: "notes.search", file: "./capabilities/notes-search.ts" },
+    ]);
+  });
+
   it("scopes registrations to the exported defineApp object", () => {
     const source = `
       const metadata = {

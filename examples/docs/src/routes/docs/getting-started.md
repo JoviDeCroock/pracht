@@ -40,7 +40,7 @@ Useful creation flags:
 - `--adapter=node|cf|vercel` chooses the deployment target.
 - `--router=manifest|pages` chooses explicit `src/routes.ts` routing or file-system `src/pages/` routing.
 - `--template=minimal|tailwind`, `--tailwind`, and `--no-tailwind` control styling setup.
-- `--agent-tools` and `--no-agent-tools` control `.claude/skills/` and `.mcp.json` setup.
+- `--agent-tools` and `--no-agent-tools` control `.claude/skills/`, `.mcp.json`, and `AGENTS.md`/`CLAUDE.md` setup.
 - `--skip-install`, `--no-git`, `--json`, and `--dry-run` are handy for automation.
 
 ---

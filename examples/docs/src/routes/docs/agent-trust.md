@@ -12,7 +12,7 @@ next:
 
 ## Three Questions
 
-Exposing [capabilities](/docs/capabilities) to agents raises questions a schema cannot answer. The agent trust layer answers all three, and everything is opt-in — an app without `defineApp({ agents })` and without destructive capabilities pays a single property check per request.
+Exposing [capabilities](/docs/capabilities) to agents raises questions a schema cannot answer. The agent trust layer answers all three, and everything is opt-in. When the build can prove that an app registers neither capabilities nor `defineApp({ agents })`, the capability dispatch and Web Bot Auth verifier are dropped from the server bundle entirely.
 
 - **Who is calling?** — Web Bot Auth puts a cryptographically verified agent identity on the request context.
 - **May they do this?** — policy modes per app and per capability, plus a server-verified confirmation flow for destructive effects, optionally backed by a durable approval store for exactly-once commits and, in human mode, real human approval.

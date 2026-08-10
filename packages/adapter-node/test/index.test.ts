@@ -501,4 +501,124 @@ describe("createNodeRequestHandler", () => {
       }
     }
   });
+
+  describe("markdown negotiation and the static fast path", () => {
+    async function serveStaticApp({
+      headersManifest = {},
+      markdown = true,
+      markdownManifest,
+    }: {
+      headersManifest?: Record<string, Record<string, string>>;
+      markdown?: boolean;
+      markdownManifest?: Record<string, true>;
+    } = {}) {
+      const staticDir = makeTempDir();
+      const htmlDir = join(staticDir, "docs");
+      mkdirSync(htmlDir, { recursive: true });
+      writeFileSync(join(htmlDir, "index.html"), "<html><body>prerendered</body></html>", "utf-8");
+
+      let rendered = 0;
+      const app = defineApp({
+        routes: [route("/docs", "./routes/docs.tsx", { render: "ssg" })],
+      });
+      const handler = createNodeRequestHandler({
+        app,
+        headersManifest,
+        markdownManifest,
+        registry: {
+          routeModules: {
+            "./routes/docs.tsx": async () => ({
+              Component: () => {
+                rendered += 1;
+                return "<main>rendered</main>";
+              },
+              ...(markdown ? { markdown: "# Docs\n" } : {}),
+            }),
+          },
+        },
+        staticDir,
+      });
+
+      const server = createServer((req: IncomingMessage, res: ServerResponse) => {
+        void handler(req, res);
+      });
+      servers.add(server);
+      server.listen(0, "127.0.0.1");
+      await once(server, "listening");
+      const address = server.address();
+      if (!address || typeof address === "string") {
+        throw new Error("Expected TCP server address");
+      }
+
+      return {
+        get rendered() {
+          return rendered;
+        },
+        url: `http://127.0.0.1:${address.port}/docs`,
+      };
+    }
+
+    it("keeps serving the prerendered document when the route cannot answer with markdown", async () => {
+      const { rendered, url } = await serveStaticApp({
+        markdownManifest: { "/docs": true },
+      });
+
+      // A browser-shaped Accept that merely mentions markdown at a lower
+      // quality must not knock the request off the static file.
+      const response = await fetch(url, {
+        headers: { accept: "text/html,text/markdown;q=0.1" },
+      });
+
+      expect(response.status).toBe(200);
+      expect(response.headers.get("content-type")).toContain("text/html");
+      expect(await response.text()).toContain("prerendered");
+      expect(response.headers.get("etag")).not.toBeNull();
+      expect(rendered).toBe(0);
+    });
+
+    it("keeps serving non-markdown routes even when their own headers vary on Accept", async () => {
+      const { rendered, url } = await serveStaticApp({
+        headersManifest: { "/docs": { vary: "Accept" } },
+        markdown: false,
+        markdownManifest: {},
+      });
+
+      const response = await fetch(url, { headers: { accept: "text/markdown" } });
+
+      expect(response.status).toBe(200);
+      expect(response.headers.get("content-type")).toContain("text/html");
+      expect(await response.text()).toContain("prerendered");
+      expect(rendered).toBe(0);
+    });
+
+    it("falls through for legacy/custom entries without markdown metadata", async () => {
+      const { url } = await serveStaticApp();
+
+      const response = await fetch(url, { headers: { accept: "text/markdown" } });
+
+      expect(response.status).toBe(200);
+      expect(response.headers.get("content-type")).toContain("text/markdown");
+      expect(await response.text()).toBe("# Docs\n");
+    });
+
+    it("falls through when the exact route is in the markdown manifest", async () => {
+      const { url } = await serveStaticApp({ markdownManifest: { "/docs": true } });
+
+      const response = await fetch(url, { headers: { accept: "text/markdown" } });
+
+      expect(response.status).toBe(200);
+      expect(response.headers.get("content-type")).toContain("text/markdown");
+      expect(await response.text()).toBe("# Docs\n");
+    });
+
+    it("falls through when the request path normalizes to a markdown route", async () => {
+      const { url } = await serveStaticApp({ markdownManifest: { "/docs": true } });
+
+      const response = await fetch(`${url}//`, { headers: { accept: "text/markdown" } });
+
+      expect(response.status).toBe(200);
+      expect(response.headers.get("content-type")).toContain("text/markdown");
+      expect(await response.text()).toBe("# Docs\n");
+    });
+  });
 });

@@ -1247,6 +1247,37 @@ describe("prerenderApp", () => {
       "content-security-policy": "default-src 'self'",
       "x-plan": "MVP",
     });
+    expect(page.markdown).toBe(false);
+  });
+
+  it("records markdown support independently of user-defined Vary headers", async () => {
+    const app = defineApp({
+      routes: [
+        route("/html", "./routes/html.tsx", { render: "ssg" }),
+        route("/markdown", "./routes/markdown.tsx", { render: "ssg" }),
+      ],
+    });
+
+    const pages = await prerenderApp({
+      app,
+      registry: {
+        routeModules: {
+          "/src/routes/html.tsx": async () => ({
+            Component: () => h("main", null, "HTML"),
+            headers: () => ({ vary: "Accept" }),
+          }),
+          "/src/routes/markdown.tsx": async () => ({
+            Component: () => h("main", null, "Markdown"),
+            markdown: "# Markdown\n",
+          }),
+        },
+      },
+    });
+
+    expect(Object.fromEntries(pages.map((page) => [page.path, page.markdown]))).toEqual({
+      "/html": false,
+      "/markdown": true,
+    });
   });
 
   it.each([

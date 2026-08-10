@@ -177,6 +177,11 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
         page.headers ?? {},
       ]),
     );
+    const markdownManifest: Record<string, true> = Object.fromEntries(
+      pages
+        .filter((page: { markdown?: boolean }) => page.markdown)
+        .map((page: { path: string }) => [page.path, true]),
+    );
 
     // With Workers Caching enabled, time-revalidated ISG pages are rendered
     // on demand and cached at the edge. A prerendered static snapshot would
@@ -222,6 +227,19 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
       mkdirSync(resolve(clientDir, "_pracht"), { recursive: true });
       writeFileSync(resolve(clientDir, "_pracht/headers.json"), headersManifestJson, "utf-8");
     }
+
+    // Always emit this manifest, including for SSR-only apps with no
+    // prerendered pages. An absent file means "legacy/custom entry" to the
+    // adapters and deliberately preserves their old conservative fallback;
+    // `{}` is the authoritative proof that no static route serves Markdown.
+    const markdownManifestJson = `${JSON.stringify(markdownManifest, null, 2)}\n`;
+    writeFileSync(
+      resolve(root, "dist/server/markdown-manifest.json"),
+      markdownManifestJson,
+      "utf-8",
+    );
+    mkdirSync(resolve(clientDir, "_pracht"), { recursive: true });
+    writeFileSync(resolve(clientDir, "_pracht/markdown.json"), markdownManifestJson, "utf-8");
 
     if (Object.keys(isgManifest).length > 0) {
       const isgManifestPath = resolve(root, "dist/server/isg-manifest.json");

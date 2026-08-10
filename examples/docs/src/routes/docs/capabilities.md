@@ -217,6 +217,16 @@ The shim ships as its own chunk behind feature detection: browsers without the A
 
 ---
 
+## Cost When Unused
+
+Apps that register no capabilities and configure no `agents` do not ship the agent surface. During a production build, the vite plugin reads the manifest and lets the bundler drop both the capability dispatch and Web Bot Auth verifier when neither can be present, including when `llmsTxt` only indexes pages and API routes. Development keeps the runtime available so adding a capability does not require restarting the dev server.
+
+The analysis fails conservatively: unreadable or non-literal manifests, parse failures, spreads, shorthand registrations, computed keys, regular-expression literals, and other opaque syntax keep the runtime. Static analysis may preserve a few unused bytes, but it never silently disables a capability or agent configuration that works at runtime.
+
+The client stays opt-in too. Capability metadata only reaches the browser through `virtual:pracht/capabilities`, and the WebMCP shim is emitted only for capabilities that set `expose.webmcp`.
+
+---
+
 ## Inspect the Graph
 
 The capability graph feeds every inspection surface: the `pracht dev` startup banner, `pracht inspect capabilities [--json]`, the `/_pracht` devtools page, the `inspect_capabilities` tool on the `pracht mcp` server, and the static checks in `pracht verify`.

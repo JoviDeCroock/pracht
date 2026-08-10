@@ -289,7 +289,9 @@ export function scanTopLevelProperties(objectBody: string): Map<string, string> 
     if (char === '"' || char === "'") {
       const end = findStringEnd(objectBody, index);
       if (end === -1) break;
-      key = objectBody.slice(index + 1, end);
+      const decoded = evaluateLiteral(objectBody.slice(index, end + 1));
+      if (typeof decoded !== "string") break;
+      key = decoded;
       index = end + 1;
     } else {
       const match = /^[A-Za-z_$][A-Za-z0-9_$]*/.exec(objectBody.slice(index));

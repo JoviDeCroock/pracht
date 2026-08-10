@@ -468,9 +468,13 @@ describe("create-pracht", () => {
 
     expect(existsSync(join(targetDir, ".mcp.json"))).toBe(false);
     expect(existsSync(join(targetDir, ".claude"))).toBe(false);
+    // Opting out means no agent instruction files either.
+    expect(existsSync(join(targetDir, "AGENTS.md"))).toBe(false);
+    expect(existsSync(join(targetDir, "CLAUDE.md"))).toBe(false);
 
-    const agents = await readFile(join(targetDir, "AGENTS.md"), "utf-8");
-    expect(agents).not.toContain("## Agent tooling");
+    // The human-facing README still documents the same commands.
+    const readme = await readFile(join(targetDir, "README.md"), "utf-8");
+    expect(readme).toContain("pnpm dev");
   });
 
   it("initializes a git repository with an initial commit", async () => {

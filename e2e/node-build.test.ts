@@ -39,6 +39,14 @@ test("pracht build emits a deployable Node server entry", async () => {
   expect(existsSync(resolve(exampleDir, "dist/server/isg-manifest.json"))).toBe(true);
   expect(existsSync(resolve(exampleDir, "dist/client/_pracht/isg.json"))).toBe(false);
 
+  const markdownManifest = JSON.parse(
+    readFileSync(resolve(exampleDir, "dist/server/markdown-manifest.json"), "utf-8"),
+  );
+  expect(markdownManifest).toEqual({ "/": true });
+  expect(
+    JSON.parse(readFileSync(resolve(exampleDir, "dist/client/_pracht/markdown.json"), "utf-8")),
+  ).toEqual(markdownManifest);
+
   const serverSource = readFileSync(serverEntryPath, "utf-8");
   expect(serverSource).toContain('buildTarget = "node"');
   expect(serverSource).toContain("createNodeRequestHandler");
@@ -65,6 +73,12 @@ test("pracht build emits a deployable Node server entry", async () => {
     expect(homeHtml).not.toContain("/@pracht/client.js");
     expect(homeHtml).toMatch(/<script type="module" src="\/assets\/client-[^"]+\.js"><\/script>/);
     expect(homeHtml).toContain('rel="modulepreload"');
+
+    const homeMarkdown = await fetch(`http://127.0.0.1:${port}/`, {
+      headers: { accept: "text/markdown" },
+    });
+    expect(homeMarkdown.headers.get("content-type")).toContain("text/markdown");
+    expect(await homeMarkdown.text()).toContain("# Pracht Example");
 
     // Dynamic SSG routes should be prerendered as static HTML files
     for (const id of ["1", "2", "3"]) {
@@ -298,6 +312,53 @@ test("precompileSsrJsx opt-in precompiles server JSX and keeps the app deployabl
   } finally {
     server.kill("SIGTERM");
     await waitForExit(server);
+    rmSync(tempDir, { force: true, recursive: true });
+  }
+});
+
+test("SSR-only builds keep static assets on the fast path for Markdown requests", async () => {
+  test.setTimeout(120_000);
+
+  const { exampleDir, tempDir } = createTempExampleDir("pracht-node-ssr-only-");
+  const routesPath = resolve(exampleDir, "src/routes.ts");
+  const routesSource = readFileSync(routesPath, "utf-8")
+    .replaceAll('render: "ssg"', 'render: "ssr"')
+    .replace('render: "isg",\n        revalidate: timeRevalidate(3600),', 'render: "ssr",');
+  writeFileSync(routesPath, routesSource, "utf-8");
+
+  const port = 4320;
+  const origin = `http://127.0.0.1:${port}`;
+
+  let server: ReturnType<typeof spawn> | undefined;
+  try {
+    buildExample(exampleDir, { PRACHT_ADAPTER: "node", PRACHT_ORIGIN: origin });
+
+    expect(
+      JSON.parse(readFileSync(resolve(exampleDir, "dist/server/markdown-manifest.json"), "utf-8")),
+    ).toEqual({});
+    expect(
+      JSON.parse(readFileSync(resolve(exampleDir, "dist/client/_pracht/markdown.json"), "utf-8")),
+    ).toEqual({});
+
+    const serverEntryPath = resolve(exampleDir, "dist/server/server.js");
+    server = spawn(process.execPath, [serverEntryPath], {
+      cwd: exampleDir,
+      env: { ...process.env, PORT: String(port) },
+      stdio: "pipe",
+    });
+    await waitForServer(`${origin}/`);
+
+    const response = await fetch(`${origin}/robots.txt`, {
+      headers: { accept: "text/markdown" },
+    });
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toContain("text/plain");
+    await expect(response.text()).resolves.toContain("User-agent");
+  } finally {
+    if (server) {
+      server.kill("SIGTERM");
+      await waitForExit(server);
+    }
     rmSync(tempDir, { force: true, recursive: true });
   }
 });

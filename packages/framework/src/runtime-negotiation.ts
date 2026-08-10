@@ -1,6 +1,9 @@
 import { applyDefaultSecurityHeaders, appendVaryHeader } from "./runtime-headers.ts";
+import { normalizeRoutePath } from "./route-matching.ts";
 
 export const MARKDOWN_MEDIA_TYPE = "text/markdown";
+
+export type MarkdownManifest = Record<string, true>;
 
 interface AcceptEntry {
   type: string;
@@ -38,6 +41,16 @@ export function prefersMarkdown(accept: string | null): boolean {
   const html = entries.find((e) => e.type === "text/html");
   if (!html) return true;
   return md.quality >= html.quality;
+}
+
+/** Whether the build recorded a raw Markdown representation for this route. */
+export function routeSupportsMarkdown(
+  markdownManifest: MarkdownManifest,
+  pathname: string,
+): boolean {
+  const normalized = normalizeRoutePath(pathname);
+  const withoutIndex = normalized.replace(/\/index\.html$/, "") || "/";
+  return Boolean(markdownManifest[normalized] ?? markdownManifest[withoutIndex]);
 }
 
 export function markdownResponse(

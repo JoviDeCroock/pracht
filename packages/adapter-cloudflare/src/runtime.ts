@@ -10,11 +10,13 @@ import {
   isCacheableISGResponse,
   jsonResponse,
   type ModuleRegistry,
-  prefersMarkdown,
+  type MarkdownManifest,
   PRACHT_REVALIDATE_ENDPOINT,
   PRACHT_REVALIDATE_TOKEN_ENV,
+  prefersMarkdown,
   type ResolvedApiRoute,
   readRevalidationRequest,
+  routeSupportsMarkdown,
   setServerEnv,
   type PrachtApp,
 } from "@pracht/core/server";
@@ -67,6 +69,8 @@ export interface CloudflareAdapterOptions<
   jsManifest?: Record<string, string[]>;
   assetsBinding?: string;
   headersManifest?: HeadersManifest;
+  /** Exact Markdown-capable routes. Omit to preserve negotiation for legacy/custom entries. */
+  markdownManifest?: MarkdownManifest;
   isgManifest?: ISGManifest;
   createContext?: (args: CloudflareContextArgs<TEnv>) => TContext | Promise<TContext>;
   /**
@@ -151,6 +155,7 @@ export function createCloudflareFetchHandler<
         assetsBinding,
         options.isgManifest ?? {},
         options.headersManifest ?? {},
+        options.markdownManifest,
         renderISGPage,
       );
       if (isgResponse) return preventHeuristicCaching(request, isgResponse);
@@ -160,6 +165,7 @@ export function createCloudflareFetchHandler<
         env,
         assetsBinding,
         options.headersManifest ?? {},
+        options.markdownManifest,
       );
       if (assetResponse) {
         return assetResponse;
@@ -213,6 +219,7 @@ async function maybeServeAsset(
   env: Record<string, unknown>,
   assetsBinding: string,
   headersManifest: HeadersManifest = {},
+  markdownManifest?: MarkdownManifest,
 ): Promise<Response | null> {
   if (request.method !== "GET" && request.method !== "HEAD") {
     return null;
@@ -232,7 +239,7 @@ async function maybeServeAsset(
     return null;
   }
 
-  if ((request.headers.get("accept") ?? "").includes("text/markdown")) {
+  if (wantsRouteMarkdown(request, markdownManifest, url.pathname)) {
     return null;
   }
 
@@ -264,9 +271,10 @@ async function maybeServeISG<TEnv extends Record<string, unknown>>(
   assetsBinding: string,
   isgManifest: ISGManifest,
   headersManifest: HeadersManifest,
+  markdownManifest: MarkdownManifest | undefined,
   renderISGPage: (pathname: string, originalRequest: Request) => Promise<Response>,
 ): Promise<Response | null> {
-  if (!isDocumentAssetRequest(request)) return null;
+  if (!isDocumentAssetRequest(request, markdownManifest)) return null;
 
   const url = new URL(request.url);
   const entry = isgManifest[url.pathname];
@@ -285,7 +293,13 @@ async function maybeServeISG<TEnv extends Record<string, unknown>>(
     return prepareCloudflareISGResponse(cached, headersManifest, url.pathname, stale);
   }
 
-  const assetResponse = await maybeServeAsset(request, env, assetsBinding, headersManifest);
+  const assetResponse = await maybeServeAsset(
+    request,
+    env,
+    assetsBinding,
+    headersManifest,
+    markdownManifest,
+  );
   if (!assetResponse) return null;
 
   const stale = isCloudflareISGStale(entry, assetResponse);
@@ -408,10 +422,7 @@ function applyHeadersManifest(
   headersManifest: HeadersManifest,
   pathname: string,
 ): void {
-  const withoutIndex = pathname.replace(/\/index\.html$/, "") || "/";
-  const withoutSlash = pathname.replace(/\/$/, "") || "/";
-  const routeHeaders =
-    headersManifest[pathname] ?? headersManifest[withoutSlash] ?? headersManifest[withoutIndex];
+  const routeHeaders = getManifestHeaders(headersManifest, pathname);
   if (!routeHeaders) return;
 
   for (const [key, value] of Object.entries(routeHeaders)) {
@@ -419,11 +430,42 @@ function applyHeadersManifest(
   }
 }
 
+function getManifestHeaders(
+  headersManifest: HeadersManifest,
+  pathname: string,
+): Record<string, string> | undefined {
+  const withoutIndex = pathname.replace(/\/index\.html$/, "") || "/";
+  const withoutSlash = pathname.replace(/\/$/, "") || "/";
+  return (
+    headersManifest[pathname] ?? headersManifest[withoutSlash] ?? headersManifest[withoutIndex]
+  );
+}
+
+/**
+ * A request may only skip the assets binding / edge cache when it explicitly
+ * prefers markdown over HTML and the build's exact markdown manifest includes
+ * the route. Missing metadata means a legacy/custom entry, so preserve correct
+ * negotiation by falling through as older adapters did.
+ */
+function wantsRouteMarkdown(
+  request: Request,
+  markdownManifest: MarkdownManifest | undefined,
+  pathname: string,
+): boolean {
+  return (
+    prefersMarkdown(request.headers.get("accept")) &&
+    (markdownManifest === undefined || routeSupportsMarkdown(markdownManifest, pathname))
+  );
+}
+
 function isFetcher(value: unknown): value is CloudflareFetcher {
   return typeof value === "object" && value !== null && "fetch" in value;
 }
 
-function isDocumentAssetRequest(request: Request): boolean {
+function isDocumentAssetRequest(
+  request: Request,
+  markdownManifest: MarkdownManifest | undefined,
+): boolean {
   if (request.method !== "GET" && request.method !== "HEAD") return false;
 
   const url = new URL(request.url);
@@ -434,7 +476,7 @@ function isDocumentAssetRequest(request: Request): boolean {
     return false;
   }
 
-  return !(request.headers.get("accept") ?? "").includes("text/markdown");
+  return !wantsRouteMarkdown(request, markdownManifest, url.pathname);
 }
 
 function createISGCacheKey(request: Request, pathname: string): Request {

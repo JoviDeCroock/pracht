@@ -379,6 +379,7 @@ dist/
     blog/hello/index.html
   server/
     headers-manifest.json       # Prerendered document headers
+    markdown-manifest.json      # Routes with raw Markdown representations
     isg-manifest.json           # ISG revalidation config
     server.js                  # Platform entry module
 ```

@@ -1,7 +1,5 @@
 import { h } from "preact";
 import type { FunctionComponent } from "preact";
-import { normalizeCapabilityHttpPath } from "@pracht/capabilities";
-
 import { matchApiRoute, matchAppRoute, resolveApp } from "./app.ts";
 import { ROUTE_STATE_REQUEST_HEADER, SAFE_METHODS } from "./runtime-constants.ts";
 import {
@@ -39,18 +37,7 @@ import {
   mergeHeadMetadata,
   runMiddlewareChain,
 } from "./runtime-middleware.ts";
-import {
-  CAPABILITY_HTTP_PREFIX,
-  envelopeResponse,
-  handleCapabilityRequest,
-  isRegisteredCapabilityHttpPath,
-  matchCapabilityRoute,
-  resolveAppCapabilities,
-  setActiveCapabilityHost,
-  type ResolvedCapability,
-} from "./runtime-capabilities.ts";
-import { verifyAgentSignature } from "./runtime-agent-auth.ts";
-import { handleMcpRequest, resolveMcpEndpoint } from "./runtime-mcp.ts";
+import type { ResolvedCapability } from "./runtime-capabilities.ts";
 import { buildRouteStateUrl } from "./runtime-client-fetch.ts";
 import {
   getRenderToStringAsync,
@@ -81,6 +68,19 @@ import type {
 } from "./types.ts";
 
 const SAME_ORIGIN_FETCH_SITE = "same-origin";
+
+/**
+ * Build-time proof that the app has no agent surface at all — no registered
+ * capabilities and no `defineApp({ agents })`. The vite plugin only defines it
+ * as `false` when it can read the manifest and see both are absent; anything it
+ * cannot prove (a pages-router app, an unreadable manifest, a spread config)
+ * leaves it undefined and the runtime checks below decide as before.
+ *
+ * When it is `false` the capability and Web Bot Auth runtimes are unreachable,
+ * so the bundler drops both from the server bundle: an app that does not use
+ * the agent surface does not ship it. See docs/CAPABILITIES.md.
+ */
+declare const __PRACHT_AGENT_SURFACE__: boolean | undefined;
 
 /**
  * Stricter variant of first-party detection used to protect API requests
@@ -248,30 +248,51 @@ export async function handlePrachtRequest<TContext>(
     );
   }
 
-  // Register the capability host so `invokeCapability()` works from loaders,
-  // API routes, and middleware during this request. One assignment — free
-  // for apps without capabilities.
-  setActiveCapabilityHost(
-    options.request,
-    options.app,
-    registry,
-    "http",
-    options.onCapabilityAudit,
-  );
-
-  // Web Bot Auth: verify the agent signature once per request when the app
-  // opted in via `defineApp({ agents: { webBotAuth } })`. The result (identity
-  // or null) lands on the shared request context before middleware, loaders,
-  // API routes, or capabilities run. Apps without the config skip everything —
-  // a single property check.
   const requestContext = (options.context ?? {}) as TContext;
-  const webBotAuth = options.app.agents?.webBotAuth;
+  const hasCapabilities = Object.keys(options.app.capabilities ?? {}).length > 0;
+  const mcpConfig = options.app.agents?.mcp;
+  let capabilityRuntime: typeof import("./runtime-capabilities.ts") | null = null;
+  let mcpRuntime: typeof import("./runtime-mcp.ts") | null = null;
   let agent: PrachtAgentIdentity | null = null;
-  if (webBotAuth) {
-    if (options.request.headers.has("signature-input")) {
-      agent = await verifyAgentSignature(options.request, webBotAuth);
+
+  // The agent surface loads on demand: apps that register no capabilities and
+  // configure no agents never import either module, and builds that can prove
+  // it statically drop them from the bundle outright.
+  if (typeof __PRACHT_AGENT_SURFACE__ === "undefined" || __PRACHT_AGENT_SURFACE__) {
+    // Register the capability host so `invokeCapability()` works from loaders,
+    // API routes, and middleware during this request.
+    if (hasCapabilities || mcpConfig) {
+      [capabilityRuntime, mcpRuntime] = await Promise.all([
+        import("./runtime-capabilities.ts"),
+        mcpConfig ? import("./runtime-mcp.ts") : Promise.resolve(null),
+      ]);
+      capabilityRuntime.setActiveCapabilityHost(
+        options.request,
+        options.app,
+        registry,
+        "http",
+        options.onCapabilityAudit,
+      );
     }
-    (requestContext as PrachtContextExtensions).agent = agent;
+
+    // Web Bot Auth: verify the agent signature once per request when the app
+    // opted in via `defineApp({ agents: { webBotAuth } })`. The result (identity
+    // or null) lands on the shared request context before middleware, loaders,
+    // API routes, or capabilities run. Apps without the config skip everything —
+    // a single property check.
+    const webBotAuth = options.app.agents?.webBotAuth;
+    if (webBotAuth) {
+      if (options.request.headers.has("signature-input")) {
+        const { verifyAgentSignature } = await import("./runtime-agent-auth.ts");
+        agent = await verifyAgentSignature(options.request, webBotAuth);
+      }
+      (requestContext as PrachtContextExtensions).agent = agent;
+    }
+  } else if (hasCapabilities || options.app.agents) {
+    // The build proved there was no agent surface and dropped the runtime, yet
+    // one is registered here. Only reachable if the manifest analyzer missed a
+    // registration; say so loudly rather than 404ing capabilities in silence.
+    warnAgentSurfaceElided();
   }
 
   if (options.apiRoutes?.length) {
@@ -363,12 +384,20 @@ export async function handlePrachtRequest<TContext>(
   // matched above). A configured MCP endpoint remains live with an empty or
   // broken graph so clients receive an empty list or a protocol error instead
   // of falling through to the application's page router.
-  const hasCapabilities = Object.keys(options.app.capabilities ?? {}).length > 0;
-  const mcpConfig = options.app.agents?.mcp;
   const isMcpRequest =
     !!mcpConfig &&
-    normalizeCapabilityHttpPath(url.pathname) === resolveMcpEndpoint(options.app.agents);
-  if (hasCapabilities || isMcpRequest) {
+    !!mcpRuntime &&
+    mcpRuntime.normalizeMcpRequestPath(url.pathname) ===
+      mcpRuntime.resolveMcpEndpoint(options.app.agents);
+  if (capabilityRuntime && (hasCapabilities || isMcpRequest)) {
+    const {
+      CAPABILITY_HTTP_PREFIX,
+      envelopeResponse,
+      handleCapabilityRequest,
+      isRegisteredCapabilityHttpPath,
+      matchCapabilityRoute,
+      resolveAppCapabilities,
+    } = capabilityRuntime;
     let capabilities: ResolvedCapability[] | null = hasCapabilities ? null : [];
     let capabilityResolutionError: unknown;
     try {
@@ -399,8 +428,8 @@ export async function handlePrachtRequest<TContext>(
       }
     }
 
-    if (isMcpRequest && mcpConfig) {
-      const mcpResponse = await handleMcpRequest({
+    if (isMcpRequest && mcpConfig && mcpRuntime) {
+      const mcpResponse = await mcpRuntime.handleMcpRequest({
         app: options.app,
         capabilities: capabilities ?? [],
         context: requestContext,
@@ -938,6 +967,21 @@ function createNotFoundMatch(app: ResolvedPrachtApp, pathname: string): RouteMat
 
 function isNotFoundError(error: unknown): boolean {
   return isPrachtHttpError(error) && error.status === 404;
+}
+
+let warnedAgentSurfaceElided = false;
+
+/** Build/runtime disagreement about the agent surface — log it once. */
+function warnAgentSurfaceElided(): void {
+  if (warnedAgentSurfaceElided) return;
+  warnedAgentSurfaceElided = true;
+  console.error(
+    "[pracht] This build dropped the capability and agent-trust runtime because the app " +
+      "manifest registered neither, but the running app has capabilities or an `agents` " +
+      "config. Capability requests will 404 and agent signatures will not be verified. " +
+      "Register capabilities as literal entries in `defineApp({ capabilities })` so the " +
+      "build can see them, then rebuild.",
+  );
 }
 
 let warnedCapabilityResolutionFailure = false;

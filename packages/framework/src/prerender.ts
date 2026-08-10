@@ -15,6 +15,8 @@ export interface PrerenderResult {
   path: string;
   html: string;
   headers?: Record<string, string>;
+  /** Whether the route module exports a raw Markdown representation. */
+  markdown: boolean;
 }
 
 export interface ISGManifestEntry {
@@ -56,6 +58,7 @@ export async function prerenderApp(
     pathname: string;
     render: string;
     revalidate?: RouteRevalidate;
+    route: ResolvedRoute;
   }[] = [];
   for (const route of resolved.routes) {
     if (route.render !== "ssg" && route.render !== "isg") continue;
@@ -64,7 +67,7 @@ export async function prerenderApp(
       if (route.render === "isg" && route.revalidate) {
         normalizeRouteRevalidate(route.revalidate);
       }
-      work.push({ pathname, render: route.render, revalidate: route.revalidate });
+      work.push({ pathname, render: route.render, revalidate: route.revalidate, route });
     }
   }
 
@@ -80,14 +83,17 @@ export async function prerenderApp(
         const url = new URL(item.pathname, "http://localhost");
         const request = new Request(url, { method: "GET" });
 
-        const response = await handlePrachtRequest({
-          app: options.app,
-          request,
-          registry: options.registry,
-          clientEntryUrl: options.clientEntryUrl,
-          cssManifest: options.cssManifest,
-          jsManifest: options.jsManifest,
-        });
+        const [response, routeModule] = await Promise.all([
+          handlePrachtRequest({
+            app: options.app,
+            request,
+            registry: options.registry,
+            clientEntryUrl: options.clientEntryUrl,
+            cssManifest: options.cssManifest,
+            jsManifest: options.jsManifest,
+          }),
+          resolveRegistryModule<RouteModule>(options.registry?.routeModules, item.route.file),
+        ]);
 
         if (response.status !== 200) {
           console.warn(
@@ -99,7 +105,12 @@ export async function prerenderApp(
         assertSafePrerenderHeaders(response.headers, item);
 
         const html = await response.text();
-        return { headers: Object.fromEntries(response.headers), html, item };
+        return {
+          headers: Object.fromEntries(response.headers),
+          html,
+          item,
+          markdown: typeof routeModule?.markdown === "string",
+        };
       }),
     );
 
@@ -109,6 +120,7 @@ export async function prerenderApp(
         path: result.item.pathname,
         html: result.html,
         headers: result.headers,
+        markdown: result.markdown,
       });
       if (result.item.render === "isg" && result.item.revalidate) {
         isgManifest[result.item.pathname] = {

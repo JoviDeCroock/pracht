@@ -90,6 +90,12 @@ export {
 export type { MemoryApprovalStoreOptions } from "./runtime-approval.ts";
 export { verifyAgentSignature } from "./runtime-agent-auth.ts";
 export type { VerifyAgentSignatureOptions } from "./runtime-agent-auth.ts";
+export {
+  MARKDOWN_MEDIA_TYPE,
+  prefersMarkdown,
+  routeSupportsMarkdown,
+} from "./runtime-negotiation.ts";
+export type { MarkdownManifest } from "./runtime-negotiation.ts";
 export { resolveRegistryModule } from "./runtime-manifest.ts";
 export { createCapabilityTestHost } from "./testing-capabilities.ts";
 export type {
@@ -100,7 +106,6 @@ export type {
 } from "./testing-capabilities.ts";
 export { buildLlmsTxt } from "./llms-txt.ts";
 export type { BuildLlmsTxtOptions, LlmsTxtSection } from "./llms-txt.ts";
-export { prefersMarkdown } from "./runtime-negotiation.ts";
 export { prerenderApp } from "./prerender.ts";
 export {
   createISGRegenerationRequest,

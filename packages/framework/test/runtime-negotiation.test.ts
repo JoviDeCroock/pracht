@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import { defineApp, handlePrachtRequest, route } from "../src/index.ts";
-import { markdownResponse, prefersMarkdown } from "../src/runtime-negotiation.ts";
+import {
+  markdownResponse,
+  prefersMarkdown,
+  routeSupportsMarkdown,
+} from "../src/runtime-negotiation.ts";
 
 describe("prefersMarkdown", () => {
   it("returns false when the header is absent or empty", () => {
@@ -22,6 +26,21 @@ describe("prefersMarkdown", () => {
     expect(prefersMarkdown("text/html;q=0.9, text/markdown;q=1.0")).toBe(true);
     expect(prefersMarkdown("text/markdown;q=0.5, text/html;q=0.9")).toBe(false);
     expect(prefersMarkdown("text/markdown;q=0")).toBe(false);
+  });
+});
+
+describe("routeSupportsMarkdown", () => {
+  it("matches exact, normalized, trailing-slash, and index-document paths", () => {
+    const manifest = { "/docs": true } as const;
+    expect(routeSupportsMarkdown(manifest, "/docs")).toBe(true);
+    expect(routeSupportsMarkdown(manifest, "/docs/")).toBe(true);
+    expect(routeSupportsMarkdown(manifest, "//docs//")).toBe(true);
+    expect(routeSupportsMarkdown(manifest, "/docs/index.html")).toBe(true);
+  });
+
+  it("does not infer support from unrelated routes", () => {
+    expect(routeSupportsMarkdown({ "/docs": true }, "/pricing")).toBe(false);
+    expect(routeSupportsMarkdown({}, "/docs")).toBe(false);
   });
 });
 

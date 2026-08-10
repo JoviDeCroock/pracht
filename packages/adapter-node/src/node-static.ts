@@ -110,7 +110,7 @@ export function applyHeadersManifest(
   }
 }
 
-function getManifestHeaders(
+export function getManifestHeaders(
   headersManifest: HeadersManifest,
   pathname: string,
 ): Record<string, string> | undefined {

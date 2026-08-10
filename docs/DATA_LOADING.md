@@ -35,7 +35,10 @@ negotiation: when a request arrives with `Accept: text/markdown`, the runtime
 still executes middleware, the route loader, and document header resolution
 first, then returns the raw markdown source with `Content-Type: text/markdown`
 instead of rendering the component. Both the HTML and markdown responses carry
-`Vary: Accept`; routes without a `markdown` export do not vary on `Accept`.
+`Vary: Accept`; routes without a `markdown` export do not vary on `Accept` — and
+their prerendered document keeps answering markdown-preferring requests instead
+of falling through to a render (see
+[ADAPTERS.md](ADAPTERS.md#markdown-and-the-static-fast-path)).
 
 ### LoaderArgs
 
