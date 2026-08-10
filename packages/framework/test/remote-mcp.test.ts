@@ -180,11 +180,13 @@ const notesComposeDestructive = defineCapability({
   effect: "read",
   expose: { mcp: true },
   async run({ request, context, signal }) {
+    const compositionRequest =
+      (context as { originalRequest?: Request }).originalRequest ?? request;
     const result = await invokeCapability(
       "notes.destroy" as never,
       {},
       {
-        request,
+        request: compositionRequest,
         context,
         signal,
       },
@@ -364,6 +366,7 @@ function createApp(agents: PrachtAgentsConfig | undefined) {
 interface McpCallOptions {
   agents?: PrachtAgentsConfig;
   context?: unknown;
+  contextFactory?: (request: Request) => unknown;
   headers?: Record<string, string>;
   method?: string;
   path?: string;
@@ -376,16 +379,17 @@ async function mcp(message: unknown, options: McpCallOptions = {}) {
   const { app, registry } = createApp("agents" in options ? options.agents : { mcp: {} });
   const url = `${ORIGIN}${options.path ?? "/mcp"}`;
   const method = options.method ?? "POST";
+  const request = new Request(url, {
+    method,
+    headers: { "content-type": "application/json", ...options.headers },
+    body:
+      method === "GET" ? undefined : (options.rawBody ?? JSON.stringify(options.body ?? message)),
+  });
   const response = await handlePrachtRequest({
     app,
-    context: options.context,
+    context: options.contextFactory?.(request) ?? options.context,
     registry,
-    request: new Request(url, {
-      method,
-      headers: { "content-type": "application/json", ...options.headers },
-      body:
-        method === "GET" ? undefined : (options.rawBody ?? JSON.stringify(options.body ?? message)),
-    }),
+    request,
     onCapabilityAudit: options.onCapabilityAudit,
   });
   const text = await response.clone().text();
@@ -917,6 +921,19 @@ describe("tools/call runs the same pipeline as the HTTP projection", () => {
       transport: "mcp",
       outcome: "ok",
     });
+  });
+
+  it("keeps MCP guards on an incoming request retained by adapter context", async () => {
+    const { json } = await callTool(
+      "notes_compose-destructive",
+      {},
+      {
+        contextFactory: (request) => ({ originalRequest: request }),
+      },
+    );
+
+    expect(json?.result.structuredContent).toEqual({ code: "forbidden" });
+    expect(destroyed).toEqual([]);
   });
 
   it("reports schema violations as tool errors carrying the issues", async () => {

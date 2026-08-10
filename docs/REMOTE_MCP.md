@@ -74,6 +74,8 @@ own validation and named middleware. Because the host also carries trusted MCP
 provenance, nested calls re-apply the callee's `agentPolicy` and reject
 `destructive` effects before their middleware or body runs. See
 [Remote MCP composition is guarded](AGENT_TRUST.md#remote-mcp-composition-is-guarded).
+The incoming transport request carries the same provenance, so adapter context
+that retains that request cannot escape the nested-call guard.
 Every allowed or denied nested dispatch audits as
 `{ transport: "server", via: "mcp" }`, so the remote agent's indirect effects
 and attempts stay attributable.

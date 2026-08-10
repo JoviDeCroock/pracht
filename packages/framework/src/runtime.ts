@@ -259,20 +259,11 @@ export async function handlePrachtRequest<TContext>(
   // configure no agents never import either module, and builds that can prove
   // it statically drop them from the bundle outright.
   if (typeof __PRACHT_AGENT_SURFACE__ === "undefined" || __PRACHT_AGENT_SURFACE__) {
-    // Register the capability host so `invokeCapability()` works from loaders,
-    // API routes, and middleware during this request.
     if (hasCapabilities || mcpConfig) {
       [capabilityRuntime, mcpRuntime] = await Promise.all([
         import("./runtime-capabilities.ts"),
         mcpConfig ? import("./runtime-mcp.ts") : Promise.resolve(null),
       ]);
-      capabilityRuntime.setActiveCapabilityHost(
-        options.request,
-        options.app,
-        registry,
-        "http",
-        options.onCapabilityAudit,
-      );
     }
     // Web Bot Auth: verify the agent signature once per request when the app
     // opted in via `defineApp({ agents: { webBotAuth } })`. The result (identity
@@ -288,6 +279,19 @@ export async function handlePrachtRequest<TContext>(
       }
       requestContext = bindAgentContext(requestContext, agent);
       agent = requestContext.agent ?? null;
+    }
+
+    // Register the request so `invokeCapability()` works from loaders, API
+    // routes, and middleware. An actual MCP dispatch replaces this provenance
+    // after explicit API-route precedence has been resolved below.
+    if (capabilityRuntime && (hasCapabilities || mcpConfig)) {
+      capabilityRuntime.setActiveCapabilityHost(
+        options.request,
+        options.app,
+        registry,
+        "http",
+        options.onCapabilityAudit,
+      );
     }
   } else if (hasCapabilities || options.app.agents) {
     // The build proved there was no agent surface and dropped the runtime, yet
@@ -406,6 +410,19 @@ export async function handlePrachtRequest<TContext>(
     mcpRuntime.normalizeMcpRequestPath(url.pathname) ===
       mcpRuntime.resolveMcpEndpoint(options.app.agents);
   if (capabilityRuntime && (hasCapabilities || isMcpRequest)) {
+    if (isMcpRequest) {
+      // Adapter contexts may retain the incoming transport request. Bind the
+      // same trusted provenance as the synthesized capability request so that
+      // using either request for composition preserves the MCP guard.
+      capabilityRuntime.setActiveCapabilityHost(
+        options.request,
+        options.app,
+        registry,
+        "mcp",
+        options.onCapabilityAudit,
+        agent,
+      );
+    }
     const {
       CAPABILITY_HTTP_PREFIX,
       envelopeResponse,

@@ -84,6 +84,14 @@ function immutableAgentContext<TContext>(
   });
 
   const boundMethods = new WeakMap<ContextMethod, ContextMethod>();
+  const bindContextMethod = (method: ContextMethod): ContextMethod => {
+    let bound = boundMethods.get(method);
+    if (!bound) {
+      bound = method.bind(context);
+      boundMethods.set(method, bound);
+    }
+    return bound;
+  };
   const materializedContextKeys = new Set<PropertyKey>();
   return new Proxy(target, {
     apply(_target, thisArg, args) {
@@ -115,13 +123,7 @@ function immutableAgentContext<TContext>(
         return targetDescriptor.value;
       }
 
-      const method = value as ContextMethod;
-      let bound = boundMethods.get(method);
-      if (!bound) {
-        bound = method.bind(context);
-        boundMethods.set(method, bound);
-      }
-      return bound;
+      return bindContextMethod(value as ContextMethod);
     },
     set(target, property, value) {
       if (materializedContextKeys.has(property)) {
@@ -193,7 +195,21 @@ function immutableAgentContext<TContext>(
     preventExtensions(target) {
       for (const property of Reflect.ownKeys(context)) {
         if (Object.prototype.hasOwnProperty.call(target, property)) continue;
-        const descriptor = Reflect.getOwnPropertyDescriptor(context, property);
+        let descriptor: PropertyDescriptor | undefined = Reflect.getOwnPropertyDescriptor(
+          context,
+          property,
+        );
+        if (
+          descriptor &&
+          "value" in descriptor &&
+          typeof descriptor.value === "function" &&
+          property !== "constructor"
+        ) {
+          descriptor = {
+            ...descriptor,
+            value: bindContextMethod(descriptor.value as ContextMethod),
+          };
+        }
         if (!descriptor || !Reflect.defineProperty(target, property, descriptor)) return false;
         materializedContextKeys.add(property);
       }

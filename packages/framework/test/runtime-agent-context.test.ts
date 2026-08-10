@@ -123,14 +123,21 @@ describe("bindAgentContext", () => {
   });
 
   it("keeps own methods readable after freezing the overlay", () => {
-    const original = Object.freeze({
-      tenant: "one",
-      readTenant() {
-        return this.tenant;
-      },
-    });
+    class OwnMethodContext {
+      #tenant = "one";
+      readonly readTenant: () => string;
+
+      constructor() {
+        this.readTenant = function (this: OwnMethodContext) {
+          return this.#tenant;
+        };
+      }
+    }
+
+    const original = Object.freeze(new OwnMethodContext());
     const context = bindAgentContext(original, null);
 
+    expect(context.readTenant()).toBe("one");
     Object.freeze(context);
 
     expect(context.readTenant()).toBe("one");

@@ -8,5 +8,6 @@ receiver, including setters declared on the context prototype, while middleware
 can still add request-local fields to the extensible context overlay. Immutable
 class contexts retain their constructor identity, and freezing, sealing, or
 preventing extensions on the overlay preserves valid proxy object semantics,
-including contexts with own methods. Reflective writes cannot shadow or report
-deleting fields owned by the original immutable context.
+including contexts with own methods that use private fields. Reflective writes
+cannot shadow or report deleting fields owned by the original immutable
+context.
