@@ -13,6 +13,38 @@ import {
 
 afterEach(cleanupTempDirs);
 
+function writeCloudflareManifestApp(appDir) {
+  writeManifestApp(appDir);
+  writeProjectFile(
+    appDir,
+    "package.json",
+    JSON.stringify(
+      {
+        name: "fixture-app",
+        private: true,
+        dependencies: {
+          "@pracht/adapter-cloudflare": "workspace:*",
+          "@pracht/cli": "workspace:*",
+        },
+      },
+      null,
+      2,
+    ),
+  );
+  writeProjectFile(
+    appDir,
+    "vite.config.ts",
+    `import { defineConfig } from "vite";
+import { pracht } from "@pracht/vite-plugin";
+import { cloudflareAdapter } from "@pracht/adapter-cloudflare";
+
+export default defineConfig({
+  plugins: [pracht({ adapter: cloudflareAdapter() })],
+});
+`,
+  );
+}
+
 describe("@pracht/cli doctor and verify", () => {
   it("reports a healthy manifest app in doctor json output", () => {
     const appDir = createTempDir("pracht-cli-doctor-ok-");
@@ -276,5 +308,130 @@ export const app = defineApp({
           check.message.includes("src/routes/dashboard.tsx"),
       ),
     ).toBe(true);
+  });
+  it("flags a Cloudflare wrangler config pointing at the non-worker server entry", () => {
+    const appDir = createTempDir("pracht-cli-doctor-cf-entry-");
+    writeCloudflareManifestApp(appDir);
+    writeProjectFile(
+      appDir,
+      "wrangler.jsonc",
+      `{
+  "name": "fixture-app",
+  "main": "dist/server/server.js",
+  "compatibility_date": "2026-04-06"
+}
+`,
+    );
+
+    const result = runCli(["doctor", "--json"], { cwd: appDir });
+    const report = JSON.parse(result.stdout);
+
+    // A warning, not an error: adapter detection and wrangler parsing are both
+    // heuristics, so this must never fail a build.
+    expect(report.ok).toBe(true);
+    expect(
+      report.checks.some(
+        (check) =>
+          check.status === "warning" &&
+          check.message.includes("wrangler.jsonc") &&
+          check.message.includes("dist/server/worker.js"),
+      ),
+    ).toBe(true);
+  });
+
+  it("flags a Cloudflare env override pointing at the non-worker server entry", () => {
+    const appDir = createTempDir("pracht-cli-doctor-cf-env-");
+    writeCloudflareManifestApp(appDir);
+    writeProjectFile(
+      appDir,
+      "wrangler.jsonc",
+      `{
+  "name": "fixture-app",
+  // "main": "dist/server/server.js",
+  "main": "dist/server/worker.js",
+  "env": { "production": { "main": "dist/server/server.js" } }
+}
+`,
+    );
+
+    const result = runCli(["doctor", "--json"], { cwd: appDir });
+    const report = JSON.parse(result.stdout);
+
+    expect(
+      report.checks.some(
+        (check) => check.status === "warning" && check.message.includes('environment "production"'),
+      ),
+    ).toBe(true);
+  });
+
+  it("does not flag a commented-out Cloudflare main", () => {
+    const appDir = createTempDir("pracht-cli-doctor-cf-comment-");
+    writeCloudflareManifestApp(appDir);
+    writeProjectFile(
+      appDir,
+      "wrangler.jsonc",
+      `{
+  "name": "fixture-app",
+  // "main": "dist/server/server.js",
+  "main": "dist/server/worker.js",
+}
+`,
+    );
+
+    const result = runCli(["doctor", "--json"], { cwd: appDir });
+    const report = JSON.parse(result.stdout);
+
+    expect(report.ok).toBe(true);
+    // Silence on success: the reader skips wrangler shapes it does not
+    // recognize, so a clean pass is "nothing provably wrong", not "verified".
+    expect(report.checks.some((check) => check.message.includes("wrangler"))).toBe(false);
+  });
+
+  it("ignores a wrangler config when the app does not build for Cloudflare", () => {
+    const appDir = createTempDir("pracht-cli-doctor-cf-other-adapter-");
+    writeManifestApp(appDir);
+    writeProjectFile(
+      appDir,
+      "package.json",
+      JSON.stringify(
+        {
+          name: "fixture-app",
+          private: true,
+          dependencies: { "@pracht/cli": "workspace:*" },
+          devDependencies: { "@pracht/adapter-cloudflare": "workspace:*" },
+        },
+        null,
+        2,
+      ),
+    );
+    writeProjectFile(
+      appDir,
+      "wrangler.toml",
+      'name = "side-worker"\nmain = "dist/server/server.js"\n',
+    );
+
+    const result = runCli(["doctor", "--json"], { cwd: appDir });
+    const report = JSON.parse(result.stdout);
+
+    expect(report.ok).toBe(true);
+    expect(report.checks.some((check) => check.message.includes("wrangler"))).toBe(false);
+  });
+
+  it("accepts a Cloudflare wrangler config pointing at the built worker entry", () => {
+    const appDir = createTempDir("pracht-cli-doctor-cf-entry-ok-");
+    writeCloudflareManifestApp(appDir);
+    writeProjectFile(
+      appDir,
+      "wrangler.toml",
+      'name = "fixture-app"\nmain = "dist/server/worker.js"\n',
+    );
+
+    const result = runCli(["doctor", "--json"], { cwd: appDir });
+    const report = JSON.parse(result.stdout);
+
+    expect(report.ok).toBe(true);
+    // Silence on success: the reader skips wrangler shapes it does not
+    // recognize, so a clean pass is "nothing provably wrong", not "verified".
+    expect(report.checks.some((check) => check.message.includes("wrangler"))).toBe(false);
   });
 });

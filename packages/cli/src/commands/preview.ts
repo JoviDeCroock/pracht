@@ -7,10 +7,10 @@ import { defineCommand } from "citty";
 
 import { requirePositiveInteger } from "../utils.js";
 import { readProjectConfig, type ProjectConfig } from "../project.js";
+import { findWranglerConfig } from "../wrangler-config.js";
 import { runBuild } from "./build.js";
 
 const SERVER_ENTRY = "dist/server/server.js";
-const WRANGLER_CONFIG_FILES = ["wrangler.jsonc", "wrangler.json", "wrangler.toml"];
 const ADAPTER_TARGETS = new Set(["cloudflare", "node", "vercel"]);
 
 export type AdapterTarget = "cloudflare" | "node" | "vercel";
@@ -159,14 +159,6 @@ async function readBuildTarget(root: string): Promise<AdapterTarget | null> {
   } catch {
     return null;
   }
-}
-
-function findWranglerConfig(root: string): string | null {
-  for (const name of WRANGLER_CONFIG_FILES) {
-    const candidate = resolve(root, name);
-    if (existsSync(candidate)) return candidate;
-  }
-  return null;
 }
 
 function printVercelGuidance(): void {

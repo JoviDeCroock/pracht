@@ -970,7 +970,11 @@ function createWranglerConfig(projectName) {
     "{",
     '  "$schema": "node_modules/wrangler/config-schema.json",',
     `  "name": ${JSON.stringify(projectName)},`,
-    '  "main": "dist/server/server.js",',
+    // `pracht build` writes this thin wrapper next to server.js. It re-exports
+    // only the default handler and any Worker entrypoint classes: workerd
+    // validates every named export of the deployed entry module and rejects the
+    // build metadata (buildTarget, manifests, ...) server.js also exports.
+    '  "main": "dist/server/worker.js",',
     `  "compatibility_date": ${JSON.stringify(compatibilityDate)},`,
     '  "assets": {',
     '    "binding": "ASSETS",',
