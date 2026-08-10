@@ -594,7 +594,8 @@ in-process for unit tests — no manifest, no Vite, no server. `invoke()`
 mirrors `invokeCapability()` and is typed from the generics retained by that
 host's supplied capability map, including test-only aliases; `request()` mirrors the HTTP projection,
 including Web Bot Auth policy (inject a simulated identity via the `agent`
-option) and the destructive prepare/commit confirmation flow (set
+option, which is bound as the same immutable snapshot production uses) and the
+destructive prepare/commit confirmation flow (set
 `PRACHT_CONFIRMATION_SECRET` or call `setCapabilityConfirmationSecret()` in
 test setup). See `packages/framework/test/capability-test-host.test.ts` for
 worked examples.

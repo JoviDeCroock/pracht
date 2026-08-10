@@ -24,6 +24,7 @@
 import type { Capability } from "@pracht/capabilities";
 
 import { formatUnknownNameError } from "./name-suggestions.ts";
+import { bindAgentContext } from "./runtime-agent-context.ts";
 import {
   handleCapabilityRequest,
   invokeCapabilityOnHost,
@@ -192,11 +193,15 @@ export function createCapabilityTestHost<
         );
       }
 
-      const agent = requestOptions.agent ?? null;
-      const context: Record<string, unknown> = { ...requestOptions.context };
+      let agent = requestOptions.agent ?? null;
+      let context: Record<string, unknown> = { ...requestOptions.context };
       // `handlePrachtRequest` surfaces the verified identity on the request
       // context before dispatch; simulated identities travel the same way.
-      if (options.agents?.webBotAuth || requestOptions.agent !== undefined) context.agent = agent;
+      if (options.agents?.webBotAuth || requestOptions.agent !== undefined) {
+        const boundContext = bindAgentContext(context, agent);
+        context = boundContext;
+        agent = boundContext.agent ?? null;
+      }
 
       const headers = new Headers(requestOptions.headers);
       if (!headers.has("content-type")) {

@@ -269,6 +269,26 @@ describe("createCapabilityTestHost — request()", () => {
     expect((await response.json()).data.notes).toEqual(["none"]);
   });
 
+  it("binds simulated verified identities as immutable snapshots", async () => {
+    const sourceAgent = { ...TEST_AGENT };
+    const host = createCapabilityTestHost({
+      capabilities: {
+        "agent.ping": createSearchCapability({
+          async run({ context }: { context: { agent: PrachtAgentIdentity | null } }) {
+            const mutationSucceeded = Reflect.set(context.agent!, "keyId", "forged-key");
+            return { notes: [`${mutationSucceeded}:${context.agent?.keyId ?? "none"}`] };
+          },
+        }),
+      },
+    });
+
+    const response = await host.request("agent.ping", { query: "x" }, { agent: sourceAgent });
+
+    expect(response.status).toBe(200);
+    expect((await response.json()).data.notes).toEqual(["false:test-key-id"]);
+    expect(sourceAgent.keyId).toBe("test-key-id");
+  });
+
   it("walks the destructive prepare/commit confirmation flow", async () => {
     setCapabilityConfirmationSecret("test-host-secret");
     let purged = 0;

@@ -468,8 +468,9 @@ the callee's named middleware must authorize it. Every nested attempt, allowed
 or denied, carries `transport: "server"` and the trusted causal transport in
 `via` for audit attribution.
 
-Subscribe from any server-only module (audit hooks observe: exceptions are
-swallowed, never breaking a request):
+Subscribe from any server-only module. Audit hooks receive frozen event and
+agent snapshots; exceptions are swallowed, so an observer can neither rewrite
+trusted request identity nor break a request:
 
 ```ts
 import { setCapabilityAuditHook } from "@pracht/core/server";

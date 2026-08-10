@@ -188,7 +188,8 @@ import { setCapabilityAuditHook } from "@pracht/core/server";
 setCapabilityAuditHook((event) => log.info("capability", event));
 ```
 
-Hook exceptions are swallowed — auditing observes, it never breaks a request.
+Hooks receive frozen event and agent snapshots, and exceptions are swallowed —
+auditing can neither rewrite trusted request identity nor break a request.
 
 A capability that calls `invokeCapability()` produces a second event with `transport: "server"` and `via` set to the transport of the request it ran under, so an effect a remote agent triggered through a composing MCP tool reads as `{ transport: "server", via: "mcp" }` rather than looking like an ordinary loader call. `via` is `null` for top-level dispatches and outside a served request.
 

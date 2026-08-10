@@ -53,6 +53,7 @@ describe("bindAgentContext", () => {
       verified: true as const,
       agentDomain: "verified.example",
       keyId: "verified-key",
+      role: "admin",
     };
     const context = bindAgentContext({}, agent);
 
@@ -60,8 +61,44 @@ describe("bindAgentContext", () => {
     expect(Object.isFrozen(context.agent)).toBe(true);
     expect(Reflect.set(context.agent!, "keyId", "forged-key")).toBe(false);
     expect(Reflect.set(context, "agent", null)).toBe(false);
-    expect(context.agent).toEqual(agent);
+    expect(context.agent).toEqual({
+      verified: true,
+      agentDomain: "verified.example",
+      keyId: "verified-key",
+    });
+    expect(context.agent).not.toHaveProperty("role");
     expect(agent.keyId).toBe("verified-key");
+  });
+
+  it("replaces caller-owned frozen identities even when their fields initially match", () => {
+    let keyIdReads = 0;
+    const suppliedAgent = Object.freeze(
+      Object.defineProperties(
+        {},
+        {
+          verified: { enumerable: true, get: () => true },
+          agentDomain: { enumerable: true, get: () => "verified.example" },
+          keyId: {
+            enumerable: true,
+            get: () => (keyIdReads++ === 0 ? "verified-key" : "forged-key"),
+          },
+        },
+      ),
+    );
+    const original = Object.freeze(
+      Object.defineProperty({}, "agent", { enumerable: true, value: suppliedAgent }),
+    );
+
+    const context = bindAgentContext(original, {
+      verified: true,
+      agentDomain: "verified.example",
+      keyId: "verified-key",
+    });
+
+    expect(context).not.toBe(original);
+    expect(context.agent).not.toBe(suppliedAgent);
+    expect(context.agent?.keyId).toBe("verified-key");
+    expect(Object.isFrozen(context.agent)).toBe(true);
   });
 
   it("preserves constructor identity on immutable class contexts", () => {
@@ -83,5 +120,30 @@ describe("bindAgentContext", () => {
 
     expect(() => Object.freeze(context)).not.toThrow();
     expect(Object.isFrozen(context)).toBe(true);
+  });
+
+  it("keeps own methods readable after freezing the overlay", () => {
+    const original = Object.freeze({
+      tenant: "one",
+      readTenant() {
+        return this.tenant;
+      },
+    });
+    const context = bindAgentContext(original, null);
+
+    Object.freeze(context);
+
+    expect(context.readTenant()).toBe("one");
+    expect(Object.isFrozen(context)).toBe(true);
+  });
+
+  it("does not let reflective operations shadow immutable source fields", () => {
+    const original = Object.freeze({ tenant: "one" });
+    const context = bindAgentContext(original, null);
+
+    expect(Reflect.defineProperty(context, "tenant", { value: "forged" })).toBe(false);
+    expect(Reflect.deleteProperty(context, "tenant")).toBe(false);
+    expect(context.tenant).toBe("one");
+    expect(original.tenant).toBe("one");
   });
 });

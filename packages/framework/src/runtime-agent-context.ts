@@ -2,6 +2,8 @@ import type { PrachtAgentIdentity } from "@pracht/capabilities";
 
 import type { PrachtContextExtensions } from "./types.ts";
 
+const agentIdentitySnapshots = new WeakSet<object>();
+
 /**
  * Bind framework-verified agent identity onto an application request context.
  * The framework-owned field and its value are immutable snapshots, so
@@ -17,7 +19,7 @@ export function bindAgentContext<TContext>(
   agent: PrachtAgentIdentity | null,
 ): TContext & PrachtContextExtensions {
   const context = supplied ?? ({} as TContext);
-  const boundAgent = immutableAgentIdentity(agent);
+  const boundAgent = snapshotAgentIdentity(agent);
 
   if ((typeof context === "object" && context !== null) || typeof context === "function") {
     try {
@@ -39,8 +41,10 @@ export function bindAgentContext<TContext>(
       descriptor.configurable === false &&
       "value" in descriptor &&
       descriptor.writable === false &&
-      (descriptor.value === null || Object.isFrozen(descriptor.value)) &&
-      sameAgentIdentity(descriptor.value, boundAgent)
+      ((descriptor.value === null && boundAgent === null) ||
+        (isAgentIdentitySnapshot(descriptor.value) &&
+          isAgentIdentitySnapshot(boundAgent) &&
+          sameAgentIdentity(descriptor.value, boundAgent)))
     ) {
       return context as TContext & PrachtContextExtensions;
     }
@@ -96,6 +100,21 @@ function immutableAgentContext<TContext>(
       const value = Reflect.get(context, property, context);
       if (typeof value !== "function" || property === "constructor") return value;
 
+      const targetDescriptor = materializedContextKeys.has(property)
+        ? Reflect.getOwnPropertyDescriptor(target, property)
+        : undefined;
+      if (
+        targetDescriptor &&
+        "value" in targetDescriptor &&
+        targetDescriptor.configurable === false &&
+        targetDescriptor.writable === false
+      ) {
+        // A Proxy must return the exact value of a non-configurable,
+        // non-writable data property on its target. Object.freeze() reaches
+        // this state after preventExtensions() materializes source fields.
+        return targetDescriptor.value;
+      }
+
       const method = value as ContextMethod;
       let bound = boundMethods.get(method);
       if (!bound) {
@@ -130,21 +149,33 @@ function immutableAgentContext<TContext>(
       return Reflect.set(target, property, value, target);
     },
     defineProperty(target, property, descriptor) {
-      if (!materializedContextKeys.has(property)) {
+      if (materializedContextKeys.has(property)) {
+        if (!Reflect.defineProperty(context, property, descriptor)) return false;
         return Reflect.defineProperty(target, property, descriptor);
       }
 
-      if (!Reflect.defineProperty(context, property, descriptor)) return false;
+      if (Object.prototype.hasOwnProperty.call(target, property)) {
+        return Reflect.defineProperty(target, property, descriptor);
+      }
+      if (Object.prototype.hasOwnProperty.call(context, property)) {
+        return Reflect.defineProperty(context, property, descriptor);
+      }
       return Reflect.defineProperty(target, property, descriptor);
     },
     deleteProperty(target, property) {
-      if (!materializedContextKeys.has(property)) {
+      if (materializedContextKeys.has(property)) {
+        if (!Reflect.deleteProperty(context, property)) return false;
+        materializedContextKeys.delete(property);
         return Reflect.deleteProperty(target, property);
       }
 
-      if (!Reflect.deleteProperty(context, property)) return false;
-      materializedContextKeys.delete(property);
-      return Reflect.deleteProperty(target, property);
+      if (Object.prototype.hasOwnProperty.call(target, property)) {
+        return Reflect.deleteProperty(target, property);
+      }
+      if (Object.prototype.hasOwnProperty.call(context, property)) {
+        return Reflect.deleteProperty(context, property);
+      }
+      return true;
     },
     getOwnPropertyDescriptor(target, property) {
       const ownDescriptor = Reflect.getOwnPropertyDescriptor(target, property);
@@ -173,10 +204,30 @@ function immutableAgentContext<TContext>(
   }) as TContext & PrachtContextExtensions;
 }
 
-function immutableAgentIdentity(
+export function snapshotAgentIdentity(
   agent: PrachtAgentIdentity | null,
 ): Readonly<PrachtAgentIdentity> | null {
-  return agent ? Object.freeze({ ...agent }) : null;
+  if (!agent) return null;
+  if (isAgentIdentitySnapshot(agent)) return agent;
+  const { verified, agentDomain, keyId } = agent;
+  if (
+    verified !== true ||
+    typeof keyId !== "string" ||
+    (agentDomain !== null && typeof agentDomain !== "string")
+  ) {
+    return null;
+  }
+  const snapshot = Object.freeze({
+    verified: true as const,
+    agentDomain,
+    keyId,
+  });
+  agentIdentitySnapshots.add(snapshot);
+  return snapshot;
+}
+
+function isAgentIdentitySnapshot(value: unknown): value is Readonly<PrachtAgentIdentity> {
+  return typeof value === "object" && value !== null && agentIdentitySnapshots.has(value);
 }
 
 function sameAgentIdentity(left: unknown, right: Readonly<PrachtAgentIdentity> | null): boolean {

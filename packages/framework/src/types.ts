@@ -772,15 +772,15 @@ export interface PrachtAgentsConfig {
 
 /** Structured audit event emitted for every capability dispatch. */
 export interface CapabilityAuditEvent {
-  capability: string;
-  effect: CapabilityEffect;
+  readonly capability: string;
+  readonly effect: CapabilityEffect;
   /**
    * How the capability was invoked. `"mcp"` is trusted internal dispatch
    * state from the remote MCP projection. `"webmcp"` reflects the transport
    * marker the generated WebMCP shim sends with its dispatches — informational,
    * not a trust signal (any HTTP client can send the header).
    */
-  transport: "http" | "server" | "webmcp" | "mcp";
+  readonly transport: "http" | "server" | "webmcp" | "mcp";
   /**
    * Which request a `transport: "server"` dispatch was composed under.
    * `invokeCapability()` normally runs only the capability's own middleware
@@ -792,14 +792,14 @@ export interface CapabilityAuditEvent {
    * that marker is client-declared, so it is not trustworthy enough to
    * attribute a nested effect to.
    */
-  via: "http" | "mcp" | null;
+  readonly via: "http" | "mcp" | null;
   /** `"ok"` or the envelope error code (e.g. `"invalid_input"`, `"confirmation_required"`). */
-  outcome: string;
+  readonly outcome: string;
   /** HTTP status the envelope maps to (also set for server-side invocation). */
-  status: number;
-  durationMs: number;
+  readonly status: number;
+  readonly durationMs: number;
   /** Verified agent identity, `null` when unsigned/unverified or Web Bot Auth is off. */
-  agent: PrachtAgentIdentity | null;
+  readonly agent: PrachtAgentIdentity | null;
 }
 
 export type CapabilityAuditHook = (event: CapabilityAuditEvent) => void;

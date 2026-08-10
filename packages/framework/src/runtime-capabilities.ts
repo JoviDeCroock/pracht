@@ -32,7 +32,7 @@ import {
   resolveCapabilityApprovalPrincipal,
   resolveCapabilityApprovalStore,
 } from "./runtime-approval.ts";
-import { bindAgentContext } from "./runtime-agent-context.ts";
+import { bindAgentContext, snapshotAgentIdentity } from "./runtime-agent-context.ts";
 import {
   canonicalJson,
   CONFIRMATION_HEADER,
@@ -427,10 +427,14 @@ export function setCapabilityAuditHook(hook: CapabilityAuditHook | null): void {
 
 /** Audit hooks observe; they must never break a request. */
 function emitCapabilityAudit(event: CapabilityAuditEvent, extra?: CapabilityAuditHook): void {
+  const snapshot = Object.freeze({
+    ...event,
+    agent: snapshotAgentIdentity(event.agent),
+  });
   for (const hook of [capabilityAuditHook, extra]) {
     if (!hook) continue;
     try {
-      hook(event);
+      hook(snapshot);
     } catch {
       // Deliberately swallowed.
     }
@@ -1102,7 +1106,13 @@ export function setActiveCapabilityHost(
   onAudit?: CapabilityAuditHook,
   agent?: PrachtAgentIdentity | null,
 ): void {
-  activeCapabilityHosts.set(request, { app, registry, via, onAudit, agent });
+  activeCapabilityHosts.set(request, {
+    app,
+    registry,
+    via,
+    onAudit,
+    agent: snapshotAgentIdentity(agent ?? null),
+  });
 }
 
 export interface InvokeCapabilityContext<TContext = unknown> {

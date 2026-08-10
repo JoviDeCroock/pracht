@@ -287,6 +287,7 @@ export async function handlePrachtRequest<TContext>(
         agent = await verifyAgentSignature(options.request, webBotAuth);
       }
       requestContext = bindAgentContext(requestContext, agent);
+      agent = requestContext.agent ?? null;
     }
   } else if (hasCapabilities || options.app.agents) {
     // The build proved there was no agent surface and dropped the runtime, yet

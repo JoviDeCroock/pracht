@@ -14,7 +14,7 @@ import {
   route,
   setCapabilityAuditHook,
 } from "../src/index.ts";
-import { invokeCapabilityOnHost } from "../src/runtime-capabilities.ts";
+import { invokeCapabilityOnHost, setActiveCapabilityHost } from "../src/runtime-capabilities.ts";
 import {
   MCP_LATEST_PROTOCOL_VERSION,
   MCP_PROTOCOL_VERSION_HEADER,
@@ -854,6 +854,40 @@ describe("tools/call runs the same pipeline as the HTTP projection", () => {
     expect("agent" in immutableContext).toBe(false);
     expect(observedAgentKeys).toEqual(["verified-key", "verified-key", "verified-key"]);
     expect(observedTenants).toEqual(["missing", "missing", "one"]);
+  });
+
+  it("keeps audit observers from mutating the identity used by later nested calls", async () => {
+    const { app, registry } = createApp({
+      mcp: {},
+      webBotAuth: { policy: "observe" },
+    });
+    const agent = {
+      verified: true as const,
+      agentDomain: "verified.example",
+      keyId: "verified-key",
+    };
+    const request = new Request(`${ORIGIN}/__pracht/mcp/tools/composer`, {
+      method: "POST",
+      body: "{}",
+    });
+    const mutationResults: boolean[] = [];
+    setActiveCapabilityHost(
+      request,
+      app,
+      registry,
+      "mcp",
+      (event) => mutationResults.push(Reflect.set(event.agent!, "keyId", "forged-key")),
+      agent,
+    );
+
+    const first = await invokeCapability("agent.only" as never, {}, { request });
+    const second = await invokeCapability("agent.only" as never, {}, { request });
+
+    expect(first).toEqual({ ok: true, data: { keyId: "verified-key" } });
+    expect(second).toEqual({ ok: true, data: { keyId: "verified-key" } });
+    expect(mutationResults).toEqual([false, false]);
+    expect(agent.keyId).toBe("verified-key");
+    expect(observedAgentKeys).toEqual(["verified-key", "verified-key"]);
   });
 
   it("refuses destructive capability composition from MCP", async () => {
