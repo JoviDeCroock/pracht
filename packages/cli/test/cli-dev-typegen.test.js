@@ -49,6 +49,51 @@ describe("@pracht/cli dev typegen", () => {
     }
   }, 120_000);
 
+  it("pracht dev exposes .env values to the server process", async () => {
+    // Regression guard for the call site, not just the helper: `pracht dev`
+    // has to load `.env` into `process.env` before Vite starts, or an
+    // unprefixed key stays invisible to loaders, middleware, API routes, and
+    // `serverEnv`. The vite config is evaluated by that same process, so it is
+    // the cheapest place to observe what server code would see.
+    const appDir = createRepoTempDir("pracht-cli-dev-dotenv-");
+    writeTypedManifestApp(appDir);
+    writeProjectFile(appDir, ".env", "PRACHT_DOTENV_PROBE=from-dot-env\n");
+
+    const configPath = join(appDir, "vite.config.ts");
+    writeProjectFile(
+      appDir,
+      "vite.config.ts",
+      `console.log("PROBE:" + process.env.PRACHT_DOTENV_PROBE);\n` +
+        readFileSync(configPath, "utf-8"),
+    );
+
+    const child = spawn(process.execPath, [cliPath, "dev", "--port", "3987"], {
+      cwd: appDir,
+      env: process.env,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let output = "";
+    child.stdout.setEncoding("utf-8");
+    child.stderr.setEncoding("utf-8");
+    child.stdout.on("data", (chunk) => {
+      output += chunk;
+    });
+    child.stderr.on("data", (chunk) => {
+      output += chunk;
+    });
+
+    try {
+      await waitFor(
+        () => output.includes("PROBE:"),
+        30_000,
+        () => output,
+      );
+      expect(output).toContain("PROBE:from-dot-env");
+    } finally {
+      await stopChild(child);
+    }
+  }, 120_000);
+
   it("pracht dev keeps generated route types in sync with route files", async () => {
     const appDir = createRepoTempDir("pracht-cli-dev-typegen-");
     writeTypedManifestApp(appDir);

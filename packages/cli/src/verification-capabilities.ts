@@ -333,7 +333,10 @@ function collectSingleCapabilityChecks(
         problems.push(
           "is destructive and exposed over HTTP without PRACHT_CONFIRMATION_SECRET in the " +
             "environment — the prepare/commit confirmation flow needs the secret and the " +
-            "runtime fails closed without it",
+            "runtime fails closed without it. Verification reads the real environment, not " +
+            "`.env`: `pracht dev` loads that file, but a deployed server takes its " +
+            "environment from the platform, so set a real variable (or a Cloudflare secret / " +
+            "Vercel environment variable) there",
         );
       }
     }

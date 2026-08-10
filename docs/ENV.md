@@ -107,6 +107,30 @@ to `Record<string, string | undefined>`.
 Custom setups can call `setServerEnv(env)` (exported from
 `@pracht/core/env/server` and `@pracht/core/server`) to install another source.
 
+## `.env` files
+
+`pracht dev` loads `.env` files into `process.env` before starting, so a
+server-only secret written to `.env` reaches loaders, middleware, API routes,
+and `serverEnv` — the same thing wrangler does for Cloudflare apps. Real
+environment variables always win over the file, and `.env.local` beats
+`.env.development` beats `.env`. `NODE_ENV` is never taken from the file: Vite
+refuses `NODE_ENV=production` there on purpose, and the dev server is always
+mode `development`.
+
+`pracht verify` and `pracht doctor` deliberately do **not** read `.env`. They
+report on the environment a deployment will have, so a destructive capability
+whose `PRACHT_CONFIRMATION_SECRET` lives only in `.env` is still an error —
+dev will work, production would fail closed.
+
+Vite's own `.env` handling is separate and unchanged: it only exposes
+`PRACHT_PUBLIC_`/`VITE_`-prefixed keys through `import.meta.env`, and never
+writes to `process.env`. That is why an unprefixed key in `.env` was previously
+invisible to server code.
+
+`pracht build` and the production server do **not** read `.env` — a deployed
+app's environment belongs to the platform. Set real environment variables (or
+Cloudflare secrets / Vercel environment variables) there.
+
 ## Client-leak detection
 
 During `pracht build` the plugin scans every client chunk for references to
