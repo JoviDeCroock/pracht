@@ -13,7 +13,8 @@ islands-example server bundle.
 
 Both now load on demand, and the vite plugin defines `__PRACHT_AGENT_SURFACE__`
 as `false` for builds whose manifest provably registers neither, which lets the
-bundler eliminate them outright. The analysis is deliberately one-sided: an
+bundler eliminate them outright even when `llmsTxt` indexes pages and API
+routes. The analysis is deliberately one-sided: an
 unreadable or non-literal manifest, a parse failure, a spread, a shorthand
 registration, or a computed key keeps the runtime, and a build that elided the
 runtime while capabilities are registered logs a loud error instead of 404ing

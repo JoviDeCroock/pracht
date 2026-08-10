@@ -20,5 +20,6 @@ by the build. User-defined `Vary: Accept` headers cannot masquerade as a
 Markdown representation, while custom or legacy entries without the optional
 metadata preserve correct negotiation by falling through to the framework.
 Apps without Markdown routes keep serving their prerendered documents to every
-client. `prefersMarkdown`, `routeSupportsMarkdown`, and `MarkdownManifest` are
-exported from `@pracht/core/server` for custom adapters.
+client, and SSR-only builds emit an authoritative empty manifest so public
+assets receive the same protection. `prefersMarkdown`, `routeSupportsMarkdown`,
+and `MarkdownManifest` are exported from `@pracht/core/server` for custom adapters.

@@ -14,7 +14,6 @@
 
 import { buildPathFromSegments } from "./app.ts";
 import { API_METHOD_ORDER } from "./app-graph.ts";
-import { resolveAppCapabilities } from "./runtime-capabilities.ts";
 import { resolveRegistryModule } from "./runtime-manifest.ts";
 import type {
   ApiRouteModule,
@@ -27,6 +26,8 @@ import type {
 } from "./types.ts";
 
 export type LlmsTxtSection = "pages" | "api" | "capabilities";
+
+declare const __PRACHT_AGENT_SURFACE__: boolean | undefined;
 
 export interface BuildLlmsTxtOptions {
   app: ResolvedPrachtApp;
@@ -206,7 +207,12 @@ async function collectCapabilityEntries(
 ): Promise<LlmsTxtCapabilityEntry[]> {
   if (!registry?.capabilityModules) return [];
   if (Object.keys(app.capabilities ?? {}).length === 0) return [];
+  // Production builds that prove the app has no agent surface replace this
+  // branch with `return []`, so enabling llms.txt for pages/API discovery does
+  // not retain the capability dispatch runtime in the deployed server.
+  if (typeof __PRACHT_AGENT_SURFACE__ !== "undefined" && !__PRACHT_AGENT_SURFACE__) return [];
 
+  const { resolveAppCapabilities } = await import("./runtime-capabilities.ts");
   const resolved = await resolveAppCapabilities(app, registry);
   const entries: LlmsTxtCapabilityEntry[] = [];
   for (const { name, capability, httpPath } of resolved) {

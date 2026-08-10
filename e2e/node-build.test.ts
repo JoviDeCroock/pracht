@@ -316,6 +316,53 @@ test("precompileSsrJsx opt-in precompiles server JSX and keeps the app deployabl
   }
 });
 
+test("SSR-only builds keep static assets on the fast path for Markdown requests", async () => {
+  test.setTimeout(120_000);
+
+  const { exampleDir, tempDir } = createTempExampleDir("pracht-node-ssr-only-");
+  const routesPath = resolve(exampleDir, "src/routes.ts");
+  const routesSource = readFileSync(routesPath, "utf-8")
+    .replaceAll('render: "ssg"', 'render: "ssr"')
+    .replace('render: "isg",\n        revalidate: timeRevalidate(3600),', 'render: "ssr",');
+  writeFileSync(routesPath, routesSource, "utf-8");
+
+  const port = 4319;
+  const origin = `http://127.0.0.1:${port}`;
+
+  let server: ReturnType<typeof spawn> | undefined;
+  try {
+    buildExample(exampleDir, { PRACHT_ADAPTER: "node", PRACHT_ORIGIN: origin });
+
+    expect(
+      JSON.parse(readFileSync(resolve(exampleDir, "dist/server/markdown-manifest.json"), "utf-8")),
+    ).toEqual({});
+    expect(
+      JSON.parse(readFileSync(resolve(exampleDir, "dist/client/_pracht/markdown.json"), "utf-8")),
+    ).toEqual({});
+
+    const serverEntryPath = resolve(exampleDir, "dist/server/server.js");
+    server = spawn(process.execPath, [serverEntryPath], {
+      cwd: exampleDir,
+      env: { ...process.env, PORT: String(port) },
+      stdio: "pipe",
+    });
+    await waitForServer(`${origin}/`);
+
+    const response = await fetch(`${origin}/robots.txt`, {
+      headers: { accept: "text/markdown" },
+    });
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toContain("text/plain");
+    await expect(response.text()).resolves.toContain("User-agent");
+  } finally {
+    if (server) {
+      server.kill("SIGTERM");
+      await waitForExit(server);
+    }
+    rmSync(tempDir, { force: true, recursive: true });
+  }
+});
+
 test("public/ folder assets are copied to dist/client/", async () => {
   test.setTimeout(120_000);
 

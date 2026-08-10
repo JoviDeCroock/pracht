@@ -122,7 +122,10 @@ describe("published package tree shaking", () => {
   // dispatch or the Web Bot Auth verifier at all.
   describe("__PRACHT_AGENT_SURFACE__", () => {
     it("drops the capability and agent-trust runtimes when the build proves they are unused", async () => {
-      const { code, gzipBytes } = await bundleExport("handlePrachtRequest", {
+      // Bundle the same two framework surfaces a generated server with
+      // `llmsTxt` enabled imports. Build-time discovery must not retain the
+      // request-time capability runtime when the manifest proves it is empty.
+      const { code, gzipBytes } = await bundleExport("buildLlmsTxt, handlePrachtRequest", {
         entry: serverEntry,
         define: { __PRACHT_AGENT_SURFACE__: "false" },
       });

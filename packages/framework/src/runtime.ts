@@ -428,7 +428,7 @@ export async function handlePrachtRequest<TContext>(
       }
     }
 
-    if (isMcpRequest && mcpConfig) {
+    if (isMcpRequest && mcpConfig && mcpRuntime) {
       const mcpResponse = await mcpRuntime.handleMcpRequest({
         app: options.app,
         capabilities: capabilities ?? [],

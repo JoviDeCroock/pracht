@@ -793,6 +793,8 @@ a given request. Both require **two** conditions before skipping the static file
 An app with no markdown routes therefore never leaves its static fast path,
 whoever is asking: agent traffic cannot force SSR renders of prerendered pages,
 and hashed assets are never re-rendered because a client sent an odd `Accept`.
+The build emits an empty manifest for SSR-only apps too, so public files keep
+the same guarantee even when the app has no prerendered documents.
 
 ---
 
