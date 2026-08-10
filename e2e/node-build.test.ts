@@ -326,7 +326,7 @@ test("SSR-only builds keep static assets on the fast path for Markdown requests"
     .replace('render: "isg",\n        revalidate: timeRevalidate(3600),', 'render: "ssr",');
   writeFileSync(routesPath, routesSource, "utf-8");
 
-  const port = 4319;
+  const port = 4320;
   const origin = `http://127.0.0.1:${port}`;
 
   let server: ReturnType<typeof spawn> | undefined;
