@@ -14,23 +14,19 @@ import {
   isCacheableISGResponse,
   jsonResponse,
   type ModuleRegistry,
+  type MarkdownManifest,
   PRACHT_REVALIDATE_ENDPOINT,
   PRACHT_REVALIDATE_TOKEN_ENV,
   prefersMarkdown,
   readRevalidationRequest,
   type ResolvedApiRoute,
   type PrachtApp,
-  routeVariesOnAccept,
+  routeSupportsMarkdown,
 } from "@pracht/core/server";
 
 import { regenerateISGPage } from "./node-isg.ts";
 import { createWebRequest, writeNodeResponseHeaders, writeWebResponse } from "./node-request.ts";
-import {
-  applyHeadersManifest,
-  getManifestHeaders,
-  resolveStaticFile,
-  type HeadersManifest,
-} from "./node-static.ts";
+import { applyHeadersManifest, resolveStaticFile, type HeadersManifest } from "./node-static.ts";
 
 const ROUTE_STATE_REQUEST_HEADER = "x-pracht-route-state-request";
 
@@ -51,6 +47,8 @@ export interface NodeAdapterOptions<TContext = unknown> {
   cssManifest?: Record<string, string[]>;
   jsManifest?: Record<string, string[]>;
   headersManifest?: HeadersManifest;
+  /** Exact Markdown-capable routes. Omit to preserve negotiation for legacy/custom entries. */
+  markdownManifest?: MarkdownManifest;
   createContext?: (args: NodeAdapterContextArgs) => TContext | Promise<TContext>;
   /**
    * Canonical public origin for request URL construction. When set, the Node
@@ -122,12 +120,13 @@ export function createNodeRequestHandler<TContext = unknown>(
     // Only routes that can actually answer with markdown skip the static and
     // ISG fast paths: the client has to prefer markdown over HTML (a browser's
     // `*/*` or a q-weighted `text/markdown;q=0.1` does not), and the route has
-    // to declare `Vary: Accept` in the headers manifest — which the build emits
-    // for routes exporting `markdown`. Apps without markdown routes therefore
-    // keep serving prerendered HTML to every client, agent or not.
+    // to appear in the exact markdown manifest emitted by the build. Missing
+    // metadata means a legacy/custom entry, so preserve correct negotiation by
+    // falling through as older adapters did.
     const wantsMarkdown =
       prefersMarkdown(request.headers.get("accept")) &&
-      routeVariesOnAccept(getManifestHeaders(headersManifest, url.pathname));
+      (options.markdownManifest === undefined ||
+        routeSupportsMarkdown(options.markdownManifest, url.pathname));
 
     if (url.pathname === PRACHT_REVALIDATE_ENDPOINT) {
       const response = await handleRevalidationEndpoint(request, options, staticDir, isgManifest, {

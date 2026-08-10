@@ -503,7 +503,15 @@ describe("createNodeRequestHandler", () => {
   });
 
   describe("markdown negotiation and the static fast path", () => {
-    async function serveStaticApp(headersManifest: Record<string, Record<string, string>>) {
+    async function serveStaticApp({
+      headersManifest = {},
+      markdown = true,
+      markdownManifest,
+    }: {
+      headersManifest?: Record<string, Record<string, string>>;
+      markdown?: boolean;
+      markdownManifest?: Record<string, true>;
+    } = {}) {
       const staticDir = makeTempDir();
       const htmlDir = join(staticDir, "docs");
       mkdirSync(htmlDir, { recursive: true });
@@ -516,6 +524,7 @@ describe("createNodeRequestHandler", () => {
       const handler = createNodeRequestHandler({
         app,
         headersManifest,
+        markdownManifest,
         registry: {
           routeModules: {
             "./routes/docs.tsx": async () => ({
@@ -523,7 +532,7 @@ describe("createNodeRequestHandler", () => {
                 rendered += 1;
                 return "<main>rendered</main>";
               },
-              markdown: "# Docs\n",
+              ...(markdown ? { markdown: "# Docs\n" } : {}),
             }),
           },
         },
@@ -551,7 +560,7 @@ describe("createNodeRequestHandler", () => {
 
     it("keeps serving the prerendered document when the route cannot answer with markdown", async () => {
       const { rendered, url } = await serveStaticApp({
-        "/docs": { vary: "x-pracht-route-state-request" },
+        markdownManifest: { "/docs": true },
       });
 
       // A browser-shaped Accept that merely mentions markdown at a lower
@@ -567,20 +576,33 @@ describe("createNodeRequestHandler", () => {
       expect(rendered).toBe(0);
     });
 
-    it("keeps serving the prerendered document to markdown clients when no route varies on Accept", async () => {
-      const { rendered, url } = await serveStaticApp({});
+    it("keeps serving non-markdown routes even when their own headers vary on Accept", async () => {
+      const { rendered, url } = await serveStaticApp({
+        headersManifest: { "/docs": { vary: "Accept" } },
+        markdown: false,
+        markdownManifest: {},
+      });
 
       const response = await fetch(url, { headers: { accept: "text/markdown" } });
 
       expect(response.status).toBe(200);
       expect(response.headers.get("content-type")).toContain("text/html");
+      expect(await response.text()).toContain("prerendered");
       expect(rendered).toBe(0);
     });
 
-    it("falls through to the framework when the route declares Vary: Accept", async () => {
-      const { url } = await serveStaticApp({
-        "/docs": { vary: "x-pracht-route-state-request, Accept" },
-      });
+    it("falls through for legacy/custom entries without markdown metadata", async () => {
+      const { url } = await serveStaticApp();
+
+      const response = await fetch(url, { headers: { accept: "text/markdown" } });
+
+      expect(response.status).toBe(200);
+      expect(response.headers.get("content-type")).toContain("text/markdown");
+      expect(await response.text()).toBe("# Docs\n");
+    });
+
+    it("falls through when the exact route is in the markdown manifest", async () => {
+      const { url } = await serveStaticApp({ markdownManifest: { "/docs": true } });
 
       const response = await fetch(url, { headers: { accept: "text/markdown" } });
 

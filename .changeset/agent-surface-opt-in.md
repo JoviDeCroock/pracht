@@ -1,6 +1,7 @@
 ---
 "@pracht/vite-plugin": minor
 "@pracht/core": minor
+"@pracht/capabilities": patch
 ---
 
 Drop the agent surface from server bundles that do not use it.
@@ -17,4 +18,5 @@ unreadable or non-literal manifest, a parse failure, a spread, a shorthand
 registration, or a computed key keeps the runtime, and a build that elided the
 runtime while capabilities are registered logs a loud error instead of 404ing
 quietly. Dev builds always keep the runtime so a freshly added capability works
-without a restart.
+without a restart. Escaped quoted property names are decoded by the shared
+static scanner, while escaped identifier keys conservatively keep the runtime.

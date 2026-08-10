@@ -39,6 +39,14 @@ test("pracht build emits a deployable Node server entry", async () => {
   expect(existsSync(resolve(exampleDir, "dist/server/isg-manifest.json"))).toBe(true);
   expect(existsSync(resolve(exampleDir, "dist/client/_pracht/isg.json"))).toBe(false);
 
+  const markdownManifest = JSON.parse(
+    readFileSync(resolve(exampleDir, "dist/server/markdown-manifest.json"), "utf-8"),
+  );
+  expect(markdownManifest).toEqual({ "/": true });
+  expect(
+    JSON.parse(readFileSync(resolve(exampleDir, "dist/client/_pracht/markdown.json"), "utf-8")),
+  ).toEqual(markdownManifest);
+
   const serverSource = readFileSync(serverEntryPath, "utf-8");
   expect(serverSource).toContain('buildTarget = "node"');
   expect(serverSource).toContain("createNodeRequestHandler");
@@ -65,6 +73,12 @@ test("pracht build emits a deployable Node server entry", async () => {
     expect(homeHtml).not.toContain("/@pracht/client.js");
     expect(homeHtml).toMatch(/<script type="module" src="\/assets\/client-[^"]+\.js"><\/script>/);
     expect(homeHtml).toContain('rel="modulepreload"');
+
+    const homeMarkdown = await fetch(`http://127.0.0.1:${port}/`, {
+      headers: { accept: "text/markdown" },
+    });
+    expect(homeMarkdown.headers.get("content-type")).toContain("text/markdown");
+    expect(await homeMarkdown.text()).toContain("# Pracht Example");
 
     // Dynamic SSG routes should be prerendered as static HTML files
     for (const id of ["1", "2", "3"]) {

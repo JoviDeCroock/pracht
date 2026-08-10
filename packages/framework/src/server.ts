@@ -93,8 +93,9 @@ export type { VerifyAgentSignatureOptions } from "./runtime-agent-auth.ts";
 export {
   MARKDOWN_MEDIA_TYPE,
   prefersMarkdown,
-  routeVariesOnAccept,
+  routeSupportsMarkdown,
 } from "./runtime-negotiation.ts";
+export type { MarkdownManifest } from "./runtime-negotiation.ts";
 export { resolveRegistryModule } from "./runtime-manifest.ts";
 export { createCapabilityTestHost } from "./testing-capabilities.ts";
 export type {

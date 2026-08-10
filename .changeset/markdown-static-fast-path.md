@@ -1,6 +1,7 @@
 ---
 "@pracht/adapter-cloudflare": patch
 "@pracht/adapter-node": patch
+"@pracht/cli": patch
 "@pracht/core": patch
 ---
 
@@ -14,9 +15,10 @@ Any client could force a full SSR render of every prerendered page with one
 header.
 
 Both adapters now require the same strict `prefersMarkdown()` negotiation the
-runtime uses *and* a route that declares `Vary: Accept` in the headers manifest,
-which the build emits for exactly the routes exporting `markdown`. Apps without
-markdown routes keep serving their prerendered documents to every client;
-markdown-capable routes are unaffected. `prefersMarkdown` and the new
-`routeVariesOnAccept` are exported from `@pracht/core/server` for custom
-adapters.
+runtime uses *and* an exact route entry in a dedicated Markdown manifest emitted
+by the build. User-defined `Vary: Accept` headers cannot masquerade as a
+Markdown representation, while custom or legacy entries without the optional
+metadata preserve correct negotiation by falling through to the framework.
+Apps without Markdown routes keep serving their prerendered documents to every
+client. `prefersMarkdown`, `routeSupportsMarkdown`, and `MarkdownManifest` are
+exported from `@pracht/core/server` for custom adapters.

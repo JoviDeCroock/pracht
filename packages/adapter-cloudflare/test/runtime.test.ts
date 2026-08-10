@@ -51,7 +51,7 @@ function create404Assets() {
   };
 }
 
-function createPricingApp(renderCounter?: { count: number }, failLoader = false) {
+function createPricingApp(renderCounter?: { count: number }, failLoader = false, markdown = false) {
   const app = defineApp({
     routes: [
       route("/pricing", "./routes/pricing.tsx", {
@@ -64,6 +64,7 @@ function createPricingApp(renderCounter?: { count: number }, failLoader = false)
     routeModules: {
       "./routes/pricing.tsx": async () => ({
         Component: ({ data }) => `regenerated:${(data as { stamp: string }).stamp}`,
+        ...(markdown ? { markdown: "# Pricing\n" } : {}),
         loader: async () => {
           if (renderCounter) renderCounter.count += 1;
           if (failLoader) throw new Error("upstream CMS exploded");
@@ -389,7 +390,7 @@ describe("createCloudflareFetchHandler ISG", () => {
     await expect(response.text()).resolves.toBe("# Markdown pricing");
   });
 
-  it("keeps serving cached ISG HTML unless the route declares Vary: Accept", async () => {
+  it("keeps serving cached ISG HTML when only user headers vary on Accept", async () => {
     const { cache, store } = createMockCaches();
     vi.stubGlobal("caches", { default: cache });
     const { executionContext } = createExecutionContext();
@@ -401,7 +402,8 @@ describe("createCloudflareFetchHandler ISG", () => {
       app,
       registry,
       isgManifest: { "/pricing": { revalidate: isgRevalidate } },
-      headersManifest: { "/pricing": { vary: "x-pracht-route-state-request" } },
+      headersManifest: { "/pricing": { vary: "Accept" } },
+      markdownManifest: {},
     });
 
     // Markdown-preferring agent traffic must not push a route that ships no
@@ -422,12 +424,13 @@ describe("createCloudflareFetchHandler ISG", () => {
     const host = "markdown-route.example";
     putCachedISGPage(store, cacheKeyUrl("/pricing", host), "<html>cached</html>", Date.now());
 
-    const { app, registry } = createPricingApp();
+    const { app, registry } = createPricingApp(undefined, false, true);
     const handler = createCloudflareFetchHandler({
       app,
       registry,
       isgManifest: { "/pricing": { revalidate: isgRevalidate } },
       headersManifest: { "/pricing": { vary: "x-pracht-route-state-request, Accept" } },
+      markdownManifest: { "/pricing": true },
     });
 
     const response = await handler(
@@ -436,7 +439,30 @@ describe("createCloudflareFetchHandler ISG", () => {
       executionContext,
     );
 
-    await expect(response.text()).resolves.not.toContain("cached");
+    await expect(response.text()).resolves.toBe("# Pricing\n");
+  });
+
+  it("preserves markdown negotiation when the optional manifest is unavailable", async () => {
+    const { cache, store } = createMockCaches();
+    vi.stubGlobal("caches", { default: cache });
+    const { executionContext } = createExecutionContext();
+    const host = "markdown-fallback.example";
+    putCachedISGPage(store, cacheKeyUrl("/pricing", host), "<html>cached</html>", Date.now());
+
+    const { app, registry } = createPricingApp(undefined, false, true);
+    const handler = createCloudflareFetchHandler({
+      app,
+      registry,
+      isgManifest: { "/pricing": { revalidate: isgRevalidate } },
+    });
+
+    const response = await handler(
+      new Request(`https://${host}/pricing`, { headers: { accept: "text/markdown" } }),
+      { ASSETS: create404Assets() },
+      executionContext,
+    );
+
+    await expect(response.text()).resolves.toBe("# Pricing\n");
   });
 });
 

@@ -136,7 +136,9 @@ When enabled, header precedence is:
 max-age=31536000, immutable`; HTML and other files get `public, max-age=0,
 must-revalidate`. Clean URLs (e.g. `/about`) resolve to `about/index.html`.
 Prerendered HTML receives route and shell document headers from
-`dist/server/headers-manifest.json`. SSG/ISG prerendering rejects dangerous
+`dist/server/headers-manifest.json`. Exact routes with raw Markdown
+representations are recorded separately in `dist/server/markdown-manifest.json`.
+SSG/ISG prerendering rejects dangerous
 document headers such as `Set-Cookie`, `Authorization`, `Proxy-Authenticate`,
 `WWW-Authenticate`, and secret-shaped custom `x-*` headers before they can enter
 that manifest.
@@ -784,8 +786,9 @@ a given request. Both require **two** conditions before skipping the static file
 1. the request prefers markdown over HTML — the same `prefersMarkdown()`
    negotiation the runtime uses, so `*/*`, `text/html,*/*`, and a q-weighted
    `text/html,text/markdown;q=0.1` all keep getting HTML; and
-2. the route declares `Vary: Accept` in the headers manifest, which the build
-   emits for exactly the routes that export `markdown`.
+2. the route appears in `markdown-manifest.json`, which the build derives from
+   the route module's actual `markdown` export rather than user-defined response
+   headers.
 
 An app with no markdown routes therefore never leaves its static fast path,
 whoever is asking: agent traffic cannot force SSR renders of prerendered pages,
@@ -921,8 +924,10 @@ At the runtime level, an adapter also typically needs to:
 2. **Check for static assets** -- serve files from `dist/client/` with appropriate
    headers (content-type, cache-control with immutable for hashed assets). Skip
    asset serving only for requests that `prefersMarkdown()` accepts *and* whose
-   route declares `Vary: Accept` in the headers manifest, so routes that export
-   a `markdown` source can respond from the framework — see below.
+   route appears in the generated markdown manifest, so routes that export a
+   `markdown` source can respond from the framework — see below. If optional
+   manifest metadata is unavailable in a custom or legacy entry, fall through
+   for markdown-preferring requests to preserve content negotiation.
 3. **Check for prerendered pages** -- SSG and ISG routes have HTML files on disk.
    For ISG, implement staleness checking.
 4. **Delegate dynamic requests** to `handlePrachtRequest()` from `pracht`.

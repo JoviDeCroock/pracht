@@ -4,7 +4,7 @@ import { defineApp, handlePrachtRequest, route } from "../src/index.ts";
 import {
   markdownResponse,
   prefersMarkdown,
-  routeVariesOnAccept,
+  routeSupportsMarkdown,
 } from "../src/runtime-negotiation.ts";
 
 describe("prefersMarkdown", () => {
@@ -29,22 +29,17 @@ describe("prefersMarkdown", () => {
   });
 });
 
-describe("routeVariesOnAccept", () => {
-  it("returns false without headers or without a Vary entry", () => {
-    expect(routeVariesOnAccept(undefined)).toBe(false);
-    expect(routeVariesOnAccept({})).toBe(false);
-    expect(routeVariesOnAccept({ vary: "x-pracht-route-state-request" })).toBe(false);
+describe("routeSupportsMarkdown", () => {
+  it("matches exact, trailing-slash, and index-document paths", () => {
+    const manifest = { "/docs": true } as const;
+    expect(routeSupportsMarkdown(manifest, "/docs")).toBe(true);
+    expect(routeSupportsMarkdown(manifest, "/docs/")).toBe(true);
+    expect(routeSupportsMarkdown(manifest, "/docs/index.html")).toBe(true);
   });
 
-  it("detects Accept in a multi-value Vary regardless of casing", () => {
-    expect(routeVariesOnAccept({ vary: "x-pracht-route-state-request, Accept" })).toBe(true);
-    expect(routeVariesOnAccept({ Vary: "accept" })).toBe(true);
-    expect(routeVariesOnAccept({ vary: "*" })).toBe(true);
-  });
-
-  it("does not match headers that merely contain the word", () => {
-    expect(routeVariesOnAccept({ vary: "accept-encoding" })).toBe(false);
-    expect(routeVariesOnAccept({ "accept-ranges": "bytes" })).toBe(false);
+  it("does not infer support from unrelated routes", () => {
+    expect(routeSupportsMarkdown({ "/docs": true }, "/pricing")).toBe(false);
+    expect(routeSupportsMarkdown({}, "/docs")).toBe(false);
   });
 });
 

@@ -9,7 +9,11 @@ describe("createDefaultNodeAdapter", () => {
     expect(source).toContain(
       'const headersManifestPath = resolve(serverDir, "headers-manifest.json");',
     );
+    expect(source).toContain(
+      'const markdownManifestPath = resolve(serverDir, "markdown-manifest.json");',
+    );
     expect(source).toContain("headersManifest,");
+    expect(source).toContain("markdownManifest,");
     expect(source).toContain("createNodeRequestHandler");
   });
 });

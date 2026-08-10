@@ -25,7 +25,7 @@ Platform request (Node / CF / Vercel)
 
 Adapters also preserve route and shell document headers for prerendered HTML so static SSG/ISG responses match dynamic document responses.
 
-For prerendered routes that export `markdown`, the Node and Cloudflare adapters bypass the static document only when the request prefers `text/markdown` over HTML and the generated headers manifest declares `Vary: Accept`. Routes without a markdown representation stay on the static fast path even when an agent requests markdown.
+For prerendered routes that export `markdown`, the Node and Cloudflare adapters bypass the static document only when the request prefers `text/markdown` over HTML and the exact route appears in the generated Markdown manifest. Routes without a markdown representation stay on the static fast path even when an agent requests markdown; custom entries without manifest metadata preserve negotiation by falling through to the framework.
 
 ---
 
@@ -220,7 +220,7 @@ npx vercel deploy --prebuilt
 
 Run pracht as a standard Node.js HTTP server. The adapter handles static file serving, ISG stale-while-revalidate, request translation, and the generated `dist/server/server.js` entry boots the production server directly.
 
-Prerendered HTML receives document headers from `dist/server/headers-manifest.json`.
+Prerendered HTML receives document headers from `dist/server/headers-manifest.json`; `dist/server/markdown-manifest.json` records the exact routes with raw Markdown representations.
 
 ### Setup
 

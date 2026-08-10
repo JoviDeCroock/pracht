@@ -55,10 +55,18 @@ test("pracht build emits a deployable Cloudflare Worker setup", async () => {
   expect(workerSource).toContain("cloudflareAssetsBinding");
   expect(workerSource).toContain('buildTarget = "cloudflare"');
   expect(workerSource).toContain("_pracht/headers.json");
+  expect(workerSource).toContain("_pracht/markdown.json");
   expect(workerSource).toContain("_pracht/isg.json");
   expect(workerSource).toContain("createCloudflareFetchHandler");
   expect(workerSource).toContain("server_default as default");
   expect(output).not.toContain("does not perform runtime revalidation");
+
+  expect(
+    JSON.parse(readFileSync(resolve(distDir, "server/markdown-manifest.json"), "utf-8")),
+  ).toEqual({});
+  expect(
+    JSON.parse(readFileSync(resolve(distDir, "client/_pracht/markdown.json"), "utf-8")),
+  ).toEqual({});
 
   // The example enables Workers Caching: the worker carries the ISG cache
   // wiring, the build reports it, and wrangler.jsonc turns the cache on.

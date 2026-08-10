@@ -66,6 +66,19 @@ export const app = defineApp({
   });
 
   it.each([
+    String.raw`"ag\u0065nts"`,
+    String.raw`"capabil\u0069ties"`,
+    String.raw`\u0061gents`,
+    String.raw`\u0063apabilities`,
+  ])("stays true for escaped agent-surface key %s", (key) => {
+    const root = createManifest(`import { defineApp } from "@pracht/core";
+
+export const app = defineApp({ ${key}: {}, routes: [] });
+`);
+    expect(hasAgentSurface({}, root)).toBe(true);
+  });
+
+  it.each([
     {
       name: "an agents shorthand property",
       source: `import { defineApp } from "@pracht/core";

@@ -30,6 +30,7 @@ import {
   extractDefineAppObjectBody,
   extractCapabilityProjection,
   extractCapabilityRegistrations,
+  scanTopLevelProperties,
 } from "@pracht/capabilities/static";
 import { resolveOptions, type PrachtPluginOptions } from "./plugin-options.ts";
 
@@ -81,11 +82,14 @@ export function hasAgentSurface(
   // changing production behavior.
   if (appBody === null) return true;
 
-  // Any explicit mention covers ordinary, quoted, and shorthand properties.
-  // Spreads and computed keys can hide either property behind another binding,
-  // so those shapes are deliberately treated as unknown too.
+  // Decode quoted property keys before deciding. The regex also covers
+  // ordinary identifier and shorthand properties without requiring a value.
+  const properties = scanTopLevelProperties(appBody);
+  if (properties.has("agents") || properties.has("capabilities")) return true;
   if (/\b(?:agents|capabilities)\b/.test(appBody)) return true;
-  if (appBody.includes("...") || hasTopLevelComputedProperty(appBody)) return true;
+  // Spreads, computed keys, and escaped identifier keys can hide either name
+  // behind syntax this lightweight analyzer does not fully evaluate.
+  if (appBody.includes("...") || hasOpaqueTopLevelProperty(appBody)) return true;
 
   try {
     return extractCapabilityRegistrations(manifestSource).length > 0;
@@ -94,8 +98,8 @@ export function hasAgentSurface(
   }
 }
 
-/** Whether an object literal body contains a computed key at its top level. */
-function hasTopLevelComputedProperty(objectBody: string): boolean {
+/** Whether an object literal body contains an opaque key at its top level. */
+function hasOpaqueTopLevelProperty(objectBody: string): boolean {
   let braces = 0;
   let brackets = 0;
   let parentheses = 0;
@@ -131,6 +135,7 @@ function hasTopLevelComputedProperty(objectBody: string): boolean {
 
     const atTopLevel = braces === 0 && brackets === 0 && parentheses === 0;
     if (atTopLevel && expectingKey && char === "[") return true;
+    if (atTopLevel && expectingKey && char === "\\") return true;
     if (atTopLevel && char === ":") expectingKey = false;
     if (atTopLevel && char === ",") expectingKey = true;
 

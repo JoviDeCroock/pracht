@@ -71,6 +71,8 @@ describe("createCloudflareServerEntryModule", () => {
     const source = createCloudflareServerEntryModule();
 
     expect(source).toContain("_pracht/isg.json");
+    expect(source).toContain("_pracht/markdown.json");
+    expect(source).toContain("markdownManifest,");
   });
 
   it("skips generated manifest asset reads for upgrade requests", () => {
@@ -82,6 +84,9 @@ describe("createCloudflareServerEntryModule", () => {
     expect(fetchSetup).toContain('const isUpgradeRequest = request.headers.has("upgrade");');
     expect(fetchSetup).toContain(
       'const headersManifest = !isUpgradeRequest && assets && typeof assets.fetch === "function"',
+    );
+    expect(fetchSetup).toContain(
+      'const markdownManifest = !isUpgradeRequest && assets && typeof assets.fetch === "function"',
     );
     expect(fetchSetup).toContain(
       'const isgManifest = !isUpgradeRequest && assets && typeof assets.fetch === "function"',
