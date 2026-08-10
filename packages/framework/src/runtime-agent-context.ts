@@ -87,7 +87,10 @@ function immutableAgentContext<TContext>(
         return Reflect.set(target, property, value, target);
       }
 
-      if (Object.prototype.hasOwnProperty.call(context, property)) {
+      if (
+        Object.prototype.hasOwnProperty.call(context, property) ||
+        hasPrototypeSetter(context, property)
+      ) {
         return Reflect.set(context, property, value, context);
       }
 
@@ -107,4 +110,15 @@ function immutableAgentContext<TContext>(
       return [...new Set([...Reflect.ownKeys(context), ...Reflect.ownKeys(target)])];
     },
   }) as TContext & PrachtContextExtensions;
+}
+
+/** Prototype accessors must keep the original class instance as `this`. */
+function hasPrototypeSetter(context: object | ContextMethod, property: PropertyKey): boolean {
+  let prototype = Object.getPrototypeOf(context);
+  while (prototype !== null) {
+    const descriptor = Reflect.getOwnPropertyDescriptor(prototype, property);
+    if (descriptor) return typeof descriptor.set === "function";
+    prototype = Object.getPrototypeOf(prototype);
+  }
+  return false;
 }
