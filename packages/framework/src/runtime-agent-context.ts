@@ -133,6 +133,10 @@ function immutableAgentContext<TContext>(
         newTarget === (proxy as unknown) ? (context as ContextMethod) : newTarget,
       );
     },
+    setPrototypeOf(target, newPrototype) {
+      if (!Reflect.setPrototypeOf(context, newPrototype)) return false;
+      return Reflect.setPrototypeOf(target, newPrototype);
+    },
     get(target, property, receiver) {
       if (
         Object.prototype.hasOwnProperty.call(target, property) &&

@@ -148,6 +148,33 @@ describe("bindAgentContext", () => {
     expect(() => Reflect.construct(Object, [], context)).toThrow(TypeError);
   });
 
+  it("keeps prototype changes synchronized with the original context", () => {
+    const immutablePrototype = { tenant: "one" };
+    const immutable = Object.freeze(Object.create(immutablePrototype));
+    const immutableContext = bindAgentContext(immutable, null);
+    const replacementPrototype = { tenant: "two" };
+
+    expect(Reflect.setPrototypeOf(immutableContext, replacementPrototype)).toBe(false);
+    expect(Object.getPrototypeOf(immutableContext)).toBe(immutablePrototype);
+    expect(immutableContext.tenant).toBe("one");
+
+    const extensible = Object.defineProperty({} as { agent: null; tenant?: string }, "agent", {
+      configurable: false,
+      value: null,
+      writable: false,
+    });
+    const extensibleContext = bindAgentContext(extensible, {
+      verified: true,
+      agentDomain: "verified.example",
+      keyId: "verified-key",
+    });
+
+    expect(Reflect.setPrototypeOf(extensibleContext, replacementPrototype)).toBe(true);
+    expect(Object.getPrototypeOf(extensibleContext)).toBe(replacementPrototype);
+    expect(Object.getPrototypeOf(extensible)).toBe(replacementPrototype);
+    expect(extensibleContext.tenant).toBe("two");
+  });
+
   it("supports preventing extensions without violating proxy own-key invariants", () => {
     const original = Object.seal(new RequestContext());
     const context = bindAgentContext(original, null);
