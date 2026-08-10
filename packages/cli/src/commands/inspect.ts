@@ -130,14 +130,14 @@ function printInspectReport(report: InspectReport): void {
     console.log("\nRoutes");
     for (const route of report.routes) {
       console.log(
-        `  ${route.path}  id=${route.id}  render=${route.render ?? "n/a"}  hydration=${route.hydration ?? "n/a"}  file=${route.file}`,
+        `  ${route.path}  id=${route.id}  render=${route.render ?? "n/a"}  hydration=${route.hydration ?? "full"}  file=${route.file}`,
       );
     }
 
     console.log("\nNot found page");
     console.log(
       report.notFound
-        ? `  ${report.notFound.path}  shell=${report.notFound.shell ?? "n/a"}  hydration=${report.notFound.hydration ?? "n/a"}  file=${report.notFound.file}`
+        ? `  ${report.notFound.path}  shell=${report.notFound.shell ?? "n/a"}  hydration=${report.notFound.hydration ?? "full"}  file=${report.notFound.file}`
         : "  None declared — unmatched URLs return a plain-text 404.",
     );
   }

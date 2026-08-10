@@ -5,7 +5,10 @@ import type { AppGraphApiRoute, AppGraphRoute } from "./app-graph.js";
 export interface DevBannerRoute extends Pick<
   AppGraphRoute,
   "middleware" | "path" | "render" | "shell"
-> {}
+> {
+  // Optional: only set when a route opts out of the default full hydration.
+  hydration?: AppGraphRoute["hydration"];
+}
 
 export interface DevBannerApiRoute extends Pick<AppGraphApiRoute, "methods" | "path"> {}
 
@@ -86,23 +89,32 @@ export function formatDevBanner(options: DevBannerOptions): string {
   } else {
     // The not-found page is listed after the routes it can never shadow: its
     // "path" is a label, not a pattern, so it is excluded from the count.
-    const rows = [...routes, ...(notFound ? [notFound] : [])].map((route) => [
+    const allRoutes = [...routes, ...(notFound ? [notFound] : [])];
+    // Only worth a column when some route actually opts out of full hydration:
+    // otherwise `/islands` and `/static` are indistinguishable from every other
+    // route in the table that tells you what runs where.
+    const showHydration = allRoutes.some((route) => route.hydration && route.hydration !== "full");
+    const rows = allRoutes.map((route) => [
       route.path,
       route.render ?? "ssr",
+      ...(showHydration ? [route.hydration ?? "full"] : []),
       route.shell ?? "-",
       route.middleware.length > 0 ? route.middleware.join(", ") : "-",
     ]);
-    const header = ["ROUTE", "MODE", "SHELL", "MIDDLEWARE"];
+    const header = [
+      "ROUTE",
+      "MODE",
+      ...(showHydration ? ["HYDRATION"] : []),
+      "SHELL",
+      "MIDDLEWARE",
+    ];
     const widths = columnWidths([header, ...rows]);
     lines.push(`    ${paint(formatRow(header, widths), ANSI.dim)}`);
     for (const row of rows) {
-      const [path, mode, shell, middleware] = row;
-      const cells = [
-        path.padEnd(widths[0]),
-        paint(mode.padEnd(widths[1]), MODE_COLORS[mode] ?? ANSI.dim),
-        shell.padEnd(widths[2]),
-        middleware,
-      ];
+      const cells = row.map((cell, index) => {
+        const padded = index === row.length - 1 ? cell : cell.padEnd(widths[index]);
+        return index === 1 ? paint(padded, MODE_COLORS[cell] ?? ANSI.dim) : padded;
+      });
       lines.push(`    ${cells.join("  ")}`.trimEnd());
     }
   }

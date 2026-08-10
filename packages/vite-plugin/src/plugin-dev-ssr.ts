@@ -157,7 +157,12 @@ export function createDevSSRMiddleware(
         return next();
       }
 
-      const contentType = response.headers.get("content-type") ?? "text/html";
+      // Only transform what actually is HTML. Defaulting a missing
+      // content-type to `text/html` made Vite inject its client script into
+      // bodiless responses — an MCP `notifications/*` 202 came back with
+      // `<script type="module" src="/@vite/client">` as its body, and so did
+      // redirects.
+      const contentType = response.headers.get("content-type") ?? "";
       let body = await response.text();
 
       if (contentType.includes("text/html")) {

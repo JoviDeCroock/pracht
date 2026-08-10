@@ -672,7 +672,9 @@ function createMcpConfig() {
       mcpServers: {
         pracht: {
           command: "npx",
-          args: ["pracht", "mcp"],
+          // Not `npx pracht`: that resolves to a registry package literally
+          // named `pracht` whenever the local bin is not on the path.
+          args: ["--yes", "@pracht/cli", "mcp"],
         },
       },
     },
@@ -1097,7 +1099,10 @@ function createDockerignore() {
 }
 
 function createAgentInstructions({ adapter, agentTools, packageManager, router, tailwind }) {
-  const runCmd = packageManager === "npm" ? "npm run" : packageManager;
+  // `bun build` is Bun's own bundler and shadows the package script, so bun
+  // needs the explicit `run` form the same way npm does.
+  const runCmd =
+    packageManager === "npm" || packageManager === "bun" ? `${packageManager} run` : packageManager;
 
   const lines = [
     "# Pracht App",
@@ -1196,6 +1201,12 @@ function createAgentInstructions({ adapter, agentTools, packageManager, router, 
 function createReadme({ adapter, agentTools, packageManager, projectName, router, tailwind }) {
   const installCommand = packageManager === "npm" ? "npm install" : `${packageManager} install`;
   const devCommand = packageManager === "npm" ? "npm run dev" : `${packageManager} dev`;
+  // `bun build` is Bun's own bundler and shadows the package script, unlike
+  // `bun dev` / `bun start` / `bun preview`, which fall through to it.
+  const buildCommand =
+    packageManager === "npm" || packageManager === "bun"
+      ? `${packageManager} run build`
+      : `${packageManager} build`;
   const previewCommand = packageManager === "npm" ? "npm run preview" : `${packageManager} preview`;
   const startCommand = packageManager === "npm" ? "npm run start" : `${packageManager} start`;
   const deployCommand = packageManager === "npm" ? "npm run deploy" : `${packageManager} deploy`;
@@ -1211,6 +1222,7 @@ function createReadme({ adapter, agentTools, packageManager, projectName, router
     "",
     `- \`${installCommand}\``,
     `- \`${devCommand}\``,
+    `- \`${buildCommand}\``,
     `- \`${typecheckCommand}\``,
   ];
 

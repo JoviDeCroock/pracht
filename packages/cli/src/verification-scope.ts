@@ -11,18 +11,26 @@ import {
 } from "./verification-helpers.js";
 
 export function collectChangedFiles(root: string): { files: string[]; warning: string | null } {
+  // stderr silenced throughout: outside a git repo these print `fatal: not a
+  // git repository` straight to the user's terminal, ahead of the warning below
+  // that explains the situation properly.
+  const git = {
+    encoding: "utf-8" as const,
+    stdio: ["ignore", "pipe", "ignore"] as ("ignore" | "pipe")[],
+  };
+
   try {
     const repoRoot = execFileSync("git", ["rev-parse", "--show-toplevel"], {
       cwd: root,
-      encoding: "utf-8",
+      ...git,
     }).trim();
     const prefix = execFileSync("git", ["rev-parse", "--show-prefix"], {
       cwd: root,
-      encoding: "utf-8",
+      ...git,
     }).trim();
     const output = execFileSync("git", ["status", "--porcelain", "--untracked-files=all"], {
       cwd: repoRoot,
-      encoding: "utf-8",
+      ...git,
     });
     const files = new Set<string>();
 

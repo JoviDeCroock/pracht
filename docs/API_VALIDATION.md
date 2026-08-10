@@ -19,6 +19,14 @@ Each piece degrades gracefully: `defineApi` works without typegen (runtime
 validation only), and `apiFetch` works without registered types (every path
 accepted, payloads `unknown`).
 
+> **API routes and capabilities use different error envelopes.** A `defineApi`
+> validation failure answers `{ "error": "validation", "issues": [{ "in", "path",
+> "message" }] }` with `path` as an array of segments. A
+> [capability](CAPABILITIES.md) answers the typed
+> `{ "ok": false, "error": { "code": "invalid_input", "issues": [{ "path", "message" }] } }`
+> with `path` as a JSON pointer. An agent that calls both surfaces of one app
+> has to handle both shapes.
+
 ---
 
 ## Validated Routes with `defineApi()`
