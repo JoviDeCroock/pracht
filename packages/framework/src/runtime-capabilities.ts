@@ -1191,9 +1191,10 @@ export async function invokeCapabilityOnHost<T = unknown>(
   }
 
   const started = performance.now();
-  const context = capabilityPipelineContext(host, ctx.context);
+  let context: unknown = ctx.context ?? {};
   let outcome: CapabilityPipelineOutcome;
   try {
+    context = capabilityPipelineContext(host, ctx.context);
     outcome =
       mcpCompositionGuard(host, resolved) ??
       (await runCapabilityPipeline({
@@ -1303,7 +1304,9 @@ function mcpCompositionGuard(
  * Keep the context seen by nested MCP middleware and capability bodies on the
  * same trusted identity used by the policy guard and audit trail. Assigning
  * the framework-owned field in place preserves the shared request-context
- * semantics used by ordinary dispatch.
+ * semantics used by ordinary dispatch. Immutable contexts receive a shallow
+ * descriptor-preserving copy instead, so binding identity never turns a valid
+ * nested call into a rejected promise.
  */
 function capabilityPipelineContext<TContext>(
   host: CapabilityHost,
@@ -1313,8 +1316,26 @@ function capabilityPipelineContext<TContext>(
   if (host.via !== "mcp") return context;
 
   if ((typeof context === "object" && context !== null) || typeof context === "function") {
-    (context as PrachtContextExtensions).agent = host.agent ?? null;
-    return context;
+    const agent = host.agent ?? null;
+    try {
+      (context as PrachtContextExtensions).agent = agent;
+      if ((context as PrachtContextExtensions).agent === agent) return context;
+    } catch {
+      // Frozen/sealed contexts cannot accept framework-owned fields. Fall
+      // through to an overlay without weakening the trusted identity.
+    }
+
+    const descriptors = Object.getOwnPropertyDescriptors(context);
+    delete descriptors.agent;
+    const copy = Object.create(Object.getPrototypeOf(context)) as PrachtContextExtensions;
+    Object.defineProperties(copy, descriptors);
+    Object.defineProperty(copy, "agent", {
+      configurable: true,
+      enumerable: true,
+      value: agent,
+      writable: false,
+    });
+    return copy;
   }
 
   return { agent: host.agent ?? null };

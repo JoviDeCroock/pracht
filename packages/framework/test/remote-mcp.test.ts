@@ -30,6 +30,7 @@ type CapabilityDefinition = Parameters<typeof defineCapability>[0];
 const created: string[] = [];
 const destroyed: string[] = [];
 const observedAgentKeys: string[] = [];
+const observedTenants: string[] = [];
 
 const notesSearch = defineCapability({
   title: "Search notes",
@@ -324,10 +325,11 @@ function createApp(agents: PrachtAgentsConfig | undefined) {
       }),
       "./middleware/record-agent.ts": async () => ({
         middleware: async (
-          args: { context: { agent?: { keyId?: string } } },
+          args: { context: { agent?: { keyId?: string }; tenant?: string } },
           next: () => Promise<Response>,
         ) => {
           observedAgentKeys.push(args.context.agent?.keyId ?? "missing");
+          observedTenants.push(args.context.tenant ?? "missing");
           return next();
         },
       }),
@@ -405,6 +407,7 @@ beforeEach(() => {
   created.length = 0;
   destroyed.length = 0;
   observedAgentKeys.length = 0;
+  observedTenants.length = 0;
 });
 
 afterEach(() => {
@@ -810,6 +813,7 @@ describe("tools/call runs the same pipeline as the HTTP projection", () => {
       method: "POST",
       body: "{}",
     });
+    const immutableContext = Object.freeze({ tenant: "one" });
 
     const forged = await invokeCapabilityOnHost(
       { app, registry, via: "mcp", agent },
@@ -828,10 +832,19 @@ describe("tools/call runs the same pipeline as the HTTP projection", () => {
       {},
       { request },
     );
+    const immutable = await invokeCapabilityOnHost(
+      { app, registry, via: "mcp", agent },
+      "agent.only",
+      {},
+      { request, context: immutableContext },
+    );
 
     expect(forged).toEqual({ ok: true, data: { keyId: "verified-key" } });
     expect(omitted).toEqual({ ok: true, data: { keyId: "verified-key" } });
-    expect(observedAgentKeys).toEqual(["verified-key", "verified-key"]);
+    expect(immutable).toEqual({ ok: true, data: { keyId: "verified-key" } });
+    expect("agent" in immutableContext).toBe(false);
+    expect(observedAgentKeys).toEqual(["verified-key", "verified-key", "verified-key"]);
+    expect(observedTenants).toEqual(["missing", "missing", "one"]);
   });
 
   it("refuses destructive capability composition from MCP", async () => {
