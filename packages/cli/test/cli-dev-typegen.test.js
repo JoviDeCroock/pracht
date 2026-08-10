@@ -9,6 +9,7 @@ import {
   cliPath,
   createRepoTempDir,
   runCli,
+  stopChild,
   waitFor,
   writeProjectFile,
   writeTypedManifestApp,
@@ -44,9 +45,9 @@ describe("@pracht/cli dev typegen", () => {
       );
       expect(existsSync(join(appDir, "src/pracht.d.ts"))).toBe(false);
     } finally {
-      child.kill("SIGTERM");
+      await stopChild(child);
     }
-  }, 90_000);
+  }, 120_000);
 
   it("pracht dev keeps generated route types in sync with route files", async () => {
     const appDir = createRepoTempDir("pracht-cli-dev-typegen-");
@@ -125,7 +126,7 @@ export const routes = [
         () => output,
       );
     } finally {
-      child.kill("SIGTERM");
+      await stopChild(child);
     }
-  }, 90_000);
+  }, 120_000);
 });

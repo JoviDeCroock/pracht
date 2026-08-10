@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -8,6 +8,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { createPrachtMcpServer } from "../src/mcp-server.ts";
+import { removeTempDir } from "./helpers/remove-temp-dir.ts";
 
 const testDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(testDir, "../../..");
@@ -24,7 +25,10 @@ afterEach(async () => {
     await cleanups.pop()?.();
   }
   while (tempDirs.length > 0) {
-    rmSync(tempDirs.pop()!, { force: true, recursive: true });
+    // The in-process Vite dep optimizer can still be writing into
+    // node_modules/.vite as the tree comes down, and it recreates entries
+    // after a plain rmSync; retry until the directory stays gone.
+    removeTempDir(tempDirs.pop()!);
   }
 });
 
