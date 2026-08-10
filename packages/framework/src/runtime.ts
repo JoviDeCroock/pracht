@@ -248,7 +248,7 @@ export async function handlePrachtRequest<TContext>(
     );
   }
 
-  const requestContext = (options.context ?? {}) as TContext;
+  let requestContext = (options.context ?? {}) as TContext & PrachtContextExtensions;
   const hasCapabilities = Object.keys(options.app.capabilities ?? {}).length > 0;
   const mcpConfig = options.app.agents?.mcp;
   let capabilityRuntime: typeof import("./runtime-capabilities.ts") | null = null;
@@ -274,7 +274,6 @@ export async function handlePrachtRequest<TContext>(
         options.onCapabilityAudit,
       );
     }
-
     // Web Bot Auth: verify the agent signature once per request when the app
     // opted in via `defineApp({ agents: { webBotAuth } })`. The result (identity
     // or null) lands on the shared request context before middleware, loaders,
@@ -282,11 +281,12 @@ export async function handlePrachtRequest<TContext>(
     // a single property check.
     const webBotAuth = options.app.agents?.webBotAuth;
     if (webBotAuth) {
+      const { bindAgentContext } = await import("./runtime-agent-context.ts");
       if (options.request.headers.has("signature-input")) {
         const { verifyAgentSignature } = await import("./runtime-agent-auth.ts");
         agent = await verifyAgentSignature(options.request, webBotAuth);
       }
-      (requestContext as PrachtContextExtensions).agent = agent;
+      requestContext = bindAgentContext(requestContext, agent);
     }
   } else if (hasCapabilities || options.app.agents) {
     // The build proved there was no agent surface and dropped the runtime, yet

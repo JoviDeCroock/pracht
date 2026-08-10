@@ -363,6 +363,7 @@ function createApp(agents: PrachtAgentsConfig | undefined) {
 
 interface McpCallOptions {
   agents?: PrachtAgentsConfig;
+  context?: unknown;
   headers?: Record<string, string>;
   method?: string;
   path?: string;
@@ -377,6 +378,7 @@ async function mcp(message: unknown, options: McpCallOptions = {}) {
   const method = options.method ?? "POST";
   const response = await handlePrachtRequest({
     app,
+    context: options.context,
     registry,
     request: new Request(url, {
       method,
@@ -932,6 +934,24 @@ describe("tools/call runs the same pipeline as the HTTP projection", () => {
       requestPath: "/api/capabilities/url/probe",
       urlPath: "/api/capabilities/url/probe",
     });
+  });
+
+  it("serves MCP tools with an immutable adapter context", async () => {
+    const context = Object.freeze({ tenant: "one" });
+    const { json } = await callTool(
+      "url_probe",
+      {},
+      {
+        agents: { mcp: {}, webBotAuth: { policy: "observe" } },
+        context,
+      },
+    );
+
+    expect(json?.result.structuredContent).toMatchObject({
+      requestPath: "/api/capabilities/url/probe",
+      urlPath: "/api/capabilities/url/probe",
+    });
+    expect(context).toEqual({ tenant: "one" });
   });
 
   it("turns non-envelope JSON middleware responses into tool errors", async () => {

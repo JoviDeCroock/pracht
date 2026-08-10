@@ -32,6 +32,7 @@ import {
   resolveCapabilityApprovalPrincipal,
   resolveCapabilityApprovalStore,
 } from "./runtime-approval.ts";
+import { bindAgentContext } from "./runtime-agent-context.ts";
 import {
   canonicalJson,
   CONFIRMATION_HEADER,
@@ -1314,31 +1315,7 @@ function capabilityPipelineContext<TContext>(
 ): TContext | PrachtContextExtensions {
   const context = supplied ?? {};
   if (host.via !== "mcp") return context;
-
-  if ((typeof context === "object" && context !== null) || typeof context === "function") {
-    const agent = host.agent ?? null;
-    try {
-      (context as PrachtContextExtensions).agent = agent;
-      if ((context as PrachtContextExtensions).agent === agent) return context;
-    } catch {
-      // Frozen/sealed contexts cannot accept framework-owned fields. Fall
-      // through to an overlay without weakening the trusted identity.
-    }
-
-    const descriptors = Object.getOwnPropertyDescriptors(context);
-    delete descriptors.agent;
-    const copy = Object.create(Object.getPrototypeOf(context)) as PrachtContextExtensions;
-    Object.defineProperties(copy, descriptors);
-    Object.defineProperty(copy, "agent", {
-      configurable: true,
-      enumerable: true,
-      value: agent,
-      writable: false,
-    });
-    return copy;
-  }
-
-  return { agent: host.agent ?? null };
+  return bindAgentContext(context, host.agent ?? null);
 }
 
 function capabilityHostAgent<TContext>(
