@@ -24,6 +24,8 @@ identity to frozen or sealed application contexts preserves their receivers,
 private fields, array branding, callable construction, reflection behavior, and
 writable source fields, including live descriptors, prototype changes made
 through another retained reference, and overlays frozen after retained source
-updates. HTTP and MCP composition retain the transport-verified identity even
+updates. Reusing a context across different verified identities fails closed,
+and reflective definitions on sealed contexts preserve Proxy invariants. HTTP
+and MCP composition retain the transport-verified identity even
 when application code supplies a replacement context object to
 `invokeCapability()`.

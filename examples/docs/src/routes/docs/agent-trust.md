@@ -44,7 +44,7 @@ async run({ context }) {
 }
 ```
 
-Verification fails closed: expired windows, uncovered components, unknown keys, or non-allowlisted directories all yield `context.agent = null`, never a partial identity. The framework binds the result as a read-only, immutable snapshot, so middleware can derive separate authorization state but cannot rewrite the verified identity used by later policy and audit checks.
+Verification fails closed: expired windows, uncovered components, unknown keys, or non-allowlisted directories all yield `context.agent = null`, never a partial identity. The framework binds the result as a read-only, immutable snapshot, so middleware can derive separate authorization state but cannot rewrite the verified identity used by later policy and audit checks. Adapters should create a fresh context per request; once an identity is bound directly to a context, rebinding that object to a different identity fails closed rather than leaking the previous identity through context methods or getters. The `agent` field is framework-reserved, so an immutable or inherited application-owned field with that name also fails closed.
 
 ---
 

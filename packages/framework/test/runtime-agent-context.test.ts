@@ -70,7 +70,7 @@ describe("bindAgentContext", () => {
     expect(agent.keyId).toBe("verified-key");
   });
 
-  it("replaces caller-owned frozen identities even when their fields initially match", () => {
+  it("rejects caller-owned frozen identities even when their fields initially match", () => {
     let keyIdReads = 0;
     const suppliedAgent = Object.freeze(
       Object.defineProperties(
@@ -89,16 +89,168 @@ describe("bindAgentContext", () => {
       Object.defineProperty({}, "agent", { enumerable: true, value: suppliedAgent }),
     );
 
-    const context = bindAgentContext(original, {
+    expect(() =>
+      bindAgentContext(original, {
+        verified: true,
+        agentDomain: "verified.example",
+        keyId: "verified-key",
+      }),
+    ).toThrow(/application-owned agent field/);
+  });
+
+  it("fails closed when a request context is reused for a different identity", () => {
+    class SharedContext {
+      declare readonly agent?: { keyId: string } | null;
+
+      get observedAgent() {
+        return this.agent;
+      }
+
+      readAgent() {
+        return this.agent;
+      }
+    }
+
+    const original = new SharedContext();
+    const first = bindAgentContext(original, {
       verified: true,
-      agentDomain: "verified.example",
-      keyId: "verified-key",
+      agentDomain: "first.example",
+      keyId: "first-key",
     });
 
-    expect(context).not.toBe(original);
-    expect(context.agent).not.toBe(suppliedAgent);
-    expect(context.agent?.keyId).toBe("verified-key");
-    expect(Object.isFrozen(context.agent)).toBe(true);
+    expect(first.observedAgent?.keyId).toBe("first-key");
+    expect(first.readAgent()?.keyId).toBe("first-key");
+    expect(() =>
+      bindAgentContext(original, {
+        verified: true,
+        agentDomain: "second.example",
+        keyId: "second-key",
+      }),
+    ).toThrow(/fresh context for each request/);
+    expect(() => bindAgentContext(original, null)).toThrow(/fresh context for each request/);
+  });
+
+  it("fails closed when fresh proxy aliases rebind a context to a different identity", () => {
+    class SharedContext {
+      declare readonly agent?: { keyId: string } | null;
+
+      readAgent() {
+        return this.agent;
+      }
+    }
+
+    const original = new SharedContext();
+    bindAgentContext(new Proxy(original, {}), {
+      verified: true,
+      agentDomain: "first.example",
+      keyId: "first-key",
+    });
+
+    expect(() =>
+      bindAgentContext(new Proxy(original, {}), {
+        verified: true,
+        agentDomain: "second.example",
+        keyId: "second-key",
+      }),
+    ).toThrow(/application-owned agent field/);
+  });
+
+  it("fails closed when an immutable agent field proxy-wraps another snapshot", () => {
+    const first = bindAgentContext(
+      {},
+      {
+        verified: true,
+        agentDomain: "first.example",
+        keyId: "first-key",
+      },
+    ).agent!;
+    class SharedContext {
+      declare readonly agent: typeof first;
+
+      readAgent() {
+        return this.agent;
+      }
+    }
+    const original = Object.freeze(
+      Object.defineProperty(new SharedContext(), "agent", {
+        value: new Proxy(first, {}),
+      }),
+    );
+
+    expect(() =>
+      bindAgentContext(original, {
+        verified: true,
+        agentDomain: "second.example",
+        keyId: "second-key",
+      }),
+    ).toThrow(/application-owned agent field/);
+  });
+
+  it("fails closed when an immutable accessor exposes another framework snapshot", () => {
+    const first = bindAgentContext(
+      {},
+      {
+        verified: true,
+        agentDomain: "first.example",
+        keyId: "first-key",
+      },
+    ).agent;
+    const original = Object.defineProperty({}, "agent", {
+      configurable: false,
+      get: () => first,
+    });
+
+    expect(() =>
+      bindAgentContext(original, {
+        verified: true,
+        agentDomain: "second.example",
+        keyId: "second-key",
+      }),
+    ).toThrow(/application-owned agent field/);
+
+    const inherited = Object.preventExtensions(
+      Object.create(
+        Object.defineProperty({}, "agent", {
+          get: () => first,
+        }),
+      ),
+    );
+    expect(() =>
+      bindAgentContext(inherited, {
+        verified: true,
+        agentDomain: "second.example",
+        keyId: "second-key",
+      }),
+    ).toThrow(/inherited application-owned agent field/);
+  });
+
+  it("fails closed when a prototype gains an agent field after binding", () => {
+    const first = bindAgentContext(
+      {},
+      {
+        verified: true,
+        agentDomain: "first.example",
+        keyId: "first-key",
+      },
+    ).agent;
+    const prototype = {
+      readAgent(this: { agent?: unknown }) {
+        return this.agent;
+      },
+    };
+    const original = Object.freeze(Object.create(prototype));
+    const context = bindAgentContext(original, {
+      verified: true,
+      agentDomain: "second.example",
+      keyId: "second-key",
+    });
+    const extractedReadAgent = context.readAgent;
+
+    Object.defineProperty(prototype, "agent", { value: first });
+
+    expect(context.agent?.keyId).toBe("second-key");
+    expect(() => context.readAgent()).toThrow(/reserved for the framework/);
+    expect(() => extractedReadAgent()).toThrow(/reserved for the framework/);
   });
 
   it("preserves constructor identity on immutable class contexts", () => {
@@ -281,5 +433,106 @@ describe("bindAgentContext", () => {
     expect(Reflect.deleteProperty(context, "tenant")).toBe(false);
     expect(context.tenant).toBe("one");
     expect(original.tenant).toBe("one");
+  });
+
+  it("materializes non-configurable definitions from sealed source fields", () => {
+    const original = Object.seal({ tenant: "one" });
+    const context = bindAgentContext(original, null);
+
+    expect(() =>
+      Object.defineProperty(context, "tenant", {
+        configurable: false,
+        value: "one",
+      }),
+    ).not.toThrow();
+    expect(Object.getOwnPropertyDescriptor(context, "tenant")).toEqual(
+      Object.getOwnPropertyDescriptor(original, "tenant"),
+    );
+    expect(context.tenant).toBe("one");
+  });
+
+  it("keeps reflected own methods receiver-bound when their descriptors are locked", () => {
+    class OwnMethodContext {
+      #tenant = "one";
+      readonly readTenant: () => string;
+
+      constructor() {
+        this.readTenant = function (this: OwnMethodContext) {
+          return this.#tenant;
+        };
+      }
+    }
+
+    const original = Object.seal(new OwnMethodContext());
+    const context = bindAgentContext(original, null);
+    const rawDescriptor = Object.getOwnPropertyDescriptor(original, "readTenant")!;
+
+    expect(
+      Reflect.defineProperty(context, "readTenant", {
+        ...rawDescriptor,
+        configurable: false,
+        writable: false,
+      }),
+    ).toBe(false);
+    expect(context.readTenant()).toBe("one");
+
+    const reflectedDescriptor = Object.getOwnPropertyDescriptor(context, "readTenant")!;
+    expect(reflectedDescriptor.value).toBe(context.readTenant);
+    expect(() =>
+      Object.defineProperty(context, "readTenant", {
+        ...reflectedDescriptor,
+        configurable: false,
+        writable: false,
+      }),
+    ).not.toThrow();
+    expect(context.readTenant()).toBe("one");
+    expect(() => Object.freeze(context)).not.toThrow();
+  });
+
+  it("reapplies reflected bound-method descriptors over frozen source fields", () => {
+    class OwnMethodContext {
+      #tenant = "one";
+      readonly readTenant: () => string;
+
+      constructor() {
+        this.readTenant = function (this: OwnMethodContext) {
+          return this.#tenant;
+        };
+      }
+    }
+
+    const context = bindAgentContext(Object.freeze(new OwnMethodContext()), null);
+    const reflectedDescriptor = Object.getOwnPropertyDescriptor(context, "readTenant")!;
+
+    expect(Reflect.defineProperty(context, "readTenant", reflectedDescriptor)).toBe(true);
+    expect(context.readTenant()).toBe("one");
+    expect(() => Object.freeze(context)).not.toThrow();
+    const frozenDescriptor = Object.getOwnPropertyDescriptor(context, "readTenant")!;
+    expect(Reflect.defineProperty(context, "readTenant", frozenDescriptor)).toBe(true);
+    expect(context.readTenant()).toBe("one");
+  });
+
+  it("reapplies truthful descriptors for frozen scalar and accessor fields", () => {
+    type FrozenContext = { tenant: string; readonly tenantAlias: string };
+    const original = Object.freeze(
+      Object.defineProperties({ tenant: "one" } as FrozenContext, {
+        tenantAlias: {
+          enumerable: true,
+          get() {
+            return this.tenant;
+          },
+        },
+      }),
+    );
+    const context = bindAgentContext(original, null);
+
+    for (const property of ["tenant", "tenantAlias"] as const) {
+      const descriptor = Object.getOwnPropertyDescriptor(context, property)!;
+      expect(descriptor.configurable).toBe(false);
+      expect(Reflect.defineProperty(context, property, descriptor)).toBe(true);
+      expect(Object.getOwnPropertyDescriptor(context, property)).toEqual(descriptor);
+    }
+    expect(context.tenant).toBe("one");
+    expect(context.tenantAlias).toBe("one");
   });
 });

@@ -3,6 +3,7 @@ import type { PrachtAgentIdentity } from "@pracht/capabilities";
 import type { PrachtContextExtensions } from "./types.ts";
 
 const agentIdentitySnapshots = new WeakSet<object>();
+const boundAgentContexts = new WeakMap<object, Readonly<PrachtAgentIdentity> | null>();
 
 /**
  * Bind framework-verified agent identity onto an application request context.
@@ -22,6 +23,17 @@ export function bindAgentContext<TContext>(
   const boundAgent = snapshotAgentIdentity(agent);
 
   if ((typeof context === "object" && context !== null) || typeof context === "function") {
+    if (boundAgentContexts.has(context)) {
+      const previousAgent = boundAgentContexts.get(context) ?? null;
+      if (sameAgentIdentity(previousAgent, boundAgent)) {
+        return context as TContext & PrachtContextExtensions;
+      }
+      throw new TypeError(
+        "Pracht request contexts cannot be reused across different verified agent identities. " +
+          "Create a fresh context for each request.",
+      );
+    }
+
     try {
       Object.defineProperty(context, "agent", {
         configurable: false,
@@ -29,6 +41,7 @@ export function bindAgentContext<TContext>(
         value: boundAgent,
         writable: false,
       });
+      boundAgentContexts.set(context, boundAgent);
       return context as TContext & PrachtContextExtensions;
     } catch {
       // Frozen/sealed contexts cannot accept framework-owned fields. Fall
@@ -46,10 +59,28 @@ export function bindAgentContext<TContext>(
           isAgentIdentitySnapshot(boundAgent) &&
           sameAgentIdentity(descriptor.value, boundAgent)))
     ) {
+      boundAgentContexts.set(context, boundAgent);
       return context as TContext & PrachtContextExtensions;
     }
 
-    return immutableAgentContext(context, boundAgent);
+    if (descriptor && (!("value" in descriptor) || descriptor.value !== null)) {
+      throw new TypeError(
+        "Pracht cannot safely replace an immutable application-owned agent field on the " +
+          "supplied request context. Create a fresh context without an application-owned " +
+          "agent field.",
+      );
+    }
+
+    if (!descriptor && Reflect.has(context, "agent")) {
+      throw new TypeError(
+        "Pracht cannot safely replace an inherited application-owned agent field on the supplied " +
+          "request context. Create a fresh context without an application-owned agent field.",
+      );
+    }
+
+    const overlay = immutableAgentContext(context, boundAgent);
+    boundAgentContexts.set(overlay, boundAgent);
+    return overlay;
   }
 
   return Object.freeze({ agent: boundAgent }) as TContext & PrachtContextExtensions;
@@ -103,11 +134,26 @@ function immutableAgentContext<TContext>(
   });
 
   const boundMethods = new WeakMap<ContextMethod, ContextMethod>();
+  const contextBoundMethods = new WeakSet<ContextMethod>();
   const bindContextMethod = (method: ContextMethod): ContextMethod => {
+    if (contextBoundMethods.has(method)) return method;
     let bound = boundMethods.get(method);
     if (!bound) {
-      bound = method.bind(context);
+      const receiverBound = method.bind(context);
+      let guarded: ContextMethod;
+      guarded = new Proxy(receiverBound, {
+        apply(target, thisArg, args) {
+          assertNoInheritedAgentField();
+          return Reflect.apply(target, thisArg, args);
+        },
+        construct(_target, args, newTarget) {
+          assertNoInheritedAgentField();
+          return Reflect.construct(method, args, newTarget === guarded ? method : newTarget);
+        },
+      });
+      bound = guarded;
       boundMethods.set(method, bound);
+      contextBoundMethods.add(bound);
     }
     return bound;
   };
@@ -118,6 +164,41 @@ function immutableAgentContext<TContext>(
     "value" in descriptor && typeof descriptor.value === "function" && property !== "constructor"
       ? { ...descriptor, value: bindContextMethod(descriptor.value as ContextMethod) }
       : descriptor;
+  const locksRawContextMethod = (
+    property: PropertyKey,
+    currentDescriptor: PropertyDescriptor,
+    descriptor: PropertyDescriptor,
+  ): boolean => {
+    const resultingValue = Object.prototype.hasOwnProperty.call(descriptor, "value")
+      ? descriptor.value
+      : "value" in currentDescriptor
+        ? currentDescriptor.value
+        : undefined;
+    const resultingConfigurable = descriptor.configurable ?? currentDescriptor.configurable;
+    const resultingWritable =
+      descriptor.writable ?? ("writable" in currentDescriptor && currentDescriptor.writable);
+    return (
+      property !== "constructor" &&
+      Object.prototype.hasOwnProperty.call(descriptor, "value") &&
+      typeof resultingValue === "function" &&
+      resultingConfigurable === false &&
+      resultingWritable === false &&
+      !contextBoundMethods.has(resultingValue as ContextMethod)
+    );
+  };
+  const isCompatibleBoundMethodDefinition = (
+    property: PropertyKey,
+    currentDescriptor: PropertyDescriptor,
+    descriptor: PropertyDescriptor,
+  ): boolean =>
+    property !== "constructor" &&
+    "value" in currentDescriptor &&
+    typeof currentDescriptor.value === "function" &&
+    Object.prototype.hasOwnProperty.call(descriptor, "value") &&
+    descriptor.value === bindContextMethod(currentDescriptor.value as ContextMethod) &&
+    (descriptor.enumerable === undefined ||
+      descriptor.enumerable === currentDescriptor.enumerable) &&
+    !(descriptor.writable === true && currentDescriptor.writable === false);
   const synchronizeMaterializedContextDescriptor = (property: PropertyKey): void => {
     if (!materializedContextKeys.has(property)) return;
 
@@ -136,6 +217,14 @@ function immutableAgentContext<TContext>(
       Reflect.setPrototypeOf(target, contextPrototype)
     );
   };
+  function assertNoInheritedAgentField(): void {
+    if (!Object.prototype.hasOwnProperty.call(context, "agent") && Reflect.has(context, "agent")) {
+      throw new TypeError(
+        "Pracht detected an inherited application-owned agent field after binding the request " +
+          "context. The agent field is reserved for the framework.",
+      );
+    }
+  }
   let proxy: TContext & PrachtContextExtensions;
   proxy = new Proxy(target, {
     apply(_target, thisArg, args) {
@@ -163,6 +252,8 @@ function immutableAgentContext<TContext>(
       ) {
         return Reflect.get(target, property, receiver);
       }
+
+      if (property !== "agent") assertNoInheritedAgentField();
 
       const value = Reflect.get(context, property, context);
       if (typeof value !== "function" || property === "constructor") return value;
@@ -219,7 +310,16 @@ function immutableAgentContext<TContext>(
     },
     defineProperty(target, property, descriptor) {
       if (materializedContextKeys.has(property)) {
-        if (!Reflect.defineProperty(context, property, descriptor)) return false;
+        const currentDescriptor = Reflect.getOwnPropertyDescriptor(context, property);
+        if (!currentDescriptor || locksRawContextMethod(property, currentDescriptor, descriptor)) {
+          return false;
+        }
+        if (!Reflect.defineProperty(context, property, descriptor)) {
+          return (
+            isCompatibleBoundMethodDefinition(property, currentDescriptor, descriptor) &&
+            Reflect.defineProperty(target, property, descriptor)
+          );
+        }
         const contextDescriptor = Reflect.getOwnPropertyDescriptor(context, property);
         return (
           !!contextDescriptor &&
@@ -235,7 +335,33 @@ function immutableAgentContext<TContext>(
         return Reflect.defineProperty(target, property, descriptor);
       }
       if (Object.prototype.hasOwnProperty.call(context, property)) {
-        return Reflect.defineProperty(context, property, descriptor);
+        const currentDescriptor = Reflect.getOwnPropertyDescriptor(context, property);
+        if (!currentDescriptor || locksRawContextMethod(property, currentDescriptor, descriptor)) {
+          // A locked data property forces a Proxy to return the target's exact
+          // value. Refuse a raw method before mutating the source; otherwise
+          // private fields and built-in receiver checks would break. A
+          // descriptor reflected from this overlay carries the safe bound
+          // value and remains accepted.
+          return false;
+        }
+        if (!Reflect.defineProperty(context, property, descriptor)) {
+          if (
+            !isCompatibleBoundMethodDefinition(property, currentDescriptor, descriptor) ||
+            !Reflect.defineProperty(target, property, descriptor)
+          ) {
+            return false;
+          }
+          materializedContextKeys.add(property);
+          return true;
+        }
+        const contextDescriptor = Reflect.getOwnPropertyDescriptor(context, property);
+        if (!contextDescriptor) return false;
+        const materializedDescriptor = Object.prototype.hasOwnProperty.call(descriptor, "value")
+          ? contextDescriptor
+          : targetContextDescriptor(property, contextDescriptor);
+        if (!Reflect.defineProperty(target, property, materializedDescriptor)) return false;
+        materializedContextKeys.add(property);
+        return true;
       }
       return Reflect.defineProperty(target, property, descriptor);
     },
@@ -260,7 +386,17 @@ function immutableAgentContext<TContext>(
       if (ownDescriptor) return ownDescriptor;
 
       const descriptor = Reflect.getOwnPropertyDescriptor(context, property);
-      return descriptor ? { ...descriptor, configurable: true } : undefined;
+      if (!descriptor) return undefined;
+      if (descriptor.configurable === false) {
+        if (
+          !Reflect.defineProperty(target, property, targetContextDescriptor(property, descriptor))
+        ) {
+          return undefined;
+        }
+        materializedContextKeys.add(property);
+        return Reflect.getOwnPropertyDescriptor(target, property);
+      }
+      return { ...targetContextDescriptor(property, descriptor), configurable: true };
     },
     has(target, property) {
       synchronizeMaterializedContextDescriptor(property);

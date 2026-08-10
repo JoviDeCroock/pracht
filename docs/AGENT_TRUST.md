@@ -87,7 +87,13 @@ async run({ context }) {
 `null` for unsigned or unverifiable requests. The framework binds it as a
 read-only, immutable snapshot: middleware may derive its own authorization
 state elsewhere on `context`, but cannot rewrite the verified identity seen by
-later capability policy or audit checks.
+later capability policy or audit checks. Adapters should create a fresh context
+for each request; once the framework binds an identity directly to a context,
+rebinding that object to a different identity fails closed rather than exposing
+the previous request's identity through context methods or getters. The
+`agent` field is reserved for the framework; an immutable or inherited
+application-owned field with that name also fails closed because it cannot be
+safely hidden from receiver-bound context behavior.
 
 ### Verification rules (fail closed)
 
