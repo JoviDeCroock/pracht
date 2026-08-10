@@ -107,8 +107,7 @@ export interface HandleMcpRequestOptions<TContext> {
 /**
  * Handle one request to the MCP endpoint. Always resolves — protocol problems
  * become JSON-RPC errors, capability problems become tool errors.
- */
-export async function handleMcpRequest<TContext>(
+ */ export async function handleMcpRequest<TContext>(
   options: HandleMcpRequestOptions<TContext>,
 ): Promise<Response> {
   const { request } = options;
@@ -147,8 +146,18 @@ export async function handleMcpRequest<TContext>(
   }
 
   const declaredVersion = request.headers.get(MCP_PROTOCOL_VERSION_HEADER);
+  // Clients send the negotiated version on every request after initialize;
+  // before that (and on the initialize call itself) the newest supported
+  // version is the honest answer until `initialize` narrows it below.
+  let activeVersion =
+    declaredVersion && isSupportedProtocolVersion(declaredVersion)
+      ? declaredVersion
+      : MCP_LATEST_PROTOCOL_VERSION;
+  const respond = (status: number, payload: unknown): Response =>
+    jsonRpcResponse(status, activeVersion, payload);
+
   if (declaredVersion && !isSupportedProtocolVersion(declaredVersion)) {
-    return jsonRpcResponse(400, {
+    return respond(400, {
       jsonrpc: "2.0",
       id: null,
       error: {
@@ -161,7 +170,7 @@ export async function handleMcpRequest<TContext>(
   }
 
   if (!acceptsJson(request)) {
-    return jsonRpcResponse(406, {
+    return respond(406, {
       jsonrpc: "2.0",
       id: null,
       error: { code: JSONRPC_INVALID_REQUEST, message: "Client must accept application/json." },
@@ -172,7 +181,7 @@ export async function handleMcpRequest<TContext>(
   try {
     payload = JSON.parse(await request.text());
   } catch {
-    return jsonRpcResponse(400, {
+    return respond(400, {
       jsonrpc: "2.0",
       id: null,
       error: { code: JSONRPC_PARSE_ERROR, message: "Parse error." },
@@ -182,7 +191,7 @@ export async function handleMcpRequest<TContext>(
   // JSON-RPC batching was removed from MCP; reject it rather than
   // half-supporting it.
   if (Array.isArray(payload)) {
-    return jsonRpcResponse(400, {
+    return respond(400, {
       jsonrpc: "2.0",
       id: null,
       error: { code: JSONRPC_INVALID_REQUEST, message: "JSON-RPC batching is not supported." },
@@ -196,7 +205,7 @@ export async function handleMcpRequest<TContext>(
     params?: unknown;
   };
   if (message?.jsonrpc !== "2.0" || typeof message.method !== "string") {
-    return jsonRpcResponse(400, {
+    return respond(400, {
       jsonrpc: "2.0",
       id: null,
       error: { code: JSONRPC_INVALID_REQUEST, message: "Invalid JSON-RPC 2.0 request." },
@@ -209,7 +218,7 @@ export async function handleMcpRequest<TContext>(
     return new Response(null, { status: 202 });
   }
   if (typeof message.id !== "string" && typeof message.id !== "number") {
-    return jsonRpcResponse(400, {
+    return respond(400, {
       jsonrpc: "2.0",
       id: null,
       error: { code: JSONRPC_INVALID_REQUEST, message: "Invalid JSON-RPC 2.0 request id." },
@@ -222,7 +231,7 @@ export async function handleMcpRequest<TContext>(
       options.exposeErrors && options.resolutionError instanceof Error
         ? `: ${options.resolutionError.message}`
         : ".";
-    return jsonRpcResponse(200, {
+    return respond(200, {
       jsonrpc: "2.0",
       id,
       error: {
@@ -237,7 +246,7 @@ export async function handleMcpRequest<TContext>(
     (entry) => !isValidMcpToolName(mcpToolName(entry.name)),
   );
   if (invalidToolNames.length > 0) {
-    return jsonRpcResponse(200, {
+    return respond(200, {
       jsonrpc: "2.0",
       id,
       error: {
@@ -253,7 +262,7 @@ export async function handleMcpRequest<TContext>(
   if (collisions.length > 0) {
     // `pracht verify` reports this at build time; refuse to serve an
     // ambiguous tool list rather than picking a winner at random.
-    return jsonRpcResponse(200, {
+    return respond(200, {
       jsonrpc: "2.0",
       id,
       error: {
@@ -271,7 +280,7 @@ export async function handleMcpRequest<TContext>(
     case "initialize": {
       const params = readInitializeParams(message.params);
       if (!params) {
-        return jsonRpcResponse(200, {
+        return respond(200, {
           jsonrpc: "2.0",
           id,
           error: {
@@ -281,11 +290,12 @@ export async function handleMcpRequest<TContext>(
           },
         });
       }
-      return jsonRpcResponse(200, {
+      activeVersion = negotiateProtocolVersion(params.protocolVersion);
+      return respond(200, {
         jsonrpc: "2.0",
         id,
         result: {
-          protocolVersion: negotiateProtocolVersion(params.protocolVersion),
+          protocolVersion: activeVersion,
           capabilities: { tools: { listChanged: false } },
           serverInfo: options.mcp.serverInfo ?? { name: "pracht", version: "0.0.0" },
           instructions: options.mcp.instructions,
@@ -294,20 +304,20 @@ export async function handleMcpRequest<TContext>(
     }
 
     case "ping":
-      return jsonRpcResponse(200, { jsonrpc: "2.0", id, result: {} });
+      return respond(200, { jsonrpc: "2.0", id, result: {} });
 
     case "tools/list":
-      return jsonRpcResponse(200, {
+      return respond(200, {
         jsonrpc: "2.0",
         id,
         result: { tools: mcpExposedCapabilities(options.capabilities).map(toolDescriptor) },
       });
 
     case "tools/call":
-      return handleToolsCall(options, id, message.params);
+      return handleToolsCall(options, id, message.params, activeVersion);
 
     default:
-      return jsonRpcResponse(200, {
+      return respond(200, {
         jsonrpc: "2.0",
         id,
         error: {
@@ -321,7 +331,6 @@ export async function handleMcpRequest<TContext>(
 // ---------------------------------------------------------------------------
 // tools/list
 // ---------------------------------------------------------------------------
-
 function toolDescriptor(entry: ResolvedCapability) {
   const { capability } = entry;
   return {
@@ -352,6 +361,10 @@ async function handleToolsCall<TContext>(
   options: HandleMcpRequestOptions<TContext>,
   id: string | number,
   rawParams: unknown,
+  // Threaded rather than defaulted: `tools/call` is the method that does the
+  // work, so it is the one that most needs to agree with the version the
+  // client negotiated.
+  protocolVersion: string,
 ): Promise<Response> {
   const params = (rawParams ?? {}) as {
     name?: unknown;
@@ -360,7 +373,7 @@ async function handleToolsCall<TContext>(
   };
 
   if (typeof params.name !== "string") {
-    return jsonRpcResponse(200, {
+    return jsonRpcResponse(200, protocolVersion, {
       jsonrpc: "2.0",
       id,
       error: { code: JSONRPC_INVALID_PARAMS, message: "tools/call requires a string `name`." },
@@ -370,7 +383,7 @@ async function handleToolsCall<TContext>(
     params.arguments !== undefined &&
     (!params.arguments || typeof params.arguments !== "object" || Array.isArray(params.arguments))
   ) {
-    return jsonRpcResponse(200, {
+    return jsonRpcResponse(200, protocolVersion, {
       jsonrpc: "2.0",
       id,
       error: {
@@ -384,7 +397,7 @@ async function handleToolsCall<TContext>(
   const match = exposed.find((entry) => mcpToolName(entry.name) === params.name);
   if (!match) {
     // An unknown tool is a protocol-level error, not a tool execution failure.
-    return jsonRpcResponse(200, {
+    return jsonRpcResponse(200, protocolVersion, {
       jsonrpc: "2.0",
       id,
       error: {
@@ -441,7 +454,7 @@ async function handleToolsCall<TContext>(
     };
   }
 
-  return jsonRpcResponse(200, {
+  return jsonRpcResponse(200, protocolVersion, {
     jsonrpc: "2.0",
     id,
     result: toolResult(match, envelope, response.status),
@@ -593,12 +606,15 @@ function isNonBrowserRequest(request: Request): boolean {
   return !request.headers.has("origin") && !request.headers.has("sec-fetch-site");
 }
 
-function jsonRpcResponse(status: number, body: unknown): Response {
+function jsonRpcResponse(status: number, protocolVersion: string, body: unknown): Response {
   return new Response(JSON.stringify(body), {
     status,
     headers: {
       "content-type": "application/json; charset=utf-8",
-      [MCP_PROTOCOL_VERSION_HEADER]: MCP_LATEST_PROTOCOL_VERSION,
+      // The negotiated version, not simply the newest one we support: a client
+      // that initialized at an older version should not be told the connection
+      // is speaking a version it never agreed to.
+      [MCP_PROTOCOL_VERSION_HEADER]: protocolVersion,
     },
   });
 }

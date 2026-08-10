@@ -14,7 +14,12 @@ import {
   route,
   setCapabilityAuditHook,
 } from "../src/index.ts";
-import { MCP_PROTOCOL_VERSION_HEADER, resolveMcpEndpoint } from "../src/runtime-mcp.ts";
+import {
+  MCP_LATEST_PROTOCOL_VERSION,
+  MCP_PROTOCOL_VERSION_HEADER,
+  MCP_PROTOCOL_VERSIONS,
+  resolveMcpEndpoint,
+} from "../src/runtime-mcp.ts";
 import type { CapabilityAuditEvent, ModuleRegistry, PrachtAgentsConfig } from "../src/types.ts";
 
 const ORIGIN = "https://app.example";
@@ -785,5 +790,74 @@ describe("destructive capabilities stay off the MCP surface", () => {
     };
 
     expect(mcpExposedCapabilities([smuggled as never])).toEqual([]);
+  });
+});
+
+describe("mcp protocol version header", () => {
+  it("reports the negotiated version, not simply the newest supported one", async () => {
+    const older = MCP_PROTOCOL_VERSIONS[MCP_PROTOCOL_VERSIONS.length - 1]!;
+    expect(older).not.toBe(MCP_LATEST_PROTOCOL_VERSION);
+
+    const { response, json } = await mcp({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "initialize",
+      params: {
+        protocolVersion: older,
+        capabilities: {},
+        clientInfo: { name: "probe", version: "1" },
+      },
+    });
+
+    expect(json?.result.protocolVersion).toBe(older);
+    // A client that initialized at an older version must not be told the
+    // connection is speaking a version it never agreed to.
+    expect(response.headers.get(MCP_PROTOCOL_VERSION_HEADER)).toBe(older);
+  });
+
+  it("echoes the version a later request declares", async () => {
+    const older = MCP_PROTOCOL_VERSIONS[MCP_PROTOCOL_VERSIONS.length - 1]!;
+
+    const { response } = await mcp(
+      { jsonrpc: "2.0", id: 2, method: "tools/list" },
+      { headers: { [MCP_PROTOCOL_VERSION_HEADER]: older } },
+    );
+
+    expect(response.headers.get(MCP_PROTOCOL_VERSION_HEADER)).toBe(older);
+  });
+
+  it("reports the negotiated version on tools/call, not just the handshake", async () => {
+    // The method that actually does work is the one most worth getting right,
+    // and it lives outside the request-scoped responder.
+    const older = MCP_PROTOCOL_VERSIONS[MCP_PROTOCOL_VERSIONS.length - 1]!;
+
+    const { response } = await mcp(
+      {
+        jsonrpc: "2.0",
+        id: 4,
+        method: "tools/call",
+        params: { name: "notes_search", arguments: { query: "a" } },
+      },
+      { headers: { [MCP_PROTOCOL_VERSION_HEADER]: older } },
+    );
+
+    expect(response.headers.get(MCP_PROTOCOL_VERSION_HEADER)).toBe(older);
+  });
+
+  it("reports the negotiated version on a tools/call error", async () => {
+    const older = MCP_PROTOCOL_VERSIONS[MCP_PROTOCOL_VERSIONS.length - 1]!;
+
+    const { response } = await mcp(
+      { jsonrpc: "2.0", id: 5, method: "tools/call", params: { name: "nope", arguments: {} } },
+      { headers: { [MCP_PROTOCOL_VERSION_HEADER]: older } },
+    );
+
+    expect(response.headers.get(MCP_PROTOCOL_VERSION_HEADER)).toBe(older);
+  });
+
+  it("falls back to the newest supported version when none is declared", async () => {
+    const { response } = await mcp({ jsonrpc: "2.0", id: 3, method: "tools/list" });
+
+    expect(response.headers.get(MCP_PROTOCOL_VERSION_HEADER)).toBe(MCP_LATEST_PROTOCOL_VERSION);
   });
 });

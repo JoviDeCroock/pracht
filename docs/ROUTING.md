@@ -639,6 +639,23 @@ Next.js), pracht offers an optional pages-based routing mode. Instead of writing
 a route manifest in `src/routes.ts`, you set a `pagesDir` option and pracht
 auto-discovers routes from the file system.
 
+### What the pages router does not have
+
+Auto-discovery replaces the manifest, and several features are registered
+*through* that manifest — so they are unavailable in `pagesDir` mode:
+
+| Feature | Pages router |
+| --- | --- |
+| Render + hydration modes, dynamic and catch-all routes, `getStaticPaths`, API routes | ✅ (`RENDER_MODE` / `HYDRATION` exports) |
+| Shells | one, `_app.tsx` — no named shells or per-route assignment |
+| Middleware | ❌ no registration seam |
+| [Capabilities](CAPABILITIES.md) | ❌ — and therefore no capability HTTP endpoints, no WebMCP, no remote MCP, no `pracht eval` |
+| `defineApp({ constraints })`, `agents` | ❌ |
+
+If you start with the pages router and later need any of these, you can eject
+to an explicit manifest with `generateRoutesFile` — see [Ejecting to Explicit
+Manifest](#ejecting-to-explicit-manifest).
+
 ### Setup
 
 ```typescript

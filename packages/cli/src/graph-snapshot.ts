@@ -107,8 +107,12 @@ export function readGraphSnapshotFromDisk(root: string): GraphSnapshot | null {
 /** Read the committed snapshot at a git ref, or null when absent/unreadable. */
 export function readGraphSnapshotFromRef(root: string, ref: string): GraphSnapshot | null {
   try {
+    // stderr silenced: outside a git repo this prints `fatal: not a git
+    // repository` straight to the user's terminal before the caller has a
+    // chance to explain that a missing baseline is fine.
     const prefix = execFileSync("git", ["-C", root, "rev-parse", "--show-prefix"], {
       encoding: "utf-8",
+      stdio: ["ignore", "pipe", "ignore"],
     }).trim();
     const contents = execFileSync(
       "git",

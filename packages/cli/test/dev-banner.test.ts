@@ -173,6 +173,31 @@ describe("formatDevBanner", () => {
     expect(banner).toContain("Capabilities (0)  MCP endpoint /mcp");
     expect(banner).toContain("    (none)");
   });
+  it("adds a hydration column only when a route opts out of full hydration", () => {
+    const withoutIslands = formatDevBanner({
+      apiRoutes: [],
+      color: false,
+      localUrls: ["http://localhost:3000/"],
+      routes: [{ middleware: [], path: "/", render: "ssg", shell: "public" }],
+    });
+    expect(withoutIslands).not.toContain("HYDRATION");
+
+    const withIslands = formatDevBanner({
+      apiRoutes: [],
+      color: false,
+      localUrls: ["http://localhost:3000/"],
+      routes: [
+        { middleware: [], path: "/", render: "ssg", shell: "public" },
+        { hydration: "islands", middleware: [], path: "/islands", render: "ssg", shell: "public" },
+        { hydration: "none", middleware: [], path: "/static", render: "ssg", shell: "public" },
+      ],
+    });
+    expect(withIslands).toContain("HYDRATION");
+    expect(withIslands).toMatch(/\/islands\s+ssg\s+islands/);
+    expect(withIslands).toMatch(/\/static\s+ssg\s+none/);
+    // A route that never opted out still reads as what it is.
+    expect(withIslands).toMatch(/\/\s+ssg\s+full/);
+  });
 });
 
 describe("supportsColor", () => {

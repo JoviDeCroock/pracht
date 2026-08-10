@@ -98,6 +98,8 @@ describe("create-pracht", () => {
     expect(dockerfile).toContain('CMD ["node", "dist/server/server.js"]');
     expect(dockerignore).toContain("node_modules");
     expect(dockerignore).toContain(".env*");
+    // The build command was missing from every scaffold README.
+    expect(readme).toContain("pnpm build");
     expect(readme).toContain("docker build");
     expect(readme).toContain("pnpm typecheck");
     expect(readme).toContain("`pracht verify` validates routes and constraints.");
@@ -480,7 +482,9 @@ describe("create-pracht", () => {
     const mcpConfig = JSON.parse(await readFile(join(targetDir, ".mcp.json"), "utf-8"));
     expect(mcpConfig.mcpServers.pracht).toEqual({
       command: "npx",
-      args: ["pracht", "mcp"],
+      // Not `npx pracht`: that resolves to a registry package literally named
+      // `pracht` whenever the local bin is not on the path.
+      args: ["--yes", "@pracht/cli", "mcp"],
     });
 
     const skillFile = join(targetDir, ".claude/skills/add-auth/SKILL.md");

@@ -371,6 +371,17 @@ With the option on:
   key, so SSR pages (including authenticated ones) and API GET responses
   would be edge-cached across users.
 
+#### Trailing slashes
+
+The assets binding's default `html_handling` redirects a prerendered nested
+route to its trailing-slash form: `GET /guide` answers `307 → /guide/` on
+Cloudflare where Node answers `200`. That makes the canonical URL of every
+prerendered nested route differ between adapters, and the generated `llms.txt`
+emits the non-slash form, so an agent following it takes a redirect on
+Cloudflare only. Set `assets.html_handling` in `wrangler.jsonc` (for example
+`"none"` alongside your own routing, or `"drop-trailing-slash"`) when you need
+one canonical form across adapters.
+
 #### Cache-key cardinality
 
 Workers Caching keys inbound requests by the exact path and query string.
