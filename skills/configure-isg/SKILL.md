@@ -158,9 +158,15 @@ pracht typegen   # if src/routes.ts changed
 
 1. Never overwrite `wrangler.jsonc`/`wrangler.toml` or `vercel.json` — diff
    and merge, confirming collisions with `AskUserQuestion`.
-2. Never propose ISG for personalized responses: `Set-Cookie` or
-   `Cache-Control: private`/`no-store` output fails regeneration, and
-   `Vary: Cookie`/`Authorization`/`*` is kept out of shared caches by design.
+2. Never propose ISG for personalized responses. ISG HTML renders always run
+   on a sanitized request (`GET`, `Accept: text/html`, path only — no cookies,
+   credentials, query, or body); Cloudflare Workers Caching uses the same
+   isolation with `Accept: text/markdown` for its markdown cache variant. A
+   loader that reads the session therefore sees an anonymous visitor. On top of that, `Set-Cookie` or
+   `Cache-Control: private`/`no-store` output fails regeneration on Node and
+   Cloudflare (on Vercel the credential headers are stripped and the mismatch
+   is logged), and `Vary: Cookie`/`Authorization`/`*` is kept out of shared
+   caches by design.
 3. Always pair `render: "isg"` with an explicit `revalidate` policy — without
    one the route silently behaves like SSG.
 4. On Vercel, set `PRACHT_REVALIDATE_TOKEN` in the build environment, not

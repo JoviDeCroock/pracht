@@ -95,6 +95,12 @@ authenticated webhook. Node and Cloudflare serve stale HTML immediately while a
 new version is generated in the background for time-based revalidation. Vercel
 uses Build Output API prerender functions and the platform ISR cache.
 
+Every HTML regeneration — on any adapter — renders on a sanitized request
+(`GET`, `Accept: text/html`, path only). The visitor whose request triggered it
+never lends their cookies or credentials to the render, because the resulting
+HTML is served to everyone who asks for that path afterwards. Cloudflare Workers
+Caching applies the same isolation to its `text/markdown` cache variant.
+
 ### Time-based revalidation
 
 ```typescript

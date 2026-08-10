@@ -59,6 +59,30 @@ export function isCacheableISGResponse(response: Response): boolean {
   return true;
 }
 
+const DANGEROUS_PRERENDER_HEADER_NAMES = new Set([
+  "authorization",
+  "proxy-authenticate",
+  "proxy-authorization",
+  "set-cookie",
+  "www-authenticate",
+]);
+const SECRET_SHAPED_PRERENDER_HEADER_RE =
+  /^x-.*(?:api[-_]?key|client[-_]?secret|credential|jwt[-_]?secret|password|private[-_]?key|refresh[-_]?token|secret|session[-_]?secret|token|webhook[-_]?secret)(?:$|[-_])/i;
+
+/**
+ * Headers that must never ride along with output stored in a shared cache.
+ * Prerendered documents — and ISG responses regenerated at runtime — are
+ * replayed verbatim to every visitor, so a `Set-Cookie` or credential header
+ * produced by one render would be handed to all of them.
+ */
+export function isDangerousPrerenderHeader(name: string): boolean {
+  const normalized = name.toLowerCase();
+  return (
+    DANGEROUS_PRERENDER_HEADER_NAMES.has(normalized) ||
+    SECRET_SHAPED_PRERENDER_HEADER_RE.test(normalized)
+  );
+}
+
 export type RevalidationRequestResult =
   | {
       ok: true;
@@ -186,8 +210,20 @@ export function isAuthorizedRevalidationRequest(
   return constantTimeEqual(provided, token);
 }
 
-export function createISGRegenerationRequest(pathname: string, originalRequest?: Request): Request {
-  const baseUrl = originalRequest ? new URL(originalRequest.url) : new URL("http://localhost");
+/**
+ * Build the request an ISG render runs on. The rendered HTML lands in a shared
+ * cache and is replayed to every later visitor, so the render must not see the
+ * triggering visitor's cookies, credentials, or query string — only the path.
+ * `base` supplies the origin (a `Request`, `URL`, or absolute URL string).
+ */
+export function createISGRegenerationRequest(
+  pathname: string,
+  base?: Request | URL | string,
+): Request {
+  const baseUrl =
+    base === undefined
+      ? new URL("http://localhost")
+      : new URL(base instanceof Request ? base.url : base);
   const regenerationUrl = new URL(pathname, baseUrl);
 
   return new Request(regenerationUrl, {

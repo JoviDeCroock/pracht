@@ -1,6 +1,6 @@
 import { resolveApp } from "./app.ts";
 import { buildPathFromSegments } from "./route-matching.ts";
-import { normalizeRouteRevalidate } from "./revalidation.ts";
+import { isDangerousPrerenderHeader, normalizeRouteRevalidate } from "./revalidation.ts";
 import { resolveRegistryModule } from "./runtime-manifest.ts";
 import { handlePrachtRequest } from "./runtime.ts";
 import type {
@@ -38,16 +38,6 @@ export interface PrerenderAppOptions {
   /** Maximum number of pages rendered concurrently. Defaults to 10. */
   concurrency?: number;
 }
-
-const DANGEROUS_PRERENDER_HEADER_NAMES = new Set([
-  "authorization",
-  "proxy-authenticate",
-  "proxy-authorization",
-  "set-cookie",
-  "www-authenticate",
-]);
-const SECRET_SHAPED_PRERENDER_HEADER_RE =
-  /^x-.*(?:api[-_]?key|client[-_]?secret|credential|jwt[-_]?secret|password|private[-_]?key|refresh[-_]?token|secret|session[-_]?secret|token|webhook[-_]?secret)(?:$|[-_])/i;
 
 export async function prerenderApp(options: PrerenderAppOptions): Promise<PrerenderResult[]>;
 export async function prerenderApp(
@@ -148,14 +138,6 @@ function assertSafePrerenderHeaders(
     `Refusing to prerender ${item.render.toUpperCase()} route "${item.pathname}" because its document headers include ${names}. ` +
       "SSG/ISG document headers are serialized into public static output and replayed for every visitor. " +
       "Move cookies/authentication headers to API routes, loaders, middleware responses, or SSR-only routes.",
-  );
-}
-
-function isDangerousPrerenderHeader(name: string): boolean {
-  const normalized = name.toLowerCase();
-  return (
-    DANGEROUS_PRERENDER_HEADER_NAMES.has(normalized) ||
-    SECRET_SHAPED_PRERENDER_HEADER_RE.test(normalized)
   );
 }
 

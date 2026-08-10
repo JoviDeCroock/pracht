@@ -288,6 +288,106 @@ describe("createCloudflareFetchHandler ISG", () => {
     expect(body).not.toContain("cached");
     expect(body).toContain("fresh-content");
   });
+
+  it("sanitizes cold Workers Caching renders before they reach app code", async () => {
+    const { executionContext } = createExecutionContext();
+    let contextRequest: Request | undefined;
+    let loaderRequest: Request | undefined;
+    const app = defineApp({
+      routes: [
+        route("/pricing", "./routes/pricing.tsx", {
+          render: "isg",
+          revalidate: timeRevalidate(60),
+        }),
+      ],
+    });
+    const registry: ModuleRegistry = {
+      routeModules: {
+        "./routes/pricing.tsx": async () => ({
+          Component: () => "anonymous pricing",
+          loader: ({ request }) => {
+            loaderRequest = request;
+            return null;
+          },
+        }),
+      },
+    };
+    const handler = createCloudflareFetchHandler({
+      app,
+      cache: true,
+      createContext({ request }) {
+        contextRequest = request;
+        return {};
+      },
+      registry,
+    });
+
+    const response = await handler(
+      new Request("https://cache.example/pricing?campaign=visitor", {
+        headers: {
+          authorization: "Bearer visitor-token",
+          cookie: "session=visitor-session",
+        },
+      }),
+      { ASSETS: create404Assets() },
+      executionContext,
+    );
+
+    for (const request of [contextRequest, loaderRequest]) {
+      expect(request?.url).toBe("https://cache.example/pricing");
+      expect(request?.method).toBe("GET");
+      expect(Object.fromEntries(request?.headers ?? new Headers())).toEqual({
+        accept: "text/html",
+      });
+    }
+    expect(response.headers.get("cloudflare-cdn-cache-control")).toContain("max-age=60");
+    await expect(response.text()).resolves.toContain("anonymous pricing");
+  });
+
+  it("preserves the canonical markdown cache variant while sanitizing it", async () => {
+    const { executionContext } = createExecutionContext();
+    let loaderRequest: Request | undefined;
+    const app = defineApp({
+      routes: [
+        route("/pricing", "./routes/pricing.tsx", {
+          render: "isg",
+          revalidate: timeRevalidate(60),
+        }),
+      ],
+    });
+    const registry: ModuleRegistry = {
+      routeModules: {
+        "./routes/pricing.tsx": async () => ({
+          Component: () => "html pricing",
+          loader: ({ request }) => {
+            loaderRequest = request;
+            return null;
+          },
+          markdown: "# Markdown pricing",
+        }),
+      },
+    };
+    const handler = createCloudflareFetchHandler({ app, cache: true, registry });
+
+    const response = await handler(
+      new Request("https://cache.example/pricing?campaign=visitor", {
+        headers: {
+          accept: "text/html;q=0.5, text/markdown;q=0.9",
+          cookie: "session=visitor-session",
+        },
+      }),
+      { ASSETS: create404Assets() },
+      executionContext,
+    );
+
+    expect(loaderRequest?.url).toBe("https://cache.example/pricing");
+    expect(Object.fromEntries(loaderRequest?.headers ?? new Headers())).toEqual({
+      accept: "text/markdown",
+    });
+    expect(response.headers.get("content-type")).toContain("text/markdown");
+    expect(response.headers.get("cloudflare-cdn-cache-control")).toContain("max-age=60");
+    await expect(response.text()).resolves.toBe("# Markdown pricing");
+  });
 });
 
 describe("createCloudflareFetchHandler webhook revalidation", () => {

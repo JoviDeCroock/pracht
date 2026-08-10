@@ -45,7 +45,6 @@ describe("createVercelNodeListener", () => {
         headers: { host: "example.com" },
         method: "GET",
         url: "/pricing",
-        async *[Symbol.asyncIterator]() {},
       },
       {
         statusCode: 0,
@@ -66,6 +65,100 @@ describe("createVercelNodeListener", () => {
 
     expect(listenerSettled).toBe(true);
     expect(new TextDecoder().decode(chunks[0])).toBe("ok");
+  });
+
+  function invokeListener(
+    handler: (request: Request) => Promise<Response> | Response,
+    req: {
+      headers: Record<string, string | string[] | undefined>;
+      method?: string;
+      url?: string;
+    },
+  ): Promise<{ body: string; headers: Record<string, string | string[]> }> {
+    const listener = createVercelNodeListener(async (request) => handler(request));
+    const chunks: Uint8Array[] = [];
+    const headers: Record<string, string | string[]> = {};
+
+    return listener(req, {
+      statusCode: 0,
+      setHeader(name, value) {
+        headers[name] = value;
+      },
+      write(chunk) {
+        chunks.push(chunk);
+      },
+      end() {},
+    }).then(() => ({
+      body: chunks.map((chunk) => new TextDecoder().decode(chunk)).join(""),
+      headers,
+    }));
+  }
+
+  it("renders ISG output on a sanitized request instead of the visitor's", async () => {
+    let seen: Request | undefined;
+    await invokeListener(
+      (request) => {
+        seen = request;
+        return new Response("ok");
+      },
+      {
+        headers: {
+          authorization: "Bearer visitor-token",
+          cookie: "session=visitor-session",
+          host: "example.com",
+          "x-forwarded-proto": "https",
+        },
+        method: "POST",
+        url: "/pricing?utm_source=email",
+      },
+    );
+
+    // Vercel keys the prerender cache on the path alone, so nothing
+    // request-specific may reach the render.
+    expect(seen?.url).toBe("https://example.com/pricing");
+    expect(seen?.method).toBe("GET");
+    expect(seen?.headers.get("cookie")).toBeNull();
+    expect(seen?.headers.get("authorization")).toBeNull();
+    expect(Object.fromEntries(seen?.headers ?? new Headers())).toEqual({
+      accept: "text/html",
+    });
+  });
+
+  it("strips credential headers before Vercel caches the response", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const { body, headers } = await invokeListener(
+      () =>
+        new Response("<html>ok</html>", {
+          headers: {
+            "content-type": "text/html",
+            "set-cookie": "session=leaked; Path=/",
+            "x-api-key": "secret",
+          },
+        }),
+      { headers: { host: "example.com" }, url: "/pricing" },
+    );
+
+    expect(body).toBe("<html>ok</html>");
+    expect(headers["set-cookie"]).toBeUndefined();
+    expect(headers["x-api-key"]).toBeUndefined();
+    expect(headers["content-type"]).toBe("text/html");
+    expect(consoleError).toHaveBeenCalledWith(expect.stringContaining('"set-cookie"'));
+
+    consoleError.mockRestore();
+  });
+
+  it("warns when an ISG response marks itself uncacheable", async () => {
+    const consoleWarn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await invokeListener(
+      () => new Response("<html>ok</html>", { headers: { "cache-control": "private" } }),
+      { headers: { host: "example.com" }, url: "/pricing" },
+    );
+
+    expect(consoleWarn).toHaveBeenCalledWith(expect.stringContaining("uncacheable"));
+
+    consoleWarn.mockRestore();
   });
 });
 

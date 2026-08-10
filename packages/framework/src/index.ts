@@ -154,6 +154,7 @@ export {
   hasWebhookRevalidate,
   isAuthorizedRevalidationRequest,
   isCacheableISGResponse,
+  isDangerousPrerenderHeader,
   jsonResponse,
   normalizeRouteRevalidate,
   PRACHT_REVALIDATE_ENDPOINT,
