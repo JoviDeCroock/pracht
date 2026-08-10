@@ -61,6 +61,7 @@ import type {
   PrachtAgentsConfig,
   PrachtApp,
   PrachtCapability,
+  PrachtContextExtensions,
   ResolvedApiRoute,
 } from "./types.ts";
 
@@ -1190,7 +1191,7 @@ export async function invokeCapabilityOnHost<T = unknown>(
   }
 
   const started = performance.now();
-  const context = ctx.context ?? {};
+  const context = capabilityPipelineContext(host, ctx.context);
   let outcome: CapabilityPipelineOutcome;
   try {
     outcome =
@@ -1296,6 +1297,27 @@ function mcpCompositionGuard(
   }
 
   return null;
+}
+
+/**
+ * Keep the context seen by nested MCP middleware and capability bodies on the
+ * same trusted identity used by the policy guard and audit trail. Assigning
+ * the framework-owned field in place preserves the shared request-context
+ * semantics used by ordinary dispatch.
+ */
+function capabilityPipelineContext<TContext>(
+  host: CapabilityHost,
+  supplied: TContext | undefined,
+): TContext | PrachtContextExtensions {
+  const context = supplied ?? {};
+  if (host.via !== "mcp") return context;
+
+  if ((typeof context === "object" && context !== null) || typeof context === "function") {
+    (context as PrachtContextExtensions).agent = host.agent ?? null;
+    return context;
+  }
+
+  return { agent: host.agent ?? null };
 }
 
 function capabilityHostAgent<TContext>(

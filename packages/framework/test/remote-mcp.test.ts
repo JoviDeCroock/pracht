@@ -14,6 +14,7 @@ import {
   route,
   setCapabilityAuditHook,
 } from "../src/index.ts";
+import { invokeCapabilityOnHost } from "../src/runtime-capabilities.ts";
 import {
   MCP_LATEST_PROTOCOL_VERSION,
   MCP_PROTOCOL_VERSION_HEADER,
@@ -28,6 +29,7 @@ type CapabilityDefinition = Parameters<typeof defineCapability>[0];
 
 const created: string[] = [];
 const destroyed: string[] = [];
+const observedAgentKeys: string[] = [];
 
 const notesSearch = defineCapability({
   title: "Search notes",
@@ -194,12 +196,15 @@ const agentOnly = defineCapability({
   title: "Agent only",
   description: "Requires a verified agent.",
   input: { type: "object", properties: {}, additionalProperties: false },
-  output: { type: "object", properties: { ok: { type: "boolean" } }, required: ["ok"] },
+  output: { type: "object", properties: { keyId: { type: "string" } }, required: ["keyId"] },
   effect: "read",
   expose: { http: true, mcp: true },
   agentPolicy: "require",
-  async run() {
-    return { ok: true };
+  middleware: ["recordAgent"],
+  async run({ context }) {
+    return {
+      keyId: (context as { agent?: { keyId?: string } }).agent?.keyId ?? "missing",
+    };
   },
 } as CapabilityDefinition);
 
@@ -300,6 +305,7 @@ function createApp(agents: PrachtAgentsConfig | undefined) {
     agents,
     middleware: {
       deny: "./middleware/deny.ts",
+      recordAgent: "./middleware/record-agent.ts",
       recordUrl: "./middleware/record-url.ts",
       jsonShortCircuit: "./middleware/json-short-circuit.ts",
       invalidOutputShortCircuit: "./middleware/invalid-output-short-circuit.ts",
@@ -315,6 +321,15 @@ function createApp(agents: PrachtAgentsConfig | undefined) {
     middlewareModules: {
       "./middleware/deny.ts": async () => ({
         middleware: async () => new Response("denied", { status: 401 }),
+      }),
+      "./middleware/record-agent.ts": async () => ({
+        middleware: async (
+          args: { context: { agent?: { keyId?: string } } },
+          next: () => Promise<Response>,
+        ) => {
+          observedAgentKeys.push(args.context.agent?.keyId ?? "missing");
+          return next();
+        },
       }),
       "./middleware/record-url.ts": async () => ({
         middleware: async (
@@ -389,6 +404,7 @@ function callTool(name: string, args: unknown, options: McpCallOptions = {}) {
 beforeEach(() => {
   created.length = 0;
   destroyed.length = 0;
+  observedAgentKeys.length = 0;
 });
 
 afterEach(() => {
@@ -777,6 +793,45 @@ describe("tools/call runs the same pipeline as the HTTP projection", () => {
       transport: "mcp",
       outcome: "ok",
     });
+    expect(observedAgentKeys).toEqual([]);
+  });
+
+  it("binds the verified MCP identity into nested middleware and capability context", async () => {
+    const { app, registry } = createApp({
+      mcp: {},
+      webBotAuth: { policy: "observe" },
+    });
+    const agent = {
+      verified: true as const,
+      agentDomain: "verified.example",
+      keyId: "verified-key",
+    };
+    const request = new Request(`${ORIGIN}/__pracht/mcp/tools/composer`, {
+      method: "POST",
+      body: "{}",
+    });
+
+    const forged = await invokeCapabilityOnHost(
+      { app, registry, via: "mcp", agent },
+      "agent.only",
+      {},
+      {
+        request,
+        context: {
+          agent: { verified: true, agentDomain: "forged.example", keyId: "forged-key" },
+        },
+      },
+    );
+    const omitted = await invokeCapabilityOnHost(
+      { app, registry, via: "mcp", agent },
+      "agent.only",
+      {},
+      { request },
+    );
+
+    expect(forged).toEqual({ ok: true, data: { keyId: "verified-key" } });
+    expect(omitted).toEqual({ ok: true, data: { keyId: "verified-key" } });
+    expect(observedAgentKeys).toEqual(["verified-key", "verified-key"]);
   });
 
   it("refuses destructive capability composition from MCP", async () => {
