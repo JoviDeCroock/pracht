@@ -47,7 +47,11 @@ import {
   routeNeedsServerFetch,
 } from "./runtime-client-fetch.ts";
 import { deserializeRouteError, type SerializedRouteError } from "./runtime-errors.ts";
-import { type PrachtHydrationState, PrachtRuntimeProvider } from "./runtime-context.ts";
+import {
+  type PrachtHydrationState,
+  PrachtRuntimeProvider,
+  RouteDataContext,
+} from "./runtime-context.ts";
 import type { RouteStateResult } from "./runtime-client-fetch.ts";
 
 interface RouteRenderState {
@@ -284,6 +288,29 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
   // outgoing page's height would clamp the restored position).
   let afterCommitCallback: (() => void) | null = null;
 
+  // The route component's `data` prop is a snapshot taken when the route state
+  // was resolved, but revalidation (`useRevalidate()`, `<Form capability>`, the
+  // capability-settled listener) commits new data to the runtime provider
+  // instead of re-resolving the route. Reading the provider here keeps the prop
+  // and `useRouteData()` on the same value, so a component that destructures
+  // `{ data }` sees a refresh exactly like a hook consumer does.
+  function RouteComponent({
+    Component,
+    componentProps,
+  }: {
+    Component: FunctionComponent;
+    componentProps: Record<string, unknown>;
+  }) {
+    const runtime = useContext(RouteDataContext);
+    // Error and SPA-pending states pass props that carry no loader data
+    // (`{ error }` / `{}`); only the loaded-data shape tracks the provider.
+    const props =
+      runtime && "data" in componentProps
+        ? { ...componentProps, data: runtime.data }
+        : componentProps;
+    return h(Component as FunctionComponent<Record<string, unknown>>, props);
+  }
+
   function RouterRoot({ initialState }: { initialState: RouteRenderState }) {
     const [routeState, setRouteState] = useState(initialState);
     updateRouteState = setRouteState;
@@ -297,13 +324,10 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
       afterCommitCallback = null;
       callback();
     }, [version]);
+    const routeElement = h(RouteComponent, { Component, componentProps });
     const componentTree = Shell
-      ? h(
-          Shell as FunctionComponent<Record<string, unknown>>,
-          null,
-          h(Component as FunctionComponent<Record<string, unknown>>, componentProps),
-        )
-      : h(Component as FunctionComponent<Record<string, unknown>>, componentProps);
+      ? h(Shell as FunctionComponent<Record<string, unknown>>, null, routeElement)
+      : routeElement;
 
     return h(
       NavigateContext.Provider as FunctionComponent<Record<string, unknown>>,
