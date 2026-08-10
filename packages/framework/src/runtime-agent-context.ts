@@ -75,6 +75,20 @@ function immutableAgentContext<TContext>(
           return Reflect.apply(context, this, args);
         }
       : Object.create(prototype);
+  if (typeof context === "function") {
+    const contextPrototype = Reflect.getOwnPropertyDescriptor(context, "prototype");
+    const targetPrototype = Reflect.getOwnPropertyDescriptor(target, "prototype");
+    if (targetPrototype) {
+      Reflect.defineProperty(target, "prototype", {
+        ...targetPrototype,
+        value: contextPrototype && "value" in contextPrototype ? contextPrototype.value : undefined,
+        writable:
+          contextPrototype && "writable" in contextPrototype
+            ? contextPrototype.writable
+            : targetPrototype.writable,
+      });
+    }
+  }
   Object.setPrototypeOf(target, prototype);
   Object.defineProperty(target, "agent", {
     configurable: false,
@@ -100,9 +114,28 @@ function immutableAgentContext<TContext>(
       ? { ...descriptor, value: bindContextMethod(descriptor.value as ContextMethod) }
       : descriptor;
   const materializedContextKeys = new Set<PropertyKey>();
-  return new Proxy(target, {
+  const synchronizeMaterializedContextDescriptor = (property: PropertyKey): void => {
+    if (!materializedContextKeys.has(property)) return;
+
+    const contextDescriptor = Reflect.getOwnPropertyDescriptor(context, property);
+    if (!contextDescriptor) {
+      if (Reflect.deleteProperty(target, property)) materializedContextKeys.delete(property);
+      return;
+    }
+
+    Reflect.defineProperty(target, property, targetContextDescriptor(property, contextDescriptor));
+  };
+  let proxy: TContext & PrachtContextExtensions;
+  proxy = new Proxy(target, {
     apply(_target, thisArg, args) {
       return Reflect.apply(context as ContextMethod, thisArg, args);
+    },
+    construct(_target, args, newTarget) {
+      return Reflect.construct(
+        context as ContextMethod,
+        args,
+        newTarget === (proxy as unknown) ? (context as ContextMethod) : newTarget,
+      );
     },
     get(target, property, receiver) {
       if (
@@ -203,6 +236,7 @@ function immutableAgentContext<TContext>(
       return true;
     },
     getOwnPropertyDescriptor(target, property) {
+      synchronizeMaterializedContextDescriptor(property);
       const ownDescriptor = Reflect.getOwnPropertyDescriptor(target, property);
       if (ownDescriptor) return ownDescriptor;
 
@@ -210,9 +244,13 @@ function immutableAgentContext<TContext>(
       return descriptor ? { ...descriptor, configurable: true } : undefined;
     },
     has(target, property) {
+      synchronizeMaterializedContextDescriptor(property);
       return Reflect.has(target, property) || Reflect.has(context, property);
     },
     ownKeys(target) {
+      for (const property of materializedContextKeys) {
+        synchronizeMaterializedContextDescriptor(property);
+      }
       return [...new Set([...Reflect.ownKeys(context), ...Reflect.ownKeys(target)])];
     },
     preventExtensions(target) {
@@ -232,6 +270,7 @@ function immutableAgentContext<TContext>(
       return Reflect.preventExtensions(target);
     },
   }) as TContext & PrachtContextExtensions;
+  return proxy;
 }
 
 export function snapshotAgentIdentity(

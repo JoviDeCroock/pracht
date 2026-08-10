@@ -20,6 +20,6 @@ composition and named middleware remain available.
 Verified Web Bot Auth identity is exposed as a read-only immutable snapshot on
 request contexts, capability hosts, audit events, and test hosts. Binding that
 identity to frozen or sealed application contexts preserves their receivers,
-private fields, reflection behavior, and writable source fields, including when
-the overlay is frozen after the source was updated through another retained
-reference.
+private fields, callable construction, reflection behavior, and writable source
+fields, including live descriptors and overlays frozen after the source was
+updated through another retained reference.

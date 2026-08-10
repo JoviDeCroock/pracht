@@ -108,6 +108,21 @@ describe("bindAgentContext", () => {
     expect(context.constructor.name).toBe("RequestContext");
   });
 
+  it("preserves construction through immutable callable contexts", () => {
+    class CallableContext extends RequestContext {}
+    const BoundContext = bindAgentContext(Object.freeze(CallableContext), null);
+    class DerivedContext extends BoundContext {}
+
+    const direct = new BoundContext();
+    const derived = new DerivedContext();
+
+    expect(direct).toBeInstanceOf(CallableContext);
+    expect(direct.tenant).toBe("one");
+    expect(derived).toBeInstanceOf(CallableContext);
+    expect(derived).toBeInstanceOf(DerivedContext);
+    expect(derived.tenant).toBe("one");
+  });
+
   it("supports preventing extensions without violating proxy own-key invariants", () => {
     const original = Object.seal(new RequestContext());
     const context = bindAgentContext(original, null);
@@ -154,6 +169,17 @@ describe("bindAgentContext", () => {
     expect(() => Object.freeze(context)).not.toThrow();
     expect(context.tenant).toBe("two");
     expect(Object.isFrozen(context)).toBe(true);
+  });
+
+  it("synchronizes reflected descriptors after retained source writes", () => {
+    const original = Object.seal({ tenant: "one" });
+    const context = bindAgentContext(original, null);
+
+    Object.preventExtensions(context);
+    original.tenant = "two";
+
+    expect(context.tenant).toBe("two");
+    expect(Object.getOwnPropertyDescriptor(context, "tenant")?.value).toBe("two");
   });
 
   it("does not let reflective operations shadow immutable source fields", () => {
