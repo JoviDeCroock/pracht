@@ -442,22 +442,28 @@ how they arrived) and outside a served request (test hosts, scripts). It never
 reports `"webmcp"`: that marker is client-declared, so it is not trustworthy
 enough to attribute a nested effect to.
 
-### Composition does not inherit transport guards
+### Remote MCP composition is guarded
 
 `invokeCapability()` is trusted first-party composition. It runs the callee's
 own pipeline — input validation, its named middleware, `run()`, output
-validation — and deliberately *not* the transport policy that guards the
-projections: no app-level `api.middleware`, no `agentPolicy` check, and no
-prepare/commit confirmation gate.
+validation — and deliberately does not re-run app-level `api.middleware`.
+Private capabilities therefore remain useful as server-side building blocks.
 
-That is what makes private capabilities useful as building blocks, and it
-means the reachability of a composing capability is the reachability of
-everything it composes. An MCP-exposed tool whose `run()` calls a
-`destructive` capability grants remote agents that effect, even though
-`expose.mcp` on the destructive capability itself is rejected. Put the gate in
-the composing capability — check `context.agent`, require your own approval,
-or keep the composition out of an exposed capability — and use `via` to see
-what actually ran.
+Remote MCP adds two fail-closed rules to that model. When an MCP-exposed tool
+calls `invokeCapability()`, the nested call re-applies the callee's
+`agentPolicy` and refuses any `destructive` capability before its middleware or
+body can run. A non-destructive tool therefore cannot lend remote agents access
+that the nested capability's MCP projection would deny, and cannot bypass the
+rule that destructive effects stay off MCP until the transport supports their
+confirmation flow. Private `read` and `write` capabilities remain composable;
+their named middleware is still the authorization seam.
+
+These extra rules use trusted MCP dispatch state, not the public WebMCP marker.
+HTTP and WebMCP composition therefore keep the ordinary server-composition
+semantics: if an exposed capability composes sensitive work, its own policy and
+the callee's named middleware must authorize it. Every nested attempt, allowed
+or denied, carries `transport: "server"` and the trusted causal transport in
+`via` for audit attribution.
 
 Subscribe from any server-only module (audit hooks observe: exceptions are
 swallowed, never breaking a request):

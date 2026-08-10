@@ -192,11 +192,11 @@ Hook exceptions are swallowed — auditing observes, it never breaks a request.
 
 A capability that calls `invokeCapability()` produces a second event with `transport: "server"` and `via` set to the transport of the request it ran under, so an effect a remote agent triggered through a composing MCP tool reads as `{ transport: "server", via: "mcp" }` rather than looking like an ordinary loader call. `via` is `null` for top-level dispatches and outside a served request.
 
-### Composition Does Not Inherit Transport Guards
+### Remote MCP Composition Is Guarded
 
-`invokeCapability()` is trusted first-party composition. It runs the callee's own pipeline — input validation, its named middleware, `run()`, output validation — and deliberately *not* the transport policy guarding the projections: no app-level `api.middleware`, no `agentPolicy` check, no prepare/commit gate.
+`invokeCapability()` is trusted first-party composition. It runs the callee's own pipeline — input validation, its named middleware, `run()`, output validation — without re-running app-level `api.middleware`, so private capabilities remain useful as server-side building blocks.
 
-That is what makes private capabilities useful as building blocks, and it means the reachability of a composing capability is the reachability of everything it composes. An MCP-exposed tool whose `run()` calls a `destructive` capability grants remote agents that effect, even though `expose.mcp` on the destructive capability itself is rejected. Put the gate in the composing capability, and use `via` to see what actually ran.
+Remote MCP adds two fail-closed rules: nested calls re-apply the callee's `agentPolicy` and refuse `destructive` effects before middleware or the body can run. Private non-destructive capabilities remain composable, with named middleware as their authorization seam. HTTP and WebMCP composition keep the ordinary server semantics and must own any transport-specific authorization they need. Every nested attempt still audits with `transport: "server"` and trusted provenance in `via`.
 
 ---
 

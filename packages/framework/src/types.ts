@@ -783,13 +783,14 @@ export interface CapabilityAuditEvent {
   transport: "http" | "server" | "webmcp" | "mcp";
   /**
    * Which request a `transport: "server"` dispatch was composed under.
-   * `invokeCapability()` runs only the capability's own middleware chain — no
-   * HTTP/MCP dispatch guards — so an effect a remote agent caused through a
-   * composing MCP tool would otherwise be indistinguishable from an ordinary
-   * loader call. `null` for top-level dispatches (`transport` already says how
-   * they arrived) and for invocation outside a served request (test hosts,
-   * scripts). Never reports `"webmcp"`: that marker is client-declared, so it
-   * is not trustworthy enough to attribute a nested effect to.
+   * `invokeCapability()` normally runs only the capability's own middleware
+   * chain; MCP-originated composition additionally enforces agent policy and
+   * refuses destructive effects. `via` keeps every allowed or denied nested
+   * call attributable to its originating transport. `null` for top-level
+   * dispatches (`transport` already says how they arrived) and for invocation
+   * outside a served request (test hosts, scripts). Never reports `"webmcp"`:
+   * that marker is client-declared, so it is not trustworthy enough to
+   * attribute a nested effect to.
    */
   via: "http" | "mcp" | null;
   /** `"ok"` or the envelope error code (e.g. `"invalid_input"`, `"confirmation_required"`). */

@@ -101,11 +101,13 @@ target. From `pracht inspect api --json`:
   capabilities whose gate depends on a browser session cookie or a custom
   credential header that the projection does not carry.
 - Inspect every HTTP-, WebMCP-, or MCP-exposed capability body for
-  `invokeCapability()`. Direct composition does not re-apply the callee's
-  app-level API middleware, `agentPolicy`, or destructive confirmation gate, so
-  the exposed composing capability lends its reachability to every callee.
-  Flag composition of private or destructive capabilities unless the composing
-  capability itself performs the required authorization or approval check.
+  `invokeCapability()`. Direct composition never re-applies app-level API
+  middleware. Remote MCP additionally re-applies the callee's `agentPolicy`
+  and refuses destructive callees, but private non-destructive capabilities
+  stay composable and rely on their named middleware for authorization. For
+  HTTP/WebMCP composition, flag sensitive callees whose required transport
+  authorization or approval is absent from the composing capability and the
+  callee's named middleware.
 - Common bug: dashboard route is protected by middleware, but
   `POST /api/items` is not — attacker bypasses the UI entirely.
 
@@ -152,8 +154,10 @@ Severity is the primary scale; the verdict is a secondary domain label:
 4. Public routes deliberately exposed (login, signup, marketing) should be
    listed but not flagged.
 5. Do not auto-add middleware. Auth wiring is policy.
-6. Treat composed capability reachability as transitive. Audit events identify
-   nested calls with `transport: "server"` and trusted request provenance in
-   `via`, but observability is not an authorization gate.
+6. Treat allowed composed capability reachability as transitive. MCP blocks
+   destructive callees and re-applies `agentPolicy`; named middleware remains
+   the authorization seam for private non-destructive composition. Audit events
+   identify every nested attempt with `transport: "server"` and trusted request
+   provenance in `via`, but observability is not an authorization gate.
 
 $ARGUMENTS

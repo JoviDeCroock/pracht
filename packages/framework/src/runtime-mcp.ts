@@ -419,9 +419,17 @@ async function handleToolsCall<TContext>(
   // uses a synthesized request so middleware and capability bodies see the
   // projected URL and credential policy; bind that request to the same app
   // host before either can compose another capability. The host records the
-  // originating transport, so anything composed while serving this tool call
-  // audits as `via: "mcp"` rather than looking like an ordinary server call.
-  setActiveCapabilityHost(capabilityRequest, options.app, options.registry, "mcp", options.onAudit);
+  // originating transport and verified identity, so nested policy cannot be
+  // bypassed with caller-supplied context and composed work audits as
+  // `via: "mcp"` rather than looking like an ordinary server call.
+  setActiveCapabilityHost(
+    capabilityRequest,
+    options.app,
+    options.registry,
+    "mcp",
+    options.onAudit,
+    options.agent ?? null,
+  );
   const response = await handleCapabilityRequest({
     match,
     context: options.context,
