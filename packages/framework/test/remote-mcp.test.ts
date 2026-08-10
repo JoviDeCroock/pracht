@@ -815,7 +815,14 @@ describe("tools/call runs the same pipeline as the HTTP projection", () => {
       method: "POST",
       body: "{}",
     });
-    const immutableContext = Object.freeze({ tenant: "one" });
+    class ImmutableContext {
+      readonly #tenant = "one";
+
+      get tenant() {
+        return this.#tenant;
+      }
+    }
+    const immutableContext = Object.freeze(new ImmutableContext());
 
     const forged = await invokeCapabilityOnHost(
       { app, registry, via: "mcp", agent },
