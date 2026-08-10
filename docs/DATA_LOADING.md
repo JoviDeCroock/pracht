@@ -109,6 +109,58 @@ For SPA routes, the initial HTML can still include the matched shell and an
 optional shell `Loading` export so the page is not blank before the route-state
 request resolves.
 
+### Redirecting from a loader
+
+A loader can answer with a `Response` instead of data — most often a redirect.
+`return` it or `throw` it; both take the same path:
+
+```typescript
+import { redirect, type LoaderArgs } from "@pracht/core";
+
+export async function loader({ request, context }: LoaderArgs) {
+  const session = await getSession(request);
+  if (!session) return redirect("/login", { request });
+  return { user: session.user };
+}
+```
+
+Throwing is what makes an auth gate composable: the decision can live in a
+shared helper, and the caller cannot forget to propagate it.
+
+```typescript
+// src/server/auth.ts
+export async function requireUser(request: Request) {
+  const session = await getSession(request);
+  if (!session) throw redirect("/login", { request });
+  return session.user;
+}
+
+// src/routes/dashboard.tsx — no `if` at the call site, and no way to
+// accidentally continue with an unauthenticated user.
+export async function loader({ request }: LoaderArgs) {
+  const user = await requireUser(request);
+  return { projects: await listProjects(user.id) };
+}
+```
+
+`redirect()` validates the target's scheme and rejects CR/LF injection.
+Cross-origin targets are allowed — OAuth and SSO need them — so if the target
+comes from user input (a `?redirect=` parameter), check it against your own
+allowlist first. See the `audit-redirects` skill.
+
+A thrown `Response` is the answer, so it is sent as-is: it does **not** render
+an `ErrorBoundary`, and a thrown 404 does not render the
+[`notFound` page](#custom-404-pages). Use `throw notFound()` and
+`throw new PrachtHttpError(...)` when you want those; a thrown `Response` is
+for when you have already decided what the response is.
+
+| Surface | How to short-circuit |
+| --- | --- |
+| Route loader | `return` or `throw` a `Response` |
+| API route handler | `return` or `throw` a `Response` |
+| Middleware | `return` a `Response` (that is already its return type) |
+| Capability `run()` | Neither — dispatch always answers with the `{ ok, data }` envelope. Gate the capability in its named middleware instead. |
+
 ### Error handling
 
 Throw `PrachtHttpError` for structured error responses:
