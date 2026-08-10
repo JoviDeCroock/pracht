@@ -148,6 +148,19 @@ describe("bindAgentContext", () => {
     expect(() => Reflect.construct(Object, [], context)).toThrow(TypeError);
   });
 
+  it("preserves array branding on immutable contexts", () => {
+    const original = Object.freeze(["one", "two"]);
+    const context = bindAgentContext(original, null);
+
+    expect(Array.isArray(context)).toBe(true);
+    expect(Object.prototype.toString.call(context)).toBe("[object Array]");
+    expect(context.map((tenant) => tenant.toUpperCase())).toEqual(["ONE", "TWO"]);
+
+    expect(() => Object.freeze(context)).not.toThrow();
+    expect(Array.isArray(context)).toBe(true);
+    expect(Object.isFrozen(context)).toBe(true);
+  });
+
   it("keeps prototype changes synchronized with the original context", () => {
     const immutablePrototype = { tenant: "one" };
     const immutable = Object.freeze(Object.create(immutablePrototype));
@@ -173,6 +186,32 @@ describe("bindAgentContext", () => {
     expect(Object.getPrototypeOf(extensibleContext)).toBe(replacementPrototype);
     expect(Object.getPrototypeOf(extensible)).toBe(replacementPrototype);
     expect(extensibleContext.tenant).toBe("two");
+  });
+
+  it("tracks prototype changes made through a retained source reference", () => {
+    const original = Object.defineProperty({} as { agent: null; tenant?: string }, "agent", {
+      configurable: false,
+      value: null,
+      writable: false,
+    });
+    const context = bindAgentContext(original, {
+      verified: true,
+      agentDomain: "verified.example",
+      keyId: "verified-key",
+    });
+    const reflectedPrototype = { tenant: "two" };
+    const lockedPrototype = { tenant: "three" };
+
+    Object.setPrototypeOf(original, reflectedPrototype);
+
+    expect(context.tenant).toBe("two");
+    expect(Object.getPrototypeOf(context)).toBe(reflectedPrototype);
+
+    Object.setPrototypeOf(original, lockedPrototype);
+
+    expect(() => Object.preventExtensions(context)).not.toThrow();
+    expect(context.tenant).toBe("three");
+    expect(Object.getPrototypeOf(context)).toBe(lockedPrototype);
   });
 
   it("supports preventing extensions without violating proxy own-key invariants", () => {

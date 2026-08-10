@@ -21,8 +21,9 @@ composition and named middleware remain available.
 Verified Web Bot Auth identity is exposed as a read-only immutable snapshot on
 request contexts, capability hosts, audit events, and test hosts. Binding that
 identity to frozen or sealed application contexts preserves their receivers,
-private fields, callable construction, reflection behavior, and writable source
-fields, including live descriptors and overlays frozen after the source was
-updated through another retained reference. HTTP and MCP composition retain the
-transport-verified identity even when application code supplies a replacement
-context object to `invokeCapability()`.
+private fields, array branding, callable construction, reflection behavior, and
+writable source fields, including live descriptors, prototype changes made
+through another retained reference, and overlays frozen after retained source
+updates. HTTP and MCP composition retain the transport-verified identity even
+when application code supplies a replacement context object to
+`invokeCapability()`.

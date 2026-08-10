@@ -70,6 +70,7 @@ function immutableAgentContext<TContext>(
 ): TContext & PrachtContextExtensions {
   const prototype = Object.getPrototypeOf(context);
   const materializedContextKeys = new Set<PropertyKey>();
+  const isArrayContext = Array.isArray(context);
   const target =
     typeof context === "function"
       ? isConstructableContext(context)
@@ -77,13 +78,20 @@ function immutableAgentContext<TContext>(
             return Reflect.apply(context, this, args);
           }.bind(undefined)
         : (...args: unknown[]) => Reflect.apply(context, undefined, args)
-      : Object.create(prototype);
+      : isArrayContext
+        ? []
+        : Object.create(prototype);
   if (typeof context === "function") {
     for (const property of ["name", "length", "prototype"] as const) {
       const descriptor = Reflect.getOwnPropertyDescriptor(context, property);
       if (descriptor && Reflect.defineProperty(target, property, descriptor)) {
         materializedContextKeys.add(property);
       }
+    }
+  } else if (isArrayContext) {
+    const descriptor = Reflect.getOwnPropertyDescriptor(context, "length");
+    if (descriptor && Reflect.defineProperty(target, "length", descriptor)) {
+      materializedContextKeys.add("length");
     }
   }
   Object.setPrototypeOf(target, prototype);
@@ -121,6 +129,13 @@ function immutableAgentContext<TContext>(
 
     Reflect.defineProperty(target, property, targetContextDescriptor(property, contextDescriptor));
   };
+  const synchronizeContextPrototype = (): boolean => {
+    const contextPrototype = Reflect.getPrototypeOf(context);
+    return (
+      Reflect.getPrototypeOf(target) === contextPrototype ||
+      Reflect.setPrototypeOf(target, contextPrototype)
+    );
+  };
   let proxy: TContext & PrachtContextExtensions;
   proxy = new Proxy(target, {
     apply(_target, thisArg, args) {
@@ -136,6 +151,10 @@ function immutableAgentContext<TContext>(
     setPrototypeOf(target, newPrototype) {
       if (!Reflect.setPrototypeOf(context, newPrototype)) return false;
       return Reflect.setPrototypeOf(target, newPrototype);
+    },
+    getPrototypeOf(target) {
+      synchronizeContextPrototype();
+      return Reflect.getPrototypeOf(target);
     },
     get(target, property, receiver) {
       if (
@@ -254,6 +273,7 @@ function immutableAgentContext<TContext>(
       return [...new Set([...Reflect.ownKeys(context), ...Reflect.ownKeys(target)])];
     },
     preventExtensions(target) {
+      if (!synchronizeContextPrototype()) return false;
       for (const property of Reflect.ownKeys(context)) {
         if (Object.prototype.hasOwnProperty.call(target, property)) continue;
         const descriptor = Reflect.getOwnPropertyDescriptor(context, property);

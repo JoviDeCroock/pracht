@@ -753,9 +753,9 @@ describe("tools/call runs the same pipeline as the HTTP projection", () => {
 
     await callTool("notes_compose", {}, { onCapabilityAudit: (event) => events.push(event) });
 
-    // Composition runs the callee's own pipeline only — no HTTP/MCP dispatch
-    // guards — so the audit trail is what ties the nested effect back to the
-    // remote agent that triggered it.
+    // Composition skips app-level HTTP middleware, while MCP-specific agent
+    // policy and destructive-effect guards remain active. The audit trail ties
+    // every allowed or denied nested effect back to the remote agent transport.
     expect(events).toHaveLength(2);
     expect(events[0]).toMatchObject({
       capability: "notes.internal",
