@@ -19,12 +19,16 @@ import {
   toModuleSpecifier,
   type Check,
 } from "./verification-helpers.js";
+import { detectAdapterTarget } from "./commands/preview.js";
+import { findWranglerConfig, readWranglerMainEntries } from "./wrangler-config.js";
 import {
   collectDuplicateRoutePaths,
   describePagesFile,
   scanPagesDirectory,
   type PagesRoute,
 } from "./verification-pages.js";
+
+const SERVER_ENTRY_PATH = "dist/server/server.js";
 
 export function collectConfigChecks(
   project: ProjectConfig,
@@ -482,6 +486,47 @@ export function collectPackageChecks(
       createCheck(
         "ok",
         `Found adapter dependency ${adapterPackages.map((name) => JSON.stringify(name)).join(", ")}.`,
+      ),
+    );
+  }
+
+  collectCloudflareEntryCheck(project, dirname(packageJsonPath), checks);
+}
+
+/**
+ * `dist/server/server.js` also exports the build metadata the CLI's prerender
+ * pass needs (buildTarget, manifests, the resolved app, ...). workerd validates
+ * every named export of the deployed entry module and refuses to start when one
+ * of them is not a handler, so pointing `main` at it fails at `wrangler dev` /
+ * `wrangler deploy` time with an opaque type error. `pracht build` writes
+ * `dist/server/worker.js` for exactly this reason.
+ *
+ * Reported as a warning, and only ever about an entry that was actually read.
+ * Two things here are heuristics — which adapter the vite config resolves to
+ * (a text match) and which `main` entries a wrangler config declares (a
+ * conservative reader that skips shapes it does not recognize) — so this must
+ * not be able to fail a build. It stays silent when nothing is provably wrong
+ * rather than claiming the config is fine: "no entries read" means unknown,
+ * not correct.
+ */
+function collectCloudflareEntryCheck(project: ProjectConfig, root: string, checks: Check[]): void {
+  if (detectAdapterTarget(project) !== "cloudflare") return;
+
+  const configFile = findWranglerConfig(root);
+  if (!configFile) return;
+
+  const display = displayPath(root, configFile);
+
+  for (const entry of readWranglerMainEntries(configFile)) {
+    if (!normalizePath(entry.main).endsWith(SERVER_ENTRY_PATH)) continue;
+
+    const where = entry.environment ? ` for environment "${entry.environment}"` : "";
+    checks.push(
+      createCheck(
+        "warning",
+        `${display} sets "main"${where} to ${JSON.stringify(entry.main)}. ` +
+          'Point it at "dist/server/worker.js" — the deploy entry `pracht build` emits. ' +
+          "workerd rejects server.js because it also exports build metadata that is not a Worker handler.",
       ),
     );
   }
