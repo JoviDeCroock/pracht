@@ -553,6 +553,145 @@ describe("handlePrachtRequest with separate data modules", () => {
   });
 });
 
+describe("handlePrachtRequest short-circuit Responses", () => {
+  it("treats a Response thrown by a loader as the answer, not a crash", async () => {
+    // `throw redirect(...)` is what makes an auth gate composable: the decision
+    // can live in a helper the loader awaits, where a `return` cannot escape.
+    const app = defineApp({
+      routes: [route("/dashboard", "./routes/dashboard.tsx", { id: "dashboard", render: "ssr" })],
+    });
+
+    const response = await handlePrachtRequest({
+      app,
+      registry: {
+        routeModules: {
+          "./routes/dashboard.tsx": async () => ({
+            Component: () => h("main", null, "never rendered"),
+            loader: async ({ request }: { request: Request }) => {
+              throw redirect("/login", { request });
+            },
+          }),
+        },
+      },
+      request: new Request("http://localhost/dashboard"),
+    });
+
+    expect(response.status).toBe(302);
+    expect(response.headers.get("location")).toBe("/login");
+  });
+
+  it("treats a Response thrown by an API handler as the answer", async () => {
+    const app = defineApp({ routes: [route("/", "./routes/home.tsx")] });
+
+    const response = await handlePrachtRequest({
+      apiRoutes: resolveApiRoutes(["/src/api/report.ts"]),
+      app,
+      registry: {
+        apiModules: {
+          "/src/api/report.ts": async () => ({
+            GET: async () => {
+              throw new Response("teapot", { status: 418 });
+            },
+          }),
+        },
+      },
+      request: new Request("http://localhost/api/report"),
+    });
+
+    expect(response.status).toBe(418);
+    await expect(response.text()).resolves.toBe("teapot");
+  });
+
+  it("still reports a thrown Error from a loader as a 500", async () => {
+    const app = defineApp({
+      routes: [route("/boom", "./routes/boom.tsx", { id: "boom", render: "ssr" })],
+    });
+
+    const response = await handlePrachtRequest({
+      app,
+      registry: {
+        routeModules: {
+          "./routes/boom.tsx": async () => ({
+            Component: () => h("main", null, "never"),
+            loader: async () => {
+              throw new Error("loader exploded");
+            },
+          }),
+        },
+      },
+      request: new Request("http://localhost/boom"),
+    });
+
+    expect(response.status).toBe(500);
+  });
+});
+
+it("delivers a thrown redirect to a client navigation as route-state JSON", async () => {
+  // Client navigations fetch with `redirect: "manual"`, so a raw 302 would
+  // be opaque to them. The returned-Response path already encodes redirects
+  // as JSON for route-state requests; the thrown path has to match.
+  const app = defineApp({
+    routes: [route("/dashboard", "./routes/dashboard.tsx", { id: "dashboard", render: "ssr" })],
+  });
+
+  const response = await handlePrachtRequest({
+    app,
+    registry: {
+      routeModules: {
+        "./routes/dashboard.tsx": async () => ({
+          Component: () => h("main", null, "never rendered"),
+          loader: async ({ request }: { request: Request }) => {
+            throw redirect("/login", { request });
+          },
+        }),
+      },
+    },
+    request: new Request("http://localhost/dashboard", {
+      headers: { "x-pracht-route-state-request": "1" },
+    }),
+  });
+
+  expect(response.status).toBe(200);
+  await expect(response.json()).resolves.toEqual({ redirect: "/login" });
+});
+
+it("reports a failure while delivering a thrown Response as a 500", async () => {
+  // The short-circuit runs inside the catch, where a further throw would
+  // reject out of handlePrachtRequest instead of becoming a response. A
+  // module-scope Response with a body, thrown twice, does exactly that.
+  const shared = new Response(JSON.stringify({ data: null }), { status: 401 });
+  const app = defineApp({
+    routes: [route("/gate", "./routes/gate.tsx", { id: "gate", render: "ssr" })],
+  });
+  const send = () =>
+    handlePrachtRequest({
+      app,
+      registry: {
+        routeModules: {
+          "./routes/gate.tsx": async () => ({
+            Component: () => h("main", null, "never"),
+            loader: async () => {
+              throw shared;
+            },
+          }),
+        },
+      },
+      request: new Request("http://localhost/gate", {
+        headers: { "x-pracht-route-state-request": "1" },
+      }),
+    });
+
+  // The adapter reads the body out to write the response; the second
+  // delivery then finds the shared body disturbed. The point is that this
+  // resolves to a 500 rather than rejecting out of handlePrachtRequest.
+  const first = await send();
+  expect(first.status).toBe(401);
+  await first.text();
+
+  const second = await send();
+  expect(second.status).toBe(500);
+});
+
 describe("handlePrachtRequest route component exports", () => {
   it("renders a function default export while preserving named loader exports", async () => {
     const app = defineApp({

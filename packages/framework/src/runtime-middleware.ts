@@ -74,6 +74,24 @@ export function buildRedirectResponse(
  *   return next();
  * };
  * ```
+ *
+ * In a **page loader or API route handler**, `return` and `throw` both work.
+ * Throw when the decision is made somewhere the return value cannot escape
+ * from — a shared `requireUser()` helper, a nested `await` — so the caller
+ * cannot forget to propagate it:
+ *
+ * ```ts
+ * export async function loader({ request, context }: LoaderArgs) {
+ *   const user = await requireUser(request, context); // throws redirect("/login")
+ *   return { user };
+ * }
+ * ```
+ *
+ * Capabilities are the exception: their dispatch answers with the typed
+ * `{ ok, data }` envelope on every transport, so a `Response` thrown from a
+ * capability `run()` has nowhere to go and surfaces as an `internal_error`.
+ * Gate capabilities in their named middleware, which returns a `Response`
+ * like any other middleware.
  */
 export function redirect(target: string, options: RedirectOptions = {}): Response {
   if (typeof options === "number") {

@@ -369,8 +369,23 @@ export async function handlePrachtRequest<TContext>(
           withEnhancedCapabilityFormRedirect(response, options.request),
         );
       } catch (error: unknown) {
+        // Same short-circuit contract as page loaders: a thrown `Response` is
+        // the handler answering, not failing. Guarded because this runs inside
+        // the catch, where a further throw would reject out of
+        // `handlePrachtRequest` instead of becoming a 500.
+        let thrownResponseFailure: unknown;
+        if (error instanceof Response) {
+          try {
+            return withDefaultSecurityHeaders(
+              withEnhancedCapabilityFormRedirect(error, options.request),
+            );
+          } catch (normalizeError: unknown) {
+            thrownResponseFailure = normalizeError;
+          }
+        }
+
         return renderApiErrorResponse({
-          error,
+          error: thrownResponseFailure ?? error,
           middlewareFiles: apiMiddlewareFiles,
           options,
           phase: currentPhase,
@@ -921,6 +936,30 @@ export async function handlePrachtRequest<TContext>(
         loaderCache: match.route.loaderCache,
       });
     } catch (error: unknown) {
+      // A thrown `Response` is a deliberate short-circuit, not a failure: it is
+      // how a loader aborts its own render to redirect (`throw redirect(...)`)
+      // or answer directly, which returning cannot express from inside a helper
+      // the loader called. Same value either way, so it takes the same path a
+      // returned `Response` does.
+      //
+      // Normalizing here means normalizing *inside* the catch, where a throw
+      // has nothing left to catch it and would reject out of
+      // `handlePrachtRequest` — an unhandled rejection in the adapter, not a
+      // 500. A shared module-scope `Response` with a body delivered twice does
+      // exactly that (the second read finds the body disturbed), so failures
+      // fall through to the error renderer like any other loader fault.
+      let thrownResponseFailure: unknown;
+      if (error instanceof Response) {
+        try {
+          return normalizePageResponse(error, {
+            isRouteStateRequest,
+            loaderCache: match.route.loaderCache,
+          });
+        } catch (normalizeError: unknown) {
+          thrownResponseFailure = normalizeError;
+        }
+      }
+
       // A 404 thrown by a loader or middleware (`throw notFound()`) is not a
       // crash — it means "this URL has no content". Render the app-level
       // not-found page for it, unless the route declares its own
@@ -937,7 +976,7 @@ export async function handlePrachtRequest<TContext>(
       }
 
       return renderRouteErrorResponse({
-        error,
+        error: thrownResponseFailure ?? error,
         isRouteStateRequest,
         loaderFile,
         options,
