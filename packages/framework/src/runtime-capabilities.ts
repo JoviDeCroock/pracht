@@ -1303,11 +1303,11 @@ function mcpCompositionGuard(
 
 /**
  * Keep the context seen by nested MCP middleware and capability bodies on the
- * same trusted identity used by the policy guard and audit trail. Assigning
- * the framework-owned field in place preserves the shared request-context
- * semantics used by ordinary dispatch. Immutable contexts receive a shallow
- * descriptor-preserving copy instead, so binding identity never turns a valid
- * nested call into a rejected promise.
+ * same trusted identity used by the policy guard and audit trail. The
+ * framework-owned field is rebound to an immutable snapshot without changing
+ * other shared request-context fields. Immutable contexts receive an
+ * extensible receiver-preserving overlay, so binding identity never turns a
+ * valid nested call into a rejected promise.
  */
 function capabilityPipelineContext<TContext>(
   host: CapabilityHost,

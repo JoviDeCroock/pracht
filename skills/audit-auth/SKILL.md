@@ -1,6 +1,6 @@
 ---
 name: audit-auth
-version: 1.2.0
+version: 1.2.1
 description: |
   Find pracht routes that look protected but aren't — missing auth middleware,
   middleware that augments context but never gates, client-side auth checks
@@ -100,6 +100,9 @@ target. From `pracht inspect api --json`:
   capability dispatch and only `Authorization` is forwarded. Flag MCP-exposed
   capabilities whose gate depends on a browser session cookie or a custom
   credential header that the projection does not carry.
+- Treat `context.agent` as framework-owned, read-only verified identity. Flag
+  middleware or capability code that attempts to mutate or replace it instead
+  of deriving application authorization state on a separate context field.
 - Inspect every HTTP-, WebMCP-, or MCP-exposed capability body for
   `invokeCapability()`. Direct composition never re-applies app-level API
   middleware. Remote MCP additionally re-applies the callee's `agentPolicy`

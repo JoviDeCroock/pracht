@@ -37,7 +37,7 @@ export interface PrachtContextExtensions {
    * unsigned or fails verification, absent when `defineApp({ agents })` is
    * not configured.
    */
-  agent?: PrachtAgentIdentity | null;
+  readonly agent?: PrachtAgentIdentity | null;
 }
 
 export type RegisteredContext = (Register extends { context: infer T } ? T : unknown) &

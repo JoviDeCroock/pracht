@@ -84,7 +84,10 @@ async run({ context }) {
 ```
 
 `context.agent` is only set when `agents.webBotAuth` is configured; it is
-`null` for unsigned or unverifiable requests.
+`null` for unsigned or unverifiable requests. The framework binds it as a
+read-only, immutable snapshot: middleware may derive its own authorization
+state elsewhere on `context`, but cannot rewrite the verified identity seen by
+later capability policy or audit checks.
 
 ### Verification rules (fail closed)
 
