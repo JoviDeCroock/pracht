@@ -10,6 +10,7 @@ const edgeAdapter: PrachtAdapter = {
 };
 
 interface BuildConfig {
+  resolve?: { dedupe?: string[] };
   ssr?: { noExternal?: boolean; target?: string };
   define?: Record<string, unknown>;
   environments?: {

@@ -138,6 +138,16 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
         // Expose PRACHT_PUBLIC_-prefixed vars on import.meta.env (client and
         // server) while keeping Vite's default VITE_ prefix working.
         envPrefix: ["VITE_", PUBLIC_ENV_PREFIX],
+        resolve: {
+          // Preact's hook state lives in module-level `options` on the Preact
+          // instance that rendered the tree. A second copy in the graph — from
+          // hoisting, a linked package, or a UI library with its own Preact
+          // dependency — makes any hook-using component die during SSR with
+          // `Cannot read properties of undefined (reading '__H')`, which names
+          // neither the component nor the cause. Collapsing the family onto one
+          // copy is the only sane default.
+          dedupe: PREACT_DEDUPE,
+        },
         define: {
           __PRACHT_PUBLIC_ENV__: publicEnvDefine,
           __PRACHT_AGENT_SURFACE__: agentSurfaceDefine,
@@ -481,6 +491,13 @@ const PRACHT_OPTIMIZE_DEPS_INCLUDE = [
   "@pracht/core/islands-client",
   "@pracht/core/manifest",
 ];
+
+// Package names only: Vite matches `dedupe` against the bare package id, so a
+// subpath entry such as `preact/hooks` would never match. Deduping `preact`
+// already covers every subpath, since they all resolve through that package —
+// and with them the `options` object `preact/hooks` mutates, which is the
+// state a second copy splits in two.
+const PREACT_DEDUPE = ["preact", "preact-render-to-string"];
 
 function createPrachtOptimizeDepsInclude(root: string): string[] {
   // Vite deliberately leaves workspace-linked packages un-optimized (they are
