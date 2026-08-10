@@ -41,6 +41,13 @@ export async function withAppServer<T>(
   const server = await createServer({
     root,
     logLevel: "silent",
+    // This server exists to evaluate one SSR module and is closed immediately;
+    // it never answers a browser request. Dependency pre-bundling is therefore
+    // pure cost — and it outlives `server.close()`, so the scan keeps writing
+    // `node_modules/.vite/deps_temp_*` after the command has moved on.
+    optimizeDeps: {
+      noDiscovery: true,
+    },
     server: {
       middlewareMode: true,
     },
