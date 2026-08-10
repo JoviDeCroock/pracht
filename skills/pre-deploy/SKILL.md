@@ -93,7 +93,11 @@ a markdown summary (graph diff + verify + budgets) worth attaching to it.
   metadata (`buildTarget`, manifests, `resolvedApp`, ...) that `server.js`
   exports for the prerender pass.
 - `assets.directory` points to `dist/client`.
-- `compatibility_date` is set and recent.
+- `compatibility_date` is set, and is a date the installed workerd supports.
+  It must not be *newer* than the runtime: workerd refuses to start with
+  "This Worker requires compatibility date X, but the newest date supported
+  by this server binary is Y". Never set it to today's date — that is by
+  construction at or beyond the newest released workerd.
 - Bindings declared in wrangler config for every `context.env.*` access in
   loaders, middleware, and API routes (grep, then cross-check).
 - **No Node-only APIs in the server bundle.** Grep the server files for:
