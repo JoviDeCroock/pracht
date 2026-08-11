@@ -35,6 +35,19 @@ adapter also accepts `maxBodySize`; custom entries can pass `trustProxy: true`
 to `createNodeRequestHandler()` only when a trusted reverse proxy overwrites
 forwarded headers.
 
+Responses are compressed by default: the adapter negotiates `Accept-Encoding`
+(brotli preferred, then gzip) and streams dynamic HTML, route-state JSON, and
+other compressible text types through `node:zlib`, while static assets and ISG
+snapshots are compressed once per file version and served from an in-memory
+LRU. Compressible responses carry `Vary: Accept-Encoding`, encoded variants
+get their own ETag, and already-encoded, `no-transform`, Range, and sub-1 KiB
+responses are left alone. If a reverse proxy or CDN in front of the server
+already compresses responses, turn it off:
+
+```ts [vite.config.ts]
+nodeAdapter({ compression: false });
+```
+
 ```sh
 # Build and run
 pracht build

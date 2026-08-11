@@ -82,6 +82,7 @@ The adapter factory calls the entry module generator internally to create a virt
 | `trustProxy`    | `boolean`            | Honor forwarded headers for URL construction (default: `false`) |
 | `canonicalOrigin` | `string`           | Fixed public origin for `request.url`; ignores request Host values |
 | `maxBodySize`   | `number`             | Maximum request body size in bytes (default: 1 MiB)             |
+| `compression`   | `boolean`            | Brotli/gzip response compression via `Accept-Encoding` (default: `true`) |
 
 ### Trusted proxy configuration
 
@@ -158,6 +159,54 @@ that manifest.
   `<link>` tags into server-rendered HTML.
 - **Response headers**: preserves multiple `Set-Cookie` headers from framework
   responses by writing them as an array to Node's `ServerResponse`.
+- **Response compression**: brotli/gzip content negotiation on every response
+  path — see below.
+
+### Response compression
+
+The Node adapter compresses responses by default, negotiated against the
+request's `Accept-Encoding` header (brotli preferred, then gzip, honoring
+q-values and `*` wildcards, all via `node:zlib`):
+
+- **Dynamic responses** — SSR/ISG documents, route-state JSON, API responses
+  with compressible types — stream through a zlib transform (brotli quality 4),
+  so compression adds no buffering to the response path.
+- **Static assets and ISG snapshots** up to 1 MiB are compressed once per file
+  version at higher quality and kept in a byte-bounded in-memory LRU
+  (32 MiB) keyed by path + size + mtime, so hashed assets and regenerated ISG
+  HTML pay the compression cost once. Larger files stream through zlib per
+  request. This is runtime compression rather than build-time precompression;
+  it also covers ISG documents rewritten on disk after the build.
+
+What gets compressed: `text/*`, `application/json`, `application/javascript`,
+`application/xml`, `application/wasm`, and any `+json`/`+xml` structured
+syntax type (`image/svg+xml`, `application/manifest+json`, ...). Binary media
+(images, fonts, video) is never re-compressed.
+
+What is never touched: responses that already carry a `Content-Encoding`,
+`Cache-Control: no-transform` responses, 1xx/204/205/206/304 statuses, Range
+responses, and bodies under 1 KiB when the size is known.
+
+Correctness guarantees:
+
+- Compressible responses always carry `Vary: Accept-Encoding`, merged with any
+  existing `Vary` members (e.g. `x-pracht-route-state-request`), even when the
+  response goes out identity-encoded — so shared caches key on the encoding.
+- Encoded variants get their own weak ETag (the encoding is folded into the
+  tag, e.g. `W/"1a2f-18c-br"`), so `If-None-Match` revalidation can never
+  answer an identity request with a cached brotli body or vice versa. The
+  `304` path keeps working per variant.
+
+**Behind a reverse proxy:** when nginx, Caddy, Cloudflare, or another
+CDN/proxy in front of the Node server already compresses responses, disable
+the adapter's compression so the body is not compressed twice and the proxy
+can apply its own policy:
+
+```typescript
+nodeAdapter({ compression: false });
+// or for custom entries:
+createNodeRequestHandler({ app, registry, staticDir, compression: false });
+```
 
 ### WebSockets
 

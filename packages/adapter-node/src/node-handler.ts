@@ -1,5 +1,5 @@
 import { createReadStream } from "node:fs";
-import { mkdir, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { dirname, join, resolve, sep } from "node:path";
 
@@ -26,6 +26,20 @@ import {
   routeSupportsMarkdown,
 } from "@pracht/core/server";
 
+import {
+  COMPRESSION_MIN_SIZE,
+  CompressedAssetCache,
+  type CompressionState,
+  compressBuffer,
+  type ContentEncoding,
+  createCompressedStream,
+  encodeEtagForEncoding,
+  isCompressibleContentType,
+  isTransformableResponse,
+  MAX_CACHEABLE_ASSET_SIZE,
+  mergeVaryValue,
+  negotiateEncoding,
+} from "./node-compress.ts";
 import { regenerateISGPage } from "./node-isg.ts";
 import {
   createWebRequest,
@@ -88,6 +102,14 @@ export interface NodeAdapterOptions<TContext = unknown> {
   trustProxy?: boolean;
   /** Maximum request body size in bytes. Defaults to 1 MiB. */
   maxBodySize?: number;
+  /**
+   * Compress responses with brotli or gzip based on `Accept-Encoding`
+   * (default: `true`). Applies to HTML documents, route-state JSON, and other
+   * compressible text types; static assets are compressed at runtime through
+   * an in-memory LRU of compressed variants. Set to `false` when a reverse
+   * proxy or CDN in front of the server already compresses responses.
+   */
+  compression?: boolean;
 }
 
 let warnedAboutMissingCanonicalOrigin = false;
@@ -101,6 +123,8 @@ export function createNodeRequestHandler<TContext = unknown>(
   const trustProxy = options.trustProxy ?? false;
   const canonicalOrigin = options.canonicalOrigin;
   const maxBodySize = options.maxBodySize;
+  const compressionEnabled = options.compression !== false;
+  const compressedAssetCache = new CompressedAssetCache();
 
   if (maxBodySize !== undefined && (!Number.isInteger(maxBodySize) || maxBodySize <= 0)) {
     throw new Error("nodeAdapter({ maxBodySize }) expects a positive integer number of bytes.");
@@ -126,6 +150,9 @@ export function createNodeRequestHandler<TContext = unknown>(
       throw err;
     }
     const url = new URL(request.url);
+    const compression: CompressionState | undefined = compressionEnabled
+      ? { cache: compressedAssetCache, request }
+      : undefined;
     const isTransportRouteStateRequest = isRouteStateRequest(url, request.headers);
     // Only routes that can actually answer with markdown skip the static and
     // ISG fast paths: the client has to prefer markdown over HTML (a browser's
@@ -144,7 +171,7 @@ export function createNodeRequestHandler<TContext = unknown>(
         req,
         res,
       });
-      await writeWebResponse(res, response);
+      await writeWebResponse(res, response, compression);
       return;
     }
 
@@ -156,7 +183,14 @@ export function createNodeRequestHandler<TContext = unknown>(
     ) {
       const staticResult = await resolveStaticFile(staticDir, url.pathname, isgManifest);
       if (staticResult) {
-        await serveStaticFile(request, res, staticResult, headersManifest, url.pathname);
+        await serveStaticFile(
+          request,
+          res,
+          staticResult,
+          headersManifest,
+          url.pathname,
+          compression,
+        );
         return;
       }
     }
@@ -177,6 +211,7 @@ export function createNodeRequestHandler<TContext = unknown>(
         isgManifest[url.pathname],
         headersManifest,
         { request, req, res },
+        compression,
       );
       if (served) return;
     }
@@ -229,6 +264,7 @@ export function createNodeRequestHandler<TContext = unknown>(
     await writeWebResponse(
       res,
       isIsgDocument ? response : preventHeuristicCaching(request, response),
+      compression,
     );
   };
 
@@ -283,6 +319,7 @@ async function serveStaticFile(
   staticResult: { filePath: string; contentType: string; cacheControl: string },
   headersManifest: HeadersManifest,
   pathname: string,
+  compression: CompressionState | undefined,
 ): Promise<void> {
   const fileStat = await stat(staticResult.filePath);
   const headers = applyDefaultSecurityHeaders(
@@ -297,6 +334,8 @@ async function serveStaticFile(
     applyHeadersManifest(headers, headersManifest, pathname);
   }
 
+  const encoding = negotiateFileEncoding(request, headers, fileStat.size, compression);
+
   if (isNotModified(request, headers)) {
     res.statusCode = 304;
     writeNodeHeaders(res, headers);
@@ -310,7 +349,82 @@ async function serveStaticFile(
     res.end();
     return;
   }
-  await pipeToResponse(createReadStream(staticResult.filePath), res);
+  await writeFileBody(res, staticResult.filePath, fileStat, encoding, compression);
+}
+
+/**
+ * Decide the on-the-wire encoding for a file response and stamp the
+ * compression headers. Mutates `headers` before the conditional-request check
+ * so the `ETag` the client revalidates against always names the encoded
+ * variant it was served — encoded and identity variants never share a
+ * validator.
+ */
+function negotiateFileEncoding(
+  request: Request,
+  headers: Headers,
+  fileSize: number,
+  compression: CompressionState | undefined,
+): ContentEncoding | null {
+  if (
+    !compression ||
+    !isCompressibleContentType(headers.get("content-type")) ||
+    !isTransformableResponse(200, headers)
+  ) {
+    return null;
+  }
+
+  // The representation varies by Accept-Encoding even when this response goes
+  // out as identity (small file today, larger after the next deploy).
+  headers.set("vary", mergeVaryValue(headers.get("vary")));
+
+  if (fileSize < COMPRESSION_MIN_SIZE || request.method === "HEAD") {
+    return null;
+  }
+
+  const encoding = negotiateEncoding(compression.request.headers.get("accept-encoding"));
+  if (!encoding) return null;
+
+  headers.set("content-encoding", encoding);
+  const etag = headers.get("etag");
+  if (etag) headers.set("etag", encodeEtagForEncoding(etag, encoding));
+  return encoding;
+}
+
+/**
+ * Stream a file body, compressed when an encoding was negotiated. Files up to
+ * `MAX_CACHEABLE_ASSET_SIZE` are compressed once at high quality and served
+ * from an in-memory LRU keyed by path + size + mtime, so hashed assets and
+ * (re)generated ISG documents pay the compression cost once per version.
+ * Larger files stream through zlib per request.
+ */
+async function writeFileBody(
+  res: ServerResponse,
+  filePath: string,
+  fileStat: { mtimeMs: number; size: number },
+  encoding: ContentEncoding | null,
+  compression: CompressionState | undefined,
+): Promise<void> {
+  if (!encoding || !compression) {
+    await pipeToResponse(createReadStream(filePath), res);
+    return;
+  }
+
+  if (fileStat.size <= MAX_CACHEABLE_ASSET_SIZE) {
+    const key = `${filePath}\0${fileStat.size}\0${fileStat.mtimeMs}\0${encoding}`;
+    let compressed = compression.cache.get(key);
+    if (compressed === undefined) {
+      compressed = await compressBuffer(await readFile(filePath), encoding);
+      compression.cache.set(key, compressed);
+    }
+    res.setHeader("content-length", compressed.byteLength);
+    res.end(compressed);
+    return;
+  }
+
+  await pipeToResponse(
+    createCompressedStream(createReadStream(filePath), encoding, fileStat.size),
+    res,
+  );
 }
 
 async function serveISGEntry<TContext>(
@@ -322,6 +436,7 @@ async function serveISGEntry<TContext>(
   entry: ISGManifestEntry,
   headersManifest: HeadersManifest,
   contextArgs: NodeAdapterContextArgs,
+  compression: CompressionState | undefined,
 ): Promise<boolean> {
   const htmlPath = resolveContainedPath(staticDir, pathname);
   if (!htmlPath) return false;
@@ -345,6 +460,8 @@ async function serveISGEntry<TContext>(
   applyHeadersManifest(headers, headersManifest, pathname);
   headers.set("x-pracht-isg", isStale ? "stale" : "fresh");
 
+  const encoding = negotiateFileEncoding(request, headers, fileStat.size, compression);
+
   if (isNotModified(request, headers)) {
     res.statusCode = 304;
     writeNodeHeaders(res, headers);
@@ -355,7 +472,7 @@ async function serveISGEntry<TContext>(
     if (request.method === "HEAD") {
       res.end();
     } else {
-      await pipeToResponse(createReadStream(htmlPath), res);
+      await writeFileBody(res, htmlPath, fileStat, encoding, compression);
     }
   }
 

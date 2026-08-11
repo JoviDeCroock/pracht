@@ -1,6 +1,17 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { Readable } from "node:stream";
 
+import {
+  COMPRESSION_MIN_SIZE,
+  type ContentEncoding,
+  createCompressedStream,
+  encodeEtagForEncoding,
+  isCompressibleContentType,
+  isTransformableResponse,
+  mergeVaryOnNodeResponse,
+  negotiateEncoding,
+} from "./node-compress.ts";
+
 const BODYLESS_METHODS = new Set(["GET", "HEAD"]);
 export const DEFAULT_MAX_BODY_SIZE = 1024 * 1024; // 1 MiB
 
@@ -196,18 +207,50 @@ function normalizeRequestTarget(
   return target;
 }
 
-export async function writeWebResponse(res: ServerResponse, response: Response): Promise<void> {
+export async function writeWebResponse(
+  res: ServerResponse,
+  response: Response,
+  compression?: { request: Request },
+): Promise<void> {
   res.statusCode = response.status;
   res.statusMessage = response.statusText;
 
   writeNodeResponseHeaders(res, response.headers);
+
+  let encoding: ContentEncoding | null = null;
+  if (
+    compression &&
+    isCompressibleContentType(response.headers.get("content-type")) &&
+    isTransformableResponse(response.status, response.headers)
+  ) {
+    // Compressible whatever this client accepts, so caches must key on the
+    // encoding even when this particular response goes out as identity.
+    mergeVaryOnNodeResponse(res);
+
+    const contentLength = Number.parseInt(response.headers.get("content-length") ?? "", 10);
+    const belowThreshold = !Number.isNaN(contentLength) && contentLength < COMPRESSION_MIN_SIZE;
+
+    if (response.body && compression.request.method !== "HEAD" && !belowThreshold) {
+      encoding = negotiateEncoding(compression.request.headers.get("accept-encoding"));
+    }
+
+    if (encoding) {
+      res.removeHeader("content-length");
+      res.setHeader("content-encoding", encoding);
+      const etag = res.getHeader("etag");
+      if (typeof etag === "string") {
+        res.setHeader("etag", encodeEtagForEncoding(etag, encoding));
+      }
+    }
+  }
 
   if (!response.body) {
     res.end();
     return;
   }
 
-  await pipeToResponse(Readable.fromWeb(response.body as never), res);
+  const source: NodeJS.ReadableStream = Readable.fromWeb(response.body as never);
+  await pipeToResponse(encoding ? createCompressedStream(source, encoding) : source, res);
 }
 
 export function writeNodeResponseHeaders(res: ServerResponse, headers: Headers): void {

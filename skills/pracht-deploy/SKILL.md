@@ -63,6 +63,12 @@ incoming `Host` header. `maxBodySize` is also available on `nodeAdapter()`.
 Only custom entries behind a trusted proxy that overwrites forwarded headers
 should use `createNodeRequestHandler({ trustProxy: true })`.
 
+The Node adapter compresses responses by default (brotli/gzip negotiated via
+`Accept-Encoding`, streaming for dynamic bodies, an in-memory LRU for static
+assets). When the deployment sits behind a reverse proxy or CDN that already
+compresses responses, set `nodeAdapter({ compression: false })` so bodies are
+not compressed twice.
+
 ### Build
 
 ```bash

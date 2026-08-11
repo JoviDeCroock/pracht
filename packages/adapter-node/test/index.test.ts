@@ -110,6 +110,11 @@ describe("createNodeServerEntryModule", () => {
     const source = createNodeServerEntryModule();
     expect(source).toContain("const configurePrachtServer = undefined;");
   });
+
+  it("passes the compression toggle through to the generated handler", () => {
+    expect(createNodeServerEntryModule()).toContain("compression: undefined");
+    expect(createNodeServerEntryModule({ compression: false })).toContain("compression: false");
+  });
 });
 
 describe("createNodeRequestHandler", () => {
