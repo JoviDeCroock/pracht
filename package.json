@@ -24,7 +24,7 @@
   },
   "devDependencies": {
     "@changesets/changelog-github": "^0.6.0",
-    "@changesets/cli": "^2.30.0",
+    "@changesets/cli": "^3.0.0",
     "@playwright/test": "^1.52.0",
     "@types/node": "^22.15.21",
     "jsdom": "^29.0.2",
