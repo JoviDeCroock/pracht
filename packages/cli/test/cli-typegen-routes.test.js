@@ -109,12 +109,19 @@ import { href } from "./pracht-routes.ts";
 
 href("home");
 href("product", { params: { id: "sku-1" }, search: { q: "boots" } });
+href("product", {
+  params: { id: "sku-1" },
+  search: { q: "boots", tags: ["sale", "new"] },
+});
 
 // @ts-expect-error - the route schema requires q, so search cannot be omitted
 href("product", { params: { id: "sku-1" } });
 
 // @ts-expect-error - page arrives as a string, so a number-only schema input cannot validate
 href("product", { params: { id: "sku-1" }, search: { q: "boots", page: 2 } });
+
+// @ts-expect-error - repeated boolean values still cannot cross the string wire format
+href("product", { params: { id: "sku-1" }, search: { q: "boots", tags: [true] } });
 
 const navigate = useNavigate();
 void navigate({ route: "product", params: { id: "sku-1" }, search: { q: "boots" } });

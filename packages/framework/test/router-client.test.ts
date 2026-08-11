@@ -97,8 +97,8 @@ describe("initClientRouter", () => {
     expect(root.textContent).toContain("Hello Jovi");
   });
 
-  it("hydrates prerendered routes from the visitor's search parameters", async () => {
-    history.replaceState(null, "", "/products?page=2");
+  it("hydrates prerendered routes from the visitor's search parameters on normalized paths", async () => {
+    history.replaceState(null, "", "/products/?page=2");
     root.innerHTML = "<main>1</main>";
     let capturedSearch: unknown;
 

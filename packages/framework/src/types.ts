@@ -97,9 +97,23 @@ export type SearchParamsInput = string | URLSearchParams | Record<string, Search
 export type RouteSearchRecord = Record<string, string | string[]>;
 
 type QueryWireValue = string | readonly string[];
+type QueryWireCompatibleArray<TValue> =
+  Extract<NonNullable<TValue>, readonly unknown[]> extends infer TArray
+    ? TArray extends readonly unknown[]
+      ? number extends TArray["length"]
+        ? unknown extends TArray[number]
+          ? TArray
+          : [Extract<TArray[number], string>] extends [never]
+            ? never
+            : TArray
+        : Extract<TArray, readonly string[]>
+      : never
+    : never;
 type QueryValueWireCheck<TValue, TError> = unknown extends TValue
   ? TValue
-  : [Extract<NonNullable<TValue>, QueryWireValue>] extends [never]
+  : [Extract<NonNullable<TValue>, QueryWireValue> | QueryWireCompatibleArray<TValue>] extends [
+        never,
+      ]
     ? TError
     : TValue;
 type QueryRecordWireCheck<TQuery extends Record<string, unknown>, TError> = {

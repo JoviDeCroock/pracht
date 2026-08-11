@@ -3,7 +3,7 @@ import { hydrate, render } from "preact";
 import { useContext, useLayoutEffect, useMemo, useState } from "preact/hooks";
 import type { FunctionComponent } from "preact";
 
-import { buildHref, matchResolvedRoute } from "./route-matching.ts";
+import { buildHref, matchResolvedRoute, normalizeRoutePath } from "./route-matching.ts";
 import {
   decodeFragmentId,
   findFragmentTarget,
@@ -680,7 +680,11 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
   // the same document; retain the hydration URL as a defensive fallback for a
   // mismatched bootstrap or test harness.
   const initialTarget =
-    browserTarget?.pathname === hydratedTarget?.pathname ? browserTarget : hydratedTarget;
+    browserTarget &&
+    hydratedTarget &&
+    normalizeRoutePath(browserTarget.pathname) === normalizeRoutePath(hydratedTarget.pathname)
+      ? browserTarget
+      : hydratedTarget;
   const initialRequestUrl = initialTarget?.requestUrl ?? options.initialState.url;
   const initialBrowserUrl = initialTarget?.browserUrl ?? options.initialState.url;
   const initialPathname = initialTarget?.pathname ?? options.initialState.url;

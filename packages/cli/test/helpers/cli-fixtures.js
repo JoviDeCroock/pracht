@@ -389,8 +389,8 @@ export default defineCapability({
       return { value: value as { q: string; page: number } };
     },
     types: undefined as unknown as {
-      input: { q: string; page?: number };
-      output: { q: string; page: number };
+      input: { q: string; page?: number; tags?: (string | number)[] };
+      output: { q: string; page: number; tags: string[] };
     },
   },
 } as const;
