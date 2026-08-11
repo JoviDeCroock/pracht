@@ -373,14 +373,28 @@ With the option on:
 
 #### Trailing slashes
 
-The assets binding's default `html_handling` redirects a prerendered nested
-route to its trailing-slash form: `GET /guide` answers `307 → /guide/` on
-Cloudflare where Node answers `200`. That makes the canonical URL of every
-prerendered nested route differ between adapters, and the generated `llms.txt`
-emits the non-slash form, so an agent following it takes a redirect on
-Cloudflare only. Set `assets.html_handling` in `wrangler.jsonc` (for example
-`"none"` alongside your own routing, or `"drop-trailing-slash"`) when you need
-one canonical form across adapters.
+The assets binding's default `html_handling` redirects a prerendered route to
+its trailing-slash form: `GET /guide` answers `307 → /guide/` on Cloudflare
+where Node and Vercel answer `200`. That makes the canonical URL of every
+prerendered route differ between adapters, and the generated `llms.txt` emits
+the non-slash form, so an agent following it takes a redirect on Cloudflare
+only.
+
+`create-pracht` therefore writes `"html_handling": "drop-trailing-slash"` into
+the Cloudflare scaffold's `wrangler.jsonc`. Existing apps should add it:
+
+```jsonc
+{
+  "assets": {
+    "binding": "ASSETS",
+    "directory": "dist/client",
+    "html_handling": "drop-trailing-slash",
+    "run_worker_first": true,
+  },
+}
+```
+
+Use `"none"` instead when you do your own routing.
 
 #### Cache-key cardinality
 

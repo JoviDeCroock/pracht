@@ -9,7 +9,7 @@ import type {
   ResolvedPrachtApp,
   ResolvedRoute,
 } from "@pracht/core";
-import { resolveRegistryModule } from "@pracht/core";
+import { applyDefaultSecurityHeaders, resolveRegistryModule } from "@pracht/core";
 import {
   CLIENT_BROWSER_PATH,
   ISLANDS_CLIENT_BROWSER_PATH,
@@ -106,6 +106,12 @@ export function createDevSSRMiddleware(
         const llmsTxt: string = await serverMod.generateLlmsTxt();
         res.statusCode = 200;
         res.setHeader("content-type", "text/plain; charset=utf-8");
+        // Match production: the adapters serve dist/client/llms.txt with the
+        // framework's default security headers, and dev diverging from that is
+        // exactly the kind of difference that only shows up after deploy.
+        applyDefaultSecurityHeaders(new Headers()).forEach((value, key) => {
+          res.setHeader(key, value);
+        });
         res.end(llmsTxt);
         return;
       }

@@ -20,9 +20,11 @@ import {
 } from "@pracht/core";
 
 import { createNodeRequestHandler, createNodeServerEntryModule } from "../src/index.ts";
+import { isClientDisconnectError } from "../src/node-request.ts";
 
 const tempDirs: string[] = [];
 const servers = new Set<ReturnType<typeof createServer>>();
+const onUnhandledCleanups: Array<() => void> = [];
 
 function makeTempDir(): string {
   const dir = mkdtempSync(join(tmpdir(), "pracht-adapter-node-"));
@@ -55,6 +57,10 @@ async function waitFor(predicate: () => boolean, timeoutMs = 2_000): Promise<voi
 
 afterEach(async () => {
   vi.restoreAllMocks();
+
+  while (onUnhandledCleanups.length > 0) {
+    onUnhandledCleanups.pop()?.();
+  }
 
   for (const server of servers) {
     server.close();
@@ -619,6 +625,219 @@ describe("createNodeRequestHandler", () => {
       expect(response.status).toBe(200);
       expect(response.headers.get("content-type")).toContain("text/markdown");
       expect(await response.text()).toBe("# Docs\n");
+    });
+  });
+
+  describe("isClientDisconnectError", () => {
+    it("recognizes disconnects through a cause chain", () => {
+      const inner = Object.assign(new Error("socket hang up"), { code: "ECONNRESET" });
+      expect(isClientDisconnectError(new Error("wrapped", { cause: inner }))).toBe(true);
+      expect(isClientDisconnectError(Object.assign(new Error("x"), { code: "EACCES" }))).toBe(
+        false,
+      );
+      expect(isClientDisconnectError(undefined)).toBe(false);
+    });
+
+    it("survives a cyclic cause chain", () => {
+      // A self- or mutually-referential `cause` is legal. Recursing on it would
+      // throw RangeError from inside the handler's own catch block, turning the
+      // crash this guard prevents back into an unhandled rejection.
+      const first = new Error("first");
+      const second = new Error("second");
+      (first as { cause?: unknown }).cause = second;
+      (second as { cause?: unknown }).cause = first;
+
+      expect(isClientDisconnectError(first)).toBe(false);
+
+      const selfReferential = new Error("self");
+      (selfReferential as { cause?: unknown }).cause = selfReferential;
+      expect(isClientDisconnectError(selfReferential)).toBe(false);
+    });
+  });
+
+  describe("client disconnects", () => {
+    async function serveApp(options: {
+      largeStaticFile?: boolean;
+      throwFromLoader?: boolean;
+    }): Promise<{ base: string; unhandled: unknown[] }> {
+      const staticDir = makeTempDir();
+      mkdirSync(join(staticDir, "assets"), { recursive: true });
+      writeFileSync(
+        join(staticDir, "assets", "big.js"),
+        "x".repeat(options.largeStaticFile === false ? 16 : 8 * 1024 * 1024),
+        "utf-8",
+      );
+
+      const app = defineApp({
+        routes: [route("/slow", "./routes/slow.tsx", { render: "ssr" })],
+      });
+      const handler = createNodeRequestHandler({
+        app,
+        registry: {
+          routeModules: {
+            "./routes/slow.tsx": async () => ({
+              Component: () => "<main>slow</main>",
+              ...(options.throwFromLoader
+                ? {
+                    loader: () => {
+                      throw new Error("loader exploded");
+                    },
+                  }
+                : {}),
+            }),
+          },
+        },
+        staticDir,
+      });
+
+      const unhandled: unknown[] = [];
+      const onUnhandled = (reason: unknown): void => {
+        unhandled.push(reason);
+      };
+      process.on("unhandledRejection", onUnhandled);
+      onUnhandledCleanups.push(() => process.off("unhandledRejection", onUnhandled));
+
+      const server = createServer((req: IncomingMessage, res: ServerResponse) => {
+        void handler(req, res);
+      });
+      servers.add(server);
+      server.listen(0, "127.0.0.1");
+      await once(server, "listening");
+      const address = server.address();
+      if (!address || typeof address === "string") {
+        throw new Error("Expected TCP server address");
+      }
+
+      return { base: `http://127.0.0.1:${address.port}`, unhandled };
+    }
+
+    it("survives a client aborting a streamed static asset", async () => {
+      const { base, unhandled } = await serveApp({});
+
+      for (let attempt = 0; attempt < 5; attempt += 1) {
+        const controller = new AbortController();
+        const pending = fetch(`${base}/assets/big.js`, { signal: controller.signal }).catch(
+          () => undefined,
+        );
+        controller.abort();
+        await pending;
+      }
+
+      // Give any rejection a chance to surface before asserting.
+      await new Promise((resolveTimer) => setTimeout(resolveTimer, 100));
+
+      expect(unhandled).toEqual([]);
+      const response = await fetch(`${base}/assets/big.js`);
+      expect(response.status).toBe(200);
+      await response.arrayBuffer();
+    });
+
+    // A response body that fails is a *server* failure however it is spelled.
+    // The disconnect-shaped codes matter most: undici reports a proxied
+    // backend's TCP reset as `TypeError: terminated` with
+    // `cause.code === "ECONNRESET"`, so classifying on the code alone would
+    // file a backend outage as a client disconnect and lose it entirely.
+    it.each([
+      [
+        "a plain transport code",
+        Object.assign(new Error("upstream died"), { code: "UND_ERR_SOCKET" }),
+      ],
+      ["a disconnect code", Object.assign(new Error("reset"), { code: "ECONNRESET" })],
+      [
+        "a disconnect code in the cause chain",
+        Object.assign(new TypeError("terminated"), {
+          cause: Object.assign(new Error("socket"), { code: "ECONNRESET" }),
+        }),
+      ],
+    ])("answers 500 and logs when the response body fails with %s", async (_label, failure) => {
+      const errors: unknown[] = [];
+      vi.spyOn(console, "error").mockImplementation((...args) => {
+        errors.push(args.join(" "));
+      });
+
+      const handler = createNodeRequestHandler({
+        app: defineApp({ routes: [] }),
+        apiRoutes: resolveApiRoutes(["/src/api/stream.ts"]),
+        registry: {
+          apiModules: {
+            "/src/api/stream.ts": async () => ({
+              GET: async () =>
+                new Response(
+                  new ReadableStream({
+                    start(controller) {
+                      controller.error(failure);
+                    },
+                  }),
+                ),
+            }),
+          },
+        },
+      });
+
+      const server = createServer((req: IncomingMessage, res: ServerResponse) => {
+        void handler(req, res);
+      });
+      servers.add(server);
+      server.listen(0, "127.0.0.1");
+      await once(server, "listening");
+      const address = server.address();
+      if (!address || typeof address === "string") {
+        throw new Error("Expected TCP server address");
+      }
+
+      // Nothing was written yet, so a real status is still possible — the
+      // client must not just see the connection drop.
+      const response = await fetch(`http://127.0.0.1:${address.port}/api/stream`);
+      expect(response.status).toBe(500);
+      await response.text();
+
+      await waitFor(() => errors.some((entry) => String(entry).includes("Unhandled error")));
+    });
+
+    it("answers 500 rather than hanging on a server-side ECONNRESET", async () => {
+      // A pooled database or cache client resetting inside `createContext`
+      // throws `Error { code: "ECONNRESET" }`. Treating the code alone as a
+      // client disconnect would return without ending the response, leaving
+      // the request to hang until `server.requestTimeout`.
+      vi.spyOn(console, "error").mockImplementation(() => {});
+
+      const handler = createNodeRequestHandler({
+        app: defineApp({ routes: [] }),
+        createContext: () => {
+          throw Object.assign(new Error("pool reset"), { code: "ECONNRESET" });
+        },
+      });
+
+      const server = createServer((req: IncomingMessage, res: ServerResponse) => {
+        void handler(req, res);
+      });
+      servers.add(server);
+      server.listen(0, "127.0.0.1");
+      await once(server, "listening");
+      const address = server.address();
+      if (!address || typeof address === "string") {
+        throw new Error("Expected TCP server address");
+      }
+
+      const response = await fetch(`http://127.0.0.1:${address.port}/anything`);
+      expect(response.status).toBe(500);
+      await response.text();
+    });
+
+    it("answers 500 instead of rejecting when the framework throws", async () => {
+      const { base, unhandled } = await serveApp({
+        largeStaticFile: false,
+        throwFromLoader: true,
+      });
+
+      const response = await fetch(`${base}/slow`);
+      // The framework sanitizes loader errors into a 500 document itself; the
+      // point of this test is that the handler never rejects.
+      expect(response.status).toBeGreaterThanOrEqual(500);
+      await response.text();
+
+      await new Promise((resolveTimer) => setTimeout(resolveTimer, 50));
+      expect(unhandled).toEqual([]);
     });
   });
 });

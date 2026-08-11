@@ -7,7 +7,7 @@ import { formatPlanMarkdown, GRAPH_SNAPSHOT_PATH } from "../graph-snapshot.js";
 import { formatBytes } from "../bundle-report.js";
 import { ensureTrailingNewline, handleCliError } from "../utils.js";
 import { runVerification, type VerificationReport } from "../verification.js";
-import { runPlan, type PlanReport } from "./plan.js";
+import { DEFAULT_BASE_REF, describeMissingBase, runPlan, type PlanReport } from "./plan.js";
 
 export default defineCommand({
   meta: {
@@ -27,7 +27,10 @@ export default defineCommand({
   },
   async run({ args }) {
     try {
-      const markdown = await runReport(process.cwd(), { base: args.base || "origin/main" });
+      const markdown = await runReport(process.cwd(), {
+        base: args.base || DEFAULT_BASE_REF,
+        baseExplicit: Boolean(args.base),
+      });
 
       if (args.out) {
         const outPath = resolve(process.cwd(), args.out);
@@ -43,8 +46,11 @@ export default defineCommand({
   },
 });
 
-export async function runReport(root: string, options: { base: string }): Promise<string> {
-  const plan = await runPlan(root, { base: options.base });
+export async function runReport(
+  root: string,
+  options: { base: string; baseExplicit?: boolean },
+): Promise<string> {
+  const plan = await runPlan(root, { base: options.base, baseExplicit: options.baseExplicit });
   const verification = await runVerification(root);
 
   return [
@@ -68,9 +74,7 @@ function formatGraphSection(plan: PlanReport): string {
     );
   }
   if (!plan.baseResolved) {
-    lines.push(
-      `> ℹ No committed snapshot found at \`${plan.baseRequested}\`; the diff above treats every entry as added. Run \`pracht plan --write\` and commit ${GRAPH_SNAPSHOT_PATH} to make future diffs incremental.`,
-    );
+    lines.push(`> ℹ The diff above treats every entry as added: ${describeMissingBase(plan)}`);
   }
 
   return lines.join("\n\n");

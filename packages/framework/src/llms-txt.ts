@@ -14,6 +14,7 @@
 
 import { buildPathFromSegments } from "./app.ts";
 import { API_METHOD_ORDER } from "./app-graph.ts";
+import { matchRoutePattern } from "./constraints.ts";
 import { resolveRegistryModule } from "./runtime-manifest.ts";
 import type {
   ApiRouteModule,
@@ -44,6 +45,18 @@ export interface BuildLlmsTxtOptions {
   origin?: string;
   /** Sections to emit. Defaults to "pages", "api", and "capabilities". */
   include?: readonly LlmsTxtSection[];
+  /**
+   * Route/API path patterns to leave out, using the same segment globs as
+   * `defineApp({ constraints })` (`*` = one segment, trailing `**` = the rest).
+   *
+   * llms.txt is a list of URLs an agent is invited to fetch, so anything an
+   * anonymous agent cannot actually use — pages behind an auth middleware,
+   * internal tooling, deliberate error routes — belongs here. Patterns are
+   * matched against the emitted paths, so a prerendered instance of a dynamic
+   * route (`/blog/hello-world`) is covered by `/blog/**`, and a capability is
+   * excluded by its dispatch path (`/api/capabilities/**`).
+   */
+  exclude?: readonly string[];
 }
 
 interface LlmsTxtPageEntry {
@@ -67,6 +80,7 @@ interface LlmsTxtCapabilityEntry {
 export async function buildLlmsTxt(options: BuildLlmsTxtOptions): Promise<string> {
   const include = options.include ?? ["pages", "api", "capabilities"];
   const origin = options.origin?.replace(/\/$/, "") ?? "";
+  const isExcluded = createExcludeMatcher(options.exclude);
 
   const lines: string[] = [`# ${options.title}`];
   if (options.description) {
@@ -74,7 +88,9 @@ export async function buildLlmsTxt(options: BuildLlmsTxtOptions): Promise<string
   }
 
   if (include.includes("pages")) {
-    const pages = await collectPageEntries(options.app.routes, options.registry);
+    const pages = (await collectPageEntries(options.app.routes, options.registry)).filter(
+      (page) => !isExcluded(page.path),
+    );
     if (pages.length > 0) {
       lines.push("", "## Pages", "");
       for (const page of pages) {
@@ -85,7 +101,9 @@ export async function buildLlmsTxt(options: BuildLlmsTxtOptions): Promise<string
   }
 
   if (include.includes("api")) {
-    const apiEntries = await collectApiEntries(options.apiRoutes ?? [], options.registry);
+    const apiEntries = (await collectApiEntries(options.apiRoutes ?? [], options.registry)).filter(
+      (entry) => !isExcluded(entry.path),
+    );
     if (apiEntries.length > 0) {
       lines.push("", "## API", "");
       for (const entry of apiEntries) {
@@ -96,7 +114,9 @@ export async function buildLlmsTxt(options: BuildLlmsTxtOptions): Promise<string
   }
 
   if (include.includes("capabilities")) {
-    const capabilityEntries = await collectCapabilityEntries(options.app, options.registry);
+    const capabilityEntries = (
+      await collectCapabilityEntries(options.app, options.registry)
+    ).filter((entry) => !isExcluded(entry.path));
     if (capabilityEntries.length > 0) {
       lines.push("", "## Capabilities", "");
       for (const entry of capabilityEntries) {
@@ -110,6 +130,56 @@ export async function buildLlmsTxt(options: BuildLlmsTxtOptions): Promise<string
   }
 
   return `${lines.join("\n")}\n`;
+}
+
+/**
+ * Validate every pattern up front, not on first use.
+ *
+ * `matchRoutePattern` throws for an invalid pattern only when it evaluates it,
+ * and `Array.some` short-circuits — so a bad pattern behind a matching one
+ * stayed silent until an unrelated route was added, then failed the build.
+ * The rewritten message names `llmsTxt.exclude` rather than sending the user
+ * to `defineApp({ constraints })`.
+ */
+function createExcludeMatcher(patterns: readonly string[] | undefined): (path: string) => boolean {
+  if (!patterns || patterns.length === 0) return () => false;
+
+  // Validated structurally rather than by probing with a sample path:
+  // `matchRoutePattern` bails at the first segment that has no counterpart, so
+  // probing with "/" never reaches a later `**` — `/admin/**/secret` would
+  // slip through and either throw lazily (depending on which routes exist) or,
+  // worse, match nothing at all and silently publish the URLs the pattern was
+  // written to hide.
+  for (const pattern of patterns) {
+    // An empty entry — from a filtered array or a split env var — would match
+    // "/" and quietly drop the homepage.
+    if (pattern === "") {
+      throw new Error(
+        'Invalid llmsTxt.exclude pattern: empty string. Remove it, or use "/" to exclude the homepage.',
+      );
+    }
+    // `defineApp({ constraints })` patterns are absolute; accepting a relative
+    // one here would contradict "the same segment globs".
+    if (!pattern.startsWith("/") && pattern !== "**") {
+      throw new Error(
+        `Invalid llmsTxt.exclude pattern ${JSON.stringify(pattern)}: patterns are absolute and must ` +
+          'start with "/" (or be "**" to match everything).',
+      );
+    }
+
+    const segments = pattern.split("/").filter(Boolean);
+    const wildcardIndex = segments.indexOf("**");
+    if (wildcardIndex !== -1 && wildcardIndex !== segments.length - 1) {
+      throw new Error(
+        `Invalid llmsTxt.exclude pattern ${JSON.stringify(pattern)}: ` +
+          '"**" is only supported as the final segment. Patterns use the same segment globs as ' +
+          'defineApp({ constraints }) — "*" matches exactly one segment and a trailing "**" ' +
+          "matches the rest.",
+      );
+    }
+  }
+
+  return (path) => patterns.some((pattern) => matchRoutePattern(pattern, path));
 }
 
 function isDynamicRoute(route: ResolvedRoute): boolean {

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   evaluateLiteral,
+  extractCapabilityProjection,
   extractCapabilityRegistrations,
   extractDefineCapabilityArgs,
   scanTopLevelProperties,
@@ -324,5 +325,54 @@ describe("capability static extraction", () => {
     expect(extractCapabilityRegistrations(source)).toEqual([
       { name: "right.tool", file: "./right.ts" },
     ]);
+  });
+});
+
+describe("extractCapabilityProjection guard fields", () => {
+  const capability = (extra: string) => `
+    import { defineCapability } from "@pracht/capabilities";
+    export default defineCapability({
+      title: "T",
+      description: "D",
+      input: { type: "object" },
+      output: { type: "object" },
+      effect: "read",
+      expose: { http: true, mcp: true },
+      ${extra}
+      async run() { return {}; },
+    });
+  `;
+
+  it("recovers mcp exposure, agentPolicy, and middleware from literals", () => {
+    // The app graph falls back to this extractor when a capability module
+    // cannot be executed (a Cloudflare capability importing
+    // `cloudflare:workers` deploys fine but does not load under Node). These
+    // are the fields a reviewer reads to decide whether a change weakened a
+    // guard, so reporting them as absent would silence `pracht plan`.
+    const projection = extractCapabilityProjection(
+      "kv.get",
+      capability('agentPolicy: "require",\n      middleware: ["auth"],'),
+      (detail) => detail,
+    );
+
+    expect(projection.mcp).toBe(true);
+    expect(projection.agentPolicy).toBe("require");
+    expect(projection.middleware).toEqual(["auth"]);
+  });
+
+  it('distinguishes "absent" from "declared but unreadable"', () => {
+    const absent = extractCapabilityProjection("kv.get", capability(""), (detail) => detail);
+    expect(absent.agentPolicy).toBeNull();
+    expect(absent.middleware).toEqual([]);
+
+    // `undefined` is the signal the graph turns into `unverifiedContract`, so a
+    // diff says "cannot detect changes" rather than "no change".
+    const opaque = extractCapabilityProjection(
+      "kv.get",
+      capability("agentPolicy: POLICY,\n      middleware: SHARED,"),
+      (detail) => detail,
+    );
+    expect(opaque.agentPolicy).toBeUndefined();
+    expect(opaque.middleware).toBeUndefined();
   });
 });

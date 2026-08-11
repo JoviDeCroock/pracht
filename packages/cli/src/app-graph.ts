@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 
 import { resolveMcpEndpoint, resolveRegistryModule, serializeCapabilities } from "@pracht/core";
 import type { AppGraphCapability } from "@pracht/core";
@@ -106,7 +106,7 @@ function isMissingDevMetadataModule(error: unknown): boolean {
 export async function collectAppGraph(
   server: ViteDevServer,
   root: string,
-  options: { executeApiModules?: boolean } = {},
+  options: { appFile?: string; executeApiModules?: boolean } = {},
 ): Promise<AppGraph> {
   const serverModule = await loadAppMetadataModule(server);
   const notFound = serverModule.resolvedApp.notFound;
@@ -114,7 +114,7 @@ export async function collectAppGraph(
     api: await collectApiRoutes(server, root, serverModule.apiRoutes, options),
     capabilities: await serializeCapabilities(serverModule.resolvedApp.capabilities, {
       loadModule: capabilityModuleLoader(server, serverModule),
-      readSource: (file) => readFileSync(resolve(root, `.${file}`), "utf-8"),
+      readSource: createSourceReader(root, options.appFile ?? "/src/routes.ts"),
     }),
     mcpEndpoint: resolveMcpEndpoint(serverModule.resolvedApp.agents),
     notFound: notFound ? serializeResolvedRoutes([notFound])[0] : null,
@@ -128,6 +128,25 @@ export async function collectAppGraph(
  * server module's registry, which suffix-matches them against its glob keys.
  * Fall back to a direct ssrLoadModule for absolute/root-relative paths.
  */
+/**
+ * Read a module's source given the path shape the graph reports.
+ *
+ * API and route files are root-relative (`/src/api/health.ts`); capability
+ * files come from the manifest and are manifest-relative
+ * (`./capabilities/kv-get.ts`). Resolving the latter with the root-relative
+ * rule walks *above* the project, so the read fails — and every consumer that
+ * falls back to reading source (the static capability projection) silently got
+ * nothing.
+ */
+export function createSourceReader(root: string, appFile: string): (file: string) => string {
+  const manifestDir = dirname(resolve(root, `.${appFile}`));
+  return (file) =>
+    readFileSync(
+      file.startsWith("/") ? resolve(root, `.${file}`) : resolve(manifestDir, file),
+      "utf-8",
+    );
+}
+
 export function capabilityModuleLoader(
   server: ViteDevServer,
   serverModule: Record<string, unknown>,

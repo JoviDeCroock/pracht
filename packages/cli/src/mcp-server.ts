@@ -10,12 +10,20 @@ import { readProjectConfig } from "./project.js";
 import { runDoctor, runVerification } from "./verification.js";
 import {
   generateApi,
+  generateCapability,
   generateMiddleware,
   generateRoute,
   generateShell,
 } from "./commands/generate.js";
 import { runInspect } from "./commands/inspect.js";
-import { runPlan } from "./commands/plan.js";
+import {
+  DEFAULT_CAPABILITIES_OUT,
+  DEFAULT_DECLARATION_OUT,
+  DEFAULT_RUNTIME_OUT,
+  runTypegen,
+} from "./commands/typegen.js";
+import { findEvalFiles, parseScenario, runScenario } from "./eval-runner.js";
+import { DEFAULT_BASE_REF, runPlan } from "./commands/plan.js";
 import { runReport } from "./commands/report.js";
 
 const cwdInput = {
@@ -115,7 +123,11 @@ export function createPrachtMcpServer(): McpServer {
       },
     },
     guard(({ base, cwd, write }) =>
-      runPlan(resolveCwd(cwd), { base: base ?? "origin/main", write: Boolean(write) }),
+      runPlan(resolveCwd(cwd), {
+        base: base ?? DEFAULT_BASE_REF,
+        baseExplicit: base !== undefined,
+        write: Boolean(write),
+      }),
     ),
   );
 
@@ -132,7 +144,84 @@ export function createPrachtMcpServer(): McpServer {
           .describe("Base git ref to diff against (defaults to origin/main)."),
       },
     },
-    guardText(({ base, cwd }) => runReport(resolveCwd(cwd), { base: base ?? "origin/main" })),
+    guardText(({ base, cwd }) =>
+      runReport(resolveCwd(cwd), {
+        base: base ?? DEFAULT_BASE_REF,
+        baseExplicit: base !== undefined,
+      }),
+    ),
+  );
+
+  server.registerTool(
+    "typegen",
+    {
+      description:
+        "Regenerate typed routes, href helpers, and capability types (src/pracht.d.ts, src/pracht-routes.ts, src/pracht-capabilities.d.ts). Run this after adding, removing, or renaming routes or capabilities. `check: true` reports staleness without writing. A non-empty `unreadableCapabilities` in the result means those capabilities' input and output types are `unknown` because their module could not be loaded.",
+      inputSchema: {
+        ...cwdInput,
+        check: z
+          .boolean()
+          .optional()
+          .describe("Report whether generated files are up to date instead of writing them."),
+      },
+    },
+    guardText(async ({ check, cwd }) => {
+      const result = await runTypegen({
+        capabilitiesOut: DEFAULT_CAPABILITIES_OUT,
+        check: Boolean(check),
+        declarationOut: DEFAULT_DECLARATION_OUT,
+        root: resolveCwd(cwd),
+        runtimeOut: DEFAULT_RUNTIME_OUT,
+      });
+      return JSON.stringify(result, null, 2);
+    }),
+  );
+
+  server.registerTool(
+    "eval",
+    {
+      description:
+        "Run scripted agent-task scenarios (evals/**/*.eval.json) against an already-running app's capability HTTP projection. Start the app yourself first and pass its base URL. Reports each step's outcome and whether the scenario passed.",
+      inputSchema: {
+        ...cwdInput,
+        url: z.string().describe("Base URL of the running app, e.g. http://localhost:3000."),
+        files: z
+          .array(z.string())
+          .optional()
+          .describe("Scenario files. Defaults to evals/**/*.eval.json."),
+      },
+    },
+    guardText(async ({ cwd, files, url }) => {
+      const root = resolveCwd(cwd);
+      const scenarioFiles = findEvalFiles(root, files ?? []);
+      if (scenarioFiles.length === 0) {
+        throw new Error(
+          "No evals/**/*.eval.json scenario files found. Pass `files` explicitly to run specific scenarios.",
+        );
+      }
+      // Per file, like the CLI: a malformed scenario used to throw out of the
+      // loop, discarding every scenario that had already passed and reporting
+      // a bare parse message with no filename.
+      const results = [];
+      for (const file of scenarioFiles) {
+        try {
+          results.push(await runScenario(parseScenario(file), file, { baseUrl: url }));
+        } catch (error) {
+          results.push({
+            file,
+            name: file,
+            ok: false,
+            steps: [],
+            error: `could not load scenario: ${error instanceof Error ? error.message : String(error)}`,
+          });
+        }
+      }
+      return JSON.stringify(
+        { ok: results.every((result) => result.ok), scenarios: results },
+        null,
+        2,
+      );
+    }),
   );
 
   server.registerTool(
@@ -230,6 +319,41 @@ export function createPrachtMcpServer(): McpServer {
       const root = resolveCwd(cwd);
       return generateMiddleware(name, readProjectConfig(root));
     }),
+  );
+
+  server.registerTool(
+    "generate_capability",
+    {
+      description:
+        "Scaffold a capability module (a typed operation callable from server code, HTTP, WebMCP, and remote MCP) and register it in the app manifest. Manifest apps only. Keeps `expose`/`effect`/`input` as inline literals, which the browser projection's static analysis requires. Then edit the schemas and run() body.",
+      inputSchema: {
+        ...cwdInput,
+        name: z.string().describe("Dot-separated capability name, e.g. notes.search"),
+        effect: z
+          .enum(["read", "write", "destructive"])
+          .optional()
+          .describe(
+            "Effect class (defaults to read). `destructive` may only be exposed over http and is confirmation-gated.",
+          ),
+        expose: z
+          .array(z.enum(["http", "webmcp", "mcp"]))
+          .optional()
+          .describe("Transports to expose. Omit to keep the capability private."),
+        title: z.string().optional().describe("Human-readable title."),
+        description: z
+          .string()
+          .optional()
+          .describe(
+            "Contract description — the text an agent reads to decide whether to call the tool. Required whenever `expose` is set.",
+          ),
+      },
+    },
+    guard(({ cwd, description, effect, expose, name, title }) =>
+      generateCapability(
+        { description, effect, expose: expose?.join(","), name, title },
+        readProjectConfig(resolveCwd(cwd)),
+      ),
+    ),
   );
 
   server.registerTool(

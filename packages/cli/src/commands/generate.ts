@@ -5,6 +5,7 @@ import { defineCommand } from "citty";
 
 import {
   ensureTrailingNewline,
+  handleCliError,
   parseApiMethods,
   parseCommaList,
   quote,
@@ -39,6 +40,7 @@ import {
 } from "./generate-paths.js";
 import {
   buildApiRouteSource,
+  buildCapabilityModuleSource,
   buildManifestRouteModuleSource,
   buildMiddlewareModuleSource,
   buildPagesRouteModuleSource,
@@ -49,6 +51,8 @@ import {
 export interface GenerateResult {
   created: string[];
   kind: string;
+  /** Follow-up the caller has to act on, e.g. a missing dependency. */
+  notes?: string[];
   updated: string[];
 }
 
@@ -75,9 +79,12 @@ const routeCommand = defineCommand({
     json: { type: "boolean", description: "Output as JSON" },
   },
   async run({ args }) {
-    const project = readProjectConfig(process.cwd());
-    const result = generateRoute(args, project);
-    outputResult(result, Boolean(args.json));
+    try {
+      const project = readProjectConfig(process.cwd());
+      outputResult(generateRoute(args, project), Boolean(args.json));
+    } catch (error) {
+      handleCliError(error, { json: Boolean(args.json) });
+    }
   },
 });
 
@@ -91,9 +98,12 @@ const shellCommand = defineCommand({
     json: { type: "boolean", description: "Output as JSON" },
   },
   async run({ args }) {
-    const project = readProjectConfig(process.cwd());
-    const result = generateShell(args.name, project);
-    outputResult(result, Boolean(args.json));
+    try {
+      const project = readProjectConfig(process.cwd());
+      outputResult(generateShell(args.name, project), Boolean(args.json));
+    } catch (error) {
+      handleCliError(error, { json: Boolean(args.json) });
+    }
   },
 });
 
@@ -107,9 +117,48 @@ const middlewareCommand = defineCommand({
     json: { type: "boolean", description: "Output as JSON" },
   },
   async run({ args }) {
-    const project = readProjectConfig(process.cwd());
-    const result = generateMiddleware(args.name, project);
-    outputResult(result, Boolean(args.json));
+    try {
+      const project = readProjectConfig(process.cwd());
+      outputResult(generateMiddleware(args.name, project), Boolean(args.json));
+    } catch (error) {
+      handleCliError(error, { json: Boolean(args.json) });
+    }
+  },
+});
+
+const CAPABILITY_NAME_RE = /^[A-Za-z0-9_-]+(\.[A-Za-z0-9_-]+)*$/;
+
+const capabilityCommand = defineCommand({
+  meta: {
+    name: "capability",
+    description: "Scaffold a capability module",
+  },
+  args: {
+    name: {
+      type: "string",
+      required: true,
+      description: "Dot-separated capability name, e.g. notes.search",
+    },
+    effect: {
+      type: "string",
+      description: "Effect class: read, write, or destructive (defaults to read)",
+    },
+    expose: {
+      type: "string",
+      description:
+        "Transports to expose, comma-separated: http, webmcp, mcp. Omit to keep it private.",
+    },
+    title: { type: "string", description: "Human-readable title" },
+    description: { type: "string", description: "Contract description (required when exposed)" },
+    json: { type: "boolean", description: "Output as JSON" },
+  },
+  async run({ args }) {
+    try {
+      const project = readProjectConfig(process.cwd());
+      outputResult(generateCapability(args, project), Boolean(args.json));
+    } catch (error) {
+      handleCliError(error, { json: Boolean(args.json) });
+    }
   },
 });
 
@@ -124,9 +173,12 @@ const apiCommand = defineCommand({
     json: { type: "boolean", description: "Output as JSON" },
   },
   async run({ args }) {
-    const project = readProjectConfig(process.cwd());
-    const result = generateApi(args, project);
-    outputResult(result, Boolean(args.json));
+    try {
+      const project = readProjectConfig(process.cwd());
+      outputResult(generateApi(args, project), Boolean(args.json));
+    } catch (error) {
+      handleCliError(error, { json: Boolean(args.json) });
+    }
   },
 });
 
@@ -140,6 +192,7 @@ export default defineCommand({
     shell: shellCommand,
     middleware: middlewareCommand,
     api: apiCommand,
+    capability: capabilityCommand,
   },
 });
 
@@ -155,6 +208,10 @@ function outputResult(result: GenerateResult, json: boolean): void {
   }
   for (const file of result.updated) {
     console.log(`  updated ${file}`);
+  }
+  for (const note of result.notes ?? []) {
+    console.log("");
+    console.log(note);
   }
 }
 
@@ -400,6 +457,119 @@ export function generateMiddleware(name: string, project: ProjectConfig): Genera
     kind: "middleware",
     updated: [displayPath(project.root, manifestPath)],
   };
+}
+
+export interface CapabilityArgs {
+  description?: string;
+  effect?: string;
+  expose?: string;
+  name: string;
+  title?: string;
+}
+
+const CAPABILITY_TRANSPORTS = ["http", "webmcp", "mcp"];
+
+export function generateCapability(args: CapabilityArgs, project: ProjectConfig): GenerateResult {
+  if (project.mode === "pages") {
+    throw new Error(
+      "Pages router apps have no manifest to register capabilities in. `pracht generate capability` is only available for manifest apps.",
+    );
+  }
+
+  const name = args.name;
+  if (!CAPABILITY_NAME_RE.test(name)) {
+    throw new Error(
+      `Invalid capability name ${quote(name)}. Names are dot-separated segments of letters, numbers, hyphens, and underscores — e.g. "notes.search".`,
+    );
+  }
+
+  const effect = requireEnum(args.effect, "effect", ["read", "write", "destructive"], "read") as
+    | "read"
+    | "write"
+    | "destructive";
+  const expose = parseCommaList(args.expose);
+  for (const transport of expose) {
+    if (!CAPABILITY_TRANSPORTS.includes(transport)) {
+      throw new Error(
+        `Unknown transport ${quote(transport)} in --expose. Expected one of ${CAPABILITY_TRANSPORTS.join(", ")}.`,
+      );
+    }
+  }
+
+  // The runtime, `defineCapability()`, and `pracht verify` all reject this;
+  // refusing here means the scaffold never writes a module that cannot build.
+  if (effect === "destructive" && expose.some((transport) => transport !== "http")) {
+    throw new Error(
+      "A destructive capability may only be exposed over http — agent hosts cannot be trusted to carry the prepare/commit confirmation flow. Drop webmcp/mcp from --expose.",
+    );
+  }
+  if (expose.includes("webmcp") && !expose.includes("http")) {
+    throw new Error("`--expose webmcp` requires http: the page tool calls the HTTP projection.");
+  }
+
+  // An exposed capability needs a real description — it is what an agent reads
+  // to decide whether to call the tool, and `pracht verify` requires one. A
+  // generated "TODO" placeholder would satisfy that check while telling the
+  // agent nothing, so ask for it up front instead.
+  if (expose.length > 0 && !args.description) {
+    throw new Error(
+      "`--description` is required when --expose is set: it is the contract text agents read, and `pracht verify` fails without one.",
+    );
+  }
+
+  const manifestPath = resolveProjectPath(project.root, project.appFile);
+  assertFileExists(manifestPath, `App manifest not found at ${project.appFile}.`);
+
+  const capabilityFile = resolveScopedFile(
+    project.root,
+    project.capabilitiesDir,
+    `${name.replaceAll(".", "-")}.ts`,
+  );
+  writeGeneratedFile(
+    capabilityFile,
+    buildCapabilityModuleSource({
+      description: args.description ?? `TODO: describe what ${name} does.`,
+      effect,
+      expose,
+      title: args.title ?? titleFromPath(`/${name.replaceAll(".", " ")}`),
+    }),
+  );
+
+  const manifestSource = readFileSync(manifestPath, "utf-8");
+  const updatedSource = upsertObjectEntry(
+    manifestSource,
+    "capabilities",
+    `${quote(name)}: ${quote(toManifestModulePath(manifestPath, capabilityFile))}`,
+  );
+  writeFileSync(manifestPath, ensureTrailingNewline(updatedSource), "utf-8");
+
+  return {
+    created: [displayPath(project.root, capabilityFile)],
+    kind: "capability",
+    // The generated module imports `@pracht/capabilities`, which is a separate
+    // package. Say so here rather than letting the app 500 at request time and
+    // report the capability as private everywhere until `pracht verify` runs.
+    ...(hasCapabilitiesDependency(project.root)
+      ? {}
+      : {
+          notes: [
+            "This module imports `@pracht/capabilities`, which is not installed yet. Run: npm install @pracht/capabilities",
+          ],
+        }),
+    updated: [displayPath(project.root, manifestPath)],
+  };
+}
+
+function hasCapabilitiesDependency(root: string): boolean {
+  try {
+    const packageJson = JSON.parse(readFileSync(resolve(root, "package.json"), "utf-8"));
+    return Boolean(
+      packageJson.dependencies?.["@pracht/capabilities"] ??
+      packageJson.devDependencies?.["@pracht/capabilities"],
+    );
+  } catch {
+    return true; // Unreadable package.json — do not invent advice.
+  }
 }
 
 export interface ApiArgs {

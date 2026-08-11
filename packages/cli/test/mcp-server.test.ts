@@ -39,7 +39,9 @@ describe("pracht MCP server", () => {
 
     expect(tools.map((tool) => tool.name).sort()).toEqual([
       "doctor",
+      "eval",
       "generate_api",
+      "generate_capability",
       "generate_middleware",
       "generate_route",
       "generate_shell",
@@ -50,6 +52,7 @@ describe("pracht MCP server", () => {
       "inspect_routes",
       "plan",
       "report",
+      "typegen",
       "verify",
     ]);
   });
@@ -182,6 +185,7 @@ export const app = defineApp({
         {
           file: "./routes/dashboard.tsx",
           hydration: null,
+          hydrationEffective: "full",
           id: "dashboard",
           loaderCache: null,
           loaderFile: null,

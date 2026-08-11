@@ -611,6 +611,18 @@ group({ middleware: ["auth"] }, [route("/dashboard", () => import("./routes/dash
 Middleware from groups stacks — a route inside a group with `["auth"]` that also
 specifies `middleware: ["rateLimit"]` will run both `auth` then `rateLimit`.
 
+Stacking only adds: a route cannot opt out of its group's middleware, and
+`middleware: []` on the route is not an override (it concatenates with the
+inherited list, which is why it looks like a no-op). Move the exception into a
+sibling group without that middleware instead — an escape hatch on the route
+would make "every route in this group is behind `auth`" unreadable from the
+group header, which is the property `requireMiddleware()` constraints and
+`pracht plan` diffs rely on.
+
+A middleware module must export `middleware`; a module that does not is a hard
+error at request time rather than a silently skipped step, and `pracht verify`
+reports it before you ever send a request.
+
 Client-side navigations honor same-origin middleware redirects too. If a redirect
 lands on the page the user is already on, the router treats it as a no-op
 instead of forcing a reload loop.

@@ -84,6 +84,13 @@ src/pages/
 
 Same render modes, same adapters — just let the filesystem drive.
 
+The manifest is where shells, middleware, capabilities, constraints, and the
+agent surface are registered, so the pages router does not have them: one
+`_app.tsx` shell, no middleware, no capabilities (and therefore no capability
+endpoints, WebMCP, remote MCP, or `pracht eval`), no `defineApp({ constraints })`,
+no `agents`. Pick it for content-shaped sites; pick the manifest when you need
+auth or the agent surface. See [docs/ROUTING.md](docs/ROUTING.md#what-the-pages-router-does-not-have).
+
 ## Create an app
 
 ```bash

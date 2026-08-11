@@ -94,6 +94,43 @@ describe("handlePrachtRequest API middleware", () => {
     await expect(response.json()).resolves.toEqual({ allowed: true });
   });
 
+  it("fails closed when a registered middleware module has no `middleware` export", async () => {
+    const app = defineApp({
+      api: {
+        middleware: ["apiAuth"],
+      },
+      middleware: {
+        apiAuth: "./middleware/api-auth.ts",
+      },
+      routes: [route("/", "./routes/home.tsx")],
+    });
+
+    const response = await handlePrachtRequest({
+      apiRoutes: resolveApiRoutes(["/src/api/health.ts"]),
+      app,
+      registry: {
+        apiModules: {
+          "/src/api/health.ts": async () => ({
+            GET: async () => Response.json({ reached: true }),
+          }),
+        },
+        middlewareModules: {
+          // A renamed export, or a `default` export, used to be skipped
+          // silently — so an auth gate wired in the manifest simply did not
+          // run and the handler answered 200.
+          "./middleware/api-auth.ts": async () =>
+            ({
+              default: async (_args: unknown, next: () => Promise<Response>) => next(),
+            }) as never,
+        },
+      },
+      request: new Request("http://localhost/api/health"),
+    });
+
+    expect(response.status).toBe(500);
+    await expect(response.text()).resolves.not.toContain("reached");
+  });
+
   it("uses 303 for API middleware redirects on unsafe methods", async () => {
     const app = defineApp({
       api: {

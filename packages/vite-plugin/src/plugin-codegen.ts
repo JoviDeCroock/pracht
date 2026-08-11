@@ -402,6 +402,7 @@ interface ResolvedLlmsTxtConfig {
   description?: string;
   origin?: string;
   include?: string[];
+  exclude?: string[];
 }
 
 /**
@@ -429,6 +430,7 @@ function resolveLlmsTxtConfig(
   if (description) config.description = description;
   if (resolved.llmsTxt.origin) config.origin = resolved.llmsTxt.origin;
   if (resolved.llmsTxt.include) config.include = resolved.llmsTxt.include;
+  if (resolved.llmsTxt.exclude?.length) config.exclude = resolved.llmsTxt.exclude;
   return config;
 }
 

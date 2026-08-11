@@ -83,13 +83,12 @@ describe("assertCapabilityProjectionsAgree", () => {
   it("leaves module-load failures to the wiring checks", () => {
     const project = createApp({ "notes-search.ts": capabilitySource() });
 
-    // serializeCapabilities() retains a null-metadata graph entry when the
-    // module fails to load. Its source can still be perfectly analyzable, so
-    // comparing the fallback null endpoint would misdiagnose the load failure
-    // as a computed expose/effect value.
+    // A module that failed to load has its metadata recovered by this very
+    // extractor, so comparing the two would only compare it with itself. The
+    // load failure is the wiring checks' business.
     expect(() =>
       assertCapabilityProjectionsAgree(project, [
-        graphEntry({ effect: null, httpPath: null, transports: [] }),
+        graphEntry({ effect: null, error: "boom", httpPath: null, transports: [] }),
       ]),
     ).not.toThrow();
   });

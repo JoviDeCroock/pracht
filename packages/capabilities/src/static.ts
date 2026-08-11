@@ -25,6 +25,25 @@ export interface CapabilityProjection {
   httpPath: string | null;
   webmcp: boolean;
   inputSchema: Record<string, unknown> | null;
+  /**
+   * Remote MCP exposure. Not part of the browser projection — the client
+   * bundle never sees it — but the app graph falls back to this extractor
+   * when a capability module cannot be executed, and omitting it there would
+   * report an MCP-exposed capability as unexposed.
+   */
+  mcp: boolean;
+  /**
+   * Per-capability Web Bot Auth policy, or `null` when it inherits the app
+   * default. `undefined` means "declared, but not as a literal we can read" —
+   * a caller must not report that as "no policy".
+   */
+  agentPolicy: string | null | undefined;
+  /**
+   * Named middleware, or `undefined` when declared as something other than an
+   * inline array of string literals. Distinguishing the two matters: reporting
+   * an unreadable chain as `[]` says the capability is ungated.
+   */
+  middleware: string[] | undefined;
 }
 
 /**
@@ -52,11 +71,31 @@ export function extractCapabilityProjection(
     );
   }
 
-  const properties = scanTopLevelProperties(args);
+  const { properties, truncated } = scanTopLevelPropertyEntries(args);
   const exposeText = properties.get("expose");
+  // A truncated scan cannot tell "no `expose`" from "`expose` sat after the
+  // token we could not parse". Treating that as private would commit an
+  // http+mcp-exposed capability to the graph as unreachable, so refuse instead
+  // — which is also what the documented contract says a spread does.
+  if (!exposeText && truncated) {
+    throw new Error(
+      describe(
+        "contains a spread or computed key the build cannot analyze, so its `expose` could not be " +
+          "read. Declare `expose`, `effect`, `agentPolicy`, and `middleware` as inline literals.",
+      ),
+    );
+  }
   if (!exposeText) {
     // Private capability: server-only, nothing to project to the client.
-    return { description: "", effect: null, httpPath: null, webmcp: false, inputSchema: null };
+    return {
+      description: "",
+      effect: null,
+      httpPath: null,
+      webmcp: false,
+      inputSchema: null,
+      mcp: false,
+      ...readGuardProperties(properties, truncated),
+    };
   }
 
   const expose = evaluateLiteral(exposeText);
@@ -124,7 +163,53 @@ export function extractCapabilityProjection(
     inputSchema = value;
   }
 
-  return { description, effect, httpPath, webmcp, inputSchema };
+  return {
+    description,
+    effect,
+    httpPath,
+    webmcp,
+    inputSchema,
+    mcp: expose.mcp === true,
+    ...readGuardProperties(properties, truncated),
+  };
+}
+
+/**
+ * Recover the guard-shaped fields — the ones a reviewer reads to decide whether
+ * a change widened what agents can reach.
+ *
+ * Each is `undefined` when it is declared but not as a literal this pass can
+ * evaluate, so a caller can say "unverifiable" rather than "absent". `null`
+ * `agentPolicy` and `[]` middleware are real answers meaning "not declared".
+ */
+function readGuardProperties(
+  properties: Map<string, string>,
+  truncated: boolean,
+): Pick<CapabilityProjection, "agentPolicy" | "middleware"> {
+  // After a truncated scan an absent key means "not seen", not "not declared".
+  // Reporting `null` / `[]` there is the fail-open case: a capability whose
+  // guards arrive via `...gated` would read as ungated, with everything else
+  // correct, so the entry looks like a verified contract.
+  if (truncated) return { agentPolicy: undefined, middleware: undefined };
+
+  const policyText = properties.get("agentPolicy");
+  let agentPolicy: string | null | undefined = null;
+  if (policyText) {
+    const value = evaluateLiteral(policyText);
+    agentPolicy = typeof value === "string" ? value : undefined;
+  }
+
+  const middlewareText = properties.get("middleware");
+  let middleware: string[] | undefined = [];
+  if (middlewareText) {
+    const value = evaluateLiteral(middlewareText);
+    middleware =
+      Array.isArray(value) && value.every((entry) => typeof entry === "string")
+        ? (value as string[])
+        : undefined;
+  }
+
+  return { agentPolicy, middleware };
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -275,9 +360,26 @@ function defaultExportLocalName(searchable: string): string | null {
  * nested schema annotations (e.g. a `description` inside `input`) are never
  * mistaken for capability fields.
  */
+export interface TopLevelPropertyScan {
+  properties: Map<string, string>;
+  /**
+   * True when the scan hit a token it could not parse as a key (a spread, a
+   * computed key) and stopped. Everything from that point on is missing from
+   * `properties`, so a caller must not read an absent key as "not declared" —
+   * that is how a spread-in `agentPolicy` or `middleware` came back as "no
+   * policy, no middleware" instead of "unreadable".
+   */
+  truncated: boolean;
+}
+
 export function scanTopLevelProperties(objectBody: string): Map<string, string> {
+  return scanTopLevelPropertyEntries(objectBody).properties;
+}
+
+export function scanTopLevelPropertyEntries(objectBody: string): TopLevelPropertyScan {
   const properties = new Map<string, string>();
   let index = 0;
+  let truncated = false;
 
   while (index < objectBody.length) {
     index = skipInsignificant(objectBody, index);
@@ -288,14 +390,23 @@ export function scanTopLevelProperties(objectBody: string): Map<string, string> 
     const char = objectBody[index];
     if (char === '"' || char === "'") {
       const end = findStringEnd(objectBody, index);
-      if (end === -1) break;
+      if (end === -1) {
+        truncated = true;
+        break;
+      }
       const decoded = evaluateLiteral(objectBody.slice(index, end + 1));
-      if (typeof decoded !== "string") break;
+      if (typeof decoded !== "string") {
+        truncated = true;
+        break;
+      }
       key = decoded;
       index = end + 1;
     } else {
       const match = /^[A-Za-z_$][A-Za-z0-9_$]*/.exec(objectBody.slice(index));
-      if (!match) break;
+      if (!match) {
+        truncated = true;
+        break;
+      }
       key = match[0];
       index += match[0].length;
     }
@@ -314,7 +425,7 @@ export function scanTopLevelProperties(objectBody: string): Map<string, string> 
     index = valueEnd + 1;
   }
 
-  return properties;
+  return { properties, truncated };
 }
 
 /** Parse the `capabilities: { ... }` block of an app manifest source. */
@@ -523,7 +634,7 @@ function maskComments(source: string): string {
   return maskLexicalNoise(source, false);
 }
 
-function maskCommentsAndStrings(source: string): string {
+export function maskCommentsAndStrings(source: string): string {
   return maskLexicalNoise(source, true);
 }
 

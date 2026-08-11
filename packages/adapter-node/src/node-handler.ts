@@ -2,7 +2,6 @@ import { createReadStream } from "node:fs";
 import { mkdir, stat, writeFile } from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { dirname, join, resolve, sep } from "node:path";
-import { pipeline } from "node:stream/promises";
 
 import {
   applyDefaultSecurityHeaders,
@@ -25,7 +24,13 @@ import {
 } from "@pracht/core/server";
 
 import { regenerateISGPage } from "./node-isg.ts";
-import { createWebRequest, writeNodeResponseHeaders, writeWebResponse } from "./node-request.ts";
+import {
+  createWebRequest,
+  isClientDisconnectError,
+  pipeToResponse,
+  writeNodeResponseHeaders,
+  writeWebResponse,
+} from "./node-request.ts";
 import { applyHeadersManifest, resolveStaticFile, type HeadersManifest } from "./node-static.ts";
 
 const ROUTE_STATE_REQUEST_HEADER = "x-pracht-route-state-request";
@@ -96,7 +101,7 @@ export function createNodeRequestHandler<TContext = unknown>(
     throw new Error("nodeAdapter({ maxBodySize }) expects a positive integer number of bytes.");
   }
 
-  return async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
+  const handle = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
     if (!canonicalOrigin && shouldWarnAboutMissingCanonicalOrigin(staticDir)) {
       warnedAboutMissingCanonicalOrigin = true;
       console.warn(
@@ -205,6 +210,44 @@ export function createNodeRequestHandler<TContext = unknown>(
 
     await writeWebResponse(res, response);
   };
+
+  // `http.createServer(handler)` ignores the returned promise, so a rejection
+  // here would become an unhandled rejection and terminate the process. Every
+  // failure has to be absorbed at this boundary.
+  return async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
+    try {
+      await handle(req, res);
+    } catch (error) {
+      // A disconnect-shaped error code is not on its own evidence that the
+      // client left: `createContext`, a loader, or a pooled database client can
+      // all throw `Error { code: "ECONNRESET" }` from a *server-side* socket.
+      // Only skip the error path when the connection is genuinely unusable,
+      // otherwise a real failure would return without ever ending the response
+      // and the request would hang until `server.requestTimeout`.
+      const connectionGone = req.destroyed || res.destroyed || !res.writable;
+      if (connectionGone && isClientDisconnectError(error)) {
+        if (!res.destroyed) res.destroy();
+        return;
+      }
+
+      console.error("[pracht] Unhandled error while serving a request:", error);
+
+      if (res.destroyed || res.headersSent || res.writableEnded) {
+        // Either nothing can be written any more, or the client already has a
+        // partial response and appending a 500 body would corrupt it.
+        if (!res.destroyed) res.destroy();
+        return;
+      }
+
+      try {
+        res.statusCode = 500;
+        res.setHeader("content-type", "text/plain; charset=utf-8");
+        res.end("Internal Server Error");
+      } catch {
+        res.destroy();
+      }
+    }
+  };
 }
 
 function shouldWarnAboutMissingCanonicalOrigin(staticDir: string | undefined): boolean {
@@ -246,7 +289,7 @@ async function serveStaticFile(
     res.end();
     return;
   }
-  await pipeline(createReadStream(staticResult.filePath), res);
+  await pipeToResponse(createReadStream(staticResult.filePath), res);
 }
 
 async function serveISGEntry<TContext>(
@@ -291,7 +334,7 @@ async function serveISGEntry<TContext>(
     if (request.method === "HEAD") {
       res.end();
     } else {
-      await pipeline(createReadStream(htmlPath), res);
+      await pipeToResponse(createReadStream(htmlPath), res);
     }
   }
 

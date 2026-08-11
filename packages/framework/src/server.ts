@@ -123,6 +123,7 @@ export {
   readRevalidationRequest,
   type RevalidationSingleFlight,
 } from "./revalidation.ts";
+export { PRACHT_GRAPH_ONLY_ENV } from "./runtime-constants.ts";
 export { redirect, type RedirectOptions } from "./runtime-middleware.ts";
 export {
   registerServerIslands,

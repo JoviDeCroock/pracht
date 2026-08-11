@@ -15,7 +15,7 @@ import type {
   RouteConstraint,
 } from "@pracht/core";
 
-import { capabilityModuleLoader } from "./app-graph.js";
+import { capabilityModuleLoader, createSourceReader } from "./app-graph.js";
 import { withAppServer } from "./app-server.js";
 import { formatBytes } from "./bundle-report.js";
 
@@ -56,7 +56,7 @@ export async function resolveLiveGraph(root: string): Promise<GraphSnapshot> {
     });
     const capabilities = await serializeCapabilities(serverModule.resolvedApp.capabilities, {
       loadModule: capabilityModuleLoader(server, serverModule),
-      readSource: (file) => readFileSync(resolve(root, `.${file}`), "utf-8"),
+      readSource: createSourceReader(root, project.appFile),
     });
 
     return normalizeGraphSnapshot({
@@ -69,6 +69,27 @@ export async function resolveLiveGraph(root: string): Promise<GraphSnapshot> {
       constraints: serverModule.resolvedApp.constraints ?? [],
     });
   });
+}
+
+/**
+ * Strip the diagnostic `error` field before a capability enters the committed
+ * snapshot.
+ *
+ * The snapshot is compared byte-for-byte against `.pracht/app-graph.json` to
+ * decide staleness, so serializing a new field would mark every committed
+ * snapshot stale on upgrade with no real graph change. It also has no business
+ * being committed: it is a local wiring failure, not app shape, and its message
+ * carries absolute machine paths. It stays available on `pracht inspect
+ * capabilities` and the dev banner, where it is actionable.
+ */
+function withoutLoadError(capability: AppGraphCapability): AppGraphCapability {
+  if (capability.error == null) return capability;
+  // `unverifiedContract` deliberately stays: it is the difference between "this
+  // capability has no middleware" and "we could not read whether it does", and
+  // a reviewer diffing the snapshot needs to see it. Only the machine-specific
+  // error text is dropped.
+  const { error: _error, ...rest } = capability;
+  return rest;
 }
 
 /** Stable ordering + JSON round-trip so snapshots diff cleanly in git. */
@@ -88,7 +109,12 @@ export function normalizeGraphSnapshot(snapshot: GraphSnapshot): GraphSnapshot {
 }
 
 export function serializeGraphSnapshot(snapshot: GraphSnapshot): string {
-  return `${JSON.stringify(normalizeGraphSnapshot(snapshot), null, 2)}\n`;
+  const normalized = normalizeGraphSnapshot(snapshot);
+  return `${JSON.stringify(
+    { ...normalized, capabilities: normalized.capabilities.map(withoutLoadError) },
+    null,
+    2,
+  )}\n`;
 }
 
 export function writeGraphSnapshot(root: string, snapshot: GraphSnapshot): string {
@@ -104,25 +130,57 @@ export function readGraphSnapshotFromDisk(root: string): GraphSnapshot | null {
   return parseSnapshot(readFileSync(filePath, "utf-8"));
 }
 
-/** Read the committed snapshot at a git ref, or null when absent/unreadable. */
-export function readGraphSnapshotFromRef(root: string, ref: string): GraphSnapshot | null {
+/**
+ * Why a base snapshot could not be read.
+ *
+ * `missing-ref` is deliberately distinct from `no-snapshot`: a typo'd
+ * `--base`, or the very common "fresh repo with no `origin/main`" case, used
+ * to be indistinguishable from a genuinely new app, so `pracht plan` reported
+ * every route as added and exited 0 — exactly the situation where a reviewer
+ * would trust the diff.
+ */
+export type BaseSnapshotStatus = "ok" | "missing-ref" | "no-snapshot" | "not-a-repo";
+
+export interface BaseSnapshotResult {
+  status: BaseSnapshotStatus;
+  snapshot: GraphSnapshot | null;
+}
+
+function runGit(root: string, args: string[]): string | null {
   try {
     // stderr silenced: outside a git repo this prints `fatal: not a git
     // repository` straight to the user's terminal before the caller has a
     // chance to explain that a missing baseline is fine.
-    const prefix = execFileSync("git", ["-C", root, "rev-parse", "--show-prefix"], {
+    return execFileSync("git", ["-C", root, ...args], {
       encoding: "utf-8",
       stdio: ["ignore", "pipe", "ignore"],
-    }).trim();
-    const contents = execFileSync(
-      "git",
-      ["-C", root, "show", `${ref}:${prefix}${GRAPH_SNAPSHOT_PATH}`],
-      { encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"] },
-    );
-    return parseSnapshot(contents);
+    });
   } catch {
     return null;
   }
+}
+
+/** Read the committed snapshot at a git ref, reporting *why* it is absent. */
+export function resolveBaseSnapshot(root: string, ref: string): BaseSnapshotResult {
+  const prefix = runGit(root, ["rev-parse", "--show-prefix"]);
+  if (prefix === null) return { status: "not-a-repo", snapshot: null };
+
+  // Verify the ref itself before asking for a path inside it, so "unknown ref"
+  // and "ref exists but has no snapshot" stay distinguishable.
+  if (runGit(root, ["rev-parse", "--verify", "--quiet", `${ref}^{commit}`]) === null) {
+    return { status: "missing-ref", snapshot: null };
+  }
+
+  const contents = runGit(root, ["show", `${ref}:${prefix.trim()}${GRAPH_SNAPSHOT_PATH}`]);
+  if (contents === null) return { status: "no-snapshot", snapshot: null };
+
+  const snapshot = parseSnapshot(contents);
+  return snapshot ? { status: "ok", snapshot } : { status: "no-snapshot", snapshot: null };
+}
+
+/** Read the committed snapshot at a git ref, or null when absent/unreadable. */
+export function readGraphSnapshotFromRef(root: string, ref: string): GraphSnapshot | null {
+  return resolveBaseSnapshot(root, ref).snapshot;
 }
 
 function parseSnapshot(contents: string): GraphSnapshot | null {
@@ -178,7 +236,8 @@ export interface CapabilityChange {
     | "middleware-added"
     | "input-widened"
     | "output-changed"
-    | "path-changed";
+    | "path-changed"
+    | "contract-unverified";
   capability: string;
   severity: CapabilityChangeSeverity;
   detail: string;
@@ -359,9 +418,20 @@ function diffCapability(base: AppGraphCapability, head: AppGraphCapability): Cap
     });
   }
 
+  // A capability whose contract could not be fully read serializes its guard
+  // fields as blanks, so comparing two such entries finds "no change" even
+  // when the policy and the middleware were both removed. Skip only those two
+  // comparisons — everything else on this entry is statically recoverable and
+  // still worth diffing — and annotate the result at the end, but only when
+  // something else actually changed. Emitting it unconditionally would put a
+  // "widens what agents can reach" banner on every PR for an app with one
+  // such capability, which is alarm fatigue on the one signal that has to stay
+  // credible.
+  const guardsUnverified = Boolean(base.unverifiedContract || head.unverifiedContract);
+
   const basePolicy = base.agentPolicy ?? null;
   const headPolicy = head.agentPolicy ?? null;
-  if (basePolicy !== headPolicy) {
+  if (!guardsUnverified && basePolicy !== headPolicy) {
     const weakened = basePolicy === "require" && headPolicy !== "require";
     changes.push({
       kind: weakened ? "policy-weakened" : "policy-strengthened",
@@ -373,7 +443,7 @@ function diffCapability(base: AppGraphCapability, head: AppGraphCapability): Cap
 
   const droppedMiddleware = base.middleware.filter((name) => !head.middleware.includes(name));
   const addedMiddleware = head.middleware.filter((name) => !base.middleware.includes(name));
-  if (droppedMiddleware.length > 0) {
+  if (!guardsUnverified && droppedMiddleware.length > 0) {
     changes.push({
       kind: "middleware-removed",
       capability,
@@ -381,7 +451,7 @@ function diffCapability(base: AppGraphCapability, head: AppGraphCapability): Cap
       detail: `middleware removed: ${droppedMiddleware.join(", ")}`,
     });
   }
-  if (addedMiddleware.length > 0) {
+  if (!guardsUnverified && addedMiddleware.length > 0) {
     changes.push({
       kind: "middleware-added",
       capability,
@@ -409,6 +479,19 @@ function diffCapability(base: AppGraphCapability, head: AppGraphCapability): Cap
       capability,
       severity: "info",
       detail: "output schema changed — check what agents can now read",
+    });
+  }
+
+  // Annotate a real diff; never stand alone. An unchanged unreadable
+  // capability must produce no output, or every PR carries the banner.
+  if (guardsUnverified && changes.length > 0) {
+    changes.push({
+      kind: "contract-unverified",
+      capability,
+      severity: "info",
+      detail:
+        "agentPolicy and middleware could not be read statically (the module does not load " +
+        "outside its deploy runtime), so changes to them are not reflected above — review by hand",
     });
   }
 
