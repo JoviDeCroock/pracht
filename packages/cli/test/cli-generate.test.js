@@ -156,6 +156,31 @@ describe("@pracht/cli generate", () => {
     expect(routeSource).toContain('slug: "example-slug"');
   });
 
+  it("scaffolds the root pages-router _middleware file", () => {
+    const appDir = createTempDir("pracht-cli-pages-middleware-");
+    writePagesApp(appDir);
+
+    runCli(["generate", "middleware", "--name", "_middleware"], { cwd: appDir });
+
+    const middlewareSource = readFileSync(join(appDir, "src/pages/_middleware.ts"), "utf-8");
+    expect(middlewareSource).toContain("export const middleware: MiddlewareFn");
+  });
+
+  it("rejects named pages-router middleware", () => {
+    const appDir = createTempDir("pracht-cli-pages-middleware-named-");
+    writePagesApp(appDir);
+
+    const result = spawnSync(
+      process.execPath,
+      [cliPath, "generate", "middleware", "--name", "auth"],
+      { cwd: appDir, encoding: "utf-8" },
+    );
+    expect(result.status).not.toBe(0);
+    expect(`${result.stdout}${result.stderr}`).toContain("single root-level `_middleware.ts`");
+    expect(existsSync(join(appDir, "src/pages/auth.ts"))).toBe(false);
+    expect(existsSync(join(appDir, "src/middleware/auth.ts"))).toBe(false);
+  });
+
   it("scaffolds pages-router ISG with its required policy", () => {
     const appDir = createTempDir("pracht-cli-pages-isg-");
     writePagesApp(appDir);

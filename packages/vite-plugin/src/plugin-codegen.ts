@@ -169,6 +169,13 @@ export function createPrachtClientModuleSource(
   const routeGlob = `${dirPrefix}/**/*.{ts,tsx,js,jsx,md,mdx}`;
   const additionalRouteGlob = `${dirPrefix}/**/*.${extensionGlob(bareRouteExtensions)}`;
   const routeExcludes = createNonFullHydrationExcludes(resolved, buildOptions.root);
+  if (isPagesMode) {
+    // Middleware is server-only and `middleware` is not one of the exports the
+    // client transform strips, so keep `_middleware` files out of the client
+    // route glob entirely — otherwise their code (and imports) would be
+    // emitted as a browser-loadable chunk.
+    routeExcludes.push(`!${resolved.pagesDir}/**/_middleware.*`);
+  }
   const routeGlobPattern = routeExcludes.length > 0 ? [routeGlob, ...routeExcludes] : routeGlob;
   const additionalRouteGlobPattern =
     additionalRouteGlob && routeExcludes.length > 0
@@ -626,7 +633,18 @@ export function createPrachtRegistryModuleSource(options: PrachtPluginOptions = 
     `  ...import.meta.glob(${JSON.stringify(shellGlob)}),`,
     `  ...import.meta.glob(${JSON.stringify(additionalShellGlob)}),`,
     `};`,
-    `export const middlewareModules = import.meta.glob(${JSON.stringify(`${resolved.middlewareDir}/**/*.{ts,tsx,js,jsx}`)});`,
+    // Pages mode adds the root `_middleware` file so the generated manifest's
+    // `pages` middleware resolves through the same runtime registry.
+    ...(isPagesMode
+      ? [
+          `export const middlewareModules = {`,
+          `  ...import.meta.glob(${JSON.stringify(`${resolved.middlewareDir}/**/*.{ts,tsx,js,jsx}`)}),`,
+          `  ...import.meta.glob(${JSON.stringify(`${resolved.pagesDir}/_middleware.{ts,tsx,js,jsx}`)}),`,
+          `};`,
+        ]
+      : [
+          `export const middlewareModules = import.meta.glob(${JSON.stringify(`${resolved.middlewareDir}/**/*.{ts,tsx,js,jsx}`)});`,
+        ]),
     `export const apiModules = import.meta.glob(${JSON.stringify(apiGlobs)});`,
     `export const dataModules = import.meta.glob(${JSON.stringify(`${resolved.serverDir}/**/*.{ts,js,tsx,jsx}`)});`,
     `export const capabilityModules = import.meta.glob(${JSON.stringify(`${resolved.capabilitiesDir}/**/*.{ts,js,tsx,jsx}`)});`,

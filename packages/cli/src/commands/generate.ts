@@ -459,9 +459,26 @@ export function generateShell(name: string, project: ProjectConfig): GenerateRes
 
 export function generateMiddleware(name: string, project: ProjectConfig): GenerateResult {
   if (project.mode === "pages") {
-    throw new Error(
-      "Pages router apps do not use manifest middleware registration. `pracht generate middleware` is only available for manifest apps.",
-    );
+    // Pages router apps have exactly one middleware seam: a root-level
+    // `_middleware.ts` applied to every page route. The requested name is a
+    // manifest concept, so anything else would silently generate an ignored
+    // `_`-prefixed file.
+    if (name !== "_middleware") {
+      throw new Error(
+        "Pages router apps register middleware through a single root-level `_middleware.ts` " +
+          "applied to every page route. Run `pracht generate middleware _middleware`, or eject " +
+          "to an explicit manifest for named per-route middleware.",
+      );
+    }
+
+    const middlewareFile = resolveScopedFile(project.root, project.pagesDir, "_middleware.ts");
+    writeGeneratedFile(middlewareFile, buildMiddlewareModuleSource());
+
+    return {
+      created: [displayPath(project.root, middlewareFile)],
+      kind: "middleware",
+      updated: [],
+    };
   }
 
   const manifestPath = resolveProjectPath(project.root, project.appFile);

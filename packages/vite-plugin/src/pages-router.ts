@@ -30,6 +30,48 @@ export interface PagesRouterOptions {
   additionalExtensions?: readonly string[];
 }
 
+// Mirrors the `middlewareDir` registry glob (`**/*.{ts,tsx,js,jsx}`): a pages
+// middleware file must be resolvable through the same runtime registry.
+const MIDDLEWARE_EXTENSIONS = new Set([".ts", ".tsx", ".js", ".jsx"]);
+
+/**
+ * The root-level `_middleware.{ts,tsx,js,jsx}` file of a pages directory, or
+ * null when the app has none. Fails loudly on the two shapes that would
+ * otherwise fail open: a nested `_middleware` file (unsupported — it would be
+ * silently ignored while looking like an auth gate) and multiple root files
+ * competing for the same registration.
+ */
+export function findPagesMiddlewareFile(pagesDir: string): string | null {
+  const middlewareFiles = scanAllFiles(pagesDir).filter(
+    (file) =>
+      basename(file, extname(file)) === "_middleware" && MIDDLEWARE_EXTENSIONS.has(extname(file)),
+  );
+
+  const nested = middlewareFiles.filter((file) =>
+    relative(pagesDir, file).replace(/\\/g, "/").includes("/"),
+  );
+  if (nested.length > 0) {
+    const shown = nested.map((file) => relative(pagesDir, file).replace(/\\/g, "/"));
+    throw new Error(
+      `[pracht] Nested pages middleware is not supported: ${shown.map((file) => JSON.stringify(file)).join(", ")}. ` +
+        "Only a root-level `_middleware.ts` in the pages directory is applied (it runs on every " +
+        "page route). Move the logic there, or eject to an explicit manifest for per-group " +
+        "middleware.",
+    );
+  }
+
+  if (middlewareFiles.length > 1) {
+    const shown = middlewareFiles.map((file) => basename(file));
+    throw new Error(
+      `[pracht] Multiple pages middleware files resolve to the same registration: ${shown
+        .map((file) => JSON.stringify(file))
+        .join(", ")}. Keep exactly one root-level \`_middleware\` file.`,
+    );
+  }
+
+  return middlewareFiles[0] ?? null;
+}
+
 export function scanPagesDirectory(
   pagesDir: string,
   additionalExtensions: readonly string[] = [],
@@ -317,6 +359,7 @@ export function generatePagesManifestSource(
   const appFile = allFiles.find(
     (f) => basename(f, extname(f)) === "_app" && shellExtensions.has(extname(f)),
   );
+  const middlewareFile = findPagesMiddlewareFile(pagesDir);
 
   const coreImports = pages.some((page) => page.revalidateSeconds !== undefined)
     ? "defineApp, group, route, timeRevalidate"
@@ -378,32 +421,45 @@ export function generatePagesManifestSource(
     ? buildNotFoundEntry(notFoundPage, { prefix, useImport, withShell: !!appFile })
     : null;
 
+  // Root-level special files (`_app`, `_middleware`) are referenced relative
+  // to the pages directory's parent so ejected manifests written next to it
+  // (e.g. `src/routes.ts` beside `src/pages/`) resolve them.
+  const specialFileRef = (file: string): string => {
+    const path = prefix
+      ? `${prefix}/${basename(file)}`
+      : `./${relative(join(pagesDir, ".."), file).replace(/\\/g, "/")}`;
+    return useImport ? `() => import(${JSON.stringify(path)})` : JSON.stringify(path);
+  };
+
+  // `_middleware` registers as a named middleware and is attached to every
+  // page route through the wrapping group. API routes stay independent, the
+  // same default an explicit manifest has.
+  const groupMetaParts: string[] = [];
+  if (appFile) groupMetaParts.push('shell: "pages"');
+  if (middlewareFile) groupMetaParts.push('middleware: ["pages"]');
+
+  lines.push("const app = defineApp({");
   if (appFile) {
-    const appPath = prefix
-      ? `${prefix}/_app.${extname(appFile).slice(1)}`
-      : `./${relative(join(pagesDir, ".."), appFile).replace(/\\/g, "/")}`;
-    const shellRef = useImport
-      ? `() => import(${JSON.stringify(appPath)})`
-      : JSON.stringify(appPath);
-    lines.push("const app = defineApp({");
     lines.push("  shells: {");
-    lines.push(`    pages: ${shellRef},`);
+    lines.push(`    pages: ${specialFileRef(appFile)},`);
     lines.push("  },");
-    lines.push("  routes: [");
-    lines.push(`    group({ shell: "pages" }, [`);
+  }
+  if (middlewareFile) {
+    lines.push("  middleware: {");
+    lines.push(`    pages: ${specialFileRef(middlewareFile)},`);
+    lines.push("  },");
+  }
+  lines.push("  routes: [");
+  if (groupMetaParts.length > 0) {
+    lines.push(`    group({ ${groupMetaParts.join(", ")} }, [`);
     lines.push(routeEntries.join(",\n"));
     lines.push("    ]),");
-    lines.push("  ],");
-    if (notFoundEntry) lines.push(notFoundEntry);
-    lines.push("});");
   } else {
-    lines.push("const app = defineApp({");
-    lines.push("  routes: [");
     lines.push(routeEntries.join(",\n"));
-    lines.push("  ],");
-    if (notFoundEntry) lines.push(notFoundEntry);
-    lines.push("});");
   }
+  lines.push("  ],");
+  if (notFoundEntry) lines.push(notFoundEntry);
+  lines.push("});");
 
   lines.push("");
   return lines.join("\n");

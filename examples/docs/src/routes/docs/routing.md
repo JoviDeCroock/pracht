@@ -253,7 +253,7 @@ Auto-discovery replaces the manifest — and several features are registered *th
 | --- | --- |
 | Render and hydration modes, dynamic/catch-all routes, `getStaticPaths`, API routes | ✅ via `RENDER_MODE` / `HYDRATION` / `REVALIDATE` exports |
 | Shells | one `_app.tsx`; no named shells or per-route assignment |
-| [Route middleware](/docs/middleware) | ❌ no registration seam — wrap API handlers in a higher-order function instead |
+| [Route middleware](/docs/middleware) | one root `_middleware.ts`, applied to every page route; no nested or per-route middleware — API handlers use higher-order functions |
 | [Capabilities](/docs/capabilities) | ❌ no capability HTTP endpoints, [WebMCP](/docs/agents), [remote MCP](/docs/remote-mcp), or `pracht eval` |
 | [`defineApp({ constraints })`](/docs/agent-workflow), [`agents`](/docs/agent-trust) (Web Bot Auth) | ❌ |
 
@@ -284,6 +284,7 @@ When `pagesDir` is set, the `appFile` option is ignored. The plugin scans the pa
 | `pages/blog/[slug].tsx` | `/blog/:slug`                               |
 | `pages/[...path].tsx`   | `/*`                                        |
 | `pages/_app.tsx`        | _(shell, not a route)_                      |
+| `pages/_middleware.ts`  | _(middleware, not a route)_                 |
 | `pages/_anything.tsx`   | _(ignored — underscore prefix is reserved)_ |
 
 ### Shell via `_app.tsx`
@@ -336,6 +337,32 @@ even when their raw source appears headless.
 
 Existing `.tsrx` routes remain discovered without this option for backward
 compatibility and retain Pracht's ambient module declaration.
+
+### Middleware via `_middleware.ts`
+
+A root-level `pages/_middleware.ts` exports the same [`MiddlewareFn` contract](/docs/middleware) as manifest middleware and runs on every page route:
+
+```ts [src/pages/_middleware.ts]
+import { redirect, type MiddlewareFn } from "@pracht/core";
+
+export const middleware: MiddlewareFn = async ({ request, url }, next) => {
+  if (url.pathname === "/legacy") return redirect("/about", { request });
+  const response = await next();
+  response.headers.set("x-request-id", crypto.randomUUID());
+  return response;
+};
+```
+
+Internally it is registered as a named middleware called `"pages"` and attached to every page route through the generated manifest, so `pracht inspect routes`, the dev banner, `/_pracht` devtools, and the [ejected manifest](#ejecting-to-explicit-manifest) all show it.
+
+Scope and limits:
+
+- **Page routes only.** API routes under `src/api` are not wrapped — the same independent-by-default behavior an explicit manifest has. Wrap API handlers in [higher-order functions](/docs/middleware#without-a-manifest-higher-order-functions) instead.
+- **Root level only.** A `_middleware.ts` inside a subdirectory is a hard error at build, `doctor`, and `verify` time — not a silently ignored file that looks like an auth gate. Per-group middleware requires [ejecting to an explicit manifest](#ejecting-to-explicit-manifest).
+- The module must export `middleware`; a module that does not fails `doctor`/`verify`, and requests to page routes fail closed at runtime.
+- The [404 page](#404-page) renders without middleware — it is a not-found response, not a route.
+
+Like every other `_`-prefixed file, `_middleware.ts` never becomes a route.
 
 ### Per-Route Render Mode
 

@@ -8,8 +8,13 @@ import { isPageSource, normalizeRoutePath } from "./verification-helpers.js";
 export type PagesFile =
   | { file: string; kind: "shell"; hasRevalidateExport: boolean }
   | { file: string; kind: "not-found"; hasRevalidateExport: boolean }
+  | { file: string; kind: "middleware"; nested: boolean }
   | { file: string; kind: "ignored" }
   | PagesRoute;
+
+// Mirrors the vite plugin's pages middleware extensions (and the
+// `middlewareDir` registry glob). `_middleware.md` stays an ignored file.
+const PAGES_MIDDLEWARE_SOURCE_RE = /\.(ts|tsx|js|jsx)$/;
 
 export interface PagesRoute {
   file: string;
@@ -49,6 +54,10 @@ export function describePagesFile(
       kind: "shell",
       hasRevalidateExport: extractRevalidate(analysisSource).kind !== "missing",
     };
+  }
+
+  if (name === "_middleware" && PAGES_MIDDLEWARE_SOURCE_RE.test(file)) {
+    return { file, kind: "middleware", nested: relativePath.includes("/") };
   }
 
   if (name.startsWith("_")) {
