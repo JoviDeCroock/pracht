@@ -88,7 +88,7 @@ POST /mcp
 ```
 
 Stateless: no session id, no server→client stream, no resumability. That is
-what the Node, Cloudflare, and Vercel adapters already serve.
+what the Node, Cloudflare, Netlify, and Vercel adapters already serve.
 
 ## Tool names
 

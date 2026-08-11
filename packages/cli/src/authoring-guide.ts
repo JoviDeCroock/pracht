@@ -8,7 +8,7 @@ export const AUTHORING_GUIDE = `# Pracht — authoring guide for coding agents
 
 Pracht is a full-stack Preact framework on Vite. Per-route render modes
 (spa | ssr | ssg | isg), optional islands hydration, explicit routing, and
-adapters for Node, Cloudflare Workers, and Vercel.
+adapters for Node, Cloudflare Workers, Netlify, and Vercel.
 
 ## Golden rules
 

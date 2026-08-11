@@ -1,6 +1,13 @@
 import { relative } from "node:path";
 
-const excludedFixtureEntries = new Set([".vercel", ".wrangler", "dist", "test-results"]);
+const excludedFixtureEntries = new Set([
+  ".netlify",
+  ".vercel",
+  ".wrangler",
+  "dist",
+  "netlify",
+  "test-results",
+]);
 
 /** Keep generated output and local runtime state out of disposable fixture copies. */
 export function shouldCopyFixtureRelativePath(path: string): boolean {

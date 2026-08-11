@@ -21,7 +21,7 @@ Next.js and pracht share many of the same concepts — server rendering, file-ba
 | Rendering modes | Per-segment (`dynamic`, `revalidate`) | Per-route (`ssg`, `ssr`, `isg`, `spa`)   |
 | Middleware      | Single `middleware.ts` at root        | Named middleware, per-route or per-group |
 | API routes      | `app/api/**/route.ts`                 | `src/api/**/*.ts`                        |
-| Deployment      | Vercel-first                          | Adapter-based (Node, Cloudflare, Vercel) |
+| Deployment      | Vercel-first                          | Adapter-based (Node, Cloudflare, Netlify, Vercel) |
 
 ---
 
@@ -339,6 +339,7 @@ Next.js is optimized for Vercel. pracht uses **adapters** to deploy anywhere:
 import { pracht } from "@pracht/vite-plugin";
 import { nodeAdapter } from "@pracht/adapter-node";
 // or: import { cloudflareAdapter } from "@pracht/adapter-cloudflare";
+// or: import { netlifyAdapter } from "@pracht/adapter-netlify";
 // or: import { vercelAdapter } from "@pracht/adapter-vercel";
 
 export default {
@@ -350,6 +351,7 @@ export default {
 | ------------------ | ---------------------------- | ------------------------------------ |
 | Node.js            | `@pracht/adapter-node`       | Express-compatible, ISG revalidation |
 | Cloudflare Workers | `@pracht/adapter-cloudflare` | KV, D1, R2 bindings via context      |
+| Netlify            | `@pracht/adapter-netlify`    | Functions v2, durable CDN caching    |
 | Vercel             | `@pracht/adapter-vercel`     | Edge Functions, Build Output API v3  |
 
 ---

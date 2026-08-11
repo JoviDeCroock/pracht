@@ -43,6 +43,22 @@ describe("detectAdapterTarget", () => {
     ).toBe("vercel");
   });
 
+  it("detects the netlify adapter from the factory call", () => {
+    expect(
+      detectAdapterTarget({
+        rawConfig: "export default { plugins: [pracht({ adapter: netlifyAdapter() })] };",
+      }),
+    ).toBe("netlify");
+  });
+
+  it("detects the netlify adapter from the package import", () => {
+    expect(
+      detectAdapterTarget({
+        rawConfig: 'import { netlifyAdapter as adapter } from "@pracht/adapter-netlify";',
+      }),
+    ).toBe("netlify");
+  });
+
   it("detects the node adapter from the factory call", () => {
     expect(
       detectAdapterTarget({
@@ -63,6 +79,7 @@ describe("normalizeAdapterTarget", () => {
   it("accepts the built-in adapter targets", () => {
     expect(normalizeAdapterTarget("node")).toBe("node");
     expect(normalizeAdapterTarget("cloudflare")).toBe("cloudflare");
+    expect(normalizeAdapterTarget("netlify")).toBe("netlify");
     expect(normalizeAdapterTarget("vercel")).toBe("vercel");
   });
 

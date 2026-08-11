@@ -1,0 +1,51 @@
+{
+  "name": "@pracht/adapter-netlify",
+  "version": "0.0.0",
+  "description": "Netlify Functions adapter for deploying Pracht apps with SSR, SSG, ISG, Markdown negotiation, and durable CDN caching.",
+  "keywords": [
+    "pracht",
+    "preact",
+    "netlify",
+    "functions",
+    "adapter",
+    "serverless",
+    "ssr",
+    "ssg",
+    "isg",
+    "vite"
+  ],
+  "license": "MIT",
+  "homepage": "https://github.com/JoviDeCroock/pracht/tree/main/packages/adapter-netlify",
+  "bugs": {
+    "url": "https://github.com/JoviDeCroock/pracht/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/JoviDeCroock/pracht",
+    "directory": "packages/adapter-netlify"
+  },
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.mts",
+      "default": "./dist/index.mjs"
+    }
+  },
+  "publishConfig": {
+    "provenance": true
+  },
+  "scripts": {
+    "build": "tsdown",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "@netlify/functions": "^5.3.0",
+    "@pracht/core": "workspace:*"
+  },
+  "peerDependencies": {
+    "vite": "^8.0.0"
+  }
+}

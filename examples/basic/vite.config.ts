@@ -2,7 +2,7 @@ import { defineConfig } from "vite";
 import { prachtOpenApi } from "@pracht/openapi/vite";
 import { pracht } from "@pracht/vite-plugin";
 
-type DeployTarget = "cloudflare" | "node" | "vercel";
+type DeployTarget = "cloudflare" | "netlify" | "node" | "vercel";
 
 async function resolveAdapter(target: DeployTarget) {
   if (target === "vercel") {
@@ -13,6 +13,11 @@ async function resolveAdapter(target: DeployTarget) {
   if (target === "cloudflare") {
     const { cloudflareAdapter } = await import("@pracht/adapter-cloudflare");
     return cloudflareAdapter();
+  }
+
+  if (target === "netlify") {
+    const { netlifyAdapter } = await import("@pracht/adapter-netlify");
+    return netlifyAdapter();
   }
 
   const { nodeAdapter } = await import("@pracht/adapter-node");

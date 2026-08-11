@@ -13,7 +13,7 @@
 
 **Full-stack Preact, per route.** _(pracht /praxt/ — Dutch & German for splendor. Also: how you've always mispronounced Preact.)_
 
-Pick SPA, SSR, SSG, or ISG on a route-by-route basis. Ship less JavaScript by default. Deploy the same codebase to Node, Cloudflare, or Vercel.
+Pick SPA, SSR, SSG, or ISG on a route-by-route basis. Ship less JavaScript by default. Deploy the same codebase to Node, Cloudflare, Netlify, or Vercel.
 
 ```bash
 npm create pracht@latest my-app
@@ -28,7 +28,7 @@ npm create pracht@latest my-app
 - **Explicit over magic** — a typed `defineApp()` manifest wires routes, shells, and middleware. What runs where is never a mystery. Prefer file-based routing? Opt in to the pages router and skip the manifest entirely.
 - **Vite-native** — instant HMR, fast builds, multi-environment output out of the box.
 - **Performance budgets built in** — `pracht build --analyze` reports per-route client JS (gzip + raw), and per-route `budgets` fail the build when a route ships too much.
-- **Deploy anywhere** — one codebase, one build, three production-ready adapters (Node, Cloudflare Workers, Vercel).
+- **Deploy anywhere** — one codebase, one build, four production-ready adapters (Node, Cloudflare Workers, Netlify, Vercel).
 - **Env safety built in** — typed `serverEnv`/`publicEnv` helpers with a `PRACHT_PUBLIC_` prefix rule, and builds fail when client bundles reference non-public env vars.
 
 ## At a glance
@@ -149,7 +149,7 @@ The skills are distributed three ways (see the [catalog](skills/README.md)):
 - [docs/CAPABILITY_GRAPH.md](docs/CAPABILITY_GRAPH.md) — the capability graph product bet: proposal, decision log, staged plan
 - [docs/LLMS_TXT.md](docs/LLMS_TXT.md) — generated llms.txt: pages, API endpoints, capabilities
 - [docs/STYLING.md](docs/STYLING.md) — CSS Modules, Tailwind, CSS-in-JS limitations
-- [docs/ADAPTERS.md](docs/ADAPTERS.md) — Node, Cloudflare, Vercel deployment paths
+- [docs/ADAPTERS.md](docs/ADAPTERS.md) — Node, Cloudflare, Netlify, Vercel deployment paths
 - [docs/IMAGES.md](docs/IMAGES.md) — responsive `<Image>` component, loaders, optimization endpoint
 - [docs/MCP.md](docs/MCP.md) — built-in MCP server for coding agents (development time)
 - [docs/AGENT_WORKFLOW.md](docs/AGENT_WORKFLOW.md) — constraints, app-graph snapshots, `pracht plan`/`report`

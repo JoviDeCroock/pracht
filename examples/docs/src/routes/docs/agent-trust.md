@@ -54,7 +54,7 @@ export const app = defineApp({
 });
 ```
 
-Verification happens once per request in `handlePrachtRequest`, using only Web platform APIs — Node, Cloudflare, and Vercel share the implementation. The result surfaces everywhere:
+Verification happens once per request in `handlePrachtRequest`, using only Web platform APIs — Node, Cloudflare, Netlify, and Vercel share the implementation. The result surfaces everywhere:
 
 ```ts [src/capabilities/agent-whoami.ts]
 async run({ context }) {

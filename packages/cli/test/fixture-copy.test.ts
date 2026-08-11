@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { shouldCopyFixtureRelativePath } from "../../../e2e/fixture-copy.ts";
 
 describe("isolated E2E fixture copies", () => {
-  it.each(["dist", ".vercel", ".wrangler", "test-results"])(
+  it.each(["dist", ".netlify", ".vercel", ".wrangler", "netlify", "test-results"])(
     "excludes %s and its children with either path separator",
     (entry) => {
       expect(shouldCopyFixtureRelativePath(entry)).toBe(false);

@@ -13,6 +13,7 @@ described in `VISION_MVP.md`.
 | `packages/preact-ssr-precompile` | `@pracht/preact-ssr-precompile` | Experimental Rolldown/Vite plugin that precompiles safe Preact JSX DOM subtrees into server-only `jsxTemplate()` calls |
 | `packages/adapter-node`       | `@pracht/adapter-node`       | Node `IncomingMessage`/`ServerResponse` bridge, ISG stale-while-revalidate, and webhook revalidation         |
 | `packages/adapter-cloudflare` | `@pracht/adapter-cloudflare` | Cloudflare Workers fetch handler, generated worker entry source, static asset handoff, and Cache API ISG     |
+| `packages/adapter-netlify`    | `@pracht/adapter-netlify`    | Netlify Functions v2 handler, bundled static output, durable CDN caching, and tag-based ISG revalidation     |
 | `packages/adapter-vercel`     | `@pracht/adapter-vercel`     | Vercel Edge handler, Build Output API entry source, and native ISR artifacts                                 |
 | `packages/preact-worker-facets` | `@pracht/preact-worker-facets` | Experimental Cloudflare Dynamic Worker + Durable Object facets runtime for inert, stateful Preact components |
 | `packages/image`              | `@pracht/image`              | Responsive, CLS-safe `<Image>` component, pluggable optimization loaders, sharp-backed Node endpoint (see `docs/IMAGES.md`) |
@@ -73,10 +74,10 @@ described in `VISION_MVP.md`.
 - **CLI** — `pracht dev` starts a Vite dev server with SSR, `pracht build` runs
   client + server builds (with Vite manifest generation, SSG/ISG prerendering,
   ISG manifest output, executable Node server output in `dist/server/server.js`,
-  and Vercel `.vercel/output/` generation when the app targets those adapters),
+  Netlify function generation, and Vercel `.vercel/output/` generation when the app targets those adapters),
   `pracht preview` builds and serves the production output locally (Node runs
-  `dist/server/server.js`, Cloudflare delegates to `wrangler dev`, and Vercel
-  points at `vercel build`/`vercel dev`),
+  `dist/server/server.js`, Cloudflare delegates to `wrangler dev`, Netlify
+  points at `netlify dev`, and Vercel points at `vercel build`/`vercel dev`),
   `pracht verify` runs fast framework-aware checks with optional `--changed`
   and `--json` output, `pracht inspect [routes|api|build] --json` emits the
   resolved route graph, API handlers, and build metadata for agents/tools,
@@ -86,7 +87,8 @@ described in `VISION_MVP.md`.
   files, and `pracht doctor` validates app wiring across the whole project.
 - **Package builds** — `tsdown` compiles `pracht`, `@pracht/openapi`, `@pracht/vite-plugin`,
   `@pracht/preact-ssr-precompile`, `@pracht/adapter-node`,
-  `@pracht/adapter-cloudflare`, `@pracht/adapter-vercel`, and `@pracht/image`
+  `@pracht/adapter-cloudflare`, `@pracht/adapter-netlify`,
+  `@pracht/adapter-vercel`, and `@pracht/image`
   from TypeScript to
   ESM (`dist/index.mjs` + `.d.mts`). `@pracht/core` preserves its source-module
   boundaries in the published ESM so downstream builds can tree-shake named
@@ -103,6 +105,10 @@ described in `VISION_MVP.md`.
   `handlePrachtRequest()`, gives loaders/API routes/middleware access to `env`
   and `executionContext`, and stores regenerated ISG HTML in the Workers Cache
   API.
+- **Netlify adapter** — Emits a Functions v2 catch-all, serves bundled SSG
+  documents while preserving Markdown and route-state negotiation, and maps
+  ISG freshness and webhook revalidation to Netlify durable cache headers and
+  cache tags.
 - **Vercel adapter** — Emits an Edge-compatible handler, copies the build into
   `.vercel/output/static` and `.vercel/output/functions/render.func`, rewrites
   clean SSG URLs to static HTML, and emits native prerender functions for ISG.
