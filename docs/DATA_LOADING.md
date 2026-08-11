@@ -87,6 +87,13 @@ Generated route types use the schema input for `href()`, `<Link>`, and
 returns HTTP 400 and is handled by the route or shell `ErrorBoundary`. Routes
 without a schema receive `Record<string, string | string[]>`.
 
+The schema is isomorphic: full-hydration routes validate on the server and
+again from the browser's current URL, so keep schema code browser-safe and
+transformations deterministic. The validated output is not serialized into
+hydration state, so values such as `Date` or `bigint` can remain intact. On
+SSG/ISG pages, loader data still reflects the prerendered or cached document,
+while `useSearch()` reflects the visitor's actual query after hydration.
+
 ### When loaders run
 
 | Scenario          | Loader runs on                                                    |

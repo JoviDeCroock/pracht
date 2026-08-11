@@ -183,6 +183,9 @@ Generated param types accept `RouteParamInput = string | number | boolean`
   input for navigation and its validated output for `useSearch(routeId)`.
 - Search schemas receive string values and arrays for repeated keys; coerce
   numeric and boolean values at the schema boundary.
+- Search schemas run on both the server and full-hydration client. Keep them
+  browser-safe and deterministic; the client validates the visitor's current
+  URL, including when SSG/ISG HTML was generated without that query.
 - Invalid route search is an HTTP 400 handled by the nearest `ErrorBoundary`.
 
 ## Step 5: Verify

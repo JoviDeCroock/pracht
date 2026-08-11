@@ -407,10 +407,29 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
   async function resolveSpaPendingState(
     match: RouteMatch,
     currentUrl: string,
+    routeModPromise?: Promise<any> | null,
     shellModPromise?: Promise<any> | null,
   ): Promise<RouteRenderState | null> {
-    const resolvedShell = await (shellModPromise ?? startShellImport(match));
+    const [routeMod, resolvedShell] = await Promise.all([
+      routeModPromise ?? startRouteImport(match),
+      shellModPromise ?? startShellImport(match),
+    ]);
+    if (!routeMod) return null;
     if (!resolvedShell) return null;
+
+    let search: unknown;
+    try {
+      search = await resolveRouteSearch(
+        routeMod,
+        new URL(currentUrl, window.location.origin).searchParams,
+      );
+    } catch {
+      // The server only emits a pending SPA document after successful search
+      // validation. If the isomorphic client schema disagrees, leave that
+      // document untouched until the route-state response resolves and the
+      // normal error-boundary path can take over.
+      return null;
+    }
 
     const Shell = (resolvedShell.Shell as FunctionComponent) ?? null;
     const Loading = resolvedShell.Loading as FunctionComponent | null;
@@ -424,7 +443,7 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
       data: undefined,
       params: match.params,
       routeId: match.route.id ?? "",
-      search: {},
+      search,
       url: currentUrl,
       version: ++routeStateVersion,
     };
@@ -643,7 +662,16 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
     }
   }
 
-  const initialTarget = resolveBrowserRouteTarget(options.initialState.url);
+  const hydratedTarget = resolveBrowserRouteTarget(options.initialState.url);
+  const browserTarget = resolveBrowserRouteTarget(
+    window.location.pathname + window.location.search + window.location.hash,
+  );
+  // Prerendered HTML is keyed by pathname, so its embedded URL may not carry
+  // the visitor's query. Prefer the live browser URL when it still identifies
+  // the same document; retain the hydration URL as a defensive fallback for a
+  // mismatched bootstrap or test harness.
+  const initialTarget =
+    browserTarget?.pathname === hydratedTarget?.pathname ? browserTarget : hydratedTarget;
   const initialRequestUrl = initialTarget?.requestUrl ?? options.initialState.url;
   const initialBrowserUrl = initialTarget?.browserUrl ?? options.initialState.url;
   const initialPathname = initialTarget?.pathname ?? options.initialState.url;
@@ -655,6 +683,7 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
       ? { route: app.notFound, params: {}, pathname: initialPathname }
       : undefined);
   if (initialMatch) {
+    const initialRoutePromise = startRouteImport(initialMatch);
     const initialShellPromise =
       initialMatch.route.render === "spa" && options.initialState.pending
         ? startShellImport(initialMatch)
@@ -671,6 +700,7 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
       const pendingState = await resolveSpaPendingState(
         initialMatch,
         initialRequestUrl,
+        initialRoutePromise,
         initialShellPromise,
       );
       if (pendingState) {
@@ -709,7 +739,7 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
         initialMatch,
         state,
         initialRequestUrl,
-        undefined,
+        initialRoutePromise,
         initialShellPromise,
       );
       if (resolvedState) {
@@ -720,7 +750,7 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
         initialMatch,
         state,
         initialRequestUrl,
-        undefined,
+        initialRoutePromise,
         initialShellPromise,
       );
       if (initialRouteState) {

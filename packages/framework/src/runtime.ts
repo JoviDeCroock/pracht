@@ -806,7 +806,6 @@ export async function handlePrachtRequest<TContext>(
               hydrationState: {
                 url: requestPath,
                 routeId: match.route.id ?? "",
-                search: routeArgs.search,
                 data: null,
                 error: null,
                 pending: true,
@@ -931,7 +930,6 @@ export async function handlePrachtRequest<TContext>(
             hydrationState: {
               url: requestPath,
               routeId: match.route.id ?? "",
-              search: routeArgs.search,
               data,
               error: null,
             },

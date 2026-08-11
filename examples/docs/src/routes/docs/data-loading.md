@@ -37,19 +37,55 @@ export default function Dashboard({ data }: RouteComponentProps<typeof loader>) 
 ```
 
 The route component can be a function default export or a named `Component`
-export. Named route exports such as `loader`, `head`, `headers`,
+export. Named route exports such as `search`, `loader`, `head`, `headers`,
 `ErrorBoundary`, and `getStaticPaths` remain separate special exports.
 
 ### LoaderArgs
 
-| Field   | Type          | Description                                          |
-| ------- | ------------- | ---------------------------------------------------- |
-| request | Request       | The incoming Web Request                             |
-| params  | RouteParams   | Dynamic URL params, e.g. `{ slug: "hello" }`         |
-| context | TContext      | App-level context from the adapter's context factory |
-| signal  | AbortSignal   | Cancellation signal for timeouts                     |
-| url     | URL           | Parsed URL object                                    |
-| route   | ResolvedRoute | Matched route metadata                               |
+| Field   | Type          | Description                                             |
+| ------- | ------------- | ------------------------------------------------------- |
+| request | Request       | The incoming Web Request                                |
+| params  | RouteParams   | Dynamic URL params, e.g. `{ slug: "hello" }`            |
+| search  | unknown       | Parsed search record or the route schema's output       |
+| context | TContext      | App-level context from the adapter's context factory    |
+| signal  | AbortSignal   | Cancellation signal for timeouts                        |
+| url     | URL           | Parsed URL object                                       |
+| route   | ResolvedRoute | Matched route metadata                                  |
+
+### Validated route search
+
+A route module can export a [Standard Schema](https://standardschema.dev/) as
+`search`. Pracht converts `URLSearchParams` to an object, preserving repeated
+keys as arrays, then validates it before calling the loader, `head`, or route
+component:
+
+```tsx [src/routes/products.tsx]
+import { z } from "zod";
+import type { LoaderArgs } from "@pracht/core";
+
+export const search = z.object({
+  page: z.coerce.number().int().positive().default(1),
+  tag: z.union([z.string(), z.array(z.string())]).optional(),
+});
+type Search = z.output<typeof search>;
+
+export async function loader({ search }: LoaderArgs) {
+  const { page } = search as Search;
+  return { page };
+}
+```
+
+Generated route types use the schema input for `href()`, `<Link>`, and
+`navigate()`, and its output for `useSearch(routeId)`. Invalid search returns
+HTTP 400 and is handled by the nearest route or shell `ErrorBoundary`. Routes
+without a schema receive a raw `Record<string, string | string[]>`.
+
+The schema is isomorphic: full-hydration routes validate on the server and
+again from the browser's current URL, so keep schema code browser-safe and
+transformations deterministic. The validated output is not serialized into
+hydration state, so values such as `Date` or `bigint` can remain intact. On
+SSG/ISG pages, loader data still reflects the prerendered or cached document,
+while `useSearch()` reflects the visitor's actual query after hydration.
 
 ### When loaders run
 

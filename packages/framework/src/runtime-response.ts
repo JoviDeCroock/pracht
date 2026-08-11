@@ -319,7 +319,6 @@ export async function renderRouteErrorResponse<TContext>(options: {
       hydrationState: {
         url: options.requestPath,
         routeId: options.routeId,
-        search: options.routeArgs.search,
         data: null,
         error: routeErrorWithDiagnostics,
       },

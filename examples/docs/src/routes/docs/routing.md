@@ -171,6 +171,14 @@ export function ProductActions({ id }: { id: string }) {
 
 Explicit `id` fields are preferred for stable public APIs. Routes without ids use generated ids, and params are inferred from `:param`, `*`, and `:name*` segments. `pracht typegen --check` is useful in CI to catch stale generated files.
 
+A route module can export a Standard Schema as `search`; typegen uses its input
+type for `href()`, `<Link>`, and `navigate()`, while `useSearch(routeId)`,
+loaders, and components receive the validated output. Routes without a schema
+continue to accept `SearchParamsInput` and expose raw string/string-array
+records. Invalid search renders the nearest route or shell `ErrorBoundary` with
+HTTP 400. See [Data Loading](/docs/data-loading#validated-route-search) for the
+runtime and hydration behavior.
+
 ---
 
 ## Shells

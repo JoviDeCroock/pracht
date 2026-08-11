@@ -15,6 +15,7 @@ import {
   useNavigate,
   useRevalidate,
   useRouteData,
+  useSearch,
 } from "../src/index.ts";
 
 function createJsonResponse(body: unknown, init?: ResponseInit): Response {
@@ -94,6 +95,114 @@ describe("initClientRouter", () => {
       }),
     );
     expect(root.textContent).toContain("Hello Jovi");
+  });
+
+  it("hydrates prerendered routes from the visitor's search parameters", async () => {
+    history.replaceState(null, "", "/products?page=2");
+    root.innerHTML = "<main>1</main>";
+    let capturedSearch: unknown;
+
+    const app = resolveApp(
+      defineApp({
+        routes: [route("/products", "./routes/products.tsx", { render: "ssg" })],
+      }),
+    );
+
+    await initClientRouter({
+      app,
+      routeModules: {
+        "./routes/products.tsx": async () => ({
+          search: {
+            "~standard": {
+              version: 1,
+              vendor: "test",
+              validate(value: unknown) {
+                const page = Number((value as Record<string, string>).page ?? "1");
+                return { value: { page } };
+              },
+            },
+          },
+          default: function Products() {
+            capturedSearch = useSearch();
+            return h("main", null, String((capturedSearch as { page: number }).page));
+          },
+        }),
+      },
+      shellModules: {},
+      initialState: {
+        data: undefined,
+        routeId: "products",
+        url: "/products",
+      },
+      root,
+      findModuleKey: (_modules, file) => file,
+    });
+
+    expect(capturedSearch).toEqual({ page: 2 });
+    expect(root.textContent).toBe("2");
+  });
+
+  it("hydrates SPA loading shells with validated search state", async () => {
+    history.replaceState(null, "", "/settings?page=2");
+    root.innerHTML = "<section><span>2</span><p>Loading</p></section>";
+    let capturedSearch: unknown;
+    let resolveFetch!: (response: Response) => void;
+    fetchSpy.mockReturnValue(new Promise<Response>((resolve) => (resolveFetch = resolve)));
+
+    function Shell({ children }: { children: ComponentChildren }) {
+      capturedSearch = useSearch();
+      return h(
+        "section",
+        null,
+        h("span", null, String((capturedSearch as { page: number }).page)),
+        children,
+      );
+    }
+
+    const app = resolveApp(
+      defineApp({
+        shells: { app: "./shells/app.tsx" },
+        routes: [route("/settings", "./routes/settings.tsx", { render: "spa", shell: "app" })],
+      }),
+    );
+
+    const initialization = initClientRouter({
+      app,
+      routeModules: {
+        "./routes/settings.tsx": async () => ({
+          search: {
+            "~standard": {
+              version: 1,
+              vendor: "test",
+              validate(value: unknown) {
+                return {
+                  value: { page: Number((value as Record<string, string>).page ?? "1") },
+                };
+              },
+            },
+          },
+          default: () => h("main", null, "Ready"),
+        }),
+      },
+      shellModules: {
+        "./shells/app.tsx": async () => ({
+          Shell,
+          Loading: () => h("p", null, "Loading"),
+        }),
+      },
+      initialState: {
+        data: null,
+        pending: true,
+        routeId: "settings",
+        url: "/settings?page=2",
+      },
+      root,
+      findModuleKey: (_modules, file) => file,
+    });
+
+    await vi.waitFor(() => expect(capturedSearch).toEqual({ page: 2 }));
+    resolveFetch(createJsonResponse({ data: null }));
+    await initialization;
   });
 
   it("renders typed links and navigates by route target objects", async () => {

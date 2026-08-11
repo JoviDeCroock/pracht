@@ -17,7 +17,6 @@ export interface PrachtHydrationState<TData = unknown> {
   data: TData;
   error?: import("./runtime-errors.ts").SerializedRouteError | null;
   pending?: boolean;
-  search?: unknown;
 }
 
 export interface StartAppOptions<TData = unknown> {

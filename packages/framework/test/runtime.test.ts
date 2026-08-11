@@ -24,7 +24,6 @@ function parseHydrationState(html: string) {
   }
 
   return JSON.parse(match[1]) as {
-    search?: unknown;
     error?: {
       diagnostics?: Record<string, unknown>;
       message: string;
@@ -1684,7 +1683,37 @@ describe("handlePrachtRequest ErrorBoundary", () => {
     expect(loaderSearch).toEqual({ page: 2 });
     const html = await response.text();
     expect(html).toContain("2:2");
-    expect(parseHydrationState(html).search).toEqual({ page: 2 });
+    expect(parseHydrationState(html)).not.toHaveProperty("search");
+  });
+
+  it("does not serialize validated search output into hydration state", async () => {
+    const app = defineApp({
+      routes: [route("/items", "./routes/items.tsx")],
+    });
+
+    const response = await handlePrachtRequest({
+      app,
+      registry: {
+        routeModules: {
+          "./routes/items.tsx": async () => ({
+            search: {
+              "~standard": {
+                version: 1,
+                vendor: "test",
+                validate: () => ({ value: { id: 7n } }),
+              },
+            },
+            Component: () => h("main", null, "items"),
+          }),
+        },
+      },
+      request: new Request("http://localhost/items?id=7"),
+    });
+
+    expect(response.status).toBe(200);
+    const html = await response.text();
+    expect(html).toContain("items");
+    expect(parseHydrationState(html)).not.toHaveProperty("search");
   });
 
   it("renders a 400 boundary when route search is invalid", async () => {
