@@ -84,8 +84,8 @@ without a schema receive a raw `Record<string, string | string[]>`.
 Invalid search reaching the route runtime returns HTTP 400 and is handled by
 the nearest route or shell `ErrorBoundary`. Prerendered SSG/ISG HTML has already
 been served with its static status; full hydration validates the visitor's
-query and renders the nearest boundary, or a plain error message when none
-exists.
+query and replaces the prerendered content with the nearest boundary, or with
+a plain error message when none exists.
 
 The schema is isomorphic: full-hydration routes validate on the server and
 again from the browser's current URL, so keep schema code browser-safe and

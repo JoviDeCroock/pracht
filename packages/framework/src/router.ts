@@ -348,13 +348,32 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
     );
   }
 
+  // Preact owns `root` once it has rendered or hydrated into it. Before that,
+  // any children are server markup an initial render() would append to rather
+  // than replace — so every first commit into the root funnels through the two
+  // helpers below.
+  let rootClaimed = false;
+
+  function hydrateRouterRoot(routeState: RouteRenderState): void {
+    rootClaimed = true;
+    hydrate(h(RouterRoot, { initialState: routeState }), root);
+  }
+
+  function renderRouterRoot(routeState: RouteRenderState): void {
+    if (!rootClaimed && root.hasChildNodes()) {
+      root.replaceChildren();
+    }
+    rootClaimed = true;
+    render(h(RouterRoot, { initialState: routeState }), root);
+  }
+
   function applyRouteState(routeState: RouteRenderState): void {
     if (updateRouteState) {
       updateRouteState(routeState);
       return;
     }
 
-    render(h(RouterRoot, { initialState: routeState }), root);
+    renderRouterRoot(routeState);
   }
 
   async function resolveRouteState(
@@ -388,6 +407,12 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
     const routeError = state.error ? deserializeRouteError(state.error) : searchError;
     const ErrorBoundary = routeMod.ErrorBoundary ?? resolvedShell?.ErrorBoundary;
     const usesClientErrorFallback = routeError && !ErrorBoundary && renderUnhandledError;
+    // A server-sent error was rendered by the server, so boundary markup in
+    // the document matches and hydration is safe. A client-only search error
+    // means the document still holds the successful prerender — no error tree,
+    // boundary or not, can hydrate over it, so the initial commit must replace
+    // the document instead.
+    const clientOnlyError = searchError !== null && !state.error;
     const Component = (
       routeError
         ? (ErrorBoundary ?? (renderUnhandledError ? ClientRouteErrorFallback : undefined))
@@ -405,7 +430,9 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
       componentProps,
       data: state.data,
       params: match.params,
-      replaceDocument: Boolean(usesClientErrorFallback),
+      replaceDocument: Boolean(
+        usesClientErrorFallback || (renderUnhandledError && clientOnlyError),
+      ),
       routeId: match.route.id ?? "",
       search,
       url: currentUrl,
@@ -713,7 +740,7 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
         initialShellPromise,
       );
       if (pendingState) {
-        hydrate(h(RouterRoot, { initialState: pendingState }), root);
+        hydrateRouterRoot(pendingState);
       }
 
       try {
@@ -765,14 +792,11 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
         true,
       );
       if (initialRouteState) {
-        if (initialRouteState.replaceDocument) {
-          root.replaceChildren();
-          render(h(RouterRoot, { initialState: initialRouteState }), root);
-        } else if (initialMatch.route.render === "spa") {
-          render(h(RouterRoot, { initialState: initialRouteState }), root);
+        if (initialRouteState.replaceDocument || initialMatch.route.render === "spa") {
+          renderRouterRoot(initialRouteState);
         } else {
           markHydrating();
-          hydrate(h(RouterRoot, { initialState: initialRouteState }), root);
+          hydrateRouterRoot(initialRouteState);
         }
       }
     }

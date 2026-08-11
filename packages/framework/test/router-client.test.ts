@@ -181,6 +181,185 @@ describe("initClientRouter", () => {
     expect(root.textContent).toBe("Invalid search parameters: page: must be a positive integer");
   });
 
+  it("replaces prerendered content when a route boundary handles an invalid visitor search", async () => {
+    history.replaceState(null, "", "/products?page=nope");
+    root.innerHTML = "<main>prerendered default</main>";
+
+    const app = resolveApp(
+      defineApp({
+        routes: [route("/products", "./routes/products.tsx", { render: "ssg" })],
+      }),
+    );
+
+    await initClientRouter({
+      app,
+      routeModules: {
+        "./routes/products.tsx": async () => ({
+          search: {
+            "~standard": {
+              version: 1,
+              vendor: "test",
+              validate: () => ({
+                issues: [{ message: "must be a positive integer", path: ["page"] }],
+              }),
+            },
+          },
+          ErrorBoundary: ({ error }: { error: Error }) => h("section", null, error.message),
+          default: () => h("main", null, "products"),
+        }),
+      },
+      shellModules: {},
+      initialState: {
+        data: undefined,
+        routeId: "products",
+        url: "/products",
+      },
+      root,
+      findModuleKey: (_modules, file) => file,
+    });
+
+    // The prerendered <main> must be gone: hydrating a mismatched boundary
+    // root over it would append a second subtree instead of replacing it.
+    expect(root.querySelector("main")).toBeNull();
+    expect(root.textContent).toBe("Invalid search parameters: page: must be a positive integer");
+  });
+
+  it("replaces prerendered content when a shell boundary handles an invalid visitor search", async () => {
+    history.replaceState(null, "", "/products?page=nope");
+    root.innerHTML = '<div id="shell"><main>prerendered default</main></div>';
+
+    const app = resolveApp(
+      defineApp({
+        shells: { app: "./shells/app.tsx" },
+        routes: [route("/products", "./routes/products.tsx", { render: "ssg", shell: "app" })],
+      }),
+    );
+
+    await initClientRouter({
+      app,
+      routeModules: {
+        "./routes/products.tsx": async () => ({
+          search: {
+            "~standard": {
+              version: 1,
+              vendor: "test",
+              validate: () => ({
+                issues: [{ message: "must be a positive integer", path: ["page"] }],
+              }),
+            },
+          },
+          default: () => h("main", null, "products"),
+        }),
+      },
+      shellModules: {
+        "./shells/app.tsx": async () => ({
+          Shell: ({ children }: { children: ComponentChildren }) =>
+            h("div", { id: "shell" }, children),
+          ErrorBoundary: ({ error }: { error: Error }) => h("section", null, error.message),
+        }),
+      },
+      initialState: {
+        data: undefined,
+        routeId: "products",
+        url: "/products",
+      },
+      root,
+      findModuleKey: (_modules, file) => file,
+    });
+
+    expect(root.querySelectorAll("#shell")).toHaveLength(1);
+    expect(root.querySelector("main")).toBeNull();
+    expect(root.textContent).toBe("Invalid search parameters: page: must be a positive integer");
+  });
+
+  it("replaces the pending SPA document when the client rejects the visitor search", async () => {
+    history.replaceState(null, "", "/settings?page=nope");
+    root.innerHTML = "<section><p>Loading</p></section>";
+    fetchSpy.mockResolvedValue(createJsonResponse({ data: null }));
+
+    const app = resolveApp(
+      defineApp({
+        shells: { app: "./shells/app.tsx" },
+        routes: [route("/settings", "./routes/settings.tsx", { render: "spa", shell: "app" })],
+      }),
+    );
+
+    await initClientRouter({
+      app,
+      routeModules: {
+        "./routes/settings.tsx": async () => ({
+          search: {
+            "~standard": {
+              version: 1,
+              vendor: "test",
+              validate: () => ({
+                issues: [{ message: "must be a positive integer", path: ["page"] }],
+              }),
+            },
+          },
+          default: () => h("main", null, "Ready"),
+        }),
+      },
+      shellModules: {
+        "./shells/app.tsx": async () => ({
+          Shell: ({ children }: { children: ComponentChildren }) => h("section", null, children),
+          Loading: () => h("p", null, "Loading"),
+        }),
+      },
+      initialState: {
+        data: null,
+        pending: true,
+        routeId: "settings",
+        url: "/settings?page=nope",
+      },
+      root,
+      findModuleKey: (_modules, file) => file,
+    });
+
+    // Pending hydration is skipped on schema disagreement, so the resolved
+    // error state is Preact's first commit into a root that still holds the
+    // server's pending markup — it must replace, not append to it.
+    expect(root.querySelector("section")).toBeNull();
+    expect(root.textContent).toBe("Invalid search parameters: page: must be a positive integer");
+  });
+
+  it("hydrates server-rendered error boundaries without replacing the document", async () => {
+    history.replaceState(null, "", "/boom");
+    root.innerHTML = '<main id="boundary">loader exploded</main>';
+    const prerendered = root.querySelector("#boundary");
+
+    const app = resolveApp(
+      defineApp({
+        routes: [route("/boom", "./routes/boom.tsx", { id: "boom", render: "ssr" })],
+      }),
+    );
+
+    await initClientRouter({
+      app,
+      routeModules: {
+        "./routes/boom.tsx": async () => ({
+          ErrorBoundary: ({ error }: { error: Error }) =>
+            h("main", { id: "boundary" }, error.message),
+          default: () => h("main", null, "never"),
+        }),
+      },
+      shellModules: {},
+      initialState: {
+        data: null,
+        error: { message: "loader exploded", name: "Error", status: 500 },
+        routeId: "boom",
+        url: "/boom",
+      },
+      root,
+      findModuleKey: (_modules, file) => file,
+    });
+
+    // Server-sent errors were rendered by the server, so the boundary markup
+    // matches — the prerendered node must survive hydration untouched.
+    expect(root.querySelector("#boundary")).toBe(prerendered);
+    expect(root.textContent).toBe("loader exploded");
+  });
+
   it("hydrates SPA loading shells with validated search state", async () => {
     history.replaceState(null, "", "/settings?page=2");
     root.innerHTML = "<section><span>2</span><p>Loading</p></section>";
