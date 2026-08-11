@@ -869,6 +869,15 @@ and hashed assets are never re-rendered because a client sent an odd `Accept`.
 The build emits an empty manifest for SSR-only apps too, so public files keep
 the same guarantee even when the app has no prerendered documents.
 
+A `.md` file in `public/` is a different thing entirely: it is a plain static
+asset, copied to `dist/client/` by the build and served by content type, not by
+negotiation. Those files answer every request the same way: the Node adapter
+sends `Content-Type: text/markdown; charset=utf-8`, and on Cloudflare and Vercel
+the platform's own asset layer types the file (the `ASSETS` binding and the
+static rewrite respectively, neither of which the adapter intercepts). This is
+the route to take for a corpus that is markdown all the way down (a skills
+catalog, a docs mirror); no middleware is needed to correct the header.
+
 Vercel reaches the same outcome through its routing table rather than adapter
 code, because the platform serves prerendered files before any function runs.
 The build emits an `Accept`-conditional route to the render function, ahead of

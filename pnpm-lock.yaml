@@ -324,7 +324,7 @@ importers:
         specifier: ^1.0.0
         version: 1.1.0
       preact:
-        specifier: ^10.0.0
+        specifier: ^10.0.0 || ^11.0.0-0
         version: 10.29.1
       preact-render-to-string:
         specifier: ^6.0.0
@@ -336,7 +336,7 @@ importers:
   packages/image:
     dependencies:
       preact:
-        specifier: ^10.0.0
+        specifier: ^10.0.0 || ^11.0.0-0
         version: 10.29.1
     devDependencies:
       sharp:
@@ -346,7 +346,7 @@ importers:
   packages/preact-ssr-precompile:
     dependencies:
       preact:
-        specifier: ^10.26.0
+        specifier: ^10.26.0 || ^11.0.0-0
         version: 10.29.1
       preact-render-to-string:
         specifier: ^6.5.13

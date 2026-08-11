@@ -759,6 +759,8 @@ const DEV_ASSET_EXTENSIONS = new Set([
   ".js",
   ".json",
   ".map",
+  ".markdown",
+  ".md",
   ".mjs",
   ".pdf",
   ".png",

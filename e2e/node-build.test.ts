@@ -355,6 +355,10 @@ test("SSR-only builds keep static assets on the fast path for Markdown requests"
       .replace('render: "isg",\n        revalidate: timeRevalidate(3600),', 'render: "ssr",');
     writeFileSync(routesPath, routesSource, "utf-8");
 
+    // A markdown file published as a plain static asset — the shape a skills
+    // catalog or docs corpus takes, distinct from a route's `markdown` export.
+    writeFileSync(resolve(exampleDir, "public/skill.md"), "# Skill\n", "utf-8");
+
     buildExample(exampleDir, { PRACHT_ADAPTER: "node", PRACHT_ORIGIN: origin });
 
     expect(
@@ -378,6 +382,11 @@ test("SSR-only builds keep static assets on the fast path for Markdown requests"
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toContain("text/plain");
     await expect(response.text()).resolves.toContain("User-agent");
+
+    const markdown = await fetch(`${origin}/skill.md`);
+    expect(markdown.status).toBe(200);
+    expect(markdown.headers.get("content-type")).toBe("text/markdown; charset=utf-8");
+    await expect(markdown.text()).resolves.toContain("# Skill");
   } finally {
     if (server) {
       server.kill("SIGTERM");
