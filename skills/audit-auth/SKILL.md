@@ -107,10 +107,12 @@ target. From `pracht inspect api --json`:
   helpers that read `agent` or middleware-added fields through `this`. The
   framework binds private-field methods to the immutable source receiver, which
   cannot observe fields added on its extensible overlay. Callable fields keep
-  their own API and arrays keep their brand, but immutable native built-ins such
-  as `Map` and `Date` fail closed because an overlay cannot preserve their
-  internal slots. Use a fresh mutable wrapper when a context needs native
-  built-ins or when receiver-bound helpers depend on request state.
+  their own API and arrays keep their brand. Application-defined
+  `Symbol.toStringTag` branding does not affect whether an ordinary context can
+  be overlaid, but immutable native built-ins such as `Map` and `Date` fail
+  closed because an overlay cannot preserve their internal slots. Use a fresh
+  mutable wrapper when a context needs native built-ins or when receiver-bound
+  helpers depend on request state.
 - Inspect every HTTP-, WebMCP-, or MCP-exposed capability body for
   `invokeCapability()`. Direct composition never re-applies app-level API
   middleware. Remote MCP additionally re-applies the callee's `agentPolicy`

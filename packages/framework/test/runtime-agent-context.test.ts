@@ -451,9 +451,31 @@ describe("bindAgentContext", () => {
   });
 
   it("rejects immutable native built-ins whose internal slots cannot survive an overlay", () => {
-    for (const original of [Object.freeze(new Date(0)), Object.freeze(new Map())]) {
+    const disguisedMap = new Map();
+    Object.defineProperty(disguisedMap, Symbol.toStringTag, { value: "Object" });
+
+    for (const original of [
+      Object.freeze(new Date(0)),
+      Object.freeze(new Map()),
+      Object.freeze(disguisedMap),
+    ]) {
       expect(() => bindAgentContext(original, null)).toThrow(/native internal slots/);
     }
+  });
+
+  it("accepts immutable ordinary class contexts with custom object brands", () => {
+    class BrandedContext extends RequestContext {
+      get [Symbol.toStringTag]() {
+        return "BrandedContext";
+      }
+    }
+
+    const original = Object.freeze(new BrandedContext());
+    const context = bindAgentContext(original, null);
+
+    expect(Object.prototype.toString.call(context)).toBe("[object BrandedContext]");
+    expect(context.privateTenant).toBe("one");
+    expect(context.renameTenant).not.toBe(BrandedContext.prototype.renameTenant);
   });
 
   it("synchronizes retained source writes before freezing the overlay", () => {

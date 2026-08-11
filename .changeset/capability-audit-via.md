@@ -23,9 +23,11 @@ identity to frozen or sealed ordinary application contexts preserves their
 receivers, private fields, array branding, callable construction and property
 surfaces, reflection behavior, and writable source fields, including live
 descriptors, prototype changes made through another retained reference, and
-overlays frozen after retained source updates. Immutable native built-ins fail
-closed because an overlay cannot preserve their internal slots; wrap them in a
-fresh mutable request-context object. Reusing a context across different
+overlays frozen after retained source updates. Application-defined
+`Symbol.toStringTag` brands do not change whether an ordinary context can be
+overlaid. Immutable native built-ins fail closed based on their actual
+prototypes because an overlay cannot preserve their internal slots; wrap them
+in a fresh mutable request-context object. Reusing a context across different
 verified identities fails closed, including when immutable contexts require an
 overlay, and reflected methods and accessors preserve their original
 private-field receivers across integrity operations. Receiver-bound helpers on

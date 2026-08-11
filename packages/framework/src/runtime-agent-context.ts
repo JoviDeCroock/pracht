@@ -548,14 +548,82 @@ function isConstructableContext(context: ContextMethod): boolean {
 function assertOverlayableContext(context: object | ContextMethod): void {
   if (typeof context === "function" || Array.isArray(context)) return;
 
-  const tag = Object.prototype.toString.call(context);
-  if (tag === "[object Object]") return;
+  const nativeContext = nativeInternalSlotContext(context);
+  if (!nativeContext) return;
 
   throw new TypeError(
-    `Pracht cannot safely bind agent identity to an immutable ${tag} request context because ` +
+    `Pracht cannot safely bind agent identity to an immutable [object ${nativeContext}] request context because ` +
       "an overlay cannot preserve its native internal slots. Wrap the value in a fresh mutable " +
       "request context object.",
   );
+}
+
+const nativeInternalSlotPrototypes = new Map<object, string>();
+for (const name of [
+  "ArrayBuffer",
+  "BigInt",
+  "BigInt64Array",
+  "BigUint64Array",
+  "Blob",
+  "Boolean",
+  "CompressionStream",
+  "CryptoKey",
+  "DataView",
+  "Date",
+  "DecompressionStream",
+  "File",
+  "FileReader",
+  "FinalizationRegistry",
+  "Float32Array",
+  "Float64Array",
+  "FormData",
+  "Headers",
+  "Int8Array",
+  "Int16Array",
+  "Int32Array",
+  "Map",
+  "MessagePort",
+  "Number",
+  "Promise",
+  "ReadableStream",
+  "RegExp",
+  "Request",
+  "Response",
+  "Set",
+  "SharedArrayBuffer",
+  "String",
+  "Symbol",
+  "TextDecoder",
+  "TextEncoder",
+  "TransformStream",
+  "Uint8Array",
+  "Uint8ClampedArray",
+  "Uint16Array",
+  "Uint32Array",
+  "URL",
+  "URLSearchParams",
+  "WeakMap",
+  "WeakRef",
+  "WeakSet",
+  "WebSocket",
+  "WritableStream",
+] as const) {
+  const constructor = Reflect.get(globalThis, name);
+  if (typeof constructor !== "function") continue;
+  const prototype = Reflect.get(constructor, "prototype");
+  if ((typeof prototype === "object" && prototype !== null) || typeof prototype === "function") {
+    nativeInternalSlotPrototypes.set(prototype, name);
+  }
+}
+
+function nativeInternalSlotContext(context: object): string | null {
+  let prototype = Reflect.getPrototypeOf(context);
+  while (prototype !== null) {
+    const name = nativeInternalSlotPrototypes.get(prototype);
+    if (name) return name;
+    prototype = Reflect.getPrototypeOf(prototype);
+  }
+  return null;
 }
 
 /** Prototype accessors must keep the original class instance as `this`. */
