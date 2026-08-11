@@ -200,19 +200,58 @@ function readQuotedConfigArray(source: string, key: string): string[] | null {
 }
 
 function readStringArrayAt(source: string, start: number): string[] | null {
-  const arraySource = /^\s*\[([^\]]*)\]/.exec(source.slice(start))?.[1];
-  if (arraySource === undefined) return null;
-  if (!arraySource.trim()) return [];
-
   const values: string[] = [];
-  let offset = 0;
-  while (offset < arraySource.length) {
-    const match = /^\s*(["'`])([^"'`]+)\1\s*(?:,|$)/.exec(arraySource.slice(offset));
-    if (!match) return null;
-    values.push(match[2]);
-    offset += match[0].length;
+  let offset = skipConfigTrivia(source, start);
+  if (source[offset] !== "[") return null;
+  offset += 1;
+
+  while (offset < source.length) {
+    offset = skipConfigTrivia(source, offset);
+    if (source[offset] === "]") return values;
+
+    const quote = source[offset];
+    if (quote !== '"' && quote !== "'" && quote !== "`") return null;
+    const valueStart = offset + 1;
+    offset = valueStart;
+    while (offset < source.length && source[offset] !== quote) {
+      // Escapes and template interpolation require JavaScript evaluation;
+      // this reader deliberately resolves static literal values only.
+      if (source[offset] === "\\" || (quote === "`" && source.startsWith("${", offset))) {
+        return null;
+      }
+      offset += 1;
+    }
+    if (offset === source.length || offset === valueStart) return null;
+    values.push(source.slice(valueStart, offset));
+
+    offset = skipConfigTrivia(source, offset + 1);
+    if (source[offset] === "]") return values;
+    if (source[offset] !== ",") return null;
+    offset += 1;
   }
-  return values;
+  return null;
+}
+
+function skipConfigTrivia(source: string, start: number): number {
+  let offset = start;
+  while (offset < source.length) {
+    if (/\s/.test(source[offset])) {
+      offset += 1;
+      continue;
+    }
+    if (source.startsWith("//", offset)) {
+      const newline = source.indexOf("\n", offset + 2);
+      offset = newline === -1 ? source.length : newline + 1;
+      continue;
+    }
+    if (source.startsWith("/*", offset)) {
+      const end = source.indexOf("*/", offset + 2);
+      offset = end === -1 ? source.length : end + 2;
+      continue;
+    }
+    break;
+  }
+  return offset;
 }
 
 function hasConfigProperty(source: string, key: string): boolean {

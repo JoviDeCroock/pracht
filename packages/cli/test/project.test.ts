@@ -42,4 +42,23 @@ describe("readProjectConfig additionalExtensions", () => {
     expect(configured.additionalExtensions).toEqual([".custom"]);
     expect(defaults.additionalExtensions).toEqual([]);
   });
+
+  it("reads arrays with comments and a trailing comma", () => {
+    const project = readProjectConfig(
+      makeProject(`
+        export default {
+          plugins: [
+            pracht({
+              additionalExtensions: [
+                ".tsrx", // Ripple routes
+                /* Vue routes */ ".vue",
+              ],
+            }),
+          ],
+        };
+      `),
+    );
+
+    expect(project.additionalExtensions).toEqual([".tsrx", ".vue"]);
+  });
 });
