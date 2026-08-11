@@ -1,5 +1,6 @@
 import {
   applyDefaultSecurityHeaders,
+  bypassesPrerenderedDocument,
   createISGRegenerationRequest,
   createRevalidationSingleFlight,
   getTimeRevalidateSeconds,
@@ -18,7 +19,6 @@ import {
   classifyRevalidationSkip,
   readRevalidationRequest,
   RevalidationReport,
-  routeSupportsMarkdown,
   setServerEnv,
   type PrachtApp,
   preventHeuristicCaching,
@@ -163,6 +163,7 @@ export function createCloudflareFetchHandler<
         options.isgManifest ?? {},
         options.headersManifest ?? {},
         options.markdownManifest,
+        options.app.markdown,
         renderISGPage,
       );
       if (isgResponse) return preventHeuristicCaching(request, isgResponse);
@@ -173,6 +174,7 @@ export function createCloudflareFetchHandler<
         assetsBinding,
         options.headersManifest ?? {},
         options.markdownManifest,
+        options.app.markdown,
       );
       if (assetResponse) {
         return assetResponse;
@@ -229,6 +231,7 @@ async function maybeServeAsset(
   assetsBinding: string,
   headersManifest: HeadersManifest = {},
   markdownManifest?: MarkdownManifest,
+  markdownConfig?: PrachtApp["markdown"],
 ): Promise<Response | null> {
   if (request.method !== "GET" && request.method !== "HEAD") {
     return null;
@@ -241,14 +244,7 @@ async function maybeServeAsset(
   }
 
   const url = new URL(request.url);
-  if (
-    request.headers.get("x-pracht-route-state-request") === "1" ||
-    url.searchParams.get("_data") === "1"
-  ) {
-    return null;
-  }
-
-  if (wantsRouteMarkdown(request, markdownManifest, url.pathname)) {
+  if (bypassesPrerenderedDocument(request, markdownManifest, markdownConfig)) {
     return null;
   }
 
@@ -281,9 +277,10 @@ async function maybeServeISG<TEnv extends Record<string, unknown>>(
   isgManifest: ISGManifest,
   headersManifest: HeadersManifest,
   markdownManifest: MarkdownManifest | undefined,
+  markdownConfig: PrachtApp["markdown"] | undefined,
   renderISGPage: (pathname: string, originalRequest: Request) => Promise<Response>,
 ): Promise<Response | null> {
-  if (!isDocumentAssetRequest(request, markdownManifest)) return null;
+  if (!isDocumentAssetRequest(request, markdownManifest, markdownConfig)) return null;
 
   const url = new URL(request.url);
   const entry = isgManifest[url.pathname];
@@ -308,6 +305,7 @@ async function maybeServeISG<TEnv extends Record<string, unknown>>(
     assetsBinding,
     headersManifest,
     markdownManifest,
+    markdownConfig,
   );
   if (!assetResponse) return null;
 
@@ -454,23 +452,6 @@ function getManifestHeaders(
   );
 }
 
-/**
- * A request may only skip the assets binding / edge cache when it explicitly
- * prefers markdown over HTML and the build's exact markdown manifest includes
- * the route. Missing metadata means a legacy/custom entry, so preserve correct
- * negotiation by falling through as older adapters did.
- */
-function wantsRouteMarkdown(
-  request: Request,
-  markdownManifest: MarkdownManifest | undefined,
-  pathname: string,
-): boolean {
-  return (
-    prefersMarkdown(request.headers.get("accept")) &&
-    (markdownManifest === undefined || routeSupportsMarkdown(markdownManifest, pathname))
-  );
-}
-
 function isFetcher(value: unknown): value is CloudflareFetcher {
   return typeof value === "object" && value !== null && "fetch" in value;
 }
@@ -478,18 +459,10 @@ function isFetcher(value: unknown): value is CloudflareFetcher {
 function isDocumentAssetRequest(
   request: Request,
   markdownManifest: MarkdownManifest | undefined,
+  markdownConfig?: PrachtApp["markdown"],
 ): boolean {
   if (request.method !== "GET" && request.method !== "HEAD") return false;
-
-  const url = new URL(request.url);
-  if (
-    request.headers.get("x-pracht-route-state-request") === "1" ||
-    url.searchParams.get("_data") === "1"
-  ) {
-    return false;
-  }
-
-  return !wantsRouteMarkdown(request, markdownManifest, url.pathname);
+  return !bypassesPrerenderedDocument(request, markdownManifest, markdownConfig);
 }
 
 function createISGCacheKey(request: Request, pathname: string): Request {

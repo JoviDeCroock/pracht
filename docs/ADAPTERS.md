@@ -881,25 +881,36 @@ export function headers() {
 
 ## Markdown and the static fast path
 
-Routes that export `markdown` answer `Accept: text/markdown` with their raw
-source instead of HTML (see [DATA_LOADING.md](DATA_LOADING.md)). Prerendered
+Routes that export `markdown` answer `Accept: text/markdown` and native `.md`
+aliases with their raw source instead of HTML (see
+[DATA_LOADING.md](DATA_LOADING.md)). Prerendered
 documents are served by the adapter before the framework runs, so the Node and
 Cloudflare adapters have to decide up front whether a cached document can answer
-a given request. Both require **two** conditions before skipping the static file
-(Node), the assets binding, or the edge cache (Cloudflare):
+a given request. All adapters use the core request classifier rather than
+implementing separate Accept, q-value, route-state, and alias rules. A
+prerendered document is skipped only for route-state, or when both Markdown
+conditions hold:
 
 1. the request prefers markdown over HTML — the same `prefersMarkdown()`
    negotiation the runtime uses, so `*/*`, `text/html,*/*`, and a q-weighted
    `text/html,text/markdown;q=0.1` all keep getting HTML; and
-2. the route appears in `markdown-manifest.json`, which the build derives from
-   the route module's actual `markdown` export rather than user-defined response
-   headers.
+2. the canonical route or native alias appears in `markdown-manifest.json`,
+   which the build derives from the route module's actual `markdown` export
+   rather than user-defined response headers. Canonical paths map to `true`;
+   aliases map to their canonical concrete path, for example
+   `"/guide/v10/hooks.md": "/guide/v10/hooks"`.
 
 An app with no markdown routes therefore never leaves its static fast path,
 whoever is asking: agent traffic cannot force SSR renders of prerendered pages,
 and hashed assets are never re-rendered because a client sent an odd `Accept`.
-The build emits an empty manifest for SSR-only apps too, so public files keep
+Dynamic SSG/ISG routes contribute only concrete paths from `getStaticPaths()`
+and their exact aliases; parameter patterns never enter the manifest. The build
+emits an empty manifest for SSR-only apps too, so public files keep
 the same guarantee even when the app has no prerendered documents.
+Canonical route paths ending in `.md` are recorded as canonical entries, not
+aliases, so their prerendered HTML remains on the static fast path until Accept
+negotiation asks for Markdown. The build rejects any canonical/alias or
+home/suffix alias collision instead of letting manifest write order decide it.
 
 A `.md` file in `public/` is a different thing entirely: it is a plain static
 asset, copied to `dist/client/` by the build and served by content type, not by
@@ -912,7 +923,7 @@ catalog, a docs mirror); no middleware is needed to correct the header.
 
 Vercel reaches the same outcome through its routing table rather than adapter
 code, because the platform serves prerendered files before any function runs.
-The build emits an `Accept`-conditional route to the render function, ahead of
+The build emits exact alias routes plus an `Accept`-conditional route to the render function, ahead of
 the static rewrite, for each prerendered route in the markdown manifest — and
 only those. The header match there is coarser than `prefersMarkdown()` by
 necessity (Vercel's `has` takes a regex, not a q-value parser), so anything

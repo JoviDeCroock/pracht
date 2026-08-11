@@ -99,6 +99,7 @@ test("pracht build emits a deployable Vercel Build Output setup", async () => {
           has: [{ type: "query", key: "_data", value: "1" }],
           dest: "/render",
         }),
+        expect.objectContaining({ src: "^/index\\.md/?$", dest: "/render" }),
         expect.objectContaining({ src: "^/$", dest: "/index.html" }),
         expect.objectContaining({ src: "^/docs/?$", dest: "/docs/index.html" }),
         expect.objectContaining({ src: "^/pricing/?$", dest: "/pricing" }),

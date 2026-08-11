@@ -22,7 +22,7 @@ function createResolvedApp() {
 function createRegistry(): ModuleRegistry {
   return {
     routeModules: {
-      "/src/routes/home.tsx": async () => ({ markdown: "# Home" }),
+      "/src/routes/home.tsx": async () => ({ markdown: () => "# Home" }),
       "/src/routes/about.tsx": async () => ({}),
       "/src/routes/blog.tsx": async () => ({
         // Deliberately unsorted to prove output ordering is stable.

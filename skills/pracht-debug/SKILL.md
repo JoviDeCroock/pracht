@@ -129,7 +129,8 @@ Work through these in order, stopping when you find the root cause:
 
 ## Framework Internals
 
-- `handlePrachtRequest()` dispatches: API routes → middleware → loader → render → HTML assembly
+- `handlePrachtRequest()` dispatches: API routes → Markdown `.md` alias rematch → middleware → loader → `markdown()` or HTML render
+- Exact declared `.md` routes stay literal. If a home alias and another route's generated alias both export `markdown`, change `markdown.homeAlias`; Pracht reports the collision rather than choosing by manifest order.
 - Route state JSON: returned when `x-pracht-route-state-request` header is present (client-side navigation)
 - Hydration state: injected as `window.__PRACHT_STATE__` in the HTML
 - Client router: `initClientRouter()` intercepts link clicks and fetches route state JSON

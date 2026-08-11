@@ -442,6 +442,26 @@ describe("createCloudflareFetchHandler ISG", () => {
     await expect(response.text()).resolves.toBe("# Pricing\n");
   });
 
+  it("serves exact native .md aliases without an Accept header", async () => {
+    const { executionContext } = createExecutionContext();
+    const { app, registry } = createPricingApp(undefined, false, true);
+    const handler = createCloudflareFetchHandler({
+      app,
+      registry,
+      isgManifest: { "/pricing": { revalidate: isgRevalidate } },
+      markdownManifest: { "/pricing": true, "/pricing.md": "/pricing" },
+    });
+
+    const response = await handler(
+      new Request("https://markdown-route.example/pricing.md"),
+      { ASSETS: create404Assets() },
+      executionContext,
+    );
+
+    expect(response.headers.get("content-type")).toContain("text/markdown");
+    await expect(response.text()).resolves.toBe("# Pricing\n");
+  });
+
   it("preserves markdown negotiation when the optional manifest is unavailable", async () => {
     const { cache, store } = createMockCaches();
     vi.stubGlobal("caches", { default: cache });

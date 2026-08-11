@@ -25,7 +25,9 @@ Platform request (Node / CF / Vercel)
 
 Adapters also preserve route and shell document headers for prerendered HTML so static SSG/ISG responses match dynamic document responses.
 
-For prerendered routes that export `markdown`, the Node and Cloudflare adapters bypass the static document only when the request prefers `text/markdown` over HTML and the exact route appears in the generated Markdown manifest. Routes without a markdown representation stay on the static fast path even when an agent requests markdown; SSR-only builds emit an empty manifest so public assets receive the same protection, while custom entries without manifest metadata preserve negotiation by falling through to the framework.
+For prerendered routes that export `markdown`, every adapter uses Pracht's shared request classifier for q-valued Accept negotiation, route-state exclusion, and native `.md` aliases. Static HTML is bypassed only when the canonical route or exact concrete alias appears in the generated Markdown manifest. Canonical entries map to `true`; aliases map back to the canonical path. Dynamic SSG/ISG patterns contribute only paths from `getStaticPaths()`. Routes without a markdown representation stay on the static fast path even when an agent requests markdown; SSR-only builds emit an empty manifest so public assets receive the same protection, while custom entries without manifest metadata preserve negotiation by falling through to the framework.
+
+An exact canonical route ending in `.md` remains a canonical manifest entry, so its prerendered HTML is served unless Accept negotiation requests Markdown. Builds reject canonical/alias and home/suffix alias collisions instead of resolving them by write order.
 
 ---
 

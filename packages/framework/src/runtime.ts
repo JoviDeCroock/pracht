@@ -39,6 +39,7 @@ import {
 } from "./runtime-middleware.ts";
 import type { ResolvedCapability } from "./runtime-capabilities.ts";
 import { buildRouteStateUrl } from "./runtime-client-fetch.ts";
+import { normalizeRoutePath } from "./route-matching.ts";
 import {
   getRenderToStringAsync,
   jsonErrorResponse,
@@ -47,7 +48,11 @@ import {
   renderRouteErrorResponse,
 } from "./runtime-response.ts";
 import { withRouteResponseHeaders } from "./runtime-headers.ts";
-import { markdownResponse, prefersMarkdown } from "./runtime-negotiation.ts";
+import {
+  classifyRouteRequest,
+  markdownResponse,
+  resolveMarkdownAliasPaths,
+} from "./runtime-negotiation.ts";
 import type { PrachtPhaseTimings } from "./runtime-timing.ts";
 import type {
   ApiRouteArgs,
@@ -237,6 +242,16 @@ export async function handlePrachtRequest<TContext>(
   const headerSignalsRouteState = options.request.headers.get(ROUTE_STATE_REQUEST_HEADER) === "1";
   const dataParamIsFirstParty = hasDataParam && isFirstPartyFetch(options.request);
   const isRouteStateRequest = headerSignalsRouteState || dataParamIsFirstParty;
+  const normalizedRequestPath = normalizeRoutePath(url.pathname);
+  const literalRouteMatch = matchAppRoute(resolvedApp, normalizedRequestPath);
+  const preserveLiteralPath =
+    literalRouteMatch !== undefined &&
+    literalRouteMatch.route.segments.every((segment) => segment.type === "static") &&
+    normalizeRoutePath(literalRouteMatch.route.path) === normalizedRequestPath;
+  let routeRequest = classifyRouteRequest(options.request, options.app.markdown, {
+    preservePathname: preserveLiteralPath,
+    routeState: isRouteStateRequest,
+  });
   const exposeDiagnostics = shouldExposeServerErrors(options);
   const requireSameOrigin = options.app.api.requireSameOrigin ?? true;
   // A WebSocket handshake is a GET, so the method check used for API
@@ -565,7 +580,51 @@ export async function handlePrachtRequest<TContext>(
     }
   }
 
-  const match = matchAppRoute(resolvedApp, url.pathname);
+  let match = preserveLiteralPath
+    ? literalRouteMatch
+    : matchAppRoute(resolvedApp, routeRequest.pathname);
+  let preloadedRouteModule: RouteModule | undefined;
+
+  if (routeRequest.markdownAlias && SAFE_METHODS.has(options.request.method)) {
+    const markdownMatches: Array<{ match: RouteMatch; module: RouteModule }> = [];
+    for (const candidate of resolveMarkdownAliasPaths(url.pathname, options.app.markdown)) {
+      const candidateMatch = matchAppRoute(resolvedApp, candidate);
+      if (!candidateMatch) continue;
+      const candidateModule = await resolveRegistryModule<RouteModule>(
+        registry.routeModules,
+        candidateMatch.route.file,
+      );
+      if (candidateModule?.markdown !== undefined) {
+        markdownMatches.push({ match: candidateMatch, module: candidateModule });
+      }
+    }
+
+    if (markdownMatches.length > 1) {
+      return withDefaultSecurityHeaders(
+        new Response(
+          `Ambiguous Markdown alias ${JSON.stringify(normalizedRequestPath)}. Configure a different defineApp({ markdown: { homeAlias } }) value or change one of the route paths.`,
+          {
+            status: 500,
+            headers: { "content-type": "text/plain; charset=utf-8" },
+          },
+        ),
+      );
+    }
+
+    const markdownMatch = markdownMatches[0];
+    if (!markdownMatch) {
+      return withDefaultSecurityHeaders(
+        new Response("Not found", {
+          status: 404,
+          headers: { "content-type": "text/plain; charset=utf-8" },
+        }),
+      );
+    }
+
+    match = markdownMatch.match;
+    preloadedRouteModule = markdownMatch.module;
+    routeRequest = { ...routeRequest, pathname: match.pathname };
+  }
 
   if (!match) {
     if (isRouteStateRequest) {
@@ -628,7 +687,7 @@ export async function handlePrachtRequest<TContext>(
     );
   }
 
-  return renderPageMatch(match, { isNotFoundPage: false, status: 200 });
+  return renderPageMatch(match, { isNotFoundPage: false, status: 200 }, preloadedRouteModule);
 
   /**
    * Render one page match through the middleware → loader → render pipeline.
@@ -641,6 +700,7 @@ export async function handlePrachtRequest<TContext>(
   async function renderPageMatch(
     match: RouteMatch,
     pageOptions: { isNotFoundPage: boolean; status: number },
+    preloadedModule?: RouteModule,
   ): Promise<Response> {
     const requestSignal = AbortSignal.timeout(30_000);
     const pageContext = requestContext;
@@ -670,10 +730,9 @@ export async function handlePrachtRequest<TContext>(
       //
       // Only the loader itself still waits for middleware, because it
       // receives the (potentially middleware-mutated) context.
-      routeModulePromise = resolveRegistryModule<RouteModule>(
-        registry.routeModules,
-        match.route.file,
-      );
+      routeModulePromise = preloadedModule
+        ? Promise.resolve(preloadedModule)
+        : resolveRegistryModule<RouteModule>(registry.routeModules, match.route.file);
 
       const shellModulePromise: Promise<ShellModule | undefined> = match.route.shellFile
         ? resolveRegistryModule<ShellModule>(registry.shellModules, match.route.shellFile)
@@ -700,6 +759,18 @@ export async function handlePrachtRequest<TContext>(
               ? `notFound page module ${JSON.stringify(match.route.file)} was not found in the module registry. ` +
                   "The not-found page is loaded from the same registry as route modules, so it has to live in the routes directory."
               : "Route module not found",
+          );
+        }
+
+        // A native `.md` alias only exists when the matched route can produce
+        // Markdown. Check before the loader so a nonexistent representation
+        // cannot trigger route data work or side effects.
+        if (routeRequest.markdownAlias && routeModule.markdown === undefined) {
+          return withDefaultSecurityHeaders(
+            new Response("Not found", {
+              status: 404,
+              headers: { "content-type": "text/plain; charset=utf-8" },
+            }),
           );
         }
 
@@ -746,19 +817,21 @@ export async function handlePrachtRequest<TContext>(
         // (or vice versa). Keep the variance scoped to routes that actually
         // export markdown: raw Accept values create distinct cache variants on
         // CDNs such as Cloudflare Workers Caching.
-        const markdownRepresentation =
-          typeof routeModule.markdown === "string" ? routeModule.markdown : undefined;
-        if (markdownRepresentation !== undefined) {
+        const markdownExport = routeModule.markdown;
+        if (markdownExport !== undefined) {
           appendVaryHeader(documentHeaders, "Accept");
         }
 
         // Markdown-for-Agents negotiation must run after loader + header
         // resolution so auth redirects/401s and cache policies still apply.
-        if (
-          !isRouteStateRequest &&
-          markdownRepresentation !== undefined &&
-          prefersMarkdown(options.request.headers.get("accept"))
-        ) {
+        if (!isRouteStateRequest && markdownExport !== undefined && routeRequest.markdown) {
+          const markdownRepresentation =
+            typeof markdownExport === "function"
+              ? await markdownExport({ ...routeArgs, data } as never)
+              : markdownExport;
+          if (typeof markdownRepresentation !== "string") {
+            throw new TypeError("A route markdown() export must return a string.");
+          }
           return markdownResponse(markdownRepresentation, documentHeaders, pageOptions.status);
         }
 

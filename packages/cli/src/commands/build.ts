@@ -5,6 +5,7 @@ import { pathToFileURL } from "node:url";
 
 import { defineCommand } from "citty";
 import { build as viteBuild } from "vite";
+import { addMarkdownManifestRoute, type MarkdownManifest } from "@pracht/core/server";
 
 import { readClientBuildAssets } from "../build-metadata.js";
 import { writeVercelBuildOutput } from "../build-shared.js";
@@ -180,11 +181,12 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
         page.headers ?? {},
       ]),
     );
-    const markdownManifest: Record<string, true> = Object.fromEntries(
-      pages
-        .filter((page: { markdown?: boolean }) => page.markdown)
-        .map((page: { path: string }) => [page.path, true]),
-    );
+    const markdownManifest: MarkdownManifest = {};
+    for (const page of pages as Array<{ markdown?: boolean; path: string }>) {
+      if (page.markdown) {
+        addMarkdownManifestRoute(markdownManifest, page.path, serverMod.resolvedApp.markdown);
+      }
+    }
 
     // With Workers Caching enabled, time-revalidated ISG pages are rendered
     // on demand and cached at the edge. A prerendered static snapshot would
@@ -365,7 +367,14 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
         functionName: serverMod.vercelFunctionName,
         isgManifest,
         headersManifest,
-        markdownRoutes: Object.keys(markdownManifest),
+        markdownRoutes: Object.entries(markdownManifest)
+          .filter(([, target]) => target === true)
+          .map(([path]) => path),
+        markdownAliases: Object.fromEntries(
+          Object.entries(markdownManifest).filter(
+            (entry): entry is [string, string] => typeof entry[1] === "string",
+          ),
+        ),
         regions: serverMod.vercelRegions,
         root,
         staticRoutes: [

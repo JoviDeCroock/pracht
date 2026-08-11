@@ -95,6 +95,11 @@ specified in the config, it takes precedence over inline exports.
 
 - **Head**: `export function head(args)` — per-route `<head>` metadata merged with
   shell-level head.
+- **Agent-readable Markdown**: a route can export a string or
+  `markdown({ data, params, url, context })` function. It runs after the loader,
+  negotiates `Accept` with q-values, and is also available through native `.md`
+  aliases such as `/guide/v10/hooks.md` and the configurable `/index.md` home alias;
+  exact declared `.md` paths stay literal and alias collisions fail explicitly.
 - **Client hooks**: `useRouteData()`, `useRevalidate()`, `useNavigation()` (pending
   navigation/submission state for progress bars and optimistic UI), `useNavigate()`,
   `useLocation()`, `useParams()`, `<Form>` component, `<Link>` (with `prefetch`,

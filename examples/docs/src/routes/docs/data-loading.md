@@ -38,7 +38,37 @@ export default function Dashboard({ data }: RouteComponentProps<typeof loader>) 
 
 The route component can be a function default export or a named `Component`
 export. Named route exports such as `loader`, `head`, `headers`,
-`ErrorBoundary`, and `getStaticPaths` remain separate special exports.
+`markdown`, `ErrorBoundary`, and `getStaticPaths` remain separate special exports.
+
+### Markdown from loader data
+
+A route can export a Markdown string or a function that runs after its loader.
+The function receives the loader result alongside the normal route arguments,
+so a CMS document is fetched once for both HTML and Markdown:
+
+```tsx
+import type { LoaderArgs, MarkdownArgs } from "@pracht/core";
+
+export async function loader({ params }: LoaderArgs) {
+  return { content: await cms.read(params.slug) };
+}
+
+export async function markdown({ data }: MarkdownArgs<typeof loader>) {
+  return data.content.source;
+}
+```
+
+`Accept: text/markdown` negotiates this representation. Native aliases force it
+without a header: `/guide/v10/hooks.md` rematches
+`/guide/:version/:name`; `/index.md` aliases the home route by default. Set
+`defineApp({ markdown: { homeAlias: "/readme.md" } })` to change the home alias,
+or `homeAlias: false` to disable it. Route-state requests remain JSON and never
+enter Markdown alias handling; cross-site `?_data=1` query parameters are not
+accepted as route-state. An exact declared path ending in `.md` remains literal
+and uses `.md.md` as its own native alias. If a home alias also names another
+route's alias, Pracht selects the sole Markdown-capable target and reports an
+ambiguity if both routes export `markdown`; choose another `homeAlias` to expose
+both. HTML and Markdown responses include `Vary: Accept`.
 
 ### LoaderArgs
 

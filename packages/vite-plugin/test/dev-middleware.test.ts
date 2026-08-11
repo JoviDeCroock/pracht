@@ -92,16 +92,42 @@ describe("development CSS discovery", () => {
 });
 
 const routeMatchers = {
-  app: {} as any,
+  app: { markdown: {} } as any,
   apiRoutes: [] as any[],
   matchApiRoute: () => undefined,
   matchAppRoute: (_app: unknown, pathname: string) =>
-    new Set(["/blog/release-1.2.3", "/blog/openapi.json", "/@alice"]).has(pathname)
+    new Set([
+      "/blog/release-1.2.3",
+      "/blog/openapi.json",
+      "/guide/v10/hooks",
+      "/literal.md",
+      "/@alice",
+    ]).has(pathname)
       ? ({ pathname } as const)
       : undefined,
 };
 
 describe("shouldBypassDevSSR", () => {
+  it("keeps exact declared .md routes inside framework handling", () => {
+    expect(
+      shouldBypassDevSSR(
+        "/literal.md",
+        { headers: { accept: "*/*" }, method: "GET" },
+        routeMatchers,
+      ),
+    ).toBe(false);
+  });
+
+  it("keeps native Markdown aliases inside framework handling", () => {
+    expect(
+      shouldBypassDevSSR(
+        "/guide/v10/hooks.md",
+        { headers: { accept: "*/*" }, method: "GET" },
+        routeMatchers,
+      ),
+    ).toBe(false);
+  });
+
   it("keeps dotted document routes inside framework handling", () => {
     expect(
       shouldBypassDevSSR(

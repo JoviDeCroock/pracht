@@ -136,7 +136,8 @@ revalidation — and attacker-chosen query values create unbounded cold entries.
 Before enabling `cache: true`, canonicalize or reject stray query params (the
 docs describe an uncached-gateway pattern), and note that routes exporting
 `markdown` carry `Vary: Accept`, which multiplies variants per `Accept`
-string. Vercel prerender functions are generated with `allowQuery: []`, so
+string. Their native `.md` aliases bypass cached HTML through the same exact
+concrete Markdown manifest; dynamic patterns are never guessed. Vercel prerender functions are generated with `allowQuery: []`, so
 query strings do not fragment that cache. Middleware never runs for cached ISG
 hits on any adapter — keep per-visitor logic on SSR routes.
 

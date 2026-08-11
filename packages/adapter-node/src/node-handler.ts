@@ -5,6 +5,7 @@ import { dirname, join, resolve, sep } from "node:path";
 
 import {
   applyDefaultSecurityHeaders,
+  bypassesPrerenderedDocument,
   getTimeRevalidateSeconds,
   handlePrachtRequest,
   classifyRevalidationSkip,
@@ -12,18 +13,17 @@ import {
   type ISGManifestEntry,
   isCacheableISGResponse,
   jsonResponse,
+  isRouteStateTransportRequest,
   matchAppRoute,
   type ModuleRegistry,
   type MarkdownManifest,
   PRACHT_REVALIDATE_ENDPOINT,
-  prefersMarkdown,
   preventHeuristicCaching,
   readRevalidationRequest,
   RevalidationReport,
   resolveRevalidationToken,
   type ResolvedApiRoute,
   type PrachtApp,
-  routeSupportsMarkdown,
 } from "@pracht/core/server";
 
 import { regenerateISGPage } from "./node-isg.ts";
@@ -126,17 +126,12 @@ export function createNodeRequestHandler<TContext = unknown>(
       throw err;
     }
     const url = new URL(request.url);
-    const isTransportRouteStateRequest = isRouteStateRequest(url, request.headers);
-    // Only routes that can actually answer with markdown skip the static and
-    // ISG fast paths: the client has to prefer markdown over HTML (a browser's
-    // `*/*` or a q-weighted `text/markdown;q=0.1` does not), and the route has
-    // to appear in the exact markdown manifest emitted by the build. Missing
-    // metadata means a legacy/custom entry, so preserve correct negotiation by
-    // falling through as older adapters did.
-    const wantsMarkdown =
-      prefersMarkdown(request.headers.get("accept")) &&
-      (options.markdownManifest === undefined ||
-        routeSupportsMarkdown(options.markdownManifest, url.pathname));
+    const isTransportRouteStateRequest = isRouteStateTransportRequest(request);
+    const bypassesPrerender = bypassesPrerenderedDocument(
+      request,
+      options.markdownManifest,
+      options.app.markdown,
+    );
 
     if (url.pathname === PRACHT_REVALIDATE_ENDPOINT) {
       const response = await handleRevalidationEndpoint(request, options, staticDir, isgManifest, {
@@ -148,12 +143,7 @@ export function createNodeRequestHandler<TContext = unknown>(
       return;
     }
 
-    if (
-      staticDir &&
-      isStaticAssetMethod(request.method) &&
-      !wantsMarkdown &&
-      !isTransportRouteStateRequest
-    ) {
+    if (staticDir && isStaticAssetMethod(request.method) && !bypassesPrerender) {
       const staticResult = await resolveStaticFile(staticDir, url.pathname, isgManifest);
       if (staticResult) {
         await serveStaticFile(request, res, staticResult, headersManifest, url.pathname);
@@ -164,8 +154,7 @@ export function createNodeRequestHandler<TContext = unknown>(
     if (
       staticDir &&
       isStaticAssetMethod(request.method) &&
-      !isTransportRouteStateRequest &&
-      !wantsMarkdown &&
+      !bypassesPrerender &&
       url.pathname in isgManifest
     ) {
       const served = await serveISGEntry(
@@ -442,10 +431,6 @@ function resolveContainedPath(staticDir: string, pathname: string): string | nul
     return null;
   }
   return resolved;
-}
-
-function isRouteStateRequest(url: URL, headers: Headers): boolean {
-  return headers.get(ROUTE_STATE_REQUEST_HEADER) === "1" || url.searchParams.get("_data") === "1";
 }
 
 function isStaticAssetMethod(method: string): boolean {

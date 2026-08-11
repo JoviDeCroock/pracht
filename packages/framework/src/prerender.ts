@@ -114,7 +114,9 @@ export async function prerenderApp(
           headers: Object.fromEntries(response.headers),
           html,
           item,
-          markdown: typeof routeModule?.markdown === "string",
+          markdown:
+            typeof routeModule?.markdown === "string" ||
+            typeof routeModule?.markdown === "function",
         };
       }),
     );

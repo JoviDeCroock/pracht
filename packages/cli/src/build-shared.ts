@@ -38,6 +38,8 @@ interface VercelBuildOutputOptions {
   isgManifest: Record<string, ISGManifestEntry>;
   /** Prerendered routes whose module exports `markdown`. */
   markdownRoutes?: string[];
+  /** Exact native Markdown aliases mapped to their canonical route paths. */
+  markdownAliases?: Record<string, string>;
   revalidateToken?: string;
   regions?: VercelRegions;
   root: string;
@@ -49,6 +51,7 @@ export function writeVercelBuildOutput({
   headersManifest = {},
   isgManifest,
   markdownRoutes = [],
+  markdownAliases = {},
   revalidateToken = process.env.PRACHT_REVALIDATE_TOKEN || randomBytes(32).toString("hex"),
   regions,
   root,
@@ -93,6 +96,7 @@ export function writeVercelBuildOutput({
         functionName,
         headersManifest,
         markdownRoutes,
+        markdownAliases,
         staticRoutes,
         isgRoutes: Object.keys(isgManifest),
       }),
@@ -253,12 +257,14 @@ function createVercelOutputConfig({
   functionName,
   headersManifest,
   markdownRoutes,
+  markdownAliases,
   staticRoutes,
   isgRoutes,
 }: {
   functionName?: string;
   headersManifest: Record<string, Record<string, string>>;
   markdownRoutes: string[];
+  markdownAliases: Record<string, string>;
   isgRoutes: string[];
   staticRoutes: string[];
 }): Record<string, unknown> {
@@ -275,6 +281,14 @@ function createVercelOutputConfig({
       src: "/(.*)",
     },
   ];
+
+  // Native aliases force the Markdown representation without relying on an
+  // Accept header. They are exact concrete paths from the prerender manifest,
+  // so they can safely bypass the filesystem before a public `.md` asset or a
+  // static HTML rewrite claims the request.
+  for (const alias of Object.keys(markdownAliases).sort()) {
+    routes.push({ dest: target, src: routeToRouteExpression(alias) });
+  }
 
   // Routes that export `markdown` answer `Accept: text/markdown` with their
   // source instead of HTML, which only the function can do — so they have to

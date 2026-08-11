@@ -8,6 +8,7 @@ export type {
   NotFoundDefinition,
   PrachtApp,
   PrachtAppConfig,
+  PrachtMarkdownConfig,
   RenderMode,
   HydrationMode,
   IslandStrategy,

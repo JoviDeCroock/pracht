@@ -72,6 +72,26 @@ describe("writeVercelBuildOutput", () => {
     }
   });
 
+  it("routes exact native Markdown aliases to the function before the filesystem", () => {
+    const root = createBuildRoot();
+
+    writeVercelBuildOutput({
+      isgManifest: {},
+      markdownAliases: { "/guide/v10/hooks.md": "/guide/v10/hooks", "/index.md": "/" },
+      markdownRoutes: ["/", "/guide/v10/hooks"],
+      root,
+      staticRoutes: ["/", "/guide/v10/hooks"],
+    });
+
+    const config = JSON.parse(readFileSync(join(root, ".vercel/output/config.json"), "utf-8")) as {
+      routes: { dest?: string; has?: unknown[]; src?: string }[];
+    };
+    expect(config.routes.slice(2, 4)).toEqual([
+      { dest: "/render", src: "^/guide/v10/hooks\\.md/?$" },
+      { dest: "/render", src: "^/index\\.md/?$" },
+    ]);
+  });
+
   it("emits markdown routing only for routes that export markdown", () => {
     const withMarkdown = createBuildRoot();
     const withoutMarkdown = createBuildRoot();

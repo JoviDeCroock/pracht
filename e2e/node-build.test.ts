@@ -49,7 +49,7 @@ test("pracht build emits a deployable Node server entry", async () => {
     const markdownManifest = JSON.parse(
       readFileSync(resolve(exampleDir, "dist/server/markdown-manifest.json"), "utf-8"),
     );
-    expect(markdownManifest).toEqual({ "/": true });
+    expect(markdownManifest).toEqual({ "/": true, "/index.md": "/" });
     expect(
       JSON.parse(readFileSync(resolve(exampleDir, "dist/client/_pracht/markdown.json"), "utf-8")),
     ).toEqual(markdownManifest);
@@ -93,6 +93,10 @@ test("pracht build emits a deployable Node server entry", async () => {
     });
     expect(homeMarkdown.headers.get("content-type")).toContain("text/markdown");
     expect(await homeMarkdown.text()).toContain("# Pracht Example");
+
+    const homeMarkdownAlias = await fetch(`http://127.0.0.1:${port}/index.md`);
+    expect(homeMarkdownAlias.headers.get("content-type")).toContain("text/markdown");
+    expect(await homeMarkdownAlias.text()).toContain("- Hybrid route manifest");
 
     // Dynamic SSG routes should be prerendered as static HTML files
     for (const id of ["1", "2", "3"]) {

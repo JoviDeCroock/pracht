@@ -28,7 +28,7 @@ The HTML and Markdown responses include `Vary: Accept`, so caches keep both repr
 
 ## Opt In with a Markdown Export
 
-Any route can expose an agent version by exporting a `markdown` string. When the incoming request prefers `text/markdown`, pracht returns that string before running the normal render pipeline.
+Any route can expose an agent version by exporting a `markdown` string or async function. Pracht runs middleware and the loader first, then passes the resolved data and route arguments to the function.
 
 ```tsx [src/routes/pricing.tsx]
 export const markdown = `# Pricing
@@ -42,6 +42,24 @@ export function Component() {
   return <PricingPage />;
 }
 ```
+
+```tsx [src/routes/guide.tsx]
+import type { MarkdownArgs } from "@pracht/core";
+
+export async function markdown({ data, params }: MarkdownArgs<typeof loader>) {
+  return data.content.source;
+}
+```
+
+Every opted-in route also has a native `.md` alias. For example,
+`/guide/v10/hooks.md` rematches `/guide/:version/:name` and forces Markdown
+without an `Accept` header. `/index.md` aliases `/` by default; configure it as
+`defineApp({ markdown: { homeAlias: "/readme.md" } })` or disable the home alias
+with `homeAlias: false`. Route-state requests are excluded from both aliasing and
+content negotiation, but cross-site `?_data=1` query parameters remain ordinary
+document requests. Exact declared `.md` paths stay literal. If a home alias and
+another route's generated alias both target Markdown-capable routes, Pracht
+reports the collision so the app can choose a different `homeAlias`.
 
 For the docs site, the Markdown route plugin emits that export automatically for every `.md` page:
 

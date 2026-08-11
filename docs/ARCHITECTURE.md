@@ -113,6 +113,11 @@ export function headers({ data }: HeadersArgs<typeof loader>) {
   return { "cache-control": data.isPublic ? "public, max-age=60" : "no-store" };
 }
 
+// Server: raw agent-readable representation after the loader (optional)
+export async function markdown({ data }: MarkdownArgs<typeof loader>) {
+  return data.content.source;
+}
+
 // Client + SSR: the page component
 export default function Dashboard({ data }: RouteComponentProps<typeof loader>) {
   const liveData = useRouteData<typeof loader>();
@@ -151,7 +156,7 @@ export default function Dashboard({ data }: RouteComponentProps) {
 
 A named `Component` export is also supported for compatibility. Function-valued
 default exports are treated as the page component; named exports such as
-`loader`, `head`, `headers`, `ErrorBoundary`, and `getStaticPaths` keep their
+`loader`, `head`, `headers`, `markdown`, `ErrorBoundary`, and `getStaticPaths` keep their
 framework roles.
 
 Wired in the manifest via the `RouteConfig` object form:

@@ -230,7 +230,8 @@ async function collectPageEntries(
 
   for (const route of routes) {
     const routeModule = await loadRouteModule(registry, route.file);
-    const markdown = typeof routeModule?.markdown === "string";
+    const markdown =
+      typeof routeModule?.markdown === "string" || typeof routeModule?.markdown === "function";
 
     if (!isDynamicRoute(route)) {
       if (!entries.has(route.path)) {

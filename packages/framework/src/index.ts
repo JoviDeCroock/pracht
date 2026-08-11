@@ -258,6 +258,7 @@ export type {
   LoaderData,
   LoaderFn,
   LoaderCache,
+  MarkdownArgs,
   MiddlewareArgs,
   MiddlewareFn,
   MiddlewareModule,
@@ -307,6 +308,7 @@ export type {
   WebhookRevalidatePolicy,
   PrachtApp,
   PrachtAppConfig,
+  PrachtMarkdownConfig,
 } from "./types.ts";
 export type {
   FormProps,

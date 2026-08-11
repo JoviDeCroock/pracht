@@ -60,7 +60,12 @@ File-based routing (Next.js, SvelteKit) couples URL structure to directory struc
 | ---------- | -------------------------------------- | ------------------------------------------------------------- |
 | shells     | Record\<string, string\>               | Named shell modules — key is the name, value is the file path |
 | middleware | Record\<string, string\>               | Named middleware modules                                      |
+| markdown   | { homeAlias?: string \| false }         | Native `.md` aliases; home defaults to `/index.md`             |
 | routes     | (RouteDefinition \| GroupDefinition)[] | The route tree                                                |
+
+Exact declared `.md` route paths remain literal. If a configured home alias
+also names another route's generated alias, both routes cannot export
+`markdown`; choose a different `homeAlias` to expose both representations.
 
 ### route(path, file, meta?)
 

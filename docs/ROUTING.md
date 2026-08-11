@@ -85,6 +85,7 @@ Top-level configuration:
 | `middleware` | `Record<string, ModuleRef>`              | Named middleware modules                                              |
 | `routes`     | `(RouteDefinition \| GroupDefinition)[]` | Route tree                                                            |
 | `notFound`   | `ModuleRef \| NotFoundConfig`            | Page rendered with a 404 status when nothing matches — see [Not-Found Page](#not-found-page) |
+| `markdown`   | `{ homeAlias?: string \| false }`         | Native Markdown alias settings; home defaults to `/index.md`             |
 
 ### `route(path, file, meta?)`
 
@@ -703,6 +704,21 @@ as `@mdx-js/rollup` registered alongside `pracht()`. Without one, Vite hands the
 raw Markdown to the JS parser and the route fails at request time (`Invalid
 Character`) and at build time. `pracht doctor` and `pracht verify` warn when a
 Markdown page is routed and no such plugin is registered.
+
+This file-extension convention is separate from a route's server-only
+`markdown` export. Any route module that exports Markdown also receives a
+native response alias: `/guide/:version/:name` can be requested as
+`/guide/v10/hooks.md`, which rematches the canonical route and fills its params
+before the loader and `markdown()` function run. The root route uses
+`/index.md` by default; change or disable that exact alias through
+`defineApp({ markdown: { homeAlias } })`. Route-state requests retain their JSON
+transport semantics and are never rematched as aliases.
+
+Exact declared route paths ending in `.md` take precedence over alias rematching
+and receive an additional `.md` suffix for their own alias. If `homeAlias`
+collides with another route's generated alias, only one candidate may export
+`markdown`; otherwise Pracht reports the ambiguous alias and asks for a
+different home alias.
 
 ### Shell via `_app.tsx`
 

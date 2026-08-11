@@ -97,11 +97,21 @@ export type { MemoryApprovalStoreOptions } from "./runtime-approval.ts";
 export { verifyAgentSignature } from "./runtime-agent-auth.ts";
 export type { VerifyAgentSignatureOptions } from "./runtime-agent-auth.ts";
 export {
+  addMarkdownManifestRoute,
+  bypassesPrerenderedDocument,
+  classifyRouteRequest,
+  isRouteStateTransportRequest,
   MARKDOWN_MEDIA_TYPE,
   prefersMarkdown,
+  resolveMarkdownAliasPath,
+  resolveMarkdownAliasPaths,
   routeSupportsMarkdown,
 } from "./runtime-negotiation.ts";
-export type { MarkdownManifest } from "./runtime-negotiation.ts";
+export type {
+  ClassifyRouteRequestOptions,
+  MarkdownManifest,
+  RouteRequestKind,
+} from "./runtime-negotiation.ts";
 export { resolveRegistryModule } from "./runtime-manifest.ts";
 export { createCapabilityTestHost } from "./testing-capabilities.ts";
 export type {
@@ -191,6 +201,7 @@ export type {
   LoaderData,
   LoaderFn,
   LoaderCache,
+  MarkdownArgs,
   MiddlewareArgs,
   MiddlewareFn,
   MiddlewareModule,
@@ -235,6 +246,7 @@ export type {
   WebhookRevalidatePolicy,
   PrachtApp,
   PrachtAppConfig,
+  PrachtMarkdownConfig,
 } from "./types.ts";
 export type {
   HandlePrachtRequestOptions,

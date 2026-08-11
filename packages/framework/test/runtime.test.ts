@@ -1431,6 +1431,7 @@ describe("prerenderApp", () => {
       routes: [
         route("/html", "./routes/html.tsx", { render: "ssg" }),
         route("/markdown", "./routes/markdown.tsx", { render: "ssg" }),
+        route("/guide/:version/:name", "./routes/guide.tsx", { render: "ssg" }),
       ],
     });
 
@@ -1444,7 +1445,12 @@ describe("prerenderApp", () => {
           }),
           "/src/routes/markdown.tsx": async () => ({
             Component: () => h("main", null, "Markdown"),
-            markdown: "# Markdown\n",
+            markdown: () => "# Markdown\n",
+          }),
+          "/src/routes/guide.tsx": async () => ({
+            Component: () => h("main", null, "Guide"),
+            getStaticPaths: () => [{ name: "hooks", version: "v10" }],
+            markdown: () => "# Hooks\n",
           }),
         },
       },
@@ -1452,6 +1458,7 @@ describe("prerenderApp", () => {
 
     expect(Object.fromEntries(pages.map((page) => [page.path, page.markdown]))).toEqual({
       "/html": false,
+      "/guide/v10/hooks": true,
       "/markdown": true,
     });
   });

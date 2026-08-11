@@ -10,6 +10,7 @@ import type {
   ResolvedRoute,
 } from "@pracht/core";
 import { applyDefaultSecurityHeaders, resolveRegistryModule } from "@pracht/core";
+import { resolveMarkdownAliasPath } from "@pracht/core/server";
 import {
   CLIENT_BROWSER_PATH,
   ISLANDS_CLIENT_BROWSER_PATH,
@@ -677,6 +678,13 @@ function matchesResolvedRoute(
   },
 ): boolean {
   if (options.app && options.matchAppRoute && options.matchAppRoute(options.app, pathname)) {
+    return true;
+  }
+
+  const pagePathname = options.app
+    ? (resolveMarkdownAliasPath(pathname, options.app.markdown) ?? pathname)
+    : pathname;
+  if (options.app && options.matchAppRoute && options.matchAppRoute(options.app, pagePathname)) {
     return true;
   }
 

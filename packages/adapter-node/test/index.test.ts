@@ -531,7 +531,7 @@ describe("createNodeRequestHandler", () => {
     }: {
       headersManifest?: Record<string, Record<string, string>>;
       markdown?: boolean;
-      markdownManifest?: Record<string, true>;
+      markdownManifest?: Record<string, true | string>;
     } = {}) {
       const staticDir = makeTempDir();
       const htmlDir = join(staticDir, "docs");
@@ -636,6 +636,18 @@ describe("createNodeRequestHandler", () => {
       const { url } = await serveStaticApp({ markdownManifest: { "/docs": true } });
 
       const response = await fetch(`${url}//`, { headers: { accept: "text/markdown" } });
+
+      expect(response.status).toBe(200);
+      expect(response.headers.get("content-type")).toContain("text/markdown");
+      expect(await response.text()).toBe("# Docs\n");
+    });
+
+    it("serves an exact native .md alias without an Accept header", async () => {
+      const { url } = await serveStaticApp({
+        markdownManifest: { "/docs": true, "/docs.md": "/docs" },
+      });
+
+      const response = await fetch(`${url}.md`);
 
       expect(response.status).toBe(200);
       expect(response.headers.get("content-type")).toContain("text/markdown");

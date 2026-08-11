@@ -184,7 +184,9 @@ export function head() {
   return { title: serverOnly() };
 }
 
-export const markdown = "SERVER_ONLY_MARKDOWN_SOURCE";
+export async function markdown({ data }: { data: { source: string } }) {
+  return data.source + serverOnly();
+}
 
 export default function Home() {
   return <main>{shared}</main>;
@@ -196,7 +198,7 @@ export default function Home() {
     expect(transformed).not.toContain("../server-only");
     expect(transformed).not.toContain("function loader");
     expect(transformed).not.toContain("function head");
-    expect(transformed).not.toContain("SERVER_ONLY_MARKDOWN_SOURCE");
+    expect(transformed).not.toContain("function markdown");
     expect(transformed).not.toContain(": LoaderArgs");
     expect(transformed).toContain("../shared");
     expect(transformed).toContain("function Home");

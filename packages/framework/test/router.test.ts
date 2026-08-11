@@ -95,6 +95,18 @@ describe("resolveApp", () => {
     ).toThrow(/Unknown option "shel" for the notFound page\./);
   });
 
+  it("validates Markdown home aliases", () => {
+    expect(() => defineApp({ markdown: { homeAlias: "/readme.md" }, routes: [] })).not.toThrow();
+    for (const homeAlias of ["readme.md", "/", "/docs", "//readme.md", "/../readme.md"]) {
+      expect(() => defineApp({ markdown: { homeAlias } as never, routes: [] })).toThrow(
+        /homeAlias/,
+      );
+    }
+    expect(() =>
+      defineApp({ markdown: { homeAliases: ["/readme.md"] } as never, routes: [] }),
+    ).toThrow(/Unknown option "homeAliases"/);
+  });
+
   it("stays idempotent — re-resolving a resolved app does not reject derived fields", () => {
     const app = defineApp({
       shells: { public: "./shells/public.tsx" },

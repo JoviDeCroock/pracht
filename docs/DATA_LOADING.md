@@ -37,15 +37,46 @@ submission), so it always holds the same value
 the prop for a component that only needs its own route's data, the hook for
 components nested below the route.
 
-A `markdown` string export opts the route into Markdown-for-Agents content
-negotiation: when a request arrives with `Accept: text/markdown`, the runtime
-still executes middleware, the route loader, and document header resolution
-first, then returns the raw markdown source with `Content-Type: text/markdown`
-instead of rendering the component. Both the HTML and markdown responses carry
-`Vary: Accept`; routes without a `markdown` export do not vary on `Accept` — and
-their prerendered document keeps answering markdown-preferring requests instead
-of falling through to a render (see
-[ADAPTERS.md](ADAPTERS.md#markdown-and-the-static-fast-path)).
+A `markdown` string or async function export opts the route into
+Markdown-for-Agents content negotiation. The function runs after middleware and
+the loader, receives `{ data, params, url, context, request, signal, route }`,
+and must return a string. It can therefore reuse the loader's result instead of
+reading the same content twice:
+
+```typescript
+import type { MarkdownArgs } from "@pracht/core";
+
+export async function loader({ params }: LoaderArgs) {
+  return { content: await cms.read(params.slug) };
+}
+
+export async function markdown({ data }: MarkdownArgs<typeof loader>) {
+  return data.content.source;
+}
+```
+
+Requests that prefer `text/markdown` over HTML receive that source with
+`Content-Type: text/markdown`. Every Markdown-capable route also has a native
+`.md` alias: `/guide/v10/hooks.md` rematches `/guide/:version/:name` with
+`{ version: "v10", name: "hooks" }` and forces Markdown without an `Accept`
+header. The home route uses `/index.md` by default; configure it with
+`defineApp({ markdown: { homeAlias: "/readme.md" } })` or disable it with
+`homeAlias: false`.
+
+An exact declared route ending in `.md` keeps its literal pathname; for example,
+`route("/release.md", ...)` is not rematched to `/release`. Its generated native
+alias is `/release.md.md`. A home alias can also coincide with another route's
+native alias (`/index.md` for `/index`, for example). Pracht uses the sole
+candidate that actually exports `markdown`; if both routes export it, the alias
+is ambiguous and the build/runtime reports an error. Configure a different
+`homeAlias` to expose both representations.
+
+Accepted route-state requests are never interpreted as Markdown aliases or
+negotiation. The `?_data=1` transport is accepted only with first-party
+provenance; a cross-site query parameter remains an ordinary document request.
+Both the HTML and Markdown responses carry `Vary: Accept`; routes without a
+`markdown` export do not vary on `Accept`, and their `.md` alias returns 404.
+See [ADAPTERS.md](ADAPTERS.md#markdown-and-the-static-fast-path).
 
 ### LoaderArgs
 

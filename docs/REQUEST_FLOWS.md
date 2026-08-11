@@ -32,6 +32,20 @@ successful loader-data responses to `private, max-age=<seconds>`.
 If the target route has neither a loader nor middleware, client navigation can
 skip the route-state request entirely and only load the route/shell modules.
 
+Route-state transport markers take precedence over Markdown negotiation and
+native aliases. A document request for `/guide/v10/hooks.md` rematches
+`/guide/:version/:name`, runs middleware and the loader once, then calls the
+route's `markdown({ data, params, url, context })` export. The same canonical
+route is selected by `Accept: text/markdown` when Markdown is preferred over
+HTML by q-value. A route-state request for the `.md` pathname is not rematched;
+it retains the JSON transport contract. Both HTML and Markdown representations
+of an opted-in canonical route carry `Vary: Accept`.
+
+The `_data=1` query form counts as a route-state marker only after the runtime's
+same-origin provenance check accepts it. Cross-site navigations containing that
+query remain ordinary document requests, including for Markdown negotiation and
+native aliases.
+
 ---
 
 ## SSR — Server-Side Rendering

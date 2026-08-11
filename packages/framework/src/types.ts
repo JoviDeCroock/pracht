@@ -778,6 +778,15 @@ export interface PrachtAgentsConfig {
   mcp?: McpProjectionConfig;
 }
 
+export interface PrachtMarkdownConfig {
+  /**
+   * Exact `.md` alias for the home route. Defaults to `/index.md`; set to
+   * `false` to disable the home alias. Other routes automatically use their
+   * pathname plus `.md` (for example `/guide/v10/hooks.md`).
+   */
+  homeAlias?: string | false;
+}
+
 /** Structured audit event emitted for every capability dispatch. */
 export interface CapabilityAuditEvent {
   readonly capability: string;
@@ -829,6 +838,8 @@ export interface PrachtAppConfig {
    */
   agents?: PrachtAgentsConfig;
   api?: ApiConfig;
+  /** Markdown content-negotiation and native `.md` alias configuration. */
+  markdown?: PrachtMarkdownConfig;
   routes: RouteTreeNode[];
   /**
    * Page rendered (with a 404 status) when no route matches, and when a
@@ -856,6 +867,7 @@ export interface PrachtApp {
   capabilities: Record<string, string>;
   agents?: PrachtAgentsConfig;
   api: ApiConfig;
+  markdown?: PrachtMarkdownConfig;
   routes: RouteTreeNode[];
   notFound?: NotFoundDefinition;
   constraints?: RouteConstraint[];
@@ -974,6 +986,13 @@ export interface HeadersArgs<
   data: LoaderData<TLoader>;
 }
 
+export interface MarkdownArgs<
+  TLoader extends LoaderLike = undefined,
+  TContext = any,
+> extends BaseRouteArgs<TContext> {
+  data: LoaderData<TLoader>;
+}
+
 export interface RouteComponentProps<TLoader extends LoaderLike = undefined> {
   data: LoaderData<TLoader>;
   params: RouteParams;
@@ -999,10 +1018,10 @@ export interface RouteModule<TContext = any, TLoader extends LoaderLike = undefi
   default?: FunctionComponent<RouteComponentProps<TLoader>>;
   ErrorBoundary?: FunctionComponent<ErrorBoundaryProps>;
   getStaticPaths?: () => MaybePromise<RouteParams[]>;
-  // Raw markdown served when a client requests `Accept: text/markdown`
-  // (Markdown-for-Agents). The runtime returns this string with
-  // `Content-Type: text/markdown` instead of rendering the component.
-  markdown?: string;
+  // Raw markdown served for `Accept: text/markdown` and native `.md` aliases.
+  // A function runs after the loader and receives the same route inputs plus
+  // its resolved data, so content does not need to be loaded twice.
+  markdown?: string | ((args: MarkdownArgs<TLoader, TContext>) => MaybePromise<string>);
 }
 
 export interface ShellModule<TContext = any> {

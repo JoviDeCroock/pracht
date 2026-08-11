@@ -130,17 +130,48 @@ export function group(meta: GroupMeta, routes: RouteTreeNode[]): GroupDefinition
 }
 
 export function defineApp(config: PrachtAppConfig): PrachtApp {
+  validateMarkdownConfig(config.markdown);
   return {
     shells: resolveModuleRefRecord(config.shells ?? {}),
     middleware: resolveModuleRefRecord(config.middleware ?? {}),
     capabilities: resolveModuleRefRecord(config.capabilities ?? {}),
     agents: config.agents,
     api: config.api ?? {},
+    markdown: config.markdown,
     routes: config.routes,
     notFound: resolveNotFoundDefinition(config.notFound),
     constraints: config.constraints,
     viewTransitions: config.viewTransitions,
   };
+}
+
+function validateMarkdownConfig(markdown: PrachtAppConfig["markdown"]): void {
+  if (markdown === undefined) return;
+  if (typeof markdown !== "object" || markdown === null || Array.isArray(markdown)) {
+    throw new Error("defineApp({ markdown }) expects an options object.");
+  }
+  const unknownKey = Object.keys(markdown).find((key) => key !== "homeAlias");
+  if (unknownKey) {
+    throw new Error(`Unknown option ${JSON.stringify(unknownKey)} for defineApp({ markdown }).`);
+  }
+  const homeAlias = markdown?.homeAlias;
+  if (homeAlias === undefined || homeAlias === false) return;
+  if (
+    typeof homeAlias !== "string" ||
+    !homeAlias.startsWith("/") ||
+    homeAlias === "/" ||
+    !homeAlias.endsWith(".md") ||
+    normalizeRoutePath(homeAlias) !== homeAlias ||
+    homeAlias.split("/").some((segment) => segment === "." || segment === "..") ||
+    homeAlias.includes("\0") ||
+    /[\r\n\\]/.test(homeAlias) ||
+    homeAlias.includes("?") ||
+    homeAlias.includes("#")
+  ) {
+    throw new Error(
+      'defineApp({ markdown: { homeAlias } }) expects false or an exact pathname starting with "/" and ending in ".md".',
+    );
+  }
 }
 
 function resolveNotFoundDefinition(
