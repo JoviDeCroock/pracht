@@ -189,6 +189,12 @@ export interface HandlePrachtRequestOptions<TContext = unknown> {
    * via `setIslandsClientEntryUrl()`.
    */
   islandsEntryUrl?: string;
+  /**
+   * Emit the islands bootstrap on islands-mode responses even when the render
+   * captured no island components. Generated entries enable this when the
+   * bootstrap owns another page-level runtime projection such as WebMCP.
+   */
+  islandsBootstrapRequired?: boolean;
   /** Per-source-file CSS map produced by the vite plugin. */
   cssManifest?: Record<string, string[]>;
   /** Per-source-file JS chunk map produced by the vite plugin for modulepreload hints. */
@@ -867,14 +873,18 @@ export async function handlePrachtRequest<TContext>(
             ...new Set((islandCapture?.islands ?? []).map((usage) => usage.descriptor.file)),
           ];
           let islandsEntryUrl: string | undefined;
-          if (islandFiles.length > 0) {
+          const needsIslandsBootstrap =
+            hydration === "islands" &&
+            (islandFiles.length > 0 || options.islandsBootstrapRequired === true);
+          if (needsIslandsBootstrap) {
             islandsEntryUrl = options.islandsEntryUrl ?? getIslandsClientEntryUrl();
             if (!islandsEntryUrl) {
               throw new Error(
-                `Route "${match.route.path}" uses hydration: "islands" and rendered ` +
-                  `${islandFiles.length} island(s), but no islands bootstrap URL is registered. ` +
-                  "This usually means the @pracht/vite-plugin islands entry was not built — " +
-                  "check that your islands live in the configured islands directory.",
+                `Route "${match.route.path}" uses hydration: "islands" and requires the ` +
+                  `islands bootstrap${islandFiles.length > 0 ? ` for ${islandFiles.length} rendered island(s)` : " for a page-level runtime projection"}, but no bootstrap URL is registered. ` +
+                  (islandFiles.length > 0
+                    ? "This usually means the @pracht/vite-plugin islands entry was not built — check that your islands live in the configured islands directory."
+                    : "This usually means generated page-runtime metadata was not forwarded by the deployment adapter."),
               );
             }
           }

@@ -121,6 +121,9 @@ export function resolveOptions(options: PrachtPluginOptions): ResolvedPrachtPlug
   if (resolved.llmsTxt === undefined) {
     resolved.llmsTxt = false;
   }
+  if (!new Set(["spa", "ssr", "ssg", "isg"]).has(resolved.pagesDefaultRender)) {
+    throw new Error('pracht({ pagesDefaultRender }) expects "spa", "ssr", "ssg", or "isg".');
+  }
   if (!Number.isInteger(resolved.prerenderConcurrency) || resolved.prerenderConcurrency <= 0) {
     throw new Error("pracht({ prerenderConcurrency }) expects a positive integer.");
   }

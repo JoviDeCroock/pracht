@@ -88,6 +88,8 @@ describe("createNodeServerEntryModule", () => {
     );
     expect(source).toContain("createContext: createPrachtContext");
     expect(source).toContain("maxBodySize: 10485760");
+    expect(source).toContain("islandsEntryUrl: islandsEntryUrl ?? undefined");
+    expect(source).toContain("islandsBootstrapRequired");
   });
 });
 
@@ -214,7 +216,13 @@ describe("createNodeRequestHandler", () => {
 
     const createContextCalls: string[] = [];
     const app = defineApp({
-      routes: [route("/isg", "./routes/isg.tsx", { render: "isg", revalidate: timeRevalidate(1) })],
+      routes: [
+        route("/isg", "./routes/isg.tsx", {
+          render: "isg",
+          revalidate: timeRevalidate(1),
+          hydration: "islands",
+        }),
+      ],
     });
 
     const handler = createNodeRequestHandler({
@@ -229,6 +237,8 @@ describe("createNodeRequestHandler", () => {
           revalidate: timeRevalidate(1),
         },
       },
+      islandsBootstrapRequired: true,
+      islandsEntryUrl: "/assets/islands-agent.js",
       registry: {
         routeModules: {
           "./routes/isg.tsx": async () => ({
@@ -262,10 +272,15 @@ describe("createNodeRequestHandler", () => {
     expect(response.headers.get("x-pracht-isg")).toBe("stale");
     await expect(response.text()).resolves.toContain("stale");
 
-    await waitFor(() => readFileSync(htmlPath, "utf-8").includes("missing"));
+    await waitFor(
+      () =>
+        readFileSync(htmlPath, "utf-8").includes("missing") &&
+        readFileSync(htmlPath, "utf-8").includes("/assets/islands-agent.js"),
+    );
 
     expect(createContextCalls).toEqual(["missing"]);
     expect(readFileSync(htmlPath, "utf-8")).toContain("missing");
+    expect(readFileSync(htmlPath, "utf-8")).toContain("/assets/islands-agent.js");
   });
 
   it("authenticates webhook ISG revalidation and regenerates opted-in paths", async () => {

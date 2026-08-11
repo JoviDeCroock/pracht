@@ -377,10 +377,14 @@ describe("create-pracht", () => {
     expect(existsSync(join(targetDir, "src/routes/not-found.tsx"))).toBe(false);
     expect(existsSync(join(targetDir, "src/routes.ts"))).toBe(false);
     expect(readme).toContain("src/pages/");
+    expect(readme).toContain("The pages router has no manifest");
+    expect(readme).toContain("export const REVALIDATE = 3600");
 
     const agents = await readFile(join(targetDir, "AGENTS.md"), "utf-8");
     expect(agents).toContain("pages routing");
     expect(agents).toContain("src/pages/");
+    expect(agents).toContain("The pages router has no manifest");
+    expect(agents).toContain("export const REVALIDATE = 3600");
   });
 
   it("seeds pnpm edge build policy for every router and template permutation", async () => {

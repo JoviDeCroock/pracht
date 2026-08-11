@@ -36,6 +36,8 @@ export interface VercelAdapterOptions<
   registry?: ModuleRegistry;
   apiRoutes?: ResolvedApiRoute[];
   clientEntryUrl?: string;
+  islandsEntryUrl?: string;
+  islandsBootstrapRequired?: boolean;
   cssManifest?: Record<string, string[]>;
   jsManifest?: Record<string, string[]>;
   createContext?: (args: VercelContextArgs<TVercelContext>) => TContext | Promise<TContext>;
@@ -88,6 +90,8 @@ export function createVercelEdgeHandler<
       context: prachtContext,
       apiRoutes: options.apiRoutes,
       clientEntryUrl: options.clientEntryUrl,
+      islandsEntryUrl: options.islandsEntryUrl,
+      islandsBootstrapRequired: options.islandsBootstrapRequired,
       cssManifest: options.cssManifest,
       jsManifest: options.jsManifest,
     } satisfies HandlePrachtRequestOptions<TContext>);
@@ -261,6 +265,8 @@ export function createVercelServerEntryModule(
     "    registry,",
     "    apiRoutes,",
     "    clientEntryUrl: clientEntryUrl ?? undefined,",
+    "    islandsEntryUrl: islandsEntryUrl ?? undefined,",
+    "    islandsBootstrapRequired,",
     "    cssManifest,",
     "    jsManifest,",
     "    createContext: createPrachtContext,",

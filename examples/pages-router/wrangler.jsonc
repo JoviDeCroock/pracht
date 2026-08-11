@@ -1,0 +1,12 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "pracht-pages-router-example",
+  "compatibility_date": "2026-08-01",
+  "main": "dist/server/worker.js",
+  "assets": {
+    "binding": "ASSETS",
+    "directory": "dist/client",
+    "html_handling": "drop-trailing-slash",
+    "run_worker_first": true,
+  },
+}

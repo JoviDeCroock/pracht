@@ -52,6 +52,7 @@ interface HandleRequestOptionsLike {
   debugErrors?: boolean;
   clientEntryUrl?: string;
   islandsEntryUrl?: string;
+  islandsBootstrapRequired?: boolean;
   cssManifest?: Record<string, string[]>;
   jsManifest?: Record<string, string[]>;
   registry?: import("./types.ts").ModuleRegistry;
@@ -262,14 +263,18 @@ export async function renderRouteErrorResponse<TContext>(options: {
       ...new Set((islandCapture?.islands ?? []).map((usage) => usage.descriptor.file)),
     ];
     let islandsEntryUrl: string | undefined;
-    if (islandFiles.length > 0) {
+    const needsIslandsBootstrap =
+      hydration === "islands" &&
+      (islandFiles.length > 0 || options.options.islandsBootstrapRequired === true);
+    if (needsIslandsBootstrap) {
       islandsEntryUrl = options.options.islandsEntryUrl ?? getIslandsClientEntryUrl();
       if (!islandsEntryUrl) {
         throw new Error(
-          `Route "${options.routeArgs.route.path}" uses hydration: "islands" and rendered ` +
-            `${islandFiles.length} island(s) in its error boundary, but no islands bootstrap URL is registered. ` +
-            "This usually means the @pracht/vite-plugin islands entry was not built — " +
-            "check that your islands live in the configured islands directory.",
+          `Route "${options.routeArgs.route.path}" uses hydration: "islands" and requires the ` +
+            `islands bootstrap${islandFiles.length > 0 ? ` for ${islandFiles.length} island(s) in its error boundary` : " for a page-level runtime projection"}, but no bootstrap URL is registered. ` +
+            (islandFiles.length > 0
+              ? "This usually means the @pracht/vite-plugin islands entry was not built — check that your islands live in the configured islands directory."
+              : "This usually means generated page-runtime metadata was not forwarded by the deployment adapter."),
         );
       }
     }

@@ -33,6 +33,9 @@ export interface PrerenderAppOptions {
   app: PrachtApp;
   registry?: ModuleRegistry;
   clientEntryUrl?: string;
+  islandsEntryUrl?: string;
+  /** Force the islands bootstrap for zero-island pages that own another projection. */
+  islandsBootstrapRequired?: boolean;
   /** Per-source-file CSS map produced by the vite plugin. */
   cssManifest?: Record<string, string[]>;
   /** Per-source-file JS map produced by the vite plugin for modulepreload hints. */
@@ -89,6 +92,8 @@ export async function prerenderApp(
             request,
             registry: options.registry,
             clientEntryUrl: options.clientEntryUrl,
+            islandsEntryUrl: options.islandsEntryUrl,
+            islandsBootstrapRequired: options.islandsBootstrapRequired,
             cssManifest: options.cssManifest,
             jsManifest: options.jsManifest,
           }),

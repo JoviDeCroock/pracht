@@ -95,6 +95,16 @@ authenticated webhook. Node and Cloudflare serve stale HTML immediately while a
 new version is generated in the background for time-based revalidation. Vercel
 uses Build Output API prerender functions and the platform ISR cache.
 
+In pages-router mode, express the time policy as static page exports:
+
+```tsx
+export const RENDER_MODE = "isg";
+export const REVALIDATE = 3600;
+```
+
+Pages-router ISG supports positive-integer time policies only. Webhook or
+combined revalidation requires ejecting to an explicit manifest.
+
 Every HTML regeneration — on any adapter — renders on a sanitized request
 (`GET`, `Accept: text/html`, path only). The visitor whose request triggered it
 never lends their cookies or credentials to the render, because the resulting

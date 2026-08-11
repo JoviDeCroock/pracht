@@ -33,6 +33,11 @@ Capabilities are registered in the app manifest, exactly like shells and
 middleware. Registration is deliberately opt-in: no API route or loader is
 ever inferred as a capability.
 
+On `hydration: "islands"` routes, Pracht retains the islands bootstrap whenever
+WebMCP is exposed, even if a particular response renders zero island
+components. This keeps the agent projection stable across conditional UI.
+`hydration: "none"` intentionally remains zero-JS and cannot expose WebMCP.
+
 ```ts
 // src/routes.ts
 import { defineApp } from "@pracht/core";

@@ -31,6 +31,7 @@ import {
   createPrachtCapabilitiesClientModuleSource,
   createPrachtWebmcpModuleSource,
   hasAgentSurface,
+  hasWebmcpCapabilities,
   resolveCapabilityModulePaths,
 } from "./plugin-capabilities.ts";
 import {
@@ -110,14 +111,15 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
       const isSSRBuild = env.isSsrBuild;
 
       // Emit the islands bootstrap as its own client entry so islands-mode
-      // routes can load it without the full client runtime. Only added when
-      // the app actually has an islands directory, so builds of apps without
-      // islands are byte-for-byte unchanged.
+      // routes can load it without the full client runtime. WebMCP also owns
+      // this entry on islands routes, including responses that render no
+      // island components and apps that have no islands directory.
       const configRoot = _config.root ?? process.cwd();
       const wantsIslandsEntry =
         env.command === "build" &&
         !isSSRBuild &&
-        existsSync(resolveConfigPath(configRoot, resolved.islandsDir));
+        (existsSync(resolveConfigPath(configRoot, resolved.islandsDir)) ||
+          hasWebmcpCapabilities(resolved, configRoot));
 
       // `publicEnv` needs every PRACHT_PUBLIC_ key, but reading the whole
       // `import.meta.env` object to enumerate them makes Vite inline *all*

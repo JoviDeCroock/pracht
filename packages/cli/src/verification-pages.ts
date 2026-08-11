@@ -1,11 +1,13 @@
+import { maskCommentsAndStrings } from "@pracht/capabilities/static";
+import { readFileSync } from "node:fs";
 import { basename, relative } from "node:path";
 
 import { hasPagesAppShell, listFilesRecursively } from "./project.js";
 import { normalizeRoutePath, PAGE_SOURCE_RE } from "./verification-helpers.js";
 
 export type PagesFile =
-  | { file: string; kind: "shell" }
-  | { file: string; kind: "not-found" }
+  | { file: string; kind: "shell"; hasRevalidateExport: boolean }
+  | { file: string; kind: "not-found"; hasRevalidateExport: boolean }
   | { file: string; kind: "ignored" }
   | PagesRoute;
 
@@ -13,6 +15,11 @@ export interface PagesRoute {
   file: string;
   kind: "route";
   routePath: string;
+  renderMode?: string;
+  revalidate:
+    | { kind: "missing" }
+    | { kind: "invalid"; expression: string }
+    | { kind: "time"; seconds: number };
 }
 
 export function scanPagesDirectory(pagesDir: string): PagesFile[] {
@@ -25,9 +32,15 @@ export function describePagesFile(pagesDir: string, file: string): PagesFile {
   const relativePath = relative(pagesDir, file).replace(/\\/g, "/");
   const routePath = relativePath.replace(/\.(tsx?|tsrx|jsx?|mdx?)$/, "");
   const name = basename(routePath);
+  const source = readFileSync(file, "utf-8");
+  const analysisSource = maskMarkdownFences(source, relativePath);
 
   if (hasPagesAppShell(file)) {
-    return { file, kind: "shell" };
+    return {
+      file,
+      kind: "shell",
+      hasRevalidateExport: extractRevalidate(analysisSource).kind !== "missing",
+    };
   }
 
   if (name.startsWith("_")) {
@@ -36,11 +49,21 @@ export function describePagesFile(pagesDir: string, file: string): PagesFile {
 
   const withoutIndex = routePath.replace(/\/index$/, "");
   if (withoutIndex === "404") {
-    return { file, kind: "not-found" };
+    return {
+      file,
+      kind: "not-found",
+      hasRevalidateExport: extractRevalidate(analysisSource).kind !== "missing",
+    };
   }
 
   if (routePath === "index") {
-    return { file, kind: "route", routePath: "/" };
+    return {
+      file,
+      kind: "route",
+      routePath: "/",
+      renderMode: extractQuotedExport(analysisSource, "RENDER_MODE"),
+      revalidate: extractRevalidate(analysisSource),
+    };
   }
 
   const normalized = withoutIndex
@@ -51,7 +74,105 @@ export function describePagesFile(pagesDir: string, file: string): PagesFile {
     file,
     kind: "route",
     routePath: normalizeRoutePath(`/${normalized}`),
+    renderMode: extractQuotedExport(analysisSource, "RENDER_MODE"),
+    revalidate: extractRevalidate(analysisSource),
   };
+}
+
+function extractQuotedExport(source: string, name: string): string | undefined {
+  const masked = maskCommentsAndStrings(source);
+  const declarations = [...masked.matchAll(new RegExp(`export\\s+const\\s+${name}\\s*=`, "g"))];
+  if (declarations.length !== 1) return undefined;
+  const declaration = declarations[0];
+  const valueStart = (declaration.index ?? 0) + declaration[0].length;
+  return source
+    .slice(valueStart)
+    .trimStart()
+    .match(/^["'](\w+)["']/)?.[1];
+}
+
+function extractRevalidate(source: string): PagesRoute["revalidate"] {
+  const matches = [
+    ...maskCommentsAndStrings(source).matchAll(/export\s+const\s+REVALIDATE\s*=\s*([^;\n]+)/g),
+  ];
+  if (matches.length === 0) return { kind: "missing" };
+  if (matches.length > 1) return { kind: "invalid", expression: "duplicate exports" };
+  const match = matches[0];
+
+  const expression = match[1].trim().replace(/\s+as\s+const$/, "");
+  if (!/^\d(?:_?\d)*$/.test(expression)) {
+    return { kind: "invalid", expression };
+  }
+
+  const seconds = Number(expression.replaceAll("_", ""));
+  if (!Number.isSafeInteger(seconds) || seconds <= 0) {
+    return { kind: "invalid", expression };
+  }
+  return { kind: "time", seconds };
+}
+
+/** Mask Markdown fenced examples while preserving source offsets and top-level MDX exports. */
+function maskMarkdownFences(source: string, relativePath: string): string {
+  if (!/\.mdx?$/.test(relativePath)) return source;
+
+  const chars = source.split("");
+  let activeFence: { character: "`" | "~"; continuationIndent: number; length: number } | null =
+    null;
+  for (const line of source.matchAll(/.*(?:\r?\n|$)/g)) {
+    if (line[0] === "") continue;
+    const lineStart = line.index ?? 0;
+    const content = line[0].replace(/\r?\n$/, "");
+    const stripped = stripMarkdownContainerPrefix(content);
+    const fenceContent: string =
+      activeFence && stripped.content.startsWith(" ".repeat(activeFence.continuationIndent))
+        ? stripped.content.slice(activeFence.continuationIndent)
+        : stripped.content;
+    const opening: RegExpExecArray | null = activeFence
+      ? null
+      : /^ {0,3}(`{3,}|~{3,})/.exec(fenceContent);
+    const closing = activeFence
+      ? new RegExp(`^ {0,3}\\${activeFence.character}{${activeFence.length},}[ \\t]*$`).test(
+          fenceContent,
+        )
+      : false;
+
+    if (activeFence || opening) {
+      for (let offset = 0; offset < line[0].length; offset += 1) {
+        const index = lineStart + offset;
+        if (chars[index] !== "\n" && chars[index] !== "\r") chars[index] = " ";
+      }
+    }
+
+    if (closing) {
+      activeFence = null;
+    } else if (opening) {
+      activeFence = {
+        character: opening[1][0] as "`" | "~",
+        continuationIndent: stripped.continuationIndent,
+        length: opening[1].length,
+      };
+    }
+  }
+  return chars.join("");
+}
+
+function stripMarkdownContainerPrefix(line: string): {
+  content: string;
+  continuationIndent: number;
+} {
+  let content = line;
+  let continuationIndent = 0;
+  while (true) {
+    const quote = /^ {0,3}> ?/.exec(content);
+    if (quote) {
+      content = content.slice(quote[0].length);
+      continue;
+    }
+    const list = /^ {0,3}(?:[-+*]|\d{1,9}[.)])[ \t]+/.exec(content);
+    if (!list) return { content, continuationIndent };
+    continuationIndent += list[0].length;
+    content = content.slice(list[0].length);
+  }
 }
 
 export function collectDuplicateRoutePaths(

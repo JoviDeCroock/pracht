@@ -8,12 +8,20 @@ export const routes = [
     path: "/",
   },
   {
+    id: "-alice",
+    path: "/@alice",
+  },
+  {
     id: "about",
     path: "/about",
   },
   {
     id: "blog-slug",
     path: "/blog/:slug",
+  },
+  {
+    id: "pricing",
+    path: "/pricing",
   },
 ] as const satisfies readonly HrefRouteDefinition[];
 

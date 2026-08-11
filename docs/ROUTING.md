@@ -747,6 +747,26 @@ overridable globally via `pagesDefaultRender`:
 pracht({ pagesDir: "/src/pages", pagesDefaultRender: "ssg" });
 ```
 
+An ISG page must pair the mode with a statically analyzable positive integer
+time policy:
+
+```tsx
+export const RENDER_MODE = "isg";
+export const REVALIDATE = 3600;
+```
+
+`REVALIDATE` is seconds. Missing, invalid, zero, or non-ISG policies fail
+build, `pracht doctor`, and `pracht verify`; they never degrade to immutable
+SSG output. Pages mode supports time revalidation only. Eject to an explicit
+manifest for `webhookRevalidate()` or combined policies.
+
+Policies belong on page routes, not `_app.tsx` or `404.tsx`. Static discovery
+ignores declarations in comments, strings, and Markdown/MDX fenced examples;
+top-level MDX exports still work. `pagesDefaultRender` can be an inline string
+or a quoted `const`. If `doctor` cannot resolve a composed value it warns and
+the build remains authoritative; pages that export `REVALIDATE` should also
+export `RENDER_MODE = "isg"` so verification can fail closed.
+
 ### Per-Route Hydration Mode
 
 Page files can also export a `HYDRATION` constant to opt into partial

@@ -171,6 +171,168 @@ export const app = defineApp({
     );
   });
 
+  it.each(["doctor", "verify"])("fails %s for pages ISG without REVALIDATE", (command) => {
+    const appDir = createTempDir(`pracht-cli-${command}-pages-isg-missing-`);
+    writePagesApp(appDir);
+    writeProjectFile(
+      appDir,
+      "src/pages/index.tsx",
+      'export const RENDER_MODE = "isg";\nexport function Component() { return null; }',
+    );
+
+    const result = runCliStatus([command, "--json"], { cwd: appDir });
+    expect(result.status).toBe(1);
+    const report = JSON.parse(result.stdout);
+    expect(report.ok).toBe(false);
+    expect(report.checks.some((check) => check.message.includes("does not export"))).toBe(true);
+  });
+
+  it.each(["doctor", "verify"])(
+    "accepts pages ISG with a positive time policy in %s",
+    (command) => {
+      const appDir = createTempDir(`pracht-cli-${command}-pages-isg-valid-`);
+      writePagesApp(appDir);
+      writeProjectFile(
+        appDir,
+        "src/pages/index.tsx",
+        'export const RENDER_MODE = "isg";\nexport const REVALIDATE = 60;\nexport function Component() { return null; }',
+      );
+
+      const result = runCli([command, "--json"], { cwd: appDir });
+      expect(JSON.parse(result.stdout).ok).toBe(true);
+    },
+  );
+
+  it("reads an inline pagesDefaultRender as a render mode rather than a path", () => {
+    const appDir = createTempDir("pracht-cli-doctor-pages-default-isg-");
+    writePagesApp(appDir);
+    writeProjectFile(
+      appDir,
+      "vite.config.ts",
+      'import { pracht } from "@pracht/vite-plugin";\npracht({ pagesDir: "/src/pages", pagesDefaultRender: "isg" });',
+    );
+    writeProjectFile(
+      appDir,
+      "src/pages/index.tsx",
+      "export const REVALIDATE = 90;\nexport function Component() { return null; }",
+    );
+
+    const report = JSON.parse(runCli(["doctor", "--json"], { cwd: appDir }).stdout);
+    expect(report.ok).toBe(true);
+  });
+
+  it("resolves a pagesDefaultRender identifier bound to a quoted const", () => {
+    const appDir = createTempDir("pracht-cli-doctor-pages-default-const-");
+    writePagesApp(appDir);
+    writeProjectFile(
+      appDir,
+      "vite.config.ts",
+      'import { pracht } from "@pracht/vite-plugin";\nconst mode = "isg";\npracht({ pagesDir: "/src/pages", pagesDefaultRender: mode });',
+    );
+    writeProjectFile(
+      appDir,
+      "src/pages/index.tsx",
+      "export const REVALIDATE = 90;\nexport function Component() { return null; }",
+    );
+
+    const report = JSON.parse(runCli(["doctor", "--json"], { cwd: appDir }).stdout);
+    expect(report.ok).toBe(true);
+  });
+
+  it("warns for an unresolved non-ISG default without letting comments spoof it", () => {
+    const appDir = createTempDir("pracht-cli-doctor-pages-default-unresolved-");
+    writePagesApp(appDir);
+    writeProjectFile(
+      appDir,
+      "vite.config.ts",
+      [
+        'import { pracht } from "@pracht/vite-plugin";',
+        "const mode = getMode();",
+        'function getMode() { return "ssr"; }',
+        'const unrelated = { pagesDefaultRender: "isg" };',
+        '// pagesDefaultRender: "isg"',
+        'pracht({ pagesDir: "/src/pages", pagesDefaultRender: mode });',
+      ].join("\n"),
+    );
+    writeProjectFile(appDir, "src/pages/index.tsx", "export function Component() { return null; }");
+
+    const report = JSON.parse(runCli(["doctor", "--json"], { cwd: appDir }).stdout);
+    expect(report.ok).toBe(true);
+    expect(report.checks.some((check) => check.message.includes("could not be resolved"))).toBe(
+      true,
+    );
+  });
+
+  it("does not let commented or string-contained RENDER_MODE authorize REVALIDATE", () => {
+    const appDir = createTempDir("pracht-cli-doctor-pages-commented-render-");
+    writePagesApp(appDir);
+    writeProjectFile(
+      appDir,
+      "src/pages/index.tsx",
+      [
+        '// export const RENDER_MODE = "isg";',
+        "const example = 'export const RENDER_MODE = \"isg\"';",
+        "export const REVALIDATE = 60;",
+        "export function Component() { return example; }",
+      ].join("\n"),
+    );
+
+    const result = runCliStatus(["doctor", "--json"], { cwd: appDir });
+    expect(result.status).toBe(1);
+    expect(
+      JSON.parse(result.stdout).checks.some((check) => check.message.includes("only valid")),
+    ).toBe(true);
+  });
+
+  it("ignores Markdown fenced policy examples", () => {
+    const appDir = createTempDir("pracht-cli-doctor-pages-markdown-fence-");
+    writePagesApp(appDir);
+    writeProjectFile(
+      appDir,
+      "vite.config.ts",
+      'import { pracht } from "@pracht/vite-plugin";\npracht({ pagesDir: "/src/pages", pagesDefaultRender: "isg" });',
+    );
+    writeProjectFile(
+      appDir,
+      "src/pages/guide.mdx",
+      [
+        "# Guide",
+        "",
+        "> ```ts",
+        '> export const RENDER_MODE = "isg";',
+        "> export const REVALIDATE = 60;",
+        "> ```",
+        "",
+        "- ~~~ts",
+        '  export const RENDER_MODE = "isg";',
+        "  export const REVALIDATE = 30;",
+        "  ~~~",
+        "",
+        "10. ~~~ts",
+        "    export const REVALIDATE = 15;",
+        "    ~~~",
+        "",
+        "export const REVALIDATE = 75;",
+      ].join("\n"),
+    );
+
+    const report = JSON.parse(runCli(["doctor", "--json"], { cwd: appDir }).stdout);
+    expect(report.ok).toBe(true);
+  });
+
+  it("rejects REVALIDATE on the pages app shell", () => {
+    const appDir = createTempDir("pracht-cli-doctor-pages-shell-policy-");
+    writePagesApp(appDir);
+    writeProjectFile(appDir, "src/pages/index.tsx", "export function Component() { return null; }");
+    writeProjectFile(appDir, "src/pages/_app.tsx", "export const REVALIDATE = 60;");
+
+    const result = runCliStatus(["doctor", "--json"], { cwd: appDir });
+    expect(result.status).toBe(1);
+    expect(
+      JSON.parse(result.stdout).checks.some((check) => check.message.includes("app shell")),
+    ).toBe(true);
+  });
+
   it("rejects a second pages-router not-found file in changed verification", () => {
     const appDir = createTempDir("pracht-cli-verify-pages-not-found-duplicate-");
     writePagesApp(appDir);

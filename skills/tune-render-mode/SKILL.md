@@ -141,6 +141,9 @@ on the router `mode` from Step 1:
   `export const RENDER_MODE = "ssg"` in the page module (valid values
   `"ssr" | "ssg" | "isg" | "spa"`; the default is `"ssr"`, overridable
   globally via `pracht({ pagesDefaultRender: "..." })` in vite config).
+  For ISG, also add a positive integer time policy such as
+  `export const REVALIDATE = 3600`; pages mode requires it and supports
+  time-based revalidation only. Eject for webhook or combined policies.
   Hydration is `export const HYDRATION = "..."` in the same file. If most
   pages want the same mode, prefer changing `pagesDefaultRender` over adding
   a constant to every file.

@@ -136,4 +136,31 @@ describe("@pracht/cli generate", () => {
     expect(routeSource).toContain("export function getStaticPaths()");
     expect(routeSource).toContain('slug: "example-slug"');
   });
+
+  it("scaffolds pages-router ISG with its required policy", () => {
+    const appDir = createTempDir("pracht-cli-pages-isg-");
+    writePagesApp(appDir);
+
+    runCli(["generate", "route", "--path", "/pricing", "--render", "isg", "--revalidate", "120"], {
+      cwd: appDir,
+    });
+
+    const routeSource = readFileSync(join(appDir, "src/pages/pricing.tsx"), "utf-8");
+    expect(routeSource).toContain('export const RENDER_MODE = "isg";');
+    expect(routeSource).toContain("export const REVALIDATE = 120;");
+  });
+
+  it("rejects misplaced revalidation before creating a route file", () => {
+    const appDir = createTempDir("pracht-cli-pages-invalid-revalidate-");
+    writePagesApp(appDir);
+
+    const result = spawnSync(
+      process.execPath,
+      [cliPath, "generate", "route", "--path", "/broken", "--render", "ssr", "--revalidate", "60"],
+      { cwd: appDir, encoding: "utf-8" },
+    );
+    expect(result.status).not.toBe(0);
+    expect(`${result.stdout}${result.stderr}`).toContain("only valid together");
+    expect(existsSync(join(appDir, "src/pages/broken.tsx"))).toBe(false);
+  });
 });

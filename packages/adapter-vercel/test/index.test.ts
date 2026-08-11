@@ -21,6 +21,8 @@ describe("createVercelServerEntryModule", () => {
     );
     expect(source).toContain("createContext: createPrachtContext");
     expect(source).toContain("createVercelEdgeHandler");
+    expect(source).toContain("islandsEntryUrl: islandsEntryUrl ?? undefined");
+    expect(source).toContain("islandsBootstrapRequired");
     expect(source).toContain('export const vercelFunctionName = "app";');
   });
 });

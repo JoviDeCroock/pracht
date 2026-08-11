@@ -48,6 +48,8 @@ export function createNodeServerEntryModule(options: NodeServerEntryModuleOption
     "  markdownManifest,",
     "  apiRoutes,",
     "  clientEntryUrl: clientEntryUrl ?? undefined,",
+    "  islandsEntryUrl: islandsEntryUrl ?? undefined,",
+    "  islandsBootstrapRequired,",
     "  cssManifest,",
     "  jsManifest,",
     `  canonicalOrigin: ${JSON.stringify(canonicalOrigin ?? undefined)},`,

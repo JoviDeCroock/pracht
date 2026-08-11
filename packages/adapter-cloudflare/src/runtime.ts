@@ -65,6 +65,8 @@ export interface CloudflareAdapterOptions<
   registry?: ModuleRegistry;
   apiRoutes?: ResolvedApiRoute[];
   clientEntryUrl?: string;
+  islandsEntryUrl?: string;
+  islandsBootstrapRequired?: boolean;
   cssManifest?: Record<string, string[]>;
   jsManifest?: Record<string, string[]>;
   assetsBinding?: string;
@@ -117,6 +119,8 @@ export function createCloudflareFetchHandler<
         context,
         apiRoutes: options.apiRoutes,
         clientEntryUrl: options.clientEntryUrl,
+        islandsEntryUrl: options.islandsEntryUrl,
+        islandsBootstrapRequired: options.islandsBootstrapRequired,
         cssManifest: options.cssManifest,
         jsManifest: options.jsManifest,
       } satisfies HandlePrachtRequestOptions<TContext>);
@@ -184,6 +188,8 @@ export function createCloudflareFetchHandler<
       context,
       apiRoutes: options.apiRoutes,
       clientEntryUrl: options.clientEntryUrl,
+      islandsEntryUrl: options.islandsEntryUrl,
+      islandsBootstrapRequired: options.islandsBootstrapRequired,
       cssManifest: options.cssManifest,
       jsManifest: options.jsManifest,
     } satisfies HandlePrachtRequestOptions<TContext>);

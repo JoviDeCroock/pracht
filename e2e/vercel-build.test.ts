@@ -144,6 +144,17 @@ test("pracht build emits a deployable Vercel Build Output setup", async () => {
     expect(functionSource).toContain("async function handle(request, context)");
     expect(functionSource).toContain("createVercelNodeListener");
 
+    const { default: edgeHandler } = await import(pathToFileURL(serverEntryPath).href);
+    const agentToolsResponse = await edgeHandler(new Request("https://example.com/agent-tools"), {
+      waitUntil() {},
+    });
+    expect(agentToolsResponse.status).toBe(200);
+    const agentToolsHtml = await agentToolsResponse.text();
+    expect(agentToolsHtml).not.toContain("<pracht-island");
+    expect(agentToolsHtml).toMatch(
+      /<script type="module" src="\/assets\/islands-client-[^"]+\.js"><\/script>/,
+    );
+
     // The prerender function runs on Node with the same Web-API-only bundle the
     // edge function uses — drive its launcher the way Vercel's Node launcher
     // does to prove the emitted function boots and renders.

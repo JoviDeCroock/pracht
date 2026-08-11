@@ -49,6 +49,8 @@ export interface NodeAdapterOptions<TContext = unknown> {
   isgManifest?: Record<string, ISGManifestEntry>;
   apiRoutes?: ResolvedApiRoute[];
   clientEntryUrl?: string;
+  islandsEntryUrl?: string;
+  islandsBootstrapRequired?: boolean;
   cssManifest?: Record<string, string[]>;
   jsManifest?: Record<string, string[]>;
   headersManifest?: HeadersManifest;
@@ -187,6 +189,8 @@ export function createNodeRequestHandler<TContext = unknown>(
       request,
       apiRoutes: options.apiRoutes,
       clientEntryUrl: options.clientEntryUrl,
+      islandsEntryUrl: options.islandsEntryUrl,
+      islandsBootstrapRequired: options.islandsBootstrapRequired,
       cssManifest: options.cssManifest,
       jsManifest: options.jsManifest,
     } satisfies HandlePrachtRequestOptions<TContext>);

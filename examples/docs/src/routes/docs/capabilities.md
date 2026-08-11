@@ -31,6 +31,10 @@ input validation → middleware chain → run() → output validation
 
 Capabilities are registered in `defineApp()`, exactly like shells and middleware. Registration is deliberately opt-in — no API route or loader is ever inferred as a capability.
 
+Capabilities require the explicit manifest router. A pages-router project can still use Pracht's authoring MCP server and generated skills, but it has no registration seam for capability HTTP endpoints, WebMCP, remote MCP, or runtime agent policy. [Eject the pages router to a manifest](/docs/routing#ejecting-to-explicit-manifest) before adding capabilities.
+
+On `hydration: "islands"` routes, Pracht retains the page bootstrap whenever WebMCP is exposed, even when a response renders zero island components. Conditional UI therefore cannot make the agent tools silently appear or disappear. `hydration: "none"` remains deliberately zero-JavaScript and cannot expose in-page WebMCP tools.
+
 ```ts [src/routes.ts]
 export const app = defineApp({
   capabilities: {

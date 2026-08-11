@@ -53,7 +53,7 @@ If the source Next.js project uses the **pages router** (`pages/` directory), pr
 2. Copy `pages/` to `src/pages/`
 3. Convert `_app.tsx` to pracht shell format (`Shell` export + `children` prop)
 4. Convert `getServerSideProps`/`getStaticProps` to `loader` exports
-5. Add `export const RENDER_MODE = "ssg"` to static pages, `"ssr"` for dynamic (default is `"ssr"`)
+5. Add `export const RENDER_MODE = "ssg"` to static pages, `"ssr"` for dynamic (default is `"ssr"`). For time-revalidated pages, export `RENDER_MODE = "isg"` and a positive integer `REVALIDATE` in seconds. Webhook policies require ejection.
 6. Run dev server, iterate on errors
 7. Optionally run `generateRoutesFile` to eject to explicit manifest
 

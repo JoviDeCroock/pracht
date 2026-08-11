@@ -57,6 +57,11 @@ export const app = defineApp({
         speculation: "prefetch",
       }),
       route("/notes", () => import("./routes/notes.tsx"), { id: "notes", render: "ssr" }),
+      route("/agent-tools", () => import("./routes/agent-tools.tsx"), {
+        id: "agent-tools",
+        render: "ssr",
+        hydration: "islands",
+      }),
       route("/products/:productId", () => import("./routes/product.tsx"), {
         id: "product",
         render: "ssg",

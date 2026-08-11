@@ -12,6 +12,10 @@ export const routes = [
     path: "/notes",
   },
   {
+    id: "agent-tools",
+    path: "/agent-tools",
+  },
+  {
     id: "product",
     path: "/products/:productId",
   },

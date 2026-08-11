@@ -1336,6 +1336,12 @@ function createDockerignore() {
   ].join("\n");
 }
 
+const PAGES_ROUTER_LIMITATIONS =
+  "**The pages router has no manifest**, so these manifest-only features are unavailable: named shells (there is one, `_app.tsx`), route middleware, capabilities (and therefore capability HTTP endpoints, WebMCP, remote MCP, and `pracht eval`), `defineApp({ constraints })`, and `agents`. If the app needs auth policy or a runtime agent surface, eject with `generateRoutesFile` from `@pracht/vite-plugin/pages-router`, remove `pagesDir`, and customize the generated manifest.";
+
+const PAGES_ROUTER_ISG_POLICY =
+  'Pages-router ISG supports time revalidation only: pair `export const RENDER_MODE = "isg"` with a positive integer such as `export const REVALIDATE = 3600`. Missing or misplaced policies fail `pracht build`, `doctor`, and `verify`. Webhook revalidation and combined policies require an explicit manifest.';
+
 function createAgentInstructions({ adapter, agentTools, packageManager, router, tailwind }) {
   // `bun build` is Bun's own bundler and shadows the package script, so bun
   // needs the explicit `run` form the same way npm does.
@@ -1400,9 +1406,9 @@ function createAgentInstructions({ adapter, agentTools, packageManager, router, 
       "- `src/pages/404.tsx` — not-found page, wired automatically (never a URL of its own)",
     );
     lines.push("");
-    lines.push(
-      "**The pages router has no manifest**, so these manifest-only features are unavailable: named shells (there is one, `_app.tsx`), middleware, capabilities (and therefore capability HTTP endpoints, WebMCP, remote MCP, and `pracht eval`), `defineApp({ constraints })`, and `agents`. If a task needs auth or the agent surface, eject to an explicit manifest with the `generateRoutesFile` plugin option first — do not hand-roll a substitute.",
-    );
+    lines.push(PAGES_ROUTER_LIMITATIONS);
+    lines.push("");
+    lines.push(PAGES_ROUTER_ISG_POLICY);
   } else {
     lines.push("This app uses **manifest routing**.");
     lines.push("");
@@ -1513,6 +1519,12 @@ function createReadme({
     lines.push("- `src/pages/_app.tsx` is the app shell.");
     lines.push("- `src/pages/index.tsx` is the home page.");
     lines.push("- `src/pages/404.tsx` is the not-found page; pracht wires it automatically.");
+    lines.push("");
+    lines.push("## Pages-router boundaries");
+    lines.push("");
+    lines.push(PAGES_ROUTER_LIMITATIONS);
+    lines.push("");
+    lines.push(PAGES_ROUTER_ISG_POLICY);
   } else {
     lines.push("- `src/routes.ts` defines your app manifest.");
     lines.push("- `src/routes/home.tsx` is the first page.");

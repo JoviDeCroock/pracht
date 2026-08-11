@@ -231,6 +231,11 @@ export interface RouteArgs {
 export function generateRoute(args: RouteArgs, project: ProjectConfig): GenerateResult {
   const routePath = normalizeRoutePathString(args.path);
   const render = requireEnum(args.render, "render", ["spa", "ssr", "ssg", "isg"], "ssr");
+  if (render !== "isg" && args.revalidate !== undefined) {
+    throw new Error("`--revalidate` is only valid together with `--render isg`.");
+  }
+  const revalidateSeconds =
+    render === "isg" ? requirePositiveInteger(args.revalidate, "revalidate", 3600) : undefined;
   const includeLoader = Boolean(args.loader);
   const includeErrorBoundary = Boolean(args["error-boundary"]);
   const middleware = parseCommaList(args.middleware);
@@ -252,6 +257,7 @@ export function generateRoute(args: RouteArgs, project: ProjectConfig): Generate
       includeStaticPaths,
       project,
       render,
+      revalidateSeconds,
       routePath,
       title,
     });
@@ -309,8 +315,7 @@ export function generateRoute(args: RouteArgs, project: ProjectConfig): Generate
     meta.push(`middleware: [${middleware.map((item) => quote(item)).join(", ")}]`);
   }
   if (render === "isg") {
-    const seconds = requirePositiveInteger(args.revalidate, "revalidate", 3600);
-    meta.push(`revalidate: timeRevalidate(${seconds})`);
+    meta.push(`revalidate: timeRevalidate(${revalidateSeconds})`);
   }
 
   nextManifestSource = insertArrayItem(
@@ -372,6 +377,7 @@ function generatePagesRoute({
   includeStaticPaths,
   project,
   render,
+  revalidateSeconds,
   routePath,
   title,
 }: {
@@ -380,6 +386,7 @@ function generatePagesRoute({
   includeStaticPaths: boolean;
   project: ProjectConfig;
   render: string;
+  revalidateSeconds?: number;
   routePath: string;
   title: string;
 }): GenerateResult {
@@ -391,6 +398,7 @@ function generatePagesRoute({
       includeLoader,
       includeStaticPaths,
       render,
+      revalidateSeconds,
       routePath,
       title,
     }),

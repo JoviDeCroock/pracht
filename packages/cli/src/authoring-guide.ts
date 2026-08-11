@@ -41,7 +41,10 @@ adapters for Node, Cloudflare Workers, and Vercel.
 - \`src/capabilities/\` — typed application operations (see below).
 
 Pages-router apps replace the manifest with \`src/pages/\` file routing
-(\`export const RENDER_MODE = "ssg"\` in the page file). **The pages router has
+(\`export const RENDER_MODE = "ssg"\` in the page file). Pages ISG also requires
+\`export const REVALIDATE = 3600\`; it supports time policies only and fails
+build/doctor/verify when the policy is missing or misplaced, including on
+\`_app\` or \`404\`. Fenced Markdown/MDX examples are ignored. **The pages router has
 no manifest, so it has no middleware, capabilities, constraints, or \`agents\`**
 — if a task needs auth or the agent surface, use manifest routing (or eject
 with \`generateRoutesFile\`).

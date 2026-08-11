@@ -276,6 +276,43 @@ test("webmcp shim registers page tools and execute() round-trips over HTTP", asy
   expect(envelope.data.notes[0].title).toBe("Capabilities");
 });
 
+test("zero-island responses keep the WebMCP projection executable", async ({ page }) => {
+  const scriptRequests: string[] = [];
+  page.on("request", (request) => {
+    const pathname = new URL(request.url()).pathname;
+    if (pathname.endsWith(".js")) scriptRequests.push(pathname);
+  });
+  await page.addInitScript(() => {
+    const registered: unknown[] = [];
+    (window as unknown as { __webmcpTools: unknown[] }).__webmcpTools = registered;
+    (document as unknown as { modelContext: unknown }).modelContext = {
+      registerTool(tool: unknown) {
+        registered.push(tool);
+        return Promise.resolve();
+      },
+    };
+  });
+
+  await page.goto("/agent-tools");
+  await expect(page.getByRole("heading", { name: "Agent tools without UI islands" })).toBeVisible();
+  await expect(page.locator("pracht-island")).toHaveCount(0);
+  await page.waitForFunction(
+    () => (window as unknown as { __webmcpTools?: unknown[] }).__webmcpTools?.length === 1,
+  );
+  expect(scriptRequests).toContain("/@pracht/islands.js");
+
+  const result = await page.evaluate(async () => {
+    const tool = (
+      window as unknown as {
+        __webmcpTools: { name: string; execute: (input: unknown) => Promise<unknown> }[];
+      }
+    ).__webmcpTools[0];
+    return tool.execute({ query: "capabilities" });
+  });
+  const content = (result as { content: { text: string }[] }).content;
+  expect(JSON.parse(content[0].text).data.notes[0].title).toBe("Capabilities");
+});
+
 test("without the WebMCP API the page works and registers nothing", async ({ page }) => {
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(String(error)));
