@@ -16,6 +16,7 @@ import { createRouteLoaderHints } from "./route-loader-hints.ts";
 import { createWebmcpBootstrapSource, hasWebmcpCapabilities } from "./plugin-capabilities.ts";
 import {
   DEFAULT_ROUTE_EXTENSIONS,
+  LEGACY_BARE_ROUTE_EXTENSIONS,
   extensionGlob,
   withAdditionalExtensions,
 } from "./route-extensions.ts";
@@ -152,12 +153,12 @@ export function createPrachtClientModuleSource(
   // Additional formats are globbed separately without the `?pracht-client`
   // query suffix so their Vite transform plugins can match the bare extension.
   // Pracht's directory-aware post transform still strips server-only exports.
+  const bareRouteExtensions = [
+    ...withAdditionalExtensions(LEGACY_BARE_ROUTE_EXTENSIONS, resolved.additionalExtensions),
+  ];
   const dirPrefix = isPagesMode ? resolved.pagesDir : resolved.routesDir;
   const routeGlob = `${dirPrefix}/**/*.{ts,tsx,js,jsx,md,mdx}`;
-  const additionalRouteGlob =
-    resolved.additionalExtensions.length > 0
-      ? `${dirPrefix}/**/*.${extensionGlob(resolved.additionalExtensions)}`
-      : null;
+  const additionalRouteGlob = `${dirPrefix}/**/*.${extensionGlob(bareRouteExtensions)}`;
   const routeExcludes = createNonFullHydrationExcludes(resolved, buildOptions.root);
   const routeGlobPattern = routeExcludes.length > 0 ? [routeGlob, ...routeExcludes] : routeGlob;
   const additionalRouteGlobPattern =
@@ -168,12 +169,9 @@ export function createPrachtClientModuleSource(
   const shellGlob = isPagesMode
     ? `${resolved.pagesDir}/**/_app.{ts,tsx,js,jsx}`
     : `${resolved.shellsDir}/**/*.{ts,tsx,js,jsx,md,mdx}`;
-  const additionalShellGlob =
-    resolved.additionalExtensions.length === 0
-      ? null
-      : isPagesMode
-        ? `${resolved.pagesDir}/**/_app.${extensionGlob(resolved.additionalExtensions)}`
-        : `${resolved.shellsDir}/**/*.${extensionGlob(resolved.additionalExtensions)}`;
+  const additionalShellGlob = isPagesMode
+    ? `${resolved.pagesDir}/**/_app.${extensionGlob(bareRouteExtensions)}`
+    : `${resolved.shellsDir}/**/*.${extensionGlob(bareRouteExtensions)}`;
   // Base directory for relative manifest refs: the app manifest file's
   // directory (refs like "./routes/home.tsx" are written relative to it).
   const appFilePosix = resolved.appFile.replace(/\\/g, "/").replace(/^\.\//, "");
@@ -187,15 +185,11 @@ export function createPrachtClientModuleSource(
     `const routeLoaderHints = ${JSON.stringify(routeLoaderHints)};`,
     `const routeModules = {`,
     `  ...import.meta.glob(${JSON.stringify(routeGlobPattern)}, { query: ${JSON.stringify(PRACHT_CLIENT_MODULE_QUERY)} }),`,
-    ...(additionalRouteGlobPattern
-      ? [`  ...import.meta.glob(${JSON.stringify(additionalRouteGlobPattern)}),`]
-      : []),
+    `  ...import.meta.glob(${JSON.stringify(additionalRouteGlobPattern)}),`,
     `};`,
     `const shellModules = {`,
     `  ...import.meta.glob(${JSON.stringify(shellGlob)}, { query: ${JSON.stringify(PRACHT_CLIENT_MODULE_QUERY)} }),`,
-    ...(additionalShellGlob
-      ? [`  ...import.meta.glob(${JSON.stringify(additionalShellGlob)}),`]
-      : []),
+    `  ...import.meta.glob(${JSON.stringify(additionalShellGlob)}),`,
     `};`,
     "",
     "const resolvedApp = resolveApp(app);",
@@ -500,37 +494,30 @@ export function createPrachtRegistryModuleSource(options: PrachtPluginOptions = 
   const resolved = resolveOptions(options);
   const apiGlobs = [`${resolved.apiDir}/**/*.{ts,js,tsx,jsx}`, `!${resolved.apiDir}/**/*.d.ts`];
   const isPagesMode = !!resolved.pagesDir;
+  const bareRouteExtensions = [
+    ...withAdditionalExtensions(LEGACY_BARE_ROUTE_EXTENSIONS, resolved.additionalExtensions),
+  ];
 
   const routeGlob = isPagesMode
     ? `${resolved.pagesDir}/**/*.{ts,tsx,js,jsx,md,mdx}`
     : `${resolved.routesDir}/**/*.{ts,tsx,js,jsx,md,mdx}`;
-  const additionalRouteGlob =
-    resolved.additionalExtensions.length === 0
-      ? null
-      : `${isPagesMode ? resolved.pagesDir : resolved.routesDir}/**/*.${extensionGlob(resolved.additionalExtensions)}`;
+  const additionalRouteGlob = `${isPagesMode ? resolved.pagesDir : resolved.routesDir}/**/*.${extensionGlob(bareRouteExtensions)}`;
 
   const shellGlob = isPagesMode
     ? `${resolved.pagesDir}/**/_app.{ts,tsx,js,jsx}`
     : `${resolved.shellsDir}/**/*.{ts,tsx,js,jsx,md,mdx}`;
-  const additionalShellGlob =
-    resolved.additionalExtensions.length === 0
-      ? null
-      : isPagesMode
-        ? `${resolved.pagesDir}/**/_app.${extensionGlob(resolved.additionalExtensions)}`
-        : `${resolved.shellsDir}/**/*.${extensionGlob(resolved.additionalExtensions)}`;
+  const additionalShellGlob = isPagesMode
+    ? `${resolved.pagesDir}/**/_app.${extensionGlob(bareRouteExtensions)}`
+    : `${resolved.shellsDir}/**/*.${extensionGlob(bareRouteExtensions)}`;
 
   return [
     `export const routeModules = {`,
     `  ...import.meta.glob(${JSON.stringify(routeGlob)}),`,
-    ...(additionalRouteGlob
-      ? [`  ...import.meta.glob(${JSON.stringify(additionalRouteGlob)}),`]
-      : []),
+    `  ...import.meta.glob(${JSON.stringify(additionalRouteGlob)}),`,
     `};`,
     `export const shellModules = {`,
     `  ...import.meta.glob(${JSON.stringify(shellGlob)}),`,
-    ...(additionalShellGlob
-      ? [`  ...import.meta.glob(${JSON.stringify(additionalShellGlob)}),`]
-      : []),
+    `  ...import.meta.glob(${JSON.stringify(additionalShellGlob)}),`,
     `};`,
     `export const middlewareModules = import.meta.glob(${JSON.stringify(`${resolved.middlewareDir}/**/*.{ts,tsx,js,jsx}`)});`,
     `export const apiModules = import.meta.glob(${JSON.stringify(apiGlobs)});`,

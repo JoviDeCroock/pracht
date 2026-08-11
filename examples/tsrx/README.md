@@ -4,8 +4,9 @@ Demonstrates `.tsrx` route modules â€” TSRX/Ripple-flavoured Preact components â
 running side by side with regular `.tsx` routes inside a Pracht app.
 
 Install [`@tsrx/vite-plugin-preact`](https://github.com/Ripple-TS/ripple), add it
-to your Vite `plugins` array, and tell Pracht to discover `.tsrx` route and shell
-modules through its format-agnostic `additionalExtensions` option.
+to your Vite `plugins` array, and optionally list `.tsrx` through Pracht's
+format-agnostic `additionalExtensions` option. This example uses the explicit
+form; implicit `.tsrx` discovery remains available for backward compatibility.
 
 ```ts
 // vite.config.ts
@@ -19,9 +20,8 @@ export default defineConfig({
 ```
 
 The format plugin remains responsible for compiling `.tsrx`; Pracht discovers
-the modules and applies its usual route client/server handling. The local
-`src/vite-env.d.ts` declaration teaches TypeScript about imports of this custom
-extension.
+the modules, applies its usual route client/server handling, and retains the
+ambient `.tsrx` module declaration shipped for compatibility.
 
 ## Layout
 

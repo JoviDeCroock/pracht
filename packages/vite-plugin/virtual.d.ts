@@ -246,3 +246,10 @@ declare module "virtual:pracht/webmcp" {
   /** Registers WebMCP page tools; returns false when the API is unavailable. */
   export function registerPrachtWebmcpTools(): boolean;
 }
+
+// Preserve the ambient declaration shipped with Pracht's compatibility-level
+// `.tsrx` discovery. Other custom formats provide their own declaration.
+declare module "*.tsrx" {
+  const mod: Record<string, unknown>;
+  export = mod;
+}

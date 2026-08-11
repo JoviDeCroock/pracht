@@ -11,7 +11,7 @@ export const CONFIG_FILE_NAMES = new Set([
 
 // Declaration files are TypeScript inputs, never executable framework modules.
 export const MODULE_SOURCE_RE = /(?<!\.d)\.(ts|tsx|js|jsx)$/;
-export const PAGE_SOURCE_RE = /\.(ts|tsx|js|jsx|md|mdx)$/;
+export const PAGE_SOURCE_RE = /\.(ts|tsx|tsrx|js|jsx|md|mdx)$/;
 const DECLARATION_SOURCE_RE = /\.d\.ts$/;
 
 export function isPageSource(file: string, additionalExtensions: string[] = []): boolean {

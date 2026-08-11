@@ -29,6 +29,7 @@ describe("readProjectConfig additionalExtensions", () => {
     );
 
     expect(project.additionalExtensions).toEqual([".tsrx", ".vue"]);
+    expect(project.additionalExtensionsIsStatic).toBe(true);
   });
 
   it("reads a quoted array through a const and defaults to an empty list", () => {
@@ -41,6 +42,26 @@ describe("readProjectConfig additionalExtensions", () => {
 
     expect(configured.additionalExtensions).toEqual([".custom"]);
     expect(defaults.additionalExtensions).toEqual([]);
+    expect(configured.additionalExtensionsIsStatic).toBe(true);
+    expect(defaults.additionalExtensionsIsStatic).toBe(true);
+  });
+
+  it("reads an object-shorthand const and reports dynamic expressions", () => {
+    const shorthand = readProjectConfig(
+      makeProject(
+        'const additionalExtensions = [".vue"] as const;\nexport default { plugins: [pracht({ additionalExtensions })] };',
+      ),
+    );
+    const dynamic = readProjectConfig(
+      makeProject(
+        "const additionalExtensions = getRouteExtensions();\nexport default { plugins: [pracht({ additionalExtensions })] };",
+      ),
+    );
+
+    expect(shorthand.additionalExtensions).toEqual([".vue"]);
+    expect(shorthand.additionalExtensionsIsStatic).toBe(true);
+    expect(dynamic.additionalExtensions).toEqual([]);
+    expect(dynamic.additionalExtensionsIsStatic).toBe(false);
   });
 
   it("reads arrays with comments and a trailing comma", () => {

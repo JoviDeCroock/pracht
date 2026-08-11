@@ -53,6 +53,17 @@ export function collectConfigChecks(
   } else {
     checks.push(createCheck("ok", "Vite config registers the pracht plugin."));
   }
+
+  if (!project.additionalExtensionsIsStatic) {
+    checks.push(
+      createCheck(
+        "warning",
+        "additionalExtensions could not be resolved statically. The live Vite configuration " +
+          "still controls builds, but static route verification cannot classify custom-format " +
+          "files reliably. Use an inline string array or a const string array when possible.",
+      ),
+    );
+  }
 }
 
 export function collectManifestVerification(

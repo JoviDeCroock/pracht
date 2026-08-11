@@ -322,7 +322,15 @@ pracht({
 This works in both pages and manifest mode. Pracht discovers the files and
 applies its route client/server handling; register the format's Vite transform
 plugin separately and add an ambient TypeScript module declaration if its
-tooling does not provide one.
+tooling does not provide one. Keep the array inline or in a directly referenced
+`const` so `pracht verify` and the development type watcher can classify custom
+files statically. Dynamic expressions still build through Vite but produce a
+verification warning. Vite-scannable component formats participate in initial
+dependency scanning automatically; other format plugins must configure Vite's
+dependency optimizer themselves.
+
+Existing `.tsrx` routes remain discovered without this option for backward
+compatibility and retain Pracht's ambient module declaration.
 
 ### Per-Route Render Mode
 

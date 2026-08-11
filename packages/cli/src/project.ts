@@ -7,6 +7,7 @@ import { PROJECT_DEFAULTS } from "./constants.js";
 
 export interface ProjectConfig {
   additionalExtensions: string[];
+  additionalExtensionsIsStatic: boolean;
   apiDir: string;
   appFile: string;
   capabilitiesDir: string;
@@ -29,6 +30,8 @@ export function readProjectConfig(root: string): ProjectConfig {
   const rawConfig = configFile ? readFileSync(configFile, "utf-8") : "";
   const hasPagesDefaultRender = hasConfigProperty(rawConfig, "pagesDefaultRender");
   const resolvedPagesDefaultRender = readQuotedConfigValue(rawConfig, "pagesDefaultRender");
+  const hasAdditionalExtensions = hasConfigValue(rawConfig, "additionalExtensions");
+  const resolvedAdditionalExtensions = readQuotedConfigArray(rawConfig, "additionalExtensions");
   const config: Record<string, unknown> = {
     ...PROJECT_DEFAULTS,
     configFile,
@@ -36,6 +39,7 @@ export function readProjectConfig(root: string): ProjectConfig {
     mode: "manifest" as const,
     rawConfig,
     root,
+    additionalExtensionsIsStatic: !hasAdditionalExtensions || resolvedAdditionalExtensions !== null,
     pagesDefaultRenderIsStatic: !hasPagesDefaultRender || resolvedPagesDefaultRender !== null,
   };
 
@@ -46,9 +50,9 @@ export function readProjectConfig(root: string): ProjectConfig {
       config[key] = key === "pagesDefaultRender" ? value : normalizeConfigPath(value);
     }
   }
-  config.additionalExtensions = (
-    readQuotedConfigArray(rawConfig, "additionalExtensions") ?? []
-  ).map((extension) => extension.toLowerCase());
+  config.additionalExtensions = (resolvedAdditionalExtensions ?? []).map((extension) =>
+    extension.toLowerCase(),
+  );
 
   config.mode = config.pagesDir ? "pages" : "manifest";
   return config as unknown as ProjectConfig;
@@ -184,14 +188,21 @@ function readQuotedConfigArray(source: string, key: string): string[] | null {
   if (!source) return null;
   const masked = maskCommentsAndStrings(source);
   const properties = [...masked.matchAll(new RegExp(`\\b${key}\\s*:`, "g"))];
-  if (properties.length !== 1) return null;
-  const property = properties[0];
-  const valueStart = (property.index ?? 0) + property[0].length;
+  if (properties.length > 1) return null;
 
-  const direct = readStringArrayAt(source, valueStart);
-  if (direct !== null) return direct;
+  let identifier: string | undefined;
+  if (properties.length === 1) {
+    const property = properties[0];
+    const valueStart = (property.index ?? 0) + property[0].length;
+    const direct = readStringArrayAt(source, valueStart);
+    if (direct !== null) return direct;
+    identifier = /^\s*([A-Za-z_$][\w$]*)\b/.exec(source.slice(valueStart))?.[1];
+  } else {
+    const shorthandProperties = [...masked.matchAll(new RegExp(`\\b${key}\\b(?=\\s*[,}])`, "g"))];
+    if (shorthandProperties.length !== 1) return null;
+    identifier = key;
+  }
 
-  const identifier = /^\s*([A-Za-z_$][\w$]*)\b/.exec(source.slice(valueStart))?.[1];
   if (!identifier) return null;
   const declarations = [...masked.matchAll(new RegExp(`\\bconst\\s+${identifier}\\s*=`, "g"))];
   if (declarations.length !== 1) return null;
@@ -256,6 +267,13 @@ function skipConfigTrivia(source: string, start: number): number {
 
 function hasConfigProperty(source: string, key: string): boolean {
   return new RegExp(`\\b${key}\\s*:`).test(maskCommentsAndStrings(source));
+}
+
+function hasConfigValue(source: string, key: string): boolean {
+  const masked = maskCommentsAndStrings(source);
+  return (
+    new RegExp(`\\b${key}\\s*:`).test(masked) || new RegExp(`\\b${key}\\b(?=\\s*[,}])`).test(masked)
+  );
 }
 
 function readQuotedValueAt(source: string, start: number): string | null {

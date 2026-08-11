@@ -7,6 +7,7 @@ import {
   readFileSync,
   readdirSync,
   rmSync,
+  writeFileSync,
 } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -93,7 +94,7 @@ test("pracht build prerenders a .tsrx route with scoped CSS and strips its loade
   }
 });
 
-test("built Node server serves .tsrx and .tsx routes", async () => {
+test("built Node server preserves implicit .tsrx compatibility", async () => {
   test.setTimeout(120_000);
 
   const { exampleDir, tempDir } = createTempExampleDir("pracht-tsrx-serve-");
@@ -105,6 +106,7 @@ test("built Node server serves .tsrx and .tsx routes", async () => {
   try {
     rmSync(distDir, { force: true, recursive: true });
 
+    useImplicitTsrxCompatibility(exampleDir);
     buildExample(exampleDir);
     expect(existsSync(serverEntryPath)).toBe(true);
 
@@ -178,6 +180,16 @@ function buildExample(exampleDir: string): void {
     },
     stdio: "pipe",
   });
+}
+
+function useImplicitTsrxCompatibility(exampleDir: string): void {
+  const configPath = resolve(exampleDir, "vite.config.ts");
+  const config = readFileSync(configPath, "utf-8");
+  const withoutExplicitExtension = config.replace(', additionalExtensions: [".tsrx"]', "");
+  if (withoutExplicitExtension === config) {
+    throw new Error("TSRX fixture no longer contains the explicit additionalExtensions option.");
+  }
+  writeFileSync(configPath, withoutExplicitExtension);
 }
 
 function collectJsSource(dir: string): string {

@@ -8,7 +8,7 @@ import { collectAppGraph } from "../app-graph.js";
 import { loadDotEnvIntoProcess } from "../dotenv.js";
 import { formatDevBanner, supportsColor } from "../dev-banner.js";
 import { readProjectConfig, resolveProjectPath } from "../project.js";
-import { isRouteSource } from "../verification-helpers.js";
+import { isRouteSource, isWithinDirectory } from "../verification-helpers.js";
 import { requirePositiveInteger } from "../utils.js";
 import {
   DEFAULT_CAPABILITIES_OUT,
@@ -113,6 +113,9 @@ function watchGeneratedRouteTypes(server: ViteDevServer, root: string): boolean 
   ]);
   const project = readProjectConfig(root);
   const appFilePath = resolveProjectPath(root, project.appFile);
+  const routeSourceDirs = (
+    project.mode === "pages" ? [project.pagesDir] : [project.routesDir, project.shellsDir]
+  ).map((directory) => resolveProjectPath(root, directory));
   let queued: ReturnType<typeof setTimeout> | null = null;
   let running = false;
   let rerunQueued = false;
@@ -145,9 +148,14 @@ function watchGeneratedRouteTypes(server: ViteDevServer, root: string): boolean 
   };
 
   const queueRegenerate = (file: string, requireRouteExtension = true) => {
+    const couldUseUnresolvedExtension =
+      !project.additionalExtensionsIsStatic &&
+      routeSourceDirs.some((directory) => isWithinDirectory(file, directory));
     if (
       !file.startsWith(root) ||
-      (requireRouteExtension && !isRouteSource(file, project.additionalExtensions)) ||
+      (requireRouteExtension &&
+        !isRouteSource(file, project.additionalExtensions) &&
+        !couldUseUnresolvedExtension) ||
       generatedPaths.has(file)
     ) {
       return;

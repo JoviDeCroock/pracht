@@ -47,7 +47,8 @@ export interface PrachtPluginOptions {
    * Additional dot-prefixed route and shell module extensions to discover,
    * such as `[".vue"]`. Register the Vite plugin that transforms the format
    * separately; Pracht only discovers the modules and applies its route
-   * client/server handling. Defaults to no additional extensions.
+   * client/server handling. Defaults to no additional extensions. `.tsrx`
+   * remains discovered without configuration for backward compatibility.
    */
   additionalExtensions?: readonly string[];
   /**

@@ -59,7 +59,8 @@ DOM subtrees and should be benchmarked against your app before enabling broadly.
 ## Additional Route Extensions
 
 Use `additionalExtensions` when a Vite plugin compiles route or shell modules
-with another file extension. For example, TSRX modules can be enabled with:
+with another file extension. For example, TSRX can use the explicit generic
+configuration (while remaining implicitly supported for compatibility):
 
 ```ts
 // vite.config.ts
@@ -73,11 +74,18 @@ export default defineConfig({
 ```
 
 Extensions must be dot-prefixed. Pracht discovers configured extensions in
-route and shell directories for both manifest and pages-router modes, includes
-them in dependency optimization, and strips server-only route exports from
-client bundles. The companion Vite plugin is still responsible for compiling
-the file format, and the app should provide any ambient TypeScript module
-declaration that format requires.
+route and shell directories for both manifest and pages-router modes and strips
+server-only route exports from client bundles. Vite-scannable component formats
+join initial dependency scanning automatically; other format plugins must opt
+their extension into Vite's dependency optimizer. The companion plugin remains
+responsible for compiling the file format, and the app should provide any
+ambient TypeScript module declaration that format requires. Keep the array
+inline or in a directly referenced `const` for complete CLI verification;
+dynamic expressions still build but produce a verification warning.
+
+Existing `.tsrx` routes and shells remain discovered without
+`additionalExtensions`, and Pracht keeps its ambient `.tsrx` declaration so a
+compatible CLI patch cannot strand applications on the previous plugin minor.
 
 ## Peer Dependencies
 

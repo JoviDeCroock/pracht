@@ -30,6 +30,17 @@ afterEach(() => {
 });
 
 describe("scanPagesDirectory", () => {
+  it("preserves built-in TSRX route and shell discovery", () => {
+    const pagesDir = makeTempPagesDir();
+    writeFileSync(join(pagesDir, "index.tsrx"), "export function Component() { return null; }\n");
+    writeFileSync(join(pagesDir, "_app.tsrx"), "export function Shell() { return null; }\n");
+
+    expect(scanPagesDirectory(pagesDir).map((page) => page.relativePath)).toEqual(["index.tsrx"]);
+    expect(generatePagesManifestSource(scanPagesDirectory(pagesDir), { pagesDir })).toContain(
+      "_app.tsrx",
+    );
+  });
+
   it("discovers configured additional route and shell extensions only when enabled", () => {
     const pagesDir = makeTempPagesDir();
     writeFileSync(join(pagesDir, "index.custom"), "export function Component() { return null; }\n");
@@ -434,8 +445,8 @@ describe("pracht plugin config", () => {
 
     const expectedPrachtEntries = [
       "src/routes.ts",
-      "src/routes/**/*.{ts,tsx,js,jsx,md,mdx}",
-      "src/shells/**/*.{ts,tsx,js,jsx,md,mdx}",
+      "src/routes/**/*.{ts,tsx,js,jsx}",
+      "src/shells/**/*.{ts,tsx,js,jsx}",
       "src/middleware/**/*.{ts,tsx,js,jsx}",
       "src/api/**/*.{ts,js,tsx,jsx}",
       "!src/api/**/*.d.ts",
@@ -451,7 +462,7 @@ describe("pracht plugin config", () => {
     ]);
   });
 
-  it("adds configured route extensions to optimize-deps entries", async () => {
+  it("adds only Vite-scannable configured extensions to optimize-deps entries", async () => {
     const plugins = await pracht({ additionalExtensions: [".tsrx", ".vue"] });
     const plugin = plugins.find((candidate) => candidate.name === "pracht:optimize-deps-entries");
     const config = plugin?.config;
@@ -462,11 +473,15 @@ describe("pracht plugin config", () => {
       { command: "serve", isSsrBuild: false, mode: "development" },
     );
 
-    expect(result.optimizeDeps?.entries).toContain(
-      "src/routes/**/*.{ts,tsx,js,jsx,md,mdx,tsrx,vue}",
+    expect(result.optimizeDeps?.entries).toContain("src/routes/**/*.{ts,tsx,js,jsx,vue}");
+    expect(result.optimizeDeps?.entries).toContain("src/shells/**/*.{ts,tsx,js,jsx,vue}");
+
+    const withFormatOptimizer = (config as (config: UserConfig, env: ConfigEnv) => UserConfig)(
+      { optimizeDeps: { extensions: [".tsrx"] } },
+      { command: "serve", isSsrBuild: false, mode: "development" },
     );
-    expect(result.optimizeDeps?.entries).toContain(
-      "src/shells/**/*.{ts,tsx,js,jsx,md,mdx,tsrx,vue}",
+    expect(withFormatOptimizer.optimizeDeps?.entries).toContain(
+      "src/routes/**/*.{ts,tsx,js,jsx,tsrx,vue}",
     );
   });
 });
@@ -478,7 +493,8 @@ describe("createPrachtRegistryModuleSource", () => {
     });
 
     expect(source).toContain("/src/pages/**/*.{ts,tsx,js,jsx,md,mdx}");
-    expect(source).not.toContain("tsrx");
+    expect(source).toContain("/src/pages/**/*.tsrx");
+    expect(source).toContain("/src/pages/**/_app.tsrx");
     expect(source).toContain(
       'import.meta.glob(["/src/api/**/*.{ts,js,tsx,jsx}","!/src/api/**/*.d.ts"])',
     );
@@ -496,12 +512,20 @@ describe("createPrachtRegistryModuleSource", () => {
     expect(source).toContain("/src/pages/**/_app.{tsrx,vue}");
   });
 
+  it("keeps compatibility TSRX client module ids bare without configuration", () => {
+    const source = createPrachtClientModuleSource();
+
+    expect(source).toContain('import.meta.glob("/src/routes/**/*.tsrx")');
+    expect(source).toContain('import.meta.glob("/src/shells/**/*.tsrx")');
+    expect(source).not.toContain('/src/routes/**/*.tsrx", { query:');
+  });
+
   it("keeps additional client module ids bare for their format plugins", () => {
     const source = createPrachtClientModuleSource({ additionalExtensions: [".custom"] });
 
-    expect(source).toContain('import.meta.glob("/src/routes/**/*.custom")');
-    expect(source).toContain('import.meta.glob("/src/shells/**/*.custom")');
-    expect(source).not.toContain('/src/routes/**/*.custom", { query:');
+    expect(source).toContain('import.meta.glob("/src/routes/**/*.{tsrx,custom}")');
+    expect(source).toContain('import.meta.glob("/src/shells/**/*.{tsrx,custom}")');
+    expect(source).not.toContain('/src/routes/**/*.{tsrx,custom}", { query:');
   });
 
   it("creates adapter-neutral development metadata", () => {

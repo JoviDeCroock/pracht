@@ -95,9 +95,15 @@ export function filterFrameworkFiles(
     if (CONFIG_FILE_NAMES.has(basename(file))) return true;
     if (normalizePath(file) === normalizePath(packageJsonPath)) return true;
     if (project.mode === "manifest" && normalizePath(file) === normalizePath(appFile)) return true;
-    if (isWithinDirectory(file, routesDir) && isRouteSource(file, project.additionalExtensions))
+    if (
+      isWithinDirectory(file, routesDir) &&
+      (!project.additionalExtensionsIsStatic || isRouteSource(file, project.additionalExtensions))
+    )
       return true;
-    if (isWithinDirectory(file, shellsDir) && isRouteSource(file, project.additionalExtensions))
+    if (
+      isWithinDirectory(file, shellsDir) &&
+      (!project.additionalExtensionsIsStatic || isRouteSource(file, project.additionalExtensions))
+    )
       return true;
     if (isWithinDirectory(file, middlewareDir) && MODULE_SOURCE_RE.test(file)) return true;
     if (isWithinDirectory(file, serverDir) && MODULE_SOURCE_RE.test(file)) return true;
@@ -105,7 +111,7 @@ export function filterFrameworkFiles(
     if (
       pagesDir &&
       isWithinDirectory(file, pagesDir) &&
-      isPageSource(file, project.additionalExtensions)
+      (!project.additionalExtensionsIsStatic || isPageSource(file, project.additionalExtensions))
     )
       return true;
     return false;

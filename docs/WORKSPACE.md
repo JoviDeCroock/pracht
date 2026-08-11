@@ -124,11 +124,13 @@ described in `VISION_MVP.md`.
   client and SSR builds.
 - **Additional route extensions** — `pracht({ additionalExtensions: [".ext"] })`
   adds dot-prefixed route and shell module extensions to manifest- and
-  pages-router discovery, dependency optimization, loader hints, HMR/typegen
-  watching, and client-only export stripping. Users still register the Vite
-  plugin that compiles the format and provide its TypeScript declaration.
-  Additional-format globs keep bare module ids so extension-matching transforms
-  can run. See `examples/tsrx/` for a working custom-format app.
+  pages-router discovery, loader hints, HMR/typegen watching, and client-only
+  export stripping. Vite-scannable formats join initial dependency scanning;
+  other format plugins remain responsible for their optimizer integration,
+  source transform, and TypeScript declaration. Additional-format globs keep
+  bare module ids so extension-matching transforms can run. `.tsrx` discovery
+  and its ambient declaration remain enabled without configuration for backward
+  compatibility. See `examples/tsrx/` for a working custom-format app.
 
 - **Claude Code skills** — Repo-local skills in `skills/` (see
   [skills/README.md](../skills/README.md) for the full index). Two audiences:

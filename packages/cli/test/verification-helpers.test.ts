@@ -11,6 +11,7 @@ describe("route source detection", () => {
 
   it("includes built-in and configured route extensions", () => {
     expect(isRouteSource("src/routes/route.tsx")).toBe(true);
+    expect(isRouteSource("src/routes/route.tsrx")).toBe(true);
     expect(isRouteSource("src/routes/route.md")).toBe(true);
     expect(isRouteSource("src/routes/route.custom", [".custom"])).toBe(true);
   });

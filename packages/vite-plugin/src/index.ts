@@ -448,7 +448,7 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
     config(config) {
       return withPrachtOptimizeDepsEntries(
         config,
-        createPrachtOptimizeDepsEntries(resolved),
+        resolved,
         createPrachtOptimizeDepsInclude(config.root ?? process.cwd()),
       );
     },
@@ -634,15 +634,22 @@ function createPrachtOptimizeDepsInclude(root: string): string[] {
 
 function withPrachtOptimizeDepsEntries(
   config: UserConfig,
-  prachtEntries: string[],
+  resolved: ResolvedPrachtPluginOptions,
   prachtInclude: string[],
 ): UserConfig {
+  const prachtEntries = createPrachtOptimizeDepsEntries(resolved, config.optimizeDeps?.extensions);
   const environments = Object.fromEntries(
     Object.entries(config.environments ?? {}).map(([name, environment]) => [
       name,
       {
         optimizeDeps: {
-          entries: mergeOptimizeDepsEntries(environment.optimizeDeps?.entries, prachtEntries),
+          entries: mergeOptimizeDepsEntries(
+            environment.optimizeDeps?.entries,
+            createPrachtOptimizeDepsEntries(
+              resolved,
+              environment.optimizeDeps?.extensions ?? config.optimizeDeps?.extensions,
+            ),
+          ),
         },
       },
     ]),
@@ -659,12 +666,34 @@ function withPrachtOptimizeDepsEntries(
   };
 }
 
-function createPrachtOptimizeDepsEntries(resolved: ResolvedPrachtPluginOptions): string[] {
+const VITE_SCANNABLE_ROUTE_EXTENSIONS = new Set([
+  ".ts",
+  ".tsx",
+  ".js",
+  ".jsx",
+  ".mts",
+  ".mjs",
+  ".cts",
+  ".cjs",
+  // Vite's dependency scanner extracts module scripts from these formats.
+  ".vue",
+  ".svelte",
+  ".astro",
+  ".imba",
+]);
+
+function createPrachtOptimizeDepsEntries(
+  resolved: ResolvedPrachtPluginOptions,
+  optimizerExtensions: string[] | undefined,
+): string[] {
   const scriptExtensions = "{ts,tsx,js,jsx}";
-  const routeExtensions = extensionGlob([
-    ...DEFAULT_ROUTE_EXTENSIONS,
-    ...resolved.additionalExtensions,
-  ]);
+  const explicitlyScannable = new Set(optimizerExtensions ?? []);
+  const routeExtensions = extensionGlob(
+    [...new Set([...DEFAULT_ROUTE_EXTENSIONS, ...resolved.additionalExtensions])].filter(
+      (extension) =>
+        VITE_SCANNABLE_ROUTE_EXTENSIONS.has(extension) || explicitlyScannable.has(extension),
+    ),
+  );
   const apiDir = toOptimizeDepsEntry(resolved.apiDir);
   const apiEntries = [`${apiDir}/**/*.{ts,js,tsx,jsx}`, `!${apiDir}/**/*.d.ts`];
   const entries = resolved.pagesDir

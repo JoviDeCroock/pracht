@@ -1,5 +1,16 @@
-export const DEFAULT_ROUTE_EXTENSIONS = [".ts", ".tsx", ".js", ".jsx", ".md", ".mdx"];
-export const DEFAULT_SHELL_EXTENSIONS = [".ts", ".tsx", ".js", ".jsx"];
+export const BUILT_IN_ROUTE_EXTENSIONS = [".ts", ".tsx", ".js", ".jsx", ".md", ".mdx"];
+export const LEGACY_BARE_ROUTE_EXTENSIONS = [".tsrx"];
+export const DEFAULT_ROUTE_EXTENSIONS = [
+  ...BUILT_IN_ROUTE_EXTENSIONS,
+  ...LEGACY_BARE_ROUTE_EXTENSIONS,
+];
+export const DEFAULT_SHELL_EXTENSIONS = [
+  ".ts",
+  ".tsx",
+  ".js",
+  ".jsx",
+  ...LEGACY_BARE_ROUTE_EXTENSIONS,
+];
 
 const EXTENSION_RE = /^\.[a-z0-9][a-z0-9_-]*$/i;
 
@@ -20,7 +31,10 @@ export function normalizeAdditionalExtensions(extensions: readonly string[] | un
     return extension.toLowerCase();
   });
 
-  const defaults = new Set(DEFAULT_ROUTE_EXTENSIONS);
+  // Keep `.tsrx` when it is explicitly configured even though it remains a
+  // compatibility default. That lets the TSRX example exercise the same bare
+  // custom-format glob path as every newly configured extension.
+  const defaults = new Set(BUILT_IN_ROUTE_EXTENSIONS);
   return [...new Set(normalized)].filter((extension) => !defaults.has(extension));
 }
 
