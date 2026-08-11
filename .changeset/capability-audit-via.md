@@ -1,7 +1,6 @@
 ---
 "@pracht/capabilities": minor
 "@pracht/core": minor
-"create-pracht": patch
 ---
 
 Harden remote MCP capability composition, verified agent identity, and audit
@@ -32,6 +31,8 @@ overlay, and reflected methods and accessors preserve their original
 private-field receivers across integrity operations. Receiver-bound helpers on
 immutable contexts continue to observe the original object, so apps that need
 helpers to read `agent` or middleware-added state should supply a mutable
-per-request context. HTTP and MCP composition retain the transport-verified
-identity even when application code supplies a replacement context object to
-`invokeCapability()`.
+per-request context. Every one of these fail-closed cases is delivered as a
+response — a 500 from `handlePrachtRequest()`, an `internal_error` envelope from
+`invokeCapability()` — never as a rejection out of the adapter. HTTP and MCP
+composition retain the transport-verified identity even when application code
+supplies a replacement context object to `invokeCapability()`.

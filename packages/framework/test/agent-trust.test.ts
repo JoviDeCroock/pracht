@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { defineCapability } from "../../capabilities/src/index.ts";
 import {
@@ -369,6 +369,41 @@ describe("agent policy and audit", () => {
       request: postPurge({ titlePrefix: "x" }),
     });
     expect(await response.json()).toEqual({ ok: true, data: { agentChecked: true } });
+  });
+
+  it("answers with a 500 when the supplied context cannot carry the identity", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { app, registry } = createApp(createPurgeCapability({ effect: "read" }), {
+      webBotAuth: { policy: "observe" },
+    });
+
+    // A native built-in cannot carry the framework-owned field through an
+    // overlay, so binding fails closed — as a response, never as a rejection
+    // out of `handlePrachtRequest()` (adapters do not catch one).
+    const response = await handlePrachtRequest({
+      app,
+      registry,
+      request: postPurge({ titlePrefix: "x" }),
+      context: Object.freeze(new Map()),
+    });
+
+    expect(response.status).toBe(500);
+    expect(await response.text()).toBe("Internal Server Error");
+    expect(consoleError).toHaveBeenCalled();
+
+    // Same delivery for an application-owned immutable `agent` field, with the
+    // binding failure's guidance in the body when diagnostics are on.
+    const diagnosed = await handlePrachtRequest({
+      app,
+      registry,
+      debugErrors: true,
+      request: postPurge({ titlePrefix: "x" }),
+      context: Object.freeze({ agent: { verified: true, agentDomain: null, keyId: "app" } }),
+    });
+
+    expect(diagnosed.status).toBe(500);
+    expect(await diagnosed.text()).toContain("application-owned");
+    consoleError.mockRestore();
   });
 
   it("emits audit events with capability, effect, outcome, and duration", async () => {

@@ -104,6 +104,12 @@ them in a fresh mutable request-context object instead. Receiver-bound helpers
 cannot observe fields that exist only on the overlay, so use a fresh mutable
 context when helpers need `agent` or middleware-added state.
 
+Every one of these failures is delivered as a response, not as a rejection the
+adapter would have to catch: `handlePrachtRequest()` answers `500` (with the
+binding failure's guidance in the body under `debugErrors`, and the details
+logged once to `console.error`), and `invokeCapability()` returns an
+`internal_error` envelope.
+
 ### Verification rules (fail closed)
 
 A signature verifies only when **all** of the following hold; any failure

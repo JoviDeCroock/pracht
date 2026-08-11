@@ -277,7 +277,26 @@ export async function handlePrachtRequest<TContext>(
         const { verifyAgentSignature } = await import("./runtime-agent-auth.ts");
         agent = await verifyAgentSignature(options.request, webBotAuth);
       }
-      requestContext = bindAgentContext(requestContext, agent);
+      try {
+        requestContext = bindAgentContext(requestContext, agent);
+      } catch (error: unknown) {
+        // A context the framework cannot bind identity to (a native built-in,
+        // an application-owned `agent` field it must not replace, or a context
+        // object reused across identities) fails closed. Deliver that as a 500
+        // rather than rejecting: a rejection out of `handlePrachtRequest` is an
+        // unhandled rejection in the adapter, not a response.
+        warnAgentContextBindingFailure(error);
+        return withDefaultSecurityHeaders(
+          new Response(
+            exposeDiagnostics
+              ? `Request context could not carry verified agent identity: ${
+                  error instanceof Error ? error.message : String(error)
+                }`
+              : "Internal Server Error",
+            { status: 500, headers: { "content-type": "text/plain; charset=utf-8" } },
+          ),
+        );
+      }
       agent = requestContext.agent ?? null;
     }
 
@@ -1050,6 +1069,23 @@ function warnCapabilityResolutionFailure(error: unknown): void {
   warnedCapabilityResolutionFailure = true;
   console.error(
     "[pracht] Capability registry failed to resolve; capability requests will fail closed:",
+    error,
+  );
+}
+
+/**
+ * Identity binding fails for the shape of the supplied context, so it fails on
+ * every request until the adapter supplies a bindable one — log the details
+ * once, since the 500 body stays generic in production.
+ */
+let warnedAgentContextBindingFailure = false;
+
+function warnAgentContextBindingFailure(error: unknown): void {
+  if (warnedAgentContextBindingFailure) return;
+  warnedAgentContextBindingFailure = true;
+  console.error(
+    "[pracht] Verified agent identity could not be bound to the request context; " +
+      "requests fail closed with a 500:",
     error,
   );
 }
