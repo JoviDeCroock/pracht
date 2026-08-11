@@ -627,9 +627,11 @@ export const app = defineApp({
 
   it("stays quiet about Markdown routes when a transform plugin is registered", () => {
     const withPlugin = createTempDir("pracht-cli-doctor-md-plugin-");
+    const withContent = createTempDir("pracht-cli-doctor-content-plugin-");
+    const withContentRegistryOnly = createTempDir("pracht-cli-doctor-content-registry-");
     const withoutPlugin = createTempDir("pracht-cli-doctor-md-no-plugin-");
 
-    for (const appDir of [withPlugin, withoutPlugin]) {
+    for (const appDir of [withPlugin, withContent, withContentRegistryOnly, withoutPlugin]) {
       writePagesApp(appDir);
       writeProjectFile(appDir, "src/pages/guide.md", "# Guide\n\nHello.\n");
     }
@@ -645,6 +647,31 @@ export default defineConfig({
 });
 `,
     );
+    writeProjectFile(
+      withContent,
+      "vite.config.ts",
+      `import { defineConfig } from "vite";
+import { prachtContent } from "@pracht/content/vite";
+import { pracht } from "@pracht/vite-plugin";
+
+export default defineConfig({
+  plugins: [prachtContent({ collections: [] }), pracht({ pagesDir: "/src/pages" })],
+});
+`,
+    );
+    writeProjectFile(
+      withContentRegistryOnly,
+      "vite.config.ts",
+      `import { defineCollection } from "@pracht/content";
+import { defineConfig } from "vite";
+import { pracht } from "@pracht/vite-plugin";
+
+void defineCollection;
+export default defineConfig({
+  plugins: [pracht({ pagesDir: "/src/pages" })],
+});
+`,
+    );
 
     const hasWarning = (appDir) =>
       JSON.parse(runCli(["doctor", "--json"], { cwd: appDir }).stdout).checks.some((check) =>
@@ -655,6 +682,8 @@ export default defineConfig({
     // the same shape, otherwise it passes with the feature deleted.
     expect(hasWarning(withoutPlugin)).toBe(true);
     expect(hasWarning(withPlugin)).toBe(false);
+    expect(hasWarning(withContent)).toBe(false);
+    expect(hasWarning(withContentRegistryOnly)).toBe(true);
   });
 
   it("warns about a Markdown not-found page and under --changed scope", () => {

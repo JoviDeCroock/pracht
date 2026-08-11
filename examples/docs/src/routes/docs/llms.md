@@ -1,6 +1,6 @@
 ---
 title: LLM Content Negotiation
-lead: Give AI agents first-class Markdown at the same URLs your readers use. pracht routes can negotiate on `Accept: text/markdown`, publish `/llms.txt`, and keep HTML as the browser default.
+lead: "Give AI agents first-class Markdown at the same URLs your readers use. pracht routes can negotiate on `Accept: text/markdown`, publish `/llms.txt`, and keep HTML as the browser default."
 breadcrumb: LLMs
 prev:
   href: /docs/agents
@@ -82,7 +82,7 @@ pracht({
 
 `pracht build` writes `dist/client/llms.txt` and the dev server serves it live at `/llms.txt`.
 
-This docs site needs curated sections and an `llms-full.txt` bundle with inlined page content, so it uses a custom frontmatter-driven plugin instead:
+This docs site needs curated sections and an `llms-full.txt` bundle with inlined page content, so it uses the opt-in [`@pracht/content` collection](/docs/content) instead:
 
 - `/llms.txt` — a concise map of the docs with titles, descriptions, and canonical URLs.
 - `/llms-full.txt` — a single Markdown bundle with the full source of every listed page.
@@ -92,16 +92,22 @@ curl https://pracht.resynapse.dev/llms.txt
 curl https://pracht.resynapse.dev/llms-full.txt
 ```
 
-The docs Vite config wires those files with a tiny plugin that scans the route manifest and frontmatter:
+The same registry compiles Markdown route modules and generates both files. No second plugin scans the route manifest or reparses frontmatter:
 
 ```ts [examples/docs/vite.config.ts]
-llmsTxt({
-  origin: "https://pracht.resynapse.dev",
-  routesFile,
-  title: "pracht",
-  description:
-    "A full-stack Preact framework built on Vite with hybrid rendering and a unified data-loading model.",
-  sections: [{ heading: "Docs", match: "/docs" }],
+export const docsContent = defineCollection({
+  name: "docs",
+  root: new URL("./src/routes/docs", import.meta.url),
+  routeBase: "/docs",
+  compile: compileMarkdown,
+  module: createMarkdownRouteModule,
+  artifacts: [
+    llmsTxtArtifacts({
+      origin: "https://pracht.resynapse.dev",
+      title: "pracht",
+      sections: [{ heading: "Docs", match: "/docs" }],
+    }),
+  ],
 });
 ```
 

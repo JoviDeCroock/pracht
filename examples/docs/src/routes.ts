@@ -40,6 +40,10 @@ export const app = defineApp({
         id: "data-loading",
         render: "ssg",
       }),
+      route("/docs/content", () => import("./routes/docs/content.md"), {
+        id: "content",
+        render: "ssg",
+      }),
       route("/docs/api-routes", () => import("./routes/docs/api-routes.md"), {
         id: "api-routes",
         render: "ssg",

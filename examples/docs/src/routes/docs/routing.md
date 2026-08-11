@@ -1,6 +1,6 @@
 ---
 title: Routing
-lead: pracht uses a hybrid routing model: route modules live as files by convention, but their wiring — shells, middleware, render modes, and URL patterns — is declared explicitly in a single `src/routes.ts` manifest.
+lead: "pracht uses a hybrid routing model: route modules live as files by convention, but their wiring — shells, middleware, render modes, and URL patterns — is declared explicitly in a single `src/routes.ts` manifest."
 breadcrumb: Routing
 prev:
   href: /docs/demo-comparison
