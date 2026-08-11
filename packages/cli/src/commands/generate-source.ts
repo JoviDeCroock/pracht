@@ -27,13 +27,19 @@ export function buildManifestRouteModuleSource(opts: RouteModuleParts): string {
   return `${sections.join("\n")}\n`;
 }
 
-export function buildPagesRouteModuleSource(opts: RouteModuleParts & { render: string }): string {
+export function buildPagesRouteModuleSource(
+  opts: RouteModuleParts & { render: string; revalidateSeconds?: number },
+): string {
   const sections = buildRouteModuleSections(opts);
 
   // Insert RENDER_MODE before the first exported declaration (after imports)
   const firstExportIdx = sections.findIndex((s) => s.startsWith("export"));
   const insertAt = firstExportIdx === -1 ? sections.length : firstExportIdx;
-  sections.splice(insertAt, 0, `export const RENDER_MODE = ${quote(opts.render)};`, "");
+  const policyExports = [`export const RENDER_MODE = ${quote(opts.render)};`];
+  if (opts.revalidateSeconds !== undefined) {
+    policyExports.push(`export const REVALIDATE = ${opts.revalidateSeconds};`);
+  }
+  sections.splice(insertAt, 0, ...policyExports, "");
 
   return `${sections.join("\n")}\n`;
 }

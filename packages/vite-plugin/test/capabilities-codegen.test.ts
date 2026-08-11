@@ -12,6 +12,7 @@ import {
 import {
   createPrachtClientModuleSource,
   createPrachtIslandsClientModuleSource,
+  createPrachtServerModuleSource,
 } from "../src/plugin-codegen.ts";
 
 const tempDirs: string[] = [];
@@ -584,10 +585,16 @@ describe("client entry integration", () => {
     expect(createPrachtIslandsClientModuleSource({}, { root: withWebmcp })).toContain(
       'import("virtual:pracht/webmcp")',
     );
+    expect(createPrachtServerModuleSource({}, { root: withWebmcp })).toContain(
+      "export const islandsBootstrapRequired = true;",
+    );
 
     for (const root of [withoutWebmcp, none]) {
       expect(createPrachtClientModuleSource({}, { root })).not.toContain("webmcp");
       expect(createPrachtIslandsClientModuleSource({}, { root })).not.toContain("webmcp");
+      expect(createPrachtServerModuleSource({}, { root })).toContain(
+        "export const islandsBootstrapRequired = false;",
+      );
     }
   });
 });

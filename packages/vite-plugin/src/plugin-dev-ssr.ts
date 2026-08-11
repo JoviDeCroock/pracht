@@ -144,6 +144,8 @@ export function createDevSSRMiddleware(
         request: webRequest,
         debugErrors: true,
         clientEntryUrl: CLIENT_BROWSER_PATH,
+        islandsEntryUrl: ISLANDS_CLIENT_BROWSER_PATH,
+        islandsBootstrapRequired: serverMod.islandsBootstrapRequired === true,
         apiRoutes: serverMod.apiRoutes,
         timings,
       });

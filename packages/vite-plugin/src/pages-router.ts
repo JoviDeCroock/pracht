@@ -1,5 +1,6 @@
 import { readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { basename, extname, join, relative } from "node:path";
+import { maskCommentsAndStrings } from "@pracht/capabilities/static";
 import { detectLoaderExport } from "./route-loader-hints.ts";
 
 export interface ScannedPage {
@@ -11,6 +12,8 @@ export interface ScannedPage {
   isDynamic: boolean;
   renderMode?: string;
   hydrationMode?: string;
+  revalidateSeconds?: number;
+  hasRevalidateExport?: boolean;
   hasLoader?: boolean;
 }
 
@@ -25,6 +28,13 @@ const SHELL_EXTENSIONS = new Set([".tsx", ".tsrx", ".ts", ".jsx", ".js"]);
 export function scanPagesDirectory(pagesDir: string): ScannedPage[] {
   const pages: ScannedPage[] = [];
   scan(pagesDir, pagesDir, pages);
+  const appShell = pages.find((page) => page.routePath === "__shell__");
+  if (appShell?.hasRevalidateExport) {
+    throw new Error(
+      `[pracht] Pages app shell ${JSON.stringify(appShell.relativePath)} exports REVALIDATE, ` +
+        "but app shells are not ISG routes. Declare the policy on each ISG page instead.",
+    );
+  }
   return sortRoutes(pages);
 }
 
@@ -56,9 +66,11 @@ function scan(dir: string, root: string, pages: ScannedPage[]): void {
     const rel = relative(root, abs);
     const routePath = filePathToRoutePath(rel);
     const source = readFileSync(abs, "utf-8");
-    const renderMode = extractRenderMode(source);
-    const hydrationMode = extractHydrationMode(source);
-    const hasLoader = detectLoaderExport(source);
+    const analysisSource = maskMarkdownFences(source, rel);
+    const renderMode = extractQuotedPageExport(analysisSource, "RENDER_MODE", rel);
+    const hydrationMode = extractQuotedPageExport(analysisSource, "HYDRATION", rel);
+    const revalidate = extractRevalidateSeconds(analysisSource, rel);
+    const hasLoader = detectLoaderExport(analysisSource);
 
     pages.push({
       absolutePath: abs,
@@ -69,6 +81,8 @@ function scan(dir: string, root: string, pages: ScannedPage[]): void {
       isDynamic: routePath.split("/").some((segment) => segment.startsWith(":")),
       renderMode,
       hydrationMode,
+      revalidateSeconds: revalidate.seconds,
+      hasRevalidateExport: revalidate.present,
       hasLoader,
     });
   }
@@ -136,18 +150,124 @@ function getRouteSegmentSpecificity(segment: string): number {
   return 3;
 }
 
-const RENDER_MODE_RE = /export\s+const\s+RENDER_MODE\s*=\s*["'](\w+)["']/;
+function extractQuotedPageExport(
+  source: string,
+  name: "RENDER_MODE" | "HYDRATION",
+  relativePath: string,
+): string | undefined {
+  const masked = maskCommentsAndStrings(source);
+  const declarations = [...masked.matchAll(new RegExp(`export\\s+const\\s+${name}\\s*=`, "g"))];
+  if (declarations.length === 0) return undefined;
+  if (declarations.length > 1) {
+    throw new Error(
+      `[pracht] Pages route ${JSON.stringify(relativePath)} exports ${name} more than once.`,
+    );
+  }
 
-function extractRenderMode(source: string): string | undefined {
-  const match = RENDER_MODE_RE.exec(source);
-  return match ? match[1] : undefined;
+  const declaration = declarations[0];
+  const valueStart = (declaration.index ?? 0) + declaration[0].length;
+  return source
+    .slice(valueStart)
+    .trimStart()
+    .match(/^["'](\w+)["']/)?.[1];
 }
 
-const HYDRATION_RE = /export\s+const\s+HYDRATION\s*=\s*["'](\w+)["']/;
+const REVALIDATE_RE = /export\s+const\s+REVALIDATE\s*=\s*([^;\n]+)/;
 
-function extractHydrationMode(source: string): string | undefined {
-  const match = HYDRATION_RE.exec(source);
-  return match ? match[1] : undefined;
+function extractRevalidateSeconds(
+  source: string,
+  relativePath: string,
+): { present: boolean; seconds?: number } {
+  const matches = [...maskCommentsAndStrings(source).matchAll(new RegExp(REVALIDATE_RE, "g"))];
+  if (matches.length === 0) return { present: false };
+  if (matches.length > 1) {
+    throw new Error(
+      `[pracht] Pages route ${JSON.stringify(relativePath)} exports REVALIDATE more than once.`,
+    );
+  }
+  const match = matches[0];
+
+  const expression = match[1].trim().replace(/\s+as\s+const$/, "");
+  if (!/^\d(?:_?\d)*$/.test(expression)) {
+    throw new Error(
+      `[pracht] Pages route ${JSON.stringify(relativePath)} must export REVALIDATE as a ` +
+        "positive integer literal number of seconds (for example, `export const REVALIDATE = 60`).",
+    );
+  }
+
+  const seconds = Number(expression.replaceAll("_", ""));
+  if (!Number.isSafeInteger(seconds) || seconds <= 0) {
+    throw new Error(
+      `[pracht] Pages route ${JSON.stringify(relativePath)} must export REVALIDATE as a ` +
+        "positive integer literal number of seconds within JavaScript's safe integer range.",
+    );
+  }
+
+  return { present: true, seconds };
+}
+
+/** Mask Markdown fenced examples while preserving source offsets and top-level MDX exports. */
+function maskMarkdownFences(source: string, relativePath: string): string {
+  if (!/\.mdx?$/.test(relativePath)) return source;
+
+  const chars = source.split("");
+  let activeFence: { character: "`" | "~"; continuationIndent: number; length: number } | null =
+    null;
+  for (const line of source.matchAll(/.*(?:\r?\n|$)/g)) {
+    if (line[0] === "") continue;
+    const lineStart = line.index ?? 0;
+    const content = line[0].replace(/\r?\n$/, "");
+    const stripped = stripMarkdownContainerPrefix(content);
+    const fenceContent: string =
+      activeFence && stripped.content.startsWith(" ".repeat(activeFence.continuationIndent))
+        ? stripped.content.slice(activeFence.continuationIndent)
+        : stripped.content;
+    const opening: RegExpExecArray | null = activeFence
+      ? null
+      : /^ {0,3}(`{3,}|~{3,})/.exec(fenceContent);
+    const closing = activeFence
+      ? new RegExp(`^ {0,3}\\${activeFence.character}{${activeFence.length},}[ \\t]*$`).test(
+          fenceContent,
+        )
+      : false;
+
+    if (activeFence || opening) {
+      for (let offset = 0; offset < line[0].length; offset += 1) {
+        const index = lineStart + offset;
+        if (chars[index] !== "\n" && chars[index] !== "\r") chars[index] = " ";
+      }
+    }
+
+    if (closing) {
+      activeFence = null;
+    } else if (opening) {
+      activeFence = {
+        character: opening[1][0] as "`" | "~",
+        continuationIndent: stripped.continuationIndent,
+        length: opening[1].length,
+      };
+    }
+  }
+  return chars.join("");
+}
+
+function stripMarkdownContainerPrefix(line: string): {
+  content: string;
+  continuationIndent: number;
+} {
+  let content = line;
+  let continuationIndent = 0;
+  while (true) {
+    const quote = /^ {0,3}> ?/.exec(content);
+    if (quote) {
+      content = content.slice(quote[0].length);
+      continue;
+    }
+    const list = /^ {0,3}(?:[-+*]|\d{1,9}[.)])[ \t]+/.exec(content);
+    if (!list) return { content, continuationIndent };
+    continuationIndent += list[0].length;
+    content = content.slice(list[0].length);
+  }
 }
 
 export function generatePagesManifestSource(
@@ -168,17 +288,40 @@ export function generatePagesManifestSource(
     (f) => basename(f, extname(f)) === "_app" && SHELL_EXTENSIONS.has(extname(f)),
   );
 
-  const lines: string[] = ['import { defineApp, group, route } from "@pracht/core/manifest";', ""];
+  const coreImports = pages.some((page) => page.revalidateSeconds !== undefined)
+    ? "defineApp, group, route, timeRevalidate"
+    : "defineApp, group, route";
+  const lines: string[] = [`import { ${coreImports} } from "@pracht/core/manifest";`, ""];
 
   const routeEntries: string[] = [];
   // `pages/404.tsx` is the app's not-found page, not a route: it renders with
   // a 404 status when nothing matches, and it is never reachable at a URL of
   // its own (which is what would let it shadow a static asset).
   const notFoundPage = pages.find((page) => page.routePath === "/404");
+  if (notFoundPage?.hasRevalidateExport) {
+    throw new Error(
+      `[pracht] Pages not-found module ${JSON.stringify(notFoundPage.relativePath)} exports ` +
+        "REVALIDATE, but not-found responses are never ISG routes.",
+    );
+  }
 
   for (const page of pages) {
     if (page === notFoundPage) continue;
     const render = page.renderMode ?? defaultRender;
+    if (render === "isg" && page.revalidateSeconds === undefined) {
+      throw new Error(
+        `[pracht] Pages route ${JSON.stringify(page.relativePath)} uses render mode "isg" but ` +
+          "does not export a revalidation policy. Add `export const REVALIDATE = 60` with a " +
+          "positive integer number of seconds, or use another render mode.",
+      );
+    }
+    if (render !== "isg" && page.hasRevalidateExport) {
+      throw new Error(
+        `[pracht] Pages route ${JSON.stringify(page.relativePath)} exports REVALIDATE but its ` +
+          `effective render mode is ${JSON.stringify(render)}. REVALIDATE is only valid with ` +
+          '`RENDER_MODE = "isg"` (or `pagesDefaultRender: "isg"`).',
+      );
+    }
     const filePath = prefix
       ? `${prefix}/${page.relativePath.replace(/\\/g, "/")}`
       : `./${page.relativePath.replace(/\\/g, "/")}`;
@@ -191,6 +334,9 @@ export function generatePagesManifestSource(
     ];
     if (page.hydrationMode) {
       metaParts.push(`hydration: ${JSON.stringify(page.hydrationMode)}`);
+    }
+    if (page.revalidateSeconds !== undefined) {
+      metaParts.push(`revalidate: timeRevalidate(${page.revalidateSeconds})`);
     }
     routeEntries.push(
       `    route(${JSON.stringify(page.routePath)}, ${fileRef}, { ${metaParts.join(", ")} })`,

@@ -245,6 +245,20 @@ group({ pathPrefix: "/admin", shell: "admin", middleware: ["auth"] }, [
 
 For projects that prefer file-system routing — especially when migrating from Next.js — pracht offers an optional pages-based routing mode. Instead of writing a route manifest, set `pagesDir` and pracht auto-discovers routes from the file system.
 
+### What the pages router does not have
+
+Auto-discovery replaces the manifest, so features registered through that manifest are unavailable:
+
+| Feature | Pages router |
+| --- | --- |
+| Render and hydration modes, dynamic/catch-all routes, `getStaticPaths`, API routes | ✅ |
+| Shells | one `_app.tsx`; no named shells or per-route assignment |
+| Route middleware | ❌ no registration seam |
+| [Capabilities](/docs/capabilities) | ❌ no capability HTTP endpoints, WebMCP, remote MCP, or `pracht eval` |
+| `defineApp({ constraints })`, `agents` | ❌ |
+
+If the app needs any of these, [eject to an explicit manifest](#ejecting-to-explicit-manifest). The authoring MCP server and generated skills still work in pages mode; they do not add a runtime agent surface.
+
 ### Setup
 
 ```ts [vite.config.ts]
@@ -308,6 +322,17 @@ Valid values: `"ssr"` | `"ssg"` | `"isg"` | `"spa"`. The default is `"ssr"`, ove
 ```ts [vite.config.ts]
 pracht({ pagesDir: "/src/pages", pagesDefaultRender: "ssg" });
 ```
+
+ISG pages must also export a positive integer time policy:
+
+```tsx [src/pages/pricing.tsx]
+export const RENDER_MODE = "isg";
+export const REVALIDATE = 3600;
+```
+
+`REVALIDATE` is a statically analyzable number of seconds. Missing, zero, dynamic, or non-ISG policies fail build, `doctor`, and `verify` instead of silently freezing the page. Pages mode supports time revalidation only; webhook or combined policies require ejection to a manifest.
+
+Put the policy on the page route, not `_app.tsx` or `404.tsx`. Declarations inside comments, strings, and Markdown/MDX fenced examples are ignored, while top-level MDX exports work. `pagesDefaultRender` can be an inline string or a quoted `const`; more dynamic composition produces a `doctor` warning and is evaluated authoritatively by the build. Export `RENDER_MODE = "isg"` next to `REVALIDATE` when the default cannot be resolved statically.
 
 ### Route Priority
 

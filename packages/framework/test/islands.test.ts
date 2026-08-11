@@ -33,6 +33,8 @@ interface RenderRouteOptions {
   Component: (props: any) => any;
   ErrorBoundary?: (props: any) => any;
   hydration?: "full" | "islands" | "none";
+  islandsBootstrapRequired?: boolean;
+  islandsEntryUrl?: string;
   loader?: () => unknown;
   speculation?: "prefetch" | "prerender";
 }
@@ -61,6 +63,8 @@ async function renderRoute(options: RenderRouteOptions): Promise<string> {
     },
     request: new Request("http://localhost/"),
     debugErrors: true,
+    islandsBootstrapRequired: options.islandsBootstrapRequired,
+    islandsEntryUrl: options.islandsEntryUrl,
   });
 
   return response.text();
@@ -169,6 +173,65 @@ describe("islands server rendering", () => {
     expect(html).not.toContain('<script type="module"');
   });
 
+  it("keeps the bootstrap when a zero-island response owns a page-level projection", async () => {
+    registerTestIslands();
+
+    const html = await renderRoute({
+      hydration: "islands",
+      islandsBootstrapRequired: true,
+      Component: () => h("main", null, "agent tools without UI islands"),
+    });
+
+    expect(html).not.toContain("<pracht-island");
+    expect(html).toContain('<script type="module" src="/assets/islands-client-test.js"></script>');
+  });
+
+  it("keeps hydration none script-free even when another projection needs the islands entry", async () => {
+    registerTestIslands();
+
+    const html = await renderRoute({
+      hydration: "none",
+      islandsBootstrapRequired: true,
+      Component: () => h("main", null, "deliberately zero JavaScript"),
+    });
+
+    expect(html).not.toContain("<script");
+  });
+
+  it("fails closed when a required zero-island bootstrap URL is missing", async () => {
+    const html = await renderRoute({
+      hydration: "islands",
+      islandsBootstrapRequired: true,
+      Component: () => h("main", null, "agent tools"),
+    });
+
+    expect(html).toContain("requires the islands bootstrap");
+    expect(html).toContain("page-level runtime projection");
+    expect(html).toContain("no bootstrap URL is registered");
+  });
+
+  it("keeps per-app bootstrap requirements and URLs isolated", async () => {
+    setIslandsClientEntryUrl("/assets/global-should-not-win.js");
+    const [agentHtml, staticHtml] = await Promise.all([
+      renderRoute({
+        hydration: "islands",
+        islandsBootstrapRequired: true,
+        islandsEntryUrl: "/assets/app-a-agent.js",
+        Component: () => h("main", null, "app a"),
+      }),
+      renderRoute({
+        hydration: "islands",
+        islandsBootstrapRequired: false,
+        islandsEntryUrl: "/assets/app-b-islands.js",
+        Component: () => h("main", null, "app b"),
+      }),
+    ]);
+
+    expect(agentHtml).toContain("/assets/app-a-agent.js");
+    expect(agentHtml).not.toContain("global-should-not-win");
+    expect(staticHtml).not.toContain("<script");
+  });
+
   it("renders islands as plain components on full-hydration routes", async () => {
     registerTestIslands();
 
@@ -269,6 +332,23 @@ describe("islands server rendering", () => {
     expect(html).not.toContain('id="pracht-state"');
     expect(html).toContain('<script type="module" src="/assets/islands-client-test.js"></script>');
     expect(html).not.toContain("/@pracht/client.js");
+  });
+
+  it("keeps the bootstrap for zero-island error boundaries with a page-level projection", async () => {
+    registerTestIslands();
+    const html = await renderRoute({
+      hydration: "islands",
+      islandsBootstrapRequired: true,
+      loader: () => {
+        throw new Error("Broken agent page");
+      },
+      Component: () => h("main", null, "ok"),
+      ErrorBoundary: () => h("section", null, "agent-safe fallback"),
+    });
+
+    expect(html).toContain("agent-safe fallback");
+    expect(html).not.toContain("<pracht-island");
+    expect(html).toContain("/assets/islands-client-test.js");
   });
 });
 

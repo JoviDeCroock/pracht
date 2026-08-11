@@ -66,6 +66,222 @@ describe("scanPagesDirectory", () => {
     expect(source.match(/hydration:/g)).toHaveLength(1);
   });
 
+  it("turns a pages ISG policy into time-based revalidation", () => {
+    const pagesDir = makeTempPagesDir();
+    writeFileSync(
+      join(pagesDir, "index.tsx"),
+      [
+        'export const RENDER_MODE = "isg";',
+        "export const REVALIDATE = 1_200 as const;",
+        "export function Component() { return null; }",
+        "",
+      ].join("\n"),
+    );
+
+    const pages = scanPagesDirectory(pagesDir);
+    expect(pages[0].revalidateSeconds).toBe(1200);
+    const source = generatePagesManifestSource(pages, { pagesDir });
+    expect(source).toContain("timeRevalidate");
+    expect(source).toContain('render: "isg"');
+    expect(source).toContain("revalidate: timeRevalidate(1200)");
+  });
+
+  it("fails closed when an effective pages ISG route has no policy", () => {
+    const pagesDir = makeTempPagesDir();
+    writeFileSync(
+      join(pagesDir, "index.tsx"),
+      'export const RENDER_MODE = "isg";\nexport function Component() { return null; }\n',
+    );
+
+    expect(() => generatePagesManifestSource(scanPagesDirectory(pagesDir), { pagesDir })).toThrow(
+      /does not export a revalidation policy/,
+    );
+    expect(() =>
+      generatePagesManifestSource(scanPagesDirectory(pagesDir), {
+        pagesDir,
+        pagesDefaultRender: "isg",
+      }),
+    ).toThrow(/does not export a revalidation policy/);
+  });
+
+  it("requires every route inheriting an ISG default to declare its own policy", () => {
+    const pagesDir = makeTempPagesDir();
+    writeFileSync(
+      join(pagesDir, "index.tsx"),
+      "export const REVALIDATE = 60;\nexport function Component() { return null; }\n",
+    );
+    writeFileSync(
+      join(pagesDir, "live.tsx"),
+      'export const RENDER_MODE = "ssr";\nexport function Component() { return null; }\n',
+    );
+
+    const source = generatePagesManifestSource(scanPagesDirectory(pagesDir), {
+      pagesDir,
+      pagesDefaultRender: "isg",
+    });
+    expect(source).toContain("revalidate: timeRevalidate(60)");
+    expect(source).toContain('route("/live"');
+  });
+
+  it.each(["ssr", "ssg", "spa"])("rejects REVALIDATE on %s pages", (render) => {
+    const pagesDir = makeTempPagesDir();
+    writeFileSync(
+      join(pagesDir, "index.tsx"),
+      `export const RENDER_MODE = "${render}";\nexport const REVALIDATE = 60;\n`,
+    );
+
+    expect(() => generatePagesManifestSource(scanPagesDirectory(pagesDir), { pagesDir })).toThrow(
+      /REVALIDATE is only valid/,
+    );
+  });
+
+  it.each(["0", "-1", "1.5", "1e3", '"60"', "SECONDS", "30 * 2"])(
+    "rejects unsupported REVALIDATE expression %s",
+    (expression) => {
+      const pagesDir = makeTempPagesDir();
+      writeFileSync(
+        join(pagesDir, "index.tsx"),
+        `export const RENDER_MODE = "isg";\nexport const REVALIDATE = ${expression};\n`,
+      );
+      expect(() => scanPagesDirectory(pagesDir)).toThrow(/positive integer literal/);
+    },
+  );
+
+  it("ignores commented and string-contained policy declarations", () => {
+    const pagesDir = makeTempPagesDir();
+    writeFileSync(
+      join(pagesDir, "index.tsx"),
+      [
+        'export const RENDER_MODE = "isg";',
+        "// export const REVALIDATE = 60;",
+        'const text = "export const REVALIDATE = 120";',
+        "export function Component() { return text; }",
+        "",
+      ].join("\n"),
+    );
+    expect(() => generatePagesManifestSource(scanPagesDirectory(pagesDir), { pagesDir })).toThrow(
+      /does not export a revalidation policy/,
+    );
+  });
+
+  it("ignores commented and string-contained render and hydration exports", () => {
+    const pagesDir = makeTempPagesDir();
+    writeFileSync(
+      join(pagesDir, "index.tsx"),
+      [
+        '// export const RENDER_MODE = "isg";',
+        "const example = 'export const HYDRATION = \"islands\"';",
+        'export const RENDER_MODE = "ssr";',
+        'export const HYDRATION = "none";',
+        "export const REVALIDATE = 60;",
+        "export function Component() { return example; }",
+        "",
+      ].join("\n"),
+    );
+
+    const pages = scanPagesDirectory(pagesDir);
+    expect(pages[0]).toMatchObject({ renderMode: "ssr", hydrationMode: "none" });
+    expect(() => generatePagesManifestSource(pages, { pagesDir })).toThrow(
+      /REVALIDATE is only valid/,
+    );
+  });
+
+  it("ignores Markdown fenced policy examples but retains top-level MDX exports", () => {
+    const pagesDir = makeTempPagesDir();
+    writeFileSync(
+      join(pagesDir, "guide.mdx"),
+      [
+        'export const RENDER_MODE = "isg";',
+        "export const REVALIDATE = 90;",
+        "",
+        "# Guide",
+        "",
+        "```ts",
+        'export const RENDER_MODE = "ssr";',
+        "export const REVALIDATE = 10;",
+        "```",
+        "",
+      ].join("\n"),
+    );
+    writeFileSync(
+      join(pagesDir, "reference.md"),
+      [
+        "# Reference",
+        "",
+        "~~~ts",
+        'export const RENDER_MODE = "isg";',
+        "export const REVALIDATE = 60;",
+        "~~~",
+        "",
+      ].join("\n"),
+    );
+    writeFileSync(
+      join(pagesDir, "nested.md"),
+      [
+        "# Nested examples",
+        "",
+        "> ```ts",
+        '> export const RENDER_MODE = "isg";',
+        "> export const REVALIDATE = 60;",
+        "> ```",
+        "",
+        "- ~~~ts",
+        '  export const RENDER_MODE = "isg";',
+        "  export const REVALIDATE = 30;",
+        "  ~~~",
+        "",
+      ].join("\n"),
+    );
+    writeFileSync(
+      join(pagesDir, "ordered.mdx"),
+      [
+        "10. ~~~ts",
+        '    export const RENDER_MODE = "ssr";',
+        "    export const REVALIDATE = 30;",
+        "    ~~~",
+        "",
+        'export const RENDER_MODE = "isg";',
+        "export const REVALIDATE = 75;",
+        "",
+      ].join("\n"),
+    );
+
+    const pages = scanPagesDirectory(pagesDir);
+    expect(pages.find((page) => page.routePath === "/guide")).toMatchObject({
+      renderMode: "isg",
+      revalidateSeconds: 90,
+    });
+    expect(pages.find((page) => page.routePath === "/reference")).toMatchObject({
+      renderMode: undefined,
+      revalidateSeconds: undefined,
+    });
+    expect(pages.find((page) => page.routePath === "/nested")).toMatchObject({
+      renderMode: undefined,
+      revalidateSeconds: undefined,
+    });
+    expect(pages.find((page) => page.routePath === "/ordered")).toMatchObject({
+      renderMode: "isg",
+      revalidateSeconds: 75,
+    });
+    expect(() => generatePagesManifestSource(pages, { pagesDir })).not.toThrow();
+  });
+
+  it("rejects REVALIDATE on the pages app shell", () => {
+    const pagesDir = makeTempPagesDir();
+    writeFileSync(join(pagesDir, "index.tsx"), "export function Component() { return null; }\n");
+    writeFileSync(join(pagesDir, "_app.tsx"), "export const REVALIDATE = 60;\n");
+    expect(() => scanPagesDirectory(pagesDir)).toThrow(/app shell.*REVALIDATE/s);
+  });
+
+  it("rejects REVALIDATE on the not-found page", () => {
+    const pagesDir = makeTempPagesDir();
+    writeFileSync(join(pagesDir, "index.tsx"), "export function Component() { return null; }\n");
+    writeFileSync(join(pagesDir, "404.tsx"), "export const REVALIDATE = 60;\n");
+    expect(() => generatePagesManifestSource(scanPagesDirectory(pagesDir), { pagesDir })).toThrow(
+      /not-found.*REVALIDATE/s,
+    );
+  });
+
   it("wires pages/404 as the app notFound page instead of a route", () => {
     const pagesDir = makeTempPagesDir();
 

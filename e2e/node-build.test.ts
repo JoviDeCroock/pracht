@@ -80,6 +80,14 @@ test("pracht build emits a deployable Node server entry", async () => {
     expect(homeHtml).toMatch(/<script type="module" src="\/assets\/client-[^"]+\.js"><\/script>/);
     expect(homeHtml).toContain('rel="modulepreload"');
 
+    const agentToolsResponse = await fetch(`http://127.0.0.1:${port}/agent-tools`);
+    expect(agentToolsResponse.status).toBe(200);
+    const agentToolsHtml = await agentToolsResponse.text();
+    expect(agentToolsHtml).not.toContain("<pracht-island");
+    expect(agentToolsHtml).toMatch(
+      /<script type="module" src="\/assets\/islands-client-[^"]+\.js"><\/script>/,
+    );
+
     const homeMarkdown = await fetch(`http://127.0.0.1:${port}/`, {
       headers: { accept: "text/markdown" },
     });

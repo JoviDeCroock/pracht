@@ -45,4 +45,16 @@ export default defineConfig({
 ```
 
 All four render modes (SSR, SSG, ISG, SPA) work with the pages router — export
-a `RENDER_MODE` constant from any page to opt into a specific mode.
+a `RENDER_MODE` constant from any page to opt into a specific mode. ISG also
+requires a positive integer time policy:
+
+```ts
+export const RENDER_MODE = "isg";
+export const REVALIDATE = 3600;
+```
+
+Webhook or combined revalidation policies require ejecting to an explicit
+manifest. Pages mode also has no registration seam for named shells, route
+middleware, capabilities/WebMCP/remote MCP, constraints, or runtime agents.
+`REVALIDATE` belongs on each ISG page, never `_app.tsx` or `404.tsx`.
+Declarations shown inside Markdown/MDX fenced examples are ignored.

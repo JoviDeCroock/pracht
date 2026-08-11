@@ -37,6 +37,8 @@ describe("createCloudflareServerEntryModule", () => {
     );
     expect(source).toContain("createContext: createPrachtContext");
     expect(source).toContain("createCloudflareFetchHandler");
+    expect(source).toContain("islandsEntryUrl: islandsEntryUrl ?? undefined");
+    expect(source).toContain("islandsBootstrapRequired");
   });
 
   it("re-exports Cloudflare primitives from a dedicated module", () => {

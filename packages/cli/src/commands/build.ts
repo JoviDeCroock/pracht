@@ -165,6 +165,8 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
     const { pages, isgManifest } = await prerenderApp({
       app: serverMod.resolvedApp,
       clientEntryUrl: clientEntryUrl ?? undefined,
+      islandsEntryUrl: serverMod.islandsEntryUrl ?? undefined,
+      islandsBootstrapRequired: serverMod.islandsBootstrapRequired === true,
       cssManifest,
       jsManifest,
       registry: serverMod.registry,

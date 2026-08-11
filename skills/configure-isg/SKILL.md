@@ -62,12 +62,18 @@ route("/pricing", () => import("./routes/pricing.tsx"), {
 - `revalidate` accepts one policy or an array (`RouteRevalidate`); the array
   above means "hourly, or sooner when a webhook names this path".
 
-**Pages router caveat:** `export const RENDER_MODE = "isg"` exists, but there
-is no `REVALIDATE` page constant — the pages scanner only extracts
-`RENDER_MODE` and `HYDRATION`, so pages-router ISG routes are frozen
-build-time snapshots. To attach a policy, eject to an explicit manifest with
-`generateRoutesFile` from `@pracht/vite-plugin/pages-router` (see
-docs/ROUTING.md "Ejecting to Explicit Manifest") and edit the generated route.
+**Pages router:** time-based ISG is expressed with two static page exports:
+
+```ts
+export const RENDER_MODE = "isg";
+export const REVALIDATE = 3600;
+```
+
+`REVALIDATE` must be a positive integer literal number of seconds. Build,
+`doctor`, and `verify` reject a missing or misplaced policy. Pages mode does
+not accept policies on `_app` or `404`, and fenced Markdown/MDX examples are
+ignored. It does not support webhook or combined policies; eject with `generateRoutesFile`
+from `@pracht/vite-plugin/pages-router` for those.
 
 For dynamic routes, `getStaticPaths()` enumerates the prerendered params.
 Paths it did not enumerate render per-request without a cached copy, and

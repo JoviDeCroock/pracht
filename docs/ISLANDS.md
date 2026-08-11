@@ -174,8 +174,11 @@ outer island.)
   also excluded from the generated full client-router entry, so server-only
   helpers imported by those page modules are not emitted into public client
   chunks.
-- If an islands route renders zero islands, no script tag is emitted at all —
-  the output is as static as `hydration: "none"`.
+- If an islands route renders zero islands, no hydration script is emitted
+  unless the app exposes WebMCP tools. In that case the islands bootstrap is
+  retained because it owns the page-level WebMCP registration; the human UI
+  still hydrates no components. `hydration: "none"` always remains zero-JS and
+  therefore never exposes in-page tools.
 
 Test tooling can wait for `html[data-pracht-islands-hydrated="true"]` (set
 after all `load` islands hydrate) and per-island `data-hydrated="true"`

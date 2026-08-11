@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, dirname, isAbsolute, relative, resolve } from "node:path";
+import { maskCommentsAndStrings } from "@pracht/capabilities/static";
 
 import { ensureTrailingNewline } from "./utils.js";
 import { PROJECT_DEFAULTS } from "./constants.js";
@@ -13,6 +14,7 @@ export interface ProjectConfig {
   middlewareDir: string;
   mode: "manifest" | "pages";
   pagesDefaultRender: string;
+  pagesDefaultRenderIsStatic: boolean;
   pagesDir: string;
   rawConfig: string;
   root: string;
@@ -24,19 +26,22 @@ export interface ProjectConfig {
 export function readProjectConfig(root: string): ProjectConfig {
   const configFile = findConfigFile(root);
   const rawConfig = configFile ? readFileSync(configFile, "utf-8") : "";
+  const hasPagesDefaultRender = hasConfigProperty(rawConfig, "pagesDefaultRender");
+  const resolvedPagesDefaultRender = readQuotedConfigValue(rawConfig, "pagesDefaultRender");
   const config: Record<string, unknown> = {
     ...PROJECT_DEFAULTS,
     configFile,
-    hasPrachtPlugin: /\bpracht\s*\(/.test(rawConfig),
+    hasPrachtPlugin: /\bpracht\s*\(/.test(maskCommentsAndStrings(rawConfig)),
     mode: "manifest" as const,
     rawConfig,
     root,
+    pagesDefaultRenderIsStatic: !hasPagesDefaultRender || resolvedPagesDefaultRender !== null,
   };
 
   for (const key of Object.keys(PROJECT_DEFAULTS)) {
     const value = readQuotedConfigValue(rawConfig, key);
     if (typeof value === "string") {
-      config[key] = normalizeConfigPath(value);
+      config[key] = key === "pagesDefaultRender" ? value : normalizeConfigPath(value);
     }
   }
 
@@ -149,9 +154,30 @@ function findConfigFile(root: string): string | null {
 
 function readQuotedConfigValue(source: string, key: string): string | null {
   if (!source) return null;
-  const pattern = new RegExp(`${key}\\s*:\\s*(["'\\\`])([^"'\\\`]+)\\1`);
-  const match = source.match(pattern);
-  return match ? match[2] : null;
+  const masked = maskCommentsAndStrings(source);
+  const properties = [...masked.matchAll(new RegExp(`\\b${key}\\s*:`, "g"))];
+  if (properties.length !== 1) return null;
+  const property = properties[0];
+
+  const valueStart = (property.index ?? 0) + property[0].length;
+  const direct = readQuotedValueAt(source, valueStart);
+  if (direct !== null) return direct;
+
+  const identifier = /^\s*([A-Za-z_$][\w$]*)\b/.exec(source.slice(valueStart))?.[1];
+  if (!identifier) return null;
+  const declarations = [...masked.matchAll(new RegExp(`\\bconst\\s+${identifier}\\s*=`, "g"))];
+  if (declarations.length !== 1) return null;
+  const declaration = declarations[0];
+  return readQuotedValueAt(source, (declaration.index ?? 0) + declaration[0].length);
+}
+
+function hasConfigProperty(source: string, key: string): boolean {
+  return new RegExp(`\\b${key}\\s*:`).test(maskCommentsAndStrings(source));
+}
+
+function readQuotedValueAt(source: string, start: number): string | null {
+  const match = /^\s*(["'`])([^"'`]+)\1/.exec(source.slice(start));
+  return match?.[2] ?? null;
 }
 
 function normalizeConfigPath(value: string): string {

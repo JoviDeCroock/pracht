@@ -298,6 +298,7 @@ export function createPrachtServerModuleSource(
     : { clientEntryUrl: null, islandsEntryUrl: null, cssManifest: {}, jsManifest: {} };
   const adapter = resolved.adapter;
   const llmsTxtConfig = resolveLlmsTxtConfig(resolved, buildOptions.root);
+  const islandsBootstrapRequired = hasWebmcpCapabilities(resolved, buildOptions.root);
 
   // The adapter tells us what extra imports it needs (e.g. handlePrachtRequest).
   // Always import prerenderApp so the CLI uses the same bundled copy of
@@ -344,6 +345,7 @@ export function createPrachtServerModuleSource(
     `export const buildTarget = ${JSON.stringify(adapter?.id ?? "node")};`,
     `export const clientEntryUrl = ${JSON.stringify(clientBuild.clientEntryUrl ?? CLIENT_BROWSER_PATH)};`,
     `export const islandsEntryUrl = ${JSON.stringify(islandsEntryUrl ?? null)};`,
+    `export const islandsBootstrapRequired = ${JSON.stringify(islandsBootstrapRequired)};`,
     `export const cssManifest = ${JSON.stringify(clientBuild.cssManifest)};`,
     `export const jsManifest = ${JSON.stringify(clientBuild.jsManifest)};`,
     `export const prerenderConcurrency = ${JSON.stringify(resolved.prerenderConcurrency)};`,

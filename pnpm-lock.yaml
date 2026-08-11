@@ -183,9 +183,15 @@ importers:
 
   examples/pages-router:
     dependencies:
+      '@pracht/adapter-cloudflare':
+        specifier: workspace:*
+        version: link:../../packages/adapter-cloudflare
       '@pracht/adapter-node':
         specifier: workspace:*
         version: link:../../packages/adapter-node
+      '@pracht/adapter-vercel':
+        specifier: workspace:*
+        version: link:../../packages/adapter-vercel
       '@pracht/core':
         specifier: workspace:*
         version: link:../../packages/framework

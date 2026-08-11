@@ -17,6 +17,12 @@ declare module "@pracht/core" {
         search: SearchParamsInput;
         data: RouteLoaderData<typeof import("./routes/notes")>;
       };
+      "agent-tools": {
+        path: "/agent-tools";
+        params: Record<never, never>;
+        search: SearchParamsInput;
+        data: RouteLoaderData<typeof import("./routes/agent-tools")>;
+      };
       "product": {
         path: "/products/:productId";
         params: { "productId": RouteParamInput; };

@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { resolve } from "node:path";
 
 import { expect, test } from "@playwright/test";
@@ -10,6 +10,7 @@ import { fixtureCopyFilter } from "./fixture-copy.ts";
 
 const repoRoot = resolve(fileURLToPath(new URL(".", import.meta.url)), "..");
 const fixtureDir = resolve(repoRoot, "examples/cloudflare");
+const basicFixtureDir = resolve(repoRoot, "examples/basic");
 const cliEntry = resolve(repoRoot, "packages/cli/bin/pracht.js");
 
 function createTempCloudflareExample(): { exampleDir: string; tempDir: string } {
@@ -171,6 +172,50 @@ test("prerendered SSG pages include client JS and working framework context", as
     // The asset file referenced in the manifest must exist on disk
     const assetPath = resolve(distDir, "client", clientEntry.file);
     expect(existsSync(assetPath)).toBe(true);
+  } finally {
+    rmSync(tempDir, { force: true, recursive: true });
+  }
+});
+
+test("built Cloudflare worker bootstraps WebMCP on a zero-island route", async () => {
+  test.setTimeout(120_000);
+  const tempRoot = resolve(repoRoot, ".tmp");
+  mkdirSync(tempRoot, { recursive: true });
+  const tempDir = mkdtempSync(resolve(tempRoot, "pracht-cloudflare-agent-tools-"));
+  const exampleDir = resolve(tempDir, "project");
+
+  try {
+    cpSync(basicFixtureDir, exampleDir, {
+      filter: fixtureCopyFilter(basicFixtureDir),
+      recursive: true,
+    });
+    const result = spawnSync(process.execPath, [cliEntry, "build"], {
+      cwd: exampleDir,
+      encoding: "utf-8",
+      env: {
+        ...process.env,
+        NODE_OPTIONS: "--experimental-strip-types",
+        PRACHT_ADAPTER: "cloudflare",
+      },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    if (result.status !== 0) {
+      throw new Error(result.stderr || result.stdout || "Cloudflare basic build failed");
+    }
+
+    const serverEntryPath = resolve(exampleDir, "dist/server/server.js");
+    const { default: worker } = await import(pathToFileURL(serverEntryPath).href);
+    const response = await worker.fetch(
+      new Request("https://example.com/agent-tools"),
+      { ASSETS: { fetch: async () => new Response("not found", { status: 404 }) } },
+      { waitUntil() {} },
+    );
+    expect(response.status).toBe(200);
+    const html = await response.text();
+    expect(html).not.toContain("<pracht-island");
+    expect(html).toMatch(
+      /<script type="module" src="\/assets\/islands-client-[^"]+\.js"><\/script>/,
+    );
   } finally {
     rmSync(tempDir, { force: true, recursive: true });
   }
