@@ -14,11 +14,13 @@ const boundAgentContexts = new WeakMap<object, BoundAgentContext>();
  * Bind framework-verified agent identity onto an application request context.
  * The framework-owned field and its value are immutable snapshots, so
  * application middleware cannot rewrite the identity used by later policy or
- * audit checks. Frozen and sealed contexts get an extensible overlay so the
- * binding does not turn a valid request into a runtime exception while class
- * and built-in instances keep their internal slots. Writes to existing
- * application fields keep using the original receiver; fields added by
- * middleware live on the overlay.
+ * audit checks. Frozen and sealed ordinary contexts get an extensible overlay
+ * so the binding does not turn a valid request into a runtime exception while
+ * class instances keep their private-field receivers and arrays keep their
+ * brand. Native built-ins that require internal slots cannot be represented by
+ * an overlay and fail closed with guidance to wrap them in a mutable context.
+ * Writes to existing application fields keep using the original receiver;
+ * fields added by middleware live on the overlay.
  */
 export function bindAgentContext<TContext>(
   supplied: TContext | undefined,
@@ -83,6 +85,7 @@ export function bindAgentContext<TContext>(
       );
     }
 
+    assertOverlayableContext(context);
     const overlay = immutableAgentContext(context, boundAgent);
     const binding = { agent: boundAgent, context: overlay };
     boundAgentContexts.set(context, binding);
@@ -98,9 +101,8 @@ type ContextMethod = (...args: unknown[]) => unknown;
 /**
  * Add framework-owned fields without manufacturing a fake class instance.
  * Copying descriptors onto `Object.create(instancePrototype)` loses private
- * fields and built-in internal slots. This overlay keeps application writes
- * local while forwarding reads to the original receiver; prototype methods
- * are bound for the same reason.
+ * fields. This overlay keeps application writes local while forwarding reads
+ * to the original receiver; prototype methods are bound for the same reason.
  */
 function immutableAgentContext<TContext>(
   context: TContext & (object | ContextMethod),
@@ -148,12 +150,11 @@ function immutableAgentContext<TContext>(
     if (contextBoundMethods.has(method)) return method;
     let bound = boundMethods.get(method);
     if (!bound) {
-      const receiverBound = method.bind(context);
       let guarded: ContextMethod;
-      guarded = new Proxy(receiverBound, {
-        apply(target, thisArg, args) {
+      guarded = new Proxy(method, {
+        apply(target, _thisArg, args) {
           assertNoInheritedAgentField();
-          return Reflect.apply(target, thisArg, args);
+          return Reflect.apply(target, context, args);
         },
         construct(_target, args, newTarget) {
           assertNoInheritedAgentField();
@@ -542,6 +543,19 @@ function isConstructableContext(context: ContextMethod): boolean {
   } catch {
     return false;
   }
+}
+
+function assertOverlayableContext(context: object | ContextMethod): void {
+  if (typeof context === "function" || Array.isArray(context)) return;
+
+  const tag = Object.prototype.toString.call(context);
+  if (tag === "[object Object]") return;
+
+  throw new TypeError(
+    `Pracht cannot safely bind agent identity to an immutable ${tag} request context because ` +
+      "an overlay cannot preserve its native internal slots. Wrap the value in a fresh mutable " +
+      "request context object.",
+  );
 }
 
 /** Prototype accessors must keep the original class instance as `this`. */

@@ -94,12 +94,15 @@ the previous request's identity through context methods or getters. The
 `agent` field is reserved for the framework; an immutable or inherited
 application-owned field with that name also fails closed because it cannot be
 safely hidden from receiver-bound context behavior. When a frozen or sealed
-context needs an overlay, direct context reads and reflected accessors expose
-the trusted snapshot while application methods and getters keep the original
-receiver so private fields and built-in internal slots remain valid. Those
-receiver-bound helpers cannot observe fields that exist only on the overlay;
-use a fresh mutable context when helpers need `agent` or middleware-added
-state.
+ordinary object needs an overlay, direct context reads and reflected accessors
+expose the trusted snapshot while application methods and getters keep the
+original receiver so private fields remain valid. Callable fields retain their
+own properties and construction surface while using that receiver. Arrays keep
+their array brand. Immutable native built-ins such as `Map` and `Date` cannot
+preserve their internal-slot identity through an overlay and fail closed; wrap
+them in a fresh mutable request-context object instead. Receiver-bound helpers
+cannot observe fields that exist only on the overlay, so use a fresh mutable
+context when helpers need `agent` or middleware-added state.
 
 ### Verification rules (fail closed)
 

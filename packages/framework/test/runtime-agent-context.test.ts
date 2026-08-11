@@ -427,6 +427,35 @@ describe("bindAgentContext", () => {
     expect(Object.isFrozen(context)).toBe(true);
   });
 
+  it("preserves the property surface of receiver-bound callable fields", () => {
+    function client(this: { tenant: string }) {
+      return this.tenant;
+    }
+    client.role = "database";
+    client.transaction = () => "transaction";
+    const original = Object.freeze({ tenant: "one", client });
+    const context = bindAgentContext(original, null);
+
+    expect(context.client()).toBe("one");
+    expect(context.client.role).toBe("database");
+    expect(context.client.transaction()).toBe("transaction");
+    expect(context.client.prototype).toBe(client.prototype);
+    expect(Reflect.ownKeys(context.client)).toEqual(Reflect.ownKeys(client));
+    expect(Object.getOwnPropertyDescriptor(context.client, "role")).toEqual(
+      Object.getOwnPropertyDescriptor(client, "role"),
+    );
+
+    Object.freeze(context);
+    expect(context.client.role).toBe("database");
+    expect(context.client.transaction()).toBe("transaction");
+  });
+
+  it("rejects immutable native built-ins whose internal slots cannot survive an overlay", () => {
+    for (const original of [Object.freeze(new Date(0)), Object.freeze(new Map())]) {
+      expect(() => bindAgentContext(original, null)).toThrow(/native internal slots/);
+    }
+  });
+
   it("synchronizes retained source writes before freezing the overlay", () => {
     const original = Object.seal({ tenant: "one" });
     const context = bindAgentContext(original, null);
