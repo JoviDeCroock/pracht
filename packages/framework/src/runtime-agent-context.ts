@@ -558,72 +558,51 @@ function assertOverlayableContext(context: object | ContextMethod): void {
   );
 }
 
-const nativeInternalSlotPrototypes = new Map<object, string>();
-for (const name of [
-  "ArrayBuffer",
-  "BigInt",
-  "BigInt64Array",
-  "BigUint64Array",
-  "Blob",
-  "Boolean",
-  "CompressionStream",
-  "CryptoKey",
-  "DataView",
-  "Date",
-  "DecompressionStream",
-  "File",
-  "FileReader",
-  "FinalizationRegistry",
-  "Float32Array",
-  "Float64Array",
-  "FormData",
-  "Headers",
-  "Int8Array",
-  "Int16Array",
-  "Int32Array",
-  "Map",
-  "MessagePort",
-  "Number",
-  "Promise",
-  "ReadableStream",
-  "RegExp",
-  "Request",
-  "Response",
-  "Set",
-  "SharedArrayBuffer",
-  "String",
-  "Symbol",
-  "TextDecoder",
-  "TextEncoder",
-  "TransformStream",
-  "Uint8Array",
-  "Uint8ClampedArray",
-  "Uint16Array",
-  "Uint32Array",
-  "URL",
-  "URLSearchParams",
-  "WeakMap",
-  "WeakRef",
-  "WeakSet",
-  "WebSocket",
-  "WritableStream",
-] as const) {
-  const constructor = Reflect.get(globalThis, name);
-  if (typeof constructor !== "function") continue;
-  const prototype = Reflect.get(constructor, "prototype");
-  if ((typeof prototype === "object" && prototype !== null) || typeof prototype === "function") {
-    nativeInternalSlotPrototypes.set(prototype, name);
-  }
-}
-
 function nativeInternalSlotContext(context: object): string | null {
   let prototype = Reflect.getPrototypeOf(context);
   while (prototype !== null) {
-    const name = nativeInternalSlotPrototypes.get(prototype);
-    if (name) return name;
-    prototype = Reflect.getPrototypeOf(prototype);
+    const parent = Reflect.getPrototypeOf(prototype);
+    const descriptor = Reflect.getOwnPropertyDescriptor(prototype, "constructor");
+    const constructor = descriptor && "value" in descriptor ? descriptor.value : undefined;
+    if (typeof constructor === "function") {
+      const name = nativeConstructorName(prototype, constructor);
+      // Every ordinary object eventually reaches its realm's Object.prototype.
+      // Do not mistake that shared native root for an internal-slot prototype.
+      if (parent === null && name === "Object") return null;
+      if (
+        isNativeConstructor(constructor) ||
+        isRealmGlobalTaggedPrototype(prototype, constructor)
+      ) {
+        return name ?? "native";
+      }
+    }
+    prototype = parent;
   }
   return null;
+}
+
+function nativeConstructorName(prototype: object, constructor: Function): string | null {
+  const tag = Reflect.getOwnPropertyDescriptor(prototype, Symbol.toStringTag);
+  if (tag && "value" in tag && typeof tag.value === "string") return tag.value;
+  const name = Reflect.getOwnPropertyDescriptor(constructor, "name");
+  return name && "value" in name && typeof name.value === "string" ? name.value : null;
+}
+
+function isNativeConstructor(constructor: Function): boolean {
+  try {
+    return /\{\s*\[native code\]\s*\}/.test(Function.prototype.toString.call(constructor));
+  } catch {
+    return false;
+  }
+}
+
+function isRealmGlobalTaggedPrototype(prototype: object, constructor: Function): boolean {
+  const tag = Reflect.getOwnPropertyDescriptor(prototype, Symbol.toStringTag);
+  if (!tag || !("value" in tag) || typeof tag.value !== "string") return false;
+  const globalDescriptor = Reflect.getOwnPropertyDescriptor(globalThis, tag.value);
+  return (
+    !!globalDescriptor && "value" in globalDescriptor && globalDescriptor.value === constructor
+  );
 }
 
 /** Prototype accessors must keep the original class instance as `this`. */

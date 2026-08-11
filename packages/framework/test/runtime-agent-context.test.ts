@@ -1,3 +1,5 @@
+import { runInNewContext } from "node:vm";
+
 import { describe, expect, it } from "vitest";
 
 import { bindAgentContext } from "../src/runtime-agent-context.ts";
@@ -453,11 +455,14 @@ describe("bindAgentContext", () => {
   it("rejects immutable native built-ins whose internal slots cannot survive an overlay", () => {
     const disguisedMap = new Map();
     Object.defineProperty(disguisedMap, Symbol.toStringTag, { value: "Object" });
+    const crossRealmMap = runInNewContext("Object.freeze(new Map())") as Map<unknown, unknown>;
 
     for (const original of [
       Object.freeze(new Date(0)),
       Object.freeze(new Map()),
       Object.freeze(disguisedMap),
+      Object.freeze(new AbortController()),
+      crossRealmMap,
     ]) {
       expect(() => bindAgentContext(original, null)).toThrow(/native internal slots/);
     }
@@ -476,6 +481,18 @@ describe("bindAgentContext", () => {
     expect(Object.prototype.toString.call(context)).toBe("[object BrandedContext]");
     expect(context.privateTenant).toBe("one");
     expect(context.renameTenant).not.toBe(BrandedContext.prototype.renameTenant);
+  });
+
+  it("accepts immutable ordinary contexts with data-property brands", () => {
+    class BrandedContext extends RequestContext {}
+    Object.defineProperty(BrandedContext.prototype, Symbol.toStringTag, {
+      value: "BrandedContext",
+    });
+
+    const context = bindAgentContext(Object.freeze(new BrandedContext()), null);
+
+    expect(Object.prototype.toString.call(context)).toBe("[object BrandedContext]");
+    expect(context.privateTenant).toBe("one");
   });
 
   it("synchronizes retained source writes before freezing the overlay", () => {
