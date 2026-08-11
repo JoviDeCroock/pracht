@@ -44,7 +44,7 @@ async run({ context }) {
 }
 ```
 
-Verification fails closed: expired windows, uncovered components, unknown keys, or non-allowlisted directories all yield `context.agent = null`, never a partial identity.
+Verification fails closed: expired windows, uncovered components, unknown keys, or non-allowlisted directories all yield `context.agent = null`, never a partial identity. The framework binds the result as a read-only, immutable snapshot, so middleware can derive separate authorization state but cannot rewrite the verified identity used by later policy and audit checks. Adapters should create a fresh context per request; rebinding the same mutable or immutable source to a different identity fails closed rather than leaking the previous identity through context methods or getters. The `agent` field is framework-reserved, so an immutable or inherited application-owned field with that name also fails closed. Frozen and sealed ordinary objects use an overlay when necessary: direct reads and reflected accessors expose the trusted snapshot, while methods and getters retain the original receiver for private fields, callable fields retain their own APIs, and arrays retain their brand. Application-defined `Symbol.toStringTag` branding does not make an ordinary class context look like a native built-in. Immutable native built-ins such as `Map` and `Date` cannot preserve their internal-slot identity through an overlay and fail closed; wrap them in a fresh mutable request-context object. Use a fresh mutable context when receiver-bound helpers need `agent` or middleware-added fields, because overlay-only state cannot appear on the immutable receiver. Each of these failures arrives as a response — a `500` from `handlePrachtRequest()`, an `internal_error` envelope from `invokeCapability()` — never as a rejection the adapter would have to catch.
 
 ---
 
@@ -188,15 +188,16 @@ import { setCapabilityAuditHook } from "@pracht/core/server";
 setCapabilityAuditHook((event) => log.info("capability", event));
 ```
 
-Hook exceptions are swallowed — auditing observes, it never breaks a request.
+Hooks receive frozen event and agent snapshots, and exceptions are swallowed —
+auditing can neither rewrite trusted request identity nor break a request.
 
 A capability that calls `invokeCapability()` produces a second event with `transport: "server"` and `via` set to the transport of the request it ran under, so an effect a remote agent triggered through a composing MCP tool reads as `{ transport: "server", via: "mcp" }` rather than looking like an ordinary loader call. `via` is `null` for top-level dispatches and outside a served request.
 
-### Composition Does Not Inherit Transport Guards
+### Remote MCP Composition Is Guarded
 
-`invokeCapability()` is trusted first-party composition. It runs the callee's own pipeline — input validation, its named middleware, `run()`, output validation — and deliberately *not* the transport policy guarding the projections: no app-level `api.middleware`, no `agentPolicy` check, no prepare/commit gate.
+`invokeCapability()` is trusted first-party composition. It runs the callee's own pipeline — input validation, its named middleware, `run()`, output validation — without re-running app-level `api.middleware`, so private capabilities remain useful as server-side building blocks.
 
-That is what makes private capabilities useful as building blocks, and it means the reachability of a composing capability is the reachability of everything it composes. An MCP-exposed tool whose `run()` calls a `destructive` capability grants remote agents that effect, even though `expose.mcp` on the destructive capability itself is rejected. Put the gate in the composing capability, and use `via` to see what actually ran.
+Remote MCP adds two fail-closed rules: nested calls re-apply the callee's `agentPolicy` and refuse `destructive` effects before middleware or the body can run. Private non-destructive capabilities remain composable, with named middleware as their authorization seam. HTTP and WebMCP composition keep the ordinary server semantics and must own any transport-specific authorization they need. Under any served HTTP or MCP request, nested context and audit identity remain bound to what the transport verified rather than a replacement `context.agent` passed to `invokeCapability()`. Every nested attempt still audits with `transport: "server"` and trusted provenance in `via`.
 
 ---
 

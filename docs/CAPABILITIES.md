@@ -167,6 +167,16 @@ pipeline, including the capability's middleware. It is available while
 middleware). App-level `api.middleware` is HTTP policy and does not run for
 direct invocation.
 
+Transport policy normally answers incoming calls rather than composition.
+Remote MCP is the safety exception: a nested call caused by an MCP tool
+re-applies the callee's `agentPolicy` and refuses `destructive` effects. Private
+non-destructive capabilities remain available as building blocks, and their
+named middleware still runs. See
+[AGENT_TRUST.md](AGENT_TRUST.md#remote-mcp-composition-is-guarded).
+When composition runs under a served HTTP or MCP request, `context.agent` and
+the audit event remain bound to the identity verified by that transport; an
+alternate context object cannot substitute a caller-supplied identity.
+
 ### HTTP projection
 
 With `expose.http` set, the capability is dispatched at
@@ -510,13 +520,14 @@ file, and `pracht verify` reports the same projection constraints.
 - **Shared API policy** — every HTTP-exposed capability runs app-level
   `api.middleware` first, then its capability-specific middleware. Direct
   server invocation runs only the capability-specific chain.
-- **Composition is trusted, not re-guarded** — `invokeCapability()` runs the
-  callee's own pipeline but none of the transport policy (`api.middleware`,
-  `agentPolicy`, the destructive confirmation gate), so a capability reachable
-  by an untrusted caller lends that reachability to everything it composes.
-  Gate in the composing capability; composed dispatches audit as
-  `transport: "server"` with `via` naming the transport that caused them. See
-  [AGENT_TRUST.md](AGENT_TRUST.md#composition-does-not-inherit-transport-guards).
+- **Composition keeps transport boundaries explicit** — `invokeCapability()`
+  runs the callee's own pipeline but not app-level `api.middleware`. When the
+  caller is a remote MCP tool, the runtime additionally re-applies the callee's
+  `agentPolicy` and rejects destructive effects; private non-destructive
+  callees remain composable. Other composing entry points must own any
+  transport-specific authorization they need. Every nested dispatch audits as
+  `transport: "server"` with `via` naming the transport that caused it. See
+  [AGENT_TRUST.md](AGENT_TRUST.md#remote-mcp-composition-is-guarded).
 - **Exposure requires a complete contract** — `pracht verify` fails for
   exposed capabilities missing a description, input schema, output schema, or
   effect classification.
@@ -586,7 +597,8 @@ in-process for unit tests — no manifest, no Vite, no server. `invoke()`
 mirrors `invokeCapability()` and is typed from the generics retained by that
 host's supplied capability map, including test-only aliases; `request()` mirrors the HTTP projection,
 including Web Bot Auth policy (inject a simulated identity via the `agent`
-option) and the destructive prepare/commit confirmation flow (set
+option, which is bound as the same immutable snapshot production uses) and the
+destructive prepare/commit confirmation flow (set
 `PRACHT_CONFIRMATION_SECRET` or call `setCapabilityConfirmationSecret()` in
 test setup). See `packages/framework/test/capability-test-host.test.ts` for
 worked examples.

@@ -32,6 +32,7 @@ import {
   resolveCapabilityApprovalPrincipal,
   resolveCapabilityApprovalStore,
 } from "./runtime-approval.ts";
+import { bindAgentContext, snapshotAgentIdentity } from "./runtime-agent-context.ts";
 import {
   canonicalJson,
   CONFIRMATION_HEADER,
@@ -61,6 +62,7 @@ import type {
   PrachtAgentsConfig,
   PrachtApp,
   PrachtCapability,
+  PrachtContextExtensions,
   ResolvedApiRoute,
 } from "./types.ts";
 
@@ -425,10 +427,14 @@ export function setCapabilityAuditHook(hook: CapabilityAuditHook | null): void {
 
 /** Audit hooks observe; they must never break a request. */
 function emitCapabilityAudit(event: CapabilityAuditEvent, extra?: CapabilityAuditHook): void {
+  const snapshot = Object.freeze({
+    ...event,
+    agent: snapshotAgentIdentity(event.agent),
+  });
   for (const hook of [capabilityAuditHook, extra]) {
     if (!hook) continue;
     try {
-      hook(event);
+      hook(snapshot);
     } catch {
       // Deliberately swallowed.
     }
@@ -1073,6 +1079,8 @@ export interface CapabilityHost {
   registry: ModuleRegistry;
   /** Request-local audit hook supplied by a custom server entry. */
   onAudit?: CapabilityAuditHook;
+  /** Verified identity bound by a trusted transport, never caller-supplied context. */
+  agent?: PrachtAgentIdentity | null;
   /**
    * Transport of the request this host was installed for. Carried onto the
    * audit event of every capability composed through `invokeCapability()`
@@ -1096,8 +1104,15 @@ export function setActiveCapabilityHost(
   /** Transport of the request being served; audits nested composition. */
   via: NonNullable<CapabilityAuditEvent["via"]> = "http",
   onAudit?: CapabilityAuditHook,
+  agent?: PrachtAgentIdentity | null,
 ): void {
-  activeCapabilityHosts.set(request, { app, registry, via, onAudit });
+  activeCapabilityHosts.set(request, {
+    app,
+    registry,
+    via,
+    onAudit,
+    agent: snapshotAgentIdentity(agent ?? null),
+  });
 }
 
 export interface InvokeCapabilityContext<TContext = unknown> {
@@ -1114,14 +1129,13 @@ export interface InvokeCapabilityContext<TContext = unknown> {
  * validation — and resolves to the same typed envelope. Works for private
  * (non-exposed) capabilities too.
  *
- * This is trusted first-party composition, so the *transport* policy of the
- * callee is deliberately not re-applied: no app-level `api.middleware`, no
- * `agentPolicy` check, and no destructive prepare/commit confirmation gate —
- * those guard the HTTP and MCP projections. A capability an untrusted caller
- * can reach therefore lends that reachability to everything it composes.
- * Decide the gating in the composing capability; do not rely on the callee's
- * exposure rules to supply it. Composed dispatches are audited with
- * `transport: "server"` and `via` set to the transport of the request being
+ * This is trusted first-party composition, so app-level `api.middleware` is
+ * deliberately not re-applied and private capabilities remain callable as
+ * building blocks. Remote MCP is the exception: a call composed under an MCP
+ * tool re-applies the callee's `agentPolicy` and refuses destructive effects,
+ * because otherwise a non-destructive tool could lend remote agents authority
+ * that the callee's MCP projection would deny. Composed dispatches are audited
+ * with `transport: "server"` and `via` set to the transport of the request being
  * served, so a remote-agent-caused effect stays attributable.
  *
  * When `pracht typegen` has registered the capability graph on
@@ -1188,20 +1202,23 @@ export async function invokeCapabilityOnHost<T = unknown>(
   }
 
   const started = performance.now();
-  const context = ctx.context ?? {};
+  let context: unknown = ctx.context ?? {};
   let outcome: CapabilityPipelineOutcome;
   try {
-    outcome = await runCapabilityPipeline({
-      resolved,
-      input,
-      context,
-      registry: host.registry,
-      request: ctx.request,
-      signal: ctx.signal ?? AbortSignal.timeout(CAPABILITY_TIMEOUT_MS),
-      url: new URL(ctx.request.url),
-      // Direct invocation stays server-side, so real error messages are safe.
-      exposeErrors: true,
-    });
+    context = capabilityPipelineContext(host, ctx.context);
+    outcome =
+      mcpCompositionGuard(host, resolved) ??
+      (await runCapabilityPipeline({
+        resolved,
+        input,
+        context,
+        registry: host.registry,
+        request: ctx.request,
+        signal: ctx.signal ?? AbortSignal.timeout(CAPABILITY_TIMEOUT_MS),
+        url: new URL(ctx.request.url),
+        // Direct invocation stays server-side, so real error messages are safe.
+        exposeErrors: true,
+      }));
   } catch (error: unknown) {
     // Middleware resolution/execution can throw (bad module, a middleware that
     // does not return a Response). HTTP dispatch turns these into an
@@ -1220,7 +1237,7 @@ export async function invokeCapabilityOnHost<T = unknown>(
         outcome: "internal_error",
         status: 500,
         durationMs: performance.now() - started,
-        agent: (context as { agent?: PrachtAgentIdentity | null }).agent ?? null,
+        agent: capabilityHostAgent(host, context),
       },
       host.onAudit,
     );
@@ -1231,7 +1248,7 @@ export async function invokeCapabilityOnHost<T = unknown>(
   // transport and attributed to the transport of the request it was composed
   // under (`via`). The agent identity travels on the request context when Web
   // Bot Auth is enabled.
-  const agent = (context as { agent?: PrachtAgentIdentity | null }).agent ?? null;
+  const agent = capabilityHostAgent(host, context);
   const status = outcome.kind === "envelope" ? outcome.status : outcome.response.status;
   const auditOutcome =
     outcome.kind === "envelope" ? envelopeOutcome(outcome.envelope) : `middleware_${status}`;
@@ -1258,6 +1275,68 @@ export async function invokeCapabilityOnHost<T = unknown>(
     code,
     message: `Capability middleware short-circuited with status ${status}.`,
   }) as CapabilityEnvelope<T>;
+}
+
+/**
+ * Remote MCP tools may compose private capabilities, but they must not turn
+ * that server-only reachability into a bypass around agent identity or the
+ * transport's destructive-effect prohibition. These checks run before the
+ * callee's pipeline, matching the placement of `agentPolicy` in HTTP dispatch
+ * and ensuring denied calls cannot trigger middleware side effects.
+ */
+function mcpCompositionGuard(
+  host: CapabilityHost,
+  resolved: ResolvedCapability,
+): CapabilityPipelineOutcome | null {
+  if (host.via !== "mcp") return null;
+
+  const policy =
+    resolved.capability.agentPolicy ?? host.app.agents?.webBotAuth?.policy ?? "observe";
+  if (policy === "require" && !host.agent) {
+    const envelope = errorEnvelope({
+      code: "agent_required",
+      message: `Capability "${resolved.name}" requires a verified agent signature (Web Bot Auth).`,
+    });
+    return { kind: "envelope", status: 401, envelope, response: envelopeResponse(401, envelope) };
+  }
+
+  if (resolved.capability.effect === "destructive") {
+    const envelope = errorEnvelope({
+      code: "forbidden",
+      message: `Capability "${resolved.name}" cannot be composed from remote MCP because it is destructive.`,
+    });
+    return { kind: "envelope", status: 403, envelope, response: envelopeResponse(403, envelope) };
+  }
+
+  return null;
+}
+
+/**
+ * Keep the context seen by nested MCP middleware and capability bodies on the
+ * same trusted identity used by the policy guard and audit trail. The
+ * framework-owned field is rebound to an immutable snapshot without changing
+ * other shared request-context fields. Immutable contexts receive an
+ * extensible receiver-preserving overlay, so binding identity never turns a
+ * valid nested call into a rejected promise.
+ */
+function capabilityPipelineContext<TContext>(
+  host: CapabilityHost,
+  supplied: TContext | undefined,
+): TContext | PrachtContextExtensions {
+  const context = supplied ?? {};
+  const carriesTransportIdentity =
+    !!host.app.agents?.webBotAuth && (host.via === "http" || host.via === "mcp");
+  if (!carriesTransportIdentity) return context;
+  return bindAgentContext(context, host.agent ?? null);
+}
+
+function capabilityHostAgent<TContext>(
+  host: CapabilityHost,
+  context: TContext,
+): PrachtAgentIdentity | null {
+  return host.via === "http" || host.via === "mcp"
+    ? (host.agent ?? null)
+    : ((context as { agent?: PrachtAgentIdentity | null }).agent ?? null);
 }
 
 function errorEnvelope(error: CapabilityErrorPayload): CapabilityEnvelope<never> {

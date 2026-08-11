@@ -98,6 +98,8 @@ export async function loader({ request, context, signal }) {
 }
 ```
 
+`invokeCapability()` is trusted server composition. It runs the callee's input validation, named middleware, body, and output validation, but not app-level API middleware. Remote MCP is the safety exception: nested calls re-apply the callee's `agentPolicy` and refuse destructive effects, while private non-destructive capabilities remain composable. HTTP and WebMCP composing capabilities must still own any transport-specific authorization they need. Under a served HTTP or MCP request, nested context and audit identity remain bound to what the transport verified rather than a replacement `context.agent`. Every nested audit event uses `transport: "server"` and `via` to retain the trusted request transport that caused it.
+
 From the browser — `virtual:pracht/capabilities` contains only http-exposed names, endpoints, and effect classes; capability modules never enter the client bundle:
 
 ```ts [src/islands/NoteForm.tsx]

@@ -14,6 +14,7 @@ import {
   route,
   setCapabilityAuditHook,
 } from "../src/index.ts";
+import { invokeCapabilityOnHost, setActiveCapabilityHost } from "../src/runtime-capabilities.ts";
 import {
   MCP_LATEST_PROTOCOL_VERSION,
   MCP_PROTOCOL_VERSION_HEADER,
@@ -27,6 +28,9 @@ const ORIGIN = "https://app.example";
 type CapabilityDefinition = Parameters<typeof defineCapability>[0];
 
 const created: string[] = [];
+const destroyed: string[] = [];
+const observedAgentKeys: string[] = [];
+const observedTenants: string[] = [];
 
 const notesSearch = defineCapability({
   title: "Search notes",
@@ -85,6 +89,21 @@ const notesInternal = defineCapability({
   },
 } as CapabilityDefinition);
 
+const agentContextProbe = defineCapability({
+  title: "Agent context probe",
+  description: "Reports whether the framework surfaced agent identity.",
+  input: { type: "object", properties: {}, additionalProperties: false },
+  output: {
+    type: "object",
+    properties: { hasAgent: { type: "boolean" } },
+    required: ["hasAgent"],
+  },
+  effect: "read",
+  async run({ context }) {
+    return { hasAgent: "agent" in (context as object) };
+  },
+} as CapabilityDefinition);
+
 /** MCP entry point that composes another capability through the request-bound host. */
 const notesCompose = defineCapability({
   title: "Compose notes",
@@ -95,11 +114,99 @@ const notesCompose = defineCapability({
   expose: { mcp: true },
   async run({ request, context, signal }) {
     const result = await invokeCapability(
-      "notes.search",
-      { query: "composed" },
+      "notes.internal" as never,
+      {},
       { request, context, signal },
     );
-    return { count: result.ok ? result.data.notes.length : -1 };
+    return { count: result.ok ? (result.data as { count: number }).count : -1 };
+  },
+} as CapabilityDefinition);
+
+/**
+ * Composition is server authority, not a way around policy: the composed
+ * capability's own named middleware still decides. Pins that seam, since it is
+ * where authorization for a nested call has to live.
+ */
+const notesComposeGuarded = defineCapability({
+  title: "Compose guarded notes",
+  description: "Invoke a capability that is behind denying middleware.",
+  input: { type: "object", properties: {}, additionalProperties: false },
+  output: { type: "object", properties: { code: { type: "string" } }, required: ["code"] },
+  effect: "read",
+  expose: { mcp: true },
+  async run({ request, context, signal }) {
+    const result = await invokeCapability(
+      "notes.guarded" as never,
+      {},
+      {
+        request,
+        context,
+        signal,
+      },
+    );
+    return { code: result.ok ? "ok" : result.error.code };
+  },
+} as CapabilityDefinition);
+
+/** MCP entry point attempting to compose a capability with a stricter agent policy. */
+const notesComposeAgentOnly = defineCapability({
+  title: "Compose agent-only notes",
+  description: "Invoke a capability that requires a verified agent.",
+  input: { type: "object", properties: {}, additionalProperties: false },
+  output: { type: "object", properties: { code: { type: "string" } }, required: ["code"] },
+  effect: "read",
+  expose: { mcp: true },
+  async run({ request, signal }) {
+    const result = await invokeCapability(
+      "agent.only" as never,
+      {},
+      {
+        request,
+        // The nested policy must use the identity bound by the MCP transport,
+        // not a context value that composing application code can replace.
+        context: {
+          agent: { verified: true, agentDomain: "forged.example", keyId: "forged" },
+        },
+        signal,
+      },
+    );
+    return { code: result.ok ? "ok" : result.error.code };
+  },
+} as CapabilityDefinition);
+
+const notesDestroy = defineCapability({
+  title: "Destroy notes",
+  description: "Destroy notes permanently.",
+  input: { type: "object", properties: {}, additionalProperties: false },
+  output: { type: "object", properties: { ok: { type: "boolean" } }, required: ["ok"] },
+  effect: "destructive",
+  async run() {
+    destroyed.push("notes");
+    return { ok: true };
+  },
+} as CapabilityDefinition);
+
+/** Non-destructive MCP entry point attempting to lend reachability to a destructive callee. */
+const notesComposeDestructive = defineCapability({
+  title: "Compose destructive notes",
+  description: "Invoke a destructive capability.",
+  input: { type: "object", properties: {}, additionalProperties: false },
+  output: { type: "object", properties: { code: { type: "string" } }, required: ["code"] },
+  effect: "read",
+  expose: { mcp: true },
+  async run({ request, context, signal }) {
+    const compositionRequest =
+      (context as { originalRequest?: Request }).originalRequest ?? request;
+    const result = await invokeCapability(
+      "notes.destroy" as never,
+      {},
+      {
+        request: compositionRequest,
+        context,
+        signal,
+      },
+    );
+    return { code: result.ok ? "ok" : result.error.code };
   },
 } as CapabilityDefinition);
 
@@ -107,12 +214,15 @@ const agentOnly = defineCapability({
   title: "Agent only",
   description: "Requires a verified agent.",
   input: { type: "object", properties: {}, additionalProperties: false },
-  output: { type: "object", properties: { ok: { type: "boolean" } }, required: ["ok"] },
+  output: { type: "object", properties: { keyId: { type: "string" } }, required: ["keyId"] },
   effect: "read",
   expose: { http: true, mcp: true },
   agentPolicy: "require",
-  async run() {
-    return { ok: true };
+  middleware: ["recordAgent"],
+  async run({ context }) {
+    return {
+      keyId: (context as { agent?: { keyId?: string } }).agent?.keyId ?? "missing",
+    };
   },
 } as CapabilityDefinition);
 
@@ -196,8 +306,13 @@ function createApp(agents: PrachtAgentsConfig | undefined) {
     "notes.search": notesSearch,
     "notes.create": notesCreate,
     "notes.compose": notesCompose,
+    "notes.compose-guarded": notesComposeGuarded,
+    "notes.compose-agent-only": notesComposeAgentOnly,
+    "notes.compose-destructive": notesComposeDestructive,
+    "notes.destroy": notesDestroy,
     "notes.internal": notesInternal,
     "notes.guarded": guarded,
+    "agent.context-probe": agentContextProbe,
     "agent.only": agentOnly,
     "auth.probe": authProbe,
     "url.probe": urlProbe,
@@ -209,6 +324,7 @@ function createApp(agents: PrachtAgentsConfig | undefined) {
     agents,
     middleware: {
       deny: "./middleware/deny.ts",
+      recordAgent: "./middleware/record-agent.ts",
       recordUrl: "./middleware/record-url.ts",
       jsonShortCircuit: "./middleware/json-short-circuit.ts",
       invalidOutputShortCircuit: "./middleware/invalid-output-short-circuit.ts",
@@ -224,6 +340,16 @@ function createApp(agents: PrachtAgentsConfig | undefined) {
     middlewareModules: {
       "./middleware/deny.ts": async () => ({
         middleware: async () => new Response("denied", { status: 401 }),
+      }),
+      "./middleware/record-agent.ts": async () => ({
+        middleware: async (
+          args: { context: { agent?: { keyId?: string }; tenant?: string } },
+          next: () => Promise<Response>,
+        ) => {
+          observedAgentKeys.push(args.context.agent?.keyId ?? "missing");
+          observedTenants.push(args.context.tenant ?? "missing");
+          return next();
+        },
       }),
       "./middleware/record-url.ts": async () => ({
         middleware: async (
@@ -255,6 +381,8 @@ function createApp(agents: PrachtAgentsConfig | undefined) {
 
 interface McpCallOptions {
   agents?: PrachtAgentsConfig;
+  context?: unknown;
+  contextFactory?: (request: Request) => unknown;
   headers?: Record<string, string>;
   method?: string;
   path?: string;
@@ -267,15 +395,17 @@ async function mcp(message: unknown, options: McpCallOptions = {}) {
   const { app, registry } = createApp("agents" in options ? options.agents : { mcp: {} });
   const url = `${ORIGIN}${options.path ?? "/mcp"}`;
   const method = options.method ?? "POST";
+  const request = new Request(url, {
+    method,
+    headers: { "content-type": "application/json", ...options.headers },
+    body:
+      method === "GET" ? undefined : (options.rawBody ?? JSON.stringify(options.body ?? message)),
+  });
   const response = await handlePrachtRequest({
     app,
+    context: options.contextFactory?.(request) ?? options.context,
     registry,
-    request: new Request(url, {
-      method,
-      headers: { "content-type": "application/json", ...options.headers },
-      body:
-        method === "GET" ? undefined : (options.rawBody ?? JSON.stringify(options.body ?? message)),
-    }),
+    request,
     onCapabilityAudit: options.onCapabilityAudit,
   });
   const text = await response.clone().text();
@@ -297,6 +427,9 @@ function callTool(name: string, args: unknown, options: McpCallOptions = {}) {
 
 beforeEach(() => {
   created.length = 0;
+  destroyed.length = 0;
+  observedAgentKeys.length = 0;
+  observedTenants.length = 0;
 });
 
 afterEach(() => {
@@ -549,6 +682,9 @@ describe("tools/list", () => {
       "invalid-output_short-circuit",
       "json_short-circuit",
       "notes_compose",
+      "notes_compose-agent-only",
+      "notes_compose-destructive",
+      "notes_compose-guarded",
       "notes_create",
       "notes_guarded",
       "notes_search",
@@ -604,7 +740,7 @@ describe("tools/call runs the same pipeline as the HTTP projection", () => {
     expect(json?.result.structuredContent).toEqual({ id: "note-spike" });
   });
 
-  it("keeps invokeCapability composition available on the synthesized request", async () => {
+  it("keeps private non-destructive composition available on the synthesized request", async () => {
     const { json } = await callTool("notes_compose", {});
     expect(json?.result).toMatchObject({
       isError: false,
@@ -617,12 +753,12 @@ describe("tools/call runs the same pipeline as the HTTP projection", () => {
 
     await callTool("notes_compose", {}, { onCapabilityAudit: (event) => events.push(event) });
 
-    // Composition runs the callee's own pipeline only — no HTTP/MCP dispatch
-    // guards — so the audit trail is what ties the nested effect back to the
-    // remote agent that triggered it.
+    // Composition skips app-level HTTP middleware, while MCP-specific agent
+    // policy and destructive-effect guards remain active. The audit trail ties
+    // every allowed or denied nested effect back to the remote agent transport.
     expect(events).toHaveLength(2);
     expect(events[0]).toMatchObject({
-      capability: "notes.search",
+      capability: "notes.internal",
       transport: "server",
       via: "mcp",
       outcome: "ok",
@@ -633,6 +769,204 @@ describe("tools/call runs the same pipeline as the HTTP projection", () => {
       via: null,
       outcome: "ok",
     });
+  });
+
+  it("still runs the composed capability's named middleware", async () => {
+    const events: CapabilityAuditEvent[] = [];
+
+    const { json } = await callTool(
+      "notes_compose-guarded",
+      {},
+      {
+        onCapabilityAudit: (event) => events.push(event),
+      },
+    );
+
+    // The composed capability's own middleware is the seam that authorizes a
+    // nested call — the transport gates belong to the incoming dispatch — so
+    // composing into a guarded capability is still denied by it.
+    expect(json?.result.structuredContent).toEqual({ code: "unauthorized" });
+    expect(events.map((event) => [event.capability, event.transport, event.via])).toEqual([
+      ["notes.guarded", "server", "mcp"],
+      ["notes.compose-guarded", "mcp", null],
+    ]);
+  });
+
+  it("enforces the composed capability's agentPolicy", async () => {
+    const events: CapabilityAuditEvent[] = [];
+
+    const { json } = await callTool(
+      "notes_compose-agent-only",
+      {},
+      {
+        onCapabilityAudit: (event) => events.push(event),
+      },
+    );
+
+    expect(json?.result.structuredContent).toEqual({ code: "agent_required" });
+    expect(events).toHaveLength(2);
+    expect(events[0]).toMatchObject({
+      capability: "agent.only",
+      transport: "server",
+      via: "mcp",
+      outcome: "agent_required",
+      status: 401,
+      agent: null,
+    });
+    expect(events[1]).toMatchObject({
+      capability: "notes.compose-agent-only",
+      transport: "mcp",
+      outcome: "ok",
+    });
+    expect(observedAgentKeys).toEqual([]);
+  });
+
+  it("leaves agent absent from nested context when Web Bot Auth is disabled", async () => {
+    const { app, registry } = createApp({ mcp: {} });
+    const request = new Request(`${ORIGIN}/__pracht/mcp/tools/composer`, {
+      method: "POST",
+      body: "{}",
+    });
+
+    const result = await invokeCapabilityOnHost(
+      { app, registry, via: "mcp" },
+      "agent.context-probe",
+      {},
+      { request, context: {} },
+    );
+
+    expect(result).toEqual({ ok: true, data: { hasAgent: false } });
+  });
+
+  it("binds the verified MCP identity into nested middleware and capability context", async () => {
+    const { app, registry } = createApp({
+      mcp: {},
+      webBotAuth: { policy: "observe" },
+    });
+    const agent = {
+      verified: true as const,
+      agentDomain: "verified.example",
+      keyId: "verified-key",
+    };
+    const request = new Request(`${ORIGIN}/__pracht/mcp/tools/composer`, {
+      method: "POST",
+      body: "{}",
+    });
+    class ImmutableContext {
+      readonly #tenant = "one";
+
+      get tenant() {
+        return this.#tenant;
+      }
+    }
+    const immutableContext = Object.freeze(new ImmutableContext());
+
+    const forged = await invokeCapabilityOnHost(
+      { app, registry, via: "mcp", agent },
+      "agent.only",
+      {},
+      {
+        request,
+        context: {
+          agent: { verified: true, agentDomain: "forged.example", keyId: "forged-key" },
+        },
+      },
+    );
+    const omitted = await invokeCapabilityOnHost(
+      { app, registry, via: "mcp", agent },
+      "agent.only",
+      {},
+      { request },
+    );
+    const immutable = await invokeCapabilityOnHost(
+      { app, registry, via: "mcp", agent },
+      "agent.only",
+      {},
+      { request, context: immutableContext },
+    );
+
+    expect(forged).toEqual({ ok: true, data: { keyId: "verified-key" } });
+    expect(omitted).toEqual({ ok: true, data: { keyId: "verified-key" } });
+    expect(immutable).toEqual({ ok: true, data: { keyId: "verified-key" } });
+    expect("agent" in immutableContext).toBe(false);
+    expect(observedAgentKeys).toEqual(["verified-key", "verified-key", "verified-key"]);
+    expect(observedTenants).toEqual(["missing", "missing", "one"]);
+  });
+
+  it("keeps audit observers from mutating the identity used by later nested calls", async () => {
+    const { app, registry } = createApp({
+      mcp: {},
+      webBotAuth: { policy: "observe" },
+    });
+    const agent = {
+      verified: true as const,
+      agentDomain: "verified.example",
+      keyId: "verified-key",
+    };
+    const request = new Request(`${ORIGIN}/__pracht/mcp/tools/composer`, {
+      method: "POST",
+      body: "{}",
+    });
+    const mutationResults: boolean[] = [];
+    setActiveCapabilityHost(
+      request,
+      app,
+      registry,
+      "mcp",
+      (event) => mutationResults.push(Reflect.set(event.agent!, "keyId", "forged-key")),
+      agent,
+    );
+
+    const first = await invokeCapability("agent.only" as never, {}, { request });
+    const second = await invokeCapability("agent.only" as never, {}, { request });
+
+    expect(first).toEqual({ ok: true, data: { keyId: "verified-key" } });
+    expect(second).toEqual({ ok: true, data: { keyId: "verified-key" } });
+    expect(mutationResults).toEqual([false, false]);
+    expect(agent.keyId).toBe("verified-key");
+    expect(observedAgentKeys).toEqual(["verified-key", "verified-key"]);
+  });
+
+  it("refuses destructive capability composition from MCP", async () => {
+    const events: CapabilityAuditEvent[] = [];
+
+    const { json } = await callTool(
+      "notes_compose-destructive",
+      {},
+      {
+        onCapabilityAudit: (event) => events.push(event),
+      },
+    );
+
+    expect(json?.result.structuredContent).toEqual({ code: "forbidden" });
+    expect(destroyed).toEqual([]);
+    expect(events).toHaveLength(2);
+    expect(events[0]).toMatchObject({
+      capability: "notes.destroy",
+      effect: "destructive",
+      transport: "server",
+      via: "mcp",
+      outcome: "forbidden",
+      status: 403,
+    });
+    expect(events[1]).toMatchObject({
+      capability: "notes.compose-destructive",
+      transport: "mcp",
+      outcome: "ok",
+    });
+  });
+
+  it("keeps MCP guards on an incoming request retained by adapter context", async () => {
+    const { json } = await callTool(
+      "notes_compose-destructive",
+      {},
+      {
+        contextFactory: (request) => ({ originalRequest: request }),
+      },
+    );
+
+    expect(json?.result.structuredContent).toEqual({ code: "forbidden" });
+    expect(destroyed).toEqual([]);
   });
 
   it("reports schema violations as tool errors carrying the issues", async () => {
@@ -691,6 +1025,24 @@ describe("tools/call runs the same pipeline as the HTTP projection", () => {
       requestPath: "/api/capabilities/url/probe",
       urlPath: "/api/capabilities/url/probe",
     });
+  });
+
+  it("serves MCP tools with an immutable adapter context", async () => {
+    const context = Object.freeze({ tenant: "one" });
+    const { json } = await callTool(
+      "url_probe",
+      {},
+      {
+        agents: { mcp: {}, webBotAuth: { policy: "observe" } },
+        context,
+      },
+    );
+
+    expect(json?.result.structuredContent).toMatchObject({
+      requestPath: "/api/capabilities/url/probe",
+      urlPath: "/api/capabilities/url/probe",
+    });
+    expect(context).toEqual({ tenant: "one" });
   });
 
   it("turns non-envelope JSON middleware responses into tool errors", async () => {

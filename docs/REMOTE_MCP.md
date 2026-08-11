@@ -68,14 +68,17 @@ there is no second copy of the rules to drift.
 
 The synthesized request carries the same request-bound capability host, so
 named middleware and capability bodies can compose registered operations with
-`invokeCapability()` exactly as they can during ordinary HTTP dispatch. That
-composition is trusted first-party code and runs only the callee's own
-pipeline: the guards below, `agentPolicy`, and the confirmation gate belong to
-*dispatch*, not to `invokeCapability()`. An exposed tool therefore lends its
-reachability to whatever it composes — see [Composition does not inherit
-transport guards](AGENT_TRUST.md#composition-does-not-inherit-transport-guards).
-Composed dispatches audit as `{ transport: "server", via: "mcp" }`, so the
-effects a remote agent caused indirectly stay attributable to it.
+`invokeCapability()` exactly as they can during ordinary HTTP dispatch. Private
+non-destructive capabilities remain available as building blocks and run their
+own validation and named middleware. Because the host also carries trusted MCP
+provenance, nested calls re-apply the callee's `agentPolicy` and reject
+`destructive` effects before their middleware or body runs. See
+[Remote MCP composition is guarded](AGENT_TRUST.md#remote-mcp-composition-is-guarded).
+The incoming transport request carries the same provenance, so adapter context
+that retains that request cannot escape the nested-call guard.
+Every allowed or denied nested dispatch audits as
+`{ transport: "server", via: "mcp" }`, so the remote agent's indirect effects
+and attempts stay attributable.
 
 ```text
 POST /mcp
@@ -177,22 +180,21 @@ The projection inherits every capability guarantee and adds three of its own:
   avoids trusting a Host-derived request URL during Origin validation, closing
   the DNS-rebinding path. Non-browser MCP clients send neither header and are
   unaffected.
-- **Destructive capabilities are not exposed.** `expose.mcp` on a
+- **Destructive capabilities are not reachable.** `expose.mcp` on a
   `destructive` capability is rejected by `defineCapability()`, the registry,
   and `pracht verify`, and the projection filters them again at serve time.
   Agent hosts cannot yet be trusted to carry the prepare/commit flow
-  faithfully. See [AGENT_TRUST.md](AGENT_TRUST.md). This covers the *tool
-  surface*, not composition: an exposed tool whose `run()` invokes a
-  destructive capability still performs that effect, unconfirmed, because
-  `invokeCapability()` is trusted server code. Gate it in the composing
-  capability.
+  faithfully. See [AGENT_TRUST.md](AGENT_TRUST.md). The same boundary is
+  enforced transitively: `invokeCapability()` refuses a destructive callee
+  while serving an MCP tool, even when that callee is private.
 
 Authentication is your app's: put it in the capability's named middleware,
-which sees the forwarded `Authorization` header and `context.agent`. Every
-dispatch emits an audit event with `transport: "mcp"` — passed as internal
-dispatch state by the projection, never read from the public transport-marker
-header, so unlike the client-declared `"webmcp"` marker it is trustworthy —
-and anything the tool composes emits its own event carrying `via: "mcp"`.
+which sees the forwarded `Authorization` header and `context.agent`; nested
+calls also re-apply the callee's `agentPolicy`. Every dispatch emits an audit
+event with `transport: "mcp"` — passed as internal dispatch state by the
+projection, never read from the public transport-marker header, so unlike the
+client-declared `"webmcp"` marker it is trustworthy — and anything the tool
+composes emits its own event carrying `via: "mcp"`.
 
 ## Talking to it
 

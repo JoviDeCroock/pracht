@@ -880,17 +880,17 @@ transfers to the transport unchanged, so the ban is now a policy choice rather
 than a mechanism gap: what it waits on is exactly-once commit, which the
 [approval store](AGENT_TRUST.md#durable-approvals) provides.
 
-The ban covers the tool surface, not composition. Binding the synthesized
-request to the capability host let an MCP tool call `invokeCapability()` like
-any other server code — including on a private or destructive capability,
-whose transport guards (`agentPolicy`, the confirmation gate) that path has
-never applied. Re-applying them there was rejected: it would give the same
-composition two different meanings depending on which transport happened to be
-serving, and would break the composing capability that gates the work itself.
-Instead composition is documented as trusted first-party code that lends its
-caller's reachability to its callee, and `CapabilityAuditEvent` gained `via` —
-the transport of the request a `"server"` dispatch ran under — so an effect a
-remote agent caused indirectly is attributable rather than invisible.
+The ban also covers composition. Binding the synthesized request to the
+capability host lets an MCP tool call private non-destructive capabilities with
+`invokeCapability()` like other server code, but unrestricted composition would
+let a seemingly safe tool lend remote agents access to a destructive or
+agent-gated callee. The final boundary is deliberately narrow: MCP-originated
+nested calls re-apply the callee's `agentPolicy` and refuse destructive effects,
+while leaving app-level `api.middleware` and private non-destructive composition
+semantics unchanged. The trusted host carries both MCP provenance and the
+verified identity, so composing application code cannot satisfy the nested
+policy by replacing `context.agent`. `CapabilityAuditEvent.via` records every
+allowed or denied nested attempt as a `"server"` dispatch caused by MCP.
 
 ## Final Recommendation
 

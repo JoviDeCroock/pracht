@@ -171,9 +171,9 @@ export const CAPABILITY_SETTLED_EVENT = "pracht:capability-settled";
  * configures Web Bot Auth (`defineApp({ agents: { webBotAuth } })`).
  */
 export interface PrachtAgentIdentity {
-  verified: true;
+  readonly verified: true;
   /** Host of the agent's Signature-Agent directory URL (or the static key's `agent` label). */
-  agentDomain: string | null;
+  readonly agentDomain: string | null;
   /** The `keyid` signature parameter (base64url JWK thumbprint). */
-  keyId: string;
+  readonly keyId: string;
 }

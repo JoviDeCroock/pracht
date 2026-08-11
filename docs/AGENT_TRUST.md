@@ -84,7 +84,33 @@ async run({ context }) {
 ```
 
 `context.agent` is only set when `agents.webBotAuth` is configured; it is
-`null` for unsigned or unverifiable requests.
+`null` for unsigned or unverifiable requests. The framework binds it as a
+read-only, immutable snapshot: middleware may derive its own authorization
+state elsewhere on `context`, but cannot rewrite the verified identity seen by
+later capability policy or audit checks. Adapters should create a fresh context
+for each request; once the framework binds an identity directly to a context,
+rebinding that object to a different identity fails closed rather than exposing
+the previous request's identity through context methods or getters. The
+`agent` field is reserved for the framework; an immutable or inherited
+application-owned field with that name also fails closed because it cannot be
+safely hidden from receiver-bound context behavior. When a frozen or sealed
+ordinary object needs an overlay, direct context reads and reflected accessors
+expose the trusted snapshot while application methods and getters keep the
+original receiver so private fields remain valid. Callable fields retain their
+own properties and construction surface while using that receiver. Arrays keep
+their array brand, and an application-defined `Symbol.toStringTag` does not
+make an ordinary class context look like a native built-in. Immutable native
+built-ins such as `Map` and `Date` cannot preserve their internal-slot identity
+through an overlay and fail closed; wrap them in a fresh mutable request-context
+object instead. Receiver-bound helpers
+cannot observe fields that exist only on the overlay, so use a fresh mutable
+context when helpers need `agent` or middleware-added state.
+
+Every one of these failures is delivered as a response, not as a rejection the
+adapter would have to catch: `handlePrachtRequest()` answers `500` (with the
+binding failure's guidance in the body under `debugErrors`, and the details
+logged once to `console.error`), and `invokeCapability()` returns an
+`internal_error` envelope.
 
 ### Verification rules (fail closed)
 
@@ -442,25 +468,35 @@ how they arrived) and outside a served request (test hosts, scripts). It never
 reports `"webmcp"`: that marker is client-declared, so it is not trustworthy
 enough to attribute a nested effect to.
 
-### Composition does not inherit transport guards
+### Remote MCP composition is guarded
 
 `invokeCapability()` is trusted first-party composition. It runs the callee's
 own pipeline — input validation, its named middleware, `run()`, output
-validation — and deliberately *not* the transport policy that guards the
-projections: no app-level `api.middleware`, no `agentPolicy` check, and no
-prepare/commit confirmation gate.
+validation — and deliberately does not re-run app-level `api.middleware`.
+Private capabilities therefore remain useful as server-side building blocks.
 
-That is what makes private capabilities useful as building blocks, and it
-means the reachability of a composing capability is the reachability of
-everything it composes. An MCP-exposed tool whose `run()` calls a
-`destructive` capability grants remote agents that effect, even though
-`expose.mcp` on the destructive capability itself is rejected. Put the gate in
-the composing capability — check `context.agent`, require your own approval,
-or keep the composition out of an exposed capability — and use `via` to see
-what actually ran.
+Remote MCP adds two fail-closed rules to that model. When an MCP-exposed tool
+calls `invokeCapability()`, the nested call re-applies the callee's
+`agentPolicy` and refuses any `destructive` capability before its middleware or
+body can run. A non-destructive tool therefore cannot lend remote agents access
+that the nested capability's MCP projection would deny, and cannot bypass the
+rule that destructive effects stay off MCP until the transport supports their
+confirmation flow. Private `read` and `write` capabilities remain composable;
+their named middleware is still the authorization seam.
 
-Subscribe from any server-only module (audit hooks observe: exceptions are
-swallowed, never breaking a request):
+These extra rules use trusted MCP dispatch state, not the public WebMCP marker.
+HTTP and WebMCP composition therefore keep the ordinary server-composition
+semantics: if an exposed capability composes sensitive work, its own policy and
+the callee's named middleware must authorize it. Every nested attempt, allowed
+or denied, carries `transport: "server"` and the trusted causal transport in
+`via` for audit attribution. For any composition running under a served HTTP or
+MCP request, the nested context and audit event keep the identity verified by
+that transport; a replacement `context.agent` passed to `invokeCapability()` is
+never treated as verified identity.
+
+Subscribe from any server-only module. Audit hooks receive frozen event and
+agent snapshots; exceptions are swallowed, so an observer can neither rewrite
+trusted request identity nor break a request:
 
 ```ts
 import { setCapabilityAuditHook } from "@pracht/core/server";

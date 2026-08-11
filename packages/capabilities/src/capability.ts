@@ -59,7 +59,7 @@ export interface CapabilityExposure {
  */
 export interface CapabilityContext {
   /** Verified agent identity (Web Bot Auth); `null` when unsigned/unverified, absent when the app does not configure agents. */
-  agent?: PrachtAgentIdentity | null;
+  readonly agent?: PrachtAgentIdentity | null;
   [key: string]: unknown;
 }
 

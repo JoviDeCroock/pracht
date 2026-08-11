@@ -248,7 +248,7 @@ export async function handlePrachtRequest<TContext>(
     );
   }
 
-  const requestContext = (options.context ?? {}) as TContext;
+  let requestContext = (options.context ?? {}) as TContext & PrachtContextExtensions;
   const hasCapabilities = Object.keys(options.app.capabilities ?? {}).length > 0;
   const mcpConfig = options.app.agents?.mcp;
   let capabilityRuntime: typeof import("./runtime-capabilities.ts") | null = null;
@@ -259,22 +259,12 @@ export async function handlePrachtRequest<TContext>(
   // configure no agents never import either module, and builds that can prove
   // it statically drop them from the bundle outright.
   if (typeof __PRACHT_AGENT_SURFACE__ === "undefined" || __PRACHT_AGENT_SURFACE__) {
-    // Register the capability host so `invokeCapability()` works from loaders,
-    // API routes, and middleware during this request.
     if (hasCapabilities || mcpConfig) {
       [capabilityRuntime, mcpRuntime] = await Promise.all([
         import("./runtime-capabilities.ts"),
         mcpConfig ? import("./runtime-mcp.ts") : Promise.resolve(null),
       ]);
-      capabilityRuntime.setActiveCapabilityHost(
-        options.request,
-        options.app,
-        registry,
-        "http",
-        options.onCapabilityAudit,
-      );
     }
-
     // Web Bot Auth: verify the agent signature once per request when the app
     // opted in via `defineApp({ agents: { webBotAuth } })`. The result (identity
     // or null) lands on the shared request context before middleware, loaders,
@@ -282,11 +272,46 @@ export async function handlePrachtRequest<TContext>(
     // a single property check.
     const webBotAuth = options.app.agents?.webBotAuth;
     if (webBotAuth) {
+      const { bindAgentContext } = await import("./runtime-agent-context.ts");
       if (options.request.headers.has("signature-input")) {
         const { verifyAgentSignature } = await import("./runtime-agent-auth.ts");
         agent = await verifyAgentSignature(options.request, webBotAuth);
       }
-      (requestContext as PrachtContextExtensions).agent = agent;
+      try {
+        requestContext = bindAgentContext(requestContext, agent);
+      } catch (error: unknown) {
+        // A context the framework cannot bind identity to (a native built-in,
+        // an application-owned `agent` field it must not replace, or a context
+        // object reused across identities) fails closed. Deliver that as a 500
+        // rather than rejecting: a rejection out of `handlePrachtRequest` is an
+        // unhandled rejection in the adapter, not a response.
+        warnAgentContextBindingFailure(error);
+        return withDefaultSecurityHeaders(
+          new Response(
+            exposeDiagnostics
+              ? `Request context could not carry verified agent identity: ${
+                  error instanceof Error ? error.message : String(error)
+                }`
+              : "Internal Server Error",
+            { status: 500, headers: { "content-type": "text/plain; charset=utf-8" } },
+          ),
+        );
+      }
+      agent = requestContext.agent ?? null;
+    }
+
+    // Register the request so `invokeCapability()` works from loaders, API
+    // routes, and middleware. An actual MCP dispatch replaces this provenance
+    // after explicit API-route precedence has been resolved below.
+    if (capabilityRuntime && (hasCapabilities || mcpConfig)) {
+      capabilityRuntime.setActiveCapabilityHost(
+        options.request,
+        options.app,
+        registry,
+        "http",
+        options.onCapabilityAudit,
+        agent,
+      );
     }
   } else if (hasCapabilities || options.app.agents) {
     // The build proved there was no agent surface and dropped the runtime, yet
@@ -405,6 +430,19 @@ export async function handlePrachtRequest<TContext>(
     mcpRuntime.normalizeMcpRequestPath(url.pathname) ===
       mcpRuntime.resolveMcpEndpoint(options.app.agents);
   if (capabilityRuntime && (hasCapabilities || isMcpRequest)) {
+    if (isMcpRequest) {
+      // Adapter contexts may retain the incoming transport request. Bind the
+      // same trusted provenance as the synthesized capability request so that
+      // using either request for composition preserves the MCP guard.
+      capabilityRuntime.setActiveCapabilityHost(
+        options.request,
+        options.app,
+        registry,
+        "mcp",
+        options.onCapabilityAudit,
+        agent,
+      );
+    }
     const {
       CAPABILITY_HTTP_PREFIX,
       envelopeResponse,
@@ -1031,6 +1069,23 @@ function warnCapabilityResolutionFailure(error: unknown): void {
   warnedCapabilityResolutionFailure = true;
   console.error(
     "[pracht] Capability registry failed to resolve; capability requests will fail closed:",
+    error,
+  );
+}
+
+/**
+ * Identity binding fails for the shape of the supplied context, so it fails on
+ * every request until the adapter supplies a bindable one — log the details
+ * once, since the 500 body stays generic in production.
+ */
+let warnedAgentContextBindingFailure = false;
+
+function warnAgentContextBindingFailure(error: unknown): void {
+  if (warnedAgentContextBindingFailure) return;
+  warnedAgentContextBindingFailure = true;
+  console.error(
+    "[pracht] Verified agent identity could not be bound to the request context; " +
+      "requests fail closed with a 500:",
     error,
   );
 }
