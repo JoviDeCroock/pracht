@@ -735,9 +735,13 @@ describe("create-pracht", () => {
     const mcpConfig = JSON.parse(await readFile(join(targetDir, ".mcp.json"), "utf-8"));
     expect(mcpConfig.mcpServers.pracht).toEqual({
       command: "npx",
-      // Not `npx pracht`: that resolves to a registry package literally named
-      // `pracht` whenever the local bin is not on the path.
-      args: ["--yes", "@pracht/cli", "mcp"],
+      // Pinned to the project's own @pracht/cli. `--yes @pracht/cli` fetched
+      // the registry's latest instead, so the MCP server an agent talked to
+      // could describe a different CLI than the app builds with. Not bare
+      // `npx pracht` either: that resolves to a registry package literally
+      // named `pracht` whenever the local bin is missing, which `--no-install`
+      // turns into a loud failure.
+      args: ["--no-install", "pracht", "mcp"],
     });
 
     const skillFile = join(targetDir, ".claude/skills/add-auth/SKILL.md");

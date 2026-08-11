@@ -365,7 +365,7 @@ describe("createNodeRequestHandler", () => {
         method: "POST",
       });
       expect(valid.status).toBe(200);
-      await expect(valid.json()).resolves.toEqual({
+      await expect(valid.json()).resolves.toMatchObject({
         failed: [],
         revalidated: ["/pricing"],
         skipped: [],
@@ -438,7 +438,7 @@ describe("createNodeRequestHandler", () => {
       });
 
       expect(response.status).toBe(200);
-      await expect(response.json()).resolves.toEqual({
+      await expect(response.json()).resolves.toMatchObject({
         failed: ["/broken"],
         revalidated: [],
         skipped: ["/not-isg"],
@@ -508,7 +508,7 @@ describe("createNodeRequestHandler", () => {
       });
 
       expect(response.status).toBe(200);
-      await expect(response.json()).resolves.toEqual({
+      await expect(response.json()).resolves.toMatchObject({
         failed: ["/malformed"],
         revalidated: ["/pricing"],
         skipped: [],
@@ -854,5 +854,82 @@ describe("createNodeRequestHandler", () => {
       await new Promise((resolveTimer) => setTimeout(resolveTimer, 50));
       expect(unhandled).toEqual([]);
     });
+  });
+});
+
+describe("default cache-control (shared with the Cloudflare and Vercel adapters)", () => {
+  async function serve(
+    handlerOptions: Parameters<typeof createNodeRequestHandler>[0],
+    path: string,
+    init?: RequestInit,
+  ): Promise<Response> {
+    const handler = createNodeRequestHandler(handlerOptions);
+    const server = createServer((req: IncomingMessage, res: ServerResponse) => {
+      void handler(req, res);
+    });
+    servers.add(server);
+    server.listen(0, "127.0.0.1");
+    await once(server, "listening");
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("Expected TCP server address");
+    return fetch(`http://127.0.0.1:${address.port}${path}`, init);
+  }
+
+  const app = defineApp({
+    routes: [route("/dash", "./routes/dash.tsx", { render: "ssr" })],
+  });
+  const registry = {
+    routeModules: {
+      "/src/routes/dash.tsx": async () => ({ default: () => null }),
+    },
+  };
+
+  // A reverse proxy or CDN in front of Node may heuristically cache a 200 that
+  // carries no Cache-Control, and Cookie is not part of its key. Cloudflare
+  // guarded this; Node and Vercel did not, so the protection disappeared when
+  // an app changed adapters.
+  it("stamps SSR documents that set no policy of their own", async () => {
+    const response = await serve({ app, canonicalOrigin: "https://app.test", registry }, "/dash");
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("private, no-cache");
+  });
+
+  it("leaves a route's own cache-control untouched", async () => {
+    const response = await serve(
+      {
+        app: defineApp({ routes: [route("/cached", "./routes/cached.tsx", { render: "ssr" })] }),
+        canonicalOrigin: "https://app.test",
+        registry: {
+          routeModules: {
+            "/src/routes/cached.tsx": async () => ({
+              default: () => null,
+              headers: () => ({ "cache-control": "public, max-age=600" }),
+            }),
+          },
+        },
+      },
+      "/cached",
+    );
+
+    expect(response.headers.get("cache-control")).toBe("public, max-age=600");
+  });
+
+  it("does not touch non-GET responses", async () => {
+    const response = await serve(
+      {
+        apiRoutes: resolveApiRoutes(["/src/api/echo.ts"]),
+        app: defineApp({ routes: [] }),
+        canonicalOrigin: "https://app.test",
+        registry: {
+          apiModules: { "/src/api/echo.ts": async () => ({ POST: () => Response.json({}) }) },
+        },
+      },
+      "/api/echo",
+      { body: "{}", headers: { "content-type": "application/json" }, method: "POST" },
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.has("cache-control")).toBe(false);
   });
 });

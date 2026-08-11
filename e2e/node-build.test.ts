@@ -352,7 +352,15 @@ test("SSR-only builds keep static assets on the fast path for Markdown requests"
     const routesPath = resolve(exampleDir, "src/routes.ts");
     const routesSource = readFileSync(routesPath, "utf-8")
       .replaceAll('render: "ssg"', 'render: "ssr"')
-      .replace('render: "isg",\n        revalidate: timeRevalidate(3600),', 'render: "ssr",');
+      .replaceAll('render: "isg"', 'render: "ssr"')
+      // Matching on the render mode and stripping any `revalidate:` property
+      // keeps this working when the example's ISG policy changes shape. The
+      // assertions below fail loudly if it ever stops matching, instead of
+      // silently leaving prerendered routes in place.
+      .replace(/^[^\S\n]*revalidate: .*\n/gm, "");
+    expect(routesSource).not.toContain('render: "ssg"');
+    expect(routesSource).not.toContain('render: "isg"');
+    expect(routesSource).not.toContain("revalidate:");
     writeFileSync(routesPath, routesSource, "utf-8");
 
     buildExample(exampleDir, { PRACHT_ADAPTER: "node", PRACHT_ORIGIN: origin });

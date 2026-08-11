@@ -1,6 +1,6 @@
 ---
 title: Images
-lead: Use <code>@pracht/image</code> for responsive image markup, reserved layout space, and deployment-specific optimization loaders.
+lead: Use `@pracht/image` for responsive image markup, reserved layout space, and deployment-specific optimization loaders.
 breadcrumb: Images
 prev:
   href: /docs/styling

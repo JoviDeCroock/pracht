@@ -301,3 +301,29 @@ describe("buildLlmsTxt capabilities", () => {
     expect(output).not.toContain("## Capabilities");
   });
 });
+
+describe("framework-reserved paths", () => {
+  it("never lists _pracht endpoints, with or without a user exclude list", async () => {
+    const app = resolveApp(
+      defineApp({ routes: [route("/", "./routes/home.tsx", { render: "ssg" })] }),
+    );
+    const apiRoutes = resolveApiRoutes(
+      ["/src/api/health.ts", "/src/api/_pracht/image.ts"],
+      "/src/api",
+    );
+    const registry: ModuleRegistry = {
+      apiModules: {
+        "/src/api/_pracht/image.ts": async () => ({ GET: () => new Response("") }),
+        "/src/api/health.ts": async () => ({ GET: () => new Response("") }),
+      },
+      routeModules: { "/src/routes/home.tsx": async () => ({}) },
+    };
+
+    for (const exclude of [undefined, ["/nothing-matches"]]) {
+      const output = await buildLlmsTxt({ apiRoutes, app, exclude, registry, title: "App" });
+      expect(output).toContain("/api/health");
+      // The @pracht/image handler is framework plumbing, not app API surface.
+      expect(output).not.toContain("_pracht");
+    }
+  });
+});

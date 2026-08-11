@@ -1,0 +1,41 @@
+{
+  "name": "verified agent identity",
+  "task": "A signed agent reaches a capability that requires Web Bot Auth; the same capability refuses the unsigned caller.",
+  "signAs": {
+    "agent": "https://test-agent.example",
+    "privateKeyJwk": {
+      "kty": "OKP",
+      "crv": "Ed25519",
+      "d": "JZlLQqnxH-0O_1mfnuqDBB1U5XgqETE5eiRXxXRhZNM",
+      "x": "s5n91rPm5ymJjl--scT4WWq7HE9kUdj-6sVe5r__xgc"
+    }
+  },
+  "steps": [
+    {
+      "capability": "agent.whoami",
+      "input": {},
+      "expect": {
+        "ok": true,
+        "status": 200,
+        "output": { "verified": true, "agentDomain": "test-agent.example" }
+      }
+    },
+    {
+      "capability": "agent.ping",
+      "input": {},
+      "expect": { "ok": true, "status": 200, "output": { "pong": true } }
+    },
+    {
+      "capability": "agent.ping",
+      "input": {},
+      "sign": false,
+      "expect": { "ok": false, "status": 401, "errorCode": "agent_required" }
+    },
+    {
+      "capability": "agent.whoami",
+      "input": {},
+      "sign": false,
+      "expect": { "ok": true, "status": 200, "output": { "verified": false } }
+    }
+  ]
+}

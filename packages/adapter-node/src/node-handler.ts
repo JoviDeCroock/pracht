@@ -7,17 +7,20 @@ import {
   applyDefaultSecurityHeaders,
   getTimeRevalidateSeconds,
   handlePrachtRequest,
-  hasWebhookRevalidate,
+  classifyRevalidationSkip,
   type HandlePrachtRequestOptions,
   type ISGManifestEntry,
   isCacheableISGResponse,
   jsonResponse,
+  matchAppRoute,
   type ModuleRegistry,
   type MarkdownManifest,
   PRACHT_REVALIDATE_ENDPOINT,
-  PRACHT_REVALIDATE_TOKEN_ENV,
   prefersMarkdown,
+  preventHeuristicCaching,
   readRevalidationRequest,
+  RevalidationReport,
+  resolveRevalidationToken,
   type ResolvedApiRoute,
   type PrachtApp,
   routeSupportsMarkdown,
@@ -195,15 +198,16 @@ export function createNodeRequestHandler<TContext = unknown>(
       jsManifest: options.jsManifest,
     } satisfies HandlePrachtRequestOptions<TContext>);
 
-    if (
-      staticDir &&
+    const isIsgDocument =
+      staticDir !== undefined &&
       request.method === "GET" &&
       !isTransportRouteStateRequest &&
       url.pathname in isgManifest &&
       response.status === 200 &&
-      response.headers.get("content-type")?.includes("text/html") &&
-      isCacheableISGResponse(response)
-    ) {
+      (response.headers.get("content-type")?.includes("text/html") ?? false) &&
+      isCacheableISGResponse(response);
+
+    if (isIsgDocument) {
       const html = await response.clone().text();
       const htmlPath = resolveContainedPath(staticDir, url.pathname);
       if (htmlPath) {
@@ -212,7 +216,20 @@ export function createNodeRequestHandler<TContext = unknown>(
       }
     }
 
-    await writeWebResponse(res, response);
+    // Evaluated after the ISG snapshot decision above: stamping a
+    // `Cache-Control` first would make `isCacheableISGResponse()` reject the
+    // very response it was about to persist. A reverse proxy or CDN in front of
+    // a Node deployment can otherwise apply heuristic freshness to an
+    // authenticated SSR page — the same hazard the Cloudflare adapter guards.
+    //
+    // ISG documents are exempt. This response is the cold render of a page that
+    // every later request answers from disk with
+    // `public, max-age=0, must-revalidate`; stamping only the cold one would
+    // make a route's caching headers depend on whether its snapshot exists yet.
+    await writeWebResponse(
+      res,
+      isIsgDocument ? response : preventHeuristicCaching(request, response),
+    );
   };
 
   // `http.createServer(handler)` ignores the returned promise, so a rejection
@@ -358,48 +375,50 @@ async function handleRevalidationEndpoint<TContext>(
   isgManifest: Record<string, ISGManifestEntry>,
   contextArgs: NodeAdapterContextArgs,
 ): Promise<Response> {
-  const parsed = await readRevalidationRequest(request, process.env[PRACHT_REVALIDATE_TOKEN_ENV]);
+  const parsed = await readRevalidationRequest(request, resolveRevalidationToken());
   if (!parsed.ok) return parsed.response;
 
   if (!staticDir) {
+    // Built through the shared report so this reply has the same shape as every
+    // other one, `details` included, rather than the three legacy arrays alone.
+    const unavailable = new RevalidationReport();
+    for (const pathname of parsed.paths) unavailable.skipped(pathname, "not_prerendered");
     return jsonResponse(
-      {
-        error: "ISG revalidation requires a staticDir.",
-        failed: [],
-        revalidated: [],
-        skipped: parsed.paths,
-      },
+      { error: "ISG revalidation requires a staticDir.", ...unavailable.toJSON() },
       503,
     );
   }
 
-  const revalidated: string[] = [];
-  const skipped: string[] = [];
-  const failed: string[] = [];
+  const report = new RevalidationReport();
 
   for (const pathname of parsed.paths) {
     try {
       const entry = isgManifest[pathname];
       const htmlPath = resolveContainedPath(staticDir, pathname);
-      if (!entry || !htmlPath || !hasWebhookRevalidate(entry.revalidate)) {
-        skipped.push(pathname);
+      const skip = classifyRevalidationSkip(
+        entry && { render: "isg", revalidate: entry.revalidate },
+        htmlPath !== null,
+        matchAppRoute(options.app, pathname)?.route ?? null,
+      );
+      if (skip) {
+        report.skipped(pathname, skip);
         continue;
       }
 
       // A failed regeneration keeps the existing on-disk HTML and is reported
       // in `failed` instead of aborting the whole batch with a 500.
-      if (await regenerateISGPage(options, pathname, htmlPath, contextArgs)) {
-        revalidated.push(pathname);
+      if (await regenerateISGPage(options, pathname, htmlPath!, contextArgs)) {
+        report.revalidated(pathname);
       } else {
-        failed.push(pathname);
+        report.failed(pathname, "regeneration_failed");
       }
     } catch (err) {
       console.error(`ISG webhook revalidation failed for ${pathname}:`, err);
-      failed.push(pathname);
+      report.failed(pathname, "regeneration_error");
     }
   }
 
-  return jsonResponse({ failed, revalidated, skipped });
+  return jsonResponse(report.toJSON());
 }
 
 /**

@@ -61,6 +61,29 @@ function esc(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
+/**
+ * Render a one-line Markdown string (the frontmatter `lead`) to HTML.
+ *
+ * The lead is the single field that reaches two renderers: this one, and the
+ * llms.txt generator, which emits it verbatim into a Markdown document. Authors
+ * therefore write Markdown — `` `pracht eval` `` — and the code-span conversion
+ * happens here. Writing raw `<code>` in the source instead put literal HTML
+ * tags (and HTML entities like `&lt;Form&gt;`) into the published llms.txt.
+ *
+ * Everything outside a code span is escaped, so the lead can never inject
+ * markup.
+ */
+function renderLead(lead: string): string {
+  return lead
+    .split(/(`[^`]+`)/)
+    .map((part) =>
+      part.startsWith("`") && part.endsWith("`") && part.length > 2
+        ? `<code>${esc(part.slice(1, -1))}</code>`
+        : esc(part),
+    )
+    .join("");
+}
+
 function highlight(code: string): string {
   const out: string[] = [];
   let i = 0;
@@ -251,7 +274,7 @@ function buildDocPage(fm: Frontmatter, contentHtml: string): string {
 
   // Lead paragraph
   if (fm.lead) {
-    parts.push(`<p class="doc-lead">${fm.lead}</p>`);
+    parts.push(`<p class="doc-lead">${renderLead(fm.lead)}</p>`);
   }
 
   // Main content

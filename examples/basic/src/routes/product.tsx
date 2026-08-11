@@ -1,3 +1,4 @@
+import { notFound } from "@pracht/core";
 import type { LoaderArgs, RouteComponentProps, RouteParams } from "@pracht/core";
 
 const PRODUCTS = [
@@ -12,7 +13,11 @@ export function getStaticPaths(): RouteParams[] {
 
 export function loader({ params }: LoaderArgs) {
   const product = PRODUCTS.find((p) => p.id === params.productId);
-  if (!product) throw new Error("Product not found");
+  // `getStaticPaths()` only enumerates the three prerendered products; any
+  // other id still reaches this loader at request time. `throw notFound()`
+  // renders the app's `notFound` page with a 404 — a bare `throw new Error`
+  // would surface as a 500 "Internal Server Error" instead.
+  if (!product) throw notFound("Product not found");
   return product;
 }
 

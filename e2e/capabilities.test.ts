@@ -580,7 +580,7 @@ test("MCP refuses GET, cross-origin, and cookie-authenticated requests", async (
 const repoRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const cliEntry = resolve(repoRoot, "packages/cli/bin/pracht.js");
 
-test("pracht eval runs the example scenario against the dev server", async () => {
+test("pracht eval runs the example scenarios against the dev server", async () => {
   const { stdout } = await execFileAsync(
     process.execPath,
     [cliEntry, "eval", "--url", capabilitiesUrl],
@@ -588,7 +588,17 @@ test("pracht eval runs the example scenario against the dev server", async () =>
   );
   expect(stdout).toContain("PASS  notes agent flow");
   expect(stdout).toContain("confirmation_required");
-  expect(stdout).toContain("1 scenario(s) passed, 0 failed");
+
+  // Both halves of the agent-trust policy, which only became expressible in a
+  // scenario once `signAs` shipped: a signed caller reaches a capability
+  // declaring `agentPolicy: "require"`, and an unsigned one is refused.
+  expect(stdout).toContain("PASS  verified agent identity");
+  expect(stdout).toContain("agent_required");
+
+  // Asserted on the failure count rather than a scenario total, so adding a
+  // scenario does not break this test.
+  expect(stdout).toMatch(/\d+ scenario\(s\) passed, 0 failed/);
+  expect(stdout).not.toContain("FAIL");
 });
 
 test("pracht eval --start launches the app, runs the scenario, and stops it", async () => {

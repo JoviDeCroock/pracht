@@ -1,6 +1,6 @@
 ---
 title: Agent Skills
-lead: pracht ships 28 Claude Code skills for scaffolding, auditing, testing, and deploying apps. They are published at stable URLs with a signed discovery manifest, seeded into new apps by <code>create-pracht</code>, and pair with the built-in MCP server.
+lead: pracht ships 28 Claude Code skills for scaffolding, auditing, testing, and deploying apps. They are published at stable URLs with a signed discovery manifest, seeded into new apps by `create-pracht`, and pair with the built-in MCP server.
 breadcrumb: Agent Skills
 prev:
   href: /docs/agent-workflow

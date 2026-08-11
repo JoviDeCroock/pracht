@@ -1,6 +1,6 @@
 ---
 title: Routing
-lead: pracht uses a hybrid routing model: route modules live as files by convention, but their wiring — shells, middleware, render modes, and URL patterns — is declared explicitly in a single <code>src/routes.ts</code> manifest.
+lead: pracht uses a hybrid routing model: route modules live as files by convention, but their wiring — shells, middleware, render modes, and URL patterns — is declared explicitly in a single `src/routes.ts` manifest.
 breadcrumb: Routing
 prev:
   href: /docs/demo-comparison
@@ -247,17 +247,19 @@ For projects that prefer file-system routing — especially when migrating from 
 
 ### What the pages router does not have
 
-Auto-discovery replaces the manifest, so features registered through that manifest are unavailable:
+Auto-discovery replaces the manifest — and several features are registered *through* that manifest, so they are unavailable in `pagesDir` mode. Read this before choosing a router: `create-pracht` offers both, and they are not equivalent.
 
 | Feature | Pages router |
 | --- | --- |
-| Render and hydration modes, dynamic/catch-all routes, `getStaticPaths`, API routes | ✅ |
+| Render and hydration modes, dynamic/catch-all routes, `getStaticPaths`, API routes | ✅ via `RENDER_MODE` / `HYDRATION` / `REVALIDATE` exports |
 | Shells | one `_app.tsx`; no named shells or per-route assignment |
-| Route middleware | ❌ no registration seam |
-| [Capabilities](/docs/capabilities) | ❌ no capability HTTP endpoints, WebMCP, remote MCP, or `pracht eval` |
-| `defineApp({ constraints })`, `agents` | ❌ |
+| [Route middleware](/docs/middleware) | ❌ no registration seam — wrap API handlers in a higher-order function instead |
+| [Capabilities](/docs/capabilities) | ❌ no capability HTTP endpoints, [WebMCP](/docs/agents), [remote MCP](/docs/remote-mcp), or `pracht eval` |
+| [`defineApp({ constraints })`](/docs/agent-workflow), [`agents`](/docs/agent-trust) (Web Bot Auth) | ❌ |
 
-If the app needs any of these, [eject to an explicit manifest](#ejecting-to-explicit-manifest). The authoring MCP server and generated skills still work in pages mode; they do not add a runtime agent surface.
+In short: the pages router covers pages, but the runtime agent surface lives on `defineApp()`. If the app needs any of it, start with the manifest router — or [eject to one](#ejecting-to-explicit-manifest) later, which is a one-time codegen.
+
+The authoring MCP server and generated skills still work in pages mode; they do not add a runtime agent surface.
 
 ### Setup
 

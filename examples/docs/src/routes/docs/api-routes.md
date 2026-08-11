@@ -1,6 +1,6 @@
 ---
 title: API Routes
-lead: Standalone server endpoints that live alongside your pages. Export named HTTP method handlers or one default handler, then return <code>Response</code> objects directly.
+lead: Standalone server endpoints that live alongside your pages. Export named HTTP method handlers or one default handler, then return `Response` objects directly.
 breadcrumb: API Routes
 prev:
   href: /docs/data-loading

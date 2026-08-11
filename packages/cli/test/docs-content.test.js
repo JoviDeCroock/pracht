@@ -30,6 +30,30 @@ describe("documentation content", () => {
     expect(offenders).toEqual([]);
   });
 
+  // The `lead:` frontmatter is the one field with two renderers: the docs site
+  // injects it into HTML, and the llms.txt generator copies it verbatim into a
+  // Markdown document. Authoring it as HTML put literal `<code>` tags and
+  // `&lt;Form&gt;` entities into the published agent-facing index.
+  it("keeps doc lead frontmatter as Markdown, not HTML", () => {
+    const offenders = [];
+
+    for (const file of collectMarkdownAndTextFiles(["examples/docs/src/routes/docs"])) {
+      const source = readFileSync(resolve(repoRoot, file), "utf-8");
+      for (const line of source.split("\n")) {
+        if (!line.startsWith("lead:")) continue;
+        // Anything inside a code span is Markdown source, not markup — the
+        // renderers escape it. Only look at what is left.
+        const outsideCodeSpans = line.replaceAll(/`[^`]*`/g, "");
+        if (/<[a-zA-Z/]/.test(outsideCodeSpans)) offenders.push(`${file}: HTML tag in lead`);
+        if (/&[a-zA-Z]+;|&#\d+;/.test(outsideCodeSpans)) {
+          offenders.push(`${file}: HTML entity in lead`);
+        }
+      }
+    }
+
+    expect(offenders).toEqual([]);
+  });
+
   it("keeps the public CLI reference in sync with every shipped command", () => {
     const cliSource = readFileSync(resolve(repoRoot, "packages/cli/src/index.ts"), "utf-8");
     const publicReference = readFileSync(
@@ -46,6 +70,31 @@ describe("documentation content", () => {
     ).sort();
 
     expect(documentedCommands).toEqual(shippedCommands);
+  });
+
+  // The manifest-only limitation was documented in docs/ROUTING.md but never on
+  // the public site, so a reader choosing the pages router could not learn that
+  // it has no capability, MCP, or agent-trust surface until much later.
+  it("publishes the pages-router limitations on the public site", () => {
+    const routing = readFileSync(
+      resolve(repoRoot, "examples/docs/src/routes/docs/routing.md"),
+      "utf-8",
+    );
+    expect(routing).toContain("What the pages router does not have");
+    for (const feature of ["Capabilities", "Middleware", "WebMCP", "pracht eval", "constraints"]) {
+      expect(routing).toContain(feature);
+    }
+
+    // The two pages a reader lands on when they want the agent surface must
+    // point back at that table rather than silently assuming a manifest.
+    for (const file of [
+      "examples/docs/src/routes/docs/capabilities.md",
+      "examples/docs/src/routes/docs/agent-trust.md",
+    ]) {
+      const source = readFileSync(resolve(repoRoot, file), "utf-8");
+      expect(source).toContain("Manifest router only");
+      expect(source).toContain("/docs/routing#what-the-pages-router-does-not-have");
+    }
   });
 
   it("keeps high-risk adapter options in the public adapter guide", () => {

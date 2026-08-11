@@ -1,5 +1,5 @@
 import { dirname, resolve } from "node:path";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 
 import { formatBytes } from "./bundle-report.js";
 import { maskCommentsAndStrings } from "@pracht/capabilities/static";
@@ -22,7 +22,11 @@ import {
   type Check,
 } from "./verification-helpers.js";
 import { detectAdapterTarget } from "./commands/preview.js";
-import { findWranglerConfig, readWranglerMainEntries } from "./wrangler-config.js";
+import {
+  findWranglerConfig,
+  readWranglerAssetsHtmlHandling,
+  readWranglerMainEntries,
+} from "./wrangler-config.js";
 import {
   collectDuplicateRoutePaths,
   describePagesFile,
@@ -890,6 +894,7 @@ function collectCloudflareEntryCheck(project: ProjectConfig, root: string, check
   if (!configFile) return;
 
   const display = displayPath(root, configFile);
+  collectCloudflareTrailingSlashCheck(project, root, configFile, display, checks);
 
   for (const entry of readWranglerMainEntries(configFile)) {
     if (!normalizePath(entry.main).endsWith(SERVER_ENTRY_PATH)) continue;
@@ -904,4 +909,71 @@ function collectCloudflareEntryCheck(project: ProjectConfig, root: string, check
       ),
     );
   }
+}
+
+/**
+ * Cloudflare's assets binding defaults to `html_handling: "auto-trailing-slash"`,
+ * which answers `GET /guide` with a 307 to `/guide/`. Node and Vercel answer
+ * `200`, so the canonical URL of every prerendered route differs by adapter —
+ * and the generated `llms.txt` emits the non-slash form, sending agents through
+ * a redirect on Cloudflare only.
+ *
+ * `create-pracht` writes `"drop-trailing-slash"` into new Cloudflare scaffolds;
+ * this catches the apps that predate it. Warning-only and silent whenever
+ * anything is unproven: a TOML config, an unparsable file, no assets block, or
+ * an app with nothing prerendered to redirect.
+ */
+function collectCloudflareTrailingSlashCheck(
+  project: ProjectConfig,
+  root: string,
+  configFile: string,
+  display: string,
+  checks: Check[],
+): void {
+  const assets = readWranglerAssetsHtmlHandling(configFile);
+  if (!assets || assets.htmlHandling !== undefined) return;
+  if (!appHasPrerenderedRoutes(project, root)) return;
+
+  checks.push(
+    createCheck(
+      "warning",
+      `${display} does not set "assets.html_handling". Cloudflare's default redirects ` +
+        "every prerendered route to its trailing-slash form (307), so its canonical URL " +
+        'differs from Node and Vercel. Add "html_handling": "drop-trailing-slash" ' +
+        '(or "none" when you do your own routing).',
+    ),
+  );
+}
+
+/**
+ * Whether the app plausibly emits prerendered HTML. Proven from build output
+ * when there is any, and otherwise inferred from declared render modes — the
+ * same text-level heuristic the surrounding Cloudflare checks already accept,
+ * because the only consequence of being wrong is a suppressed suggestion.
+ */
+function appHasPrerenderedRoutes(project: ProjectConfig, root: string): boolean {
+  const clientDir = resolve(root, "dist/client");
+  if (existsSync(clientDir)) {
+    return listFilesRecursively(clientDir).some((file) => file.endsWith(".html"));
+  }
+
+  const sourceDir =
+    project.mode === "manifest"
+      ? resolveProjectPath(project.root, project.appFile)
+      : resolveProjectPath(project.root, project.pagesDir);
+  if (!existsSync(sourceDir)) return false;
+
+  const files = statSync(sourceDir).isDirectory()
+    ? listFilesRecursively(sourceDir).filter((file) => MODULE_SOURCE_RE.test(file))
+    : [sourceDir];
+
+  return files.some((file) => {
+    let source: string;
+    try {
+      source = readFileSync(file, "utf-8");
+    } catch {
+      return false;
+    }
+    return /["']ssg["']|["']isg["']/.test(source);
+  });
 }

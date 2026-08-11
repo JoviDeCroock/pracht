@@ -1126,7 +1126,11 @@ function isHrefRouteDefinition(value: unknown): value is HrefRouteDefinition {
 
 // Public runtime surface — re-exported so `./runtime.ts` remains the
 // single import entry for the framework's runtime API.
-export { applyDefaultSecurityHeaders, isProtocolSwitchResponse } from "./runtime-headers.ts";
+export {
+  applyDefaultSecurityHeaders,
+  isProtocolSwitchResponse,
+  preventHeuristicCaching,
+} from "./runtime-headers.ts";
 export { formatServerTimingHeader, type PrachtPhaseTimings } from "./runtime-timing.ts";
 export {
   deserializeRouteError,

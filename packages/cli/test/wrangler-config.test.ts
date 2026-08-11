@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import {
   findWranglerConfig,
+  readWranglerAssetsHtmlHandling,
   readWranglerMainEntries,
   WRANGLER_CONFIG_FILES,
 } from "../src/wrangler-config.ts";
@@ -192,5 +193,47 @@ describe("readWranglerMainEntries", () => {
     expect(readWranglerMainEntries(file)).toEqual([
       { environment: null, main: "dist/server/worker.js" },
     ]);
+  });
+});
+
+describe("readWranglerAssetsHtmlHandling", () => {
+  it("reports an explicit html_handling value", () => {
+    const file = writeConfig(
+      "wrangler.jsonc",
+      `{
+        // Comment tolerated.
+        "assets": { "binding": "ASSETS", "html_handling": "drop-trailing-slash" },
+      }`,
+    );
+    expect(readWranglerAssetsHtmlHandling(file)).toEqual({
+      htmlHandling: "drop-trailing-slash",
+    });
+  });
+
+  it("reports an assets block that leaves html_handling at wrangler's default", () => {
+    const file = writeConfig(
+      "wrangler.jsonc",
+      `{ "assets": { "binding": "ASSETS", "directory": "dist/client" } }`,
+    );
+    expect(readWranglerAssetsHtmlHandling(file)).toEqual({ htmlHandling: undefined });
+  });
+
+  it("returns null — unknown, not fine — for shapes it cannot prove", () => {
+    // No assets block at all.
+    expect(
+      readWranglerAssetsHtmlHandling(writeConfig("wrangler.jsonc", `{ "main": "worker.js" }`)),
+    ).toBeNull();
+    // Unparsable.
+    expect(readWranglerAssetsHtmlHandling(writeConfig("wrangler.jsonc", "{ nope"))).toBeNull();
+    // TOML is not parsed here.
+    expect(readWranglerAssetsHtmlHandling(writeConfig("wrangler.toml", 'name = "app"'))).toBeNull();
+    // Missing file.
+    expect(readWranglerAssetsHtmlHandling(join(tmpdir(), "definitely-absent.jsonc"))).toBeNull();
+    // A non-string value is not an explicit setting.
+    expect(
+      readWranglerAssetsHtmlHandling(
+        writeConfig("wrangler.jsonc", `{ "assets": { "html_handling": 3 } }`),
+      ),
+    ).toEqual({ htmlHandling: undefined });
   });
 });

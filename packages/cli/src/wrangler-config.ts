@@ -42,6 +42,47 @@ export function readWranglerMainEntries(configFile: string): WranglerMainEntry[]
   return configFile.endsWith(".toml") ? readTomlMainEntries(source) : readJsonMainEntries(source);
 }
 
+/** What a wrangler config says about its assets binding's `html_handling`. */
+export interface WranglerAssetsHtmlHandling {
+  /** `undefined` when the key is absent, i.e. wrangler's `auto-trailing-slash`. */
+  htmlHandling: string | undefined;
+}
+
+/**
+ * The top-level `assets.html_handling` value, or `null` when it cannot be
+ * proven — an unreadable file, a parse failure, a TOML config (not parsed
+ * here), or no `assets` block at all.
+ *
+ * `null` means "unknown", never "fine": callers must stay silent on it rather
+ * than reporting a config they could not read.
+ */
+export function readWranglerAssetsHtmlHandling(
+  configFile: string,
+): WranglerAssetsHtmlHandling | null {
+  if (configFile.endsWith(".toml")) return null;
+
+  let source: string;
+  try {
+    source = readFileSync(configFile, "utf-8");
+  } catch {
+    return null;
+  }
+
+  let config: unknown;
+  try {
+    config = JSON.parse(stripJsonComments(source).replace(/,(\s*[}\]])/g, "$1"));
+  } catch {
+    return null;
+  }
+  if (!config || typeof config !== "object") return null;
+
+  const assets = (config as Record<string, unknown>).assets;
+  if (!assets || typeof assets !== "object") return null;
+
+  const htmlHandling = (assets as Record<string, unknown>).html_handling;
+  return { htmlHandling: typeof htmlHandling === "string" ? htmlHandling : undefined };
+}
+
 function readJsonMainEntries(source: string): WranglerMainEntry[] {
   let config: unknown;
   try {

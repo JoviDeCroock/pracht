@@ -11,6 +11,7 @@ export default defineConfig({
     "src/env-server.ts",
     "src/env-server.browser.ts",
     "src/server.ts",
+    "src/agent-auth-sign.ts",
     "src/islands-client.ts",
     "src/error-overlay.ts",
     "src/dev-404.ts",
