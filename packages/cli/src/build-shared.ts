@@ -32,6 +32,74 @@ module.exports = async (req, res) => {
 
 type VercelRegions = string | string[];
 
+/**
+ * The headers `applyDefaultSecurityHeaders()` puts on every framework
+ * response. Output served by the platform never reaches that code, so each
+ * build target that emits its own header configuration replays them here.
+ */
+export const PRACHT_BASELINE_SECURITY_HEADERS: readonly (readonly [string, string])[] = [
+  [
+    "permissions-policy",
+    "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()",
+  ],
+  ["referrer-policy", "strict-origin-when-cross-origin"],
+  ["x-content-type-options", "nosniff"],
+  ["x-frame-options", "SAMEORIGIN"],
+];
+
+/**
+ * Entity headers the platform derives from the file it serves. Replaying a
+ * build-time value would let it drift from the bytes on disk.
+ */
+const HOST_OWNED_HEADERS = new Set([
+  "content-encoding",
+  "content-length",
+  "content-type",
+  "date",
+  "etag",
+  "last-modified",
+  "transfer-encoding",
+]);
+
+/**
+ * Narrow a prerendered response's headers to the ones a host configuration
+ * should replay: what the app's `headers()` exports asked for, minus anything
+ * the host owns and minus baseline values already applied to every path.
+ */
+export function publishableDocumentHeaders(
+  headers: Record<string, string> | undefined,
+  options: { dropAcceptVary?: boolean; dropRouteStateVary?: boolean } = {},
+): Record<string, string> {
+  if (!headers) return {};
+  const result: Record<string, string> = {};
+
+  for (const [key, value] of Object.entries(headers)) {
+    const name = key.toLowerCase();
+    if (HOST_OWNED_HEADERS.has(name)) continue;
+    // Runtime documents can vary by route-state header or negotiated media
+    // type. A static deployment publishes one representation at the document
+    // URL and route state at a separate file, so those tokens describe no
+    // variance there. Preserve unrelated application-owned Vary tokens.
+    if (name === "vary" && (options.dropRouteStateVary || options.dropAcceptVary)) {
+      const dropped = new Set<string>();
+      if (options.dropRouteStateVary) dropped.add(ROUTE_STATE_REQUEST_HEADER);
+      if (options.dropAcceptVary) dropped.add("accept");
+      const remaining = value
+        .split(",")
+        .map((entry) => entry.trim())
+        .filter((entry) => entry !== "" && !dropped.has(entry.toLowerCase()));
+      if (remaining.length === 0) continue;
+      result[key] = remaining.join(", ");
+      continue;
+    }
+    const baseline = PRACHT_BASELINE_SECURITY_HEADERS.find(([header]) => header === name);
+    if (baseline && baseline[1] === value) continue;
+    result[key] = value;
+  }
+
+  return result;
+}
+
 interface VercelBuildOutputOptions {
   functionName?: string;
   headersManifest?: Record<string, Record<string, string>>;
@@ -264,6 +332,17 @@ function createVercelOutputConfig({
 }): Record<string, unknown> {
   const target = `/${functionName || "render"}`;
   const routes: Record<string, unknown>[] = [
+    // Headers have to be route entries. A top-level `headers` key in
+    // `config.json` is accepted by the schema and then never applied, so
+    // platform-served responses (static documents, assets) would carry none of
+    // pracht's defaults. `continue: true` keeps the request flowing to the
+    // rewrite or function that answers it.
+    {
+      continue: true,
+      headers: Object.fromEntries(PRACHT_BASELINE_SECURITY_HEADERS),
+      src: "/(.*)",
+    },
+    ...documentHeaderRoutes(staticRoutes, headersManifest),
     {
       dest: target,
       has: [{ type: "header", key: ROUTE_STATE_REQUEST_HEADER, value: "1" }],
@@ -321,39 +400,35 @@ function createVercelOutputConfig({
   routes.push({ handle: "filesystem" });
   routes.push({ dest: target, src: "/(.*)" });
 
-  const headers: Record<string, unknown>[] = [
-    {
-      headers: [
-        {
-          key: "permissions-policy",
-          value:
-            "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()",
-        },
-        { key: "referrer-policy", value: "strict-origin-when-cross-origin" },
-        { key: "x-content-type-options", value: "nosniff" },
-        { key: "x-frame-options", value: "SAMEORIGIN" },
-      ],
-      source: "/(.*)",
-    },
-  ];
-
-  for (const route of sortStaticRoutes(staticRoutes)) {
-    const routeHeaders = headersManifest[route];
-    if (!routeHeaders) continue;
-    headers.push({
-      headers: Object.entries(routeHeaders).map(([key, value]) => ({ key, value })),
-      source: routeToHeaderSource(route),
-    });
-  }
-
   return {
-    headers,
     framework: {
       version: VERSION,
     },
     routes,
     version: 3,
   };
+}
+
+/**
+ * Replay each prerendered route's document headers. Vercel serves those files
+ * from its CDN, so the framework never runs to apply what the route's
+ * `headers()` export asked for.
+ */
+function documentHeaderRoutes(
+  staticRoutes: string[],
+  headersManifest: Record<string, Record<string, string>>,
+): Record<string, unknown>[] {
+  const entries: Record<string, unknown>[] = [];
+  for (const route of sortStaticRoutes(staticRoutes)) {
+    const routeHeaders = publishableDocumentHeaders(headersManifest[route]);
+    if (Object.keys(routeHeaders).length === 0) continue;
+    entries.push({
+      continue: true,
+      headers: routeHeaders,
+      src: routeToRouteExpression(route),
+    });
+  }
+  return entries;
 }
 
 function createVercelFunctionConfig({
@@ -394,11 +469,11 @@ function createVercelNodeFunctionConfig({
   return config;
 }
 
-function sortStaticRoutes(routes: string[]): string[] {
+export function sortStaticRoutes(routes: string[]): string[] {
   return [...new Set(routes)].sort((left, right) => right.length - left.length);
 }
 
-function routeToRouteExpression(route: string): string {
+export function routeToRouteExpression(route: string): string {
   if (route === "/") {
     return "^/$";
   }
@@ -406,7 +481,7 @@ function routeToRouteExpression(route: string): string {
   return `^${escapeRegex(route)}/?$`;
 }
 
-function routeToStaticHtmlPath(route: string): string {
+export function routeToStaticHtmlPath(route: string): string {
   if (route === "/") {
     return "/index.html";
   }
@@ -423,10 +498,6 @@ function basename(value: string): string {
   return segments[segments.length - 1] || "index";
 }
 
-function routeToHeaderSource(route: string): string {
-  return route === "/" ? "/" : route;
-}
-
-function escapeRegex(value: string): string {
+export function escapeRegex(value: string): string {
   return value.replace(/[|\\{}()[\]^$+*?.-]/g, "\\$&");
 }

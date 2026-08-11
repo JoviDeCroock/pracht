@@ -1,5 +1,6 @@
 export { resolveApp } from "./app.ts";
 export { initClientRouter } from "./router.ts";
+export { configureStaticRouteState } from "./runtime-client-fetch.ts";
 export { readHydrationState } from "./runtime-context.ts";
 
 export type { InitClientRouterOptions, NavigateFn } from "./router.ts";

@@ -9,6 +9,12 @@ import { build as viteBuild } from "vite";
 import { readClientBuildAssets } from "../build-metadata.js";
 import { writeVercelBuildOutput } from "../build-shared.js";
 import {
+  assertStaticBuildSupported,
+  assertStaticCapabilitiesSupported,
+  normalizeStaticHost,
+  writeStaticBuildOutput,
+} from "../build-static.js";
+import {
   collectBundleReport,
   evaluateBudgets,
   formatBudgetResults,
@@ -163,7 +169,16 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
     const { clientEntryUrl, clientEntryJs, islandsEntryJs, cssManifest, jsManifest } =
       readClientBuildAssets(root);
 
-    const { pages, isgManifest } = await prerenderApp({
+    // A static deployment has no runtime, so the app has to be renderable
+    // ahead of time. Check before prerendering: the answer does not depend on
+    // the render pass, and the error is more useful before a long build step.
+    const isStaticTarget = buildTarget === "static";
+    if (isStaticTarget) {
+      assertStaticBuildSupported(serverMod.resolvedApp, serverMod.apiRoutes ?? []);
+      await assertStaticCapabilitiesSupported(serverMod.resolvedApp, serverMod.registry);
+    }
+
+    const { pages, isgManifest, notFound } = await prerenderApp({
       app: serverMod.resolvedApp,
       clientEntryUrl: clientEntryUrl ?? undefined,
       islandsEntryUrl: serverMod.islandsEntryUrl ?? undefined,
@@ -173,15 +188,24 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
       registry: serverMod.registry,
       withISGManifest: true,
       concurrency: serverMod.prerenderConcurrency,
+      includeSpa: isStaticTarget,
+      includeRouteState: isStaticTarget,
+      includeNotFound: isStaticTarget,
     });
+    // A dynamic SPA route's document is a fallback for its whole pattern, not
+    // a page at `page.path` — that value is a placeholder the render needed.
+    // It is written and routed by the static output writer instead.
+    const documentPages = pages.filter(
+      (page: { fallbackFor?: string }) => page.fallbackFor === undefined,
+    );
     const headersManifest: Record<string, Record<string, string>> = Object.fromEntries(
-      pages.map((page: { path: string; headers?: Record<string, string> }) => [
+      documentPages.map((page: { path: string; headers?: Record<string, string> }) => [
         page.path,
         page.headers ?? {},
       ]),
     );
     const markdownManifest: Record<string, true> = Object.fromEntries(
-      pages
+      documentPages
         .filter((page: { markdown?: boolean }) => page.markdown)
         .map((page: { path: string }) => [page.path, true]),
     );
@@ -198,11 +222,13 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
       : [];
     const staticPages =
       edgeCachedIsgPaths.length > 0
-        ? pages.filter((page: { path: string }) => !edgeCachedIsgPaths.includes(page.path))
-        : pages;
+        ? documentPages.filter((page: { path: string }) => !edgeCachedIsgPaths.includes(page.path))
+        : documentPages;
 
     if (staticPages.length > 0) {
-      log(`\n  Prerendering ${staticPages.length} SSG/ISG route(s)...\n`);
+      log(
+        `\n  Prerendering ${staticPages.length} ${isStaticTarget ? "" : "SSG/ISG "}route(s)...\n`,
+      );
       for (const page of staticPages) {
         const filePath = resolvePrerenderOutputPath(clientDir, page.path);
 
@@ -369,7 +395,7 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
         regions: serverMod.vercelRegions,
         root,
         staticRoutes: [
-          ...pages
+          ...documentPages
             .map((page: { path: string }) => page.path)
             .filter((path: string) => !(path in isgManifest)),
           ...generatedStaticRoutes,
@@ -377,6 +403,56 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
       });
 
       log(`\n  Vercel build output → ${outputPath}\n`);
+    }
+
+    if (isStaticTarget) {
+      const host = normalizeStaticHost(serverMod.staticHost);
+      const markdownRoutes = Object.keys(markdownManifest);
+      if (markdownRoutes.length > 0) {
+        // Answering `Accept: text/markdown` takes a runtime that can negotiate.
+        console.warn(
+          `\n  Warning: ${markdownRoutes.join(", ")} export \`markdown\`, but a static host serves ` +
+            "one representation per URL. Only the HTML document is deployed.\n",
+        );
+      }
+      const output = writeStaticBuildOutput({
+        clientDir,
+        headersManifest,
+        host,
+        notFound,
+        pages,
+        root,
+      });
+
+      log(`\n  Route state → ${output.routeStateCount} snapshot(s) in dist/client/_pracht/state\n`);
+      for (const rule of output.spaFallbacks) {
+        log(`  SPA fallback: ${rule.pattern} → dist/client${rule.destination}`);
+      }
+      if (notFound) log("  Not-found page → dist/client/404.html");
+
+      if (host === "netlify") {
+        log(
+          "\n  Netlify config → dist/client/_headers" +
+            (output.spaFallbacks.length > 0 ? " and dist/client/_redirects" : ""),
+        );
+        log(`  Deploy with: netlify deploy --prod --dir ${output.outputPath}\n`);
+      } else if (host === "vercel") {
+        log(`\n  Vercel build output → ${output.outputPath} (no functions)`);
+        log("  Deploy with: vercel deploy --prebuilt\n");
+      } else {
+        log(`\n  Static output → ${output.outputPath}`);
+        log(
+          "  No host configuration was written. Apply the rules in " +
+            "dist/server/static-manifest.json to your host:",
+        );
+        log(
+          `    • serve <path>/index.html for clean URLs${notFound ? ", and 404.html for unmatched paths" : ""}`,
+        );
+        for (const rule of output.spaFallbacks) {
+          log(`    • rewrite ${rule.pattern} → ${rule.destination} (200)`);
+        }
+        log("    • apply the header rules from the manifest\n");
+      }
     }
 
     const budgets = (serverMod.budgets ?? {}) as Record<string, string | number>;

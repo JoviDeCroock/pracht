@@ -43,7 +43,7 @@ export default defineConfig({
     {
       name: "basic",
       testMatch:
-        /basic\.test\.ts|navigation\.test\.ts|node-build\.test\.ts|cloudflare-build\.test\.ts|vercel-build\.test\.ts|pages-isg-build\.test\.ts|client-bundle-strip\.test\.ts|tsrx-build\.test\.ts|islands-build\.test\.ts|env-safety\.test\.ts|not-found\.test\.ts|openapi-cloudflare-dev\.test\.ts/,
+        /basic\.test\.ts|navigation\.test\.ts|node-build\.test\.ts|cloudflare-build\.test\.ts|vercel-build\.test\.ts|static-build\.test\.ts|pages-isg-build\.test\.ts|client-bundle-strip\.test\.ts|tsrx-build\.test\.ts|islands-build\.test\.ts|env-safety\.test\.ts|not-found\.test\.ts|openapi-cloudflare-dev\.test\.ts/,
       use: {
         baseURL: e2eUrls.basic,
       },

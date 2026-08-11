@@ -7,13 +7,14 @@ import { defineCommand } from "citty";
 
 import { requirePositiveInteger } from "../utils.js";
 import { readProjectConfig, type ProjectConfig } from "../project.js";
+import { createStaticPreviewServer, readStaticBuildManifest } from "../static-preview.js";
 import { findWranglerConfig } from "../wrangler-config.js";
 import { runBuild } from "./build.js";
 
 const SERVER_ENTRY = "dist/server/server.js";
-const ADAPTER_TARGETS = new Set(["cloudflare", "node", "vercel"]);
+const ADAPTER_TARGETS = new Set(["cloudflare", "node", "static", "vercel"]);
 
-export type AdapterTarget = "cloudflare" | "node" | "vercel";
+export type AdapterTarget = "cloudflare" | "node" | "static" | "vercel";
 
 export default defineCommand({
   meta: {
@@ -70,6 +71,20 @@ export default defineCommand({
       }
     }
 
+    if (target === "static") {
+      const clientDir = resolve(root, "dist/client");
+      const manifest = readStaticBuildManifest(root);
+      if (!existsSync(clientDir) || !manifest) {
+        throw new Error(
+          "Missing static build output. Run `pracht build` first, or drop --skip-build to build automatically.",
+        );
+      }
+
+      console.log(`\n  Previewing static build → http://localhost:${port}\n`);
+      createStaticPreviewServer(clientDir, manifest).listen(port);
+      return;
+    }
+
     const serverEntry = resolve(root, SERVER_ENTRY);
     if (!existsSync(serverEntry)) {
       throw new Error(
@@ -119,6 +134,10 @@ export function detectAdapterTarget(project: Pick<ProjectConfig, "rawConfig">): 
 
   if (/\bvercelAdapter\s*\(/.test(source) || source.includes("@pracht/adapter-vercel")) {
     return "vercel";
+  }
+
+  if (/\bstaticAdapter\s*\(/.test(source) || source.includes("@pracht/adapter-static")) {
+    return "static";
   }
 
   return "node";

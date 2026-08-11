@@ -22,6 +22,14 @@ export interface PrachtAdapter {
    */
   createServerEntryModule(): string;
   /**
+   * The target has no request-time runtime.  The client router then reads the
+   * build-time route-state snapshots `pracht build` writes next to the
+   * prerendered documents instead of calling a route-state endpoint that does
+   * not exist, and `pracht dev` serves those snapshot URLs so development
+   * exercises the same path production does.
+   */
+  staticRouteState?: boolean;
+  /**
    * Additional Vite plugins the adapter needs (e.g. `@cloudflare/vite-plugin`).
    * Returned plugins are appended to the plugin array returned by `pracht()`.
    */

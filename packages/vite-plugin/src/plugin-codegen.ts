@@ -166,8 +166,16 @@ export function createPrachtClientModuleSource(
   const appFileAbs = appFilePosix.startsWith("/") ? appFilePosix : `/${appFilePosix}`;
   const appDir = appFileAbs.replace(/\/[^/]*$/, "") || "/";
 
+  // Targets with no request-time runtime answer navigations from build-time
+  // route-state snapshots. The switch has to be flipped before the router
+  // boots, so it is emitted with the imports.
+  const staticRouteState = resolved.adapter?.staticRouteState === true;
+
   return [
     'import { resolveApp, initClientRouter, readHydrationState } from "@pracht/core/client";',
+    ...(staticRouteState
+      ? ['import { configureStaticRouteState } from "@pracht/core/client";']
+      : []),
     appImport,
     "",
     `const routeLoaderHints = ${JSON.stringify(routeLoaderHints)};`,
@@ -237,6 +245,7 @@ export function createPrachtClientModuleSource(
     "  return null;",
     "}",
     "",
+    ...(staticRouteState ? ["configureStaticRouteState();", ""] : []),
     "const state = readHydrationState();",
     'const root = document.getElementById("pracht-root");',
     "if (state && root) {",

@@ -136,7 +136,17 @@ export {
   type RevalidationSkipReason,
   type RevalidationSingleFlight,
 } from "./revalidation.ts";
-export { PRACHT_GRAPH_ONLY_ENV } from "./runtime-constants.ts";
+export {
+  NOT_FOUND_PRERENDER_PATH,
+  PRACHT_GRAPH_ONLY_ENV,
+  ROUTE_STATE_REQUEST_HEADER,
+  STATIC_ROUTE_STATE_DIR,
+} from "./runtime-constants.ts";
+export {
+  buildStaticRouteStateUrl,
+  routeNeedsServerFetch,
+  routePathFromStaticRouteStateUrl,
+} from "./runtime-client-fetch.ts";
 export { redirect, type RedirectOptions } from "./runtime-middleware.ts";
 export {
   registerServerIslands,
@@ -224,6 +234,7 @@ export type {
   RouteRevalidate,
   RouteRevalidatePolicy,
   RouteSearchFor,
+  RouteSegment,
   RouteTarget,
   RouteTreeNode,
   SearchParamPrimitive,

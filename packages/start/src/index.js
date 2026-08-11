@@ -15,6 +15,7 @@ export class ValidationError extends Error {
 const FALLBACK_VERSION_RANGES = {
   "@pracht/adapter-cloudflare": "^0.5.8",
   "@pracht/adapter-node": "^0.3.8",
+  "@pracht/adapter-static": "^0.1.0",
   "@pracht/adapter-vercel": "^0.2.8",
   "@pracht/cli": "^1.9.0",
   "@pracht/core": "^0.12.0",
@@ -77,6 +78,13 @@ const ADAPTERS = {
     label: "Vercel",
     packageName: "@pracht/adapter-vercel",
     short: "vercel",
+  },
+  static: {
+    description: "Runtime-free files for Netlify, Vercel, or a generic CDN",
+    id: "static",
+    label: "Static files",
+    packageName: "@pracht/adapter-static",
+    short: "static",
   },
 };
 
@@ -398,7 +406,7 @@ export function parseArgs(argv) {
       const value = normalizeAdapter(arg.slice("--adapter=".length));
       if (!value) {
         throw new ValidationError(
-          `Invalid adapter: ${arg.slice("--adapter=".length)}. Use node, cf, or vercel.`,
+          `Invalid adapter: ${arg.slice("--adapter=".length)}. Use node, cf, vercel, or static.`,
         );
       }
       options.adapter = value;
@@ -452,6 +460,7 @@ async function promptForAdapter(readline) {
   console.log("  1. Node.js");
   console.log("  2. Cloudflare Workers");
   console.log("  3. Vercel");
+  console.log("  4. Static files (no runtime)");
 
   while (true) {
     const answer = await readline.question("Adapter (1): ");
@@ -461,7 +470,7 @@ async function promptForAdapter(readline) {
       return normalized;
     }
 
-    console.log("Choose 1/2/3 or node/cf/vercel.");
+    console.log("Choose 1/2/3/4 or node/cf/vercel/static.");
   }
 }
 
@@ -600,6 +609,10 @@ function normalizeAdapter(value) {
     return "vercel";
   }
 
+  if (normalized === "4" || normalized === "static") {
+    return "static";
+  }
+
   return null;
 }
 
@@ -673,10 +686,15 @@ async function buildProjectFiles({
       tailwind,
       versions,
     }),
-    "src/api/health.ts": createHealthRoute(adapter),
     "vite.config.ts": createViteConfig(adapter, router, tailwind),
     "tsconfig.json": createBaseTSConfig(adapter),
   };
+
+  // A runtime-free deployment cannot serve API routes. Other starters keep a
+  // health endpoint because their adapters have a request handler.
+  if (adapter.id !== "static") {
+    files["src/api/health.ts"] = createHealthRoute(adapter);
+  }
 
   if (agentTools) {
     files["AGENTS.md"] = createAgentInstructions({
@@ -777,8 +795,11 @@ function createPackageJson({ adapter, projectName, tailwind, versions }) {
     typecheck: "tsc --noEmit",
   };
 
-  if (adapter.id === "node") {
+  if (adapter.id === "node" || adapter.id === "static") {
     scripts.preview = "pracht preview";
+  }
+
+  if (adapter.id === "node") {
     scripts.start = "node dist/server/server.js";
   }
 
@@ -830,14 +851,16 @@ function createViteConfig(adapter, router, tailwind) {
     node: { fn: "nodeAdapter", pkg: "@pracht/adapter-node" },
     cloudflare: { fn: "cloudflareAdapter", pkg: "@pracht/adapter-cloudflare" },
     vercel: { fn: "vercelAdapter", pkg: "@pracht/adapter-vercel" },
+    static: { fn: "staticAdapter", pkg: "@pracht/adapter-static" },
   };
 
   const info = ADAPTER_IMPORTS[adapter.id] ?? ADAPTER_IMPORTS.node;
 
+  const adapterCall = adapter.id === "static" ? `${info.fn}({ host: "generic" })` : `${info.fn}()`;
   const prachtOptions =
     router === "pages"
-      ? `{ pagesDir: "/src/pages", adapter: ${info.fn}(), llmsTxt: {} }`
-      : `{ adapter: ${info.fn}(), llmsTxt: {} }`;
+      ? `{ pagesDir: "/src/pages", adapter: ${adapterCall}, llmsTxt: {} }`
+      : `{ adapter: ${adapterCall}, llmsTxt: {} }`;
 
   const plugins = tailwind
     ? `[pracht(${prachtOptions}), tailwindcss()]`
@@ -918,6 +941,19 @@ function createShellFile(projectName, tailwind = false) {
 }
 
 function createHomeRoute(adapter) {
+  const thirdStep =
+    adapter.id === "static"
+      ? "Choose netlify, vercel, or generic in vite.config.ts before deploying."
+      : "Add API handlers in src/api/*.ts.";
+  const apiHint =
+    adapter.id === "static"
+      ? []
+      : [
+          '      <p style={{ marginTop: "24px" }}>',
+          "        Check <code>/api/health</code> for a simple API route.",
+          "      </p>",
+        ];
+
   return [
     'import type { LoaderArgs, RouteComponentProps } from "@pracht/core";',
     "",
@@ -927,7 +963,7 @@ function createHomeRoute(adapter) {
     "    steps: [",
     '      "Edit src/routes/home.tsx to change this page.",',
     '      "Add more routes in src/routes.ts.",',
-    '      "Add API handlers in src/api/*.ts.",',
+    `      ${JSON.stringify(thirdStep)},`,
     "    ],",
     "  };",
     "}",
@@ -945,9 +981,7 @@ function createHomeRoute(adapter) {
     "          <li key={step}>{step}</li>",
     "        ))}",
     "      </ul>",
-    '      <p style={{ marginTop: "24px" }}>',
-    "        Check <code>/api/health</code> for a simple API route.",
-    "      </p>",
+    ...apiHint,
     "    </section>",
     "  );",
     "}",
@@ -983,6 +1017,19 @@ function createNotFoundRoute() {
 }
 
 function createPagesHomeRoute(adapter) {
+  const thirdStep =
+    adapter.id === "static"
+      ? "Choose netlify, vercel, or generic in vite.config.ts before deploying."
+      : "Add API handlers in src/api/*.ts.";
+  const apiHint =
+    adapter.id === "static"
+      ? []
+      : [
+          '      <p style={{ marginTop: "24px" }}>',
+          "        Check <code>/api/health</code> for a simple API route.",
+          "      </p>",
+        ];
+
   return [
     'import type { LoaderArgs, RouteComponentProps } from "@pracht/core";',
     "",
@@ -994,7 +1041,7 @@ function createPagesHomeRoute(adapter) {
     "    steps: [",
     '      "Edit src/pages/index.tsx to change this page.",',
     '      "Add more pages in src/pages/.",',
-    '      "Add API handlers in src/api/*.ts.",',
+    `      ${JSON.stringify(thirdStep)},`,
     "    ],",
     "  };",
     "}",
@@ -1012,9 +1059,7 @@ function createPagesHomeRoute(adapter) {
     "          <li key={step}>{step}</li>",
     "        ))}",
     "      </ul>",
-    '      <p style={{ marginTop: "24px" }}>',
-    "        Check <code>/api/health</code> for a simple API route.",
-    "      </p>",
+    ...apiHint,
     "    </section>",
     "  );",
     "}",
@@ -1365,7 +1410,7 @@ function createAgentInstructions({ adapter, agentTools, packageManager, router, 
     `- \`${runCmd} build\` — production build`,
   ];
 
-  if (adapter.id === "node" || adapter.id === "cloudflare") {
+  if (adapter.id === "node" || adapter.id === "cloudflare" || adapter.id === "static") {
     lines.push(`- \`${runCmd} preview\` — build and serve the production build locally`);
   }
 
@@ -1387,8 +1432,10 @@ function createAgentInstructions({ adapter, agentTools, packageManager, router, 
     lines.push("- `pracht generate shell --name app` — add a shell");
     lines.push("- `pracht generate middleware --name auth` — add middleware");
   }
-  lines.push("- `pracht generate api --path /health --methods GET` — add an API route");
-  if (router !== "pages") {
+  if (adapter.id !== "static") {
+    lines.push("- `pracht generate api --path /health --methods GET` — add an API route");
+  }
+  if (router !== "pages" && adapter.id !== "static") {
     lines.push(
       "- `pracht generate capability --name notes.search --effect read --expose http` — add a capability (agent-callable operation)",
     );
@@ -1428,7 +1475,9 @@ function createAgentInstructions({ adapter, agentTools, packageManager, router, 
     lines.push("- `src/shells/` — shell components (layouts)");
   }
 
-  lines.push("- `src/api/` — API route handlers");
+  if (adapter.id !== "static") {
+    lines.push("- `src/api/` — API route handlers");
+  }
   lines.push(`- \`vite.config.ts\` — Vite config with the ${adapter.label} adapter`);
 
   if (tailwind) {
@@ -1518,6 +1567,14 @@ function createReadme({
     lines.push("Run the deploy command after linking or logging into your Vercel account.");
   }
 
+  if (adapter.id === "static") {
+    lines.push(`- \`${previewCommand}\``);
+    lines.push("");
+    lines.push(
+      "The static starter emits generic host rules by default. Select `netlify` or `vercel` in `vite.config.ts` when that is the deployment target.",
+    );
+  }
+
   lines.push("");
   lines.push("## Files");
   lines.push("");
@@ -1539,7 +1596,9 @@ function createReadme({
     lines.push("- `src/routes/not-found.tsx` is the not-found page, wired via `notFound`.");
   }
 
-  lines.push("- `src/api/health.ts` is a sample API route.");
+  if (adapter.id !== "static") {
+    lines.push("- `src/api/health.ts` is a sample API route.");
+  }
 
   if (packageManager === "pnpm") {
     lines.push(
@@ -1733,7 +1792,8 @@ Usage:
   create-pracht [directory] [options]
 
 Options:
-  --adapter=node|cf|vercel     Choose hosting adapter (default: node)
+  --adapter=node|cf|vercel|static
+                               Choose hosting adapter (default: node)
   --router=manifest|pages      Choose routing system (default: manifest)
   --template=minimal|tailwind  Choose starter template (minimal, or minimal + Tailwind CSS)
   --tailwind / --no-tailwind   Enable or disable Tailwind CSS wiring (default: prompt).

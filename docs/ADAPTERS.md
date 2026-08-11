@@ -786,8 +786,8 @@ export default {
   uncacheable (`Cache-Control: private`/`no-store`, `Vary: Cookie`/
   `Authorization`) is logged as a warning, because Vercel's prerender cache
   stores it regardless. Render such routes as `ssr` instead.
-- **Static security headers**: the generated `config.json` includes a `headers`
-  section that applies the same baseline security headers to all responses,
+- **Static security headers**: the generated `config.json` includes continuing
+  header route entries that apply the same baseline security headers to all responses,
   including static assets served by Vercel's CDN. Static prerendered routes also
   get route and shell document headers from the prerender header manifest.
   SSG/ISG prerendering rejects dangerous document headers such as `Set-Cookie`,
@@ -876,6 +876,79 @@ export function headers() {
   return { "cache-control": "public, max-age=300" };
 }
 ```
+
+---
+
+## Static Adapter (No Runtime)
+
+`@pracht/adapter-static` turns the whole app into files. It has no request
+handler and creates no function: the build either proves every route can work
+without one or fails with the complete list of runtime-dependent routes.
+
+```typescript
+import { staticAdapter } from "@pracht/adapter-static";
+
+pracht({ adapter: staticAdapter({ host: "netlify" }) });
+```
+
+| `host` | Deployment output |
+| --- | --- |
+| `netlify` | `dist/client`, plus `_headers` and `_redirects` (also understood by Cloudflare Pages) |
+| `vercel` | Functionless Build Output API v3 in `.vercel/output`, deployable with `vercel deploy --prebuilt` |
+| `generic` | `dist/client` plus machine-readable rules in `dist/server/static-manifest.json` |
+
+### Supported app graph
+
+- `ssg`: every concrete `getStaticPaths()` result becomes HTML. When a loader
+  or middleware participates, its route-state result is also written to
+  `/_pracht/state/<path>/index.json`, and the generated client router reads
+  that file during navigation.
+- `spa`: a concrete route gets its shell plus `Loading()` document. A dynamic
+  route gets one shared fallback document and a host rewrite; because one file
+  answers every matching URL, dynamic SPA routes cannot run per-param loaders
+  or middleware.
+- `hydration: "islands"` and `"none"`: retain their normal narrow/zero-JS
+  output. Navigation to them stays MPA-style.
+- `defineApp({ notFound })`: becomes `dist/client/404.html` and retains the
+  requested browser URL when it hydrates.
+- `ssr`, `isg`, and API routes: build errors. They require a request-time
+  runtime, so emitting a deployment that silently 404s would be incorrect.
+- HTTP-exposed capabilities and `defineApp({ agents })`: build errors for the
+  same reason. Private capabilities remain available to SSG loaders through
+  build-time `invokeCapability()` calls.
+- `markdown`: HTML is deployed and the build warns that `Accept` negotiation
+  is unavailable.
+
+Route-state files are immutable only in the sense that the deployment has no
+writer; they are not given long-lived cache headers. Rebuild and redeploy to
+refresh loader data. Hashed files under `/assets/` receive
+`Cache-Control: public, max-age=31536000, immutable`.
+
+### Headers, clean URLs, and CSS
+
+The host output replays Pracht's baseline security headers and safe route/shell
+`headers()` values. Entity headers such as `Content-Type`, `Content-Length`,
+and `ETag` stay owned by the file server. Netlify receives `_headers`; Vercel
+receives continuing header route entries in `config.json`; generic hosts must
+translate `dist/server/static-manifest.json` themselves.
+
+All documents contain the same hashed stylesheet links as runtime-backed
+builds, including SPA fallbacks and `404.html`. Test them over HTTP with
+`pracht preview`. Opening an HTML file through `file://` is not a valid preview:
+root-relative `/assets/...` URLs then point at the filesystem root and make the
+page look unstyled even though the CSS was emitted correctly.
+
+### Preview and deploy
+
+```sh
+pracht build
+pracht preview --skip-build
+```
+
+The preview server applies clean URLs, dynamic SPA rewrites, header rules, and
+the 404 status locally. For Vercel, select `host: "vercel"` and run
+`vercel deploy --prebuilt`; the emitted output contains a `static/` directory
+and `config.json`, but no `functions/` directory.
 
 ---
 

@@ -64,16 +64,22 @@ const GLOBAL_CLI_FLAGS = new Set(["help", "version"]);
 //   "dist/client/.vite/manifest.json"
 // - Prerendered route HTML: build.ts writes "<route>/index.html" under
 //   dist/client (routeToStaticHtmlPath in build-shared.ts)
+// - Runtime-free static output: build-static.ts writes the static manifest,
+//   root/404 documents, route-state snapshots, dynamic SPA fallbacks, and the
+//   Netlify-compatible _headers/_redirects files
 // - Vercel Build Output API: build-shared.ts writeVercelBuildOutput emits
 //   .vercel/output/config.json, .vercel/output/static/ (copy of dist/client),
 //   and .vercel/output/functions/<functionName>.func/ (copy of dist/server,
 //   default function name "render")
 const BUILD_OUTPUT_PATTERNS: RegExp[] = [
   /^dist\/(?:client|server)\/?$/,
-  /^dist\/server\/(?:server\.js|worker\.js|isg-manifest\.json|headers-manifest\.json|budget-report\.json)$/,
+  /^dist\/server\/(?:server\.js|worker\.js|isg-manifest\.json|headers-manifest\.json|budget-report\.json|static-manifest\.json)$/,
   /^dist\/client\/_pracht\/?$/,
   /^dist\/client\/_pracht\/(?:headers\.json|isg\.json)$/,
+  /^dist\/client\/_pracht\/state(?:\/[\w.<>-]+)*\/index\.json$/,
+  /^dist\/client\/_pracht\/spa\/[\w.-]+\.html$/,
   /^dist\/client\/\.vite\/manifest\.json$/,
+  /^dist\/client\/(?:index\.html|404\.html|_headers|_redirects)$/,
   /^dist\/client(?:\/[^/.]+)+\/index\.html$/,
   /^\.vercel\/output\/?$/,
   /^\.vercel\/output\/config\.json$/,

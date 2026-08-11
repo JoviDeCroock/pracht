@@ -1,9 +1,9 @@
 ---
 name: pre-deploy
-version: 1.2.0
+version: 1.3.0
 description: |
   Adapter-aware pre-deployment checklist for pracht apps targeting Node,
-  Cloudflare Workers, or Vercel. Catches the issues that only surface in the
+  Cloudflare Workers, Vercel, or static hosts. Catches issues that only surface in the
   production runtime: missing env vars, Node-only APIs in edge bundles,
   ISG manifest absence, oversized edge bundles, missing wrangler/vercel config.
   Use when asked to "pre-deploy check", "ready to ship?", "deployment
@@ -27,8 +27,8 @@ If the pracht MCP server is registered (see docs/MCP.md), prefer its tools
 (`inspect_routes`, `inspect_api`, `inspect_build`, `doctor`, `verify`) over
 shelling out.
 
-Read `vite.config.ts` and look for `nodeAdapter()`, `cloudflareAdapter()`, or
-`vercelAdapter()`. Confirm with:
+Read `vite.config.ts` and look for `nodeAdapter()`, `cloudflareAdapter()`,
+`vercelAdapter()`, or `staticAdapter()`. Confirm with:
 
 ```bash
 pracht inspect build --json
@@ -155,6 +155,25 @@ a markdown summary (graph diff + verify + budgets) worth attaching to it.
   function. Require `vercelLoader` (with aligned allowed sizes) or
   `passthroughLoader` instead.
 - Build Output API v3 sanity: `config.json` has `version: 3`.
+
+### Static (`@pracht/adapter-static`)
+
+- `dist/client/index.html` and `dist/server/static-manifest.json` exist.
+- No `ssr`, `isg`, API route, HTTP-exposed capability, or `agents` runtime
+  configuration is present; `pracht build` must fail closed if anything needs a runtime.
+- Every SSG path has HTML, loader-backed full-hydration paths have a matching
+  `dist/client/_pracht/state/<path>/index.json`, and `404.html` exists when the
+  app declares `notFound`.
+- Run `pracht preview --skip-build`; verify clean URLs, dynamic SPA fallbacks,
+  the 404 status, islands interaction, and no-hydration pages.
+- Extract every stylesheet URL from generated HTML and require `200` with a
+  CSS content type. Do not test through `file://`; root-relative assets need an
+  HTTP origin.
+- For `host: "netlify"`, require `_headers` and `_redirects` when dynamic SPA
+  fallbacks exist. For `host: "vercel"`, require `.vercel/output/config.json`,
+  populated `.vercel/output/static`, and no functions directory. For `generic`,
+  confirm the platform translated every rewrite and header rule from
+  `static-manifest.json`.
 
 ## Step 4: Cross-cutting checks
 

@@ -9,7 +9,12 @@ import type {
   ResolvedPrachtApp,
   ResolvedRoute,
 } from "@pracht/core";
-import { applyDefaultSecurityHeaders, resolveRegistryModule } from "@pracht/core";
+import {
+  applyDefaultSecurityHeaders,
+  resolveRegistryModule,
+  ROUTE_STATE_REQUEST_HEADER,
+  routePathFromStaticRouteStateUrl,
+} from "@pracht/core";
 import {
   CLIENT_BROWSER_PATH,
   ISLANDS_CLIENT_BROWSER_PATH,
@@ -27,7 +32,7 @@ export const LLMS_TXT_PATH = "/llms.txt";
 
 export function createDevSSRMiddleware(
   server: ViteDevServer,
-  options: { maxBodySize?: number; llmsTxt?: boolean } = {},
+  options: { maxBodySize?: number; llmsTxt?: boolean; staticRouteState?: boolean } = {},
 ): Connect.NextHandleFunction {
   const maxBodySize = options.maxBodySize ?? DEFAULT_MAX_BODY_SIZE;
   let warnedDevtoolsCollision = false;
@@ -48,8 +53,22 @@ export function createDevSSRMiddleware(
     }
   }
   return async (req: IncomingMessage, res: ServerResponse, next: Connect.NextFunction) => {
-    const url = req.url ?? "/";
-    const requestUrl = new URL(url, "http://localhost");
+    let url = req.url ?? "/";
+    let requestUrl = new URL(url, "http://localhost");
+
+    // Static targets ship build-time route-state snapshots instead of a
+    // route-state endpoint. Nothing writes those files in dev, so answer the
+    // same URLs from the live app: client navigation then takes the identical
+    // code path it will take in production.
+    if (options.staticRouteState) {
+      const routePath = routePathFromStaticRouteStateUrl(requestUrl.pathname);
+      if (routePath) {
+        url = `${routePath}${requestUrl.search}`;
+        requestUrl = new URL(url, "http://localhost");
+        req.url = url;
+        req.headers[ROUTE_STATE_REQUEST_HEADER] = "1";
+      }
+    }
 
     try {
       const [framework, serverMod] = await Promise.all([

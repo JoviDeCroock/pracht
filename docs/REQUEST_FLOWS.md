@@ -220,6 +220,9 @@ from the server as JSON when an adapter runtime is available. The static HTML is
 only for the initial document load (and crawlers). This means data shown during
 navigation may be newer than the pre-built HTML. On a purely static host with no
 route-state runtime, the client falls back to a full document navigation.
+`@pracht/adapter-static` instead writes a build-time JSON file under
+`/_pracht/state/<path>/index.json`; navigation stays client-side, but its data
+only changes after a rebuild.
 
 ---
 

@@ -1426,6 +1426,52 @@ describe("prerenderApp", () => {
     expect(page.markdown).toBe(false);
   });
 
+  it("rejects a non-successful static route-state snapshot", async () => {
+    const app = defineApp({
+      routes: [route("/account", "./routes/account.tsx", { render: "ssg" })],
+    });
+
+    await expect(
+      prerenderApp({
+        app,
+        includeRouteState: true,
+        registry: {
+          routeModules: {
+            "/src/routes/account.tsx": async () => ({
+              Component: () => h("main", null, "Account"),
+              loader: async () => new Response(null, { status: 401 }),
+            }),
+          },
+        },
+      }),
+    ).rejects.toThrow(
+      'Cannot emit static route state for "/account": the route-state request returned status 401',
+    );
+  });
+
+  it("rejects a non-JSON static route-state snapshot", async () => {
+    const app = defineApp({
+      routes: [route("/account", "./routes/account.tsx", { render: "ssg" })],
+    });
+
+    await expect(
+      prerenderApp({
+        app,
+        includeRouteState: true,
+        registry: {
+          routeModules: {
+            "/src/routes/account.tsx": async () => ({
+              Component: () => h("main", null, "Account"),
+              loader: async () => new Response("not json"),
+            }),
+          },
+        },
+      }),
+    ).rejects.toThrow(
+      'Cannot emit static route state for "/account": the route-state request did not return valid JSON',
+    );
+  });
+
   it("records markdown support independently of user-defined Vary headers", async () => {
     const app = defineApp({
       routes: [

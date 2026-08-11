@@ -1,10 +1,11 @@
 ---
 name: pracht-deploy
-version: 1.1.0
+version: 1.2.0
 description: |
   Pracht deployment guide. Walks through adapter configuration, building, and
-  deploying to Node.js, Cloudflare Workers, or Vercel. Handles wrangler config,
-  Docker and production checklist.
+  deploying to Node.js, Cloudflare Workers, Vercel, or runtime-free static
+  hosts. Handles wrangler config, host rewrites/headers, Docker and production
+  checklist.
   Use when asked to "deploy", "set up deployment", "configure adapter",
   "deploy to cloudflare", "deploy to vercel", or "production build".
 allowed-tools:
@@ -35,6 +36,7 @@ If the pracht MCP server is registered (docs/MCP.md), prefer the `inspect_build`
 | Node.js            | `@pracht/adapter-node`       | Stable |
 | Cloudflare Workers | `@pracht/adapter-cloudflare` | Stable |
 | Vercel             | `@pracht/adapter-vercel`     | Stable |
+| Static files       | `@pracht/adapter-static`     | Stable |
 
 ---
 
@@ -248,6 +250,40 @@ functions.
 
 ---
 
+## Static Deployment (No Runtime)
+
+Use this target only when every request can be answered by files. Install
+`@pracht/adapter-static` and select the host output in `vite.config.ts`:
+
+```ts
+import { staticAdapter } from "@pracht/adapter-static";
+
+export default {
+  plugins: [pracht({ adapter: staticAdapter({ host: "netlify" }) })],
+};
+```
+
+Choose `netlify` for `dist/client/_headers` + `_redirects` (also Cloudflare
+Pages), `vercel` for a functionless `.vercel/output`, or `generic` when the host
+will translate `dist/server/static-manifest.json` itself.
+
+```bash
+pracht build
+pracht preview --skip-build
+# Netlify: deploy dist/client
+# Vercel:  vercel deploy --prebuilt
+```
+
+The build rejects `ssr`, `isg`, API routes, HTTP capabilities, agent runtime
+configuration, and dynamic SPA loaders/middleware
+instead of publishing broken output. It emits SSG loader snapshots for client
+navigation, SPA shell documents and dynamic fallback rewrites, islands and
+zero-hydration pages, safe header rules, and `404.html`. Verify the HTTP preview;
+opening `dist/client/index.html` through `file://` breaks root-relative asset
+URLs and can make the page appear unstyled.
+
+---
+
 ## Deployment Checklist
 
 1. **Build**: Run `pracht build` and verify `dist/` output.
@@ -256,6 +292,9 @@ functions.
 4. **ISG routes**: Confirm the ISG manifest (`dist/server/isg-manifest.json`; on Cloudflare also `dist/client/_pracht/isg.json`) exists if using incremental static generation.
 5. **API routes**: Test API endpoints work in the production runtime. For Node.js, run `pracht preview` (or `node dist/server/server.js`).
 6. **Middleware**: Verify auth/redirect middleware behaves correctly in production.
+7. **Static target**: Confirm SPA fallbacks and `404.html` work in
+   `pracht preview`, and every document's hashed CSS request returns
+   `200 text/css`.
 
 ## Rules
 

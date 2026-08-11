@@ -106,16 +106,21 @@ test("pracht build emits a deployable Vercel Build Output setup", async () => {
         expect.objectContaining({ src: "/(.*)", dest: "/render" }),
       ]),
     );
-    expect(config.headers).toEqual(
+    // Headers have to ride on route entries: a top-level `headers` key in
+    // config.json is accepted and then never applied, which silently drops
+    // pracht's defaults from every CDN-served response.
+    expect(config.headers).toBeUndefined();
+    expect(config.routes).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          source: "/",
-          headers: expect.arrayContaining([
-            {
-              key: "x-pracht-shell",
-              value: "public",
-            },
-          ]),
+          src: "/(.*)",
+          continue: true,
+          headers: expect.objectContaining({ "x-content-type-options": "nosniff" }),
+        }),
+        expect.objectContaining({
+          src: "^/$",
+          continue: true,
+          headers: expect.objectContaining({ "x-pracht-shell": "public" }),
         }),
       ]),
     );

@@ -167,20 +167,22 @@ from `@pracht/capabilities`:
 
 ### Deployment Adapters
 
-Platform adapters export a request handler shaped for their runtime:
+Platform adapters select the deployment shape; runtime-backed adapters export
+a request handler, while the static adapter proves the app can be emitted as
+files alone:
 
 | Adapter              | Runtime           | Notes                                |
 | -------------------- | ----------------- | ------------------------------------ |
 | `adapter-node`       | Node.js `http`    | Static file serving, ISG mtime check |
 | `adapter-cloudflare` | Workers `fetch`   | `env.ASSETS`, Cache API-backed ISG, opt-in Workers Caching |
 | `adapter-vercel`     | Serverless / Edge | Build Output API v3 + native ISR     |
+| `adapter-static`     | No runtime        | Netlify, functionless Vercel, and generic CDN output |
 
-Each adapter:
+Every adapter loads Vite manifests for asset injection and generates a
+platform-specific entry through the Vite plugin. Runtime-backed adapters also:
 
-- Converts platform request → Web `Request`
-- Loads Vite manifests for asset injection
-- Implements ISG revalidation only when the platform has appropriate persistent storage/cache semantics, and documents/warns otherwise
-- Generates a platform-specific entry module via the Vite plugin
+- Convert platform request → Web `Request`
+- Implement ISG revalidation only when the platform has appropriate persistent storage/cache semantics, and document/warn otherwise
 
 ### Agent Workflow (provable authoring, reviewable changes)
 
@@ -249,7 +251,7 @@ SSR and SSG, deployed to Node. Thoroughly tested with Playwright E2E tests.
 4. **`packages/cli`** — developer tooling (instant local DX)
    - `pracht dev` — one command, instant Vite dev server with HMR
    - `pracht build` — production build with clear output
-   - Node targets run the production build with `node dist/server/server.js`; Cloudflare and Vercel use their platform CLIs
+   - Node targets run the production build with `node dist/server/server.js`; Cloudflare and Vercel use their platform CLIs; static targets publish generated files
    - Zero config to start — sensible defaults, override when needed
    - Fast feedback loop: save a file → see the change instantly
 
@@ -273,6 +275,7 @@ pracht/
     adapter-node/     # Node.js server adapter
     adapter-cloudflare/  # Cloudflare Workers adapter
     adapter-vercel/      # Vercel Edge adapter
+    adapter-static/      # Runtime-free static host adapter
     cli/              # Dev/build/generate/inspect/verify/plan/report/doctor commands
     image/            # Responsive <Image> component + optimization loaders
     create-pracht/     # (Phase 2) Starter scaffolding

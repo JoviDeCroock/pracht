@@ -201,6 +201,14 @@ export interface HandlePrachtRequestOptions<TContext = unknown> {
   jsManifest?: Record<string, string[]>;
   apiRoutes?: ResolvedApiRoute[];
   /**
+   * Render a document that a static host serves for more than one URL — the
+   * fallback for a dynamic SPA route, or `404.html`. Such a document must not
+   * bake the URL it happened to be rendered for, so the client reads the real
+   * one from `window.location` before matching. Set by the static build's
+   * prerender pass.
+   */
+  fallbackDocument?: boolean;
+  /**
    * Dev-only phase-timing collector. When provided, the runtime records
    * middleware/loader/render durations (ms) onto it so callers can emit a
    * `Server-Timing` header. Leave unset in production — no timing work runs.
@@ -810,11 +818,15 @@ export async function handlePrachtRequest<TContext>(
                 data: null,
                 error: null,
                 pending: true,
+                ...(options.fallbackDocument ? { fromLocation: true } : {}),
               },
               clientEntryUrl: options.clientEntryUrl,
               cssUrls,
               modulePreloadUrls,
-              routeStatePreloadUrl: loader ? buildRouteStateUrl(requestPath) : undefined,
+              // A fallback document is served for many URLs; preloading the
+              // placeholder path's route state would warm the wrong entry.
+              routeStatePreloadUrl:
+                loader && !options.fallbackDocument ? buildRouteStateUrl(requestPath) : undefined,
               speculationRules: getAppSpeculationRules(resolvedApp),
             }),
             pageOptions.status,
@@ -936,6 +948,7 @@ export async function handlePrachtRequest<TContext>(
               routeId: match.route.id ?? "",
               data,
               error: null,
+              ...(options.fallbackDocument ? { fromLocation: true } : {}),
             },
             clientEntryUrl: options.clientEntryUrl,
             cssUrls,

@@ -1,0 +1,47 @@
+{
+  "name": "@pracht/adapter-static",
+  "version": "0.1.0",
+  "description": "Static output adapter for deploying Pracht apps to Netlify, Vercel, or any CDN without a server runtime.",
+  "keywords": [
+    "pracht",
+    "preact",
+    "static",
+    "ssg",
+    "spa",
+    "islands",
+    "netlify",
+    "vercel",
+    "adapter",
+    "vite"
+  ],
+  "license": "MIT",
+  "homepage": "https://github.com/JoviDeCroock/pracht/tree/main/packages/adapter-static",
+  "bugs": {
+    "url": "https://github.com/JoviDeCroock/pracht/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/JoviDeCroock/pracht",
+    "directory": "packages/adapter-static"
+  },
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.mts",
+      "default": "./dist/index.mjs"
+    }
+  },
+  "publishConfig": {
+    "provenance": true
+  },
+  "scripts": {
+    "build": "tsdown",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "@pracht/core": "workspace:*"
+  }
+}

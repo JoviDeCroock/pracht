@@ -25,8 +25,11 @@ route("/about", () => import("./routes/about.tsx"), { render: "ssg" });
 HTML is generated at build time. The loader runs once during the build, and the
 output is written to `dist/client/about/index.html`. No server is needed for the
 initial document request — it's served as a static file. Client-side navigation
-uses the route-state JSON endpoint when an adapter runtime is available, and
-falls back to full document navigation on purely static hosts.
+uses the route-state JSON endpoint when an adapter runtime is available. With
+`@pracht/adapter-static`, the build writes the same loader result to a static
+JSON snapshot, so full-hydration SSG navigation stays client-side without a
+function; an ad-hoc host that publishes `dist/client` without that adapter falls
+back to full document navigation.
 
 ### Dynamic SSG paths
 
@@ -274,6 +277,31 @@ export const app = defineApp({
 Public marketing pages are SSG (fast, cacheable). Pricing updates hourly via ISG.
 Login needs SSR for CSRF/session handling. Dashboard is SSR for personalization.
 Settings is SPA because it's behind auth and doesn't need SEO.
+
+### Runtime-free static deployments
+
+Use `staticAdapter()` when the entire deployment must be files:
+
+```typescript
+import { staticAdapter } from "@pracht/adapter-static";
+
+pracht({ adapter: staticAdapter({ host: "netlify" }) });
+```
+
+The build accepts `ssg` and `spa` routes, including `hydration: "islands"` and
+`"none"`, and writes the app not-found page to `404.html`. Concrete SPA routes
+get a shell document; a dynamic SPA pattern gets one host rewrite to a shared
+fallback document and therefore cannot use a loader or middleware that depends
+on the requested params. `ssr`, `isg`, API routes, and any other request-time
+requirement fail the build with every offending route listed. HTTP-exposed
+capabilities and `defineApp({ agents })` also require a runtime; private
+capabilities may still be invoked by SSG loaders during the build.
+
+SSG loader results are written under `dist/client/_pracht/state/` for client
+navigation. They are build-time snapshots: rebuild to refresh them. Static
+hosting cannot negotiate a route's raw `markdown` export or run revalidation.
+See [ADAPTERS.md](ADAPTERS.md#static-adapter-no-runtime) for host output and
+preview details.
 
 ---
 

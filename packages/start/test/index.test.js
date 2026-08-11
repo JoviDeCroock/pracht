@@ -349,6 +349,43 @@ describe("create-pracht", () => {
     `);
   });
 
+  it("scaffolds a runtime-free static starter without server-only routes", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pracht-start-static-"));
+    const targetDir = join(root, "my-static-app");
+
+    await scaffoldProject({
+      adapter: {
+        description: "Runtime-free files for Netlify, Vercel, or a generic CDN",
+        id: "static",
+        label: "Static files",
+        packageName: "@pracht/adapter-static",
+        short: "static",
+      },
+      packageManager: "pnpm",
+      resolveRemoteVersions: false,
+      targetDir,
+    });
+
+    const packageJson = await readFile(join(targetDir, "package.json"), "utf-8");
+    const viteConfig = await readFile(join(targetDir, "vite.config.ts"), "utf-8");
+    const home = await readFile(join(targetDir, "src/routes/home.tsx"), "utf-8");
+    const readme = await readFile(join(targetDir, "README.md"), "utf-8");
+    const agentInstructions = await readFile(join(targetDir, "AGENTS.md"), "utf-8");
+
+    expect(packageJson).toContain('"@pracht/adapter-static": "^0.1.0"');
+    expect(packageJson).toContain('"preview": "pracht preview"');
+    expect(viteConfig).toContain('import { staticAdapter } from "@pracht/adapter-static";');
+    expect(viteConfig).toContain('adapter: staticAdapter({ host: "generic" })');
+    expect(existsSync(join(targetDir, "src/api/health.ts"))).toBe(false);
+    expect(home).not.toContain("/api/health");
+    expect(home).toContain("Choose netlify, vercel, or generic");
+    expect(readme).toContain("generic host rules by default");
+    expect(readme).toContain("pnpm preview");
+    expect(agentInstructions).not.toContain("pracht generate api");
+    expect(agentInstructions).not.toContain("pracht generate capability");
+    expect(agentInstructions).not.toContain("src/api/");
+  });
+
   it("scaffolds a pages-router starter", async () => {
     const root = await mkdtemp(join(tmpdir(), "pracht-start-pages-"));
     const targetDir = join(root, "my-pages-app");
@@ -880,6 +917,10 @@ describe("create-pracht", () => {
   it("parseArgs throws ValidationError for invalid adapter", () => {
     expect(() => parseArgs(["--adapter=invalid"])).toThrow(ValidationError);
     expect(() => parseArgs(["--adapter=invalid"])).toThrow(/Invalid adapter/);
+  });
+
+  it("parseArgs accepts the static adapter", () => {
+    expect(parseArgs(["--adapter=static"]).adapter).toBe("static");
   });
 
   it("parseArgs throws ValidationError for invalid router", () => {

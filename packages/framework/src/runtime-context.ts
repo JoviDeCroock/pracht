@@ -13,6 +13,13 @@ export interface PrachtHydrationState<TData = unknown> {
   data: TData;
   error?: import("./runtime-errors.ts").SerializedRouteError | null;
   pending?: boolean;
+  /**
+   * Set on documents that are served for more than one URL — the fallback a
+   * static host returns for every path matching a dynamic SPA route. The
+   * baked `url` is then a placeholder, and the client reads the real one from
+   * `window.location` before matching.
+   */
+  fromLocation?: boolean;
 }
 
 export interface StartAppOptions<TData = unknown> {
@@ -171,6 +178,9 @@ export function readHydrationState<TData = unknown>(): PrachtHydrationState<TDat
   }
 
   const state = JSON.parse(raw) as PrachtHydrationState<TData>;
+  if (state.fromLocation) {
+    state.url = window.location.pathname + window.location.search + window.location.hash;
+  }
   window.__PRACHT_STATE__ = state as PrachtHydrationState;
   return state;
 }

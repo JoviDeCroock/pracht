@@ -652,8 +652,13 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
     };
 
     if (initialMatch.route.render === "spa" && options.initialState.pending) {
-      // Use query parameter URL to match the <link rel="preload"> tag from SSR
-      const dataPromise = fetchPrachtRouteState(initialRequestUrl, { useDataParam: true });
+      // Use query parameter URL to match the <link rel="preload"> tag from SSR.
+      // A route with no loader and no middleware has nothing to ask the server
+      // for — and on a static host there is no server to ask, so the request
+      // would 404 and bounce the page into a reload loop.
+      const dataPromise = routeNeedsServerFetch(initialMatch.route)
+        ? fetchPrachtRouteState(initialRequestUrl, { useDataParam: true })
+        : Promise.resolve<RouteStateResult>({ type: "data", data: undefined });
 
       const pendingState = await resolveSpaPendingState(
         initialMatch,

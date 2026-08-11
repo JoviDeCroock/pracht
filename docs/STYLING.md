@@ -31,6 +31,20 @@ stylesheet links to the initial HTML before the client entry. Apps should only
 need to import their CSS from a route, shell, or one of their dependencies — a
 development-only `<link>` in `head()` is unnecessary.
 
+### Static hosting
+
+`@pracht/adapter-static` keeps the same contract. CSS imported by a route,
+shell, or dependency is emitted as a hashed file in `dist/client/assets/`, and
+every prerendered SSG, SPA fallback, islands, no-hydration, and `404.html`
+document receives the corresponding absolute stylesheet link.
+
+Preview through HTTP with `pracht preview`; do not double-click an HTML file or
+open it with a `file://` URL. Asset links intentionally start at `/assets/...`
+so they work at the deployment origin, while `file://` resolves them against
+the filesystem root and makes a correctly built page appear unstyled. A real
+deployment must either live at the origin root or have its hosting layer rewrite
+that root consistently.
+
 ---
 
 ## CSS-in-JS

@@ -1,10 +1,10 @@
 ---
 name: audit-headers
-version: 1.2.0
+version: 1.3.0
 description: |
   Audit security header coverage in a pracht app. The framework applies four
   default security headers on every response path; this skill audits the
-  exceptions — static output served outside first-party adapters, `headers()`
+  exceptions — static output served outside first-party host configuration, `headers()`
   exports that weaken the defaults, and the headers only the user can decide
   (HSTS, CSP).
   Use when asked to "audit security headers", "check CSP", "harden headers",
@@ -21,8 +21,8 @@ allowed-tools:
 What the framework guarantees: four default security headers are applied
 automatically on EVERY framework response path — SSR pages, API responses,
 404s, and static/ISG output on the first-party adapters (`adapter-node`,
-`adapter-cloudflare`) as well as the Vercel headers config generated at build
-time:
+`adapter-cloudflare`, `adapter-static`) as well as the runtime-backed Vercel
+headers config generated at build time:
 
 - `permissions-policy` (disables device sensors)
 - `referrer-policy: strict-origin-when-cross-origin`
@@ -83,9 +83,11 @@ matrix — instead:
    an over-permissive `permissions-policy`, `referrer-policy: unsafe-url`).
    Because the defaults are set-when-missing, the route value wins.
 2. Ask how `dist/client` is deployed. On `adapter-node`, `adapter-cloudflare`,
-   or the generated Vercel config, static/ISG responses get the defaults. If
-   a custom CDN or host serves `dist/client` directly, flag it (`warn`) and
-   recommend replicating the four defaults in that host's header config.
+   `adapter-static({ host: "netlify" | "vercel" })`, or the runtime-backed
+   generated Vercel config, static/ISG responses get the defaults. The static
+   adapter's `generic` host is covered only after the deployment translates
+   `dist/server/static-manifest.json`. If a custom CDN serves `dist/client`
+   directly, flag it (`warn`) and recommend replicating the four defaults.
 
 ## Step 3: HSTS
 
@@ -178,8 +180,9 @@ the CDN header config to add).
 3. `applyDefaultSecurityHeaders` is set-when-missing, so per-route `headers()`
    wins over the defaults — weakened values are the primary finding, not
    missing ones.
-4. Static/ISG responses already get the defaults on first-party adapters and
-   the generated Vercel config; only flag static hosting that bypasses those.
+4. Static/ISG responses already get the defaults on runtime-backed first-party
+   adapters, generated Vercel config, and non-generic static-adapter host output;
+   only flag static hosting that bypasses those rules.
 5. Treat prerender header manifests as public artifacts.
 6. Do not auto-edit. Headers are policy; surface gaps, propose patches.
 

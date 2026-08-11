@@ -114,7 +114,7 @@ Work through these in order, stopping when you find the root cause:
 - `pracht inspect build --json` reports the resolved adapter target plus client/CSS/JS manifests from the latest build output (requires a prior `pracht build`).
 - Check `dist/client/` for client assets and `dist/server/` for server bundle.
 - ISG manifest: `dist/server/isg-manifest.json`. On Cloudflare the build also copies it to `dist/client/_pracht/isg.json` for the worker runtime to read via the assets binding.
-- Adapter mismatch: ensure `pracht({ adapter: nodeAdapter() })` or `cloudflareAdapter()` matches deployment target.
+- Adapter mismatch: ensure the configured Node, Cloudflare, Vercel, or static adapter matches the deployment target.
 
 ## Key Files
 

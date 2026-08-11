@@ -14,11 +14,13 @@ described in `VISION_MVP.md`.
 | `packages/adapter-node`       | `@pracht/adapter-node`       | Node `IncomingMessage`/`ServerResponse` bridge, ISG stale-while-revalidate, and webhook revalidation         |
 | `packages/adapter-cloudflare` | `@pracht/adapter-cloudflare` | Cloudflare Workers fetch handler, generated worker entry source, static asset handoff, and Cache API ISG     |
 | `packages/adapter-vercel`     | `@pracht/adapter-vercel`     | Vercel Edge handler, Build Output API entry source, and native ISR artifacts                                 |
+| `packages/adapter-static`     | `@pracht/adapter-static`     | Runtime-free SSG/SPA/islands output with Netlify, functionless Vercel, and generic-host configuration        |
 | `packages/preact-worker-facets` | `@pracht/preact-worker-facets` | Experimental Cloudflare Dynamic Worker + Durable Object facets runtime for inert, stateful Preact components |
 | `packages/image`              | `@pracht/image`              | Responsive, CLS-safe `<Image>` component, pluggable optimization loaders, sharp-backed Node endpoint (see `docs/IMAGES.md`) |
 | `packages/cli`                | `@pracht/cli`                | `pracht dev`, `build`, `verify`, the `generate` subcommands, and `doctor`                                    |
 | `examples/cloudflare`         | `@pracht/example-cloudflare` | Cloudflare-targeted example app with SSG, ISG, SSR, SPA routes, auth middleware, and API routes              |
 | `examples/docs`               | `@pracht/example-docs`       | Documentation website built with pracht + Cloudflare adapter; all routes SSG-prerendered; dark design system |
+| `examples/static`             | `@pracht/example-static`     | Runtime-free SSG, SPA, islands, no-hydration, dynamic fallback, and custom 404 deployment                     |
 | `examples/tsrx`               | `@pracht/example-tsrx`       | Mixed `.tsrx` (TSRX/Ripple-flavoured Preact) and `.tsx` routes via `@tsrx/vite-plugin-preact`                |
 
 ## What Exists Today
@@ -73,10 +75,11 @@ described in `VISION_MVP.md`.
 - **CLI** — `pracht dev` starts a Vite dev server with SSR, `pracht build` runs
   client + server builds (with Vite manifest generation, SSG/ISG prerendering,
   ISG manifest output, executable Node server output in `dist/server/server.js`,
-  and Vercel `.vercel/output/` generation when the app targets those adapters),
+  Vercel `.vercel/output/` generation, and runtime-free static host output),
   `pracht preview` builds and serves the production output locally (Node runs
   `dist/server/server.js`, Cloudflare delegates to `wrangler dev`, and Vercel
-  points at `vercel build`/`vercel dev`),
+  points at `vercel build`/`vercel dev`; static builds use the emitted clean-URL,
+  fallback, 404, and header rules),
   `pracht verify` runs fast framework-aware checks with optional `--changed`
   and `--json` output, `pracht inspect [routes|api|build] --json` emits the
   resolved route graph, API handlers, and build metadata for agents/tools,
@@ -86,7 +89,8 @@ described in `VISION_MVP.md`.
   files, and `pracht doctor` validates app wiring across the whole project.
 - **Package builds** — `tsdown` compiles `pracht`, `@pracht/openapi`, `@pracht/vite-plugin`,
   `@pracht/preact-ssr-precompile`, `@pracht/adapter-node`,
-  `@pracht/adapter-cloudflare`, `@pracht/adapter-vercel`, and `@pracht/image`
+  `@pracht/adapter-cloudflare`, `@pracht/adapter-vercel`,
+  `@pracht/adapter-static`, and `@pracht/image`
   from TypeScript to
   ESM (`dist/index.mjs` + `.d.mts`). `@pracht/core` preserves its source-module
   boundaries in the published ESM so downstream builds can tree-shake named
@@ -106,6 +110,10 @@ described in `VISION_MVP.md`.
 - **Vercel adapter** — Emits an Edge-compatible handler, copies the build into
   `.vercel/output/static` and `.vercel/output/functions/render.func`, rewrites
   clean SSG URLs to static HTML, and emits native prerender functions for ISG.
+- **Static adapter** — Fails closed on routes that need request-time rendering,
+  emits SSG and SPA documents plus build-time route-state snapshots, preserves
+  islands and no-hydration output, writes `404.html`, and produces Netlify or
+  functionless Vercel routing/header configuration.
 - **Preact Worker facets prototype** — `@pracht/preact-worker-facets` provides
   experimental helpers for running Preact-style component modules inside
   Cloudflare Dynamic Workers. A supervisor Durable Object owns auth, source

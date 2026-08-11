@@ -315,6 +315,7 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
           createDevSSRMiddleware(server, {
             llmsTxt: !!resolved.llmsTxt,
             maxBodySize: resolved.maxBodySize,
+            staticRouteState: resolved.adapter.staticRouteState === true,
           }),
         );
       };
