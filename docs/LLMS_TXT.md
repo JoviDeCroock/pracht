@@ -18,9 +18,27 @@ pracht({
     description: "What the app does.", // defaults to package.json "description"
     origin: "https://example.com", // emit absolute URLs; relative when omitted
     include: ["pages", "api", "capabilities"], // sections to emit (default: all)
+    exclude: ["/dashboard", "/admin/**"],       // paths to leave out
   },
 })
 ```
+
+### Excluding routes
+
+`llms.txt` is a list of URLs the app *invites* an agent to fetch, so anything
+an anonymous agent cannot use does not belong in it — pages behind an auth
+middleware answer `401`, internal tooling answers `403`, and a deliberate error
+route answers `500`. Nothing about a middleware tells the framework whether it
+gates or merely logs, so the exclusion is yours to declare:
+
+```ts
+llmsTxt: { exclude: ["/dashboard", "/admin/**", "/internal/**"] }
+```
+
+Patterns use the same segment globs as `defineApp({ constraints })` — `*`
+matches one segment, a trailing `**` matches the rest — and are matched against
+the emitted paths, so `/blog/**` also covers the prerendered instances of
+`/blog/:slug`. Excluded paths are dropped from both the Pages and API sections.
 
 `llmsTxt: {}` is enough — the title falls back to the app's package.json
 `name` and the description to its `description` (the blockquote is omitted

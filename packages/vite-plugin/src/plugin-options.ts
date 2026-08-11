@@ -20,6 +20,19 @@ export interface PrachtLlmsTxtOptions {
   origin?: string;
   /** Sections to emit. Defaults to ["pages", "api", "capabilities"]. */
   include?: LlmsTxtSection[];
+  /**
+   * Route/API path patterns to leave out, using the same segment globs as
+   * `defineApp({ constraints })` (`*` = one segment, trailing `**` = the
+   * rest). llms.txt invites agents to fetch every URL it lists, so exclude
+   * anything an anonymous agent cannot use — pages behind an auth middleware,
+   * internal tooling, deliberate error routes. Capabilities are matched by
+   * their dispatch path (`/api/capabilities/**`).
+   *
+   * ```ts
+   * llmsTxt: { exclude: ["/dashboard", "/admin/**"] }
+   * ```
+   */
+  exclude?: string[];
 }
 
 export interface PrachtPluginOptions {

@@ -59,6 +59,54 @@ describe("resolveApp", () => {
     expect(resolved.routes[1].loaderCache).toBe(false);
   });
 
+  it("rejects unknown route meta keys with a suggestion", () => {
+    const app = defineApp({
+      middleware: { auth: "./middleware/auth.ts" },
+      // A typo here used to resolve to a route with no middleware at all,
+      // while `pracht verify`, the graph snapshot, and `requireMiddleware()`
+      // constraints all still reported the route as guarded.
+      routes: [route("/dashboard", "./routes/dashboard.tsx", { middlware: ["auth"] } as never)],
+    });
+
+    expect(() => resolveApp(app)).toThrow(
+      /Unknown option "middlware" for route "\/dashboard"\. Did you mean "middleware"\?/,
+    );
+  });
+
+  it("rejects unknown group meta keys", () => {
+    const app = defineApp({
+      middleware: { auth: "./middleware/auth.ts" },
+      routes: [
+        group({ middlewares: ["auth"] } as never, [route("/dashboard", "./routes/dashboard.tsx")]),
+      ],
+    });
+
+    expect(() => resolveApp(app)).toThrow(
+      /Unknown option "middlewares" for group at "\/"\. Did you mean "middleware"\?/,
+    );
+  });
+
+  it("rejects unknown notFound config keys", () => {
+    expect(() =>
+      defineApp({
+        notFound: { component: "./routes/not-found.tsx", shel: "public" } as never,
+        routes: [],
+      }),
+    ).toThrow(/Unknown option "shel" for the notFound page\./);
+  });
+
+  it("stays idempotent — re-resolving a resolved app does not reject derived fields", () => {
+    const app = defineApp({
+      shells: { public: "./shells/public.tsx" },
+      routes: [group({ shell: "public" }, [route("/", "./routes/home.tsx", { render: "ssg" })])],
+    });
+
+    const once = resolveApp(app);
+    const twice = resolveApp(once as never);
+
+    expect(twice.routes).toEqual(once.routes);
+  });
+
   it("rejects invalid loader cache durations", () => {
     const app = defineApp({
       routes: [route("/invalid", "./routes/invalid.tsx", { loaderCache: -1 })],

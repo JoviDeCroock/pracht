@@ -170,3 +170,20 @@ The check detects _references_, not values: a secret returned from a loader
 still reaches the client through hydration state, and a value inlined via a
 custom `define` is invisible to the scan. Use the `audit-secrets` skill for
 dataflow-level review of loader return values.
+
+---
+
+## Framework-read variables
+
+These are read by pracht itself (not through `serverEnv`/`publicEnv`) and must
+be set in the deployment environment rather than only in `.env`:
+
+| Variable | Read by | Purpose |
+| --- | --- | --- |
+| `PRACHT_REVALIDATE_TOKEN` | all adapters | Authenticates `POST /__pracht/revalidate`. Vercel additionally bakes it into the build's prerender `bypassToken`, so it must be present **at build time** there. |
+| `PRACHT_CONFIRMATION_SECRET` | capability runtime | Signs destructive-capability confirmation tokens. Without it every destructive dispatch fails closed with `confirmation_unavailable`. |
+
+Variables named in the docs that belong to *your* app rather than the
+framework — for example `PRACHT_ORIGIN` in the
+[`<Image>` optimization endpoint recipe](IMAGES.md#the-optimization-endpoint) —
+are ordinary server-side variables you choose and read yourself.

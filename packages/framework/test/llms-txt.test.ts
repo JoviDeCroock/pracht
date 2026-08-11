@@ -228,6 +228,68 @@ describe("buildLlmsTxt capabilities", () => {
     expect(withoutRegistry).not.toContain("## Capabilities");
   });
 
+  it("excludes paths matching the configured patterns", async () => {
+    const output = await buildLlmsTxt({
+      app: createResolvedApp(),
+      apiRoutes,
+      registry: createRegistry(),
+      title: "Pracht Test App",
+      // An auth-gated page answers 401 to the agents llms.txt invites, so an
+      // app has to be able to keep it out of the file.
+      exclude: ["/about", "/blog/**", "/api/echo"],
+    });
+
+    expect(output).toContain("- [/](/)");
+    expect(output).not.toContain("- [/about](/about)");
+    expect(output).not.toContain("/blog/hello-world");
+    expect(output).not.toContain("/blog/getting-started");
+    expect(output).toContain("- [/api/health](/api/health)");
+    expect(output).not.toContain("- [/api/echo](/api/echo)");
+  });
+
+  it("rejects an invalid exclude pattern eagerly, whatever the routes are", async () => {
+    // `matchRoutePattern` only throws when it evaluates a pattern and
+    // `Array.some` short-circuits, so a bad pattern behind a matching one used
+    // to stay silent until an unrelated route was added.
+    await expect(
+      buildLlmsTxt({
+        app: createResolvedApp(),
+        apiRoutes,
+        registry: createRegistry(),
+        title: "Pracht Test App",
+        exclude: ["/**/secret"],
+      }),
+    ).rejects.toThrow(/Invalid llmsTxt\.exclude pattern "\/\*\*\/secret"/);
+
+    await expect(
+      buildLlmsTxt({
+        app: createResolvedApp(),
+        apiRoutes,
+        registry: createRegistry(),
+        title: "Pracht Test App",
+        // The first pattern matches everything, so the invalid one would never
+        // be evaluated lazily.
+        exclude: ["/**", "/**/secret"],
+      }),
+    ).rejects.toThrow(/Invalid llmsTxt\.exclude pattern/);
+
+    // A `**` that is neither first nor last used to pass validation *and*
+    // match nothing — publishing exactly the URLs it was written to hide.
+    await expect(
+      buildLlmsTxt({ app: createResolvedApp(), title: "T", exclude: ["/a/b/**/c"] }),
+    ).rejects.toThrow(/Invalid llmsTxt\.exclude pattern/);
+
+    // An empty entry (a filtered array, a split env var) would drop "/".
+    await expect(
+      buildLlmsTxt({ app: createResolvedApp(), title: "T", exclude: [""] }),
+    ).rejects.toThrow(/empty string/);
+
+    // `defineApp({ constraints })` patterns are absolute; so are these.
+    await expect(
+      buildLlmsTxt({ app: createResolvedApp(), title: "T", exclude: ["admin/**"] }),
+    ).rejects.toThrow(/must ` \+\n?\s*'start with|start with/);
+  });
+
   it("omits the section when the app registers no capabilities", async () => {
     const output = await buildLlmsTxt({
       app: createResolvedApp(),

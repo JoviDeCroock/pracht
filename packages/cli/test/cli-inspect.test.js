@@ -26,6 +26,7 @@ describe("@pracht/cli inspect", () => {
         {
           file: "./routes/dashboard.tsx",
           hydration: "full",
+          hydrationEffective: "full",
           id: "dashboard",
           loaderCache: null,
           loaderFile: "./server/dashboard-loader.ts",

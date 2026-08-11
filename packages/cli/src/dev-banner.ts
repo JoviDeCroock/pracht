@@ -14,7 +14,7 @@ export interface DevBannerApiRoute extends Pick<AppGraphApiRoute, "methods" | "p
 
 export interface DevBannerCapability extends Pick<
   AppGraphCapability,
-  "effect" | "httpPath" | "name" | "transports"
+  "effect" | "error" | "httpPath" | "name" | "transports"
 > {}
 
 export interface DevBannerOptions {
@@ -149,6 +149,7 @@ export function formatDevBanner(options: DevBannerOptions): string {
     if (capabilities.length === 0) {
       lines.push("    (none)");
     } else {
+      const unreadable = capabilities.filter((capability) => capability.error);
       const rows = capabilities.map((capability) => [
         capability.name,
         capability.effect ?? "?",
@@ -175,6 +176,19 @@ export function formatDevBanner(options: DevBannerOptions): string {
           httpPath,
         ];
         lines.push(`    ${cells.join("  ")}`.trimEnd());
+      }
+
+      // Effect and exposure above were recovered by static analysis; the
+      // schemas were not. Without this the row reads as a complete contract.
+      for (const capability of unreadable) {
+        lines.push(
+          `    ${paint(`! ${capability.name} could not be loaded: ${capability.error}`, ANSI.red)}`,
+        );
+      }
+      if (unreadable.length > 0) {
+        lines.push(
+          `    ${paint("  Effect, exposure, policy and middleware above were recovered from the source; output schemas are unavailable, so `pracht typegen` types them as `unknown`. If the module imports `@pracht/capabilities`, install it.", ANSI.dim)}`,
+        );
       }
     }
     lines.push("");

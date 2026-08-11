@@ -10,6 +10,7 @@ import {
 } from "./client-module-transform.ts";
 
 import type { RenderMode } from "@pracht/core";
+import { PRACHT_GRAPH_ONLY_ENV } from "@pracht/core/server";
 import { createEnvSafetyPlugin, PUBLIC_ENV_PREFIX, SERVER_ENV_MODULE_ID } from "./env-safety.ts";
 import { sendServerOnlyFullReload } from "./hot-update-reload.ts";
 import {
@@ -445,13 +446,24 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
     createEnvSafetyPlugin(resolved.envSafety),
   ];
 
-  const adapterPlugins = resolved.adapter.vitePlugins?.();
+  // Graph-only mode: the CLI's short-lived Vite server (`pracht inspect`,
+  // `verify`, `doctor`, `plan`, `report`, `typegen`) evaluates exactly one
+  // adapter-neutral module — `virtual:pracht/dev-metadata` — and closes
+  // immediately. Loading the adapter's own Vite plugins there is pure cost,
+  // and some of them own long-lived resources that `server.close()` does not
+  // reclaim: `@cloudflare/vite-plugin` starts workerd plus a debugger socket,
+  // which kept those commands alive forever after printing their results.
+  const adapterPlugins = isGraphOnlyMode() ? undefined : resolved.adapter.vitePlugins?.();
   if (adapterPlugins?.length) {
     plugins.push(...adapterPlugins);
   }
   plugins.push(optimizeDepsEntriesPlugin);
 
   return plugins;
+}
+
+function isGraphOnlyMode(): boolean {
+  return process.env[PRACHT_GRAPH_ONLY_ENV] === "1";
 }
 
 const MANIFEST_CORE_IMPORTS = new Set(["defineApp", "group", "route", "timeRevalidate"]);

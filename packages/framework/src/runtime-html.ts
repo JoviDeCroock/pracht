@@ -168,25 +168,44 @@ export function buildHtmlDocument(options: {
     ? `<script type="module" src="${escapeHtml(clientEntryUrl)}"></script>`
     : "";
 
+  // Empty slots are dropped rather than interpolated: otherwise every document
+  // carries a run of blank, whitespace-only lines for the tags this page does
+  // not have.
+  const headLines = joinDocumentLines(
+    [
+      '<meta charset="utf-8">',
+      titleTag,
+      metaTags,
+      linkTags,
+      scriptTags,
+      cssTags,
+      modulePreloadTags,
+      routeStatePreloadTag,
+      speculationRulesTag,
+    ],
+    "    ",
+  );
+  const bodyLines = joinDocumentLines(
+    [`<div id="pracht-root">${body}</div>`, stateScript, entryScript],
+    "    ",
+  );
+
   return `<!DOCTYPE html>
 <html${head.lang ? ` lang="${escapeHtml(head.lang)}"` : ""}>
   <head>
-    <meta charset="utf-8">
-    ${titleTag}
-    ${metaTags}
-    ${linkTags}
-    ${scriptTags}
-    ${cssTags}
-    ${modulePreloadTags}
-    ${routeStatePreloadTag}
-    ${speculationRulesTag}
+${headLines}
   </head>
   <body>
-    <div id="pracht-root">${body}</div>
-    ${stateScript}
-    ${entryScript}
+${bodyLines}
   </body>
 </html>`;
+}
+
+function joinDocumentLines(parts: string[], indent: string): string {
+  return parts
+    .filter((part) => part !== "")
+    .map((part) => `${indent}${part}`)
+    .join("\n");
 }
 
 export function htmlResponse(html: string, status = 200, initHeaders?: HeadersInit): Response {

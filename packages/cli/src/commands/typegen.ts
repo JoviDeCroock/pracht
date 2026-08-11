@@ -5,6 +5,7 @@ import { defineCommand } from "citty";
 
 import { displayPath, readProjectConfig, resolveProjectPath } from "../project.js";
 import { schemaToTypeText } from "@pracht/capabilities";
+import type { AppGraphCapability } from "@pracht/core";
 import { assertCapabilityProjectionsAgree } from "../capability-consistency.js";
 import { ensureTrailingNewline, handleCliError } from "../utils.js";
 import { runInspect, type InspectReport } from "./inspect.js";
@@ -92,13 +93,49 @@ export interface TypegenOptions {
   runtimeOut: string;
 }
 
-interface TypegenResult {
+export interface TypegenResult {
   apiRoutes: number;
   capabilities: number;
   check: boolean;
   files: string[];
   mode: string;
   routes: number;
+  /**
+   * Capabilities whose module could not be executed, so their input and output
+   * types are `unknown`. Part of the result rather than only a `console.warn`:
+   * `--json` consumers and the MCP `typegen` tool are exactly the callers who
+   * never see stderr, and regenerating types that silently say `unknown` is
+   * the failure this reports.
+   */
+  unreadableCapabilities?: { name: string; source: string; error: string }[];
+}
+
+/**
+ * Warn — do not block — when a capability module could not be executed.
+ *
+ * This is routinely a healthy app: a Cloudflare capability importing
+ * `cloudflare:workers` at the top level deploys fine and only fails to load in
+ * the CLI's Node graph server. Blocking here would strand it, because the same
+ * app is required to keep `.pracht/app-graph.json` fresh.
+ *
+ * Effect, exposure, policy and middleware are recovered from the source (the
+ * graph falls back to the same static extractor the browser projection uses),
+ * but only when they are inline literals; the output schema never is, so it
+ * types as `unknown`.
+ */
+function warnUnreadableCapabilities(capabilities: AppGraphCapability[]): void {
+  const unreadable = capabilities.filter((capability) => capability.error);
+  if (unreadable.length === 0) return;
+
+  console.warn(
+    `[pracht] ${unreadable.length} capability module(s) could not be loaded, so their types were ` +
+      "recovered from source and their output types are `unknown`:\n" +
+      unreadable
+        .map((capability) => `  ${capability.name} (${capability.source}): ${capability.error}`)
+        .join("\n") +
+      "\nMove a runtime-only import (`cloudflare:workers`, a Node built-in in an edge module) " +
+      "inside `run()` or behind a dynamic import to get full types.",
+  );
 }
 
 export async function runTypegen(options: TypegenOptions): Promise<TypegenResult> {
@@ -114,6 +151,14 @@ export async function runTypegen(options: TypegenOptions): Promise<TypegenResult
   const capabilities = report.capabilities ?? [];
   validateRoutes(routes);
   validateApiRoutes(apiRoutes);
+  const unreadableCapabilities = capabilities
+    .filter((capability) => capability.error)
+    .map((capability) => ({
+      name: capability.name,
+      source: capability.source,
+      error: String(capability.error),
+    }));
+  warnUnreadableCapabilities(capabilities);
 
   const project = readProjectConfig(options.root);
   // Generated types claim which capabilities the browser can reach; the client
@@ -199,6 +244,7 @@ export async function runTypegen(options: TypegenOptions): Promise<TypegenResult
     files: outputs.map((output) => displayPath(options.root, output.path)),
     mode: report.mode,
     routes: routes.length,
+    ...(unreadableCapabilities.length > 0 ? { unreadableCapabilities } : {}),
   };
 }
 

@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { copyFile, mkdir, readFile, readdir, stat, symlink, writeFile } from "node:fs/promises";
 import { basename, dirname, resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
@@ -82,6 +82,10 @@ const ADAPTERS = {
 
 const DEFAULT_DIRECTORY = "pracht-app";
 
+function readFileSyncSafe(path) {
+  return readFileSync(path, "utf-8");
+}
+
 const PACKAGE_ROOT = fileURLToPath(new URL("..", import.meta.url));
 
 // The published package bundles a copy of the repo skills (see
@@ -137,7 +141,7 @@ export async function run(argv = process.argv.slice(2)) {
   await ensureTargetDirectory(targetDir);
 
   if (options.dryRun) {
-    const files = await buildProjectFiles({
+    const { files } = await buildProjectFiles({
       adapter: ADAPTERS[resolvedAdapter],
       agentTools: resolvedAgentTools,
       packageManager,
@@ -145,6 +149,7 @@ export async function run(argv = process.argv.slice(2)) {
       resolveRemoteVersions: false,
       router: resolvedRouter,
       tailwind: resolvedTailwind,
+      targetDir,
     });
 
     const fileList = Object.keys(files).sort();
@@ -172,7 +177,7 @@ export async function run(argv = process.argv.slice(2)) {
     return;
   }
 
-  await scaffoldProject({
+  const { pnpmWorkspaceNotice } = await scaffoldProject({
     adapter: ADAPTERS[resolvedAdapter],
     agentTools: resolvedAgentTools,
     packageManager,
@@ -206,7 +211,7 @@ export async function run(argv = process.argv.slice(2)) {
   }
 
   if (options.json) {
-    const files = await buildProjectFiles({
+    const { files } = await buildProjectFiles({
       adapter: ADAPTERS[resolvedAdapter],
       agentTools: resolvedAgentTools,
       packageManager,
@@ -214,6 +219,7 @@ export async function run(argv = process.argv.slice(2)) {
       resolveRemoteVersions: false,
       router: resolvedRouter,
       tailwind: resolvedTailwind,
+      targetDir,
     });
 
     console.log(
@@ -224,6 +230,10 @@ export async function run(argv = process.argv.slice(2)) {
         files: Object.keys(files).sort(),
         gitInitialized,
         installed: options.skipInstall ? false : installSucceeded,
+        // The automation path has to carry this too: an instruction printed to
+        // a terminal nobody reads is an instruction nobody applies, and the
+        // consequence is a Cloudflare app with no workerd binary.
+        pnpmWorkspaceNotice,
         router: resolvedRouter,
         tailwind: resolvedTailwind,
       }),
@@ -231,10 +241,14 @@ export async function run(argv = process.argv.slice(2)) {
   } else {
     printNextSteps({
       adapter: ADAPTERS[resolvedAdapter],
+      agentTools: resolvedAgentTools,
       dir: resolvedDir,
       installSucceeded,
       packageManager,
+      pnpmWorkspaceNotice,
+      router: resolvedRouter,
       skipInstall: options.skipInstall,
+      tailwind: resolvedTailwind,
     });
   }
 }
@@ -249,7 +263,7 @@ export async function scaffoldProject({
   targetDir,
 }) {
   const packageName = toPackageName(basename(targetDir));
-  const files = await buildProjectFiles({
+  const { files, pnpmWorkspaceNotice } = await buildProjectFiles({
     adapter,
     agentTools,
     packageManager,
@@ -257,10 +271,15 @@ export async function scaffoldProject({
     resolveRemoteVersions,
     router,
     tailwind,
+    targetDir,
   });
 
   await mkdir(targetDir, { recursive: true });
 
+  // pnpm resolves `allowBuilds` from the workspace root, so inside an existing
+  // monorepo our own file would be read by nobody — and `pnpm install` run from
+  // the app directory would find it first and re-root the workspace there,
+  // detaching the app from its siblings. Tell the user what to add instead.
   for (const [relativePath, content] of Object.entries(files)) {
     const filePath = resolve(targetDir, relativePath);
     await mkdir(dirname(filePath), { recursive: true });
@@ -270,7 +289,7 @@ export async function scaffoldProject({
   // AGENTS.md (and the CLAUDE.md alias pointing at it) are agent tooling too —
   // `--no-agent-tools` means a project with none of it, not "all of it except
   // the instruction files". README.md carries the same commands for humans.
-  if (!agentTools) return;
+  if (!agentTools) return { pnpmWorkspaceNotice };
 
   try {
     await symlink("AGENTS.md", resolve(targetDir, "CLAUDE.md"));
@@ -281,6 +300,8 @@ export async function scaffoldProject({
       throw error;
     }
   }
+
+  return { pnpmWorkspaceNotice };
 }
 
 export function getPackageManager(userAgent = process.env.npm_config_user_agent ?? "") {
@@ -589,6 +610,7 @@ async function buildProjectFiles({
   resolveRemoteVersions = true,
   router,
   tailwind = false,
+  targetDir,
 }) {
   const packagesToResolve = [
     "@pracht/cli",
@@ -663,7 +685,20 @@ async function buildProjectFiles({
     Object.assign(files, await readSkillFiles());
   }
 
-  return files;
+  // pnpm resolves `allowBuilds` from the workspace root, so inside an existing
+  // workspace our own file would be read by nobody — and `pnpm install` run
+  // from the app directory would find it first and re-root the workspace there,
+  // detaching the app from its siblings. Decided here so the `--json` and
+  // `--dry-run` listings match what is actually written.
+  const ancestorWorkspace = targetDir ? findAncestorPnpmWorkspace(targetDir) : null;
+  const pnpmWorkspaceNotice = ancestorWorkspace
+    ? { packages: pnpmBuildAllowlist(adapter, tailwind), root: ancestorWorkspace }
+    : null;
+  if (!pnpmWorkspaceNotice) {
+    files["pnpm-workspace.yaml"] = createPnpmWorkspaceConfig(adapter, tailwind);
+  }
+
+  return { files, pnpmWorkspaceNotice };
 }
 
 function createMcpConfig() {
@@ -987,6 +1022,145 @@ function createHealthRoute(adapter) {
   ].join("\n");
 }
 
+/**
+ * pnpm blocks dependency install scripts unless they are allowlisted, and
+ * esbuild and workerd both need theirs — workerd's postinstall downloads the
+ * runtime binary, so without this `wrangler dev` fails right after scaffolding
+ * with `ERR_PNPM_IGNORED_BUILDS`.
+ *
+ * This has to live in `pnpm-workspace.yaml`: pnpm 11 no longer reads the
+ * `pnpm` field in package.json and warns that it ignored it. npm and yarn
+ * ignore this file entirely, so it is inert for them. (npm has its own
+ * `allow-scripts` prompt, which it drives interactively.)
+ */
+function pnpmBuildAllowlist(adapter, tailwind) {
+  const packages = ["esbuild"];
+  if (adapter.id === "cloudflare") packages.push("workerd");
+  if (tailwind) packages.push("@tailwindcss/oxide");
+  return packages.sort();
+}
+
+function createPnpmWorkspaceConfig(adapter, tailwind) {
+  return [
+    "allowBuilds:",
+    ...pnpmBuildAllowlist(adapter, tailwind).map((name) => `  ${name}: true`),
+    "",
+  ].join("\n");
+}
+
+/**
+ * Nearest ancestor `pnpm-workspace.yaml` above `dir`, or null.
+ *
+ * pnpm resolves settings from the workspace *root*, so writing our own file
+ * inside an existing monorepo would be read by nobody — while also re-rooting
+ * the workspace for anyone who runs `pnpm install` from the app directory,
+ * which detaches it from its siblings.
+ */
+function findAncestorPnpmWorkspace(dir) {
+  let current = resolve(dir, "..");
+  for (;;) {
+    const configPath = resolve(current, "pnpm-workspace.yaml");
+    // An ancestor config only governs this app if its `packages:` globs cover
+    // it. Suppressing our own file for a workspace the app is *not* a member of
+    // leaves it with no install at all: pnpm re-roots to the ancestor and
+    // installs that workspace's projects instead.
+    if (existsSync(configPath) && workspaceCovers(configPath, current, dir)) return current;
+    const parent = dirname(current);
+    if (parent === current) return null;
+    current = parent;
+  }
+}
+
+/**
+ * Whether `dir` matches one of the `packages:` globs in a pnpm workspace
+ * config. A deliberately small YAML reader: the block and flow list forms pnpm
+ * accepts, and `*` / `**` globs.
+ *
+ * Both failure directions matter, and they are not symmetric. Deciding "not a
+ * member" for a directory that *is* one writes a nested `pnpm-workspace.yaml`
+ * that re-roots the workspace at the app; deciding "member" for one that is
+ * not only prints instructions. So anything this reader cannot confidently
+ * decide answers `true`.
+ */
+function workspaceCovers(configPath, workspaceRoot, dir) {
+  let contents;
+  try {
+    contents = readFileSyncSafe(configPath);
+  } catch {
+    return true;
+  }
+
+  const globs = [];
+  let sawPackagesKey = false;
+  let inBlockList = false;
+
+  for (const rawLine of contents.split("\n")) {
+    const line = rawLine.replace(/#.*$/, "");
+    const packagesKey = line.match(/^packages\s*:(.*)$/);
+    if (packagesKey) {
+      sawPackagesKey = true;
+      // Flow form: `packages: ["apps/*", "tools/*"]`, which pnpm accepts.
+      const flow = packagesKey[1].trim();
+      if (flow.startsWith("[")) {
+        for (const entry of flow.replace(/^\[|\]$/g, "").split(",")) {
+          const value = entry.trim().replace(/^["']|["']$/g, "");
+          if (value) globs.push(value);
+        }
+        inBlockList = false;
+      } else {
+        inBlockList = true;
+      }
+      continue;
+    }
+    if (inBlockList) {
+      const item = line.match(/^\s+-\s*["']?([^"'\s]+)["']?\s*$/);
+      if (item) {
+        globs.push(item[1]);
+        continue;
+      }
+      if (line.trim() !== "") inBlockList = false;
+    }
+  }
+
+  // No `packages:` key at all is a single-package workspace rooted there,
+  // which does not cover a nested app. A key we could not read is a decision
+  // we cannot make — fall to "member".
+  if (!sawPackagesKey) return false;
+  if (globs.length === 0) return true;
+
+  const relative = resolve(dir)
+    .slice(resolve(workspaceRoot).length + 1)
+    .split(/[\\/]/);
+  // A negation (`!apps/legacy`) narrows the set; treat its presence as
+  // undecidable rather than as an ordinary glob.
+  if (globs.some((glob) => glob.startsWith("!"))) return true;
+  return globs.some((glob) => matchesGlobSegments(glob.split("/"), relative));
+}
+
+/**
+ * Segment-wise glob match. `**` matches the rest; otherwise a segment may
+ * contain `*` wildcards (`app-*`), which pnpm supports.
+ */
+function matchesGlobSegments(globSegments, pathSegments) {
+  for (let index = 0; index < globSegments.length; index += 1) {
+    const segment = globSegments[index];
+    if (segment === "**") return true;
+    if (index >= pathSegments.length) return false;
+    if (!segmentMatches(segment, pathSegments[index])) return false;
+  }
+  return globSegments.length === pathSegments.length;
+}
+
+function segmentMatches(glob, value) {
+  if (glob === "*") return true;
+  if (!glob.includes("*")) return glob === value;
+  const pattern = glob
+    .split("*")
+    .map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+    .join(".*");
+  return new RegExp(`^${pattern}$`).test(value);
+}
+
 function createWranglerConfig(projectName) {
   const compatibilityDate = WRANGLER_COMPATIBILITY_DATE;
 
@@ -1003,6 +1177,12 @@ function createWranglerConfig(projectName) {
     '  "assets": {',
     '    "binding": "ASSETS",',
     '    "directory": "dist/client",',
+    // The assets binding defaults to redirecting a prerendered route to its
+    // trailing-slash form, so `GET /about` would answer 307 on Cloudflare
+    // where Node and Vercel answer 200 — for the same app, and for every URL
+    // the generated llms.txt advertises. Drop the slash instead so one
+    // canonical form works across adapters.
+    '    "html_handling": "drop-trailing-slash",',
     '    "run_worker_first": true',
     "  }",
     "}",
@@ -1131,9 +1311,16 @@ function createAgentInstructions({ adapter, agentTools, packageManager, router, 
   lines.push("Use the CLI to generate new files:");
   lines.push("");
   lines.push("- `pracht generate route --path /about` — add a route");
-  lines.push("- `pracht generate shell --name app` — add a shell");
-  lines.push("- `pracht generate middleware --name auth` — add middleware");
+  if (router !== "pages") {
+    lines.push("- `pracht generate shell --name app` — add a shell");
+    lines.push("- `pracht generate middleware --name auth` — add middleware");
+  }
   lines.push("- `pracht generate api --path /health --methods GET` — add an API route");
+  if (router !== "pages") {
+    lines.push(
+      "- `pracht generate capability --name notes.search --effect read --expose http` — add a capability (agent-callable operation)",
+    );
+  }
   lines.push("- `pracht doctor` — check project health");
   lines.push("- `pracht verify` — enforce route and constraint invariants");
   lines.push(
@@ -1153,6 +1340,10 @@ function createAgentInstructions({ adapter, agentTools, packageManager, router, 
     lines.push("- `src/pages/_app.tsx` — app shell (layout and head)");
     lines.push(
       "- `src/pages/404.tsx` — not-found page, wired automatically (never a URL of its own)",
+    );
+    lines.push("");
+    lines.push(
+      "**The pages router has no manifest**, so these manifest-only features are unavailable: named shells (there is one, `_app.tsx`), middleware, capabilities (and therefore capability HTTP endpoints, WebMCP, remote MCP, and `pracht eval`), `defineApp({ constraints })`, and `agents`. If a task needs auth or the agent surface, eject to an explicit manifest with the `generateRoutesFile` plugin option first — do not hand-roll a substitute.",
     );
   } else {
     lines.push("This app uses **manifest routing**.");
@@ -1374,13 +1565,36 @@ async function installDependencies(targetDir, packageManager) {
   });
 }
 
-function printNextSteps({ adapter, dir, installSucceeded, packageManager, skipInstall }) {
+function printNextSteps({
+  adapter,
+  agentTools,
+  dir,
+  installSucceeded,
+  packageManager,
+  pnpmWorkspaceNotice,
+  router,
+  skipInstall,
+  tailwind,
+}) {
   const installCommand = packageManager === "npm" ? "npm install" : `${packageManager} install`;
   const devCommand = packageManager === "npm" ? "npm run dev" : `${packageManager} dev`;
 
   console.log("");
   console.log(`Created a pracht app in ${dir}.`);
   console.log(`Adapter: ${adapter.label}`);
+  console.log(
+    `Router:  ${router === "pages" ? "pages (file-system)" : "manifest (src/routes.ts)"}`,
+  );
+  console.log(`Tailwind: ${tailwind ? "yes" : "no"}`);
+  console.log(`Agent tooling: ${agentTools ? "skills, .mcp.json, AGENTS.md" : "none"}`);
+  if (router === "pages") {
+    console.log("");
+    console.log(
+      "Note: the pages router has no manifest, so middleware, capabilities, constraints, and\n" +
+        "the agent surface (capability endpoints, WebMCP, remote MCP, `pracht eval`) are not\n" +
+        "available. Scaffold with --router=manifest if you need them.",
+    );
+  }
   console.log("");
   console.log("Next steps:");
   console.log(`  cd ${dir}`);
@@ -1394,6 +1608,20 @@ function printNextSteps({ adapter, dir, installSucceeded, packageManager, skipIn
   if (!skipInstall && !installSucceeded) {
     console.log("");
     console.log("Dependency installation did not complete. The project files were still created.");
+  }
+
+  if (pnpmWorkspaceNotice) {
+    console.log("");
+    console.log(
+      `This app is inside the pnpm workspace at ${pnpmWorkspaceNotice.root}, which owns build\n` +
+        "permissions for every package. Add the following to its pnpm-workspace.yaml, or\n" +
+        "esbuild and workerd will not run their install scripts:",
+    );
+    console.log("");
+    console.log("  allowBuilds:");
+    for (const name of pnpmWorkspaceNotice.packages) {
+      console.log(`    ${name}: true`);
+    }
   }
 }
 

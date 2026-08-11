@@ -93,8 +93,12 @@ Mount it as an API route — this is the least invasive wiring and works with
 import { createImageHandler } from "@pracht/image/node";
 
 const imageHandler = createImageHandler({
-  // Required for relative sources in every environment. Use the same trusted
-  // value as nodeAdapter({ canonicalOrigin }).
+  // Required for relative sources in every environment — the endpoint answers
+  // 500 ("Relative image sources require createImageHandler({ localOrigin })")
+  // until it is set, including in dev. `PRACHT_ORIGIN` is your own variable,
+  // not a framework one: set it to the app's public origin (in dev, the address
+  // `pracht dev` prints). Use the same trusted value as
+  // nodeAdapter({ canonicalOrigin }).
   localOrigin: process.env.PRACHT_ORIGIN,
   // remotePatterns: [{ protocol: "https", hostname: "images.example.com" }],
 });

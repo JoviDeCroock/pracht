@@ -16,6 +16,27 @@ import {
 afterEach(cleanupTempDirs);
 
 describe("@pracht/cli plan and constraints", () => {
+  it("degrades on a missing default base but fails on an explicit one", () => {
+    const appDir = createRepoTempDir("pracht-cli-plan-base-");
+    writeInspectableManifestApp(appDir);
+    initializeGitRepo(appDir);
+
+    // `create-pracht` inits a repo with no remote, and `actions/checkout` at
+    // its default depth creates no `origin/main` either — the standard PR CI
+    // shape, which is exactly where `pracht report` is meant to run.
+    const defaultBase = runCliStatus(["plan"], { cwd: appDir });
+    expect(defaultBase.status).toBe(0);
+    expect(defaultBase.stderr).toContain("does not exist in this checkout");
+
+    // An explicit ref is an assertion by the caller, so a typo has to fail
+    // rather than quietly report every route as added.
+    const explicitBase = runCliStatus(["plan", "--base", "zzz-does-not-exist"], { cwd: appDir });
+    expect(explicitBase.status).toBe(1);
+    expect(explicitBase.stderr).toContain('Base git ref "zzz-does-not-exist" does not exist');
+
+    expect(runCliStatus(["report"], { cwd: appDir }).status).toBe(0);
+  }, 120_000);
+
   it("plans app-graph changes against a git base and enforces snapshot freshness", () => {
     const appDir = createRepoTempDir("pracht-cli-plan-");
     writeInspectableManifestApp(appDir);

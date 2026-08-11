@@ -7,6 +7,11 @@
  * module platform-neutral.
  */
 
+import {
+  extractCapabilityProjection,
+  type CapabilityProjection,
+} from "@pracht/capabilities/static";
+
 import { capabilityHttpPath } from "./runtime-capabilities.ts";
 import { resolveMcpEndpoint } from "./runtime-mcp.ts";
 import type {
@@ -61,6 +66,24 @@ export interface AppGraphCapability {
   /** Prose contract description — feeds generated JSDoc and agent-facing inspection. */
   description: string | null;
   effect: string | null;
+  /**
+   * Why this capability's module could not be read, or `null` when it was read
+   * successfully. A capability that fails to load (most often because
+   * `@pracht/capabilities` is not installed) would otherwise serialize
+   * identically to a private capability with no effect class, so every
+   * inspection surface would quietly under-report what the app exposes.
+   *
+   * Optional so existing constructors of this shape stay valid; producers that
+   * load modules (`serializeCapabilities`) always set it.
+   */
+  error?: string | null;
+  /**
+   * Set when the module could not be executed *and* static analysis could not
+   * recover every guard-shaped field (`agentPolicy`, `middleware`). Those are
+   * what `pracht plan` warns on, so silently reporting the fallback's blanks
+   * would let deleting a capability's auth middleware produce no diff at all.
+   */
+  unverifiedContract?: true;
   /** Reserved for the MCP Apps projection — always false for now. */
   hasUi: false;
   httpPath: string | null;
@@ -141,6 +164,29 @@ export function serializeApiRoutes(
  * fail to load (or don't export a capability) still appear in the graph with
  * null metadata so inspect/devtools can surface the broken registration.
  */
+function readProjection(
+  name: string,
+  file: string,
+  access: AppGraphModuleAccess,
+): CapabilityProjection | null {
+  try {
+    return extractCapabilityProjection(name, access.readSource(file), (detail) => detail);
+  } catch {
+    return null;
+  }
+}
+
+function projectionTransports(projection: CapabilityProjection | null): string[] {
+  if (!projection) return [];
+  const transports: string[] = [];
+  if (projection.httpPath) transports.push("http");
+  // Order matches the executed path so a fallback entry diffs against a
+  // normally-read one without spurious churn.
+  if (projection.mcp) transports.push("mcp");
+  if (projection.webmcp) transports.push("webmcp");
+  return transports;
+}
+
 export function serializeCapabilities(
   capabilities: Record<string, string> | undefined,
   access: AppGraphModuleAccess,
@@ -175,20 +221,43 @@ export function serializeCapabilities(
           title: capability.title,
           transports,
         };
-      } catch {
+      } catch (cause) {
+        // Falling back to static analysis rather than reporting nothing.
+        //
+        // A capability module that cannot be *executed* here is often perfectly
+        // healthy: a Cloudflare capability importing `cloudflare:workers` at
+        // the top level deploys fine, it just cannot load in the CLI's Node
+        // graph server. Reporting `effect: null, transports: []` for it would
+        // claim the app exposes nothing — under-reporting the agent surface in
+        // the dev banner, `inspect`, the committed snapshot, and generated
+        // types alike. The same extractor the browser projection is built from
+        // reads `expose` and `effect` straight out of the source, so use it and
+        // keep `error` set for the diagnostic.
+        const projection = readProjection(name, file, access);
+        // `undefined` from the extractor means "declared, but not readable
+        // statically". Recording it as `null` / `[]` would claim the
+        // capability has no agent policy and no middleware — the two fields a
+        // reviewer reads to decide whether a change weakened a guard, and the
+        // ones `pracht plan` warns on. `unverifiedContract` says so instead.
+        const unverified =
+          !projection ||
+          projection.agentPolicy === undefined ||
+          projection.middleware === undefined;
         return {
-          agentPolicy: null,
-          description: null,
-          effect: null,
+          agentPolicy: projection?.agentPolicy ?? null,
+          description: projection?.description ?? null,
+          effect: projection?.effect ?? null,
+          error: cause instanceof Error ? cause.message : String(cause),
+          unverifiedContract: unverified ? (true as const) : undefined,
           hasUi: false as const,
-          httpPath: null,
-          input: null,
-          middleware: [],
+          httpPath: projection?.httpPath ?? null,
+          input: projection?.inputSchema ?? null,
+          middleware: projection?.middleware ?? [],
           name,
           output: null,
           source: file,
           title: null,
-          transports: [],
+          transports: projectionTransports(projection),
         };
       }
     }),

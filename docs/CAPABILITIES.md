@@ -51,6 +51,38 @@ the `capabilitiesDir` plugin option). Names are dot-separated segments of
 letters, numbers, hyphens, and underscores. Capabilities are manifest-mode
 only for now — the pages router has no manifest to register them in.
 
+## Scaffolding
+
+```bash
+pracht generate capability --name notes.search --effect read --expose http,webmcp
+```
+
+Writes `src/capabilities/notes-search.ts` with `expose`, `effect`, and `input`
+as inline literals (which the browser projection's static analysis requires)
+and registers the name in the manifest. `--effect` defaults to `read`;
+`--expose` is omitted for a private capability, and `--description` is required
+whenever it is set — that text is the contract an agent reads. The generator
+refuses the combinations the runtime and `pracht verify` reject anyway: a
+`destructive` capability exposed over `webmcp`/`mcp`, or `webmcp` without
+`http`. Then edit the schemas and the `run()` body.
+
+## Installing
+
+Capability modules import `defineCapability` from `@pracht/capabilities`, which
+is a separate package — `create-pracht` does not add it, because an app without
+capabilities should not carry it:
+
+```bash
+npm install @pracht/capabilities
+```
+
+Skipping this is not a quiet failure but it *is* a confusing one: capability
+dispatch answers `500 internal_error`, and because the modules cannot be
+loaded, every inspection surface reads their metadata as unknown — the dev
+banner and `pracht inspect capabilities` show exposed capabilities as
+`unreadable`, with the load error printed next to them. `pracht verify` and
+`pracht doctor` fail with the missing dependency named.
+
 ## defineCapability
 
 ```ts
@@ -615,5 +647,4 @@ and `examples/basic/evals/notes.eval.json`.
 - MCP `resources/*` and `prompts/*` — only `tools/*` is projected.
 - Destructive capabilities over WebMCP/MCP (HTTP-only, confirmation-gated —
   see [AGENT_TRUST.md](AGENT_TRUST.md)).
-- Capability scaffolding (`pracht generate capability`).
 - Pages-router support.

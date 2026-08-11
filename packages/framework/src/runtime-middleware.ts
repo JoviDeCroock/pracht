@@ -156,8 +156,22 @@ export async function runMiddlewareChain<TContext>(options: {
       return terminal();
     }
     const mwModule = await modulePromises[i];
-    if (!mwModule?.middleware) {
-      return dispatch(i + 1);
+    // A registered middleware module that exports nothing usable used to be
+    // skipped silently. That fails *open*: a renamed export or a `default`
+    // export leaves an auth gate wired in the manifest but absent at runtime,
+    // and every static check still passes. Refuse to serve instead.
+    if (typeof mwModule?.middleware !== "function") {
+      const message =
+        `Middleware "${middlewareFiles[i]}" does not export a \`middleware\` function. ` +
+        "Middleware modules must `export const middleware: MiddlewareFn = (args, next) => …` " +
+        "(a default export is not used).";
+      // Failing closed is right, but silently failing closed is an outage a
+      // reviewer has to bisect: the likely trigger is a refactor renaming the
+      // export, which takes down every route carrying this middleware at
+      // deploy time. Sanitized 5xx responses say nothing, so log the cause
+      // once per module — the same treatment capability-registry failures get.
+      warnMissingMiddlewareExport(middlewareFiles[i], message);
+      throw new Error(message);
     }
 
     let calledNext = false;
@@ -189,6 +203,15 @@ export async function runMiddlewareChain<TContext>(options: {
   };
 
   return dispatch(0);
+}
+
+const warnedMissingMiddlewareExports = new Set<string>();
+
+/** The failure repeats on every matching request — log the cause once. */
+function warnMissingMiddlewareExport(file: string, message: string): void {
+  if (warnedMissingMiddlewareExports.has(file)) return;
+  warnedMissingMiddlewareExports.add(file);
+  console.error(`[pracht] ${message} Requests to routes using it fail closed.`);
 }
 
 export async function mergeHeadMetadata(

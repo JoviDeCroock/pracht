@@ -42,6 +42,14 @@ export { buildHref, buildPathFromSegments } from "./route-matching.ts";
 // runs `resolveApp` there, so invalid manifests still fail the build.
 const VALIDATE_MANIFEST = import.meta.env?.DEV !== false;
 
+// Server-side only. Vite sets `import.meta.env.SSR` to `false` in client
+// bundles (and leaves `import.meta.env` undefined under plain Node, where the
+// CLI and tests run), so this folds to `false` in the browser build and the
+// key lists, the walk, and `formatUnknownNameError` are dead-code-eliminated.
+// Unlike `VALIDATE_MANIFEST` it stays on in production *server* bundles, which
+// is where a fail-open manifest key actually matters.
+const VALIDATE_META_KEYS = import.meta.env?.SSR !== false;
+
 interface InheritedRouteConfig {
   pathPrefix: string;
   shell?: string;
@@ -143,6 +151,8 @@ function resolveNotFoundDefinition(
   if (typeof notFound === "string" || typeof notFound === "function") {
     return { file: resolveModuleRef(notFound) };
   }
+
+  assertKnownMetaKeys(notFound, NOT_FOUND_CONFIG_KEYS, "the notFound page");
 
   const { component, loader, ...meta } = notFound;
   return {
@@ -282,6 +292,7 @@ function flattenRouteNode(
 ): void {
   if (node.kind === "group") {
     const pathPrefix = mergeRoutePaths(inherited.pathPrefix, node.meta.pathPrefix);
+    assertKnownMetaKeys(node.meta, GROUP_META_KEYS, `group at "${pathPrefix}"`);
     if (VALIDATE_MANIFEST) {
       assertValidLoaderCache(node.meta.loaderCache, `group at "${pathPrefix}"`);
     }
@@ -303,6 +314,13 @@ function flattenRouteNode(
   }
 
   const fullPath = mergeRoutePaths(inherited.pathPrefix, node.path);
+  // `resolveApp()` is idempotent — the build re-resolves an already-resolved
+  // app (see `prerenderApp`). Resolved routes carry derived fields
+  // (`segments`, `shellFile`, `middlewareFiles`) that are not author-supplied
+  // meta, so only validate authored nodes.
+  if (!isResolvedRouteNode(node)) {
+    assertKnownMetaKeys(node, ROUTE_NODE_KEYS, `route "${fullPath}"`);
+  }
   const shell = node.shell ?? inherited.shell;
   const middleware = [...inherited.middleware, ...(node.middleware ?? [])];
   const render = node.render ?? inherited.render;
@@ -380,6 +398,74 @@ function assertValidLoaderCache(loaderCache: ResolvedRoute["loaderCache"], conte
 /** `in` would also match `Object.prototype` keys such as `constructor`. */
 function hasOwnEntry(record: Record<string, string>, name: string): boolean {
   return Object.prototype.hasOwnProperty.call(record, name);
+}
+
+const ROUTE_META_KEYS = [
+  "hasLoader",
+  "hydration",
+  "id",
+  "loaderCache",
+  "middleware",
+  "prefetch",
+  "render",
+  "revalidate",
+  "shell",
+  "speculation",
+];
+const ROUTE_NODE_KEYS = [...ROUTE_META_KEYS, "file", "kind", "loaderFile", "path"];
+const GROUP_META_KEYS = [
+  "hydration",
+  "loaderCache",
+  "middleware",
+  "pathPrefix",
+  "render",
+  "shell",
+  "speculation",
+];
+const NOT_FOUND_CONFIG_KEYS = ["component", "hydration", "loader", "middleware", "shell"];
+
+/**
+ * Reject meta keys the resolver does not read.
+ *
+ * Runs whenever the manifest is resolved on a server — including production
+ * server/edge bundles, where `VALIDATE_MANIFEST` folds to `false`. That guard
+ * is wrong for this check: `group({ middlewares: ["auth"] })` or
+ * `route(..., { middlware: ["auth"] })` used to resolve to a route with no
+ * middleware at all, and every static check (`pracht verify`, `doctor`,
+ * `requireMiddleware` constraints, the graph snapshot) still reported the
+ * route as guarded.
+ *
+ * It is gated on `VALIDATE_META_KEYS` rather than shipped everywhere, because
+ * the browser cannot catch anything here: `resolveApp()` runs client-side on a
+ * manifest the server already accepted, so the check would be pure bundle
+ * weight (~300 bytes gzip, plus it re-anchors `formatUnknownNameError` in the
+ * shared chunk).
+ *
+ * TypeScript rejects an inline object literal with an unknown key, but excess-
+ * property checking does not apply to a meta object built separately and
+ * passed by reference, and the manifest is also read by JavaScript callers and
+ * by builds that never run `tsc`.
+ */
+/** A route node that already went through `resolveApp()`. */
+function isResolvedRouteNode(node: object): boolean {
+  return "segments" in node;
+}
+
+function assertKnownMetaKeys(meta: object, allowed: string[], context: string): void {
+  if (!VALIDATE_META_KEYS) return;
+
+  for (const key of Object.keys(meta)) {
+    if (allowed.includes(key)) continue;
+    throw new Error(
+      formatUnknownNameError({
+        kind: "option",
+        kindPlural: "options",
+        name: key,
+        registered: allowed,
+        context,
+      }),
+    );
+  }
 }
 
 const AGENT_POLICY_MODES = ["observe", "require"];

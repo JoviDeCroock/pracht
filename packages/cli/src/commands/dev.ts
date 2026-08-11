@@ -54,7 +54,9 @@ export default defineCommand({
     const watchesGeneratedRouteTypes = watchGeneratedRouteTypes(server, root);
 
     try {
-      const graph = await collectAppGraph(server, root);
+      const graph = await collectAppGraph(server, root, {
+        appFile: readProjectConfig(root).appFile,
+      });
       const urls = server.resolvedUrls ?? { local: [], network: [] };
       console.log(
         formatDevBanner({

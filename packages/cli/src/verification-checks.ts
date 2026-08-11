@@ -2,6 +2,8 @@ import { dirname, resolve } from "node:path";
 import { existsSync, readFileSync } from "node:fs";
 
 import { formatBytes } from "./bundle-report.js";
+import { maskCommentsAndStrings } from "@pracht/capabilities/static";
+
 import { extractRegistryEntries, extractRelativeModulePaths } from "./manifest.js";
 import {
   displayPath,
@@ -96,6 +98,7 @@ export function collectManifestVerification(
           `Registered ${middlewareEntries.length} middleware module${middlewareEntries.length === 1 ? "" : "s"}.`,
         ),
       );
+      collectMiddlewareExportChecks(checks, manifestPath, middlewareEntries);
     }
 
     const missingModules = relativeModules
@@ -137,6 +140,189 @@ export function collectManifestVerification(
     project,
     checks,
     relativeModules.map((modulePath) => resolve(dirname(manifestPath), modulePath)),
+  );
+}
+
+/**
+ * Whether `source` exports a binding *named* `middleware`.
+ *
+ * Comments and string literals are masked first, and the `export { … }` clause
+ * is read for the exported name rather than pattern-matched: `export
+ * { middleware as default }` mentions the word but exports nothing called
+ * `middleware`, and that is exactly the mistake this check exists to catch.
+ * A re-export (`export * from`) is treated as a match because its names cannot
+ * be known without resolving the other module — better to miss one than to
+ * fail a working app.
+ */
+/**
+ * Whether a destructuring pattern binds a variable named `middleware`.
+ *
+ * `{ middleware }` and `[middleware]` do; `{ middleware: mw }` binds `mw`, and
+ * `{ mw: middleware }` binds `middleware`. Renames are the whole point, so the
+ * check reads which side of the `:` each name sits on.
+ */
+function bindsMiddleware(pattern: string): boolean {
+  const parts = splitTopLevel(pattern.slice(1, -1));
+
+  if (pattern.startsWith("[")) {
+    return parts.some((element) => bindsName(element));
+  }
+
+  return parts.some((property) => {
+    const separator = topLevelIndexOf(property, ":");
+    // `{ auth: { middleware } }` binds `middleware`; `{ middleware: { inner } }`
+    // does not. Only the value side can bind, so only it is inspected.
+    return bindsName(separator === -1 ? property : property.slice(separator + 1));
+  });
+}
+
+function bindsName(text: string): boolean {
+  const bound = text
+    .trim()
+    .replace(/^\.\.\./, "")
+    .replace(/\s*=.*$/, "")
+    .trim();
+  if (bound.startsWith("{") || bound.startsWith("[")) return bindsMiddleware(bound);
+  return bound === "middleware";
+}
+
+/** Split on commas that are not inside a nested `{}` / `[]` / `()`. */
+function splitTopLevel(text: string): string[] {
+  const parts: string[] = [];
+  let depth = 0;
+  let start = 0;
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+    if (char === "{" || char === "[" || char === "(") depth += 1;
+    else if (char === "}" || char === "]" || char === ")") depth -= 1;
+    else if (char === "," && depth === 0) {
+      parts.push(text.slice(start, index));
+      start = index + 1;
+    }
+  }
+  parts.push(text.slice(start));
+  return parts;
+}
+
+/** Index of the first `needle` at nesting depth 0, or -1. */
+function topLevelIndexOf(text: string, needle: string): number {
+  let depth = 0;
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+    if (char === "{" || char === "[" || char === "(") depth += 1;
+    else if (char === "}" || char === "]" || char === ")") depth -= 1;
+    else if (char === needle && depth === 0) return index;
+  }
+  return -1;
+}
+
+/**
+ * Every destructuring pattern in an `export const|let|var` declaration.
+ *
+ * Scanned with a delimiter counter rather than a regex: a non-greedy match
+ * stops at the first `}`, truncating a nested pattern
+ * (`{ auth: { middleware } }`), and the optional type annotation between the
+ * pattern and `=` is easier to skip explicitly than to express.
+ */
+function destructuredExportPatterns(code: string): string[] {
+  const patterns: string[] = [];
+
+  for (const match of code.matchAll(/export\s+(?:const|let|var)\s*(?=[{[])/g)) {
+    const open = (match.index ?? 0) + match[0].length;
+    const close = matchingDelimiter(code, open);
+    if (close === -1) continue;
+
+    // Skip an optional `: Type` annotation, then require the `=` that makes
+    // this a declaration.
+    if (!/^\s*(?::[^=]*)?=/.test(code.slice(close + 1))) continue;
+
+    patterns.push(code.slice(open, close + 1));
+  }
+
+  return patterns;
+}
+
+/** Index of the delimiter closing the one at `open`, or -1. */
+function matchingDelimiter(code: string, open: number): number {
+  let depth = 0;
+  for (let index = open; index < code.length; index += 1) {
+    const char = code[index];
+    if (char === "{" || char === "[" || char === "(") depth += 1;
+    else if (char === "}" || char === "]" || char === ")") {
+      depth -= 1;
+      if (depth === 0) return index;
+    }
+  }
+  return -1;
+}
+
+export function exportsMiddleware(source: string): boolean {
+  const code = maskCommentsAndStrings(source);
+
+  // export const/let/var/function/async function middleware
+  if (/export\s+(?:async\s+)?(?:function|const|let|var)\s+middleware\b/.test(code)) return true;
+
+  // export const { middleware } = …  /  export const [middleware] = …
+  // The *bound* name has to be `middleware`: `{ middleware: mw }` binds `mw`
+  // and exports nothing called `middleware`, the same trap as
+  // `export { middleware as default }`.
+  for (const pattern of destructuredExportPatterns(code)) {
+    if (bindsMiddleware(pattern)) return true;
+  }
+
+  // Names cannot be resolved without the other module; assume the best.
+  if (/export\s*\*\s*from/.test(code)) return true;
+
+  for (const clause of code.matchAll(/export\s*\{([^}]*)\}/g)) {
+    for (const specifier of clause[1].split(",")) {
+      const parts = specifier.trim().split(/\s+as\s+/);
+      if (parts.length === 0 || parts[0] === "") continue;
+      // `a as b` exports `b`; a bare `a` exports `a`.
+      const exported = (parts.length > 1 ? parts[parts.length - 1] : parts[0]).trim();
+      if (exported === "middleware") return true;
+    }
+  }
+
+  return false;
+}
+
+/**
+ * A registered middleware module that does not export `middleware` used to be
+ * skipped at runtime, so an auth gate could be wired in the manifest and
+ * absent in production while every check here passed. The runtime now refuses
+ * to serve such a route; this check reports the same mistake before a request
+ * ever reaches it.
+ */
+function collectMiddlewareExportChecks(
+  checks: Check[],
+  manifestPath: string,
+  entries: { name: string; path: string }[],
+): void {
+  const manifestDir = dirname(manifestPath);
+  const missing: string[] = [];
+
+  for (const entry of entries) {
+    const file = resolve(manifestDir, entry.path);
+    if (!existsSync(file)) continue; // already reported by the module-path check
+    if (!exportsMiddleware(readFileSync(file, "utf-8"))) {
+      missing.push(`${entry.name} (${entry.path})`);
+    }
+  }
+
+  if (missing.length === 0) {
+    checks.push(
+      createCheck("ok", `All ${entries.length} middleware module(s) export \`middleware\`.`),
+    );
+    return;
+  }
+
+  checks.push(
+    createCheck(
+      "error",
+      `Middleware module(s) without a \`middleware\` export: ${missing.join(", ")}. ` +
+        "Middleware must `export const middleware: MiddlewareFn = (args, next) => …` " +
+        "(a default export is not used); routes referencing them fail at request time.",
+    ),
   );
 }
 
@@ -552,7 +738,44 @@ export function collectPackageChecks(
     );
   }
 
+  collectCapabilitiesDependencyCheck(project, deps, checks);
   collectCloudflareEntryCheck(project, dirname(packageJsonPath), checks);
+}
+
+/**
+ * Capability modules import `defineCapability` from `@pracht/capabilities`,
+ * which is a separate package the app has to install. Without it the registry
+ * fails to resolve at request time (`internal_error`) and — more confusingly —
+ * every capability's metadata reads as unknown, so the dev banner and
+ * `pracht inspect capabilities` report exposed capabilities as `private` with
+ * no effect class.
+ */
+function collectCapabilitiesDependencyCheck(
+  project: ProjectConfig,
+  deps: Record<string, string>,
+  checks: Check[],
+): void {
+  if (project.mode !== "manifest") return;
+
+  const manifestPath = resolveProjectPath(project.root, project.appFile);
+  if (!existsSync(manifestPath)) return;
+  const entries = extractRegistryEntries(readFileSync(manifestPath, "utf-8"), "capabilities");
+  if (entries.length === 0) return;
+
+  if ("@pracht/capabilities" in deps) {
+    checks.push(createCheck("ok", 'Found capability dependency "@pracht/capabilities".'));
+    return;
+  }
+
+  checks.push(
+    createCheck(
+      "error",
+      "The app registers capabilities but `@pracht/capabilities` is not in package.json. " +
+        "Install it (`npm install @pracht/capabilities`) — without it capability dispatch " +
+        "answers 500 at runtime and capability metadata reads as private/unknown in the dev " +
+        "banner and `pracht inspect capabilities`.",
+    ),
+  );
 }
 
 /**

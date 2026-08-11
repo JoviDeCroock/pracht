@@ -28,6 +28,8 @@ import { resolveProjectPath, type ProjectConfig } from "./project.js";
 /** The subset of the app-graph capability entry this check compares. */
 export interface GraphCapabilityExposure {
   effect: string | null;
+  /** Set when the module could not be executed; see the skip below. */
+  error?: string | null;
   httpPath: string | null;
   name: string;
   source: string;
@@ -62,12 +64,11 @@ export function assertCapabilityProjectionsAgree(
       : resolve(manifestDir, capability.source);
     if (!existsSync(filePath)) continue;
 
-    // serializeCapabilities() uses a null effect to retain a graph entry when
-    // its module failed to load. That is a wiring failure for verify/doctor to
-    // report, not projection drift; comparing its other null fallback fields
-    // against valid source text would hide the real cause behind an unrelated
-    // instruction to inline expose/effect.
-    if (capability.effect === null) continue;
+    // A capability whose module failed to load is a wiring failure for
+    // verify/doctor to report, not projection drift — and its metadata now
+    // comes from this very extractor, so comparing it against the source would
+    // only ever compare the extractor with itself.
+    if (capability.error != null) continue;
 
     let projection: CapabilityProjection;
     try {
