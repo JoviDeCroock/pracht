@@ -32,6 +32,7 @@ import {
   collectDuplicateRoutePaths,
   describePagesFile,
   scanPagesDirectory,
+  type PagesFile,
   type PagesRoute,
 } from "./verification-pages.js";
 
@@ -526,6 +527,8 @@ export function collectPagesVerification(
     }
   }
 
+  collectPagesMiddlewareChecks(project, checks, pages, scope);
+
   if (scope === "full") {
     checks.push(createCheck("ok", `Found pages directory at ${project.pagesDir}.`));
 
@@ -590,6 +593,73 @@ export function collectPagesVerification(
       createCheck(
         "ok",
         `Pages router resolved ${routes.length} route${routes.length === 1 ? "" : "s"} without path collisions.`,
+      ),
+    );
+  }
+}
+
+/**
+ * Pages middleware mirrors the build's rules: exactly one root-level
+ * `_middleware.{ts,tsx,js,jsx}` that exports `middleware`. A nested file and a
+ * missing export are both fail-open shapes — the file looks like an auth gate
+ * while the build ignores it or the runtime refuses to serve — so they are
+ * errors in both scopes, exactly like the REVALIDATE checks above.
+ */
+function collectPagesMiddlewareChecks(
+  project: ProjectConfig,
+  checks: Check[],
+  pages: PagesFile[],
+  scope: string,
+): void {
+  const middlewareFiles = pages.filter((page) => page.kind === "middleware");
+  const nested = middlewareFiles.filter((page) => page.nested);
+  const rootFiles = middlewareFiles.filter((page) => !page.nested);
+
+  for (const page of nested) {
+    checks.push(
+      createCheck(
+        "error",
+        `Nested pages middleware ${JSON.stringify(displayPath(project.root, page.file))} is not ` +
+          "supported. Only a root-level `_middleware.ts` in the pages directory is applied (it " +
+          "runs on every page route). Move the logic there, or eject to an explicit manifest " +
+          "for per-group middleware.",
+      ),
+    );
+  }
+
+  if (rootFiles.length > 1) {
+    checks.push(
+      createCheck(
+        "error",
+        `Multiple pages middleware files resolve to the same registration: ${rootFiles
+          .map((page) => JSON.stringify(displayPath(project.root, page.file)))
+          .join(", ")}. Keep exactly one root-level \`_middleware\` file.`,
+      ),
+    );
+    return;
+  }
+
+  const middleware = rootFiles[0];
+  if (!middleware) return;
+
+  if (!exportsMiddleware(readFileSync(middleware.file, "utf-8"))) {
+    checks.push(
+      createCheck(
+        "error",
+        `Pages middleware ${JSON.stringify(displayPath(project.root, middleware.file))} does not ` +
+          "export `middleware`. It must `export const middleware: MiddlewareFn = (args, next) " +
+          "=> …` (a default export is not used); page routes fail at request time.",
+      ),
+    );
+    return;
+  }
+
+  if (scope === "full") {
+    checks.push(
+      createCheck(
+        "ok",
+        "Found pages middleware `_middleware`; it runs on every page route (API routes are " +
+          "not wrapped).",
       ),
     );
   }
@@ -667,6 +737,20 @@ function collectChangedPagesChecks(
           `Changed pages shell ${JSON.stringify(display)} will wrap auto-discovered routes.`,
         ),
       );
+      continue;
+    }
+
+    if (page.kind === "middleware") {
+      // A nested file is reported as an error by the middleware checks that
+      // run in every scope; only the working shape gets an ok here.
+      if (!page.nested) {
+        checks.push(
+          createCheck(
+            "ok",
+            `Changed pages middleware ${JSON.stringify(display)} runs on every page route.`,
+          ),
+        );
+      }
       continue;
     }
 

@@ -20,6 +20,10 @@ export const routes = [
     path: "/blog/:slug",
   },
   {
+    id: "legacy",
+    path: "/legacy",
+  },
+  {
     id: "pricing",
     path: "/pricing",
   },

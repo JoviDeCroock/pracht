@@ -309,10 +309,10 @@ export function createPrachtMcpServer(): McpServer {
     "generate_middleware",
     {
       description:
-        "Scaffold a pracht middleware function and register it in the app manifest (manifest apps only). Returns the files created and updated.",
+        "Scaffold a pracht middleware function and register it in the app manifest (manifest apps), or scaffold the root src/pages/_middleware.ts applied to every page route (pages apps; name must be `_middleware`). Returns the files created and updated.",
       inputSchema: {
         ...cwdInput,
-        name: z.string().describe("Middleware name, e.g. auth"),
+        name: z.string().describe("Middleware name, e.g. auth (manifest) or _middleware (pages)"),
       },
     },
     guard(({ cwd, name }) => {

@@ -203,6 +203,72 @@ export const app = defineApp({
     },
   );
 
+  it.each(["doctor", "verify"])("accepts a root pages _middleware in %s", (command) => {
+    const appDir = createTempDir(`pracht-cli-${command}-pages-middleware-ok-`);
+    writePagesApp(appDir);
+    writeProjectFile(appDir, "src/pages/index.tsx", "export function Component() { return null; }");
+    writeProjectFile(
+      appDir,
+      "src/pages/_middleware.ts",
+      `import type { MiddlewareFn } from "@pracht/core";
+
+export const middleware: MiddlewareFn = async (_args, next) => next();
+`,
+    );
+
+    const result = runCli([command, "--json"], { cwd: appDir });
+    const report = JSON.parse(result.stdout);
+    expect(report.ok).toBe(true);
+    expect(report.checks.some((check) => check.message.includes("Found pages middleware"))).toBe(
+      true,
+    );
+  });
+
+  it.each(["doctor", "verify"])(
+    "fails %s when pages _middleware does not export middleware",
+    (command) => {
+      const appDir = createTempDir(`pracht-cli-${command}-pages-middleware-export-`);
+      writePagesApp(appDir);
+      writeProjectFile(
+        appDir,
+        "src/pages/index.tsx",
+        "export function Component() { return null; }",
+      );
+      writeProjectFile(
+        appDir,
+        "src/pages/_middleware.ts",
+        "export default async (_args, next) => next();",
+      );
+
+      const result = runCliStatus([command, "--json"], { cwd: appDir });
+      expect(result.status).toBe(1);
+      const report = JSON.parse(result.stdout);
+      expect(report.ok).toBe(false);
+      expect(
+        report.checks.some((check) => check.message.includes("does not export `middleware`")),
+      ).toBe(true);
+    },
+  );
+
+  it("fails doctor for nested pages _middleware files", () => {
+    const appDir = createTempDir("pracht-cli-doctor-pages-middleware-nested-");
+    writePagesApp(appDir);
+    writeProjectFile(appDir, "src/pages/index.tsx", "export function Component() { return null; }");
+    writeProjectFile(
+      appDir,
+      "src/pages/admin/_middleware.ts",
+      "export const middleware = async (_args, next) => next();",
+    );
+
+    const result = runCliStatus(["doctor", "--json"], { cwd: appDir });
+    expect(result.status).toBe(1);
+    const report = JSON.parse(result.stdout);
+    expect(report.ok).toBe(false);
+    expect(report.checks.some((check) => check.message.includes("Nested pages middleware"))).toBe(
+      true,
+    );
+  });
+
   it("reads an inline pagesDefaultRender as a render mode rather than a path", () => {
     const appDir = createTempDir("pracht-cli-doctor-pages-default-isg-");
     writePagesApp(appDir);
