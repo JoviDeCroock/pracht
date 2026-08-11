@@ -163,8 +163,11 @@ of the suite keep it fast, and both are easy to regress:
 - **E2E worker count is derived, not fixed.** `playwright.config.ts` sizes
   workers from `cpus()` (capped at 8) and drops to 4 on CI. The four dev servers
   are shared across projects, so workers are the scaling knob, not servers.
-  Specs that bind a fixed port (`node-build`, `islands-build`) must keep using
-  distinct ports as parallelism rises.
+  Each suite leases its own port block, and each dev-server child keeps Vite's
+  optimizer cache below that lease so concurrent suites never write the same
+  `node_modules/.vite` directory. Build specs that mutate `dist/`, `.vercel/`,
+  or fixture source must copy the example into a per-test `.tmp` project first
+  and remove it in `finally`; production-server specs ask the OS for a port.
 - **E2E timeouts bound hangs, not latency.** The per-test and dev-server-boot
   budgets are deliberately generous. Timing-sensitive specs (pending navigation
   state, hover prefetch) assert on ordering and request counts, so a tight

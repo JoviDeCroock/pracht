@@ -109,13 +109,20 @@ Custom setups can call `setServerEnv(env)` (exported from
 
 ## `.env` files
 
-`pracht dev` loads `.env` files into `process.env` before starting, so a
-server-only secret written to `.env` reaches loaders, middleware, API routes,
-and `serverEnv` — the same thing wrangler does for Cloudflare apps. Real
-environment variables always win over the file, and `.env.local` beats
-`.env.development` beats `.env`. `NODE_ENV` is never taken from the file: Vite
-refuses `NODE_ENV=production` there on purpose, and the dev server is always
-mode `development`.
+`pracht dev` loads `.env` files into `process.env` before starting, so in
+process-based runtimes a server-only secret written to `.env` reaches loaders,
+middleware, API routes, and `serverEnv`. Real environment variables always win
+over the file. For the development mode, `.env.development.local` beats
+`.env.development`, which beats `.env.local`, which beats `.env`. `NODE_ENV` is
+never taken from the file: Vite refuses `NODE_ENV=production` there on purpose,
+and the dev server is always mode `development`.
+
+Cloudflare Worker bindings belong to Wrangler rather than the host process.
+For `pracht preview` (which delegates to `wrangler dev`), put local-only
+bindings such as `PRACHT_CONFIRMATION_SECRET` and
+`PRACHT_REVALIDATE_TOKEN` in a gitignored `.dev.vars`. Prefixing the host
+command with those variables does not automatically expose them on the
+Worker's `env` binding. Use `wrangler secret` for production values.
 
 `pracht verify` and `pracht doctor` deliberately do **not** read `.env`. They
 report on the environment a deployment will have, so a destructive capability
@@ -127,9 +134,12 @@ Vite's own `.env` handling is separate and unchanged: it only exposes
 writes to `process.env`. That is why an unprefixed key in `.env` was previously
 invisible to server code.
 
-`pracht build` and the production server do **not** read `.env` — a deployed
-app's environment belongs to the platform. Set real environment variables (or
-Cloudflare secrets / Vercel environment variables) there.
+`pracht build` does not copy unprefixed `.env` values into `process.env`, and
+the production server does not load local files. Server-only deployment values
+therefore belong in the platform environment (or Cloudflare/Vercel secrets).
+Vite still loads `PRACHT_PUBLIC_`/`VITE_` values from `.env` at build time as
+described above, because those values are intentionally compiled into the
+client bundle.
 
 ## Client-leak detection
 

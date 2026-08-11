@@ -50,8 +50,10 @@ export {
 export {
   buildAppGraph,
   detectApiExports,
+  detectApiExportsStatic,
   detectApiMethods,
   serializeApiRoutes,
+  serializeApiRoutesStatic,
   serializeAppRoutes,
   serializeCapabilities,
 } from "./app-graph.ts";
@@ -61,7 +63,10 @@ export type {
   AppGraphApiRoute,
   AppGraphCapability,
   AppGraphModuleAccess,
+  AppGraphStaticModuleAccess,
   AppGraphRoute,
+  SerializeApiRoutesOptions,
+  SerializeCapabilitiesOptions,
 } from "./app-graph.ts";
 export {
   capabilityHttpPath,

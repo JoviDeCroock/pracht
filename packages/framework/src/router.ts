@@ -3,7 +3,7 @@ import { hydrate, render } from "preact";
 import { useContext, useLayoutEffect, useMemo, useState } from "preact/hooks";
 import type { FunctionComponent } from "preact";
 
-import { buildHref, matchResolvedRoute } from "./route-matching.ts";
+import { buildHrefUntyped, matchResolvedRoute } from "./route-matching.ts";
 import {
   decodeFragmentId,
   findFragmentTarget,
@@ -40,6 +40,7 @@ import type {
   RouteMatch,
   RouteParams,
   RouteTarget,
+  UntypedRouteTarget,
 } from "./types.ts";
 import {
   fetchPrachtRouteState,
@@ -450,14 +451,17 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
     };
   }
 
-  async function navigate(to: string | RouteTarget, opts?: InternalNavigateOptions): Promise<void> {
+  async function navigate(
+    to: string | UntypedRouteTarget,
+    opts?: InternalNavigateOptions,
+  ): Promise<void> {
     const navigationId = ++latestNavigationId;
     activeNavigationAbort?.abort();
     const abortController = new AbortController();
     activeNavigationAbort = abortController;
 
     const navigationTarget =
-      typeof to === "string" ? to : buildHref(app.routes, to.route, to as never);
+      typeof to === "string" ? to : buildHrefUntyped(app.routes, to.route, to);
     const target = resolveBrowserRouteTarget(navigationTarget);
     if (!target) {
       const safeUrl = parseSafeNavigationUrl(navigationTarget, window.location.href);

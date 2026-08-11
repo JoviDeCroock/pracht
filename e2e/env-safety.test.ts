@@ -5,6 +5,8 @@ import { fileURLToPath } from "node:url";
 
 import { expect, test } from "@playwright/test";
 
+import { fixtureCopyFilter } from "./fixture-copy.ts";
+
 // Coverage for the env safety feature — builds a copy of examples/basic with a
 // route component that references a non-public env var and asserts the client
 // build fails naming the variable, then that the envSafety allowlist escape
@@ -21,38 +23,36 @@ function prepareLeakyProject(): { tempDir: string; exampleDir: string } {
   const tempDir = mkdtempSync(resolve(tempRoot, "pracht-env-safety-"));
   const exampleDir = resolve(tempDir, "project");
 
-  cpSync(fixtureDir, exampleDir, {
-    filter(source) {
-      return ![".vercel", "dist", "test-results"].some((entry) =>
-        source.includes(`/examples/basic/${entry}`),
-      );
-    },
-    recursive: true,
-  });
+  try {
+    cpSync(fixtureDir, exampleDir, { filter: fixtureCopyFilter(fixtureDir), recursive: true });
 
-  writeFileSync(
-    resolve(exampleDir, "src/routes/env-leak.tsx"),
-    [
-      `export function Component() {`,
-      `  return <p>{process.env.${LEAKED_ENV_VAR}}</p>;`,
-      `}`,
-      ``,
-    ].join("\n"),
-    "utf-8",
-  );
+    writeFileSync(
+      resolve(exampleDir, "src/routes/env-leak.tsx"),
+      [
+        `export function Component() {`,
+        `  return <p>{process.env.${LEAKED_ENV_VAR}}</p>;`,
+        `}`,
+        ``,
+      ].join("\n"),
+      "utf-8",
+    );
 
-  const routesPath = resolve(exampleDir, "src/routes.ts");
-  const routesSource = readFileSync(routesPath, "utf-8");
-  writeFileSync(
-    routesPath,
-    routesSource.replace(
-      'route("/", () => import("./routes/home.tsx"), { id: "home", render: "ssg" }),',
-      `route("/", () => import("./routes/home.tsx"), { id: "home", render: "ssg" }),\n      route("/env-leak", () => import("./routes/env-leak.tsx"), { id: "env-leak", render: "ssr" }),`,
-    ),
-    "utf-8",
-  );
+    const routesPath = resolve(exampleDir, "src/routes.ts");
+    const routesSource = readFileSync(routesPath, "utf-8");
+    writeFileSync(
+      routesPath,
+      routesSource.replace(
+        'route("/", () => import("./routes/home.tsx"), { id: "home", render: "ssg" }),',
+        `route("/", () => import("./routes/home.tsx"), { id: "home", render: "ssg" }),\n      route("/env-leak", () => import("./routes/env-leak.tsx"), { id: "env-leak", render: "ssr" }),`,
+      ),
+      "utf-8",
+    );
 
-  return { tempDir, exampleDir };
+    return { tempDir, exampleDir };
+  } catch (error) {
+    rmSync(tempDir, { force: true, recursive: true });
+    throw error;
+  }
 }
 
 function runBuild(exampleDir: string): void {

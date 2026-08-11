@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdtemp, readFile, readlink } from "node:fs/promises";
+import { mkdtemp, readFile, readlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -9,6 +9,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   ValidationError,
   getPackageManager,
+  getPnpmMajor,
   initGitRepository,
   parseArgs,
   run,
@@ -29,6 +30,12 @@ describe("create-pracht", () => {
     expect(getPackageManager("yarn/4.7.0 npm/? node/? darwin x64")).toBe("yarn");
     expect(getPackageManager("bun/1.2.0 npm/? node/? darwin x64")).toBe("bun");
     expect(getPackageManager("npm/10.9.0 node/v22.0.0 darwin x64")).toBe("npm");
+  });
+
+  it("detects the pnpm policy generation lane from the user agent", () => {
+    expect(getPnpmMajor("pnpm/10.0.0 npm/? node/? darwin x64")).toBe(10);
+    expect(getPnpmMajor("pnpm/11.3.0 npm/? node/? darwin x64")).toBe(11);
+    expect(getPnpmMajor("pnpm/future")).toBe(11);
   });
 
   it("scaffolds a node starter", async () => {
@@ -63,6 +70,7 @@ describe("create-pracht", () => {
       "@pracht/cli": "^1.9.0",
       "@pracht/vite-plugin": "^0.7.6",
     });
+    expect(parsedPackageJson.pnpm).toBeUndefined();
     expect(packageJson).toContain('"preview": "pracht preview"');
     expect(packageJson).toContain('"start": "node dist/server/server.js"');
     expect(packageJson).toContain('"typecheck": "tsc --noEmit"');
@@ -87,6 +95,10 @@ describe("create-pracht", () => {
     expect(routes).toContain("// constraints: [");
     expect(routes).toContain('//   requireHead("**"),');
     expect(existsSync(join(targetDir, "wrangler.jsonc"))).toBe(false);
+    const pnpmWorkspace = await readFile(join(targetDir, "pnpm-workspace.yaml"), "utf-8");
+    expect(pnpmWorkspace).toContain('  - "."');
+    expect(pnpmWorkspace).toContain("allowBuilds:");
+    expect(pnpmWorkspace).toContain('  "esbuild": true');
 
     const dockerfile = await readFile(join(targetDir, "Dockerfile"), "utf-8");
     const dockerignore = await readFile(join(targetDir, ".dockerignore"), "utf-8");
@@ -169,7 +181,10 @@ describe("create-pracht", () => {
     });
 
     const packageJson = await readFile(join(targetDir, "package.json"), "utf-8");
+    const parsedPackageJson = JSON.parse(packageJson);
     const wranglerConfig = await readFile(join(targetDir, "wrangler.jsonc"), "utf-8");
+    const pnpmWorkspace = await readFile(join(targetDir, "pnpm-workspace.yaml"), "utf-8");
+    const readme = await readFile(join(targetDir, "README.md"), "utf-8");
 
     expect(packageJson).toMatch(/"@pracht\/cli": "\^\d+\.\d+\.\d+"/);
     expect(packageJson).toMatch(/"@pracht\/adapter-cloudflare": "\^\d+\.\d+\.\d+"/);
@@ -190,6 +205,14 @@ describe("create-pracht", () => {
     expect(existsSync(join(targetDir, "wrangler.jsonc"))).toBe(true);
     expect(existsSync(join(targetDir, "Dockerfile"))).toBe(false);
     expect(existsSync(join(targetDir, ".dockerignore"))).toBe(false);
+    expect(parsedPackageJson.pnpm).toBeUndefined();
+    expect(pnpmWorkspace).toContain('  - "."');
+    expect(pnpmWorkspace).toContain("allowBuilds:");
+    expect(pnpmWorkspace).toContain('  "esbuild": true');
+    expect(pnpmWorkspace).toContain('  "workerd": true');
+    expect(readme).toContain(
+      "`pnpm-workspace.yaml#allowBuilds` allows only the dependency build scripts required by this starter.",
+    );
 
     const tsconfig = await readFile(join(targetDir, "tsconfig.json"), "utf-8");
     expect(tsconfig).toMatchInlineSnapshot(`
@@ -275,7 +298,9 @@ describe("create-pracht", () => {
     });
 
     const packageJson = await readFile(join(targetDir, "package.json"), "utf-8");
+    const parsedPackageJson = JSON.parse(packageJson);
     const readme = await readFile(join(targetDir, "README.md"), "utf-8");
+    const pnpmWorkspace = await readFile(join(targetDir, "pnpm-workspace.yaml"), "utf-8");
 
     expect(packageJson).toMatch(/"@pracht\/adapter-vercel": "\^\d+\.\d+\.\d+"/);
     expect(packageJson).toMatch(/"vercel": "\^\d+\.\d+\.\d+"/);
@@ -288,6 +313,14 @@ describe("create-pracht", () => {
     expect(existsSync(join(targetDir, "wrangler.jsonc"))).toBe(false);
     expect(existsSync(join(targetDir, "Dockerfile"))).toBe(false);
     expect(existsSync(join(targetDir, ".dockerignore"))).toBe(false);
+    expect(parsedPackageJson.pnpm).toBeUndefined();
+    expect(pnpmWorkspace).toContain('  - "."');
+    expect(pnpmWorkspace).toContain("allowBuilds:");
+    expect(pnpmWorkspace).toContain('  "esbuild": true');
+    expect(pnpmWorkspace).not.toContain("workerd");
+    expect(readme).toContain(
+      "`pnpm-workspace.yaml#allowBuilds` allows only the dependency build scripts required by this starter.",
+    );
 
     const tsconfig = await readFile(join(targetDir, "tsconfig.json"), "utf-8");
     expect(tsconfig).toMatchInlineSnapshot(`
@@ -350,6 +383,220 @@ describe("create-pracht", () => {
     expect(agents).toContain("src/pages/");
   });
 
+  it("seeds pnpm edge build policy for every router and template permutation", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pracht-start-pnpm-edge-policy-"));
+
+    for (const adapter of [
+      {
+        description: "Cloudflare Workers with wrangler deploy",
+        id: "cloudflare",
+        label: "Cloudflare Workers",
+        packageName: "@pracht/adapter-cloudflare",
+        short: "cf",
+      },
+      {
+        description: "Vercel Edge Functions with prebuilt deploy",
+        id: "vercel",
+        label: "Vercel",
+        packageName: "@pracht/adapter-vercel",
+        short: "vercel",
+      },
+    ]) {
+      for (const router of ["manifest", "pages"]) {
+        for (const tailwind of [false, true]) {
+          for (const pnpmMajor of [10, 11]) {
+            const targetDir = join(
+              root,
+              `${adapter.id}-${router}-${tailwind ? "tailwind" : "minimal"}-pnpm${pnpmMajor}`,
+            );
+            await scaffoldProject({
+              adapter,
+              agentTools: false,
+              packageManager: "pnpm",
+              pnpmMajor,
+              resolveRemoteVersions: false,
+              router,
+              tailwind,
+              targetDir,
+            });
+
+            const packageJson = JSON.parse(
+              await readFile(join(targetDir, "package.json"), "utf-8"),
+            );
+            const requiredBuilds = [
+              ...(tailwind ? ["@tailwindcss/oxide"] : []),
+              "esbuild",
+              ...(adapter.id === "cloudflare" ? ["workerd"] : []),
+            ];
+
+            expect(packageJson.pnpm).toBeUndefined();
+            const workspace = await readFile(join(targetDir, "pnpm-workspace.yaml"), "utf-8");
+            expect(workspace).toContain('  - "."');
+
+            if (pnpmMajor === 10) {
+              expect(workspace).toContain("onlyBuiltDependencies:");
+              expect(workspace).not.toContain("allowBuilds:");
+              for (const dependency of requiredBuilds) {
+                expect(workspace).toContain(`  - ${JSON.stringify(dependency)}`);
+              }
+            } else {
+              expect(workspace).toContain("allowBuilds:");
+              expect(workspace).not.toContain("onlyBuiltDependencies:");
+              for (const dependency of requiredBuilds) {
+                expect(workspace).toContain(`  ${JSON.stringify(dependency)}: true`);
+              }
+            }
+          }
+        }
+      }
+    }
+  });
+
+  it("keeps the inert standalone pnpm policy for other package managers", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pracht-start-non-pnpm-edge-policy-"));
+
+    for (const packageManager of ["npm", "yarn", "bun"]) {
+      const targetDir = join(root, `${packageManager}-cf-app`);
+      await scaffoldProject({
+        adapter: {
+          description: "Cloudflare Workers with wrangler deploy",
+          id: "cloudflare",
+          label: "Cloudflare Workers",
+          packageName: "@pracht/adapter-cloudflare",
+          short: "cf",
+        },
+        agentTools: false,
+        packageManager,
+        resolveRemoteVersions: false,
+        targetDir,
+      });
+
+      const packageJson = JSON.parse(await readFile(join(targetDir, "package.json"), "utf-8"));
+      expect(packageJson.pnpm).toBeUndefined();
+      const workspace = await readFile(join(targetDir, "pnpm-workspace.yaml"), "utf-8");
+      expect(workspace).toContain('  - "."');
+      expect(workspace).toContain("allowBuilds:");
+      expect(workspace).toContain('  "esbuild": true');
+    }
+  });
+
+  it.each([10, 11])("keeps pnpm %i policy at a covering ancestor workspace", async (pnpmMajor) => {
+    const root = await mkdtemp(join(tmpdir(), `pracht-start-ancestor-pnpm${pnpmMajor}-`));
+    await writeFile(join(root, "pnpm-workspace.yaml"), 'packages:\n  - "apps/*"\n', "utf-8");
+    const targetDir = join(root, "apps", "my-cf-app");
+
+    const { pnpmWorkspaceNotice } = await scaffoldProject({
+      adapter: {
+        description: "Cloudflare Workers with wrangler deploy",
+        id: "cloudflare",
+        label: "Cloudflare Workers",
+        packageName: "@pracht/adapter-cloudflare",
+        short: "cf",
+      },
+      agentTools: false,
+      packageManager: "pnpm",
+      pnpmMajor,
+      resolveRemoteVersions: false,
+      tailwind: true,
+      targetDir,
+    });
+
+    expect(existsSync(join(targetDir, "pnpm-workspace.yaml"))).toBe(false);
+    expect(pnpmWorkspaceNotice).toEqual({
+      packages: ["@tailwindcss/oxide", "esbuild", "workerd"],
+      policy: pnpmMajor === 10 ? "onlyBuiltDependencies" : "allowBuilds",
+      root,
+    });
+    const readme = await readFile(join(targetDir, "README.md"), "utf-8");
+    expect(readme).toContain(
+      `Add the listed dependencies to its \`${pnpmWorkspaceNotice.policy}\` block`,
+    );
+    expect(readme).toContain("no nested `pnpm-workspace.yaml` is generated");
+  });
+
+  it("creates a standalone policy when an ancestor workspace does not cover the app", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pracht-start-uncovered-workspace-"));
+    await writeFile(join(root, "pnpm-workspace.yaml"), 'packages:\n  - "apps/*"\n', "utf-8");
+    const targetDir = join(root, "tools", "my-cf-app");
+
+    const { pnpmWorkspaceNotice } = await scaffoldProject({
+      adapter: {
+        description: "Cloudflare Workers with wrangler deploy",
+        id: "cloudflare",
+        label: "Cloudflare Workers",
+        packageName: "@pracht/adapter-cloudflare",
+        short: "cf",
+      },
+      agentTools: false,
+      packageManager: "pnpm",
+      pnpmMajor: 10,
+      resolveRemoteVersions: false,
+      targetDir,
+    });
+
+    expect(pnpmWorkspaceNotice).toBeNull();
+    const workspace = await readFile(join(targetDir, "pnpm-workspace.yaml"), "utf-8");
+    expect(workspace).toContain("onlyBuiltDependencies:");
+    expect(workspace).toContain('  - "esbuild"');
+    expect(workspace).toContain('  - "workerd"');
+  });
+
+  it.each([
+    ["./apps/*", join("apps", "demo")],
+    ["apps/**/web", join("apps", "web")],
+    ["apps/**/web", join("apps", "team", "web")],
+    ["./apps/**/web", join("apps", "team", "web")],
+    ["**/web", join("apps", "team", "web")],
+  ])("recognizes a covering ancestor workspace glob %s", async (glob, relativeTarget) => {
+    const root = await mkdtemp(join(tmpdir(), "pracht-start-covered-double-star-"));
+    await writeFile(join(root, "pnpm-workspace.yaml"), `packages:\n  - ${JSON.stringify(glob)}\n`);
+    const targetDir = join(root, relativeTarget);
+
+    const { pnpmWorkspaceNotice } = await scaffoldProject({
+      adapter: {
+        description: "Cloudflare Workers with wrangler deploy",
+        id: "cloudflare",
+        label: "Cloudflare Workers",
+        packageName: "@pracht/adapter-cloudflare",
+        short: "cf",
+      },
+      agentTools: false,
+      packageManager: "pnpm",
+      pnpmMajor: 11,
+      resolveRemoteVersions: false,
+      targetDir,
+    });
+
+    expect(pnpmWorkspaceNotice?.root).toBe(root);
+    expect(existsSync(join(targetDir, "pnpm-workspace.yaml"))).toBe(false);
+  });
+
+  it("does not let a mid-pattern ** cover a non-matching suffix", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pracht-start-uncovered-double-star-"));
+    await writeFile(join(root, "pnpm-workspace.yaml"), 'packages:\n  - "./apps/**/web"\n');
+    const targetDir = join(root, "apps", "team", "other");
+
+    const { pnpmWorkspaceNotice } = await scaffoldProject({
+      adapter: {
+        description: "Cloudflare Workers with wrangler dev",
+        id: "cloudflare",
+        label: "Cloudflare Workers",
+        packageName: "@pracht/adapter-cloudflare",
+        short: "cf",
+      },
+      agentTools: false,
+      packageManager: "pnpm",
+      pnpmMajor: 11,
+      resolveRemoteVersions: false,
+      targetDir,
+    });
+
+    expect(pnpmWorkspaceNotice).toBeNull();
+    expect(await readFile(join(targetDir, "pnpm-workspace.yaml"), "utf-8")).toContain(
+      "allowBuilds:",
+    );
+  });
+
   it("scaffolds a tailwind starter with the manifest router", async () => {
     const root = await mkdtemp(join(tmpdir(), "pracht-start-tailwind-"));
     const targetDir = join(root, "my-tailwind-app");
@@ -377,6 +624,8 @@ describe("create-pracht", () => {
     expect(globalCss).toBe('@import "tailwindcss";\n');
     expect(shell).toContain('import "../styles/global.css";');
     expect(readme).toContain("src/styles/global.css");
+    const pnpmWorkspace = await readFile(join(targetDir, "pnpm-workspace.yaml"), "utf-8");
+    expect(pnpmWorkspace).toContain('  "@tailwindcss/oxide": true');
 
     const agents = await readFile(join(targetDir, "AGENTS.md"), "utf-8");
     expect(agents).toContain("src/styles/global.css");

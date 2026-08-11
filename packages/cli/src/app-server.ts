@@ -1,6 +1,8 @@
-import { existsSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
-import { createServer, type ViteDevServer } from "vite";
+import { createServer, type InlineConfig, type ViteDevServer } from "vite";
 import { PRACHT_GRAPH_ONLY_ENV } from "@pracht/core/server";
 
 import { loadAppMetadataModule } from "./app-graph.js";
@@ -44,40 +46,141 @@ export async function withAppServer<T>(
   // adapter-neutral by design, and adapter plugins can own resources that
   // outlive `server.close()` — `@cloudflare/vite-plugin` boots workerd and a
   // debugger socket, which used to keep every graph command running forever.
-  enterGraphOnlyMode();
+  // Vite's optimizer writes through a temporary directory and then renames it
+  // into place. Giving every graph reader its own cache prevents concurrent
+  // inspect/plan/verify processes from racing over node_modules/.vite.
+  const cacheDir = mkdtempSync(join(tmpdir(), "pracht-graph-"));
+  let server: ViteDevServer | undefined;
+  let releaseOperation: (() => void) | undefined;
 
-  let server: ViteDevServer;
   try {
-    server = await createServer({
+    const viteConfig: InlineConfig = {
+      cacheDir,
       root,
       logLevel: "silent",
-      // This server exists to evaluate one SSR module and is closed
-      // immediately; it never answers a browser request. Dependency
-      // pre-bundling is therefore pure cost — and it outlives
-      // `server.close()`, so the scan keeps writing
-      // `node_modules/.vite/deps_temp_*` after the command has moved on.
+      // This server exists to evaluate one SSR module and is closed immediately;
+      // it never answers a browser request. Dependency pre-bundling is therefore
+      // pure cost, even though plugins may still contribute explicit entries.
       optimizeDeps: {
         noDiscovery: true,
       },
       server: {
         middlewareMode: true,
       },
-    });
-  } finally {
-    exitGraphOnlyMode();
-  }
+    };
+    const releaseStartup = await acquireGraphStartup();
+    try {
+      enterGraphOnlyMode();
+      try {
+        server = await createServer(viteConfig);
+      } finally {
+        exitGraphOnlyMode();
+      }
+    } finally {
+      releaseStartup();
+    }
 
-  try {
+    // A later startup must not set the process-wide flag while this server is
+    // evaluating app metadata, API routes, or capabilities. Shared operation
+    // leases keep those phases concurrent across already-created servers while
+    // making graph-only startup the sole exclusive section.
+    releaseOperation = await acquireGraphOperation();
     const serverModule = await loadAppMetadataModule(server);
     return await fn({ project, server, serverModule });
   } finally {
-    await server.close();
+    try {
+      await server?.close();
+    } finally {
+      // The cache is disposable. A cleanup failure must not hide the app or
+      // Vite error the graph command was trying to report.
+      try {
+        rmSync(cacheDir, {
+          force: true,
+          maxRetries: 3,
+          recursive: true,
+          retryDelay: 50,
+        });
+      } catch {
+        // Best-effort cleanup of an OS-temporary directory.
+      }
+      releaseOperation?.();
+    }
   }
 }
 
+interface GraphGateWaiter {
+  kind: "operation" | "startup";
+  resolve: (release: () => void) => void;
+}
+
+let graphOperationCount = 0;
+let graphStartupActive = false;
+const graphGateQueue: GraphGateWaiter[] = [];
+
+function releaseOnce(release: () => void): () => void {
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    release();
+  };
+}
+
+function releaseGraphOperation(): void {
+  graphOperationCount -= 1;
+  if (graphOperationCount === 0) drainGraphGate();
+}
+
+function releaseGraphStartup(): void {
+  graphStartupActive = false;
+  drainGraphGate();
+}
+
+function drainGraphGate(): void {
+  if (graphStartupActive || graphOperationCount > 0 || graphGateQueue.length === 0) return;
+
+  if (graphGateQueue[0].kind === "startup") {
+    graphStartupActive = true;
+    graphGateQueue.shift()!.resolve(releaseOnce(releaseGraphStartup));
+    return;
+  }
+
+  while (graphGateQueue[0]?.kind === "operation") {
+    graphOperationCount += 1;
+    graphGateQueue.shift()!.resolve(releaseOnce(releaseGraphOperation));
+  }
+}
+
+function acquireGraphGate(kind: GraphGateWaiter["kind"]): Promise<() => void> {
+  if (
+    graphGateQueue.length === 0 &&
+    !graphStartupActive &&
+    (kind === "operation" || graphOperationCount === 0)
+  ) {
+    if (kind === "startup") {
+      graphStartupActive = true;
+      return Promise.resolve(releaseOnce(releaseGraphStartup));
+    }
+    graphOperationCount += 1;
+    return Promise.resolve(releaseOnce(releaseGraphOperation));
+  }
+
+  return new Promise((resolve) => {
+    graphGateQueue.push({ kind, resolve });
+  });
+}
+
+function acquireGraphStartup(): Promise<() => void> {
+  return acquireGraphGate("startup");
+}
+
+function acquireGraphOperation(): Promise<() => void> {
+  return acquireGraphGate("operation");
+}
+
 /**
- * Ref-counted, because the flag has to outlive *every* concurrent
- * `createServer()` call, not just the first one to finish.
+ * Startup is exclusive because the flag has to outlive the complete
+ * `createServer()` call without becoming visible to app module evaluation.
  *
  * The pracht plugin reads it while Vite bundles and evaluates the app's
  * config, which is asynchronous. Restoring as soon as one `createServer()`
@@ -87,9 +190,8 @@ export async function withAppServer<T>(
  * is the realistic trigger: it serves inspect/verify/plan/typegen from one
  * long-lived process.
  *
- * The original value is captured once, on the 0 → 1 transition, so nested or
- * overlapping calls cannot leak `"1"` into the rest of the process (and from
- * there into any child process it spawns).
+ * The original value is restored before the server receives its shared
+ * operation lease, so app modules and child processes never inherit `"1"`.
  */
 let graphOnlyDepth = 0;
 let graphOnlyPrevious: string | undefined;

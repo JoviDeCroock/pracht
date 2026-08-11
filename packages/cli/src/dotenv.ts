@@ -15,7 +15,8 @@ import { loadEnv } from "vite";
  * .env"), so the same project behaved differently per adapter.
  *
  * Real environment variables always win over the file, matching Vite, wrangler,
- * and dotenv. `.env.local` beats `.env.<mode>` beats `.env`, which `loadEnv`
+ * and dotenv. `.env.<mode>.local` beats `.env.<mode>`, which beats
+ * `.env.local`, which beats `.env`; `loadEnv`
  * already implements.
  *
  * `mode` is required rather than derived from `NODE_ENV`: Vite's dev server is

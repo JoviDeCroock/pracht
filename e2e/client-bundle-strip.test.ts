@@ -13,6 +13,8 @@ import { fileURLToPath } from "node:url";
 
 import { expect, test } from "@playwright/test";
 
+import { fixtureCopyFilter } from "./fixture-copy.ts";
+
 // Regression coverage for https://github.com/JoviDeCroock/pracht/pull/116 —
 // "Strip server-only route exports from client bundles".  Builds a copy of
 // examples/basic with a route whose loader references a distinctive marker
@@ -36,16 +38,9 @@ test("server-only route exports and their imports are stripped from client bundl
   const tempDir = mkdtempSync(resolve(tempRoot, "pracht-client-strip-"));
   const exampleDir = resolve(tempDir, "project");
 
-  cpSync(fixtureDir, exampleDir, {
-    filter(source) {
-      return ![".vercel", "dist", "test-results"].some((entry) =>
-        source.includes(`/examples/basic/${entry}`),
-      );
-    },
-    recursive: true,
-  });
-
   try {
+    cpSync(fixtureDir, exampleDir, { filter: fixtureCopyFilter(fixtureDir), recursive: true });
+
     writeFileSync(
       resolve(exampleDir, "src/secret.ts"),
       `export const secretMessage = ${JSON.stringify(SERVER_ONLY_MARKER)};\n`,

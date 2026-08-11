@@ -4,8 +4,11 @@ import type { AppGraph } from "../src/app-graph.ts";
 import {
   buildAppGraph,
   detectApiExports,
+  detectApiExportsStatic,
   detectApiMethods,
+  serializeApiRoutes,
   serializeAppRoutes,
+  serializeCapabilities,
 } from "../src/app-graph.ts";
 import { defineApp, resolveApiRoutes, resolveApp, route } from "../src/app.ts";
 import { buildDevtoolsHtml, DEVTOOLS_JSON_PATH } from "../src/devtools.ts";
@@ -204,6 +207,40 @@ describe("buildDevtoolsHtml", () => {
 });
 
 describe("buildAppGraph", () => {
+  it("fails a strict API graph read with the route, file, and original module error", async () => {
+    await expect(
+      serializeApiRoutes(
+        resolveApiRoutes(["/src/api/broken.ts"]),
+        {
+          loadModule: async () => {
+            throw new Error("API initialization exploded");
+          },
+          readSource: () => "export function GET() {}",
+        },
+        { strict: true },
+      ),
+    ).rejects.toThrow(
+      'Failed to load API route "/api/broken" from "/src/api/broken.ts" while resolving the app graph: API initialization exploded',
+    );
+  });
+
+  it("fails a strict capability graph read with the original module error", async () => {
+    await expect(
+      serializeCapabilities(
+        { "edge.runtime": "./capabilities/edge-runtime.ts" },
+        {
+          loadModule: async () => {
+            throw new Error('Pracht graph inspection has no Node stub for "cloudflare:future".');
+          },
+          readSource: () => "",
+        },
+        { strict: true },
+      ),
+    ).rejects.toThrow(
+      'Failed to load capability "edge.runtime" from "./capabilities/edge-runtime.ts" while resolving the app graph: Pracht graph inspection has no Node stub for "cloudflare:future".',
+    );
+  });
+
   it("produces the same payload shape as pracht inspect", async () => {
     const app = resolveApp(
       defineApp({
@@ -342,6 +379,29 @@ describe("detectApiExports", () => {
     expect(exports).toEqual({ hasDefaultHandler: true, methods: ["GET"] });
   });
 
+  it("does not treat a regex default export as a callable source fallback", async () => {
+    const exports = await detectApiExports("/src/api/regex.ts", {
+      loadModule: async () => {
+        throw new Error("boom");
+      },
+      readSource: () => "export default /export const GET/;",
+    });
+
+    expect(exports).toEqual({ hasDefaultHandler: false, methods: [] });
+  });
+
+  it("does not treat nested method declarations as source-fallback exports", async () => {
+    const exports = await detectApiExports("/src/api/nested-method.ts", {
+      loadModule: async () => {
+        throw new Error("boom");
+      },
+      readSource: () =>
+        "namespace Internal { export function GET() {} }\nexport function PATCH() {}",
+    });
+
+    expect(exports).toEqual({ hasDefaultHandler: false, methods: ["PATCH"] });
+  });
+
   it("reports no default handler when the module and source are both unavailable", async () => {
     const exports = await detectApiExports("/src/api/missing.ts", {
       loadModule: async () => {
@@ -353,6 +413,183 @@ describe("detectApiExports", () => {
     });
 
     expect(exports).toEqual({ hasDefaultHandler: false, methods: [] });
+  });
+});
+
+describe("detectApiExportsStatic", () => {
+  it("resolves named, aliased, and star re-exports without assuming a default is callable", async () => {
+    const sources: Record<string, string> = {
+      "/src/api/index.ts": [
+        'export { GET, handler as POST } from "./read.ts";',
+        'export * from "./nested.ts";',
+        "export { fallback as default };",
+      ].join("\n"),
+      "/src/api/nested.ts": [
+        "// export function DELETE() {}",
+        "export const PATCH = () => new Response(null);",
+        'export * from "./index.ts";',
+      ].join("\n"),
+    };
+
+    const result = await detectApiExportsStatic("/src/api/index.ts", {
+      readSource: (file) => sources[file],
+      resolveModule: (specifier) =>
+        specifier === "./nested.ts" ? "/src/api/nested.ts" : "/src/api/index.ts",
+    });
+
+    expect(result).toEqual({
+      hasDefaultHandler: false,
+      methods: ["GET", "POST", "PATCH"],
+    });
+  });
+
+  it("recognizes default handlers that are provably callable from local syntax", async () => {
+    const sources: Record<string, string> = {
+      "/src/api/direct.ts": "export default async function handler() {}",
+      "/src/api/local.ts": "function fallback() {}\nexport { fallback as default };",
+      "/src/api/identifier.ts": "function handler() {}\nexport default handler;",
+      "/src/api/identifier-asi.ts":
+        "const initialized = true\nfunction handler() {}\nexport default handler;",
+      "/src/api/re-export.ts": 'export { handler as default } from "./handler.ts";',
+    };
+
+    const readSource = (file: string) => sources[file];
+    await expect(detectApiExportsStatic("/src/api/direct.ts", { readSource })).resolves.toEqual({
+      hasDefaultHandler: true,
+      methods: [],
+    });
+    await expect(detectApiExportsStatic("/src/api/local.ts", { readSource })).resolves.toEqual({
+      hasDefaultHandler: true,
+      methods: [],
+    });
+    await expect(detectApiExportsStatic("/src/api/identifier.ts", { readSource })).resolves.toEqual(
+      {
+        hasDefaultHandler: true,
+        methods: [],
+      },
+    );
+    await expect(
+      detectApiExportsStatic("/src/api/identifier-asi.ts", { readSource }),
+    ).resolves.toEqual({
+      hasDefaultHandler: true,
+      methods: [],
+    });
+    await expect(detectApiExportsStatic("/src/api/re-export.ts", { readSource })).resolves.toEqual({
+      hasDefaultHandler: false,
+      methods: [],
+    });
+  });
+
+  it("does not treat nested declarations as callable module bindings", async () => {
+    const sources = [
+      [
+        "namespace Internal { export function handler() {} }",
+        "const handler = 1;",
+        "export { handler as default };",
+      ].join("\n"),
+      [
+        "function outer() { function handler() {} }",
+        "const handler = 1;",
+        "export default handler;",
+      ].join("\n"),
+      [
+        "if (true) { function handler() {} }",
+        "const handler = 1;",
+        "export { handler as default };",
+      ].join("\n"),
+      [
+        "const wrappers = [function handler() {}];",
+        "const handler = 1;",
+        "export default handler;",
+      ].join("\n"),
+      [
+        "const wrapper = () => function handler() {};",
+        "const handler = 1;",
+        "export { handler as default };",
+      ].join("\n"),
+      [
+        "const wrapper = (function handler() {});",
+        "const handler = 1;",
+        "export default handler;",
+      ].join("\n"),
+      [
+        "for (const handler = () => {}; false; ) {}",
+        "const handler = 1;",
+        "export default handler;",
+      ].join("\n"),
+      [
+        "for (let handler = function () {}; false; ) {}",
+        "const handler = 1;",
+        "export { handler as default };",
+      ].join("\n"),
+    ];
+
+    for (const source of sources) {
+      await expect(
+        detectApiExportsStatic("/src/api/non-callable.ts", { readSource: () => source }),
+      ).resolves.toEqual({ hasDefaultHandler: false, methods: [] });
+    }
+  });
+
+  it("does not report HTTP methods exported only inside nested scopes", async () => {
+    const result = await detectApiExportsStatic("/src/api/nested-method.ts", {
+      readSource: () =>
+        [
+          "namespace Internal { export function GET() {} }",
+          "if (true) { export const POST = () => new Response(null); }",
+          "const expressions = [function GET() {}];",
+          "const returned = () => function POST() {};",
+          "const invoked = (function DELETE() {});",
+          "for (const GET = () => new Response(null); false; ) {}",
+          "for (let POST = function () {}; false; ) {}",
+          "export const PATCH = () => new Response(null);",
+        ].join("\n"),
+    });
+
+    expect(result).toEqual({ hasDefaultHandler: false, methods: ["PATCH"] });
+  });
+
+  it("does not parse exports inside a regex literal after export default", async () => {
+    for (const source of [
+      "export default /export const GET/;",
+      "export default /export { POST }/;",
+    ]) {
+      await expect(
+        detectApiExportsStatic("/src/api/regex.ts", { readSource: () => source }),
+      ).resolves.toEqual({ hasDefaultHandler: false, methods: [] });
+    }
+  });
+
+  it("does not mistake commented exports for handlers", async () => {
+    const result = await detectApiExportsStatic("/src/api/comments.ts", {
+      readSource: () =>
+        [
+          "/* export default function nope() {} */",
+          "// export const GET = nope",
+          'const docs = "export const POST = nope";',
+          "const example = `export default function nope() {}`;",
+        ].join("\n"),
+    });
+
+    expect(result).toEqual({ hasDefaultHandler: false, methods: [] });
+  });
+
+  it("does not mistake type-only exports or regex contents for handlers", async () => {
+    const result = await detectApiExportsStatic("/src/api/static-only.ts", {
+      readSource: () =>
+        [
+          "type GET = () => Response;",
+          "type Fallback = () => Response;",
+          "export { type GET, type Fallback as default };",
+          "const namedExample = /export { POST }/;",
+          "const defaultExample = /export default function handler() {}/;",
+          "function docs() { return /export { DELETE }/; }",
+          'if (Math.random()) /export { OPTIONS }/.test("");',
+          "const ratio = 4 / 2; export const PATCH = () => new Response(null);",
+        ].join("\n"),
+    });
+
+    expect(result).toEqual({ hasDefaultHandler: false, methods: ["PATCH"] });
   });
 });
 

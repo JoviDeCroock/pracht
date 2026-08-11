@@ -201,6 +201,21 @@ export const app = defineApp({
       ],
     });
   }, 30_000);
+
+  it("returns the strict API module error through MCP inspection", async () => {
+    const appDir = resolve(repoRoot, "packages/cli/test/fixtures/api-runtime-failure");
+    const client = await connectClient();
+    const result = await client.callTool({
+      name: "inspect_api",
+      arguments: { cwd: appDir },
+    });
+
+    expect(result.isError).toBe(true);
+    const message = textContent(result);
+    expect(message).toContain('API route "/api/broken"');
+    expect(message).toContain('from "/src/api/broken.js"');
+    expect(message).toContain("API fixture initialization exploded");
+  }, 30_000);
 });
 
 async function connectClient(): Promise<Client> {

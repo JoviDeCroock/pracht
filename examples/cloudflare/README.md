@@ -35,9 +35,29 @@ curl -X POST https://your-worker.example.workers.dev/api/revalidate \
 ## Deploy
 
 The `wrangler.jsonc` in this directory is yours to edit — add KV, D1, R2,
-cron triggers, or any other Cloudflare bindings as needed. Re-export Durable
-Objects, Workflows, or Queues from `src/cloudflare.ts` so Wrangler can discover
-them from the generated Worker entry. After building:
+cron triggers, or any other Cloudflare bindings as needed. Re-export named
+primitives such as Durable Object and Workflow classes from `src/cloudflare.ts`
+and configure `workerExportsFrom` so Wrangler can discover them from the
+generated Worker entry. Queue consumers, Cron Triggers, and Email Routing are
+default-export handlers instead; export `queue`, `scheduled`, or `email` from a
+dedicated module and configure `workerHandlersFrom`:
+
+```ts
+cloudflareAdapter({
+  workerExportsFrom: "/src/cloudflare.ts",
+  workerHandlersFrom: "/src/worker-handlers.ts",
+});
+```
+
+For local secrets, create a gitignored `.dev.vars` file rather than prefixing
+`pracht preview` with host environment variables. For example:
+
+```dotenv
+REVALIDATE_SECRET=local-only-revalidation-secret
+```
+
+Wrangler exposes that value to the Worker binding environment. Set its
+production value with `wrangler secret put REVALIDATE_SECRET`. After building:
 
 ```bash
 pnpm dlx wrangler deploy

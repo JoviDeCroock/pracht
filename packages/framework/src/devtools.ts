@@ -11,8 +11,10 @@ import type { AppGraph, AppGraphApiRoute, AppGraphRoute } from "./app-graph.ts";
 export {
   buildAppGraph,
   detectApiExports,
+  detectApiExportsStatic,
   detectApiMethods,
   serializeApiRoutes,
+  serializeApiRoutesStatic,
   serializeAppRoutes,
   serializeCapabilities,
 } from "./app-graph.ts";
@@ -22,7 +24,10 @@ export type {
   AppGraphApiRoute,
   AppGraphCapability,
   AppGraphModuleAccess,
+  AppGraphStaticModuleAccess,
   AppGraphRoute,
+  SerializeApiRoutesOptions,
+  SerializeCapabilitiesOptions,
 } from "./app-graph.ts";
 
 export const DEVTOOLS_PATH = "/_pracht";

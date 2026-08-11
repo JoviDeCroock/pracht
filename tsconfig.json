@@ -33,8 +33,15 @@
       "@pracht/image/node": ["./packages/image/src/node.ts"]
     }
   },
-  // examples/showcase has its own program — see examples/showcase/tsconfig.json.
-  "exclude": ["examples/showcase"],
+  // Generated route registrations and ambient platform modules are global to
+  // a TypeScript program. Basic's route declaration stays in its own program,
+  // and the Cloudflare CLI fixture is checked by its local tsconfig so its
+  // cloudflare:workers declaration cannot merge with the example's types.
+  "exclude": [
+    "examples/showcase",
+    "examples/basic/src/pracht.d.ts",
+    "packages/cli/test/fixtures/cloudflare-runtime-import"
+  ],
   "include": [
     "packages/**/*.ts",
     "packages/**/*.tsx",

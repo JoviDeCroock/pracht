@@ -30,9 +30,11 @@ export default defineConfig(async () => {
     plugins: [
       pracht({
         adapter: await resolveAdapter(target),
-        // The built-in image optimizer depends on sharp and is Node-only.
-        // Edge builds keep the portable API routes but omit that endpoint.
-        apiDir: target === "node" ? "/src/api" : "/src/api-edge",
+        // API module paths stay identical across deployment targets so
+        // `pracht typegen` produces one stable committed contract. The image
+        // route selects its Node or portable implementation behind the
+        // compile-time backend flag, allowing edge builds to drop Sharp.
+        apiDir: "/src/api",
         llmsTxt: {
           title: "Pracht Example",
           description: "Example app for the pracht framework.",

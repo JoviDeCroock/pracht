@@ -294,13 +294,28 @@ build).
 - **Local preview**: `pracht preview` runs `pracht build` and then delegates to
   `wrangler dev --port <port>` against the built worker. It requires wrangler
   (in `node_modules` or on PATH) and a wrangler config; it errors with install
-  instructions otherwise.
+  instructions otherwise. Wrangler supplies Worker bindings: put local-only
+  values such as `PRACHT_CONFIRMATION_SECRET` and
+  `PRACHT_REVALIDATE_TOKEN` in a gitignored `.dev.vars` file. Prefixing the
+  host command with an environment variable does not automatically expose it
+  on the Worker's `env` binding.
 - **KV/D1/R2 support**: custom context factories and the default build entry both
   surface the Cloudflare `env` object.
 - **`@cloudflare/vite-plugin` integration**: the adapter automatically includes
   `@cloudflare/vite-plugin`, running the dev server inside workerd so that API
   routes and loaders have full access to Cloudflare bindings (KV, D1, R2,
   Queues, etc.) during development.
+
+Cloudflare chooses a local inspector port automatically in dev. If multiple
+Vite dev servers can start concurrently, their availability probes can race;
+assign each one a distinct port (or disable the inspector) through the adapter.
+Local binding state also needs a distinct persistence path or must be disabled:
+
+```typescript
+cloudflareAdapter({ inspectorPort: 9230 });
+cloudflareAdapter({ inspectorPort: false, persistState: false });
+cloudflareAdapter({ persistState: { path: ".wrangler/state-dev-a" } });
+```
 
 ### ISG via Workers Caching (`cache`)
 
@@ -456,7 +471,7 @@ touches it, and `purgeCache` cannot touch other Workers.
 ### Exporting Cloudflare primitives (Workflows, Durable Objects, etc.)
 
 Wrangler requires named exports from the worker entry for Workflows, Durable
-Objects, Queues, and other Cloudflare primitives. Use the
+Objects, and other class-based Cloudflare primitives. Use the
 `workerExportsFrom` option to point the adapter at a dedicated module that
 re-exports them:
 
@@ -513,6 +528,29 @@ The generated entry becomes
 `export default { ...handlers, fetch }` — every named export of the module is
 merged in, but `fetch` always stays pracht's handler; export request handling
 belongs in API routes or middleware instead.
+
+### Preview authority with custom-domain routes
+
+When `wrangler.jsonc` contains a custom-domain route, `wrangler dev` can print
+a localhost preview URL while the `Request` delivered to the Worker uses the
+configured domain in `request.url`. The browser still connects to localhost,
+but origin-sensitive application code sees the Worker's effective URL.
+
+That distinction is load-bearing for Web Bot Auth: HTTP Message Signatures
+cover `@authority`, so a request signed for `localhost:<port>` will not verify
+when the Worker sees `app.example.com`. Sign the effective Worker authority,
+temporarily disable the custom-domain route for local preview, or build first
+and select a separate config that keeps `main: "dist/server/worker.js"` but
+omits the production route:
+
+```sh
+pracht build
+npx wrangler dev --config wrangler.local.jsonc --port 3000
+```
+
+`pracht preview` does not forward Wrangler's `--config` flag. The same
+authority distinction applies to absolute redirects and any code that derives
+an origin from `request.url`.
 
 ### WebSockets
 
@@ -628,6 +666,15 @@ export async function GET({ context }: BaseRouteArgs) {
 }
 ```
 
+Cloudflare itself permits `import { env } from "cloudflare:workers"` followed
+by a top-level binding read. Pracht graph commands cannot provide authoritative
+Worker bindings, so API and capability modules must defer `env.MY_KV`, `env.DB`,
+and `exports.*` property reads until the API handler, capability `run()`, or
+another request-time function executes. Importing `env` is safe; reading a
+property during module initialization fails closed with the binding name. This
+prevents placeholder values from silently changing inspected security or
+transport metadata through Boolean checks, `typeof`, or strict equality.
+
 ### Generated entry options
 
 When using `cloudflareAdapter()` in `vite.config.ts`, generated entries can import a context factory:
@@ -709,10 +756,11 @@ export default {
   `PRACHT_REVALIDATE_TOKEN` is used as the `bypassToken` when present at build
   time. If the env var is absent during build, Pracht writes a random bypass
   token and the runtime webhook endpoint still fails closed until the env var is
-  configured. The token must be set **at build time**: the `bypassToken` is
-  baked into the build's `*.prerender-config.json`, so setting the env var only
-  at runtime authenticates the webhook but cannot bypass Vercel's prerender
-  cache — such paths are reported as `failed` (detected via the
+  configured. When webhook revalidation is used, the token must be set **at
+  build time**: the `bypassToken` is baked into the build's
+  `*.prerender-config.json`, so setting the env var only at runtime
+  authenticates the webhook but cannot bypass Vercel's prerender cache — such
+  paths are reported as `failed` (detected via the
   `x-vercel-cache` response header) until you rebuild with
   `PRACHT_REVALIDATE_TOKEN` set.
 - **Function-name safety**: the build fails with a descriptive error when an ISG
@@ -907,7 +955,10 @@ A custom adapter exports a factory function that returns a `PrachtAdapter` objec
 
 ```typescript
 import type { PrachtAdapter } from "@pracht/vite-plugin";
-import { myPlatformVitePlugin } from "my-platform-vite-plugin";
+import {
+  myPlatformGraphStubs,
+  myPlatformVitePlugin,
+} from "my-platform-vite-plugin";
 
 export function myAdapter(options?: MyOptions): PrachtAdapter {
   return {
@@ -937,6 +988,11 @@ export default async function handle(request) {
     vitePlugins() {
       return myPlatformVitePlugin({ entry: "virtual:pracht/server" });
     },
+    // Optional: contribute only plugins that are safe in read-only graph
+    // servers. Do not start a runtime, listener, worker, or debugger here.
+    graphVitePlugins() {
+      return myPlatformGraphStubs();
+    },
     // Optional: set to true when the adapter's Vite plugin runs the dev server
     // itself (pracht will skip installing its own SSR middleware).
     ownsDevServer: true,
@@ -951,6 +1007,13 @@ export default async function handle(request) {
 The generated server entry module has access to `resolvedApp`, `registry`,
 `apiRoutes`, `clientEntryUrl`, `cssManifest`, and `jsManifest` -- your
 `createServerEntryModule()` code can reference these directly.
+
+`pracht inspect`, `plan`, `verify`, `report`, `doctor`, and `typegen` create a
+short-lived graph-only Vite server. In that mode pracht never calls
+`vitePlugins()`; it calls `graphVitePlugins()` when supplied and otherwise
+loads no adapter plugins. Keep the graph hook synchronous and metadata-only.
+It is intended for safe resolvers or platform-module stubs needed to load app
+contracts, not the platform's development runtime.
 
 The entry may import modules that only resolve inside the target runtime (the
 Cloudflare adapter re-exports Durable Objects that import `cloudflare:workers`).

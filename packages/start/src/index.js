@@ -94,7 +94,9 @@ const SKILL_DIRS = [resolve(PACKAGE_ROOT, "skills"), resolve(PACKAGE_ROOT, "../.
 
 export async function run(argv = process.argv.slice(2)) {
   const options = parseArgs(argv);
-  const packageManager = getPackageManager();
+  const packageManagerUserAgent = process.env.npm_config_user_agent ?? "";
+  const packageManager = getPackageManager(packageManagerUserAgent);
+  const pnpmMajor = packageManager === "pnpm" ? getPnpmMajor(packageManagerUserAgent) : null;
   const log = options.json ? () => {} : console.log.bind(console);
 
   log("create-pracht");
@@ -145,6 +147,7 @@ export async function run(argv = process.argv.slice(2)) {
       adapter: ADAPTERS[resolvedAdapter],
       agentTools: resolvedAgentTools,
       packageManager,
+      pnpmMajor,
       projectName: toPackageName(basename(targetDir)),
       resolveRemoteVersions: false,
       router: resolvedRouter,
@@ -181,6 +184,7 @@ export async function run(argv = process.argv.slice(2)) {
     adapter: ADAPTERS[resolvedAdapter],
     agentTools: resolvedAgentTools,
     packageManager,
+    pnpmMajor,
     router: resolvedRouter,
     tailwind: resolvedTailwind,
     targetDir,
@@ -215,6 +219,7 @@ export async function run(argv = process.argv.slice(2)) {
       adapter: ADAPTERS[resolvedAdapter],
       agentTools: resolvedAgentTools,
       packageManager,
+      pnpmMajor,
       projectName: toPackageName(basename(targetDir)),
       resolveRemoteVersions: false,
       router: resolvedRouter,
@@ -257,6 +262,7 @@ export async function scaffoldProject({
   adapter,
   agentTools = true,
   packageManager,
+  pnpmMajor = 11,
   resolveRemoteVersions = true,
   router = "manifest",
   tailwind = false,
@@ -267,6 +273,7 @@ export async function scaffoldProject({
     adapter,
     agentTools,
     packageManager,
+    pnpmMajor,
     projectName: packageName,
     resolveRemoteVersions,
     router,
@@ -276,7 +283,7 @@ export async function scaffoldProject({
 
   await mkdir(targetDir, { recursive: true });
 
-  // pnpm resolves `allowBuilds` from the workspace root, so inside an existing
+  // pnpm resolves build-script policy from the workspace root, so inside an existing
   // monorepo our own file would be read by nobody — and `pnpm install` run from
   // the app directory would find it first and re-root the workspace there,
   // detaching the app from its siblings. Tell the user what to add instead.
@@ -309,6 +316,11 @@ export function getPackageManager(userAgent = process.env.npm_config_user_agent 
   if (userAgent.startsWith("yarn")) return "yarn";
   if (userAgent.startsWith("bun") || process.versions.bun) return "bun";
   return "npm";
+}
+
+export function getPnpmMajor(userAgent = process.env.npm_config_user_agent ?? "") {
+  const match = /^pnpm\/(\d+)/.exec(userAgent);
+  return match ? Number(match[1]) : 11;
 }
 
 export function parseArgs(argv) {
@@ -606,6 +618,7 @@ async function buildProjectFiles({
   adapter,
   agentTools = true,
   packageManager,
+  pnpmMajor = 11,
   projectName,
   resolveRemoteVersions = true,
   router,
@@ -627,6 +640,15 @@ async function buildProjectFiles({
   }
 
   const versions = await resolveVersions(packagesToResolve, { remote: resolveRemoteVersions });
+  const policyMajor = pnpmMajor ?? 11;
+  const ancestorWorkspace = targetDir ? findAncestorPnpmWorkspace(targetDir) : null;
+  const pnpmWorkspaceNotice = ancestorWorkspace
+    ? {
+        packages: pnpmBuildAllowlist(adapter, tailwind),
+        policy: pnpmBuildPolicyName(policyMajor),
+        root: ancestorWorkspace,
+      }
+    : null;
 
   const files = {
     ".gitignore":
@@ -635,11 +657,18 @@ async function buildProjectFiles({
       adapter,
       agentTools,
       packageManager,
+      pnpmMajor,
+      pnpmWorkspaceNotice,
       projectName,
       router,
       tailwind,
     }),
-    "package.json": createPackageJson({ adapter, projectName, tailwind, versions }),
+    "package.json": createPackageJson({
+      adapter,
+      projectName,
+      tailwind,
+      versions,
+    }),
     "src/api/health.ts": createHealthRoute(adapter),
     "vite.config.ts": createViteConfig(adapter, router, tailwind),
     "tsconfig.json": createBaseTSConfig(adapter),
@@ -685,17 +714,13 @@ async function buildProjectFiles({
     Object.assign(files, await readSkillFiles());
   }
 
-  // pnpm resolves `allowBuilds` from the workspace root, so inside an existing
+  // pnpm resolves build-script policy from the workspace root, so inside an existing
   // workspace our own file would be read by nobody — and `pnpm install` run
   // from the app directory would find it first and re-root the workspace there,
   // detaching the app from its siblings. Decided here so the `--json` and
   // `--dry-run` listings match what is actually written.
-  const ancestorWorkspace = targetDir ? findAncestorPnpmWorkspace(targetDir) : null;
-  const pnpmWorkspaceNotice = ancestorWorkspace
-    ? { packages: pnpmBuildAllowlist(adapter, tailwind), root: ancestorWorkspace }
-    : null;
   if (!pnpmWorkspaceNotice) {
-    files["pnpm-workspace.yaml"] = createPnpmWorkspaceConfig(adapter, tailwind);
+    files["pnpm-workspace.yaml"] = createPnpmWorkspaceConfig(adapter, tailwind, policyMajor);
   }
 
   return { files, pnpmWorkspaceNotice };
@@ -1028,10 +1053,11 @@ function createHealthRoute(adapter) {
  * runtime binary, so without this `wrangler dev` fails right after scaffolding
  * with `ERR_PNPM_IGNORED_BUILDS`.
  *
- * This has to live in `pnpm-workspace.yaml`: pnpm 11 no longer reads the
- * `pnpm` field in package.json and warns that it ignored it. npm and yarn
- * ignore this file entirely, so it is inert for them. (npm has its own
- * `allow-scripts` prompt, which it drives interactively.)
+ * This has to live in `pnpm-workspace.yaml`: pnpm 10 uses
+ * `onlyBuiltDependencies`, while pnpm 11 uses `allowBuilds` and no longer reads
+ * the `pnpm` field in package.json. npm and yarn ignore this file entirely, so
+ * it is inert for them. (npm has its own `allow-scripts` prompt, which it
+ * drives interactively.)
  */
 function pnpmBuildAllowlist(adapter, tailwind) {
   const packages = ["esbuild"];
@@ -1040,10 +1066,21 @@ function pnpmBuildAllowlist(adapter, tailwind) {
   return packages.sort();
 }
 
-function createPnpmWorkspaceConfig(adapter, tailwind) {
+function pnpmBuildPolicyName(pnpmMajor) {
+  return pnpmMajor <= 10 ? "onlyBuiltDependencies" : "allowBuilds";
+}
+
+function createPnpmWorkspaceConfig(adapter, tailwind, pnpmMajor) {
+  const policy = pnpmBuildPolicyName(pnpmMajor);
+  const entries = pnpmBuildAllowlist(adapter, tailwind);
+
   return [
-    "allowBuilds:",
-    ...pnpmBuildAllowlist(adapter, tailwind).map((name) => `  ${name}: true`),
+    "packages:",
+    '  - "."',
+    `${policy}:`,
+    ...(policy === "onlyBuiltDependencies"
+      ? entries.map((name) => `  - ${JSON.stringify(name)}`)
+      : entries.map((name) => `  ${JSON.stringify(name)}: true`)),
     "",
   ].join("\n");
 }
@@ -1134,7 +1171,15 @@ function workspaceCovers(configPath, workspaceRoot, dir) {
   // A negation (`!apps/legacy`) narrows the set; treat its presence as
   // undecidable rather than as an ordinary glob.
   if (globs.some((glob) => glob.startsWith("!"))) return true;
-  return globs.some((glob) => matchesGlobSegments(glob.split("/"), relative));
+  // pnpm treats a workspace-root-relative `./apps/*` the same as `apps/*`.
+  // Strip only that harmless prefix before comparing path segments.
+  const normalizedGlobs = globs.map((glob) => glob.replace(/^(?:\.\/)+/, ""));
+  // pnpm accepts the wider glob syntax supported by its workspace matcher.
+  // This intentionally small matcher cannot safely decide braces, character
+  // classes, extglobs, or single-character wildcards. Follow the conservative
+  // contract above instead of creating a nested workspace for a real member.
+  if (normalizedGlobs.some((glob) => /[?[\]{}()]/.test(glob))) return true;
+  return normalizedGlobs.some((glob) => matchesGlobSegments(glob.split("/"), relative));
 }
 
 /**
@@ -1142,13 +1187,26 @@ function workspaceCovers(configPath, workspaceRoot, dir) {
  * contain `*` wildcards (`app-*`), which pnpm supports.
  */
 function matchesGlobSegments(globSegments, pathSegments) {
-  for (let index = 0; index < globSegments.length; index += 1) {
-    const segment = globSegments[index];
-    if (segment === "**") return true;
-    if (index >= pathSegments.length) return false;
-    if (!segmentMatches(segment, pathSegments[index])) return false;
+  return matchGlobSegmentAt(globSegments, pathSegments, 0, 0);
+}
+
+function matchGlobSegmentAt(globSegments, pathSegments, globIndex, pathIndex) {
+  if (globIndex === globSegments.length) return pathIndex === pathSegments.length;
+
+  const segment = globSegments[globIndex];
+  if (segment === "**") {
+    if (globIndex === globSegments.length - 1) return true;
+    for (let nextPathIndex = pathIndex; nextPathIndex <= pathSegments.length; nextPathIndex += 1) {
+      if (matchGlobSegmentAt(globSegments, pathSegments, globIndex + 1, nextPathIndex)) return true;
+    }
+    return false;
   }
-  return globSegments.length === pathSegments.length;
+
+  return (
+    pathIndex < pathSegments.length &&
+    segmentMatches(segment, pathSegments[pathIndex]) &&
+    matchGlobSegmentAt(globSegments, pathSegments, globIndex + 1, pathIndex + 1)
+  );
 }
 
 function segmentMatches(glob, value) {
@@ -1389,7 +1447,16 @@ function createAgentInstructions({ adapter, agentTools, packageManager, router, 
   return lines.join("\n");
 }
 
-function createReadme({ adapter, agentTools, packageManager, projectName, router, tailwind }) {
+function createReadme({
+  adapter,
+  agentTools,
+  packageManager,
+  pnpmMajor,
+  pnpmWorkspaceNotice,
+  projectName,
+  router,
+  tailwind,
+}) {
   const installCommand = packageManager === "npm" ? "npm install" : `${packageManager} install`;
   const devCommand = packageManager === "npm" ? "npm run dev" : `${packageManager} dev`;
   // `bun build` is Bun's own bundler and shadows the package script, unlike
@@ -1453,6 +1520,16 @@ function createReadme({ adapter, agentTools, packageManager, projectName, router
   }
 
   lines.push("- `src/api/health.ts` is a sample API route.");
+
+  if (packageManager === "pnpm") {
+    lines.push(
+      pnpmWorkspaceNotice
+        ? `- The containing pnpm workspace owns build-script policy. Add the listed dependencies to its \`${pnpmWorkspaceNotice.policy}\` block; no nested \`pnpm-workspace.yaml\` is generated.`
+        : pnpmMajor <= 10
+          ? "- `pnpm-workspace.yaml#onlyBuiltDependencies` allows only the dependency build scripts required by this starter."
+          : "- `pnpm-workspace.yaml#allowBuilds` allows only the dependency build scripts required by this starter.",
+    );
+  }
 
   if (tailwind) {
     lines.push("- `src/styles/global.css` is the Tailwind CSS entry, imported by the shell.");
@@ -1615,12 +1692,16 @@ function printNextSteps({
     console.log(
       `This app is inside the pnpm workspace at ${pnpmWorkspaceNotice.root}, which owns build\n` +
         "permissions for every package. Add the following to its pnpm-workspace.yaml, or\n" +
-        "esbuild and workerd will not run their install scripts:",
+        "the starter's required dependency install scripts will not run:",
     );
     console.log("");
-    console.log("  allowBuilds:");
+    console.log(`  ${pnpmWorkspaceNotice.policy}:`);
     for (const name of pnpmWorkspaceNotice.packages) {
-      console.log(`    ${name}: true`);
+      console.log(
+        pnpmWorkspaceNotice.policy === "onlyBuiltDependencies"
+          ? `    - ${JSON.stringify(name)}`
+          : `    ${JSON.stringify(name)}: true`,
+      );
     }
   }
 }

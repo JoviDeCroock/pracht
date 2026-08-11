@@ -22,8 +22,8 @@ Deploy with:
 pracht build && wrangler deploy
 ```
 
-Export Durable Objects, Workflows, Queues, and other Cloudflare primitives from
-a dedicated module:
+Export named Cloudflare primitives such as Durable Object and Workflow classes
+from a dedicated module:
 
 ```ts
 // vite.config.ts
@@ -49,6 +49,20 @@ export { Counter } from "./workers/counter.ts";
 
 Keep the matching bindings and migrations in `wrangler.jsonc`.
 
+Queue consumers, Cron Triggers, Email Routing, and similar default-export
+handlers use a separate module configured through `workerHandlersFrom`:
+
+```ts
+cloudflareAdapter({
+  workerExportsFrom: "/src/cloudflare.ts",
+  workerHandlersFrom: "/src/worker-handlers.ts",
+});
+```
+
+The handlers module should export named `queue`, `scheduled`, `email`, or other
+handler functions. Pracht merges them into the Worker's default export next to
+its own `fetch` handler; `workerExportsFrom` alone does not install them.
+
 ## Features
 
 - Converts Cloudflare Worker requests to standard Web Requests
@@ -56,6 +70,13 @@ Keep the matching bindings and migrations in `wrangler.jsonc`.
 - SSG serving from `env.ASSETS` and ISG revalidation through the Workers Cache API
 - Execution context passing for Cloudflare-specific APIs
 - Generated-entry context factories via `cloudflareAdapter({ createContextFrom })`
+- An explicit local-runtime inspector port via `cloudflareAdapter({ inspectorPort })`;
+  set it when multiple Cloudflare Vite dev servers may start concurrently, or
+  use `false` to disable the inspector
+- Local binding-state control via `cloudflareAdapter({ persistState })`; use
+  distinct `{ path }` values or `false` for concurrent servers in one project
+- Graph-only CLI commands load fail-closed Cloudflare module stubs without
+  starting workerd, Miniflare, an inspector, or persistent binding state
 
 ## Context factory
 

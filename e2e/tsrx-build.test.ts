@@ -8,11 +8,13 @@ import {
   readdirSync,
   rmSync,
 } from "node:fs";
-import { createServer } from "node:net";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { expect, test } from "@playwright/test";
+
+import { fixtureCopyFilter } from "./fixture-copy.ts";
+import { acquireE2EWorkerPort, type E2EWorkerPortLease } from "./ports.ts";
 
 // End-to-end coverage for `.tsrx` route modules compiled by
 // `@tsrx/vite-plugin-preact`. Builds `examples/tsrx/` in a temp dir, asserts
@@ -30,62 +32,64 @@ test("pracht build prerenders a .tsrx route with scoped CSS and strips its loade
   const { exampleDir, tempDir } = createTempExampleDir("pracht-tsrx-build-");
   const distDir = resolve(exampleDir, "dist");
 
-  rmSync(distDir, { force: true, recursive: true });
+  try {
+    rmSync(distDir, { force: true, recursive: true });
 
-  buildExample(exampleDir);
+    buildExample(exampleDir);
 
-  // --- Prerendered HTML ---
-  const homeHtmlPath = resolve(exampleDir, "dist/client/index.html");
-  const aboutHtmlPath = resolve(exampleDir, "dist/client/about/index.html");
-  expect(existsSync(homeHtmlPath)).toBe(true);
-  expect(existsSync(aboutHtmlPath)).toBe(true);
+    // --- Prerendered HTML ---
+    const homeHtmlPath = resolve(exampleDir, "dist/client/index.html");
+    const aboutHtmlPath = resolve(exampleDir, "dist/client/about/index.html");
+    expect(existsSync(homeHtmlPath)).toBe(true);
+    expect(existsSync(aboutHtmlPath)).toBe(true);
 
-  const homeHtml = readFileSync(homeHtmlPath, "utf-8");
-  // Loader data from the .tsrx route made it through SSR.
-  expect(homeHtml).toContain("Hello from a .tsrx route");
-  expect(homeHtml).toContain("Compiled by @tsrx/vite-plugin-preact");
-  // Scoped class injected by @tsrx/vite-plugin-preact's CSS pipeline.
-  expect(homeHtml).toMatch(/class="tsrx-home tsrx-[0-9a-z]+"/);
-  // Hydration state is present.
-  expect(homeHtml).toContain('id="pracht-state" type="application/json"');
-  expect(homeHtml).toContain('"routeId":"home"');
-  // Hashed client entry (not the dev-mode `/@pracht/client.js` alias).
-  expect(homeHtml).toMatch(/<script type="module" src="\/assets\/client-[^"]+\.js"><\/script>/);
+    const homeHtml = readFileSync(homeHtmlPath, "utf-8");
+    // Loader data from the .tsrx route made it through SSR.
+    expect(homeHtml).toContain("Hello from a .tsrx route");
+    expect(homeHtml).toContain("Compiled by @tsrx/vite-plugin-preact");
+    // Scoped class injected by @tsrx/vite-plugin-preact's CSS pipeline.
+    expect(homeHtml).toMatch(/class="tsrx-home tsrx-[0-9a-z]+"/);
+    // Hydration state is present.
+    expect(homeHtml).toContain('id="pracht-state" type="application/json"');
+    expect(homeHtml).toContain('"routeId":"home"');
+    // Hashed client entry (not the dev-mode `/@pracht/client.js` alias).
+    expect(homeHtml).toMatch(/<script type="module" src="\/assets\/client-[^"]+\.js"><\/script>/);
 
-  // .tsx route coexists and renders.
-  const aboutHtml = readFileSync(aboutHtmlPath, "utf-8");
-  expect(aboutHtml).toContain("About this example");
-  expect(aboutHtml).toContain('"routeId":"about"');
+    // .tsx route coexists and renders.
+    const aboutHtml = readFileSync(aboutHtmlPath, "utf-8");
+    expect(aboutHtml).toContain("About this example");
+    expect(aboutHtml).toContain('"routeId":"about"');
 
-  // --- Scoped CSS extracted from the .tsrx <style> block ---
-  const cssDir = resolve(exampleDir, "dist/client/assets");
-  const cssFiles = readdirSync(cssDir).filter((f) => f.endsWith(".css"));
-  expect(cssFiles.length).toBeGreaterThan(0);
-  const cssContents = cssFiles.map((f) => readFileSync(resolve(cssDir, f), "utf-8")).join("\n");
-  // `.tsrx-home` should appear suffixed with the scope hash the HTML used.
-  const hashMatch = homeHtml.match(/class="tsrx-home (tsrx-[0-9a-z]+)"/);
-  expect(hashMatch).toBeTruthy();
-  const scopeHash = hashMatch![1];
-  expect(cssContents).toContain(`.tsrx-home.${scopeHash}`);
-  expect(cssContents).toContain(`h1.${scopeHash}`);
-  // `rebeccapurple` may be minified to `#639` — accept either.
-  expect(cssContents.toLowerCase()).toMatch(/rebeccapurple|#663399|#639/);
+    // --- Scoped CSS extracted from the .tsrx <style> block ---
+    const cssDir = resolve(exampleDir, "dist/client/assets");
+    const cssFiles = readdirSync(cssDir).filter((f) => f.endsWith(".css"));
+    expect(cssFiles.length).toBeGreaterThan(0);
+    const cssContents = cssFiles.map((f) => readFileSync(resolve(cssDir, f), "utf-8")).join("\n");
+    // `.tsrx-home` should appear suffixed with the scope hash the HTML used.
+    const hashMatch = homeHtml.match(/class="tsrx-home (tsrx-[0-9a-z]+)"/);
+    expect(hashMatch).toBeTruthy();
+    const scopeHash = hashMatch![1];
+    expect(cssContents).toContain(`.tsrx-home.${scopeHash}`);
+    expect(cssContents).toContain(`h1.${scopeHash}`);
+    // `rebeccapurple` may be minified to `#639` — accept either.
+    expect(cssContents.toLowerCase()).toMatch(/rebeccapurple|#663399|#639/);
 
-  // --- Client bundle: loader + loader-only data must be stripped ---
-  const clientJs = collectJsSource(cssDir);
-  // Component content survives.
-  expect(clientJs).toContain("This page is rendered from a .tsrx file.");
-  // Loader-only strings — these appear in the route's loader return value,
-  // not in the rendered markup — must not reach the client bundle.
-  expect(clientJs).not.toContain("Hello from a .tsrx route");
-  expect(clientJs).not.toContain("Compiled by @tsrx/vite-plugin-preact");
+    // --- Client bundle: loader + loader-only data must be stripped ---
+    const clientJs = collectJsSource(cssDir);
+    // Component content survives.
+    expect(clientJs).toContain("This page is rendered from a .tsrx file.");
+    // Loader-only strings — these appear in the route's loader return value,
+    // not in the rendered markup — must not reach the client bundle.
+    expect(clientJs).not.toContain("Hello from a .tsrx route");
+    expect(clientJs).not.toContain("Compiled by @tsrx/vite-plugin-preact");
 
-  // --- Server bundle: loader is retained ---
-  const serverJs = collectJsSource(resolve(exampleDir, "dist/server"));
-  expect(serverJs).toContain("Hello from a .tsrx route");
-  expect(serverJs).toContain("Compiled by @tsrx/vite-plugin-preact");
-
-  rmSync(tempDir, { force: true, recursive: true });
+    // --- Server bundle: loader is retained ---
+    const serverJs = collectJsSource(resolve(exampleDir, "dist/server"));
+    expect(serverJs).toContain("Hello from a .tsrx route");
+    expect(serverJs).toContain("Compiled by @tsrx/vite-plugin-preact");
+  } finally {
+    rmSync(tempDir, { force: true, recursive: true });
+  }
 });
 
 test("built Node server serves .tsrx and .tsx routes", async () => {
@@ -94,23 +98,26 @@ test("built Node server serves .tsrx and .tsx routes", async () => {
   const { exampleDir, tempDir } = createTempExampleDir("pracht-tsrx-serve-");
   const distDir = resolve(exampleDir, "dist");
   const serverEntryPath = resolve(exampleDir, "dist/server/server.js");
-
-  rmSync(distDir, { force: true, recursive: true });
-
-  buildExample(exampleDir);
-  expect(existsSync(serverEntryPath)).toBe(true);
-
-  const port = await getAvailablePort();
-  const server = spawn(process.execPath, [serverEntryPath], {
-    cwd: exampleDir,
-    env: {
-      ...process.env,
-      PORT: String(port),
-    },
-    stdio: "pipe",
-  });
+  let server: ReturnType<typeof spawn> | undefined;
+  let portLease: E2EWorkerPortLease | undefined;
 
   try {
+    rmSync(distDir, { force: true, recursive: true });
+
+    buildExample(exampleDir);
+    expect(existsSync(serverEntryPath)).toBe(true);
+
+    portLease = await acquireE2EWorkerPort();
+    const { port } = portLease;
+    server = spawn(process.execPath, [serverEntryPath], {
+      cwd: exampleDir,
+      env: {
+        ...process.env,
+        PORT: String(port),
+      },
+      stdio: "pipe",
+    });
+
     await waitForServer(`http://127.0.0.1:${port}/`);
 
     const homeResponse = await fetch(`http://127.0.0.1:${port}/`);
@@ -136,8 +143,11 @@ test("built Node server serves .tsrx and .tsx routes", async () => {
     expect(state.data.greeting).toBe("Hello from a .tsrx route");
     expect(state.data.features).toContain("Mixes freely with .tsx routes");
   } finally {
-    server.kill("SIGTERM");
-    await waitForExit(server);
+    if (server) {
+      server.kill("SIGTERM");
+      await waitForExit(server);
+    }
+    portLease?.release();
     rmSync(tempDir, { force: true, recursive: true });
   }
 });
@@ -148,16 +158,14 @@ function createTempExampleDir(prefix: string): { exampleDir: string; tempDir: st
   const tempDir = mkdtempSync(resolve(tempRoot, prefix));
   const exampleDir = resolve(tempDir, "project");
 
-  cpSync(fixtureDir, exampleDir, {
-    filter(source) {
-      return ![".vercel", "dist", "test-results"].some((entry) =>
-        source.includes(`/examples/tsrx/${entry}`),
-      );
-    },
-    recursive: true,
-  });
+  try {
+    cpSync(fixtureDir, exampleDir, { filter: fixtureCopyFilter(fixtureDir), recursive: true });
 
-  return { exampleDir, tempDir };
+    return { exampleDir, tempDir };
+  } catch (error) {
+    rmSync(tempDir, { force: true, recursive: true });
+    throw error;
+  }
 }
 
 function buildExample(exampleDir: string): void {
@@ -184,23 +192,6 @@ function collectJsSource(dir: string): string {
     pieces.push(readFileSync(resolve(parent, entry.name), "utf-8"));
   }
   return pieces.join("\n");
-}
-
-async function getAvailablePort(): Promise<number> {
-  const server = createServer();
-  await new Promise<void>((resolveListen, rejectListen) => {
-    server.once("error", rejectListen);
-    server.listen(0, "127.0.0.1", () => resolveListen());
-  });
-
-  const address = server.address();
-  if (!address || typeof address === "string") {
-    throw new Error("Expected TCP server address");
-  }
-
-  const port = address.port;
-  await new Promise<void>((resolveClose) => server.close(() => resolveClose()));
-  return port;
 }
 
 async function waitForServer(url: string): Promise<void> {

@@ -14,7 +14,7 @@ declare module "@pracht/core" {
         input: { "query": string; "limit"?: number; };
         output: { "notes": Array<{ "id": string; "title": string; "body": string; [key: string]: unknown; }>; [key: string]: unknown; };
         effect: "read";
-        exposed: { http: true; webmcp: true; mcp: false };
+        exposed: { http: true; webmcp: true; mcp: true };
       };
       /**
        * Create note
@@ -25,7 +25,7 @@ declare module "@pracht/core" {
         input: { "title": string; "body"?: string; };
         output: { "note": { "id": string; "title": string; "body": string; [key: string]: unknown; }; [key: string]: unknown; };
         effect: "write";
-        exposed: { http: true; webmcp: false; mcp: false };
+        exposed: { http: true; webmcp: false; mcp: true };
       };
       /**
        * Purge notes

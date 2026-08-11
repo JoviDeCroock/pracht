@@ -100,6 +100,14 @@ export interface BuildHrefOptions {
   hash?: string;
 }
 
+/** @internal Wide route target used by framework implementations before public type narrowing. */
+export interface UntypedRouteTarget {
+  route: string;
+  params?: Record<string, unknown>;
+  search?: unknown;
+  hash?: string;
+}
+
 export interface NavigateOptions {
   replace?: boolean;
   /**

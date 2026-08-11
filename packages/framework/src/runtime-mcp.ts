@@ -19,7 +19,6 @@
 
 import {
   CONFIRMATION_HEADER,
-  DEFAULT_MCP_ENDPOINT,
   findMcpToolNameCollisions,
   isValidMcpToolName,
   MCP_TOOL_NAME_ERROR,
@@ -31,6 +30,7 @@ import {
   type CapabilityHostApp,
   type ResolvedCapability,
 } from "./runtime-capabilities.ts";
+export { resolveMcpEndpoint } from "./mcp-config.ts";
 import type {
   CapabilityAuditHook,
   CapabilityEnvelope,
@@ -60,14 +60,6 @@ const JSONRPC_INVALID_REQUEST = -32600;
 const JSONRPC_METHOD_NOT_FOUND = -32601;
 const JSONRPC_INVALID_PARAMS = -32602;
 const JSONRPC_INTERNAL_ERROR = -32603;
-
-/** Resolved endpoint path, or `null` when the app does not serve MCP. */
-export function resolveMcpEndpoint(agents: PrachtAgentsConfig | undefined): string | null {
-  const config = agents?.mcp;
-  if (!config) return null;
-  const path = config.path ?? DEFAULT_MCP_ENDPOINT;
-  return path.endsWith("/") && path.length > 1 ? path.slice(0, -1) : path;
-}
 
 /** Normalize an incoming MCP request path without retaining protocol helpers in unrelated apps. */
 export function normalizeMcpRequestPath(path: string): string {

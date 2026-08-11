@@ -81,7 +81,35 @@ if (results.every((result) => result.ok)) {
   results.push(report(await run("lint", "pnpm", ["run", "lint"])));
 }
 
-// 3. Typecheck alongside the test suites, which run one after the other.
+// 3. Check the canonical basic example before the workspace-wide checks.
+if (results.every((result) => result.ok)) {
+  // Type generation reads the app graph through Vite, and its output is an
+  // input to the example's dedicated TypeScript program.
+  results.push(
+    report(
+      await run("basic generated types", "pnpm", [
+        "--dir",
+        "examples/basic",
+        "run",
+        "typegen:check",
+      ]),
+    ),
+  );
+  if (results.every((result) => result.ok)) {
+    results.push(
+      report(
+        await run("basic generated typecheck", "pnpm", [
+          "--dir",
+          "examples/basic",
+          "run",
+          "typecheck",
+        ]),
+      ),
+    );
+  }
+}
+
+// 4. Typecheck alongside the test suites, which run one after the other.
 if (results.every((result) => result.ok)) {
   const suites = (async () => {
     const finished = [run("test", "pnpm", ["run", "test"])];

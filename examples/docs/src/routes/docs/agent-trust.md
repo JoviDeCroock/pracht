@@ -46,6 +46,15 @@ async run({ context }) {
 
 Verification fails closed: expired windows, uncovered components, unknown keys, or non-allowlisted directories all yield `context.agent = null`, never a partial identity. The framework binds the result as a read-only, immutable snapshot, so middleware can derive separate authorization state but cannot rewrite the verified identity used by later policy and audit checks. Adapters should create a fresh context per request; rebinding the same mutable or immutable source to a different identity fails closed rather than leaking the previous identity through context methods or getters. The `agent` field is framework-reserved, so an immutable or inherited application-owned field with that name also fails closed. Frozen and sealed ordinary objects use an overlay when necessary: direct reads and reflected accessors expose the trusted snapshot, while methods and getters retain the original receiver for private fields, callable fields retain their own APIs, and arrays retain their brand. Application-defined `Symbol.toStringTag` branding does not make an ordinary class context look like a native built-in. Immutable native built-ins such as `Map` and `Date` cannot preserve their internal-slot identity through an overlay and fail closed; wrap them in a fresh mutable request-context object. Use a fresh mutable context when receiver-bound helpers need `agent` or middleware-added fields, because overlay-only state cannot appear on the immutable receiver. Each of these failures arrives as a response — a `500` from `handlePrachtRequest()`, an `internal_error` envelope from `invokeCapability()` — never as a rejection the adapter would have to catch.
 
+The signed `@authority` must match the URL seen by the runtime. With a
+custom-domain route in `wrangler.jsonc`, Cloudflare preview may listen on
+localhost while delivering a Worker `Request` whose URL uses the custom
+domain. Sign that effective authority or temporarily disable the route. To use
+a separate config, run `pracht build`, then
+`wrangler dev --config wrangler.local.jsonc --port 3000`; `pracht preview` does
+not forward `--config`. Signing `localhost:<port>` in that setup is treated as
+unverified.
+
 ---
 
 ## Policy Modes
@@ -63,7 +72,7 @@ export default defineCapability({
 
 ## Destructive Capabilities: Prepare/Commit
 
-Capabilities declaring `effect: "destructive"` (delete, publish, pay, send) may be exposed over HTTP only, and every dispatch is confirmation-gated. Set `PRACHT_CONFIRMATION_SECRET` in the server environment; without it, destructive calls fail closed.
+Capabilities declaring `effect: "destructive"` (delete, publish, pay, send) may be exposed over HTTP only, and every dispatch is confirmation-gated. Set `PRACHT_CONFIRMATION_SECRET` in the server environment; without it, destructive calls fail closed. For Cloudflare local preview, put the value in a gitignored `.dev.vars` file — prefixing `pracht preview` with a host environment variable does not create a Worker binding.
 
 The first call never runs the capability — it answers with a short-lived token:
 

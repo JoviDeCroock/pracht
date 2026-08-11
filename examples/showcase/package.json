@@ -4,15 +4,16 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "PRACHT_CONFIRMATION_SECRET=${PRACHT_CONFIRMATION_SECRET:-showcase-dev-confirmation-secret} pracht dev",
+    "dev": "node ../../scripts/run-pracht.mjs PRACHT_CONFIRMATION_SECRET?=showcase-dev-confirmation-secret -- dev",
     "build": "pracht build",
-    "preview": "PRACHT_CONFIRMATION_SECRET=${PRACHT_CONFIRMATION_SECRET:-showcase-dev-confirmation-secret} pracht preview",
+    "preview": "node ../../scripts/run-pracht.mjs PRACHT_CONFIRMATION_SECRET?=showcase-dev-confirmation-secret -- preview",
     "typegen": "pracht typegen",
-    "verify": "PRACHT_CONFIRMATION_SECRET=${PRACHT_CONFIRMATION_SECRET:-showcase-dev-confirmation-secret} pracht verify",
+    "verify": "node ../../scripts/run-pracht.mjs PRACHT_CONFIRMATION_SECRET?=showcase-dev-confirmation-secret -- verify",
+    "report": "node ../../scripts/run-pracht.mjs PRACHT_CONFIRMATION_SECRET?=showcase-dev-confirmation-secret -- report",
     "plan": "pracht plan",
     "snapshot": "pracht plan --write",
     "inspect": "pracht inspect capabilities",
-    "eval": "PRACHT_CONFIRMATION_SECRET=${PRACHT_CONFIRMATION_SECRET:-showcase-dev-confirmation-secret} pracht eval --start \"pracht dev --port 5183\" --url http://localhost:5183",
+    "eval": "node ../../scripts/run-pracht.mjs PRACHT_CONFIRMATION_SECRET?=showcase-dev-confirmation-secret -- eval --start \"pracht dev --port 5183\" --url http://localhost:5183",
     "agent": "node scripts/agent.mjs"
   },
   "dependencies": {

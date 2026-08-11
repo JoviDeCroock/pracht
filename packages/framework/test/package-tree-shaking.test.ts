@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { gzipSync } from "node:zlib";
 
-import { build } from "vite";
+import { build, createLogger } from "vite";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 const frameworkRoot = fileURLToPath(new URL("..", import.meta.url));
@@ -42,13 +42,17 @@ afterAll(() => {
 async function bundleExport(
   exportName: string,
   options: { define?: Record<string, string>; entry?: string } = {},
-): Promise<{ code: string; gzipBytes: number }> {
+): Promise<{ code: string; gzipBytes: number; warnings: string[] }> {
   const entry = options.entry ?? browserEntry;
   const publicId = "virtual:pracht-tree-shaking-entry";
   const resolvedId = `\0${publicId}`;
+  const warnings: string[] = [];
+  const logger = createLogger("silent");
+  logger.warn = (message) => warnings.push(message);
+  logger.warnOnce = (message) => warnings.push(message);
   const result = await build({
     configFile: false,
-    logLevel: "silent",
+    customLogger: logger,
     define: {
       __PRACHT_PUBLIC_ENV__: "{}",
       ...options.define,
@@ -95,6 +99,7 @@ async function bundleExport(
       (total, chunk) => total + gzipSync(Buffer.from(chunk.code)).byteLength,
       0,
     ),
+    warnings,
   };
 }
 
@@ -121,6 +126,16 @@ describe("published package tree shaking", () => {
   // capabilities and configures no agents must not contain the capability
   // dispatch or the Web Bot Auth verifier at all.
   describe("__PRACHT_AGENT_SURFACE__", () => {
+    it("keeps graph serialization from defeating lazy agent-runtime chunks", async () => {
+      const { warnings } = await bundleExport("buildAppGraph, buildLlmsTxt, handlePrachtRequest", {
+        entry: serverEntry,
+      });
+
+      expect(warnings.filter((warning) => warning.includes("INEFFECTIVE_DYNAMIC_IMPORT"))).toEqual(
+        [],
+      );
+    });
+
     it("drops the capability and agent-trust runtimes when the build proves they are unused", async () => {
       // Bundle the same two framework surfaces a generated server with
       // `llmsTxt` enabled imports. Build-time discovery must not retain the

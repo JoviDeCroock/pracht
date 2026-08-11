@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 
+import { extractCapabilityRegistrations } from "@pracht/capabilities/static";
 import { evaluateConstraints } from "@pracht/core";
 import type { AppGraphRoute } from "@pracht/core";
 
@@ -11,59 +12,64 @@ import {
   serializeGraphSnapshot,
   type GraphSnapshot,
 } from "./graph-snapshot.js";
-import { resolveProjectPath, type ProjectConfig } from "./project.js";
-import { createCheck, type Check } from "./verification-helpers.js";
+import { listFilesRecursively, resolveProjectPath, type ProjectConfig } from "./project.js";
+import { createCheck, MODULE_SOURCE_RE, type Check } from "./verification-helpers.js";
 
 const HEAD_EXPORT_RE =
   /export\s+(?:async\s+)?(?:function|const|let|var)\s+head\b|export\s*\{[^}]*\bhead\b[^}]*\}/;
 
 /**
- * Graph-aware verification: enforce `defineApp({ constraints })` and check
- * `.pracht/app-graph.json` freshness. Both need the resolved app graph, so the
- * (comparatively expensive) Vite boot only happens when an app opts in to at
- * least one of them.
+ * Graph-aware verification: prove registered API and capability modules load,
+ * enforce `defineApp({ constraints })`, and check `.pracht/app-graph.json`
+ * freshness. These need the resolved app graph, so the comparatively expensive
+ * Vite boot only happens when an app has a live surface to inspect.
  */
 export async function collectGraphChecks(project: ProjectConfig, checks: Check[]): Promise<void> {
   const wantsConstraints = manifestDeclaresConstraints(project);
+  const wantsCapabilityLoad = manifestDeclaresCapabilities(project);
+  const wantsApiLoad = projectDeclaresApiRoutes(project);
   const snapshotExists = existsSync(resolve(project.root, GRAPH_SNAPSHOT_PATH));
-  if (!wantsConstraints && !snapshotExists) return;
+  if (!wantsConstraints && !wantsCapabilityLoad && !wantsApiLoad && !snapshotExists) return;
 
   let live: GraphSnapshot;
   try {
     live = await resolveLiveGraph(project.root);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    checks.push(createCheck("error", `The app manifest does not resolve: ${message}`));
+    checks.push(
+      createCheck(
+        "error",
+        `Could not resolve the app graph for live verification checks: ${message}`,
+      ),
+    );
     return;
   }
 
-  collectCapabilityLoadChecks(live, checks);
+  if (wantsCapabilityLoad) {
+    checks.push(
+      createCheck(
+        "ok",
+        `Loaded ${live.capabilities.length} registered capability module${live.capabilities.length === 1 ? "" : "s"} into the app graph.`,
+      ),
+    );
+  }
+  if (wantsApiLoad) {
+    checks.push(
+      createCheck(
+        "ok",
+        `Loaded ${live.api.length} discovered API route module${live.api.length === 1 ? "" : "s"} into the app graph.`,
+      ),
+    );
+  }
   collectConstraintChecks(project, live, checks);
   collectSnapshotChecks(project, live, checks, snapshotExists);
 }
 
-/**
- * A capability whose module could not be loaded serializes with `null`
- * metadata, which reads exactly like a private capability with no effect
- * class. Say so rather than letting the rest of the report assert the
- * opposite. A warning, not an error: a module importing a runtime-only
- * binding (`cloudflare:workers`) legitimately cannot load under Node, and
- * `pracht typegen` already refuses to emit types in that state.
- */
-function collectCapabilityLoadChecks(live: GraphSnapshot, checks: Check[]): void {
-  for (const capability of live.capabilities) {
-    if (!capability.error) continue;
-    checks.push(
-      createCheck(
-        "warning",
-        `Capability "${capability.name}" (${capability.source}) could not be loaded: ${capability.error}. ` +
-          (capability.unverifiedContract
-            ? "`pracht plan` cannot detect changes to its agentPolicy or middleware (see above). "
-            : "Its effect, exposure, policy and middleware were recovered from the source. ") +
-          "Its output schema could not be read, so `pracht typegen` types it as `unknown`.",
-      ),
-    );
-  }
+function projectDeclaresApiRoutes(project: ProjectConfig): boolean {
+  const apiDir = resolveProjectPath(project.root, project.apiDir);
+  return (
+    existsSync(apiDir) && listFilesRecursively(apiDir).some((file) => MODULE_SOURCE_RE.test(file))
+  );
 }
 
 function collectConstraintChecks(
@@ -129,6 +135,14 @@ function manifestDeclaresConstraints(project: ProjectConfig): boolean {
   const manifestPath = resolveProjectPath(project.root, project.appFile);
   if (!existsSync(manifestPath)) return false;
   return /\bconstraints\s*:/.test(readFileSync(manifestPath, "utf-8"));
+}
+
+function manifestDeclaresCapabilities(project: ProjectConfig): boolean {
+  if (project.mode !== "manifest") return false;
+  const manifestPath = resolveProjectPath(project.root, project.appFile);
+  if (!existsSync(manifestPath)) return false;
+  const source = readFileSync(manifestPath, "utf-8");
+  return extractCapabilityRegistrations(source).length > 0 || /\bcapabilities\s*:/.test(source);
 }
 
 /**

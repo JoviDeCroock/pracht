@@ -15,6 +15,9 @@ import { fileURLToPath } from "node:url";
 
 import { expect, test } from "@playwright/test";
 
+import { fixtureCopyFilter } from "./fixture-copy.ts";
+import { acquireE2EWorkerPort, type E2EWorkerPortLease } from "./ports.ts";
+
 const repoRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const fixtureDir = resolve(repoRoot, "examples/basic");
 const cliEntry = resolve(repoRoot, "packages/cli/bin/pracht.js");
@@ -25,44 +28,47 @@ test("pracht build emits a deployable Node server entry", async () => {
   const { exampleDir, tempDir } = createTempExampleDir("pracht-node-build-");
   const distDir = resolve(exampleDir, "dist");
   const serverEntryPath = resolve(exampleDir, "dist/server/server.js");
-  const port = 4317;
-  const origin = `http://127.0.0.1:${port}`;
-
-  rmSync(distDir, { force: true, recursive: true });
-
-  buildExample(exampleDir, { PRACHT_ADAPTER: "node", PRACHT_ORIGIN: origin });
-
-  expect(existsSync(serverEntryPath)).toBe(true);
-
-  // The ISG manifest stays server-side; it must not be exposed in the
-  // publicly served client dir on the Node target.
-  expect(existsSync(resolve(exampleDir, "dist/server/isg-manifest.json"))).toBe(true);
-  expect(existsSync(resolve(exampleDir, "dist/client/_pracht/isg.json"))).toBe(false);
-
-  const markdownManifest = JSON.parse(
-    readFileSync(resolve(exampleDir, "dist/server/markdown-manifest.json"), "utf-8"),
-  );
-  expect(markdownManifest).toEqual({ "/": true });
-  expect(
-    JSON.parse(readFileSync(resolve(exampleDir, "dist/client/_pracht/markdown.json"), "utf-8")),
-  ).toEqual(markdownManifest);
-
-  const serverSource = readFileSync(serverEntryPath, "utf-8");
-  expect(serverSource).toContain('buildTarget = "node"');
-  expect(serverSource).toContain("createNodeRequestHandler");
-  expect(serverSource).toContain("createServer(handler)");
-
-  const server = spawn(process.execPath, [serverEntryPath], {
-    cwd: exampleDir,
-    env: {
-      ...process.env,
-      PORT: String(port),
-      PRACHT_ORIGIN: origin,
-    },
-    stdio: "pipe",
-  });
+  let server: ReturnType<typeof spawn> | undefined;
+  let portLease: E2EWorkerPortLease | undefined;
 
   try {
+    portLease = await acquireE2EWorkerPort();
+    const { port } = portLease;
+    const origin = `http://127.0.0.1:${port}`;
+    rmSync(distDir, { force: true, recursive: true });
+
+    buildExample(exampleDir, { PRACHT_ADAPTER: "node", PRACHT_ORIGIN: origin });
+
+    expect(existsSync(serverEntryPath)).toBe(true);
+
+    // The ISG manifest stays server-side; it must not be exposed in the
+    // publicly served client dir on the Node target.
+    expect(existsSync(resolve(exampleDir, "dist/server/isg-manifest.json"))).toBe(true);
+    expect(existsSync(resolve(exampleDir, "dist/client/_pracht/isg.json"))).toBe(false);
+
+    const markdownManifest = JSON.parse(
+      readFileSync(resolve(exampleDir, "dist/server/markdown-manifest.json"), "utf-8"),
+    );
+    expect(markdownManifest).toEqual({ "/": true });
+    expect(
+      JSON.parse(readFileSync(resolve(exampleDir, "dist/client/_pracht/markdown.json"), "utf-8")),
+    ).toEqual(markdownManifest);
+
+    const serverSource = readFileSync(serverEntryPath, "utf-8");
+    expect(serverSource).toContain('buildTarget = "node"');
+    expect(serverSource).toContain("createNodeRequestHandler");
+    expect(serverSource).toContain("createServer(handler)");
+
+    server = spawn(process.execPath, [serverEntryPath], {
+      cwd: exampleDir,
+      env: {
+        ...process.env,
+        PORT: String(port),
+        PRACHT_ORIGIN: origin,
+      },
+      stdio: "pipe",
+    });
+
     await waitForServer(`http://127.0.0.1:${port}/`);
 
     const homeResponse = await fetch(`http://127.0.0.1:${port}/`);
@@ -250,8 +256,11 @@ test("pracht build emits a deployable Node server entry", async () => {
     // HTML responses should have conservative cache headers
     expect(homeResponse.headers.get("cache-control")).toBe("public, max-age=0, must-revalidate");
   } finally {
-    server.kill("SIGTERM");
-    await waitForExit(server);
+    if (server) {
+      server.kill("SIGTERM");
+      await waitForExit(server);
+    }
+    portLease?.release();
     rmSync(tempDir, { force: true, recursive: true });
   }
 });
@@ -262,40 +271,43 @@ test("precompileSsrJsx opt-in precompiles server JSX and keeps the app deployabl
   const { exampleDir, tempDir } = createTempExampleDir("pracht-precompile-ssr-jsx-");
   const viteConfigPath = resolve(exampleDir, "vite.config.ts");
   const distDir = resolve(exampleDir, "dist");
-
-  const viteConfig = readFileSync(viteConfigPath, "utf-8");
-  expect(viteConfig).toContain("adapter: await resolveAdapter(target),");
-  writeFileSync(
-    viteConfigPath,
-    viteConfig.replace(
-      "adapter: await resolveAdapter(target),",
-      "adapter: await resolveAdapter(target),\n        precompileSsrJsx: true,",
-    ),
-    "utf-8",
-  );
-
-  rmSync(distDir, { force: true, recursive: true });
-  buildExample(exampleDir, { PRACHT_ADAPTER: "node" });
-
-  const serverBundle = readTextFiles(resolve(exampleDir, "dist/server"));
-  const clientBundle = readTextFiles(resolve(exampleDir, "dist/client/assets"));
-
-  expect(serverBundle).toContain("jsxTemplate");
-  expect(serverBundle).toContain("$$_tpl_");
-  expect(clientBundle).not.toContain("$$_tpl_");
-
-  const serverEntryPath = resolve(exampleDir, "dist/server/server.js");
-  const port = 4318;
-  const server = spawn(process.execPath, [serverEntryPath], {
-    cwd: exampleDir,
-    env: {
-      ...process.env,
-      PORT: String(port),
-    },
-    stdio: "pipe",
-  });
+  let server: ReturnType<typeof spawn> | undefined;
+  let portLease: E2EWorkerPortLease | undefined;
 
   try {
+    const viteConfig = readFileSync(viteConfigPath, "utf-8");
+    expect(viteConfig).toContain("adapter: await resolveAdapter(target),");
+    writeFileSync(
+      viteConfigPath,
+      viteConfig.replace(
+        "adapter: await resolveAdapter(target),",
+        "adapter: await resolveAdapter(target),\n        precompileSsrJsx: true,",
+      ),
+      "utf-8",
+    );
+
+    rmSync(distDir, { force: true, recursive: true });
+    buildExample(exampleDir, { PRACHT_ADAPTER: "node" });
+
+    const serverBundle = readTextFiles(resolve(exampleDir, "dist/server"));
+    const clientBundle = readTextFiles(resolve(exampleDir, "dist/client/assets"));
+
+    expect(serverBundle).toContain("jsxTemplate");
+    expect(serverBundle).toContain("$$_tpl_");
+    expect(clientBundle).not.toContain("$$_tpl_");
+
+    const serverEntryPath = resolve(exampleDir, "dist/server/server.js");
+    portLease = await acquireE2EWorkerPort();
+    const { port } = portLease;
+    server = spawn(process.execPath, [serverEntryPath], {
+      cwd: exampleDir,
+      env: {
+        ...process.env,
+        PORT: String(port),
+      },
+      stdio: "pipe",
+    });
+
     await waitForServer(`http://127.0.0.1:${port}/`);
 
     const homeResponse = await fetch(`http://127.0.0.1:${port}/`);
@@ -310,8 +322,11 @@ test("precompileSsrJsx opt-in precompiles server JSX and keeps the app deployabl
     expect(dashboardResponse.status).toBe(200);
     expect(await dashboardResponse.text()).toContain("Ada Lovelace");
   } finally {
-    server.kill("SIGTERM");
-    await waitForExit(server);
+    if (server) {
+      server.kill("SIGTERM");
+      await waitForExit(server);
+    }
+    portLease?.release();
     rmSync(tempDir, { force: true, recursive: true });
   }
 });
@@ -320,17 +335,18 @@ test("SSR-only builds keep static assets on the fast path for Markdown requests"
   test.setTimeout(120_000);
 
   const { exampleDir, tempDir } = createTempExampleDir("pracht-node-ssr-only-");
-  const routesPath = resolve(exampleDir, "src/routes.ts");
-  const routesSource = readFileSync(routesPath, "utf-8")
-    .replaceAll('render: "ssg"', 'render: "ssr"')
-    .replace('render: "isg",\n        revalidate: timeRevalidate(3600),', 'render: "ssr",');
-  writeFileSync(routesPath, routesSource, "utf-8");
-
-  const port = 4320;
-  const origin = `http://127.0.0.1:${port}`;
-
   let server: ReturnType<typeof spawn> | undefined;
+  let portLease: E2EWorkerPortLease | undefined;
   try {
+    portLease = await acquireE2EWorkerPort();
+    const { port } = portLease;
+    const origin = `http://127.0.0.1:${port}`;
+    const routesPath = resolve(exampleDir, "src/routes.ts");
+    const routesSource = readFileSync(routesPath, "utf-8")
+      .replaceAll('render: "ssg"', 'render: "ssr"')
+      .replace('render: "isg",\n        revalidate: timeRevalidate(3600),', 'render: "ssr",');
+    writeFileSync(routesPath, routesSource, "utf-8");
+
     buildExample(exampleDir, { PRACHT_ADAPTER: "node", PRACHT_ORIGIN: origin });
 
     expect(
@@ -359,6 +375,7 @@ test("SSR-only builds keep static assets on the fast path for Markdown requests"
       server.kill("SIGTERM");
       await waitForExit(server);
     }
+    portLease?.release();
     rmSync(tempDir, { force: true, recursive: true });
   }
 });
@@ -369,23 +386,25 @@ test("public/ folder assets are copied to dist/client/", async () => {
   const { exampleDir, tempDir } = createTempExampleDir("pracht-public-dir-");
   const distDir = resolve(exampleDir, "dist");
 
-  rmSync(distDir, { force: true, recursive: true });
+  try {
+    rmSync(distDir, { force: true, recursive: true });
 
-  const publicDir = resolve(exampleDir, "public");
-  mkdirSync(publicDir, { recursive: true });
-  writeFileSync(resolve(publicDir, "robots.txt"), "User-agent: *\nAllow: /\n", "utf-8");
-  mkdirSync(resolve(publicDir, "icons"), { recursive: true });
-  writeFileSync(resolve(publicDir, "icons/favicon.ico"), "fake-ico", "utf-8");
+    const publicDir = resolve(exampleDir, "public");
+    mkdirSync(publicDir, { recursive: true });
+    writeFileSync(resolve(publicDir, "robots.txt"), "User-agent: *\nAllow: /\n", "utf-8");
+    mkdirSync(resolve(publicDir, "icons"), { recursive: true });
+    writeFileSync(resolve(publicDir, "icons/favicon.ico"), "fake-ico", "utf-8");
 
-  buildExample(exampleDir, { PRACHT_ADAPTER: "node" });
+    buildExample(exampleDir, { PRACHT_ADAPTER: "node" });
 
-  expect(existsSync(resolve(exampleDir, "dist/client/robots.txt"))).toBe(true);
-  expect(readFileSync(resolve(exampleDir, "dist/client/robots.txt"), "utf-8")).toContain(
-    "User-agent",
-  );
-  expect(existsSync(resolve(exampleDir, "dist/client/icons/favicon.ico"))).toBe(true);
-
-  rmSync(tempDir, { force: true, recursive: true });
+    expect(existsSync(resolve(exampleDir, "dist/client/robots.txt"))).toBe(true);
+    expect(readFileSync(resolve(exampleDir, "dist/client/robots.txt"), "utf-8")).toContain(
+      "User-agent",
+    );
+    expect(existsSync(resolve(exampleDir, "dist/client/icons/favicon.ico"))).toBe(true);
+  } finally {
+    rmSync(tempDir, { force: true, recursive: true });
+  }
 });
 
 function createTempExampleDir(prefix: string): { exampleDir: string; tempDir: string } {
@@ -394,16 +413,14 @@ function createTempExampleDir(prefix: string): { exampleDir: string; tempDir: st
   const tempDir = mkdtempSync(resolve(tempRoot, prefix));
   const exampleDir = resolve(tempDir, "project");
 
-  cpSync(fixtureDir, exampleDir, {
-    filter(source) {
-      return ![".vercel", "dist", "test-results"].some((entry) =>
-        source.includes(`/examples/basic/${entry}`),
-      );
-    },
-    recursive: true,
-  });
+  try {
+    cpSync(fixtureDir, exampleDir, { filter: fixtureCopyFilter(fixtureDir), recursive: true });
 
-  return { exampleDir, tempDir };
+    return { exampleDir, tempDir };
+  } catch (error) {
+    rmSync(tempDir, { force: true, recursive: true });
+    throw error;
+  }
 }
 
 function buildExample(exampleDir: string, env: Record<string, string>): void {

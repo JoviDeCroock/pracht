@@ -329,6 +329,14 @@ describe("matchAppRoute", () => {
 });
 
 describe("API route matching", () => {
+  it("excludes TypeScript declaration files from API route discovery", () => {
+    const routes = resolveApiRoutes(["/src/api/types.d.ts", "/src/api/health.ts"]);
+
+    expect(routes.map(({ file, path }) => ({ file, path }))).toEqual([
+      { file: "/src/api/health.ts", path: "/api/health" },
+    ]);
+  });
+
   it("sorts static api routes ahead of dynamic routes", () => {
     const routes = resolveApiRoutes(["/src/api/users/[id].ts", "/src/api/users/me.ts"]);
 

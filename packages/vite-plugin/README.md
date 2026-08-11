@@ -86,3 +86,11 @@ Target-specific Vite plugins (e.g. `@cloudflare/vite-plugin`) are pulled in by
 the adapter package you install (`@pracht/adapter-cloudflare`,
 `@pracht/adapter-vercel`, etc.). The default path uses `@pracht/adapter-node`,
 which ships as a dependency of this package.
+
+Custom adapters can expose two separate plugin hooks on `PrachtAdapter`:
+
+- `vitePlugins()` for the platform's normal development and build integration.
+- `graphVitePlugins()` for metadata-only CLI servers. This optional hook must
+  not start runtimes, listeners, persistent workers, or debuggers; use it only
+  for safe resolvers or platform-module stubs. When omitted, graph commands
+  load no adapter-contributed plugins.

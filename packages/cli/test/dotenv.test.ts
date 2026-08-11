@@ -85,6 +85,21 @@ describe("loadDotEnvIntoProcess", () => {
     expect(process.env.PRACHT_TEST_LAYERED).toBe("local");
   });
 
+  it("lets mode-specific files override .env.local in Vite order", () => {
+    touchedKeys.push("PRACHT_TEST_MODE", "PRACHT_TEST_MODE_LOCAL");
+    const root = createRoot({
+      ".env": "PRACHT_TEST_MODE=base\nPRACHT_TEST_MODE_LOCAL=base\n",
+      ".env.local": "PRACHT_TEST_MODE=local\nPRACHT_TEST_MODE_LOCAL=local\n",
+      ".env.development": "PRACHT_TEST_MODE=mode\nPRACHT_TEST_MODE_LOCAL=mode\n",
+      ".env.development.local": "PRACHT_TEST_MODE_LOCAL=mode-local\n",
+    });
+
+    loadDotEnvIntoProcess(root, "development");
+
+    expect(process.env.PRACHT_TEST_MODE).toBe("mode");
+    expect(process.env.PRACHT_TEST_MODE_LOCAL).toBe("mode-local");
+  });
+
   it("returns nothing when there is no .env file", () => {
     expect(loadDotEnvIntoProcess(createRoot({}), "development")).toEqual([]);
   });

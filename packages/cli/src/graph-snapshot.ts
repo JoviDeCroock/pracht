@@ -50,14 +50,22 @@ export interface GraphSnapshot {
 export async function resolveLiveGraph(root: string): Promise<GraphSnapshot> {
   return withAppServer(root, async ({ project, server, serverModule }) => {
     const routes = serializeAppRoutes(serverModule.resolvedApp.routes);
-    const api = await serializeApiRoutes(serverModule.apiRoutes, {
-      loadModule: (file) => server.ssrLoadModule(file),
-      readSource: (file) => readFileSync(resolve(root, `.${file}`), "utf-8"),
-    });
-    const capabilities = await serializeCapabilities(serverModule.resolvedApp.capabilities, {
-      loadModule: capabilityModuleLoader(server, serverModule),
-      readSource: createSourceReader(root, project.appFile),
-    });
+    const api = await serializeApiRoutes(
+      serverModule.apiRoutes,
+      {
+        loadModule: (file) => server.ssrLoadModule(file),
+        readSource: (file) => readFileSync(resolve(root, `.${file}`), "utf-8"),
+      },
+      { strict: true },
+    );
+    const capabilities = await serializeCapabilities(
+      serverModule.resolvedApp.capabilities,
+      {
+        loadModule: capabilityModuleLoader(server, serverModule),
+        readSource: createSourceReader(root, project.appFile),
+      },
+      { strict: true },
+    );
 
     return normalizeGraphSnapshot({
       prachtGraphVersion: GRAPH_SNAPSHOT_VERSION,

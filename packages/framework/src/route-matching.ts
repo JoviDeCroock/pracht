@@ -19,6 +19,7 @@ import type {
   RouteParams,
   RouteSegment,
   SearchParamsInput,
+  UntypedRouteTarget,
 } from "./types.ts";
 
 export function normalizeRoutePath(path: string): string {
@@ -178,10 +179,11 @@ export function buildHref<TRoute extends RouteId>(
   return buildHrefUntyped(routes, String(routeId), args[0] as BuildHrefOptions | undefined);
 }
 
-function buildHrefUntyped(
+/** @internal Build a route URL before application route registration narrows `RouteId`. */
+export function buildHrefUntyped(
   routes: readonly HrefRouteDefinition[],
   routeId: string,
-  options: BuildHrefOptions = {},
+  options: Omit<UntypedRouteTarget, "route"> = {},
 ): string {
   const route = routes.find((candidate) => candidate.id === routeId);
   if (!route) {
@@ -204,7 +206,7 @@ function buildHrefUntyped(
   const segments = route.segments ?? parseRouteSegments(route.path);
   const params = normalizeHrefParams(segments, options.params ?? {});
   const path = buildPathFromSegments(segments, params);
-  return `${path}${serializeSearch(options.search)}${serializeHash(options.hash)}`;
+  return `${path}${serializeSearch(options.search as SearchParamsInput | undefined)}${serializeHash(options.hash)}`;
 }
 
 export function normalizeHrefParams(

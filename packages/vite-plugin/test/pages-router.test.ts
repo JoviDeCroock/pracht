@@ -200,6 +200,7 @@ describe("pracht plugin config", () => {
       "src/shells/**/*.{ts,tsx,js,jsx,md,mdx,tsrx}",
       "src/middleware/**/*.{ts,tsx,js,jsx}",
       "src/api/**/*.{ts,js,tsx,jsx}",
+      "!src/api/**/*.d.ts",
       "src/server/**/*.{ts,js,tsx,jsx}",
       "src/islands/**/*.{ts,tsx,js,jsx}",
       "src/capabilities/**/*.{ts,js,tsx,jsx}",
@@ -221,7 +222,9 @@ describe("createPrachtRegistryModuleSource", () => {
 
     expect(source).toContain("/src/pages/**/*.{ts,tsx,js,jsx,md,mdx}");
     expect(source).toContain("/src/pages/**/*.tsrx");
-    expect(source).toContain("/src/api/**/*.{ts,js,tsx,jsx}");
+    expect(source).toContain(
+      'import.meta.glob(["/src/api/**/*.{ts,js,tsx,jsx}","!/src/api/**/*.d.ts"])',
+    );
     expect(source).toContain("/src/server/**/*.{ts,js,tsx,jsx}");
     expect(source).toContain("/src/middleware/**/*.{ts,tsx,js,jsx}");
   });

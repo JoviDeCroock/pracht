@@ -1,7 +1,7 @@
 import { preactSsrPrecompile } from "@pracht/preact-ssr-precompile";
 import preact from "@preact/preset-vite";
 import { existsSync, realpathSync } from "node:fs";
-import { createRequire } from "node:module";
+import { createRequire, isBuiltin } from "node:module";
 import { join, resolve } from "node:path";
 import { loadEnv, type Plugin, type UserConfig } from "vite";
 import {
@@ -200,6 +200,14 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
                     // code; `browser` stays as the fallback that keeps
                     // browser-only dependencies resolvable.
                     conditions: ["worker", "module", "browser", "development|production"],
+                    // Rolldown's generated interop runtime references
+                    // `node:module` while deciding whether a helper is needed.
+                    // Edge builds tree-shake that helper, but Vite otherwise
+                    // warns that it auto-externalized a Node builtin. Marking
+                    // it explicitly keeps successful Worker builds quiet;
+                    // the edge-runtime-safety plugin still fails the build if
+                    // this or any other Node import survives tree shaking.
+                    external: ["node:module"],
                   },
                 },
               },
@@ -418,6 +426,10 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
     },
   };
 
+  const edgeRuntimeSafetyPlugin: Plugin | null = resolved.adapter.edge
+    ? createEdgeRuntimeSafetyPlugin()
+    : null;
+
   const optimizeDepsEntriesPlugin: Plugin = {
     name: "pracht:optimize-deps-entries",
     enforce: "post",
@@ -443,17 +455,18 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
     ...preact(),
     prachtPlugin,
     clientModuleTransformPlugin,
+    ...(edgeRuntimeSafetyPlugin ? [edgeRuntimeSafetyPlugin] : []),
     createEnvSafetyPlugin(resolved.envSafety),
   ];
 
   // Graph-only mode: the CLI's short-lived Vite server (`pracht inspect`,
-  // `verify`, `doctor`, `plan`, `report`, `typegen`) evaluates exactly one
-  // adapter-neutral module — `virtual:pracht/dev-metadata` — and closes
-  // immediately. Loading the adapter's own Vite plugins there is pure cost,
-  // and some of them own long-lived resources that `server.close()` does not
-  // reclaim: `@cloudflare/vite-plugin` starts workerd plus a debugger socket,
-  // which kept those commands alive forever after printing their results.
-  const adapterPlugins = isGraphOnlyMode() ? undefined : resolved.adapter.vitePlugins?.();
+  // `verify`, `doctor`, `plan`, `report`, `typegen`) evaluates adapter-neutral
+  // metadata and closes immediately. Deployment runtimes can own resources
+  // that outlive `server.close()`, so adapters must opt plugins into this mode
+  // explicitly through the graph-safe hook.
+  const adapterPlugins = isGraphOnlyMode()
+    ? resolved.adapter.graphVitePlugins?.()
+    : resolved.adapter.vitePlugins?.();
   if (adapterPlugins?.length) {
     plugins.push(...adapterPlugins);
   }
@@ -464,6 +477,87 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
 
 function isGraphOnlyMode(): boolean {
   return process.env[PRACHT_GRAPH_ONLY_ENV] === "1";
+}
+
+function createEdgeRuntimeSafetyPlugin(): Plugin {
+  let isSsrBuild = false;
+
+  return {
+    name: "pracht:edge-runtime-safety",
+    apply: "build",
+    enforce: "post",
+
+    configResolved(config) {
+      isSsrBuild = !!config.build.ssr;
+    },
+
+    generateBundle(_options, bundle) {
+      // Prefer Vite's environment identity when available and retain the
+      // config flag for direct Rollup/plugin tests and older Vite contexts.
+      const consumer = this.environment?.config?.consumer;
+      const isServerBundle = consumer ? consumer === "server" : isSsrBuild;
+      if (!isServerBundle) return;
+
+      const survivors: Array<{ chunk: string; specifier: string }> = [];
+      for (const [fileName, output] of Object.entries(bundle)) {
+        if (output.type !== "chunk") continue;
+        for (const specifier of collectNodeBuiltinImports(this.parse(output.code))) {
+          survivors.push({ chunk: fileName, specifier });
+        }
+      }
+
+      if (survivors.length === 0) return;
+      this.error(
+        [
+          "[pracht] Edge server bundle retains Node.js builtin imports that are unavailable at runtime:",
+          ...survivors.map(({ chunk, specifier }) => `  - ${specifier} in ${chunk}`),
+          "Remove the Node-only dependency or move that route to a Node deployment target.",
+        ].join("\n"),
+      );
+    },
+  };
+}
+
+function collectNodeBuiltinImports(program: unknown): Set<string> {
+  const imports = new Set<string>();
+
+  function sourceValue(node: unknown): string | null {
+    if (!node || typeof node !== "object" || !("value" in node)) return null;
+    return typeof node.value === "string" ? node.value : null;
+  }
+
+  function visit(node: unknown): void {
+    if (Array.isArray(node)) {
+      for (const item of node) visit(item);
+      return;
+    }
+    if (!node || typeof node !== "object") return;
+
+    const record = node as Record<string, unknown>;
+    const type = record.type;
+    if (
+      type === "ImportDeclaration" ||
+      type === "ExportAllDeclaration" ||
+      type === "ExportNamedDeclaration" ||
+      type === "ImportExpression"
+    ) {
+      const specifier = sourceValue(record.source);
+      if (specifier && isBuiltin(specifier)) imports.add(specifier);
+    } else if (type === "CallExpression") {
+      const callee = record.callee as Record<string, unknown> | undefined;
+      const isImport = callee?.type === "Import";
+      const isRequire = callee?.type === "Identifier" && callee.name === "require";
+      if (isImport || isRequire) {
+        const specifier = sourceValue((record.arguments as unknown[] | undefined)?.[0]);
+        if (specifier && isBuiltin(specifier)) imports.add(specifier);
+      }
+    }
+
+    for (const value of Object.values(record)) visit(value);
+  }
+
+  visit(program);
+  return imports;
 }
 
 const MANIFEST_CORE_IMPORTS = new Set(["defineApp", "group", "route", "timeRevalidate"]);
@@ -557,11 +651,13 @@ function withPrachtOptimizeDepsEntries(
 function createPrachtOptimizeDepsEntries(resolved: ResolvedPrachtPluginOptions): string[] {
   const scriptExtensions = "{ts,tsx,js,jsx}";
   const routeExtensions = "{ts,tsx,js,jsx,md,mdx,tsrx}";
+  const apiDir = toOptimizeDepsEntry(resolved.apiDir);
+  const apiEntries = [`${apiDir}/**/*.{ts,js,tsx,jsx}`, `!${apiDir}/**/*.d.ts`];
   const entries = resolved.pagesDir
     ? [
         `${toOptimizeDepsEntry(resolved.pagesDir)}/**/*.${routeExtensions}`,
         `${toOptimizeDepsEntry(resolved.middlewareDir)}/**/*.${scriptExtensions}`,
-        `${toOptimizeDepsEntry(resolved.apiDir)}/**/*.{ts,js,tsx,jsx}`,
+        ...apiEntries,
         `${toOptimizeDepsEntry(resolved.serverDir)}/**/*.{ts,js,tsx,jsx}`,
         `${toOptimizeDepsEntry(resolved.islandsDir)}/**/*.${scriptExtensions}`,
       ]
@@ -570,7 +666,7 @@ function createPrachtOptimizeDepsEntries(resolved: ResolvedPrachtPluginOptions):
         `${toOptimizeDepsEntry(resolved.routesDir)}/**/*.${routeExtensions}`,
         `${toOptimizeDepsEntry(resolved.shellsDir)}/**/*.${routeExtensions}`,
         `${toOptimizeDepsEntry(resolved.middlewareDir)}/**/*.${scriptExtensions}`,
-        `${toOptimizeDepsEntry(resolved.apiDir)}/**/*.{ts,js,tsx,jsx}`,
+        ...apiEntries,
         `${toOptimizeDepsEntry(resolved.serverDir)}/**/*.{ts,js,tsx,jsx}`,
         `${toOptimizeDepsEntry(resolved.islandsDir)}/**/*.${scriptExtensions}`,
         `${toOptimizeDepsEntry(resolved.capabilitiesDir)}/**/*.{ts,js,tsx,jsx}`,

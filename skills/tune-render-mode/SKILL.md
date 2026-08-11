@@ -159,7 +159,7 @@ Apply the edits only after the user confirms.
    | ---------- | -------------------------------------------------------------- | ----- |
    | Node       | Filesystem: `isg-manifest.json` + file-mtime revalidation      | Serves stale immediately, refreshes in place. |
    | Cloudflare | Worker-managed Workers Cache API, **per colo** — works without any extra config | `cloudflareAdapter({ cache: true })` + `"cache": { "enabled": true }` in wrangler config is an **optional upgrade** that moves time-revalidated routes to an edge-tier cache in front of the Worker; webhook-only routes stay worker-managed. Webhook invalidation on the default path is per-colo, not a global purge. |
-   | Vercel     | Native ISR: Build Output API prerender functions with `expiration` from the time policy; `PRACHT_REVALIDATE_TOKEN` becomes the `bypassToken` (must be set at build time) | ISG routes deploy as Node Serverless Functions (Vercel rejects ISR on an Edge Function) while SSR stays on the edge. See docs/ADAPTERS.md. |
+   | Vercel     | Native ISR: Build Output API prerender functions with `expiration` from the time policy; for webhook revalidation, `PRACHT_REVALIDATE_TOKEN` becomes the `bypassToken` and must be set at build time | ISG routes deploy as Node Serverless Functions (Vercel rejects ISR on an Edge Function) while SSR stays on the edge. Time-only ISR does not require the token. See docs/ADAPTERS.md. |
 
 4. For dynamic SSG/ISG routes, ensure `getStaticPaths` exists. Flag if missing.
 5. Use `pracht inspect routes --json` rather than reading `src/routes.ts`

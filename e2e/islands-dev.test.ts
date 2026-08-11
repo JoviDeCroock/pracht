@@ -1,6 +1,11 @@
-import { expect, test } from "@playwright/test";
 import { readFileSync, writeFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { resolve } from "node:path";
+
+import { expect, test } from "@playwright/test";
+
+import { e2eExampleDirectory } from "./ports.ts";
+
+const islandsExampleDir = e2eExampleDirectory("islands");
 
 // Dev-server coverage for islands routes: the vite plugin serves the islands
 // bootstrap from /@pracht/islands.js and the dev SSR middleware renders the
@@ -71,9 +76,7 @@ test("editing a hydration islands route reloads the open page with CSS scanning 
 }) => {
   test.setTimeout(30_000);
 
-  const routeFile = fileURLToPath(
-    new URL("../examples/islands/src/routes/home.tsx", import.meta.url),
-  );
+  const routeFile = resolve(islandsExampleDir, "src/routes/home.tsx");
   const original = readFileSync(routeFile, "utf-8");
 
   await page.goto("/");
@@ -92,9 +95,7 @@ test("editing a hydration islands route reloads the open page with CSS scanning 
 test("editing a hydration none route reloads the open page", async ({ page }) => {
   test.setTimeout(30_000);
 
-  const routeFile = fileURLToPath(
-    new URL("../examples/islands/src/routes/static-page.tsx", import.meta.url),
-  );
+  const routeFile = resolve(islandsExampleDir, "src/routes/static-page.tsx");
   const original = readFileSync(routeFile, "utf-8");
 
   await page.goto("/static");
@@ -115,9 +116,7 @@ test("editing an island keeps client state while file-only asset entries exist",
 }) => {
   test.setTimeout(30_000);
 
-  const islandFile = fileURLToPath(
-    new URL("../examples/islands/src/islands/Counter.tsx", import.meta.url),
-  );
+  const islandFile = resolve(islandsExampleDir, "src/islands/Counter.tsx");
   const original = readFileSync(islandFile, "utf-8");
 
   await page.goto("/");
