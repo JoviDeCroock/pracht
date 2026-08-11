@@ -9,7 +9,8 @@ export const CONFIG_FILE_NAMES = new Set([
   "vite.config.cts",
 ]);
 
-export const MODULE_SOURCE_RE = /\.(ts|tsx|tsrx|js|jsx)$/;
+// Declaration files are TypeScript inputs, never executable framework modules.
+export const MODULE_SOURCE_RE = /(?<!\.d)\.(ts|tsx|tsrx|js|jsx)$/;
 export const PAGE_SOURCE_RE = /\.(ts|tsx|tsrx|js|jsx|md|mdx)$/;
 
 export interface Check {

@@ -18,6 +18,52 @@ import {
 afterEach(cleanupTempDirs);
 
 describe("@pracht/cli dev typegen", () => {
+  it("pracht dev forwards a custom Vite cache directory", async () => {
+    const appDir = createRepoTempDir("pracht-cli-dev-cache-app-");
+    const cacheDir = createRepoTempDir("pracht-cli-dev-cache-data-");
+    writeTypedManifestApp(appDir);
+
+    const configPath = join(appDir, "vite.config.ts");
+    writeProjectFile(
+      appDir,
+      "vite.config.ts",
+      readFileSync(configPath, "utf-8").replace(
+        "plugins: [",
+        'plugins: [{ name: "cache-probe", configResolved(config) { console.log("CACHE:" + config.cacheDir); } }, ',
+      ),
+    );
+
+    const child = spawn(
+      process.execPath,
+      [cliPath, "dev", "--port", "3986", "--cache-dir", cacheDir],
+      {
+        cwd: appDir,
+        env: process.env,
+        stdio: ["ignore", "pipe", "pipe"],
+      },
+    );
+    let output = "";
+    child.stdout.setEncoding("utf-8");
+    child.stderr.setEncoding("utf-8");
+    child.stdout.on("data", (chunk) => {
+      output += chunk;
+    });
+    child.stderr.on("data", (chunk) => {
+      output += chunk;
+    });
+
+    try {
+      await waitFor(
+        () => output.includes("CACHE:"),
+        30_000,
+        () => output,
+      );
+      expect(output).toContain(`CACHE:${cacheDir}`);
+    } finally {
+      await stopChild(child);
+    }
+  }, 120_000);
+
   it("pracht dev explains how to enable generated route types", async () => {
     const appDir = createRepoTempDir("pracht-cli-dev-typegen-hint-");
     writeTypedManifestApp(appDir);

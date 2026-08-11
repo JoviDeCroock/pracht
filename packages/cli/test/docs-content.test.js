@@ -29,6 +29,78 @@ describe("documentation content", () => {
 
     expect(offenders).toEqual([]);
   });
+
+  it("keeps the public CLI reference in sync with every shipped command", () => {
+    const cliSource = readFileSync(resolve(repoRoot, "packages/cli/src/index.ts"), "utf-8");
+    const publicReference = readFileSync(
+      resolve(repoRoot, "examples/docs/src/routes/docs/cli.md"),
+      "utf-8",
+    );
+    const shippedCommands = Array.from(
+      cliSource.matchAll(/^    ([a-z]+): \(\) => import\(/gm),
+      (match) => match[1],
+    ).sort();
+    const documentedCommands = Array.from(
+      publicReference.matchAll(/^## pracht ([a-z]+)$/gm),
+      (match) => match[1],
+    ).sort();
+
+    expect(documentedCommands).toEqual(shippedCommands);
+  });
+
+  it("keeps high-risk adapter options in the public adapter guide", () => {
+    const publicReference = readFileSync(
+      resolve(repoRoot, "examples/docs/src/routes/docs/adapters.md"),
+      "utf-8",
+    );
+
+    for (const term of [
+      "canonicalOrigin",
+      "trustProxy",
+      "maxBodySize",
+      "staleWhileRevalidate",
+      "workerExportsFrom",
+      "workerHandlersFrom",
+      "functionName",
+      "createVercelNodeListener",
+      ".dev.vars",
+      "@authority",
+      "wrangler dev --config",
+    ]) {
+      expect(publicReference, `missing adapter guidance for ${term}`).toContain(term);
+    }
+  });
+
+  it("keeps documented local secret files ignored", () => {
+    const gitignore = readFileSync(resolve(repoRoot, ".gitignore"), "utf-8");
+
+    expect(gitignore).toContain(".env*");
+    expect(gitignore).toContain("!.env.example");
+    expect(gitignore).toContain(".dev.vars");
+  });
+
+  it("keeps Conductor collaboration artifacts outside the formatter boundary", () => {
+    const formatterConfig = JSON.parse(readFileSync(resolve(repoRoot, ".oxfmtrc.json"), "utf-8"));
+
+    expect(formatterConfig.ignorePatterns).toContain(".context/**");
+  });
+
+  it("keeps temporary E2E project copies outside unit-test discovery", () => {
+    const vitestConfig = readFileSync(resolve(repoRoot, "vitest.config.ts"), "utf-8");
+
+    expect(vitestConfig).toContain('".tmp/**"');
+  });
+
+  it("uses the Cloudflare example's actual revalidation secret", () => {
+    const readme = readFileSync(resolve(repoRoot, "examples/cloudflare/README.md"), "utf-8");
+    const handler = readFileSync(
+      resolve(repoRoot, "examples/cloudflare/src/api/revalidate.ts"),
+      "utf-8",
+    );
+
+    expect(handler).toContain("context.env as { REVALIDATE_SECRET?: string }");
+    expect(readme).toContain("REVALIDATE_SECRET=local-only-revalidation-secret");
+  });
 });
 
 function collectMarkdownAndTextFiles(paths) {

@@ -131,6 +131,26 @@ Custom setups can call `setServerEnv(env)` (exported from
 
 ---
 
+## Local Environment Files
+
+`pracht dev` loads `.env` files into `process.env` for process-based runtimes;
+real environment variables win. For development mode, precedence is
+`.env.development.local`, `.env.development`, `.env.local`, then `.env`.
+
+Cloudflare Worker bindings are different: Wrangler owns them. For
+`pracht preview`, put local-only values such as
+`PRACHT_CONFIRMATION_SECRET` and `PRACHT_REVALIDATE_TOKEN` in a gitignored
+`.dev.vars` file. Prefixing the host command with those variables does not
+automatically create Worker bindings. Use `wrangler secret` for production.
+
+`pracht build` does not copy unprefixed `.env` values into `process.env`, and
+`pracht verify` / `pracht doctor` do not use those files to satisfy deployment
+secret checks. This keeps missing server-only configuration visible.
+`PRACHT_PUBLIC_` and `VITE_` values remain different: Vite intentionally loads
+them from `.env` at build time and compiles them into the client bundle.
+
+---
+
 ## Client-Leak Detection
 
 During `pracht build` the plugin scans every client chunk for references to

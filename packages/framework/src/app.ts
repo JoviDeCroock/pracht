@@ -553,6 +553,7 @@ export function resolveApiRoutes(files: string[], apiDir: string = "/src/api"): 
   const normalizedDir = apiDir.replace(/\/$/, "");
 
   return files
+    .filter((file) => !/\.d\.ts$/i.test(file))
     .map((file) => {
       // Strip the apiDir prefix and file extension
       let relative = file;

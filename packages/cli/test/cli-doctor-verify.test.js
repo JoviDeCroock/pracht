@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import {
   cleanupTempDirs,
+  createRepoTempDir,
   createTempDir,
   initializeGitRepo,
   runCli,
@@ -195,7 +196,9 @@ export const app = defineApp({
   });
 
   it("reports a healthy manifest app in verify json output", () => {
-    const appDir = createTempDir("pracht-cli-verify-ok-");
+    // Live graph verification loads the Vite config, so keep this fixture
+    // below the repository root where its workspace dependencies resolve.
+    const appDir = createRepoTempDir("pracht-cli-verify-ok-");
     writeManifestApp(appDir, {
       routesSource: `import { defineApp, route } from "@pracht/core";
 
@@ -231,6 +234,11 @@ export const app = defineApp({
       true,
     );
     expect(report.checks.some((check) => check.message.includes("API route discovery"))).toBe(true);
+    expect(
+      report.checks.some(
+        (check) => check.message === "Loaded 1 discovered API route module into the app graph.",
+      ),
+    ).toBe(true);
   });
 
   it("reports duplicate API discovery failures in verify json output", () => {

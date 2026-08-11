@@ -27,6 +27,13 @@ export interface PrachtAdapter {
    */
   vitePlugins?(): Plugin[];
   /**
+   * Vite plugins that can safely run in the CLI's graph-only server. These
+   * plugins may provide runtime-module stubs or other metadata-only support,
+   * but must not start deployment runtimes, listeners, or persistent workers.
+   * When omitted, graph commands load no adapter-contributed plugins.
+   */
+  graphVitePlugins?(): Plugin[];
+  /**
    * If true, the adapter owns dev-server request handling and the vite-plugin
    * will not install its own SSR middleware. Used when the adapter contributes
    * a Vite plugin that runs the dev server in a platform-specific runtime

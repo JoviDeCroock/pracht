@@ -1,13 +1,14 @@
-import { readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { readFileSync, realpathSync, statSync } from "node:fs";
+import { dirname, relative, resolve, sep } from "node:path";
 
-import { resolveMcpEndpoint, resolveRegistryModule, serializeCapabilities } from "@pracht/core";
+import {
+  resolveMcpEndpoint,
+  resolveRegistryModule,
+  serializeApiRoutesStatic,
+  serializeCapabilities,
+} from "@pracht/core";
 import type { AppGraphCapability } from "@pracht/core";
 import type { ViteDevServer } from "vite";
-
-import { HTTP_METHODS, type HttpMethod } from "./constants.js";
-
-const METHOD_ORDER: HttpMethod[] = [...HTTP_METHODS];
 
 export interface AppGraphRoute {
   file: string;
@@ -62,11 +63,6 @@ interface ResolvedRouteEntry {
   speculation?: unknown;
 }
 
-interface ApiRouteEntry {
-  file: string;
-  path: string;
-}
-
 const PRACHT_DEV_METADATA_MODULE_ID = "virtual:pracht/dev-metadata";
 
 /**
@@ -106,12 +102,19 @@ function isMissingDevMetadataModule(error: unknown): boolean {
 export async function collectAppGraph(
   server: ViteDevServer,
   root: string,
-  options: { appFile?: string; executeApiModules?: boolean } = {},
+  options: { appFile?: string } = {},
 ): Promise<AppGraph> {
   const serverModule = await loadAppMetadataModule(server);
   const notFound = serverModule.resolvedApp.notFound;
   return {
-    api: await collectApiRoutes(server, root, serverModule.apiRoutes, options),
+    // The banner must not execute every API module at startup. Static export
+    // analysis follows named and star re-exports without triggering unrelated
+    // top-level application work.
+    api: await serializeApiRoutesStatic(serverModule.apiRoutes, {
+      readSource: (file) => readStaticAppModule(root, file),
+      resolveModule: (specifier, importer) =>
+        resolveStaticModule(server, root, specifier, importer),
+    }),
     capabilities: await serializeCapabilities(serverModule.resolvedApp.capabilities, {
       loadModule: capabilityModuleLoader(server, serverModule),
       readSource: createSourceReader(root, options.appFile ?? "/src/routes.ts"),
@@ -120,6 +123,58 @@ export async function collectAppGraph(
     notFound: notFound ? serializeResolvedRoutes([notFound])[0] : null,
     routes: serializeResolvedRoutes(serverModule.resolvedApp.routes),
   };
+}
+
+function readStaticAppModule(root: string, file: string): string {
+  const resolved = resolveInRootAppFile(root, resolve(root, `.${file}`));
+  if (!resolved) throw new Error(`Static app module is outside the project root: ${file}`);
+  return readFileSync(resolved.absolute, "utf-8");
+}
+
+async function resolveStaticModule(
+  server: ViteDevServer,
+  root: string,
+  specifier: string,
+  importer: string,
+): Promise<string | null> {
+  const importerFile = resolveInRootAppFile(root, resolve(root, `.${importer}`));
+  if (!importerFile) return null;
+
+  const resolved = await server.pluginContainer.resolveId(specifier, importerFile.absolute, {
+    ssr: true,
+  });
+  if (!resolved) return null;
+  if (typeof resolved !== "string" && resolved.external) return null;
+
+  const id = typeof resolved === "string" ? resolved : resolved.id;
+  const cleanId = id.split("?", 1)[0].split("#", 1)[0];
+  if (cleanId.startsWith("\0") || cleanId.startsWith("virtual:")) return null;
+
+  return resolveInRootAppFile(root, cleanId)?.appPath ?? null;
+}
+
+function resolveInRootAppFile(
+  root: string,
+  candidate: string,
+): { absolute: string; appPath: string } | null {
+  try {
+    const canonicalRoot = realpathSync.native(root);
+    const absolute = realpathSync.native(candidate);
+    if (!statSync(absolute).isFile()) return null;
+
+    const relativePath = relative(canonicalRoot, absolute);
+    if (
+      relativePath === "" ||
+      relativePath === ".." ||
+      relativePath.startsWith(`..${sep}`) ||
+      relativePath.split(sep).includes("node_modules")
+    ) {
+      return null;
+    }
+    return { absolute, appPath: `/${relativePath.split(sep).join("/")}` };
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -179,57 +234,4 @@ export function serializeResolvedRoutes(routes: ResolvedRouteEntry[]): AppGraphR
     shellFile: route.shellFile ?? null,
     speculation: route.speculation ?? null,
   }));
-}
-
-export async function collectApiRoutes(
-  server: ViteDevServer,
-  root: string,
-  apiRoutes: ApiRouteEntry[],
-  options: { executeApiModules?: boolean } = {},
-): Promise<AppGraphApiRoute[]> {
-  return Promise.all(
-    apiRoutes.map(async (route) => {
-      const { hasDefaultHandler, methods } = await detectApiExports(
-        server,
-        root,
-        route.file,
-        options,
-      );
-      return {
-        file: route.file,
-        hasDefaultHandler,
-        methods,
-        path: route.path,
-      };
-    }),
-  );
-}
-
-async function detectApiExports(
-  server: ViteDevServer,
-  root: string,
-  file: string,
-  options: { executeApiModules?: boolean },
-): Promise<{ hasDefaultHandler: boolean; methods: string[] }> {
-  const resolvedFile = resolve(root, `.${file}`);
-  const source = readFileSync(resolvedFile, "utf-8");
-
-  if (options.executeApiModules) {
-    try {
-      const module = await server.ssrLoadModule(file);
-      return {
-        hasDefaultHandler: typeof module.default === "function",
-        methods: METHOD_ORDER.filter((method) => typeof module[method] === "function"),
-      };
-    } catch {
-      // Fall through to the static scan below.
-    }
-  }
-
-  return {
-    hasDefaultHandler: /export\s+default\b/.test(source),
-    methods: METHOD_ORDER.filter((method) =>
-      new RegExp(`export\\s+(?:async\\s+)?(?:function|const|let|var)\\s+${method}\\b`).test(source),
-    ),
-  };
 }

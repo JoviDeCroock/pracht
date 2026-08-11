@@ -14,6 +14,15 @@ npm install @pracht/cli
 
 Start the local development server with SSR and HMR.
 
+```bash
+pracht dev
+pracht dev --port 4000
+pracht dev --cache-dir /tmp/pracht-vite-cache
+```
+
+`--cache-dir` overrides Vite's `node_modules/.vite` cache. Give concurrent dev
+servers separate directories when they run against the same project checkout.
+
 ### `pracht build`
 
 Create a production build with client/server output and SSG/ISG prerendering.

@@ -20,6 +20,11 @@ npm run dev
 - Scaffolds a minimal app with a route manifest or pages router, shell, home route, not-found page, sample API route, runnable project README, TypeScript typecheck script, and (with agent tooling enabled) agent instructions.
 - Manifest scaffolds include a commented-out `constraints` example in `src/routes.ts`, ready for `pracht verify`.
 - The generated `.gitignore` keeps `.pracht/app-graph.json` committable, and the README and agent instructions cover the `pracht verify` / `pracht plan` / `pracht report` loop.
+- Every standalone pnpm scaffold includes a narrow lifecycle-script policy for
+  its required native dependencies in `pnpm-workspace.yaml`:
+  `onlyBuiltDependencies` for pnpm 10 or `allowBuilds` for pnpm 11. All adapters
+  allow `esbuild`, Cloudflare also allows `workerd`, and Tailwind starters also
+  allow `@tailwindcss/oxide`.
 - Seeds the pracht Claude Code skills into `.claude/skills/`, writes a `.mcp.json` registering the `pracht mcp` server, and writes `AGENTS.md` (yes-default prompt; all of it skipped with `--no-agent-tools`, which leaves a project with no agent files at all).
 - Initializes a git repository with an initial commit (skipped with `--no-git`, when git is unavailable, or when the target is already inside a repository).
 - `--dry-run` uses pinned fallback versions and does not require npm registry access.
@@ -78,6 +83,12 @@ Tailwind scaffolds also include:
 Cloudflare scaffolds also include:
 
 - `wrangler.jsonc`
+
+Standalone pnpm scaffolds for every adapter include `pnpm-workspace.yaml` with
+the version-appropriate lifecycle policy. When the new app belongs to an
+ancestor pnpm workspace, that workspace owns the policy instead: the generated
+README and completion message list the exact entries to add and no nested
+workspace file is created.
 
 ## Generated Scripts
 

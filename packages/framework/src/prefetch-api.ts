@@ -7,7 +7,7 @@
  * the core client bundle.
  */
 
-import { buildHref, matchResolvedRoute } from "./route-matching.ts";
+import { buildHrefUntyped, matchResolvedRoute } from "./route-matching.ts";
 import {
   cacheRouteState,
   EMPTY_ROUTE_STATE_PROMISE,
@@ -22,6 +22,7 @@ import type {
   RouteId,
   RouteMatch,
   RouteTarget,
+  UntypedRouteTarget,
 } from "./types.ts";
 
 export type ModuleWarmFn = (match: RouteMatch) => void;
@@ -76,14 +77,14 @@ export interface PrefetchFn {
  * Available once the client router has initialized; a no-op during SSR,
  * before hydration, and for URLs that do not match a client route.
  */
-export const prefetch: PrefetchFn = async (to: string | RouteTarget): Promise<void> => {
+export const prefetch: PrefetchFn = async (to: string | UntypedRouteTarget): Promise<void> => {
   if (typeof window === "undefined") return;
   const target = activePrefetchTarget;
   if (!target) return;
 
   let href: string;
   try {
-    href = typeof to === "string" ? to : buildHref(target.app.routes, to.route, to as never);
+    href = typeof to === "string" ? to : buildHrefUntyped(target.app.routes, to.route, to);
   } catch {
     return;
   }

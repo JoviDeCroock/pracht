@@ -18,7 +18,7 @@ Every adapter follows the same request flow:
 Platform request (Node / CF / Vercel)
   → Convert to Web Request
   → Is this a static asset?  → Yes: serve from dist/client/
-  → Is this a prerendered page?  → Yes: serve static HTML (Node checks ISG staleness)
+  → Is this a prerendered page?  → Yes: serve static HTML or the platform's ISG cache
   → Delegate to handlePrachtRequest()
   → Convert Web Response back to platform response
 ```
@@ -67,7 +67,8 @@ dist/
     assets/
     index.html     // SSG pages
   server/
-    server.js      // Worker bundle
+    server.js      // Worker bundle used for the build/prerender pass
+    worker.js      // clean Wrangler deploy entry
 ```
 
 Prerendered HTML receives document headers from the generated `_pracht/headers.json` asset.
@@ -76,11 +77,52 @@ Every shared-cache ISG render, including a cold render with `cloudflareAdapter({
 
 Keep your `wrangler.jsonc` in the project root so you can add bindings without the build overwriting them.
 
-### Exporting Durable Objects and other primitives
+Cloudflare chooses a local inspector port automatically in dev. Concurrent
+Vite dev servers can race that availability probe, so give each server a
+distinct port (or disable the inspector). Local binding state also needs a
+distinct persistence path or must be disabled:
 
-Wrangler discovers Durable Objects, Workflows, Queues, and similar primitives
-from named exports on the Worker entry. Point the adapter at a dedicated module
-that re-exports them:
+```ts
+cloudflareAdapter({ inspectorPort: 9230 });
+cloudflareAdapter({ inspectorPort: false, persistState: false });
+cloudflareAdapter({ persistState: { path: ".wrangler/state-dev-a" } });
+```
+
+### ISG and Workers Caching
+
+By default, Cloudflare runtime ISG stores regenerated pages in the per-colo
+Cache API and uses `ASSETS` as its build-time fallback. Opt into Cloudflare's
+cache in front of the Worker when time-revalidated routes should render on
+demand at the edge:
+
+```ts [vite.config.ts]
+cloudflareAdapter({ cache: true });
+
+// The stale window defaults to one year and is independently configurable.
+cloudflareAdapter({ cache: { staleWhileRevalidate: 86_400 } });
+```
+
+```jsonc [wrangler.jsonc]
+{ "cache": { "enabled": true } }
+```
+
+Workers Caching keys the exact path and query string. Query ordering and
+trailing slashes therefore create distinct cache entries, and arbitrary query
+values can create unbounded cold renders. Keep shared ISG query shapes bounded
+and canonical; use SSR when query parameters or visitor credentials affect the
+render. Cached hits also bypass middleware, so per-visitor policy belongs on
+SSR routes.
+
+The assets binding's default HTML handling may redirect a nested prerendered
+route from `/guide` to `/guide/`, while Node serves `/guide` directly. Set
+`assets.html_handling` in `wrangler.jsonc` when the same canonical URL must be
+preserved across adapters.
+
+### Exporting bindings and event handlers
+
+Wrangler discovers class-based primitives such as Durable Objects and
+Workflows from named exports on the Worker entry. Point the adapter at a
+dedicated module that re-exports them:
 
 ```ts [vite.config.ts]
 import { defineConfig } from "vite";
@@ -103,6 +145,61 @@ export { Counter } from "./workers/counter.ts";
 ```
 
 Keep the matching bindings and migrations in `wrangler.jsonc`.
+
+Queue consumers, Cron Triggers, Email Routing, and similar events are methods
+on the Worker's **default export**, not named exports. Export those handlers by
+name from a second module and point `workerHandlersFrom` at it:
+
+```ts [vite.config.ts]
+cloudflareAdapter({
+  workerExportsFrom: "/src/cloudflare.ts",
+  workerHandlersFrom: "/src/worker-handlers.ts",
+});
+```
+
+```ts [src/worker-handlers.ts]
+export async function queue(batch, env, ctx) {
+  for (const message of batch.messages) await processJob(message, env);
+}
+
+export async function scheduled(event, env, ctx) {
+  await runCronSweep(env, ctx);
+}
+```
+
+Pracht merges these methods beside its own `fetch` handler. A `fetch` export in
+the handler module is ignored; request handling belongs in API routes or
+middleware.
+
+### Local preview and Worker bindings
+
+`pracht preview` builds the Worker and delegates to `wrangler dev`. Local
+Worker secrets must come through Wrangler, for example from a gitignored
+`.dev.vars` file:
+
+```dotenv [.dev.vars]
+PRACHT_CONFIRMATION_SECRET=local-only-secret
+PRACHT_REVALIDATE_TOKEN=local-only-revalidation-token
+```
+
+Prefixing the host command with either variable does not automatically expose
+it on the Worker's `env` binding. Keep production values in `wrangler secret`.
+
+When the Wrangler config includes a custom-domain route, preview may print a
+localhost URL while the `Request` inside the Worker uses the custom domain in
+`request.url`. Web Bot Auth signatures cover `@authority`, so sign that
+effective Worker authority or temporarily disable the custom route. To select
+a separate config, build and invoke Wrangler directly:
+
+```sh
+pracht build
+npx wrangler dev --config wrangler.local.jsonc --port 3000
+```
+
+That config must keep `main: "dist/server/worker.js"` and omit the production
+route. `pracht preview` does not forward Wrangler's `--config` flag. The same
+authority distinction affects absolute redirects and other origin-derived
+behavior.
 
 ### WebSockets
 
@@ -164,6 +261,14 @@ export async function loader({ context }: LoaderArgs) {
 }
 ```
 
+Cloudflare Workers itself allows top-level access through
+`import { env } from "cloudflare:workers"`, but Pracht graph inspection cannot
+provide authoritative bindings. In API and capability modules, read `env.DB`,
+`env.MY_KV`, or `exports.*` inside the handler, capability `run()`, or another
+request-time function — not during module initialization. Importing `env` is
+safe; a top-level property read fails closed with the binding name so a fake
+value cannot silently alter inspected security or transport metadata.
+
 ### Deploy
 
 ```sh
@@ -194,6 +299,12 @@ ISG Serverless invocations render on a sanitized request — path only, `Accept:
 
 If `vercelAdapter({ regions: "all" })` is configured, the Edge function remains global while Node ISG functions use the project's default Serverless region. Node functions require concrete region identifiers and cannot use Edge's `all` sentinel.
 
+When using webhook revalidation, `PRACHT_REVALIDATE_TOKEN` must be present **at
+build time**. Vercel's `bypassToken` is embedded in each
+`.prerender-config.json`; setting the variable only at runtime authenticates
+Pracht's webhook but cannot bypass the prerender cache until the app is
+rebuilt. Time-only ISR does not require this secret.
+
 ### Build output
 
 ```
@@ -214,6 +325,21 @@ pracht build
 npx vercel deploy --prebuilt
 ```
 
+### Preview and generated functions
+
+Vercel has no faithful local production runtime, so `pracht preview` exits with
+guidance instead of emulating one. Use `vercel build` to reproduce production
+output and `vercel dev` for Vercel's local development environment.
+
+The main Edge Function defaults to
+`.vercel/output/functions/render.func`. Use
+`vercelAdapter({ functionName: "app" })` if an ISG route would collide with
+that name. Runtime ISG routes are Node Serverless Functions because Vercel
+does not support native ISR on Edge Functions. Generated entries export
+`nodeListener`, built with `createVercelNodeListener(handle)`, so those Node
+functions can run the same Web API handler and drain `waitUntil()` work. A
+custom Vercel server entry must provide the same export.
+
 ---
 
 ## Node.js
@@ -232,6 +358,25 @@ pracht({ adapter: nodeAdapter() })
 // package.json
 "@pracht/adapter-node": "*"
 ```
+
+### Origin, proxy, and body-size options
+
+Pin the public origin in generated Node entries so `request.url` never depends
+on an attacker-controlled `Host` header:
+
+```ts [vite.config.ts]
+nodeAdapter({
+  canonicalOrigin: "https://app.example.com",
+  maxBodySize: 10 * 1024 * 1024,
+});
+```
+
+`maxBodySize` defaults to 1 MiB. Without `canonicalOrigin`, built servers warn
+that the URL is Host-derived. Applications with a custom entry can instead
+pass `trustProxy: true` to `createNodeRequestHandler()` when they are behind a
+trusted reverse proxy that overwrites `Forwarded` or `X-Forwarded-*` headers.
+Never enable it on a directly reachable server; `canonicalOrigin` is safer
+when the public origin is fixed.
 
 ### Deploy
 
@@ -302,6 +447,7 @@ A custom adapter exports a factory function that returns a `PrachtAdapter` objec
 
 ```ts
 import type { PrachtAdapter } from "@pracht/vite-plugin";
+import { myPlatformGraphStubs, myPlatformVitePlugin } from "my-platform-vite-plugin";
 
 export function myAdapter(): PrachtAdapter {
   return {
@@ -323,9 +469,22 @@ export default async function handle(request) {
 }
 `;
     },
+    vitePlugins() {
+      return myPlatformVitePlugin({ entry: "virtual:pracht/server" });
+    },
+    // Graph commands call this hook instead of vitePlugins(). Only return
+    // metadata helpers or safe runtime-module stubs; never start a runtime.
+    graphVitePlugins() {
+      return myPlatformGraphStubs();
+    },
   };
 }
 ```
+
+`pracht inspect`, `plan`, `verify`, `report`, `doctor`, and `typegen` run a
+short-lived graph-only Vite server. They never load an adapter's regular
+`vitePlugins()`. If `graphVitePlugins()` is omitted, they load no
+adapter-contributed plugins.
 
 At the runtime level, an adapter also typically needs to:
 

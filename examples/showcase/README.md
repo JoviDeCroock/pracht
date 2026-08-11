@@ -19,6 +19,7 @@ pnpm dev                            # http://localhost:5173
 pnpm agent --url http://localhost:5173   # a signed agent walks the whole flow
 pnpm eval                           # the same flow as a CI check
 pnpm verify                         # constraints, contracts, graph snapshot
+pnpm report                         # PR summary with the same verification secret setup
 pnpm inspect                        # the capability graph, with schemas
 ```
 

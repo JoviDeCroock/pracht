@@ -22,6 +22,10 @@ export default defineCommand({
     description: "Start development server with HMR",
   },
   args: {
+    cacheDir: {
+      type: "string",
+      description: "Vite cache directory (defaults to node_modules/.vite)",
+    },
     port: {
       type: "string",
       description: "Port number (defaults to $PORT or 3000)",
@@ -46,6 +50,7 @@ export default defineCommand({
     );
 
     const server = await createServer({
+      cacheDir: args.cacheDir,
       root,
       server: { port },
     });

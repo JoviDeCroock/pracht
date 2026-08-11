@@ -1,6 +1,8 @@
+import { inspect } from "node:util";
+
 import { describe, expect, it } from "vitest";
 
-import { createCloudflareServerEntryModule } from "../src/index.ts";
+import { cloudflareAdapter, createCloudflareServerEntryModule } from "../src/index.ts";
 
 type ManifestReader = (
   request: Request,
@@ -180,5 +182,181 @@ describe("createCloudflareServerEntryModule", () => {
 
     expect(source).toContain("export const cloudflareWorkersCacheEnabled = false;");
     expect(source).toContain("cache: false,");
+  });
+});
+
+describe("cloudflareAdapter", () => {
+  it("separates graph-safe stubs from the Cloudflare runtime plugins", () => {
+    const adapter = cloudflareAdapter();
+    const graphPlugins = adapter.graphVitePlugins?.() ?? [];
+    const runtimePlugins = adapter.vitePlugins?.() ?? [];
+
+    expect(graphPlugins.map((plugin) => plugin.name)).toEqual([
+      "pracht:cloudflare-graph-runtime-stubs",
+    ]);
+    expect(runtimePlugins.length).toBeGreaterThan(0);
+    expect(runtimePlugins).not.toContainEqual(
+      expect.objectContaining({ name: "pracht:cloudflare-graph-runtime-stubs" }),
+    );
+  });
+
+  it("stubs Cloudflare runtime modules for graph-loaded contracts", async () => {
+    const plugin = cloudflareAdapter()
+      .graphVitePlugins?.()
+      .find((candidate) => candidate.name === "pracht:cloudflare-graph-runtime-stubs");
+    expect(plugin).toBeDefined();
+
+    const resolveId = plugin?.resolveId;
+    if (typeof resolveId !== "function") throw new Error("Expected a resolveId hook.");
+    const resolved = await resolveId.call({} as never, "cloudflare:workers", undefined, {
+      isEntry: false,
+    });
+    expect(resolved).toBe("\0pracht:cloudflare-graph-runtime:cloudflare:workers");
+
+    const load = plugin?.load;
+    if (typeof load !== "function") throw new Error("Expected a load hook.");
+    const source = await load.call({} as never, String(resolved), {});
+    expect(source).toContain("export class WorkerEntrypoint");
+    expect(source).toContain("export const env");
+
+    const runtime = await import(
+      `data:text/javascript;base64,${Buffer.from(String(source)).toString("base64")}`
+    );
+    expect(typeof runtime.waitUntil).toBe("function");
+    expect(typeof runtime.withEnv).toBe("function");
+    expect(typeof runtime.withExports).toBe("function");
+    expect(typeof runtime.withEnvAndExports).toBe("function");
+    expect(typeof runtime.tracing?.enterSpan).toBe("function");
+    for (const className of [
+      "RpcStub",
+      "RpcTarget",
+      "WorkerEntrypoint",
+      "DurableObject",
+      "WorkflowEntrypoint",
+    ] as const) {
+      const RuntimeClass = runtime[className];
+      class RuntimeDeclaration extends RuntimeClass {}
+      expect(typeof RuntimeDeclaration).toBe("function");
+      expect(() => new RuntimeClass()).toThrow(
+        new RegExp(`cloudflare:workers ${className} is unavailable during graph inspection`),
+      );
+    }
+
+    for (const [moduleName, className] of [
+      ["cloudflare:email", "EmailMessage"],
+      ["cloudflare:workflows", "WorkflowEntrypoint"],
+    ] as const) {
+      const resolvedModule = await resolveId.call({} as never, moduleName, undefined, {
+        isEntry: false,
+      });
+      const moduleSource = await load.call({} as never, String(resolvedModule), {});
+      const moduleRuntime = await import(
+        `data:text/javascript;base64,${Buffer.from(String(moduleSource)).toString("base64")}`
+      );
+      const RuntimeClass = moduleRuntime[className];
+      class RuntimeDeclaration extends RuntimeClass {}
+      expect(typeof RuntimeDeclaration).toBe("function");
+      expect(() => new RuntimeClass()).toThrow(
+        new RegExp(`${moduleName} ${className} is unavailable during graph inspection`),
+      );
+    }
+
+    // Importing or retaining the binding environments is safe. Reading a
+    // binding is runtime work and must fail before a placeholder can influence
+    // graph metadata through untrappable Boolean/typeof/equality operations.
+    const importedBindings = { env: runtime.env, exports: runtime.exports };
+    expect(importedBindings.env).toBe(runtime.env);
+    expect(importedBindings.exports).toBe(runtime.exports);
+    expect(() => runtime.waitUntil(Promise.resolve())).toThrow(
+      /cloudflare:workers waitUntil is unavailable during graph inspection/,
+    );
+    expect(() => runtime.withEnv({}, () => {})).toThrow(
+      /cloudflare:workers withEnv is unavailable during graph inspection/,
+    );
+    expect(() => runtime.tracing.enterSpan("graph", () => {})).toThrow(
+      /cloudflare:workers tracing\.enterSpan is unavailable during graph inspection/,
+    );
+
+    for (const [name, binding] of [
+      ["env", runtime.env],
+      ["exports", runtime.exports],
+    ] as const) {
+      expect(() => binding.MY_BINDING).toThrow(
+        new RegExp(
+          `cloudflare:workers ${name} property MY_BINDING access is unavailable during graph inspection`,
+        ),
+      );
+      expect(() => Reflect.set(binding, "MY_BINDING", {})).toThrow(
+        new RegExp(
+          `cloudflare:workers ${name} property MY_BINDING assignment is unavailable during graph inspection`,
+        ),
+      );
+      expect(() => "MY_BINDING" in binding).toThrow(
+        new RegExp(
+          `cloudflare:workers ${name} property MY_BINDING membership check is unavailable during graph inspection`,
+        ),
+      );
+      expect(() => Object.keys(binding)).toThrow(
+        new RegExp(
+          `cloudflare:workers ${name} property enumeration is unavailable during graph inspection`,
+        ),
+      );
+      expect(() => Reflect.ownKeys(binding)).toThrow(
+        new RegExp(
+          `cloudflare:workers ${name} property enumeration is unavailable during graph inspection`,
+        ),
+      );
+      expect(() => Object.getOwnPropertyDescriptor(binding, "MY_BINDING")).toThrow(
+        new RegExp(
+          `cloudflare:workers ${name} property MY_BINDING descriptor inspection is unavailable during graph inspection`,
+        ),
+      );
+      expect(() => Object.defineProperty(binding, "MY_BINDING", { value: true })).toThrow(
+        new RegExp(
+          `cloudflare:workers ${name} property MY_BINDING definition is unavailable during graph inspection`,
+        ),
+      );
+      expect(() => Reflect.deleteProperty(binding, "MY_BINDING")).toThrow(
+        new RegExp(
+          `cloudflare:workers ${name} property MY_BINDING deletion is unavailable during graph inspection`,
+        ),
+      );
+      expect(() => Object.getPrototypeOf(binding)).toThrow(
+        new RegExp(
+          `cloudflare:workers ${name} prototype inspection is unavailable during graph inspection`,
+        ),
+      );
+      expect(() => Object.setPrototypeOf(binding, null)).toThrow(
+        new RegExp(
+          `cloudflare:workers ${name} prototype mutation is unavailable during graph inspection`,
+        ),
+      );
+      expect(() => Object.isExtensible(binding)).toThrow(
+        new RegExp(
+          `cloudflare:workers ${name} extensibility inspection is unavailable during graph inspection`,
+        ),
+      );
+      expect(() => Object.preventExtensions(binding)).toThrow(
+        new RegExp(
+          `cloudflare:workers ${name} extension prevention is unavailable during graph inspection`,
+        ),
+      );
+      expect(() => inspect(binding)).toThrow(
+        new RegExp(`cloudflare:workers ${name} inspection is unavailable during graph inspection`),
+      );
+    }
+  });
+
+  it("fails clearly for Cloudflare modules without graph stubs", async () => {
+    const plugin = cloudflareAdapter()
+      .graphVitePlugins?.()
+      .find((candidate) => candidate.name === "pracht:cloudflare-graph-runtime-stubs");
+    expect(plugin).toBeDefined();
+
+    const resolveId = plugin?.resolveId;
+    if (typeof resolveId !== "function") throw new Error("Expected a resolveId hook.");
+    expect(() =>
+      resolveId.call({} as never, "cloudflare:unknown-runtime", undefined, { isEntry: false }),
+    ).toThrow(/no Node stub for "cloudflare:unknown-runtime"/);
   });
 });

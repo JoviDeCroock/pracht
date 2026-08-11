@@ -133,6 +133,16 @@ yields `context.agent = null`, never a partial identity:
 - the Ed25519 signature verifies over the RFC 9421 signature base via
   WebCrypto.
 
+`@authority` must match the URL seen by the runtime, not necessarily the URL
+printed by local tooling. In particular, Cloudflare preview with a configured
+custom-domain route can accept traffic on `localhost:<port>` while delivering
+a Worker `Request` whose URL uses the custom domain. Sign that effective
+authority or temporarily disable the route. To select a separate local config,
+run `pracht build` followed by
+`wrangler dev --config wrangler.local.jsonc --port 3000`; `pracht preview` does
+not forward Wrangler's `--config` flag. Otherwise a valid signature can be
+treated as unverified.
+
 For statically pinned keys, `context.agent.agentDomain` is the configured
 `agent` label (or `null` when omitted), even if the signed request also sends
 `Signature-Agent`. The header's host is used only for keys resolved from an

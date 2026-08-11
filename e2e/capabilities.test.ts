@@ -6,9 +6,13 @@ import { promisify } from "node:util";
 
 import { expect, test } from "@playwright/test";
 
-const execFileAsync = promisify(execFile);
+import { acquireE2EWorkerPort, e2eUrls } from "./ports.ts";
 
-// Runs against examples/basic (port 3103), which registers five capabilities:
+const execFileAsync = promisify(execFile);
+const capabilitiesUrl = e2eUrls.capabilities;
+const capabilitiesAuthority = new URL(capabilitiesUrl).host;
+
+// Runs against examples/basic, which registers five capabilities:
 //   notes.search — read, expose.http + expose.webmcp + expose.mcp
 //   notes.create — write, expose.http + expose.mcp
 //   notes.purge  — destructive, expose.http (prepare/commit confirmation flow)
@@ -188,7 +192,7 @@ test("no-JS form posts hit the same capability contract and redirect back", asyn
   // the input schema and a successful document post 303s back to the page.
   const response = await request.post("/api/capabilities/notes/create", {
     form: { title: "A no-js note", body: "Posted without JavaScript." },
-    headers: { accept: "text/html", referer: "http://localhost:3103/notes" },
+    headers: { accept: "text/html", referer: `${capabilitiesUrl}/notes` },
     maxRedirects: 0,
   });
   expect(response.status()).toBe(303);
@@ -336,7 +340,7 @@ test("unsigned requests in observe mode are served with a null agent", async ({ 
 test("signed requests surface the verified agent identity", async ({ request }) => {
   const response = await request.post("/api/capabilities/agent/whoami", {
     data: {},
-    headers: webBotAuthHeaders("localhost:3103"),
+    headers: webBotAuthHeaders(capabilitiesAuthority),
   });
   expect(response.status()).toBe(200);
   const body = await response.json();
@@ -361,14 +365,14 @@ test('agentPolicy "require" rejects unsigned requests with the 401 envelope', as
 test('agentPolicy "require" serves verified agents', async ({ request }) => {
   const response = await request.post("/api/capabilities/agent/ping", {
     data: {},
-    headers: webBotAuthHeaders("localhost:3103"),
+    headers: webBotAuthHeaders(capabilitiesAuthority),
   });
   expect(response.status()).toBe(200);
   expect(await response.json()).toEqual({ ok: true, data: { pong: true } });
 });
 
 test("a bad signature does not verify", async ({ request }) => {
-  const headers = webBotAuthHeaders("localhost:3103");
+  const headers = webBotAuthHeaders(capabilitiesAuthority);
   // Flip the first base64 character of the signature bytes ("sig1=:" is 6 chars).
   const flipped = headers.signature[6] === "A" ? "B" : "A";
   headers.signature = headers.signature.slice(0, 6) + flipped + headers.signature.slice(7);
@@ -542,7 +546,7 @@ const cliEntry = resolve(repoRoot, "packages/cli/bin/pracht.js");
 test("pracht eval runs the example scenario against the dev server", async () => {
   const { stdout } = await execFileAsync(
     process.execPath,
-    [cliEntry, "eval", "--url", "http://localhost:3103"],
+    [cliEntry, "eval", "--url", capabilitiesUrl],
     { cwd: resolve(repoRoot, "examples/basic") },
   );
   expect(stdout).toContain("PASS  notes agent flow");
@@ -553,36 +557,41 @@ test("pracht eval runs the example scenario against the dev server", async () =>
 test("pracht eval --start launches the app, runs the scenario, and stops it", async () => {
   const scenario = resolve(repoRoot, "e2e/fixtures/start-flow.eval.json");
   const serverScript = resolve(repoRoot, "e2e/fixtures/mini-capability-server.mjs");
+  const portLease = await acquireE2EWorkerPort();
+  const { port } = portLease;
+  const url = `http://localhost:${port}`;
 
-  const { stdout } = await execFileAsync(
-    process.execPath,
-    [
-      cliEntry,
-      "eval",
-      scenario,
-      "--start",
-      `"${process.execPath}" "${serverScript}" 3177`,
-      "--url",
-      "http://localhost:3177",
-    ],
-    { cwd: resolve(repoRoot, "examples/basic") },
-  );
-  expect(stdout).toContain("Waiting for http://localhost:3177");
-  expect(stdout).toContain("PASS  start flow");
-  expect(stdout).toContain("1 scenario(s) passed, 0 failed");
+  try {
+    const { stdout } = await execFileAsync(
+      process.execPath,
+      [
+        cliEntry,
+        "eval",
+        scenario,
+        "--start",
+        `"${process.execPath}" "${serverScript}" ${port}`,
+        "--url",
+        url,
+      ],
+      { cwd: resolve(repoRoot, "examples/basic") },
+    );
+    expect(stdout).toContain(`Waiting for ${url}`);
+    expect(stdout).toContain("PASS  start flow");
+    expect(stdout).toContain("1 scenario(s) passed, 0 failed");
 
-  // The started server must be gone once eval exits.
-  await new Promise((resolveDelay) => setTimeout(resolveDelay, 300));
-  await expect(
-    fetch("http://localhost:3177", { signal: AbortSignal.timeout(1_000) }),
-  ).rejects.toThrow();
+    // The started server must be gone once eval exits.
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 300));
+    await expect(fetch(url, { signal: AbortSignal.timeout(1_000) })).rejects.toThrow();
+  } finally {
+    portLease.release();
+  }
 });
 
 test("pracht eval exits 1 on a failing scenario", async () => {
   const failingScenario = resolve(repoRoot, "e2e/fixtures/failing.eval.json");
   const result = await execFileAsync(
     process.execPath,
-    [cliEntry, "eval", failingScenario, "--url", "http://localhost:3103", "--json"],
+    [cliEntry, "eval", failingScenario, "--url", capabilitiesUrl, "--json"],
     { cwd: resolve(repoRoot, "examples/basic") },
   ).then(
     (value) => ({ code: 0, stdout: value.stdout }),

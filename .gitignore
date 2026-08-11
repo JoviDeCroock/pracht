@@ -6,4 +6,7 @@ dist
 test-results
 .tmp
 .wrangler
+.env*
+!.env.example
+.dev.vars
 packages/start/skills

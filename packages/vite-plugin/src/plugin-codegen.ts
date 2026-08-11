@@ -160,7 +160,6 @@ export function createPrachtClientModuleSource(
   const shellTsrxGlob = isPagesMode
     ? `${resolved.pagesDir}/**/_app.tsrx`
     : `${resolved.shellsDir}/**/*.tsrx`;
-
   // Base directory for relative manifest refs: the app manifest file's
   // directory (refs like "./routes/home.tsx" are written relative to it).
   const appFilePosix = resolved.appFile.replace(/\\/g, "/").replace(/^\.\//, "");
@@ -475,6 +474,7 @@ function createRouteLoaderHintsForVirtualModules(
 
 export function createPrachtRegistryModuleSource(options: PrachtPluginOptions = {}): string {
   const resolved = resolveOptions(options);
+  const apiGlobs = [`${resolved.apiDir}/**/*.{ts,js,tsx,jsx}`, `!${resolved.apiDir}/**/*.d.ts`];
   const isPagesMode = !!resolved.pagesDir;
 
   const routeGlob = isPagesMode
@@ -501,7 +501,7 @@ export function createPrachtRegistryModuleSource(options: PrachtPluginOptions = 
     `  ...import.meta.glob(${JSON.stringify(shellTsrxGlob)}),`,
     `};`,
     `export const middlewareModules = import.meta.glob(${JSON.stringify(`${resolved.middlewareDir}/**/*.{ts,tsx,js,jsx}`)});`,
-    `export const apiModules = import.meta.glob(${JSON.stringify(`${resolved.apiDir}/**/*.{ts,js,tsx,jsx}`)});`,
+    `export const apiModules = import.meta.glob(${JSON.stringify(apiGlobs)});`,
     `export const dataModules = import.meta.glob(${JSON.stringify(`${resolved.serverDir}/**/*.{ts,js,tsx,jsx}`)});`,
     `export const capabilityModules = import.meta.glob(${JSON.stringify(`${resolved.capabilitiesDir}/**/*.{ts,js,tsx,jsx}`)});`,
     "",

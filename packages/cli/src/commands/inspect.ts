@@ -113,10 +113,14 @@ export async function runInspect(
 
     if (wants("api")) {
       report.api = inspectApiMethods
-        ? await serializeApiRoutes(serverModule.apiRoutes, {
-            loadModule: (file) => server.ssrLoadModule(file),
-            readSource: (file) => readFileSync(resolve(root, `.${file}`), "utf-8"),
-          })
+        ? await serializeApiRoutes(
+            serverModule.apiRoutes,
+            {
+              loadModule: (file) => server.ssrLoadModule(file),
+              readSource: (file) => readFileSync(resolve(root, `.${file}`), "utf-8"),
+            },
+            { strict: true },
+          )
         : (serverModule.apiRoutes as ResolvedApiRoute[]).map(({ file, path }) => ({
             file,
             hasDefaultHandler: false,
@@ -126,10 +130,14 @@ export async function runInspect(
     }
 
     if (wants("capabilities")) {
-      report.capabilities = await serializeCapabilities(serverModule.resolvedApp.capabilities, {
-        loadModule: capabilityModuleLoader(server, serverModule),
-        readSource: createSourceReader(root, project.appFile),
-      });
+      report.capabilities = await serializeCapabilities(
+        serverModule.resolvedApp.capabilities,
+        {
+          loadModule: capabilityModuleLoader(server, serverModule),
+          readSource: createSourceReader(root, project.appFile),
+        },
+        { strict: true },
+      );
     }
 
     if (wants("build")) {

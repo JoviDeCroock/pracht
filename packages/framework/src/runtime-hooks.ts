@@ -9,7 +9,7 @@ import {
   validateStandardSchema,
   type ApiValidationIssue,
 } from "./api-validation.ts";
-import { buildHref } from "./route-matching.ts";
+import { buildHrefUntyped } from "./route-matching.ts";
 import {
   beginSubmittingNavigation,
   createNavigationLocation,
@@ -54,6 +54,7 @@ import type {
   RouteId,
   RouteParams,
   RouteTarget,
+  UntypedRouteTarget,
 } from "./types.ts";
 
 export { PrachtRuntimeProvider, readHydrationState, startApp };
@@ -199,15 +200,16 @@ export function Link<TRoute extends RouteId>(props: LinkProps<TRoute>) {
   }
 
   const { route, params, search, hash, prefetch, preserveScroll, viewTransition, ...anchorProps } =
-    props as LinkProps<RouteId> & {
-      hash?: string;
-      params?: Record<string, string | number | boolean>;
-      search?: unknown;
-    };
+    props as unknown as Omit<JSX.HTMLAttributes<HTMLAnchorElement>, "href"> &
+      UntypedRouteTarget & {
+        prefetch?: LinkPrefetchStrategy;
+        preserveScroll?: boolean;
+        viewTransition?: boolean;
+      };
 
   return h("a", {
     ...anchorProps,
-    href: buildHref(routes, route, { params, search, hash } as never),
+    href: buildHrefUntyped(routes, route, { params, search, hash }),
     // Read by the client router's click handler and the prefetch listeners.
     [PREFETCH_ATTRIBUTE]: prefetch,
     [PRESERVE_SCROLL_ATTRIBUTE]: preserveScroll ? "" : undefined,

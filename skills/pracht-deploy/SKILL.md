@@ -47,8 +47,19 @@ If the pracht MCP server is registered (docs/MCP.md), prefer the `inspect_build`
    ```ts
    import { pracht } from "@pracht/vite-plugin";
    import { nodeAdapter } from "@pracht/adapter-node";
-   export default { plugins: [pracht({ adapter: nodeAdapter() })] };
+   export default {
+     plugins: [
+       pracht({
+         adapter: nodeAdapter({ canonicalOrigin: "https://app.example.com" }),
+       }),
+     ],
+   };
    ```
+
+Pin `canonicalOrigin` in production so `request.url` does not depend on the
+incoming `Host` header. `maxBodySize` is also available on `nodeAdapter()`.
+Only custom entries behind a trusted proxy that overwrites forwarded headers
+should use `createNodeRequestHandler({ trustProxy: true })`.
 
 ### Build
 
@@ -105,6 +116,25 @@ npx wrangler deploy
 
 To smoke-test the built worker locally first, run `pracht preview` — it builds and then delegates to `wrangler dev`, which serves the wrangler config's `main` entry, `dist/server/worker.js`.
 
+Wrangler owns the Worker's binding environment. Put local-only secrets such as
+`PRACHT_CONFIRMATION_SECRET` and `PRACHT_REVALIDATE_TOKEN` in a gitignored
+`.dev.vars`; prefixing the host command with those variables does not
+automatically expose them inside the Worker. Keep production values in
+`wrangler secret`.
+
+If the config contains a custom-domain route, preview can listen on localhost
+while `request.url` inside the Worker uses the custom domain. Sign that
+effective `@authority` for Web Bot Auth or temporarily disable the route. To use
+a separate local config, build first, then run:
+
+```bash
+pracht build
+npx wrangler dev --config wrangler.local.jsonc --port 3000
+```
+
+The local config must keep `main: "dist/server/worker.js"` and omit the
+production route. `pracht preview` does not forward Wrangler's `--config` flag.
+
 ### Wrangler Configuration
 
 ```jsonc
@@ -132,10 +162,31 @@ export async function loader({ context }: LoaderArgs) {
 }
 ```
 
+Keep Cloudflare binding reads inside the loader, API handler, capability
+`run()`, or another request-time function. Although Workers permits top-level
+`env.MY_KV`, Pracht graph inspection intentionally fails such module-initializer
+reads because it cannot supply an authoritative binding without risking false
+graph metadata.
+
 ### Custom Assets Binding
 
 ```ts
 pracht({ adapter: cloudflareAdapter({ assetsBinding: "STATIC" }) });
+```
+
+### Named bindings and default-export handlers
+
+Durable Object and Workflow classes are named Worker exports. Re-export them
+from the module configured with `workerExportsFrom`. Queue consumers, Cron
+Triggers, and Email Routing are instead methods on the default export; expose
+named `queue`, `scheduled`, or `email` functions from the module configured
+with `workerHandlersFrom`:
+
+```ts
+cloudflareAdapter({
+  workerExportsFrom: "/src/cloudflare.ts",
+  workerHandlersFrom: "/src/worker-handlers.ts",
+});
 ```
 
 ### ISG via Workers Caching
@@ -185,6 +236,15 @@ npx vercel deploy --prebuilt
 ```
 
 Produces: `.vercel/output/config.json`, `.vercel/output/static/`, `.vercel/output/functions/render.func/server.js`
+
+There is no faithful local Vercel production runtime, so `pracht preview`
+exits with guidance. Use `vercel build` or `vercel dev`. Set
+`PRACHT_REVALIDATE_TOKEN` at build time when using webhook revalidation; its
+Vercel bypass token is embedded in `.prerender-config.json`. Rename the main
+Edge Function with `vercelAdapter({ functionName })` if its default `render`
+name would collide with an ISG route. Custom entries must export the
+`nodeListener` created by `createVercelNodeListener(handle)` for Node ISR
+functions.
 
 ---
 

@@ -5,6 +5,9 @@ import { fileURLToPath } from "node:url";
 
 import { expect, test } from "@playwright/test";
 
+import { fixtureCopyFilter } from "./fixture-copy.ts";
+import { acquireE2EWorkerPort, type E2EWorkerPortLease } from "./ports.ts";
+
 // Islands architecture (partial hydration) production coverage: builds
 // examples/islands with the Node adapter and proves in a real browser that
 // (a) islands hydrate and are interactive,
@@ -25,70 +28,66 @@ test("islands build hydrates islands only and ships minimal JS", async ({ page }
   mkdirSync(tempRoot, { recursive: true });
   const tempDir = mkdtempSync(resolve(tempRoot, "pracht-islands-build-"));
   const exampleDir = resolve(tempDir, "project");
-
-  cpSync(fixtureDir, exampleDir, {
-    filter(source) {
-      return !["dist", "test-results"].some((entry) =>
-        source.includes(`/examples/islands/${entry}`),
-      );
-    },
-    recursive: true,
-  });
-
-  execFileSync(process.execPath, [cliEntry, "build"], {
-    cwd: exampleDir,
-    env: {
-      ...process.env,
-      NODE_OPTIONS: "--experimental-strip-types",
-    },
-    stdio: "pipe",
-  });
-
-  // --- Static output shape ---------------------------------------------
-  const manifest = JSON.parse(
-    readFileSync(resolve(exampleDir, "dist/client/.vite/manifest.json"), "utf-8"),
-  ) as Record<string, { file: string; src?: string }>;
-  const clientEntryUrl = `/${manifest["virtual:pracht/client"].file}`;
-  const islandsEntryUrl = `/${manifest["virtual:pracht/islands-client"].file}`;
-  const counterChunkUrl = `/${
-    Object.values(manifest).find((entry) => entry.src?.endsWith("islands/Counter.tsx"))!.file
-  }`;
-  const lazyBoxChunkUrl = `/${
-    Object.values(manifest).find((entry) => entry.src?.endsWith("islands/LazyBox.tsx"))!.file
-  }`;
-
-  const homeHtml = readFileSync(resolve(exampleDir, "dist/client/index.html"), "utf-8");
-  expect(homeHtml).toContain('<pracht-island island="/src/islands/Counter.tsx"');
-  expect(homeHtml).toContain('props="{&quot;start&quot;:5}"');
-  // Islands routes carry no hydration state and never reference the full
-  // client runtime entry.
-  expect(homeHtml).not.toContain('id="pracht-state"');
-  expect(homeHtml).not.toContain(clientEntryUrl);
-  expect(homeHtml).toContain(`<script type="module" src="${islandsEntryUrl}"></script>`);
-
-  const staticHtml = readFileSync(resolve(exampleDir, "dist/client/static/index.html"), "utf-8");
-  expect(staticHtml).not.toContain("<script");
-  expect(staticHtml).not.toContain("<pracht-island");
-
-  expect(existsSync(resolve(exampleDir, "dist/client/lazy/index.html"))).toBe(true);
-
-  // --- Behavior in a real browser --------------------------------------
-  const port = 4319;
-  const server = spawn(process.execPath, [resolve(exampleDir, "dist/server/server.js")], {
-    cwd: exampleDir,
-    env: { ...process.env, PORT: String(port) },
-    stdio: "pipe",
-  });
-
-  const jsRequests: string[] = [];
-  page.on("request", (request) => {
-    const url = new URL(request.url());
-    if (url.pathname.endsWith(".js")) {
-      jsRequests.push(url.pathname);
-    }
-  });
+  let server: ReturnType<typeof spawn> | undefined;
+  let portLease: E2EWorkerPortLease | undefined;
 
   try {
+    cpSync(fixtureDir, exampleDir, { filter: fixtureCopyFilter(fixtureDir), recursive: true });
+
+    execFileSync(process.execPath, [cliEntry, "build"], {
+      cwd: exampleDir,
+      env: {
+        ...process.env,
+        NODE_OPTIONS: "--experimental-strip-types",
+      },
+      stdio: "pipe",
+    });
+
+    // --- Static output shape ---------------------------------------------
+    const manifest = JSON.parse(
+      readFileSync(resolve(exampleDir, "dist/client/.vite/manifest.json"), "utf-8"),
+    ) as Record<string, { file: string; src?: string }>;
+    const clientEntryUrl = `/${manifest["virtual:pracht/client"].file}`;
+    const islandsEntryUrl = `/${manifest["virtual:pracht/islands-client"].file}`;
+    const counterChunkUrl = `/${
+      Object.values(manifest).find((entry) => entry.src?.endsWith("islands/Counter.tsx"))!.file
+    }`;
+    const lazyBoxChunkUrl = `/${
+      Object.values(manifest).find((entry) => entry.src?.endsWith("islands/LazyBox.tsx"))!.file
+    }`;
+
+    const homeHtml = readFileSync(resolve(exampleDir, "dist/client/index.html"), "utf-8");
+    expect(homeHtml).toContain('<pracht-island island="/src/islands/Counter.tsx"');
+    expect(homeHtml).toContain('props="{&quot;start&quot;:5}"');
+    // Islands routes carry no hydration state and never reference the full
+    // client runtime entry.
+    expect(homeHtml).not.toContain('id="pracht-state"');
+    expect(homeHtml).not.toContain(clientEntryUrl);
+    expect(homeHtml).toContain(`<script type="module" src="${islandsEntryUrl}"></script>`);
+
+    const staticHtml = readFileSync(resolve(exampleDir, "dist/client/static/index.html"), "utf-8");
+    expect(staticHtml).not.toContain("<script");
+    expect(staticHtml).not.toContain("<pracht-island");
+
+    expect(existsSync(resolve(exampleDir, "dist/client/lazy/index.html"))).toBe(true);
+
+    // --- Behavior in a real browser --------------------------------------
+    portLease = await acquireE2EWorkerPort();
+    const { port } = portLease;
+    server = spawn(process.execPath, [resolve(exampleDir, "dist/server/server.js")], {
+      cwd: exampleDir,
+      env: { ...process.env, PORT: String(port) },
+      stdio: "pipe",
+    });
+
+    const jsRequests: string[] = [];
+    page.on("request", (request) => {
+      const url = new URL(request.url());
+      if (url.pathname.endsWith(".js")) {
+        jsRequests.push(url.pathname);
+      }
+    });
+
     await waitForServer(`http://127.0.0.1:${port}/`);
     const origin = `http://127.0.0.1:${port}`;
 
@@ -149,8 +148,11 @@ test("islands build hydrates islands only and ships minimal JS", async ({ page }
     await page.getByTestId("full-button").click();
     await expect(page.getByTestId("full-button")).toHaveText("hydrated");
   } finally {
-    server.kill("SIGTERM");
-    await waitForExit(server);
+    if (server) {
+      server.kill("SIGTERM");
+      await waitForExit(server);
+    }
+    portLease?.release();
     rmSync(tempDir, { force: true, recursive: true });
   }
 });

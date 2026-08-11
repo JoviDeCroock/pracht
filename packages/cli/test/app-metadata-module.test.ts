@@ -1,10 +1,18 @@
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 import { describe, expect, it, vi } from "vitest";
 import type { ViteDevServer } from "vite";
 
-import { loadAppMetadataModule } from "../src/app-graph.ts";
+import { collectAppGraph, loadAppMetadataModule } from "../src/app-graph.ts";
 
-function fakeServer(modules: Record<string, unknown>): ViteDevServer {
+function fakeServer(
+  modules: Record<string, unknown>,
+  resolveId: (specifier: string, importer?: string) => Promise<unknown> = async () => null,
+): ViteDevServer {
   return {
+    pluginContainer: { resolveId: vi.fn(resolveId) },
     ssrLoadModule: vi.fn(async (id: string) => {
       if (!(id in modules)) {
         const error = new Error(
@@ -59,5 +67,147 @@ describe("loadAppMetadataModule", () => {
     await expect(loadAppMetadataModule(fakeServer({}))).rejects.toThrow(
       "Failed to load url virtual:pracht/server",
     );
+  });
+});
+
+describe("collectAppGraph", () => {
+  it("resolves API methods re-exported from another module", async () => {
+    const root = mkdtempSync(join(tmpdir(), "pracht-static-api-graph-"));
+    mkdirSync(join(root, "src/api-edge"), { recursive: true });
+    mkdirSync(join(root, "src/api"), { recursive: true });
+    writeFileSync(join(root, "src/api-edge/health.ts"), 'export { GET } from "../api/health.ts";');
+    writeFileSync(
+      join(root, "src/api/health.ts"),
+      'throw new Error("must not execute");\nexport function GET() {}',
+    );
+
+    try {
+      const server = fakeServer({
+        "virtual:pracht/dev-metadata": {
+          apiRoutes: [{ file: "/src/api-edge/health.ts", path: "/api/health" }],
+          resolvedApp: {
+            capabilities: {},
+            routes: [],
+          },
+        },
+      });
+
+      await expect(collectAppGraph(server, root)).resolves.toMatchObject({
+        api: [
+          {
+            file: "/src/api-edge/health.ts",
+            hasDefaultHandler: false,
+            methods: ["GET"],
+            path: "/api/health",
+          },
+        ],
+      });
+      expect(server.ssrLoadModule).toHaveBeenCalledTimes(1);
+      expect(server.ssrLoadModule).not.toHaveBeenCalledWith("/src/api-edge/health.ts");
+      expect(server.ssrLoadModule).not.toHaveBeenCalledWith("/src/api/health.ts");
+    } finally {
+      rmSync(root, { force: true, recursive: true });
+    }
+  });
+
+  it("resolves star re-exports through a relative directory index", async () => {
+    const root = mkdtempSync(join(tmpdir(), "pracht-static-api-index-"));
+    mkdirSync(join(root, "src/api-edge"), { recursive: true });
+    mkdirSync(join(root, "src/api/handlers"), { recursive: true });
+    writeFileSync(join(root, "src/api-edge/health.ts"), 'export * from "../api/handlers";');
+    writeFileSync(
+      join(root, "src/api/handlers/index.ts"),
+      'throw new Error("must not execute");\nexport function GET() {}',
+    );
+
+    try {
+      const server = fakeServer(
+        {
+          "virtual:pracht/dev-metadata": {
+            apiRoutes: [{ file: "/src/api-edge/health.ts", path: "/api/health" }],
+            resolvedApp: {
+              capabilities: {},
+              routes: [],
+            },
+          },
+        },
+        async (specifier) =>
+          specifier === "../api/handlers" ? { id: join(root, "src/api/handlers/index.ts") } : null,
+      );
+
+      await expect(collectAppGraph(server, root)).resolves.toMatchObject({
+        api: [
+          {
+            file: "/src/api-edge/health.ts",
+            hasDefaultHandler: false,
+            methods: ["GET"],
+            path: "/api/health",
+          },
+        ],
+      });
+      expect(server.ssrLoadModule).toHaveBeenCalledTimes(1);
+      expect(server.ssrLoadModule).not.toHaveBeenCalledWith("/src/api-edge/health.ts");
+      expect(server.ssrLoadModule).not.toHaveBeenCalledWith("/src/api/handlers/index.ts");
+    } finally {
+      rmSync(root, { force: true, recursive: true });
+    }
+  });
+
+  it("uses Vite resolution for JS-to-TS and aliased star exports but rejects dependencies", async () => {
+    const root = mkdtempSync(join(tmpdir(), "pracht-static-api-vite-resolve-"));
+    mkdirSync(join(root, "src/api-edge"), { recursive: true });
+    mkdirSync(join(root, "src/api"), { recursive: true });
+    mkdirSync(join(root, "node_modules/external-handlers"), { recursive: true });
+    writeFileSync(
+      join(root, "src/api-edge/health.ts"),
+      [
+        'export * from "../api/health.js";',
+        'export * from "@handlers/metrics";',
+        'export * from "external-handlers";',
+      ].join("\n"),
+    );
+    writeFileSync(join(root, "src/api/health.ts"), "export function GET() {}");
+    writeFileSync(join(root, "src/api/metrics.ts"), "export function POST() {}");
+    writeFileSync(
+      join(root, "node_modules/external-handlers/index.ts"),
+      "export function DELETE() {}",
+    );
+
+    const resolveId = vi.fn(async (specifier: string) => {
+      if (specifier === "../api/health.js") return { id: join(root, "src/api/health.ts") };
+      if (specifier === "@handlers/metrics") return { id: join(root, "src/api/metrics.ts") };
+      if (specifier === "external-handlers") {
+        return { id: join(root, "node_modules/external-handlers/index.ts") };
+      }
+      return null;
+    });
+
+    try {
+      const server = fakeServer(
+        {
+          "virtual:pracht/dev-metadata": {
+            apiRoutes: [{ file: "/src/api-edge/health.ts", path: "/api/health" }],
+            resolvedApp: { capabilities: {}, routes: [] },
+          },
+        },
+        resolveId,
+      );
+
+      await expect(collectAppGraph(server, root)).resolves.toMatchObject({
+        api: [{ methods: ["GET", "POST"], path: "/api/health" }],
+      });
+      expect(resolveId).toHaveBeenCalledWith(
+        "../api/health.js",
+        expect.stringMatching(/\/src\/api-edge\/health\.ts$/),
+        { ssr: true },
+      );
+      expect(resolveId).toHaveBeenCalledWith(
+        "@handlers/metrics",
+        expect.stringMatching(/\/src\/api-edge\/health\.ts$/),
+        { ssr: true },
+      );
+    } finally {
+      rmSync(root, { force: true, recursive: true });
+    }
   });
 });

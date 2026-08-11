@@ -1,6 +1,6 @@
 ---
 title: CLI
-lead: The <code>@pracht/cli</code> package provides development, build, scaffolding, and doctor commands for your app.
+lead: The <code>@pracht/cli</code> package covers development, production builds, inspection, verification, evaluation, scaffolding, previews, and agent integrations.
 breadcrumb: CLI
 prev:
   href: /docs/env
@@ -52,9 +52,16 @@ pracht dev
 
 # Custom port
 pracht dev --port 4000    # or PORT=4000 pracht dev
+
+# Isolate Vite's optimizer cache for concurrent dev servers
+pracht dev --cache-dir /tmp/pracht-vite-cache
 ```
 
 Routes are rendered server-side on each request. Changes to routes, shells, loaders, and components are reflected immediately via HMR.
+
+Vite normally writes its optimizer cache to `node_modules/.vite`. When multiple
+dev servers use the same checkout, pass a distinct `--cache-dir` to each one so
+their atomic cache updates cannot race.
 
 The startup banner prints the resolved app graph: every route with its render mode, shell, and middleware, every API endpoint with its methods, and — when the app registers any — every [capability](/docs/capabilities) with its effect class, exposure, and dispatch path.
 
@@ -84,6 +91,30 @@ node dist/server/server.js
 
 Cloudflare and Vercel targets should use their platform tooling against the
 generated build output.
+
+---
+
+## pracht preview
+
+Builds and serves the production target locally. Reuse an existing build for a
+faster smoke test with `--skip-build`:
+
+```sh
+pracht preview
+pracht preview --port 4000
+pracht preview --skip-build
+```
+
+- **Node** runs `dist/server/server.js` and inherits the host environment.
+- **Cloudflare** delegates to `wrangler dev` and requires Wrangler plus a
+  Wrangler config whose `main` points at `dist/server/worker.js`. Put local
+  Worker secrets in a gitignored `.dev.vars`; shell-prefixed host variables are
+  not automatically Worker bindings.
+- **Vercel** has no faithful local production runtime. The command exits 1 with
+  guidance to use `vercel build` or `vercel dev` instead.
+
+The command stays attached to the preview process and exits with that process's
+status. It has no JSON mode because it is a long-running server command.
 
 ---
 
@@ -149,6 +180,45 @@ The doctor command checks:
 
 ---
 
+## pracht inspect
+
+Reads the resolved app graph instead of inferring application structure from
+file names:
+
+```sh
+pracht inspect                 # all targets
+pracht inspect routes
+pracht inspect api
+pracht inspect capabilities
+pracht inspect build
+pracht inspect all --json
+```
+
+Targets are `routes`, `api`, `capabilities`, `build`, and `all`. The `build`
+target reports the adapter, client entry, and asset manifests and is most useful
+after `pracht build`; the other targets evaluate the live Vite app graph. Use
+`--json` for stable machine-readable output. Unknown targets and graph-loading
+errors exit non-zero. Registered API and capability modules are loaded strictly
+for live inspection: a module initialization error, unsupported runtime import,
+or invoked graph-only helper keeps its original route, file, module, or API name
+instead of falling back to inferred or null metadata. The same fail-closed
+behavior applies to `pracht plan`, MCP inspection tools, and the live graph checks
+in `pracht verify`. Capability type generation also loads capability contracts
+strictly; API type generation deliberately reads route paths without executing
+API modules.
+
+For Cloudflare apps, graph inspection provides fail-closed placeholders rather
+than a fake Worker runtime. Importing `env`/`exports` and importing or subclassing
+runtime classes is safe, but reading any binding property or constructing a
+runtime class fails with the exact unavailable API. This is intentionally
+stricter than Workers itself: capability and API modules that participate in the
+app graph must read bindings inside `run()`, the API handler, or another
+request-time function — never during module initialization. Graph tools cannot
+supply authoritative bindings, and an opaque JavaScript value cannot intercept
+Boolean checks, `typeof`, or strict equality without risking false graph metadata.
+
+---
+
 ## pracht plan
 
 Semantic app-graph diff against a base git ref. Prints added, removed, and changed routes, API endpoints, capabilities, and constraints — an intent-level changelog for reviewers.
@@ -172,6 +242,26 @@ Capability changes are marked `!` when they widen what agents can reach — a ne
 
 ---
 
+## pracht verify
+
+Runs deterministic, framework-aware checks over adapter wiring, route and API
+modules, capability contracts, declared graph constraints, environment safety,
+and app-graph snapshot freshness:
+
+```sh
+pracht verify
+pracht verify --changed
+pracht verify --json
+```
+
+`--changed` narrows file-oriented checks for a fast local loop; use the default
+full scope before committing. The command exits 1 when any blocking check
+fails. `--json` emits the same checks, scope, and final `ok` value for CI and
+agents. Adapter-specific checks use the target resolved from the app's Vite
+configuration.
+
+---
+
 ## pracht report
 
 Assembles a PR-ready markdown report from machine truth: the `pracht plan` diff, `pracht verify` results, and per-route client JS budgets from the last build.
@@ -182,6 +272,28 @@ pracht report --base origin/release --out report.md
 ```
 
 Use it as the factual half of a PR description — the author adds the "why".
+
+---
+
+## pracht eval
+
+Runs scripted agent-task scenarios against the capability HTTP projection and
+exits 1 when any scenario or expectation fails:
+
+```sh
+pracht eval                                  # evals/**/*.eval.json
+pracht eval evals/notes.eval.json
+pracht eval --url http://localhost:3000
+pracht eval --start "pracht preview" --url http://localhost:3000
+pracht eval --json
+```
+
+Each scenario may declare its own URL, or `--url` can override all of them.
+`--start` launches one server for the entire run, waits for it to answer, and
+stops its process group afterward. Choose a start command that matches the
+adapter: `pracht preview` works for Node and Cloudflare, while Vercel needs a
+deployed URL or a separately managed `vercel dev`. `--json` emits the overall
+status and every scenario/step result.
 
 ---
 
@@ -197,6 +309,25 @@ pracht llms --write
 ```
 
 The same guide is available from the MCP server (`pracht mcp`) via the `get_docs` tool, alongside `plan` and `report` tools and the existing `inspect_*`, `doctor`, `verify`, and `generate_*` tools.
+
+---
+
+## pracht mcp
+
+Starts a Model Context Protocol server over stdio for coding agents:
+
+```sh
+pracht mcp
+```
+
+Configure the command as a local MCP server rather than running it as a human
+interactive prompt. The protocol owns stdout; diagnostics go to stderr so they
+cannot corrupt JSON-RPC frames. It serves docs, graph inspection, doctor,
+verify, plan/report, and generation tools against the current app. The command
+runs until its MCP client disconnects and exits non-zero on startup or protocol
+failure. There is no `--json` flag because MCP frames are already structured
+protocol output. It is adapter-independent, although individual inspection and
+verification results reflect the configured target.
 
 ---
 

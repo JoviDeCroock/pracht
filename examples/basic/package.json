@@ -4,8 +4,15 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build:cloudflare": "PRACHT_ADAPTER=cloudflare pracht build",
-    "deploy:cloudflare": "pnpm build:cloudflare && wrangler deploy"
+    "build:cloudflare": "node ../../scripts/run-pracht.mjs PRACHT_ADAPTER=cloudflare -- build",
+    "deploy:cloudflare": "pnpm build:cloudflare && wrangler deploy",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "typegen": "node ../../scripts/run-pracht.mjs PRACHT_ADAPTER=node -- typegen",
+    "typegen:check": "pnpm typegen:check:node && pnpm typegen:check:cloudflare && pnpm typegen:check:vercel",
+    "typegen:check:node": "node ../../scripts/run-pracht.mjs PRACHT_ADAPTER=node -- typegen --check",
+    "typegen:check:cloudflare": "node ../../scripts/run-pracht.mjs PRACHT_ADAPTER=cloudflare -- typegen --check",
+    "typegen:check:vercel": "node ../../scripts/run-pracht.mjs PRACHT_ADAPTER=vercel -- typegen --check",
+    "verify": "pnpm typegen:check && pnpm typecheck && node ../../scripts/run-pracht.mjs PRACHT_ADAPTER=node PRACHT_CONFIRMATION_SECRET?=basic-dev-confirmation-secret -- verify"
   },
   "dependencies": {
     "@pracht/adapter-cloudflare": "workspace:*",

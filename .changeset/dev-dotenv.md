@@ -15,12 +15,15 @@ anticipates had no effect, and a destructive capability failed closed with
 Wrangler already does this for Cloudflare apps ("Using secrets defined in
 .env"), so the identical project behaved differently per adapter.
 
-Dev only. Real environment variables win over the file, `.env.local` beats
-`.env.development` beats `.env`, and `NODE_ENV` is never taken from the file
-(Vite refuses `NODE_ENV=production` there on purpose, and the dev server is
-always mode `development` whatever the shell says).
+Dev only. Real environment variables win over the file,
+`.env.development.local` beats `.env.development`, which beats `.env.local`,
+which beats `.env`; `NODE_ENV` is never taken from the file (Vite refuses
+`NODE_ENV=production` there on purpose, and the dev server is always mode
+`development` whatever the shell says).
 
-`pracht build`, the production server, and `pracht verify` / `pracht doctor`
-still read only the real environment: verification reports on what a deployment
-will have, so a destructive capability whose secret lives only in `.env` stays
-an error — its message now says where the value has to live instead.
+`pracht build` still does not copy unprefixed `.env` values into `process.env`,
+the production server does not load local files, and `pracht verify` / `pracht
+doctor` report on the real deployment environment. A destructive capability
+whose secret lives only in `.env` therefore stays an error. Vite's existing
+build-time loading of intentionally public `PRACHT_PUBLIC_` / `VITE_` values is
+unchanged.
