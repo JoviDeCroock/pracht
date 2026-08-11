@@ -558,7 +558,8 @@ function inferRouteParams(path: string): string[] {
 }
 
 // Only modules TypeScript can resolve type-only imports for. Route files in
-// other formats (`.md`, `.mdx`, `.tsrx`) fall back to `unknown` data.
+// other formats (Markdown and configured additional extensions) fall back to
+// `unknown` data.
 const IMPORTABLE_MODULE_PATTERN = /\.(ts|tsx|js|jsx)$/;
 
 function formatRouteDataType(route: RouteEntry, context: DeclarationContext): string {

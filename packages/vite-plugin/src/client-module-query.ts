@@ -30,13 +30,12 @@ export function stripPrachtClientModuleQuery(id: string): string {
 export function getRolldownLang(id: string): RolldownLang {
   const path = stripPrachtClientModuleQuery(id).split("?")[0];
   if (/\.(c|m)?tsx$/i.test(path)) return "tsx";
-  // `.tsrx` files are pre-compiled by `@tsrx/vite-plugin-preact` to plain JS
-  // (with JSX runtime calls) before pracht's post transform runs. Parse as
-  // `tsx` since the parser is permissive enough to accept plain JS.
-  if (/\.tsrx$/i.test(path)) return "tsx";
   if (/\.(c|m)?ts$/i.test(path)) return "ts";
   if (/\.(c|m)?jsx$/i.test(path)) return "jsx";
   if (/\.mdx?$/i.test(path)) return "jsx";
   if (/\.(c|m)?js$/i.test(path)) return "js";
+  // Additional route formats are transformed by their own Vite plugin before
+  // Pracht's post transform. TSX is permissive enough for the resulting JS and
+  // JSX-runtime calls.
   return "tsx";
 }

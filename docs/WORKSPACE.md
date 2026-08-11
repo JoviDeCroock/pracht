@@ -122,14 +122,13 @@ described in `VISION_MVP.md`.
   image tools, PWA, etc.) alongside `pracht()` in `vite.config.ts`. No special
   integration required — plugins participate in the full Vite pipeline for both
   client and SSR builds.
-- **TSRX support** — `.tsrx` route and shell modules work without a pracht
-  option: users add
-  [`@tsrx/vite-plugin-preact`](https://github.com/Ripple-TS/ripple) to their
-  Vite `plugins` array alongside `pracht()`. The pracht plugin globs `.tsrx`
-  files in its route/shell discovery and the client-only export-stripping pass
-  recognises the extension via the directory check, so no `?pracht-client`
-  query suffix is attached (the upstream `tsrxPreact` plugin matches by bare
-  extension). See `examples/tsrx/` for a working app.
+- **Additional route extensions** — `pracht({ additionalExtensions: [".ext"] })`
+  adds dot-prefixed route and shell module extensions to manifest- and
+  pages-router discovery, dependency optimization, loader hints, HMR/typegen
+  watching, and client-only export stripping. Users still register the Vite
+  plugin that compiles the format and provide its TypeScript declaration.
+  Additional-format globs keep bare module ids so extension-matching transforms
+  can run. See `examples/tsrx/` for a working custom-format app.
 
 - **Claude Code skills** — Repo-local skills in `skills/` (see
   [skills/README.md](../skills/README.md) for the full index). Two audiences:

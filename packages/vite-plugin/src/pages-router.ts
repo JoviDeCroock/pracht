@@ -2,6 +2,12 @@ import { readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { basename, extname, join, relative } from "node:path";
 import { maskCommentsAndStrings } from "@pracht/capabilities/static";
 import { detectLoaderExport } from "./route-loader-hints.ts";
+import {
+  DEFAULT_ROUTE_EXTENSIONS,
+  DEFAULT_SHELL_EXTENSIONS,
+  normalizeAdditionalExtensions,
+  withAdditionalExtensions,
+} from "./route-extensions.ts";
 
 export interface ScannedPage {
   absolutePath: string;
@@ -20,14 +26,18 @@ export interface ScannedPage {
 export interface PagesRouterOptions {
   pagesDir: string;
   pagesDefaultRender?: string;
+  additionalExtensions?: readonly string[];
 }
 
-const PAGE_EXTENSIONS = new Set([".tsx", ".tsrx", ".ts", ".jsx", ".js", ".md", ".mdx"]);
-const SHELL_EXTENSIONS = new Set([".tsx", ".tsrx", ".ts", ".jsx", ".js"]);
-
-export function scanPagesDirectory(pagesDir: string): ScannedPage[] {
+export function scanPagesDirectory(
+  pagesDir: string,
+  additionalExtensions: readonly string[] = [],
+): ScannedPage[] {
+  const normalizedExtensions = normalizeAdditionalExtensions(additionalExtensions);
+  const pageExtensions = withAdditionalExtensions(DEFAULT_ROUTE_EXTENSIONS, normalizedExtensions);
+  const shellExtensions = withAdditionalExtensions(DEFAULT_SHELL_EXTENSIONS, normalizedExtensions);
   const pages: ScannedPage[] = [];
-  scan(pagesDir, pagesDir, pages);
+  scan(pagesDir, pagesDir, pages, pageExtensions, shellExtensions);
   const appShell = pages.find((page) => page.routePath === "__shell__");
   if (appShell?.hasRevalidateExport) {
     throw new Error(
@@ -38,7 +48,13 @@ export function scanPagesDirectory(pagesDir: string): ScannedPage[] {
   return sortRoutes(pages);
 }
 
-function scan(dir: string, root: string, pages: ScannedPage[]): void {
+function scan(
+  dir: string,
+  root: string,
+  pages: ScannedPage[],
+  pageExtensions: Set<string>,
+  shellExtensions: Set<string>,
+): void {
   let entries: string[];
   try {
     entries = readdirSync(dir);
@@ -51,14 +67,15 @@ function scan(dir: string, root: string, pages: ScannedPage[]): void {
     const stat = statSync(abs);
 
     if (stat.isDirectory()) {
-      scan(abs, root, pages);
+      scan(abs, root, pages, pageExtensions, shellExtensions);
       continue;
     }
 
     const ext = extname(entry);
-    if (!PAGE_EXTENSIONS.has(ext)) continue;
+    if (!pageExtensions.has(ext)) continue;
 
     const name = basename(entry, ext);
+    if (name === "_app" && !shellExtensions.has(ext)) continue;
 
     // Skip _-prefixed files except _app
     if (name.startsWith("_") && name !== "_app") continue;
@@ -89,7 +106,8 @@ function scan(dir: string, root: string, pages: ScannedPage[]): void {
 }
 
 export function filePathToRoutePath(relativePath: string): string {
-  let route = relativePath.replace(/\.(tsx?|tsrx|jsx?|mdx?)$/, "");
+  const extension = extname(relativePath);
+  let route = extension ? relativePath.slice(0, -extension.length) : relativePath;
   route = route.replace(/\\/g, "/");
 
   // _app is not a route
@@ -282,10 +300,14 @@ export function generatePagesManifestSource(
   // useImportSyntax: when true, emit `() => import("path")` for IDE navigation.
   // Only used for ejected files; virtual modules must use plain strings.
   const useImport = options.useImportSyntax ?? false;
+  const shellExtensions = withAdditionalExtensions(
+    DEFAULT_SHELL_EXTENSIONS,
+    normalizeAdditionalExtensions(options.additionalExtensions),
+  );
 
   const allFiles = scanAllFiles(pagesDir);
   const appFile = allFiles.find(
-    (f) => basename(f, extname(f)) === "_app" && SHELL_EXTENSIONS.has(extname(f)),
+    (f) => basename(f, extname(f)) === "_app" && shellExtensions.has(extname(f)),
   );
 
   const coreImports = pages.some((page) => page.revalidateSeconds !== undefined)
@@ -422,7 +444,7 @@ export function generateRoutesFile(
   outputPath: string,
   options: PagesRouterOptions,
 ): void {
-  const pages = scanPagesDirectory(pagesDir);
+  const pages = scanPagesDirectory(pagesDir, options.additionalExtensions);
   // For standalone files, replace `const app` with `export const app`
   const manifestSource = generatePagesManifestSource(pages, {
     ...options,

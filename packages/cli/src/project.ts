@@ -6,6 +6,7 @@ import { ensureTrailingNewline } from "./utils.js";
 import { PROJECT_DEFAULTS } from "./constants.js";
 
 export interface ProjectConfig {
+  additionalExtensions: string[];
   apiDir: string;
   appFile: string;
   capabilitiesDir: string;
@@ -39,11 +40,15 @@ export function readProjectConfig(root: string): ProjectConfig {
   };
 
   for (const key of Object.keys(PROJECT_DEFAULTS)) {
+    if (key === "additionalExtensions") continue;
     const value = readQuotedConfigValue(rawConfig, key);
     if (typeof value === "string") {
       config[key] = key === "pagesDefaultRender" ? value : normalizeConfigPath(value);
     }
   }
+  config.additionalExtensions = (
+    readQuotedConfigArray(rawConfig, "additionalExtensions") ?? []
+  ).map((extension) => extension.toLowerCase());
 
   config.mode = config.pagesDir ? "pages" : "manifest";
   return config as unknown as ProjectConfig;
@@ -133,8 +138,12 @@ export function listFilesRecursively(dir: string): string[] {
   return files;
 }
 
-export function hasPagesAppShell(filePath: string): boolean {
-  return /^_app\.(ts|tsx|tsrx|js|jsx)$/.test(basename(filePath));
+export function hasPagesAppShell(filePath: string, additionalExtensions: string[] = []): boolean {
+  const extension = basename(filePath).slice("_app".length);
+  return (
+    basename(filePath).startsWith("_app.") &&
+    new Set([".ts", ".tsx", ".js", ".jsx", ...additionalExtensions]).has(extension)
+  );
 }
 
 function findConfigFile(root: string): string | null {
@@ -169,6 +178,41 @@ function readQuotedConfigValue(source: string, key: string): string | null {
   if (declarations.length !== 1) return null;
   const declaration = declarations[0];
   return readQuotedValueAt(source, (declaration.index ?? 0) + declaration[0].length);
+}
+
+function readQuotedConfigArray(source: string, key: string): string[] | null {
+  if (!source) return null;
+  const masked = maskCommentsAndStrings(source);
+  const properties = [...masked.matchAll(new RegExp(`\\b${key}\\s*:`, "g"))];
+  if (properties.length !== 1) return null;
+  const property = properties[0];
+  const valueStart = (property.index ?? 0) + property[0].length;
+
+  const direct = readStringArrayAt(source, valueStart);
+  if (direct !== null) return direct;
+
+  const identifier = /^\s*([A-Za-z_$][\w$]*)\b/.exec(source.slice(valueStart))?.[1];
+  if (!identifier) return null;
+  const declarations = [...masked.matchAll(new RegExp(`\\bconst\\s+${identifier}\\s*=`, "g"))];
+  if (declarations.length !== 1) return null;
+  const declaration = declarations[0];
+  return readStringArrayAt(source, (declaration.index ?? 0) + declaration[0].length);
+}
+
+function readStringArrayAt(source: string, start: number): string[] | null {
+  const arraySource = /^\s*\[([^\]]*)\]/.exec(source.slice(start))?.[1];
+  if (arraySource === undefined) return null;
+  if (!arraySource.trim()) return [];
+
+  const values: string[] = [];
+  let offset = 0;
+  while (offset < arraySource.length) {
+    const match = /^\s*(["'`])([^"'`]+)\1\s*(?:,|$)/.exec(arraySource.slice(offset));
+    if (!match) return null;
+    values.push(match[2]);
+    offset += match[0].length;
+  }
+  return values;
 }
 
 function hasConfigProperty(source: string, key: string): boolean {

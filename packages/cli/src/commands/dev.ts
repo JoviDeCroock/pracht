@@ -8,6 +8,7 @@ import { collectAppGraph } from "../app-graph.js";
 import { loadDotEnvIntoProcess } from "../dotenv.js";
 import { formatDevBanner, supportsColor } from "../dev-banner.js";
 import { readProjectConfig, resolveProjectPath } from "../project.js";
+import { isRouteSource } from "../verification-helpers.js";
 import { requirePositiveInteger } from "../utils.js";
 import {
   DEFAULT_CAPABILITIES_OUT,
@@ -88,10 +89,6 @@ export default defineCommand({
   },
 });
 
-// Extensions that can introduce or remove a route (see the typegen module
-// resolution and markdown route support).
-const ROUTE_MODULE_PATTERN = /\.(?:ts|tsx|tsrx|js|jsx|md|mdx)$/;
-
 /**
  * Keep generated route types in sync while the dev server runs. Opt-in by
  * having run `pracht typegen` once: when the generated declaration exists at
@@ -114,7 +111,8 @@ function watchGeneratedRouteTypes(server: ViteDevServer, root: string): boolean 
     resolve(root, DEFAULT_RUNTIME_OUT),
     resolve(root, DEFAULT_CAPABILITIES_OUT),
   ]);
-  const appFilePath = resolveProjectPath(root, readProjectConfig(root).appFile);
+  const project = readProjectConfig(root);
+  const appFilePath = resolveProjectPath(root, project.appFile);
   let queued: ReturnType<typeof setTimeout> | null = null;
   let running = false;
   let rerunQueued = false;
@@ -149,7 +147,7 @@ function watchGeneratedRouteTypes(server: ViteDevServer, root: string): boolean 
   const queueRegenerate = (file: string, requireRouteExtension = true) => {
     if (
       !file.startsWith(root) ||
-      (requireRouteExtension && !ROUTE_MODULE_PATTERN.test(file)) ||
+      (requireRouteExtension && !isRouteSource(file, project.additionalExtensions)) ||
       generatedPaths.has(file)
     ) {
       return;

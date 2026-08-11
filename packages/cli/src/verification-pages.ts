@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { basename, relative } from "node:path";
 
 import { hasPagesAppShell, listFilesRecursively } from "./project.js";
-import { normalizeRoutePath, PAGE_SOURCE_RE } from "./verification-helpers.js";
+import { isPageSource, normalizeRoutePath } from "./verification-helpers.js";
 
 export type PagesFile =
   | { file: string; kind: "shell"; hasRevalidateExport: boolean }
@@ -22,20 +22,28 @@ export interface PagesRoute {
     | { kind: "time"; seconds: number };
 }
 
-export function scanPagesDirectory(pagesDir: string): PagesFile[] {
+export function scanPagesDirectory(
+  pagesDir: string,
+  additionalExtensions: string[] = [],
+): PagesFile[] {
   return listFilesRecursively(pagesDir)
-    .filter((file) => PAGE_SOURCE_RE.test(file))
-    .map((file) => describePagesFile(pagesDir, file));
+    .filter((file) => isPageSource(file, additionalExtensions))
+    .map((file) => describePagesFile(pagesDir, file, additionalExtensions));
 }
 
-export function describePagesFile(pagesDir: string, file: string): PagesFile {
+export function describePagesFile(
+  pagesDir: string,
+  file: string,
+  additionalExtensions: string[] = [],
+): PagesFile {
   const relativePath = relative(pagesDir, file).replace(/\\/g, "/");
-  const routePath = relativePath.replace(/\.(tsx?|tsrx|jsx?|mdx?)$/, "");
+  const extensionIndex = relativePath.lastIndexOf(".");
+  const routePath = extensionIndex === -1 ? relativePath : relativePath.slice(0, extensionIndex);
   const name = basename(routePath);
   const source = readFileSync(file, "utf-8");
   const analysisSource = maskMarkdownFences(source, relativePath);
 
-  if (hasPagesAppShell(file)) {
+  if (hasPagesAppShell(file, additionalExtensions)) {
     return {
       file,
       kind: "shell",

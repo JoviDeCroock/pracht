@@ -17,6 +17,7 @@ function readPackageVersion(): string {
 }
 
 export const PROJECT_DEFAULTS = {
+  additionalExtensions: [] as string[],
   apiDir: "/src/api",
   appFile: "/src/routes.ts",
   capabilitiesDir: "/src/capabilities",

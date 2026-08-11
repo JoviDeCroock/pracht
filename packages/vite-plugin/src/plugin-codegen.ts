@@ -14,8 +14,12 @@ import {
 } from "./plugin-options.ts";
 import { createRouteLoaderHints } from "./route-loader-hints.ts";
 import { createWebmcpBootstrapSource, hasWebmcpCapabilities } from "./plugin-capabilities.ts";
+import {
+  DEFAULT_ROUTE_EXTENSIONS,
+  extensionGlob,
+  withAdditionalExtensions,
+} from "./route-extensions.ts";
 
-const ROUTE_MODULE_EXTENSIONS = new Set([".ts", ".tsx", ".js", ".jsx", ".md", ".mdx", ".tsrx"]);
 const NON_FULL_HYDRATION_RE = /hydration\s*:\s*["'](?:islands|none)["']/;
 const FULL_HYDRATION_RE = /hydration\s*:\s*["']full["']/;
 const PAGES_NON_FULL_HYDRATION_RE = /export\s+const\s+HYDRATION\s*=\s*["'](?:islands|none)["']/;
@@ -37,7 +41,7 @@ function findMatching(source: string, start: number, open: string, close: string
   return -1;
 }
 
-function scanFiles(dir: string, files: string[]): void {
+function scanFiles(dir: string, files: string[], extensions: Set<string>): void {
   let entries: string[];
   try {
     entries = readdirSync(dir);
@@ -54,8 +58,8 @@ function scanFiles(dir: string, files: string[]): void {
       continue;
     }
     if (stat.isDirectory()) {
-      scanFiles(abs, files);
-    } else if (ROUTE_MODULE_EXTENSIONS.has(extname(entry))) {
+      scanFiles(abs, files, extensions);
+    } else if (extensions.has(extname(entry))) {
       files.push(abs);
     }
   }
@@ -69,7 +73,11 @@ function createNonFullHydrationExcludes(
 
   if (resolved.pagesDir) {
     const files: string[] = [];
-    scanFiles(resolve(root, resolved.pagesDir.replace(/^\//, "")), files);
+    scanFiles(
+      resolve(root, resolved.pagesDir.replace(/^\//, "")),
+      files,
+      withAdditionalExtensions(DEFAULT_ROUTE_EXTENSIONS, resolved.additionalExtensions),
+    );
     for (const file of files) {
       try {
         if (PAGES_NON_FULL_HYDRATION_RE.test(readFileSync(file, "utf-8"))) {
@@ -141,25 +149,31 @@ export function createPrachtClientModuleSource(
     ? generatePagesAppInlineSource(resolved, buildOptions.root)
     : `import { app } from ${JSON.stringify(resolved.appFile)};`;
 
-  // Main route/shell globs. `.tsrx` is globbed separately *without* the
-  // `?pracht-client` query suffix — the upstream `@tsrx/vite-plugin-preact`
-  // plugin only matches ids by bare `.tsrx` extension, and the server-only
-  // export stripping pass already catches these files via the route/shell
-  // directory check during client builds.
+  // Additional formats are globbed separately without the `?pracht-client`
+  // query suffix so their Vite transform plugins can match the bare extension.
+  // Pracht's directory-aware post transform still strips server-only exports.
   const dirPrefix = isPagesMode ? resolved.pagesDir : resolved.routesDir;
   const routeGlob = `${dirPrefix}/**/*.{ts,tsx,js,jsx,md,mdx}`;
-  const routeTsrxGlob = `${dirPrefix}/**/*.tsrx`;
+  const additionalRouteGlob =
+    resolved.additionalExtensions.length > 0
+      ? `${dirPrefix}/**/*.${extensionGlob(resolved.additionalExtensions)}`
+      : null;
   const routeExcludes = createNonFullHydrationExcludes(resolved, buildOptions.root);
   const routeGlobPattern = routeExcludes.length > 0 ? [routeGlob, ...routeExcludes] : routeGlob;
-  const routeTsrxGlobPattern =
-    routeExcludes.length > 0 ? [routeTsrxGlob, ...routeExcludes] : routeTsrxGlob;
+  const additionalRouteGlobPattern =
+    additionalRouteGlob && routeExcludes.length > 0
+      ? [additionalRouteGlob, ...routeExcludes]
+      : additionalRouteGlob;
 
   const shellGlob = isPagesMode
     ? `${resolved.pagesDir}/**/_app.{ts,tsx,js,jsx}`
     : `${resolved.shellsDir}/**/*.{ts,tsx,js,jsx,md,mdx}`;
-  const shellTsrxGlob = isPagesMode
-    ? `${resolved.pagesDir}/**/_app.tsrx`
-    : `${resolved.shellsDir}/**/*.tsrx`;
+  const additionalShellGlob =
+    resolved.additionalExtensions.length === 0
+      ? null
+      : isPagesMode
+        ? `${resolved.pagesDir}/**/_app.${extensionGlob(resolved.additionalExtensions)}`
+        : `${resolved.shellsDir}/**/*.${extensionGlob(resolved.additionalExtensions)}`;
   // Base directory for relative manifest refs: the app manifest file's
   // directory (refs like "./routes/home.tsx" are written relative to it).
   const appFilePosix = resolved.appFile.replace(/\\/g, "/").replace(/^\.\//, "");
@@ -173,11 +187,15 @@ export function createPrachtClientModuleSource(
     `const routeLoaderHints = ${JSON.stringify(routeLoaderHints)};`,
     `const routeModules = {`,
     `  ...import.meta.glob(${JSON.stringify(routeGlobPattern)}, { query: ${JSON.stringify(PRACHT_CLIENT_MODULE_QUERY)} }),`,
-    `  ...import.meta.glob(${JSON.stringify(routeTsrxGlobPattern)}),`,
+    ...(additionalRouteGlobPattern
+      ? [`  ...import.meta.glob(${JSON.stringify(additionalRouteGlobPattern)}),`]
+      : []),
     `};`,
     `const shellModules = {`,
     `  ...import.meta.glob(${JSON.stringify(shellGlob)}, { query: ${JSON.stringify(PRACHT_CLIENT_MODULE_QUERY)} }),`,
-    `  ...import.meta.glob(${JSON.stringify(shellTsrxGlob)}),`,
+    ...(additionalShellGlob
+      ? [`  ...import.meta.glob(${JSON.stringify(additionalShellGlob)}),`]
+      : []),
     `};`,
     "",
     "const resolvedApp = resolveApp(app);",
@@ -456,7 +474,10 @@ function createRouteLoaderHintsForVirtualModules(
   root = process.cwd(),
 ): Record<string, boolean> {
   if (options.pagesDir) {
-    const pages = scanPagesDirectory(resolve(root, options.pagesDir.slice(1)));
+    const pages = scanPagesDirectory(
+      resolve(root, options.pagesDir.slice(1)),
+      options.additionalExtensions,
+    );
     const hints: Record<string, boolean> = {};
     for (const page of pages) {
       const key = `${options.pagesDir}/${page.relativePath.replace(/\\/g, "/")}`;
@@ -469,6 +490,7 @@ function createRouteLoaderHintsForVirtualModules(
   const appFileDir = dirname(appFileAbs);
   const routesDirAbs = resolve(root, options.routesDir.slice(1));
   return createRouteLoaderHints(routesDirAbs, {
+    additionalExtensions: options.additionalExtensions,
     appFileDir,
     rootRelativePrefix: options.routesDir,
   });
@@ -482,25 +504,33 @@ export function createPrachtRegistryModuleSource(options: PrachtPluginOptions = 
   const routeGlob = isPagesMode
     ? `${resolved.pagesDir}/**/*.{ts,tsx,js,jsx,md,mdx}`
     : `${resolved.routesDir}/**/*.{ts,tsx,js,jsx,md,mdx}`;
-  const routeTsrxGlob = isPagesMode
-    ? `${resolved.pagesDir}/**/*.tsrx`
-    : `${resolved.routesDir}/**/*.tsrx`;
+  const additionalRouteGlob =
+    resolved.additionalExtensions.length === 0
+      ? null
+      : `${isPagesMode ? resolved.pagesDir : resolved.routesDir}/**/*.${extensionGlob(resolved.additionalExtensions)}`;
 
   const shellGlob = isPagesMode
     ? `${resolved.pagesDir}/**/_app.{ts,tsx,js,jsx}`
     : `${resolved.shellsDir}/**/*.{ts,tsx,js,jsx,md,mdx}`;
-  const shellTsrxGlob = isPagesMode
-    ? `${resolved.pagesDir}/**/_app.tsrx`
-    : `${resolved.shellsDir}/**/*.tsrx`;
+  const additionalShellGlob =
+    resolved.additionalExtensions.length === 0
+      ? null
+      : isPagesMode
+        ? `${resolved.pagesDir}/**/_app.${extensionGlob(resolved.additionalExtensions)}`
+        : `${resolved.shellsDir}/**/*.${extensionGlob(resolved.additionalExtensions)}`;
 
   return [
     `export const routeModules = {`,
     `  ...import.meta.glob(${JSON.stringify(routeGlob)}),`,
-    `  ...import.meta.glob(${JSON.stringify(routeTsrxGlob)}),`,
+    ...(additionalRouteGlob
+      ? [`  ...import.meta.glob(${JSON.stringify(additionalRouteGlob)}),`]
+      : []),
     `};`,
     `export const shellModules = {`,
     `  ...import.meta.glob(${JSON.stringify(shellGlob)}),`,
-    `  ...import.meta.glob(${JSON.stringify(shellTsrxGlob)}),`,
+    ...(additionalShellGlob
+      ? [`  ...import.meta.glob(${JSON.stringify(additionalShellGlob)}),`]
+      : []),
     `};`,
     `export const middlewareModules = import.meta.glob(${JSON.stringify(`${resolved.middlewareDir}/**/*.{ts,tsx,js,jsx}`)});`,
     `export const apiModules = import.meta.glob(${JSON.stringify(apiGlobs)});`,
@@ -530,6 +560,7 @@ function generatePagesAppInlineSource(
 ): string {
   const absPagesDir = resolve(root, options.pagesDir.slice(1));
   const cacheKey = JSON.stringify({
+    additionalExtensions: options.additionalExtensions,
     absPagesDir,
     pagesDefaultRender: options.pagesDefaultRender,
     pagesDirPrefix: options.pagesDir,
@@ -537,8 +568,9 @@ function generatePagesAppInlineSource(
   const cached = pagesAppSourceCache.get(cacheKey);
   if (cached) return cached;
 
-  const pages = scanPagesDirectory(absPagesDir);
+  const pages = scanPagesDirectory(absPagesDir, options.additionalExtensions);
   const source = generatePagesManifestSource(pages, {
+    additionalExtensions: options.additionalExtensions,
     pagesDir: absPagesDir,
     pagesDefaultRender: options.pagesDefaultRender,
     pagesDirPrefix: options.pagesDir,

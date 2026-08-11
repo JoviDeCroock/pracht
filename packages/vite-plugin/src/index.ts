@@ -51,6 +51,11 @@ import {
   type PrachtPluginOptions,
   type ResolvedPrachtPluginOptions,
 } from "./plugin-options.ts";
+import {
+  DEFAULT_ROUTE_EXTENSIONS,
+  extensionGlob,
+  withAdditionalExtensions,
+} from "./route-extensions.ts";
 
 export type { RenderMode };
 export type { PrachtAdapter } from "./plugin-adapter.ts";
@@ -92,6 +97,10 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
   const isPagesMode = !!resolved.pagesDir;
   let root = process.cwd();
   let routeFileDirs: string[] = [];
+  const routeFileExtensions = withAdditionalExtensions(
+    DEFAULT_ROUTE_EXTENSIONS,
+    resolved.additionalExtensions,
+  );
   let capabilityModulePaths = new Set<string>();
 
   if (isPagesMode && options.appFile) {
@@ -419,7 +428,7 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
 
       const shouldStrip =
         isPrachtClientModuleId(id) ||
-        (!transformOptions?.ssr && isRouteOrShellFile(id, routeFileDirs));
+        (!transformOptions?.ssr && isRouteOrShellFile(id, routeFileDirs, routeFileExtensions));
       if (!shouldStrip) return null;
 
       const transformed = stripServerOnlyExportsForClient(code, id);
@@ -652,7 +661,10 @@ function withPrachtOptimizeDepsEntries(
 
 function createPrachtOptimizeDepsEntries(resolved: ResolvedPrachtPluginOptions): string[] {
   const scriptExtensions = "{ts,tsx,js,jsx}";
-  const routeExtensions = "{ts,tsx,js,jsx,md,mdx,tsrx}";
+  const routeExtensions = extensionGlob([
+    ...DEFAULT_ROUTE_EXTENSIONS,
+    ...resolved.additionalExtensions,
+  ]);
   const apiDir = toOptimizeDepsEntry(resolved.apiDir);
   const apiEntries = [`${apiDir}/**/*.{ts,js,tsx,jsx}`, `!${apiDir}/**/*.d.ts`];
   const entries = resolved.pagesDir
@@ -722,8 +734,6 @@ function invalidateVirtualModules(server: import("vite").ViteDevServer): void {
   if (devMod) server.moduleGraph.invalidateModule(devMod);
 }
 
-const ROUTE_FILE_EXTENSIONS = new Set([".ts", ".tsx", ".js", ".jsx", ".md", ".mdx", ".tsrx"]);
-
 function computeRouteFileDirs(root: string, resolved: ResolvedPrachtPluginOptions): string[] {
   const dirs = resolved.pagesDir ? [resolved.pagesDir] : [resolved.routesDir, resolved.shellsDir];
   return dirs.map((dir) => canonicalFilePath(resolveConfigPath(root, dir))).map(withTrailingSep);
@@ -758,7 +768,7 @@ function canonicalFilePath(path: string): string {
   }
 }
 
-function isRouteOrShellFile(id: string, dirs: string[]): boolean {
+function isRouteOrShellFile(id: string, dirs: string[], extensions: Set<string>): boolean {
   if (dirs.length === 0) return false;
   const queryStart = id.indexOf("?");
   const path = queryStart === -1 ? id : id.slice(0, queryStart);
@@ -767,7 +777,7 @@ function isRouteOrShellFile(id: string, dirs: string[]): boolean {
   const extIndex = path.lastIndexOf(".");
   if (extIndex === -1) return false;
   const ext = path.slice(extIndex);
-  if (!ROUTE_FILE_EXTENSIONS.has(ext)) return false;
+  if (!extensions.has(ext)) return false;
   const normalized = toPosixPath(path);
   return dirs.some((dir) => normalized.startsWith(dir));
 }

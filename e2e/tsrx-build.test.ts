@@ -16,8 +16,9 @@ import { expect, test } from "@playwright/test";
 import { fixtureCopyFilter } from "./fixture-copy.ts";
 import { acquireE2EWorkerPort, type E2EWorkerPortLease } from "./ports.ts";
 
-// End-to-end coverage for `.tsrx` route modules compiled by
-// `@tsrx/vite-plugin-preact`. Builds `examples/tsrx/` in a temp dir, asserts
+// End-to-end coverage for a custom route extension configured through
+// `additionalExtensions` and compiled by `@tsrx/vite-plugin-preact`. Builds
+// `examples/tsrx/` in a temp dir and asserts
 // that: the `.tsrx` route is prerendered with its scoped CSS, that a `.tsx`
 // route and a `.tsrx` route coexist, that server-only exports from the `.tsrx`
 // source are stripped from the client bundle, and that the built Node server

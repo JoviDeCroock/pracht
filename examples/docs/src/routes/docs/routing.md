@@ -307,6 +307,23 @@ export function headers() {
 }
 ```
 
+### Additional Route Extensions
+
+Custom route and shell formats can opt into discovery with dot-prefixed
+`additionalExtensions` values:
+
+```ts [vite.config.ts]
+pracht({
+  pagesDir: "/src/pages",
+  additionalExtensions: [".vue"],
+});
+```
+
+This works in both pages and manifest mode. Pracht discovers the files and
+applies its route client/server handling; register the format's Vite transform
+plugin separately and add an ambient TypeScript module declaration if its
+tooling does not provide one.
+
 ### Per-Route Render Mode
 
 Page files can export a `RENDER_MODE` constant to override the rendering strategy:
