@@ -769,6 +769,24 @@ export interface McpProjectionConfig {
   instructions?: string;
 }
 
+/** Publisher metadata added to the generated Agent Skills discovery index. */
+export interface AgentSkillsManifestConfig {
+  /** Human-readable name of the skill collection. */
+  name: string;
+  /** Optional canonical homepage for the publisher or collection. */
+  homepage?: string;
+}
+
+/** Publish a directory of single-file Agent Skills as static application assets. */
+export interface AgentSkillsConfig {
+  /** Directory containing one folder per skill, relative to the Vite project root. */
+  directory: string;
+  /** Publisher metadata copied into the discovery index. */
+  manifest: AgentSkillsManifestConfig;
+  /** Add the RFC 8288 Agent Skills discovery Link header to application responses. */
+  advertise?: boolean;
+}
+
 export interface PrachtAgentsConfig {
   /** Verify RFC 9421 / Web Bot Auth agent signatures and surface `context.agent`. */
   webBotAuth?: WebBotAuthConfig;
@@ -776,6 +794,8 @@ export interface PrachtAgentsConfig {
   confirmation?: CapabilityConfirmationConfig;
   /** Serve `expose.mcp` capabilities as MCP tools. See {@link McpProjectionConfig}. */
   mcp?: McpProjectionConfig;
+  /** Publish local Agent Skills through the well-known discovery index. */
+  skills?: AgentSkillsConfig;
 }
 
 /** Structured audit event emitted for every capability dispatch. */

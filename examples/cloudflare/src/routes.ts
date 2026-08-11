@@ -1,6 +1,13 @@
 import { defineApp, group, route, timeRevalidate } from "@pracht/core";
 
 export const app = defineApp({
+  agents: {
+    skills: {
+      directory: "./skills",
+      manifest: { name: "pracht-cloudflare", homepage: "https://example.com" },
+      advertise: true,
+    },
+  },
   shells: {
     app: () => import("./shells/app.tsx"),
     public: () => import("./shells/public.tsx"),

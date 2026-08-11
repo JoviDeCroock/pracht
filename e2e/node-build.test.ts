@@ -59,6 +59,18 @@ test("pracht build emits a deployable Node server entry", async () => {
     expect(serverSource).toContain("createNodeRequestHandler");
     expect(serverSource).toContain("createServer(handler)");
 
+    const skillIndexPath = resolve(exampleDir, "dist/client/.well-known/agent-skills/index.json");
+    const skillPath = resolve(exampleDir, "dist/client/skills/pracht-example/SKILL.md");
+    expect(existsSync(skillIndexPath)).toBe(true);
+    expect(existsSync(skillPath)).toBe(true);
+    const skillIndex = JSON.parse(readFileSync(skillIndexPath, "utf-8"));
+    expect(skillIndex.skills[0]).toMatchObject({
+      name: "pracht-example",
+      type: "skill-md",
+      url: "/skills/pracht-example/SKILL.md",
+    });
+    expect(skillIndex.skills[0].digest).toMatch(/^sha256:[a-f0-9]{64}$/);
+
     server = spawn(process.execPath, [serverEntryPath], {
       cwd: exampleDir,
       env: {
@@ -74,6 +86,9 @@ test("pracht build emits a deployable Node server entry", async () => {
     const homeResponse = await fetch(`http://127.0.0.1:${port}/`);
     expect(homeResponse.status).toBe(200);
     expect(homeResponse.headers.get("x-pracht-shell")).toBe("public");
+    expect(homeResponse.headers.get("link")).toContain(
+      '</.well-known/agent-skills/index.json>; rel="agent-skills"',
+    );
     const homeHtml = await homeResponse.text();
     expect(homeHtml).toContain("Pracht starts with an explicit app manifest.");
     expect(homeHtml).not.toContain("/@pracht/client.js");
@@ -136,6 +151,19 @@ test("pracht build emits a deployable Node server entry", async () => {
     expect(llmsTxtResponse.status).toBe(200);
     expect(llmsTxtResponse.headers.get("content-type")).toContain("text/plain");
     expect(await llmsTxtResponse.text()).toBe(llmsTxt);
+
+    const skillResponse = await fetch(`http://127.0.0.1:${port}/skills/pracht-example/SKILL.md`);
+    expect(skillResponse.status).toBe(200);
+    expect(skillResponse.headers.get("content-type")).toBe("text/markdown; charset=utf-8");
+    expect(skillResponse.headers.get("access-control-allow-origin")).toBe("*");
+    expect(await skillResponse.text()).toContain("# Pracht Example");
+
+    const indexResponse = await fetch(
+      `http://127.0.0.1:${port}/.well-known/agent-skills/index.json`,
+    );
+    expect(indexResponse.status).toBe(200);
+    expect(indexResponse.headers.get("content-type")).toBe("application/json; charset=utf-8");
+    expect(indexResponse.headers.get("access-control-allow-origin")).toBe("*");
 
     const openApiPath = resolve(exampleDir, "dist/client/openapi.json");
     const openApiUiPath = resolve(exampleDir, "dist/client/docs/index.html");
@@ -447,6 +475,39 @@ test("public/ folder assets are copied to dist/client/", async () => {
       "User-agent",
     );
     expect(existsSync(resolve(exampleDir, "dist/client/icons/favicon.ico"))).toBe(true);
+  } finally {
+    rmSync(tempDir, { force: true, recursive: true });
+  }
+});
+
+test("Agent Skills keeps its reserved index when a companion artifact collides", async () => {
+  test.setTimeout(120_000);
+
+  const { exampleDir, tempDir } = createTempExampleDir("pracht-agent-skills-collision-");
+  const viteConfigPath = resolve(exampleDir, "vite.config.ts");
+
+  try {
+    const viteConfig = readFileSync(viteConfigPath, "utf-8");
+    expect(viteConfig).toContain("prachtOpenApi({");
+    writeFileSync(
+      viteConfigPath,
+      viteConfig.replace(
+        "prachtOpenApi({",
+        'prachtOpenApi({\n        documentPath: "/.well-known/agent-skills/index.json",',
+      ),
+      "utf-8",
+    );
+
+    buildExample(exampleDir, { PRACHT_ADAPTER: "node" });
+
+    const index = JSON.parse(
+      readFileSync(resolve(exampleDir, "dist/client/.well-known/agent-skills/index.json"), "utf-8"),
+    );
+    expect(index.$schema).toBe("https://schemas.agentskills.io/discovery/0.2.0/schema.json");
+    expect(index.skills).toEqual([
+      expect.objectContaining({ name: "pracht-example", type: "skill-md" }),
+    ]);
+    expect(index).not.toHaveProperty("openapi");
   } finally {
     rmSync(tempDir, { force: true, recursive: true });
   }

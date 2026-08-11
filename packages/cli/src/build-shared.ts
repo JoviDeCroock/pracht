@@ -33,6 +33,10 @@ module.exports = async (req, res) => {
 type VercelRegions = string | string[];
 
 interface VercelBuildOutputOptions {
+  agentSkills?: {
+    advertise: boolean;
+    artifacts: Array<{ contentType: string; outputPath: string }>;
+  };
   functionName?: string;
   headersManifest?: Record<string, Record<string, string>>;
   isgManifest: Record<string, ISGManifestEntry>;
@@ -45,6 +49,7 @@ interface VercelBuildOutputOptions {
 }
 
 export function writeVercelBuildOutput({
+  agentSkills,
   functionName,
   headersManifest = {},
   isgManifest,
@@ -90,6 +95,7 @@ export function writeVercelBuildOutput({
     join(outputDir, "config.json"),
     `${JSON.stringify(
       createVercelOutputConfig({
+        agentSkills,
         functionName,
         headersManifest,
         markdownRoutes,
@@ -250,12 +256,17 @@ function linkVercelPrerenderFunction({
 const ACCEPT_MARKDOWN_PATTERN = ".*[tT][eE][xX][tT]/[mM][aA][rR][kK][dD][oO][wW][nN].*";
 
 function createVercelOutputConfig({
+  agentSkills,
   functionName,
   headersManifest,
   markdownRoutes,
   staticRoutes,
   isgRoutes,
 }: {
+  agentSkills?: {
+    advertise: boolean;
+    artifacts: Array<{ contentType: string; outputPath: string }>;
+  };
   functionName?: string;
   headersManifest: Record<string, Record<string, string>>;
   markdownRoutes: string[];
@@ -321,37 +332,72 @@ function createVercelOutputConfig({
   routes.push({ handle: "filesystem" });
   routes.push({ dest: target, src: "/(.*)" });
 
-  const headers: Record<string, unknown>[] = [
+  const responseHeaderRoutes: Record<string, unknown>[] = [
     {
-      headers: [
-        {
-          key: "permissions-policy",
-          value:
-            "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()",
-        },
-        { key: "referrer-policy", value: "strict-origin-when-cross-origin" },
-        { key: "x-content-type-options", value: "nosniff" },
-        { key: "x-frame-options", value: "SAMEORIGIN" },
-      ],
-      source: "/(.*)",
+      continue: true,
+      headers: {
+        "permissions-policy":
+          "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "SAMEORIGIN",
+      },
+      src: "/(.*)",
     },
   ];
+
+  if (agentSkills) {
+    responseHeaderRoutes.push(
+      {
+        continue: true,
+        headers: { "access-control-allow-origin": "*" },
+        src: "^/\\.well-known/agent-skills/index\\.json$",
+      },
+      {
+        continue: true,
+        headers: { "access-control-allow-origin": "*" },
+        src: "^/skills/[a-z0-9]+(?:-[a-z0-9]+)*/SKILL\\.md$",
+      },
+    );
+    if (agentSkills.advertise) {
+      responseHeaderRoutes.push({
+        continue: true,
+        src: "/(.*)",
+        transforms: [
+          {
+            args: '</.well-known/agent-skills/index.json>; rel="agent-skills"',
+            op: "append",
+            target: { key: "link" },
+            type: "response.headers",
+          },
+        ],
+      });
+    }
+  }
 
   for (const route of sortStaticRoutes(staticRoutes)) {
     const routeHeaders = headersManifest[route];
     if (!routeHeaders) continue;
-    headers.push({
-      headers: Object.entries(routeHeaders).map(([key, value]) => ({ key, value })),
-      source: routeToHeaderSource(route),
+    responseHeaderRoutes.push({
+      continue: true,
+      headers: routeHeaders,
+      src: routeToRouteExpression(route),
     });
   }
 
+  const overrides = Object.fromEntries(
+    (agentSkills?.artifacts ?? []).map(({ contentType, outputPath }) => [
+      outputPath,
+      { contentType },
+    ]),
+  );
+
   return {
-    headers,
     framework: {
       version: VERSION,
     },
-    routes,
+    ...(Object.keys(overrides).length > 0 ? { overrides } : {}),
+    routes: [...responseHeaderRoutes, ...routes],
     version: 3,
   };
 }
@@ -421,10 +467,6 @@ function routeToPrerenderFunctionName(route: string): string {
 function basename(value: string): string {
   const segments = value.split("/");
   return segments[segments.length - 1] || "index";
-}
-
-function routeToHeaderSource(route: string): string {
-  return route === "/" ? "/" : route;
 }
 
 function escapeRegex(value: string): string {

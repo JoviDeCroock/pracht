@@ -1,6 +1,6 @@
 ---
 title: Agent Skills
-lead: pracht ships 28 Claude Code skills for scaffolding, auditing, testing, and deploying apps. They are published at stable URLs with a signed discovery manifest, seeded into new apps by `create-pracht`, and pair with the built-in MCP server.
+lead: pracht ships 28 Claude Code skills for scaffolding, auditing, testing, and deploying apps. They are published at stable URLs with a SHA-256 discovery manifest, seeded into new apps by `create-pracht`, and pair with the built-in MCP server.
 breadcrumb: Agent Skills
 prev:
   href: /docs/agent-workflow
@@ -35,14 +35,14 @@ curl https://pracht.resynapse.dev/.well-known/agent-skills/index.json
 
 ```json
 {
-  "$schema": "https://agentskills.io/schema/v0.2.0/index.json",
+  "$schema": "https://schemas.agentskills.io/discovery/0.2.0/schema.json",
   "skills": [
     {
       "name": "audit-csrf",
-      "type": "claude-skill",
+      "type": "skill-md",
       "description": "Verify CSRF posture on forms and mutation APIs...",
-      "url": "https://pracht.resynapse.dev/skills/audit-csrf/SKILL.md",
-      "sha256": "…"
+      "url": "/skills/audit-csrf/SKILL.md",
+      "digest": "sha256:…"
     }
   ]
 }
@@ -54,7 +54,20 @@ Agents landing on the home page can find the manifest without prior knowledge �
 Link: </.well-known/agent-skills/index.json>; rel="agent-skills"
 ```
 
-Both are emitted by a small Vite plugin ([`vite-plugin-agent-skills.ts`](https://github.com/JoviDeCroock/pracht/blob/main/examples/docs/vite-plugin-agent-skills.ts)) that reads the repo skills at build time, computes the digests, and serves each `SKILL.md` as a public asset.
+Both are built into pracht. Configure `agents.skills` in `defineApp()` and the framework reads the directory at build time, computes the digests, emits CDN-ready assets, and serves the same URLs live in development:
+
+```ts
+defineApp({
+  agents: {
+    skills: {
+      directory: "./skills",
+      manifest: { name: "my-app", homepage: "https://example.com" },
+      advertise: true,
+    },
+  },
+  routes: [],
+});
+```
 
 ---
 

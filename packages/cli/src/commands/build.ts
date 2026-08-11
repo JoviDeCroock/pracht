@@ -5,6 +5,7 @@ import { pathToFileURL } from "node:url";
 
 import { defineCommand } from "citty";
 import { build as viteBuild } from "vite";
+import { generateAgentSkillArtifacts } from "@pracht/vite-plugin/agent-skills";
 
 import { readClientBuildAssets } from "../build-metadata.js";
 import { writeVercelBuildOutput } from "../build-shared.js";
@@ -229,6 +230,11 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
       log("\n  llms.txt → dist/client/llms.txt\n");
     }
 
+    const agentSkillsConfig = serverMod.resolvedApp?.agents?.skills;
+    const agentSkillArtifacts = agentSkillsConfig
+      ? generateAgentSkillArtifacts(root, agentSkillsConfig)
+      : [];
+
     const generatedStaticRoutes: string[] = [];
 
     // Companion artifact generators can inspect the bundled server graph and
@@ -278,6 +284,21 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
         const message = typeof warning?.message === "string" ? warning.message : String(warning);
         log(`  OpenAPI warning: ${method}${path}: ${message}\n`);
       }
+    }
+
+    // These paths are reserved by defineApp({ agents: { skills } }). Emit
+    // them after every companion generator so a valid-but-colliding OpenAPI
+    // path cannot replace the advertised discovery index or skill source.
+    for (const artifact of agentSkillArtifacts) {
+      const filePath = resolveGeneratedArtifactOutputPath(clientDir, artifact.outputPath);
+      if (existsSync(filePath)) {
+        log(
+          `\n  Warning: generated Agent Skills asset ${artifact.outputPath} replaces an existing public/build file.\n`,
+        );
+      }
+      mkdirSync(dirname(filePath), { recursive: true });
+      writeFileSync(filePath, artifact.content, "utf-8");
+      log(`\n  Agent Skills → dist/client/${artifact.outputPath}\n`);
     }
 
     if (Object.keys(headersManifest).length > 0) {
@@ -362,6 +383,15 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
       }
 
       const outputPath = writeVercelBuildOutput({
+        agentSkills: agentSkillsConfig
+          ? {
+              advertise: agentSkillsConfig.advertise === true,
+              artifacts: agentSkillArtifacts.map(({ contentType, outputPath }) => ({
+                contentType,
+                outputPath,
+              })),
+            }
+          : undefined,
         functionName: serverMod.vercelFunctionName,
         isgManifest,
         headersManifest,

@@ -152,6 +152,10 @@ from `@pracht/capabilities`:
   [llms.txt](https://llmstxt.org) index from the app graph — pages, API
   endpoints, and HTTP-exposed capabilities
   ([docs/LLMS_TXT.md](docs/LLMS_TXT.md)).
+- Skill publishing: `defineApp({ agents: { skills } })` emits a well-known
+  discovery index and each configured `SKILL.md` as static CDN assets, with
+  SHA-256 integrity metadata and optional `Link` advertisement
+  ([docs/AGENT_SKILLS.md](docs/AGENT_SKILLS.md)).
 - `pracht typegen` generates a typed client from the graph: input/output types,
   effect class, and exposure land on `Register["capabilities"]`, so
   `invokeCapability()`, `callCapability()`, the nested `capabilities` client

@@ -62,6 +62,8 @@ const GLOBAL_CLI_FLAGS = new Set(["help", "version"]);
 //   "_pracht/isg.json" under the client dir ("dist/client")
 // - Vite client manifest: build.ts / build-metadata.ts read
 //   "dist/client/.vite/manifest.json"
+// - Agent Skills: build.ts writes the discovery index and one SKILL.md per
+//   configured source under dist/client
 // - Prerendered route HTML: build.ts writes "<route>/index.html" under
 //   dist/client (routeToStaticHtmlPath in build-shared.ts)
 // - Vercel Build Output API: build-shared.ts writeVercelBuildOutput emits
@@ -74,6 +76,8 @@ const BUILD_OUTPUT_PATTERNS: RegExp[] = [
   /^dist\/client\/_pracht\/?$/,
   /^dist\/client\/_pracht\/(?:headers\.json|isg\.json)$/,
   /^dist\/client\/\.vite\/manifest\.json$/,
+  /^dist\/client\/\.well-known\/agent-skills\/index\.json$/,
+  /^dist\/client\/skills\/?(?:[\w<>-]+\/SKILL\.md)?$/,
   /^dist\/client(?:\/[^/.]+)+\/index\.html$/,
   /^\.vercel\/output\/?$/,
   /^\.vercel\/output\/config\.json$/,

@@ -17,6 +17,7 @@ import {
   RevalidationReport,
   resolveRevalidationToken,
   type PrachtApp,
+  withAgentSkillsHeaders,
 } from "@pracht/core/server";
 
 export interface VercelExecutionContext {
@@ -79,7 +80,11 @@ export function createVercelEdgeHandler<
 >(options: VercelAdapterOptions<TVercelContext, TContext>) {
   return async (request: Request, context: TVercelContext): Promise<Response> => {
     if (new URL(request.url).pathname === PRACHT_REVALIDATE_ENDPOINT) {
-      return handleVercelRevalidationEndpoint(request, options.app);
+      return withAgentSkillsHeaders(
+        await handleVercelRevalidationEndpoint(request, options.app),
+        options.app.agents,
+        PRACHT_REVALIDATE_ENDPOINT,
+      );
     }
 
     const prachtContext = options.createContext
@@ -112,7 +117,7 @@ export function createVercelEdgeHandler<
     // framework itself caused. Vercel's `.prerender-config.json` owns caching
     // on that path.
     if (isIsgRegenerationContext(context)) return response;
-    return preventHeuristicCaching(request, response);
+    return withAgentSkillsHeaders(preventHeuristicCaching(request, response), options.app.agents);
   };
 }
 

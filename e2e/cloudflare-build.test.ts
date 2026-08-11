@@ -134,6 +134,16 @@ test("pracht build emits a deployable Cloudflare Worker setup", async () => {
     expect(llmsTxt).toContain("- [/pricing](/pricing)");
     expect(llmsTxt).not.toContain("/products/:id");
 
+    const skillIndexPath = resolve(distDir, "client/.well-known/agent-skills/index.json");
+    const skillPath = resolve(distDir, "client/skills/pracht-example/SKILL.md");
+    expect(existsSync(skillIndexPath)).toBe(true);
+    expect(existsSync(skillPath)).toBe(true);
+    expect(JSON.parse(readFileSync(skillIndexPath, "utf-8")).skills[0]).toMatchObject({
+      name: "pracht-example",
+      type: "skill-md",
+      url: "/skills/pracht-example/SKILL.md",
+    });
+
     // OpenAPI JSON and its optional UI are regular static assets, so workerd
     // serves them through the same ASSETS binding without runtime-only code.
     const openApiPath = resolve(distDir, "client/openapi.json");

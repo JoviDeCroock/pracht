@@ -4,6 +4,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { dirname, join, resolve, sep } from "node:path";
 
 import {
+  applyAgentSkillsHeaders,
   applyDefaultSecurityHeaders,
   getTimeRevalidateSeconds,
   handlePrachtRequest,
@@ -156,7 +157,14 @@ export function createNodeRequestHandler<TContext = unknown>(
     ) {
       const staticResult = await resolveStaticFile(staticDir, url.pathname, isgManifest);
       if (staticResult) {
-        await serveStaticFile(request, res, staticResult, headersManifest, url.pathname);
+        await serveStaticFile(
+          request,
+          res,
+          staticResult,
+          headersManifest,
+          url.pathname,
+          options.app,
+        );
         return;
       }
     }
@@ -283,6 +291,7 @@ async function serveStaticFile(
   staticResult: { filePath: string; contentType: string; cacheControl: string },
   headersManifest: HeadersManifest,
   pathname: string,
+  app: PrachtApp,
 ): Promise<void> {
   const fileStat = await stat(staticResult.filePath);
   const headers = applyDefaultSecurityHeaders(
@@ -296,6 +305,7 @@ async function serveStaticFile(
   if (staticResult.contentType.includes("text/html")) {
     applyHeadersManifest(headers, headersManifest, pathname);
   }
+  applyAgentSkillsHeaders(headers, app.agents, pathname);
 
   if (isNotModified(request, headers)) {
     res.statusCode = 304;
@@ -343,6 +353,7 @@ async function serveISGEntry<TContext>(
     }),
   );
   applyHeadersManifest(headers, headersManifest, pathname);
+  applyAgentSkillsHeaders(headers, options.app.agents, pathname);
   headers.set("x-pracht-isg", isStale ? "stale" : "fresh");
 
   if (isNotModified(request, headers)) {

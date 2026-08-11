@@ -9,7 +9,17 @@ import type {
   ResolvedPrachtApp,
   ResolvedRoute,
 } from "@pracht/core";
-import { applyDefaultSecurityHeaders, resolveRegistryModule } from "@pracht/core";
+import {
+  applyAgentSkillsHeaders,
+  applyDefaultSecurityHeaders,
+  resolveRegistryModule,
+  type AgentSkillsConfig,
+} from "@pracht/core";
+import {
+  AGENT_SKILLS_INDEX_OUTPUT_PATH,
+  AGENT_SKILLS_OUTPUT_PREFIX,
+  generateAgentSkillArtifacts,
+} from "./agent-skills.ts";
 import {
   CLIENT_BROWSER_PATH,
   ISLANDS_CLIENT_BROWSER_PATH,
@@ -24,6 +34,74 @@ const CSS_MODULE_URL_RE = /\.(?:css|less|sass|scss|styl|stylus|pcss|postcss|sss)
 export const DEVTOOLS_PATH = "/_pracht";
 export const DEVTOOLS_JSON_PATH = "/_pracht.json";
 export const LLMS_TXT_PATH = "/llms.txt";
+
+/**
+ * Serve generated Agent Skills before Vite's public middleware and before an
+ * adapter-owned dev runtime. Loading the adapter-neutral metadata module keeps
+ * this usable with Cloudflare workerd as well as the normal Node dev server.
+ */
+export function createAgentSkillsDevMiddleware(server: ViteDevServer): Connect.NextHandleFunction {
+  const warnedCollisions = new Set<string>();
+
+  return async (req: IncomingMessage, res: ServerResponse, next: Connect.NextFunction) => {
+    const requestUrl = new URL(req.url ?? "/", "http://localhost");
+    const couldBeAgentSkillAsset =
+      requestUrl.pathname === `/${AGENT_SKILLS_INDEX_OUTPUT_PATH}` ||
+      requestUrl.pathname.startsWith(`/${AGENT_SKILLS_OUTPUT_PREFIX}/`);
+    if (!couldBeAgentSkillAsset || !BODYLESS_METHODS.has((req.method ?? "GET").toUpperCase())) {
+      next();
+      return;
+    }
+
+    try {
+      const [framework, devMod] = await Promise.all([
+        server.ssrLoadModule("@pracht/core/server"),
+        server.ssrLoadModule(PRACHT_DEV_MODULE_ID),
+      ]);
+      const config = devMod.resolvedApp?.agents?.skills as AgentSkillsConfig | undefined;
+      if (!config) {
+        next();
+        return;
+      }
+      const artifact = generateAgentSkillArtifacts(server.config.root, config).find(
+        (candidate) => `/${candidate.outputPath}` === requestUrl.pathname,
+      );
+      if (!artifact) {
+        next();
+        return;
+      }
+
+      const routeMatchers = {
+        app: devMod.resolvedApp as ResolvedPrachtApp,
+        apiRoutes: devMod.apiRoutes as ResolvedApiRoute[],
+        matchApiRoute: framework.matchApiRoute,
+        matchAppRoute: framework.matchAppRoute,
+      };
+      if (
+        !warnedCollisions.has(requestUrl.pathname) &&
+        matchesResolvedRoute(requestUrl.pathname, routeMatchers)
+      ) {
+        warnedCollisions.add(requestUrl.pathname);
+        server.config.logger.warn(
+          `[pracht] An app route matches ${requestUrl.pathname}, which is reserved by ` +
+            "defineApp({ agents: { skills } }). The generated asset wins while skill " +
+            "publishing is enabled.",
+        );
+      }
+
+      res.statusCode = 200;
+      const headers = applyAgentSkillsHeaders(
+        applyDefaultSecurityHeaders(new Headers()),
+        devMod.resolvedApp.agents,
+        requestUrl.pathname,
+      );
+      headers.forEach((value, key) => res.setHeader(key, value));
+      res.end((req.method ?? "GET").toUpperCase() === "HEAD" ? undefined : artifact.content);
+    } catch (error) {
+      next(error as Error);
+    }
+  };
+}
 
 export function createDevSSRMiddleware(
   server: ViteDevServer,

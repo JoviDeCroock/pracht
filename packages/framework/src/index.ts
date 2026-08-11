@@ -136,6 +136,7 @@ export { forwardRef } from "./forwardRef.ts";
 export { useIsHydrated } from "./hydration.ts";
 export { Suspense, lazy } from "preact-suspense";
 export {
+  applyAgentSkillsHeaders,
   applyDefaultSecurityHeaders,
   Form,
   formatServerTimingHeader,
@@ -149,6 +150,7 @@ export {
   useRevalidate,
   useRouteData,
   PrachtRuntimeProvider,
+  withAgentSkillsHeaders,
 } from "./runtime.ts";
 export { prefetch, type PrefetchFn } from "./prefetch-api.ts";
 export { prerenderApp } from "./prerender.ts";
@@ -197,6 +199,8 @@ export type {
   ApiRouteMatch,
   ApiRouteModule,
   AgentPolicyMode,
+  AgentSkillsConfig,
+  AgentSkillsManifestConfig,
   BaseRouteArgs,
   CapabilityApprovalConsumeFailure,
   CapabilityApprovalConsumeResult,

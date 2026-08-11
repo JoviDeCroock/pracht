@@ -715,4 +715,35 @@ describe("WebSocket upgrades", () => {
     expect(assetFetch).toHaveBeenCalled();
     expect(response.status).toBe(200);
   });
+
+  it("adds Agent Skills MIME, CORS, and discovery headers to static assets", async () => {
+    const { executionContext } = createExecutionContext();
+    const app = defineApp({
+      agents: {
+        skills: {
+          directory: "./skills",
+          manifest: { name: "example" },
+          advertise: true,
+        },
+      },
+      routes: [],
+    });
+    const handler = createCloudflareFetchHandler({ app });
+    const response = await handler(
+      new Request("https://skills.example/skills/review-code/SKILL.md"),
+      {
+        ASSETS: {
+          fetch: async () =>
+            new Response("# Review", {
+              headers: { "content-type": "application/octet-stream" },
+            }),
+        },
+      },
+      executionContext,
+    );
+
+    expect(response.headers.get("content-type")).toBe("text/markdown; charset=utf-8");
+    expect(response.headers.get("access-control-allow-origin")).toBe("*");
+    expect(response.headers.get("link")).toContain('rel="agent-skills"');
+  });
 });

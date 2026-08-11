@@ -42,6 +42,7 @@ import {
   createPrachtServerModuleSource,
 } from "./plugin-codegen.ts";
 import {
+  createAgentSkillsDevMiddleware,
   createDevCssInjectionMiddleware,
   createDevSSRMiddleware,
   injectDevCssForPath,
@@ -51,6 +52,14 @@ import {
   type PrachtPluginOptions,
   type ResolvedPrachtPluginOptions,
 } from "./plugin-options.ts";
+
+export {
+  AGENT_SKILLS_INDEX_OUTPUT_PATH,
+  AGENT_SKILLS_OUTPUT_PREFIX,
+  AGENT_SKILLS_SCHEMA,
+  generateAgentSkillArtifacts,
+  type AgentSkillArtifact,
+} from "./agent-skills.ts";
 
 export type { RenderMode };
 export type { PrachtAdapter } from "./plugin-adapter.ts";
@@ -305,6 +314,8 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
       if (isPagesMode) {
         watchPagesDirectory(server, resolved, root);
       }
+
+      server.middlewares.use(createAgentSkillsDevMiddleware(server));
 
       if (resolved.adapter.ownsDevServer) {
         server.middlewares.use(createDevCssInjectionMiddleware(server));

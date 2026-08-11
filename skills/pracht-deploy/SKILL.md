@@ -73,6 +73,8 @@ Produces:
 - `dist/server/server.js` — Node server entry
 - `dist/server/isg-manifest.json` — ISG revalidation config (if ISG routes exist)
 - `dist/client/.vite/manifest.json` — asset manifest for script/style injection
+- `dist/client/.well-known/agent-skills/index.json` and `dist/client/skills/` —
+  CDN-ready skill discovery assets when `defineApp({ agents: { skills } })` is configured
 
 ### Run
 
@@ -254,8 +256,11 @@ functions.
 2. **Environment variables**: Ensure secrets/config needed by loaders are available at runtime.
 3. **Static assets**: Verify `dist/client/` contains prerendered HTML for SSG routes (and ISG routes — except time-revalidated ISG routes on Cloudflare with Workers Caching enabled, which render on demand; webhook-only ISG routes keep their build-time snapshots).
 4. **ISG routes**: Confirm the ISG manifest (`dist/server/isg-manifest.json`; on Cloudflare also `dist/client/_pracht/isg.json`) exists if using incremental static generation.
-5. **API routes**: Test API endpoints work in the production runtime. For Node.js, run `pracht preview` (or `node dist/server/server.js`).
-6. **Middleware**: Verify auth/redirect middleware behaves correctly in production.
+5. **Agent Skills**: When `agents.skills` is enabled, fetch the discovery index and one
+   `SKILL.md`; require JSON/Markdown MIME, `Access-Control-Allow-Origin: *`, a matching
+   `sha256:` digest, and the discovery `Link` header when `advertise` is true.
+6. **API routes**: Test API endpoints work in the production runtime. For Node.js, run `pracht preview` (or `node dist/server/server.js`).
+7. **Middleware**: Verify auth/redirect middleware behaves correctly in production.
 
 ## Rules
 

@@ -5,8 +5,14 @@ import {
 
 import { ROUTE_STATE_CACHE_CONTROL, ROUTE_STATE_REQUEST_HEADER } from "./runtime-constants.ts";
 import type { LoaderCache } from "./types.ts";
+import type { PrachtAgentsConfig } from "./types.ts";
 
 const HEADER_CRLF_RE = /[\r\n]/;
+
+export const AGENT_SKILLS_INDEX_PATH = "/.well-known/agent-skills/index.json";
+export const AGENT_SKILLS_PUBLIC_PREFIX = "/skills";
+export const AGENT_SKILLS_LINK_VALUE = `<${AGENT_SKILLS_INDEX_PATH}>; rel="agent-skills"`;
+const AGENT_SKILL_PATH_RE = /^\/skills\/[a-z0-9]+(?:-[a-z0-9]+)*\/SKILL\.md$/;
 
 /**
  * Reject header values containing CR/LF. Some runtimes (Node `undici`
@@ -74,6 +80,58 @@ export function applyDefaultSecurityHeaders(headers: Headers): Headers {
   }
 
   return headers;
+}
+
+/** Add discovery and generated-asset headers for an app's Agent Skills publication. */
+export function applyAgentSkillsHeaders(
+  headers: Headers,
+  agents: PrachtAgentsConfig | undefined,
+  pathname?: string,
+): Headers {
+  const skills = agents?.skills;
+  if (!skills) return headers;
+
+  if (skills.advertise) {
+    const current = headers.get("link");
+    if (!current) {
+      headers.set("link", AGENT_SKILLS_LINK_VALUE);
+    } else if (!current.split(",").some((entry) => entry.trim() === AGENT_SKILLS_LINK_VALUE)) {
+      headers.set("link", `${current}, ${AGENT_SKILLS_LINK_VALUE}`);
+    }
+  }
+
+  if (pathname === AGENT_SKILLS_INDEX_PATH) {
+    headers.set("content-type", "application/json; charset=utf-8");
+    headers.set("access-control-allow-origin", "*");
+  } else if (pathname && AGENT_SKILL_PATH_RE.test(pathname)) {
+    headers.set("content-type", "text/markdown; charset=utf-8");
+    headers.set("access-control-allow-origin", "*");
+  }
+
+  return headers;
+}
+
+/** Clone a normal response while adding Agent Skills discovery/asset headers. */
+export function withAgentSkillsHeaders(
+  response: Response,
+  agents: PrachtAgentsConfig | undefined,
+  pathname?: string,
+): Response {
+  const isAsset =
+    pathname === AGENT_SKILLS_INDEX_PATH || Boolean(pathname && AGENT_SKILL_PATH_RE.test(pathname));
+  if (
+    !agents?.skills ||
+    (!agents.skills.advertise && !isAsset) ||
+    isProtocolSwitchResponse(response)
+  ) {
+    return response;
+  }
+  const headers = applyAgentSkillsHeaders(new Headers(response.headers), agents, pathname);
+  return new Response(response.body, {
+    headers,
+    status: response.status,
+    statusText: response.statusText,
+  });
 }
 
 export function applySecurityAndRouteHeaders(

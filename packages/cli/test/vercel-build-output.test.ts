@@ -72,6 +72,74 @@ describe("writeVercelBuildOutput", () => {
     }
   });
 
+  it("emits Agent Skills metadata through supported routes and static overrides", () => {
+    const root = createBuildRoot();
+
+    mkdirSync(join(root, "dist/client/.well-known/agent-skills"), { recursive: true });
+    writeFileSync(
+      join(root, "dist/client/.well-known/agent-skills/index.json"),
+      '{"skills":[]}\n',
+      "utf-8",
+    );
+    mkdirSync(join(root, "dist/client/skills/review-code"), { recursive: true });
+    writeFileSync(join(root, "dist/client/skills/review-code/SKILL.md"), "# Review\n", "utf-8");
+    writeVercelBuildOutput({
+      agentSkills: {
+        advertise: true,
+        artifacts: [
+          {
+            contentType: "application/json; charset=utf-8",
+            outputPath: ".well-known/agent-skills/index.json",
+          },
+          {
+            contentType: "text/markdown; charset=utf-8",
+            outputPath: "skills/review-code/SKILL.md",
+          },
+        ],
+      },
+      headersManifest: { "/": { "x-page": "home" } },
+      isgManifest: {},
+      root,
+      staticRoutes: ["/"],
+    });
+
+    const config = JSON.parse(readFileSync(join(root, ".vercel/output/config.json"), "utf-8"));
+    expect(config).not.toHaveProperty("headers");
+    expect(config.overrides).toEqual({
+      ".well-known/agent-skills/index.json": {
+        contentType: "application/json; charset=utf-8",
+      },
+      "skills/review-code/SKILL.md": {
+        contentType: "text/markdown; charset=utf-8",
+      },
+    });
+    expect(config.routes).toEqual(
+      expect.arrayContaining([
+        {
+          continue: true,
+          headers: { "access-control-allow-origin": "*" },
+          src: "^/\\.well-known/agent-skills/index\\.json$",
+        },
+        {
+          continue: true,
+          headers: { "x-page": "home" },
+          src: "^/$",
+        },
+        expect.objectContaining({
+          continue: true,
+          transforms: [
+            {
+              args: '</.well-known/agent-skills/index.json>; rel="agent-skills"',
+              op: "append",
+              target: { key: "link" },
+              type: "response.headers",
+            },
+          ],
+        }),
+      ]),
+    );
+  });
+
   it("emits markdown routing only for routes that export markdown", () => {
     const withMarkdown = createBuildRoot();
     const withoutMarkdown = createBuildRoot();

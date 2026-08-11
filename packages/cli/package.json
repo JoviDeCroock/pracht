@@ -45,6 +45,7 @@
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@pracht/capabilities": "workspace:*",
     "@pracht/core": "workspace:*",
+    "@pracht/vite-plugin": "workspace:*",
     "citty": "^0.1.6",
     "zod": "^4.4.3"
   }

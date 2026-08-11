@@ -30,6 +30,7 @@ import {
   extractDefineAppObjectBody,
   extractCapabilityProjection,
   extractCapabilityRegistrations,
+  scanTopLevelPropertyEntries,
   scanTopLevelProperties,
 } from "@pracht/capabilities/static";
 import { resolveOptions, type PrachtPluginOptions } from "./plugin-options.ts";
@@ -85,8 +86,18 @@ export function hasAgentSurface(
   // Decode quoted property keys before deciding. The regex also covers
   // ordinary identifier and shorthand properties without requiring a value.
   const properties = scanTopLevelProperties(appBody);
-  if (properties.has("agents") || properties.has("capabilities")) return true;
-  if (/\b(?:agents|capabilities)\b/.test(appBody)) return true;
+  if (properties.has("capabilities")) return true;
+  if (properties.has("agents")) {
+    // Only optimize the ordinary literal spelling. Shorthand, quoted, or
+    // escaped keys stay conservative even though the property scanner can
+    // decode some of them: their value/source boundary is intentionally more
+    // permissive than this build-size proof should be.
+    if (!/(?:^|,)\s*agents\s*:/.test(appBody)) return true;
+    if (agentsConfigNeedsRequestRuntime(properties.get("agents"))) return true;
+  } else if (/\bagents\b/.test(appBody)) {
+    return true;
+  }
+  if (/\bcapabilities\b/.test(appBody)) return true;
   // Spreads, computed keys, and escaped identifier keys can hide either name
   // behind syntax this lightweight analyzer does not fully evaluate.
   if (appBody.includes("...") || hasOpaqueTopLevelProperty(appBody)) return true;
@@ -96,6 +107,23 @@ export function hasAgentSurface(
   } catch {
     return true;
   }
+}
+
+/**
+ * A literal `agents: { skills: ... }` config only drives build/dev asset
+ * publication. It must not retain capability dispatch or Web Bot Auth in the
+ * deployed server bundle. Anything opaque or future-facing remains true so
+ * this optimization can only be wrong in the safe (keep more code) direction.
+ */
+function agentsConfigNeedsRequestRuntime(value: string | undefined): boolean {
+  const trimmed = value?.trim();
+  if (!trimmed?.startsWith("{") || !trimmed.endsWith("}")) return true;
+  const scan = scanTopLevelPropertyEntries(trimmed.slice(1, -1));
+  if (scan.truncated) return true;
+  for (const name of scan.properties.keys()) {
+    if (name !== "skills") return true;
+  }
+  return false;
 }
 
 /** Whether an object literal body contains an opaque key at its top level. */

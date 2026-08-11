@@ -65,6 +65,37 @@ export const app = defineApp({
     expect(hasAgentSurface({}, root)).toBe(true);
   });
 
+  it("is false for a literal skills-only agents config", () => {
+    const root = createManifest(`import { defineApp } from "@pracht/core";
+
+export const app = defineApp({
+  agents: {
+    skills: {
+      directory: "./skills",
+      manifest: { name: "example" },
+      advertise: true,
+    },
+  },
+  routes: [],
+});
+`);
+    expect(hasAgentSurface({}, root)).toBe(false);
+  });
+
+  it("keeps the request runtime when skills are combined with request-time agent config", () => {
+    const root = createManifest(`import { defineApp } from "@pracht/core";
+
+export const app = defineApp({
+  agents: {
+    skills: { directory: "./skills", manifest: { name: "example" } },
+    webBotAuth: { policy: "observe" },
+  },
+  routes: [],
+});
+`);
+    expect(hasAgentSurface({}, root)).toBe(true);
+  });
+
   it.each([
     String.raw`"ag\u0065nts"`,
     String.raw`"capabil\u0069ties"`,

@@ -11,6 +11,7 @@ import {
 } from "./runtime-errors.ts";
 import {
   appendVaryHeader,
+  withAgentSkillsHeaders,
   withDefaultSecurityHeaders,
   withEnhancedCapabilityFormRedirect,
 } from "./runtime-headers.ts";
@@ -218,6 +219,13 @@ export interface HandlePrachtRequestOptions<TContext = unknown> {
 export async function handlePrachtRequest<TContext>(
   options: HandlePrachtRequestOptions<TContext>,
 ): Promise<Response> {
+  const response = await handlePrachtRequestInner(options);
+  return withAgentSkillsHeaders(response, options.app.agents);
+}
+
+async function handlePrachtRequestInner<TContext>(
+  options: HandlePrachtRequestOptions<TContext>,
+): Promise<Response> {
   const url = new URL(options.request.url);
   const hasDataParam = url.searchParams.get("_data") === "1";
   if (hasDataParam) {
@@ -257,6 +265,11 @@ export async function handlePrachtRequest<TContext>(
   let requestContext = (options.context ?? {}) as TContext & PrachtContextExtensions;
   const hasCapabilities = Object.keys(options.app.capabilities ?? {}).length > 0;
   const mcpConfig = options.app.agents?.mcp;
+  const hasRequestAgentConfig = Boolean(
+    mcpConfig ||
+    options.app.agents?.webBotAuth ||
+    (hasCapabilities && options.app.agents?.confirmation),
+  );
   let capabilityRuntime: typeof import("./runtime-capabilities.ts") | null = null;
   let mcpRuntime: typeof import("./runtime-mcp.ts") | null = null;
   let agent: PrachtAgentIdentity | null = null;
@@ -319,7 +332,7 @@ export async function handlePrachtRequest<TContext>(
         agent,
       );
     }
-  } else if (hasCapabilities || options.app.agents) {
+  } else if (hasCapabilities || hasRequestAgentConfig) {
     // The build proved there was no agent surface and dropped the runtime, yet
     // one is registered here. Only reachable if the manifest analyzer missed a
     // registration; say so loudly rather than 404ing capabilities in silence.
@@ -1127,9 +1140,11 @@ function isHrefRouteDefinition(value: unknown): value is HrefRouteDefinition {
 // Public runtime surface — re-exported so `./runtime.ts` remains the
 // single import entry for the framework's runtime API.
 export {
+  applyAgentSkillsHeaders,
   applyDefaultSecurityHeaders,
   isProtocolSwitchResponse,
   preventHeuristicCaching,
+  withAgentSkillsHeaders,
 } from "./runtime-headers.ts";
 export { formatServerTimingHeader, type PrachtPhaseTimings } from "./runtime-timing.ts";
 export {

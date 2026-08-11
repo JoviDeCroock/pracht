@@ -36,6 +36,10 @@
     "./pages-router": {
       "types": "./dist/pages-router.d.mts",
       "default": "./dist/pages-router.mjs"
+    },
+    "./agent-skills": {
+      "types": "./dist/agent-skills.d.mts",
+      "default": "./dist/agent-skills.mjs"
     }
   },
   "publishConfig": {
@@ -51,9 +55,13 @@
     "@pracht/core": "workspace:*",
     "@pracht/preact-ssr-precompile": "workspace:*",
     "@preact/preset-vite": "^2.10.5",
-    "@prefresh/vite": "^2.0.0"
+    "@prefresh/vite": "^2.0.0",
+    "js-yaml": "^5.2.3"
   },
   "peerDependencies": {
     "vite": "^8.0.0"
+  },
+  "devDependencies": {
+    "@types/js-yaml": "^4.0.9"
   }
 }

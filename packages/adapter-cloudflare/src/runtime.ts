@@ -22,6 +22,7 @@ import {
   setServerEnv,
   type PrachtApp,
   preventHeuristicCaching,
+  withAgentSkillsHeaders,
 } from "@pracht/core/server";
 import {
   applyWorkersCacheHeaders,
@@ -129,13 +130,17 @@ export function createCloudflareFetchHandler<
     };
 
     if (new URL(request.url).pathname === PRACHT_REVALIDATE_ENDPOINT) {
-      return handleCloudflareRevalidationEndpoint(
-        request,
-        env,
-        options.app,
-        options.isgManifest ?? {},
-        renderISGPage,
-        Boolean(cacheOptions),
+      return withAgentSkillsHeaders(
+        await handleCloudflareRevalidationEndpoint(
+          request,
+          env,
+          options.app,
+          options.isgManifest ?? {},
+          renderISGPage,
+          Boolean(cacheOptions),
+        ),
+        options.app.agents,
+        PRACHT_REVALIDATE_ENDPOINT,
       );
     }
 
@@ -165,7 +170,13 @@ export function createCloudflareFetchHandler<
         options.markdownManifest,
         renderISGPage,
       );
-      if (isgResponse) return preventHeuristicCaching(request, isgResponse);
+      if (isgResponse) {
+        return withAgentSkillsHeaders(
+          preventHeuristicCaching(request, isgResponse),
+          options.app.agents,
+          new URL(request.url).pathname,
+        );
+      }
 
       const assetResponse = await maybeServeAsset(
         request,
@@ -175,7 +186,11 @@ export function createCloudflareFetchHandler<
         options.markdownManifest,
       );
       if (assetResponse) {
-        return assetResponse;
+        return withAgentSkillsHeaders(
+          assetResponse,
+          options.app.agents,
+          new URL(request.url).pathname,
+        );
       }
     }
 
@@ -208,7 +223,10 @@ export function createCloudflareFetchHandler<
     // pages and API responses can never be edge-cached by accident. This
     // guards even when the adapter `cache` option is off, because
     // `"cache": { "enabled": true }` in wrangler config is independent.
-    return preventHeuristicCaching(request, finalResponse);
+    return withAgentSkillsHeaders(
+      preventHeuristicCaching(request, finalResponse),
+      options.app.agents,
+    );
   };
 }
 

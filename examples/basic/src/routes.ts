@@ -31,6 +31,11 @@ export const app = defineApp({
     "agent.ping": () => import("./capabilities/agent-ping.ts"),
   },
   agents: {
+    skills: {
+      directory: "./skills",
+      manifest: { name: "pracht-basic", homepage: "https://example.com" },
+      advertise: true,
+    },
     // Web Bot Auth: verify RFC 9421 agent signatures and surface the identity
     // as `context.agent`. The key below is the e2e suite's test agent — a
     // *public* Ed25519 key, safe to commit. "observe" serves unsigned callers

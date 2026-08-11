@@ -41,12 +41,14 @@ export { filterPublicEnv, PRACHT_PUBLIC_ENV_PREFIX, publicEnv } from "./env.ts";
 export type { PrachtPublicEnv, PrachtServerEnv, PublicEnvOf } from "./env.ts";
 export { setServerEnv } from "./env-server.ts";
 export {
+  applyAgentSkillsHeaders,
   applyDefaultSecurityHeaders,
   formatServerTimingHeader,
   handlePrachtRequest,
   isProtocolSwitchResponse,
   preventHeuristicCaching,
   PrachtRuntimeProvider,
+  withAgentSkillsHeaders,
 } from "./runtime.ts";
 export {
   buildAppGraph,

@@ -1,6 +1,16 @@
 import { defineApp, group, route } from "@pracht/core";
 
 export const app = defineApp({
+  agents: {
+    skills: {
+      directory: "../../skills",
+      manifest: {
+        name: "pracht",
+        homepage: "https://pracht.resynapse.dev",
+      },
+      advertise: true,
+    },
+  },
   shells: {
     home: () => import("./shells/home.tsx"),
     docs: () => import("./shells/docs.tsx"),

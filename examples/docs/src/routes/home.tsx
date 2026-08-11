@@ -149,7 +149,6 @@ export function headers() {
   // RFC 8288 Link headers for agent discovery.
   return {
     link: [
-      '</.well-known/agent-skills/index.json>; rel="agent-skills"',
       '</sitemap.xml>; rel="sitemap"; type="application/xml"',
       '</docs/getting-started>; rel="service-doc"',
     ].join(", "),

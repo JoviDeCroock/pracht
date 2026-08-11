@@ -479,7 +479,7 @@ const CONFIRMATION_MODES = ["token", "human"];
  */
 function validateAgentsConfig(agents: PrachtAgentsConfig | undefined): void {
   if (!agents) return;
-  const { webBotAuth, confirmation, mcp } = agents;
+  const { webBotAuth, confirmation, mcp, skills } = agents;
   if (webBotAuth) {
     if (webBotAuth.policy !== undefined && !AGENT_POLICY_MODES.includes(webBotAuth.policy)) {
       throw new Error(
@@ -506,6 +506,38 @@ function validateAgentsConfig(agents: PrachtAgentsConfig | undefined): void {
     throw new Error(
       'defineApp({ agents.mcp.path }) must be an exact same-origin pathname starting with "/".',
     );
+  }
+  if (skills) {
+    if (typeof skills.directory !== "string" || skills.directory.trim().length === 0) {
+      throw new Error("defineApp({ agents.skills.directory }) must be a non-empty directory path.");
+    }
+    if (
+      !skills.manifest ||
+      typeof skills.manifest.name !== "string" ||
+      skills.manifest.name.trim().length === 0
+    ) {
+      throw new Error(
+        "defineApp({ agents.skills.manifest.name }) must be a non-empty collection name.",
+      );
+    }
+    if (skills.manifest.homepage !== undefined) {
+      let homepage: URL;
+      try {
+        homepage = new URL(skills.manifest.homepage);
+      } catch {
+        throw new Error(
+          "defineApp({ agents.skills.manifest.homepage }) must be an absolute http(s) URL.",
+        );
+      }
+      if (homepage.protocol !== "http:" && homepage.protocol !== "https:") {
+        throw new Error(
+          "defineApp({ agents.skills.manifest.homepage }) must be an absolute http(s) URL.",
+        );
+      }
+    }
+    if (skills.advertise !== undefined && typeof skills.advertise !== "boolean") {
+      throw new Error("defineApp({ agents.skills.advertise }) must be a boolean.");
+    }
   }
 }
 

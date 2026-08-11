@@ -73,6 +73,8 @@ test("pracht build emits a deployable Vercel Build Output setup", async () => {
     const staticLlmsTxtPath = resolve(vercelDir, "static/llms.txt");
     expect(existsSync(staticLlmsTxtPath)).toBe(true);
     expect(readFileSync(staticLlmsTxtPath, "utf-8")).toContain("# Pracht Example");
+    expect(existsSync(resolve(vercelDir, "static/.well-known/agent-skills/index.json"))).toBe(true);
+    expect(existsSync(resolve(vercelDir, "static/skills/pracht-example/SKILL.md"))).toBe(true);
 
     const staticOpenApiPath = resolve(vercelDir, "static/openapi.json");
     const staticOpenApiUiPath = resolve(vercelDir, "static/docs/index.html");
@@ -87,6 +89,38 @@ test("pracht build emits a deployable Vercel Build Output setup", async () => {
 
     const config = JSON.parse(readFileSync(configPath, "utf-8"));
     expect(config.version).toBe(3);
+    expect(config).not.toHaveProperty("headers");
+    expect(config.overrides).toMatchObject({
+      ".well-known/agent-skills/index.json": {
+        contentType: "application/json; charset=utf-8",
+      },
+      "skills/pracht-example/SKILL.md": {
+        contentType: "text/markdown; charset=utf-8",
+      },
+    });
+    expect(config.routes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          src: "^/\\.well-known/agent-skills/index\\.json$",
+          headers: { "access-control-allow-origin": "*" },
+        }),
+        expect.objectContaining({
+          src: "^/skills/[a-z0-9]+(?:-[a-z0-9]+)*/SKILL\\.md$",
+          headers: { "access-control-allow-origin": "*" },
+        }),
+        expect.objectContaining({
+          src: "/(.*)",
+          transforms: expect.arrayContaining([
+            expect.objectContaining({
+              args: '</.well-known/agent-skills/index.json>; rel="agent-skills"',
+              op: "append",
+              target: { key: "link" },
+              type: "response.headers",
+            }),
+          ]),
+        }),
+      ]),
+    );
     expect(config.routes).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -106,16 +140,11 @@ test("pracht build emits a deployable Vercel Build Output setup", async () => {
         expect.objectContaining({ src: "/(.*)", dest: "/render" }),
       ]),
     );
-    expect(config.headers).toEqual(
+    expect(config.routes).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          source: "/",
-          headers: expect.arrayContaining([
-            {
-              key: "x-pracht-shell",
-              value: "public",
-            },
-          ]),
+          src: "^/$",
+          headers: expect.objectContaining({ "x-pracht-shell": "public" }),
         }),
       ]),
     );

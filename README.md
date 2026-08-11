@@ -124,6 +124,7 @@ Pracht is built to be operated by coding agents as much as by humans — and for
 - **Agent trust layer** — Web Bot Auth (RFC 9421) verified agent identity on the request context with observe/require policies, a prepare/commit confirmation flow for destructive capabilities, capability audit events, and `pracht eval` for scripted agent-task checks in CI. See [docs/AGENT_TRUST.md](docs/AGENT_TRUST.md).
 - **llms.txt** — the opt-in `llmsTxt` plugin option emits an [llms.txt](https://llmstxt.org) index of your pages, API routes, and HTTP-exposed capabilities at build time and serves it live in dev. See [docs/LLMS_TXT.md](docs/LLMS_TXT.md).
 - **Claude Code skills** — 28 skills for scaffolding, auditing, testing, debugging, and deploying pracht apps live in [skills/](skills/README.md). See the [agent skills](#agent-skills) section below.
+- **Built-in skill publishing** — `defineApp({ agents: { skills } })` emits a well-known discovery index and digest-verified `SKILL.md` assets with adapter-correct MIME, CORS, and discovery headers. See [docs/AGENT_SKILLS.md](docs/AGENT_SKILLS.md).
 
 ## Agent skills
 
@@ -146,6 +147,7 @@ The skills are distributed three ways (see the [catalog](skills/README.md)):
 - [docs/CAPABILITIES.md](docs/CAPABILITIES.md) — typed capabilities, HTTP projection, WebMCP page tools
 - [docs/REMOTE_MCP.md](docs/REMOTE_MCP.md) — serving capabilities as MCP tools over Streamable HTTP
 - [docs/AGENT_TRUST.md](docs/AGENT_TRUST.md) — Web Bot Auth, effect-class confirmation flow, audit hook, `pracht eval`
+- [docs/AGENT_SKILLS.md](docs/AGENT_SKILLS.md) — built-in static Agent Skills publishing and discovery
 - [docs/CAPABILITY_GRAPH.md](docs/CAPABILITY_GRAPH.md) — the capability graph product bet: proposal, decision log, staged plan
 - [docs/LLMS_TXT.md](docs/LLMS_TXT.md) — generated llms.txt: pages, API endpoints, capabilities
 - [docs/STYLING.md](docs/STYLING.md) — CSS Modules, Tailwind, CSS-in-JS limitations

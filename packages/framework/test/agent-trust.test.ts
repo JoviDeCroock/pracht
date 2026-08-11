@@ -491,4 +491,34 @@ describe("agents config validation", () => {
       /exact same-origin pathname/,
     );
   });
+
+  it("validates Agent Skills publication metadata", () => {
+    expect(() =>
+      resolveApp(
+        buildApp({
+          skills: {
+            directory: "./skills",
+            manifest: { name: "example", homepage: "https://example.com" },
+            advertise: true,
+          },
+        }),
+      ),
+    ).not.toThrow();
+    expect(() =>
+      resolveApp(buildApp({ skills: { directory: "", manifest: { name: "example" } } })),
+    ).toThrow(/skills\.directory/);
+    expect(() =>
+      resolveApp(buildApp({ skills: { directory: "./skills", manifest: { name: "" } } })),
+    ).toThrow(/manifest\.name/);
+    expect(() =>
+      resolveApp(
+        buildApp({
+          skills: {
+            directory: "./skills",
+            manifest: { name: "example", homepage: "/relative" },
+          },
+        }),
+      ),
+    ).toThrow(/absolute http\(s\) URL/);
+  });
 });
