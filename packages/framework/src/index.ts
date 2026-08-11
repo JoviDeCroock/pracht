@@ -150,6 +150,7 @@ export {
   useParams,
   useRevalidate,
   useRouteData,
+  useSearchParams,
   PrachtRuntimeProvider,
 } from "./runtime.ts";
 export { prefetch, type PrefetchFn } from "./prefetch-api.ts";

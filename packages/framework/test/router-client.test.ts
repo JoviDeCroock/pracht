@@ -15,6 +15,7 @@ import {
   useNavigate,
   useRevalidate,
   useRouteData,
+  useSearchParams,
 } from "../src/index.ts";
 
 function createJsonResponse(body: unknown, init?: ResponseInit): Response {
@@ -57,6 +58,7 @@ describe("initClientRouter", () => {
   });
 
   it("renders shell-less SPA routes after the pending bootstrap fetch resolves", async () => {
+    history.replaceState(null, "", "/settings");
     const app = resolveApp(
       defineApp({
         routes: [route("/settings", "./routes/settings.tsx", { render: "spa" })],
@@ -94,6 +96,50 @@ describe("initClientRouter", () => {
       }),
     );
     expect(root.textContent).toContain("Hello Jovi");
+  });
+
+  it("uses the visitor URL with prerendered route identity and data on startup", async () => {
+    history.replaceState(null, "", "/products?lang=zh&example=router#details");
+    let observedSearch: URLSearchParams | undefined;
+
+    function Products({ data }: { data: { label: string } }) {
+      observedSearch = useSearchParams();
+      return h("main", null, data.label);
+    }
+
+    const app = resolveApp(
+      defineApp({
+        routes: [
+          route("/products", "./routes/products.tsx", {
+            id: "products",
+            render: "ssg",
+          }),
+        ],
+      }),
+    );
+
+    root.innerHTML = "<main>prerendered</main>";
+
+    await initClientRouter({
+      app,
+      routeModules: {
+        "./routes/products.tsx": async () => ({ default: Products }),
+      },
+      shellModules: {},
+      initialState: {
+        data: { label: "prerendered" },
+        routeId: "products",
+        url: "/products",
+      },
+      root,
+      findModuleKey: (_modules, file) => file,
+    });
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(root.textContent).toBe("prerendered");
+    expect(observedSearch?.get("lang")).toBe("zh");
+    expect(observedSearch?.get("example")).toBe("router");
+    expect(window.location.hash).toBe("#details");
   });
 
   it("renders typed links and navigates by route target objects", async () => {

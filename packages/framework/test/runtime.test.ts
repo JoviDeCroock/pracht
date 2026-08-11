@@ -13,6 +13,7 @@ import {
   timeRevalidate,
   useLocation,
   useParams,
+  useSearchParams,
 } from "../src/index.ts";
 
 function parseHydrationState(html: string) {
@@ -1702,6 +1703,32 @@ describe("useLocation", () => {
     expect(response.status).toBe(200);
     const html = await response.text();
     expect(html).toContain("/about|?tab=team");
+  });
+
+  it("provides URLSearchParams during SSR", async () => {
+    const app = defineApp({
+      routes: [route("/about", "./routes/about.tsx", { render: "ssr" })],
+    });
+
+    function SearchDisplay() {
+      const searchParams = useSearchParams();
+      return h("span", null, `${searchParams.get("tab")}|${searchParams.getAll("tag").join(",")}`);
+    }
+
+    const response = await handlePrachtRequest({
+      app,
+      registry: {
+        routeModules: {
+          "./routes/about.tsx": async () => ({
+            Component: () => h("main", null, h(SearchDisplay, null)),
+          }),
+        },
+      },
+      request: new Request("http://localhost/about?tab=team&tag=a&tag=b"),
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.text()).resolves.toContain("team|a,b");
   });
 });
 

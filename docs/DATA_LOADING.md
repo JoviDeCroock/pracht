@@ -545,6 +545,25 @@ export function Component() {
 }
 ```
 
+### `useSearchParams()`
+
+Read the current query string as a reactive `URLSearchParams`:
+
+```typescript
+import { useSearchParams } from "@pracht/core";
+
+export function Component() {
+  const searchParams = useSearchParams();
+  return <p>Language: {searchParams.get("lang") ?? "en"}</p>;
+}
+```
+
+The hook updates after client navigation. On the initial hydration of an SSG
+page it reads the visitor's real browser URL, not the build-time URL stored in
+the prerendered route state, so direct visits such as `/?lang=zh` expose
+`lang=zh` immediately. Route identity and prerendered loader data still come
+from the hydration state.
+
 ### `useRevalidate()`
 
 Imperatively re-run the current route's loader:

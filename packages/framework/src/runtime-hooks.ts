@@ -1,6 +1,6 @@
 import { h } from "preact";
 import type { JSX } from "preact";
-import { useContext, useEffect, useState } from "preact/hooks";
+import { useContext, useEffect, useMemo, useState } from "preact/hooks";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 
 import {
@@ -160,6 +160,12 @@ export function useLocation(): Location {
     useContext(RouteDataContext)?.url ??
     (typeof window !== "undefined" ? window.location.pathname + window.location.search : "/");
   return parseLocation(url);
+}
+
+/** Read the current URL search parameters reactively. */
+export function useSearchParams(): URLSearchParams {
+  const { search } = useLocation();
+  return useMemo(() => new URLSearchParams(search), [search]);
 }
 
 export function useParams(): RouteParams {

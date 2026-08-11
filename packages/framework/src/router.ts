@@ -630,7 +630,12 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
     }
   }
 
-  const initialTarget = resolveBrowserRouteTarget(options.initialState.url);
+  // Prerendered SSG state carries the URL used at build time. Keep its route
+  // identity and data, but resolve the initial browser route from the URL the
+  // visitor actually requested so query parameters and fragments are present
+  // from the first hydrated render.
+  const initialLocation = window.location.pathname + window.location.search + window.location.hash;
+  const initialTarget = resolveBrowserRouteTarget(initialLocation);
   const initialRequestUrl = initialTarget?.requestUrl ?? options.initialState.url;
   const initialBrowserUrl = initialTarget?.browserUrl ?? options.initialState.url;
   const initialPathname = initialTarget?.pathname ?? options.initialState.url;

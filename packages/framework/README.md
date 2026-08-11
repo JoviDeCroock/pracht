@@ -36,6 +36,7 @@ metadata for the failure phase and matched framework files when available.
 
 - `startApp()` — client-side hydration and runtime
 - `useLocation()` — access the current pathname and search string separately
+- `useSearchParams()` — read the current query as a reactive `URLSearchParams`
 - `useRouteData()` — access loader data inside a route component; pass a route
   id for fully typed data after `pracht typegen`, or a `typeof loader` generic
   otherwise

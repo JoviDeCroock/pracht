@@ -1173,6 +1173,7 @@ export {
   useParams,
   useRevalidate,
   useRouteData,
+  useSearchParams,
   type FormProps,
   type LinkProps,
   type Location,

@@ -97,8 +97,9 @@ specified in the config, it takes precedence over inline exports.
   shell-level head.
 - **Client hooks**: `useRouteData()`, `useRevalidate()`, `useNavigation()` (pending
   navigation/submission state for progress bars and optimistic UI), `useNavigate()`,
-  `useLocation()`, `useParams()`, `<Form>` component, `<Link>` (with `prefetch`,
-  `preserveScroll`, `viewTransition` props), and imperative `prefetch()`.
+  `useLocation()`, `useSearchParams()`, `useParams()`, `<Form>` component, `<Link>`
+  (with `prefetch`, `preserveScroll`, `viewTransition` props), and imperative
+  `prefetch()`.
 
 ### API Routes
 
