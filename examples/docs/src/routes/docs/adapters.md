@@ -342,6 +342,60 @@ custom Vercel server entry must provide the same export.
 
 ---
 
+## Netlify Functions
+
+The Netlify adapter emits a fetch-style Functions v2 handler, bundles the
+client build for exact static-file serving, and maps ISG to Netlify's durable
+CDN cache.
+
+### Setup
+
+```ts [vite.config.ts]
+import { netlifyAdapter } from "@pracht/adapter-netlify";
+
+export default defineConfig({
+  plugins: [pracht({ adapter: netlifyAdapter() })],
+});
+```
+
+```toml [netlify.toml]
+[build]
+  command = "pnpm build"
+  publish = "dist/client"
+
+[functions]
+  directory = "netlify/functions"
+```
+
+The generated catch-all function owns page URLs so Markdown negotiation and
+route-state requests still reach Pracht. `/assets/*` and `/_pracht/*` bypass
+the function by default. Add app-specific static prefixes with
+`excludedPath`, but do not exclude page URLs.
+
+### Caching and revalidation
+
+SSG documents use `Netlify-CDN-Cache-Control` with durable caching. ISG routes
+use their Pracht time window as the CDN `max-age` and serve stale responses
+while a fresh render completes. Webhook-capable routes receive per-path cache
+tags; authenticated requests to `/__pracht/revalidate` purge those tags.
+
+Shared ISG renders are sanitized before loaders and context factories run, so
+visitor cookies, authorization, query strings, and bodies cannot personalize
+the cached response.
+
+### Local preview and deploy
+
+```sh
+pracht build && netlify dev
+netlify deploy --build --prod
+```
+
+`pracht preview` does not emulate Netlify's Functions or CDN cache behavior.
+Build the generated function before using `netlify dev` for a platform-shaped
+local runtime.
+
+---
+
 ## Node.js
 
 Run pracht as a standard Node.js HTTP server. The adapter handles static file serving, ISG stale-while-revalidate, request translation, and the generated `dist/server/server.js` entry boots the production server directly.
@@ -497,4 +551,4 @@ At the runtime level, an adapter also typically needs to:
 7. Export an entry module generator for the Vite plugin
 
 > [!INFO]
-> See the source of `@pracht/adapter-cloudflare` or `@pracht/adapter-node` in the monorepo for a concrete reference implementation.
+> See the source of `@pracht/adapter-cloudflare`, `@pracht/adapter-netlify`, or `@pracht/adapter-node` in the monorepo for a concrete reference implementation.

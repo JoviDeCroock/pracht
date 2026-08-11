@@ -11,9 +11,9 @@ import { findWranglerConfig } from "../wrangler-config.js";
 import { runBuild } from "./build.js";
 
 const SERVER_ENTRY = "dist/server/server.js";
-const ADAPTER_TARGETS = new Set(["cloudflare", "node", "vercel"]);
+const ADAPTER_TARGETS = new Set(["cloudflare", "netlify", "node", "vercel"]);
 
-export type AdapterTarget = "cloudflare" | "node" | "vercel";
+export type AdapterTarget = "cloudflare" | "netlify" | "node" | "vercel";
 
 export default defineCommand({
   meta: {
@@ -51,8 +51,8 @@ export default defineCommand({
     let target: AdapterTarget | null = skipBuild ? await readBuildTarget(root) : null;
     target ??= detectAdapterTarget(project);
 
-    if (target === "vercel") {
-      printVercelGuidance();
+    if (target === "netlify" || target === "vercel") {
+      printPlatformGuidance(target);
       process.exitCode = 1;
       return;
     }
@@ -63,8 +63,8 @@ export default defineCommand({
       const { buildTarget } = await runBuild(root);
       target = normalizeAdapterTarget(buildTarget) ?? target;
 
-      if (target === "vercel") {
-        printVercelGuidance();
+      if (target === "netlify" || target === "vercel") {
+        printPlatformGuidance(target);
         process.exitCode = 1;
         return;
       }
@@ -121,6 +121,10 @@ export function detectAdapterTarget(project: Pick<ProjectConfig, "rawConfig">): 
     return "vercel";
   }
 
+  if (/\bnetlifyAdapter\s*\(/.test(source) || source.includes("@pracht/adapter-netlify")) {
+    return "netlify";
+  }
+
   return "node";
 }
 
@@ -161,7 +165,24 @@ async function readBuildTarget(root: string): Promise<AdapterTarget | null> {
   }
 }
 
-function printVercelGuidance(): void {
+function printPlatformGuidance(target: "netlify" | "vercel"): void {
+  if (target === "netlify") {
+    console.log(
+      [
+        "",
+        "  The Netlify adapter relies on Netlify Functions and CDN behavior, so `pracht preview` does not emulate it.",
+        "",
+        "  Use Netlify's own local runtime instead:",
+        "",
+        "    pracht build && netlify dev",
+        "",
+        "  To build and deploy with the configured Netlify project, run: netlify deploy --build --prod",
+        "",
+      ].join("\n"),
+    );
+    return;
+  }
+
   console.log(
     [
       "",

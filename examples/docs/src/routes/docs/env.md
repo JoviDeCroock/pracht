@@ -115,6 +115,8 @@ to `Record<string, string | undefined>`.
 
 - **Node** (`@pracht/adapter-node`) — resolves to `process.env`. Available at
   module top level.
+- **Netlify** (`@pracht/adapter-netlify`) — resolves to `process.env`, populated
+  by the Netlify Functions runtime. Available at module top level.
 - **Vercel** (`@pracht/adapter-vercel`) — resolves to `process.env`, which the
   Vercel runtime populates in both Node and edge functions. Available at module
   top level.

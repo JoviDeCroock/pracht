@@ -239,7 +239,7 @@ const GET_STARTED_LINKS: { href: string; Icon: Icon; title: string; sub: string 
     href: "/docs/adapters",
     Icon: IconPlug,
     title: "Adapters",
-    sub: "Cloudflare, Vercel, Node",
+    sub: "Cloudflare, Netlify, Vercel, Node",
   },
 ];
 
@@ -259,7 +259,7 @@ export function Component(_props: RouteComponentProps<typeof loader>) {
 
           <p class="hero-sub">
             <strong>pracht</strong> is a Preact framework with <strong>explicit routing</strong>,
-            per-route render modes, and thin adapters for Cloudflare, Vercel, and Node.js.
+            per-route render modes, and thin adapters for Cloudflare, Netlify, Vercel, and Node.js.
           </p>
 
           <div class="hero-actions">

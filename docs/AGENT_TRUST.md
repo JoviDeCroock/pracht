@@ -73,7 +73,7 @@ export const app = defineApp({
 ```
 
 The runtime (`handlePrachtRequest`) verifies once per request — all adapters
-(Node, Cloudflare, Vercel) share the implementation because it only uses Web
+(Node, Cloudflare, Netlify, Vercel) share the implementation because it only uses Web
 platform APIs (`Headers`, `fetch`, `crypto.subtle`; Ed25519 works on Node ≥
 20, Workers, and Vercel Edge). The result surfaces on the request context for
 middleware, loaders, API routes, and capability `run()`:

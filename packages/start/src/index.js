@@ -14,12 +14,14 @@ export class ValidationError extends Error {
 
 const FALLBACK_VERSION_RANGES = {
   "@pracht/adapter-cloudflare": "^0.5.8",
+  "@pracht/adapter-netlify": "^0.1.0",
   "@pracht/adapter-node": "^0.3.8",
   "@pracht/adapter-vercel": "^0.2.8",
   "@pracht/cli": "^1.9.0",
   "@pracht/core": "^0.12.0",
   "@pracht/vite-plugin": "^0.7.6",
   "@tailwindcss/vite": "^4.1.0",
+  "netlify-cli": "^21.6.0",
   tailwindcss: "^4.1.0",
   typescript: "^6.0.0",
   vercel: "^56.5.0",
@@ -70,6 +72,13 @@ const ADAPTERS = {
     label: "Cloudflare Workers",
     packageName: "@pracht/adapter-cloudflare",
     short: "cf",
+  },
+  netlify: {
+    description: "Netlify Functions with durable CDN caching",
+    id: "netlify",
+    label: "Netlify",
+    packageName: "@pracht/adapter-netlify",
+    short: "netlify",
   },
   vercel: {
     description: "Vercel Edge Functions with prebuilt deploy",
@@ -398,7 +407,7 @@ export function parseArgs(argv) {
       const value = normalizeAdapter(arg.slice("--adapter=".length));
       if (!value) {
         throw new ValidationError(
-          `Invalid adapter: ${arg.slice("--adapter=".length)}. Use node, cf, or vercel.`,
+          `Invalid adapter: ${arg.slice("--adapter=".length)}. Use node, cf, netlify, or vercel.`,
         );
       }
       options.adapter = value;
@@ -452,6 +461,7 @@ async function promptForAdapter(readline) {
   console.log("  1. Node.js");
   console.log("  2. Cloudflare Workers");
   console.log("  3. Vercel");
+  console.log("  4. Netlify");
 
   while (true) {
     const answer = await readline.question("Adapter (1): ");
@@ -461,7 +471,7 @@ async function promptForAdapter(readline) {
       return normalized;
     }
 
-    console.log("Choose 1/2/3 or node/cf/vercel.");
+    console.log("Choose 1/2/3/4 or node/cf/vercel/netlify.");
   }
 }
 
@@ -600,6 +610,10 @@ function normalizeAdapter(value) {
     return "vercel";
   }
 
+  if (normalized === "4" || normalized === "nf" || normalized === "netlify") {
+    return "netlify";
+  }
+
   return null;
 }
 
@@ -639,6 +653,9 @@ async function buildProjectFiles({
   if (adapter.id === "vercel") {
     packagesToResolve.push("vercel");
   }
+  if (adapter.id === "netlify") {
+    packagesToResolve.push("netlify-cli");
+  }
   if (tailwind) {
     packagesToResolve.push("tailwindcss", "@tailwindcss/vite");
   }
@@ -656,7 +673,7 @@ async function buildProjectFiles({
 
   const files = {
     ".gitignore":
-      "dist\nnode_modules\n.wrangler\n.vercel\n.env*\n!.env.example\n.dev.vars\n# Keep .pracht/app-graph.json committed — it is the `pracht plan` snapshot.\n",
+      "dist\nnode_modules\n.netlify\n.wrangler\n.vercel\n.env*\n!.env.example\n.dev.vars\n# Keep .pracht/app-graph.json committed — it is the `pracht plan` snapshot.\n",
     "README.md": createReadme({
       adapter,
       agentTools,
@@ -706,6 +723,10 @@ async function buildProjectFiles({
   if (adapter.id === "cloudflare") {
     files["wrangler.jsonc"] = createWranglerConfig(projectName);
     files["src/env.d.ts"] = createCloudflareEnvDeclaration();
+  }
+
+  if (adapter.id === "netlify") {
+    files["netlify.toml"] = createNetlifyConfig(packageManager);
   }
 
   if (adapter.id === "node") {
@@ -797,6 +818,12 @@ function createPackageJson({ adapter, projectName, tailwind, versions }) {
     devDependencies.wrangler = "^4.81.0";
   }
 
+  if (adapter.id === "netlify") {
+    scripts.deploy = "netlify deploy --build --prod";
+    scripts.preview = "pracht build && netlify dev";
+    devDependencies["netlify-cli"] = versions["netlify-cli"];
+  }
+
   if (adapter.id === "vercel") {
     scripts.deploy = "pracht build && vercel deploy --prebuilt";
     devDependencies.vercel = versions["vercel"];
@@ -829,6 +856,7 @@ function createViteConfig(adapter, router, tailwind) {
   const ADAPTER_IMPORTS = {
     node: { fn: "nodeAdapter", pkg: "@pracht/adapter-node" },
     cloudflare: { fn: "cloudflareAdapter", pkg: "@pracht/adapter-cloudflare" },
+    netlify: { fn: "netlifyAdapter", pkg: "@pracht/adapter-netlify" },
     vercel: { fn: "vercelAdapter", pkg: "@pracht/adapter-vercel" },
   };
 
@@ -1256,6 +1284,23 @@ function createWranglerConfig(projectName) {
   ].join("\n");
 }
 
+function createNetlifyConfig(packageManager) {
+  const buildCommand =
+    packageManager === "npm" || packageManager === "bun"
+      ? `${packageManager} run build`
+      : `${packageManager} build`;
+
+  return [
+    "[build]",
+    `  command = ${JSON.stringify(buildCommand)}`,
+    '  publish = "dist/client"',
+    "",
+    "[functions]",
+    '  directory = "netlify/functions"',
+    "",
+  ].join("\n");
+}
+
 function createCloudflareEnvDeclaration() {
   return [
     'import "@pracht/core";',
@@ -1365,7 +1410,7 @@ function createAgentInstructions({ adapter, agentTools, packageManager, router, 
     `- \`${runCmd} build\` — production build`,
   ];
 
-  if (adapter.id === "node" || adapter.id === "cloudflare") {
+  if (adapter.id === "node" || adapter.id === "cloudflare" || adapter.id === "netlify") {
     lines.push(`- \`${runCmd} preview\` — build and serve the production build locally`);
   }
 
@@ -1373,7 +1418,7 @@ function createAgentInstructions({ adapter, agentTools, packageManager, router, 
     lines.push(`- \`${runCmd} start\` — run the built server`);
   }
 
-  if (adapter.id === "cloudflare" || adapter.id === "vercel") {
+  if (adapter.id === "cloudflare" || adapter.id === "netlify" || adapter.id === "vercel") {
     lines.push(`- \`${runCmd} deploy\` — build and deploy`);
   }
 
@@ -1444,6 +1489,10 @@ function createAgentInstructions({ adapter, agentTools, packageManager, router, 
     lines.push("- `src/env.d.ts` — TypeScript types for Cloudflare bindings");
   }
 
+  if (adapter.id === "netlify") {
+    lines.push("- `netlify.toml` — Netlify build, publish, and functions configuration");
+  }
+
   if (agentTools) {
     lines.push("");
     lines.push("## Agent tooling");
@@ -1509,6 +1558,15 @@ function createReadme({
     lines.push("");
     lines.push(
       "Edit `wrangler.jsonc` to add KV, D1, R2, cron triggers, or other Cloudflare bindings.",
+    );
+  }
+
+  if (adapter.id === "netlify") {
+    lines.push(`- \`${previewCommand}\``);
+    lines.push(`- \`${deployCommand}\``);
+    lines.push("");
+    lines.push(
+      "`netlify.toml` publishes `dist/client` and discovers the Pracht function generated during the build.",
     );
   }
 
@@ -1733,7 +1791,8 @@ Usage:
   create-pracht [directory] [options]
 
 Options:
-  --adapter=node|cf|vercel     Choose hosting adapter (default: node)
+  --adapter=node|cf|netlify|vercel
+                               Choose hosting adapter (default: node)
   --router=manifest|pages      Choose routing system (default: manifest)
   --template=minimal|tailwind  Choose starter template (minimal, or minimal + Tailwind CSS)
   --tailwind / --no-tailwind   Enable or disable Tailwind CSS wiring (default: prompt).

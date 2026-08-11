@@ -46,7 +46,7 @@ when neither is set).
 
 ## What it does
 
-- **Build** — `pracht build` writes `dist/client/llms.txt`. All three adapters
+- **Build** — `pracht build` writes `dist/client/llms.txt`. All four adapters
   serve it as a regular static file: the Node handler and the Vercel Build
   Output `handle: filesystem` route pick it up directly, and the Cloudflare
   worker serves it through the `ASSETS` binding.
