@@ -1,12 +1,12 @@
 ---
 name: scaffold-tests
-version: 1.1.0
+version: 1.2.0
 description: |
   Scaffold Vitest unit/integration tests for pracht routes, loaders, and
   middleware. Asks the user once whether to use vitest browser mode with
   `vitest-browser-preact` (real DOM, real events) or classic JSDOM-based
-  tests with `@testing-library/preact`. Wires `vitest.config.ts`, mocks
-  `LoaderArgs`, and emits ready-to-run files.
+  tests with `@testing-library/preact`. Wires `vitest.config.ts`, builds
+  `LoaderArgs` with `@pracht/test`, and emits ready-to-run files.
   Use when asked to "scaffold tests", "set up Vitest", "add unit tests",
   "test this loader", or "test this route".
 allowed-tools:
@@ -48,8 +48,13 @@ Detect the package manager from the lockfile.
 Common (both modes):
 
 ```bash
-pnpm add -D vitest @types/node
+pnpm add -D vitest @types/node @pracht/test
 ```
+
+`@pracht/test` provides the typed args factories (`createLoaderArgs`,
+`createApiArgs`, `createMiddlewareArgs`), the `runMiddleware()` chain runner,
+`submitForm()`, and the `readJson()`/`readRedirect()` response readers used in
+the templates below.
 
 Component-test extras — `@preact/preset-vite` must be an explicit dev
 dependency: the configs in Step 3 import it, and a transitive-only copy
@@ -145,74 +150,47 @@ to scaffold, or pass paths via `$ARGUMENTS`.
 
 ```ts
 import { describe, it, expect } from "vitest";
+import { createLoaderArgs } from "@pracht/test";
 import { loader } from "./<route-file>";
-
-function args(url: string, init?: RequestInit) {
-  const request = new Request(url, init);
-  return {
-    request,
-    params: {} as Record<string, string>,
-    context: {} as never,
-    url: new URL(request.url),
-    signal: AbortSignal.timeout(5000),
-    route: {} as never,
-  };
-}
 
 describe("<route> loader", () => {
   it("returns the expected shape", async () => {
-    const data = await loader(args("http://localhost/<path>"));
+    const data = await loader(createLoaderArgs({ url: "/<path>" }));
     expect(data).toBeDefined();
   });
 });
 ```
 
+Pass `params`, `headers`, a partial `context`, or a JSON-encoding `body` as
+needed; the factory defaults everything else and exposes `controller` (the
+`AbortController` behind `args.signal`) for cancellation tests.
+
 ### Middleware test template
 
 ```ts
 import { describe, it, expect } from "vitest";
+import { createMiddlewareArgs, readRedirect, runMiddleware } from "@pracht/test";
 import { middleware } from "./<middleware-file>";
 
 describe("<name> middleware", () => {
-  const ok = new Response("ok", { status: 200 });
-  const next = async () => ok;
-
   it("redirects unauthenticated requests", async () => {
-    const request = new Request("http://localhost/dashboard");
-    const response = await middleware(
-      {
-        request,
-        params: {},
-        context: {} as never,
-        url: new URL(request.url),
-        signal: AbortSignal.timeout(5000),
-        route: {} as never,
-      },
-      next,
-    );
-    expect(response.status).toBe(302);
-    expect(response.headers.get("location")).toMatch(/^\/login/);
+    const response = await runMiddleware(middleware, createMiddlewareArgs({ url: "/dashboard" }));
+    expect(readRedirect(response).location).toMatch(/^\/login/);
   });
 
   it("calls through when authenticated", async () => {
-    const request = new Request("http://localhost/dashboard", {
-      headers: { cookie: "session=valid" },
-    });
-    const response = await middleware(
-      {
-        request,
-        params: {},
-        context: {} as never,
-        url: new URL(request.url),
-        signal: AbortSignal.timeout(5000),
-        route: {} as never,
-      },
-      next,
+    const response = await runMiddleware(
+      middleware,
+      createMiddlewareArgs({ url: "/dashboard", headers: { cookie: "session=valid" } }),
+      async () => new Response("handler ran"),
     );
-    expect(response).toBe(ok);
+    expect(await response.text()).toBe("handler ran");
   });
 });
 ```
+
+`runMiddleware()` accepts an array to test a chain in manifest order,
+including `context` mutations flowing downstream and short-circuits.
 
 ### Component test template (browser mode)
 
@@ -274,8 +252,8 @@ broken scaffolding.
 1. Ask the rendering-strategy question once per project; persist by
    inspecting `vitest.config.ts` on subsequent runs.
 2. Only test exports that exist — read the route file before generating.
-3. Use the recipe's `args()` helper shape for `BaseRouteArgs`/`LoaderArgs`
-   construction.
+3. Use `@pracht/test`'s factories for `BaseRouteArgs`/`LoaderArgs`
+   construction instead of hand-building args objects.
 4. For routes with `getStaticPaths`, scaffold a separate test that calls it.
 5. Generated tests should pass on first run with a placeholder assertion;
    the user fills in real expectations.

@@ -1,6 +1,6 @@
 ---
 title: Testing
-lead: Test your pracht app at every level — unit test loaders and API routes with Vitest, run full E2E tests with Playwright to verify rendering, navigation, and hydration, and prove your agent surfaces with capability tests and `pracht eval`.
+lead: Test your pracht app at every level — unit test loaders, API routes, middleware, and form submissions with Vitest and `@pracht/test`, run full E2E tests with Playwright to verify rendering, navigation, and hydration, and prove your agent surfaces with capability tests and `pracht eval`.
 breadcrumb: Testing
 prev:
   href: /docs/recipes/view-transitions
@@ -12,163 +12,168 @@ next:
 
 ## Recommended Setup
 
-Pracht apps are built on Vite, so **Vitest** is the natural choice for unit and integration tests. For E2E browser tests, use **Playwright**.
+Pracht apps are built on Vite, so **Vitest** is the natural choice for unit and integration tests. For E2E browser tests, use **Playwright**. `@pracht/test` ships the first-party unit-test helpers: typed args factories, a middleware chain runner, form submission helpers, and minimal response readers.
 
 ```sh
 # Install test dependencies
-pnpm add -D vitest @playwright/test
+pnpm add -D vitest @playwright/test @pracht/test
 ```
 
 ---
 
 ## Unit Testing Loaders & API Routes
 
-Loaders and API route handlers are plain async functions that take a `Request` and return data. Test them directly — no framework bootstrap needed.
+Loaders and API route handlers are plain async functions. `@pracht/test` builds their args objects — a complete `LoaderArgs`/`ApiRouteArgs` with a `Request`, `params`, `url` (derived from the request), `context`, `signal`, and route metadata — from a small shorthand. Every field has a sensible default; override only what the code under test reads.
 
 ### Testing a loader
 
 ```ts [src/routes/dashboard.test.ts]
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect } from "vitest";
+import { createLoaderArgs } from "@pracht/test";
 import { loader } from "./dashboard";
 
 describe("dashboard loader", () => {
   it("returns projects for the authenticated user", async () => {
-    const request = new Request("http://localhost/dashboard", {
-      headers: { "x-user-id": "user-1" },
-    });
+    const data = await loader(
+      createLoaderArgs({
+        url: "/dashboard",
+        headers: { "x-user-id": "user-1" },
+      }),
+    );
 
-    const data = await loader({
-      request,
-      params: {},
-      url: new URL(request.url),
-      signal: AbortSignal.timeout(5000),
-    });
-
-    expect(data.projects).toBeDefined();
     expect(data.projects.length).toBeGreaterThan(0);
   });
 
-  it("throws 401 when no user header is present", async () => {
-    const request = new Request("http://localhost/dashboard");
-
-    await expect(
-      loader({
-        request,
-        params: {},
-        url: new URL(request.url),
-        signal: AbortSignal.timeout(5000),
-      }),
-    ).rejects.toThrow();
+  it("throws when no user header is present", async () => {
+    await expect(loader(createLoaderArgs({ url: "/dashboard" }))).rejects.toThrow();
   });
 });
+```
+
+The shorthand accepts `url` (relative paths resolve against `http://localhost`), `method`, `headers`, `body` (a plain object is JSON-encoded; `BodyInit` values pass through), `params`, a partial `context`, and `route` overrides — or a fully-formed `request` that wins over all of them. The returned args also expose `controller`, the `AbortController` behind `args.signal`:
+
+```ts
+const args = createLoaderArgs({ url: "/slow" });
+const pending = loader(args);
+args.controller.abort();
+await expect(pending).rejects.toThrow();
 ```
 
 ### Testing an API route
 
-```ts [src/api/contact.test.ts]
+`createApiArgs()` builds the same shape for API handlers — plain or `defineApi()`-wrapped — and `readJson()` reads a response body without consuming it:
+
+```ts [src/api/items.test.ts]
 import { describe, it, expect } from "vitest";
-import { POST } from "./contact";
+import { createApiArgs, readJson } from "@pracht/test";
+import { GET, POST } from "./items";
 
-function makeFormRequest(fields: Record<string, string>) {
-  const form = new FormData();
-  for (const [key, value] of Object.entries(fields)) {
-    form.set(key, value);
-  }
-  return new Request("http://localhost/api/contact", {
-    method: "POST",
-    body: form,
-  });
-}
-
-describe("contact API route", () => {
-  it("validates required fields", async () => {
-    const response = await POST({
-      request: makeFormRequest({ name: "", email: "", message: "" }),
-      params: {},
-      url: new URL("http://localhost/api/contact"),
-      signal: AbortSignal.timeout(5000),
-    });
-
-    expect(response.status).toBe(400);
-    const body = await response.json();
-    expect(body.ok).toBe(false);
-    expect(body.errors.name).toBeDefined();
-    expect(body.errors.email).toBeDefined();
-  });
-
-  it("succeeds with valid input", async () => {
-    const response = await POST({
-      request: makeFormRequest({
-        name: "Alice",
-        email: "alice@example.com",
-        message: "Hello!",
-      }),
-      params: {},
-      url: new URL("http://localhost/api/contact"),
-      signal: AbortSignal.timeout(5000),
-    });
+describe("items API route", () => {
+  it("lists items", async () => {
+    const response = await GET(createApiArgs({ url: "/api/items?page=2" }));
 
     expect(response.status).toBe(200);
-    const body = await response.json();
-    expect(body.ok).toBe(true);
+    expect(await readJson(response)).toEqual({ items: [], page: 2 });
+  });
+
+  it("creates an item from a JSON body", async () => {
+    const response = await POST(
+      createApiArgs({ url: "/api/items", body: { name: "Pracht" } }),
+    );
+
+    expect(await readJson(response)).toEqual({ created: "Pracht" });
+  });
+
+  it("rejects invalid input with the standardized validation body", async () => {
+    const response = await POST(createApiArgs({ url: "/api/items", body: { name: "" } }));
+
+    expect(response.status).toBe(422);
+    const body = await readJson(response);
+    expect(body.issues).toEqual([{ in: "body", path: ["name"], message: "Required" }]);
   });
 });
 ```
+
+### Testing form submissions
+
+`submitForm()` builds the request a form submission actually sends — `application/x-www-form-urlencoded` by default, switching to `multipart/form-data` automatically when any field is a `File` — and calls the handler with it. This exercises the same `FormData` parsing path `defineApi()` applies to real `<Form>` and native submissions:
+
+```ts [src/api/contact.test.ts]
+import { describe, it, expect } from "vitest";
+import { readJson, submitForm } from "@pracht/test";
+import { POST } from "./contact";
+
+describe("contact API route", () => {
+  it("succeeds with valid input", async () => {
+    const response = await submitForm(POST, {
+      name: "Alice",
+      email: "alice@example.com",
+      message: "Hello!",
+    });
+
+    expect(response.status).toBe(200);
+    expect(await readJson(response)).toMatchObject({ ok: true });
+  });
+
+  it("validates required fields", async () => {
+    const response = await submitForm(POST, { name: "", email: "", message: "" });
+    expect(response.status).toBe(422);
+  });
+
+  it("accepts an uploaded file", async () => {
+    const response = await submitForm(POST, {
+      name: "Alice",
+      email: "alice@example.com",
+      message: "See attachment",
+      attachment: new File(["contents"], "notes.txt", { type: "text/plain" }),
+    });
+    expect(response.status).toBe(200);
+  });
+});
+```
+
+Repeated fields (multi-selects, checkbox groups) are passed as arrays: `{ tag: ["a", "b"] }` produces two `tag` entries, which `formDataToRecord()` on the server groups back into an array.
 
 ---
 
 ## Testing Middleware
 
-Middleware always returns a `Response`. To test it in isolation, pass a fake
-`next` that resolves to a sentinel response — then assert on whether the
-middleware short-circuited (returned its own response) or called through
-(returned the sentinel).
+`runMiddleware()` executes one middleware — or a chain — exactly the way the runtime does: sequentially, with `next()` callable at most once per middleware, short-circuiting when a middleware returns its own `Response`. The optional final handler stands in for the loader at the end of the chain (default: an empty 200):
 
 ```ts [src/middleware/auth.test.ts]
 import { describe, it, expect } from "vitest";
-import { middleware } from "./auth";
+import { createMiddlewareArgs, readRedirect, runMiddleware } from "@pracht/test";
+import { middleware as auth } from "./auth";
 
 describe("auth middleware", () => {
-  const ok = new Response("ok", { status: 200 });
-  const next = async () => ok;
-
   it("redirects when no session cookie is present", async () => {
-    const request = new Request("http://localhost/dashboard");
-    const response = await middleware(
-      {
-        request,
-        url: new URL(request.url),
-        params: {},
-        context: {},
-        signal: AbortSignal.timeout(5000),
-        route: { path: "/dashboard" } as any,
-      },
-      next,
-    );
+    const response = await runMiddleware(auth, createMiddlewareArgs({ url: "/dashboard" }));
 
-    expect(response.status).toBe(302);
-    expect(response.headers.get("location")).toMatch(/\/login/);
+    expect(readRedirect(response)).toEqual({ status: 302, location: "/login" });
   });
 
-  it("continues to the handler when session is valid", async () => {
-    const request = new Request("http://localhost/dashboard", {
-      headers: { cookie: "session=valid-token-here" },
-    });
-
-    const response = await middleware(
-      {
-        request,
-        url: new URL(request.url),
-        params: {},
-        context: {},
-        signal: AbortSignal.timeout(5000),
-        route: { path: "/dashboard" } as any,
-      },
-      next,
+  it("continues to the handler when the session is valid", async () => {
+    const response = await runMiddleware(
+      auth,
+      createMiddlewareArgs({
+        url: "/dashboard",
+        headers: { cookie: "session=valid-token-here" },
+      }),
+      async () => new Response("handler ran"),
     );
 
-    expect(response).toBe(ok);
+    expect(await response.text()).toBe("handler ran");
   });
+});
+```
+
+Chains work the same way, including `context` mutations flowing downstream — pass the middleware in the order the manifest applies them:
+
+```ts
+const args = createMiddlewareArgs<AppContext>({ url: "/admin", context: {} });
+const response = await runMiddleware([logging, auth, requireAdmin], args, async () => {
+  // Sees the context that auth populated, like a loader would.
+  return Response.json({ user: args.context.user });
 });
 ```
 
@@ -669,8 +674,8 @@ Add these to your `package.json`:
 
 ## Tips
 
-- **Test loaders directly** — they're plain functions. No need to spin up a server for data logic tests.
-- **Test API routes directly** — they take a `Request` and return a `Response`. Easy to unit test without any framework setup.
+- **Test loaders directly** — they're plain functions. `createLoaderArgs()` from `@pracht/test` builds their args; no server needed for data logic tests.
+- **Test API routes directly** — they take a `Request` and return a `Response`. `createApiArgs()` and `submitForm()` build the requests without any framework setup.
 - **Use E2E for hydration** — unit tests can't verify that client-side routing and hydration work correctly. That's what Playwright is for.
 - Check for `(window as any).__PRACHT_ROUTER_READY__` in Playwright tests to wait for hydration before interacting with the page.
 - **Test the JSON endpoint** — send `x-pracht-route-state-request: 1` to get loader data as JSON. Great for verifying data without parsing HTML.

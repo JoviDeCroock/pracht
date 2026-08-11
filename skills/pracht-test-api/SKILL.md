@@ -1,6 +1,6 @@
 ---
 name: pracht-test-api
-version: 1.1.0
+version: 1.2.0
 description: |
   Auto-generate Vitest request/response tests for every handler in `src/api/`.
   Each test instantiates a `Request`, calls the exported HTTP method handler
@@ -53,33 +53,27 @@ Ask the user which subset to scaffold or accept paths via `$ARGUMENTS`.
 ## Step 3: Generate one test per handler file
 
 Place tests next to the handler with `.test.ts` suffix
-(`src/api/users/[id].test.ts`). Use a small helper to construct
-`ApiRouteArgs`:
+(`src/api/users/[id].test.ts`). Use `createApiArgs()` from `@pracht/test`
+(add it as a dev dependency if missing) to construct `ApiRouteArgs`:
 
 ```ts
 import { describe, it, expect } from "vitest";
+import { createApiArgs, readJson } from "@pracht/test";
 import { GET, POST /* import only what the handler exports */ } from "./<file>";
-
-function args(url: string, init?: RequestInit, params: Record<string, string> = {}) {
-  const request = new Request(url, init);
-  return {
-    request,
-    params,
-    context: {} as never,
-    url: new URL(request.url),
-    signal: AbortSignal.timeout(5000),
-    route: {} as never,
-  };
-}
 
 describe("<METHOD> <api-path>", () => {
   it("returns 200 on a valid request", async () => {
-    const res = await GET(args("http://localhost<api-path>"));
+    const res = await GET(createApiArgs({ url: "<api-path>" }));
     expect(res).toBeInstanceOf(Response);
     expect(res.status).toBe(200);
   });
 });
 ```
+
+Pass `params` for dynamic segments, `body` for JSON payloads (plain objects
+are JSON-encoded with the right `Content-Type`), and use `submitForm()` for
+form-encoded/multipart POSTs — it drives the same `FormData` parsing path
+`defineApi()` uses.
 
 ## Step 4: Generate method-specific cases
 
@@ -108,7 +102,7 @@ middleware is in that list. If it is, scaffold an extra test:
 
 ```ts
 it("rejects unauthenticated requests", async () => {
-  const res = await POST(args("http://localhost<api-path>", { method: "POST" }));
+  const res = await POST(createApiArgs({ url: "<api-path>", method: "POST" }));
   expect([401, 403, 302]).toContain(res.status);
 });
 ```
@@ -127,9 +121,9 @@ For handlers that return `Response.json(...)`, generate:
 
 ```ts
 it("returns JSON with the expected keys", async () => {
-  const res = await GET(args("http://localhost<api-path>"));
+  const res = await GET(createApiArgs({ url: "<api-path>" }));
   expect(res.headers.get("content-type")).toMatch(/application\/json/);
-  const body = await res.json();
+  const body = await readJson(res);
   expect(body).toEqual(expect.objectContaining({ /* fill in */ }));
 });
 ```

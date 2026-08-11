@@ -390,6 +390,16 @@ importers:
 
   packages/start: {}
 
+  packages/test:
+    dependencies:
+      '@pracht/core':
+        specifier: workspace:*
+        version: link:../framework
+    devDependencies:
+      '@standard-schema/spec':
+        specifier: ^1.0.0
+        version: 1.1.0
+
   packages/vite-plugin:
     dependencies:
       '@pracht/adapter-node':
