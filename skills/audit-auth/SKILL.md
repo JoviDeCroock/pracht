@@ -1,6 +1,6 @@
 ---
 name: audit-auth
-version: 1.2.1
+version: 1.2.2
 description: |
   Find pracht routes that look protected but aren't — missing auth middleware,
   middleware that augments context but never gates, client-side auth checks
@@ -103,6 +103,11 @@ target. From `pracht inspect api --json`:
 - Treat `context.agent` as framework-owned, read-only verified identity. Flag
   middleware or capability code that attempts to mutate or replace it instead
   of deriving application authorization state on a separate context field.
+- When a custom adapter supplies a frozen or sealed context, flag authorization
+  helpers that read `agent` or middleware-added fields through `this`. The
+  framework must bind private-field and built-in methods to the immutable source
+  receiver, which cannot observe fields added on its extensible overlay. Use a
+  fresh mutable context when receiver-bound helpers depend on request state.
 - Inspect every HTTP-, WebMCP-, or MCP-exposed capability body for
   `invokeCapability()`. Direct composition never re-applies app-level API
   middleware. Remote MCP additionally re-applies the callee's `agentPolicy`

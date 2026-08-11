@@ -25,7 +25,11 @@ private fields, array branding, callable construction, reflection behavior, and
 writable source fields, including live descriptors, prototype changes made
 through another retained reference, and overlays frozen after retained source
 updates. Reusing a context across different verified identities fails closed,
-and reflective definitions on sealed contexts preserve Proxy invariants. HTTP
-and MCP composition retain the transport-verified identity even
+including when immutable contexts require an overlay, and reflected methods and
+accessors preserve their original private-field receivers across integrity
+operations. Receiver-bound helpers on immutable contexts continue to observe
+the original object, so apps that need helpers to read `agent` or
+middleware-added state should supply a mutable per-request context. HTTP and
+MCP composition retain the transport-verified identity even
 when application code supplies a replacement context object to
 `invokeCapability()`.

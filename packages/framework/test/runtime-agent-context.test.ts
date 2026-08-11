@@ -130,6 +130,31 @@ describe("bindAgentContext", () => {
     expect(() => bindAgentContext(original, null)).toThrow(/fresh context for each request/);
   });
 
+  it("reuses one immutable overlay only for the same verified identity", () => {
+    const original = Object.freeze({ tenant: "one" });
+    const first = bindAgentContext(original, {
+      verified: true,
+      agentDomain: "first.example",
+      keyId: "first-key",
+    });
+    const repeated = bindAgentContext(original, {
+      verified: true,
+      agentDomain: "first.example",
+      keyId: "first-key",
+    });
+
+    expect(repeated).toBe(first);
+    expect(repeated.agent?.keyId).toBe("first-key");
+    expect(() =>
+      bindAgentContext(original, {
+        verified: true,
+        agentDomain: "second.example",
+        keyId: "second-key",
+      }),
+    ).toThrow(/fresh context for each request/);
+    expect(() => bindAgentContext(original, null)).toThrow(/fresh context for each request/);
+  });
+
   it("fails closed when fresh proxy aliases rebind a context to a different identity", () => {
     class SharedContext {
       declare readonly agent?: { keyId: string } | null;
@@ -534,5 +559,39 @@ describe("bindAgentContext", () => {
     }
     expect(context.tenant).toBe("one");
     expect(context.tenantAlias).toBe("one");
+  });
+
+  it("keeps reflected accessors bound to immutable private-field receivers", () => {
+    class AccessorContext {
+      #tenant = "one";
+
+      constructor() {
+        Object.defineProperty(this, "tenant", {
+          configurable: false,
+          enumerable: true,
+          get(this: AccessorContext) {
+            return this.#tenant;
+          },
+          set(this: AccessorContext, tenant: string) {
+            this.#tenant = tenant;
+          },
+        });
+      }
+
+      declare readonly tenant: string;
+    }
+
+    const original = Object.freeze(new AccessorContext());
+    const context = bindAgentContext(original, null);
+    const descriptor = Object.getOwnPropertyDescriptor(context, "tenant")!;
+
+    expect(context.tenant).toBe("one");
+    expect(descriptor.get?.call(context)).toBe("one");
+    descriptor.set?.call(context, "two");
+    expect(context.tenant).toBe("two");
+    expect(Reflect.defineProperty(context, "tenant", descriptor)).toBe(true);
+    expect(Object.getOwnPropertyDescriptor(context, "tenant")).toEqual(descriptor);
+    expect(() => Object.freeze(context)).not.toThrow();
+    expect(descriptor.get?.call(context)).toBe("two");
   });
 });

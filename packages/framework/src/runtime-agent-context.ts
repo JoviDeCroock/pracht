@@ -3,7 +3,12 @@ import type { PrachtAgentIdentity } from "@pracht/capabilities";
 import type { PrachtContextExtensions } from "./types.ts";
 
 const agentIdentitySnapshots = new WeakSet<object>();
-const boundAgentContexts = new WeakMap<object, Readonly<PrachtAgentIdentity> | null>();
+interface BoundAgentContext {
+  agent: Readonly<PrachtAgentIdentity> | null;
+  context: object;
+}
+
+const boundAgentContexts = new WeakMap<object, BoundAgentContext>();
 
 /**
  * Bind framework-verified agent identity onto an application request context.
@@ -24,9 +29,9 @@ export function bindAgentContext<TContext>(
 
   if ((typeof context === "object" && context !== null) || typeof context === "function") {
     if (boundAgentContexts.has(context)) {
-      const previousAgent = boundAgentContexts.get(context) ?? null;
-      if (sameAgentIdentity(previousAgent, boundAgent)) {
-        return context as TContext & PrachtContextExtensions;
+      const previous = boundAgentContexts.get(context)!;
+      if (sameAgentIdentity(previous.agent, boundAgent)) {
+        return previous.context as TContext & PrachtContextExtensions;
       }
       throw new TypeError(
         "Pracht request contexts cannot be reused across different verified agent identities. " +
@@ -41,7 +46,7 @@ export function bindAgentContext<TContext>(
         value: boundAgent,
         writable: false,
       });
-      boundAgentContexts.set(context, boundAgent);
+      boundAgentContexts.set(context, { agent: boundAgent, context });
       return context as TContext & PrachtContextExtensions;
     } catch {
       // Frozen/sealed contexts cannot accept framework-owned fields. Fall
@@ -59,7 +64,7 @@ export function bindAgentContext<TContext>(
           isAgentIdentitySnapshot(boundAgent) &&
           sameAgentIdentity(descriptor.value, boundAgent)))
     ) {
-      boundAgentContexts.set(context, boundAgent);
+      boundAgentContexts.set(context, { agent: boundAgent, context });
       return context as TContext & PrachtContextExtensions;
     }
 
@@ -79,7 +84,9 @@ export function bindAgentContext<TContext>(
     }
 
     const overlay = immutableAgentContext(context, boundAgent);
-    boundAgentContexts.set(overlay, boundAgent);
+    const binding = { agent: boundAgent, context: overlay };
+    boundAgentContexts.set(context, binding);
+    boundAgentContexts.set(overlay, binding);
     return overlay;
   }
 
@@ -135,6 +142,8 @@ function immutableAgentContext<TContext>(
 
   const boundMethods = new WeakMap<ContextMethod, ContextMethod>();
   const contextBoundMethods = new WeakSet<ContextMethod>();
+  const boundAccessors = new WeakMap<ContextMethod, ContextMethod>();
+  const contextBoundAccessors = new WeakSet<ContextMethod>();
   const bindContextMethod = (method: ContextMethod): ContextMethod => {
     if (contextBoundMethods.has(method)) return method;
     let bound = boundMethods.get(method);
@@ -157,13 +166,41 @@ function immutableAgentContext<TContext>(
     }
     return bound;
   };
+  const bindContextAccessor = (accessor: ContextMethod): ContextMethod => {
+    if (contextBoundAccessors.has(accessor)) return accessor;
+    let bound = boundAccessors.get(accessor);
+    if (!bound) {
+      const receiverBound = accessor.bind(context);
+      bound = (...args: unknown[]) => {
+        assertNoInheritedAgentField();
+        return Reflect.apply(receiverBound, undefined, args);
+      };
+      boundAccessors.set(accessor, bound);
+      contextBoundAccessors.add(bound);
+    }
+    return bound;
+  };
   const targetContextDescriptor = (
     property: PropertyKey,
     descriptor: PropertyDescriptor,
-  ): PropertyDescriptor =>
-    "value" in descriptor && typeof descriptor.value === "function" && property !== "constructor"
-      ? { ...descriptor, value: bindContextMethod(descriptor.value as ContextMethod) }
-      : descriptor;
+  ): PropertyDescriptor => {
+    if (
+      "value" in descriptor &&
+      typeof descriptor.value === "function" &&
+      property !== "constructor"
+    ) {
+      return { ...descriptor, value: bindContextMethod(descriptor.value as ContextMethod) };
+    }
+
+    const targetDescriptor = { ...descriptor };
+    if (typeof descriptor.get === "function") {
+      targetDescriptor.get = bindContextAccessor(descriptor.get as ContextMethod);
+    }
+    if (typeof descriptor.set === "function") {
+      targetDescriptor.set = bindContextAccessor(descriptor.set as ContextMethod);
+    }
+    return targetDescriptor;
+  };
   const locksRawContextMethod = (
     property: PropertyKey,
     currentDescriptor: PropertyDescriptor,
@@ -199,6 +236,36 @@ function immutableAgentContext<TContext>(
     (descriptor.enumerable === undefined ||
       descriptor.enumerable === currentDescriptor.enumerable) &&
     !(descriptor.writable === true && currentDescriptor.writable === false);
+  const isCompatibleBoundAccessorDefinition = (
+    currentDescriptor: PropertyDescriptor,
+    descriptor: PropertyDescriptor,
+  ): boolean => {
+    if (
+      "value" in currentDescriptor ||
+      Object.prototype.hasOwnProperty.call(descriptor, "value") ||
+      Object.prototype.hasOwnProperty.call(descriptor, "writable")
+    ) {
+      return false;
+    }
+    if (
+      descriptor.enumerable !== undefined &&
+      descriptor.enumerable !== currentDescriptor.enumerable
+    ) {
+      return false;
+    }
+    if (descriptor.configurable === true && currentDescriptor.configurable === false) return false;
+
+    for (const property of ["get", "set"] as const) {
+      if (!Object.prototype.hasOwnProperty.call(descriptor, property)) continue;
+      const currentAccessor = currentDescriptor[property];
+      const expected =
+        typeof currentAccessor === "function"
+          ? bindContextAccessor(currentAccessor as ContextMethod)
+          : currentAccessor;
+      if (descriptor[property] !== expected) return false;
+    }
+    return true;
+  };
   const synchronizeMaterializedContextDescriptor = (property: PropertyKey): void => {
     if (!materializedContextKeys.has(property)) return;
 
@@ -316,7 +383,8 @@ function immutableAgentContext<TContext>(
         }
         if (!Reflect.defineProperty(context, property, descriptor)) {
           return (
-            isCompatibleBoundMethodDefinition(property, currentDescriptor, descriptor) &&
+            (isCompatibleBoundMethodDefinition(property, currentDescriptor, descriptor) ||
+              isCompatibleBoundAccessorDefinition(currentDescriptor, descriptor)) &&
             Reflect.defineProperty(target, property, descriptor)
           );
         }
@@ -346,7 +414,8 @@ function immutableAgentContext<TContext>(
         }
         if (!Reflect.defineProperty(context, property, descriptor)) {
           if (
-            !isCompatibleBoundMethodDefinition(property, currentDescriptor, descriptor) ||
+            (!isCompatibleBoundMethodDefinition(property, currentDescriptor, descriptor) &&
+              !isCompatibleBoundAccessorDefinition(currentDescriptor, descriptor)) ||
             !Reflect.defineProperty(target, property, descriptor)
           ) {
             return false;
