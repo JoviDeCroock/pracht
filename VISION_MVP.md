@@ -119,6 +119,12 @@ Standalone server endpoints independent of the page rendering pipeline:
   `apiFetch()` client checks paths, methods, bodies, queries, and params at
   compile time and returns typed responses. See
   [docs/API_VALIDATION.md](docs/API_VALIDATION.md).
+- Optional OpenAPI 3.1 generation lives in the companion `@pracht/openapi`
+  package. Its sibling Vite plugin serves live JSON and optional Scalar/Swagger
+  UI endpoints in development and emits matching static build assets. Existing
+  `defineApi()` request schemas are inspected best-effort; complete
+  response/status documentation uses an explicit `defineOpenApi()` descriptor.
+  See [docs/OPENAPI.md](docs/OPENAPI.md).
 
 ### Capabilities (agent-ready operations)
 

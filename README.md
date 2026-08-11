@@ -142,6 +142,7 @@ The skills are distributed three ways (see the [catalog](skills/README.md)):
 - [docs/PERFORMANCE.md](docs/PERFORMANCE.md) — bundle analysis and per-route client JS budgets
 - [docs/DATA_LOADING.md](docs/DATA_LOADING.md) — loaders, forms, client hooks
 - [docs/API_VALIDATION.md](docs/API_VALIDATION.md) — Standard Schema validation for API routes, typed `apiFetch()`
+- [docs/OPENAPI.md](docs/OPENAPI.md) — optional OpenAPI 3.1 JSON/UI endpoints and build output
 - [docs/CAPABILITIES.md](docs/CAPABILITIES.md) — typed capabilities, HTTP projection, WebMCP page tools
 - [docs/REMOTE_MCP.md](docs/REMOTE_MCP.md) — serving capabilities as MCP tools over Streamable HTTP
 - [docs/AGENT_TRUST.md](docs/AGENT_TRUST.md) — Web Bot Auth, effect-class confirmation flow, audit hook, `pracht eval`

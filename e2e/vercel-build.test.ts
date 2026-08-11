@@ -74,6 +74,17 @@ test("pracht build emits a deployable Vercel Build Output setup", async () => {
     expect(existsSync(staticLlmsTxtPath)).toBe(true);
     expect(readFileSync(staticLlmsTxtPath, "utf-8")).toContain("# Pracht Example");
 
+    const staticOpenApiPath = resolve(vercelDir, "static/openapi.json");
+    const staticOpenApiUiPath = resolve(vercelDir, "static/docs/index.html");
+    expect(existsSync(staticOpenApiPath)).toBe(true);
+    expect(existsSync(staticOpenApiUiPath)).toBe(true);
+    const openApi = JSON.parse(readFileSync(staticOpenApiPath, "utf-8"));
+    expect(openApi).toMatchObject({
+      openapi: "3.1.0",
+      info: { title: "Pracht Example API", version: "1.0.0" },
+    });
+    expect(readFileSync(staticOpenApiUiPath, "utf-8")).toContain('{"url":"/openapi.json"}');
+
     const config = JSON.parse(readFileSync(configPath, "utf-8"));
     expect(config.version).toBe(3);
     expect(config.routes).toEqual(
@@ -89,6 +100,7 @@ test("pracht build emits a deployable Vercel Build Output setup", async () => {
           dest: "/render",
         }),
         expect.objectContaining({ src: "^/$", dest: "/index.html" }),
+        expect.objectContaining({ src: "^/docs/?$", dest: "/docs/index.html" }),
         expect.objectContaining({ src: "^/pricing/?$", dest: "/pricing" }),
         expect.objectContaining({ handle: "filesystem" }),
         expect.objectContaining({ src: "/(.*)", dest: "/render" }),

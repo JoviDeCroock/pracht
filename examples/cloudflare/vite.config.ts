@@ -1,6 +1,7 @@
 import { defineConfig } from "vite";
 import { pracht } from "@pracht/vite-plugin";
 import { cloudflareAdapter } from "@pracht/adapter-cloudflare";
+import { prachtOpenApi } from "@pracht/openapi/vite";
 
 const e2eInspectorPort = process.env.PRACHT_E2E_INSPECTOR_PORT;
 
@@ -16,6 +17,10 @@ export default defineConfig({
         persistState: e2eInspectorPort ? false : undefined,
       }),
       llmsTxt: { title: "Pracht Cloudflare Example" },
+    }),
+    prachtOpenApi({
+      info: { title: "Pracht Cloudflare Example API", version: "1.0.0" },
+      ui: "scalar",
     }),
   ],
 });
