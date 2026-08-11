@@ -9,6 +9,7 @@ import {
 } from "./plugin-assets.ts";
 import {
   resolveOptions,
+  type PrachtLlmsTxtOptions,
   type PrachtPluginOptions,
   type ResolvedPrachtPluginOptions,
 } from "./plugin-options.ts";
@@ -308,7 +309,7 @@ export function createPrachtServerModuleSource(
     ? adapter.serverImports + '\nimport { prerenderApp } from "@pracht/core/server";'
     : 'import { resolveApp, resolveApiRoutes, prerenderApp } from "@pracht/core/server";';
   if (llmsTxtConfig) {
-    prachtImports += '\nimport { buildLlmsTxt } from "@pracht/core/server";';
+    prachtImports += '\nimport { buildLlmsTxtArtifacts } from "@pracht/core/server";';
   }
 
   const appImport = isPagesMode
@@ -356,9 +357,11 @@ export function createPrachtServerModuleSource(
           "// llms.txt (https://llmstxt.org) generated from the resolved app graph.",
           "// `pracht build` writes it to dist/client/llms.txt; the dev SSR",
           "// middleware serves it at /llms.txt.",
-          `const llmsTxtConfig = ${JSON.stringify(llmsTxtConfig)};`,
-          "export const generateLlmsTxt = () =>",
-          "  buildLlmsTxt({ ...llmsTxtConfig, apiRoutes, app: resolvedApp, registry });",
+          `const llmsTxtConfig = ${serializeLlmsTxtConfig(llmsTxtConfig)};`,
+          "export const generateLlmsTxtArtifacts = () =>",
+          "  buildLlmsTxtArtifacts({ ...llmsTxtConfig, apiRoutes, app: resolvedApp, registry });",
+          "export const generateLlmsTxt = async () =>",
+          "  (await generateLlmsTxtArtifacts())[0].content;",
         ]
       : []),
     "",
@@ -401,9 +404,43 @@ export function createPrachtDevModuleSource(
 interface ResolvedLlmsTxtConfig {
   title: string;
   description?: string;
+  details?: string | string[];
   origin?: string;
   include?: string[];
   exclude?: string[];
+  page?: PrachtLlmsTxtOptions["page"];
+  render?: PrachtLlmsTxtOptions["render"];
+  full?: boolean;
+  markdownSuffix?: boolean;
+}
+
+function serializeLlmsTxtConfig(config: ResolvedLlmsTxtConfig): string {
+  const { page, render, ...serializable } = config;
+  let source = JSON.stringify(serializable);
+  const callbacks = [
+    ...(page ? [["page", page] as const] : []),
+    ...(render ? [["render", render] as const] : []),
+  ];
+  if (callbacks.length === 0) return source;
+
+  source = source.slice(0, -1);
+  for (const [name, callback] of callbacks) {
+    let callbackSource = callback.toString().trim();
+    if (callbackSource.includes("[native code]")) {
+      throw new Error(`pracht({ llmsTxt: { ${name} } }) cannot use a native or bound function.`);
+    }
+    // Function#toString preserves object-method syntax (`page(args) {}`),
+    // which is only valid inside an object literal. The callback is embedded
+    // as a standalone expression, so normalize method shorthand to an
+    // anonymous function expression while leaving arrows/functions intact.
+    callbackSource = callbackSource.replace(
+      /^(async\s+)?(\*\s*)?(?!async\s*\()(?:[$A-Z_a-z][$\w]*|"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')\s*(?=\()/,
+      (_match, asyncKeyword: string | undefined, star: string | undefined) =>
+        `${asyncKeyword ? "async " : ""}function${star ? "*" : ""}`,
+    );
+    source += `${source.endsWith("{") ? "" : ","}${JSON.stringify(name)}:(${callbackSource})`;
+  }
+  return `${source}}`;
 }
 
 /**
@@ -429,9 +466,14 @@ function resolveLlmsTxtConfig(
     resolved.llmsTxt.description ??
     (typeof pkg.description === "string" && pkg.description ? pkg.description : undefined);
   if (description) config.description = description;
+  if (resolved.llmsTxt.details) config.details = resolved.llmsTxt.details;
   if (resolved.llmsTxt.origin) config.origin = resolved.llmsTxt.origin;
   if (resolved.llmsTxt.include) config.include = resolved.llmsTxt.include;
   if (resolved.llmsTxt.exclude?.length) config.exclude = resolved.llmsTxt.exclude;
+  if (resolved.llmsTxt.page) config.page = resolved.llmsTxt.page;
+  if (resolved.llmsTxt.render) config.render = resolved.llmsTxt.render;
+  if (resolved.llmsTxt.full) config.full = true;
+  if (resolved.llmsTxt.markdownSuffix) config.markdownSuffix = true;
   return config;
 }
 

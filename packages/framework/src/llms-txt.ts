@@ -18,6 +18,7 @@ import { matchRoutePattern } from "./constraints.ts";
 import { resolveRegistryModule } from "./runtime-manifest.ts";
 import type {
   ApiRouteModule,
+  MaybePromise,
   ModuleRegistry,
   ResolvedApiRoute,
   ResolvedPrachtApp,
@@ -27,6 +28,28 @@ import type {
 } from "./types.ts";
 
 export type LlmsTxtSection = "pages" | "api" | "capabilities";
+
+export interface LlmsTxtPageContext {
+  /** Concrete URL path, after expanding dynamic SSG/ISG routes. */
+  path: string;
+  /** The loaded route-module namespace, including custom plugin exports. */
+  data: RouteModule & Record<string, any>;
+}
+
+export interface LlmsTxtPageMetadata {
+  /** Link label. Defaults to the concrete route path. */
+  title?: string;
+  /** Text rendered after the link. */
+  description?: string;
+  /** H2 heading for this page. Defaults to "Pages". */
+  section?: string;
+}
+
+export interface LlmsTxtArtifact {
+  /** Path relative to the static output directory. */
+  outputPath: string;
+  content: string;
+}
 
 declare const __PRACHT_AGENT_SURFACE__: boolean | undefined;
 
@@ -38,6 +61,8 @@ export interface BuildLlmsTxtOptions {
   title: string;
   /** Blockquote summary rendered under the title. Omitted when empty. */
   description?: string;
+  /** Curated Markdown inserted after the summary and before the sections. */
+  details?: string | readonly string[];
   /**
    * Origin (e.g. "https://example.com") prepended to every link so the file
    * contains absolute URLs. Links stay root-relative when omitted.
@@ -61,10 +86,30 @@ export interface BuildLlmsTxtOptions {
    * do not need an entry here.
    */
   exclude?: readonly string[];
+  /**
+   * Map a concrete page and its route-module exports to llms.txt metadata.
+   * Return `false` to omit the page. Custom content formats stay in userland.
+   */
+  page?: (
+    context: LlmsTxtPageContext,
+  ) => MaybePromise<LlmsTxtPageMetadata | false | null | undefined>;
+  /**
+   * Render a page's Markdown source for `.md` assets and llms-full.txt.
+   * Defaults to the route module's `markdown` string export.
+   */
+  render?: (context: LlmsTxtPageContext) => MaybePromise<string | null | undefined>;
+  /** Emit llms-full.txt containing every rendered page source. */
+  full?: boolean;
+  /** Link rendered pages to generated `.md` assets instead of their HTML URL. */
+  markdownSuffix?: boolean;
 }
 
 interface LlmsTxtPageEntry {
   path: string;
+  title: string;
+  description?: string;
+  section: string;
+  source?: string;
   /** True when the route module exports a server-only `markdown` string. */
   markdown: boolean;
 }
@@ -96,6 +141,14 @@ function isReservedPath(path: string): boolean {
 }
 
 export async function buildLlmsTxt(options: BuildLlmsTxtOptions): Promise<string> {
+  const artifacts = await buildLlmsTxtArtifacts(options);
+  return artifacts[0].content;
+}
+
+/** Build llms.txt plus optional llms-full.txt and per-page Markdown assets. */
+export async function buildLlmsTxtArtifacts(
+  options: BuildLlmsTxtOptions,
+): Promise<LlmsTxtArtifact[]> {
   const include = options.include ?? ["pages", "api", "capabilities"];
   const origin = options.origin?.replace(/\/$/, "") ?? "";
   const excludesPattern = createExcludeMatcher(options.exclude);
@@ -106,15 +159,42 @@ export async function buildLlmsTxt(options: BuildLlmsTxtOptions): Promise<string
     lines.push("", `> ${options.description}`);
   }
 
+  const details = typeof options.details === "string" ? [options.details] : (options.details ?? []);
+  for (const detail of details) {
+    if (detail) lines.push("", detail);
+  }
+
+  let pages: LlmsTxtPageEntry[] = [];
+
   if (include.includes("pages")) {
-    const pages = (await collectPageEntries(options.app.routes, options.registry)).filter(
-      (page) => !isExcluded(page.path),
+    pages = await collectPageEntries(
+      options.app.routes,
+      options.registry,
+      options.page,
+      options.render,
+      isExcluded,
     );
     if (pages.length > 0) {
-      lines.push("", "## Pages", "");
+      const sections = new Map<string, LlmsTxtPageEntry[]>();
       for (const page of pages) {
-        const note = page.markdown ? ": supports `Accept: text/markdown`" : "";
-        lines.push(`- [${page.path}](${origin}${page.path})${note}`);
+        const entries = sections.get(page.section) ?? [];
+        entries.push(page);
+        sections.set(page.section, entries);
+      }
+      for (const [section, entries] of sections) {
+        lines.push("", `## ${section}`, "");
+        for (const page of entries) {
+          const href =
+            options.markdownSuffix && page.source !== undefined
+              ? markdownSuffixPath(page.path)
+              : page.path;
+          const notes = [
+            ...(page.description ? [page.description] : []),
+            ...(page.markdown ? ["supports `Accept: text/markdown`"] : []),
+          ];
+          const note = notes.length > 0 ? `: ${notes.join(" — ")}` : "";
+          lines.push(`- [${page.title}](${origin}${href})${note}`);
+        }
       }
     }
   }
@@ -148,7 +228,43 @@ export async function buildLlmsTxt(options: BuildLlmsTxtOptions): Promise<string
     }
   }
 
-  return `${lines.join("\n")}\n`;
+  const artifacts: LlmsTxtArtifact[] = [
+    { outputPath: "llms.txt", content: `${lines.join("\n")}\n` },
+  ];
+
+  if (options.full) {
+    const fullLines = [`# ${options.title}`];
+    if (options.description) fullLines.push("", `> ${options.description}`);
+    for (const detail of details) {
+      if (detail) fullLines.push("", detail);
+    }
+    for (const page of pages) {
+      if (page.source === undefined) continue;
+      fullLines.push("", "---", "", `# ${page.title}`);
+      if (page.description) fullLines.push("", `> ${page.description}`);
+      if (page.source.trim()) fullLines.push("", page.source.trim());
+    }
+    artifacts.push({ outputPath: "llms-full.txt", content: `${fullLines.join("\n")}\n` });
+  }
+
+  if (options.markdownSuffix) {
+    for (const page of pages) {
+      if (page.source === undefined) continue;
+      artifacts.push({
+        outputPath: markdownSuffixPath(page.path).slice(1),
+        content: `${page.source.replace(/\n*$/, "")}\n`,
+      });
+    }
+  }
+
+  return artifacts;
+}
+
+function markdownSuffixPath(path: string): string {
+  if (path === "/") return "/index.md";
+  if (path === "/index") return "/index/index.md";
+  if (path.endsWith("/")) return `${path}index.md`;
+  return `${path}.md`;
 }
 
 /**
@@ -225,16 +341,47 @@ async function loadRouteModule(
 async function collectPageEntries(
   routes: readonly ResolvedRoute[],
   registry: ModuleRegistry | undefined,
+  pageMapper: BuildLlmsTxtOptions["page"],
+  sourceRenderer: BuildLlmsTxtOptions["render"],
+  isExcluded: (path: string) => boolean,
 ): Promise<LlmsTxtPageEntry[]> {
   const entries = new Map<string, LlmsTxtPageEntry>();
 
   for (const route of routes) {
     const routeModule = await loadRouteModule(registry, route.file);
+    const data = (routeModule ?? {}) as RouteModule & Record<string, any>;
     const markdown = typeof routeModule?.markdown === "string";
+
+    const createEntry = async (path: string): Promise<LlmsTxtPageEntry | undefined> => {
+      if (isExcluded(path)) return undefined;
+      const context = { data, path };
+      const metadata = (await pageMapper?.(context)) ?? {};
+      if (metadata === false) return undefined;
+      if (typeof metadata !== "object") {
+        throw new Error(`llmsTxt.page() returned invalid metadata for ${JSON.stringify(path)}.`);
+      }
+      const rendered = sourceRenderer
+        ? await sourceRenderer(context)
+        : typeof routeModule?.markdown === "string"
+          ? routeModule.markdown
+          : undefined;
+      if (rendered !== undefined && rendered !== null && typeof rendered !== "string") {
+        throw new Error(`llmsTxt.render() must return a string for ${JSON.stringify(path)}.`);
+      }
+      return {
+        description: metadata.description,
+        markdown,
+        path,
+        section: metadata.section || "Pages",
+        source: rendered ?? undefined,
+        title: metadata.title || path,
+      };
+    };
 
     if (!isDynamicRoute(route)) {
       if (!entries.has(route.path)) {
-        entries.set(route.path, { markdown, path: route.path });
+        const entry = await createEntry(route.path);
+        if (entry) entries.set(route.path, entry);
       }
       continue;
     }
@@ -255,7 +402,8 @@ async function collectPageEntries(
     for (const params of paramSets) {
       const path = buildPathFromSegments(route.segments, params);
       if (!entries.has(path)) {
-        entries.set(path, { markdown, path });
+        const entry = await createEntry(path);
+        if (entry) entries.set(path, entry);
       }
     }
   }

@@ -5,6 +5,18 @@ import { createDefaultNodeAdapter, type PrachtAdapter } from "./plugin-adapter.t
 
 export type LlmsTxtSection = "pages" | "api" | "capabilities";
 
+export interface LlmsTxtPageContext {
+  path: string;
+  /** Loaded route-module exports, including exports added by content plugins. */
+  data: Record<string, any>;
+}
+
+export interface LlmsTxtPageMetadata {
+  title?: string;
+  description?: string;
+  section?: string;
+}
+
 export interface PrachtLlmsTxtOptions {
   /** H1 title. Defaults to the app's package.json `name`. */
   title?: string;
@@ -13,6 +25,8 @@ export interface PrachtLlmsTxtOptions {
    * `description`; omitted when neither is set.
    */
   description?: string;
+  /** Curated Markdown inserted before the generated sections. */
+  details?: string | string[];
   /**
    * Origin (e.g. "https://example.com") prepended to every link so llms.txt
    * contains absolute URLs. Links stay root-relative when omitted.
@@ -33,6 +47,23 @@ export interface PrachtLlmsTxtOptions {
    * ```
    */
   exclude?: string[];
+  /** Customize page titles, descriptions, and section headings. Return false to omit a page. */
+  page?: (
+    context: LlmsTxtPageContext,
+  ) =>
+    | LlmsTxtPageMetadata
+    | false
+    | null
+    | undefined
+    | Promise<LlmsTxtPageMetadata | false | null | undefined>;
+  /** Render a page's source for `.md` assets and llms-full.txt. Defaults to `data.markdown`. */
+  render?: (
+    context: LlmsTxtPageContext,
+  ) => string | null | undefined | Promise<string | null | undefined>;
+  /** Emit `/llms-full.txt` with the rendered source of every included page. */
+  full?: boolean;
+  /** Emit per-page `.md` assets and link to them from llms.txt. */
+  markdownSuffix?: boolean;
 }
 
 export interface PrachtPluginOptions {
@@ -151,6 +182,28 @@ function validateLlmsTxt(llmsTxt: false | PrachtLlmsTxtOptions): void {
         `pracht({ llmsTxt: { include } }) expects an array of "pages", "api", and/or "capabilities", got ${JSON.stringify(llmsTxt.include)}.`,
       );
     }
+  }
+  if (
+    llmsTxt.details !== undefined &&
+    typeof llmsTxt.details !== "string" &&
+    !(
+      Array.isArray(llmsTxt.details) &&
+      llmsTxt.details.every((detail) => typeof detail === "string")
+    )
+  ) {
+    throw new Error("pracht({ llmsTxt: { details } }) expects a string or an array of strings.");
+  }
+  if (llmsTxt.page !== undefined && typeof llmsTxt.page !== "function") {
+    throw new Error("pracht({ llmsTxt: { page } }) expects a function.");
+  }
+  if (llmsTxt.render !== undefined && typeof llmsTxt.render !== "function") {
+    throw new Error("pracht({ llmsTxt: { render } }) expects a function.");
+  }
+  if (llmsTxt.full !== undefined && typeof llmsTxt.full !== "boolean") {
+    throw new Error("pracht({ llmsTxt: { full } }) expects a boolean.");
+  }
+  if (llmsTxt.markdownSuffix !== undefined && typeof llmsTxt.markdownSuffix !== "boolean") {
+    throw new Error("pracht({ llmsTxt: { markdownSuffix } }) expects a boolean.");
   }
 }
 

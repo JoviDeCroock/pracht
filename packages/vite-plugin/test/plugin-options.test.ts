@@ -1,5 +1,6 @@
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { parseAst } from "vite";
 
 import {
   createPrachtDevModuleSource,
@@ -57,6 +58,27 @@ describe("resolveOptions llmsTxt", () => {
     expect(resolved.llmsTxt).toEqual({ include: ["capabilities"] });
   });
 
+  it("accepts extensible page metadata and source output options", () => {
+    const page = ({ data }: { data: Record<string, any> }) => ({ title: data.title });
+    const render = ({ data }: { data: Record<string, any> }) => data.markdown;
+    const resolved = resolveOptions({
+      llmsTxt: {
+        details: "Start here.",
+        full: true,
+        markdownSuffix: true,
+        page,
+        render,
+      },
+    });
+    expect(resolved.llmsTxt).toMatchObject({
+      details: "Start here.",
+      full: true,
+      markdownSuffix: true,
+      page,
+      render,
+    });
+  });
+
   it("rejects unknown include sections", () => {
     // @ts-expect-error — "sitemap" is not a valid section.
     expect(() => resolveOptions({ llmsTxt: { include: ["sitemap"] } })).toThrow(
@@ -76,11 +98,44 @@ describe("createPrachtServerModuleSource llmsTxt export", () => {
     const source = createPrachtServerModuleSource({
       llmsTxt: { title: "My App", description: "Demo.", origin: "https://example.com" },
     });
-    expect(source).toContain('import { buildLlmsTxt } from "@pracht/core/server";');
+    expect(source).toContain('import { buildLlmsTxtArtifacts } from "@pracht/core/server";');
     expect(source).toContain(
       'const llmsTxtConfig = {"title":"My App","description":"Demo.","origin":"https://example.com"};',
     );
-    expect(source).toContain("export const generateLlmsTxt = () =>");
+    expect(source).toContain("export const generateLlmsTxt = async () =>");
+  });
+
+  it("serializes page and render callbacks into the generated server module", () => {
+    const source = createPrachtServerModuleSource({
+      llmsTxt: {
+        full: true,
+        page: ({ data }) => ({ title: data.content.title }),
+        render: ({ data }) => data.content.source,
+      },
+    });
+
+    expect(source).toContain('"full":true,"page":(');
+    expect(source).toContain('"render":(');
+    expect(source).toContain("data.content.title");
+    expect(source).toContain("data.content.source");
+    expect(source).toContain("export const generateLlmsTxtArtifacts = () =>");
+  });
+
+  it("normalizes object-method callbacks into valid generated module syntax", () => {
+    const source = createPrachtServerModuleSource({
+      llmsTxt: {
+        page({ path }) {
+          return { title: path };
+        },
+        async render({ data }) {
+          return data.markdown;
+        },
+      },
+    });
+
+    expect(source).toContain('"page":(function({ path }) {');
+    expect(source).toContain('"render":(async function({ data }) {');
+    expect(() => parseAst(source)).not.toThrow();
   });
 
   it("falls back to the app package.json name for the title", () => {

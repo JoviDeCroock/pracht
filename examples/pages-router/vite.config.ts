@@ -24,7 +24,7 @@ export default defineConfig(async () => {
       pracht({
         pagesDir: "/src/pages",
         adapter: await resolveAdapter(target),
-        llmsTxt: { title: "Pracht Pages Example" },
+        llmsTxt: { title: "Pracht Pages Example", full: true, markdownSuffix: true },
       }),
       prachtOpenApi({
         info: { title: "Pracht Pages Example API", version: "1.0.0" },

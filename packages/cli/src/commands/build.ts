@@ -174,14 +174,64 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
       withISGManifest: true,
       concurrency: serverMod.prerenderConcurrency,
     });
+
+    // Resolve and validate generated llms.txt paths before writing prerendered
+    // pages. A generated Markdown artifact owns its URL in production, so an
+    // SSG/ISG route at that exact path must not first create a directory there.
+    const llmsTxtArtifacts: Array<{ content: string; outputPath: string }> = [];
+    if (
+      typeof serverMod.generateLlmsTxtArtifacts === "function" ||
+      typeof serverMod.generateLlmsTxt === "function"
+    ) {
+      const generated =
+        typeof serverMod.generateLlmsTxtArtifacts === "function"
+          ? await serverMod.generateLlmsTxtArtifacts()
+          : [{ outputPath: "llms.txt", content: await serverMod.generateLlmsTxt() }];
+      if (!Array.isArray(generated) || generated.length === 0) {
+        throw new Error("llms.txt generator returned no build artifacts.");
+      }
+
+      const seenOutputPaths = new Set<string>();
+      for (const artifact of generated) {
+        if (
+          !artifact ||
+          typeof artifact.outputPath !== "string" ||
+          typeof artifact.content !== "string"
+        ) {
+          throw new Error("llms.txt generator returned an invalid build artifact.");
+        }
+        const filePath = resolveGeneratedArtifactOutputPath(clientDir, artifact.outputPath);
+        if (seenOutputPaths.has(filePath)) {
+          throw new Error(
+            `llms.txt generator returned duplicate output path ${JSON.stringify(artifact.outputPath)}.`,
+          );
+        }
+        seenOutputPaths.add(filePath);
+        llmsTxtArtifacts.push({ content: artifact.content, outputPath: artifact.outputPath });
+      }
+    }
+
+    const publishedPages = excludePrerenderPagesShadowedByGeneratedArtifacts(
+      pages as Array<{
+        headers?: Record<string, string>;
+        html: string;
+        markdown?: boolean;
+        path: string;
+      }>,
+      llmsTxtArtifacts,
+    );
+    const publishedPagePaths = new Set(publishedPages.map((page: { path: string }) => page.path));
+    for (const path of Object.keys(isgManifest)) {
+      if (!publishedPagePaths.has(path)) delete isgManifest[path];
+    }
     const headersManifest: Record<string, Record<string, string>> = Object.fromEntries(
-      pages.map((page: { path: string; headers?: Record<string, string> }) => [
+      publishedPages.map((page: { path: string; headers?: Record<string, string> }) => [
         page.path,
         page.headers ?? {},
       ]),
     );
     const markdownManifest: Record<string, true> = Object.fromEntries(
-      pages
+      publishedPages
         .filter((page: { markdown?: boolean }) => page.markdown)
         .map((page: { path: string }) => [page.path, true]),
     );
@@ -196,10 +246,11 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
     const edgeCachedIsgPaths = cloudflareWorkersCacheEnabled
       ? Object.keys(isgManifest).filter((path) => hasTimeRevalidate(isgManifest[path]?.revalidate))
       : [];
-    const staticPages =
+    const adapterStaticPages =
       edgeCachedIsgPaths.length > 0
-        ? pages.filter((page: { path: string }) => !edgeCachedIsgPaths.includes(page.path))
-        : pages;
+        ? publishedPages.filter((page: { path: string }) => !edgeCachedIsgPaths.includes(page.path))
+        : publishedPages;
+    const staticPages = adapterStaticPages;
 
     if (staticPages.length > 0) {
       log(`\n  Prerendering ${staticPages.length} SSG/ISG route(s)...\n`);
@@ -212,21 +263,23 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
       }
     }
 
-    // The server module only exports generateLlmsTxt when the vite plugin's
-    // `llmsTxt` option is enabled — disabled builds skip this entirely.
-    if (typeof serverMod.generateLlmsTxt === "function") {
-      // Vite copies `public/` into the client output before this runs, so a
-      // hand-authored `public/llms.txt` is about to be overwritten. Silently
-      // discarding a file the user wrote is the worst outcome; say so.
-      if (existsSync(resolve(root, "public/llms.txt"))) {
-        log(
-          "\n  Warning: public/llms.txt is overwritten by the generated llms.txt.\n" +
-            "  Remove it, or disable the plugin's `llmsTxt` option to hand-author the file.",
-        );
+    if (llmsTxtArtifacts.length > 0) {
+      for (const artifact of llmsTxtArtifacts) {
+        const filePath = resolveGeneratedArtifactOutputPath(clientDir, artifact.outputPath);
+
+        // Vite copies public/ into the client output before this runs. Warn
+        // before replacing a hand-authored file so dev/build ownership cannot
+        // diverge silently.
+        if (existsSync(resolve(root, "public", artifact.outputPath))) {
+          log(
+            `\n  Warning: public/${artifact.outputPath} is overwritten by the generated artifact.\n` +
+              "  Remove it, or disable the plugin's `llmsTxt` option to hand-author the file.",
+          );
+        }
+        mkdirSync(dirname(filePath), { recursive: true });
+        writeFileSync(filePath, artifact.content, "utf-8");
+        log(`\n  ${artifact.outputPath} → dist/client/${artifact.outputPath}\n`);
       }
-      const llmsTxt: string = await serverMod.generateLlmsTxt();
-      writeFileSync(resolve(clientDir, "llms.txt"), llmsTxt, "utf-8");
-      log("\n  llms.txt → dist/client/llms.txt\n");
     }
 
     const generatedStaticRoutes: string[] = [];
@@ -369,7 +422,7 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
         regions: serverMod.vercelRegions,
         root,
         staticRoutes: [
-          ...pages
+          ...publishedPages
             .map((page: { path: string }) => page.path)
             .filter((path: string) => !(path in isgManifest)),
           ...generatedStaticRoutes,
@@ -509,4 +562,12 @@ export function resolveGeneratedArtifactOutputPath(clientDir: string, outputPath
     );
   }
   return filePath;
+}
+
+export function excludePrerenderPagesShadowedByGeneratedArtifacts<T extends { path: string }>(
+  pages: readonly T[],
+  artifacts: readonly { outputPath: string }[],
+): T[] {
+  const generatedPaths = new Set(artifacts.map((artifact) => `/${artifact.outputPath}`));
+  return pages.filter((page) => !generatedPaths.has(page.path));
 }

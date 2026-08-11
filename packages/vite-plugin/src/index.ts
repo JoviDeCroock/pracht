@@ -55,6 +55,8 @@ import {
 export type { RenderMode };
 export type { PrachtAdapter } from "./plugin-adapter.ts";
 export type {
+  LlmsTxtPageContext,
+  LlmsTxtPageMetadata,
   LlmsTxtSection,
   PrachtLlmsTxtOptions,
   PrachtPluginOptions,

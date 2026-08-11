@@ -24,6 +24,7 @@ const CSS_MODULE_URL_RE = /\.(?:css|less|sass|scss|styl|stylus|pcss|postcss|sss)
 export const DEVTOOLS_PATH = "/_pracht";
 export const DEVTOOLS_JSON_PATH = "/_pracht.json";
 export const LLMS_TXT_PATH = "/llms.txt";
+export const LLMS_FULL_TXT_PATH = "/llms-full.txt";
 
 export function createDevSSRMiddleware(
   server: ViteDevServer,
@@ -85,34 +86,54 @@ export function createDevSSRMiddleware(
         return;
       }
 
-      // `/llms.txt` is served from the live app graph when the plugin's
-      // `llmsTxt` option is enabled — the same content `pracht build` writes
-      // to dist/client/llms.txt.
+      // Generated llms.txt artifacts are served from the live app graph — the
+      // same content `pracht build` writes to dist/client.
       if (
         options.llmsTxt &&
-        requestUrl.pathname === LLMS_TXT_PATH &&
+        (requestUrl.pathname === LLMS_TXT_PATH ||
+          requestUrl.pathname === LLMS_FULL_TXT_PATH ||
+          requestUrl.pathname.endsWith(".md")) &&
         BODYLESS_METHODS.has((req.method ?? "GET").toUpperCase()) &&
-        typeof serverMod.generateLlmsTxt === "function"
+        (typeof serverMod.generateLlmsTxtArtifacts === "function" ||
+          typeof serverMod.generateLlmsTxt === "function")
       ) {
-        if (!warnedLlmsTxtCollision && matchesResolvedRoute(LLMS_TXT_PATH, routeMatchers)) {
+        const outputPath = requestUrl.pathname.slice(1);
+        const artifacts =
+          typeof serverMod.generateLlmsTxtArtifacts === "function"
+            ? await serverMod.generateLlmsTxtArtifacts()
+            : requestUrl.pathname === LLMS_TXT_PATH
+              ? [{ outputPath: "llms.txt", content: await serverMod.generateLlmsTxt() }]
+              : [];
+        const artifact = artifacts.find(
+          (candidate: { outputPath?: unknown }) => candidate?.outputPath === outputPath,
+        );
+        if (!artifact || typeof artifact.content !== "string") {
+          return next();
+        }
+
+        if (!warnedLlmsTxtCollision && matchesResolvedRoute(requestUrl.pathname, routeMatchers)) {
           warnedLlmsTxtCollision = true;
           server.config.logger.warn(
-            `[pracht] An app route matches ${LLMS_TXT_PATH}, which is reserved by the ` +
-              `pracht({ llmsTxt }) option. The generated llms.txt wins; disable the option ` +
+            `[pracht] An app route matches ${requestUrl.pathname}, which is reserved by the ` +
+              `pracht({ llmsTxt }) option. The generated artifact wins; disable the option ` +
               `to serve the app route instead.`,
           );
         }
 
-        const llmsTxt: string = await serverMod.generateLlmsTxt();
         res.statusCode = 200;
-        res.setHeader("content-type", "text/plain; charset=utf-8");
+        res.setHeader(
+          "content-type",
+          artifact.outputPath.endsWith(".md")
+            ? "text/markdown; charset=utf-8"
+            : "text/plain; charset=utf-8",
+        );
         // Match production: the adapters serve dist/client/llms.txt with the
         // framework's default security headers, and dev diverging from that is
         // exactly the kind of difference that only shows up after deploy.
         applyDefaultSecurityHeaders(new Headers()).forEach((value, key) => {
           res.setHeader(key, value);
         });
-        res.end(llmsTxt);
+        res.end(artifact.content);
         return;
       }
 

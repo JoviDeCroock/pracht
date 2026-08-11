@@ -12,7 +12,7 @@ test("GET /llms.txt serves the generated llms.txt in dev", async ({ request }) =
   expect(body.startsWith("# Pracht Pages Example\n")).toBe(true);
   expect(body).toContain("## Pages");
   expect(body).toContain("- [/](/)");
-  expect(body).toContain("- [/about](/about): supports `Accept: text/markdown`");
+  expect(body).toContain("- [/about](/about.md): supports `Accept: text/markdown`");
 
   // Dynamic SSG routes are expanded through getStaticPaths(); the raw
   // pattern must not appear.
@@ -23,6 +23,22 @@ test("GET /llms.txt serves the generated llms.txt in dev", async ({ request }) =
   expect(body).toContain("## API");
   expect(body).toContain("- [/api/health](/api/health): GET");
   expect(body).toContain("- [/api/me](/api/me): GET");
+});
+
+test("GET /llms-full.txt and Markdown-suffix pages serve generated source in dev", async ({
+  request,
+}) => {
+  const full = await request.get("/llms-full.txt");
+  expect(full.status()).toBe(200);
+  expect(full.headers()["content-type"]).toContain("text/plain");
+  expect(await full.text()).toContain("# About\n\nA static page rendered with SSG");
+
+  const page = await request.get("/about.md");
+  expect(page.status()).toBe(200);
+  expect(page.headers()["content-type"]).toContain("text/markdown");
+  expect(await page.text()).toBe(
+    "# About\n\nA static page rendered with SSG via the pages router.\n",
+  );
 });
 
 test("llms.txt page ordering is stable", async ({ request }) => {

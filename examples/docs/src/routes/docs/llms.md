@@ -82,7 +82,9 @@ pracht({
 
 `pracht build` writes `dist/client/llms.txt` and the dev server serves it live at `/llms.txt`.
 
-This docs site needs curated sections and an `llms-full.txt` bundle with inlined page content, so it uses a custom frontmatter-driven plugin instead:
+The built-in generator can also map static metadata from any content format,
+emit Markdown-suffix page assets, and build a full source corpus. This docs site
+uses those hooks for its frontmatter-driven Markdown routes:
 
 - `/llms.txt` — a concise map of the docs with titles, descriptions, and canonical URLs.
 - `/llms-full.txt` — a single Markdown bundle with the full source of every listed page.
@@ -92,20 +94,35 @@ curl https://pracht.resynapse.dev/llms.txt
 curl https://pracht.resynapse.dev/llms-full.txt
 ```
 
-The docs Vite config wires those files with a tiny plugin that scans the route manifest and frontmatter:
+The docs Vite config reads frontmatter from each route module's existing
+`markdown` export. Pracht receives only the values returned by the callbacks;
+it does not know the docs content schema:
 
 ```ts [examples/docs/vite.config.ts]
-llmsTxt({
-  origin: "https://pracht.resynapse.dev",
-  routesFile,
-  title: "pracht",
-  description:
-    "A full-stack Preact framework built on Vite with hybrid rendering and a unified data-loading model.",
-  sections: [{ heading: "Docs", match: "/docs" }],
+pracht({
+  adapter: cloudflareAdapter(),
+  llmsTxt: {
+    origin: "https://pracht.resynapse.dev",
+    title: "pracht",
+    page: ({ path, data }) => ({
+      title: readFrontmatter(data.markdown, "title") || path,
+      description: readFrontmatter(data.markdown, "lead"),
+      section: "Docs",
+    }),
+    render: ({ data }) => withoutFrontmatter(data.markdown),
+    markdownSuffix: true,
+    full: true,
+  },
 });
 ```
 
-Agents can start at `/llms.txt`, follow the canonical route URLs, and request any page with `Accept: text/markdown` when they need exact source.
+The real callbacks are self-contained because Pracht bundles them into the
+generated server module. Agents can start at `/llms.txt`, follow a `.md` link
+for one document, or fetch `/llms-full.txt` for the complete corpus. Dynamic
+SSG/ISG paths are expanded through `getStaticPaths()` before the callbacks run;
+excluded and framework-reserved concrete paths never invoke them. Generated
+paths also win over matching app routes consistently in development and
+production.
 
 ---
 

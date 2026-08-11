@@ -19,6 +19,7 @@ pracht({
     origin: "https://example.com", // emit absolute URLs; relative when omitted
     include: ["pages", "api", "capabilities"], // sections to emit (default: all)
     exclude: ["/dashboard", "/admin/**"],       // paths to leave out
+    details: "Start with the guides, then use the API reference.",
   },
 })
 ```
@@ -54,6 +55,12 @@ when neither is set).
   (routes added or removed show up on the next request). With the Cloudflare
   adapter the Cloudflare vite plugin owns the dev server, so `/llms.txt` is
   only available in build output there.
+
+When `full` or `markdownSuffix` is enabled, the same generator also writes
+`llms-full.txt` and concrete page assets such as `docs/getting-started.md`.
+The dev server serves those generated paths live too. Cloudflare's Vite plugin
+still owns its development server, so all generated llms.txt artifacts are
+build-only there.
 
 ## Output format
 
@@ -97,8 +104,41 @@ comparison, so repeated builds produce byte-identical files.
 - Routes with a server-only `markdown` export (Markdown-for-Agents content
   negotiation, see [docs/DATA_LOADING.md](DATA_LOADING.md)) are annotated with
   `supports \`Accept: text/markdown\``.
-- Link names are the route paths themselves. Page titles are not derivable
-  statically (`head()` needs a request), and paths are unambiguous for agents.
+- Link names are the route paths by default. Use `page()` when a route module or
+  content plugin exposes suitable static metadata; Pracht does not call
+  request-dependent `head()` functions or assume a content format.
+
+### Custom page metadata and full source
+
+`page({ path, data })` receives each concrete path and its loaded route-module
+exports. It can return `title`, `description`, and `section`, or `false` to omit
+the page. `render({ path, data })` returns that document's Markdown source.
+Both hooks may be async. They are bundled into the generated server module, so
+keep them self-contained instead of closing over values from `vite.config.ts`.
+
+```ts
+llmsTxt: {
+  origin: "https://example.com",
+  details: "Start with Guides; Reference contains exhaustive API details.",
+  page: ({ path, data }) => ({
+    title: data.content.meta.title,
+    description: data.content.meta.description,
+    section: data.content.section,
+  }),
+  render: ({ data }) => data.content.source,
+  full: true,
+  markdownSuffix: true,
+}
+```
+
+With these options, page links point at generated Markdown assets (`/guide.md`,
+`/index.md` for `/`, or `/index/index.md` for a distinct `/index` route) and
+`/llms-full.txt` concatenates every successfully rendered document. A page
+whose renderer returns `undefined` stays linked to its normal URL and is
+omitted from both the per-page assets and full corpus. Dynamic SSG/ISG pages
+still expand through `getStaticPaths()` before either hook runs, so each
+callback receives a concrete `path`. Excluded and framework-reserved concrete
+paths are removed before either callback runs.
 
 ### API
 
@@ -118,10 +158,9 @@ name.
 
 ## Notes
 
-- `/llms.txt` is reserved while the option is enabled; an app route at that
-  path is shadowed in dev (a warning is logged) and by the static file in
-  production.
-- If you need curated sections or an `llms-full.txt` with inlined page
-  content, keep using a custom plugin — see
-  [examples/docs/vite-plugin-llms-txt.ts](../examples/docs/vite-plugin-llms-txt.ts)
-  for a frontmatter-driven variant.
+- Every generated path is reserved while the option is enabled. A matching app
+  route is shadowed in dev (with a warning) and by the static file in
+  production; matching SSG/ISG output is not prerendered at that path. A
+  matching `public/` file is overwritten during build with a warning.
+- The docs example uses `page`, `render`, `full`, and `markdownSuffix` to map
+  its own frontmatter format without adding that format to Pracht.

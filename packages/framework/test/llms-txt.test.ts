@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { defineCapability } from "../../capabilities/src/index.ts";
 import { defineApp, resolveApiRoutes, resolveApp, route } from "../src/app.ts";
-import { buildLlmsTxt } from "../src/llms-txt.ts";
+import { buildLlmsTxt, buildLlmsTxtArtifacts } from "../src/llms-txt.ts";
 import type { ModuleRegistry } from "../src/types.ts";
 
 function createResolvedApp() {
@@ -129,6 +129,125 @@ describe("buildLlmsTxt", () => {
     expect(output).toContain("- [/](/)\n");
     expect(output).not.toContain("text/markdown");
     expect(output).toContain("- [/api/health](/api/health)\n");
+  });
+
+  it("maps route-module data to page metadata and curated sections", async () => {
+    const output = await buildLlmsTxt({
+      app: createResolvedApp(),
+      registry: {
+        routeModules: {
+          "/src/routes/home.tsx": async () => ({
+            content: { meta: { description: "Start here.", title: "Welcome" }, section: "Guides" },
+            markdown: "# Welcome",
+          }),
+          "/src/routes/about.tsx": async () => ({ content: { hidden: true }, markdown: undefined }),
+        },
+      },
+      title: "Pracht Test App",
+      details: ["Start with the guides below.", "Generated from the app graph."],
+      page: ({ data }) => {
+        if (data.content?.hidden) return false;
+        return {
+          title: data.content?.meta?.title,
+          description: data.content?.meta?.description,
+          section: data.content?.section,
+        };
+      },
+    });
+
+    expect(output).toContain(`Start with the guides below.
+
+Generated from the app graph.
+
+## Guides
+
+- [Welcome](/): Start here. — supports \`Accept: text/markdown\``);
+    expect(output).not.toContain("/about");
+  });
+
+  it("emits llms-full.txt and Markdown-suffix assets through the source hook", async () => {
+    const artifacts = await buildLlmsTxtArtifacts({
+      app: createResolvedApp(),
+      registry: createRegistry(),
+      title: "Pracht Test App",
+      full: true,
+      markdownSuffix: true,
+      render: ({ path, data }) =>
+        typeof data.markdown === "string" ? `${data.markdown}\n\nPath: ${path}` : undefined,
+    });
+
+    expect(artifacts.map((artifact) => artifact.outputPath)).toEqual([
+      "llms.txt",
+      "llms-full.txt",
+      "index.md",
+    ]);
+    expect(artifacts[0].content).toContain("- [/](/index.md)");
+    expect(artifacts[0].content).toContain("- [/about](/about)");
+    expect(artifacts[1].content).toContain("# /\n\n# Home\n\nPath: /");
+    expect(artifacts[2]).toEqual({ outputPath: "index.md", content: "# Home\n\nPath: /\n" });
+  });
+
+  it("does not invoke page hooks for excluded concrete paths", async () => {
+    const visited: string[] = [];
+    const app = resolveApp(
+      defineApp({
+        routes: [
+          route("/public", "./routes/public.tsx", { render: "ssr" }),
+          route("/admin", "./routes/admin.tsx", { render: "ssr" }),
+        ],
+      }),
+    );
+
+    await buildLlmsTxtArtifacts({
+      app,
+      exclude: ["/admin"],
+      registry: {
+        routeModules: {
+          "/src/routes/public.tsx": async () => ({ markdown: "# Public" }),
+          "/src/routes/admin.tsx": async () => ({ markdown: "# Admin" }),
+        },
+      },
+      title: "Pracht Test App",
+      page: ({ path }) => {
+        visited.push(`page:${path}`);
+      },
+      render: ({ path, data }) => {
+        visited.push(`render:${path}`);
+        return data.markdown;
+      },
+    });
+
+    expect(visited).toEqual(["page:/public", "render:/public"]);
+  });
+
+  it("keeps root and /index Markdown artifacts distinct", async () => {
+    const app = resolveApp(
+      defineApp({
+        routes: [
+          route("/", "./routes/home.tsx", { render: "ssr" }),
+          route("/index", "./routes/index.tsx", { render: "ssr" }),
+        ],
+      }),
+    );
+    const artifacts = await buildLlmsTxtArtifacts({
+      app,
+      markdownSuffix: true,
+      registry: {
+        routeModules: {
+          "/src/routes/home.tsx": async () => ({ markdown: "# Home" }),
+          "/src/routes/index.tsx": async () => ({ markdown: "# Index" }),
+        },
+      },
+      title: "Pracht Test App",
+    });
+
+    expect(artifacts.map((artifact) => artifact.outputPath)).toEqual([
+      "llms.txt",
+      "index.md",
+      "index/index.md",
+    ]);
+    expect(artifacts[0].content).toContain("- [/](/index.md)");
+    expect(artifacts[0].content).toContain("- [/index](/index/index.md)");
   });
 });
 

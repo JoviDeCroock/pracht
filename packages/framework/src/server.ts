@@ -110,8 +110,15 @@ export type {
   CapabilityTestInvokeOptions,
   CapabilityTestRequestOptions,
 } from "./testing-capabilities.ts";
-export { buildLlmsTxt } from "./llms-txt.ts";
-export type { BuildLlmsTxtOptions, LlmsTxtSection } from "./llms-txt.ts";
+export {
+  buildLlmsTxt,
+  buildLlmsTxtArtifacts,
+  type BuildLlmsTxtOptions,
+  type LlmsTxtArtifact,
+  type LlmsTxtPageContext,
+  type LlmsTxtPageMetadata,
+  type LlmsTxtSection,
+} from "./llms-txt.ts";
 export { prerenderApp } from "./prerender.ts";
 export {
   createISGRegenerationRequest,

@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
+  excludePrerenderPagesShadowedByGeneratedArtifacts,
   resolveGeneratedArtifactOutputPath,
   resolvePrerenderOutputPath,
 } from "../src/commands/build.ts";
@@ -54,5 +55,18 @@ describe("resolveGeneratedArtifactOutputPath", () => {
     expect(() => resolveGeneratedArtifactOutputPath(clientDir, "../openapi.json")).toThrow(
       /outside dist\/client/,
     );
+  });
+});
+
+describe("excludePrerenderPagesShadowedByGeneratedArtifacts", () => {
+  it("keeps generated files from colliding with same-path prerender directories", () => {
+    const pages = [{ path: "/guide" }, { path: "/guide.md" }, { path: "/other" }];
+
+    expect(
+      excludePrerenderPagesShadowedByGeneratedArtifacts(pages, [
+        { outputPath: "guide.md" },
+        { outputPath: "llms.txt" },
+      ]),
+    ).toEqual([{ path: "/guide" }, { path: "/other" }]);
   });
 });
