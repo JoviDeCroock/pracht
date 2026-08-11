@@ -61,10 +61,15 @@ interface RouteRenderState {
   componentProps: Record<string, unknown>;
   data: unknown;
   params: RouteParams;
+  replaceDocument?: boolean;
   routeId: string;
   search: unknown;
   url: string;
   version: number;
+}
+
+function ClientRouteErrorFallback({ error }: { error: Error }) {
+  return error.message;
 }
 
 declare global {
@@ -358,6 +363,7 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
     currentUrl: string,
     routeModPromise?: Promise<any> | null,
     shellModPromise?: Promise<any> | null,
+    renderUnhandledError = false,
   ): Promise<RouteRenderState | null> {
     const routeMod = await (routeModPromise ?? startRouteImport(match));
     if (!routeMod) return null;
@@ -379,24 +385,27 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
     }
 
     const DefaultComponent = typeof routeMod.default === "function" ? routeMod.default : undefined;
+    const routeError = state.error ? deserializeRouteError(state.error) : searchError;
     const ErrorBoundary = routeMod.ErrorBoundary ?? resolvedShell?.ErrorBoundary;
+    const usesClientErrorFallback = routeError && !ErrorBoundary && renderUnhandledError;
     const Component = (
-      state.error || searchError ? ErrorBoundary : (routeMod.Component ?? DefaultComponent)
+      routeError
+        ? (ErrorBoundary ?? (renderUnhandledError ? ClientRouteErrorFallback : undefined))
+        : (routeMod.Component ?? DefaultComponent)
     ) as FunctionComponent<any>;
     if (!Component) return null;
 
-    const componentProps: Record<string, unknown> = state.error
-      ? { error: deserializeRouteError(state.error) }
-      : searchError
-        ? { error: searchError }
-        : { data: state.data, params: match.params, search };
+    const componentProps: Record<string, unknown> = routeError
+      ? { error: routeError }
+      : { data: state.data, params: match.params, search };
 
     return {
-      Shell,
+      Shell: usesClientErrorFallback ? null : Shell,
       Component,
       componentProps,
       data: state.data,
       params: match.params,
+      replaceDocument: Boolean(usesClientErrorFallback),
       routeId: match.route.id ?? "",
       search,
       url: currentUrl,
@@ -741,6 +750,7 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
         initialRequestUrl,
         initialRoutePromise,
         initialShellPromise,
+        true,
       );
       if (resolvedState) {
         applyRouteState(resolvedState);
@@ -752,9 +762,13 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
         initialRequestUrl,
         initialRoutePromise,
         initialShellPromise,
+        true,
       );
       if (initialRouteState) {
-        if (initialMatch.route.render === "spa") {
+        if (initialRouteState.replaceDocument) {
+          root.replaceChildren();
+          render(h(RouterRoot, { initialState: initialRouteState }), root);
+        } else if (initialMatch.route.render === "spa") {
           render(h(RouterRoot, { initialState: initialRouteState }), root);
         } else {
           markHydrating();

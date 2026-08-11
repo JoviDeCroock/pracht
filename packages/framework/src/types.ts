@@ -96,6 +96,16 @@ export type SearchParamValue =
 export type SearchParamsInput = string | URLSearchParams | Record<string, SearchParamValue>;
 export type RouteSearchRecord = Record<string, string | string[]>;
 
+type QueryWireValue = string | readonly string[];
+type QueryValueWireCheck<TValue, TError> = unknown extends TValue
+  ? TValue
+  : [Extract<NonNullable<TValue>, QueryWireValue>] extends [never]
+    ? TError
+    : TValue;
+type QueryRecordWireCheck<TQuery extends Record<string, unknown>, TError> = {
+  [TKey in keyof TQuery]: QueryValueWireCheck<TQuery[TKey], TError>;
+};
+
 export interface BuildHrefOptions {
   params?: Record<string, RouteParamInput>;
   search?: SearchParamsInput;
@@ -132,6 +142,8 @@ type RegisteredRouteMap = Register extends { routes: infer TRoutes }
 type HasRegisteredRoutes = keyof RegisteredRouteMap extends never ? false : true;
 type EmptyRouteParams = Record<never, never>;
 type IsEmptyRouteParams<TParams> = keyof TParams extends never ? true : false;
+type IsOptionalRouteSearch<TRoute extends RouteId> =
+  EmptyRouteParams extends RouteSearchFor<TRoute> ? true : false;
 
 export type RouteId = HasRegisteredRoutes extends true
   ? Extract<keyof RegisteredRouteMap, string>
@@ -171,18 +183,23 @@ export type RouteDataFor<TRoute extends RouteId> = HasRegisteredRoutes extends t
     : never
   : unknown;
 
-type TypedHrefOptions<TRoute extends RouteId> =
+type TypedRouteParamsOptions<TRoute extends RouteId> =
   IsEmptyRouteParams<RouteParamsFor<TRoute>> extends true
-    ? {
-        params?: never;
-        search?: RouteSearchFor<TRoute>;
-        hash?: string;
-      }
-    : {
-        params: RouteParamsFor<TRoute>;
-        search?: RouteSearchFor<TRoute>;
-        hash?: string;
-      };
+    ? { params?: never }
+    : { params: RouteParamsFor<TRoute> };
+
+type TypedRouteSearchOptions<TRoute extends RouteId> =
+  IsOptionalRouteSearch<TRoute> extends true
+    ? { search?: RouteSearchFor<TRoute> }
+    : { search: RouteSearchFor<TRoute> };
+
+type TypedHrefOptions<TRoute extends RouteId> = TypedRouteParamsOptions<TRoute> &
+  TypedRouteSearchOptions<TRoute> & {
+    hash?: string;
+  };
+
+type HasOptionalHrefOptions<TRoute extends RouteId> =
+  IsEmptyRouteParams<RouteParamsFor<TRoute>> extends true ? IsOptionalRouteSearch<TRoute> : false;
 
 export type HrefOptions<TRoute extends RouteId = RouteId> = HasRegisteredRoutes extends true
   ? TRoute extends RouteId
@@ -192,7 +209,7 @@ export type HrefOptions<TRoute extends RouteId = RouteId> = HasRegisteredRoutes 
 
 export type HrefArgs<TRoute extends RouteId = RouteId> = HasRegisteredRoutes extends true
   ? TRoute extends RouteId
-    ? IsEmptyRouteParams<RouteParamsFor<TRoute>> extends true
+    ? HasOptionalHrefOptions<TRoute> extends true
       ? [options?: TypedHrefOptions<TRoute>]
       : [options: TypedHrefOptions<TRoute>]
     : never
@@ -311,8 +328,6 @@ type ApiFetchBodyField<TBody> = unknown extends TBody
     ? { body?: ApiFetchBodyInput<TBody> }
     : { body: ApiFetchBodyInput<TBody> };
 
-type QueryWireValue = string | readonly string[];
-
 /**
  * Query values cross the wire as URL search params: the server always hands
  * the query schema a string per key (or a string array for repeated keys). A
@@ -322,18 +337,12 @@ type QueryWireValue = string | readonly string[];
  * (`z.coerce.number()`, `z.enum([...])`, unions with a string arm) pass
  * through unchanged.
  */
+type ApiQueryWireError = {
+  readonly "Query values arrive as strings; give this key a schema input that accepts them (e.g. z.coerce.number())": never;
+};
+
 type ApiQueryWireCheck<TQuery> =
-  TQuery extends Record<string, unknown>
-    ? {
-        [TKey in keyof TQuery]: unknown extends TQuery[TKey]
-          ? TQuery[TKey]
-          : [Extract<NonNullable<TQuery[TKey]>, QueryWireValue>] extends [never]
-            ? {
-                readonly "Query values arrive as strings; give this key a schema input that accepts them (e.g. z.coerce.number())": never;
-              }
-            : TQuery[TKey];
-      }
-    : TQuery;
+  TQuery extends Record<string, unknown> ? QueryRecordWireCheck<TQuery, ApiQueryWireError> : TQuery;
 
 type ApiFetchQueryField<TQuery> = unknown extends TQuery
   ? { query?: SearchParamsInput }
@@ -967,9 +976,23 @@ export type RouteLoaderData<TModule, TFallbackModule = TModule> = TModule extend
     : undefined;
 
 /** Infer the accepted link/navigation search input from a route module's `search` schema. */
+type RouteSearchWireError = {
+  readonly "Route search values arrive as strings; give this key a schema input that accepts them (e.g. z.coerce.number())": never;
+};
+
+type RouteSearchRecordError = {
+  readonly "Route search schemas receive a record of string values and string arrays": never;
+};
+
+type RouteSearchWireCheck<TSearch> = unknown extends TSearch
+  ? TSearch
+  : TSearch extends Record<string, unknown>
+    ? QueryRecordWireCheck<TSearch, RouteSearchWireError>
+    : RouteSearchRecordError;
+
 export type RouteSearchInput<TModule> = TModule extends { search: infer TSchema }
   ? TSchema extends StandardSchemaV1
-    ? StandardSchemaV1.InferInput<TSchema>
+    ? RouteSearchWireCheck<StandardSchemaV1.InferInput<TSchema>>
     : SearchParamsInput
   : SearchParamsInput;
 

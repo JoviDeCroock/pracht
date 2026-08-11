@@ -5,9 +5,12 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import {
   cleanupTempDirs,
+  coreDistTypesPath,
   createRepoTempDir,
   runCli,
   runCliStatus,
+  standardSchemaImportPath,
+  typecheckFixture,
   writeInspectablePagesApp,
   writeProjectFile,
   writeTypedManifestApp,
@@ -92,6 +95,66 @@ describe("@pracht/cli typegen routes", () => {
       });
     }
   }, 30_000);
+
+  it("enforces route search wire types and required input in generated navigation", () => {
+    const appDir = createRepoTempDir("pracht-cli-typegen-route-types-");
+    writeTypedManifestApp(appDir);
+    runCli(["typegen"], { cwd: appDir });
+
+    writeProjectFile(
+      appDir,
+      "src/route-consumer.ts",
+      `import { useNavigate, useSearch } from "@pracht/core";
+import { href } from "./pracht-routes.ts";
+
+href("home");
+href("product", { params: { id: "sku-1" }, search: { q: "boots" } });
+
+// @ts-expect-error - the route schema requires q, so search cannot be omitted
+href("product", { params: { id: "sku-1" } });
+
+// @ts-expect-error - page arrives as a string, so a number-only schema input cannot validate
+href("product", { params: { id: "sku-1" }, search: { q: "boots", page: 2 } });
+
+const navigate = useNavigate();
+void navigate({ route: "product", params: { id: "sku-1" }, search: { q: "boots" } });
+// @ts-expect-error - route-target navigation enforces required search too
+void navigate({ route: "product", params: { id: "sku-1" } });
+
+const search = useSearch("product");
+const _query: string = search.q;
+const _page: number = search.page;
+`,
+    );
+    writeProjectFile(
+      appDir,
+      "tsconfig.json",
+      JSON.stringify(
+        {
+          compilerOptions: {
+            target: "ES2022",
+            module: "ESNext",
+            moduleResolution: "Bundler",
+            allowImportingTsExtensions: true,
+            noEmit: true,
+            strict: true,
+            skipLibCheck: true,
+            lib: ["ES2022", "DOM", "DOM.Iterable"],
+            types: ["node", "vite/client"],
+            paths: {
+              "@pracht/core": [coreDistTypesPath],
+              "@standard-schema/spec": [standardSchemaImportPath],
+            },
+          },
+          include: ["src"],
+        },
+        null,
+        2,
+      ),
+    );
+
+    typecheckFixture(appDir);
+  }, 60_000);
 
   it("generates typed route declarations for pages-router apps", () => {
     const appDir = createRepoTempDir("pracht-cli-typegen-pages-");

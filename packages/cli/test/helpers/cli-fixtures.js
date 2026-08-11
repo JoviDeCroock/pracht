@@ -381,7 +381,21 @@ export default defineCapability({
   writeProjectFile(
     appDir,
     "src/routes/product.tsx",
-    `export async function loader() {
+    `export const search = {
+  "~standard": {
+    version: 1,
+    vendor: "test",
+    validate(value: unknown) {
+      return { value: value as { q: string; page: number } };
+    },
+    types: undefined as unknown as {
+      input: { q: string; page?: number };
+      output: { q: string; page: number };
+    },
+  },
+} as const;
+
+export async function loader() {
   return { product: { id: "sku-1" } };
 }
 

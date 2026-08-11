@@ -142,6 +142,45 @@ describe("initClientRouter", () => {
     expect(root.textContent).toBe("2");
   });
 
+  it("replaces prerendered content when visitor search is invalid without a boundary", async () => {
+    history.replaceState(null, "", "/products?page=nope");
+    root.innerHTML = "<main>prerendered default</main>";
+
+    const app = resolveApp(
+      defineApp({
+        routes: [route("/products", "./routes/products.tsx", { render: "ssg" })],
+      }),
+    );
+
+    await initClientRouter({
+      app,
+      routeModules: {
+        "./routes/products.tsx": async () => ({
+          search: {
+            "~standard": {
+              version: 1,
+              vendor: "test",
+              validate: () => ({
+                issues: [{ message: "must be a positive integer", path: ["page"] }],
+              }),
+            },
+          },
+          default: () => h("main", null, "products"),
+        }),
+      },
+      shellModules: {},
+      initialState: {
+        data: undefined,
+        routeId: "products",
+        url: "/products",
+      },
+      root,
+      findModuleKey: (_modules, file) => file,
+    });
+
+    expect(root.textContent).toBe("Invalid search parameters: page: must be a positive integer");
+  });
+
   it("hydrates SPA loading shells with validated search state", async () => {
     history.replaceState(null, "", "/settings?page=2");
     root.innerHTML = "<section><span>2</span><p>Loading</p></section>";

@@ -305,8 +305,10 @@ segments, so missing or extra params fail at compile time. A route module can
 export a Standard Schema as `search`; typegen then uses its input type for
 `href()`, `<Link>`, and `navigate()`, while `useSearch(routeId)`, loaders, and
 components receive the validated output. Routes without a schema continue to
-accept `SearchParamsInput` and expose a raw string/string-array record. Invalid
-search renders the nearest route or shell `ErrorBoundary` with HTTP 400.
+accept `SearchParamsInput` and expose a raw string/string-array record. Required
+schema input makes navigation's `search` field required, and number/boolean-only
+schema inputs are rejected because URL values arrive as strings. Invalid
+runtime search renders the nearest route or shell `ErrorBoundary` with HTTP 400.
 
 The declaration also registers each route's loader data type, so
 `useRouteData("product")` returns the awaited return type of that route's

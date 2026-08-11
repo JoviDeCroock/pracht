@@ -181,12 +181,18 @@ Generated param types accept `RouteParamInput = string | number | boolean`
   object of primitive values/arrays.
 - A route module can export a Standard Schema as `search`. Typegen uses its
   input for navigation and its validated output for `useSearch(routeId)`.
+- Navigation requires `search` when the schema input does not accept an empty
+  record.
 - Search schemas receive string values and arrays for repeated keys; coerce
-  numeric and boolean values at the schema boundary.
+  numeric and boolean values at the schema boundary. Typegen rejects schema
+  fields that cannot accept their string wire representation.
 - Search schemas run on both the server and full-hydration client. Keep them
   browser-safe and deterministic; the client validates the visitor's current
   URL, including when SSG/ISG HTML was generated without that query.
-- Invalid route search is an HTTP 400 handled by the nearest `ErrorBoundary`.
+- Invalid route search reaching the runtime is an HTTP 400 handled by the
+  nearest `ErrorBoundary`. Prerendered documents validate after hydration and
+  render the boundary or a plain fallback message without changing the static
+  response status.
 
 ## Step 5: Verify
 

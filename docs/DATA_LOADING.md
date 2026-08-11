@@ -83,9 +83,15 @@ export async function loader({ search }: LoaderArgs) {
 ```
 
 Generated route types use the schema input for `href()`, `<Link>`, and
-`navigate()`, and the schema output for `useSearch(routeId)`. Invalid search
-returns HTTP 400 and is handled by the route or shell `ErrorBoundary`. Routes
-without a schema receive `Record<string, string | string[]>`.
+`navigate()`, and the schema output for `useSearch(routeId)`. Navigation
+requires `search` when the schema input does not accept an empty record, and
+rejects input fields that cannot accept the string values sent over the URL.
+Routes without a schema receive `Record<string, string | string[]>`.
+
+Invalid search reaching the route runtime returns HTTP 400 and is handled by
+the route or shell `ErrorBoundary`. Prerendered SSG/ISG HTML has already been
+served with its static status; full hydration validates the visitor's query
+and renders the nearest boundary, or a plain error message when none exists.
 
 The schema is isomorphic: full-hydration routes validate on the server and
 again from the browser's current URL, so keep schema code browser-safe and
