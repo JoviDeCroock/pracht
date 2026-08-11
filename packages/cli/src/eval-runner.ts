@@ -18,8 +18,17 @@
  *         "expect": { "ok": true, "errorCode": "...", "status": 200,
  *                     "output": { "notes": [] } }  // subset match
  *       }
- *     ]
+ *     ],
+ *     "signAs": {                              // optional Web Bot Auth identity
+ *       "agent": "https://my-agent.example",
+ *       "privateKeyJwk": { "kty": "OKP", "crv": "Ed25519", "d": "...", "x": "..." }
+ *     }
  *   }
+ *
+ * `signAs` signs every step with RFC 9421 HTTP Message Signatures, which is
+ * what a capability declaring `agentPolicy: "require"` demands. Per-step
+ * `"sign": false` opts a step out, so one scenario can prove both the signed
+ * and unsigned halves of an agent-trust policy.
  *
  * Reference syntax: a string value that is exactly `$steps[<index>].<path>`
  * is replaced with that value from an earlier step's result. The root object
@@ -30,6 +39,7 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { capabilityHttpPath, CONFIRMATION_HEADER } from "@pracht/capabilities";
+import { createAgentSignatureHeaders, type AgentSigningJwk } from "@pracht/core/agent-auth";
 
 export interface EvalExpectation {
   ok?: boolean;
@@ -51,13 +61,34 @@ export interface EvalStep {
    * header without spelling out the header name.
    */
   confirm?: string;
+  /**
+   * Opt this step out of the scenario's `signAs` identity — for asserting that
+   * an `agentPolicy: "require"` capability rejects unsigned callers.
+   */
+  sign?: boolean;
   expect?: EvalExpectation;
+}
+
+/**
+ * Web Bot Auth identity used to sign every step of a scenario.
+ *
+ * The signature covers `@authority`, so it is computed per request against the
+ * URL actually being called — which is why this cannot be expressed as static
+ * `headers` and needed first-class support.
+ */
+export interface EvalSignAs {
+  agent: string;
+  privateKeyJwk: AgentSigningJwk;
+  keyId?: string;
+  lifetimeSeconds?: number;
 }
 
 export interface EvalScenario {
   name: string;
   task?: string;
   url?: string;
+  /** Sign every step (unless the step sets `"sign": false`) as this agent. */
+  signAs?: EvalSignAs;
   steps: EvalStep[];
 }
 
@@ -140,6 +171,25 @@ export function parseScenario(file: string): EvalScenario {
   for (const [index, step] of scenario.steps.entries()) {
     if (!step || typeof step !== "object" || typeof step.capability !== "string") {
       throw new Error(`step ${index} is missing a "capability" name`);
+    }
+  }
+  // Validated here rather than at first use: a malformed identity would
+  // otherwise surface as an unsigned request being rejected by the server,
+  // which reads like an application failure instead of a scenario bug.
+  if (scenario.signAs !== undefined) {
+    const signAs = scenario.signAs as Partial<EvalSignAs>;
+    if (!signAs || typeof signAs !== "object") {
+      throw new Error('"signAs" must be an object with "agent" and "privateKeyJwk"');
+    }
+    if (typeof signAs.agent !== "string" || signAs.agent === "") {
+      throw new Error('"signAs.agent" must be the agent\'s identity URL');
+    }
+    const jwk = signAs.privateKeyJwk as Partial<AgentSigningJwk> | undefined;
+    if (!jwk || jwk.kty !== "OKP" || jwk.crv !== "Ed25519") {
+      throw new Error('"signAs.privateKeyJwk" must be an Ed25519 OKP JWK');
+    }
+    if (typeof jwk.d !== "string" || typeof jwk.x !== "string") {
+      throw new Error('"signAs.privateKeyJwk" needs both "d" (private) and "x" (public)');
     }
   }
   return scenario as EvalScenario;
@@ -278,6 +328,30 @@ export async function runScenario(
 
     const path = step.path ?? capabilityHttpPath(step.capability);
     const url = new URL(path, options.baseUrl).toString();
+
+    // The signature covers `@authority` and a `created`/`expires` window, so it
+    // has to be produced per request against the concrete URL — the reason a
+    // signed step cannot be expressed with static `headers`.
+    if (scenario.signAs && step.sign !== false) {
+      try {
+        const signature = await createAgentSignatureHeaders(
+          new Request(url, { method: "POST" }),
+          scenario.signAs,
+        );
+        Object.assign(headers, signature);
+      } catch (error: unknown) {
+        return {
+          name: scenario.name,
+          file,
+          ok: false,
+          steps,
+          error: `could not sign step "${step.capability}": ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        };
+      }
+    }
+
     const started = performance.now();
     let status: number;
     let envelope: { ok?: unknown; data?: unknown; error?: { code?: unknown } };

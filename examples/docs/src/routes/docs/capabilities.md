@@ -10,6 +10,8 @@ next:
   title: Agent Trust
 ---
 
+> **Manifest router only.** Capabilities are registered through `defineApp({ capabilities })`, so apps using the [pages router](/docs/routing#what-the-pages-router-does-not-have) have no seam to declare them in — and therefore no capability HTTP endpoints, no WebMCP, no remote MCP, and no `pracht eval`. Ejecting to a manifest is a [one-time codegen](/docs/routing#ejecting-to-explicit-manifest).
+
 ## One Contract, Many Surfaces
 
 A capability is a typed, protocol-neutral application operation: JSON Schema input and output, an effect class (`read`, `write`, or `destructive`), optional named middleware, and a server-only `run()` function. From that single contract pracht generates:

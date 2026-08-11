@@ -1,6 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { defineApp, route, timeRevalidate, webhookRevalidate } from "@pracht/core";
+import {
+  defineApp,
+  resolveApiRoutes,
+  route,
+  timeRevalidate,
+  webhookRevalidate,
+} from "@pracht/core";
 
 import {
   createVercelEdgeHandler,
@@ -237,7 +243,14 @@ describe("createVercelEdgeHandler webhook revalidation", () => {
     );
 
     expect(response.status).toBe(200);
+    // `details` names *why* each path was skipped: the legacy arrays alone made
+    // a route without a webhook policy indistinguishable from a typo.
     await expect(response.json()).resolves.toEqual({
+      details: [
+        { outcome: "revalidated", path: "/pricing" },
+        { outcome: "skipped", path: "/time-only", reason: "no_webhook_policy" },
+        { outcome: "skipped", path: "/unknown", reason: "not_a_route" },
+      ],
       failed: [],
       revalidated: ["/pricing"],
       skipped: ["/time-only", "/unknown"],
@@ -267,7 +280,7 @@ describe("createVercelEdgeHandler webhook revalidation", () => {
     const response = await handler(createWebhookRequest(["/pricing"], "secret"), {});
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({
+    await expect(response.json()).resolves.toMatchObject({
       failed: ["/pricing"],
       revalidated: [],
       skipped: [],
@@ -292,7 +305,7 @@ describe("createVercelEdgeHandler webhook revalidation", () => {
     const response = await handler(createWebhookRequest(["/pricing"], "secret"), {});
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({
+    await expect(response.json()).resolves.toMatchObject({
       failed: ["/pricing"],
       revalidated: [],
       skipped: [],
@@ -313,7 +326,7 @@ describe("createVercelEdgeHandler webhook revalidation", () => {
     const response = await handler(createWebhookRequest(["/pricing"], "secret"), {});
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({
+    await expect(response.json()).resolves.toMatchObject({
       failed: [],
       revalidated: ["/pricing"],
       skipped: [],
@@ -331,10 +344,114 @@ describe("createVercelEdgeHandler webhook revalidation", () => {
     const response = await handler(createWebhookRequest(["/pricing"], "secret"), {});
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({
+    await expect(response.json()).resolves.toMatchObject({
       failed: ["/pricing"],
       revalidated: [],
       skipped: [],
     });
+  });
+});
+
+describe("default cache-control (shared with the Node and Cloudflare adapters)", () => {
+  const app = defineApp({
+    routes: [route("/dash", "./routes/dash.tsx", { render: "ssr" })],
+  });
+  const registry = {
+    routeModules: { "/src/routes/dash.tsx": async () => ({ default: () => null }) },
+  };
+
+  it("stamps SSR documents that set no policy of their own", async () => {
+    const handler = createVercelEdgeHandler({ app, registry });
+    const response = await handler(new Request("https://app.example/dash"), {});
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("private, no-cache");
+  });
+
+  it("leaves a route's own cache-control untouched", async () => {
+    const handler = createVercelEdgeHandler({
+      app: defineApp({ routes: [route("/cached", "./routes/cached.tsx", { render: "ssr" })] }),
+      registry: {
+        routeModules: {
+          "/src/routes/cached.tsx": async () => ({
+            default: () => null,
+            headers: () => ({ "cache-control": "public, max-age=600" }),
+          }),
+        },
+      },
+    });
+    const response = await handler(new Request("https://app.example/cached"), {});
+
+    expect(response.headers.get("cache-control")).toBe("public, max-age=600");
+  });
+
+  // The generated entry wires `nodeListener = createVercelNodeListener(handle)`
+  // around the very handler that stamps, so an ISG regeneration re-enters it.
+  // Stamping there wrote `private, no-cache` into Vercel's prerender cache —
+  // killing the CDN layer for every ISG page — and made `isCacheableISGResponse`
+  // false for every render, firing a "render this route as SSR instead" warning
+  // the framework itself had caused.
+  it("does not stamp ISG prerender responses, which Vercel stores and replays", async () => {
+    const isgApp = defineApp({
+      routes: [
+        route("/pricing", "./routes/pricing.tsx", {
+          render: "isg",
+          revalidate: timeRevalidate(60),
+        }),
+      ],
+    });
+    const handle = createVercelEdgeHandler({
+      app: isgApp,
+      registry: {
+        routeModules: { "/src/routes/pricing.tsx": async () => ({ default: () => null }) },
+      },
+    });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const listener = createVercelNodeListener(handle);
+
+    const headers: Record<string, string | string[]> = {};
+    await listener(
+      {
+        headers: { host: "app.example", "x-forwarded-proto": "https" },
+        method: "GET",
+        url: "/pricing",
+      },
+      {
+        end() {},
+        setHeader(key: string, value: string | string[]) {
+          headers[key] = value;
+        },
+        statusCode: 0,
+        write() {},
+      },
+    );
+
+    expect(headers["cache-control"]).toBeUndefined();
+    expect(warn).not.toHaveBeenCalled();
+
+    // The same handler still stamps on the ordinary edge path.
+    const edge = await handle(new Request("https://app.example/pricing"), {});
+    expect(edge.headers.get("cache-control")).toBe("private, no-cache");
+  });
+
+  it("does not touch non-GET responses", async () => {
+    const handler = createVercelEdgeHandler({
+      apiRoutes: resolveApiRoutes(["/src/api/echo.ts"]),
+      app: defineApp({ routes: [] }),
+      registry: {
+        apiModules: { "/src/api/echo.ts": async () => ({ POST: () => Response.json({}) }) },
+      },
+    });
+    const response = await handler(
+      new Request("https://app.example/api/echo", {
+        body: "{}",
+        headers: { "content-type": "application/json" },
+        method: "POST",
+      }),
+      {},
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.has("cache-control")).toBe(false);
   });
 });

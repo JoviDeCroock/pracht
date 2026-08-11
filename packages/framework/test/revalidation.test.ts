@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import {
   createRevalidationSingleFlight,
@@ -7,10 +7,13 @@ import {
   isAuthorizedRevalidationRequest,
   isCacheableISGResponse,
   normalizeRouteRevalidate,
+  classifyRevalidationSkip,
   readRevalidationRequest,
+  resolveRevalidationToken,
   timeRevalidate,
   webhookRevalidate,
 } from "@pracht/core";
+import { setServerEnv } from "@pracht/core/env/server";
 
 describe("revalidation policies", () => {
   it("supports combining time and webhook revalidation", () => {
@@ -226,5 +229,76 @@ describe("isCacheableISGResponse", () => {
       isCacheableISGResponse(new Response("x", { headers: { vary: "Accept, Authorization" } })),
     ).toBe(false);
     expect(isCacheableISGResponse(new Response("x", { headers: { vary: "*" } }))).toBe(false);
+  });
+});
+
+describe("resolveRevalidationToken", () => {
+  const previous = process.env.PRACHT_REVALIDATE_TOKEN;
+
+  afterEach(() => {
+    setServerEnv(undefined);
+    if (previous === undefined) delete process.env.PRACHT_REVALIDATE_TOKEN;
+    else process.env.PRACHT_REVALIDATE_TOKEN = previous;
+  });
+
+  it("reads the ambient process environment on Node-style runtimes", () => {
+    process.env.PRACHT_REVALIDATE_TOKEN = "from-process";
+    expect(resolveRevalidationToken()).toBe("from-process");
+  });
+
+  it("prefers installed platform bindings over the ambient environment", () => {
+    process.env.PRACHT_REVALIDATE_TOKEN = "from-process";
+    setServerEnv({ PRACHT_REVALIDATE_TOKEN: "from-binding" });
+    expect(resolveRevalidationToken()).toBe("from-binding");
+  });
+
+  it("treats a missing, empty, or non-string token as unconfigured", () => {
+    delete process.env.PRACHT_REVALIDATE_TOKEN;
+    expect(resolveRevalidationToken()).toBeUndefined();
+
+    setServerEnv({ PRACHT_REVALIDATE_TOKEN: "" });
+    expect(resolveRevalidationToken()).toBeUndefined();
+
+    setServerEnv({ PRACHT_REVALIDATE_TOKEN: 42 });
+    expect(resolveRevalidationToken()).toBeUndefined();
+  });
+
+  it("fails closed instead of throwing when no environment is available yet", () => {
+    // Mirrors Cloudflare before the first request installs its bindings.
+    setServerEnv(undefined);
+    const runtime = globalThis as Record<string, unknown>;
+    const realProcess = runtime.process;
+    try {
+      delete runtime.process;
+      expect(resolveRevalidationToken()).toBeUndefined();
+    } finally {
+      runtime.process = realProcess;
+    }
+  });
+});
+
+describe("classifyRevalidationSkip", () => {
+  const webhookEntry = { render: "isg", revalidate: [timeRevalidate(60), webhookRevalidate()] };
+
+  it("acts only when there is a prerendered entry with a webhook policy", () => {
+    expect(classifyRevalidationSkip(webhookEntry, true)).toBeNull();
+    expect(classifyRevalidationSkip({ render: "isg", revalidate: timeRevalidate(60) }, true)).toBe(
+      "no_webhook_policy",
+    );
+    expect(classifyRevalidationSkip(webhookEntry, false)).toBe("not_prerendered");
+  });
+
+  // Manifest-driven adapters (Node, Cloudflare) see no entry for a route that
+  // is not ISG. Without the matched route they reported every such path as
+  // `not_a_route`, so a real SSR route looked exactly like a typo.
+  it("distinguishes a real non-ISG route from a path that does not exist", () => {
+    expect(classifyRevalidationSkip(undefined, false, { render: "ssr" })).toBe("not_isg");
+    expect(classifyRevalidationSkip(undefined, false, null)).toBe("not_a_route");
+    expect(classifyRevalidationSkip(undefined, false)).toBe("not_a_route");
+  });
+
+  it("reports an ISG route with no cached copy as not_prerendered", () => {
+    // A dynamic ISG path getStaticPaths() never enumerated.
+    expect(classifyRevalidationSkip(undefined, false, { render: "isg" })).toBe("not_prerendered");
   });
 });

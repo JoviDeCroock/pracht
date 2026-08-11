@@ -112,6 +112,63 @@ export function isProtocolSwitchResponse(response: Response): boolean {
   return response.status < 200 || (response as { webSocket?: unknown }).webSocket != null;
 }
 
+/**
+ * Headers that already express a CDN caching policy. Any of them means the
+ * author has decided; pracht adds nothing.
+ */
+const CDN_CACHE_CONTROL_HEADERS = [
+  "cache-control",
+  "cdn-cache-control",
+  "cloudflare-cdn-cache-control",
+  "surrogate-control",
+  "vercel-cdn-cache-control",
+] as const;
+
+/**
+ * Stamp `Cache-Control: private, no-cache` on GET/HEAD responses that carry no
+ * caching policy of their own.
+ *
+ * A shared cache in front of the app — Cloudflare's Workers Caching, a CDN, a
+ * reverse proxy — may apply RFC 9111 heuristic freshness to a `200` that has no
+ * `Cache-Control`, and `Cookie` is not part of its cache key. Without this, an
+ * authenticated SSR page or an API `GET` can be stored and replayed to another
+ * user. The hazard is a property of "shared cache in front of an origin", not
+ * of any one platform, so every adapter applies the same default: leaving it to
+ * Cloudflare alone meant an app hardened there silently lost the protection
+ * when it moved to Node or Vercel.
+ *
+ * Anything that set its own policy passes through untouched: ISG responses,
+ * route-state JSON, static assets, and user `headers()` exports or middleware.
+ */
+export function preventHeuristicCaching(request: Request, response: Response): Response {
+  if (request.method !== "GET" && request.method !== "HEAD") return response;
+  // A WebSocket handshake carries no cacheable body, and the fallback branch
+  // below would destroy it: reconstructing the response drops the `webSocket`
+  // handle and the constructor rejects status 101 outright.
+  if (isProtocolSwitchResponse(response)) return response;
+  // Any CDN-targeted policy counts as "the author decided". Honouring only
+  // Cloudflare's proprietary header would stamp `private, no-cache` on a
+  // response whose author deliberately set the vendor-neutral
+  // `CDN-Cache-Control` (RFC 9213) and left `Cache-Control` off on purpose.
+  for (const header of CDN_CACHE_CONTROL_HEADERS) {
+    if (response.headers.has(header)) return response;
+  }
+
+  try {
+    response.headers.set("cache-control", "private, no-cache");
+    return response;
+  } catch {
+    // Immutable headers (e.g. a response passed through from `fetch`).
+    const headers = new Headers(response.headers);
+    headers.set("cache-control", "private, no-cache");
+    return new Response(response.body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers,
+    });
+  }
+}
+
 export function withDefaultSecurityHeaders(response: Response): Response {
   if (isProtocolSwitchResponse(response)) return response;
 

@@ -1,6 +1,6 @@
 ---
 title: Testing
-lead: Test your pracht app at every level — unit test loaders and API routes with Vitest, run full E2E tests with Playwright to verify rendering, navigation, and hydration, and prove your agent surfaces with capability tests and <code>pracht eval</code>.
+lead: Test your pracht app at every level — unit test loaders and API routes with Vitest, run full E2E tests with Playwright to verify rendering, navigation, and hydration, and prove your agent surfaces with capability tests and `pracht eval`.
 breadcrumb: Testing
 prev:
   href: /docs/recipes/view-transitions

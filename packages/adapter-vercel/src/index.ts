@@ -2,17 +2,20 @@ import type { PrachtAdapter } from "@pracht/vite-plugin";
 import {
   createISGRegenerationRequest,
   handlePrachtRequest,
-  hasWebhookRevalidate,
   type HandlePrachtRequestOptions,
   isCacheableISGResponse,
   isDangerousPrerenderHeader,
   jsonResponse,
+  classifyRevalidationSkip,
   matchAppRoute,
+  preventHeuristicCaching,
   type ModuleRegistry,
   PRACHT_REVALIDATE_ENDPOINT,
   PRACHT_REVALIDATE_TOKEN_ENV,
   type ResolvedApiRoute,
   readRevalidationRequest,
+  RevalidationReport,
+  resolveRevalidationToken,
   type PrachtApp,
 } from "@pracht/core/server";
 
@@ -83,7 +86,7 @@ export function createVercelEdgeHandler<
       ? await options.createContext({ request, context })
       : (context as unknown as TContext);
 
-    return handlePrachtRequest({
+    const response = await handlePrachtRequest({
       app: options.app,
       registry: options.registry,
       request,
@@ -95,7 +98,34 @@ export function createVercelEdgeHandler<
       cssManifest: options.cssManifest,
       jsManifest: options.jsManifest,
     } satisfies HandlePrachtRequestOptions<TContext>);
+
+    // Vercel's CDN, like any shared cache, may apply heuristic freshness to a
+    // 200 that carries no `Cache-Control` — and `Cookie` is not part of its
+    // cache key. Same default the Cloudflare adapter applies.
+    //
+    // Except on the ISG prerender path. The generated entry wires
+    // `nodeListener = createVercelNodeListener(handle)` around this very
+    // handler, so an ISG regeneration re-enters here. Stamping it would write
+    // `private, no-cache` into Vercel's prerender cache — killing the CDN layer
+    // for every ISG page — and would make `isCacheableISGResponse` false for
+    // every render, firing a "render this route as SSR instead" warning the
+    // framework itself caused. Vercel's `.prerender-config.json` owns caching
+    // on that path.
+    if (isIsgRegenerationContext(context)) return response;
+    return preventHeuristicCaching(request, response);
   };
+}
+
+/**
+ * Contexts minted by {@link createVercelNodeListener}, i.e. ISG prerender
+ * invocations. A `WeakSet` rather than a flag on the context object because the
+ * context is handed to application `createContext` factories, and this is
+ * adapter-internal bookkeeping they should not see or be able to forge.
+ */
+const isgRegenerationContexts = new WeakSet<object>();
+
+function isIsgRegenerationContext(context: unknown): boolean {
+  return typeof context === "object" && context !== null && isgRegenerationContexts.has(context);
 }
 
 /**
@@ -133,6 +163,9 @@ export function createVercelNodeListener(
         waitUntilTasks.push(task);
       },
     };
+    // Marks this invocation as an ISG regeneration so the edge handler skips
+    // its default `Cache-Control` — see `isIsgRegenerationContext`.
+    isgRegenerationContexts.add(context);
 
     try {
       const request = createNodeISGRequest(req);
@@ -297,14 +330,15 @@ async function handleVercelRevalidationEndpoint(
   const parsed = await readRevalidationRequest(request, token);
   if (!parsed.ok) return parsed.response;
 
-  const revalidated: string[] = [];
-  const skipped: string[] = [];
-  const failed: string[] = [];
+  const report = new RevalidationReport();
 
   for (const pathname of parsed.paths) {
     const match = matchAppRoute(app, pathname);
-    if (!match || match.route.render !== "isg" || !hasWebhookRevalidate(match.route.revalidate)) {
-      skipped.push(pathname);
+    // Vercel matches route patterns rather than a prerender manifest, so a
+    // matched ISG route always has somewhere to write.
+    const skip = classifyRevalidationSkip(match?.route, match !== null);
+    if (skip) {
+      report.skipped(pathname, skip);
       continue;
     }
 
@@ -321,7 +355,7 @@ async function handleVercelRevalidationEndpoint(
       });
 
       if (!response.ok) {
-        failed.push(pathname);
+        report.failed(pathname, `upstream_status_${response.status}`);
         continue;
       }
 
@@ -332,29 +366,29 @@ async function handleVercelRevalidationEndpoint(
       // (non-Vercel/test environments don't set it).
       const cacheStatus = response.headers.get("x-vercel-cache");
       if (cacheStatus === null || VERCEL_CACHE_REFRESH_STATUSES.has(cacheStatus.toUpperCase())) {
-        revalidated.push(pathname);
+        report.revalidated(pathname);
       } else {
         console.error(
           `ISG webhook revalidation failed for ${pathname}: x-vercel-cache was "${cacheStatus}" — ` +
             "the revalidation token did not match the build-time bypass token; " +
             `rebuild with ${PRACHT_REVALIDATE_TOKEN_ENV} set.`,
         );
-        failed.push(pathname);
+        report.failed(pathname, "prerender_cache_not_bypassed");
       }
     } catch (err) {
       console.error(`ISG webhook revalidation failed for ${pathname}:`, err);
-      failed.push(pathname);
+      report.failed(pathname, "regeneration_error");
     }
   }
 
-  return jsonResponse({ failed, revalidated, skipped });
+  return jsonResponse(report.toJSON());
 }
 
 function getRuntimeRevalidationToken(): string | undefined {
-  const runtime = globalThis as typeof globalThis & {
-    process?: { env?: Record<string, string | undefined> };
-  };
-  return runtime.process?.env?.[PRACHT_REVALIDATE_TOKEN_ENV];
+  // Must stay a call into @pracht/core: an inline `globalThis.process.env`
+  // read here is collapsed to `{}` by the app build's `process.env` define,
+  // which silently made this endpoint answer 401 for every request.
+  return resolveRevalidationToken();
 }
 
 /**

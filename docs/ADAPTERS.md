@@ -378,13 +378,8 @@ With the option on:
   never stored in the shared edge cache.
 - Route-state JSON (client navigations) stays `no-store` and always reaches
   the Worker.
-- Everything pracht did **not** deliberately mark cacheable gets
-  `Cache-Control: private, no-cache` (unless the response already sets its
-  own `Cache-Control`). With Workers Caching enabled, Cloudflare would
-  otherwise apply heuristic freshness (~2 hours for 200s) to responses that
-  carry no `Cache-Control` header — and `Cookie` is not part of the cache
-  key, so SSR pages (including authenticated ones) and API GET responses
-  would be edge-cached across users.
+- (See [Default `Cache-Control`](#default-cache-control) — this applies on
+  every adapter, not only with Workers Caching enabled.)
 
 #### Trailing slashes
 
@@ -847,6 +842,43 @@ export const nodeListener = createVercelNodeListener(handle);
 
 ---
 
+## Default `Cache-Control`
+
+Every adapter stamps `Cache-Control: private, no-cache` on `GET`/`HEAD`
+responses that carry no caching policy of their own.
+
+A shared cache in front of the app — Cloudflare's Workers Caching, a CDN, an
+nginx reverse proxy — may apply RFC 9111 heuristic freshness to a `200` with no
+`Cache-Control`, and `Cookie` is not part of its cache key. Without the default,
+an authenticated SSR page or an API `GET` can be stored and replayed to a
+different user. That hazard belongs to "shared cache in front of an origin", not
+to any one platform, so Node, Cloudflare, and Vercel apply the identical default
+through one shared implementation: an app hardened on one adapter keeps the
+protection when it moves to another.
+
+Untouched: anything that already declares a policy — route-state JSON, static
+assets, and your own `headers()` exports or middleware — including a
+CDN-targeted one (`CDN-Cache-Control`, `Cloudflare-CDN-Cache-Control`,
+`Vercel-CDN-Cache-Control`, `Surrogate-Control`). Also untouched:
+non-`GET`/`HEAD` responses, protocol-switch (`101`) responses, and ISG
+documents.
+
+ISG is exempt deliberately. Those responses are stored and replayed by the
+platform — Vercel's prerender cache, the Node on-disk snapshot, Cloudflare's
+Cache API — so stamping `private, no-cache` would both defeat that cache and
+make a route's headers depend on whether its snapshot exists yet. ISG responses
+carry `public, max-age=0, must-revalidate` instead.
+
+To opt a route out, set your own policy:
+
+```typescript
+export function headers() {
+  return { "cache-control": "public, max-age=300" };
+}
+```
+
+---
+
 ## Markdown and the static fast path
 
 Routes that export `markdown` answer `Accept: text/markdown` with their raw
@@ -911,13 +943,32 @@ curl -X POST https://example.com/__pracht/revalidate \
 
 The body must include `paths` as an array of at most 64 concrete URL paths;
 larger batches are rejected with `400`. The endpoint returns JSON with
-`revalidated`, `skipped`, and `failed` path arrays. A path is skipped when it is
-not an ISG route, is not in the prerender manifest, or does not opt into
-`webhookRevalidate()`. A path lands in `failed` when regeneration did not
-produce cacheable 200 HTML (loader error, malformed manifest metadata,
-`Set-Cookie`, `Cache-Control: private`/`no-store`, cache write failure); the
-previously generated copy stays live, and the batch continues instead of
-aborting with a 500.
+`revalidated`, `skipped`, and `failed` path arrays plus a `details` array
+carrying the per-path reason:
+
+```json
+{
+  "revalidated": ["/pricing"],
+  "skipped": ["/blog", "/typo"],
+  "failed": [],
+  "details": [
+    { "path": "/pricing", "outcome": "revalidated" },
+    { "path": "/blog", "outcome": "skipped", "reason": "no_webhook_policy" },
+    { "path": "/typo", "outcome": "skipped", "reason": "not_a_route" }
+  ]
+}
+```
+
+Skip reasons are `not_a_route`, `not_isg`, `not_prerendered`, and
+`no_webhook_policy` — the last is the common one: a route with only a
+`timeRevalidate()` policy is not refreshable by webhook. A path lands in
+`failed` when regeneration did not produce cacheable 200 HTML (loader error,
+malformed manifest metadata, `Set-Cookie`, `Cache-Control: private`/`no-store`,
+cache write failure); the previously generated copy stays live, and the batch
+continues instead of aborting with a 500.
+
+The three path arrays are the stable contract and are unchanged; `details` is
+additive.
 
 Set `PRACHT_REVALIDATE_TOKEN` in the deployment environment. Auth uses a
 constant-time comparison and fails closed with `401` when the token is missing

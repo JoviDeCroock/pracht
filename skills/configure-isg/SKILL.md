@@ -95,9 +95,11 @@ curl -X POST https://example.com/__pracht/revalidate \
   or wrong. Providers that can't send bearer auth may use the
   `x-pracht-revalidate-token` header instead.
 - Body: `paths` array, max 64 entries (else `400`). Response reports
-  `revalidated` / `skipped` / `failed` arrays; failed paths keep serving the
-  previous copy. Regeneration is single-flighted per path and never replays
-  the caller's cookies/auth headers.
+  `revalidated` / `skipped` / `failed` arrays plus a `details` array naming why
+  each path was skipped (`not_a_route`, `not_isg`, `not_prerendered`,
+  `no_webhook_policy`) or failed — check `details` first when a webhook appears
+  to do nothing. Failed paths keep serving the previous copy. Regeneration is
+  single-flighted per path and never replays the caller's cookies/auth headers.
 
 ## Step 4: Adapter mechanics
 

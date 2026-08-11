@@ -105,7 +105,20 @@ function collectSnapshotChecks(
   checks: Check[],
   snapshotExists: boolean,
 ): void {
-  if (!snapshotExists) return;
+  if (!snapshotExists) {
+    // Reported as `ok` rather than a warning: not having a snapshot is a valid
+    // state, it just means `pracht plan` has no baseline to diff against and
+    // the staleness guarantee is not in force. Staying silent left new projects
+    // with a `.gitignore` that talks about a file nothing ever creates.
+    checks.push(
+      createCheck(
+        "ok",
+        `No app graph snapshot yet — run \`pracht plan --write\` and commit ${GRAPH_SNAPSHOT_PATH} ` +
+          "to get incremental `pracht plan` diffs and snapshot-staleness verification.",
+      ),
+    );
+    return;
+  }
 
   const snapshot = readGraphSnapshotFromDisk(project.root);
   if (!snapshot) {

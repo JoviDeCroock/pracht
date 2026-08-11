@@ -49,8 +49,9 @@ export default defineCommand({
     "budget-fail": {
       type: "boolean",
       default: true,
-      description:
-        "Fail the build when a client JS budget is exceeded (--no-budget-fail to disable)",
+      // citty renders a `default: true` boolean under its negated name, so the
+      // description has to read correctly next to `--no-budget-fail`.
+      description: "Downgrade an exceeded client JS budget to a warning instead of failing",
     },
   },
   async run({ args }) {
@@ -214,6 +215,15 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
     // The server module only exports generateLlmsTxt when the vite plugin's
     // `llmsTxt` option is enabled — disabled builds skip this entirely.
     if (typeof serverMod.generateLlmsTxt === "function") {
+      // Vite copies `public/` into the client output before this runs, so a
+      // hand-authored `public/llms.txt` is about to be overwritten. Silently
+      // discarding a file the user wrote is the worst outcome; say so.
+      if (existsSync(resolve(root, "public/llms.txt"))) {
+        log(
+          "\n  Warning: public/llms.txt is overwritten by the generated llms.txt.\n" +
+            "  Remove it, or disable the plugin's `llmsTxt` option to hand-author the file.",
+        );
+      }
       const llmsTxt: string = await serverMod.generateLlmsTxt();
       writeFileSync(resolve(clientDir, "llms.txt"), llmsTxt, "utf-8");
       log("\n  llms.txt → dist/client/llms.txt\n");

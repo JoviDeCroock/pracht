@@ -1,6 +1,6 @@
 ---
 title: CLI
-lead: The <code>@pracht/cli</code> package covers development, production builds, inspection, verification, evaluation, scaffolding, previews, and agent integrations.
+lead: The `@pracht/cli` package covers development, production builds, inspection, verification, evaluation, scaffolding, previews, and agent integrations.
 breadcrumb: CLI
 prev:
   href: /docs/env

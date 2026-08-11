@@ -1,4 +1,4 @@
-import { defineApp, group, route, timeRevalidate } from "@pracht/core";
+import { defineApp, group, route, timeRevalidate, webhookRevalidate } from "@pracht/core";
 import { cloudflareLoader, configureImage, passthroughLoader, vercelLoader } from "@pracht/image";
 
 declare const __PRACHT_IMAGE_BACKEND__: string;
@@ -70,7 +70,12 @@ export const app = defineApp({
       route("/pricing", () => import("./routes/pricing.tsx"), {
         id: "pricing",
         render: "isg",
-        revalidate: timeRevalidate(3600),
+        // Two policies on one route: the time window keeps the page fresh on
+        // its own, and the webhook policy lets an upstream change push an
+        // immediate refresh through `POST /__pracht/revalidate` (authenticated
+        // with PRACHT_REVALIDATE_TOKEN). Without `webhookRevalidate()` that
+        // endpoint reports the path as `skipped`.
+        revalidate: [timeRevalidate(3600), webhookRevalidate()],
         speculation: "prefetch",
       }),
       route("/gallery", () => import("./routes/gallery.tsx"), {

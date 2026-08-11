@@ -1,6 +1,6 @@
 ---
 title: AI-Assisted Authoring & Review
-lead: LLMs write plausible code; frameworks should make it provable. pracht turns intent into machine truth — declared constraints, a committed app-graph snapshot, semantic diffs with <code>pracht plan</code>, and PR reports assembled from real build output.
+lead: LLMs write plausible code; frameworks should make it provable. pracht turns intent into machine truth — declared constraints, a committed app-graph snapshot, semantic diffs with `pracht plan`, and PR reports assembled from real build output.
 breadcrumb: Agent Workflow
 prev:
   href: /docs/llms

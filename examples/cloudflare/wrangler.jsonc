@@ -9,6 +9,11 @@
   "assets": {
     "binding": "ASSETS",
     "directory": "dist/client",
+    // Without this, the assets binding answers `GET /guide` with a 307 to
+    // `/guide/`, so every prerendered route has a different canonical URL on
+    // Cloudflare than on Node and Vercel — and the generated llms.txt, which
+    // emits the non-slash form, sends agents through a redirect.
+    "html_handling": "drop-trailing-slash",
     "run_worker_first": true,
   },
   "kv_namespaces": [{ "binding": "MY_KV", "id": "abc123" }],

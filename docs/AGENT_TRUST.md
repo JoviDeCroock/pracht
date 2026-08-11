@@ -24,7 +24,8 @@ dispatch are dropped from the server bundle entirely (see
 Web Bot Auth is the emerging standard (implemented by major CDNs) where an
 agent signs its requests with [RFC 9421 HTTP Message
 Signatures](https://www.rfc-editor.org/rfc/rfc9421) and publishes its public
-keys in a well-known directory. Pracht implements the verifier side of:
+keys in a well-known directory. Pracht implements both sides — the verifier
+below, and the signer at [`@pracht/core/agent-auth`](#signing-requests-as-an-agent) — of:
 
 - [draft-meunier-web-bot-auth-architecture-02](https://www.ietf.org/archive/id/draft-meunier-web-bot-auth-architecture-02.html)
   — the protocol: covered components, signature parameters, the
@@ -572,8 +573,88 @@ example):
   and `confirm`; unresolvable references fail the scenario.
 - **Confirmation flow**: `confirm` sets the confirmation header without
   spelling out its name; raw `headers` still work for anything else.
+- **Signed agent identity**: a scenario-level `signAs` block signs every step
+  as a verified Web Bot Auth agent — the only way to reach a capability that
+  declares `agentPolicy: "require"`. Per-step `"sign": false` opts a step out,
+  so one scenario proves both halves of the policy:
+
+  ```jsonc
+  {
+    "name": "verified agent identity",
+    "signAs": {
+      "agent": "https://my-agent.example",
+      "privateKeyJwk": { "kty": "OKP", "crv": "Ed25519", "d": "…", "x": "…" }
+    },
+    "steps": [
+      { "capability": "agent.ping", "expect": { "ok": true } },
+      {
+        "capability": "agent.ping",
+        "sign": false,
+        "expect": { "ok": false, "status": 401, "errorCode": "agent_required" }
+      }
+    ]
+  }
+  ```
+
+  The signature covers `@authority` and carries a `created`/`expires` window,
+  so it is computed per request against the URL being called — which is why it
+  cannot be expressed as a static `headers` entry. `examples/basic/evals/agent-identity.eval.json`
+  is a working example. Keep real private keys out of the repo: read them from
+  the environment and write the scenario file in CI, or use a test-only key as
+  the example does.
 - Output: a human transcript (step, capability, outcome, status, latency,
   denial reasons) or `--json` for CI.
+
+## Signing requests as an agent
+
+Pracht ships the signer as well as the verifier, at `@pracht/core/agent-auth` —
+its own entry point, because nothing in a deployed app signs requests and the
+private-key path should not be bundled into a worker.
+
+```ts
+import { signAgentRequest, generateAgentKeyPair } from "@pracht/core/agent-auth";
+
+// One-time: mint a keypair. Publish `publicKeyJwk` in your key directory (or
+// pin it in the target app's `agents.webBotAuth.keys`); `keyId` is the RFC 8037
+// thumbprint both sides use to refer to it.
+const { keyId, privateKeyJwk, publicKeyJwk } = await generateAgentKeyPair();
+
+// Per request:
+const response = await fetch(
+  await signAgentRequest(new Request(url, { method: "POST", body }), {
+    agent: "https://my-agent.example",
+    privateKeyJwk,
+  }),
+);
+```
+
+`signAgentRequest()` returns a copy — the original request is untouched — and
+covers `@authority` and `signature-agent` by default, which is the covered-component
+set the Web Bot Auth draft specifies.
+
+> **Know what a signature binds.** Those two components bind the signature to a
+> *host*, not to a method, path, or body. Anyone who observes one signed request
+> can replay its headers against any other endpoint on the same origin until
+> `expires` passes (default 300 s). That is the draft's minimum, kept here for
+> interoperability — but if your agent talks to endpoints of differing
+> sensitivity, widen the coverage:
+>
+> ```ts
+> await signAgentRequest(request, {
+>   additionalComponents: ["@method", "@path"],
+>   agent, privateKeyJwk,
+> });
+> ```
+>
+> Pracht's verifier accepts any superset of the required components. Shorten
+> `lifetimeSeconds` too when the caller can re-sign cheaply. `additionalComponents` adds more (`"@method"`, `"@path"`,
+lowercase header names); `createAgentSignatureHeaders()` returns just the three
+headers when you need to attach them yourself.
+
+Because `@authority` is covered, a signature is bound to the host the request
+is actually delivered to. Signing `localhost:3000` while the server observes
+`app.example.com` — a Cloudflare custom-domain route under `wrangler dev` — will
+not verify. Sign [the authority the Worker sees](#preview-authority-with-custom-domain-routes).
 
 ## Not built yet
 
@@ -587,6 +668,7 @@ example):
   exactly-once commit, which the [approval store](#durable-approvals) now
   provides — unblocking this is a follow-up.
 - `pracht eval` speaking MCP instead of the HTTP projection.
+- RSA-PSS signing (the signer is Ed25519-only, matching the verifier).
 - Framework-level rate limiting, write-idempotency helpers, and result-size
   limits — see [operational
   hardening](#operational-hardening-what-the-framework-does-not-do-yet) for

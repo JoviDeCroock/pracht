@@ -466,9 +466,13 @@ async function promptForAdapter(readline) {
 }
 
 async function promptForRouter(readline) {
+  // The two routers are not equivalent, and the difference is invisible until
+  // you reach for a manifest-only feature. Say so at the point of choosing.
   console.log("Router:");
-  console.log("  1. Manifest (explicit routes.ts)");
-  console.log("  2. Pages (file-system routing)");
+  console.log("  1. Manifest (explicit routes.ts) — supports middleware, capabilities,");
+  console.log("     MCP, Web Bot Auth, and constraints");
+  console.log("  2. Pages (file-system routing) — pages and API routes only; no");
+  console.log("     middleware, capabilities, MCP, or agent trust (eject later to add them)");
 
   while (true) {
     const answer = await readline.question("Router (1): ");
@@ -732,9 +736,13 @@ function createMcpConfig() {
       mcpServers: {
         pracht: {
           command: "npx",
-          // Not `npx pracht`: that resolves to a registry package literally
-          // named `pracht` whenever the local bin is not on the path.
-          args: ["--yes", "@pracht/cli", "mcp"],
+          // `--no-install` pins this to the `@pracht/cli` the project depends
+          // on. `--yes @pracht/cli` fetched the registry's latest instead, so
+          // the MCP server an agent talked to could describe a different CLI
+          // than the one the app builds with. Not bare `npx pracht` either:
+          // that resolves to a registry package literally named `pracht`
+          // whenever the local bin is missing — `--no-install` fails loudly.
+          args: ["--no-install", "pracht", "mcp"],
         },
       },
     },
@@ -1728,7 +1736,8 @@ Options:
   --adapter=node|cf|vercel     Choose hosting adapter (default: node)
   --router=manifest|pages      Choose routing system (default: manifest)
   --template=minimal|tailwind  Choose starter template (minimal, or minimal + Tailwind CSS)
-  --tailwind / --no-tailwind   Enable or disable Tailwind CSS wiring (default: prompt)
+  --tailwind / --no-tailwind   Enable or disable Tailwind CSS wiring (default: prompt).
+                               Sets the same thing as --template; the last one wins.
   --agent-tools / --no-agent-tools
                                Seed Claude Code skills and a pracht MCP config (default: prompt, yes)
   --no-git                     Skip git init and the initial commit

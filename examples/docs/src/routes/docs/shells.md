@@ -1,6 +1,6 @@
 ---
 title: Shells
-lead: Layout wrappers that surround route content. Shells are decoupled from URL structure — a flat route like <code>/settings</code> can share a shell with <code>/dashboard</code> without nesting.
+lead: Layout wrappers that surround route content. Shells are decoupled from URL structure — a flat route like `/settings` can share a shell with `/dashboard` without nesting.
 breadcrumb: Shells
 prev:
   href: /docs/middleware

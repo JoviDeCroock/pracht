@@ -63,6 +63,10 @@
       "types": "./dist/server.d.mts",
       "default": "./dist/server.mjs"
     },
+    "./agent-auth": {
+      "types": "./dist/agent-auth-sign.d.mts",
+      "default": "./dist/agent-auth-sign.mjs"
+    },
     "./islands-client": {
       "types": "./dist/islands-client.d.mts",
       "default": "./dist/islands-client.mjs"

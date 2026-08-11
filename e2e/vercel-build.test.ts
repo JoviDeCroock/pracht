@@ -194,6 +194,52 @@ test("pracht build emits a deployable Vercel Build Output setup", async () => {
     expect(functionSource).not.toContain("@pracht/core/env/server was imported in client code");
     // Vite keeps ownership of NODE_ENV inlining and its mode/NODE_ENV semantics.
     expect(functionSource).not.toContain("process.env.NODE_ENV");
+
+    // A single-use `globalThis.process.env` alias is inlined by the package
+    // bundler and then collapsed to `{}` by the app build's `process.env`
+    // define. That silently compiled the revalidation token read down to
+    // `return {}[PRACHT_REVALIDATE_TOKEN_ENV]`, so the webhook answered 401 for
+    // every request. Catch the whole class rather than the one call site.
+    const pricingFunctionSource = readFileSync(resolve(pricingFunctionDir, "server.js"), "utf-8");
+    for (const source of [functionSource, pricingFunctionSource]) {
+      // Block comments survive bundling and legitimately quote the broken form,
+      // so scan code only. Line comments are left alone: stripping them would
+      // also eat any `//` inside a string literal and hide a real match.
+      const code = source.replace(/\/\*[\s\S]*?\*\//g, "");
+      expect(code).not.toMatch(/\{\s*\}\s*\??\.?\[/);
+      expect(code).not.toMatch(/\(\s*\{\s*\}\s*\)\s*\??\./);
+    }
+
+    // Prove it functionally: the emitted edge handler must authenticate the
+    // documented bearer token, and must still fail closed without it.
+    const revalidateRequest = () =>
+      new Request("https://pracht-vercel.test/__pracht/revalidate", {
+        body: JSON.stringify({ paths: ["/pricing"] }),
+        headers: {
+          authorization: "Bearer e2e-revalidate-token",
+          "content-type": "application/json",
+        },
+        method: "POST",
+      });
+
+    const previousToken = process.env.PRACHT_REVALIDATE_TOKEN;
+    try {
+      process.env.PRACHT_REVALIDATE_TOKEN = "e2e-revalidate-token";
+      const authorized = await edgeHandler(revalidateRequest(), { waitUntil() {} });
+      expect(authorized.status).toBe(200);
+      // `/pricing` opts into `webhookRevalidate()`, so it is acted on rather
+      // than reported as skipped.
+      const body = await authorized.json();
+      expect(body.skipped).toEqual([]);
+      expect([...body.revalidated, ...body.failed]).toContain("/pricing");
+
+      delete process.env.PRACHT_REVALIDATE_TOKEN;
+      const unauthorized = await edgeHandler(revalidateRequest(), { waitUntil() {} });
+      expect(unauthorized.status).toBe(401);
+    } finally {
+      if (previousToken === undefined) delete process.env.PRACHT_REVALIDATE_TOKEN;
+      else process.env.PRACHT_REVALIDATE_TOKEN = previousToken;
+    }
   } finally {
     rmSync(tempDir, { force: true, recursive: true });
   }

@@ -55,6 +55,10 @@ export interface BuildLlmsTxtOptions {
    * matched against the emitted paths, so a prerendered instance of a dynamic
    * route (`/blog/hello-world`) is covered by `/blog/**`, and a capability is
    * excluded by its dispatch path (`/api/capabilities/**`).
+   *
+   * Framework-reserved paths (any `_pracht` or `__pracht` segment, such as the
+   * `@pracht/image` endpoint at `/api/_pracht/image`) are always omitted and
+   * do not need an entry here.
    */
   exclude?: readonly string[];
 }
@@ -77,10 +81,25 @@ interface LlmsTxtCapabilityEntry {
   effect: string;
 }
 
+/**
+ * Path segments pracht reserves for its own endpoints. `/api/_pracht/image` is
+ * the image-optimization handler the `@pracht/image` loaders post to, and
+ * `/__pracht/*` covers the revalidation webhook and devtools. They are
+ * framework plumbing, not part of the app's agent surface, so listing them
+ * invites agents to call endpoints that are not theirs to call. Users cannot
+ * be expected to exclude them by hand in every app.
+ */
+const RESERVED_PATH_SEGMENTS = new Set(["_pracht", "__pracht"]);
+
+function isReservedPath(path: string): boolean {
+  return path.split("/").some((segment) => RESERVED_PATH_SEGMENTS.has(segment));
+}
+
 export async function buildLlmsTxt(options: BuildLlmsTxtOptions): Promise<string> {
   const include = options.include ?? ["pages", "api", "capabilities"];
   const origin = options.origin?.replace(/\/$/, "") ?? "";
-  const isExcluded = createExcludeMatcher(options.exclude);
+  const excludesPattern = createExcludeMatcher(options.exclude);
+  const isExcluded = (path: string): boolean => isReservedPath(path) || excludesPattern(path);
 
   const lines: string[] = [`# ${options.title}`];
   if (options.description) {

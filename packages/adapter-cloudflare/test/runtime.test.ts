@@ -528,6 +528,11 @@ describe("createCloudflareFetchHandler webhook revalidation", () => {
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({
+      details: [
+        { outcome: "revalidated", path: "/pricing" },
+        // Not in the ISG manifest: nothing cached for the webhook to refresh.
+        { outcome: "skipped", path: "/not-isg", reason: "not_a_route" },
+      ],
       failed: [],
       revalidated: ["/pricing"],
       skipped: ["/not-isg"],
@@ -561,7 +566,7 @@ describe("createCloudflareFetchHandler webhook revalidation", () => {
     );
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({
+    await expect(response.json()).resolves.toMatchObject({
       failed: ["/malformed"],
       revalidated: ["/pricing"],
       skipped: [],
@@ -592,7 +597,7 @@ describe("createCloudflareFetchHandler webhook revalidation", () => {
     );
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({
+    await expect(response.json()).resolves.toMatchObject({
       failed: ["/pricing"],
       revalidated: [],
       skipped: [],

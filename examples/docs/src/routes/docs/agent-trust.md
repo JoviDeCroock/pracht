@@ -1,6 +1,6 @@
 ---
 title: Agent Trust
-lead: Who is calling, may they do this, and what happened? Verified agent identity with Web Bot Auth, a prepare/commit confirmation flow for destructive operations, structured audit events, and <code>pracht eval</code> to prove agent flows in CI.
+lead: Who is calling, may they do this, and what happened? Verified agent identity with Web Bot Auth, a prepare/commit confirmation flow for destructive operations, structured audit events, and `pracht eval` to prove agent flows in CI.
 breadcrumb: Agent Trust
 prev:
   href: /docs/capabilities
@@ -9,6 +9,23 @@ next:
   href: /docs/remote-mcp
   title: Remote MCP
 ---
+
+> **Manifest router only.** `defineApp({ agents })` is the configuration seam for Web Bot Auth, confirmation, and remote MCP, so none of it is available to [pages-router](/docs/routing#what-the-pages-router-does-not-have) apps.
+
+> **Signing requests as an agent.** Pracht ships the signer next to the verifier at `@pracht/core/agent-auth`:
+>
+> ```ts
+> import { signAgentRequest } from "@pracht/core/agent-auth";
+>
+> const response = await fetch(
+>   await signAgentRequest(new Request(url, { method: "POST", body }), {
+>     agent: "https://my-agent.example",
+>     privateKeyJwk,
+>   }),
+> );
+> ```
+>
+> `pracht eval` scenarios use the same identity through a `signAs` block, which is what lets a scenario cover an `agentPolicy: "require"` capability. The signature covers `@authority`, so sign the host the server actually sees.
 
 ## Three Questions
 
@@ -22,7 +39,8 @@ Exposing [capabilities](/docs/capabilities) to agents raises questions a schema 
 
 ## Web Bot Auth: Verified Agent Identity
 
-Agents sign requests with [RFC 9421 HTTP Message Signatures](https://www.rfc-editor.org/rfc/rfc9421) and publish Ed25519 public keys in a well-known directory — the emerging standard already deployed by major CDNs. pracht implements the verifier side; configuration lives in the manifest, and keys are public, so they are safe there:
+Agents sign requests with [RFC 9421 HTTP Message Signatures](https://www.rfc-editor.org/rfc/rfc9421) and publish Ed25519 public keys in a well-known directory — the emerging standard already deployed by major CDNs. pracht implements both sides — the verifier described here, and the signer at
+`@pracht/core/agent-auth` shown above; configuration lives in the manifest, and keys are public, so they are safe there:
 
 ```ts [src/routes.ts]
 export const app = defineApp({

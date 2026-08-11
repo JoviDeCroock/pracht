@@ -16,9 +16,14 @@
 import {
   getTimeRevalidateSeconds,
   isCacheableISGResponse,
-  isProtocolSwitchResponse,
   matchAppRoute,
+  preventHeuristicCaching,
 } from "@pracht/core/server";
+
+// Re-exported from its original home so `@pracht/adapter-cloudflare/cache`
+// keeps working; the implementation moved to @pracht/core so Node and Vercel
+// apply the identical default (see runtime-headers.ts).
+export { preventHeuristicCaching };
 import type { PrachtApp, ResolvedPrachtApp, ResolvedRoute } from "@pracht/core/server";
 
 export interface CloudflareWorkersCacheOptions {
@@ -161,44 +166,6 @@ export function applyWorkersCacheHeaders(
     statusText: response.statusText,
     headers,
   });
-}
-
-/**
- * Keep Workers Caching's heuristic freshness away from responses pracht did
- * not deliberately mark cacheable. When `"cache": { "enabled": true }` is
- * set in wrangler config, Cloudflare applies RFC 9111 heuristic caching to
- * 200 responses that carry no `Cache-Control` header (~2 hours), and
- * `Cookie` is not part of the cache key — SSR pages (including
- * authenticated ones) and API GET responses would be edge-cached
- * cross-user. Stamping `Cache-Control: private, no-cache` on GET/HEAD
- * responses that lack a caching policy makes heuristic caching impossible.
- *
- * Responses that already carry a `Cache-Control` (ISG responses stamped by
- * `applyWorkersCacheHeaders`, user-set policies via `headers()` exports or
- * middleware) pass through untouched.
- */
-export function preventHeuristicCaching(request: Request, response: Response): Response {
-  if (request.method !== "GET" && request.method !== "HEAD") return response;
-  // A WebSocket handshake carries no cacheable body, and the fallback branch
-  // below would destroy it: reconstructing the response drops the `webSocket`
-  // handle and the constructor rejects status 101 outright.
-  if (isProtocolSwitchResponse(response)) return response;
-  if (response.headers.has("cache-control")) return response;
-  if (response.headers.has("cloudflare-cdn-cache-control")) return response;
-
-  try {
-    response.headers.set("cache-control", "private, no-cache");
-    return response;
-  } catch {
-    // Immutable headers (e.g. a response passed through from `fetch`).
-    const headers = new Headers(response.headers);
-    headers.set("cache-control", "private, no-cache");
-    return new Response(response.body, {
-      status: response.status,
-      statusText: response.statusText,
-      headers,
-    });
-  }
 }
 
 export interface PurgeCacheOptions {

@@ -4,27 +4,29 @@ import {
   createRevalidationSingleFlight,
   getTimeRevalidateSeconds,
   handlePrachtRequest,
-  hasWebhookRevalidate,
   type HandlePrachtRequestOptions,
   type ISGManifestEntry,
   isCacheableISGResponse,
   jsonResponse,
+  matchAppRoute,
   type ModuleRegistry,
   type MarkdownManifest,
   PRACHT_REVALIDATE_ENDPOINT,
   PRACHT_REVALIDATE_TOKEN_ENV,
   prefersMarkdown,
   type ResolvedApiRoute,
+  classifyRevalidationSkip,
   readRevalidationRequest,
+  RevalidationReport,
   routeSupportsMarkdown,
   setServerEnv,
   type PrachtApp,
+  preventHeuristicCaching,
 } from "@pracht/core/server";
 import {
   applyWorkersCacheHeaders,
   type CloudflareWorkersCacheOption,
   findCacheableIsgRoute,
-  preventHeuristicCaching,
   purgeCache,
   resolveWorkersCacheOptions,
 } from "./cache.ts";
@@ -130,6 +132,7 @@ export function createCloudflareFetchHandler<
       return handleCloudflareRevalidationEndpoint(
         request,
         env,
+        options.app,
         options.isgManifest ?? {},
         renderISGPage,
         Boolean(cacheOptions),
@@ -327,6 +330,7 @@ async function maybeServeISG<TEnv extends Record<string, unknown>>(
 async function handleCloudflareRevalidationEndpoint(
   request: Request,
   env: Record<string, unknown>,
+  app: PrachtApp,
   isgManifest: ISGManifest,
   renderISGPage: (pathname: string, originalRequest: Request) => Promise<Response>,
   edgeCacheEnabled: boolean,
@@ -352,15 +356,18 @@ async function handleCloudflareRevalidationEndpoint(
     );
   }
 
-  const revalidated: string[] = [];
-  const skipped: string[] = [];
-  const failed: string[] = [];
+  const report = new RevalidationReport();
 
   for (const pathname of parsed.paths) {
     try {
       const entry = isgManifest[pathname];
-      if (!entry || !hasWebhookRevalidate(entry.revalidate)) {
-        skipped.push(pathname);
+      const skip = classifyRevalidationSkip(
+        entry && { render: "isg", revalidate: entry.revalidate },
+        entry !== undefined,
+        matchAppRoute(app, pathname)?.route ?? null,
+      );
+      if (skip) {
+        report.skipped(pathname, skip);
         continue;
       }
 
@@ -368,7 +375,7 @@ async function handleCloudflareRevalidationEndpoint(
       // A failed regeneration keeps the existing cached copy and is reported
       // in `failed` instead of aborting the whole batch with a 500.
       if (await regenerateCloudflareISGPage(cache, cacheKey, pathname, request, renderISGPage)) {
-        revalidated.push(pathname);
+        report.revalidated(pathname);
         // Routes with both a time and a webhook policy are served through
         // Workers Caching when the `cache` option is on — the edge copy must
         // be purged too, or it keeps serving the old page until its TTL. A
@@ -382,15 +389,15 @@ async function handleCloudflareRevalidationEndpoint(
           }
         }
       } else {
-        failed.push(pathname);
+        report.failed(pathname, "regeneration_failed");
       }
     } catch (err) {
       console.error(`ISG webhook revalidation failed for ${pathname}:`, err);
-      failed.push(pathname);
+      report.failed(pathname, "regeneration_error");
     }
   }
 
-  return jsonResponse({ failed, revalidated, skipped });
+  return jsonResponse(report.toJSON());
 }
 
 /**

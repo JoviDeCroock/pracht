@@ -45,6 +45,7 @@ export {
   formatServerTimingHeader,
   handlePrachtRequest,
   isProtocolSwitchResponse,
+  preventHeuristicCaching,
   PrachtRuntimeProvider,
 } from "./runtime.ts";
 export {
@@ -126,6 +127,13 @@ export {
   PRACHT_REVALIDATE_TOKEN_ENV,
   PRACHT_REVALIDATE_TOKEN_HEADER,
   readRevalidationRequest,
+  resolveRevalidationToken,
+  RevalidationReport,
+  classifyRevalidationSkip,
+  type RevalidationDetail,
+  type RevalidationOutcome,
+  type RevalidationReportBody,
+  type RevalidationSkipReason,
   type RevalidationSingleFlight,
 } from "./revalidation.ts";
 export { PRACHT_GRAPH_ONLY_ENV } from "./runtime-constants.ts";
