@@ -199,6 +199,15 @@ describe("shouldBypassDevSSR", () => {
         method: "GET",
       }),
     ).toBe(true);
+
+    // Static markdown (skill catalogs, llms.txt companions) is an asset in dev
+    // too, so `pracht dev` matches what the adapters serve in production.
+    expect(
+      shouldBypassDevSSR("/skills/add-auth.md", {
+        headers: { accept: "*/*" },
+        method: "GET",
+      }),
+    ).toBe(true);
   });
 
   it("serves the dev 404 page for unmatched HTML navigations only", () => {

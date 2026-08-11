@@ -20,7 +20,9 @@ const MIME_TYPES: Record<string, string> = {
   ".woff2": "font/woff2",
   ".ttf": "font/ttf",
   ".otf": "font/otf",
-  ".txt": "text/plain",
+  ".txt": "text/plain; charset=utf-8",
+  ".md": "text/markdown; charset=utf-8",
+  ".markdown": "text/markdown; charset=utf-8",
   ".xml": "application/xml",
   ".webmanifest": "application/manifest+json",
 };
