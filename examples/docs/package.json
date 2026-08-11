@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "@pracht/adapter-cloudflare": "workspace:*",
+    "@pracht/content": "workspace:*",
     "@pracht/core": "workspace:*",
     "@tabler/icons-preact": "^3.41.1",
     "wrangler": "^4.80.0"

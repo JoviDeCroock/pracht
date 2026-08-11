@@ -600,7 +600,12 @@ const MARKDOWN_PAGE_RE = /\.mdx?$/;
 // matched against the raw vite config text. Necessarily a heuristic: a custom
 // or re-exported plugin is invisible here, which is why this warns and says so
 // rather than asserting the app is broken.
-const MARKDOWN_PLUGIN_HINTS = ["@mdx-js/rollup", "vite-plugin-mdx", "vite-plugin-markdown"];
+const MARKDOWN_PLUGIN_HINTS = [
+  "@mdx-js/rollup",
+  "@pracht/content/vite",
+  "vite-plugin-mdx",
+  "vite-plugin-markdown",
+];
 
 /**
  * A `.md` / `.mdx` route is registered like any other, but nothing renders it

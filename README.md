@@ -30,6 +30,7 @@ npm create pracht@latest my-app
 - **Performance budgets built in** — `pracht build --analyze` reports per-route client JS (gzip + raw), and per-route `budgets` fail the build when a route ships too much.
 - **Deploy anywhere** — one codebase, one build, five production-ready adapters (Node, Cloudflare Workers, Netlify, Vercel, and pure static export).
 - **Env safety built in** — typed `serverEnv`/`publicEnv` helpers with a `PRACHT_PUBLIC_` prefix rule, and builds fail when client bundles reference non-public env vars.
+- **Optional content collections** — `@pracht/content` gives loaders and build plugins one server-only registry for routes, locales, source/compiled representations, caching, and emitted assets.
 
 ## At a glance
 

@@ -1,5 +1,5 @@
 /**
- * Vite plugin that transforms .md files into pracht route modules.
+ * The docs site's canonical content collection and Markdown compiler.
  *
  * Markdown files with frontmatter become full route components:
  *   - `title` → head() export
@@ -11,7 +11,7 @@
  *   - `prev`/`next` frontmatter → bottom navigation
  */
 
-import type { Plugin } from "vite";
+import { defineCollection, llmsTxtArtifacts, type ContentCompileInput } from "@pracht/content";
 import { Marked, Renderer } from "marked";
 
 // ── Inline highlight (same tokenizer as utils/highlight.ts) ──────────────────
@@ -161,53 +161,6 @@ interface Frontmatter {
   [key: string]: unknown;
 }
 
-function parseFrontmatter(raw: string): { frontmatter: Frontmatter; body: string } {
-  const match = raw.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n([\s\S]*)$/);
-  if (!match) return { frontmatter: { title: "" }, body: raw };
-
-  const yaml = match[1];
-  const body = match[2];
-  const fm: Record<string, unknown> = {};
-
-  let currentKey = "";
-  let _indent = 0;
-  let nested: Record<string, string> | null = null;
-
-  for (const line of yaml.split("\n")) {
-    const trimmed = line.trimEnd();
-    if (!trimmed) continue;
-
-    const nestedMatch = trimmed.match(/^(\s+)(\w+):\s*(.*)$/);
-    if (nestedMatch && nested && currentKey) {
-      nested[nestedMatch[2]] = nestedMatch[3].replace(/^["']|["']$/g, "");
-      fm[currentKey] = nested;
-      continue;
-    }
-
-    const topMatch = trimmed.match(/^(\w+):\s*(.*)$/);
-    if (topMatch) {
-      if (nested && currentKey) {
-        fm[currentKey] = nested;
-      }
-      currentKey = topMatch[1];
-      const value = topMatch[2].replace(/^["']|["']$/g, "");
-      if (value === "") {
-        // Start of nested object
-        nested = {};
-        _indent = 0;
-      } else {
-        nested = null;
-        fm[currentKey] = value;
-      }
-    }
-  }
-  if (nested && currentKey) {
-    fm[currentKey] = nested;
-  }
-
-  return { frontmatter: fm as unknown as Frontmatter, body };
-}
-
 // ── Marked renderer ──────────────────────────────────────────────────────────
 
 function createRenderer(): Renderer {
@@ -303,49 +256,56 @@ function buildDocPage(fm: Frontmatter, contentHtml: string): string {
   return parts.join("\n");
 }
 
-// ── Plugin ───────────────────────────────────────────────────────────────────
+// ── Collection ───────────────────────────────────────────────────────────────
 
-export function markdown(): Plugin {
-  const marked = new Marked({ renderer: createRenderer() });
-
-  return {
-    name: "pracht-md",
-    enforce: "pre",
-
-    transform(code, id) {
-      // Strip query suffix (e.g. `?pracht-client`) before checking extension —
-      // Vite adds queries for glob-imported client variants.
-      const path = id.split("?")[0];
-      if (!path.endsWith(".md")) return;
-
-      const { frontmatter, body } = parseFrontmatter(code);
-      let contentHtml = marked.parse(body) as string;
-
-      // Wrap tables with doc-table styling
-      contentHtml = contentHtml
-        .replace(/<table>/g, '<div class="doc-table-wrap"><table class="doc-table">')
-        .replace(/<\/table>/g, "</table></div>");
-      const pageHtml = buildDocPage(frontmatter, contentHtml);
-
-      const headTitle = frontmatter.title
-        ? `${frontmatter.title} \u2014 pracht docs`
-        : "pracht docs";
-
-      const output = [
-        `import { h } from "preact";`,
-        ``,
-        `export const markdown = ${JSON.stringify(code)};`,
-        ``,
-        `export function head() {`,
-        `  return { title: ${JSON.stringify(headTitle)} };`,
-        `}`,
-        ``,
-        `export function Component() {`,
-        `  return h("div", { class: "doc-page", dangerouslySetInnerHTML: { __html: ${JSON.stringify(pageHtml)} } });`,
-        `}`,
-      ].join("\n");
-
-      return { code: output, map: null };
-    },
-  };
+interface CompiledDoc {
+  headTitle: string;
+  pageHtml: string;
 }
+
+const marked = new Marked({ renderer: createRenderer() });
+
+export const docsContent = defineCollection<Frontmatter, CompiledDoc>({
+  name: "docs",
+  root: new URL("./src/routes/docs", import.meta.url),
+  routeBase: "/docs",
+  route({ id }) {
+    if (id.startsWith("recipes-")) return `/docs/recipes/${id.slice("recipes-".length)}`;
+    if (id.startsWith("migrate-")) return `/docs/migrate/${id.slice("migrate-".length)}`;
+    return `/docs/${id}`;
+  },
+  compile({ body, frontmatter }: ContentCompileInput<Frontmatter>) {
+    let contentHtml = marked.parse(body) as string;
+    contentHtml = contentHtml
+      .replace(/<table>/g, '<div class="doc-table-wrap"><table class="doc-table">')
+      .replace(/<\/table>/g, "</table></div>");
+    return {
+      headTitle: frontmatter.title ? `${frontmatter.title} \u2014 pracht docs` : "pracht docs",
+      pageHtml: buildDocPage(frontmatter, contentHtml),
+    };
+  },
+  module(document) {
+    return [
+      `import { h } from "preact";`,
+      ``,
+      `export const markdown = ${JSON.stringify(document.raw)};`,
+      ``,
+      `export function head() {`,
+      `  return { title: ${JSON.stringify(document.compiled.headTitle)} };`,
+      `}`,
+      ``,
+      `export function Component() {`,
+      `  return h("div", { class: "doc-page", dangerouslySetInnerHTML: { __html: ${JSON.stringify(document.compiled.pageHtml)} } });`,
+      `}`,
+    ].join("\n");
+  },
+  artifacts: [
+    llmsTxtArtifacts({
+      origin: "https://pracht.resynapse.dev",
+      title: "pracht",
+      description:
+        "A full-stack Preact framework built on Vite with hybrid rendering (SSG, SSR, ISG, SPA) and a unified data-loading model.",
+      sections: [{ heading: "Docs", match: "/docs" }],
+    }),
+  ],
+});

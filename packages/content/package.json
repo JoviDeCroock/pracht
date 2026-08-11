@@ -1,0 +1,62 @@
+{
+  "name": "@pracht/content",
+  "version": "0.0.0",
+  "description": "Server-only content collections for Pracht with canonical route mapping, locales, compilation, caching, and static artifacts.",
+  "keywords": [
+    "pracht",
+    "content",
+    "markdown",
+    "vite",
+    "ssg"
+  ],
+  "license": "MIT",
+  "homepage": "https://github.com/JoviDeCroock/pracht/tree/main/packages/content",
+  "bugs": {
+    "url": "https://github.com/JoviDeCroock/pracht/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/JoviDeCroock/pracht",
+    "directory": "packages/content"
+  },
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.mts",
+      "default": "./dist/index.mjs"
+    },
+    "./capabilities": {
+      "types": "./dist/capabilities.d.mts",
+      "default": "./dist/capabilities.mjs"
+    },
+    "./vite": {
+      "types": "./dist/vite.d.mts",
+      "default": "./dist/vite.mjs"
+    }
+  },
+  "publishConfig": {
+    "provenance": true
+  },
+  "scripts": {
+    "build": "tsdown",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "yaml": "^2.8.1"
+  },
+  "peerDependencies": {
+    "@pracht/capabilities": "workspace:*",
+    "vite": "^8.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@pracht/capabilities": {
+      "optional": true
+    },
+    "vite": {
+      "optional": true
+    }
+  }
+}
