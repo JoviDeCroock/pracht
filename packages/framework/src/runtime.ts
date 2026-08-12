@@ -1,5 +1,3 @@
-import { h } from "preact";
-import type { FunctionComponent } from "preact";
 import { matchAppRoute, resolveApp } from "./app.ts";
 import { dispatchAgentProjection } from "./runtime-agent-projection.ts";
 import { AGENT_SURFACE_ENABLED, initializeAgentSurface } from "./runtime-agent-surface.ts";
@@ -12,41 +10,21 @@ import {
   shouldExposeServerErrors,
   type PrachtRuntimeDiagnosticPhase,
 } from "./runtime-errors.ts";
-import { appendVaryHeader, withDefaultSecurityHeaders } from "./runtime-headers.ts";
-import { PrachtRuntimeProvider } from "./runtime-context.ts";
-import { buildHtmlDocument, htmlResponse } from "./runtime-html.ts";
-import { getAppSpeculationRules } from "./runtime-speculation.ts";
-import {
-  getIslandsClientEntryUrl,
-  IslandCaptureContext,
-  type IslandCapture,
-} from "./islands-server.ts";
-import { createScriptCapture, ScriptCaptureContext, withCapturedScripts } from "./script.ts";
-import {
-  CLIENT_ENTRY_MANIFEST_KEY,
-  ISLANDS_ENTRY_MANIFEST_KEY,
-  mergeEntryPreloadUrls,
-  resolveManifestEntries,
-  resolvePageCssUrls,
-  resolvePageJsUrls,
-  resolveDataFunctions,
-  resolveRegistryModule,
-} from "./runtime-manifest.ts";
+import { withDefaultSecurityHeaders } from "./runtime-headers.ts";
+import { resolveDataFunctions, resolveRegistryModule } from "./runtime-manifest.ts";
 import {
   mergeDocumentHeaders,
   mergeHeadMetadata,
   runMiddlewareChain,
 } from "./runtime-middleware.ts";
-import { buildRouteStateUrl } from "./runtime-client-fetch.ts";
+import { renderPageRepresentation } from "./runtime-page-render.ts";
 import { isFirstPartyFetch, isSameOriginRequest } from "./runtime-request-provenance.ts";
 import {
-  getRenderToStringAsync,
   jsonErrorResponse,
   normalizePageResponse,
   renderRouteErrorResponse,
 } from "./runtime-response.ts";
 import { withRouteResponseHeaders } from "./runtime-headers.ts";
-import { markdownResponse, prefersMarkdown } from "./runtime-negotiation.ts";
 import type { PrachtPhaseTimings } from "./runtime-timing.ts";
 import type {
   BaseRouteArgs,
@@ -369,231 +347,24 @@ export async function handlePrachtRequest<TContext>(
           mergeDocumentHeaders(shellModule, routeModule, routeArgs, data),
         ]);
 
-        // Both representations must carry the same Vary header so a cache
-        // filled by an HTML request can never satisfy a later markdown request
-        // (or vice versa). Keep the variance scoped to routes that actually
-        // export markdown: raw Accept values create distinct cache variants on
-        // CDNs such as Cloudflare Workers Caching.
-        const markdownRepresentation =
-          typeof routeModule.markdown === "string" ? routeModule.markdown : undefined;
-        if (markdownRepresentation !== undefined) {
-          appendVaryHeader(documentHeaders, "Accept");
-        }
-
-        // Markdown-for-Agents negotiation must run after loader + header
-        // resolution so auth redirects/401s and cache policies still apply.
-        if (
-          !isRouteStateRequest &&
-          markdownRepresentation !== undefined &&
-          prefersMarkdown(options.request.headers.get("accept"))
-        ) {
-          return markdownResponse(markdownRepresentation, documentHeaders, pageOptions.status);
-        }
-
-        const cssUrls = resolvePageCssUrls(
-          options.cssManifest,
-          match.route.shellFile,
-          match.route.file,
-        );
-        const modulePreloadUrls = mergeEntryPreloadUrls(
-          options.jsManifest,
-          CLIENT_ENTRY_MANIFEST_KEY,
-          resolvePageJsUrls(options.jsManifest, match.route.shellFile, match.route.file),
-        );
-
-        if (match.route.render === "spa") {
-          let body = "";
-          const Shell = shellModule?.Shell as FunctionComponent | undefined;
-          const Loading = shellModule?.Loading as FunctionComponent | undefined;
-          const loadingTree =
-            Shell != null
-              ? h(Shell, null, Loading ? h(Loading, null) : null)
-              : Loading
-                ? h(Loading, null)
-                : null;
-
-          // SPA shells render on the server too (the loading tree), so a
-          // <Script strategy="beforeHydration"> inside the shell still lands
-          // in the document head.
-          const spaScriptCapture = createScriptCapture("full");
-          if (loadingTree) {
-            const tree = h(
-              ScriptCaptureContext.Provider as FunctionComponent<Record<string, unknown>>,
-              { value: spaScriptCapture },
-              h(
-                PrachtRuntimeProvider as FunctionComponent<Record<string, unknown>>,
-                {
-                  data: null,
-                  params: match.params,
-                  routeId: match.route.id ?? "",
-                  routes: resolvedApp.routes,
-                  url: requestPath,
-                },
-                loadingTree,
-              ),
-            );
-            const renderFn = await getRenderToStringAsync();
-            body = await renderFn(tree);
-          }
-
-          return htmlResponse(
-            buildHtmlDocument({
-              head: withCapturedScripts(head, spaScriptCapture),
-              body,
-              hydrationState: {
-                url: requestPath,
-                routeId: match.route.id ?? "",
-                data: null,
-                error: null,
-                pending: true,
-              },
-              clientEntryUrl: options.clientEntryUrl,
-              cssUrls,
-              modulePreloadUrls,
-              routeStatePreloadUrl: loader ? buildRouteStateUrl(requestPath) : undefined,
-              speculationRules: getAppSpeculationRules(resolvedApp),
-            }),
-            pageOptions.status,
-            documentHeaders,
-          );
-        }
-
-        const DefaultComponent =
-          typeof routeModule.default === "function" ? routeModule.default : undefined;
-        const Component = (routeModule.Component ?? DefaultComponent) as
-          | FunctionComponent
-          | undefined;
-        if (!Component) {
-          throw new Error("Route has no Component or default export");
-        }
-
-        const Shell = shellModule?.Shell as FunctionComponent<Record<string, unknown>> | undefined;
-        const Comp = Component as FunctionComponent<Record<string, unknown>>;
-        const componentProps = { data, params: match.params };
-
-        const componentTree = Shell
-          ? h(Shell, null, h(Comp, componentProps))
-          : h(Comp, componentProps);
-
-        let tree = h(
-          PrachtRuntimeProvider as FunctionComponent<Record<string, unknown>>,
-          {
-            data,
-            params: match.params,
-            routeId: match.route.id ?? "",
-            routes: resolvedApp.routes,
-            url: requestPath,
-          },
-          componentTree,
-        );
-
-        const hydration = match.route.hydration ?? "full";
-
-        // <Script strategy="beforeHydration"> usages captured during the
-        // render land in the document head after head() scripts. The capture
-        // travels through context (not module state), so concurrent async
-        // renders — e.g. parallel SSG prerendering — never attribute scripts
-        // to the wrong page.
-        const scriptCapture = createScriptCapture(hydration);
-        tree = h(
-          ScriptCaptureContext.Provider as FunctionComponent<Record<string, unknown>>,
-          { value: scriptCapture },
-          tree,
-        );
-
-        let islandCapture: IslandCapture | null = null;
-        if (hydration === "islands") {
-          // The capture collector travels through context (not module state),
-          // so concurrent async renders — e.g. parallel SSG prerendering —
-          // never attribute islands to the wrong page.
-          islandCapture = { islands: [] };
-          tree = h(
-            IslandCaptureContext.Provider as FunctionComponent<Record<string, unknown>>,
-            { value: islandCapture },
-            tree,
-          );
-        }
-
-        const renderToString = await getRenderToStringAsync();
-        const ssrContent = await renderToString(tree);
-
-        if (hydration !== "full") {
-          const islandFiles = [
-            ...new Set((islandCapture?.islands ?? []).map((usage) => usage.descriptor.file)),
-          ];
-          let islandsEntryUrl: string | undefined;
-          const needsIslandsBootstrap =
-            hydration === "islands" &&
-            (islandFiles.length > 0 || options.islandsBootstrapRequired === true);
-          if (needsIslandsBootstrap) {
-            islandsEntryUrl = options.islandsEntryUrl ?? getIslandsClientEntryUrl();
-            if (!islandsEntryUrl) {
-              throw new Error(
-                `Route "${match.route.path}" uses hydration: "islands" and requires the ` +
-                  `islands bootstrap${islandFiles.length > 0 ? ` for ${islandFiles.length} rendered island(s)` : " for a page-level runtime projection"}, but no bootstrap URL is registered. ` +
-                  (islandFiles.length > 0
-                    ? "This usually means the @pracht/vite-plugin islands entry was not built — check that your islands live in the configured islands directory."
-                    : "This usually means generated page-runtime metadata was not forwarded by the deployment adapter."),
-              );
-            }
-          }
-
-          // Preload only islands that hydrate immediately ("load"). Preloading
-          // "visible"/"idle" islands would defeat those strategies' whole
-          // point: deferring the network cost until the island is needed.
-          const preloadFiles = new Set(
-            (islandCapture?.islands ?? [])
-              .filter((usage) => usage.strategy === "load")
-              .map((usage) => usage.descriptor.file),
-          );
-          const islandPreloadUrls = new Set<string>();
-          if (options.jsManifest) {
-            for (const file of preloadFiles) {
-              for (const url of resolveManifestEntries(options.jsManifest, file) ?? []) {
-                islandPreloadUrls.add(url);
-              }
-            }
-          }
-
-          // No hydration state, no client runtime: islands routes ship only the
-          // islands bootstrap plus the islands present on the page, and
-          // hydration: "none" routes ship no JavaScript at all.
-          return htmlResponse(
-            buildHtmlDocument({
-              head: withCapturedScripts(head, scriptCapture),
-              body: ssrContent,
-              clientEntryUrl: islandsEntryUrl,
-              cssUrls,
-              modulePreloadUrls: islandsEntryUrl
-                ? mergeEntryPreloadUrls(options.jsManifest, ISLANDS_ENTRY_MANIFEST_KEY, [
-                    ...islandPreloadUrls,
-                  ])
-                : [...islandPreloadUrls],
-              speculationRules: getAppSpeculationRules(resolvedApp),
-            }),
-            pageOptions.status,
-            documentHeaders,
-          );
-        }
-
-        return htmlResponse(
-          buildHtmlDocument({
-            head: withCapturedScripts(head, scriptCapture),
-            body: ssrContent,
-            hydrationState: {
-              url: requestPath,
-              routeId: match.route.id ?? "",
-              data,
-              error: null,
-            },
-            clientEntryUrl: options.clientEntryUrl,
-            cssUrls,
-            modulePreloadUrls,
-            speculationRules: getAppSpeculationRules(resolvedApp),
-          }),
-          pageOptions.status,
+        return renderPageRepresentation({
+          clientEntryUrl: options.clientEntryUrl,
+          cssManifest: options.cssManifest,
+          data,
           documentHeaders,
-        );
+          hasLoader: Boolean(loader),
+          head,
+          islandsBootstrapRequired: options.islandsBootstrapRequired,
+          islandsEntryUrl: options.islandsEntryUrl,
+          jsManifest: options.jsManifest,
+          match,
+          request: options.request,
+          requestPath,
+          resolvedApp,
+          routeModule,
+          shellModule,
+          status: pageOptions.status,
+        });
       };
 
       // Dev-only instrumentation: wrap the terminal so middleware time can be
