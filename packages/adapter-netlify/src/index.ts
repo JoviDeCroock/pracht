@@ -99,6 +99,14 @@ const DEFAULT_STATIC_MAX_AGE = 31_536_000;
 const ROUTE_STATE_REQUEST_HEADER = "x-pracht-route-state-request";
 const DEFAULT_EXCLUDED_PATHS = ["/assets/*", "/_pracht/*"];
 const ISG_CACHE_TAG = "pracht:isg";
+const EXPLICIT_CACHE_POLICY_HEADERS = [
+  "cache-control",
+  "cdn-cache-control",
+  "cloudflare-cdn-cache-control",
+  "netlify-cdn-cache-control",
+  "surrogate-control",
+  "vercel-cdn-cache-control",
+] as const;
 
 /**
  * Create a fetch-style Netlify Functions v2 handler.
@@ -368,19 +376,19 @@ function applyNetlifyISGCacheHeaders(
   if (response.status !== 200) return response;
 
   let prepared = stripDangerousSharedCacheHeaders(response, pathname);
-  if (prepared.headers.has("cache-control") || prepared.headers.has("netlify-cdn-cache-control")) {
-    return prepared;
-  }
   if (!isCacheableISGResponse(prepared)) return prepared;
 
   const seconds = getTimeRevalidateSeconds(route.revalidate) ?? cache.staticMaxAge;
   const headers = new Headers(prepared.headers);
-  headers.set(
-    "netlify-cdn-cache-control",
-    `public, durable, max-age=${seconds}, stale-while-revalidate=${cache.staleWhileRevalidate}`,
-  );
-  headers.set("cache-control", "public, max-age=0, must-revalidate");
-  headers.set("netlify-cache-tag", `${ISG_CACHE_TAG},${netlifyRouteCacheTag(pathname)}`);
+  if (!hasExplicitCachePolicy(headers)) {
+    headers.set(
+      "netlify-cdn-cache-control",
+      `public, durable, max-age=${seconds}, stale-while-revalidate=${cache.staleWhileRevalidate}`,
+    );
+    headers.set("cache-control", "public, max-age=0, must-revalidate");
+  }
+  ensureNetlifyPageVary(headers);
+  appendNetlifyCacheTags(headers, [ISG_CACHE_TAG, netlifyRouteCacheTag(pathname)]);
   prepared = cloneResponse(prepared, headers);
   return prepared;
 }
@@ -450,15 +458,43 @@ async function serveStaticFile(
   const headers = applyDefaultSecurityHeaders(
     new Headers({
       "content-type": file.contentType,
-      "cache-control": pathname.startsWith("/assets/")
-        ? "public, max-age=31536000, immutable"
-        : "public, max-age=0, must-revalidate",
-      "netlify-cdn-cache-control": `public, durable, max-age=${staticMaxAge}`,
     }),
   );
   if (file.document) applyHeadersManifest(headers, headersManifest, pathname);
+  if (!hasExplicitCachePolicy(headers)) {
+    headers.set(
+      "cache-control",
+      pathname.startsWith("/assets/")
+        ? "public, max-age=31536000, immutable"
+        : "public, max-age=0, must-revalidate",
+    );
+    headers.set("netlify-cdn-cache-control", `public, durable, max-age=${staticMaxAge}`);
+  }
+  if (file.document) ensureNetlifyPageVary(headers);
   const body = request.method === "HEAD" ? null : await readFile(file.filePath);
   return new Response(body, { headers });
+}
+
+function hasExplicitCachePolicy(headers: Headers): boolean {
+  return EXPLICIT_CACHE_POLICY_HEADERS.some((name) => headers.has(name));
+}
+
+function ensureNetlifyPageVary(headers: Headers): void {
+  if (!headers.has("netlify-vary")) headers.set("netlify-vary", "query=_data");
+}
+
+function appendNetlifyCacheTags(headers: Headers, requiredTags: string[]): void {
+  const tags = (headers.get("netlify-cache-tag") ?? "")
+    .split(",")
+    .map((tag) => tag.trim())
+    .filter(Boolean);
+  const normalized = new Set(tags.map((tag) => tag.toLowerCase()));
+  for (const tag of requiredTags) {
+    if (normalized.has(tag.toLowerCase())) continue;
+    tags.push(tag);
+    normalized.add(tag.toLowerCase());
+  }
+  headers.set("netlify-cache-tag", tags.join(","));
 }
 
 function applyHeadersManifest(

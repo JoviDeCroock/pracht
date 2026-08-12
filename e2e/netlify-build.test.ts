@@ -58,6 +58,7 @@ test("pracht build emits a working Netlify Functions v2 entry", async () => {
       expect(html.status).toBe(200);
       expect(html.headers.get("x-pracht-shell")).toBe("public");
       expect(html.headers.get("netlify-cdn-cache-control")).toContain("durable");
+      expect(html.headers.get("netlify-vary")).toBe("query=_data");
       expect(await html.text()).toContain("Pracht starts with an explicit app manifest.");
 
       const markdown = await handler(
@@ -75,6 +76,7 @@ test("pracht build emits a working Netlify Functions v2 entry", async () => {
       expect(isg.status).toBe(200);
       expect(isg.headers.get("netlify-cdn-cache-control")).toContain("max-age=3600");
       expect(isg.headers.get("netlify-cache-tag")).toContain("pracht:path:%2Fpricing");
+      expect(isg.headers.get("netlify-vary")).toBe("query=_data");
     } finally {
       if (previousStaticDir === undefined) delete process.env.PRACHT_STATIC_DIR;
       else process.env.PRACHT_STATIC_DIR = previousStaticDir;

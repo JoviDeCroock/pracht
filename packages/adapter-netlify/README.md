@@ -73,10 +73,16 @@ metadata.
 ## SSG and ISG caching
 
 - SSG documents are read from the bundled client output and stored in
-  Netlify's durable cache. Atomic deploys invalidate the cached deployment.
+  Netlify's durable cache. Atomic deploys invalidate the cached deployment. An
+  explicit route cache policy remains authoritative.
 - Time-revalidated ISG routes use their Pracht revalidation interval as the
-  Netlify CDN `max-age`, with stale-while-revalidate enabled.
-- Webhook-revalidated ISG responses carry per-path cache tags.
+  Netlify CDN `max-age`, with stale-while-revalidate enabled. Cacheable custom
+  policies remain authoritative.
+- Cached SSG and ISG HTML uses `Netlify-Vary: query=_data`, preserving the
+  route-state variant while collapsing unrelated query parameters. A custom
+  `Netlify-Vary` header takes precedence.
+- Cacheable webhook-revalidated ISG responses carry per-path cache tags, even
+  when the route provides a custom cache policy.
   `POST /__pracht/revalidate` authenticates with `PRACHT_REVALIDATE_TOKEN` and
   purges those tags through Netlify's Functions API.
 - Shared ISG renders run with a sanitized request: no visitor cookies,
