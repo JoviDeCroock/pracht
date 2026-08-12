@@ -18,7 +18,7 @@ collide with other skill packs installed in the same app.
 | ------------------ | ------------------------------------------------------------ |
 | `/pracht-scaffold` | Generate routes, shells, middleware, or API handlers.        |
 | `/pracht-debug`    | Investigate route matching, loader, rendering, or HMR bugs.  |
-| `/pracht-deploy`   | Configure an adapter and deploy to Node, Cloudflare, Vercel. |
+| `/pracht-deploy`   | Configure an adapter and deploy to Node, Cloudflare, Vercel, or a static host. |
 | `/migrate-nextjs`  | Convert a Next.js app (App or Pages Router) to pracht.       |
 | `/upgrade-pracht`  | Upgrade `@pracht/*` packages safely, mapping breaking changes. |
 

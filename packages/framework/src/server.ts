@@ -113,7 +113,8 @@ export type {
 } from "./testing-capabilities.ts";
 export { buildLlmsTxt } from "./llms-txt.ts";
 export type { BuildLlmsTxtOptions, LlmsTxtSection } from "./llms-txt.ts";
-export { prerenderApp } from "./prerender.ts";
+export { buildStaticFallbackHtml, prerenderApp } from "./prerender.ts";
+export { buildStaticRouteStateUrl, STATIC_STATE_PREFIX } from "./runtime-static.ts";
 export {
   createISGRegenerationRequest,
   createRevalidationSingleFlight,

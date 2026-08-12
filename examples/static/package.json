@@ -1,14 +1,13 @@
 {
-  "name": "@pracht/example-islands",
-  "version": "0.0.11",
+  "name": "@pracht/example-static",
+  "version": "0.0.0",
   "private": true,
   "type": "module",
   "dependencies": {
-    "@pracht/adapter-node": "workspace:*",
+    "@pracht/adapter-static": "workspace:*",
     "@pracht/core": "workspace:*"
   },
   "devDependencies": {
-    "@pracht/adapter-static": "workspace:*",
     "@pracht/cli": "workspace:*",
     "@pracht/vite-plugin": "workspace:*",
     "preact": "^10.26.9",
