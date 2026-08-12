@@ -1,4 +1,4 @@
-import { Link, useNavigate } from "@pracht/core";
+import { Link, Script, useNavigate } from "@pracht/core";
 import type { LoaderArgs, RouteComponentProps } from "@pracht/core";
 import { href } from "../pracht-routes";
 
@@ -56,6 +56,14 @@ export function Component({ data }: RouteComponentProps<typeof loader>) {
         </Link>
       </p>
       <TypedProductButton />
+      {/* Emitted into the document head during SSR, before hydration runs. */}
+      <Script strategy="beforeHydration" id="home-before-hydration">
+        {"window.__prachtBeforeHydration = true;"}
+      </Script>
+      {/* Injected client-side once hydration completes. */}
+      <Script id="home-after-hydration">
+        {"document.documentElement.setAttribute('data-after-hydration-script', 'ran');"}
+      </Script>
     </section>
   );
 }

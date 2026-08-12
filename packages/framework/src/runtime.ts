@@ -22,6 +22,7 @@ import {
   IslandCaptureContext,
   type IslandCapture,
 } from "./islands-server.ts";
+import { createScriptCapture, ScriptCaptureContext, withCapturedScripts } from "./script.ts";
 import {
   CLIENT_ENTRY_MANIFEST_KEY,
   ISLANDS_ENTRY_MANIFEST_KEY,
@@ -784,17 +785,25 @@ export async function handlePrachtRequest<TContext>(
                 ? h(Loading, null)
                 : null;
 
+          // SPA shells render on the server too (the loading tree), so a
+          // <Script strategy="beforeHydration"> inside the shell still lands
+          // in the document head.
+          const spaScriptCapture = createScriptCapture("full");
           if (loadingTree) {
             const tree = h(
-              PrachtRuntimeProvider as FunctionComponent<Record<string, unknown>>,
-              {
-                data: null,
-                params: match.params,
-                routeId: match.route.id ?? "",
-                routes: resolvedApp.routes,
-                url: requestPath,
-              },
-              loadingTree,
+              ScriptCaptureContext.Provider as FunctionComponent<Record<string, unknown>>,
+              { value: spaScriptCapture },
+              h(
+                PrachtRuntimeProvider as FunctionComponent<Record<string, unknown>>,
+                {
+                  data: null,
+                  params: match.params,
+                  routeId: match.route.id ?? "",
+                  routes: resolvedApp.routes,
+                  url: requestPath,
+                },
+                loadingTree,
+              ),
             );
             const renderFn = await getRenderToStringAsync();
             body = await renderFn(tree);
@@ -802,7 +811,7 @@ export async function handlePrachtRequest<TContext>(
 
           return htmlResponse(
             buildHtmlDocument({
-              head,
+              head: withCapturedScripts(head, spaScriptCapture),
               body,
               hydrationState: {
                 url: requestPath,
@@ -852,6 +861,19 @@ export async function handlePrachtRequest<TContext>(
         );
 
         const hydration = match.route.hydration ?? "full";
+
+        // <Script strategy="beforeHydration"> usages captured during the
+        // render land in the document head after head() scripts. The capture
+        // travels through context (not module state), so concurrent async
+        // renders — e.g. parallel SSG prerendering — never attribute scripts
+        // to the wrong page.
+        const scriptCapture = createScriptCapture(hydration);
+        tree = h(
+          ScriptCaptureContext.Provider as FunctionComponent<Record<string, unknown>>,
+          { value: scriptCapture },
+          tree,
+        );
+
         let islandCapture: IslandCapture | null = null;
         if (hydration === "islands") {
           // The capture collector travels through context (not module state),
@@ -911,7 +933,7 @@ export async function handlePrachtRequest<TContext>(
           // hydration: "none" routes ship no JavaScript at all.
           return htmlResponse(
             buildHtmlDocument({
-              head,
+              head: withCapturedScripts(head, scriptCapture),
               body: ssrContent,
               clientEntryUrl: islandsEntryUrl,
               cssUrls,
@@ -929,7 +951,7 @@ export async function handlePrachtRequest<TContext>(
 
         return htmlResponse(
           buildHtmlDocument({
-            head,
+            head: withCapturedScripts(head, scriptCapture),
             body: ssrContent,
             hydrationState: {
               url: requestPath,

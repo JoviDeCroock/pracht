@@ -80,6 +80,8 @@ export type { PrachtPublicEnv, PrachtServerEnv, PublicEnvOf } from "./env.ts";
 export { createUseCapability, type CapabilityHookResult } from "./capability-hook.ts";
 export { forwardRef } from "./forwardRef.ts";
 export { useIsHydrated } from "./hydration.ts";
+export { Script } from "./script.ts";
+export type { ScriptProps, ScriptStrategy } from "./script.ts";
 export { Suspense, lazy } from "preact-suspense";
 export {
   Form,

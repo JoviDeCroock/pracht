@@ -85,6 +85,7 @@ For pages router projects, you can **skip manual manifest wiring entirely** (Pha
 | `useLinkStatus()` / pending UI  | `useNavigation()`                                               | `{ state, location, formData }` — powers progress bars and optimistic UI |
 | `next/image`                    | `<Image>` from `@pracht/image`                                  | Responsive srcsets plus Node, Cloudflare, Vercel, or passthrough loaders |
 | `next/head` or Metadata API     | `head()` export on route/shell                                  | Per-route and per-shell head merging                                  |
+| `next/script` `<Script>`        | `<Script>` from `@pracht/core`                                  | Strategies: `beforeHydration` (≈ `beforeInteractive`), `afterHydration` (≈ `afterInteractive`, default), `idle` (≈ `lazyOnload`), `visible` |
 | `className`                     | `class`                                                         | Preact uses `class` attribute                                         |
 | `React.useState` etc.           | `import { useState } from "preact/hooks"`                       | Preact hooks API is compatible                                        |
 | `React.useEffect`               | `import { useEffect } from "preact/hooks"`                      | Same API                                                              |

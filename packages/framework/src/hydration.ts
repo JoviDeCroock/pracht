@@ -11,6 +11,7 @@ const MODE_HYDRATE = 1 << 5;
 let _hydrating = false;
 let _suspensionCount = 0;
 let _hydrated = false;
+const hydrationCompleteListeners = new Set<() => void>();
 
 // preact-suspense >=0.3 installs its options.__e patch lazily inside the
 // Suspense constructor. Construct one throwaway instance now so its patch
@@ -57,11 +58,17 @@ const oldCatchError = (options as any).__e;
 // there.
 const oldCommit = (options as any).__c;
 (options as any).__c = (vnode: any, commitQueue: any) => {
+  let completed = false;
   if (_hydrating && !_hydrated && _suspensionCount <= 0) {
     _hydrated = true;
     _hydrating = false;
+    completed = true;
   }
   if (oldCommit) oldCommit(vnode, commitQueue);
+  if (completed) {
+    for (const listener of hydrationCompleteListeners) listener();
+    hydrationCompleteListeners.clear();
+  }
 };
 
 /**
@@ -86,9 +93,30 @@ export function useIsHydrated(): boolean {
   return hydrated;
 }
 
+/**
+ * Returns `true` only after the whole initial hydration pass, including every
+ * suspended boundary, has completed. Fresh client renders and island mounts
+ * are ready after their first commit because they do not participate in the
+ * full-page hydration pass.
+ */
+export function useIsHydrationComplete(): boolean {
+  const [complete, setComplete] = useState(!_hydrating || _hydrated);
+  useEffect(() => {
+    if (!_hydrating || _hydrated) {
+      setComplete(true);
+      return;
+    }
+    const listener = () => setComplete(true);
+    hydrationCompleteListeners.add(listener);
+    return () => hydrationCompleteListeners.delete(listener);
+  }, []);
+  return complete;
+}
+
 /** @internal Reset module state for tests. */
 export function _resetForTesting(): void {
   _hydrating = false;
   _suspensionCount = 0;
   _hydrated = false;
+  hydrationCompleteListeners.clear();
 }

@@ -2,7 +2,10 @@ import { HYDRATION_STATE_ELEMENT_ID } from "./runtime-constants.ts";
 import { applyHeaders, applySecurityAndRouteHeaders } from "./runtime-headers.ts";
 import type { PrachtHydrationState } from "./runtime-hooks.ts";
 import type { SpeculationRulesDocument } from "./runtime-speculation.ts";
+import { escapeScriptChildren } from "./script-escape.ts";
 import type { HeadMetadata } from "./types.ts";
+
+export { escapeScriptChildren };
 
 export function escapeHtml(str: string): string {
   return str
@@ -140,7 +143,7 @@ export function buildHtmlDocument(options: {
   const scriptTags = (head.script ?? [])
     .map((script) => {
       const attrs = renderAttributes(script, SCRIPT_ATTRIBUTES);
-      const children = script.children ? escapeScriptText(script.children) : "";
+      const children = script.children ? escapeScriptChildren(script.children, script.type) : "";
       return attrs ? `<script ${attrs}>${children}</script>` : `<script>${children}</script>`;
     })
     .join("\n    ");

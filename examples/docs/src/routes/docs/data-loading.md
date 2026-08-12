@@ -253,6 +253,47 @@ export function head() {
 }
 ```
 
+### Third-party scripts — `<Script>`
+
+For scripts that need loading-strategy control (analytics, chat widgets, ad tags), use the `<Script>` component inside route or shell components instead of a hand-written `head()` `script[]` entry:
+
+```tsx
+import { Script } from "@pracht/core";
+
+export function Component() {
+  return (
+    <section>
+      {/* Emitted into the SSR <head>, runs before hydration */}
+      <Script strategy="beforeHydration" id="consent">
+        {"window.consentDefaults = { analytics: false };"}
+      </Script>
+      {/* Default: injected once hydration completes */}
+      <Script src="https://example.com/analytics.js" />
+      {/* Injected in requestIdleCallback */}
+      <Script strategy="idle" src="https://example.com/chat-widget.js" />
+      {/* Injected when the placeholder scrolls into view */}
+      <Script strategy="visible" src="https://example.com/comments.js" />
+    </section>
+  );
+}
+```
+
+| Strategy | When the script loads |
+| --- | --- |
+| `"beforeHydration"` | Emitted into the document `<head>` during SSR, like `head()` scripts |
+| `"afterHydration"` _(default)_ | Injected after hydration, including Suspense, completes |
+| `"idle"` | Injected in `requestIdleCallback` (setTimeout fallback) |
+| `"visible"` | Injected when its placeholder enters the viewport |
+
+Props: `src`, `id`, `async`, `defer`, `type`, `nonce`, `integrity`, `crossorigin`, `referrerpolicy`, client-only `onLoad`/`onError`, and inline string children as an alternative to `src`. Attributes pass through the same allowlist as `head()` scripts — `on*` attributes never reach SSR HTML.
+
+A script identified by `id`, `src`, or its inline content is never injected twice: dedupe spans re-renders, client-side navigations, `head()` entries, and tags the server already emitted. Constraints to know:
+
+- `"beforeHydration"` only applies to server-rendered documents. When such a component first mounts via a client-side navigation, the script is injected immediately instead (with a dev warning).
+- On `hydration: "none"` routes no client JavaScript ships, so only `"beforeHydration"` can run; client strategies warn in dev and do nothing.
+- On `hydration: "islands"` routes, client strategies run for `<Script>` usages inside islands (they hydrate); `"beforeHydration"` works anywhere on the page. A client strategy outside an island can never run and warns in dev.
+- Inline JavaScript children preserve string, regex, and comparison semantics while HTML parser breakout sequences (`</script`, `<script`, `<!--`) are neutralized. JSON script types (e.g. `type="application/ld+json"`) get full JSON-safe `\uXXXX` escaping instead.
+
 ---
 
 ## Document Headers
