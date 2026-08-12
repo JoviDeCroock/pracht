@@ -17,6 +17,9 @@ import type {
   ResolvedApiRoute,
 } from "./types.ts";
 
+/** Longest a capability may run before its signal aborts, matching API routes. */
+export const CAPABILITY_TIMEOUT_MS = 30_000;
+
 export interface CapabilityPipelineOptions<TContext> {
   resolved: ResolvedCapability;
   input: unknown;

@@ -1,7 +1,7 @@
 /** Capability audit observer registration and fail-safe event delivery. */
 
 import { snapshotAgentIdentity } from "./runtime-agent-context.ts";
-import type { CapabilityAuditEvent, CapabilityAuditHook } from "./types.ts";
+import type { CapabilityAuditEvent, CapabilityAuditHook, CapabilityEnvelope } from "./types.ts";
 
 // Module-level hook so server-only application code can subscribe without
 // passing functions through the serializable app manifest.
@@ -28,4 +28,8 @@ export function emitCapabilityAudit(
       // Deliberately swallowed.
     }
   }
+}
+
+export function capabilityEnvelopeOutcome(envelope: CapabilityEnvelope): string {
+  return envelope.ok ? "ok" : envelope.error.code;
 }
