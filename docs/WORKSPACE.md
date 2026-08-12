@@ -140,7 +140,11 @@ described in `VISION_MVP.md`.
   browser export condition. The CLI remains plain JS.
 - **Node adapter** — Translates Node requests to Web `Request` objects, calls
   `handlePrachtRequest()`, and implements ISG stale-while-revalidate plus
-  webhook regeneration of on-disk HTML.
+  webhook regeneration of on-disk HTML. `node-handler.ts` owns request
+  orchestration and terminal error handling, `node-static.ts` owns static-file
+  resolution and HTTP serving, `node-isg.ts` owns snapshot persistence,
+  staleness, and webhook regeneration, and `node-types.ts` keeps those layers
+  acyclic.
 - **Cloudflare adapter** — Serves `env.ASSETS` when available, falls back to
   `handlePrachtRequest()`, gives loaders/API routes/middleware access to `env`
   and `executionContext`, and stores regenerated ISG HTML in the Workers Cache

@@ -1,94 +1,23 @@
-import { createReadStream } from "node:fs";
-import { mkdir, stat, writeFile } from "node:fs/promises";
-import type { IncomingMessage, ServerResponse } from "node:http";
-import { dirname, join, resolve, sep } from "node:path";
+/** Node request orchestration and terminal HTTP error handling. */
 
+import type { IncomingMessage, ServerResponse } from "node:http";
 import {
-  applyDefaultSecurityHeaders,
-  getTimeRevalidateSeconds,
   handlePrachtRequest,
-  classifyRevalidationSkip,
   type HandlePrachtRequestOptions,
-  type ISGManifestEntry,
   isCacheableISGResponse,
-  jsonResponse,
-  matchAppRoute,
-  type ModuleRegistry,
-  type MarkdownManifest,
   PRACHT_REVALIDATE_ENDPOINT,
   prefersMarkdown,
   preventHeuristicCaching,
-  readRevalidationRequest,
-  RevalidationReport,
-  resolveRevalidationToken,
-  type ResolvedApiRoute,
-  type PrachtApp,
   routeSupportsMarkdown,
 } from "@pracht/core/server";
+import { handleRevalidationEndpoint, persistISGSnapshot, serveISGEntry } from "./node-isg.ts";
+import { createWebRequest, isClientDisconnectError, writeWebResponse } from "./node-request.ts";
+import { resolveStaticFile, serveStaticFile } from "./node-static.ts";
+import type { NodeAdapterOptions } from "./node-types.ts";
 
-import { regenerateISGPage } from "./node-isg.ts";
-import {
-  createWebRequest,
-  isClientDisconnectError,
-  pipeToResponse,
-  writeNodeResponseHeaders,
-  writeWebResponse,
-} from "./node-request.ts";
-import { applyHeadersManifest, resolveStaticFile, type HeadersManifest } from "./node-static.ts";
+export type { NodeAdapterContextArgs, NodeAdapterOptions } from "./node-types.ts";
 
 const ROUTE_STATE_REQUEST_HEADER = "x-pracht-route-state-request";
-
-export interface NodeAdapterContextArgs {
-  request: Request;
-  req: IncomingMessage;
-  res: ServerResponse;
-}
-
-export interface NodeAdapterOptions<TContext = unknown> {
-  app: PrachtApp;
-  registry?: ModuleRegistry;
-  staticDir?: string;
-  viteManifest?: unknown;
-  isgManifest?: Record<string, ISGManifestEntry>;
-  apiRoutes?: ResolvedApiRoute[];
-  clientEntryUrl?: string;
-  islandsEntryUrl?: string;
-  islandsBootstrapRequired?: boolean;
-  cssManifest?: Record<string, string[]>;
-  jsManifest?: Record<string, string[]>;
-  headersManifest?: HeadersManifest;
-  /** Exact Markdown-capable routes. Omit to preserve negotiation for legacy/custom entries. */
-  markdownManifest?: MarkdownManifest;
-  createContext?: (args: NodeAdapterContextArgs) => TContext | Promise<TContext>;
-  /**
-   * Canonical public origin for request URL construction. When set, the Node
-   * adapter ignores `Host` / forwarded host headers and always builds
-   * `request.url` against this origin.
-   */
-  canonicalOrigin?: string;
-  /**
-   * Whether to trust proxy headers (`Forwarded`, `X-Forwarded-Proto`,
-   * `X-Forwarded-Host`) when constructing the request URL.
-   *
-   * When `canonicalOrigin` is set, it takes precedence and these headers are
-   * ignored for URL construction.
-   *
-   * When **false** (the default) and no `canonicalOrigin` is set, the request
-   * URL is derived from the socket: protocol is inferred from TLS state, and
-   * host from the `Host` header. Forwarded headers are ignored.
-   *
-   * When **true**, forwarded headers are honored with the following precedence:
-   *   1. RFC 7239 `Forwarded` header (`proto=` and `host=` directives)
-   *   2. `X-Forwarded-Proto` / `X-Forwarded-Host`
-   *   3. Socket-derived values (fallback)
-   *
-   * Enable this only when the Node server sits behind a trusted reverse proxy
-   * (e.g. nginx, Cloudflare, a load balancer) that sets these headers.
-   */
-  trustProxy?: boolean;
-  /** Maximum request body size in bytes. Defaults to 1 MiB. */
-  maxBodySize?: number;
-}
 
 let warnedAboutMissingCanonicalOrigin = false;
 
@@ -208,12 +137,7 @@ export function createNodeRequestHandler<TContext = unknown>(
       isCacheableISGResponse(response);
 
     if (isIsgDocument) {
-      const html = await response.clone().text();
-      const htmlPath = resolveContainedPath(staticDir, url.pathname);
-      if (htmlPath) {
-        await mkdir(dirname(htmlPath), { recursive: true });
-        await writeFile(htmlPath, html, "utf-8");
-      }
+      await persistISGSnapshot(staticDir, url.pathname, response);
     }
 
     // Evaluated after the ISG snapshot decision above: stamping a
@@ -277,208 +201,10 @@ function shouldWarnAboutMissingCanonicalOrigin(staticDir: string | undefined): b
   return typeof staticDir === "string" && staticDir.length > 0;
 }
 
-async function serveStaticFile(
-  request: Request,
-  res: ServerResponse,
-  staticResult: { filePath: string; contentType: string; cacheControl: string },
-  headersManifest: HeadersManifest,
-  pathname: string,
-): Promise<void> {
-  const fileStat = await stat(staticResult.filePath);
-  const headers = applyDefaultSecurityHeaders(
-    new Headers({
-      "content-type": staticResult.contentType,
-      "cache-control": staticResult.cacheControl,
-      etag: createWeakEtag(fileStat),
-      "last-modified": fileStat.mtime.toUTCString(),
-    }),
-  );
-  if (staticResult.contentType.includes("text/html")) {
-    applyHeadersManifest(headers, headersManifest, pathname);
-  }
-
-  if (isNotModified(request, headers)) {
-    res.statusCode = 304;
-    writeNodeHeaders(res, headers);
-    res.end();
-    return;
-  }
-
-  res.statusCode = 200;
-  writeNodeHeaders(res, headers);
-  if (request.method === "HEAD") {
-    res.end();
-    return;
-  }
-  await pipeToResponse(createReadStream(staticResult.filePath), res);
-}
-
-async function serveISGEntry<TContext>(
-  request: Request,
-  res: ServerResponse,
-  options: NodeAdapterOptions<TContext>,
-  staticDir: string,
-  pathname: string,
-  entry: ISGManifestEntry,
-  headersManifest: HeadersManifest,
-  contextArgs: NodeAdapterContextArgs,
-): Promise<boolean> {
-  const htmlPath = resolveContainedPath(staticDir, pathname);
-  if (!htmlPath) return false;
-
-  const fileStat = await stat(htmlPath).catch(() => null);
-  if (!fileStat?.isFile()) return false;
-
-  const ageMs = Date.now() - fileStat.mtimeMs;
-  const revalidateSeconds = getTimeRevalidateSeconds(entry.revalidate);
-  const isStale = revalidateSeconds !== null && ageMs > revalidateSeconds * 1000;
-
-  const headers = applyDefaultSecurityHeaders(
-    new Headers({
-      "content-type": "text/html; charset=utf-8",
-      "cache-control": "public, max-age=0, must-revalidate",
-      etag: createWeakEtag(fileStat),
-      "last-modified": fileStat.mtime.toUTCString(),
-      vary: ROUTE_STATE_REQUEST_HEADER,
-    }),
-  );
-  applyHeadersManifest(headers, headersManifest, pathname);
-  headers.set("x-pracht-isg", isStale ? "stale" : "fresh");
-
-  if (isNotModified(request, headers)) {
-    res.statusCode = 304;
-    writeNodeHeaders(res, headers);
-    res.end();
-  } else {
-    res.statusCode = 200;
-    writeNodeHeaders(res, headers);
-    if (request.method === "HEAD") {
-      res.end();
-    } else {
-      await pipeToResponse(createReadStream(htmlPath), res);
-    }
-  }
-
-  if (isStale) {
-    regenerateISGPage(options, pathname, htmlPath, contextArgs).catch((err) => {
-      console.error(`ISG regeneration failed for ${pathname}:`, err);
-    });
-  }
-
-  return true;
-}
-
-async function handleRevalidationEndpoint<TContext>(
-  request: Request,
-  options: NodeAdapterOptions<TContext>,
-  staticDir: string | undefined,
-  isgManifest: Record<string, ISGManifestEntry>,
-  contextArgs: NodeAdapterContextArgs,
-): Promise<Response> {
-  const parsed = await readRevalidationRequest(request, resolveRevalidationToken());
-  if (!parsed.ok) return parsed.response;
-
-  if (!staticDir) {
-    // Built through the shared report so this reply has the same shape as every
-    // other one, `details` included, rather than the three legacy arrays alone.
-    const unavailable = new RevalidationReport();
-    for (const pathname of parsed.paths) unavailable.skipped(pathname, "not_prerendered");
-    return jsonResponse(
-      { error: "ISG revalidation requires a staticDir.", ...unavailable.toJSON() },
-      503,
-    );
-  }
-
-  const report = new RevalidationReport();
-
-  for (const pathname of parsed.paths) {
-    try {
-      const entry = isgManifest[pathname];
-      const htmlPath = resolveContainedPath(staticDir, pathname);
-      const skip = classifyRevalidationSkip(
-        entry && { render: "isg", revalidate: entry.revalidate },
-        htmlPath !== null,
-        matchAppRoute(options.app, pathname)?.route ?? null,
-      );
-      if (skip) {
-        report.skipped(pathname, skip);
-        continue;
-      }
-
-      // A failed regeneration keeps the existing on-disk HTML and is reported
-      // in `failed` instead of aborting the whole batch with a 500.
-      if (await regenerateISGPage(options, pathname, htmlPath!, contextArgs)) {
-        report.revalidated(pathname);
-      } else {
-        report.failed(pathname, "regeneration_failed");
-      }
-    } catch (err) {
-      console.error(`ISG webhook revalidation failed for ${pathname}:`, err);
-      report.failed(pathname, "regeneration_error");
-    }
-  }
-
-  return jsonResponse(report.toJSON());
-}
-
-/**
- * Resolve a URL pathname to `<staticDir>/<pathname>/index.html` while
- * ensuring the result stays inside `staticDir`. Returns `null` when the
- * pathname would escape the root (`..`, encoded separators, NUL bytes,
- * etc.), which the caller treats as a miss. Also rejects NUL — Node
- * filesystem APIs throw on these but it's clearer to bail early.
- */
-function resolveContainedPath(staticDir: string, pathname: string): string | null {
-  if (pathname.includes("\0")) return null;
-
-  const rootResolved = resolve(staticDir);
-  const candidate =
-    pathname === "/"
-      ? join(rootResolved, "index.html")
-      : resolve(rootResolved, `.${pathname}`, "index.html");
-  const resolved = resolve(candidate);
-
-  if (resolved !== rootResolved && !resolved.startsWith(rootResolved + sep)) {
-    return null;
-  }
-  return resolved;
-}
-
 function isRouteStateRequest(url: URL, headers: Headers): boolean {
   return headers.get(ROUTE_STATE_REQUEST_HEADER) === "1" || url.searchParams.get("_data") === "1";
 }
 
 function isStaticAssetMethod(method: string): boolean {
   return method === "GET" || method === "HEAD";
-}
-
-function writeNodeHeaders(res: ServerResponse, headers: Headers): void {
-  writeNodeResponseHeaders(res, headers);
-}
-
-function createWeakEtag(fileStat: { mtimeMs: number; size: number }): string {
-  return `W/"${fileStat.size.toString(16)}-${Math.floor(fileStat.mtimeMs).toString(16)}"`;
-}
-
-function isNotModified(request: Request, headers: Headers): boolean {
-  const etag = headers.get("etag");
-  const ifNoneMatch = request.headers.get("if-none-match");
-  if (etag && ifNoneMatch) {
-    const candidates = ifNoneMatch.split(",").map((value) => value.trim());
-    if (candidates.includes("*") || candidates.includes(etag)) {
-      return true;
-    }
-  }
-
-  const lastModified = headers.get("last-modified");
-  const ifModifiedSince = request.headers.get("if-modified-since");
-  if (lastModified && ifModifiedSince) {
-    const modifiedTime = Date.parse(lastModified);
-    const sinceTime = Date.parse(ifModifiedSince);
-    if (!Number.isNaN(modifiedTime) && !Number.isNaN(sinceTime) && modifiedTime <= sinceTime) {
-      return true;
-    }
-  }
-
-  return false;
 }

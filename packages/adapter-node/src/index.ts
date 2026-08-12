@@ -1,8 +1,5 @@
-export {
-  createNodeRequestHandler,
-  type NodeAdapterContextArgs,
-  type NodeAdapterOptions,
-} from "./node-handler.ts";
+export { createNodeRequestHandler } from "./node-handler.ts";
+export type { NodeAdapterContextArgs, NodeAdapterOptions } from "./node-types.ts";
 export {
   createNodeServerEntryModule,
   nodeAdapter,

@@ -1,8 +1,12 @@
-import { lstat, realpath } from "node:fs/promises";
+import { createReadStream } from "node:fs";
+import { lstat, realpath, stat } from "node:fs/promises";
+import type { ServerResponse } from "node:http";
 import { extname, resolve, sep } from "node:path";
-import type { ISGManifestEntry } from "@pracht/core/server";
+import { applyDefaultSecurityHeaders, type ISGManifestEntry } from "@pracht/core/server";
+import { pipeToResponse, writeNodeResponseHeaders } from "./node-request.ts";
+import type { HeadersManifest } from "./node-types.ts";
 
-export type HeadersManifest = Record<string, Record<string, string>>;
+export type { HeadersManifest } from "./node-types.ts";
 
 const MIME_TYPES: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -125,6 +129,69 @@ export function getManifestHeaders(
     headersManifest[withoutIndex] ??
     undefined
   );
+}
+
+export async function serveStaticFile(
+  request: Request,
+  res: ServerResponse,
+  staticResult: StaticFileResult,
+  headersManifest: HeadersManifest,
+  pathname: string,
+): Promise<void> {
+  const fileStat = await stat(staticResult.filePath);
+  const headers = applyDefaultSecurityHeaders(
+    new Headers({
+      "content-type": staticResult.contentType,
+      "cache-control": staticResult.cacheControl,
+      etag: createWeakEtag(fileStat),
+      "last-modified": fileStat.mtime.toUTCString(),
+    }),
+  );
+  if (staticResult.contentType.includes("text/html")) {
+    applyHeadersManifest(headers, headersManifest, pathname);
+  }
+
+  if (isNotModified(request, headers)) {
+    res.statusCode = 304;
+    writeNodeResponseHeaders(res, headers);
+    res.end();
+    return;
+  }
+
+  res.statusCode = 200;
+  writeNodeResponseHeaders(res, headers);
+  if (request.method === "HEAD") {
+    res.end();
+    return;
+  }
+  await pipeToResponse(createReadStream(staticResult.filePath), res);
+}
+
+export function createWeakEtag(fileStat: { mtimeMs: number; size: number }): string {
+  return `W/"${fileStat.size.toString(16)}-${Math.floor(fileStat.mtimeMs).toString(16)}"`;
+}
+
+export function isNotModified(request: Request, headers: Headers): boolean {
+  const etag = headers.get("etag");
+  const ifNoneMatch = request.headers.get("if-none-match");
+  if (etag && ifNoneMatch) {
+    const candidates = ifNoneMatch.split(",").map((value) => value.trim());
+    if (candidates.includes("*") || candidates.includes(etag)) {
+      return true;
+    }
+  }
+
+  const lastModified = headers.get("last-modified");
+  const ifModifiedSince = request.headers.get("if-modified-since");
+  if (lastModified && ifModifiedSince) {
+    const modifiedTime = Date.parse(lastModified);
+    const sinceTime = Date.parse(ifModifiedSince);
+    if (!Number.isNaN(modifiedTime) && !Number.isNaN(sinceTime) && modifiedTime <= sinceTime) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 function resolveUrlPath(staticRoot: string, pathname: string, suffix?: string): string | null {
