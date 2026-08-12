@@ -1,11 +1,10 @@
-import { existsSync } from "node:fs";
-import { copyFile, mkdir, readFile, readdir, symlink, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, symlink, writeFile } from "node:fs/promises";
 import { basename, dirname, resolve } from "node:path";
 
+import { buildAgentToolFiles } from "./agent-tools.js";
 import {
   DEFAULT_DIRECTORY,
   FALLBACK_VERSION_RANGES,
-  SKILL_DIRS,
   WRANGLER_COMPATIBILITY_DATE,
 } from "./config.js";
 import {
@@ -195,8 +194,7 @@ export async function buildProjectFiles({
   }
 
   if (agentTools) {
-    files[".mcp.json"] = createMcpConfig();
-    Object.assign(files, await readSkillFiles());
+    Object.assign(files, await buildAgentToolFiles());
   }
 
   // pnpm resolves build-script policy from the workspace root, so inside an existing
@@ -209,46 +207,6 @@ export async function buildProjectFiles({
   }
 
   return { files, pnpmWorkspaceNotice };
-}
-
-function createMcpConfig() {
-  return `${JSON.stringify(
-    {
-      mcpServers: {
-        pracht: {
-          command: "npx",
-          // `--no-install` pins this to the `@pracht/cli` the project depends
-          // on. `--yes @pracht/cli` fetched the registry's latest instead, so
-          // the MCP server an agent talked to could describe a different CLI
-          // than the one the app builds with. Not bare `npx pracht` either:
-          // that resolves to a registry package literally named `pracht`
-          // whenever the local bin is missing — `--no-install` fails loudly.
-          args: ["--no-install", "pracht", "mcp"],
-        },
-      },
-    },
-    null,
-    2,
-  )}\n`;
-}
-
-async function readSkillFiles() {
-  const skillsDir = SKILL_DIRS.find((dir) => existsSync(dir));
-
-  if (!skillsDir) {
-    return {};
-  }
-
-  const files = {};
-  for (const name of await readdir(skillsDir)) {
-    const skillFile = resolve(skillsDir, name, "SKILL.md");
-    if (!existsSync(skillFile)) {
-      continue;
-    }
-    files[`.claude/skills/${name}/SKILL.md`] = await readFile(skillFile, "utf-8");
-  }
-
-  return files;
 }
 
 function createPackageJson({ adapter, projectName, tailwind, versions }) {
