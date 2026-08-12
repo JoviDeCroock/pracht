@@ -135,6 +135,32 @@ describe("scanPagesDirectory", () => {
     expect(pages.find((page) => page.routePath === "/type-only")?.hasHead).toBe(false);
   });
 
+  it("ignores every file beneath underscore-prefixed directories", () => {
+    const pagesDir = makeTempPagesDir();
+    mkdirSync(join(pagesDir, "_components", "nested"), { recursive: true });
+
+    writeFileSync(join(pagesDir, "index.tsx"), "export function Component() { return null; }\n");
+    writeFileSync(
+      join(pagesDir, "_components", "button.tsx"),
+      "export function Component() { return null; }\n",
+    );
+    writeFileSync(
+      join(pagesDir, "_components", "nested", "index.tsx"),
+      "export function Component() { return null; }\n",
+    );
+    writeFileSync(
+      join(pagesDir, "_components", "_app.tsx"),
+      "export function Shell() { return null; }\n",
+    );
+
+    const pages = scanPagesDirectory(pagesDir);
+    const source = generatePagesManifestSource(pages, { pagesDir });
+
+    expect(pages.map((page) => page.routePath)).toEqual(["/"]);
+    expect(source).not.toContain("_components");
+    expect(source).not.toContain("shells:");
+  });
+
   it("extracts the HYDRATION export and emits it in the generated manifest", () => {
     const pagesDir = makeTempPagesDir();
 

@@ -11,6 +11,8 @@ src/
   pages/
     _app.tsx          → Shared shell (wraps all pages)
     _middleware.ts    → Middleware for every page route
+    _components/
+      page-note.tsx   → Imported helper (not a route)
     index.tsx         → /
     about.tsx         → /about
     legacy.tsx        → /legacy (middleware redirects it to /about)
@@ -27,7 +29,8 @@ to registering a shell in the manifest router. `_middleware.ts` is the pages
 middleware: it exports the same `MiddlewareFn` as manifest middleware and runs
 on every page route (API routes are not wrapped — they use the higher-order
 `with-auth.ts` helper instead). Dynamic segments use `[param]` bracket syntax
-in the filename.
+in the filename. Other underscore-prefixed files and directories are reserved
+for implementation details and never become routes.
 
 ## Commands
 

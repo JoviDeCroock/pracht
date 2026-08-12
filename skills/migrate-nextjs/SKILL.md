@@ -55,8 +55,9 @@ If the source Next.js project uses the **pages router** (`pages/` directory), pr
 4. Convert `getServerSideProps`/`getStaticProps` to `loader` exports
 5. Add `export const RENDER_MODE = "ssg"` to static pages, `"ssr"` for dynamic (default is `"ssr"`). For time-revalidated pages, export `RENDER_MODE = "isg"` and a positive integer `REVALIDATE` in seconds. Webhook policies require ejection.
 6. Convert `middleware.ts` to a root-level `src/pages/_middleware.ts` exporting a pracht `MiddlewareFn` (Phase 6 shows the transform). It runs on every page route; move `config.matcher` path checks into the function body (`url.pathname`). API routes are not wrapped — use higher-order functions for those. Nested `_middleware.ts` files are a hard error; per-group middleware requires ejection.
-7. Run dev server, iterate on errors
-8. Optionally run `generateRoutesFile` to eject to explicit manifest
+7. Treat other `_`-prefixed files and directories as reserved implementation details: pracht ignores the entire subtree, so move any intended page route out of it.
+8. Run dev server, iterate on errors
+9. Optionally run `generateRoutesFile` to eject to explicit manifest
 
 For pages router projects, you can **skip manual manifest wiring entirely** (Phase 7 below).
 

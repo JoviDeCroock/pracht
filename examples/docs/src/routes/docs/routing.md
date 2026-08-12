@@ -286,6 +286,9 @@ When `pagesDir` is set, the `appFile` option is ignored. The plugin scans the pa
 | `pages/_app.tsx`        | _(shell, not a route)_                      |
 | `pages/_middleware.ts`  | _(middleware, not a route)_                 |
 | `pages/_anything.tsx`   | _(ignored — underscore prefix is reserved)_ |
+| `pages/_components/button.tsx` | _(ignored — the whole directory is reserved)_ |
+
+The underscore prefix reserves both files and directory trees for non-route implementation details. Pracht never creates routes from their contents, so `pages/_components/button.tsx` is ignored rather than exposed at `/_components/button`. `_app` and `_middleware` are recognized only at the pages root; `_middleware/` remains a hard error because silently ignoring a directory that looks like an authorization boundary would fail open.
 
 ### Shell via `_app.tsx`
 

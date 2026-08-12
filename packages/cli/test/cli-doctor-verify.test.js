@@ -225,6 +225,35 @@ export const middleware: MiddlewareFn = async (_args, next) => next();
   });
 
   it.each(["doctor", "verify"])(
+    "ignores underscore-prefixed pages directories in %s",
+    (command) => {
+      const appDir = createTempDir(`pracht-cli-${command}-pages-private-dir-`);
+      writePagesApp(appDir);
+      writeProjectFile(
+        appDir,
+        "src/pages/index.tsx",
+        "export function Component() { return null; }",
+      );
+      writeProjectFile(
+        appDir,
+        "src/pages/_components/button.tsx",
+        'export const RENDER_MODE = "isg"; export function Component() { return null; }',
+      );
+      writeProjectFile(appDir, "src/pages/_components/_app.tsx", "export const REVALIDATE = 60;");
+
+      const result = runCli([command, "--json"], { cwd: appDir });
+      const report = JSON.parse(result.stdout);
+      expect(report.ok).toBe(true);
+      expect(report.checks.some((check) => check.message === "Found 1 page route.")).toBe(true);
+      expect(
+        report.checks.some(
+          (check) => check.message === "No `_app` shell was found in the pages directory.",
+        ),
+      ).toBe(true);
+    },
+  );
+
+  it.each(["doctor", "verify"])(
     "fails %s when pages _middleware does not export middleware",
     (command) => {
       const appDir = createTempDir(`pracht-cli-${command}-pages-middleware-export-`);
