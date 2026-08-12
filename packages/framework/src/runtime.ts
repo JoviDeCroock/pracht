@@ -40,6 +40,7 @@ import {
 } from "./runtime-middleware.ts";
 import type { ResolvedCapability } from "./runtime-capabilities.ts";
 import { buildRouteStateUrl } from "./runtime-client-fetch.ts";
+import { isFirstPartyFetch, isSameOriginRequest } from "./runtime-request-provenance.ts";
 import {
   getRenderToStringAsync,
   jsonErrorResponse,
@@ -68,8 +69,6 @@ import type {
   ShellModule,
 } from "./types.ts";
 
-const SAME_ORIGIN_FETCH_SITE = "same-origin";
-
 /**
  * Build-time proof that the app has no agent surface at all — no registered
  * capabilities and no `defineApp({ agents })`. The vite plugin only defines it
@@ -82,99 +81,6 @@ const SAME_ORIGIN_FETCH_SITE = "same-origin";
  * the agent surface does not ship it. See docs/CAPABILITIES.md.
  */
 declare const __PRACHT_AGENT_SURFACE__: boolean | undefined;
-
-/**
- * Stricter variant of first-party detection used to protect API requests
- * that a cross-site page must not be able to make on the user's behalf:
- * state-changing methods (CSRF) and WebSocket upgrades (cross-site
- * WebSocket hijacking). It rejects any browser signal that points outside
- * this exact origin — a cross-origin form POST will send `Origin` from the
- * attacker, and `Sec-Fetch-Site: same-site` is not enough because sibling
- * subdomains can be attacker-controlled. Requests with no browser
- * provenance headers are treated as non-browser callers.
- */
-function isSameOriginRequest(request: Request, url: URL): boolean {
-  const site = request.headers.get("sec-fetch-site");
-  if (site && site !== SAME_ORIGIN_FETCH_SITE) {
-    return false;
-  }
-
-  const origin = request.headers.get("origin");
-  if (origin) {
-    try {
-      return new URL(origin).origin === url.origin;
-    } catch {
-      return false;
-    }
-  }
-
-  if (site === SAME_ORIGIN_FETCH_SITE) {
-    return true;
-  }
-
-  // No Sec-Fetch-Site AND no Origin: fall back to Referer. Browsers
-  // always send Origin on POST to same-origin endpoints, so a POST
-  // missing both is almost certainly a non-browser caller.
-  const referer = request.headers.get("referer");
-  if (referer) {
-    try {
-      return new URL(referer).origin === url.origin;
-    } catch {
-      return false;
-    }
-  }
-
-  // No browser-provided signals at all — allow (curl, server-to-server,
-  // tests). The threat model here is CSRF via browser forms, which
-  // cannot produce a request with none of these headers set.
-  return true;
-}
-
-/**
- * Heuristic "this request came from our own page" check. Used to gate
- * the `_data=1` query-param form of the route-state endpoint, which is
- * otherwise reachable via any cross-origin `<a href>` / redirect.
- *
- * Accepts a request as first-party when:
- *   - Sec-Fetch-Site is `same-origin` (modern browsers),
- *   - OR Sec-Fetch-Site is absent AND the Origin header matches the
- *     request URL's origin (older clients that still send Origin),
- *   - OR Sec-Fetch-Site/Origin are absent AND Referer matches the request
- *     URL's origin,
- *   - OR no Origin/Sec-Fetch-Site/Referer is present (non-browser clients like
- *     curl — CSRF is not the threat model there; blocking would break
- *     tests and CLIs).
- */
-export function isFirstPartyFetch(request: Request): boolean {
-  const site = request.headers.get("sec-fetch-site");
-  if (site && site !== SAME_ORIGIN_FETCH_SITE) {
-    return false;
-  }
-
-  const origin = request.headers.get("origin");
-  if (origin) {
-    try {
-      return new URL(origin).origin === new URL(request.url).origin;
-    } catch {
-      return false;
-    }
-  }
-
-  if (site === SAME_ORIGIN_FETCH_SITE) {
-    return true;
-  }
-
-  const referer = request.headers.get("referer");
-  if (referer) {
-    try {
-      return new URL(referer).origin === new URL(request.url).origin;
-    } catch {
-      return false;
-    }
-  }
-
-  return true;
-}
 
 export interface HandlePrachtRequestOptions<TContext = unknown> {
   app: PrachtApp;
@@ -1155,6 +1061,7 @@ export {
   isProtocolSwitchResponse,
   preventHeuristicCaching,
 } from "./runtime-headers.ts";
+export { isFirstPartyFetch } from "./runtime-request-provenance.ts";
 export { formatServerTimingHeader, type PrachtPhaseTimings } from "./runtime-timing.ts";
 export {
   deserializeRouteError,
