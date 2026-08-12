@@ -5,7 +5,12 @@ import { pathToFileURL } from "node:url";
 
 import { defineCommand } from "citty";
 import { build as viteBuild } from "vite";
-import { addMarkdownManifestRoute, type MarkdownManifest } from "@pracht/core/server";
+import {
+  addMarkdownManifestRoute,
+  type MarkdownManifest,
+  type PrachtMarkdownConfig,
+  type ResolvedRoute,
+} from "@pracht/core/server";
 
 import { readClientBuildAssets } from "../build-metadata.js";
 import { writeVercelBuildOutput } from "../build-shared.js";
@@ -84,6 +89,25 @@ function indentBlock(block: string): string {
     .split("\n")
     .map((line) => (line ? `  ${line}` : line))
     .join("\n");
+}
+
+export function createMarkdownManifest(
+  pages: ReadonlyArray<{ markdown?: boolean; path: string }>,
+  routes: ReadonlyArray<Pick<ResolvedRoute, "path" | "segments">>,
+  config?: PrachtMarkdownConfig,
+): MarkdownManifest {
+  const literalRoutePaths = new Set(
+    routes
+      .filter((route) => route.segments.every((segment) => segment.type === "static"))
+      .map((route) => route.path),
+  );
+  const manifest: MarkdownManifest = {};
+  for (const page of pages) {
+    if (page.markdown) {
+      addMarkdownManifestRoute(manifest, page.path, config, literalRoutePaths);
+    }
+  }
+  return manifest;
 }
 
 export interface BuildResult {
@@ -181,12 +205,11 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
         page.headers ?? {},
       ]),
     );
-    const markdownManifest: MarkdownManifest = {};
-    for (const page of pages as Array<{ markdown?: boolean; path: string }>) {
-      if (page.markdown) {
-        addMarkdownManifestRoute(markdownManifest, page.path, serverMod.resolvedApp.markdown);
-      }
-    }
+    const markdownManifest = createMarkdownManifest(
+      pages,
+      serverMod.resolvedApp.routes,
+      serverMod.resolvedApp.markdown,
+    );
 
     // With Workers Caching enabled, time-revalidated ISG pages are rendered
     // on demand and cached at the edge. A prerendered static snapshot would

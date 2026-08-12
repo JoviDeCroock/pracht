@@ -179,6 +179,7 @@ export function addMarkdownManifestRoute(
   manifest: MarkdownManifest,
   pathname: string,
   config?: PrachtMarkdownConfig,
+  literalRoutePaths?: ReadonlySet<string>,
 ): void {
   const canonical = normalizeRoutePath(pathname);
   const existingCanonical = manifest[canonical];
@@ -192,6 +193,11 @@ export function addMarkdownManifestRoute(
   const alias = canonical === "/" ? homeAlias : `${canonical}.md`;
   if (alias) {
     const normalizedAlias = normalizeRoutePath(alias);
+    if (literalRoutePaths?.has(normalizedAlias)) {
+      throw new Error(
+        `Markdown alias ${JSON.stringify(normalizedAlias)} for ${JSON.stringify(canonical)} collides with the declared route ${JSON.stringify(normalizedAlias)}. Change one of the route paths or configure a different defineApp({ markdown: { homeAlias } }) value.`,
+      );
+    }
     const existingAlias = manifest[normalizedAlias];
     if (existingAlias !== undefined && existingAlias !== canonical) {
       const existingTarget = existingAlias === true ? normalizedAlias : existingAlias;

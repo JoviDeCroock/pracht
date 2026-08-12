@@ -17,5 +17,6 @@ Prerender builds record canonical Markdown paths plus exact alias-to-route
 mappings. Node, Cloudflare, Vercel, and the dev server use that shared contract
 to keep route-state JSON, Markdown, prerendered HTML, and public assets on the
 correct paths. Exact declared `.md` routes remain literal, cross-site `_data`
-queries cannot suppress Markdown handling, and ambiguous aliases fail with an
-actionable configuration error.
+queries cannot suppress Markdown handling, and aliases that collide with exact
+declared routes or another Markdown target fail with an actionable configuration
+error.
