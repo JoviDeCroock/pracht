@@ -86,11 +86,10 @@ described in `VISION_MVP.md`.
   from the resolved route graph for typed links and href helpers,
   `pracht generate route|shell|middleware|api` scaffolds framework-native
   files, and `pracht doctor` validates app wiring across the whole project.
-  Verification keeps its stable facade in `verification-checks.ts`; API discovery
-  and pages-router/Markdown checks live in `verification-api-checks.ts` and
-  `verification-page-checks.ts`, while budgets, package dependencies, and adapter
-  deployment policy live in `verification-project-checks.ts` so each concern can
-  evolve independently.
+  Verification keeps its stable facade in `verification-checks.ts`; manifest
+  wiring, API discovery, and pages-router/Markdown checks live in focused
+  `verification-*-checks.ts` modules, while project-wide budgets, dependency,
+  and deployment policy share `verification-project-checks.ts`.
 - **Starter CLI** — `packages/start/src/index.js` is the stable public facade;
   command flow, options and prompts, child-process integration, and scaffold
   generation live in focused sibling modules. Pnpm workspace discovery and
