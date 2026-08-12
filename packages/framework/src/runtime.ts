@@ -1,6 +1,7 @@
 import { h } from "preact";
 import type { FunctionComponent } from "preact";
 import { matchApiRoute, matchAppRoute, resolveApp } from "./app.ts";
+import { collectFontHeadFragments } from "./font.ts";
 import { ROUTE_STATE_REQUEST_HEADER, SAFE_METHODS } from "./runtime-constants.ts";
 import {
   buildRuntimeDiagnostics,
@@ -719,13 +720,46 @@ export async function handlePrachtRequest<TContext>(
 
         // Allow loaders to return a Response directly (e.g. for redirects)
         if (loaderResult instanceof Response) {
+          if (isRouteStateRequest && loaderResult.ok) {
+            const contentType = loaderResult.headers.get("content-type") ?? "";
+            if (contentType.includes("application/json")) {
+              const payload = (await loaderResult.clone().json()) as unknown;
+              if (payload !== null && typeof payload === "object" && !Array.isArray(payload)) {
+                shellModule = await shellModulePromise;
+                const data = (payload as Record<string, unknown>).data;
+                const head = await mergeHeadMetadata(shellModule, routeModule, routeArgs, data);
+                const fontHead = collectFontHeadFragments(head.fonts ?? []);
+                return Response.json(
+                  {
+                    ...(payload as Record<string, unknown>),
+                    ...(shellModule?.head || routeModule.head ? { fontHead } : {}),
+                  },
+                  {
+                    status: loaderResult.status,
+                    statusText: loaderResult.statusText,
+                    headers: loaderResult.headers,
+                  },
+                );
+              }
+            }
+          }
           return loaderResult;
         }
 
         const data = loaderResult;
 
         if (isRouteStateRequest) {
-          return withRouteResponseHeaders(Response.json({ data }), {
+          // Route head exports are stripped from the client bundle. Return the
+          // generated font fragments with loader data so client navigation can
+          // keep route-scoped font registrations in sync with full documents.
+          shellModule = await shellModulePromise;
+          const head = await mergeHeadMetadata(shellModule, routeModule, routeArgs, data);
+          const fontHead = collectFontHeadFragments(head.fonts ?? []);
+          const body = {
+            data,
+            ...(shellModule?.head || routeModule.head ? { fontHead } : {}),
+          };
+          return withRouteResponseHeaders(Response.json(body), {
             isRouteStateRequest: true,
             loaderCache: match.route.loaderCache,
           });

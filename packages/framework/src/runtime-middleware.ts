@@ -235,6 +235,7 @@ export async function mergeHeadMetadata(
     meta: [...(shellHead.meta ?? []), ...(routeHead.meta ?? [])],
     link: [...(shellHead.link ?? []), ...(routeHead.link ?? [])],
     script: [...(shellHead.script ?? []), ...(routeHead.script ?? [])],
+    fontNonce: routeHead.fontNonce ?? shellHead.fontNonce,
     // Duplicate registrations (e.g. shell and route both list the same font)
     // are collapsed by the head renderer, not here, so the merge stays a
     // plain concatenation like the other arrays.

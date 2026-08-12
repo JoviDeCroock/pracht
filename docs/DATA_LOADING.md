@@ -366,7 +366,8 @@ export function head() {
 Use `inter.className`, `inter.style`, or `inter.fontFamily` in components. See
 the Fonts page in the docs site
 ([examples/docs/src/routes/docs/fonts.md](../examples/docs/src/routes/docs/fonts.md))
-for the full option reference and fallback metric guidance.
+for the full option reference, client-navigation behavior, CSP nonce support,
+and fallback metric guidance.
 
 ### SEO & Open Graph
 

@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { basename, extname, join, relative } from "node:path";
 import { maskCommentsAndStrings } from "@pracht/capabilities/static";
-import { detectLoaderExport } from "./route-loader-hints.ts";
+import { detectHeadExport, detectLoaderExport } from "./route-loader-hints.ts";
 import {
   DEFAULT_ROUTE_EXTENSIONS,
   DEFAULT_SHELL_EXTENSIONS,
@@ -21,6 +21,7 @@ export interface ScannedPage {
   revalidateSeconds?: number;
   hasRevalidateExport?: boolean;
   hasLoader?: boolean;
+  hasHead?: boolean;
 }
 
 export interface PagesRouterOptions {
@@ -88,6 +89,7 @@ function scan(
     const hydrationMode = extractQuotedPageExport(analysisSource, "HYDRATION", rel);
     const revalidate = extractRevalidateSeconds(analysisSource, rel);
     const hasLoader = detectLoaderExport(analysisSource);
+    const hasHead = ext === ".md" || ext === ".mdx" || detectHeadExport(analysisSource);
 
     pages.push({
       absolutePath: abs,
@@ -101,6 +103,7 @@ function scan(
       revalidateSeconds: revalidate.seconds,
       hasRevalidateExport: revalidate.present,
       hasLoader,
+      hasHead,
     });
   }
 }
@@ -353,6 +356,7 @@ export function generatePagesManifestSource(
     const metaParts = [
       `render: ${JSON.stringify(render)}`,
       `hasLoader: ${page.hasLoader ? "true" : "false"}`,
+      `hasHead: ${page.hasHead ? "true" : "false"}`,
     ];
     if (page.hydrationMode) {
       metaParts.push(`hydration: ${JSON.stringify(page.hydrationMode)}`);

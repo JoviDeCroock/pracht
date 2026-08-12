@@ -7,7 +7,8 @@ Use route or shell `headers()` exports to add one deliberately.
 ## Starter Policy
 
 For an app that only loads first-party assets and calls first-party APIs, start
-with:
+with the following policy. If you use `defineFont()`, follow the nonce section
+below because its generated `@font-face` rules are inline styles.
 
 ```ts
 // src/shells/public.tsx
@@ -82,6 +83,31 @@ style-src 'self'; style-src-attr 'unsafe-inline'
 
 Keep `data:` in `img-src` (the starter policy includes it) so the browser may
 load the inline blur image.
+
+## Generated Font Styles
+
+`defineFont()` emits one inline `<style data-pracht-fonts>` block. For SSR,
+generate a fresh nonce per response, expose it through request context, return
+it from a shared shell head, and include the same value in the response CSP:
+
+```ts
+export function head({ context }) {
+  return { fonts: [inter], fontNonce: context.cspNonce };
+}
+
+export function headers({ context }) {
+  return {
+    "content-security-policy": `default-src 'self'; style-src 'self' 'nonce-${context.cspNonce}'; font-src 'self'`,
+  };
+}
+```
+
+Pracht keeps the nonce-bearing style element in place when client navigation
+updates route fonts. Prefer `font.className` under this policy: `font.style`
+creates a style attribute, which requires a separate CSP allowance. SSG and ISG
+documents cannot safely share a request nonce; use a stable hash that covers the
+generated CSS, move the rules to an allowed stylesheet, or choose another
+explicit style policy for those routes.
 
 ## Inline Script Entries
 

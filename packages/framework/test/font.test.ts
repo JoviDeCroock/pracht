@@ -114,6 +114,19 @@ describe("defineFont", () => {
     expect(heuristic.fallbackFaceCss).toContain('src:local("Arial")');
   });
 
+  it("rejects generic and vendor keywords as an explicit metrics fallback", () => {
+    for (const metricsFallback of ["sans-serif", "Sans-Serif", "-apple-system"]) {
+      expect(() =>
+        defineFont({
+          family: "Inter",
+          src: "/fonts/inter.woff2",
+          metricsFallback,
+          sizeAdjust: "107%",
+        }),
+      ).toThrow(/locally installed font/);
+    }
+  });
+
   it("keeps vendor keywords like -apple-system unquoted in the font stack", () => {
     const font = defineFont({
       family: "Inter",
@@ -123,6 +136,17 @@ describe("defineFont", () => {
     expect(font.fontFamily).toBe(
       '"Inter", -apple-system, "BlinkMacSystemFont", "Segoe UI", sans-serif',
     );
+  });
+
+  it("trims fallback names and recognizes generic families case-insensitively", () => {
+    const font = defineFont({
+      family: "Inter",
+      src: "/fonts/inter.woff2",
+      fallbacks: [" Arial ", "Sans-Serif"],
+      sizeAdjust: "107%",
+    });
+    expect(font.fontFamily).toContain('"Arial", Sans-Serif');
+    expect(font.fallbackFaceCss).toContain('src:local("Arial")');
   });
 
   it("keeps semicolons and braces in family names inside the quoted CSS string", () => {
@@ -248,6 +272,23 @@ describe("defineFont", () => {
     expect(defineFont({ family: "X", src: "/f.woff2", weight: 1000 }).faceCss).toContain(
       "font-weight:1000",
     );
+    expect(defineFont({ family: "X", src: "/f.woff2", weight: "auto" }).faceCss).toContain(
+      "font-weight:auto",
+    );
+  });
+
+  it("accepts CSS Fonts 4 styles and rejects invalid oblique angle ranges", () => {
+    for (const style of ["auto", "left", "right", "oblique -10deg 20deg"]) {
+      expect(defineFont({ family: "X", src: "/f.woff2", style }).faceCss).toContain(
+        `font-style:${style}`,
+      );
+    }
+    expect(() => defineFont({ family: "X", src: "/f.woff2", style: "oblique 120deg" })).toThrow(
+      /between -90deg and 90deg/,
+    );
+    expect(() =>
+      defineFont({ family: "X", src: "/f.woff2", style: "oblique 20deg 10deg" }),
+    ).toThrow(/ascending/);
   });
 
   it("rejects unicode-range tokens that browsers treat as invalid", () => {
@@ -377,6 +418,16 @@ function makeRouteArgs(): BaseRouteArgs<unknown> {
 }
 
 describe("fonts through head merge and document rendering", () => {
+  it("prefers a route font nonce over the shell nonce", async () => {
+    const head = await mergeHeadMetadata(
+      { Shell: () => null, head: () => ({ fontNonce: "shell" }) },
+      { default: () => null, head: () => ({ fontNonce: "route" }) },
+      makeRouteArgs(),
+      undefined,
+    );
+    expect(head.fontNonce).toBe("route");
+  });
+
   it("emits one preload and one @font-face when shell and route register the same font", async () => {
     const head = await mergeHeadMetadata(
       {
@@ -402,10 +453,21 @@ describe("fonts through head merge and document rendering", () => {
     const head: HeadMetadata = { fonts: [inter] };
     const html = buildHtmlDocument({ head, body: "" });
     expect(html).toContain(
-      '<link rel="preload" as="font" type="font/woff2" href="/fonts/inter-latin.woff2" crossorigin="anonymous">',
+      '<link data-pracht-font-preload rel="preload" as="font" type="font/woff2" href="/fonts/inter-latin.woff2" crossorigin="anonymous">',
     );
     expect(html).toContain("<style data-pracht-fonts>@font-face{");
     expect(html).toContain(`.${inter.className}{font-family:`);
+  });
+
+  it("adds a nonce to generated font CSS and keeps an empty nonce carrier", () => {
+    const withFont = buildHtmlDocument({
+      head: { fonts: [inter], fontNonce: 'nonce"value' },
+      body: "",
+    });
+    expect(withFont).toContain('<style data-pracht-fonts nonce="nonce&quot;value">@font-face{');
+
+    const carrier = buildHtmlDocument({ head: { fontNonce: "request-nonce" }, body: "" });
+    expect(carrier).toContain('<style data-pracht-fonts nonce="request-nonce"></style>');
   });
 
   it("produces identical head output with and without hydration state", () => {

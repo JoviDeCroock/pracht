@@ -5,6 +5,7 @@ import {
   Link,
   PrachtHttpError,
   defineApp,
+  defineFont,
   handlePrachtRequest,
   prerenderApp,
   redirect,
@@ -806,6 +807,31 @@ describe("handlePrachtRequest cache variance", () => {
     expect(response.headers.get("vary")).toContain("x-pracht-route-state-request");
     expect(response.headers.get("cache-control")).toBe("no-store");
     await expect(response.json()).resolves.toEqual({ data: { plan: "MVP" } });
+  });
+
+  it("includes merged font head fragments in route-state responses", async () => {
+    const font = defineFont({ family: "Route Font", src: "/fonts/route.woff2" });
+    const app = defineApp({
+      routes: [route("/font", "./routes/font.tsx", { render: "ssr" })],
+    });
+    const response = await handlePrachtRequest({
+      app,
+      registry: {
+        routeModules: {
+          "./routes/font.tsx": async () => ({
+            Component: () => null,
+            head: () => ({ fonts: [font] }),
+          }),
+        },
+      },
+      request: new Request("http://localhost/font", {
+        headers: { "x-pracht-route-state-request": "1" },
+      }),
+    });
+
+    const json = (await response.json()) as Record<string, any>;
+    expect(json.fontHead.css).toContain('font-family:"Route Font"');
+    expect(json.fontHead.preloadLinks).toEqual(font.preloadLinks);
   });
 
   it("uses a route loaderCache duration for successful route-state data", async () => {

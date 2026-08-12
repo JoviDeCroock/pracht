@@ -511,6 +511,8 @@ export interface RouteMeta {
   prefetch?: PrefetchStrategy;
   speculation?: SpeculationOption;
   hasLoader?: boolean;
+  /** @internal Build-time hint used to preserve loaderless navigation optimization. */
+  hasHead?: boolean;
 }
 
 export interface GroupMeta {
@@ -953,6 +955,11 @@ export interface HeadMetadata {
    * rules, deduped across shell and route contributions.
    */
   fonts?: PrachtFont[];
+  /**
+   * CSP nonce for the generated font `<style>`. Put a request-specific nonce
+   * on a shared shell head when using `style-src 'nonce-…'`.
+   */
+  fontNonce?: string;
 }
 
 export type MaybePromise<T> = T | Promise<T>;

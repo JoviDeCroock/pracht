@@ -78,6 +78,24 @@ describe("scanPagesDirectory", () => {
       "/:slug",
     ]);
     expect(pages.find((page) => page.routePath === "/guide")?.renderMode).toBe("ssg");
+    expect(pages.find((page) => page.routePath === "/guide")?.hasHead).toBe(true);
+    expect(pages.find((page) => page.routePath === "/")?.hasHead).toBe(false);
+  });
+
+  it("detects named and re-exported head exports for navigation hints", () => {
+    const pagesDir = makeTempPagesDir();
+    writeFileSync(
+      join(pagesDir, "index.tsx"),
+      "export function head() { return {}; }\nexport default function Page() { return null; }\n",
+    );
+    writeFileSync(
+      join(pagesDir, "about.tsx"),
+      'export { metadata as head } from "./shared";\nexport default function Page() { return null; }\n',
+    );
+
+    const pages = scanPagesDirectory(pagesDir);
+    expect(pages.find((page) => page.routePath === "/")?.hasHead).toBe(true);
+    expect(pages.find((page) => page.routePath === "/about")?.hasHead).toBe(true);
   });
 
   it("extracts the HYDRATION export and emits it in the generated manifest", () => {
@@ -422,7 +440,9 @@ describe("generatePagesManifestSource", () => {
     });
 
     expect(source).not.toContain("shells:");
-    expect(source).toContain('route("/", "./index.mdx", { render: "ssr", hasLoader: false })');
+    expect(source).toContain(
+      'route("/", "./index.mdx", { render: "ssr", hasLoader: false, hasHead: true })',
+    );
   });
 });
 

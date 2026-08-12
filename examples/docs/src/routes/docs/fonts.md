@@ -42,7 +42,7 @@ export function Shell({ children }) {
 The server expands each font into head HTML — routes with `hydration: "none"` get the exact same output, since no JavaScript is involved:
 
 ```html
-<link rel="preload" as="font" type="font/woff2" href="/fonts/inter-latin.woff2" crossorigin="anonymous">
+<link data-pracht-font-preload rel="preload" as="font" type="font/woff2" href="/fonts/inter-latin.woff2" crossorigin="anonymous">
 <style data-pracht-fonts>
 @font-face{font-family:"Inter";src:url("/fonts/inter-latin.woff2") format("woff2");font-weight:100 900;font-display:swap}
 .pracht-font-inter-xxxx{font-family:"Inter", "Arial", sans-serif}
@@ -73,6 +73,9 @@ export default function Home() {
 ```
 
 `inter.fontFamily` is the full stack including fallbacks, e.g. `"Inter", "Arial", sans-serif`.
+Importing a font or using its `className` does not register it by itself: list
+the font in the active shell or route `head().fonts`. Pracht updates generated
+font CSS and preload links when client navigation changes the active route.
 
 ## Options
 
@@ -167,3 +170,19 @@ Pracht deliberately does not read the font binary at build time, so these stay e
 ## Security Notes
 
 Everything interpolated into the generated CSS is escaped or validated: family names and URLs are CSS-string-escaped (including `<`, so the inline `<style>` can never be closed early), and descriptor values like `weight`, `display`, `unicodeRange`, and the metric overrides are validated against strict grammars — invalid values throw at `defineFont()` time rather than reaching the document.
+
+For a nonce-based Content Security Policy, return the request-specific nonce as
+`fontNonce` from a shared shell `head()` and include the same nonce in
+`style-src`. Pracht places it on the generated font style and preserves that
+style element across client navigation:
+
+```ts
+export function head({ context }) {
+  return { fonts: [inter], fontNonce: context.cspNonce };
+}
+```
+
+Use `font.className` rather than `font.style` under a strict policy, because
+inline style attributes need a separate CSP allowance. Static SSG/ISG output
+cannot safely reuse a request nonce; use a stable style hash or an external
+stylesheet policy for those routes.

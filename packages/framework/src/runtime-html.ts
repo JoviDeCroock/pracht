@@ -150,12 +150,13 @@ export function buildHtmlDocument(options: {
     ? fontFragments.preloadLinks
         .map((link) => renderAttributes(link, LINK_ATTRIBUTES))
         .filter(Boolean)
-        .map((attrs) => `<link ${attrs}>`)
+        .map((attrs) => `<link data-pracht-font-preload ${attrs}>`)
         .join("\n    ")
     : "";
-  const fontStyleTag = fontFragments?.css
-    ? `<style data-pracht-fonts>${fontFragments.css}</style>`
-    : "";
+  const fontStyleTag =
+    fontFragments?.css || head.fontNonce
+      ? `<style data-pracht-fonts${head.fontNonce ? ` nonce="${escapeHtml(head.fontNonce)}"` : ""}>${fontFragments?.css ?? ""}</style>`
+      : "";
 
   const scriptTags = (head.script ?? [])
     .map((script) => {

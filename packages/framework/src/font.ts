@@ -36,9 +36,9 @@ export interface DefineFontOptions {
    * (`string` or `{ url, format }`) for the same face.
    */
   src: string | ReadonlyArray<string | FontSourceInput>;
-  /** `font-weight` descriptor: `400`, `"700"`, or a variable range `"100 900"`. */
+  /** `font-weight` descriptor: `400`, `"700"`, `"auto"`, or a variable range `"100 900"`. */
   weight?: number | string;
-  /** `font-style` descriptor: `"normal"`, `"italic"`, `"oblique 14deg"`. */
+  /** `font-style` descriptor: `"normal"`, `"italic"`, `"auto"`, or an oblique angle/range. */
   style?: string;
   /** `font-display` descriptor. Defaults to `"swap"`. */
   display?: FontDisplay;
@@ -110,8 +110,9 @@ const GENERIC_FAMILIES = new Set([
 ]);
 
 const FONT_DISPLAY_VALUES = new Set<string>(["auto", "block", "swap", "fallback", "optional"]);
-const FONT_WEIGHT_RE = /^(normal|bold|\d{1,4}(\.\d+)?( +\d{1,4}(\.\d+)?)?)$/;
-const FONT_STYLE_RE = /^(normal|italic|oblique( +-?\d+(\.\d+)?deg( +-?\d+(\.\d+)?deg)?)?)$/;
+const FONT_WEIGHT_RE = /^(auto|normal|bold|(?:\d+(?:\.\d+)?|\.\d+)(?: +(?:\d+(?:\.\d+)?|\.\d+))?)$/;
+const FONT_STYLE_RE =
+  /^(auto|normal|italic|left|right|oblique(?: +([+-]?(?:\d+(?:\.\d+)?|\.\d+))deg(?: +([+-]?(?:\d+(?:\.\d+)?|\.\d+))deg)?)?)$/;
 const METRIC_OVERRIDE_RE = /^(normal|\d{1,4}(\.\d+)?%)$/;
 const SRC_FORMAT_RE = /^[a-z0-9-]{1,32}$/i;
 
@@ -198,7 +199,7 @@ function validateWeight(family: string, value: string): string {
   if (!FONT_WEIGHT_RE.test(value)) {
     fail(family, `invalid weight ${JSON.stringify(value)}`);
   }
-  if (value !== "normal" && value !== "bold") {
+  if (value !== "auto" && value !== "normal" && value !== "bold") {
     const parts = value.split(/ +/).map(Number);
     for (const part of parts) {
       if (part < 1 || part > 1000) {
@@ -208,6 +209,29 @@ function validateWeight(family: string, value: string): string {
     if (parts.length === 2 && parts[0] > parts[1]) {
       fail(family, `invalid weight range ${JSON.stringify(value)} — must be ascending`);
     }
+  }
+  return value;
+}
+
+function validateStyle(family: string, value: string): string {
+  const match = FONT_STYLE_RE.exec(value);
+  if (!match) {
+    fail(family, `invalid style ${JSON.stringify(value)}`);
+  }
+  const angles = match
+    .slice(2)
+    .filter((angle): angle is string => angle !== undefined)
+    .map(Number);
+  for (const angle of angles) {
+    if (angle < -90 || angle > 90) {
+      fail(
+        family,
+        `invalid style ${JSON.stringify(value)} — angles must be between -90deg and 90deg`,
+      );
+    }
+  }
+  if (angles.length === 2 && angles[0] > angles[1]) {
+    fail(family, `invalid style range ${JSON.stringify(value)} — must be ascending`);
   }
   return value;
 }
@@ -257,7 +281,7 @@ function resolveSources(family: string, src: DefineFontOptions["src"]): FontSour
 const VENDOR_FONT_KEYWORD_RE = /^-[a-z][a-z0-9-]*$/i;
 
 function quoteFamily(name: string): string {
-  if (GENERIC_FAMILIES.has(name) || VENDOR_FONT_KEYWORD_RE.test(name)) return name;
+  if (GENERIC_FAMILIES.has(name.toLowerCase()) || VENDOR_FONT_KEYWORD_RE.test(name)) return name;
   return `"${escapeCssString(name)}"`;
 }
 
@@ -308,16 +332,16 @@ export function defineFont(options: DefineFontOptions): PrachtFont {
 
   const weight =
     options.weight != null ? validateWeight(family, String(options.weight).trim()) : undefined;
-  const style = options.style?.trim();
-  if (style !== undefined && !FONT_STYLE_RE.test(style)) {
-    fail(family, `invalid style ${JSON.stringify(style)}`);
-  }
+  const style =
+    options.style !== undefined ? validateStyle(family, options.style.trim()) : undefined;
   const unicodeRange =
     options.unicodeRange !== undefined
       ? validateUnicodeRange(family, options.unicodeRange)
       : undefined;
 
-  const fallbacks = options.fallbacks ?? [];
+  const fallbacks = (options.fallbacks ?? []).map((fallback) =>
+    typeof fallback === "string" ? fallback.trim() : fallback,
+  );
   for (const fallback of fallbacks) {
     if (typeof fallback !== "string" || fallback.trim() === "") {
       fail(family, "fallbacks must be non-empty family names");
@@ -353,11 +377,20 @@ export function defineFont(options: DefineFontOptions): PrachtFont {
   if (metricsFallback !== undefined && metricsFallback === "") {
     fail(family, "metricsFallback must be a non-empty font name");
   }
+  if (
+    metricsFallback !== undefined &&
+    (GENERIC_FAMILIES.has(metricsFallback.toLowerCase()) ||
+      VENDOR_FONT_KEYWORD_RE.test(metricsFallback))
+  ) {
+    fail(family, "metricsFallback must name a locally installed font, not a CSS keyword");
+  }
   // Vendor keywords are skipped too: local() matches installed family names,
   // never CSS keywords.
   const localFallback =
     metricsFallback ??
-    fallbacks.find((name) => !GENERIC_FAMILIES.has(name) && !VENDOR_FONT_KEYWORD_RE.test(name));
+    fallbacks.find(
+      (name) => !GENERIC_FAMILIES.has(name.toLowerCase()) && !VENDOR_FONT_KEYWORD_RE.test(name),
+    );
   const hasFallbackFace = metricEntries.length > 0 && localFallback !== undefined;
   // The fallback family name carries a hash of the local font + metrics.
   // Without it, two faces of the same family with different metric overrides

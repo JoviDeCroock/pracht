@@ -367,6 +367,69 @@ describe("initClientRouter", () => {
     expect(root.textContent).toContain("Product 2");
   });
 
+  it("updates generated font CSS and preloads after client navigation", async () => {
+    const app = resolveApp(
+      defineApp({
+        routes: [
+          route("/", "./routes/home.tsx", { id: "home", render: "ssr", hasHead: true }),
+          route("/next", "./routes/next.tsx", { id: "next", render: "ssr", hasHead: true }),
+          route("/plain", "./routes/plain.tsx", {
+            id: "plain",
+            render: "ssr",
+            hasLoader: false,
+            hasHead: false,
+          }),
+        ],
+      }),
+    );
+    document.head.innerHTML =
+      '<link data-pracht-font-preload rel="preload" as="font" href="/old.woff2"><style data-pracht-fonts nonce="request-nonce">@font-face{font-family:"Old";src:url("/old.woff2")}</style>';
+    fetchSpy.mockResolvedValue(
+      createJsonResponse({
+        data: null,
+        fontHead: {
+          preloadLinks: [
+            {
+              rel: "preload",
+              as: "font",
+              href: "/new.woff2",
+              type: "font/woff2",
+              crossorigin: "anonymous",
+            },
+          ],
+          css: '@font-face{font-family:"New";src:url("/new.woff2")}',
+        },
+      }),
+    );
+
+    await initClientRouter({
+      app,
+      routeModules: {
+        "./routes/home.tsx": async () => ({ default: () => h("main", null, "Home") }),
+        "./routes/next.tsx": async () => ({ default: () => h("main", null, "Next") }),
+        "./routes/plain.tsx": async () => ({ default: () => h("main", null, "Plain") }),
+      },
+      shellModules: {},
+      initialState: { data: null, routeId: "home", url: "/" },
+      root,
+      findModuleKey: (_modules, file) => file,
+    });
+
+    await window.__PRACHT_NAVIGATE__!("/next");
+
+    expect(document.head.querySelector('link[href="/old.woff2"]')).toBeNull();
+    expect(document.head.querySelector('link[href="/new.woff2"]')).not.toBeNull();
+    const style = document.head.querySelector<HTMLStyleElement>("style[data-pracht-fonts]");
+    expect(style?.textContent).toBe('@font-face{font-family:"New";src:url("/new.woff2")}');
+    expect(style?.nonce).toBe("request-nonce");
+
+    await window.__PRACHT_NAVIGATE__!("/plain");
+    expect(document.head.querySelector("link[data-pracht-font-preload]")).toBeNull();
+    expect(style?.textContent).toBe("");
+    expect(style?.nonce).toBe("request-nonce");
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
   it("bypasses the HTTP cache when revalidating route data", async () => {
     function Dashboard() {
       const data = useRouteData<{ count: number }>();
