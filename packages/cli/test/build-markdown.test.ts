@@ -36,4 +36,26 @@ describe("createMarkdownManifest", () => {
       "/guide/example.md": "/guide/example",
     });
   });
+
+  it("rejects aliases that shadow concrete non-Markdown dynamic pages", () => {
+    expect(() =>
+      createMarkdownManifest(
+        [
+          { markdown: true, path: "/guide/example" },
+          { markdown: false, path: "/guide/example.md" },
+        ],
+        [
+          {
+            path: "/guide/:slug",
+            segments: [
+              { type: "static", value: "guide" },
+              { type: "param", name: "slug" },
+            ],
+          },
+        ],
+      ),
+    ).toThrow(
+      'Markdown alias "/guide/example.md" for "/guide/example" collides with the declared route "/guide/example.md".',
+    );
+  });
 });

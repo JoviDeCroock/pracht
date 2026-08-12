@@ -96,11 +96,12 @@ export function createMarkdownManifest(
   routes: ReadonlyArray<Pick<ResolvedRoute, "path" | "segments">>,
   config?: PrachtMarkdownConfig,
 ): MarkdownManifest {
-  const literalRoutePaths = new Set(
-    routes
+  const literalRoutePaths = new Set([
+    ...routes
       .filter((route) => route.segments.every((segment) => segment.type === "static"))
       .map((route) => route.path),
-  );
+    ...pages.map((page) => page.path),
+  ]);
   const manifest: MarkdownManifest = {};
   for (const page of pages) {
     if (page.markdown) {

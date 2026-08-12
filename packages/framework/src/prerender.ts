@@ -1,5 +1,5 @@
 import { resolveApp } from "./app.ts";
-import { buildPathFromSegments } from "./route-matching.ts";
+import { buildPathFromSegments, normalizeRoutePath } from "./route-matching.ts";
 import { isDangerousPrerenderHeader, normalizeRouteRevalidate } from "./revalidation.ts";
 import { resolveRegistryModule } from "./runtime-manifest.ts";
 import { handlePrachtRequest } from "./runtime.ts";
@@ -91,6 +91,7 @@ export async function prerenderApp(
             app: options.app,
             request,
             registry: options.registry,
+            preserveMarkdownAliasPathname: true,
             clientEntryUrl: options.clientEntryUrl,
             islandsEntryUrl: options.islandsEntryUrl,
             islandsBootstrapRequired: options.islandsBootstrapRequired,
@@ -107,6 +108,18 @@ export async function prerenderApp(
           return null;
         }
 
+        const markdown =
+          typeof routeModule?.markdown === "string" || typeof routeModule?.markdown === "function";
+        if (
+          markdown &&
+          item.route.segments.some((segment) => segment.type !== "static") &&
+          normalizeRoutePath(item.pathname).toLowerCase().endsWith(".md")
+        ) {
+          throw new Error(
+            `Cannot prerender Markdown route ${JSON.stringify(item.route.path)} at ${JSON.stringify(item.pathname)} because a dynamic canonical pathname ending in ".md" is ambiguous with the native Markdown alias for ${JSON.stringify(normalizeRoutePath(item.pathname).slice(0, -3))}. Change the static params or route path.`,
+          );
+        }
+
         assertSafePrerenderHeaders(response.headers, item);
 
         const html = await response.text();
@@ -114,9 +127,7 @@ export async function prerenderApp(
           headers: Object.fromEntries(response.headers),
           html,
           item,
-          markdown:
-            typeof routeModule?.markdown === "string" ||
-            typeof routeModule?.markdown === "function",
+          markdown,
         };
       }),
     );

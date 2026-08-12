@@ -66,6 +66,10 @@ File-based routing (Next.js, SvelteKit) couples URL structure to directory struc
 Exact declared `.md` route paths remain literal. If a configured home alias
 also names another route's generated alias, both routes cannot export
 `markdown`; choose a different `homeAlias` to expose both representations.
+Dynamic routes without `markdown` still accept literal `.md` parameter values.
+For Markdown-enabled SSG/ISG routes, keep `getStaticPaths()` values from
+producing canonical pathnames ending in `.md`; Pracht rejects those ambiguous
+paths and aliases that shadow another concrete prerendered route.
 
 ### route(path, file, meta?)
 

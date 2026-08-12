@@ -718,7 +718,12 @@ Exact declared route paths ending in `.md` take precedence over alias rematching
 and receive an additional `.md` suffix for their own alias. If `homeAlias`
 collides with another route's generated alias, only one candidate may export
 `markdown`; otherwise Pracht reports the ambiguous alias and asks for a
-different home alias.
+different home alias. Dynamic routes without a Markdown export continue to
+accept literal `.md` parameter values. For Markdown-enabled SSG/ISG routes,
+`getStaticPaths()` must not produce a dynamic canonical pathname ending in
+`.md`, because that URL is also the native alias for the suffix-free params;
+the build rejects the ambiguity. Concrete prerendered paths also participate in
+alias collision checks even when their route pattern is dynamic.
 
 ### Shell via `_app.tsx`
 

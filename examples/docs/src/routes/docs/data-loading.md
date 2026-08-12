@@ -68,7 +68,12 @@ accepted as route-state. An exact declared path ending in `.md` remains literal
 and uses `.md.md` as its own native alias. If a home alias also names another
 route's alias, Pracht selects the sole Markdown-capable target and reports an
 ambiguity if both routes export `markdown`; choose another `homeAlias` to expose
-both. HTML and Markdown responses include `Vary: Accept`.
+both. Dynamic routes without a Markdown export keep literal `.md` parameter
+values. A Markdown-enabled SSG/ISG route cannot enumerate a dynamic canonical
+pathname ending in `.md`, because that path is also the native alias for the
+suffix-free params; the build rejects this ambiguity and aliases that shadow
+other concrete prerendered paths. HTML and Markdown responses include
+`Vary: Accept`.
 
 ### LoaderArgs
 

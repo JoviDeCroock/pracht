@@ -1463,6 +1463,53 @@ describe("prerenderApp", () => {
     });
   });
 
+  it("prerenders a dynamic canonical .md pathname with its literal params", async () => {
+    let receivedName: string | undefined;
+    const pages = await prerenderApp({
+      app: defineApp({
+        routes: [route("/files/:name", "./routes/file.tsx", { render: "ssg" })],
+      }),
+      registry: {
+        routeModules: {
+          "/src/routes/file.tsx": async () => ({
+            Component: ({ data }) => h("main", null, (data as { name: string }).name),
+            getStaticPaths: () => [{ name: "readme.md" }],
+            loader: ({ params }) => {
+              receivedName = params.name;
+              return { name: params.name };
+            },
+          }),
+        },
+      },
+    });
+
+    expect(pages).toHaveLength(1);
+    expect(pages[0]?.path).toBe("/files/readme.md");
+    expect(pages[0]?.html).toContain("readme.md");
+    expect(receivedName).toBe("readme.md");
+  });
+
+  it("rejects ambiguous dynamic canonical .md paths that also export Markdown", async () => {
+    await expect(
+      prerenderApp({
+        app: defineApp({
+          routes: [route("/files/:name", "./routes/file.tsx", { render: "ssg" })],
+        }),
+        registry: {
+          routeModules: {
+            "/src/routes/file.tsx": async () => ({
+              Component: () => h("main", null, "File"),
+              getStaticPaths: () => [{ name: "readme.md" }],
+              markdown: "# File\n",
+            }),
+          },
+        },
+      }),
+    ).rejects.toThrow(
+      'Cannot prerender Markdown route "/files/:name" at "/files/readme.md" because a dynamic canonical pathname ending in ".md" is ambiguous',
+    );
+  });
+
   it.each([
     ["authorization", "Bearer secret"],
     ["proxy-authenticate", 'Basic realm="proxy"'],

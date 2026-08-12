@@ -71,6 +71,16 @@ candidate that actually exports `markdown`; if both routes export it, the alias
 is ambiguous and the build/runtime reports an error. Configure a different
 `homeAlias` to expose both representations.
 
+Dynamic and catch-all routes keep existing `.md` parameter values literal when
+no Markdown-capable alias target exists, so `/files/:name` still receives
+`name: "readme.md"` on `/files/readme.md`. Once that route exports `markdown`,
+the suffix is the native alias marker and `/files/readme.md` targets the
+canonical `/files/readme` representation. An SSG/ISG route that exports
+`markdown` therefore cannot enumerate a canonical dynamic pathname ending in
+`.md`; the build rejects that ambiguity instead of prerendering or serving the
+wrong params. Alias generation also rejects collisions with concrete
+prerendered dynamic paths, including routes that do not export Markdown.
+
 Accepted route-state requests are never interpreted as Markdown aliases or
 negotiation. The `?_data=1` transport is accepted only with first-party
 provenance; a cross-site query parameter remains an ordinary document request.

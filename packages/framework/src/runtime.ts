@@ -204,6 +204,8 @@ export interface HandlePrachtRequestOptions<TContext = unknown> {
   cssManifest?: Record<string, string[]>;
   /** Per-source-file JS chunk map produced by the vite plugin for modulepreload hints. */
   jsManifest?: Record<string, string[]>;
+  /** Treat the request pathname as a known canonical route path during prerendering. */
+  preserveMarkdownAliasPathname?: boolean;
   apiRoutes?: ResolvedApiRoute[];
   /**
    * Dev-only phase-timing collector. When provided, the runtime records
@@ -244,10 +246,12 @@ export async function handlePrachtRequest<TContext>(
   const isRouteStateRequest = headerSignalsRouteState || dataParamIsFirstParty;
   const normalizedRequestPath = normalizeRoutePath(url.pathname);
   const literalRouteMatch = matchAppRoute(resolvedApp, normalizedRequestPath);
-  const preserveLiteralPath =
+  const preserveDeclaredLiteralPath =
     literalRouteMatch !== undefined &&
     literalRouteMatch.route.segments.every((segment) => segment.type === "static") &&
     normalizeRoutePath(literalRouteMatch.route.path) === normalizedRequestPath;
+  const preserveLiteralPath =
+    options.preserveMarkdownAliasPathname === true || preserveDeclaredLiteralPath;
   let routeRequest = classifyRouteRequest(options.request, options.app.markdown, {
     preservePathname: preserveLiteralPath,
     routeState: isRouteStateRequest,
@@ -583,22 +587,31 @@ export async function handlePrachtRequest<TContext>(
   let match = preserveLiteralPath
     ? literalRouteMatch
     : matchAppRoute(resolvedApp, routeRequest.pathname);
-  let preloadedRouteModule: RouteModule | undefined;
+  let preloadedRouteModule: RouteModule | Promise<RouteModule | undefined> | undefined;
 
   const resolveMarkdownMatches = async () => {
     const markdownMatches: Array<{ match: RouteMatch; module: RouteModule }> = [];
     for (const candidate of resolveMarkdownAliasPaths(url.pathname, options.app.markdown)) {
       const candidateMatch = matchAppRoute(resolvedApp, candidate);
       if (!candidateMatch) continue;
-      const candidateModule = await resolveRegistryModule<RouteModule>(
+      const candidateModulePromise = resolveRegistryModule<RouteModule>(
         registry.routeModules,
         candidateMatch.route.file,
       );
+      let candidateModule: RouteModule | undefined;
+      try {
+        candidateModule = await candidateModulePromise;
+      } catch {
+        return {
+          markdownMatches,
+          moduleFailure: { match: candidateMatch, modulePromise: candidateModulePromise },
+        };
+      }
       if (candidateModule?.markdown !== undefined) {
         markdownMatches.push({ match: candidateMatch, module: candidateModule });
       }
     }
-    return markdownMatches;
+    return { markdownMatches };
   };
 
   // Static `.md` routes deliberately keep their literal pathname. If that
@@ -607,12 +620,19 @@ export async function handlePrachtRequest<TContext>(
   // rejected during the build; this request-time check covers SSR/SPA routes
   // without eagerly evaluating their modules on the build machine.
   if (
-    preserveLiteralPath &&
+    preserveDeclaredLiteralPath &&
     !isRouteStateRequest &&
     SAFE_METHODS.has(options.request.method) &&
     resolveMarkdownAliasPaths(url.pathname, options.app.markdown).length > 0
   ) {
-    const collisions = await resolveMarkdownMatches();
+    const { markdownMatches: collisions, moduleFailure } = await resolveMarkdownMatches();
+    if (moduleFailure) {
+      return renderPageMatch(
+        moduleFailure.match,
+        { isNotFoundPage: false, status: 200 },
+        moduleFailure.modulePromise,
+      );
+    }
     const collision = collisions[0];
     if (collision) {
       return withDefaultSecurityHeaders(
@@ -628,7 +648,14 @@ export async function handlePrachtRequest<TContext>(
   }
 
   if (routeRequest.markdownAlias && SAFE_METHODS.has(options.request.method)) {
-    const markdownMatches = await resolveMarkdownMatches();
+    const { markdownMatches, moduleFailure } = await resolveMarkdownMatches();
+    if (moduleFailure) {
+      return renderPageMatch(
+        moduleFailure.match,
+        { isNotFoundPage: false, status: 200 },
+        moduleFailure.modulePromise,
+      );
+    }
 
     if (markdownMatches.length > 1) {
       return withDefaultSecurityHeaders(
@@ -644,17 +671,29 @@ export async function handlePrachtRequest<TContext>(
 
     const markdownMatch = markdownMatches[0];
     if (!markdownMatch) {
-      return withDefaultSecurityHeaders(
-        new Response("Not found", {
-          status: 404,
-          headers: { "content-type": "text/plain; charset=utf-8" },
-        }),
-      );
+      // A dynamic or catch-all route may legitimately consume a pathname that
+      // ends in `.md` (for example `/files/:name` with `name = "readme.md"`).
+      // When no canonical target actually exports Markdown, preserve that
+      // literal match instead of turning an existing page into an alias 404.
+      if (literalRouteMatch) {
+        match = literalRouteMatch;
+        routeRequest = classifyRouteRequest(options.request, options.app.markdown, {
+          preservePathname: true,
+          routeState: isRouteStateRequest,
+        });
+      } else {
+        return withDefaultSecurityHeaders(
+          new Response("Not found", {
+            status: 404,
+            headers: { "content-type": "text/plain; charset=utf-8" },
+          }),
+        );
+      }
+    } else {
+      match = markdownMatch.match;
+      preloadedRouteModule = markdownMatch.module;
+      routeRequest = { ...routeRequest, pathname: match.pathname };
     }
-
-    match = markdownMatch.match;
-    preloadedRouteModule = markdownMatch.module;
-    routeRequest = { ...routeRequest, pathname: match.pathname };
   }
 
   if (!match) {
@@ -731,7 +770,7 @@ export async function handlePrachtRequest<TContext>(
   async function renderPageMatch(
     match: RouteMatch,
     pageOptions: { isNotFoundPage: boolean; status: number },
-    preloadedModule?: RouteModule,
+    preloadedModule?: RouteModule | Promise<RouteModule | undefined>,
   ): Promise<Response> {
     const requestSignal = AbortSignal.timeout(30_000);
     const pageContext = requestContext;

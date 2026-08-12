@@ -402,4 +402,49 @@ describe("handlePrachtRequest markdown negotiation", () => {
     expect(response.status).toBe(404);
     expect(loaderCalls).toBe(0);
   });
+
+  it("preserves dynamic .md path parameters when no Markdown alias exists", async () => {
+    let receivedName: string | undefined;
+    const response = await handlePrachtRequest({
+      app: defineApp({ routes: [route("/files/:name", "./routes/file.tsx")] }),
+      registry: {
+        routeModules: {
+          "./routes/file.tsx": async () => ({
+            loader: ({ params }) => {
+              receivedName = params.name;
+              return null;
+            },
+            Component: () => null,
+          }),
+        },
+      },
+      request: new Request("http://localhost/files/readme.md"),
+    });
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toContain("text/html");
+    expect(receivedName).toBe("readme.md");
+  });
+
+  it("renders alias module import failures through the normal route error response", async () => {
+    let moduleLoads = 0;
+    const response = await handlePrachtRequest({
+      app: defineApp({ routes: [route("/guide", "./routes/guide.tsx")] }),
+      debugErrors: true,
+      registry: {
+        routeModules: {
+          "./routes/guide.tsx": async () => {
+            moduleLoads += 1;
+            throw new Error("broken alias module");
+          },
+        },
+      },
+      request: new Request("http://localhost/guide.md"),
+    });
+
+    expect(response.status).toBe(500);
+    expect(response.headers.get("content-type")).toContain("text/plain");
+    expect(await response.text()).toContain("broken alias module");
+    expect(moduleLoads).toBe(1);
+  });
 });

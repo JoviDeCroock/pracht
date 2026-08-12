@@ -907,9 +907,14 @@ Dynamic SSG/ISG routes contribute only concrete paths from `getStaticPaths()`
 and their exact aliases; parameter patterns never enter the manifest. The build
 emits an empty manifest for SSR-only apps too, so public files keep
 the same guarantee even when the app has no prerendered documents.
-Canonical route paths ending in `.md` are recorded as canonical entries, not
-aliases, so their prerendered HTML remains on the static fast path until Accept
-negotiation asks for Markdown. The build rejects any canonical/alias or
+Concrete dynamic prerender paths participate in collision detection, and a
+Markdown-enabled dynamic route cannot enumerate a canonical pathname ending in
+`.md`: that pathname is indistinguishable from the native alias for the
+suffix-free params, so the build fails rather than emitting inconsistent
+adapter metadata.
+Exact declared route paths ending in `.md` are recorded as canonical entries,
+not aliases, so their prerendered HTML remains on the static fast path until
+Accept negotiation asks for Markdown. The build rejects any canonical/alias or
 home/suffix alias collision instead of letting manifest write order decide it.
 
 A `.md` file in `public/` is a different thing entirely: it is a plain static

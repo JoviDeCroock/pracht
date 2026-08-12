@@ -131,6 +131,7 @@ Work through these in order, stopping when you find the root cause:
 
 - `handlePrachtRequest()` dispatches: API routes → Markdown `.md` alias rematch → middleware → loader → `markdown()` or HTML render
 - Exact declared `.md` routes stay literal. If a home alias and another route's generated alias both export `markdown`, change `markdown.homeAlias`; Pracht reports the collision rather than choosing by manifest order.
+- Dynamic routes without `markdown` keep literal `.md` params. If a Markdown-enabled SSG/ISG route enumerates a canonical dynamic path ending in `.md`, change the static params or route path; that URL is ambiguous with the native alias and the build rejects it.
 - Route state JSON: returned when `x-pracht-route-state-request` header is present (client-side navigation)
 - Hydration state: injected as `window.__PRACHT_STATE__` in the HTML
 - Client router: `initClientRouter()` intercepts link clicks and fetches route state JSON

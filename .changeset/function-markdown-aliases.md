@@ -20,3 +20,10 @@ correct paths. Exact declared `.md` routes remain literal, cross-site `_data`
 queries cannot suppress Markdown handling, and aliases that collide with exact
 declared routes or another Markdown target fail with an actionable configuration
 error.
+
+Dynamic and catch-all routes without a Markdown representation continue to
+receive literal `.md` parameter values. Prerendering preserves known canonical
+paths, rejects Markdown-enabled dynamic paths that collide with alias syntax,
+and includes every concrete prerendered path in alias collision checks. Alias
+module-load failures now use the normal route error response instead of
+rejecting the request handler.
