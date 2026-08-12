@@ -566,6 +566,13 @@ error-overlay.ts — dev error page HTML + stack-frame parsing (no internal deps
 dev-404.ts      — dev-only 404 page HTML listing registered routes (no internal deps)
 ```
 
+The Vite plugin keeps virtual-module assembly separate from source discovery:
+
+- `plugin-codegen.ts` composes the client, islands, server, development, and
+  registry virtual modules.
+- `plugin-route-sources.ts` scans manifest/pages sources for hydration
+  exclusions and loader hints, and owns the cached inline pages manifest.
+
 The published core package also exposes small browser-oriented entries:
 
 - `@pracht/core/client` is used by `virtual:pracht/client` and contains only
