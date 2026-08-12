@@ -323,6 +323,11 @@ builds, and adapters that own the dev server (`ownsDevServer: true`, e.g.
 Cloudflare's workerd-based dev) bypass this middleware and therefore don't expose
 them.
 
+Build-time deployment checks are also isolated from the main plugin composition:
+`plugin-edge-runtime-safety.ts` owns the post-bundle scan that rejects surviving
+Node.js builtin imports for edge adapters. This keeps platform compatibility
+validation independent from virtual-module generation and development serving.
+
 ### `/_pracht` devtools page
 
 - `GET /_pracht` serves a self-contained HTML page (no Preact — same approach as the
