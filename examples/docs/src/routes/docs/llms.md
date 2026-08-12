@@ -121,8 +121,9 @@ generated server module. Agents can start at `/llms.txt`, follow a `.md` link
 for one document, or fetch `/llms-full.txt` for the complete corpus. Dynamic
 SSG/ISG paths are expanded through `getStaticPaths()` before the callbacks run;
 excluded and framework-reserved concrete paths never invoke them. Generated
-paths also win over matching app routes consistently in development and
-production.
+paths also win over matching app routes and `public/` files consistently in
+development and production. Prerendered descendants that would require a
+generated file path to become a directory are left to the runtime instead.
 
 ---
 

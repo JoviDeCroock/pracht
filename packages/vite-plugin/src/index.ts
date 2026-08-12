@@ -43,6 +43,7 @@ import {
 } from "./plugin-codegen.ts";
 import {
   createDevCssInjectionMiddleware,
+  createDevLlmsTxtMiddleware,
   createDevSSRMiddleware,
   injectDevCssForPath,
 } from "./plugin-dev-ssr.ts";
@@ -312,10 +313,14 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
         server.middlewares.use(createDevCssInjectionMiddleware(server));
         return;
       }
+      if (resolved.llmsTxt) {
+        // Install before Vite's publicDir middleware so generated llms.txt
+        // artifacts have the same ownership in development and production.
+        server.middlewares.use(createDevLlmsTxtMiddleware(server));
+      }
       return () => {
         server.middlewares.use(
           createDevSSRMiddleware(server, {
-            llmsTxt: !!resolved.llmsTxt,
             maxBodySize: resolved.maxBodySize,
           }),
         );

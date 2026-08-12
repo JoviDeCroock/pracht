@@ -26,28 +26,105 @@ export const DEVTOOLS_JSON_PATH = "/_pracht.json";
 export const LLMS_TXT_PATH = "/llms.txt";
 export const LLMS_FULL_TXT_PATH = "/llms-full.txt";
 
+/**
+ * Serve generated llms.txt artifacts before Vite's publicDir middleware so a
+ * public file cannot make development disagree with the production build.
+ */
+export function createDevLlmsTxtMiddleware(server: ViteDevServer): Connect.NextHandleFunction {
+  let warnedRouteCollision = false;
+  const warnedPublicCollisions = new Set<string>();
+
+  return async (req: IncomingMessage, res: ServerResponse, next: Connect.NextFunction) => {
+    const url = req.url ?? "/";
+    const requestUrl = new URL(url, "http://localhost");
+    if (
+      !(
+        requestUrl.pathname === LLMS_TXT_PATH ||
+        requestUrl.pathname === LLMS_FULL_TXT_PATH ||
+        requestUrl.pathname.endsWith(".md")
+      ) ||
+      !BODYLESS_METHODS.has((req.method ?? "GET").toUpperCase())
+    ) {
+      return next();
+    }
+
+    try {
+      const [framework, serverMod] = await Promise.all([
+        server.ssrLoadModule("@pracht/core/server"),
+        server.ssrLoadModule(PRACHT_SERVER_MODULE_ID),
+      ]);
+      if (
+        typeof serverMod.generateLlmsTxtArtifacts !== "function" &&
+        typeof serverMod.generateLlmsTxt !== "function"
+      ) {
+        return next();
+      }
+
+      const outputPath = requestUrl.pathname.slice(1);
+      const artifacts =
+        typeof serverMod.generateLlmsTxtArtifacts === "function"
+          ? await serverMod.generateLlmsTxtArtifacts()
+          : requestUrl.pathname === LLMS_TXT_PATH
+            ? [{ outputPath: "llms.txt", content: await serverMod.generateLlmsTxt() }]
+            : [];
+      const artifact = artifacts.find(
+        (candidate: { outputPath?: unknown }) => candidate?.outputPath === outputPath,
+      );
+      if (!artifact || typeof artifact.content !== "string") {
+        return next();
+      }
+
+      const routeMatchers = {
+        app: serverMod.resolvedApp as ResolvedPrachtApp,
+        apiRoutes: serverMod.apiRoutes as ResolvedApiRoute[],
+        matchApiRoute: framework.matchApiRoute,
+        matchAppRoute: framework.matchAppRoute,
+      };
+      if (!warnedRouteCollision && matchesResolvedRoute(requestUrl.pathname, routeMatchers)) {
+        warnedRouteCollision = true;
+        server.config.logger.warn(
+          `[pracht] An app route matches ${requestUrl.pathname}, which is reserved by the ` +
+            `pracht({ llmsTxt }) option. The generated artifact wins; disable the option ` +
+            `to serve the app route instead.`,
+        );
+      }
+
+      if (
+        typeof server.config.publicDir === "string" &&
+        !warnedPublicCollisions.has(outputPath) &&
+        existsSync(join(server.config.publicDir, outputPath))
+      ) {
+        warnedPublicCollisions.add(outputPath);
+        server.config.logger.warn(
+          `[pracht] public/${outputPath} is shadowed by the generated llms.txt artifact in ` +
+            `development and overwritten during production builds. Remove it, or disable the ` +
+            `plugin's llmsTxt option to hand-author the file.`,
+        );
+      }
+
+      res.statusCode = 200;
+      res.setHeader(
+        "content-type",
+        artifact.outputPath.endsWith(".md")
+          ? "text/markdown; charset=utf-8"
+          : "text/plain; charset=utf-8",
+      );
+      applyDefaultSecurityHeaders(new Headers()).forEach((value, key) => {
+        res.setHeader(key, value);
+      });
+      res.end(artifact.content);
+    } catch (error: unknown) {
+      await handleDevError(server, req, res, next, url, error);
+    }
+  };
+}
+
 export function createDevSSRMiddleware(
   server: ViteDevServer,
-  options: { maxBodySize?: number; llmsTxt?: boolean } = {},
+  options: { maxBodySize?: number } = {},
 ): Connect.NextHandleFunction {
   const maxBodySize = options.maxBodySize ?? DEFAULT_MAX_BODY_SIZE;
   let warnedDevtoolsCollision = false;
-  let warnedLlmsTxtCollision = false;
-
-  // A hand-written public/llms.txt and the generated one disagree about who
-  // wins: Vite's publicDir middleware serves the static file in dev (before
-  // this handler runs), while `pracht build` overwrites it with generated
-  // content. Warn once so the divergence is not silent.
-  if (options.llmsTxt && typeof server.config.publicDir === "string") {
-    const publicLlmsTxt = join(server.config.publicDir, "llms.txt");
-    if (existsSync(publicLlmsTxt)) {
-      server.config.logger.warn(
-        `[pracht] Both public/llms.txt and the pracht({ llmsTxt }) option are present. ` +
-          `Dev serves the static public/llms.txt, but "pracht build" overwrites it with the ` +
-          `generated content. Remove one to avoid a dev/production mismatch.`,
-      );
-    }
-  }
   return async (req: IncomingMessage, res: ServerResponse, next: Connect.NextFunction) => {
     const url = req.url ?? "/";
     const requestUrl = new URL(url, "http://localhost");
@@ -83,57 +160,6 @@ export function createDevSSRMiddleware(
           url,
           wantsJson: requestUrl.pathname === DEVTOOLS_JSON_PATH,
         });
-        return;
-      }
-
-      // Generated llms.txt artifacts are served from the live app graph — the
-      // same content `pracht build` writes to dist/client.
-      if (
-        options.llmsTxt &&
-        (requestUrl.pathname === LLMS_TXT_PATH ||
-          requestUrl.pathname === LLMS_FULL_TXT_PATH ||
-          requestUrl.pathname.endsWith(".md")) &&
-        BODYLESS_METHODS.has((req.method ?? "GET").toUpperCase()) &&
-        (typeof serverMod.generateLlmsTxtArtifacts === "function" ||
-          typeof serverMod.generateLlmsTxt === "function")
-      ) {
-        const outputPath = requestUrl.pathname.slice(1);
-        const artifacts =
-          typeof serverMod.generateLlmsTxtArtifacts === "function"
-            ? await serverMod.generateLlmsTxtArtifacts()
-            : requestUrl.pathname === LLMS_TXT_PATH
-              ? [{ outputPath: "llms.txt", content: await serverMod.generateLlmsTxt() }]
-              : [];
-        const artifact = artifacts.find(
-          (candidate: { outputPath?: unknown }) => candidate?.outputPath === outputPath,
-        );
-        if (!artifact || typeof artifact.content !== "string") {
-          return next();
-        }
-
-        if (!warnedLlmsTxtCollision && matchesResolvedRoute(requestUrl.pathname, routeMatchers)) {
-          warnedLlmsTxtCollision = true;
-          server.config.logger.warn(
-            `[pracht] An app route matches ${requestUrl.pathname}, which is reserved by the ` +
-              `pracht({ llmsTxt }) option. The generated artifact wins; disable the option ` +
-              `to serve the app route instead.`,
-          );
-        }
-
-        res.statusCode = 200;
-        res.setHeader(
-          "content-type",
-          artifact.outputPath.endsWith(".md")
-            ? "text/markdown; charset=utf-8"
-            : "text/plain; charset=utf-8",
-        );
-        // Match production: the adapters serve dist/client/llms.txt with the
-        // framework's default security headers, and dev diverging from that is
-        // exactly the kind of difference that only shows up after deploy.
-        applyDefaultSecurityHeaders(new Headers()).forEach((value, key) => {
-          res.setHeader(key, value);
-        });
-        res.end(artifact.content);
         return;
       }
 

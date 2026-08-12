@@ -59,8 +59,13 @@ describe("resolveGeneratedArtifactOutputPath", () => {
 });
 
 describe("excludePrerenderPagesShadowedByGeneratedArtifacts", () => {
-  it("keeps generated files from colliding with same-path prerender directories", () => {
-    const pages = [{ path: "/guide" }, { path: "/guide.md" }, { path: "/other" }];
+  it("keeps generated files from colliding with same-path or descendant prerender directories", () => {
+    const pages = [
+      { path: "/guide" },
+      { path: "/guide.md" },
+      { path: "/guide.md/child" },
+      { path: "/other" },
+    ];
 
     expect(
       excludePrerenderPagesShadowedByGeneratedArtifacts(pages, [

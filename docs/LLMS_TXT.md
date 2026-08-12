@@ -161,6 +161,8 @@ name.
 - Every generated path is reserved while the option is enabled. A matching app
   route is shadowed in dev (with a warning) and by the static file in
   production; matching SSG/ISG output is not prerendered at that path. A
-  matching `public/` file is overwritten during build with a warning.
+  matching `public/` file is shadowed in dev and overwritten during build, with
+  a warning. SSG/ISG routes below a generated file path are also left to the
+  runtime instead of producing an incompatible file/directory layout.
 - The docs example uses `page`, `render`, `full`, and `markdownSuffix` to map
   its own frontmatter format without adding that format to Pracht.

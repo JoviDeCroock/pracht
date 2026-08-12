@@ -1,4 +1,7 @@
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { ViteDevServer } from "vite";
 import { describe, expect, it, vi } from "vitest";
 
@@ -7,6 +10,7 @@ import * as frameworkServer from "../../framework/src/server.ts";
 import { defineApp, resolveApiRoutes, resolveApp, route } from "../../framework/src/app.ts";
 import { PRACHT_SERVER_MODULE_ID } from "../src/plugin-assets.ts";
 import {
+  createDevLlmsTxtMiddleware,
   createDevSSRMiddleware,
   DEVTOOLS_JSON_PATH,
   DEVTOOLS_PATH,
@@ -44,10 +48,17 @@ function createServerMod(overrides: { routes?: ReturnType<typeof route>[] } = {}
   };
 }
 
-function createStubServer(serverMod: ReturnType<typeof createServerMod>) {
+function createStubServer(
+  serverMod: ReturnType<typeof createServerMod>,
+  options: { publicDir?: string } = {},
+) {
   const warn = vi.fn();
   const server = {
-    config: { logger: { warn }, root: "/tmp/pracht-devtools-test" },
+    config: {
+      logger: { warn },
+      publicDir: options.publicDir ?? "/tmp/pracht-devtools-test/public",
+      root: "/tmp/pracht-devtools-test",
+    },
     ssrFixStacktrace: () => {},
     ssrLoadModule: async (id: string) => {
       if (id === "@pracht/core/server") return frameworkServer;
@@ -96,6 +107,42 @@ async function runMiddleware(server: ViteDevServer, url: string) {
   await middleware(req, res, next);
   return { headers, next, state };
 }
+
+describe("dev middleware generated llms.txt artifacts", () => {
+  it("serves generated Markdown ahead of a colliding public file and warns once", async () => {
+    const root = mkdtempSync(join(tmpdir(), "pracht-llms-dev-"));
+    const publicDir = join(root, "public");
+    mkdirSync(publicDir, { recursive: true });
+    writeFileSync(join(publicDir, "about.md"), "# Public\n", "utf-8");
+
+    try {
+      const serverMod = {
+        ...createServerMod(),
+        generateLlmsTxtArtifacts: async () => [
+          { outputPath: "llms.txt", content: "# App\n" },
+          { outputPath: "about.md", content: "# Generated\n" },
+        ],
+      };
+      const { server, warn } = createStubServer(serverMod, { publicDir });
+      const middleware = createDevLlmsTxtMiddleware(server);
+
+      for (let requestIndex = 0; requestIndex < 2; requestIndex += 1) {
+        const response = createResponse();
+        const next = vi.fn();
+        await middleware(createRequest("/about.md"), response.res, next);
+
+        expect(next).not.toHaveBeenCalled();
+        expect(response.state.body).toBe("# Generated\n");
+        expect(response.headers["content-type"]).toContain("text/markdown");
+      }
+
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn.mock.calls[0][0]).toContain("public/about.md");
+    } finally {
+      rmSync(root, { force: true, recursive: true });
+    }
+  });
+});
 
 describe("dev middleware /_pracht devtools route", () => {
   it("serves the self-contained devtools HTML page", async () => {

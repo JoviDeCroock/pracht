@@ -568,6 +568,11 @@ export function excludePrerenderPagesShadowedByGeneratedArtifacts<T extends { pa
   pages: readonly T[],
   artifacts: readonly { outputPath: string }[],
 ): T[] {
-  const generatedPaths = new Set(artifacts.map((artifact) => `/${artifact.outputPath}`));
-  return pages.filter((page) => !generatedPaths.has(page.path));
+  const generatedPaths = artifacts.map((artifact) => `/${artifact.outputPath}`);
+  return pages.filter(
+    (page) =>
+      !generatedPaths.some(
+        (generatedPath) => page.path === generatedPath || page.path.startsWith(`${generatedPath}/`),
+      ),
+  );
 }
