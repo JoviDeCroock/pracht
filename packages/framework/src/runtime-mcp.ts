@@ -55,6 +55,11 @@ import {
   negotiateProtocolVersion,
   readInitializeParams,
 } from "./runtime-mcp-protocol.ts";
+import {
+  createMcpToolDescriptor,
+  createMcpToolResult,
+  isCapabilityEnvelope,
+} from "./runtime-mcp-tools.ts";
 
 export {
   MCP_LATEST_PROTOCOL_VERSION,
@@ -313,7 +318,9 @@ export interface HandleMcpRequestOptions<TContext> {
       return respond(200, {
         jsonrpc: "2.0",
         id,
-        result: { tools: mcpExposedCapabilities(options.capabilities).map(toolDescriptor) },
+        result: {
+          tools: mcpExposedCapabilities(options.capabilities).map(createMcpToolDescriptor),
+        },
       });
 
     case "tools/call":
@@ -329,31 +336,6 @@ export interface HandleMcpRequestOptions<TContext> {
         },
       });
   }
-}
-
-// ---------------------------------------------------------------------------
-// tools/list
-// ---------------------------------------------------------------------------
-function toolDescriptor(entry: ResolvedCapability) {
-  const { capability } = entry;
-  return {
-    name: mcpToolName(entry.name),
-    title: capability.title,
-    description: capability.description,
-    inputSchema: capability.input,
-    outputSchema: capability.output,
-    // Client UX hints, never enforcement — the effect class that produced
-    // them is what the server actually enforces.
-    annotations: {
-      readOnlyHint: capability.effect === "read",
-      // `write` only says the capability mutates state; it does not prove the
-      // operation is additive. Omit the hint so MCP's conservative default
-      // applies unless Pracht grows a more precise effect classification.
-      ...(capability.effect === "read" ? { destructiveHint: false } : {}),
-      idempotentHint: capability.effect === "read",
-    },
-    _meta: { "io.pracht/capability": entry.name, "io.pracht/effect": capability.effect },
-  };
 }
 
 // ---------------------------------------------------------------------------
@@ -468,7 +450,7 @@ async function handleToolsCall<TContext>(
   return jsonRpcResponse(200, protocolVersion, {
     jsonrpc: "2.0",
     id,
-    result: toolResult(match, envelope, response.status),
+    result: createMcpToolResult(match, envelope, response.status),
   });
 }
 
@@ -503,65 +485,4 @@ function synthesizeCapabilityRequest<TContext>(
     headers,
     body: JSON.stringify(args ?? {}),
   });
-}
-
-/**
- * Envelope → MCP tool result.
- *
- * Execution failures stay `isError: true` results rather than JSON-RPC errors:
- * the call itself succeeded, and the model needs to *read* the failure to
- * react to it.
- */
-function toolResult(match: ResolvedCapability, envelope: CapabilityEnvelope, status: number) {
-  if (envelope.ok) {
-    return {
-      content: [{ type: "text", text: JSON.stringify(envelope.data, null, 2) }],
-      structuredContent: envelope.data,
-      isError: false,
-      _meta: { "io.pracht/capability": match.name },
-    };
-  }
-
-  const { error } = envelope;
-  const lines = [`${error.code}: ${error.message}`];
-  if (error.issues?.length) {
-    lines.push(...error.issues.map((issue) => `- ${issue.path || "(root)"}: ${issue.message}`));
-  }
-
-  return {
-    content: [{ type: "text", text: lines.join("\n") }],
-    isError: true,
-    _meta: {
-      "io.pracht/capability": match.name,
-      "io.pracht/status": status,
-      "io.pracht/error": {
-        code: error.code,
-        message: error.message,
-        ...(error.issues ? { issues: error.issues } : {}),
-      },
-    },
-  };
-}
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function isCapabilityEnvelope(value: unknown): value is CapabilityEnvelope {
-  if (!value || typeof value !== "object") return false;
-  const candidate = value as Partial<CapabilityEnvelope>;
-  if (candidate.ok === true) return "data" in candidate;
-  if (candidate.ok !== false || !candidate.error || typeof candidate.error !== "object") {
-    return false;
-  }
-  if (typeof candidate.error.code !== "string" || typeof candidate.error.message !== "string") {
-    return false;
-  }
-  return (
-    candidate.error.issues === undefined ||
-    (Array.isArray(candidate.error.issues) &&
-      candidate.error.issues.every(
-        (issue) => !!issue && typeof issue.path === "string" && typeof issue.message === "string",
-      ))
-  );
 }
