@@ -1113,6 +1113,9 @@ client-side fetch to an external API instead.
   without Pracht route state. The rewrite only governs full-document loads: deep
   links, reloads, opening in a new tab.) GitHub Pages cannot rewrite — deep
   links to and reloads of dynamic SPA paths land on the 404 page there.
+  The fallback only client-renders matched SPA routes: a dynamic SSG pattern
+  that matches a path omitted by `getStaticPaths()` renders the app's
+  `notFound` page instead of running without its missing build-time state.
 - A host that serves `404.html` with status **200** (S3 without an error-
   document configuration, some CDN defaults) changes nothing for the client —
   hydration adopts `window.location` either way — but crawlers will index

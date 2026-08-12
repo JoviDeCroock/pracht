@@ -926,17 +926,18 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
   if (isStaticFallbackBoot) {
     const bootPath = window.location.pathname + window.location.search + window.location.hash;
     const bootMatch = matchResolvedRoute(app, window.location.pathname);
-    const isFullHydrationMatch =
+    const isClientRoutableSpaMatch =
       bootMatch != null &&
+      bootMatch.route.render === "spa" &&
       bootMatch.route.hydration !== "islands" &&
       bootMatch.route.hydration !== "none";
-    if (isFullHydrationMatch) {
+    if (isClientRoutableSpaMatch) {
       await navigate(bootPath, { replace: true, _staticFallback: true });
     } else if (app.notFound) {
-      // No client-routable match — or an islands/none-hydration route whose
-      // document was not prerendered, where a full-document reload would just
-      // re-serve this fallback. Render the app's not-found page client-side,
-      // without loader data.
+      // No client-routable SPA match. In particular, a dynamic SSG pattern can
+      // match a path that getStaticPaths() did not emit; rendering that route
+      // without its missing build-time state would show invalid content or
+      // crash. Render the app's not-found page client-side instead.
       const notFoundState = await resolveRouteState(
         { route: app.notFound, params: {}, pathname: window.location.pathname },
         { data: undefined, error: null },
