@@ -1,6 +1,7 @@
 import { h } from "preact";
 import type { FunctionComponent } from "preact";
 import { matchAppRoute, resolveApp } from "./app.ts";
+import { AGENT_SURFACE_ENABLED, initializeAgentSurface } from "./runtime-agent-surface.ts";
 import { dispatchApiRequest } from "./runtime-api.ts";
 import { ROUTE_STATE_REQUEST_HEADER, SAFE_METHODS } from "./runtime-constants.ts";
 import {
@@ -56,28 +57,13 @@ import type {
   CapabilityAuditHook,
   ModuleRegistry,
   HrefRouteDefinition,
-  PrachtAgentIdentity,
   PrachtApp,
-  PrachtContextExtensions,
   ResolvedApiRoute,
   ResolvedPrachtApp,
   RouteMatch,
   RouteModule,
   ShellModule,
 } from "./types.ts";
-
-/**
- * Build-time proof that the app has no agent surface at all — no registered
- * capabilities and no `defineApp({ agents })`. The vite plugin only defines it
- * as `false` when it can read the manifest and see both are absent; anything it
- * cannot prove (a pages-router app, an unreadable manifest, a spread config)
- * leaves it undefined and the runtime checks below decide as before.
- *
- * When it is `false` the capability and Web Bot Auth runtimes are unreachable,
- * so the bundler drops both from the server bundle: an app that does not use
- * the agent surface does not ship it. See docs/CAPABILITIES.md.
- */
-declare const __PRACHT_AGENT_SURFACE__: boolean | undefined;
 
 export interface HandlePrachtRequestOptions<TContext = unknown> {
   app: PrachtApp;
@@ -162,77 +148,17 @@ export async function handlePrachtRequest<TContext>(
     );
   }
 
-  let requestContext = (options.context ?? {}) as TContext & PrachtContextExtensions;
-  const hasCapabilities = Object.keys(options.app.capabilities ?? {}).length > 0;
-  const mcpConfig = options.app.agents?.mcp;
-  let capabilityRuntime: typeof import("./runtime-capabilities.ts") | null = null;
-  let mcpRuntime: typeof import("./runtime-mcp.ts") | null = null;
-  let agent: PrachtAgentIdentity | null = null;
-
-  // The agent surface loads on demand: apps that register no capabilities and
-  // configure no agents never import either module, and builds that can prove
-  // it statically drop them from the bundle outright.
-  if (typeof __PRACHT_AGENT_SURFACE__ === "undefined" || __PRACHT_AGENT_SURFACE__) {
-    if (hasCapabilities || mcpConfig) {
-      [capabilityRuntime, mcpRuntime] = await Promise.all([
-        import("./runtime-capabilities.ts"),
-        mcpConfig ? import("./runtime-mcp.ts") : Promise.resolve(null),
-      ]);
-    }
-    // Web Bot Auth: verify the agent signature once per request when the app
-    // opted in via `defineApp({ agents: { webBotAuth } })`. The result (identity
-    // or null) lands on the shared request context before middleware, loaders,
-    // API routes, or capabilities run. Apps without the config skip everything —
-    // a single property check.
-    const webBotAuth = options.app.agents?.webBotAuth;
-    if (webBotAuth) {
-      const { bindAgentContext } = await import("./runtime-agent-context.ts");
-      if (options.request.headers.has("signature-input")) {
-        const { verifyAgentSignature } = await import("./runtime-agent-auth.ts");
-        agent = await verifyAgentSignature(options.request, webBotAuth);
-      }
-      try {
-        requestContext = bindAgentContext(requestContext, agent);
-      } catch (error: unknown) {
-        // A context the framework cannot bind identity to (a native built-in,
-        // an application-owned `agent` field it must not replace, or a context
-        // object reused across identities) fails closed. Deliver that as a 500
-        // rather than rejecting: a rejection out of `handlePrachtRequest` is an
-        // unhandled rejection in the adapter, not a response.
-        warnAgentContextBindingFailure(error);
-        return withDefaultSecurityHeaders(
-          new Response(
-            exposeDiagnostics
-              ? `Request context could not carry verified agent identity: ${
-                  error instanceof Error ? error.message : String(error)
-                }`
-              : "Internal Server Error",
-            { status: 500, headers: { "content-type": "text/plain; charset=utf-8" } },
-          ),
-        );
-      }
-      agent = requestContext.agent ?? null;
-    }
-
-    // Register the request so `invokeCapability()` works from loaders, API
-    // routes, and middleware. An actual MCP dispatch replaces this provenance
-    // after explicit API-route precedence has been resolved below.
-    if (capabilityRuntime && (hasCapabilities || mcpConfig)) {
-      capabilityRuntime.setActiveCapabilityHost(
-        options.request,
-        options.app,
-        registry,
-        "http",
-        options.onCapabilityAudit,
-        agent,
-      );
-    }
-  } else if (hasCapabilities || options.app.agents) {
-    // The build proved there was no agent surface and dropped the runtime, yet
-    // one is registered here. Only reachable if the manifest analyzer missed a
-    // registration; say so loudly rather than 404ing capabilities in silence.
-    warnAgentSurfaceElided();
-  }
+  const agentSurface = await initializeAgentSurface({
+    app: options.app,
+    context: options.context,
+    exposeDiagnostics,
+    onAudit: options.onCapabilityAudit,
+    registry,
+    request: options.request,
+  });
+  if (!agentSurface.ok) return agentSurface.response;
+  const { agent, capabilityRuntime, context: requestContext, hasCapabilities } = agentSurface;
+  const { mcpConfig, mcpRuntime } = agentSurface;
 
   if (options.apiRoutes?.length) {
     const apiResponse = await dispatchApiRequest({
@@ -257,7 +183,10 @@ export async function handlePrachtRequest<TContext>(
     !!mcpRuntime &&
     mcpRuntime.normalizeMcpRequestPath(url.pathname) ===
       mcpRuntime.resolveMcpEndpoint(options.app.agents);
-  if (capabilityRuntime && (hasCapabilities || isMcpRequest)) {
+  // Keep the build-time guard explicit at the projection site. Returning the
+  // lazy runtime through the initialization boundary hides its proven `null`
+  // value from some bundlers; this constant lets them remove the whole branch.
+  if (AGENT_SURFACE_ENABLED && capabilityRuntime && (hasCapabilities || isMcpRequest)) {
     if (isMcpRequest) {
       // Adapter contexts may retain the incoming transport request. Bind the
       // same trusted provenance as the synthesized capability request so that
@@ -894,21 +823,6 @@ function isNotFoundError(error: unknown): boolean {
   return isPrachtHttpError(error) && error.status === 404;
 }
 
-let warnedAgentSurfaceElided = false;
-
-/** Build/runtime disagreement about the agent surface — log it once. */
-function warnAgentSurfaceElided(): void {
-  if (warnedAgentSurfaceElided) return;
-  warnedAgentSurfaceElided = true;
-  console.error(
-    "[pracht] This build dropped the capability and agent-trust runtime because the app " +
-      "manifest registered neither, but the running app has capabilities or an `agents` " +
-      "config. Capability requests will 404 and agent signatures will not be verified. " +
-      "Register capabilities as literal entries in `defineApp({ capabilities })` so the " +
-      "build can see them, then rebuild.",
-  );
-}
-
 let warnedCapabilityResolutionFailure = false;
 
 /** Resolution failures repeat on every request — log the details once. */
@@ -917,23 +831,6 @@ function warnCapabilityResolutionFailure(error: unknown): void {
   warnedCapabilityResolutionFailure = true;
   console.error(
     "[pracht] Capability registry failed to resolve; capability requests will fail closed:",
-    error,
-  );
-}
-
-/**
- * Identity binding fails for the shape of the supplied context, so it fails on
- * every request until the adapter supplies a bindable one — log the details
- * once, since the 500 body stays generic in production.
- */
-let warnedAgentContextBindingFailure = false;
-
-function warnAgentContextBindingFailure(error: unknown): void {
-  if (warnedAgentContextBindingFailure) return;
-  warnedAgentContextBindingFailure = true;
-  console.error(
-    "[pracht] Verified agent identity could not be bound to the request context; " +
-      "requests fail closed with a 500:",
     error,
   );
 }
