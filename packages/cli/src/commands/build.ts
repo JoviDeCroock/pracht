@@ -1,6 +1,6 @@
 import { cpSync, existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { register } from "node:module";
-import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import { defineCommand } from "citty";
@@ -8,6 +8,11 @@ import { build as viteBuild } from "vite";
 
 import { readClientBuildAssets } from "../build-metadata.js";
 import { writeVercelBuildOutput } from "../build-shared.js";
+import {
+  writeGeneratedLlmsTxt,
+  writeOpenApiBuildArtifacts,
+  writePrerenderedPages,
+} from "../build-static-output.js";
 import {
   collectBundleReport,
   evaluateBudgets,
@@ -17,6 +22,11 @@ import {
   shouldUseColor,
   type BundleReportRoute,
 } from "../bundle-report.js";
+
+export {
+  resolveGeneratedArtifactOutputPath,
+  resolvePrerenderOutputPath,
+} from "../build-static-output.js";
 
 let prerenderHooksRegistered = false;
 
@@ -208,84 +218,25 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
         ? pages.filter((page: { path: string }) => !skippedSnapshotPaths.has(page.path))
         : pages;
 
-    if (staticPages.length > 0) {
-      log(`\n  Prerendering ${staticPages.length} SSG/ISG route(s)...\n`);
-      for (const page of staticPages) {
-        const filePath = resolvePrerenderOutputPath(clientDir, page.path);
-
-        mkdirSync(dirname(filePath), { recursive: true });
-        writeFileSync(filePath, page.html, "utf-8");
-        log(`    ${page.path} → ${filePath.replace(root + "/", "")}`);
-      }
-    }
+    writePrerenderedPages(staticPages, { clientDir, root, log });
 
     // The server module only exports generateLlmsTxt when the vite plugin's
     // `llmsTxt` option is enabled — disabled builds skip this entirely.
     if (typeof serverMod.generateLlmsTxt === "function") {
-      // Vite copies `public/` into the client output before this runs, so a
-      // hand-authored `public/llms.txt` is about to be overwritten. Silently
-      // discarding a file the user wrote is the worst outcome; say so.
-      if (existsSync(resolve(root, "public/llms.txt"))) {
-        log(
-          "\n  Warning: public/llms.txt is overwritten by the generated llms.txt.\n" +
-            "  Remove it, or disable the plugin's `llmsTxt` option to hand-author the file.",
-        );
-      }
-      const llmsTxt: string = await serverMod.generateLlmsTxt();
-      writeFileSync(resolve(clientDir, "llms.txt"), llmsTxt, "utf-8");
-      log("\n  llms.txt → dist/client/llms.txt\n");
+      writeGeneratedLlmsTxt(await serverMod.generateLlmsTxt(), { clientDir, root, log });
     }
-
-    const generatedStaticRoutes: string[] = [];
 
     // Companion artifact generators can inspect the bundled server graph and
     // return static files without coupling their authoring API to core. The
     // OpenAPI plugin uses this for /openapi.json and its optional docs page.
-    if (typeof serverMod.generatePrachtOpenApiArtifacts === "function") {
-      const generated = await serverMod.generatePrachtOpenApiArtifacts();
-      const artifacts = Array.isArray(generated?.artifacts) ? generated.artifacts : [];
-      const seenOutputPaths = new Set<string>();
-      for (const artifact of artifacts) {
-        if (
-          !artifact ||
-          typeof artifact.outputPath !== "string" ||
-          typeof artifact.content !== "string"
-        ) {
-          throw new Error("OpenAPI generator returned an invalid build artifact.");
-        }
-        const filePath = resolveGeneratedArtifactOutputPath(clientDir, artifact.outputPath);
-        if (seenOutputPaths.has(filePath)) {
-          throw new Error(
-            `OpenAPI generator returned duplicate output path ${JSON.stringify(artifact.outputPath)}.`,
-          );
-        }
-        seenOutputPaths.add(filePath);
-        if (
-          typeof artifact.path === "string" &&
-          artifact.path.startsWith("/") &&
-          artifact.outputPath ===
-            (artifact.path === "/" ? "index.html" : `${artifact.path.slice(1)}/index.html`)
-        ) {
-          generatedStaticRoutes.push(artifact.path);
-        }
-        if (existsSync(filePath)) {
-          log(
-            `\n  Warning: OpenAPI artifact ${artifact.outputPath} replaces an existing public/build file.\n`,
-          );
-        }
-        mkdirSync(dirname(filePath), { recursive: true });
-        writeFileSync(filePath, artifact.content, "utf-8");
-        log(`\n  OpenAPI → dist/client/${artifact.outputPath}\n`);
-      }
-
-      const warnings = Array.isArray(generated?.warnings) ? generated.warnings : [];
-      for (const warning of warnings) {
-        const method = typeof warning?.method === "string" ? `${warning.method} ` : "";
-        const path = typeof warning?.path === "string" ? warning.path : "unknown route";
-        const message = typeof warning?.message === "string" ? warning.message : String(warning);
-        log(`  OpenAPI warning: ${method}${path}: ${message}\n`);
-      }
-    }
+    const generatedStaticRoutes =
+      typeof serverMod.generatePrachtOpenApiArtifacts === "function"
+        ? writeOpenApiBuildArtifacts(await serverMod.generatePrachtOpenApiArtifacts(), {
+            clientDir,
+            root,
+            log,
+          })
+        : [];
 
     if (Object.keys(headersManifest).length > 0) {
       const headersManifestJson = `${JSON.stringify(headersManifest, null, 2)}\n`;
@@ -468,56 +419,4 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
 
   log("\n  Build complete.\n");
   return { buildTarget };
-}
-
-export function resolvePrerenderOutputPath(clientDir: string, routePath: string): string {
-  if (routePath.includes("\0")) {
-    throw new Error(`Refusing to write prerendered route "${routePath}" with a NUL byte.`);
-  }
-
-  const root = resolve(clientDir);
-  const filePath =
-    routePath === "/" ? resolve(root, "index.html") : resolve(root, `.${routePath}`, "index.html");
-  const relativePath = relative(root, filePath);
-
-  if (
-    relativePath === "" ||
-    relativePath === ".." ||
-    relativePath.startsWith(`..${sep}`) ||
-    isAbsolute(relativePath)
-  ) {
-    throw new Error(
-      `Refusing to write prerendered route "${routePath}" outside dist/client (${filePath}).`,
-    );
-  }
-
-  return filePath;
-}
-
-export function resolveGeneratedArtifactOutputPath(clientDir: string, outputPath: string): string {
-  if (
-    !outputPath ||
-    outputPath.includes("\0") ||
-    outputPath.includes("\\") ||
-    isAbsolute(outputPath)
-  ) {
-    throw new Error(
-      `Refusing to write generated artifact with unsafe output path ${JSON.stringify(outputPath)}.`,
-    );
-  }
-
-  const root = resolve(clientDir);
-  const filePath = resolve(root, outputPath);
-  const relativePath = relative(root, filePath);
-  if (
-    relativePath === "" ||
-    relativePath === ".." ||
-    relativePath.startsWith(`..${sep}`) ||
-    isAbsolute(relativePath)
-  ) {
-    throw new Error(
-      `Refusing to write generated artifact ${JSON.stringify(outputPath)} outside dist/client.`,
-    );
-  }
-  return filePath;
 }
