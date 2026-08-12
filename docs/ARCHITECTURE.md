@@ -484,8 +484,9 @@ runtime-hooks.ts — public browser hooks/components (Link, Form, useRevalidate,
 runtime.ts      — SSR handler and prerendering (static import of app.ts)
 runtime-capability-registry.ts — capability manifest loading, contract validation,
                                  cache identity, and HTTP path matching
-runtime-capabilities.ts — shared capability execution, HTTP transport, confirmation,
-                          audit, and direct server invocation
+runtime-capability-pipeline.ts — shared input validation, named middleware, execution,
+                                 output validation, and response normalization
+runtime-capabilities.ts — HTTP transport, confirmation, audit, and direct server invocation
     ↑
 prefetch-cache.ts — bounded route-state cache shared by navigation, forms, and prefetching
     ↑
