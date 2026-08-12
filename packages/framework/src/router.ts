@@ -1,10 +1,4 @@
 import { buildHrefUntyped, matchResolvedRoute } from "./route-matching.ts";
-import {
-  decodeFragmentId,
-  findFragmentTarget,
-  focusFragmentTarget,
-  scrollToFragmentTarget,
-} from "./fragment-navigation.ts";
 import { installHydrationMismatchWarning } from "./hydration-mismatch.ts";
 import { markHydrating, onHydrationComplete } from "./hydration.ts";
 import {
@@ -21,13 +15,6 @@ import {
   VIEW_TRANSITION_ATTRIBUTE,
 } from "./runtime-constants.ts";
 import { normalizeSpeculation, supportsSpeculationRules } from "./runtime-speculation.ts";
-import {
-  createScrollPositionStore,
-  generateScrollKey,
-  getSessionScrollStorage,
-  readScrollKeyFromHistoryState,
-  withScrollKeyInHistoryState,
-} from "./scroll-restoration.ts";
 import type {
   NavigateOptions,
   ResolvedPrachtApp,
@@ -43,11 +30,8 @@ import {
 import type { SerializedRouteError } from "./runtime-errors.ts";
 import type { PrachtHydrationState } from "./runtime-context.ts";
 import type { RouteStateResult } from "./runtime-client-fetch.ts";
-import {
-  commitWithOptionalViewTransition,
-  dispatchHashChange,
-  resolveBrowserRouteTarget,
-} from "./router-browser.ts";
+import { commitWithOptionalViewTransition, resolveBrowserRouteTarget } from "./router-browser.ts";
+import { createRouterHistoryController } from "./router-history.ts";
 import type { NavigateFn } from "./router-navigation.ts";
 import { createClientRouteRenderer, type RouterModuleMap } from "./router-renderer.ts";
 
@@ -92,6 +76,7 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
 
   let latestNavigationId = 0;
   let activeNavigationAbort: AbortController | null = null;
+  const historyController = createRouterHistoryController();
 
   const renderer = createClientRouteRenderer({
     app,
@@ -101,140 +86,6 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
     findModuleKey,
     navigate,
   });
-
-  // --- Scroll restoration -------------------------------------------------
-  // The router owns scrolling: positions are keyed per history entry (via a
-  // key stored on `history.state`) and persisted in sessionStorage so they
-  // survive reloads and back-navigation from external documents.
-  const scrollStore = createScrollPositionStore(getSessionScrollStorage());
-  if ("scrollRestoration" in history) {
-    history.scrollRestoration = "manual";
-  }
-
-  let currentScrollKey = readScrollKeyFromHistoryState(history.state) ?? "";
-  const hadExistingScrollKey = currentScrollKey !== "";
-  if (!hadExistingScrollKey) {
-    currentScrollKey = generateScrollKey();
-    try {
-      history.replaceState(
-        withScrollKeyInHistoryState(history.state, currentScrollKey),
-        "",
-        window.location.href,
-      );
-    } catch {
-      // Some embedders restrict history mutation; scroll restoration then
-      // degrades to scroll-to-top, which matches the previous behavior.
-    }
-  }
-
-  function saveScrollPosition(): void {
-    scrollStore.set(currentScrollKey, { x: window.scrollX, y: window.scrollY });
-  }
-
-  window.addEventListener("pagehide", saveScrollPosition);
-
-  // The document (path + query) the router currently has rendered. Used on
-  // popstate to tell a same-document fragment navigation apart from a
-  // traversal that needs the route re-resolved.
-  let currentDocumentPath = window.location.pathname + window.location.search;
-
-  function restoreOrResetScroll(
-    opts: InternalNavigateOptions | undefined,
-    browserUrl: string,
-  ): void {
-    if (opts?.preserveScroll) return;
-
-    if (opts?._popstate) {
-      const saved = scrollStore.get(currentScrollKey);
-      if (saved) {
-        window.scrollTo(saved.x, saved.y);
-        return;
-      }
-      // Nothing saved for this entry — fall through to the fragment lookup
-      // rather than hard-resetting to the top, so traversing onto a URL that
-      // carries a fragment still lands on the fragment.
-    }
-
-    const hashIndex = browserUrl.indexOf("#");
-    if (hashIndex !== -1) {
-      const hashTarget = findFragmentTarget(document, browserUrl.slice(hashIndex));
-      if (hashTarget) {
-        scrollToFragmentTarget(hashTarget);
-        return;
-      }
-    }
-
-    window.scrollTo(0, 0);
-  }
-
-  /**
-   * Scroll to (and focus) a fragment the way a browser would.
-   *
-   * When nothing matches there is no indicated part to scroll to: the browser
-   * goes to the top of the document only for the empty fragment and the
-   * legacy `#top`, and stays exactly where it is otherwise.
-   */
-  function scrollToFragment(hash: string): void {
-    const target = findFragmentTarget(document, hash);
-    if (target) {
-      scrollToFragmentTarget(target);
-      return;
-    }
-
-    const id = decodeFragmentId(hash);
-    if (id === "" || id.toLowerCase() === "top") {
-      window.scrollTo(0, 0);
-    }
-  }
-
-  /**
-   * Commit an in-page fragment navigation from a link click.
-   *
-   * The browser does this itself, but only the first time. Clicking a link to
-   * the fragment you are already at reuses the current history entry instead
-   * of pushing a new one, and `popstate` alone cannot tell that reuse apart
-   * from a back/forward traversal — the entry already carries a scroll key, so
-   * the router would read it as a traversal and restore the position saved for
-   * it, undoing the browser's jump. (The Navigation API's `navigationType`
-   * would separate the two, but it is not available everywhere.)
-   *
-   * Owning the whole interaction here makes a repeat click scroll every time
-   * and leaves `popstate` to mean "traversal", which is what the scroll-key
-   * logic assumes. The guard in the popstate handler stays as the fallback for
-   * fragment entries created some other way (`location.hash = …`).
-   */
-  function commitFragmentNavigation(url: URL, preserveScroll: boolean): void {
-    const previousUrl = window.location.href;
-
-    if (url.href !== previousUrl) {
-      // The entry being left keeps the position it was actually at.
-      saveScrollPosition();
-      const nextScrollKey = generateScrollKey();
-      try {
-        history.pushState(
-          withScrollKeyInHistoryState(null, nextScrollKey),
-          "",
-          url.pathname + url.search + url.hash,
-        );
-        currentScrollKey = nextScrollKey;
-      } catch {
-        // History mutation restricted — the scroll below still lands, the
-        // entry just is not recorded.
-      }
-    }
-    currentDocumentPath = url.pathname + url.search;
-
-    if (!preserveScroll) {
-      scrollToFragment(url.hash);
-    }
-
-    // `pushState` fires neither `hashchange` nor `popstate`, so app code
-    // listening for the platform event still needs to hear about this.
-    const nextUrl = window.location.href;
-    if (nextUrl !== previousUrl) {
-      dispatchHashChange(previousUrl, nextUrl);
-    }
-  }
 
   function resolveRedirectTarget(location: string): {
     documentUrl?: string;
@@ -403,27 +254,7 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
       if (navigationId !== latestNavigationId) return;
 
       if (!opts?._popstate) {
-        // Remember where the outgoing history entry was scrolled to before
-        // this entry is replaced / a new one is pushed.
-        saveScrollPosition();
-        if (opts?.replace) {
-          history.replaceState(
-            withScrollKeyInHistoryState(history.state, currentScrollKey),
-            "",
-            target.browserUrl,
-          );
-        } else {
-          const nextScrollKey = generateScrollKey();
-          history.pushState(
-            withScrollKeyInHistoryState(null, nextScrollKey),
-            "",
-            target.browserUrl,
-          );
-          currentScrollKey = nextScrollKey;
-        }
-        const hashIndex = target.browserUrl.indexOf("#");
-        currentDocumentPath =
-          hashIndex === -1 ? target.browserUrl : target.browserUrl.slice(0, hashIndex);
+        historyController.commitRouteNavigation(target.browserUrl, { replace: opts?.replace });
       }
 
       // Module imports started above are already in-flight
@@ -442,7 +273,12 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
       }
 
       const commit = () => {
-        renderer.afterCommit(() => restoreOrResetScroll(opts, target.browserUrl));
+        renderer.afterCommit(() =>
+          historyController.restoreOrResetScroll(
+            { preserveScroll: opts?.preserveScroll, traversal: opts?._popstate },
+            target.browserUrl,
+          ),
+        );
         renderer.applyRouteState(routeState);
       };
       const useViewTransition = opts?.viewTransition ?? app.viewTransitions === true;
@@ -592,7 +428,10 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
       url.pathname + url.search === window.location.pathname + window.location.search;
     if (isSameDocument && (url.hash !== "" || isFragmentHref)) {
       e.preventDefault();
-      commitFragmentNavigation(url, anchor.hasAttribute(PRESERVE_SCROLL_ATTRIBUTE));
+      historyController.commitFragmentNavigation(
+        url,
+        anchor.hasAttribute(PRESERVE_SCROLL_ATTRIBUTE),
+      );
       return;
     }
 
@@ -613,61 +452,8 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
     navigate(url.pathname + url.search + url.hash, navOptions);
   });
 
-  window.addEventListener("popstate", () => {
-    // The history entry already changed, but the on-screen scroll position
-    // still belongs to the entry we are leaving — save it under its key
-    // before adopting the new entry's key. A same-document fragment
-    // navigation fires popstate *before* the browser scrolls to the fragment,
-    // so this still records where the outgoing entry actually was.
-    saveScrollPosition();
-
-    let nextScrollKey = readScrollKeyFromHistoryState(history.state);
-    const nextDocumentPath = window.location.pathname + window.location.search;
-
-    // A fragment navigation the router did not commit itself — `location.hash
-    // = "…"`, or an anchor click it never saw — fires popstate for a brand new
-    // entry rather than a traversal. Two signals separate the cases: the router
-    // stamps a scroll key into `history.state` for every entry it creates, so a
-    // missing key means this entry came from somewhere else; and a fragment
-    // navigation cannot change the path or query. Requiring both means an
-    // entry whose state was wiped by app code (a stray
-    // `history.replaceState(null, …)`) is still re-resolved when the route
-    // really did change.
-    //
-    // Link clicks no longer reach this branch: they are committed in the click
-    // handler, because a repeat click on the fragment you are already at reuses
-    // the entry and so arrives here indistinguishable from a traversal.
-    const isFragmentNavigation = !nextScrollKey && nextDocumentPath === currentDocumentPath;
-
-    if (!nextScrollKey) {
-      nextScrollKey = generateScrollKey();
-      try {
-        history.replaceState(
-          withScrollKeyInHistoryState(history.state, nextScrollKey),
-          "",
-          window.location.href,
-        );
-      } catch {
-        // History mutation restricted — restoration degrades to scroll-to-top.
-      }
-    }
-    currentScrollKey = nextScrollKey;
-
-    if (isFragmentNavigation) {
-      // The same route is already rendered, so there is nothing to
-      // re-resolve, and this entry has no saved position to restore. The
-      // browser's own scroll to the fragment is about to happen — treating
-      // this as a traversal would undo it. Focus still needs help: see
-      // `focusFragmentTarget`.
-      const fragmentTarget = findFragmentTarget(document, window.location.hash);
-      if (fragmentTarget) focusFragmentTarget(fragmentTarget);
-      return;
-    }
-
-    currentDocumentPath = nextDocumentPath;
-    navigate(window.location.pathname + window.location.search + window.location.hash, {
-      _popstate: true,
-    });
+  historyController.installPopstateHandler((url) => {
+    void navigate(url, { _popstate: true });
   });
 
   window.__PRACHT_NAVIGATE__ = navigate;
@@ -678,15 +464,7 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
   // interacting earlier triggers native form submits instead of JS handlers.
   document.documentElement.setAttribute("data-pracht-hydrated", "true");
 
-  // Restore the scroll position after a reload or a return from an external
-  // document — with `history.scrollRestoration = "manual"` the browser no
-  // longer does this for us.
-  if (hadExistingScrollKey) {
-    const savedPosition = scrollStore.get(currentScrollKey);
-    if (savedPosition) {
-      window.scrollTo(savedPosition.x, savedPosition.y);
-    }
-  }
+  historyController.restoreInitialScroll();
 
   const warmModules: ModuleWarmFn = renderer.warmModules;
   registerPrefetchTarget(app, warmModules);
