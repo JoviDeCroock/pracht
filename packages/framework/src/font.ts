@@ -85,8 +85,6 @@ export interface PrachtFont {
   readonly preload: boolean;
   /** @internal Preload link descriptors (deduped by `href` at render time). */
   readonly preloadLinks: readonly HeadAttributes[];
-  /** @internal Dedupe key for the `@font-face` block: family|weight|style. */
-  readonly faceKey: string;
   /** @internal `@font-face` CSS for the web font. Fully escaped. */
   readonly faceCss: string;
   /** @internal Adjusted local fallback `@font-face`, when metrics are set. */
@@ -114,7 +112,6 @@ const GENERIC_FAMILIES = new Set([
 const FONT_DISPLAY_VALUES = new Set<string>(["auto", "block", "swap", "fallback", "optional"]);
 const FONT_WEIGHT_RE = /^(normal|bold|\d{1,4}(\.\d+)?( +\d{1,4}(\.\d+)?)?)$/;
 const FONT_STYLE_RE = /^(normal|italic|oblique( +-?\d+(\.\d+)?deg( +-?\d+(\.\d+)?deg)?)?)$/;
-const UNICODE_RANGE_TOKEN_RE = /^[Uu]\+[0-9A-Fa-f?]{1,6}(-[0-9A-Fa-f]{1,6})?$/;
 const METRIC_OVERRIDE_RE = /^(normal|\d{1,4}(\.\d+)?%)$/;
 const SRC_FORMAT_RE = /^[a-z0-9-]{1,32}$/i;
 
@@ -152,12 +149,67 @@ function fail(family: string, message: string): never {
   throw new Error(`[pracht] defineFont(${JSON.stringify(family)}): ${message}`);
 }
 
+const UNICODE_MAX_CODE_POINT = 0x10ffff;
+
+/**
+ * One `<urange>` token per css-syntax-3: a single code point (`U+26`), an
+ * interval (`U+0-7F`, start <= end), or a trailing-wildcard form (`U+4??`).
+ * Wildcards cannot be combined with an interval, and code points cannot
+ * exceed U+10FFFF — a browser drops the whole descriptor for such tokens,
+ * silently widening the face to every code point.
+ */
+function isValidUnicodeRangeToken(token: string): boolean {
+  if (!/^[Uu]\+/.test(token)) return false;
+  const body = token.slice(2);
+  if (body.length === 0 || body.length > 13) return false;
+  const parts = body.split("-");
+  if (parts.length === 2) {
+    if (!/^[0-9A-Fa-f]{1,6}$/.test(parts[0]) || !/^[0-9A-Fa-f]{1,6}$/.test(parts[1])) return false;
+    const start = Number.parseInt(parts[0], 16);
+    const end = Number.parseInt(parts[1], 16);
+    return start <= end && end <= UNICODE_MAX_CODE_POINT;
+  }
+  if (parts.length !== 1) return false;
+  if (body.length > 6) return false;
+  if (body.includes("?")) {
+    // Hex digits followed only by trailing `?` wildcards.
+    return /^[0-9A-Fa-f]*\?+$/.test(body);
+  }
+  if (!/^[0-9A-Fa-f]{1,6}$/.test(body)) return false;
+  return Number.parseInt(body, 16) <= UNICODE_MAX_CODE_POINT;
+}
+
 function validateUnicodeRange(family: string, value: string): string {
   const tokens = value.split(",").map((token) => token.trim());
-  if (tokens.length === 0 || tokens.some((token) => !UNICODE_RANGE_TOKEN_RE.test(token))) {
+  if (tokens.length === 0 || tokens.some((token) => !isValidUnicodeRangeToken(token))) {
     fail(family, `invalid unicodeRange ${JSON.stringify(value)}`);
   }
   return tokens.join(", ");
+}
+
+/**
+ * `font-weight` descriptor values must sit in the CSS range [1, 1000], and a
+ * variable range must be ascending. Out-of-range values are not a security
+ * problem (the grammar is already digit-only) but browsers drop the invalid
+ * descriptor silently, so the face falls back to `font-weight: normal` and
+ * matches the wrong styles.
+ */
+function validateWeight(family: string, value: string): string {
+  if (!FONT_WEIGHT_RE.test(value)) {
+    fail(family, `invalid weight ${JSON.stringify(value)}`);
+  }
+  if (value !== "normal" && value !== "bold") {
+    const parts = value.split(/ +/).map(Number);
+    for (const part of parts) {
+      if (part < 1 || part > 1000) {
+        fail(family, `invalid weight ${JSON.stringify(value)} — values must be between 1 and 1000`);
+      }
+    }
+    if (parts.length === 2 && parts[0] > parts[1]) {
+      fail(family, `invalid weight range ${JSON.stringify(value)} — must be ascending`);
+    }
+  }
+  return value;
 }
 
 function validateMetric(family: string, name: string, value: string): string {
@@ -254,10 +306,8 @@ export function defineFont(options: DefineFontOptions): PrachtFont {
     fail(family, `invalid display ${JSON.stringify(display)}`);
   }
 
-  const weight = options.weight != null ? String(options.weight).trim() : undefined;
-  if (weight !== undefined && !FONT_WEIGHT_RE.test(weight)) {
-    fail(family, `invalid weight ${JSON.stringify(weight)}`);
-  }
+  const weight =
+    options.weight != null ? validateWeight(family, String(options.weight).trim()) : undefined;
   const style = options.style?.trim();
   if (style !== undefined && !FONT_STYLE_RE.test(style)) {
     fail(family, `invalid style ${JSON.stringify(style)}`);
@@ -299,16 +349,27 @@ export function defineFont(options: DefineFontOptions): PrachtFont {
 
   // The adjusted fallback face needs a real local font to remap; generic
   // keywords like sans-serif cannot appear inside local().
-  if (options.metricsFallback !== undefined && options.metricsFallback.trim() === "") {
+  const metricsFallback = options.metricsFallback?.trim();
+  if (metricsFallback !== undefined && metricsFallback === "") {
     fail(family, "metricsFallback must be a non-empty font name");
   }
   // Vendor keywords are skipped too: local() matches installed family names,
   // never CSS keywords.
   const localFallback =
-    options.metricsFallback ??
+    metricsFallback ??
     fallbacks.find((name) => !GENERIC_FAMILIES.has(name) && !VENDOR_FONT_KEYWORD_RE.test(name));
-  const fallbackFamilyName = `${family} Fallback`;
   const hasFallbackFace = metricEntries.length > 0 && localFallback !== undefined;
+  // The fallback family name carries a hash of the local font + metrics.
+  // Without it, two faces of the same family with different metric overrides
+  // (e.g. per-weight sizeAdjust values from fontpie) would both register
+  // "<family> Fallback" and the last face would clobber the other's metrics.
+  // Identical metrics still hash identically, so the shared-face dedupe and
+  // shared class name across weights are preserved.
+  const fallbackFamilyName = hasFallbackFace
+    ? `${family} Fallback ${hashString(
+        `${localFallback}|${metricEntries.map(([descriptor, value]) => `${descriptor}:${value}`).join(";")}`,
+      )}`
+    : `${family} Fallback`;
 
   const stack = [
     quoteFamily(family),
@@ -362,7 +423,6 @@ export function defineFont(options: DefineFontOptions): PrachtFont {
     sources,
     preload,
     preloadLinks,
-    faceKey: `${family.toLowerCase()}|${weight ?? "normal"}|${style ?? "normal"}`,
     faceCss,
     fallbackFaceCss,
     classCss,
@@ -386,7 +446,10 @@ export function collectFontHeadFragments(fonts: readonly PrachtFont[]): FontHead
   const preloadLinks: HeadAttributes[] = [];
   const seenPreloadHrefs = new Set<string>();
   const faceBlocks: string[] = [];
-  const seenFaceKeys = new Set<string>();
+  // Faces dedupe by content, not by family/weight/style: unicode-range
+  // subsets of one family legitimately share all three (only src and
+  // unicode-range differ), and every subset must keep its own @font-face.
+  const seenFaceBlocks = new Set<string>();
   const fallbackBlocks: string[] = [];
   const seenFallbackBlocks = new Set<string>();
   const classBlocks: string[] = [];
@@ -400,8 +463,8 @@ export function collectFontHeadFragments(fonts: readonly PrachtFont[]): FontHead
 
   for (const font of fonts) {
     if (font == null || typeof font !== "object" || typeof font.faceCss !== "string") continue;
-    if (!seenFaceKeys.has(font.faceKey) && isSafeCssBlock(font.faceCss)) {
-      seenFaceKeys.add(font.faceKey);
+    if (!seenFaceBlocks.has(font.faceCss) && isSafeCssBlock(font.faceCss)) {
+      seenFaceBlocks.add(font.faceCss);
       faceBlocks.push(font.faceCss);
     }
     if (font.preload) {

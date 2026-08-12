@@ -117,7 +117,7 @@ export const interBold = defineFont({ family: "Inter", src: "/fonts/inter-700.wo
 
 ## Deduplication
 
-The same font registered by a shell and a route (or by several routes sharing a shell) emits exactly one preload link and one `@font-face` block. Preloads dedupe by `href`; `@font-face` blocks dedupe by family + weight + style. Register site-wide fonts once in the shell's `head()` and page-specific fonts in the route's `head()` — overlap is free.
+The same font registered by a shell and a route (or by several routes sharing a shell) emits exactly one preload link and one `@font-face` block. Preloads dedupe by `href`; `@font-face` blocks, fallback faces, and class rules dedupe by content, so unicode-range subsets of one family (same family, weight, and style — only `src` and `unicodeRange` differ) each keep their own face. Register site-wide fonts once in the shell's `head()` and page-specific fonts in the route's `head()` — overlap is free.
 
 ## Fallback Metrics (no layout shift)
 
@@ -146,7 +146,7 @@ The generated face:
 
 ```css
 @font-face {
-  font-family: "Inter Fallback";
+  font-family: "Inter Fallback 1a2b3c";
   src: local("Arial");
   size-adjust: 107.64%;
   ascent-override: 90.44%;
@@ -155,7 +155,7 @@ The generated face:
 }
 ```
 
-and the stack becomes `"Inter", "Inter Fallback", "Arial", sans-serif`.
+and the stack becomes `"Inter", "Inter Fallback 1a2b3c", "Arial", sans-serif`. The name carries a short hash of the local font and metric values, so two faces of the same family with different per-weight metrics can never clobber each other — identical metrics still share one fallback face.
 
 **Computing the values:** the overrides are ratios of the web font's metrics (`ascent`, `descent`, `lineGap`, per-glyph advance widths) to the fallback font's, expressed as percentages. You can:
 
