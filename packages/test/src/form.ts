@@ -1,6 +1,7 @@
 import type { ApiRouteArgs, RegisteredContext, ResolvedApiRoute, RouteParams } from "@pracht/core";
 
 import { createApiArgs, TEST_ORIGIN } from "./args.ts";
+import { isBlobLike, readBlobBytes } from "./body.ts";
 
 /**
  * A form field value: primitives are stringified with `String()`;
@@ -37,44 +38,8 @@ export interface SubmitFormOptions<TContext = RegisteredContext> {
 
 let multipartBoundarySequence = 0;
 
-function isBlobField(value: FormFieldValue): value is Blob {
-  if (typeof value !== "object" || value === null) return false;
-  const candidate = value as Blob;
-  return (
-    typeof candidate.size === "number" &&
-    typeof candidate.type === "string" &&
-    typeof candidate.slice === "function"
-  );
-}
-
 function escapeMultipartHeaderValue(value: string): string {
   return value.replace(/\r/g, "%0D").replace(/\n/g, "%0A").replace(/"/g, "%22");
-}
-
-async function readBlobBytes(blob: Blob): Promise<Uint8Array<ArrayBuffer>> {
-  if (typeof blob.arrayBuffer === "function") {
-    return new Uint8Array(await blob.arrayBuffer());
-  }
-
-  if (typeof FileReader === "function") {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onerror = () => reject(reader.error ?? new Error("Failed to read form Blob/File"));
-      reader.onload = () => {
-        if (reader.result instanceof ArrayBuffer) {
-          resolve(new Uint8Array(reader.result));
-          return;
-        }
-        reject(new TypeError("Expected FileReader to produce an ArrayBuffer"));
-      };
-      reader.readAsArrayBuffer(blob);
-    });
-  }
-
-  throw new TypeError(
-    "Cannot read this Blob/File in the current test environment. " +
-      "Provide a standard Blob implementation with arrayBuffer() or FileReader support.",
-  );
 }
 
 function concatenateBytes(parts: readonly Uint8Array<ArrayBuffer>[]): Uint8Array<ArrayBuffer> {
@@ -100,7 +65,7 @@ async function encodeMultipart(entries: readonly [string, FormFieldValue][]): Pr
     const disposition =
       `--${boundary}\r\nContent-Disposition: form-data; ` +
       `name="${escapeMultipartHeaderValue(name)}"`;
-    if (isBlobField(value)) {
+    if (isBlobLike(value)) {
       const filename =
         typeof (value as Blob & { name?: unknown }).name === "string"
           ? (value as Blob & { name: string }).name
@@ -143,7 +108,7 @@ export async function createFormRequest(
     }
   }
 
-  const hasFile = entries.some(([, value]) => isBlobField(value));
+  const hasFile = entries.some(([, value]) => isBlobLike(value));
 
   // A GET/HEAD form submits its fields in the URL, not a body — the same
   // thing a browser does for `<form method="get">`. The Request constructor

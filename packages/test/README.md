@@ -11,6 +11,8 @@ with Vitest (or any test runner).
   `Request`, with sensible defaults for everything and the `AbortController`
   behind `signal` exposed for cancellation tests. The two middleware factories
   model the distinct page and API route metadata shapes production supplies.
+  Blob/File and `URLSearchParams` bodies are normalized across DOM realms, so
+  JSDOM values work with Node's `Request` implementation.
 - `runMiddleware()` — execute a middleware chain with the runtime's `next()`
   semantics (sequential, at-most-once `next()`, short-circuit on an early
   `Response`). A thrown `Response` resolves by default like page/API dispatch;

@@ -11,7 +11,9 @@ package ships small, typed factories and runners instead. `createLoaderArgs()`,
 from a shorthand (`url`, `method`, `headers`, a JSON-encoding `body`,
 `params`, a partial `context`, `route` overrides) or a real `Request`, derive
 `url` from the request, and expose the `AbortController` behind `signal` for
-cancellation tests. `runMiddleware()` executes one middleware or a chain with
+cancellation tests. Blob/File and `URLSearchParams` bodies are normalized so
+the factories also work when JSDOM owns those values and Node owns `Request`.
+`runMiddleware()` executes one middleware or a chain with
 the runtime's exact `next()` semantics — sequential dispatch, at-most-once
 `next()`, short-circuit on an early `Response`, a thrown `Response` resolving
 by default like page/API dispatch, opt-in raw-chain rejection for capability

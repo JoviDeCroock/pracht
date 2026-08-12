@@ -8,6 +8,8 @@ import type {
   RouteParams,
 } from "@pracht/core";
 
+import { isBlobLike, readBlobBytes } from "./body.ts";
+
 /** Base origin used when `url` is omitted or relative. */
 export const TEST_ORIGIN = "http://localhost";
 
@@ -26,9 +28,10 @@ export interface TestRequestInput {
   headers?: HeadersInit;
   /**
    * Request body. `BodyInit` values (string, `Blob`, `FormData`,
-   * `URLSearchParams`, streams, buffers) pass through unchanged; a plain
-   * object or array is JSON-encoded with `Content-Type: application/json`,
-   * matching `apiFetch()`.
+   * `URLSearchParams`, streams, buffers) preserve their wire representation;
+   * Blob/File and `URLSearchParams` values are normalized across DOM realms.
+   * A plain object or array is JSON-encoded with `Content-Type:
+   * application/json`, matching `apiFetch()`.
    */
   body?: BodyInit | Record<string, unknown> | readonly unknown[] | null;
 }
@@ -86,13 +89,33 @@ export type TestApiArgs<TContext = RegisteredContext> = ApiRouteArgs<TContext> &
 function isBodyInit(body: unknown): body is BodyInit {
   return (
     typeof body === "string" ||
-    body instanceof Blob ||
     body instanceof FormData ||
-    body instanceof URLSearchParams ||
     body instanceof ReadableStream ||
     body instanceof ArrayBuffer ||
     ArrayBuffer.isView(body)
   );
+}
+
+function isUrlSearchParamsLike(body: unknown): body is URLSearchParams {
+  return (
+    typeof body === "object" &&
+    body !== null &&
+    Object.prototype.toString.call(body) === "[object URLSearchParams]" &&
+    typeof (body as URLSearchParams).entries === "function"
+  );
+}
+
+function blobBody(blob: Blob): ReadableStream<Uint8Array<ArrayBuffer>> {
+  return new ReadableStream({
+    async start(controller) {
+      try {
+        controller.enqueue(await readBlobBytes(blob));
+        controller.close();
+      } catch (error: unknown) {
+        controller.error(error);
+      }
+    },
+  });
 }
 
 /** Build the `Request` from the shorthand fields (or return the real one). */
@@ -107,7 +130,17 @@ export function createTestRequest(input: TestRequestInput = {}): Request {
 
   let body: BodyInit | null = null;
   if (input.body != null) {
-    if (isBodyInit(input.body)) {
+    if (isBlobLike(input.body)) {
+      body = blobBody(input.body);
+      if (input.body.type && !headers.has("content-type")) {
+        headers.set("content-type", input.body.type);
+      }
+    } else if (isUrlSearchParamsLike(input.body)) {
+      body = input.body.toString();
+      if (!headers.has("content-type")) {
+        headers.set("content-type", "application/x-www-form-urlencoded;charset=UTF-8");
+      }
+    } else if (isBodyInit(input.body)) {
       body = input.body;
     } else {
       body = JSON.stringify(input.body);

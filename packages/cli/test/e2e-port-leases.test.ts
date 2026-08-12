@@ -198,16 +198,25 @@ describe("Pracht E2E port leases", () => {
     expect(occupiedServer).toBeDefined();
 
     try {
-      expect(() =>
+      let failure: unknown;
+      try {
         acquireE2EPortLease({
           env: {},
           leaseRoot,
           override: String(portBase),
           workspaceRoot,
-        }),
-      ).toThrow(
-        `${portBase}-${portBase + E2E_PORT_BLOCK_WIDTH - 1} contains unavailable port: ${portBase + 4} (EADDRINUSE)`,
+        });
+      } catch (error: unknown) {
+        failure = error;
+      }
+      expect(failure).toBeInstanceOf(Error);
+      expect((failure as Error).message).toContain(
+        `${portBase}-${portBase + E2E_PORT_BLOCK_WIDTH - 1} contains unavailable port`,
       );
+      // Shared CI runners may already own other ports in the same block. The
+      // diagnostic must include the port this test deliberately occupied,
+      // without requiring it to be the only unavailable port.
+      expect((failure as Error).message).toContain(`${portBase + 4} (EADDRINUSE)`);
       expect(existsSync(resolve(leaseRoot, `block-${portBase}`))).toBe(false);
     } finally {
       await closeServer(occupiedServer!);

@@ -50,7 +50,7 @@ describe("dashboard loader", () => {
 });
 ```
 
-The shorthand accepts `url` (relative paths resolve against `http://localhost`), `method`, `headers`, `body` (a plain object is JSON-encoded; `BodyInit` values pass through), `params`, a partial `context`, and `route` overrides — or a fully-formed `request` that wins over all of them. The returned args also expose `controller`, the `AbortController` behind `args.signal`:
+The shorthand accepts `url` (relative paths resolve against `http://localhost`), `method`, `headers`, `body` (a plain object is JSON-encoded; `BodyInit` values pass through, with Blob/File and `URLSearchParams` normalized across JSDOM/Node realms), `params`, a partial `context`, and `route` overrides — or a fully-formed `request` that wins over all of them. The returned args also expose `controller`, the `AbortController` behind `args.signal`:
 
 ```ts
 const args = createLoaderArgs({ url: "/slow" });
