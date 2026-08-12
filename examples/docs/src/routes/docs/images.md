@@ -15,11 +15,11 @@ next:
 ```sh
 pnpm add @pracht/image
 
-# Only needed when you use the built-in Node optimization endpoint.
+# Only needed for the built-in Node optimization endpoint or `?pracht` imports.
 pnpm add sharp
 ```
 
-`@pracht/image` is split into a framework-agnostic component entry and a Node endpoint entry. Import the component from `@pracht/image`; import the optimization handler from `@pracht/image/node`.
+`@pracht/image` is split into a framework-agnostic component entry (`@pracht/image`), a Node endpoint entry (`@pracht/image/node`), and a Vite plugin for build-time image imports (`@pracht/image/vite`).
 
 ---
 
@@ -71,6 +71,72 @@ For background-style images, use `fill` inside a positioned parent:
 ```
 
 `fill` images stretch with `position: absolute; inset: 0`. The parent controls the rendered size, so give the parent a stable height or aspect ratio.
+
+---
+
+## Build-Time Imports
+
+Add `prachtImage()` from `@pracht/image/vite` to your Vite config to import images with the `?pracht` query. It is opt-in — the main `pracht()` plugin does not include it:
+
+```ts [vite.config.ts]
+import { defineConfig } from "vite";
+import { prachtImage } from "@pracht/image/vite";
+import { pracht } from "@pracht/vite-plugin";
+
+export default defineConfig({
+  plugins: [pracht({ /* … */ }), prachtImage()],
+});
+```
+
+A `?pracht` import yields typed metadata instead of a bare URL:
+
+```tsx [src/routes/gallery.tsx]
+import { Image } from "@pracht/image";
+import hero from "../assets/hero.jpg?pracht";
+// hero: { src, width, height, blurDataURL }
+
+export function Component() {
+  return <Image src={hero} alt="Sunset over water" placeholder="blur" />;
+}
+```
+
+Passing the metadata object as `src` gives the image intrinsic `width`/`height` automatically — no layout shift, no hand-maintained dimensions. The pieces:
+
+- `src` goes through Vite's regular asset pipeline: hashed file names in production, `base`-aware URLs, and on-demand serving in dev.
+- `width` and `height` come from `sharp` metadata with EXIF orientation applied, so rotated photos report their display dimensions.
+- `blurDataURL` is a tiny (8px wide) inline WebP generated at build time, used by `placeholder="blur"`.
+
+`sharp` must be installed at build time (`pnpm add -D sharp`); it never ships to a runtime bundle, so this works for Cloudflare and Vercel targets too. SVG imports provide dimensions but skip the blur (vectors scale cleanly), animated GIFs blur their first frame, and editing the source image invalidates the transform in dev.
+
+For TypeScript, reference the shipped declaration for the `?pracht` query once, in any `.d.ts` file in your app:
+
+```ts [src/images.d.ts]
+/// <reference types="@pracht/image/client" />
+```
+
+---
+
+## Blur Placeholders
+
+`placeholder="blur"` paints the `blurDataURL` behind the image as a CSS `background-image` while the real file loads:
+
+```tsx
+<Image src={hero} alt="Sunset over water" placeholder="blur" />
+
+// Or hand-provide the data URI for images that are not build-time imports:
+<Image
+  src="/uploads/photo.jpg"
+  alt="Uploaded photo"
+  width={1200}
+  height={800}
+  placeholder="blur"
+  blurDataURL="data:image/webp;base64,…"
+/>
+```
+
+The placeholder is CSS-only on purpose: it needs no hydration (it works with `hydration: "none"`), uses no inline event handlers (so strict CSP setups keep working), and disappears the instant the browser paints the real image over it. Two caveats: there is no fade-out animation, and images with transparency show the placeholder through transparent regions — keep the default `placeholder="empty"` for those.
+
+`blurDataURL` values are validated as well-formed `data:image/…` URIs before they are interpolated into the style attribute; invalid values are ignored with a dev warning. Using `placeholder="blur"` without any `blurDataURL` also warns in dev.
 
 ---
 
@@ -148,4 +214,4 @@ Every redirect destination is checked before it is requested. Widths are also re
 | Vercel | Use `vercelLoader` and keep Vercel image sizes aligned with your Pracht breakpoints |
 | Static hosting | Use `passthroughLoader` so images render without an optimization backend |
 
-See the `examples/basic` gallery route for a complete endpoint plus component example.
+See the `examples/basic` gallery route for a complete endpoint, `?pracht` import, and blur-placeholder example.

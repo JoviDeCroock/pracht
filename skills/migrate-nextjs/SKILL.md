@@ -117,7 +117,7 @@ For pages router projects, you can **skip manual manifest wiring entirely** (Pha
 3. Update `package.json`:
    - Replace `react`, `react-dom` → `preact`
    - Replace `next` → `@pracht/core` (framework runtime), `@pracht/cli` (provides the `pracht` bin), `@pracht/vite-plugin`, and `@pracht/adapter-node` (or target adapter). There is no package named `pracht`.
-   - If the app imports `next/image`, add `@pracht/image`; add `sharp` only for the built-in Node optimization endpoint.
+   - If the app imports `next/image`, add `@pracht/image`; add `sharp` only for the built-in Node optimization endpoint or build-time `?pracht` imports (static imports / blur placeholders).
    - Update scripts: `dev` → `pracht dev`, `build` → `pracht build`, `start` → `node dist/server/server.js` (Node.js) or a platform-specific deploy command; add `preview` → `pracht preview` to serve the production build locally
 4. Remove Next.js config files: `next.config.*`, `next-env.d.ts`, `.next/`
 5. If `tsconfig.json` has `"jsx": "preserve"`, change to `"jsx": "react-jsx"` and add `"jsxImportSource": "preact"`.
@@ -414,6 +414,14 @@ Choose the loader for the deployment target:
 
 Preserve the original `width`, `height`, `fill`, `sizes`, `quality`, and
 priority intent. See `docs/IMAGES.md` for the endpoint and loader wiring.
+
+Static imports and blur placeholders migrate too: replace
+`import photo from "./photo.jpg"` with `import photo from "./photo.jpg?pracht"`,
+add `prachtImage()` (from `@pracht/image/vite`) to the Vite plugins, reference
+the `@pracht/image/client` types once in a `.d.ts`, and keep
+`<Image src={photo} placeholder="blur" />` as-is — the import supplies
+`width`/`height`/`blurDataURL` exactly like Next's static imports. Pracht's
+blur is CSS-only (no fade animation, no inline event handlers).
 
 #### `useRouter` → navigation
 

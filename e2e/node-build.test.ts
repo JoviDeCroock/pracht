@@ -186,6 +186,33 @@ test("pracht build emits a deployable Node server entry", async () => {
     expect(galleryHtml).toContain("/api/_pracht/image?url=%2Fbanner.jpg&amp;w=");
     expect(galleryHtml).toContain('fetchpriority="high"');
 
+    // The `?pracht` build-time import: the source file went through Vite's
+    // asset pipeline (hashed URL), sharp supplied intrinsic dimensions, and
+    // placeholder="blur" painted the inline preview as a CSS background so it
+    // is visible before the image loads with zero hydration.
+    const sunsetImg = galleryHtml.match(/<img[^>]*sunset[^>]*>/)?.[0];
+    expect(sunsetImg).toBeDefined();
+    expect(sunsetImg).toMatch(/url=%2Fassets%2Fsunset-[\w-]+\.jpg/);
+    expect(sunsetImg).toContain('width="960"');
+    expect(sunsetImg).toContain('height="540"');
+    expect(sunsetImg).toContain("background-image:url(&quot;data:image/webp;base64,");
+    const blurDataURI = sunsetImg?.match(/data:image\/webp;base64,[A-Za-z0-9+/=]*/)?.[0];
+    expect(blurDataURI).toBeDefined();
+    expect(blurDataURI!.length).toBeLessThan(1000);
+    const hashedSunset = sunsetImg!.match(/url=(%2Fassets%2Fsunset-[\w-]+\.jpg)/)![1];
+    const sunsetAssetResponse = await fetch(
+      `http://127.0.0.1:${port}${decodeURIComponent(hashedSunset)}`,
+    );
+    expect(sunsetAssetResponse.status).toBe(200);
+    expect(sunsetAssetResponse.headers.get("content-type")).toContain("image/jpeg");
+    // The endpoint resizes the hashed asset like any same-origin source.
+    const sunsetResized = await fetch(
+      `http://127.0.0.1:${port}/api/_pracht/image?url=${hashedSunset}&w=640&q=75`,
+      { headers: { accept: "image/webp,*/*" } },
+    );
+    expect(sunsetResized.status).toBe(200);
+    expect(sunsetResized.headers.get("content-type")).toBe("image/webp");
+
     const imageResponse = await fetch(
       `http://127.0.0.1:${port}/api/_pracht/image?url=%2Fbanner.jpg&w=640&q=75`,
       { headers: { accept: "image/webp,*/*" } },

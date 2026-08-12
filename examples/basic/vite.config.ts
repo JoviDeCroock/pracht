@@ -1,4 +1,5 @@
 import { defineConfig } from "vite";
+import { prachtImage } from "@pracht/image/vite";
 import { prachtOpenApi } from "@pracht/openapi/vite";
 import { pracht } from "@pracht/vite-plugin";
 
@@ -47,6 +48,9 @@ export default defineConfig(async () => {
           exclude: ["/dashboard", "/settings"],
         },
       }),
+      // Build-time `?pracht` image imports (metadata + blur placeholders).
+      // Opt-in: the main pracht() plugin does not include it automatically.
+      prachtImage(),
       prachtOpenApi({
         info: {
           title: "Pracht Example API",

@@ -16,16 +16,26 @@ next/image's loader pattern.
   [sharp](https://sharp.pixelplumbing.com) (optional peer dependency) with a
   trusted-local-origin/remote-allowlist security model and revalidated cache
   headers.
+- Build-time `?pracht` image imports (`@pracht/image/vite`): hashed asset URL,
+  intrinsic dimensions (EXIF-orientation aware), and a tiny inline
+  `blurDataURL` for CSS-only `placeholder="blur"`.
 
 ```bash
 pnpm add @pracht/image
-pnpm add sharp # only needed for the built-in endpoint
+pnpm add sharp # only needed for the built-in endpoint and ?pracht imports
 ```
 
 ```tsx
 import { Image } from "@pracht/image";
 
 <Image src="/banner.jpg" alt="Banner" width={1200} height={280} priority />;
+```
+
+```tsx
+// vite.config.ts: plugins: [pracht({ … }), prachtImage()] (from "@pracht/image/vite")
+import hero from "./hero.jpg?pracht"; // { src, width, height, blurDataURL }
+
+<Image src={hero} alt="Hero" placeholder="blur" />;
 ```
 
 ```ts

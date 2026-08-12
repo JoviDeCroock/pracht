@@ -172,6 +172,169 @@ describe("<Image> loader selection", () => {
   });
 });
 
+const BLUR = "data:image/webp;base64,UklGRiQAAABXRUJQ";
+
+describe("<Image> placeholder=blur", () => {
+  it("paints the blur as a CSS background behind the image", () => {
+    const html = render(
+      h(Image, {
+        src: "/hero.jpg",
+        alt: "Hero",
+        width: 640,
+        height: 480,
+        placeholder: "blur",
+        blurDataURL: BLUR,
+      }),
+    );
+
+    expect(html).toContain(`background-image:url(&quot;${BLUR}&quot;)`);
+    expect(html).toMatch(/background-size:\s*cover/);
+    expect(html).toMatch(/background-position:\s*50% 50%/);
+    expect(html).toMatch(/background-repeat:\s*no-repeat/);
+    // CSS only: no inline event handlers, ever (CSP / zero-hydration posture).
+    expect(html).not.toContain("onload");
+    expect(html).not.toContain("onerror");
+  });
+
+  it("does not paint a background without placeholder=blur", () => {
+    const html = render(
+      h(Image, { src: "/hero.jpg", alt: "Hero", width: 640, height: 480, blurDataURL: BLUR }),
+    );
+
+    expect(html).not.toContain("background-image");
+  });
+
+  it("merges the blur background with fill styles and user styles winning", () => {
+    const html = render(
+      h(Image, {
+        src: "/hero.jpg",
+        alt: "Hero",
+        fill: true,
+        placeholder: "blur",
+        blurDataURL: BLUR,
+        style: { objectFit: "cover" },
+      }),
+    );
+
+    expect(html).toContain("background-image:url(");
+    expect(html).toMatch(/position:\s*absolute/);
+    expect(html).toMatch(/object-fit:\s*cover/);
+  });
+
+  it("keeps string styles after the blur background so they win", () => {
+    const html = render(
+      h(Image, {
+        src: "/hero.jpg",
+        alt: "Hero",
+        width: 10,
+        height: 10,
+        placeholder: "blur",
+        blurDataURL: BLUR,
+        style: "border-radius:4px;",
+      }),
+    );
+
+    expect(html).toMatch(/background-image:url\(.*border-radius:4px/);
+  });
+
+  it("warns and renders nothing extra when blurDataURL is missing", () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const html = render(
+      h(Image, { src: "/no-blur.jpg", alt: "Hero", width: 10, height: 10, placeholder: "blur" }),
+    );
+
+    expect(html).not.toContain("background-image");
+    expect(error).toHaveBeenCalledWith(
+      expect.stringContaining('placeholder="blur" without a blurDataURL'),
+    );
+  });
+
+  it("rejects blurDataURL values that could inject CSS", () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    for (const hostile of [
+      'data:image/png;base64,AA==");background:url(//evil/x',
+      "javascript:alert(1)",
+      "data:text/html,<script>alert(1)</script>",
+      'data:image/svg+xml,<svg onload="x">',
+      "data:image/png;base64,AA==\\",
+      "https://example.com/not-a-data-uri.png",
+    ]) {
+      const html = render(
+        h(Image, {
+          src: `/hostile.jpg`,
+          alt: "Hostile",
+          width: 10,
+          height: 10,
+          placeholder: "blur",
+          blurDataURL: hostile,
+        }),
+      );
+
+      expect(html).not.toContain("background-image");
+      expect(html).not.toContain("evil");
+      expect(html).not.toContain("script");
+    }
+    expect(error).toHaveBeenCalledWith(expect.stringContaining("not a well-formed"));
+  });
+
+  it("accepts percent-encoded SVG data URIs", () => {
+    const svgBlur = "data:image/svg+xml,%3Csvg%20xmlns%3D%22a%22%3E%3C%2Fsvg%3E";
+    const html = render(
+      h(Image, {
+        src: "/svg-blur.jpg",
+        alt: "",
+        width: 10,
+        height: 10,
+        placeholder: "blur",
+        blurDataURL: svgBlur,
+      }),
+    );
+
+    expect(html).toContain("background-image:url(");
+  });
+});
+
+describe("<Image> with ?pracht import metadata", () => {
+  const metadata = {
+    src: "/assets/hero-abc123.jpg",
+    width: 640,
+    height: 480,
+    blurDataURL: BLUR,
+  };
+
+  it("uses the metadata dimensions and src", () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const html = render(h(Image, { src: metadata, alt: "Hero" }));
+
+    expect(html).toContain('width="640"');
+    expect(html).toContain('height="480"');
+    expect(html).toContain(encodeURIComponent("/assets/hero-abc123.jpg"));
+    expect(error).not.toHaveBeenCalled();
+  });
+
+  it("prefers explicit props over metadata", () => {
+    const html = render(h(Image, { src: metadata, alt: "Hero", width: 100, height: 75 }));
+
+    expect(html).toContain('width="100"');
+    expect(html).toContain('height="75"');
+  });
+
+  it("uses the metadata blurDataURL for placeholder=blur", () => {
+    const html = render(h(Image, { src: metadata, alt: "Hero", placeholder: "blur" }));
+
+    expect(html).toContain(`background-image:url(&quot;${BLUR}&quot;)`);
+  });
+
+  it("ignores metadata dimensions in fill mode without warning", () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const html = render(h(Image, { src: metadata, alt: "Hero", fill: true }));
+
+    expect(html).not.toContain('width="640"');
+    expect(html).toMatch(/position:\s*absolute/);
+    expect(error).not.toHaveBeenCalled();
+  });
+});
+
 describe("<Image> dev warnings", () => {
   it("warns when width/height are missing without fill", () => {
     const error = vi.spyOn(console, "error").mockImplementation(() => {});

@@ -23,7 +23,8 @@
     "directory": "packages/image"
   },
   "files": [
-    "dist"
+    "dist",
+    "client.d.ts"
   ],
   "type": "module",
   "exports": {
@@ -34,6 +35,13 @@
     "./node": {
       "types": "./dist/node.d.mts",
       "default": "./dist/node.mjs"
+    },
+    "./vite": {
+      "types": "./dist/vite.d.mts",
+      "default": "./dist/vite.mjs"
+    },
+    "./client": {
+      "types": "./client.d.ts"
     }
   },
   "publishConfig": {
@@ -45,14 +53,19 @@
   },
   "peerDependencies": {
     "preact": "^10.0.0 || ^11.0.0-0",
-    "sharp": "^0.33.0 || ^0.34.0"
+    "sharp": "^0.33.0 || ^0.34.0",
+    "vite": "^8.0.0"
   },
   "peerDependenciesMeta": {
     "sharp": {
       "optional": true
+    },
+    "vite": {
+      "optional": true
     }
   },
   "devDependencies": {
-    "sharp": "^0.34.0"
+    "sharp": "^0.34.0",
+    "vite": "^8.0.0"
   }
 }
