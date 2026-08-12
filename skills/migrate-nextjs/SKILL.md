@@ -511,7 +511,8 @@ export async function loader({ request }: LoaderArgs) {
 | `next/image`    | `@pracht/image`                                         |
 | `react`         | `preact`                                                |
 | `react-dom`     | `preact`                                                |
-| `@next/font`    | CSS `@font-face` or `fontsource` packages               |
+| `next/font/local` | `defineFont()` from `@pracht/core` — register via `head() { return { fonts: [font] } }`, use `font.className`/`font.style` in components |
+| `next/font/google` | Download the woff2 files into `public/fonts/` (e.g. via google-webfonts-helper), then `defineFont()` — pracht never fetches fonts at build time |
 | `@next/mdx`     | `@mdx-js/rollup` (Vite plugin)                          |
 | `next-auth`     | Direct integration in middleware/loaders                |
 | `next/og`       | `@vercel/og` or custom solution                         |

@@ -339,7 +339,34 @@ export function head({ data }: HeadArgs<typeof loader>) {
 ```
 
 Head metadata merges with the shell's head. Route-level values override shell
-values for `title`. Arrays (`meta`, `link`) are concatenated.
+values for `title`. Arrays (`meta`, `link`, `script`, `fonts`) are
+concatenated.
+
+### Fonts
+
+Self-hosted fonts registered with `defineFont()` go in the `fonts` array; the
+head renderer expands them into preload links plus one inline `<style>` with
+the `@font-face` rules, deduped across shell and route contributions:
+
+```typescript
+import { defineFont } from "@pracht/core";
+
+const inter = defineFont({
+  family: "Inter",
+  src: "/fonts/inter-latin.woff2",
+  weight: "100 900",
+  fallbacks: ["Arial", "sans-serif"],
+});
+
+export function head() {
+  return { title: "My Site", fonts: [inter] };
+}
+```
+
+Use `inter.className`, `inter.style`, or `inter.fontFamily` in components. See
+the Fonts page in the docs site
+([examples/docs/src/routes/docs/fonts.md](../examples/docs/src/routes/docs/fonts.md))
+for the full option reference and fallback metric guidance.
 
 ### SEO & Open Graph
 

@@ -1,0 +1,4 @@
+inter-latin-var.woff2 — Inter (variable, latin subset)
+Copyright (c) 2016 The Inter Project Authors (https://github.com/rsms/inter)
+Licensed under the SIL Open Font License 1.1: https://openfontlicense.org
+Subset distributed via Fontsource (@fontsource-variable/inter).

@@ -6,8 +6,8 @@ prev:
   href: /docs/shells
   title: Shells
 next:
-  href: /docs/images
-  title: Images
+  href: /docs/fonts
+  title: Fonts
 ---
 
 ## Recommended Approaches

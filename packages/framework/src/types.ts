@@ -8,6 +8,7 @@ import type {
 import type { ComponentChildren, FunctionComponent } from "preact";
 
 import type { RouteConstraint } from "./constraints.ts";
+import type { PrachtFont } from "./font.ts";
 
 /**
  * Augment this interface to register your app's context type globally.
@@ -946,6 +947,12 @@ export interface HeadMetadata {
   meta?: HeadAttributes[];
   link?: HeadAttributes[];
   script?: HeadScriptDescriptor[];
+  /**
+   * Fonts created with `defineFont()`. The head renderer expands each entry
+   * into preload links plus one inline `<style>` with the `@font-face`
+   * rules, deduped across shell and route contributions.
+   */
+  fonts?: PrachtFont[];
 }
 
 export type MaybePromise<T> = T | Promise<T>;

@@ -1,10 +1,11 @@
 import type { ShellProps } from "@pracht/core";
 import { IconBrandGithub } from "@tabler/icons-preact";
 import "../styles/global.css";
+import { inter } from "../fonts";
 
 export function Shell({ children }: ShellProps) {
   return (
-    <div>
+    <div style={{ "--font": inter.fontFamily }}>
       <header class="site-header">
         <div class="inner">
           <a href="/" class="logo">
@@ -60,20 +61,6 @@ export function head() {
         content: "Explicit routing. Per-route render modes. Edge-ready.",
       },
     ],
-    link: [
-      {
-        rel: "preconnect",
-        href: "https://fonts.googleapis.com",
-      },
-      {
-        rel: "preconnect",
-        href: "https://fonts.gstatic.com",
-        crossorigin: "",
-      },
-      {
-        rel: "stylesheet",
-        href: "https://fonts.googleapis.com/css2?family=Inter:wght@400;450;500;550;600;650;700&display=swap",
-      },
-    ],
+    fonts: [inter],
   };
 }

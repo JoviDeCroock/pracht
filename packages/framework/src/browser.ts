@@ -35,6 +35,19 @@ export type {
   RouteConstraint,
 } from "./constraints.ts";
 export { createHref } from "./href.ts";
+/**
+ * `defineFont` is pure data with no server dependency. Font modules are
+ * imported by route components for `className`/`style`, so the helper must
+ * resolve in the client bundle too.
+ */
+export { defineFont } from "./font.ts";
+export type {
+  DefineFontOptions,
+  FontDisplay,
+  FontSource,
+  FontSourceInput,
+  PrachtFont,
+} from "./font.ts";
 export {
   apiValidationErrorResponse,
   defineApi,
