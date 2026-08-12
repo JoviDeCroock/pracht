@@ -1,6 +1,8 @@
 import { readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { basename, extname, join, relative } from "node:path";
+import { basename, dirname, extname, join, relative } from "node:path";
 import { maskCommentsAndStrings } from "@pracht/capabilities/static";
+import { parseAst } from "vite";
+import { getRolldownLang } from "./client-module-query.ts";
 import { detectHeadExport, detectLoaderExport } from "./route-loader-hints.ts";
 import {
   DEFAULT_ROUTE_EXTENSIONS,
@@ -8,6 +10,8 @@ import {
   normalizeAdditionalExtensions,
   withAdditionalExtensions,
 } from "./route-extensions.ts";
+import { collectBindingNamesFromPattern, getIdentifierName } from "./scope-analysis-helpers.ts";
+import type { OxcNode } from "./scope-analysis-types.ts";
 
 export interface ScannedPage {
   absolutePath: string;
@@ -105,7 +109,49 @@ export function findPagesMiddlewareFile(pagesDir: string): string | null {
     );
   }
 
-  return middlewareFiles[0] ?? null;
+  const middlewareFile = middlewareFiles[0] ?? null;
+  if (middlewareFile && !exportsMiddleware(readFileSync(middlewareFile, "utf-8"), middlewareFile)) {
+    throw new Error(
+      `[pracht] Pages middleware ${JSON.stringify(relative(pagesDir, middlewareFile).replace(/\\/g, "/"))} does not ` +
+        "export a `middleware` function. It must `export const middleware: MiddlewareFn = " +
+        "(args, next) => …` (a default export is not used); refusing to build routes that " +
+        "would fail closed at request time.",
+    );
+  }
+
+  return middlewareFile;
+}
+
+/** Whether a middleware module statically exposes a binding named `middleware`. */
+function exportsMiddleware(source: string, file: string): boolean {
+  const program = parseAst(source, { lang: getRolldownLang(file) }) as OxcNode;
+
+  for (const statement of program.body as OxcNode[]) {
+    if (statement.type === "ExportAllDeclaration") {
+      // The exported names cannot be known without loading the target module.
+      // Preserve working re-export barrels; runtime validation still fails closed.
+      return true;
+    }
+    if (statement.type !== "ExportNamedDeclaration" || statement.exportKind === "type") continue;
+
+    const declaration = statement.declaration as OxcNode | null;
+    if (declaration?.type === "FunctionDeclaration") {
+      if (getIdentifierName(declaration.id as OxcNode | null) === "middleware") return true;
+    } else if (declaration?.type === "VariableDeclaration") {
+      for (const declarator of declaration.declarations as OxcNode[]) {
+        if (collectBindingNamesFromPattern(declarator.id as OxcNode).includes("middleware")) {
+          return true;
+        }
+      }
+    }
+
+    for (const specifier of statement.specifiers as OxcNode[]) {
+      if (specifier.type !== "ExportSpecifier" || specifier.exportKind === "type") continue;
+      if (getIdentifierName(specifier.exported as OxcNode | null) === "middleware") return true;
+    }
+  }
+
+  return false;
 }
 
 export function scanPagesDirectory(
@@ -376,7 +422,11 @@ function stripMarkdownContainerPrefix(line: string): {
 
 export function generatePagesManifestSource(
   pages: ScannedPage[],
-  options: PagesRouterOptions & { pagesDirPrefix?: string; useImportSyntax?: boolean },
+  options: PagesRouterOptions & {
+    pagesDirPrefix?: string;
+    referenceBaseDir?: string;
+    useImportSyntax?: boolean;
+  },
 ): string {
   const pagesDir = options.pagesDir;
   const defaultRender = options.pagesDefaultRender ?? "ssr";
@@ -402,15 +452,18 @@ export function generatePagesManifestSource(
     : "defineApp, group, route";
   const lines: string[] = [`import { ${coreImports} } from "@pracht/core/manifest";`, ""];
 
-  // Without a prefix, references are relative to the pages directory's
-  // *parent* (e.g. `./pages/index.tsx`), because that is where ejected
-  // manifests live (`src/routes.ts` beside `src/pages/`). Emitting paths
-  // relative to the pages directory itself would leave the ejected manifest
-  // pointing at files that do not exist next to it.
+  // Without a prefix, references are relative to the file that will contain
+  // the generated manifest. Direct source-generation callers retain the
+  // historical adjacent-manifest default (`src/routes.ts` beside `src/pages`).
+  const referenceBaseDir = options.referenceBaseDir ?? join(pagesDir, "..");
+  const relativeModuleRef = (file: string): string => {
+    const path = relative(referenceBaseDir, file).replace(/\\/g, "/");
+    return path.startsWith(".") ? path : `./${path}`;
+  };
   const pageFileRef = (page: ScannedPage): string => {
     const path = prefix
       ? `${prefix}/${page.relativePath.replace(/\\/g, "/")}`
-      : `./${relative(join(pagesDir, ".."), page.absolutePath).replace(/\\/g, "/")}`;
+      : relativeModuleRef(page.absolutePath);
     return useImport ? `() => import(${JSON.stringify(path)})` : JSON.stringify(path);
   };
 
@@ -468,9 +521,7 @@ export function generatePagesManifestSource(
   // to the pages directory's parent so ejected manifests written next to it
   // (e.g. `src/routes.ts` beside `src/pages/`) resolve them.
   const specialFileRef = (file: string): string => {
-    const path = prefix
-      ? `${prefix}/${basename(file)}`
-      : `./${relative(join(pagesDir, ".."), file).replace(/\\/g, "/")}`;
+    const path = prefix ? `${prefix}/${basename(file)}` : relativeModuleRef(file);
     return useImport ? `() => import(${JSON.stringify(path)})` : JSON.stringify(path);
   };
 
@@ -549,6 +600,7 @@ export function generateRoutesFile(
   // For standalone files, replace `const app` with `export const app`
   const manifestSource = generatePagesManifestSource(pages, {
     ...options,
+    referenceBaseDir: dirname(outputPath),
     useImportSyntax: true,
   }).replace("const app = defineApp(", "export const app = defineApp(");
   const source = [
