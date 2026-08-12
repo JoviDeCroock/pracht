@@ -5,6 +5,8 @@ import { maskCommentsAndStrings } from "@pracht/capabilities/static";
 import { ensureTrailingNewline } from "./utils.js";
 import { PROJECT_DEFAULTS } from "./constants.js";
 
+const BUILT_IN_ROUTE_EXTENSIONS = new Set([".ts", ".tsx", ".js", ".jsx", ".md", ".mdx"]);
+
 export interface ProjectConfig {
   additionalExtensions: string[];
   additionalExtensionsIsStatic: boolean;
@@ -50,9 +52,9 @@ export function readProjectConfig(root: string): ProjectConfig {
       config[key] = key === "pagesDefaultRender" ? value : normalizeConfigPath(value);
     }
   }
-  config.additionalExtensions = (resolvedAdditionalExtensions ?? []).map((extension) =>
-    extension.toLowerCase(),
-  );
+  config.additionalExtensions = [
+    ...new Set((resolvedAdditionalExtensions ?? []).map((extension) => extension.toLowerCase())),
+  ].filter((extension) => !BUILT_IN_ROUTE_EXTENSIONS.has(extension));
 
   config.mode = config.pagesDir ? "pages" : "manifest";
   return config as unknown as ProjectConfig;

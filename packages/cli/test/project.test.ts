@@ -82,6 +82,19 @@ describe("readProjectConfig additionalExtensions", () => {
 
     expect(project.additionalExtensions).toEqual([".tsrx", ".vue"]);
   });
+
+  it("matches plugin normalization for built-in and duplicate extensions", () => {
+    const project = readProjectConfig(
+      makeProject(
+        'export default { plugins: [pracht({ additionalExtensions: [".TSX", ".md", ".MDX", ".tsrx", ".Vue", ".vue"] })] };',
+      ),
+    );
+
+    expect(project.additionalExtensions).toEqual([".tsrx", ".vue"]);
+    expect(hasPagesAppShell("/app/src/pages/_app.md", project.additionalExtensions)).toBe(false);
+    expect(hasPagesAppShell("/app/src/pages/_app.tsrx", project.additionalExtensions)).toBe(true);
+    expect(hasPagesAppShell("/app/src/pages/_app.vue", project.additionalExtensions)).toBe(true);
+  });
 });
 
 describe("hasPagesAppShell", () => {
