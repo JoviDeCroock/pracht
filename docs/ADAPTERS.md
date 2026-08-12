@@ -743,11 +743,17 @@ assets. Add application-specific static prefixes with
 
 - SSG documents are read from the bundled `dist/client` output and use
   `Netlify-CDN-Cache-Control` with durable caching. Route and shell headers from
-  `headers-manifest.json` are applied before the response enters the cache.
+  `headers-manifest.json` are applied before the response enters the cache. An
+  explicit cache policy remains authoritative instead of being combined with
+  Pracht's durable-cache default.
 - ISG renders use a sanitized, pathname-only request. Their Pracht time policy
   becomes the durable CDN `max-age`; stale-while-revalidate is configurable
-  with `staleWhileRevalidate`.
-- Webhook-capable ISG responses carry per-path `Netlify-Cache-Tag` values.
+  with `staleWhileRevalidate`. A cacheable custom policy remains authoritative.
+- Cached SSG and ISG HTML sets `Netlify-Vary: query=_data`, so route-state
+  transport stays distinct while unrelated query parameters collapse onto the
+  pathname cache entry. A custom `Netlify-Vary` header takes precedence.
+- Cacheable webhook-capable ISG responses carry per-path
+  `Netlify-Cache-Tag` values, including responses with custom cache policies.
   Authenticated `POST /__pracht/revalidate` requests purge those tags through
   `@netlify/functions`.
 - SSR and API responses without an explicit policy get Pracht's fail-closed

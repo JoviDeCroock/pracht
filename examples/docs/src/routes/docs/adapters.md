@@ -377,7 +377,14 @@ the function by default. Add app-specific static prefixes with
 SSG documents use `Netlify-CDN-Cache-Control` with durable caching. ISG routes
 use their Pracht time window as the CDN `max-age` and serve stale responses
 while a fresh render completes. Webhook-capable routes receive per-path cache
-tags; authenticated requests to `/__pracht/revalidate` purge those tags.
+tags, including when they provide a cacheable custom policy; authenticated
+requests to `/__pracht/revalidate` purge those tags. Explicit SSG and ISG cache
+policies remain authoritative.
+
+Cached page HTML sets `Netlify-Vary: query=_data`. Route-state transport keeps
+its own cache variant, while tracking and other unrelated query parameters
+collapse onto the pathname entry. A custom `Netlify-Vary` header takes
+precedence.
 
 Shared ISG renders are sanitized before loaders and context factories run, so
 visitor cookies, authorization, query strings, and bodies cannot personalize

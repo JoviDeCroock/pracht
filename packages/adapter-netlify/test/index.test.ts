@@ -143,6 +143,27 @@ describe("createNetlifyHandler", () => {
     expect(response.headers.get("x-route")).toBe("guide");
     expect(response.headers.get("vary")).toBe("Accept");
     expect(response.headers.get("netlify-cdn-cache-control")).toContain("durable");
+    expect(response.headers.get("netlify-vary")).toBe("query=_data");
+  });
+
+  it("keeps an explicit SSG cache policy authoritative", async () => {
+    const staticDir = await createStaticBuild();
+    const handler = createNetlifyHandler({
+      app,
+      headersManifest: {
+        "/guide": {
+          "cache-control": "no-store",
+          "netlify-vary": "query=preview",
+        },
+      },
+      registry,
+      staticDir,
+    });
+
+    const response = await handler(new Request("https://example.com/guide"), {});
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(response.headers.has("netlify-cdn-cache-control")).toBe(false);
+    expect(response.headers.get("netlify-vary")).toBe("query=preview");
   });
 
   it("serves exact assets with their MIME type when the function receives them", async () => {
@@ -227,6 +248,60 @@ describe("createNetlifyHandler", () => {
     expect(response.headers.get("cache-control")).toBe("public, max-age=0, must-revalidate");
     expect(response.headers.get("netlify-cdn-cache-control")).toContain("max-age=60");
     expect(response.headers.get("netlify-cache-tag")).toContain(netlifyRouteCacheTag("/pricing"));
+    expect(response.headers.get("netlify-vary")).toBe("query=_data");
+  });
+
+  it("keeps cacheable custom ISG policies tagged for webhook purges", async () => {
+    const handler = createNetlifyHandler({
+      app,
+      isgManifest: {
+        "/pricing": {
+          revalidate: [timeRevalidate(60), webhookRevalidate()],
+        },
+      },
+      registry: {
+        ...registry,
+        routeModules: {
+          ...registry.routeModules,
+          "/src/routes/pricing.tsx": async () => ({
+            default: () => h("main", null, "pricing"),
+            headers: () => ({
+              "cache-control": "public, max-age=600",
+              "netlify-cache-tag": "app:pricing",
+              "netlify-vary": "query=preview",
+            }),
+          }),
+        },
+      },
+    });
+
+    const response = await handler(new Request("https://example.com/pricing"), {});
+    expect(response.headers.get("cache-control")).toBe("public, max-age=600");
+    expect(response.headers.has("netlify-cdn-cache-control")).toBe(false);
+    expect(response.headers.get("netlify-cache-tag")).toBe(
+      `app:pricing,pracht:isg,${netlifyRouteCacheTag("/pricing")}`,
+    );
+    expect(response.headers.get("netlify-vary")).toBe("query=preview");
+  });
+
+  it("does not add a private browser policy beside an explicit Netlify policy", async () => {
+    const handler = createNetlifyHandler({
+      app,
+      registry: {
+        ...registry,
+        routeModules: {
+          ...registry.routeModules,
+          "/src/routes/dashboard.tsx": async () => ({
+            default: () => h("main", null, "dashboard"),
+            headers: () => ({ "netlify-cdn-cache-control": "public, max-age=300" }),
+          }),
+        },
+      },
+    });
+
+    const response = await handler(new Request("https://example.com/dashboard"), {});
+    expect(response.headers.has("cache-control")).toBe(false);
+    expect(response.headers.get("netlify-cdn-cache-control")).toBe("public, max-age=300");
   });
 
   it("purges tagged ISG responses through the authenticated webhook", async () => {

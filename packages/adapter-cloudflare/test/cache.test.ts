@@ -249,6 +249,16 @@ describe("preventHeuristicCaching", () => {
     expect(response.headers.get("cloudflare-cdn-cache-control")).toBe("max-age=300");
   });
 
+  it("leaves a user-set netlify-cdn-cache-control untouched", () => {
+    const response = preventHeuristicCaching(
+      getRequest,
+      new Response("{}", { headers: { "netlify-cdn-cache-control": "max-age=300" } }),
+    );
+
+    expect(response.headers.has("cache-control")).toBe(false);
+    expect(response.headers.get("netlify-cdn-cache-control")).toBe("max-age=300");
+  });
+
   it("ignores non-GET/HEAD requests", () => {
     const response = preventHeuristicCaching(
       new Request("https://example.com/api/echo", { method: "POST" }),
