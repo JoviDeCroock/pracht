@@ -1,6 +1,10 @@
 import { useLocation } from "@pracht/core";
 
-export function Component() {
+export function loader() {
+  return { message: "Built custom 404" };
+}
+
+export function Component({ data }: { data: { message: string } }) {
   const location = useLocation();
 
   return (
@@ -9,6 +13,7 @@ export function Component() {
       <p>
         Nothing lives at <code id="requested-path">{location.pathname}</code>.
       </p>
+      <p id="not-found-data">{data.message}</p>
       <a href="/">Back home</a>
     </section>
   );

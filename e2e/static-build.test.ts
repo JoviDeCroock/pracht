@@ -284,6 +284,7 @@ test("static export serves a full app from a dumb static host with zero server",
     await waitForRouter(page);
     await expect(page.locator("#not-found h1")).toContainText("404");
     await expect(page.locator("#requested-path")).toHaveText("/no/such/page");
+    await expect(page.locator("#not-found-data")).toHaveText("Built custom 404");
     // Navigating out of the 404 page is client-side again.
     await page.click('#not-found a[href="/"]');
     await expect(page.locator("#tagline")).toHaveText("Every page is a file.");
@@ -320,6 +321,7 @@ test("static export serves a full app from a dumb static host with zero server",
     await page.goto(`${fallbackOrigin}/totally/unknown`);
     await expect(page.locator("#not-found h1")).toContainText("404");
     await expect(page.locator("#requested-path")).toHaveText("/totally/unknown");
+    await expect(page.locator("#not-found-data")).toHaveText("Built custom 404");
 
     // A dynamic SSG pattern can match a path getStaticPaths() did not emit.
     // The generic fallback must not render that route without its missing
@@ -327,6 +329,7 @@ test("static export serves a full app from a dumb static host with zero server",
     await page.goto(`${fallbackOrigin}/posts/not-generated`);
     await expect(page.locator("#not-found h1")).toContainText("404");
     await expect(page.locator("#requested-path")).toHaveText("/posts/not-generated");
+    await expect(page.locator("#not-found-data")).toHaveText("Built custom 404");
   } finally {
     await stopServer(server);
     await stopServer(fallbackServer);
@@ -446,6 +449,39 @@ test("static export build rejects dynamic SSG without getStaticPaths", () => {
     const output = buildFailureOutput(exampleDir);
     expect(output).toContain('dynamic SSG route "/posts/:slug"');
     expect(output).toContain("has no getStaticPaths() export");
+  } finally {
+    rmSync(tempDir, { force: true, recursive: true });
+  }
+});
+
+test("static export emits 404.html when a broad dynamic SSG route exists", () => {
+  test.setTimeout(180_000);
+  const { exampleDir, tempDir } = createTempExampleDir(
+    staticFixtureDir,
+    "pracht-static-broad-dynamic-",
+  );
+
+  try {
+    const routesPath = resolve(exampleDir, "src/routes.ts");
+    writeFileSync(
+      routesPath,
+      readFileSync(routesPath, "utf-8").replace(
+        "    ]),\n  ],",
+        '    ]),\n    route("/:slug", () => import("./routes/landing.tsx"), { id: "landing", render: "ssg" }),\n  ],',
+      ),
+      "utf-8",
+    );
+    writeFileSync(
+      resolve(exampleDir, "src/routes/landing.tsx"),
+      'export function getStaticPaths() { return [{ slug: "landing" }]; }\nexport function Component({ params }: { params: { slug: string } }) { return <main>{params.slug}</main>; }\n',
+      "utf-8",
+    );
+
+    buildExample(exampleDir);
+
+    const notFoundHtml = readFileSync(resolve(exampleDir, "dist/client/404.html"), "utf-8");
+    expect(notFoundHtml).toContain("404 — page not found");
+    expect(notFoundHtml).not.toContain("<main>404.html</main>");
   } finally {
     rmSync(tempDir, { force: true, recursive: true });
   }

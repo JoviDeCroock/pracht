@@ -231,7 +231,9 @@ The build serializes each loader-backed SSG route's payload to static
 server, emits the `notFound` page as `404.html`, and — with
 `staticAdapter({ fallback: "200.html" })` — an SPA fallback document for hosts
 that can rewrite unmatched URLs. Loaderless SPA routes fetch no Pracht state
-and can call external APIs directly from the browser. Anything that needs a
+and can call external APIs directly from the browser. Static `notFound` pages
+must use full hydration so they can adopt the requested URL; the SPA fallback
+reuses their build-time loader data when it renders an unknown URL. Anything that needs a
 runtime server (`ssr` or `isg` routes, SPA loaders, middleware, API routes,
 exposed capabilities) fails the build with an error naming the offenders. See
 the [Adapters Reference](/docs/adapters) for host configuration details.

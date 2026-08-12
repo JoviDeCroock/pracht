@@ -289,15 +289,22 @@ async function collectSSGPaths(
  * the `fallback` hydration-state marker). The body is deliberately empty:
  * this document is served for *any* URL, so no route- or shell-specific
  * markup can be correct here.
+ *
+ * `notFoundData` is copied from the already-rendered `404.html` hydration
+ * state. If the fallback resolves an unknown URL instead of a dynamic SPA
+ * route, the not-found component therefore sees its normal build-time loader
+ * data without executing the loader a second time.
  */
-export function buildStaticFallbackHtml(options: { clientEntryUrl?: string } = {}): string {
+export function buildStaticFallbackHtml(
+  options: { clientEntryUrl?: string; notFoundData?: unknown } = {},
+): string {
   return buildHtmlDocument({
     head: {},
     body: "",
     hydrationState: {
       url: "/",
       routeId: NOT_FOUND_ROUTE_ID,
-      data: null,
+      data: options.notFoundData,
       error: null,
       pending: true,
       fallback: true,

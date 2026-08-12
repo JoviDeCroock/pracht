@@ -964,7 +964,7 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
       // crash. Render the app's not-found page client-side instead.
       const notFoundState = await resolveRouteState(
         { route: app.notFound, params: {}, pathname: window.location.pathname },
-        { data: undefined, error: null },
+        { data: options.initialState.data, error: options.initialState.error ?? null },
         window.location.pathname + window.location.search,
       );
       if (notFoundState) applyRouteState(notFoundState);

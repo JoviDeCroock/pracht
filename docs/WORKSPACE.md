@@ -119,8 +119,8 @@ described in `VISION_MVP.md`.
   with fail-closed build validation for every request-runtime feature
   (SSR/ISG, SPA loaders, middleware, API routes, and exposed capabilities),
   serialized `_pracht/state/…` files for SSG loader navigation,
-  `404.html`/`200.html` documents, and a tiny static preview server behind
-  `pracht preview`.
+  full-hydration `404.html` plus an optional loader-data-aware `200.html`
+  fallback, and a tiny static preview server behind `pracht preview`.
 - **Preact Worker facets prototype** — `@pracht/preact-worker-facets` provides
   experimental helpers for running Preact-style component modules inside
   Cloudflare Dynamic Workers. A supervisor Durable Object owns auth, source
