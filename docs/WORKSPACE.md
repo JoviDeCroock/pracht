@@ -75,13 +75,12 @@ described in `VISION_MVP.md`.
 - **CLI** — `pracht dev` starts a Vite dev server with SSR, `pracht build` runs
   client + server builds (with Vite manifest generation, SSG/ISG prerendering,
   ISG manifest output, executable Node server output in `dist/server/server.js`,
-  Netlify function generation, and Vercel `.vercel/output/` generation when the app targets those adapters),
-  while `build-static-output.ts` owns the path-confined `dist/client/` writes
-  for prerendered pages, generated `llms.txt`, and OpenAPI companion artifacts,
-  and `build-route-output.ts` derives and writes headers, Markdown, and ISG
-  metadata with adapter-specific privacy and edge-caching policy,
-  while `build-analysis.ts` owns bundle reporting, persisted budget evidence,
-  and fail-versus-warn policy without mutating process state,
+  Netlify function generation, and Vercel `.vercel/output/` generation when the app targets those adapters).
+  Its command stays focused on orchestration: `build-static-output.ts` owns
+  path-confined client writes, `build-route-output.ts` owns route metadata and
+  edge-caching policy, `build-analysis.ts` owns bundle budgets and reporting,
+  and `build-adapter-output.ts` finalizes deployment output while delegating
+  Vercel Build Output API details to `vercel-build-output.ts`.
   `pracht preview` builds and serves the production output locally (Node runs
   `dist/server/server.js`, Cloudflare delegates to `wrangler dev`, Netlify
   points at `netlify dev`, and Vercel points at `vercel build`/`vercel dev`),

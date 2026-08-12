@@ -13,7 +13,7 @@ import { join } from "node:path";
 import { timeRevalidate } from "@pracht/core";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { writeVercelBuildOutput } from "../src/build-shared.ts";
+import { writeVercelBuildOutput } from "../src/vercel-build-output.ts";
 
 describe("writeVercelBuildOutput", () => {
   const roots: string[] = [];

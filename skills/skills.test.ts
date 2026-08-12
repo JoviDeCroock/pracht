@@ -63,8 +63,8 @@ const GLOBAL_CLI_FLAGS = new Set(["help", "version"]);
 // - Vite client manifest: build.ts / build-metadata.ts read
 //   "dist/client/.vite/manifest.json"
 // - Prerendered route HTML: build.ts writes "<route>/index.html" under
-//   dist/client (routeToStaticHtmlPath in build-shared.ts)
-// - Vercel Build Output API: build-shared.ts writeVercelBuildOutput emits
+//   dist/client (routeToStaticHtmlPath in vercel-build-output.ts)
+// - Vercel Build Output API: vercel-build-output.ts writeVercelBuildOutput emits
 //   .vercel/output/config.json, .vercel/output/static/ (copy of dist/client),
 //   and .vercel/output/functions/<functionName>.func/ (copy of dist/server,
 //   default function name "render")

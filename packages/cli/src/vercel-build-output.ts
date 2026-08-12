@@ -32,7 +32,7 @@ module.exports = async (req, res) => {
 
 type VercelRegions = string | string[];
 
-interface VercelBuildOutputOptions {
+export interface VercelBuildOutputOptions {
   functionName?: string;
   headersManifest?: Record<string, Record<string, string>>;
   isgManifest: Record<string, ISGManifestEntry>;

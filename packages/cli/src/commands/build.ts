@@ -1,4 +1,4 @@
-import { cpSync, existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
 import { register } from "node:module";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -6,10 +6,10 @@ import { pathToFileURL } from "node:url";
 import { defineCommand } from "citty";
 import { build as viteBuild } from "vite";
 
+import { finalizeBuildAdapter } from "../build-adapter-output.js";
 import { runBuildAnalysis } from "../build-analysis.js";
 import { readClientBuildAssets } from "../build-metadata.js";
 import { createBuildRouteOutput, writeBuildRouteManifests } from "../build-route-output.js";
-import { writeVercelBuildOutput } from "../build-shared.js";
 import {
   writeGeneratedLlmsTxt,
   writeOpenApiBuildArtifacts,
@@ -193,63 +193,22 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
       root,
     });
 
-    if (serverMod.buildTarget === "cloudflare") {
-      if (cloudflareWorkersCacheEnabled && edgeCachedIsgPaths.length > 0) {
-        log(
-          `\n  ISG via Workers Caching: ${edgeCachedIsgPaths.length} route(s) render on demand and revalidate at the edge. Requires "cache": { "enabled": true } in wrangler config.\n`,
-        );
-      }
-
-      // workerd validates every named export of the deployed entry module as
-      // an entrypoint and rejects the build metadata (buildTarget, manifests,
-      // resolvedApp, ...) that server.js exports for the prerender pass
-      // above. Deploy a thin wrapper that re-exports only the default
-      // handler and the Cloudflare entrypoint classes.
-      const entrypointNames: string[] = Array.isArray(serverMod.cloudflareWorkerEntrypointNames)
-        ? serverMod.cloudflareWorkerEntrypointNames
-        : [];
-      const deployEntryLines = [
-        ...(entrypointNames.length > 0
-          ? [`export { ${entrypointNames.join(", ")} } from "./server.js";`]
-          : []),
-        'export { default } from "./server.js";',
-        "",
-      ];
-      writeFileSync(resolve(root, "dist/server/worker.js"), deployEntryLines.join("\n"), "utf-8");
-
-      log("\n  Cloudflare worker → dist/server/worker.js\n");
-      log("  Deploy with: wrangler deploy\n");
-    }
-
-    if (serverMod.buildTarget === "vercel") {
-      // ISG routes deploy as Node serverless functions that re-export
-      // `nodeListener` from the bundle; catch a custom server entry that
-      // doesn't provide it here instead of at request time in production.
-      if (Object.keys(isgManifest).length > 0 && typeof serverMod.nodeListener !== "function") {
-        throw new Error(
-          "The Vercel server entry does not export `nodeListener`, which the ISG routes' " +
-            "serverless functions import. Generate the entry with `vercelAdapter()` or export " +
-            "`createVercelNodeListener(handle)` from your custom entry module.",
-        );
-      }
-
-      const outputPath = writeVercelBuildOutput({
-        functionName: serverMod.vercelFunctionName,
-        isgManifest,
-        headersManifest,
-        markdownRoutes: Object.keys(markdownManifest),
-        regions: serverMod.vercelRegions,
-        root,
-        staticRoutes: [
-          ...pages
-            .map((page: { path: string }) => page.path)
-            .filter((path: string) => !(path in isgManifest)),
-          ...generatedStaticRoutes,
-        ],
-      });
-
-      log(`\n  Vercel build output → ${outputPath}\n`);
-    }
+    finalizeBuildAdapter({
+      buildTarget,
+      cloudflareWorkerEntrypointNames: serverMod.cloudflareWorkerEntrypointNames,
+      cloudflareWorkersCacheEnabled,
+      edgeCachedIsgPaths,
+      generatedStaticRoutes,
+      headersManifest,
+      isgManifest,
+      log,
+      markdownManifest,
+      nodeListener: serverMod.nodeListener,
+      pages,
+      root,
+      vercelFunctionName: serverMod.vercelFunctionName,
+      vercelRegions: serverMod.vercelRegions,
+    });
 
     if (typeof serverMod.finalizePrachtBuild === "function") {
       await serverMod.finalizePrachtBuild({ clientDir, root });
