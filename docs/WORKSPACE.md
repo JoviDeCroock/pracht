@@ -111,7 +111,10 @@ described in `VISION_MVP.md`.
   in `eval-scenario.ts`; `eval-runner.ts` owns signed HTTP execution and server
   readiness while preserving the existing runner import surface.
   Generation operations, path rules, and source templates live together under
-  `packages/cli/src/generation/`; both the interactive CLI command and the MCP
+  `packages/cli/src/generation/`; `index.ts` is the stable facade, route and
+  smoke-test policy lives in `route.ts`, manifest-backed shell/middleware
+  registration lives in `registry.ts`, and capability/API generation has one
+  focused module per artifact. Both the interactive CLI command and the MCP
   server call that domain layer instead of depending on one another.
   Verification keeps its stable facade in `verification-checks.ts`; manifest
   wiring, API discovery, and pages-router/Markdown checks live in focused
