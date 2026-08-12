@@ -496,6 +496,7 @@ The internal module graph within the framework package is acyclic:
 ```
 registration.ts — declaration-merging registry and framework request-context extensions
 capability-types.ts — generated capability registration and browser-client inference
+agent-types.ts — Web Bot Auth, approval-store, MCP projection, and audit contracts
 route-inputs.ts — route-param and search-param wire inputs shared by links and API calls
 route-client-types.ts — generated route IDs, params, search, data, and href inference
 api-client-types.ts — generated API registration, request options, and response inference
