@@ -83,7 +83,10 @@ described in `VISION_MVP.md`.
   and `--json` output, `pracht inspect [routes|api|build] --json` emits the
   resolved route graph, API handlers, and build metadata for agents/tools,
   `pracht typegen` emits `src/pracht.d.ts` and `src/pracht-routes.ts`
-  from the resolved route graph for typed links and href helpers,
+  from the resolved route graph for typed links and href helpers; its command,
+  graph validation, and file lifecycle remain in `commands/typegen.ts`, while
+  capability registration/client declaration formatting lives in
+  `typegen-capability-source.ts`,
   `pracht generate route|shell|middleware|api` scaffolds framework-native
   files, and `pracht doctor` validates app wiring across the whole project.
   Verification keeps its stable facade in `verification-checks.ts`; manifest
