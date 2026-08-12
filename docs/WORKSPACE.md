@@ -169,6 +169,10 @@ described in `VISION_MVP.md`.
 - **Vercel adapter** — Emits an Edge-compatible handler, copies the build into
   `.vercel/output/static` and `.vercel/output/functions/render.func`, rewrites
   clean SSG URLs to static HTML, and emits native prerender functions for ISG.
+  Its package facade stays in `index.ts`; `edge-handler.ts` owns ordinary Edge
+  dispatch and cache defaults, `node-listener.ts` owns the sanitized Node ISG
+  bridge, `revalidation.ts` owns webhook regeneration, and `server-entry.ts`
+  owns generated module source.
 - **Image endpoint** — `@pracht/image/node` keeps request validation and response
   assembly in `node.ts`, trusted source/redirect policy in `node-source.ts`,
   Sharp loading and codec transformation in `node-transform.ts`, and shared
