@@ -145,6 +145,14 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
       const agentSurfaceDefine =
         env.command === "build" ? String(hasAgentSurface(resolved, configRoot)) : "true";
 
+      // Static-export builds bake the flag into both bundles: the client
+      // router switches to `/_pracht/state/…` files and the server bundle's
+      // prerender pass emits matching preload URLs. Dev always serves the
+      // live route-state endpoint, so the flag stays false there.
+      const staticTargetDefine = String(
+        env.command === "build" && resolved.adapter.staticTarget === true,
+      );
+
       return {
         appType: "custom" as const,
         // Expose PRACHT_PUBLIC_-prefixed vars on import.meta.env (client and
@@ -163,6 +171,7 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
         define: {
           __PRACHT_PUBLIC_ENV__: publicEnvDefine,
           __PRACHT_AGENT_SURFACE__: agentSurfaceDefine,
+          __PRACHT_STATIC_TARGET__: staticTargetDefine,
         },
         // The vendor split only makes sense for the client bundle; SSR builds
         // that disable code splitting (e.g. webworker targets) reject

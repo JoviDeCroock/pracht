@@ -11,9 +11,9 @@ import { findWranglerConfig } from "../wrangler-config.js";
 import { runBuild } from "./build.js";
 
 const SERVER_ENTRY = "dist/server/server.js";
-const ADAPTER_TARGETS = new Set(["cloudflare", "netlify", "node", "vercel"]);
+const ADAPTER_TARGETS = new Set(["cloudflare", "netlify", "node", "static", "vercel"]);
 
-export type AdapterTarget = "cloudflare" | "netlify" | "node" | "vercel";
+export type AdapterTarget = "cloudflare" | "netlify" | "node" | "static" | "vercel";
 
 export default defineCommand({
   meta: {
@@ -102,7 +102,14 @@ export default defineCommand({
       return;
     }
 
-    console.log(`\n  Previewing production build → http://localhost:${port}\n`);
+    if (target === "static") {
+      console.log(
+        `\n  Previewing static export (dist/client) → http://localhost:${port}\n` +
+          "  Production deploys need no server: upload dist/client to any static host.\n",
+      );
+    } else {
+      console.log(`\n  Previewing production build → http://localhost:${port}\n`);
+    }
     spawnPreviewProcess(process.execPath, [serverEntry], {
       cwd: root,
       env: { ...process.env, PORT: String(port) },
@@ -123,6 +130,12 @@ export function detectAdapterTarget(project: Pick<ProjectConfig, "rawConfig">): 
 
   if (/\bnetlifyAdapter\s*\(/.test(source) || source.includes("@pracht/adapter-netlify")) {
     return "netlify";
+  }
+
+  // The static entry's main-guard starts a tiny static file server, so the
+  // generic `node dist/server/server.js` preview path serves dist/client.
+  if (/\bstaticAdapter\s*\(/.test(source) || source.includes("@pracht/adapter-static")) {
+    return "static";
   }
 
   return "node";

@@ -1,0 +1,46 @@
+{
+  "name": "@pracht/adapter-static",
+  "version": "0.0.0",
+  "description": "Static-export adapter for Pracht: prerender every route and deploy dist/client to any static host with zero server.",
+  "keywords": [
+    "pracht",
+    "preact",
+    "static",
+    "ssg",
+    "export",
+    "adapter",
+    "github-pages",
+    "vite"
+  ],
+  "license": "MIT",
+  "homepage": "https://github.com/JoviDeCroock/pracht/tree/main/packages/adapter-static",
+  "bugs": {
+    "url": "https://github.com/JoviDeCroock/pracht/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/JoviDeCroock/pracht",
+    "directory": "packages/adapter-static"
+  },
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.mts",
+      "default": "./dist/index.mjs"
+    }
+  },
+  "publishConfig": {
+    "provenance": true
+  },
+  "scripts": {
+    "build": "tsdown",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "@pracht/adapter-node": "workspace:*",
+    "@pracht/core": "workspace:*"
+  }
+}

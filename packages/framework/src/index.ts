@@ -169,7 +169,7 @@ export {
   type ReadonlyURLSearchParams,
 } from "./runtime.ts";
 export { prefetch, type PrefetchFn } from "./prefetch-api.ts";
-export { prerenderApp } from "./prerender.ts";
+export { buildStaticFallbackHtml, prerenderApp } from "./prerender.ts";
 export {
   createISGRegenerationRequest,
   createRevalidationSingleFlight,

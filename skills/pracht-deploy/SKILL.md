@@ -1,12 +1,13 @@
 ---
 name: pracht-deploy
-version: 1.1.0
+version: 1.2.0
 description: |
   Pracht deployment guide. Walks through adapter configuration, building, and
-  deploying to Node.js, Cloudflare Workers, Netlify, or Vercel. Handles platform
-  config, Docker and production checklist.
+  deploying to Node.js, Cloudflare Workers, Netlify, Vercel, or a pure static
+  host. Handles platform config, Docker and production checklist.
   Use when asked to "deploy", "set up deployment", "configure adapter",
-  "deploy to cloudflare", "deploy to netlify", "deploy to vercel", or
+  "deploy to cloudflare", "deploy to netlify", "deploy to vercel", "static
+  export", or
   "production build".
 allowed-tools:
   - Bash
@@ -37,6 +38,7 @@ If the pracht MCP server is registered (docs/MCP.md), prefer the `inspect_build`
 | Cloudflare Workers | `@pracht/adapter-cloudflare` | Stable |
 | Netlify            | `@pracht/adapter-netlify`    | Stable |
 | Vercel             | `@pracht/adapter-vercel`     | Stable |
+| Static export      | `@pracht/adapter-static`     | Stable |
 
 ---
 
@@ -302,6 +304,42 @@ Edge Function with `vercelAdapter({ functionName })` if its default `render`
 name would collide with an ISG route. Custom entries must export the
 `nodeListener` created by `createVercelNodeListener(handle)` for Node ISR
 functions.
+
+---
+
+## Static Export Deployment
+
+For apps where every route is `render: "ssg"` (or `"spa"`), with no API routes
+and no HTTP/MCP/WebMCP-exposed capabilities. Anything else fails the build
+with an error naming the offenders — that is the signal to pick a serverful
+adapter instead.
+
+### Setup
+
+1. Ensure `@pracht/adapter-static` is installed.
+2. In `vite.config.ts`:
+   ```ts
+   import { pracht } from "@pracht/vite-plugin";
+   import { staticAdapter } from "@pracht/adapter-static";
+   export default { plugins: [pracht({ adapter: staticAdapter() })] };
+   // With dynamic SPA routes, add { fallback: "200.html" } and configure the
+   // host to rewrite unmatched URLs to it.
+   ```
+
+### Build & Deploy
+
+```bash
+pracht build      # dist/client/ is the whole deployment
+pracht preview    # local static file server over dist/client/
+```
+
+Upload `dist/client/` to any static host (GitHub Pages, S3, nginx, Netlify).
+`dist/server/` is build tooling only — never deploy it. The host must serve
+`<dir>/index.html` for clean URLs and should use `404.html` as its error
+document. Client navigation fetches the serialized
+`_pracht/state/<path>/index.json` files, so no rewrite rules are needed for
+data. See docs/ADAPTERS.md § Static Adapter for host header configuration and
+limitations (markdown negotiation, percent-encoded params, base paths).
 
 ---
 

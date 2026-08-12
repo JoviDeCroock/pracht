@@ -2,6 +2,9 @@ import { resolveApp } from "./app.ts";
 import { buildPathFromSegments } from "./route-matching.ts";
 import { isDangerousPrerenderHeader, normalizeRouteRevalidate } from "./revalidation.ts";
 import { hasMarkdownRepresentation } from "./runtime-negotiation.ts";
+import { NOT_FOUND_ROUTE_ID, ROUTE_STATE_REQUEST_HEADER } from "./runtime-constants.ts";
+import { routeNeedsServerFetch } from "./runtime-client-fetch.ts";
+import { buildHtmlDocument } from "./runtime-html.ts";
 import { resolveRegistryModule } from "./runtime-manifest.ts";
 import { handlePrachtRequest } from "./runtime.ts";
 import type {
@@ -18,6 +21,15 @@ export interface PrerenderResult {
   headers?: Record<string, string>;
   /** Whether the route declares a Markdown representation. */
   markdown: boolean;
+  /**
+   * Serialized route-state JSON for the path — the exact body the live
+   * `x-pracht-route-state-request` endpoint would answer with. Captured only
+   * for `staticExport` builds, and only for routes whose client navigation
+   * performs a server fetch (a loader or route middleware).
+   */
+  routeState?: string;
+  /** Whether this page is a `render: "spa"` shell (staticExport builds only). */
+  spa?: boolean;
 }
 
 export interface ISGManifestEntry {
@@ -43,6 +55,13 @@ export interface PrerenderAppOptions {
   jsManifest?: Record<string, string[]>;
   /** Maximum number of pages rendered concurrently. Defaults to 10. */
   concurrency?: number;
+  /**
+   * Static-export mode (`@pracht/adapter-static`): additionally prerender
+   * `render: "spa"` routes (their shell document), and capture each page's
+   * route-state JSON so the build can serialize it to a static file for
+   * client-side navigation.
+   */
+  staticExport?: boolean;
 }
 
 export async function prerenderApp(options: PrerenderAppOptions): Promise<PrerenderResult[]>;
@@ -65,13 +84,20 @@ export async function prerenderApp(
     route: ResolvedRoute;
   }[] = [];
   for (const route of resolved.routes) {
-    if (route.render !== "ssg" && route.render !== "isg") continue;
+    const render = route.render;
+    if (
+      render !== "ssg" &&
+      render !== "isg" &&
+      !(options.staticExport === true && render === "spa")
+    ) {
+      continue;
+    }
     const paths = await collectSSGPaths(route, options.registry);
     for (const pathname of paths) {
-      if (route.render === "isg" && route.revalidate) {
+      if (render === "isg" && route.revalidate) {
         normalizeRouteRevalidate(route.revalidate);
       }
-      work.push({ pathname, render: route.render, revalidate: route.revalidate, route });
+      work.push({ pathname, render, revalidate: route.revalidate, route });
     }
   }
 
@@ -111,11 +137,43 @@ export async function prerenderApp(
         assertSafePrerenderHeaders(response.headers, item);
 
         const html = await response.text();
+
+        // Static exports serialize the loader payload to a static JSON file so
+        // client-side navigation can fetch it without a server. Rendering the
+        // same request with the route-state header keeps the payload
+        // byte-identical to what the live endpoint would answer. Islands and
+        // no-hydration routes are skipped: they never load the client router,
+        // so nothing ever fetches their state.
+        let routeState: string | undefined;
+        if (
+          options.staticExport === true &&
+          item.route.hydration !== "islands" &&
+          item.route.hydration !== "none" &&
+          routeNeedsServerFetch(item.route)
+        ) {
+          const stateResponse = await handlePrachtRequest({
+            app: options.app,
+            request: new Request(url, {
+              method: "GET",
+              headers: { [ROUTE_STATE_REQUEST_HEADER]: "1" },
+            }),
+            registry: options.registry,
+          });
+          if (stateResponse.status === 200) {
+            routeState = await stateResponse.text();
+          } else {
+            console.warn(
+              `  Warning: route-state render for "${item.pathname}" returned status ${stateResponse.status}; no static state file will be written.`,
+            );
+          }
+        }
+
         return {
           headers: Object.fromEntries(response.headers),
           html,
           item,
           markdown: hasMarkdownRepresentation(item.route, routeModule),
+          routeState,
         };
       }),
     );
@@ -127,6 +185,8 @@ export async function prerenderApp(
         html: result.html,
         headers: result.headers,
         markdown: result.markdown,
+        ...(result.routeState !== undefined ? { routeState: result.routeState } : {}),
+        ...(result.item.render === "spa" ? { spa: true } : {}),
       });
       if (result.item.render === "isg" && result.item.revalidate) {
         isgManifest[result.item.pathname] = {
@@ -173,11 +233,38 @@ async function collectSSGPaths(route: ResolvedRoute, registry?: ModuleRegistry):
 
   if (!routeModule?.getStaticPaths) {
     console.warn(
-      `  Warning: SSG route "${route.path}" has dynamic segments but no getStaticPaths() export, skipping.`,
+      `  Warning: ${(route.render ?? "ssg").toUpperCase()} route "${route.path}" has dynamic segments but no getStaticPaths() export, skipping.`,
     );
     return [];
   }
 
   const paramSets = await routeModule.getStaticPaths();
   return paramSets.map((params) => buildPathFromSegments(route.segments, params));
+}
+
+/**
+ * The static-export SPA fallback document (conventionally `200.html`).
+ *
+ * A static host configured to rewrite unmatched URLs to this file (GitHub
+ * Pages cannot; Netlify/nginx/S3+CloudFront can) lets deep links to
+ * non-prerendered paths — dynamic `render: "spa"` routes above all — boot the
+ * client router, which resolves the real route from `window.location` (see
+ * the `fallback` hydration-state marker). The body is deliberately empty:
+ * this document is served for *any* URL, so no route- or shell-specific
+ * markup can be correct here.
+ */
+export function buildStaticFallbackHtml(options: { clientEntryUrl?: string } = {}): string {
+  return buildHtmlDocument({
+    head: {},
+    body: "",
+    hydrationState: {
+      url: "/",
+      routeId: NOT_FOUND_ROUTE_ID,
+      data: null,
+      error: null,
+      pending: true,
+      fallback: true,
+    },
+    clientEntryUrl: options.clientEntryUrl,
+  });
 }
