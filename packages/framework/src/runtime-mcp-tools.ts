@@ -3,6 +3,15 @@ import { mcpToolName } from "@pracht/capabilities";
 import type { ResolvedCapability } from "./runtime-capabilities.ts";
 import type { CapabilityEnvelope } from "./types.ts";
 
+/** Capabilities visible to MCP agents, in graph order. */
+export function mcpExposedCapabilities(
+  capabilities: readonly ResolvedCapability[],
+): ResolvedCapability[] {
+  return capabilities.filter(
+    (entry) => entry.capability.expose?.mcp === true && entry.capability.effect !== "destructive",
+  );
+}
+
 /** Project a resolved capability into the MCP tools/list descriptor shape. */
 export function createMcpToolDescriptor(entry: ResolvedCapability) {
   const { capability } = entry;

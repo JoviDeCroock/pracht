@@ -523,6 +523,7 @@ runtime-agent-surface.ts — lazy agent runtimes, signature binding, and invocat
 runtime-agent-projection.ts — MCP and capability HTTP selection and fail-closed routing
 runtime-mcp-protocol.ts — JSON-RPC framing, initialization validation, and version negotiation
 runtime-mcp-tools.ts — tools/list descriptors and capability-envelope result projection
+runtime-mcp-dispatch.ts — tool lookup, credential-safe request synthesis, host rebinding, and execution
 runtime-page-render.ts — Markdown, SPA, hydrated, islands, and zero-JavaScript representations
 runtime-page-pipeline.ts — concurrent module loading, middleware, loaders, timings, and fallback
     ↑

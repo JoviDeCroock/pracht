@@ -18,27 +18,14 @@
  */
 
 import {
-  CONFIRMATION_HEADER,
   findMcpToolNameCollisions,
   isValidMcpToolName,
   MCP_TOOL_NAME_ERROR,
   mcpToolName,
 } from "@pracht/capabilities";
-import {
-  handleCapabilityRequest,
-  setActiveCapabilityHost,
-  type CapabilityHostApp,
-  type ResolvedCapability,
-} from "./runtime-capabilities.ts";
 export { resolveMcpEndpoint } from "./mcp-config.ts";
-import type {
-  CapabilityAuditHook,
-  CapabilityEnvelope,
-  McpProjectionConfig,
-  ModuleRegistry,
-  PrachtAgentIdentity,
-  PrachtAgentsConfig,
-} from "./types.ts";
+import { handleMcpToolsCall } from "./runtime-mcp-dispatch.ts";
+import type { HandleMcpRequestOptions } from "./runtime-mcp-options.ts";
 import {
   acceptsJson,
   isNonBrowserRequest,
@@ -55,11 +42,11 @@ import {
   negotiateProtocolVersion,
   readInitializeParams,
 } from "./runtime-mcp-protocol.ts";
-import {
-  createMcpToolDescriptor,
-  createMcpToolResult,
-  isCapabilityEnvelope,
-} from "./runtime-mcp-tools.ts";
+import { createMcpToolDescriptor, mcpExposedCapabilities } from "./runtime-mcp-tools.ts";
+
+/** `_meta` key carrying a prepare/commit confirmation token on a `tools/call`. */
+export { MCP_CONFIRMATION_META_KEY } from "./runtime-mcp-dispatch.ts";
+export type { HandleMcpRequestOptions } from "./runtime-mcp-options.ts";
 
 export {
   MCP_LATEST_PROTOCOL_VERSION,
@@ -67,50 +54,13 @@ export {
   MCP_PROTOCOL_VERSIONS,
 } from "./runtime-mcp-protocol.ts";
 
-/**
- * `_meta` key carrying a prepare/commit confirmation token on a `tools/call`.
- *
- * MCP has no per-call header channel, and the token cannot travel in
- * `arguments`: it is bound to a hash of the canonicalized input, so adding it
- * there would invalidate the very binding it carries. `_meta` is the
- * protocol's designated extension slot.
- */
-export const MCP_CONFIRMATION_META_KEY = "io.pracht/confirmation";
-
 /** Normalize an incoming MCP request path without retaining protocol helpers in unrelated apps. */
 export function normalizeMcpRequestPath(path: string): string {
   return path.length > 1 && path.endsWith("/") ? path.slice(0, -1) : path;
 }
 
 /** Capabilities the MCP projection serves, in graph order. */
-export function mcpExposedCapabilities(
-  capabilities: readonly ResolvedCapability[],
-): ResolvedCapability[] {
-  return capabilities.filter(
-    // Destructive capabilities cannot declare `expose.mcp` today (the registry
-    // rejects it). The second check is defense in depth: a hand-rolled
-    // capability object must not be able to reach agents without the
-    // prepare/commit flow a host cannot be trusted to carry.
-    (entry) => entry.capability.expose?.mcp === true && entry.capability.effect !== "destructive",
-  );
-}
-
-export interface HandleMcpRequestOptions<TContext> {
-  app: CapabilityHostApp;
-  capabilities: readonly ResolvedCapability[];
-  context: TContext;
-  registry: ModuleRegistry;
-  request: Request;
-  url: URL;
-  exposeErrors: boolean;
-  mcp: McpProjectionConfig;
-  agents?: PrachtAgentsConfig;
-  agent?: PrachtAgentIdentity | null;
-  apiMiddlewareFiles?: string[];
-  onAudit?: CapabilityAuditHook;
-  /** Registry resolution failure captured by the outer application runtime. */
-  resolutionError?: unknown;
-}
+export { mcpExposedCapabilities } from "./runtime-mcp-tools.ts";
 
 /**
  * Handle one request to the MCP endpoint. Always resolves — protocol problems
@@ -324,7 +274,7 @@ export interface HandleMcpRequestOptions<TContext> {
       });
 
     case "tools/call":
-      return handleToolsCall(options, id, message.params, activeVersion);
+      return handleMcpToolsCall(options, id, message.params, activeVersion);
 
     default:
       return respond(200, {
@@ -336,153 +286,4 @@ export interface HandleMcpRequestOptions<TContext> {
         },
       });
   }
-}
-
-// ---------------------------------------------------------------------------
-// tools/call
-// ---------------------------------------------------------------------------
-
-async function handleToolsCall<TContext>(
-  options: HandleMcpRequestOptions<TContext>,
-  id: string | number,
-  rawParams: unknown,
-  // Threaded rather than defaulted: `tools/call` is the method that does the
-  // work, so it is the one that most needs to agree with the version the
-  // client negotiated.
-  protocolVersion: string,
-): Promise<Response> {
-  const params = (rawParams ?? {}) as {
-    name?: unknown;
-    arguments?: unknown;
-    _meta?: Record<string, unknown>;
-  };
-
-  if (typeof params.name !== "string") {
-    return jsonRpcResponse(200, protocolVersion, {
-      jsonrpc: "2.0",
-      id,
-      error: { code: JSONRPC_INVALID_PARAMS, message: "tools/call requires a string `name`." },
-    });
-  }
-  if (
-    params.arguments !== undefined &&
-    (!params.arguments || typeof params.arguments !== "object" || Array.isArray(params.arguments))
-  ) {
-    return jsonRpcResponse(200, protocolVersion, {
-      jsonrpc: "2.0",
-      id,
-      error: {
-        code: JSONRPC_INVALID_PARAMS,
-        message: "tools/call `arguments` must be an object when provided.",
-      },
-    });
-  }
-
-  const exposed = mcpExposedCapabilities(options.capabilities);
-  const match = exposed.find((entry) => mcpToolName(entry.name) === params.name);
-  if (!match) {
-    // An unknown tool is a protocol-level error, not a tool execution failure.
-    return jsonRpcResponse(200, protocolVersion, {
-      jsonrpc: "2.0",
-      id,
-      error: {
-        code: JSONRPC_INVALID_PARAMS,
-        message:
-          `Unknown tool ${JSON.stringify(params.name)}. Known tools: ` +
-          `${exposed.map((entry) => mcpToolName(entry.name)).join(", ") || "(none)"}.`,
-      },
-    });
-  }
-
-  const capabilityRequest = synthesizeCapabilityRequest(
-    options,
-    match,
-    params.arguments,
-    params._meta,
-  );
-  // `invokeCapability()` resolves its host by Request identity. MCP dispatch
-  // uses a synthesized request so middleware and capability bodies see the
-  // projected URL and credential policy; bind that request to the same app
-  // host before either can compose another capability. The host records the
-  // originating transport and verified identity, so nested policy cannot be
-  // bypassed with caller-supplied context and composed work audits as
-  // `via: "mcp"` rather than looking like an ordinary server call.
-  setActiveCapabilityHost(
-    capabilityRequest,
-    options.app,
-    options.registry,
-    "mcp",
-    options.onAudit,
-    options.agent ?? null,
-  );
-  const response = await handleCapabilityRequest({
-    match,
-    context: options.context,
-    registry: options.registry,
-    request: capabilityRequest,
-    url: new URL(capabilityRequest.url),
-    exposeErrors: options.exposeErrors,
-    apiMiddlewareFiles: options.apiMiddlewareFiles,
-    agents: options.agents,
-    agent: options.agent ?? null,
-    transport: "mcp",
-    onAudit: options.onAudit,
-  });
-
-  let envelope: CapabilityEnvelope;
-  try {
-    const parsed: unknown = await response.json();
-    if (!isCapabilityEnvelope(parsed)) throw new Error("Response is not a capability envelope.");
-    envelope = parsed;
-  } catch {
-    // Middleware short-circuited with something that is not an envelope (a
-    // login redirect, say). Meaningless to an MCP client, and its body may not
-    // be safe to forward — report the status as a tool error instead.
-    envelope = {
-      ok: false,
-      error: {
-        code: "middleware_rejected",
-        message: `Capability "${match.name}" was rejected before it ran (status ${response.status}).`,
-      },
-    };
-  }
-
-  return jsonRpcResponse(200, protocolVersion, {
-    jsonrpc: "2.0",
-    id,
-    result: createMcpToolResult(match, envelope, response.status),
-  });
-}
-
-/**
- * Build the request the HTTP projection would have received.
- *
- * The header policy is a security decision, not plumbing: `cookie` is
- * deliberately **not** copied, so a browser session cookie can never
- * authenticate the remote agent transport — the rule becomes a mechanism
- * rather than a convention. `authorization` is forwarded so middleware sees
- * the MCP credential.
- */
-function synthesizeCapabilityRequest<TContext>(
-  options: HandleMcpRequestOptions<TContext>,
-  match: ResolvedCapability,
-  args: unknown,
-  meta: Record<string, unknown> | undefined,
-): Request {
-  const headers = new Headers({ "content-type": "application/json" });
-  const authorization = options.request.headers.get("authorization");
-  if (authorization) headers.set("authorization", authorization);
-  const confirmation = meta?.[MCP_CONFIRMATION_META_KEY];
-  if (typeof confirmation === "string" && confirmation !== "") {
-    headers.set(CONFIRMATION_HEADER, confirmation);
-  }
-  // Capabilities exposed only over MCP have no HTTP path; a stable internal
-  // URL keeps `request.url` meaningful for middleware without opening an
-  // endpoint.
-  const path = match.httpPath ?? `/__pracht/mcp/tools/${mcpToolName(match.name)}`;
-  return new Request(new URL(path, options.url.origin).href, {
-    method: "POST",
-    headers,
-    body: JSON.stringify(args ?? {}),
-  });
 }
