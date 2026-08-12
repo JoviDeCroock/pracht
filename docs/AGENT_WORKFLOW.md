@@ -66,8 +66,9 @@ extra plan lines immediately.
 
 Implementation: `packages/cli/src/graph-snapshot.ts` owns snapshot persistence and
 semantic comparison, `packages/cli/src/graph-plan-format.ts` owns terminal/Markdown
-presentation and build-budget annotations, `packages/cli/src/commands/plan.ts`
-orchestrates them, and `packages/cli/src/app-server.ts` provides shared Vite boot.
+presentation and build-budget annotations, and `packages/cli/src/graph-types.ts`
+holds their shared contracts. `packages/cli/src/commands/plan.ts` orchestrates
+them, and `packages/cli/src/app-server.ts` provides shared Vite boot.
 
 ## 2. Constraints — invariants the machine enforces
 

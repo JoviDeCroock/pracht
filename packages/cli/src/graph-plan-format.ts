@@ -6,7 +6,7 @@ import { resolve } from "node:path";
 import type { AppGraphRoute, RouteConstraint } from "@pracht/core";
 
 import { formatBytes } from "./bundle-report.js";
-import type { CapabilityChange, FieldChange, GraphDiff } from "./graph-snapshot.js";
+import type { CapabilityChange, FieldChange, GraphDiff } from "./graph-types.js";
 
 export interface RouteBudgetInfo {
   gzipBytes: number;

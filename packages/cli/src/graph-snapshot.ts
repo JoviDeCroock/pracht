@@ -8,15 +8,18 @@ import {
   serializeAppRoutes,
   serializeCapabilities,
 } from "@pracht/core";
-import type {
-  AppGraphApiRoute,
-  AppGraphCapability,
-  AppGraphRoute,
-  RouteConstraint,
-} from "@pracht/core";
+import type { AppGraphCapability } from "@pracht/core";
 
 import { capabilityModuleLoader, createSourceReader } from "./app-graph.js";
 import { withAppServer } from "./app-server.js";
+import type {
+  BaseSnapshotResult,
+  CapabilityChange,
+  ChangedEntry,
+  FieldChange,
+  GraphDiff,
+  GraphSnapshot,
+} from "./graph-types.js";
 
 export {
   formatPlanLines,
@@ -26,6 +29,16 @@ export {
   type FormatPlanOptions,
   type RouteBudgetInfo,
 } from "./graph-plan-format.js";
+export type {
+  BaseSnapshotResult,
+  BaseSnapshotStatus,
+  CapabilityChange,
+  CapabilityChangeSeverity,
+  ChangedEntry,
+  FieldChange,
+  GraphDiff,
+  GraphSnapshot,
+} from "./graph-types.js";
 
 /**
  * The app-graph snapshot is a committed, canonical serialization of the
@@ -37,23 +50,6 @@ export {
 
 export const GRAPH_SNAPSHOT_PATH = ".pracht/app-graph.json";
 export const GRAPH_SNAPSHOT_VERSION = 1;
-
-export interface GraphSnapshot {
-  prachtGraphVersion: number;
-  mode: "manifest" | "pages";
-  routes: AppGraphRoute[];
-  api: AppGraphApiRoute[];
-  /**
-   * Registered capabilities — the agent-facing half of the app's surface.
-   * Snapshotting them is what lets `pracht plan` show a reviewer that a change
-   * widened what agents can reach or weakened a guard; without it those edits
-   * produce no signal at all.
-   */
-  capabilities: AppGraphCapability[];
-  /** Served remote MCP endpoint, or `null` when the projection is disabled. */
-  mcpEndpoint: string | null;
-  constraints: RouteConstraint[];
-}
 
 export async function resolveLiveGraph(root: string): Promise<GraphSnapshot> {
   return withAppServer(root, async ({ project, server, serverModule }) => {
@@ -146,22 +142,7 @@ export function readGraphSnapshotFromDisk(root: string): GraphSnapshot | null {
   return parseSnapshot(readFileSync(filePath, "utf-8"));
 }
 
-/**
- * Why a base snapshot could not be read.
- *
- * `missing-ref` is deliberately distinct from `no-snapshot`: a typo'd
- * `--base`, or the very common "fresh repo with no `origin/main`" case, used
- * to be indistinguishable from a genuinely new app, so `pracht plan` reported
- * every route as added and exited 0 — exactly the situation where a reviewer
- * would trust the diff.
- */
-export type BaseSnapshotStatus = "ok" | "missing-ref" | "no-snapshot" | "not-a-repo";
-
-export interface BaseSnapshotResult {
-  status: BaseSnapshotStatus;
-  snapshot: GraphSnapshot | null;
-}
-
+/** Run a git read without leaking expected lookup failures to the terminal. */
 function runGit(root: string, args: string[]): string | null {
   try {
     // stderr silenced: outside a git repo this prints `fatal: not a git
@@ -220,59 +201,6 @@ function parseSnapshot(contents: string): GraphSnapshot | null {
   } catch {
     return null;
   }
-}
-
-export interface FieldChange {
-  field: string;
-  from: unknown;
-  to: unknown;
-}
-
-export interface ChangedEntry {
-  path: string;
-  changes: FieldChange[];
-}
-
-/**
- * `warn` means the agent-reachable surface got wider or one of its guards got
- * weaker — the lines a reviewer must not scroll past.
- */
-export type CapabilityChangeSeverity = "info" | "warn";
-
-export interface CapabilityChange {
-  kind:
-    | "added"
-    | "removed"
-    | "exposure-added"
-    | "exposure-removed"
-    | "effect-changed"
-    | "policy-weakened"
-    | "policy-strengthened"
-    | "middleware-removed"
-    | "middleware-added"
-    | "input-widened"
-    | "output-changed"
-    | "path-changed"
-    | "contract-unverified";
-  capability: string;
-  severity: CapabilityChangeSeverity;
-  detail: string;
-}
-
-export interface GraphDiff {
-  addedApi: AppGraphApiRoute[];
-  addedConstraints: RouteConstraint[];
-  addedRoutes: AppGraphRoute[];
-  capabilityChanges: CapabilityChange[];
-  changedApi: ChangedEntry[];
-  changedRoutes: ChangedEntry[];
-  identical: boolean;
-  mcpEndpointChange: FieldChange | null;
-  removedApi: AppGraphApiRoute[];
-  removedConstraints: RouteConstraint[];
-  removedRoutes: AppGraphRoute[];
-  /** True when any capability change is a widening — the headline for `report`. */
-  widensAgentSurface: boolean;
 }
 
 const ROUTE_DIFF_FIELDS = [
