@@ -221,6 +221,51 @@ describe("createEventStream", () => {
     }
   });
 
+  it("unrefs the keep-alive timer so an idle stream cannot pin the Node process", () => {
+    const setIntervalSpy = vi.spyOn(globalThis, "setInterval");
+    const stream = createEventStream(createRequest(), { keepAlive: 1 });
+
+    const timer = setIntervalSpy.mock.results[0]!.value as { hasRef?: () => boolean };
+    // Node's Timeout reports ref state via hasRef(); after unref() the timer
+    // no longer holds the event loop open. (On runtimes where setInterval
+    // returns a number the unref call is a no-op and this assertion is moot.)
+    expect(typeof timer.hasRef).toBe("function");
+    expect(timer.hasRef!()).toBe(false);
+
+    stream.close();
+  });
+
+  it("exposes desiredSize so producers can observe a stalled consumer", async () => {
+    const stream = createEventStream(createRequest());
+    // Default queuing strategy: high-water mark 1, counted in chunks.
+    expect(stream.desiredSize).toBe(1);
+
+    stream.send({ data: "one" });
+    expect(stream.desiredSize).toBe(0);
+    stream.send({ data: "two" });
+    // Negative: unread messages are buffering — the signal to throttle.
+    expect(stream.desiredSize).toBeLessThan(0);
+
+    const reader = stream.response.body!.getReader();
+    await reader.read();
+    await reader.read();
+    expect(stream.desiredSize).toBe(1);
+
+    stream.close();
+    expect(stream.desiredSize).toBe(null);
+  });
+
+  it("reports desiredSize null after a disconnect (abort or cancel)", async () => {
+    const aborter = new AbortController();
+    const aborted = createEventStream(createRequest(aborter.signal));
+    aborter.abort();
+    expect(aborted.desiredSize).toBe(null);
+
+    const cancelled = createEventStream(createRequest());
+    await cancelled.response.body!.cancel();
+    expect(cancelled.desiredSize).toBe(null);
+  });
+
   it("buffers messages sent before the consumer starts reading", async () => {
     const stream = createEventStream(createRequest());
     for (let i = 0; i < 100; i += 1) {

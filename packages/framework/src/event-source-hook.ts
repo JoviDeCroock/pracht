@@ -34,7 +34,12 @@ const CLOSED_READY_STATE = 2;
 /**
  * Subscribe to a Server-Sent Events endpoint (see `createEventStream` on the
  * server side). The connection opens on mount and closes automatically on
- * unmount or when `url`/options change. Pass `null` to stay disconnected —
+ * unmount or when `url`/options change; a changed subscription starts clean
+ * (`data`/`lastEventId` reset) so one endpoint's payload is never shown as
+ * another's. Each hook instance opens its own connection — remember browsers
+ * cap concurrent HTTP/1.1 connections per origin (6 in practice), so share
+ * one subscription via context/props rather than mounting many for one URL.
+ * Pass `null` to stay disconnected —
  * useful to gate the subscription on user state. During SSR it renders as
  * `{ status: "connecting" }` (or `"closed"` for a `null` URL) and never
  * connects.
@@ -64,8 +69,16 @@ export function useEventSource<T = string>(
       return;
     }
 
+    // A new subscription starts from a clean slate: carrying the previous
+    // endpoint's `data`/`lastEventId` into a different `url` (or a different
+    // named event) would present another stream's payload as this one's. On
+    // first mount this is a no-op — the initial state already looks like this.
     setState((previous) =>
-      previous.status === "connecting" ? previous : { ...previous, status: "connecting" },
+      previous.status === "connecting" &&
+      previous.data === undefined &&
+      previous.lastEventId === undefined
+        ? previous
+        : { data: undefined, lastEventId: undefined, status: "connecting" },
     );
     const source = new EventSource(href, { withCredentials });
 

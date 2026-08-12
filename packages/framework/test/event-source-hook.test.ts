@@ -206,6 +206,29 @@ describe("useEventSource", () => {
     expect(source(1).closed).toBe(false);
   });
 
+  it("resets data and lastEventId when the url changes — no stale payload from the old endpoint", async () => {
+    const rerender = await renderHook("/api/a");
+    source(0).emitOpen();
+    source(0).emitMessage("message", "from-a", "a-7");
+    await flush();
+    expect(latest).toMatchObject({ data: "from-a", lastEventId: "a-7", status: "open" });
+
+    await rerender("/api/b");
+
+    // The new subscription starts clean: endpoint A's payload must not be
+    // presented as endpoint B's while B connects.
+    expect(latest).toMatchObject({
+      data: undefined,
+      lastEventId: undefined,
+      status: "connecting",
+    });
+
+    source(1).emitOpen();
+    source(1).emitMessage("message", "from-b", "b-1");
+    await flush();
+    expect(latest).toMatchObject({ data: "from-b", lastEventId: "b-1", status: "open" });
+  });
+
   it("disconnects when the url becomes null", async () => {
     const rerender = await renderHook("/api/live");
     await rerender(null);

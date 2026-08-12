@@ -41,6 +41,16 @@ export interface EventStream {
   close(): void;
   /** True once the stream closed or the client disconnected. */
   readonly closed: boolean;
+  /**
+   * Remaining capacity in the response stream's internal queue, straight from
+   * `ReadableStreamDefaultController.desiredSize`: positive while the consumer
+   * keeps up, zero or negative once sent messages sit unread (each unread
+   * message lowers it by one), `null` after the stream closed. `send()` never
+   * applies backpressure — a stalled consumer buffers without bound — so a
+   * producer pushing serious volume should check this and pause or drop when
+   * it goes negative.
+   */
+  readonly desiredSize: number | null;
 }
 
 /**
@@ -184,6 +194,12 @@ export function createEventStream(request: Request, init: EventStreamInit = {}):
     heartbeat = setInterval(() => {
       enqueue(":keep-alive\n\n");
     }, init.keepAlive * 1000);
+    // On Node an interval holds the event loop open. The client's socket
+    // already keeps the process alive while anyone is listening, so the timer
+    // itself must not: an un-consumed stream (or one torn down after
+    // `server.close()`) would otherwise pin the process forever. A no-op on
+    // runtimes where `setInterval` returns a number.
+    (heartbeat as unknown as { unref?: () => void }).unref?.();
   }
 
   if (request.signal.aborted) {
@@ -212,6 +228,15 @@ export function createEventStream(request: Request, init: EventStreamInit = {}):
     close,
     get closed(): boolean {
       return closed;
+    },
+    get desiredSize(): number | null {
+      if (closed || controller === null) return null;
+      try {
+        return controller.desiredSize;
+      } catch {
+        // The runtime released the controller (errored stream).
+        return null;
+      }
     },
   };
 }

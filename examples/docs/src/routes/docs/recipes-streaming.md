@@ -84,9 +84,36 @@ curl -N http://localhost:5173/api/live
 ```
 
 One thing the helper deliberately does not do: apply backpressure. Messages
-sent faster than the client reads them buffer in the stream. SSE frames are
-small, so this is fine for event feeds; throttle in your producer if you are
-pushing serious volume.
+sent faster than the client reads them buffer in the stream — without bound.
+SSE frames are small, so this is fine for event feeds; a producer pushing
+serious volume should watch `stream.desiredSize` (the response stream's
+remaining queue capacity, `null` once closed) and pause or drop messages while
+it is zero or negative:
+
+```ts
+const size = stream.desiredSize;
+if (size === null) break; // stream closed — stop producing
+if (size <= 0) continue; // consumer stalled — drop this frame
+stream.send({ data: frame });
+```
+
+Two more things worth knowing before you ship an SSE endpoint:
+
+- **Producer lifetime is yours.** The handler returns `stream.response`
+  immediately; middleware wrapping the route (a `try`/`finally` around
+  `next()`, a duration logger) completes then too, while the stream stays
+  open. Key your producer's shutdown on `send()` returning `false` (or
+  `stream.closed`), not on middleware finishing. And prefer `request` over
+  the handler's `signal` argument for anything long-lived — that signal is a
+  request-phase timeout, not the stream's lifetime.
+- **Resuming after reconnects.** The browser replays the last `id:` it saw in
+  a `Last-Event-ID` request header when it reconnects. Send meaningful ids
+  and read the header to resume instead of restarting:
+
+  ```ts
+  const lastEventId = request.headers.get("last-event-id");
+  // Replay everything after lastEventId, then continue live.
+  ```
 
 ### The component
 
@@ -118,7 +145,16 @@ The browser reconnects dropped SSE connections on its own (tune the delay by
 sending `retry:`), so `status` may bounce between `"open"` and `"connecting"`
 on a flaky network without any code on your part. During SSR the hook renders
 `{ status: "connecting" }` and never connects — the subscription is
-client-only by nature.
+client-only by nature. Changing `url` (or the options) tears the connection
+down and starts the new subscription clean: `data` and `lastEventId` reset to
+`undefined` rather than showing the previous endpoint's payload.
+
+Each `useEventSource` call owns one `EventSource` connection. Two components
+subscribing to the same URL open two connections — and over HTTP/1.1 browsers
+allow only ~6 connections per origin, *shared with every other request to
+your app*, so a handful of SSE subscriptions can starve the page. Lift a
+shared subscription into a parent (context or props), and serve production
+traffic over HTTP/2/3 where the limit does not apply.
 
 The working example lives in the repo's `examples/basic` app: route `/live`,
 endpoint `src/api/live.ts`.
