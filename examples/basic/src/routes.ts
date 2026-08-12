@@ -18,6 +18,7 @@ export const app = defineApp({
   },
   middleware: {
     auth: () => import("./middleware/auth.ts"),
+    i18n: () => import("./middleware/i18n.ts"),
     productMarkdown: () => import("./middleware/product-markdown.ts"),
   },
   notFound: {
@@ -89,6 +90,28 @@ export const app = defineApp({
         id: "live",
         render: "ssr",
       }),
+    ]),
+    // @pracht/i18n dogfood: one pathPrefix group per registered locale (so
+    // only registered locales ever match — /zz/welcome 404s), sharing one
+    // route file, plus an unprefixed detector route that redirects to the
+    // cookie/Accept-Language locale. SSR because detection is per-request.
+    group({ shell: "public", middleware: ["i18n"] }, [
+      route("/welcome", () => import("./routes/welcome-redirect.tsx"), {
+        id: "welcome",
+        render: "ssr",
+      }),
+      group({ pathPrefix: "/en" }, [
+        route("/welcome", () => import("./routes/welcome.tsx"), {
+          id: "welcome-en",
+          render: "ssr",
+        }),
+      ]),
+      group({ pathPrefix: "/nl" }, [
+        route("/welcome", () => import("./routes/welcome.tsx"), {
+          id: "welcome-nl",
+          render: "ssr",
+        }),
+      ]),
     ]),
     group({ shell: "app", middleware: ["auth"] }, [
       route("/dashboard", () => import("./routes/dashboard.tsx"), {

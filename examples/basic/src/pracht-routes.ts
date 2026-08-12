@@ -32,6 +32,18 @@ export const routes = [
     path: "/live",
   },
   {
+    id: "welcome",
+    path: "/welcome",
+  },
+  {
+    id: "welcome-en",
+    path: "/en/welcome",
+  },
+  {
+    id: "welcome-nl",
+    path: "/nl/welcome",
+  },
+  {
     id: "dashboard",
     path: "/dashboard",
   },

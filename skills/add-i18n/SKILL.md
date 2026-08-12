@@ -1,12 +1,14 @@
 ---
 name: add-i18n
-version: 1.1.0
+version: 2.0.0
 description: |
-  Wire internationalization into a pracht app following the framework's
-  recommended pattern (middleware detects locale, loaders return translations,
-  components consume via route data). Generates locale dictionaries, the
-  detection middleware (URL-prefix, cookie, or `Accept-Language`), and a
-  helper for in-component translation.
+  Wire internationalization into a pracht app with the first-party
+  `@pracht/i18n` package, following the framework's recommended pattern
+  (middleware detects locale, loaders return translations, components
+  consume via route data). Sets up the i18n instance, lazy locale
+  dictionaries with typed keys, the detection middleware (URL-prefix,
+  cookie, and `Accept-Language`), locale-prefixed route groups, and
+  hreflang metadata.
   Use when asked to "add i18n", "set up translations", "make my app
   multilingual", "add locale routing", or "extract strings".
 allowed-tools:
@@ -21,219 +23,218 @@ allowed-tools:
 
 # Pracht Add i18n
 
-Pracht ships no i18n library — the framework gives you primitives. The
-recommended recipe lives at
-`examples/docs/src/routes/docs/recipes-i18n.md`.
+Pracht ships its i18n primitives as `@pracht/i18n`: locale-detection
+middleware, lazy dictionaries with keys typed from the default locale,
+`t()`/`tPlural()` (plurals via `Intl.PluralRules`), `localePath()`, and an
+`hreflang()` helper for `head()`. The full guide lives at
+`examples/docs/src/routes/docs/recipes-i18n.md`; a working setup is in
+`examples/basic` (`/welcome`, `/en/welcome`, `/nl/welcome`). That page also
+keeps a hand-rolled fallback recipe if the user refuses the dependency.
 
 If the pracht MCP server is registered (see docs/MCP.md), prefer its tools
 (`inspect_routes`, `inspect_api`, `inspect_build`, `doctor`, `verify`,
 `generate_*`) over shelling out. Prerequisite: `pracht inspect` needs a vite
 config with the pracht plugin registered.
 
-## Step 1: Pick the locale-detection strategy
+## Step 1: Pick locales and detection order
 
-Use `AskUserQuestion`:
+Use `AskUserQuestion` once for: supported locales (default: `en` plus one or
+two more), the default locale, and the detection order. The package default —
+`["path", "cookie", "header"]` (explicit URL prefix beats the remembered
+cookie beats `Accept-Language`) — is right for almost everyone; only change
+it when the user explicitly wants cookie-only or header-only detection.
 
-| Strategy        | URL shape          | Pros                          | Cons                       |
-| --------------- | ------------------ | ----------------------------- | -------------------------- |
-| URL-prefix      | `/fr/about`        | Best for SEO; explicit        | Requires manifest changes  |
-| Cookie          | `/about` + cookie  | URL stays clean               | Hidden state; SEO weaker   |
-| Accept-Language | `/about` (varies)  | No user action                | Caching/SEO get tricky     |
+Install the package:
 
-Default to **URL-prefix** unless the user explicitly chooses otherwise.
+```bash
+npm install @pracht/i18n
+```
 
-## Step 2: Pick the supported locales
-
-Ask once. Default suggestion: `en` plus one to two more. Confirm a default
-locale (used as fallback in `t()`).
-
-## Step 3: Translation files
-
-`src/i18n/<locale>.ts` per locale:
+## Step 2: The i18n instance and dictionaries
 
 ```ts
+// src/i18n/index.ts
+import { createDictionaries, defineI18n } from "@pracht/i18n";
+
+export const i18n = defineI18n({
+  locales: ["en", "fr"],
+  defaultLocale: "en",
+});
+
+export type AppLocale = (typeof i18n.locales)[number];
+
+export const dictionaries = createDictionaries(
+  {
+    en: () => import("./locales/en.ts"),
+    fr: () => import("./locales/fr.ts"),
+  },
+  { defaultLocale: "en" },
+);
+```
+
+One dictionary module per locale — flat string keys, default export,
+`as const` so key typing works:
+
+```ts
+// src/i18n/locales/en.ts
 export default {
-  "home.title": "Welcome",
-  "home.subtitle": "Built with pracht",
-  "nav.home": "Home",
-  "nav.about": "About",
+  "home.title": "Welcome, {name}",
+  "cart.items.one": "{count} item",
+  "cart.items.other": "{count} items",
 } as const;
 ```
 
-`src/i18n/index.ts`:
+Plural keys declare one entry per `Intl.PluralRules` category the locale
+needs (`.one`, `.other`, plus `.few`/`.many` for e.g. Polish); `tPlural()`
+falls back to `.other`. Non-default locales may omit keys — `load()` merges
+the default locale underneath.
 
-```ts
-import en from "./en";
-import fr from "./fr";
-
-export const translations = { en, fr } as const;
-export const defaultLocale = "en" as const;
-export const supportedLocales = Object.keys(translations) as Array<keyof typeof translations>;
-
-export type Locale = keyof typeof translations;
-export type TranslationKey = keyof typeof en;
-
-export function t(locale: string, key: TranslationKey): string {
-  const dict = (translations as Record<string, Record<string, string>>)[locale]
-    ?? translations[defaultLocale];
-  return dict[key] ?? translations[defaultLocale][key] ?? key;
-}
-```
-
-## Step 4: Locale-detection middleware
-
-### URL-prefix variant
+## Step 3: Detection middleware
 
 ```ts
 // src/middleware/i18n.ts
-import type { MiddlewareFn } from "@pracht/core";
-import { defaultLocale, supportedLocales } from "../i18n";
+import { i18n } from "../i18n/index.ts";
 
-export const middleware: MiddlewareFn = ({ request, url }, next) => {
-  const segments = url.pathname.split("/").filter(Boolean);
-  const maybe = segments[0] ?? "";
-  const locale = (supportedLocales as readonly string[]).includes(maybe) ? maybe : defaultLocale;
-  request.headers.set("x-locale", locale);
-  return next();
-};
+export const middleware = i18n.middleware;
 ```
 
-Caveat: a `/:locale/...` route pattern matches ANY first segment — `/zz/about`
-would happily serve default-locale content at a bogus URL, and search engines
-will index it as duplicate content. Guard against unsupported prefixes in the
-middleware — 404 (or redirect to the default-locale URL) when the first
-segment looks like a locale but isn't supported:
+The middleware sets `context.locale` and persists URL-prefix choices in a
+`SameSite=Lax` cookie (never for header-derived locales, so prerendered
+documents never carry `Set-Cookie`). Type the context once via the Register
+pattern:
 
 ```ts
-// Add before `return next()` in the URL-prefix middleware:
-if (maybe.length === 2 && !(supportedLocales as readonly string[]).includes(maybe)) {
-  return new Response("Not Found", { status: 404 });
-  // or redirect to the default-locale URL (import `redirect` from "@pracht/core"):
-  // return redirect(`/${url.pathname.split("/").slice(2).join("/")}`, { request });
+// src/env.d.ts
+import type { I18nRequestContext } from "@pracht/i18n";
+
+declare module "@pracht/core" {
+  interface Register {
+    context: I18nRequestContext<"en" | "fr">;
+  }
 }
 ```
 
-### Cookie variant
+Intersect with the existing registered context type if the app already has
+one.
 
-```ts
-import type { MiddlewareFn } from "@pracht/core";
-import { defaultLocale, supportedLocales } from "../i18n";
+## Step 4: Wire the manifest
 
-export const middleware: MiddlewareFn = ({ request }, next) => {
-  const cookie = request.headers.get("cookie") ?? "";
-  const m = cookie.match(/locale=([^;]+)/);
-  const requested = m?.[1] ?? defaultLocale;
-  const locale = (supportedLocales as readonly string[]).includes(requested) ? requested : defaultLocale;
-  request.headers.set("x-locale", locale);
-  return next();
-};
-```
-
-### Accept-Language variant
-
-```ts
-import type { MiddlewareFn } from "@pracht/core";
-import { defaultLocale, supportedLocales } from "../i18n";
-
-export const middleware: MiddlewareFn = ({ request }, next) => {
-  const header = request.headers.get("accept-language") ?? "";
-  const preferred = header.split(",").map(p => p.split(";")[0]?.trim().toLowerCase().slice(0, 2));
-  const match = preferred.find(p => (supportedLocales as readonly string[]).includes(p));
-  request.headers.set("x-locale", match ?? defaultLocale);
-  return next();
-};
-```
-
-## Step 5: Use in a loader
-
-```ts
-import type { LoaderArgs } from "@pracht/core";
-import { t } from "../i18n";
-
-export async function loader({ request }: LoaderArgs) {
-  const locale = request.headers.get("x-locale") ?? "en";
-  return {
-    locale,
-    title: t(locale, "home.title"),
-    subtitle: t(locale, "home.subtitle"),
-  };
-}
-```
-
-## Step 6: Wire the manifest
-
-For the URL-prefix strategy, the routes need to live under per-locale
-groups. Update `src/routes.ts`:
+One `pathPrefix` group per locale — only registered locales produce URLs, so
+`/zz/about` 404s instead of serving duplicate default-locale content (never
+use a `/:locale` param route for this; it matches any first segment):
 
 ```ts
 import { defineApp, group, route } from "@pracht/core";
+
+const localizedRoutes = [
+  route("/", "./routes/home.tsx", { render: "ssr" }),
+  route("/about", "./routes/about.tsx", { render: "ssr" }),
+];
 
 export const app = defineApp({
   middleware: { i18n: "./middleware/i18n.ts" },
   routes: [
     group({ middleware: ["i18n"] }, [
-      route("/", "./routes/home.tsx", { id: "home-default" }),
-      route("/:locale/", "./routes/home.tsx", { id: "home-localized" }),
-      route("/:locale/about", "./routes/about.tsx"),
+      group({ pathPrefix: "/en" }, localizedRoutes),
+      group({ pathPrefix: "/fr" }, localizedRoutes),
+      route("/", "./routes/locale-redirect.tsx", { render: "ssr" }),
     ]),
   ],
 });
 ```
 
-For cookie / Accept-Language strategies, just add the middleware to the root
-group; no path changes.
+Notes:
 
-This step restructures route paths (`/` → `/:locale/...`), so route ids and
-generated types change — `pracht typegen` in the verification step is
-mandatory, not optional.
+- Reusing one `localizedRoutes` array is fine with auto-generated ids; if
+  the app sets explicit `id`s, each locale's copy needs unique ids.
+- The unprefixed detector redirects using what the middleware resolved:
 
-## Step 7: SEO touch-ups
+```ts
+// src/routes/locale-redirect.tsx
+import { redirect, type LoaderArgs } from "@pracht/core";
+import { i18n } from "../i18n/index.ts";
 
-- Set `lang` in `head()` per route from the resolved locale.
-- For URL-prefix: emit `<link rel="alternate" hreflang="fr" href="...">`
-  pairs in `head()` so search engines learn the locale graph.
-- Update sitemap (cross-reference with `audit-seo`) to include all
-  per-locale URLs.
+export async function loader({ context, request }: LoaderArgs) {
+  throw redirect(i18n.localePath("/", context.locale), { request });
+}
 
-## Step 8: String extraction (optional)
-
-First create `scripts/i18n-extract.mjs`, a script that:
-
-1. Greps for `t(locale, "...")` calls.
-2. Builds a key set.
-3. Diffs against each `src/i18n/<locale>.ts`.
-4. Reports missing keys per locale.
-
-Then run it:
-
-```bash
-node scripts/i18n-extract.mjs
+export function Component() {
+  return null;
+}
 ```
 
-The output is a TODO list per locale, not auto-translation.
+- Route matching is exact: locale prefixes are lowercase URLs; build links
+  with `i18n.localePath()` so they always come out canonical.
+- Cookie/header-only strategies (no URL prefixes): add the middleware to the
+  root group and skip the prefix groups and detector route.
 
-## Step 9: Verify
+## Step 5: Use in loaders and components
 
-- Step 6 changed route paths — run `pracht typegen` to refresh the generated
+```tsx
+import type { HeadArgs, LoaderArgs, RouteComponentProps } from "@pracht/core";
+import { t, tPlural } from "@pracht/i18n";
+import { dictionaries, i18n } from "../i18n/index.ts";
+
+export async function loader({ context }: LoaderArgs) {
+  const messages = await dictionaries.load(context.locale);
+  return { locale: context.locale, messages };
+}
+
+export function head({ data, url }: HeadArgs<typeof loader>) {
+  return {
+    lang: data.locale,
+    title: t(data.messages, "home.title"),
+    link: i18n.hreflang(url.pathname, { origin: "https://example.com" }),
+  };
+}
+
+export function Component({ data }: RouteComponentProps<typeof loader>) {
+  return <h1>{t(data.messages, "home.title", { name: "Jovi" })}</h1>;
+}
+```
+
+`messages` is a plain serializable object, so the same `t()` calls work
+after hydration and on client navigations. `hreflang()` emits one alternate
+link per locale plus `x-default` pointing at the unprefixed detector; pass
+the app's canonical origin.
+
+## Step 6: SEO touch-ups
+
+- Set `lang` from the resolved locale in `head()` (as above).
+- Keep the detector route SSR; locale-prefixed routes may be `ssg` — every
+  prefixed URL is a real route, so each locale prerenders.
+- Update the sitemap (cross-reference with `audit-seo`) to include all
+  per-locale URLs.
+
+## Step 7: Verify
+
+- Step 4 changed route paths — run `pracht typegen` to refresh the generated
   route types/`href()` helper. Add `pracht typegen --check` to CI so stale
   types fail the build.
 - Boot dev: `pracht dev`.
-- Visit `/` and the locale-prefixed variant; confirm content swaps.
-- Visit an unsupported prefix (e.g. `/zz/about`); confirm the middleware
-  404s or redirects rather than serving default-locale content.
+- `curl -i` the unprefixed detector with `Accept-Language: fr` (expect a 302
+  to `/fr/...`), with a `pracht_locale` cookie (cookie beats header), and
+  with garbage (`;q=`, unknown tags — expect the default locale).
+- Visit a locale-prefixed page; confirm translated content, the
+  `Set-Cookie` on first visit, and the hreflang links in the document head.
+- Visit an unsupported prefix (e.g. `/zz/about`); confirm it 404s.
 - `pnpm test` and `pnpm e2e` still pass.
 - Run `pracht verify --json` and confirm no failures.
 
 ## Rules
 
-1. The middleware sets a request header; loaders read it. Do not stash the
+1. The middleware sets `context.locale`; loaders read it. Do not stash the
    locale in module-level state — concurrent requests will collide.
-2. Always include the default locale as the fallback in `t()`.
-3. For SSG, only prerender the URL combinations that exist; provide
-   `getStaticPaths` returning the locale × dynamic-param product.
-4. Recommend `Intl.DateTimeFormat` and `Intl.NumberFormat` for formatting —
-   no library needed.
-5. Never bundle every translation into the client. If translations grow
-   large, split per-locale and import lazily in loaders.
+2. Only registered locales may ever reach paths, cookies, or hreflang.
+   `defineI18n`/`localePath` enforce this — never bypass them with string
+   concatenation on user input.
+3. For SSG, only prerender URL combinations that exist; provide
+   `getStaticPaths` returning the locale × dynamic-param product when a
+   localized route has dynamic segments.
+4. Recommend `Intl.DateTimeFormat` and `Intl.NumberFormat` with
+   `data.locale` for formatting — no library needed.
+5. Never bundle every translation into the client: `createDictionaries`
+   loaders are per-locale lazy imports resolved in loaders; keep them that
+   way.
 
 $ARGUMENTS

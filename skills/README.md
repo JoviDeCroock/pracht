@@ -55,7 +55,7 @@ collide with other skill packs installed in the same app.
 | --------------------- | ----------------------------------------------------------------- |
 | `/add-auth`           | Wire session-based email/password auth.                           |
 | `/add-db`             | Wire Drizzle ORM (D1, PlanetScale, Neon, Postgres, ...).          |
-| `/add-i18n`           | Add locale routing and translation primitives.                    |
+| `/add-i18n`           | Wire `@pracht/i18n`: locale routing, dictionaries, hreflang.      |
 | `/add-observability`  | Wire Sentry / OpenTelemetry plus Web Vitals.                      |
 | `/typed-routes`       | Generate and adopt route-id based typed links/navigation.         |
 | `/configure-isg`      | Wire ISG revalidation (time + webhook) per adapter.               |

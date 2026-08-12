@@ -23,6 +23,7 @@
     "@pracht/adapter-vercel": "workspace:*",
     "@pracht/capabilities": "workspace:*",
     "@pracht/core": "workspace:*",
+    "@pracht/i18n": "workspace:*",
     "@pracht/image": "workspace:*",
     "@pracht/openapi": "workspace:*",
     "sharp": "^0.34.0"

@@ -1,0 +1,45 @@
+{
+  "name": "@pracht/i18n",
+  "version": "0.0.0",
+  "description": "First-party i18n primitives for Pracht: locale-detection middleware, lazy locale dictionaries with typed keys, plural selection via Intl.PluralRules, and hreflang helpers.",
+  "keywords": [
+    "pracht",
+    "preact",
+    "i18n",
+    "internationalization",
+    "locale",
+    "translations",
+    "accept-language",
+    "hreflang"
+  ],
+  "license": "MIT",
+  "homepage": "https://github.com/JoviDeCroock/pracht/tree/main/packages/i18n",
+  "bugs": {
+    "url": "https://github.com/JoviDeCroock/pracht/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/JoviDeCroock/pracht",
+    "directory": "packages/i18n"
+  },
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.mts",
+      "default": "./dist/index.mjs"
+    }
+  },
+  "publishConfig": {
+    "provenance": true
+  },
+  "scripts": {
+    "build": "tsdown",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "@pracht/core": "workspace:*"
+  }
+}

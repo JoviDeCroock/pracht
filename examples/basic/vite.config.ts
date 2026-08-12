@@ -50,7 +50,9 @@ export default defineConfig(async () => {
           // sit behind the `auth` middleware and answer 302 to `/`.
           // Framework-reserved paths (`/api/_pracht/image`) are dropped
           // automatically and need no entry here.
-          exclude: ["/dashboard", "/settings"],
+          // `/welcome` is the locale detector — it always answers 302 to the
+          // locale-prefixed URL, so it is excluded like the auth redirects.
+          exclude: ["/dashboard", "/settings", "/welcome"],
         },
       }),
       // Build-time `?pracht` image imports (metadata + blur placeholders).

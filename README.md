@@ -151,6 +151,7 @@ The skills are distributed three ways (see the [catalog](skills/README.md)):
 - [docs/STYLING.md](docs/STYLING.md) — CSS Modules, Tailwind, CSS-in-JS limitations
 - [docs/ADAPTERS.md](docs/ADAPTERS.md) — Node, Cloudflare, Netlify, Vercel deployment paths
 - [docs/IMAGES.md](docs/IMAGES.md) — responsive `<Image>` component, loaders, optimization endpoint
+- [packages/i18n/README.md](packages/i18n/README.md) — `@pracht/i18n`: locale-detection middleware, typed dictionaries, hreflang helpers
 - [docs/MCP.md](docs/MCP.md) — built-in MCP server for coding agents (development time)
 - [docs/AGENT_WORKFLOW.md](docs/AGENT_WORKFLOW.md) — constraints, app-graph snapshots, `pracht plan`/`report`
 - [docs/ENV.md](docs/ENV.md) — typed env access, `PRACHT_PUBLIC_` prefix rule, leak detection
