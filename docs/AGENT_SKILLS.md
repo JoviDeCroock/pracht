@@ -24,7 +24,9 @@ export const app = defineApp({
 
 `directory` is resolved from the Vite project root. It contains one directory per
 skill, and each directory must contain a `SKILL.md` whose frontmatter `name` matches
-the directory name:
+the directory name. Built-in publishing currently supports single-file skills; a
+skill directory containing `scripts/`, `references/`, `assets/`, or any other
+supporting entry fails the build instead of publishing an incomplete skill:
 
 ```text
 skills/
@@ -68,7 +70,8 @@ asset wins and the build reports the replacement.
 ## Validation
 
 An enabled publication fails the build when the directory cannot be read, contains no
-skills, or a skill has missing/invalid `name` or `description` frontmatter. Names must
-match their parent directory and follow the Agent Skills naming rules: 1-64 lowercase
-letters, numbers, and single hyphens. Frontmatter is parsed as YAML, including quoted
-values and literal or folded block scalars with chomping indicators.
+skills, has supporting resources, or a skill has missing/invalid `name` or `description`
+frontmatter. Names must match their parent directory and follow the Agent Skills naming
+rules: 1-64 lowercase letters, numbers, and single hyphens. Frontmatter is parsed as
+YAML, including quoted values and literal or folded block scalars with chomping
+indicators.

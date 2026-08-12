@@ -74,6 +74,22 @@ describe("generateAgentSkillArtifacts", () => {
     ).toThrow(/must match its parent directory/);
   });
 
+  it("rejects supporting resources instead of publishing an incomplete skill", () => {
+    const root = createRoot({
+      "review-code":
+        "---\nname: review-code\ndescription: Review code.\n---\n\nSee references/GUIDE.md.\n",
+    });
+    mkdirSync(join(root, "skills/review-code/references"), { recursive: true });
+    writeFileSync(join(root, "skills/review-code/references/GUIDE.md"), "# Guide\n", "utf8");
+
+    expect(() =>
+      generateAgentSkillArtifacts(root, {
+        directory: "./skills",
+        manifest: { name: "example" },
+      }),
+    ).toThrow(/supports single-file SKILL\.md skills only/);
+  });
+
   it("parses YAML block scalar modifiers and quoted values", () => {
     const source = `---
 name: review-code

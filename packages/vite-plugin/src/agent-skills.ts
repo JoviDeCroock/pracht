@@ -59,6 +59,21 @@ export function generateAgentSkillArtifacts(
       continue;
     }
 
+    const supportingEntries = readdirSync(resolve(directory, entry.name), {
+      withFileTypes: true,
+      encoding: "utf8",
+    })
+      .map((candidate) => candidate.name)
+      .filter((name) => name !== "SKILL.md")
+      .sort();
+    if (supportingEntries.length > 0) {
+      throw new Error(
+        `[pracht] Skill ${JSON.stringify(entry.name)} contains supporting resources ` +
+          `(${supportingEntries.map((name) => JSON.stringify(name)).join(", ")}). ` +
+          "Built-in publishing currently supports single-file SKILL.md skills only.",
+      );
+    }
+
     const { name, description } = readFrontmatter(source, skillPath);
     if (name !== entry.name) {
       throw new Error(

@@ -69,6 +69,11 @@ defineApp({
 });
 ```
 
+Built-in publishing currently accepts single-file skills only. If a skill directory
+also contains `scripts/`, `references/`, `assets/`, or another supporting entry, the
+build fails rather than publishing a `SKILL.md` whose relative resources would be
+missing.
+
 ---
 
 ## Manual Install

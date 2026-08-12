@@ -5,6 +5,7 @@ import { pathToFileURL } from "node:url";
 
 import { defineCommand } from "citty";
 import { build as viteBuild } from "vite";
+import type { ISGManifestEntry } from "@pracht/core/server";
 import { generateAgentSkillArtifacts } from "@pracht/vite-plugin/agent-skills";
 
 import { readClientBuildAssets } from "../build-metadata.js";
@@ -164,7 +165,7 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
     const { clientEntryUrl, clientEntryJs, islandsEntryJs, cssManifest, jsManifest } =
       readClientBuildAssets(root);
 
-    const { pages, isgManifest } = await prerenderApp({
+    const { pages, isgManifest: prerenderedIsgManifest } = await prerenderApp({
       app: serverMod.resolvedApp,
       clientEntryUrl: clientEntryUrl ?? undefined,
       islandsEntryUrl: serverMod.islandsEntryUrl ?? undefined,
@@ -175,14 +176,38 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
       withISGManifest: true,
       concurrency: serverMod.prerenderConcurrency,
     });
+
+    const agentSkillsConfig = serverMod.resolvedApp?.agents?.skills;
+    const agentSkillArtifacts = agentSkillsConfig
+      ? generateAgentSkillArtifacts(root, agentSkillsConfig)
+      : [];
+    const reservedAgentSkillPaths = new Set(
+      agentSkillArtifacts.map((artifact) => `/${artifact.outputPath}`),
+    );
+    const publishedPages = pages.filter(
+      (page: { path: string }) => !reservedAgentSkillPaths.has(page.path),
+    );
+    const isgManifest: Record<string, ISGManifestEntry> = Object.fromEntries(
+      Object.entries(prerenderedIsgManifest as Record<string, ISGManifestEntry>).filter(
+        ([path]) => !reservedAgentSkillPaths.has(path),
+      ),
+    );
+
+    for (const page of pages as Array<{ path: string }>) {
+      if (!reservedAgentSkillPaths.has(page.path)) continue;
+      log(
+        `\n  Warning: generated Agent Skills asset ${page.path.slice(1)} replaces prerendered route ${page.path}.\n`,
+      );
+    }
+
     const headersManifest: Record<string, Record<string, string>> = Object.fromEntries(
-      pages.map((page: { path: string; headers?: Record<string, string> }) => [
+      publishedPages.map((page: { path: string; headers?: Record<string, string> }) => [
         page.path,
         page.headers ?? {},
       ]),
     );
     const markdownManifest: Record<string, true> = Object.fromEntries(
-      pages
+      publishedPages
         .filter((page: { markdown?: boolean }) => page.markdown)
         .map((page: { path: string }) => [page.path, true]),
     );
@@ -199,8 +224,8 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
       : [];
     const staticPages =
       edgeCachedIsgPaths.length > 0
-        ? pages.filter((page: { path: string }) => !edgeCachedIsgPaths.includes(page.path))
-        : pages;
+        ? publishedPages.filter((page: { path: string }) => !edgeCachedIsgPaths.includes(page.path))
+        : publishedPages;
 
     if (staticPages.length > 0) {
       log(`\n  Prerendering ${staticPages.length} SSG/ISG route(s)...\n`);
@@ -230,11 +255,6 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
       log("\n  llms.txt → dist/client/llms.txt\n");
     }
 
-    const agentSkillsConfig = serverMod.resolvedApp?.agents?.skills;
-    const agentSkillArtifacts = agentSkillsConfig
-      ? generateAgentSkillArtifacts(root, agentSkillsConfig)
-      : [];
-
     const generatedStaticRoutes: string[] = [];
 
     // Companion artifact generators can inspect the bundled server graph and
@@ -262,6 +282,7 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
         if (
           typeof artifact.path === "string" &&
           artifact.path.startsWith("/") &&
+          !reservedAgentSkillPaths.has(artifact.path) &&
           artifact.outputPath ===
             (artifact.path === "/" ? "index.html" : `${artifact.path.slice(1)}/index.html`)
         ) {
@@ -295,6 +316,7 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
         log(
           `\n  Warning: generated Agent Skills asset ${artifact.outputPath} replaces an existing public/build file.\n`,
         );
+        rmSync(filePath, { force: true, recursive: true });
       }
       mkdirSync(dirname(filePath), { recursive: true });
       writeFileSync(filePath, artifact.content, "utf-8");
@@ -399,7 +421,7 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
         regions: serverMod.vercelRegions,
         root,
         staticRoutes: [
-          ...pages
+          ...publishedPages
             .map((page: { path: string }) => page.path)
             .filter((path: string) => !(path in isgManifest)),
           ...generatedStaticRoutes,

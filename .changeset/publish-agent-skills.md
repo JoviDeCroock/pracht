@@ -22,4 +22,5 @@ not-found middleware or request-time filesystem scans.
 Skill frontmatter is parsed as YAML, including block scalar modifiers. Reserved
 Agent Skills paths win over public, prerendered, and companion-generated files,
 and Vercel emits CORS/discovery metadata through Build Output API routes with
-static MIME overrides.
+static MIME overrides. Multi-file skills fail validation until archive publishing
+is supported, so `scripts/`, `references/`, or `assets/` are never silently omitted.

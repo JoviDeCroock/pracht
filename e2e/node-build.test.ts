@@ -480,11 +480,12 @@ test("public/ folder assets are copied to dist/client/", async () => {
   }
 });
 
-test("Agent Skills keeps its reserved index when a companion artifact collides", async () => {
+test("Agent Skills keeps its reserved index when routes and companion artifacts collide", async () => {
   test.setTimeout(120_000);
 
   const { exampleDir, tempDir } = createTempExampleDir("pracht-agent-skills-collision-");
   const viteConfigPath = resolve(exampleDir, "vite.config.ts");
+  const routesPath = resolve(exampleDir, "src/routes.ts");
 
   try {
     const viteConfig = readFileSync(viteConfigPath, "utf-8");
@@ -497,12 +498,33 @@ test("Agent Skills keeps its reserved index when a companion artifact collides",
       ),
       "utf-8",
     );
+    const routes = readFileSync(routesPath, "utf-8");
+    expect(routes).toContain("routes: [");
+    writeFileSync(
+      routesPath,
+      routes.replace(
+        "routes: [",
+        `routes: [
+    route(
+      "/.well-known/agent-skills/index.json",
+      () => import("./routes/agent-skills-collision.tsx"),
+      { id: "agent-skills-collision", render: "ssg" },
+    ),`,
+      ),
+      "utf-8",
+    );
+    writeFileSync(
+      resolve(exampleDir, "src/routes/agent-skills-collision.tsx"),
+      "export function Component() { return <main>Reserved route</main>; }\n",
+      "utf-8",
+    );
 
     buildExample(exampleDir, { PRACHT_ADAPTER: "node" });
 
-    const index = JSON.parse(
-      readFileSync(resolve(exampleDir, "dist/client/.well-known/agent-skills/index.json"), "utf-8"),
-    );
+    const indexPath = resolve(exampleDir, "dist/client/.well-known/agent-skills/index.json");
+    expect(statSync(indexPath).isFile()).toBe(true);
+    expect(existsSync(resolve(indexPath, "index.html"))).toBe(false);
+    const index = JSON.parse(readFileSync(indexPath, "utf-8"));
     expect(index.$schema).toBe("https://schemas.agentskills.io/discovery/0.2.0/schema.json");
     expect(index.skills).toEqual([
       expect.objectContaining({ name: "pracht-example", type: "skill-md" }),
