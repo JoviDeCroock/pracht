@@ -250,7 +250,15 @@ export async function writeWebResponse(
   }
 
   const source: NodeJS.ReadableStream = Readable.fromWeb(response.body as never);
-  await pipeToResponse(encoding ? createCompressedStream(source, encoding) : source, res);
+  // `incremental` flushes the compressor per written chunk: dynamic bodies
+  // may be produced over time (SSE, streamed API responses), and a compressor
+  // that only drains at end-of-stream would hold every event back until the
+  // response closes. For single-chunk bodies (SSR documents, route-state
+  // JSON) the extra flush costs a handful of bytes.
+  await pipeToResponse(
+    encoding ? createCompressedStream(source, encoding, { incremental: true }) : source,
+    res,
+  );
 }
 
 export function writeNodeResponseHeaders(res: ServerResponse, headers: Headers): void {

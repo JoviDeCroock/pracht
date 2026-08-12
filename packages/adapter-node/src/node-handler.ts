@@ -411,18 +411,16 @@ async function writeFileBody(
 
   if (fileStat.size <= MAX_CACHEABLE_ASSET_SIZE) {
     const key = `${filePath}\0${fileStat.size}\0${fileStat.mtimeMs}\0${encoding}`;
-    let compressed = compression.cache.get(key);
-    if (compressed === undefined) {
-      compressed = await compressBuffer(await readFile(filePath), encoding);
-      compression.cache.set(key, compressed);
-    }
+    const compressed = await compression.cache.getOrCompress(key, async () =>
+      compressBuffer(await readFile(filePath), encoding),
+    );
     res.setHeader("content-length", compressed.byteLength);
     res.end(compressed);
     return;
   }
 
   await pipeToResponse(
-    createCompressedStream(createReadStream(filePath), encoding, fileStat.size),
+    createCompressedStream(createReadStream(filePath), encoding, { sizeHint: fileStat.size }),
     res,
   );
 }
@@ -578,13 +576,18 @@ function createWeakEtag(fileStat: { mtimeMs: number; size: number }): string {
 }
 
 function isNotModified(request: Request, headers: Headers): boolean {
-  const etag = headers.get("etag");
   const ifNoneMatch = request.headers.get("if-none-match");
-  if (etag && ifNoneMatch) {
+  if (ifNoneMatch) {
+    // RFC 9110 §13.1.3: when If-None-Match is present, If-Modified-Since MUST
+    // be ignored — the ETag decides alone. This matters with per-encoding
+    // ETags: a client revalidating an identity body with its identity ETag
+    // plus a Last-Modified date must get a fresh 200 when brotli is
+    // negotiated, not a 304 that relabels its identity cache entry with the
+    // brotli variant's validator.
+    const etag = headers.get("etag");
+    if (!etag) return false;
     const candidates = ifNoneMatch.split(",").map((value) => value.trim());
-    if (candidates.includes("*") || candidates.includes(etag)) {
-      return true;
-    }
+    return candidates.includes("*") || candidates.includes(etag);
   }
 
   const lastModified = headers.get("last-modified");

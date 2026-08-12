@@ -3,11 +3,14 @@
 ---
 
 Add response compression to the Node adapter. Responses are negotiated against
-`Accept-Encoding` (brotli preferred, then gzip, honoring q-values) and
-compressed with `node:zlib`: dynamic documents, route-state JSON, and other
-compressible text types stream through a zlib transform, while static assets
-and (re)generated ISG documents are compressed once per file version at higher
-quality and served from an in-memory LRU. Compressible responses always carry
+`Accept-Encoding` (highest q-value wins per RFC 9110, brotli preferred on
+ties) and compressed with `node:zlib`: dynamic documents, route-state JSON,
+and other compressible text types stream through a zlib transform that flushes
+per written chunk (so SSE and other incrementally produced bodies are
+delivered as they are written), while static assets and (re)generated ISG
+documents are compressed once per file version at higher quality — concurrent
+first requests share one in-flight compression — and served from an in-memory
+LRU. Compressible responses always carry
 `Vary: Accept-Encoding` (merged with existing `Vary` members), encoded
 variants get their own weak ETag so conditional revalidation never crosses
 encodings, and already-encoded responses, `Cache-Control: no-transform`,

@@ -8,7 +8,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { once } from "node:events";
-import { brotliDecompressSync, gunzipSync } from "node:zlib";
+import { brotliDecompressSync, createBrotliDecompress, createGunzip, gunzipSync } from "node:zlib";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { defineApp, resolveApiRoutes, route } from "@pracht/core";
@@ -115,8 +115,15 @@ describe("negotiateEncoding", () => {
   it("honors wildcards and q-values", () => {
     expect(negotiateEncoding("*")).toBe("br");
     expect(negotiateEncoding("*;q=0.5, br;q=0")).toBe("gzip");
-    expect(negotiateEncoding("gzip;q=1.0, br;q=0.1")).toBe("br");
     expect(negotiateEncoding("*;q=0")).toBeNull();
+  });
+
+  it("prefers the acceptable coding with the highest qvalue (RFC 9110 §12.5.3)", () => {
+    expect(negotiateEncoding("gzip;q=1.0, br;q=0.1")).toBe("gzip");
+    expect(negotiateEncoding("gzip;q=0.8, br;q=0.9")).toBe("br");
+    expect(negotiateEncoding("br;q=0.5, gzip;q=0.5")).toBe("br"); // ties go to brotli
+    expect(negotiateEncoding("gzip;q=0.5, *;q=1")).toBe("br"); // wildcard covers br at q=1
+    expect(negotiateEncoding("identity;q=0, gzip")).toBe("gzip");
   });
 });
 
@@ -170,6 +177,40 @@ describe("CompressedAssetCache", () => {
     cache.set("huge", Buffer.alloc(64));
     expect(cache.get("huge")).toBeUndefined();
     expect(cache.totalBytes).toBe(0);
+  });
+
+  it("deduplicates concurrent compressions of the same key", async () => {
+    const cache = new CompressedAssetCache(1024);
+    let produced = 0;
+    const produce = async (): Promise<Buffer> => {
+      produced += 1;
+      await new Promise((resolveTick) => setTimeout(resolveTick, 10));
+      return Buffer.from("compressed");
+    };
+
+    const results = await Promise.all(
+      Array.from({ length: 8 }, () => cache.getOrCompress("asset", produce)),
+    );
+
+    expect(produced).toBe(1);
+    for (const result of results) expect(result.toString()).toBe("compressed");
+    // Later requests hit the stored entry, not `produce`.
+    await cache.getOrCompress("asset", produce);
+    expect(produced).toBe(1);
+  });
+
+  it("does not cache a failed compression and lets the next request retry", async () => {
+    const cache = new CompressedAssetCache(1024);
+    let calls = 0;
+    const failThenSucceed = async (): Promise<Buffer> => {
+      calls += 1;
+      if (calls === 1) throw new Error("EIO");
+      return Buffer.from("ok");
+    };
+
+    await expect(cache.getOrCompress("asset", failThenSucceed)).rejects.toThrow("EIO");
+    await expect(cache.getOrCompress("asset", failThenSucceed)).resolves.toBeDefined();
+    expect(calls).toBe(2);
   });
 });
 
@@ -415,6 +456,87 @@ describe("dynamic response compression", () => {
     expect(gunzipSync(response.body).toString("utf-8")).toBe(chunks.join(""));
   });
 
+  for (const [encoding, createDecompressor] of [
+    ["gzip", createGunzip],
+    ["br", createBrotliDecompress],
+  ] as const) {
+    it(`delivers ${encoding}-compressed SSE events incrementally, not at stream end`, async () => {
+      // The producer holds the stream open until the test observes the first
+      // event on the wire. Without per-chunk flushing the compressor sits on
+      // the event (brotli emits zero bytes, gzip only its header) and this
+      // deadlocks: the event would only surface when the stream closes.
+      let releaseGate!: () => void;
+      const gate = new Promise<void>((resolveGate) => {
+        releaseGate = resolveGate;
+      });
+
+      const base = await listen(
+        createNodeRequestHandler({
+          apiRoutes: resolveApiRoutes(["/src/api/events.ts"]),
+          app: defineApp({ routes: [] }),
+          registry: {
+            apiModules: {
+              "/src/api/events.ts": async () => ({
+                GET: async () =>
+                  new Response(
+                    new ReadableStream({
+                      async start(controller) {
+                        controller.enqueue(new TextEncoder().encode("data: first\n\n"));
+                        await gate;
+                        controller.enqueue(new TextEncoder().encode("data: second\n\n"));
+                        controller.close();
+                      },
+                    }),
+                    { headers: { "content-type": "text/event-stream" } },
+                  ),
+              }),
+            },
+          },
+        }),
+      );
+
+      let openRequest: ReturnType<typeof httpRequest> | undefined;
+      const firstEventWhileOpen = await new Promise<string>((resolveProbe, reject) => {
+        const timeout = setTimeout(() => {
+          releaseGate();
+          reject(new Error("first SSE event was not delivered while the stream was open"));
+        }, 3000);
+        const req = httpRequest(
+          `${base}/api/events`,
+          { headers: { "accept-encoding": encoding } },
+          (res) => {
+            expect(res.headers["content-encoding"]).toBe(encoding);
+            const decompressor = createDecompressor();
+            let decompressed = "";
+            let observed = false;
+            decompressor.on("data", (chunk: Buffer) => {
+              decompressed += chunk.toString("utf-8");
+              if (!observed && decompressed.includes("data: first\n\n")) {
+                observed = true;
+                clearTimeout(timeout);
+                resolveProbe(decompressed);
+                releaseGate();
+              }
+            });
+            decompressor.on("error", reject);
+            res.pipe(decompressor);
+          },
+        );
+        req.on("error", reject);
+        req.end();
+        openRequest = req;
+      });
+
+      // Tear the client connection down so server close in `afterEach` does
+      // not wait out the keep-alive window of a socket the test is done with.
+      openRequest?.destroy();
+      releaseGate();
+
+      expect(firstEventWhileOpen).toContain("data: first");
+      expect(firstEventWhileOpen).not.toContain("data: second");
+    });
+  }
+
   it("can be disabled entirely with compression: false", async () => {
     const base = await listen(createSsrHandler({ compression: false }));
 
@@ -499,6 +621,52 @@ describe("static asset compression", () => {
     });
     expect(crossEncoding.status).toBe(200);
     expect(crossEncoding.headers["content-encoding"]).toBe("br");
+  });
+
+  it("ignores If-Modified-Since when If-None-Match is present (RFC 9110 §13.1.3)", async () => {
+    const { handler } = createStaticHandler();
+    const base = await listen(handler);
+
+    const identity = await rawRequest(`${base}/assets/app.js`);
+
+    // A client revalidating its identity-encoded cache entry sends both
+    // validators. The brotli variant carries a different ETag, so this must
+    // be a fresh 200: the still-fresh Last-Modified date must not shadow the
+    // ETag mismatch, or the client's identity body would be relabeled with
+    // the brotli variant's validator by a spurious 304.
+    const crossEncoding = await rawRequest(`${base}/assets/app.js`, {
+      "accept-encoding": "br",
+      "if-modified-since": identity.headers["last-modified"]!,
+      "if-none-match": identity.headers.etag!,
+    });
+    expect(crossEncoding.status).toBe(200);
+    expect(crossEncoding.headers["content-encoding"]).toBe("br");
+
+    // A matching ETag still answers 304 even alongside a stale IMS date.
+    const conditional = await rawRequest(`${base}/assets/app.js`, {
+      "accept-encoding": "br",
+      "if-modified-since": "Thu, 01 Jan 1970 00:00:00 GMT",
+      "if-none-match": crossEncoding.headers.etag!,
+    });
+    expect(conditional.status).toBe(304);
+  });
+
+  it("serves identical bytes to concurrent first requests for the same asset", async () => {
+    const { handler } = createStaticHandler();
+    const base = await listen(handler);
+
+    const responses = await Promise.all(
+      Array.from({ length: 8 }, () =>
+        rawRequest(`${base}/assets/app.js`, { "accept-encoding": "br" }),
+      ),
+    );
+
+    const [first, ...rest] = responses;
+    expect(first!.headers["content-encoding"]).toBe("br");
+    for (const response of rest) {
+      expect(response.headers.etag).toBe(first!.headers.etag);
+      expect(response.body.equals(first!.body)).toBe(true);
+    }
   });
 
   it("serves compressed prerendered HTML", async () => {

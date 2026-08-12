@@ -53,9 +53,13 @@ export function isCompressibleContentType(value: string | null): boolean {
 }
 
 /**
- * Pick the response encoding for an `Accept-Encoding` header: brotli when the
- * client allows it, gzip otherwise, `null` (identity) when neither is
- * acceptable. Honors q-values, `*` wildcards, and explicit `q=0` exclusions.
+ * Pick the response encoding for an `Accept-Encoding` header. Honors
+ * q-values, `*` wildcards, and explicit `q=0` exclusions. Per RFC 9110
+ * §12.5.3 the acceptable coding with the highest non-zero qvalue is
+ * preferred; brotli wins ties (including the common unweighted
+ * `gzip, deflate, br`). Returns `null` (identity) when neither coding is
+ * acceptable — including `identity;q=0` alone, where falling back to an
+ * uncompressed 200 is the robust interpretation of the SHOULD-level 406.
  */
 export function negotiateEncoding(header: string | null): ContentEncoding | null {
   if (!header) return null;
@@ -79,9 +83,10 @@ export function negotiateEncoding(header: string | null): ContentEncoding | null
   const qualityOf = (encoding: string): number =>
     qualities.get(encoding) ?? qualities.get("*") ?? 0;
 
-  if (qualityOf("br") > 0) return "br";
-  if (qualityOf("gzip") > 0) return "gzip";
-  return null;
+  const brQuality = qualityOf("br");
+  const gzipQuality = qualityOf("gzip");
+  if (brQuality >= gzipQuality) return brQuality > 0 ? "br" : null;
+  return gzipQuality > 0 ? "gzip" : null;
 }
 
 /**
@@ -130,6 +135,20 @@ export function encodeEtagForEncoding(etag: string, encoding: ContentEncoding): 
   return `${etag}-${encoding}`;
 }
 
+export interface CompressionStreamOptions {
+  /** Known total body size, forwarded to brotli as a size hint. */
+  sizeHint?: number;
+  /**
+   * Flush the compressor after every written chunk (`Z_SYNC_FLUSH` /
+   * `BROTLI_OPERATION_FLUSH`). Required for incrementally produced bodies —
+   * SSE and other streamed responses — where zlib's default `Z_NO_FLUSH`
+   * would sit on written events until its internal buffer fills or the
+   * stream ends, breaking incremental delivery entirely (brotli emits zero
+   * bytes until end-of-stream; gzip emits only its 10-byte header).
+   */
+  incremental?: boolean;
+}
+
 /**
  * Create a streaming zlib transform for `encoding`. Brotli runs at quality 4
  * for streamed (dynamic) bodies — near-gzip speed with a better ratio —
@@ -137,18 +156,21 @@ export function encodeEtagForEncoding(etag: string, encoding: ContentEncoding): 
  */
 export function createCompressionTransform(
   encoding: ContentEncoding,
-  sizeHint?: number,
+  options: CompressionStreamOptions = {},
 ): Transform {
   if (encoding === "br") {
     const params: Record<number, number> = {
       [zlibConstants.BROTLI_PARAM_QUALITY]: 4,
     };
-    if (sizeHint !== undefined) {
-      params[zlibConstants.BROTLI_PARAM_SIZE_HINT] = sizeHint;
+    if (options.sizeHint !== undefined) {
+      params[zlibConstants.BROTLI_PARAM_SIZE_HINT] = options.sizeHint;
     }
-    return createBrotliCompress({ params });
+    return createBrotliCompress({
+      params,
+      ...(options.incremental ? { flush: zlibConstants.BROTLI_OPERATION_FLUSH } : {}),
+    });
   }
-  return createGzip();
+  return createGzip(options.incremental ? { flush: zlibConstants.Z_SYNC_FLUSH } : {});
 }
 
 /**
@@ -161,9 +183,9 @@ export function createCompressionTransform(
 export function createCompressedStream(
   source: NodeJS.ReadableStream,
   encoding: ContentEncoding,
-  sizeHint?: number,
+  options: CompressionStreamOptions = {},
 ): Transform {
-  const transform = createCompressionTransform(encoding, sizeHint);
+  const transform = createCompressionTransform(encoding, options);
 
   source.on("error", (error: unknown) => {
     transform.destroy(error instanceof Error ? error : new Error(String(error)));
@@ -203,6 +225,7 @@ export function compressBuffer(buffer: Buffer, encoding: ContentEncoding): Promi
  */
 export class CompressedAssetCache {
   #entries = new Map<string, Buffer>();
+  #pending = new Map<string, Promise<Buffer>>();
   #totalBytes = 0;
   readonly #maxBytes: number;
 
@@ -212,6 +235,32 @@ export class CompressedAssetCache {
 
   get totalBytes(): number {
     return this.#totalBytes;
+  }
+
+  /**
+   * Cached lookup with in-flight deduplication: concurrent first requests to
+   * the same file version share one `produce()` call instead of compressing
+   * the same bytes N times (the post-deploy thundering herd). A failed
+   * `produce()` rejects every waiter and is not cached, so the next request
+   * retries.
+   */
+  getOrCompress(key: string, produce: () => Promise<Buffer>): Promise<Buffer> {
+    const cached = this.get(key);
+    if (cached !== undefined) return Promise.resolve(cached);
+
+    let pending = this.#pending.get(key);
+    if (!pending) {
+      pending = produce()
+        .then((buffer) => {
+          this.set(key, buffer);
+          return buffer;
+        })
+        .finally(() => {
+          this.#pending.delete(key);
+        });
+      this.#pending.set(key, pending);
+    }
+    return pending;
   }
 
   get(key: string): Buffer | undefined {

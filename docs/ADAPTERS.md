@@ -165,18 +165,24 @@ that manifest.
 ### Response compression
 
 The Node adapter compresses responses by default, negotiated against the
-request's `Accept-Encoding` header (brotli preferred, then gzip, honoring
-q-values and `*` wildcards, all via `node:zlib`):
+request's `Accept-Encoding` header (the acceptable coding with the highest
+q-value wins per RFC 9110, brotli preferred on ties and in unweighted lists
+like `gzip, deflate, br`; `*` wildcards and `q=0` exclusions honored, all via
+`node:zlib`):
 
 - **Dynamic responses** — SSR/ISG documents, route-state JSON, API responses
-  with compressible types — stream through a zlib transform (brotli quality 4),
-  so compression adds no buffering to the response path.
+  with compressible types — stream through a zlib transform (brotli quality 4)
+  that flushes per written chunk, so incrementally produced bodies such as
+  `text/event-stream` (SSE) reach the client as each event is written instead
+  of sitting in the compressor's buffer until the stream ends.
 - **Static assets and ISG snapshots** up to 1 MiB are compressed once per file
   version at higher quality and kept in a byte-bounded in-memory LRU
   (32 MiB) keyed by path + size + mtime, so hashed assets and regenerated ISG
-  HTML pay the compression cost once. Larger files stream through zlib per
-  request. This is runtime compression rather than build-time precompression;
-  it also covers ISG documents rewritten on disk after the build.
+  HTML pay the compression cost once — concurrent first requests to the same
+  file share a single in-flight compression. Larger files stream through zlib
+  per request. This is runtime compression rather than build-time
+  precompression; it also covers ISG documents rewritten on disk after the
+  build.
 
 What gets compressed: `text/*`, `application/json`, `application/javascript`,
 `application/xml`, `application/wasm`, and any `+json`/`+xml` structured
