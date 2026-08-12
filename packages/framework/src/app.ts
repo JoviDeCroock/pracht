@@ -1,18 +1,15 @@
 import type {
-  ApiRouteMatch,
   GroupDefinition,
   GroupMeta,
   ModuleRef,
   NotFoundConfig,
   NotFoundDefinition,
-  ResolvedApiRoute,
   ResolvedRoute,
   ResolvedPrachtApp,
   RouteConfig,
   RouteDefinition,
   RouteMatch,
   RouteMeta,
-  RouteSegment,
   RouteTreeNode,
   SpeculationOption,
   TimeRevalidatePolicy,
@@ -24,15 +21,10 @@ import type {
 import { isValidCapabilityHttpPath } from "@pracht/capabilities";
 import { formatUnknownNameError } from "./name-suggestions.ts";
 import { NOT_FOUND_ROUTE_ID, NOT_FOUND_ROUTE_PATH } from "./runtime-constants.ts";
-import {
-  matchResolvedRoute,
-  matchRouteSegments,
-  normalizeRoutePath,
-  parseRouteSegments,
-  splitPathSegments,
-} from "./route-matching.ts";
+import { matchResolvedRoute, normalizeRoutePath, parseRouteSegments } from "./route-matching.ts";
 
 export { buildHref, buildPathFromSegments } from "./route-matching.ts";
+export { matchApiRoute, resolveApiRoutes } from "./api-routes.ts";
 
 // Manifest validation is a dev/build-time aid: `import.meta.env.DEV` is
 // statically `false` in production Vite bundles, so this folds to `false`
@@ -543,67 +535,6 @@ function mergeRoutePaths(prefix: string, path?: string): string {
   return normalizeRoutePath(`${normalizedPrefix}/${normalizedPath.slice(1)}`);
 }
 
-/**
- * Convert a list of file paths from `import.meta.glob` into resolved API routes.
- *
- * Example: `"/src/api/health.ts"` → path `/api/health`
- *          `"/src/api/users/[id].ts"` → path `/api/users/:id`
- *          `"/src/api/files/[...path].ts"` → path `/api/files/*`
- *          `"/src/api/index.ts"` → path `/api`
- */
-export function resolveApiRoutes(files: string[], apiDir: string = "/src/api"): ResolvedApiRoute[] {
-  const normalizedDir = apiDir.replace(/\/$/, "");
-
-  return files
-    .filter((file) => !/\.d\.ts$/i.test(file))
-    .map((file) => {
-      // Strip the apiDir prefix and file extension
-      let relative = file;
-      if (relative.startsWith(normalizedDir)) {
-        relative = relative.slice(normalizedDir.length);
-      }
-      relative = relative.replace(/\.(ts|tsx|js|jsx)$/, "");
-
-      // index files map to the parent directory
-      if (relative.endsWith("/index")) {
-        relative = relative.slice(0, -"/index".length) || "/";
-      }
-
-      relative = relative.replace(/\[\.\.\.[^\]]+\]/g, "*");
-      relative = relative.replace(/\[([^\]]+)\]/g, ":$1");
-
-      const path = normalizeRoutePath(`/api${relative}`);
-
-      return {
-        path,
-        file,
-        segments: parseRouteSegments(path),
-      };
-    })
-    .sort(compareResolvedApiRoutes);
-}
-
-export function matchApiRoute(
-  apiRoutes: ResolvedApiRoute[],
-  pathname: string,
-): ApiRouteMatch | undefined {
-  const normalizedPathname = normalizeRoutePath(pathname);
-  const targetSegments = splitPathSegments(normalizedPathname);
-
-  for (const route of apiRoutes) {
-    const params = matchRouteSegments(route.segments, targetSegments);
-    if (params) {
-      return {
-        route,
-        params,
-        pathname: normalizedPathname,
-      };
-    }
-  }
-
-  return undefined;
-}
-
 function createRouteId(path: string): string {
   if (path === "/") {
     return "index";
@@ -621,30 +552,4 @@ function createRouteId(path: string): string {
     })
     .join("-")
     .replace(/[^a-zA-Z0-9-]/g, "-");
-}
-
-function compareResolvedApiRoutes(left: ResolvedApiRoute, right: ResolvedApiRoute): number {
-  const length = Math.max(left.segments.length, right.segments.length);
-
-  for (let index = 0; index < length; index += 1) {
-    const leftSegment = left.segments[index];
-    const rightSegment = right.segments[index];
-
-    if (!leftSegment) return 1;
-    if (!rightSegment) return -1;
-
-    const leftScore = getRouteSegmentSpecificity(leftSegment);
-    const rightScore = getRouteSegmentSpecificity(rightSegment);
-    if (leftScore !== rightScore) {
-      return rightScore - leftScore;
-    }
-  }
-
-  return left.path.localeCompare(right.path);
-}
-
-function getRouteSegmentSpecificity(segment: RouteSegment): number {
-  if (segment.type === "static") return 3;
-  if (segment.type === "param") return 2;
-  return 1;
 }
