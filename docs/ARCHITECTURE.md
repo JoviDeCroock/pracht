@@ -494,7 +494,9 @@ details.
 The internal module graph within the framework package is acyclic:
 
 ```
-types.ts        — pure types, no internal deps
+registration.ts — declaration-merging registry and framework request-context extensions
+capability-types.ts — generated capability registration and browser-client inference
+types.ts        — shared route, manifest, runtime, and module-contract type facade
     ↑
 name-suggestions.ts — edit-distance "did you mean" helpers for wiring errors
     ↑
