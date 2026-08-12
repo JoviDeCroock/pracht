@@ -186,7 +186,7 @@ function IslandBoundary(props: Record<string, unknown>) {
   // Islands nested inside this island's subtree hydrate as part of this
   // island, so they must not emit their own markers: null out the capture
   // context for the wrapped subtree.
-  let subtree = h(
+  let subtree: VNode<any> = h(
     IslandCaptureContext.Provider,
     { value: null },
     renderOriginal(type, componentProps),
