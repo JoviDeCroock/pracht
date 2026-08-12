@@ -330,6 +330,9 @@ validation independent from virtual-module generation and development serving.
 `plugin-optimize-deps.ts` owns Preact deduplication and the Vite scan entries for
 generated route files and virtual client dependencies, including the workspace-link
 guard that prevents splitting the core runtime into two copies.
+`plugin-client-safety.ts` owns client-side server-export stripping and registered
+capability import rejection; `plugin-paths.ts` centralizes canonical Vite file
+identity so symlinked projects cannot bypass either client or manifest guards.
 
 ### `/_pracht` devtools page
 

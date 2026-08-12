@@ -1,12 +1,8 @@
 import { preactSsrPrecompile } from "@pracht/preact-ssr-precompile";
 import preact from "@preact/preset-vite";
-import { existsSync, realpathSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { loadEnv, type Plugin } from "vite";
-import {
-  isPrachtClientModuleId,
-  stripServerOnlyExportsForClient,
-} from "./client-module-transform.ts";
 
 import type { RenderMode } from "@pracht/core";
 import { PRACHT_GRAPH_ONLY_ENV } from "@pracht/core/server";
@@ -31,8 +27,8 @@ import {
   createPrachtWebmcpModuleSource,
   hasAgentSurface,
   hasWebmcpCapabilities,
-  resolveCapabilityModulePaths,
 } from "./plugin-capabilities.ts";
+import { createClientModuleSafetyPlugin } from "./plugin-client-safety.ts";
 import {
   clearPagesAppSourceCache,
   createPrachtClientModuleSource,
@@ -47,6 +43,7 @@ import {
 } from "./plugin-dev-ssr.ts";
 import { createEdgeRuntimeSafetyPlugin } from "./plugin-edge-runtime-safety.ts";
 import { createOptimizeDepsPlugin, PREACT_DEDUPE } from "./plugin-optimize-deps.ts";
+import { canonicalFilePath, resolveConfigPath, toPosixPath } from "./plugin-paths.ts";
 import {
   resolveOptions,
   type PrachtPluginOptions,
@@ -92,8 +89,6 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
   const resolved = resolveOptions(options);
   const isPagesMode = !!resolved.pagesDir;
   let root = process.cwd();
-  let routeFileDirs: string[] = [];
-  let capabilityModulePaths = new Set<string>();
 
   if (isPagesMode && options.appFile) {
     console.warn(
@@ -229,10 +224,6 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
     configResolved(config) {
       root = config.root;
       isBuild = config.command === "build";
-      routeFileDirs = computeRouteFileDirs(root, resolved);
-      capabilityModulePaths = new Set(
-        resolveCapabilityModulePaths(resolved, root).map(canonicalFilePath),
-      );
     },
 
     resolveId(id, importer, resolveIdOptions) {
@@ -397,37 +388,7 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
     },
   };
 
-  const clientModuleTransformPlugin: Plugin = {
-    name: "pracht:client-module-transform",
-    enforce: "post",
-
-    transform(code, id, transformOptions) {
-      // Capability modules are server-only: they hold `run()` and everything it
-      // imports (database clients, secrets, internal stores). Nothing strips
-      // them the way route loaders are stripped, so a component importing one
-      // directly would ship the whole contract and its dependencies to every
-      // visitor. The generated browser projection exists precisely so that
-      // never has to happen — fail the build and point at it.
-      if (!transformOptions?.ssr && isCapabilityModule(id, capabilityModulePaths)) {
-        throw new Error(
-          `[pracht] Capability module ${JSON.stringify(toPosixPath(id))} was imported by client ` +
-            "code. Capability modules are server-only — their run() implementation and its " +
-            "imports would be bundled for every visitor. Call the capability instead: " +
-            '`callCapability`/`capabilities` from "virtual:pracht/capabilities" in the browser, ' +
-            'or `invokeCapability` from "@pracht/core/server" in loaders, middleware, and API routes.',
-        );
-      }
-
-      const shouldStrip =
-        isPrachtClientModuleId(id) ||
-        (!transformOptions?.ssr && isRouteOrShellFile(id, routeFileDirs));
-      if (!shouldStrip) return null;
-
-      const transformed = stripServerOnlyExportsForClient(code, id);
-      if (transformed === code) return null;
-      return { code: transformed, map: null };
-    },
-  };
+  const clientModuleTransformPlugin = createClientModuleSafetyPlugin(resolved, () => root);
 
   const edgeRuntimeSafetyPlugin: Plugin | null = resolved.adapter.edge
     ? createEdgeRuntimeSafetyPlugin()
@@ -521,71 +482,4 @@ function invalidateVirtualModules(server: import("vite").ViteDevServer): void {
   if (clientMod) server.moduleGraph.invalidateModule(clientMod);
   if (serverMod) server.moduleGraph.invalidateModule(serverMod);
   if (devMod) server.moduleGraph.invalidateModule(devMod);
-}
-
-const ROUTE_FILE_EXTENSIONS = new Set([".ts", ".tsx", ".js", ".jsx", ".md", ".mdx", ".tsrx"]);
-
-function computeRouteFileDirs(root: string, resolved: ResolvedPrachtPluginOptions): string[] {
-  const dirs = resolved.pagesDir ? [resolved.pagesDir] : [resolved.routesDir, resolved.shellsDir];
-  return dirs.map((dir) => canonicalFilePath(resolveConfigPath(root, dir))).map(withTrailingSep);
-}
-
-/**
- * Whether `id` is one of the capability modules the manifest registers.
- * Matching the registered set rather than a directory keeps ordinary files that
- * merely live beside capabilities importable, and still catches a capability
- * registered from anywhere else in the project. Extension-agnostic, because the
- * comparison is against paths the manifest already resolved.
- */
-function isCapabilityModule(id: string, capabilityModulePaths: Set<string>): boolean {
-  if (capabilityModulePaths.size === 0) return false;
-  const queryStart = id.indexOf("?");
-  const path = queryStart === -1 ? id : id.slice(0, queryStart);
-  if (path.startsWith("\0") || path.startsWith("virtual:")) return false;
-  return capabilityModulePaths.has(canonicalFilePath(path));
-}
-
-/**
- * Match Vite's canonical module ids even when the manifest path crosses a
- * symlink (including macOS' /var -> /private/var alias). Missing paths keep
- * their lexical identity so the projection code can raise its precise missing
- * capability error later.
- */
-function canonicalFilePath(path: string): string {
-  try {
-    return toPosixPath(realpathSync.native(path));
-  } catch {
-    return toPosixPath(path);
-  }
-}
-
-function isRouteOrShellFile(id: string, dirs: string[]): boolean {
-  if (dirs.length === 0) return false;
-  const queryStart = id.indexOf("?");
-  const path = queryStart === -1 ? id : id.slice(0, queryStart);
-  // Skip virtual modules and non-file ids.
-  if (path.startsWith("\0") || path.startsWith("virtual:")) return false;
-  const extIndex = path.lastIndexOf(".");
-  if (extIndex === -1) return false;
-  const ext = path.slice(extIndex);
-  if (!ROUTE_FILE_EXTENSIONS.has(ext)) return false;
-  const normalized = toPosixPath(path);
-  return dirs.some((dir) => normalized.startsWith(dir));
-}
-
-function resolveConfigPath(root: string, configPath: string): string {
-  const normalizedRoot = toPosixPath(root).replace(/\/$/, "");
-  const relativePath = configPath.replace(/^\//, "");
-  if (normalizedRoot.startsWith("/") && !/^[A-Za-z]:\//.test(normalizedRoot)) {
-    return `${normalizedRoot}/${relativePath}`;
-  }
-  return toPosixPath(resolve(root, relativePath));
-}
-
-function toPosixPath(p: string): string {
-  return p.replace(/\\/g, "/");
-}
-
-function withTrailingSep(p: string): string {
-  return p.endsWith("/") ? p : `${p}/`;
 }
