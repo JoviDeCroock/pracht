@@ -1,6 +1,6 @@
 ---
 title: Adapters
-lead: Adapters are thin layers that translate between a platform's native request handling and pracht's Web Request/Response interface. pracht ships adapters for Cloudflare Workers, Vercel Edge Functions, and Node.js.
+lead: Adapters are thin layers that translate between a platform's native request handling and pracht's Web Request/Response interface. pracht ships adapters for Cloudflare Workers, Vercel Edge Functions, Node.js, and pure static export.
 breadcrumb: Adapters
 prev:
   href: /docs/deployment
@@ -554,6 +554,52 @@ server.on("upgrade", (req, socket, head) => {
 
 server.listen(3000);
 ```
+
+---
+
+## Static export
+
+`@pracht/adapter-static` prerenders every route into `dist/client/` and stops there: no server bundle is deployed, and the directory works on any static host — GitHub Pages, S3, nginx, Netlify.
+
+### Setup
+
+```ts
+// vite.config.ts
+import { staticAdapter } from "@pracht/adapter-static";
+pracht({ adapter: staticAdapter() })
+// optional SPA fallback for host rewrites:
+pracht({ adapter: staticAdapter({ fallback: "200.html" }) })
+
+// package.json
+"@pracht/adapter-static": "*"
+```
+
+### What must hold
+
+The build fails closed — before prerendering, with every offender listed — when the app needs a server:
+
+- every route must be `render: "ssg"` (or `"spa"`, whose shell HTML is prerendered);
+- no API routes;
+- no capabilities exposed over HTTP/MCP/WebMCP (unexposed capabilities invoked from build-time loaders are fine).
+
+`ssr` and `isg` routes belong on the Node, Cloudflare, or Vercel adapters.
+
+### Client navigation from static files
+
+Client-side navigation normally fetches route-state JSON from the server. A static export has none, so the build serializes each route's loader payload to `dist/client/_pracht/state/<path>/index.json`, and the client bundle — compiled with the adapter's `staticTarget` flag — fetches those files instead. Navigation stays client-side on a dumb file server; loaderless routes fetch nothing, and islands pages keep their MPA navigation.
+
+### 404 and SPA fallback
+
+The app's `notFound` page is rendered to `404.html` (the GitHub Pages / S3 convention); the hydrated page adopts the URL actually visited. With `fallback: "200.html"` plus a host rewrite for unmatched URLs, deep links into dynamic `render: "spa"` routes boot the client router and resolve the route from `window.location`.
+
+### Build, preview, deploy
+
+```sh
+pracht build      # dist/client/ is the deployable site
+pracht preview    # serves dist/client/ with a tiny static file server
+```
+
+Pages are emitted as `<path>/index.html`, so the host must serve `index.html` for directory URLs (clean URLs). Response headers each prerendered route would have carried are recorded in `dist/client/_pracht/headers.json` — mirror the ones you need in the host's header config. See `docs/ADAPTERS.md` in the repository for host-configuration details and limitations (markdown negotiation, percent-encoded params, base paths).
 
 ---
 

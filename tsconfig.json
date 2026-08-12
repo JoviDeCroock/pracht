@@ -32,6 +32,7 @@
       "@pracht/adapter-cloudflare": ["./packages/adapter-cloudflare/src/index.ts"],
       "@pracht/adapter-netlify": ["./packages/adapter-netlify/src/index.ts"],
       "@pracht/adapter-vercel": ["./packages/adapter-vercel/src/index.ts"],
+      "@pracht/adapter-static": ["./packages/adapter-static/src/index.ts"],
       "@pracht/image": ["./packages/image/src/index.ts"],
       "@pracht/image/node": ["./packages/image/src/node.ts"],
       "@pracht/image/vite": ["./packages/image/src/vite.ts"],

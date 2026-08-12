@@ -47,6 +47,16 @@ export interface PrachtAdapter {
    * into the server output.
    */
   edge?: boolean;
+  /**
+   * If true, the adapter produces a pure static export with no server at
+   * runtime (e.g. `@pracht/adapter-static`). Production builds then define
+   * `__PRACHT_STATIC_TARGET__` as `true`, which switches the client router's
+   * route-state fetching from the live `x-pracht-route-state-request`
+   * endpoint to the serialized `/_pracht/state/…` files that `pracht build`
+   * emits. Dev servers keep the live endpoint (the flag only applies to
+   * builds).
+   */
+  staticTarget?: boolean;
 }
 
 export function createDefaultNodeAdapter(): PrachtAdapter {

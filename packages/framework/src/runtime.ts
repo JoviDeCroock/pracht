@@ -42,6 +42,7 @@ import {
 } from "./runtime-middleware.ts";
 import type { ResolvedCapability } from "./runtime-capabilities.ts";
 import { buildRouteStateUrl } from "./runtime-client-fetch.ts";
+import { buildStaticRouteStateUrl, IS_STATIC_TARGET } from "./runtime-static.ts";
 import {
   getRenderToStringAsync,
   isFrameworkFontHeadResponse,
@@ -932,7 +933,13 @@ export async function handlePrachtRequest<TContext>(
               clientEntryUrl: options.clientEntryUrl,
               cssUrls,
               modulePreloadUrls,
-              routeStatePreloadUrl: loader ? buildRouteStateUrl(requestPath) : undefined,
+              // Static exports preload the serialized state file — the
+              // `_data=1` endpoint does not exist without a server.
+              routeStatePreloadUrl: loader
+                ? IS_STATIC_TARGET
+                  ? buildStaticRouteStateUrl(requestPath)
+                  : buildRouteStateUrl(requestPath)
+                : undefined,
               speculationRules: getAppSpeculationRules(resolvedApp),
             }),
             pageOptions.status,

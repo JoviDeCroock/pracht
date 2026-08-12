@@ -13,6 +13,12 @@ export interface PrachtHydrationState<TData = unknown> {
   data: TData;
   error?: import("./runtime-errors.ts").SerializedRouteError | null;
   pending?: boolean;
+  /**
+   * Marks the static-export SPA fallback document (`200.html`). The document
+   * is served for URLs with no prerendered file, so the client router ignores
+   * the serialized `url` and boots from `window.location` instead.
+   */
+  fallback?: boolean;
 }
 
 export interface StartAppOptions<TData = unknown> {

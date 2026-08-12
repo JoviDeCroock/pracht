@@ -25,8 +25,14 @@ route("/about", () => import("./routes/about.tsx"), { render: "ssg" });
 HTML is generated at build time. The loader runs once during the build, and the
 output is written to `dist/client/about/index.html`. No server is needed for the
 initial document request — it's served as a static file. Client-side navigation
-uses the route-state JSON endpoint when an adapter runtime is available, and
-falls back to full document navigation on purely static hosts.
+uses the route-state JSON endpoint when an adapter runtime is available. On a
+pure static export (`@pracht/adapter-static`), the build additionally
+serializes each SSG route's loader payload to
+`dist/client/_pracht/state/<path>/index.json` and the client router fetches
+that file instead, so navigation stays client-side with zero server — see
+[ADAPTERS.md](ADAPTERS.md#static-adapter). An app where every route is
+`ssg`/`spa`, with no API routes and no network-exposed capabilities, can
+therefore deploy `dist/client/` to any static host.
 
 ### Dynamic SSG paths
 
@@ -241,6 +247,12 @@ into the initial document by default.
 - Auth-gated pages where SEO doesn't matter, but shell chrome should paint fast
 - Complex interactive UIs (editors, dashboards)
 - Pages where server rendering adds no value
+
+On a static export (`@pracht/adapter-static`), SPA routes prerender their
+shell HTML and their loader runs once at build time. Dynamic SPA routes
+without `getStaticPaths()` have no prerendered file — deep links to them need
+the adapter's `fallback: "200.html"` option plus a host rewrite, and they
+render without loader data (fetch client-side instead).
 
 ---
 

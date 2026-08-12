@@ -8,6 +8,7 @@ import { build as viteBuild } from "vite";
 
 import { readClientBuildAssets } from "../build-metadata.js";
 import { writeVercelBuildOutput } from "../build-shared.js";
+import { validateStaticExport, writeStaticExportArtifacts } from "../build-static.js";
 import {
   collectBundleReport,
   evaluateBudgets,
@@ -159,11 +160,19 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
     registerPrerenderModuleHooks();
     const serverMod = await import(pathToFileURL(serverEntry).href);
     buildTarget = typeof serverMod.buildTarget === "string" ? serverMod.buildTarget : null;
+    const isStaticExport = buildTarget === "static";
+    if (isStaticExport) {
+      // Fail closed before prerendering: a static export has no server, so
+      // SSR/ISG routes, API routes, and network-exposed capabilities are
+      // build errors (with every offender listed at once).
+      await validateStaticExport(serverMod);
+    }
     const { prerenderApp } = serverMod;
     const { clientEntryUrl, clientEntryJs, islandsEntryJs, cssManifest, jsManifest } =
       readClientBuildAssets(root);
 
     const { pages, isgManifest } = await prerenderApp({
+      staticExport: isStaticExport,
       app: serverMod.resolvedApp,
       clientEntryUrl: clientEntryUrl ?? undefined,
       islandsEntryUrl: serverMod.islandsEntryUrl ?? undefined,
@@ -325,6 +334,29 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
       }
       log(
         `\n  ISG manifest → dist/server/isg-manifest.json (${Object.keys(isgManifest).length} route(s))\n`,
+      );
+    }
+
+    if (isStaticExport) {
+      await writeStaticExportArtifacts({
+        clientDir,
+        pages,
+        serverMod,
+        log,
+      });
+
+      if (Object.keys(markdownManifest).length > 0) {
+        log(
+          "  Note: routes exporting `markdown` rely on server-side content negotiation. " +
+            "A static host always answers with the HTML file; agents requesting " +
+            "`Accept: text/markdown` get HTML. Publish .md files under public/ instead " +
+            "when a raw-markdown corpus matters.\n",
+        );
+      }
+
+      log(
+        "\n  Static export complete → deploy dist/client/ to any static host " +
+          "(dist/server/ is build tooling only).\n",
       );
     }
 
