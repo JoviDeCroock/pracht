@@ -481,3 +481,41 @@ test("page hydrates without console errors", async ({ page }) => {
   const criticalErrors = errors.filter((e) => !e.includes("[vite]") && !e.includes("404"));
   expect(criticalErrors).toHaveLength(0);
 });
+
+// ---------------------------------------------------------------------------
+// <Script> loading strategies
+// ---------------------------------------------------------------------------
+
+test('<Script strategy="beforeHydration"> is in the SSR head; afterHydration injects client-side', async ({
+  page,
+  request,
+}) => {
+  const response = await request.get("/");
+  const html = await response.text();
+
+  // beforeHydration lands in the document <head>, like head() scripts.
+  const headEnd = html.indexOf("</head>");
+  const beforeIndex = html.indexOf('<script id="home-before-hydration">');
+  expect(beforeIndex).toBeGreaterThan(-1);
+  expect(beforeIndex).toBeLessThan(headEnd);
+  expect(html).toContain("window.__prachtBeforeHydration = true;");
+
+  // Client strategies render nothing server-side.
+  expect(html).not.toContain('id="home-after-hydration"');
+
+  await page.goto("/");
+  await page.waitForFunction(() => (window as any).__prachtBeforeHydration === true);
+
+  // afterHydration script is injected (and runs) once hydration completes.
+  await expect(page.locator("html")).toHaveAttribute("data-after-hydration-script", "ran");
+
+  // Dedupe: navigating away and back client-side must not inject it again.
+  await page.waitForFunction(() => (window as any).__PRACHT_ROUTER_READY__);
+  await page.click('a[href="/pricing"]');
+  await page.waitForURL("/pricing");
+  await page.click('a[href="/"]');
+  await page.waitForURL("/");
+  await expect(page.locator("html")).toHaveAttribute("data-after-hydration-script", "ran");
+  const count = await page.locator('script[id="home-after-hydration"]').count();
+  expect(count).toBe(1);
+});

@@ -134,6 +134,8 @@ export {
 export type { MemoryApprovalStoreOptions } from "./runtime-approval.ts";
 export { forwardRef } from "./forwardRef.ts";
 export { useIsHydrated } from "./hydration.ts";
+export { Script } from "./script.ts";
+export type { ScriptProps, ScriptStrategy } from "./script.ts";
 export { Suspense, lazy } from "preact-suspense";
 export {
   applyDefaultSecurityHeaders,
