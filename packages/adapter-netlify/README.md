@@ -85,8 +85,11 @@ metadata.
   when the route provides a custom cache policy.
   `POST /__pracht/revalidate` authenticates with `PRACHT_REVALIDATE_TOKEN` and
   purges those tags through Netlify's Functions API.
-- Shared ISG renders run with a sanitized request: no visitor cookies,
-  authorization, query string, or body can enter cached HTML.
+- Shared ISG renders use a sanitized request and an allowlisted Netlify
+  context. Visitor cookies, authorization, query strings, bodies, IP address,
+  geolocation, request IDs, and arbitrary request-local context cannot enter
+  cached HTML. Deployment-wide site/server metadata and `waitUntil()` remain
+  available; attempts to mutate cookies fail closed.
 
 Tune the cache windows when needed:
 

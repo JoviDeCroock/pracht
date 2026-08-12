@@ -249,7 +249,9 @@ npx netlify deploy --build --prod
 The build emits `netlify/functions/pracht.mjs`. Page requests go through that
 function so Markdown negotiation and route-state requests remain correct;
 hashed assets bypass it. Netlify durable caching implements time-based ISG and
-per-path cache tags implement authenticated webhook revalidation.
+per-path cache tags implement authenticated webhook revalidation. Shared ISG
+renders strip visitor-specific request data and Netlify context metadata before
+loaders or context factories run.
 
 `pracht preview` exits with guidance because it cannot emulate Netlify's
 Functions and CDN behavior. Build the generated function before using

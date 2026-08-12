@@ -99,6 +99,22 @@ const DEFAULT_STATIC_MAX_AGE = 31_536_000;
 const ROUTE_STATE_REQUEST_HEADER = "x-pracht-route-state-request";
 const DEFAULT_EXCLUDED_PATHS = ["/assets/*", "/_pracht/*"];
 const ISG_CACHE_TAG = "pracht:isg";
+const SHARED_CONTEXT_FIELDS = [
+  "account",
+  "deploy",
+  "json",
+  "log",
+  "params",
+  "server",
+  "site",
+  "waitUntil",
+] as const;
+const EMPTY_NETLIFY_GEO = Object.freeze({});
+const EMPTY_NETLIFY_COOKIES = Object.freeze({
+  delete: rejectSharedContextCookieMutation,
+  get: () => undefined,
+  set: rejectSharedContextCookieMutation,
+});
 const EXPLICIT_CACHE_POLICY_HEADERS = [
   "cache-control",
   "cdn-cache-control",
@@ -159,9 +175,10 @@ export function createNetlifyHandler<
     // from a request stripped of cookies, authorization, query, and body so the
     // visitor who triggers a cache miss cannot personalize the stored result.
     const renderRequest = isgRoute ? createISGRegenerationRequest(url.pathname, request) : request;
+    const renderContext = isgRoute ? createNetlifyISGContext(context, renderRequest) : context;
     const prachtContext = options.createContext
-      ? await options.createContext({ request: renderRequest, context })
-      : (context as unknown as TContext);
+      ? await options.createContext({ request: renderRequest, context: renderContext })
+      : (renderContext as unknown as TContext);
 
     const response = await handlePrachtRequest({
       app: options.app,
@@ -526,6 +543,34 @@ function resolveCacheOptions(
     ),
     staticMaxAge: positiveInteger(options?.staticMaxAge, DEFAULT_STATIC_MAX_AGE),
   };
+}
+
+function createNetlifyISGContext<TContext extends NetlifyExecutionContext>(
+  context: TContext,
+  request: Request,
+): TContext {
+  const shared: NetlifyExecutionContext = Object.create(null);
+
+  for (const field of SHARED_CONTEXT_FIELDS) {
+    const value = context[field];
+    if (value === undefined) continue;
+    shared[field] = typeof value === "function" ? value.bind(context) : value;
+  }
+
+  // Netlify exposes these values outside the Request object. Mask them as
+  // deliberately as createISGRegenerationRequest() strips visitor headers and
+  // query data, or a context factory could still personalize shared output.
+  shared.cookies = EMPTY_NETLIFY_COOKIES;
+  shared.geo = EMPTY_NETLIFY_GEO;
+  shared.ip = "";
+  shared.requestId = "";
+  shared.url = new URL(request.url);
+
+  return shared as TContext;
+}
+
+function rejectSharedContextCookieMutation(): never {
+  throw new Error("Netlify cookies cannot be changed while rendering a shared ISG response.");
 }
 
 function positiveInteger(value: number | undefined, fallback: number): number {
