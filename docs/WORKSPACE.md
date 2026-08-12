@@ -8,6 +8,7 @@ described in `VISION_MVP.md`.
 | Path                          | Package                      | Current role                                                                                                 |
 | ----------------------------- | ---------------------------- | ------------------------------------------------------------------------------------------------------------ |
 | `packages/framework`          | `@pracht/core`               | Core manifest API, route resolution, API routes, SSR rendering, client runtime                               |
+| `packages/capabilities`       | `@pracht/capabilities`       | Protocol-neutral capability contracts, schema validation, wire protocol, and shared static source analysis  |
 | `packages/openapi`            | `@pracht/openapi`            | Opt-in OpenAPI 3.1 descriptors, live JSON/UI endpoints, and static build artifacts for API routes            |
 | `packages/vite-plugin`        | `@pracht/vite-plugin`        | Virtual modules, `import.meta.glob()` registries, API route auto-discovery, HMR, dev SSR middleware          |
 | `packages/preact-ssr-precompile` | `@pracht/preact-ssr-precompile` | Experimental Rolldown/Vite plugin that precompiles safe Preact JSX DOM subtrees into server-only `jsxTemplate()` calls |
@@ -40,6 +41,10 @@ described in `VISION_MVP.md`.
   routes are dispatched before page routes in `handlePrachtRequest()`. Missing
   method handlers return 405 when no default handler exists. Shared API policy
   can be applied explicitly with `defineApp({ api: { middleware: [...] } })`.
+- **Capability contracts** — `@pracht/capabilities` owns contract definition,
+  schema validation, and the shared wire protocol. Its `static` entry keeps
+  capability/app extraction in `static.ts`, with reusable offset-preserving
+  lexing and inline data-literal parsing isolated in `static-source-parser.ts`.
 - **Server rendering** — `handlePrachtRequest()` executes the full request
   lifecycle: API route check → middleware chain → loader → Preact
   `renderToString` → HTML document assembly with hydration state
