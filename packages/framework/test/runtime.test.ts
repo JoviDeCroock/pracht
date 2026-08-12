@@ -1,5 +1,5 @@
 import { h } from "preact";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   Link,
@@ -1426,7 +1426,59 @@ describe("prerenderApp", () => {
     expect(page.markdown).toBe(false);
   });
 
-  it("rejects a non-successful static route-state snapshot", async () => {
+  it("captures static route state from the document's single loader pass", async () => {
+    let loaderCalls = 0;
+    const app = defineApp({
+      routes: [route("/account", "./routes/account.tsx", { render: "ssg" })],
+    });
+
+    const [page] = await prerenderApp({
+      app,
+      includeRouteState: true,
+      registry: {
+        routeModules: {
+          "/src/routes/account.tsx": async () => ({
+            Component: ({ data }) => h("main", null, (data as { call: number }).call),
+            loader: async () => ({ call: ++loaderCalls }),
+          }),
+        },
+      },
+    });
+
+    expect(loaderCalls).toBe(1);
+    expect(page.html).toContain("<main>1</main>");
+    expect(page.routeState).toBe('{"data":{"call":1}}');
+  });
+
+  it.each(["islands", "none"] as const)(
+    "writes no route-state snapshot for a %s-hydration route",
+    async (hydration) => {
+      const app = defineApp({
+        routes: [route("/report", "./routes/report.tsx", { render: "ssg", hydration })],
+      });
+
+      const [page] = await prerenderApp({
+        app,
+        includeRouteState: true,
+        registry: {
+          routeModules: {
+            "/src/routes/report.tsx": async () => ({
+              Component: () => h("main", null, "Report"),
+              loader: async () => ({ shown: "public", hidden: "never-rendered" }),
+            }),
+          },
+        },
+      });
+
+      // The client router leaves these pages with a full document load, so the
+      // snapshot could never be fetched — and it would publish loader fields
+      // the document never contained.
+      expect(page.html).not.toContain("never-rendered");
+      expect(page.routeState).toBeUndefined();
+    },
+  );
+
+  it("rejects a non-successful static document that needs route state", async () => {
     const app = defineApp({
       routes: [route("/account", "./routes/account.tsx", { render: "ssg" })],
     });
@@ -1445,11 +1497,11 @@ describe("prerenderApp", () => {
         },
       }),
     ).rejects.toThrow(
-      'Cannot emit static route state for "/account": the route-state request returned status 401',
+      'Cannot emit static route state for "/account": the document request returned status 401',
     );
   });
 
-  it("rejects a non-JSON static route-state snapshot", async () => {
+  it("rejects a static document that bypasses the loader render path", async () => {
     const app = defineApp({
       routes: [route("/account", "./routes/account.tsx", { render: "ssg" })],
     });
@@ -1468,8 +1520,53 @@ describe("prerenderApp", () => {
         },
       }),
     ).rejects.toThrow(
-      'Cannot emit static route state for "/account": the route-state request did not return valid JSON',
+      'Cannot emit static route state for "/account": the document request did not reach the route loader',
     );
+  });
+
+  it("fails closed when a dynamic SSG route has no getStaticPaths", async () => {
+    const app = defineApp({
+      routes: [route("/posts/:slug", "./routes/post.tsx", { render: "ssg" })],
+    });
+
+    await expect(
+      prerenderApp({
+        app,
+        requireStaticPaths: true,
+        registry: {
+          routeModules: {
+            "/src/routes/post.tsx": async () => ({
+              Component: () => h("main", null, "Post"),
+            }),
+          },
+        },
+      }),
+    ).rejects.toThrow(/dynamic SSG routes must export getStaticPaths/);
+  });
+
+  it("omits param-derived head metadata from a shared dynamic SPA fallback", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const app = defineApp({
+      routes: [route("/projects/:id", "./routes/project.tsx", { render: "spa" })],
+    });
+
+    const [page] = await prerenderApp({
+      app,
+      includeSpa: true,
+      registry: {
+        routeModules: {
+          "/src/routes/project.tsx": async () => ({
+            Component: () => h("main", null, "Project"),
+            head: ({ params }) => ({ title: `Project ${params.id}` }),
+          }),
+        },
+      },
+    });
+
+    expect(page.fallbackFor).toBe("/projects/:id");
+    expect(page.html).not.toContain("Project _");
+    expect(warn.mock.calls.flat().join(" ")).toContain("head() export");
+    warn.mockRestore();
   });
 
   it("records markdown support independently of user-defined Vary headers", async () => {

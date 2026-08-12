@@ -2,7 +2,7 @@ import { resolveApp } from "./app.ts";
 import { buildPathFromSegments } from "./route-matching.ts";
 import { isDangerousPrerenderHeader, normalizeRouteRevalidate } from "./revalidation.ts";
 import { routeNeedsServerFetch } from "./runtime-client-fetch.ts";
-import { NOT_FOUND_PRERENDER_PATH, ROUTE_STATE_REQUEST_HEADER } from "./runtime-constants.ts";
+import { NOT_FOUND_PRERENDER_PATH } from "./runtime-constants.ts";
 import { resolveRegistryModule } from "./runtime-manifest.ts";
 import { handlePrachtRequest } from "./runtime.ts";
 import type {
@@ -78,6 +78,8 @@ export interface PrerenderAppOptions {
   includeRouteState?: boolean;
   /** Also render the app's `notFound` page (as a 404 fallback document). */
   includeNotFound?: boolean;
+  /** Fail instead of skipping a dynamic SSG route without `getStaticPaths()`. */
+  requireStaticPaths?: boolean;
 }
 
 export async function prerenderApp(options: PrerenderAppOptions): Promise<PrerenderResult[]>;
@@ -112,7 +114,7 @@ export async function prerenderApp(
     }
 
     if (route.render !== "ssg" && route.render !== "isg") continue;
-    const paths = await collectSSGPaths(route, options.registry);
+    const paths = await collectSSGPaths(route, options.registry, options.requireStaticPaths);
     for (const pathname of paths) {
       if (route.render === "isg" && route.revalidate) {
         normalizeRouteRevalidate(route.revalidate);
@@ -135,8 +137,18 @@ export async function prerenderApp(
         // A fallback document is served for every URL matching its pattern,
         // so the render must not bake in the placeholder path it used.
         const isFallback = item.fallbackFor !== undefined;
+        // Islands and no-hydration pages never load the client router — it
+        // navigates to them with a full document load — so a snapshot for one
+        // could never be fetched, and writing it would publish the loader's
+        // whole return value as a public file the document never contained.
+        const needsRouteState =
+          options.includeRouteState &&
+          !isFallback &&
+          (item.route.hydration ?? "full") === "full" &&
+          routeNeedsServerFetch(item.route);
+        let routeState: string | undefined;
 
-        const [response, routeModule, routeState] = await Promise.all([
+        const [response, routeModule] = await Promise.all([
           handlePrachtRequest({
             app: options.app,
             request,
@@ -147,18 +159,44 @@ export async function prerenderApp(
             cssManifest: options.cssManifest,
             jsManifest: options.jsManifest,
             fallbackDocument: isFallback,
+            omitRouteHead: isFallback,
+            ...(needsRouteState
+              ? {
+                  captureRouteState(json: string) {
+                    routeState = json;
+                  },
+                }
+              : {}),
           }),
           resolveRegistryModule<RouteModule>(options.registry?.routeModules, item.route.file),
-          options.includeRouteState && !isFallback && routeNeedsServerFetch(item.route)
-            ? captureRouteState(options, item)
-            : Promise.resolve(undefined),
         ]);
 
         if (response.status !== 200) {
+          if (needsRouteState) {
+            throw new Error(
+              `Cannot emit static route state for "${item.pathname}": the document request ` +
+                `returned status ${response.status}. Static client navigation has no server fallback.`,
+            );
+          }
           console.warn(
             `  Warning: ${item.render.toUpperCase()} route "${item.pathname}" returned status ${response.status}, skipping.`,
           );
           return null;
+        }
+
+        if (needsRouteState && routeState === undefined) {
+          throw new Error(
+            `Cannot emit static route state for "${item.pathname}": the document request did ` +
+              "not reach the route loader. Static client navigation has no server fallback.",
+          );
+        }
+
+        if (isFallback && routeModule?.head) {
+          console.warn(
+            `  Warning: the head() export on dynamic SPA route "${item.fallbackFor}" is not ` +
+              "applied. One document answers every matching URL, so build-time params would be " +
+              "placeholders; use shared shell metadata or update document.head in the client.",
+          );
         }
 
         assertSafePrerenderHeaders(response.headers, item);
@@ -234,44 +272,6 @@ function buildSpaFallbackPath(route: ResolvedRoute): string {
 }
 
 /**
- * Replay the path as a route-state request and keep the JSON body. This is the
- * exact payload the client router fetches when it navigates to the page, so a
- * static deployment can serve it from a file instead of from a server.
- */
-async function captureRouteState(
-  options: PrerenderAppOptions,
-  item: PrerenderWorkItem,
-): Promise<string> {
-  const url = new URL(item.pathname, "http://localhost");
-  const response = await handlePrachtRequest({
-    app: options.app,
-    request: new Request(url, {
-      method: "GET",
-      headers: { [ROUTE_STATE_REQUEST_HEADER]: "1" },
-    }),
-    registry: options.registry,
-  });
-
-  if (response.status !== 200) {
-    throw new Error(
-      `Cannot emit static route state for "${item.pathname}": the route-state request returned ` +
-        `status ${response.status}. Static client navigation has no server fallback.`,
-    );
-  }
-
-  const body = await response.text();
-  try {
-    JSON.parse(body);
-  } catch {
-    throw new Error(
-      `Cannot emit static route state for "${item.pathname}": the route-state request did not ` +
-        "return valid JSON. Static client navigation has no server fallback.",
-    );
-  }
-  return body;
-}
-
-/**
  * Render the app's `notFound` page as a standalone document. Static hosts
  * serve one file for every unmatched URL, so it is rendered at a path that
  * matches no route and marked as a fallback document.
@@ -333,7 +333,11 @@ function assertSafePrerenderHeaders(
   );
 }
 
-async function collectSSGPaths(route: ResolvedRoute, registry?: ModuleRegistry): Promise<string[]> {
+async function collectSSGPaths(
+  route: ResolvedRoute,
+  registry?: ModuleRegistry,
+  requireStaticPaths = false,
+): Promise<string[]> {
   const hasDynamicSegments = route.segments.some(
     (s) => s.type === "param" || s.type === "catchall",
   );
@@ -346,6 +350,12 @@ async function collectSSGPaths(route: ResolvedRoute, registry?: ModuleRegistry):
   const routeModule = await resolveRegistryModule<RouteModule>(registry?.routeModules, route.file);
 
   if (!routeModule?.getStaticPaths) {
+    if (requireStaticPaths) {
+      throw new Error(
+        `Cannot emit static route "${route.path}": dynamic SSG routes must export ` +
+          "getStaticPaths() so every deployable URL is known at build time.",
+      );
+    }
     console.warn(
       `  Warning: SSG route "${route.path}" has dynamic segments but no getStaticPaths() export, skipping.`,
     );

@@ -902,15 +902,21 @@ pracht({ adapter: staticAdapter({ host: "netlify" }) });
 - `ssg`: every concrete `getStaticPaths()` result becomes HTML. When a loader
   or middleware participates, its route-state result is also written to
   `/_pracht/state/<path>/index.json`, and the generated client router reads
-  that file during navigation.
+  that file during navigation. Only full-hydration routes get one: an islands
+  or no-hydration page is navigated to with a full document load, so a snapshot
+  could never be fetched — and writing one would publish loader fields the
+  document itself never contained.
 - `spa`: a concrete route gets its shell plus `Loading()` document. A dynamic
   route gets one shared fallback document and a host rewrite; because one file
   answers every matching URL, dynamic SPA routes cannot run per-param loaders
-  or middleware.
+  or middleware. Overlapping fallback patterns retain manifest declaration
+  order, and catch-all patterns also cover their empty-tail base path.
 - `hydration: "islands"` and `"none"`: retain their normal narrow/zero-JS
   output. Navigation to them stays MPA-style.
 - `defineApp({ notFound })`: becomes `dist/client/404.html` and retains the
-  requested browser URL when it hydrates.
+  requested browser URL when it hydrates. Route-level `headers()` cannot be
+  applied to arbitrary missing request paths by portable static-host rules, so
+  the build warns and leaves those headers to status-aware host configuration.
 - `ssr`, `isg`, and API routes: build errors. They require a request-time
   runtime, so emitting a deployment that silently 404s would be incorrect.
 - HTTP-exposed capabilities and `defineApp({ agents })`: build errors for the
@@ -923,6 +929,17 @@ Route-state files are immutable only in the sense that the deployment has no
 writer; they are not given long-lived cache headers. Rebuild and redeploy to
 refresh loader data. Hashed files under `/assets/` receive
 `Cache-Control: public, max-age=31536000, immutable`.
+
+The document and route-state snapshot for a loader-backed SSG path come from
+one loader/middleware pass, so nondeterministic data and build-time side effects
+are not duplicated. A dynamic SSG route without `getStaticPaths()` is a build
+error on this adapter instead of a warning that would publish a missing route.
+
+A dynamic SPA fallback cannot know the eventual params at build time, and
+route `head()` exports are server-only. Pracht therefore omits route-level head
+metadata from that shared document and warns; use shell metadata shared by the
+whole pattern, or update `document.head` from client code when metadata truly
+depends on the browser URL.
 
 ### Headers, clean URLs, and CSS
 

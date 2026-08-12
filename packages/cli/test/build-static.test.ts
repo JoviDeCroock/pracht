@@ -32,6 +32,12 @@ function testRouteSegments(path: string): RouteSegment[] {
     .split("/")
     .filter(Boolean)
     .map((segment) => {
+      if (segment === "*" || (segment.startsWith(":") && segment.endsWith("*"))) {
+        return {
+          type: "catchall",
+          name: segment === "*" ? "*" : segment.slice(1, -1),
+        };
+      }
       if (segment.startsWith(":")) return { type: "param", name: segment.slice(1) };
       return { type: "static", value: segment };
     });
@@ -270,6 +276,38 @@ describe("writeStaticBuildOutput", () => {
     expect(existsSync(join(root, ".vercel/project.json"))).toBe(true);
   });
 
+  it("preserves route order and lets catch-all fallbacks match an empty tail", () => {
+    const { root, clientDir } = createRoot();
+
+    const output = writeStaticBuildOutput({
+      clientDir,
+      headersManifest: {},
+      host: "netlify",
+      pages: [
+        makePage("/docs/_", {
+          render: "spa",
+          fallbackFor: "/docs/:slug",
+        }),
+        makePage("/docs/_", {
+          render: "spa",
+          fallbackFor: "/docs/:rest*",
+        }),
+      ],
+      root,
+    });
+
+    expect(output.spaFallbacks.map((rule) => rule.pattern)).toEqual([
+      "/docs/:slug",
+      "/docs/:rest*",
+    ]);
+    expect(output.spaFallbacks[1].regex).toBe("^/docs(?:/.+)?/?$");
+    expect(new RegExp(output.spaFallbacks[1].regex).test("/docs")).toBe(true);
+    expect(new RegExp(output.spaFallbacks[1].regex).test("/docs/guides/start")).toBe(true);
+    expect(readFileSync(join(clientDir, "_redirects"), "utf-8")).toContain(
+      "/docs  /_pracht/spa/docs-rest.html  200\n/docs/*  /_pracht/spa/docs-rest.html  200",
+    );
+  });
+
   it("writes a functionless Vercel build output", () => {
     const { root, clientDir } = createRoot();
 
@@ -318,6 +356,28 @@ describe("writeStaticBuildOutput", () => {
     });
 
     expect(warn.mock.calls.flat().join(" ")).toContain("/projects/:id");
+  });
+
+  it("warns instead of emitting an ineffective not-found header rule", () => {
+    const { root, clientDir } = createRoot();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const output = writeStaticBuildOutput({
+      clientDir,
+      headersManifest: {},
+      host: "generic",
+      notFound: makePage("/__pracht_not_found__", {
+        headers: { "x-not-found": "1" },
+        render: "not-found",
+      }),
+      pages: [],
+      root,
+    });
+
+    expect(output.manifest.headers).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ source: "/404.html" })]),
+    );
+    expect(warn.mock.calls.flat().join(" ")).toContain("notFound headers() export");
   });
 });
 

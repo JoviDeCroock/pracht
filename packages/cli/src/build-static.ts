@@ -80,8 +80,11 @@ export function assertStaticBuildSupported(
   for (const route of app.routes) {
     const render = route.render ?? "ssr";
     if (render === "ssr") {
+      // An undeclared route is server-rendered; say so rather than quoting a
+      // mode the author never wrote.
+      const declared = route.render ? 'render: "ssr"' : "the default render mode (ssr)";
       problems.push(
-        `  ${route.path} — render: "ssr" needs a server on every request. Use "ssg" (prerendered), ` +
+        `  ${route.path} — ${declared} needs a server on every request. Use "ssg" (prerendered), ` +
           `or "spa" when the page fetches its own data in the browser.`,
       );
       continue;
@@ -196,6 +199,14 @@ export function writeStaticBuildOutput({
 
   if (notFound) {
     writeStaticFile(clientDir, NOT_FOUND_FILE, notFound.html);
+    const unappliedHeaders = Object.keys(staticDocumentHeaders(notFound.headers));
+    if (unappliedHeaders.length > 0) {
+      console.warn(
+        `  Warning: the notFound headers() export (${unappliedHeaders.join(", ")}) is not ` +
+          "applied. Static hosts match header rules against the requested missing URL, not " +
+          "the internal 404.html fallback path; configure status-aware headers on your host directly.",
+      );
+    }
   }
 
   const staticRoutes = pages
@@ -204,7 +215,7 @@ export function writeStaticBuildOutput({
   const manifest: StaticBuildManifest = {
     host,
     rewrites: spaFallbacks,
-    headers: createHeaderRules(staticRoutes, headersManifest, notFound),
+    headers: createHeaderRules(staticRoutes, headersManifest),
     notFound: notFound ? NOT_FOUND_FILE : null,
   };
 
@@ -281,14 +292,14 @@ function writeSpaFallbackDocuments(
     });
   }
 
-  // Longest pattern first: `/app/settings` has to win over `/app/:id`.
-  return rules.sort((left, right) => right.pattern.length - left.pattern.length);
+  // Preserve manifest order. Pracht resolves the first matching route, and
+  // static-host rewrites must make the same choice for overlapping patterns.
+  return rules;
 }
 
 function createHeaderRules(
   staticRoutes: string[],
   headersManifest: Record<string, Record<string, string>>,
-  notFound: PrerenderResult | undefined,
 ): StaticHeaderRule[] {
   const rules: StaticHeaderRule[] = [
     { source: "/*", headers: Object.fromEntries(PRACHT_BASELINE_SECURITY_HEADERS) },
@@ -299,11 +310,6 @@ function createHeaderRules(
     const headers = staticDocumentHeaders(headersManifest[route]);
     if (Object.keys(headers).length === 0) continue;
     rules.push({ source: route, headers });
-  }
-
-  if (notFound) {
-    const headers = staticDocumentHeaders(notFound.headers);
-    if (Object.keys(headers).length > 0) rules.push({ source: NOT_FOUND_FILE, headers });
   }
 
   return rules;
@@ -338,8 +344,8 @@ function writeNetlifyConfig(clientDir: string, manifest: StaticBuildManifest): v
     return;
   }
 
-  const redirectLines = manifest.rewrites.map(
-    (rule) => `${patternToNetlifyPattern(rule.pattern)}  ${rule.destination}  200`,
+  const redirectLines = manifest.rewrites.flatMap((rule) =>
+    patternToNetlifyPatterns(rule.pattern).map((pattern) => `${pattern}  ${rule.destination}  200`),
   );
   writeFileSync(join(clientDir, "_redirects"), `${redirectLines.join("\n")}\n`, "utf-8");
 }
@@ -431,22 +437,34 @@ function patternToSlug(pattern: string): string {
 }
 
 /** Netlify placeholders: `:name` for a param, `*` for a catch-all tail. */
-function patternToNetlifyPattern(pattern: string): string {
+function patternToNetlifyPatterns(pattern: string): string[] {
   const parts = segmentsOf(pattern).map((segment) => {
     if (segment.type === "static") return segment.value;
     if (segment.type === "param") return `:${segment.name}`;
     return "*";
   });
-  return parts.length === 0 ? "/" : `/${parts.join("/")}`;
+  const wildcard = parts.length === 0 ? "/" : `/${parts.join("/")}`;
+  const catchallIndex = parts.indexOf("*");
+  if (catchallIndex === -1) return [wildcard];
+
+  // Pracht catch-alls also match an empty tail. Netlify's `*` placeholder is
+  // host-defined, so emit the base path explicitly as well as the splat rule.
+  const baseParts = parts.slice(0, catchallIndex);
+  const base = baseParts.length === 0 ? "/" : `/${baseParts.join("/")}`;
+  return [base, wildcard];
 }
 
 function patternToRegexSource(pattern: string): string {
-  const parts = segmentsOf(pattern).map((segment) => {
-    if (segment.type === "static") return escapeRegex(segment.value);
-    if (segment.type === "param") return "[^/]+";
-    return ".+";
-  });
-  return parts.length === 0 ? "^/$" : `^/${parts.join("/")}/?$`;
+  const segments = segmentsOf(pattern);
+  if (segments.length === 0) return "^/$";
+
+  let source = "^";
+  for (const segment of segments) {
+    if (segment.type === "static") source += `/${escapeRegex(segment.value)}`;
+    else if (segment.type === "param") source += "/[^/]+";
+    else source += "(?:/.+)?";
+  }
+  return `${source}/?$`;
 }
 
 function segmentsOf(pattern: string): RouteSegment[] {

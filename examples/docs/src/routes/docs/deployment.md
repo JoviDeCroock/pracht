@@ -1,6 +1,6 @@
 ---
 title: Deployment
-lead: pracht apps deploy anywhere via platform adapters. Each adapter handles request conversion, asset serving, and the runtime's supported ISG revalidation strategy.
+lead: pracht apps deploy anywhere via platform adapters. Runtime-backed adapters handle requests and revalidation; the static adapter proves the app can ship as files alone.
 breadcrumb: Deployment
 prev:
   href: /docs/cli
@@ -119,6 +119,46 @@ collide with an ISG route.
 `pracht preview` deliberately does not emulate Vercel production. Use
 `vercel build` to reproduce the Build Output and `vercel dev` for Vercel's
 local development runtime.
+
+---
+
+## Static files — no runtime
+
+Use `@pracht/adapter-static` when every route can be answered by build output:
+
+```ts [vite.config.ts]
+import { defineConfig } from "vite";
+import { pracht } from "@pracht/vite-plugin";
+import { staticAdapter } from "@pracht/adapter-static";
+
+export default defineConfig({
+  plugins: [pracht({ adapter: staticAdapter({ host: "netlify" }) })],
+});
+```
+
+Choose `netlify` for `dist/client/_headers` and `_redirects` (also supported by
+Cloudflare Pages), `vercel` for a functionless `.vercel/output`, or `generic`
+for `dist/client` plus `dist/server/static-manifest.json` rules to translate on
+another CDN.
+
+```sh
+pracht build
+pracht preview --skip-build
+# Netlify: deploy dist/client
+# Vercel:  vercel deploy --prebuilt
+```
+
+The target supports SSG, SPA, islands, no-hydration pages, and a generated
+`404.html`. Loader-backed SSG navigation reads build-time JSON snapshots made
+by the same loader pass as the HTML. Dynamic SSG routes must export
+`getStaticPaths()`. SSR, ISG, API routes, HTTP capabilities, agent runtime
+configuration, and per-param dynamic SPA loaders/middleware fail the build.
+
+One document answers a dynamic SPA pattern, so route-level `head()` metadata is
+omitted rather than baking placeholder params into every URL. Portable static
+host rules also cannot apply a not-found module's custom headers to arbitrary
+missing paths; both cases produce build warnings when host-specific work is
+needed.
 
 ---
 

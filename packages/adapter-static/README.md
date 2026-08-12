@@ -42,7 +42,7 @@ offending routes listed when it is not:
 
 | Feature                          | Static build                                            |
 | -------------------------------- | ------------------------------------------------------- |
-| `render: "ssg"`                  | Prerendered, with a route-state snapshot per path       |
+| `render: "ssg"`                  | Prerendered; full-hydration routes also get a route-state snapshot per path |
 | `render: "spa"`                  | Shell + `Loading()` document, rendered in the browser   |
 | `hydration: "islands"` / `"none"` | Supported on any prerendered route                      |
 | `render: "ssr"` / `"isg"`        | Build error — no runtime to render or revalidate        |
@@ -53,6 +53,17 @@ offending routes listed when it is not:
 
 Full-hydration SSG navigation reads build-time loader snapshots from
 `/_pracht/state/<path>/index.json`. Rebuild and redeploy to refresh them.
+The HTML and snapshot use the same loader/middleware pass. Dynamic SSG routes
+must export `getStaticPaths()`; otherwise the build fails instead of silently
+omitting the route.
+
+Dynamic SPA fallback rewrites preserve manifest route order and include the
+empty base path of catch-all routes. Because the eventual params are unknown at
+build time, route-level `head()` metadata is omitted from shared fallbacks with
+a warning; put shared metadata on the shell or update the document head in the
+client. Static hosts also cannot portably attach a `notFound` route's custom
+headers to every missing request path, so those headers require status-aware
+host configuration.
 
 ## Preview
 

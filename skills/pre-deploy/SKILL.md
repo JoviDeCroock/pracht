@@ -163,7 +163,7 @@ a markdown summary (graph diff + verify + budgets) worth attaching to it.
   configuration is present; `pracht build` must fail closed if anything needs a runtime.
 - Every SSG path has HTML, loader-backed full-hydration paths have a matching
   `dist/client/_pracht/state/<path>/index.json`, and `404.html` exists when the
-  app declares `notFound`.
+  app declares `notFound`. Dynamic SSG routes export `getStaticPaths()`.
 - Run `pracht preview --skip-build`; verify clean URLs, dynamic SPA fallbacks,
   the 404 status, islands interaction, and no-hydration pages.
 - Extract every stylesheet URL from generated HTML and require `200` with a
@@ -174,6 +174,8 @@ a markdown summary (graph diff + verify + budgets) worth attaching to it.
   populated `.vercel/output/static`, and no functions directory. For `generic`,
   confirm the platform translated every rewrite and header rule from
   `static-manifest.json`.
+- Treat warnings about dynamic-SPA `head()` or not-found `headers()` as host
+  configuration work; portable static output cannot apply either per URL.
 
 ## Step 4: Cross-cutting checks
 

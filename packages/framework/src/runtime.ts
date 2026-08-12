@@ -209,6 +209,19 @@ export interface HandlePrachtRequestOptions<TContext = unknown> {
    */
   fallbackDocument?: boolean;
   /**
+   * Omit route-level head metadata from a document shared by multiple URLs.
+   * Dynamic SPA fallbacks cannot know the eventual route params at build time,
+   * and route `head()` exports are server-only, so placeholder-derived metadata
+   * would otherwise remain in the document after the client boots.
+   */
+  omitRouteHead?: boolean;
+  /**
+   * Build-only hook that captures the route-state JSON from the same loader and
+   * middleware pass that produced the document. Static prerendering uses this
+   * to avoid executing application code twice and publishing mismatched data.
+   */
+  captureRouteState?: (json: string) => void;
+  /**
    * Dev-only phase-timing collector. When provided, the runtime records
    * middleware/loader/render durations (ms) onto it so callers can emit a
    * `Server-Timing` header. Leave unset in production — no timing work runs.
@@ -738,6 +751,10 @@ export async function handlePrachtRequest<TContext>(
           });
         }
 
+        if (options.captureRouteState) {
+          options.captureRouteState(JSON.stringify({ data }));
+        }
+
         // Shell import was kicked off up front; this await is usually already
         // resolved by the time we get here (it runs in parallel with the loader).
         currentPhase = "render";
@@ -745,7 +762,12 @@ export async function handlePrachtRequest<TContext>(
 
         // head and document headers are independent; run them concurrently.
         const [head, documentHeaders] = await Promise.all([
-          mergeHeadMetadata(shellModule, routeModule, routeArgs, data),
+          mergeHeadMetadata(
+            shellModule,
+            options.omitRouteHead ? undefined : routeModule,
+            routeArgs,
+            data,
+          ),
           mergeDocumentHeaders(shellModule, routeModule, routeArgs, data),
         ]);
 

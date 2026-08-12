@@ -1,6 +1,6 @@
 ---
 title: Adapters
-lead: Adapters are thin layers that translate between a platform's native request handling and pracht's Web Request/Response interface. pracht ships adapters for Cloudflare Workers, Vercel Edge Functions, and Node.js.
+lead: Adapters select Pracht's deployment shape. Runtime-backed adapters target Cloudflare Workers, Vercel, and Node.js; the static adapter emits files with no request handler.
 breadcrumb: Adapters
 prev:
   href: /docs/deployment
@@ -15,7 +15,7 @@ next:
 Every adapter follows the same request flow:
 
 ```
-Platform request (Node / CF / Vercel)
+Platform request (Node / CF / Vercel), or static build output
   → Convert to Web Request
   → Is this a static asset?  → Yes: serve from dist/client/
   → Is this a prerendered page?  → Yes: serve static HTML or the platform's ISG cache
@@ -26,6 +26,43 @@ Platform request (Node / CF / Vercel)
 Adapters also preserve route and shell document headers for prerendered HTML so static SSG/ISG responses match dynamic document responses.
 
 For prerendered routes that export `markdown`, the Node and Cloudflare adapters bypass the static document only when the request prefers `text/markdown` over HTML and the exact route appears in the generated Markdown manifest. Routes without a markdown representation stay on the static fast path even when an agent requests markdown; SSR-only builds emit an empty manifest so public assets receive the same protection, while custom entries without manifest metadata preserve negotiation by falling through to the framework.
+
+---
+
+## Static files
+
+`@pracht/adapter-static` emits a runtime-free deployment for apps whose request
+surface can be proven at build time.
+
+```ts [vite.config.ts]
+import { staticAdapter } from "@pracht/adapter-static";
+
+pracht({ adapter: staticAdapter({ host: "netlify" }) });
+```
+
+| Host | Output |
+| --- | --- |
+| `netlify` | `dist/client` with `_headers` and `_redirects`; Cloudflare Pages reads the same files |
+| `vercel` | Functionless Build Output API v3 under `.vercel/output` |
+| `generic` | `dist/client` plus machine-readable rules in `dist/server/static-manifest.json` |
+
+SSG routes become clean-URL documents. Loader-backed routes also get
+`/_pracht/state/<path>/index.json` from the same loader/middleware execution so
+full-hydration client navigation needs no function and cannot drift from the
+HTML. Dynamic SSG routes must enumerate every output with `getStaticPaths()`.
+
+Concrete SPA routes get a shell document. Dynamic SPA routes share a fallback
+rewrite; overlapping patterns preserve manifest declaration order, and a
+catch-all also covers its empty-tail base path. They cannot run per-param
+loaders or middleware. Route-level `head()` is omitted from a shared fallback
+instead of publishing placeholder-param metadata. The app not-found page is
+written to `404.html`; custom not-found headers require status-aware host
+configuration because portable path rules see the original missing URL.
+
+The build rejects SSR, ISG, API routes, HTTP-exposed capabilities, and
+`defineApp({ agents })`. It warns when raw Markdown negotiation or per-request
+metadata/headers need a runtime. Test clean URLs, rewrites, headers, islands,
+and 404 status locally with `pracht preview --skip-build`.
 
 ---
 

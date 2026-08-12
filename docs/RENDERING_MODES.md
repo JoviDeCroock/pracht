@@ -292,13 +292,17 @@ The build accepts `ssg` and `spa` routes, including `hydration: "islands"` and
 `"none"`, and writes the app not-found page to `404.html`. Concrete SPA routes
 get a shell document; a dynamic SPA pattern gets one host rewrite to a shared
 fallback document and therefore cannot use a loader or middleware that depends
-on the requested params. `ssr`, `isg`, API routes, and any other request-time
+on the requested params. Its route-level `head()` metadata is omitted because
+build-time placeholder params would be incorrect for the eventual browser URL.
+Dynamic SSG routes must enumerate every URL with `getStaticPaths()`. `ssr`,
+`isg`, API routes, and any other request-time
 requirement fail the build with every offending route listed. HTTP-exposed
 capabilities and `defineApp({ agents })` also require a runtime; private
 capabilities may still be invoked by SSG loaders during the build.
 
 SSG loader results are written under `dist/client/_pracht/state/` for client
-navigation. They are build-time snapshots: rebuild to refresh them. Static
+navigation from the same loader pass that produced the HTML. They are
+build-time snapshots: rebuild to refresh them. Static
 hosting cannot negotiate a route's raw `markdown` export or run revalidation.
 See [ADAPTERS.md](ADAPTERS.md#static-adapter-no-runtime) for host output and
 preview details.

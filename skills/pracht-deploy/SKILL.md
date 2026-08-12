@@ -275,10 +275,12 @@ pracht preview --skip-build
 ```
 
 The build rejects `ssr`, `isg`, API routes, HTTP capabilities, agent runtime
-configuration, and dynamic SPA loaders/middleware
+configuration, dynamic SSG routes without `getStaticPaths()`, and dynamic SPA loaders/middleware
 instead of publishing broken output. It emits SSG loader snapshots for client
 navigation, SPA shell documents and dynamic fallback rewrites, islands and
-zero-hydration pages, safe header rules, and `404.html`. Verify the HTTP preview;
+zero-hydration pages, safe header rules, and `404.html`. Dynamic SPA route
+`head()` metadata and not-found custom headers warn when they need per-request
+host behavior that static output cannot provide. Verify the HTTP preview;
 opening `dist/client/index.html` through `file://` breaks root-relative asset
 URLs and can make the page appear unstyled.
 

@@ -1,6 +1,6 @@
 {
   "name": "@pracht/adapter-static",
-  "version": "0.1.0",
+  "version": "0.0.0",
   "description": "Static output adapter for deploying Pracht apps to Netlify, Vercel, or any CDN without a server runtime.",
   "keywords": [
     "pracht",
