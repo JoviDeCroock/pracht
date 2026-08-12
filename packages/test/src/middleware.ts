@@ -56,7 +56,12 @@ export async function runMiddleware<TContext = RegisteredContext>(
       return dispatch(index + 1);
     };
 
-    const response = await chain[index](args, next);
+    // Production constructs a fresh top-level args wrapper for every
+    // middleware while retaining the same request, params, context, signal,
+    // url, and route references. Match that behavior so replacing a field on
+    // one middleware's wrapper does not leak downstream, while mutations to
+    // shared values such as `context.user` still do.
+    const response = await chain[index]({ ...args }, next);
     if (!(response instanceof Response)) {
       throw new Error(
         `Middleware at index ${index} did not return a Response. ` +

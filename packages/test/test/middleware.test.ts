@@ -81,6 +81,28 @@ describe("runMiddleware", () => {
     expect(order).toEqual(["first:before", "second:user-1", "handler", "first:after"]);
   });
 
+  it("isolates top-level args replacement between middleware like production", async () => {
+    type Ctx = { user?: string };
+    const seen: Array<{ context: Ctx; path: string }> = [];
+
+    const replaceWrapperFields: MiddlewareFn<Ctx> = async (args, next) => {
+      args.context = { user: "replacement" };
+      args.url = new URL("http://localhost/replacement");
+      return next();
+    };
+    const inspectDownstream: MiddlewareFn<Ctx> = async ({ context, url }, next) => {
+      seen.push({ context, path: url.pathname });
+      return next();
+    };
+
+    const args = createMiddlewareArgs<Ctx>({ context: {}, url: "/dashboard" });
+    const originalUrl = args.url;
+    await runMiddleware([replaceWrapperFields, inspectDownstream], args);
+
+    expect(seen).toEqual([{ context: args.context, path: "/dashboard" }]);
+    expect(args.url).toBe(originalUrl);
+  });
+
   it("runs API middleware with the same route metadata shape as production", async () => {
     const inspectRoute: MiddlewareFn = async ({ route }, next) => {
       expect(route.path).toBe("/api/health");

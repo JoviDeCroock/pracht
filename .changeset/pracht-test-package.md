@@ -1,5 +1,5 @@
 ---
-"@pracht/core": patch
+"@pracht/core": minor
 "@pracht/test": minor
 ---
 
@@ -15,7 +15,8 @@ cancellation tests. `runMiddleware()` executes one middleware or a chain with
 the runtime's exact `next()` semantics — sequential dispatch, at-most-once
 `next()`, short-circuit on an early `Response`, a thrown `Response` resolving
 by default like page/API dispatch, opt-in raw-chain rejection for capability
-middleware, and fail loudly on a non-`Response` return — so auth gates and
+middleware, a fresh top-level args wrapper per dispatch with shared request
+state, and fail loudly on a non-`Response` return — so auth gates and
 context-augmenting middleware are unit-testable without hiding the capability
 pipeline's different `internal_error` behavior. `submitForm()` (with async
 `createFormRequest()`) builds a urlencoded or multipart form `POST` from
