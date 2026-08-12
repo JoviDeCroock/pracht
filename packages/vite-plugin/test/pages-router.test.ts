@@ -375,7 +375,9 @@ describe("scanPagesDirectory", () => {
 
     const source = generatePagesManifestSource(scanPagesDirectory(pagesDir), { pagesDir });
 
-    expect(source).toContain('notFound: { component: "./404.tsx", shell: "pages" }');
+    expect(source).toContain(
+      `notFound: { component: "./${basename(pagesDir)}/404.tsx", shell: "pages" }`,
+    );
     // The 404 page is not reachable at a URL of its own.
     expect(source).not.toContain('route("/404"');
   });
@@ -474,7 +476,7 @@ describe("generatePagesManifestSource", () => {
 
     expect(source).not.toContain("shells:");
     expect(source).toContain(
-      'route("/", "./index.mdx", { render: "ssr", hasLoader: false, hasHead: true })',
+      `route("/", "./${basename(pagesDir)}/index.mdx", { render: "ssr", hasLoader: false, hasHead: true })`,
     );
   });
 
@@ -551,6 +553,61 @@ describe("generatePagesManifestSource", () => {
     expect(() => generatePagesManifestSource(scanPagesDirectory(pagesDir), { pagesDir })).toThrow(
       /Nested pages middleware is not supported/,
     );
+  });
+
+  it("rejects a _middleware directory instead of treating its contents as routes", () => {
+    const pagesDir = makeTempPagesDir();
+    mkdirSync(join(pagesDir, "_middleware"), { recursive: true });
+
+    writeFileSync(join(pagesDir, "index.tsx"), "export function Component() { return null; }\n");
+    writeFileSync(
+      join(pagesDir, "_middleware", "index.ts"),
+      "export const middleware = async (_args, next) => next();\n",
+    );
+
+    expect(() => generatePagesManifestSource(scanPagesDirectory(pagesDir), { pagesDir })).toThrow(
+      /`_middleware` directory is not supported/,
+    );
+  });
+
+  it("rejects _middleware.tsrx instead of silently ignoring it", () => {
+    const pagesDir = makeTempPagesDir();
+
+    writeFileSync(join(pagesDir, "index.tsx"), "export function Component() { return null; }\n");
+    writeFileSync(
+      join(pagesDir, "_middleware.tsrx"),
+      "export const middleware = async (_args, next) => next();\n",
+    );
+
+    expect(() => generatePagesManifestSource(scanPagesDirectory(pagesDir), { pagesDir })).toThrow(
+      /cannot use the "\.tsrx" extension/,
+    );
+  });
+
+  it("emits ejected route and notFound refs relative to the manifest directory", () => {
+    const pagesDir = makeTempPagesDir();
+    mkdirSync(join(pagesDir, "blog"), { recursive: true });
+
+    writeFileSync(join(pagesDir, "index.tsx"), "export function Component() { return null; }\n");
+    writeFileSync(
+      join(pagesDir, "blog", "[slug].tsx"),
+      "export function Component() { return null; }\n",
+    );
+    writeFileSync(join(pagesDir, "404.tsx"), "export function Component() { return null; }\n");
+
+    const source = generatePagesManifestSource(scanPagesDirectory(pagesDir), {
+      pagesDir,
+      useImportSyntax: true,
+    });
+
+    // An ejected manifest lives beside the pages directory (src/routes.ts
+    // next to src/pages), so every ref must include the pages directory
+    // segment or the manifest points at files that do not exist.
+    const base = basename(pagesDir);
+    expect(source).toContain(`route("/", () => import("./${base}/index.tsx")`);
+    expect(source).toContain(`route("/blog/:slug", () => import("./${base}/blog/[slug].tsx")`);
+    expect(source).toContain(`notFound: { component: () => import("./${base}/404.tsx") }`);
+    expect(source).not.toContain('import("./index.tsx")');
   });
 
   it("rejects multiple root _middleware files", () => {

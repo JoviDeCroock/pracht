@@ -269,6 +269,50 @@ export const middleware: MiddlewareFn = async (_args, next) => next();
     );
   });
 
+  it("fails doctor for a _middleware directory instead of treating it as a route", () => {
+    const appDir = createTempDir("pracht-cli-doctor-pages-middleware-dir-");
+    writePagesApp(appDir);
+    writeProjectFile(appDir, "src/pages/index.tsx", "export function Component() { return null; }");
+    writeProjectFile(
+      appDir,
+      "src/pages/_middleware/index.ts",
+      "export const middleware = async (_args, next) => next();",
+    );
+
+    const result = runCliStatus(["doctor", "--json"], { cwd: appDir });
+    expect(result.status).toBe(1);
+    const report = JSON.parse(result.stdout);
+    expect(report.ok).toBe(false);
+    expect(
+      report.checks.some((check) =>
+        check.message.includes("`_middleware` directory is not supported"),
+      ),
+    ).toBe(true);
+    // The file inside the directory must never surface as a page route.
+    expect(report.checks.some((check) => check.message.includes('route "/_middleware"'))).toBe(
+      false,
+    );
+  });
+
+  it("fails doctor for _middleware.tsrx instead of silently ignoring it", () => {
+    const appDir = createTempDir("pracht-cli-doctor-pages-middleware-tsrx-");
+    writePagesApp(appDir);
+    writeProjectFile(appDir, "src/pages/index.tsx", "export function Component() { return null; }");
+    writeProjectFile(
+      appDir,
+      "src/pages/_middleware.tsrx",
+      "export const middleware = async (_args, next) => next();",
+    );
+
+    const result = runCliStatus(["doctor", "--json"], { cwd: appDir });
+    expect(result.status).toBe(1);
+    const report = JSON.parse(result.stdout);
+    expect(report.ok).toBe(false);
+    expect(
+      report.checks.some((check) => check.message.includes("cannot use the `.tsrx` extension")),
+    ).toBe(true);
+  });
+
   it("reads an inline pagesDefaultRender as a render mode rather than a path", () => {
     const appDir = createTempDir("pracht-cli-doctor-pages-default-isg-");
     writePagesApp(appDir);

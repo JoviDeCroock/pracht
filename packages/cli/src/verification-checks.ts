@@ -612,8 +612,35 @@ function collectPagesMiddlewareChecks(
   scope: string,
 ): void {
   const middlewareFiles = pages.filter((page) => page.kind === "middleware");
-  const nested = middlewareFiles.filter((page) => page.nested);
-  const rootFiles = middlewareFiles.filter((page) => !page.nested);
+  const directoryShaped = middlewareFiles.filter((page) => page.shape === "directory");
+  const unsupportedExtension = middlewareFiles.filter(
+    (page) => page.shape === "unsupported-extension",
+  );
+  const nested = middlewareFiles.filter((page) => page.shape === "file" && page.nested);
+  const rootFiles = middlewareFiles.filter((page) => page.shape === "file" && !page.nested);
+
+  for (const page of directoryShaped) {
+    checks.push(
+      createCheck(
+        "error",
+        `A \`_middleware\` directory is not supported (${JSON.stringify(displayPath(project.root, page.file))}). ` +
+          "Pages middleware is a single root-level `_middleware.ts` file in the pages directory " +
+          "(it runs on every page route). Move the logic there, or eject to an explicit " +
+          "manifest for per-group middleware.",
+      ),
+    );
+  }
+
+  for (const page of unsupportedExtension) {
+    checks.push(
+      createCheck(
+        "error",
+        `Pages middleware ${JSON.stringify(displayPath(project.root, page.file))} cannot use the ` +
+          "`.tsrx` extension. The middleware registry loads `.ts`, `.tsx`, `.js`, and `.jsx` " +
+          "modules only — rename the file to `_middleware.ts`.",
+      ),
+    );
+  }
 
   for (const page of nested) {
     checks.push(
@@ -741,9 +768,10 @@ function collectChangedPagesChecks(
     }
 
     if (page.kind === "middleware") {
-      // A nested file is reported as an error by the middleware checks that
-      // run in every scope; only the working shape gets an ok here.
-      if (!page.nested) {
+      // Broken shapes (nested files, `_middleware/` directories, `.tsrx`) are
+      // reported as errors by the middleware checks that run in every scope;
+      // only the working shape gets an ok here.
+      if (page.shape === "file" && !page.nested) {
         checks.push(
           createCheck(
             "ok",

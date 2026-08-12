@@ -33,16 +33,52 @@ export interface PagesRouterOptions {
 // Mirrors the `middlewareDir` registry glob (`**/*.{ts,tsx,js,jsx}`): a pages
 // middleware file must be resolvable through the same runtime registry.
 const MIDDLEWARE_EXTENSIONS = new Set([".ts", ".tsx", ".js", ".jsx"]);
+// Page source extensions that look like they could hold middleware but that
+// the runtime registry glob cannot load. `.md`/`.mdx` stay ordinary ignored
+// `_`-files — Markdown cannot export a function — but `.tsrx` is a first-class
+// authoring format for pages, so silently ignoring `_middleware.tsrx` would
+// fail open exactly like a nested file.
+const MIDDLEWARE_UNSUPPORTED_EXTENSIONS = new Set([".tsrx"]);
 
 /**
  * The root-level `_middleware.{ts,tsx,js,jsx}` file of a pages directory, or
- * null when the app has none. Fails loudly on the two shapes that would
- * otherwise fail open: a nested `_middleware` file (unsupported — it would be
- * silently ignored while looking like an auth gate) and multiple root files
- * competing for the same registration.
+ * null when the app has none. Fails loudly on every shape that would
+ * otherwise fail open: a nested `_middleware` file, a `_middleware/`
+ * directory, a `_middleware.tsrx` file the runtime registry cannot load
+ * (all unsupported — they would be silently ignored while looking like an
+ * auth gate), and multiple root files competing for the same registration.
  */
 export function findPagesMiddlewareFile(pagesDir: string): string | null {
-  const middlewareFiles = scanAllFiles(pagesDir).filter(
+  const allFiles = scanAllFiles(pagesDir);
+
+  const inMiddlewareDirectory = allFiles.filter((file) =>
+    relative(pagesDir, file).replace(/\\/g, "/").split("/").slice(0, -1).includes("_middleware"),
+  );
+  if (inMiddlewareDirectory.length > 0) {
+    const shown = inMiddlewareDirectory.map((file) => relative(pagesDir, file).replace(/\\/g, "/"));
+    throw new Error(
+      `[pracht] A \`_middleware\` directory is not supported: ${shown.map((file) => JSON.stringify(file)).join(", ")}. ` +
+        "Pages middleware is a single root-level `_middleware.ts` file in the pages directory " +
+        "(it runs on every page route). Move the logic there, or eject to an explicit manifest " +
+        "for per-group middleware.",
+    );
+  }
+
+  const unsupported = allFiles.filter(
+    (file) =>
+      basename(file, extname(file)) === "_middleware" &&
+      MIDDLEWARE_UNSUPPORTED_EXTENSIONS.has(extname(file)),
+  );
+  if (unsupported.length > 0) {
+    const shown = unsupported.map((file) => relative(pagesDir, file).replace(/\\/g, "/"));
+    throw new Error(
+      `[pracht] Pages middleware cannot use the ${shown.map((file) => JSON.stringify(extname(file))).join(", ")} extension ` +
+        `(${shown.map((file) => JSON.stringify(file)).join(", ")}). The middleware registry loads ` +
+        "`.ts`, `.tsx`, `.js`, and `.jsx` modules only — rename the file to `_middleware.ts`.",
+    );
+  }
+
+  const middlewareFiles = allFiles.filter(
     (file) =>
       basename(file, extname(file)) === "_middleware" && MIDDLEWARE_EXTENSIONS.has(extname(file)),
   );
@@ -366,6 +402,18 @@ export function generatePagesManifestSource(
     : "defineApp, group, route";
   const lines: string[] = [`import { ${coreImports} } from "@pracht/core/manifest";`, ""];
 
+  // Without a prefix, references are relative to the pages directory's
+  // *parent* (e.g. `./pages/index.tsx`), because that is where ejected
+  // manifests live (`src/routes.ts` beside `src/pages/`). Emitting paths
+  // relative to the pages directory itself would leave the ejected manifest
+  // pointing at files that do not exist next to it.
+  const pageFileRef = (page: ScannedPage): string => {
+    const path = prefix
+      ? `${prefix}/${page.relativePath.replace(/\\/g, "/")}`
+      : `./${relative(join(pagesDir, ".."), page.absolutePath).replace(/\\/g, "/")}`;
+    return useImport ? `() => import(${JSON.stringify(path)})` : JSON.stringify(path);
+  };
+
   const routeEntries: string[] = [];
   // `pages/404.tsx` is the app's not-found page, not a route: it renders with
   // a 404 status when nothing matches, and it is never reachable at a URL of
@@ -395,12 +443,7 @@ export function generatePagesManifestSource(
           '`RENDER_MODE = "isg"` (or `pagesDefaultRender: "isg"`).',
       );
     }
-    const filePath = prefix
-      ? `${prefix}/${page.relativePath.replace(/\\/g, "/")}`
-      : `./${page.relativePath.replace(/\\/g, "/")}`;
-    const fileRef = useImport
-      ? `() => import(${JSON.stringify(filePath)})`
-      : JSON.stringify(filePath);
+    const fileRef = pageFileRef(page);
     const metaParts = [
       `render: ${JSON.stringify(render)}`,
       `hasLoader: ${page.hasLoader ? "true" : "false"}`,
@@ -418,7 +461,7 @@ export function generatePagesManifestSource(
   }
 
   const notFoundEntry = notFoundPage
-    ? buildNotFoundEntry(notFoundPage, { prefix, useImport, withShell: !!appFile })
+    ? buildNotFoundEntry(notFoundPage, { fileRef: pageFileRef(notFoundPage), withShell: !!appFile })
     : null;
 
   // Root-level special files (`_app`, `_middleware`) are referenced relative
@@ -467,16 +510,9 @@ export function generatePagesManifestSource(
 
 function buildNotFoundEntry(
   page: ScannedPage,
-  options: { prefix?: string; useImport: boolean; withShell: boolean },
+  options: { fileRef: string; withShell: boolean },
 ): string {
-  const filePath = options.prefix
-    ? `${options.prefix}/${page.relativePath.replace(/\\/g, "/")}`
-    : `./${page.relativePath.replace(/\\/g, "/")}`;
-  const fileRef = options.useImport
-    ? `() => import(${JSON.stringify(filePath)})`
-    : JSON.stringify(filePath);
-
-  const configParts = [`component: ${fileRef}`];
+  const configParts = [`component: ${options.fileRef}`];
   if (options.withShell) configParts.push('shell: "pages"');
   if (page.hydrationMode) configParts.push(`hydration: ${JSON.stringify(page.hydrationMode)}`);
 
@@ -517,7 +553,10 @@ export function generateRoutesFile(
   }).replace("const app = defineApp(", "export const app = defineApp(");
   const source = [
     "// Auto-generated from pages/ directory by @pracht/vite-plugin.",
-    "// Customize this file and remove `pagesDir` from pracht config to use it directly.",
+    "// To use it directly: remove `pagesDir` from the pracht config, set `appFile` to this",
+    "// file, and point `routesDir`/`shellsDir`/`middlewareDir` at the pages directory (or",
+    "// move the referenced files into the conventional directories). The runtime resolves",
+    "// manifest refs through those directory registries.",
     "",
     manifestSource,
   ].join("\n");
