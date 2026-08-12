@@ -496,6 +496,8 @@ The internal module graph within the framework package is acyclic:
 ```
 registration.ts — declaration-merging registry and framework request-context extensions
 capability-types.ts — generated capability registration and browser-client inference
+route-inputs.ts — route-param and search-param wire inputs shared by links and API calls
+api-client-types.ts — generated API registration, request options, and response inference
 types.ts        — shared route, manifest, runtime, and module-contract type facade
     ↑
 name-suggestions.ts — edit-distance "did you mean" helpers for wiring errors
