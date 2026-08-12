@@ -108,6 +108,14 @@ CSS-only:
   simply covers the background as soon as it paints.
 - No inline `on*` handlers are used (a JS `onload` fade would conflict with
   strict CSP setups), so there is no fade-out step; the swap is instant.
+- **CSP:** the placeholder is an inline `style` attribute (as is `fill`), and
+  style attributes are blocked by a policy whose `style-src` (or
+  `style-src-attr`) lacks `'unsafe-inline'` — nonces and hashes do not apply
+  to attributes. Under such a policy the image still renders; only the
+  placeholder (and `fill` positioning) is silently dropped. Allow it with
+  `style-src-attr 'unsafe-inline'` (scoped to attributes; safer than
+  loosening `style-src` wholesale) and keep `img-src` including `data:` so
+  the browser may load the inline WebP. See `docs/CSP.md`.
 - Images with transparency show the placeholder through transparent regions —
   use `placeholder="empty"` (the default) for those.
 

@@ -132,8 +132,13 @@ export async function analyzeImage(
 /**
  * Generate the virtual module for a `?pracht` import. The `?url` import
  * delegates the actual file to Vite's asset pipeline, so hashing, `base`,
- * inlining thresholds, and dev serving all behave exactly like a plain asset
- * import. Exported for tests.
+ * and dev serving all behave exactly like a plain asset import. `no-inline`
+ * opts out of `assetsInlineLimit`: without it, images under the limit
+ * (default 4 KB) turn `src` into a `data:` URI, which breaks
+ * optimization-endpoint loaders (`/api/_pracht/image?url=data%3A…` is not a
+ * fetchable same-origin path) and double-ships the bytes next to
+ * `blurDataURL`. The metadata contract promises a real, hashed asset URL.
+ * Exported for tests.
  */
 export function createImageModuleCode(
   filePath: string,
@@ -141,7 +146,7 @@ export function createImageModuleCode(
 ): string {
   // Vite ids always use forward slashes, including Windows drive paths
   // (`C:/…`). Normalize before embedding the path in the generated import.
-  const assetId = `${filePath.replace(/\\/g, "/")}?url`;
+  const assetId = `${filePath.replace(/\\/g, "/")}?url&no-inline`;
   return [
     `import src from ${JSON.stringify(assetId)};`,
     `export const width = ${JSON.stringify(analyzed.width)};`,

@@ -63,6 +63,26 @@ export function headers() {
 Avoid `'unsafe-eval'`. Avoid `'unsafe-inline'` unless an audited dependency or
 legacy integration needs it and the exception is documented.
 
+## Inline Style Attributes (`@pracht/image`)
+
+`<Image>` uses an inline `style` attribute for `fill` positioning and for
+`placeholder="blur"` (the blur is a CSS `background-image` with a
+`data:image/webp` URI). Style attributes are governed by `style-src-attr`,
+falling back to `style-src`, and require `'unsafe-inline'` there — nonces and
+hashes do not apply to attributes. Under the starter policy above
+(`style-src 'self'`), images still render but the blur placeholder and `fill`
+positioning are silently dropped.
+
+If you use those features with a CSP, scope the exception to attributes
+instead of loosening `style-src` for stylesheets and `<style>` elements:
+
+```
+style-src 'self'; style-src-attr 'unsafe-inline'
+```
+
+Keep `data:` in `img-src` (the starter policy includes it) so the browser may
+load the inline blur image.
+
 ## Inline Script Entries
 
 Normal Pracht page rendering and hydration do not require executable inline

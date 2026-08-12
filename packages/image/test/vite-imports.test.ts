@@ -108,6 +108,32 @@ describe("analyzeImage", () => {
     expect(result).toEqual({ width: 48, height: 24 });
   });
 
+  it("handles a 1x1 image without upscaling the blur", async () => {
+    const onePixel = await sharp({
+      create: { width: 1, height: 1, channels: 3, background: { r: 255, g: 0, b: 0 } },
+    })
+      .png()
+      .toBuffer();
+
+    const result = await analyzeImage(sharpFactory, onePixel, BLUR_OPTIONS);
+
+    expect(result.width).toBe(1);
+    expect(result.height).toBe(1);
+    // withoutEnlargement: the blur must not upscale a source smaller than
+    // blurWidth.
+    const meta = await sharp(decodeBlurDataURL(result.blurDataURL!)).metadata();
+    expect(meta.width).toBe(1);
+    expect(meta.height).toBe(1);
+  });
+
+  it("produces byte-identical blurDataURLs for the same input (SSG determinism)", async () => {
+    const source = await readFixture("landscape.jpg");
+    const first = await analyzeImage(sharpFactory, source, BLUR_OPTIONS);
+    const second = await analyzeImage(sharpFactory, source, BLUR_OPTIONS);
+
+    expect(second.blurDataURL).toBe(first.blurDataURL);
+  });
+
   it("fails with a clear error when dimensions cannot be determined", async () => {
     const stub = (() => ({
       metadata: () => Promise.resolve({ format: "svg" }),
@@ -144,7 +170,10 @@ describe("createImageModuleCode", () => {
       blurDataURL: "data:image/webp;base64,AA==",
     });
 
-    expect(code).toContain('import src from "/repo/src/hero.jpg?url";');
+    // `no-inline` is load-bearing: without it, images under
+    // `assetsInlineLimit` (default 4 KB) become `data:` URIs, which breaks
+    // optimization-endpoint loaders and double-ships bytes next to the blur.
+    expect(code).toContain('import src from "/repo/src/hero.jpg?url&no-inline";');
     expect(code).toContain("export const width = 640;");
     expect(code).toContain("export const height = 480;");
     expect(code).toContain('export const blurDataURL = "data:image/webp;base64,AA==";');
@@ -157,7 +186,7 @@ describe("createImageModuleCode", () => {
       height: 1,
     });
 
-    expect(code).toContain('import src from "C:/repo/src/hero.jpg?url";');
+    expect(code).toContain('import src from "C:/repo/src/hero.jpg?url&no-inline";');
     expect(code).not.toContain("\\\\");
   });
 });
@@ -188,7 +217,7 @@ describe("prachtImage plugin", () => {
     expect(code).toContain("export const width = 32;");
     expect(code).toContain("export const height = 20;");
     expect(code).toContain("data:image/webp;base64,");
-    expect(code).toContain(`?url";`);
+    expect(code).toContain(`?url&no-inline";`);
   });
 
   it("ignores ids without the ?pracht query", async () => {
@@ -224,6 +253,34 @@ describe("prachtImage plugin", () => {
     const second = await loadWith(plugin, `${fixture("landscape.jpg")}?pracht`);
     expect(second).toBe(first);
     expect(loadSharp).toHaveBeenCalledTimes(1);
+  });
+
+  it("dedupes concurrent transforms of the same image", async () => {
+    const loadSharp = vi.fn(() => import("sharp"));
+    const plugin = prachtImage({ loadSharp });
+    const id = `${fixture("landscape.jpg")}?pracht`;
+
+    // Fired without awaiting: the stat continuations race, but the first to
+    // finish seeds the cache and the rest must reuse it — sharp work runs once.
+    const [first, second, third] = await Promise.all([
+      loadWith(plugin, id),
+      loadWith(plugin, id),
+      loadWith(plugin, id),
+    ]);
+
+    expect(second).toBe(first);
+    expect(third).toBe(first);
+    expect(loadSharp).toHaveBeenCalledTimes(1);
+  });
+
+  it("errors with the file path for a zero-byte file", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "pracht-image-"));
+    tempDirs.push(dir);
+    const file = join(dir, "empty.jpg");
+    await writeFile(file, "");
+
+    const plugin = prachtImage();
+    await expect(loadWith(plugin, `${file}?pracht`)).rejects.toThrow(file);
   });
 
   it("errors clearly when sharp is not installed", async () => {

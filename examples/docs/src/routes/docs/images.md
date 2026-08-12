@@ -134,7 +134,7 @@ For TypeScript, reference the shipped declaration for the `?pracht` query once, 
 />
 ```
 
-The placeholder is CSS-only on purpose: it needs no hydration (it works with `hydration: "none"`), uses no inline event handlers (so strict CSP setups keep working), and disappears the instant the browser paints the real image over it. Two caveats: there is no fade-out animation, and images with transparency show the placeholder through transparent regions — keep the default `placeholder="empty"` for those.
+The placeholder is CSS-only on purpose: it needs no hydration (it works with `hydration: "none"`), uses no inline event handlers, and disappears the instant the browser paints the real image over it. Caveats: there is no fade-out animation; images with transparency show the placeholder through transparent regions — keep the default `placeholder="empty"` for those; and because the placeholder is an inline `style` attribute, a Content-Security-Policy needs `style-src-attr 'unsafe-inline'` (or `'unsafe-inline'` in `style-src`) plus `data:` in `img-src`, or the blur (and `fill` positioning, which uses the same mechanism) is silently dropped while the image itself still renders.
 
 `blurDataURL` values are validated as well-formed `data:image/…` URIs before they are interpolated into the style attribute; invalid values are ignored with a dev warning. Using `placeholder="blur"` without any `blurDataURL` also warns in dev.
 

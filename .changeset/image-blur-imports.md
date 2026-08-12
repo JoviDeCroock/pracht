@@ -7,7 +7,9 @@ Add build-time image imports and blur placeholders.
 - New `@pracht/image/vite` entry exports `prachtImage()`, an opt-in Vite
   plugin that turns `import hero from "./hero.jpg?pracht"` into typed
   metadata `{ src, width, height, blurDataURL }`. The file goes through
-  Vite's normal asset pipeline (hashed URLs, `base`, dev serving), the
+  Vite's normal asset pipeline (hashed URLs, `base`, dev serving) with
+  inlining disabled (`no-inline`), so `src` is always a real URL — never a
+  `data:` URI — and stays compatible with optimization-endpoint loaders; the
   dimensions come from sharp metadata with EXIF orientation applied, and
   `blurDataURL` is a tiny inline WebP generated at build time. sharp remains
   an optional peer dependency, required only at build time for `?pracht`
