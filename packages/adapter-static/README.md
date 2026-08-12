@@ -47,6 +47,8 @@ SSG loaders run at build time. For each loader-backed SSG route, the build seria
 - `404.html`: the app's `notFound` page, rendered at build time (GitHub Pages / S3 error-document convention).
 - `200.html` (opt-in via `staticAdapter({ fallback: "200.html" })`): SPA fallback document for hosts that can rewrite unmatched URLs; required for deep links into dynamic `render: "spa"` routes.
 
+The fallback only boots matched SPA routes. Paths matching a dynamic SSG route but omitted by `getStaticPaths()` render the app's `notFound` page rather than running without build-time loader state.
+
 Fallback names may not collide with `index.html` or `404.html`, including case variants on case-insensitive filesystems.
 
 See `docs/ADAPTERS.md` in the repository for the full documentation, host configuration notes, and limitations.

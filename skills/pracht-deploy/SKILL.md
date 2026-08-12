@@ -344,7 +344,8 @@ document. Client navigation fetches the serialized
 SPA routes fetch no Pracht state; use browser-side requests to an external API
 for live data. See docs/ADAPTERS.md § Static Adapter for host header
 configuration and limitations (markdown negotiation, percent-encoded params,
-base paths).
+base paths). The SPA fallback only client-renders matched SPA routes; dynamic
+SSG paths omitted by `getStaticPaths()` render the app's not-found page.
 
 ---
 
