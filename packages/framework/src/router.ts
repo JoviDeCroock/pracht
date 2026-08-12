@@ -582,13 +582,17 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
         }
       } catch {
         if (abortController.signal.aborted || navigationId !== latestNavigationId) return;
-        if (!(IS_STATIC_TARGET && opts?._staticFallback)) {
+        if (!(IS_STATIC_TARGET && (opts?._staticFallback || match.route.render === "spa"))) {
           // Network error — full page load as fallback. On a static host that
           // reload lands on the real prerendered document (or the host's 404
-          // page), so it is safe there too — except during a 200.html
-          // fallback boot, where the reload would re-serve the fallback
-          // document itself and loop; that case falls through and renders
-          // without loader data instead.
+          // page), so it is safe there too — with two exceptions that fall
+          // through and render without loader data instead:
+          // - a 200.html fallback boot, where the reload would re-serve the
+          //   fallback document itself and loop;
+          // - a matched `render: "spa"` route, whose dynamic paths have no
+          //   prerendered document or state file at all — a reload would land
+          //   in-app navigation on the host's 404 page (or bounce through the
+          //   fallback document) even though the client can render the route.
           window.location.href = target.browserUrl;
           return;
         }

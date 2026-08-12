@@ -1046,13 +1046,19 @@ page URL with the `x-pracht-route-state-request` header — impossible on a
 static host. The static adapter solves this at build time:
 
 - For each prerendered route whose navigation performs a state fetch (a loader
-  or route middleware), the build renders the route-state request once more
-  and writes the byte-identical JSON body to
-  `dist/client/_pracht/state/<path>/index.json` (`/` →
+  or route middleware), the build renders the route-state request **a second
+  time** — the same rendering the live endpoint performs — and writes the JSON
+  body to `dist/client/_pracht/state/<path>/index.json` (`/` →
   `_pracht/state/index.json`). The `index.json` leaf keeps `/blog` and
   `/blog/hello` from contending for one path, and `_pracht/` is already
   reserved, so state files can never collide with a prerendered route or a
   `public/` file.
+- **Loaders (and route middleware) therefore run twice per page** during a
+  static build: once for the HTML document, once for the state file. Like
+  `getStaticPaths()`, they must be deterministic and side-effect free at build
+  time — a loader that reads `Date.now()`, randomness, or mutable external
+  state produces an HTML document and a state file with *different* data, so
+  the hydrated page and the first client navigation back to it disagree.
 - The client bundle is compiled with the `__PRACHT_STATIC_TARGET__` define
   (driven by the adapter's `staticTarget: true` flag), which switches
   `fetchPrachtRouteState()` — navigation, prefetch, SPA boot, revalidation —
@@ -1067,10 +1073,20 @@ static host. The static adapter solves this at build time:
 State files are plain JSON served as `application/json` and parsed with
 `response.json()` — the same escaping posture as the live route-state
 endpoint. Loader data containing HTML stays inert data. A state fetch that
-misses (a dynamic path that `getStaticPaths()` did not enumerate, or a stale
-prefetch after a redeploy that removed a route) rejects, and the router falls
-back to a full-document navigation, which the host answers with the real page
-or its 404 document.
+misses (a stale navigation after a redeploy that removed a route, a host that
+answers the miss with an HTML error document) rejects; for `ssg` routes the
+router then falls back to a full-document navigation, which the host answers
+with the real page or its 404 document. For `render: "spa"` routes — whose
+dynamic, non-enumerated paths have no state file by construction — the router
+renders the route client-side **without loader data** instead of reloading:
+a document load could only land on the host's 404 page or bounce through the
+SPA fallback document.
+
+**Revalidation is a no-op with fresh-looking plumbing**: `useRevalidate()`
+(and the automatic refresh after a settled capability call) refetches the
+static state file with `cache: "reload"` — it always returns the build-time
+payload again. Data on a static export only changes by redeploying. Put
+truly live data behind a client-side fetch to an external API instead.
 
 ### 404 and the SPA fallback
 
@@ -1085,10 +1101,19 @@ or its 404 document.
   to it (Netlify `/* /200.html 200`, nginx `try_files`, S3/CloudFront error
   document with code 200). This is **required** for deep links into dynamic
   `render: "spa"` routes, which have no prerendered file; without a rewrite
-  those URLs land on `404.html`. During a fallback boot, a missing state file
-  renders the route without loader data instead of reloading (a reload would
-  re-serve the fallback document and loop). GitHub Pages cannot rewrite —
-  dynamic SPA paths are not deployable there.
+  those URLs land on `404.html`. (In-app client navigation to dynamic SPA
+  routes works without the fallback — the router renders them client-side,
+  without loader data. The rewrite only governs full-document loads: deep
+  links, reloads, opening in a new tab.) During a fallback boot, a missing
+  state file renders the route without loader data instead of reloading (a
+  reload would re-serve the fallback document and loop). GitHub Pages cannot
+  rewrite — deep links to and reloads of dynamic SPA paths land on the 404
+  page there.
+- A host that serves `404.html` with status **200** (S3 without an error-
+  document configuration, some CDN defaults) changes nothing for the client —
+  hydration adopts `window.location` either way — but crawlers will index
+  unknown URLs as real pages. Configure the host's error document so the
+  status stays 404.
 
 ### Host configuration
 

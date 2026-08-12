@@ -193,7 +193,8 @@ export async function writeStaticExportArtifacts(options: {
       log("  404.html → dist/client/404.html\n");
     } else {
       log(
-        "  No 404.html emitted: the app declares no notFound page. " +
+        "  No 404.html emitted: the app declares no notFound page (or a " +
+          "catch-all route matches every URL, so no 404 can render). " +
           "Static hosts will serve their own error page for unknown URLs.\n",
       );
     }
