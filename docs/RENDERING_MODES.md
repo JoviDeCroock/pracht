@@ -254,7 +254,9 @@ Their shell HTML is prerendered and their components run entirely in the
 browser; fetch live data client-side from an external API. Dynamic SPA routes
 have no prerendered file: in-app client navigation renders them directly, and
 deep links additionally need the adapter's `fallback: "200.html"` option plus
-a host rewrite.
+a host rewrite. A static `notFound` page must keep full hydration (the default),
+because the shared `404.html` needs the client router to adopt the visitor's
+actual URL.
 
 ---
 

@@ -14,6 +14,7 @@ import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 
 interface StaticRouteView {
   hasLoader?: boolean;
+  hydration?: string;
   middlewareFiles?: string[];
   path: string;
   render?: string;
@@ -32,7 +33,7 @@ interface StaticServerModuleView {
   };
   staticExportConfig?: { fallback?: string | null };
   renderStaticNotFoundHtml?: () => Promise<string | null>;
-  renderStaticFallbackHtml?: () => string;
+  renderStaticFallbackHtml?: (notFoundData?: unknown) => string | Promise<string>;
 }
 
 export function isStaticExportBuild(serverMod: { staticTarget?: unknown }): boolean {
@@ -123,6 +124,14 @@ export async function validateStaticExport(serverMod: StaticServerModuleView): P
           )
           .join("\n") +
         "\n  Remove the route middleware or use a serverful adapter. Build-time-only transformations belong in loaders or build tooling.",
+    );
+  }
+
+  if (notFound && notFound.hydration !== undefined && notFound.hydration !== "full") {
+    problems.push(
+      `the notFound page uses hydration: "${notFound.hydration}", but a static host serves one prebuilt 404.html for every unknown URL:\n` +
+        "    - notFound\n" +
+        '  Static notFound pages must use full hydration so the client router can adopt the visitor\'s real URL. Remove the hydration option (or set it to "full"), or use a serverful adapter.',
     );
   }
 
@@ -244,6 +253,20 @@ export interface StaticArtifactsResult {
   fallbackFile: string | null;
 }
 
+function readStaticNotFoundData(html: string): unknown {
+  const match = /<script id="pracht-state" type="application\/json">([\s\S]*?)<\/script>/.exec(
+    html,
+  );
+  if (!match) {
+    throw new Error(
+      "Static export expected the full-hydration notFound page to contain serialized route state.",
+    );
+  }
+
+  const state = JSON.parse(match[1]) as { data?: unknown };
+  return state.data;
+}
+
 /**
  * Write the static-deploy artifacts next to the prerendered pages:
  * per-route state JSON, `404.html` from the app's notFound page, and the
@@ -269,28 +292,31 @@ export async function writeStaticExportArtifacts(options: {
     log(`\n  Route state → dist/client/_pracht/state (${stateFileCount} file(s))\n`);
   }
 
+  const configuredFallback = serverMod.staticExportConfig?.fallback ?? null;
   let wrote404 = false;
+  let notFoundData: unknown;
   if (typeof serverMod.renderStaticNotFoundHtml === "function") {
     const notFoundHtml = await serverMod.renderStaticNotFoundHtml();
     if (notFoundHtml !== null) {
+      if (configuredFallback) {
+        notFoundData = readStaticNotFoundData(notFoundHtml);
+      }
       writeFileSync(resolve(clientDir, "404.html"), notFoundHtml, "utf-8");
       wrote404 = true;
       log("  404.html → dist/client/404.html\n");
     } else {
       log(
-        "  No 404.html emitted: the app declares no notFound page (or a " +
-          "catch-all route matches every URL, so no 404 can render). " +
+        "  No 404.html emitted: the app declares no notFound page. " +
           "Static hosts will serve their own error page for unknown URLs.\n",
       );
     }
   }
 
   let fallbackFile: string | null = null;
-  const configuredFallback = serverMod.staticExportConfig?.fallback ?? null;
   if (configuredFallback && typeof serverMod.renderStaticFallbackHtml === "function") {
     writeFileSync(
       resolve(clientDir, configuredFallback),
-      serverMod.renderStaticFallbackHtml(),
+      await serverMod.renderStaticFallbackHtml(notFoundData),
       "utf-8",
     );
     fallbackFile = configuredFallback;

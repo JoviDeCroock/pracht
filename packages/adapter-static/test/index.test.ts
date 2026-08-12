@@ -23,10 +23,13 @@ describe("staticAdapter", () => {
   it("generates an entry exposing the static-export build hooks", () => {
     const source = staticAdapter({ fallback: "200.html" }).createServerEntryModule();
     expect(source).toContain('export const staticExportConfig = { fallback: "200.html" };');
+    expect(source).toContain("const staticNotFoundApp = { ...resolvedApp, routes: [] };");
     expect(source).toContain("export async function renderStaticNotFoundHtml()");
+    expect(source).toContain("app: staticNotFoundApp");
     expect(source).toContain("if (!resolvedApp.notFound) return null;");
     expect(source).toContain("Static export failed to render the notFound page");
-    expect(source).toContain("export function renderStaticFallbackHtml()");
+    expect(source).toContain("export function renderStaticFallbackHtml(notFoundData)");
+    expect(source).toContain("notFoundData,");
     expect(source).toContain("createStaticPreviewHandler");
   });
 
