@@ -159,6 +159,10 @@ described in `VISION_MVP.md`.
 - **Vercel adapter** — Emits an Edge-compatible handler, copies the build into
   `.vercel/output/static` and `.vercel/output/functions/render.func`, rewrites
   clean SSG URLs to static HTML, and emits native prerender functions for ISG.
+- **Image endpoint** — `@pracht/image/node` keeps request validation and response
+  assembly in `node.ts`, trusted source/redirect policy in `node-source.ts`,
+  Sharp loading and codec transformation in `node-transform.ts`, and shared
+  configuration/result types in `node-types.ts`.
 - **Preact Worker facets prototype** — `@pracht/preact-worker-facets` provides
   experimental helpers for running Preact-style component modules inside
   Cloudflare Dynamic Workers. A supervisor Durable Object owns auth, source
