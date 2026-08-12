@@ -3,13 +3,27 @@ import type { JSX, VNode } from "preact";
 
 import { getImageConfig } from "./config.ts";
 import type { ImageLoader } from "./loaders.ts";
+import type { PrachtImageMetadata } from "./metadata.ts";
 
 export interface ImageProps extends Omit<
   JSX.HTMLAttributes<HTMLImageElement>,
-  "src" | "srcset" | "srcSet" | "width" | "height" | "sizes" | "loading" | "alt" | "style"
+  | "src"
+  | "srcset"
+  | "srcSet"
+  | "width"
+  | "height"
+  | "sizes"
+  | "loading"
+  | "alt"
+  | "style"
+  | "placeholder"
 > {
-  /** Source path (`/hero.jpg`) or absolute URL. Passed to the loader. */
-  src: string;
+  /**
+   * Source path (`/hero.jpg`), absolute URL, or the metadata object from a
+   * build-time `?pracht` import (which supplies `width`, `height`, and
+   * `blurDataURL` automatically).
+   */
+  src: string | PrachtImageMetadata;
   /** Required for accessibility. Use `alt=""` for decorative images. */
   alt: string;
   /** Intrinsic width in pixels. Required unless `fill` is set. */
@@ -33,6 +47,22 @@ export interface ImageProps extends Omit<
   loading?: "lazy" | "eager";
   /** Per-component loader override; falls back to the configured loader. */
   loader?: ImageLoader;
+  /**
+   * `"blur"` paints a tiny inline preview behind the image while it loads.
+   * Requires a `blurDataURL` — supplied automatically when `src` is a
+   * `?pracht` import, or pass it by hand. The placeholder is pure CSS
+   * (a `background-image` on the `<img>` itself), so it needs no hydration
+   * and works with `hydration: "none"`; the real image simply covers it once
+   * it paints. Note: images with transparency show the placeholder through
+   * transparent regions — prefer `placeholder="empty"` for those.
+   */
+  placeholder?: "blur" | "empty";
+  /**
+   * `data:image/…` URI painted behind the image when `placeholder="blur"`.
+   * Values that are not well-formed image data URIs are ignored (they could
+   * otherwise inject CSS via the style attribute).
+   */
+  blurDataURL?: string;
   style?: string | JSX.CSSProperties;
 }
 
@@ -47,6 +77,30 @@ const FILL_STYLE: JSX.CSSProperties = {
 };
 
 const FILL_STYLE_STRING = "position:absolute;height:100%;width:100%;left:0;top:0;right:0;bottom:0;";
+
+// Strict shape for blur data URIs before they are interpolated into an inline
+// style. The character set after the comma (base64 plus percent-encoding)
+// excludes quotes, parentheses, backslashes, and whitespace, so a value that
+// matches cannot break out of `url("…")` and inject CSS.
+const BLUR_DATA_URL_PATTERN = /^data:image\/[a-z0-9.+-]+(?:;[a-z0-9=+-]+)*,[a-z0-9+/=._%-]*$/i;
+
+function blurBackground(blurDataURL: string): {
+  styleString: string;
+  styleObject: JSX.CSSProperties;
+} {
+  const image = `url("${blurDataURL}")`;
+  return {
+    styleString:
+      `background-image:${image};background-size:cover;` +
+      "background-position:50% 50%;background-repeat:no-repeat;",
+    styleObject: {
+      backgroundImage: image,
+      backgroundSize: "cover",
+      backgroundPosition: "50% 50%",
+      backgroundRepeat: "no-repeat",
+    },
+  };
+}
 
 const warned = new Set<string>();
 
@@ -158,30 +212,60 @@ export function Image(props: ImageProps): VNode {
     priority = false,
     loading,
     loader,
+    placeholder = "empty",
+    blurDataURL,
     style,
     ...rest
   } = props;
 
+  // `src` may be the metadata object of a build-time `?pracht` import; it
+  // supplies intrinsic dimensions and the blur placeholder without repeating
+  // them as props. Explicit props always win.
+  const metadata = typeof src === "string" ? undefined : src;
+  const srcString = typeof src === "string" ? src : src.src;
+
   const config = getImageConfig();
   const resolvedLoader = loader ?? config.loader;
   const resolvedQuality = quality ?? config.quality;
-  const numericWidth = toDimension(width);
-  const numericHeight = toDimension(height);
+  const numericWidth = toDimension(width) ?? (fill ? undefined : metadata?.width);
+  const numericHeight = toDimension(height) ?? (fill ? undefined : metadata?.height);
+  const resolvedBlurDataURL =
+    placeholder === "blur" ? (blurDataURL ?? metadata?.blurDataURL) : undefined;
+  const safeBlurDataURL =
+    resolvedBlurDataURL != null && BLUR_DATA_URL_PATTERN.test(resolvedBlurDataURL)
+      ? resolvedBlurDataURL
+      : undefined;
 
   if (isDevWarningsEnabled()) {
     if (!fill && (numericWidth == null || numericHeight == null)) {
       warnOnce(
-        `dimensions:${src}`,
-        `[pracht/image] <Image src="${src}"> is missing required "width" and "height" props. ` +
+        `dimensions:${srcString}`,
+        `[pracht/image] <Image src="${srcString}"> is missing required "width" and "height" props. ` +
           `Provide the intrinsic dimensions (or use the "fill" prop) so the browser can ` +
           `reserve space and avoid layout shift.`,
       );
     }
     if (fill && (width != null || height != null)) {
       warnOnce(
-        `fill-dimensions:${src}`,
-        `[pracht/image] <Image src="${src}"> uses "fill" together with "width"/"height". ` +
+        `fill-dimensions:${srcString}`,
+        `[pracht/image] <Image src="${srcString}"> uses "fill" together with "width"/"height". ` +
           `"fill" images size themselves to their positioned parent; remove the explicit dimensions.`,
+      );
+    }
+    if (placeholder === "blur" && resolvedBlurDataURL == null) {
+      warnOnce(
+        `blur-missing:${srcString}`,
+        `[pracht/image] <Image src="${srcString}"> uses placeholder="blur" without a blurDataURL. ` +
+          `Import the image with the "?pracht" query (via prachtImage() from "@pracht/image/vite") ` +
+          `or pass a blurDataURL prop. Rendering without a placeholder.`,
+      );
+    }
+    if (resolvedBlurDataURL != null && safeBlurDataURL == null) {
+      warnOnce(
+        `blur-invalid:${srcString}`,
+        `[pracht/image] <Image src="${srcString}"> received a blurDataURL that is not a ` +
+          `well-formed "data:image/…" URI. It was ignored because interpolating arbitrary ` +
+          `strings into the style attribute could inject CSS.`,
       );
     }
   }
@@ -190,7 +274,7 @@ export function Image(props: ImageProps): VNode {
   const plan = planSrcSet(config.deviceSizes, config.imageSizes, numericWidth, effectiveSizes);
 
   const candidates = plan.widths.map((candidateWidth) =>
-    resolvedLoader({ src, width: candidateWidth, quality: resolvedQuality }),
+    resolvedLoader({ src: srcString, width: candidateWidth, quality: resolvedQuality }),
   );
   const largestSrc = candidates[candidates.length - 1];
 
@@ -205,12 +289,22 @@ export function Image(props: ImageProps): VNode {
         .join(", ")
     : undefined;
 
+  // Style precedence: blur background, then fill positioning, then the user's
+  // style (last wins, matching the previous fill/style behavior). The blur is
+  // a plain CSS background on the <img> itself: SSR-safe, zero hydration —
+  // the real image covers it as soon as it paints.
+  const blur = safeBlurDataURL != null ? blurBackground(safeBlurDataURL) : undefined;
   let mergedStyle: string | JSX.CSSProperties | undefined = style;
-  if (fill) {
+  if (blur || fill) {
+    const baseString = `${blur?.styleString ?? ""}${fill ? FILL_STYLE_STRING : ""}`;
     mergedStyle =
       typeof style === "string"
-        ? `${FILL_STYLE_STRING}${style}`
-        : { ...FILL_STYLE, ...(style as JSX.CSSProperties | undefined) };
+        ? `${baseString}${style}`
+        : {
+            ...blur?.styleObject,
+            ...(fill ? FILL_STYLE : undefined),
+            ...(style as JSX.CSSProperties | undefined),
+          };
   }
 
   const imgProps: Record<string, unknown> = {

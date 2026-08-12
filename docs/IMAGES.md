@@ -44,10 +44,88 @@ and ships zero client runtime beyond the component itself.
   otherwise a fixed image gets `1x`/`2x` candidates snapped to the breakpoint
   list so caches stay small.
 - **`quality`** — loader quality hint, default `75`.
+- **`placeholder`** — `"blur"` paints a tiny inline preview behind the image
+  while it loads (see below). Defaults to `"empty"`.
+- **`blurDataURL`** — the `data:image/…` URI used by `placeholder="blur"`.
+  Supplied automatically when `src` is a `?pracht` import.
 - **`priority`** — for above-the-fold images: switches the default
   `loading="lazy"` + `decoding="async"` to `loading="eager"` +
   `fetchpriority="high"`.
 - **`loader`** — per-component loader override.
+
+## Build-time imports (`?pracht`)
+
+`@pracht/image/vite` exports `prachtImage()`, a Vite plugin that turns image
+imports carrying the `?pracht` query into typed metadata modules:
+
+```ts
+// vite.config.ts — opt-in: the main pracht() plugin does NOT include it.
+import { prachtImage } from "@pracht/image/vite";
+
+export default {
+  plugins: [pracht({ /* … */ }), prachtImage()],
+};
+```
+
+```tsx
+import hero from "./hero.jpg?pracht";
+// hero: { src, width, height, blurDataURL }
+
+<Image src={hero} alt="Hero" placeholder="blur" />;
+```
+
+- **`src`** goes through Vite's normal asset pipeline: source-directory
+  imports get hashed file names, while root-relative imports from `publicDir`
+  keep their stable public names; `base` and dev serving behave exactly like
+  the corresponding plain asset import.
+- **`width`/`height`** come from sharp metadata with EXIF orientation applied
+  (a portrait photo whose raster is stored rotated reports its *display*
+  dimensions), so `<Image src={hero}>` gets intrinsic sizing — and no layout
+  shift — without repeating dimensions by hand.
+- **`blurDataURL`** is a tiny (8px-wide) WebP data URI generated at build
+  time. SVG imports skip it (vectors scale cleanly) but still provide
+  dimensions; animated GIFs blur their first frame; CMYK JPEGs convert to
+  sRGB.
+- sharp is required at build time (it stays an optional peer dependency; the
+  plugin fails with an install hint when missing). It never ships to any
+  runtime bundle.
+- In dev the same transform runs on demand and re-runs when the image file
+  changes on disk.
+
+For TypeScript, reference the shipped module declaration once (any `.d.ts`
+in your app, or `"types": ["@pracht/image/client"]` in tsconfig):
+
+```ts
+/// <reference types="@pracht/image/client" />
+```
+
+## Blur placeholders
+
+`placeholder="blur"` renders the `blurDataURL` as a CSS `background-image`
+on the `<img>` itself (`background-size: cover`). This is deliberately
+CSS-only:
+
+- It is SSR-safe and needs **zero hydration** — `<Image>` stays a
+  zero-runtime component and works with `hydration: "none"`. The real image
+  simply covers the background as soon as it paints.
+- No inline `on*` handlers are used (a JS `onload` fade would conflict with
+  strict CSP setups), so there is no fade-out step; the swap is instant.
+- **CSP:** the placeholder is an inline `style` attribute (as is `fill`), and
+  style attributes are blocked by a policy whose `style-src` (or
+  `style-src-attr`) lacks `'unsafe-inline'` — nonces and hashes do not apply
+  to attributes. Under such a policy the image still renders; only the
+  placeholder (and `fill` positioning) is silently dropped. Allow it with
+  `style-src-attr 'unsafe-inline'` (scoped to attributes; safer than
+  loosening `style-src` wholesale) and keep `img-src` including `data:` so
+  the browser may load the inline WebP. See `docs/CSP.md`.
+- Images with transparency show the placeholder through transparent regions —
+  use `placeholder="empty"` (the default) for those.
+
+`blurDataURL` can also be hand-provided (e.g. precomputed in a CMS). Values
+are validated as well-formed `data:image/…` URIs before being interpolated
+into the style attribute; anything else is ignored (with a dev warning), so a
+hostile value cannot inject CSS. In dev, `placeholder="blur"` without any
+`blurDataURL` logs a warning and renders without a placeholder.
 
 ## Loaders
 
@@ -187,10 +265,13 @@ cancelled.
 
 ## Example
 
-See `examples/basic`: `src/api/_pracht/image.ts` mounts the endpoint and
-`src/routes/gallery.tsx` renders priority, fixed, and `fill` images.
+See `examples/basic`: `src/api/_pracht/image.ts` mounts the endpoint,
+`src/routes/gallery.tsx` renders priority, fixed, `fill`, and
+`?pracht`-imported blur-placeholder images, and `vite.config.ts` registers
+`prachtImage()`.
 
 ## Not yet (follow-ups)
 
-- Build-time optimization of images referenced by SSG pages.
-- Blur placeholders (`placeholder="blur"`).
+- Build-time generation of the resized variants themselves (today `?pracht`
+  imports emit the hashed original plus metadata/blur; resizing still happens
+  in the optimization endpoint or platform service at request time).

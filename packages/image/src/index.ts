@@ -1,4 +1,5 @@
 export { Image, type ImageProps } from "./image.ts";
+export type { PrachtImageMetadata } from "./metadata.ts";
 export {
   configureImage,
   getImageConfig,
