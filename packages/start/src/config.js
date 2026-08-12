@@ -1,21 +1,6 @@
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-export const FALLBACK_VERSION_RANGES = {
-  "@pracht/adapter-cloudflare": "^0.5.8",
-  "@pracht/adapter-netlify": "^0.1.0",
-  "@pracht/adapter-node": "^0.3.8",
-  "@pracht/adapter-vercel": "^0.2.8",
-  "@pracht/cli": "^1.9.0",
-  "@pracht/core": "^0.12.0",
-  "@pracht/vite-plugin": "^0.7.6",
-  "@tailwindcss/vite": "^4.1.0",
-  "netlify-cli": "^21.6.0",
-  tailwindcss: "^4.1.0",
-  typescript: "^6.0.0",
-  vercel: "^56.5.0",
-};
-
 /**
  * Cloudflare `compatibility_date` for scaffolded apps.
  *

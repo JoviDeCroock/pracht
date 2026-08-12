@@ -2,26 +2,14 @@ import { copyFile, mkdir, symlink, writeFile } from "node:fs/promises";
 import { basename, dirname, resolve } from "node:path";
 
 import { buildAgentToolFiles } from "./agent-tools.js";
-import {
-  DEFAULT_DIRECTORY,
-  FALLBACK_VERSION_RANGES,
-  WRANGLER_COMPATIBILITY_DATE,
-} from "./config.js";
+import { DEFAULT_DIRECTORY, WRANGLER_COMPATIBILITY_DATE } from "./config.js";
+import { resolvePackageVersions } from "./package-versions.js";
 import {
   createPnpmWorkspaceConfig,
   findAncestorPnpmWorkspace,
   pnpmBuildAllowlist,
   pnpmBuildPolicyName,
 } from "./workspace-policy.js";
-
-async function fetchLatestVersion(packageName) {
-  const res = await fetch(`https://registry.npmjs.org/${packageName}/latest`);
-  if (!res.ok) {
-    throw new Error(`Failed to fetch version for ${packageName}: ${res.statusText}`);
-  }
-  const data = await res.json();
-  return data.version;
-}
 
 export async function scaffoldProject({
   adapter,
@@ -76,21 +64,6 @@ export async function scaffoldProject({
   return { pnpmWorkspaceNotice };
 }
 
-async function resolveVersions(packageNames, { remote = true } = {}) {
-  const entries = await Promise.all(
-    packageNames.map(async (name) => {
-      const fallback = FALLBACK_VERSION_RANGES[name] ?? "latest";
-      if (!remote) return [name, fallback];
-      try {
-        return [name, `^${await fetchLatestVersion(name)}`];
-      } catch {
-        return [name, fallback];
-      }
-    }),
-  );
-  return Object.fromEntries(entries);
-}
-
 export async function buildProjectFiles({
   adapter,
   agentTools = true,
@@ -119,7 +92,9 @@ export async function buildProjectFiles({
     packagesToResolve.push("tailwindcss", "@tailwindcss/vite");
   }
 
-  const versions = await resolveVersions(packagesToResolve, { remote: resolveRemoteVersions });
+  const versions = await resolvePackageVersions(packagesToResolve, {
+    remote: resolveRemoteVersions,
+  });
   const policyMajor = pnpmMajor ?? 11;
   const ancestorWorkspace = targetDir ? findAncestorPnpmWorkspace(targetDir) : null;
   const pnpmWorkspaceNotice = ancestorWorkspace

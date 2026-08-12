@@ -91,7 +91,8 @@ described in `VISION_MVP.md`.
   generation live in focused sibling modules. Pnpm workspace discovery and
   build-script policy are isolated in `workspace-policy.js`, separate from the
   generated application templates; bundled skills and MCP configuration are
-  loaded through `agent-tools.js`.
+  loaded through `agent-tools.js`, and registry lookups plus offline fallbacks
+  live in `package-versions.js`.
 - **Package builds** — `tsdown` compiles `pracht`, `@pracht/openapi`, `@pracht/vite-plugin`,
   `@pracht/preact-ssr-precompile`, `@pracht/adapter-node`,
   `@pracht/adapter-cloudflare`, `@pracht/adapter-netlify`,
