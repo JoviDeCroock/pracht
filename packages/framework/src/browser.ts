@@ -95,6 +95,7 @@ export {
   useRevalidate,
   useRouteData,
   useSearchParams,
+  type ReadonlyURLSearchParams,
 } from "./runtime-hooks.ts";
 export { prefetch, type PrefetchFn } from "./prefetch-api.ts";
 

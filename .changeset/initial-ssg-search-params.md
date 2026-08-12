@@ -2,4 +2,4 @@
 "@pracht/core": patch
 ---
 
-Use the visitor's actual browser URL during initial hydration while retaining prerendered route identity and data, and expose reactive query parameters through `useSearchParams()`.
+Expose reactive, read-only query parameters through `useSearchParams()`. SSG routes retain their prerendered URL for the hydration render, then publish the visitor's browser query after hydration while keeping prerendered route identity and data.

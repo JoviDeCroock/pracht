@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
 import { Component, h, render } from "preact";
 import type { ComponentChildren } from "preact";
-import { useState } from "preact/hooks";
+import { useContext, useState } from "preact/hooks";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { PrachtRuntimeProvider, useLocation } from "../src/index.ts";
+import { PrachtRuntimeProvider, useLocation, useRouteData } from "../src/index.ts";
+import { RouteDataContext } from "../src/runtime-context.ts";
 
 let scratch: HTMLDivElement;
 
@@ -69,5 +70,40 @@ describe("PrachtRuntimeProvider", () => {
     await flush();
 
     expect(consumerRenders).toBe(1);
+  });
+
+  it("preserves locally revalidated data across a URL-only update", async () => {
+    const initialData = { count: 1 };
+    let revalidate!: () => void;
+    let publishUrl!: () => void;
+
+    function Consumer() {
+      const data = useRouteData<{ count: number }>();
+      const location = useLocation();
+      const runtime = useContext(RouteDataContext)!;
+      revalidate = () => runtime.setData({ count: 2 });
+      return h("span", null, `${data.count}|${location.search}`);
+    }
+
+    function App() {
+      const [url, setUrl] = useState("/dashboard");
+      publishUrl = () => setUrl("/dashboard?lang=zh");
+      return h(PrachtRuntimeProvider, {
+        children: h(Consumer, null),
+        data: initialData,
+        routeId: "dashboard",
+        stateVersion: 1,
+        url,
+      });
+    }
+
+    render(h(App, null), scratch);
+    revalidate();
+    await flush();
+    expect(scratch.textContent).toBe("2|");
+
+    publishUrl();
+    await flush();
+    expect(scratch.textContent).toBe("2|?lang=zh");
   });
 });

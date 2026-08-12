@@ -69,11 +69,11 @@ export function PrachtRuntimeProvider<TData>({
   }));
   // A new route state (navigation) supersedes anything committed for the
   // previous one. This is derived during render rather than reset from an
-  // effect so it cannot lag behind the props.
+  // effect so it cannot lag behind the props. A URL-only update within the
+  // same route state (publishing the browser query after hydration) preserves
+  // locally revalidated data.
   const isStaleRoute =
-    routeDataState.stateVersion !== stateVersion ||
-    routeDataState.routeId !== routeId ||
-    routeDataState.url !== url;
+    routeDataState.stateVersion !== stateVersion || routeDataState.routeId !== routeId;
   const routeData = isStaleRoute ? data : routeDataState.data;
 
   const context = useMemo(
@@ -108,14 +108,17 @@ export function PrachtRuntimeProvider<TData>({
   // a revalidation has already committed newer data, and comparing against the
   // source the commit was made from keeps it from overwriting that.
   useEffect(() => {
-    setRouteDataState((current) =>
-      current.source === data &&
-      current.stateVersion === stateVersion &&
-      current.routeId === routeId &&
-      current.url === url
-        ? current
-        : { data, routeId, source: data, stateVersion, url },
-    );
+    setRouteDataState((current) => {
+      if (
+        current.source !== data ||
+        current.stateVersion !== stateVersion ||
+        current.routeId !== routeId
+      ) {
+        return { data, routeId, source: data, stateVersion, url };
+      }
+
+      return current.url === url ? current : { ...current, url };
+    });
   }, [data, routeId, stateVersion, url]);
 
   // Effect-driven revalidation: capabilities are effect-classed, so the

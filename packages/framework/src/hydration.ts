@@ -58,18 +58,24 @@ const oldCatchError = (options as any).__e;
 // there.
 const oldCommit = (options as any).__c;
 (options as any).__c = (vnode: any, commitQueue: any) => {
-  let completed = false;
+  let completedHydration = false;
   if (_hydrating && !_hydrated && _suspensionCount <= 0) {
     _hydrated = true;
     _hydrating = false;
-    completed = true;
+    completedHydration = true;
   }
   if (oldCommit) oldCommit(vnode, commitQueue);
-  if (completed) {
-    for (const listener of hydrationCompleteListeners) listener();
-    hydrationCompleteListeners.clear();
+  if (completedHydration) {
+    queueMicrotask(notifyHydrationComplete);
   }
 };
+
+function notifyHydrationComplete(): void {
+  for (const listener of hydrationCompleteListeners) {
+    hydrationCompleteListeners.delete(listener);
+    listener();
+  }
+}
 
 /**
  * Mark the start of a hydration pass. Call this right before `hydrate()`.
@@ -106,11 +112,30 @@ export function useIsHydrationComplete(): boolean {
       setComplete(true);
       return;
     }
-    const listener = () => setComplete(true);
-    hydrationCompleteListeners.add(listener);
-    return () => hydrationCompleteListeners.delete(listener);
+    return onHydrationComplete(() => setComplete(true));
   }, []);
   return complete;
+}
+
+/** Run a callback once the complete initial hydration tree has settled. */
+export function onHydrationComplete(callback: () => void): () => void {
+  let active = true;
+  const listener = () => {
+    if (!active) return;
+    active = false;
+    callback();
+  };
+
+  if (_hydrated) {
+    queueMicrotask(listener);
+  } else {
+    hydrationCompleteListeners.add(listener);
+  }
+
+  return () => {
+    active = false;
+    hydrationCompleteListeners.delete(listener);
+  };
 }
 
 /** @internal Reset module state for tests. */

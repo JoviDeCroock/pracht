@@ -1730,6 +1730,38 @@ describe("useLocation", () => {
     expect(response.status).toBe(200);
     await expect(response.text()).resolves.toContain("team|a,b");
   });
+
+  it("returns a read-only search params view", async () => {
+    const app = defineApp({
+      routes: [route("/about", "./routes/about.tsx", { render: "ssr" })],
+    });
+    let observedSearchParams: ReturnType<typeof useSearchParams> | undefined;
+
+    const response = await handlePrachtRequest({
+      app,
+      registry: {
+        routeModules: {
+          "./routes/about.tsx": async () => ({
+            Component: () => {
+              observedSearchParams = useSearchParams();
+              return h("main", null, observedSearchParams.get("tab"));
+            },
+          }),
+        },
+      },
+      request: new Request("http://localhost/about?tab=team"),
+    });
+
+    expect(response.status).toBe(200);
+    expect(observedSearchParams?.get("tab")).toBe("team");
+    expect(() => (observedSearchParams as URLSearchParams).set("tab", "other")).toThrow(
+      /read-only/,
+    );
+
+    type SearchParamsHasSet = "set" extends keyof ReturnType<typeof useSearchParams> ? true : false;
+    const searchParamsHasSet: SearchParamsHasSet = false;
+    expect(searchParamsHasSet).toBe(false);
+  });
 });
 
 describe("handlePrachtRequest ErrorBoundary", () => {

@@ -1180,6 +1180,7 @@ export {
   type Navigation,
   type NavigationLocation,
   type PrachtHydrationState,
+  type ReadonlyURLSearchParams,
   type StartAppOptions,
 } from "./runtime-hooks.ts";
 export {

@@ -142,6 +142,29 @@ export interface Location {
   search: string;
 }
 
+export type ReadonlyURLSearchParams = Omit<URLSearchParams, "append" | "delete" | "set" | "sort">;
+
+class PrachtReadonlyURLSearchParams extends URLSearchParams {
+  readonly #mutationError =
+    "useSearchParams() is read-only. Navigate to a new URL to change the query string.";
+
+  override append(_name: string, _value: string): never {
+    throw new TypeError(this.#mutationError);
+  }
+
+  override delete(_name: string, _value?: string): never {
+    throw new TypeError(this.#mutationError);
+  }
+
+  override set(_name: string, _value: string): never {
+    throw new TypeError(this.#mutationError);
+  }
+
+  override sort(): never {
+    throw new TypeError(this.#mutationError);
+  }
+}
+
 export function useRouteData<TRoute extends RouteId>(routeId: TRoute): RouteDataFor<TRoute>;
 export function useRouteData<TLoader extends LoaderLike>(): LoaderData<TLoader>;
 export function useRouteData<TData = unknown>(): TData;
@@ -163,9 +186,9 @@ export function useLocation(): Location {
 }
 
 /** Read the current URL search parameters reactively. */
-export function useSearchParams(): URLSearchParams {
+export function useSearchParams(): ReadonlyURLSearchParams {
   const { search } = useLocation();
-  return useMemo(() => new URLSearchParams(search), [search]);
+  return useMemo(() => new PrachtReadonlyURLSearchParams(search), [search]);
 }
 
 export function useParams(): RouteParams {
