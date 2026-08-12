@@ -2,7 +2,10 @@ import { HYDRATION_STATE_ELEMENT_ID } from "./runtime-constants.ts";
 import { applyHeaders, applySecurityAndRouteHeaders } from "./runtime-headers.ts";
 import type { PrachtHydrationState } from "./runtime-hooks.ts";
 import type { SpeculationRulesDocument } from "./runtime-speculation.ts";
+import { escapeScriptChildren } from "./script-escape.ts";
 import type { HeadMetadata } from "./types.ts";
+
+export { escapeScriptChildren };
 
 export function escapeHtml(str: string): string {
   return str
@@ -23,29 +26,6 @@ export function escapeScriptText(value: string): string {
     .replace(/&/g, "\\u0026")
     .replace(/\u2028/g, "\\u2028")
     .replace(/\u2029/g, "\\u2029");
-}
-
-/** Script types whose content is JSON, where `\uXXXX` escapes are always valid. */
-const JSON_SCRIPT_TYPE_RE =
-  /^(?:application\/(?:[^\s;]*\+)?json|importmap|speculationrules)\s*(?:;|$)/i;
-
-/**
- * Escape user-authored inline `<script>` children for HTML embedding.
- *
- * JSON payloads (`application/json`, `application/ld+json`, `importmap`,
- * `speculationrules`) get the full `escapeScriptText` treatment: `\uXXXX`
- * escapes are valid anywhere in JSON, so every `<`, `>`, and `&` can be
- * neutralized. JavaScript source cannot: a `\uXXXX` escape outside a string
- * literal is a syntax error (escaping `a && b` in full would not parse), so
- * for JS only the sequences the HTML parser treats specially inside a script
- * element are broken up: `</script`, `<script`, and `<!--` become
- * `<\/script`, `<\script`, and `<\!--` (the HTML-spec-recommended escaping;
- * a JS no-op inside string and template literals, where such sequences
- * realistically occur).
- */
-export function escapeScriptChildren(value: string, type?: string): string {
-  if (type && JSON_SCRIPT_TYPE_RE.test(type.trim())) return escapeScriptText(value);
-  return value.replace(/<(!--|\/?script)/gi, "<\\$1");
 }
 
 const SAFE_ATTRIBUTE_NAME_RE = /^[A-Za-z_:][A-Za-z0-9:._-]*$/;

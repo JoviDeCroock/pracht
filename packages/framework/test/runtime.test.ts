@@ -1096,7 +1096,7 @@ describe("handlePrachtRequest head metadata", () => {
     const html = await response.text();
     const inner = html.match(/<script id="flags">([\s\S]*?)<\/script>/)?.[1] ?? "";
     expect(inner).toContain("window.a && window.b");
-    expect(inner).toContain('console.log("<\\/script>");');
+    expect(inner).toContain('console.log("</\\u0073cript>");');
     expect(() => new Function(inner)).not.toThrow();
   });
 });

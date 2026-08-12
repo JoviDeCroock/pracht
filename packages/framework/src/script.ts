@@ -2,7 +2,8 @@ import { createContext, h } from "preact";
 import type { ComponentChildren, VNode } from "preact";
 import { useContext, useEffect, useRef } from "preact/hooks";
 
-import { useIsHydrated } from "./hydration.ts";
+import { useIsHydrationComplete } from "./hydration.ts";
+import { escapeScriptChildren } from "./script-escape.ts";
 import type { HeadScriptDescriptor, HydrationMode } from "./types.ts";
 
 /**
@@ -16,7 +17,8 @@ import type { HeadScriptDescriptor, HydrationMode } from "./types.ts";
  *   server-rendered documents: on a client-side navigation the document head
  *   is not re-rendered, so the script is injected immediately instead (with a
  *   dev warning).
- * - `"afterHydration"` (default) — injected once hydration has completed.
+ * - `"afterHydration"` (default) — injected once the full hydration pass,
+ *   including suspended boundaries, has completed.
  * - `"idle"` — injected in `requestIdleCallback` (setTimeout fallback).
  * - `"visible"` — a zero-size placeholder is rendered in place and the script
  *   is injected when the placeholder enters the viewport
@@ -96,13 +98,26 @@ export function createScriptCapture(hydration: HydrationMode): ScriptCapture {
   return { scripts: [], keys: new Set(), hydration };
 }
 
-/** Merge scripts captured during a server render into the document head. */
+/** Merge captured scripts into the document head without duplicating head() entries. */
 export function withCapturedScripts<T extends { script?: HeadScriptDescriptor[] }>(
   head: T,
   capture: ScriptCapture,
 ): T {
   if (capture.scripts.length === 0) return head;
-  return { ...head, script: [...(head.script ?? []), ...capture.scripts] };
+  const headScripts = head.script ?? [];
+  const headKeys = new Set(
+    headScripts
+      .map((script) => scriptKey(script, script.children))
+      .filter((key): key is string => key !== null),
+  );
+  const captured = capture.scripts.filter((script) => {
+    const key = scriptKey(script, script.children);
+    if (key === null || headKeys.has(key)) return false;
+    headKeys.add(key);
+    return true;
+  });
+  if (captured.length === 0) return head;
+  return { ...head, script: [...headScripts, ...captured] };
 }
 
 /**
@@ -138,7 +153,7 @@ export function Script(props: ScriptProps): VNode | null {
 
   // Hooks must run unconditionally; the capture branch below only short-
   // circuits on the server, where this component renders exactly once.
-  const hydrated = useIsHydrated();
+  const hydrated = useIsHydrationComplete();
 
   useEffect(() => {
     // Server captures never reach effects; this is the client-only path.
@@ -274,7 +289,10 @@ function normalizeInlineChildren(children: ScriptProps["children"]): string | un
   return parts.join("");
 }
 
-function scriptKey(props: ScriptProps, inline: string | undefined): string | null {
+function scriptKey(
+  props: ScriptProps | HeadScriptDescriptor,
+  inline: string | undefined,
+): string | null {
   if (props.id) return `id:${props.id}`;
   if (props.src) return `src:${props.src}`;
   if (inline !== undefined) return `inline:${inline}`;
@@ -315,36 +333,10 @@ function toHeadScriptDescriptor(
   return descriptor;
 }
 
-/**
- * Escape for inline emission inside a `<script>` element — same escaping the
- * head() script pipeline applies (see escapeScriptChildren in runtime-html.ts,
- * duplicated here so the browser bundle does not pull in the server HTML
- * builder). JSON payloads get full `\uXXXX` escaping (valid anywhere in
- * JSON); JavaScript source only breaks up the sequences the HTML parser
- * treats specially inside a script element (`</script`, `<script`, `<!--`),
- * because `\uXXXX` escapes outside string literals are JS syntax errors.
- */
-const JSON_SCRIPT_TYPE_RE =
-  /^(?:application\/(?:[^\s;]*\+)?json|importmap|speculationrules)\s*(?:;|$)/i;
-
-function escapeInlineScriptText(value: string, type?: string): string {
-  if (type && JSON_SCRIPT_TYPE_RE.test(type.trim())) {
-    return value
-      .replace(/</g, "\\u003c")
-      .replace(/>/g, "\\u003e")
-      .replace(/&/g, "\\u0026")
-      .split(String.fromCharCode(0x2028))
-      .join("\\u2028")
-      .split(String.fromCharCode(0x2029))
-      .join("\\u2029");
-  }
-  return value.replace(/<(!--|\/?script)/gi, "<\\$1");
-}
-
 function renderInlineScriptTag(props: ScriptProps, inline: string | undefined): VNode {
   const attributes: Record<string, unknown> = toAttributeRecord(props);
   if (!props.src && inline !== undefined) {
-    attributes.dangerouslySetInnerHTML = { __html: escapeInlineScriptText(inline, props.type) };
+    attributes.dangerouslySetInnerHTML = { __html: escapeScriptChildren(inline, props.type) };
   }
   return h("script", attributes);
 }
@@ -366,7 +358,7 @@ function existsInDocument(props: ScriptProps, inline: string | undefined): boole
     return false;
   }
   if (inline !== undefined) {
-    const escaped = escapeInlineScriptText(inline, props.type);
+    const escaped = escapeScriptChildren(inline, props.type);
     for (const el of scripts) {
       if (el.textContent === inline || el.textContent === escaped) return true;
     }

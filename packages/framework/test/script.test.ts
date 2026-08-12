@@ -1,8 +1,16 @@
 // @vitest-environment jsdom
-import { h, render } from "preact";
+import { h, hydrate, render } from "preact";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { defineApp, handlePrachtRequest, lazy, route, Suspense } from "../src/index.ts";
+import {
+  defineApp,
+  handlePrachtRequest,
+  lazy,
+  route,
+  Suspense,
+  type HeadMetadata,
+} from "../src/index.ts";
+import { _resetForTesting as resetHydrationForTesting, markHydrating } from "../src/hydration.ts";
 import {
   _resetIslandsForTesting,
   registerServerIslands,
@@ -33,6 +41,7 @@ function injectedScripts(): HTMLScriptElement[] {
 
 async function renderRoute(options: {
   Component: (props: any) => any;
+  head?: () => HeadMetadata;
   hydration?: "full" | "islands" | "none";
 }): Promise<string> {
   const app = defineApp({
@@ -48,7 +57,10 @@ async function renderRoute(options: {
     app,
     registry: {
       routeModules: {
-        "./routes/page.tsx": async () => ({ Component: options.Component }),
+        "./routes/page.tsx": async () => ({
+          Component: options.Component,
+          ...(options.head ? { head: options.head } : {}),
+        }),
       },
     },
     request: new Request("http://localhost/"),
@@ -59,6 +71,7 @@ async function renderRoute(options: {
 }
 
 beforeEach(() => {
+  resetHydrationForTesting();
   _resetScriptRegistryForTesting();
   scratch = document.createElement("div");
   document.body.appendChild(scratch);
@@ -114,7 +127,7 @@ describe("<Script> SSR emission", () => {
     expect(html).toContain('<script id="flags">');
     expect(html).toContain("window.flags = { beta: true };");
     // Closing tags inside the inline source cannot break out of the element.
-    expect(html).toContain('console.log("<\\/script>");');
+    expect(html).toContain('console.log("</\\u0073cript>");');
     expect(html).not.toContain('console.log("</script>");');
   });
 
@@ -150,6 +163,26 @@ describe("<Script> SSR emission", () => {
     // emitted source yields the original string.
     const result = new Function(`${inner}; return probe;`)() as string;
     expect(result).toBe("</script><script>alert(1)</script>" + "<!--" + "<script>");
+  });
+
+  it("preserves regex and comparison semantics while neutralizing script tokens", async () => {
+    const source = [
+      'var regexProbe = /<script>/i.test("<SCRIPT>");',
+      "var scriptLimit = 3; var comparisonProbe = 2<scriptLimit;",
+      'var closingProbe = 0</script/.test("script");',
+    ].join("\n");
+    const html = await renderRoute({
+      Component: () =>
+        h("main", null, h(Script, { strategy: "beforeHydration", id: "tokens" }, source)),
+    });
+
+    const inner = html.match(/<script id="tokens">([\s\S]*?)<\/script>/)?.[1] ?? "";
+    expect(inner.toLowerCase()).not.toContain("<script");
+    expect(inner.toLowerCase()).not.toContain("</script");
+    const result = new Function(
+      `${inner}; return { regexProbe, comparisonProbe, closingProbe };`,
+    )();
+    expect(result).toEqual({ regexProbe: true, comparisonProbe: true, closingProbe: true });
   });
 
   it("emits JSON script types with JSON-safe full escaping", async () => {
@@ -222,6 +255,15 @@ describe("<Script> SSR emission", () => {
           h(Script, { strategy: "beforeHydration", src: "/once.js" }),
           h(Script, { strategy: "beforeHydration", src: "/once.js" }),
         ),
+    });
+
+    expect(html.match(/src="\/once\.js"/g)?.length).toBe(1);
+  });
+
+  it("dedupes captured beforeHydration scripts against head() metadata", async () => {
+    const html = await renderRoute({
+      head: () => ({ script: [{ src: "/once.js" }] }),
+      Component: () => h("main", null, h(Script, { strategy: "beforeHydration", src: "/once.js" })),
     });
 
     expect(html.match(/src="\/once\.js"/g)?.length).toBe(1);
@@ -358,6 +400,42 @@ describe("<Script> client strategies", () => {
     expect(injected.length).toBe(1);
     expect(injected[0].getAttribute("src")).toBe("/after.js");
     expect(injected[0].parentElement).toBe(document.head);
+  });
+
+  it("waits for suspended hydration before injecting afterHydration scripts", async () => {
+    let resolvePromise!: () => void;
+    const promise = new Promise<void>((resolve) => {
+      resolvePromise = resolve;
+    });
+    let suspended = false;
+    function LazyChild() {
+      if (!suspended) {
+        suspended = true;
+        throw promise;
+      }
+      return h("span", null, "ready");
+    }
+    function App() {
+      return h(
+        "div",
+        null,
+        h(Script, { src: "/after-suspense.js" }),
+        h(Suspense, { fallback: null }, h(LazyChild, {})),
+      );
+    }
+
+    scratch.innerHTML = "<div><span>ready</span></div>";
+    markHydrating();
+    hydrate(h(App, {}), scratch);
+    await flush();
+    const injectedWhilePending = injectedScripts().length;
+
+    resolvePromise();
+    await flush();
+
+    expect(injectedWhilePending).toBe(0);
+    expect(injectedScripts()).toHaveLength(1);
+    expect(injectedScripts()[0].getAttribute("src")).toBe("/after-suspense.js");
   });
 
   it("sets allowlisted attributes and skips handlers on injected elements", async () => {
