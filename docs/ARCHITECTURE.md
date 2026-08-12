@@ -312,13 +312,14 @@ Secrets in loader code stay server-side. The client only receives serialized dat
 ## Dev Server Debugging
 
 Development serving is split by responsibility: `plugin-dev-ssr.ts` owns framework
-request routing and error/not-found responses, `plugin-devtools.ts` builds the live
-app-graph inspection endpoints, and `plugin-dev-css.ts` owns Vite module-graph
-stylesheet discovery, document injection, and the response adapter used by
-adapter-owned dev servers. The SSR middleware adds two dev-only debugging surfaces.
-Neither exists in production builds, and adapters that own the dev server
-(`ownsDevServer: true`, e.g. Cloudflare's workerd-based dev) bypass this middleware
-and therefore don't expose them.
+request orchestration and error/not-found responses, `plugin-dev-routing.ts` owns
+pure route/request classification, `plugin-devtools.ts` builds the live app-graph
+inspection endpoints, and `plugin-dev-css.ts` owns Vite module-graph stylesheet
+discovery, document injection, and the response adapter used by adapter-owned dev
+servers. The SSR middleware adds two dev-only debugging surfaces. Neither exists in
+production builds, and adapters that own the dev server (`ownsDevServer: true`, e.g.
+Cloudflare's workerd-based dev) bypass this middleware and therefore don't expose
+them.
 
 ### `/_pracht` devtools page
 

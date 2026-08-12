@@ -10,6 +10,11 @@ import {
   PRACHT_SERVER_MODULE_ID,
 } from "./plugin-assets.ts";
 import { DEVTOOLS_JSON_PATH, DEVTOOLS_PATH, serveDevtools } from "./plugin-devtools.ts";
+import {
+  isDevNotFoundRequest,
+  matchesResolvedRoute,
+  shouldBypassDevSSR,
+} from "./plugin-dev-routing.ts";
 
 const BODYLESS_METHODS = new Set(["GET", "HEAD"]);
 const DEFAULT_MAX_BODY_SIZE = 1024 * 1024; // 1 MiB
@@ -22,6 +27,7 @@ export {
   injectDevCssLinks,
 } from "./plugin-dev-css.ts";
 export { DEVTOOLS_JSON_PATH, DEVTOOLS_PATH } from "./plugin-devtools.ts";
+export { isDevNotFoundRequest, shouldBypassDevSSR } from "./plugin-dev-routing.ts";
 
 export const LLMS_TXT_PATH = "/llms.txt";
 
@@ -236,48 +242,6 @@ async function handleDevError(
   }
 }
 
-/**
- * True when a GET/HEAD document request matches no page route and no API
- * route — the dev middleware then serves the rich dev-only 404 page instead
- * of falling through to Vite. Route-state (JSON) requests and non-document
- * fetches keep their existing 404 behavior.
- *
- * Apps that declare a `notFound` page own their 404s: dev renders that page
- * (exactly as production does) rather than the framework's route table.
- */
-export function isDevNotFoundRequest(
-  requestUrl: URL | string,
-  req: Pick<IncomingMessage, "headers" | "method">,
-  options: {
-    app?: ResolvedPrachtApp;
-    apiRoutes?: ResolvedApiRoute[];
-    matchApiRoute?: (routes: ResolvedApiRoute[], pathname: string) => unknown;
-    matchAppRoute?: (app: ResolvedPrachtApp, pathname: string) => unknown;
-  } = {},
-): boolean {
-  const url = typeof requestUrl === "string" ? new URL(requestUrl, "http://localhost") : requestUrl;
-
-  if (options.app?.notFound) {
-    return false;
-  }
-
-  if (isRouteStateRequest(url, req)) {
-    return false;
-  }
-
-  const method = (req.method ?? "GET").toUpperCase();
-  if (method !== "GET" && method !== "HEAD") {
-    return false;
-  }
-
-  const accept = readRequestHeader(req.headers.accept).toLowerCase();
-  if (!accept.includes("text/html") && !accept.includes("application/xhtml+xml")) {
-    return false;
-  }
-
-  return !matchesResolvedRoute(url.pathname, options);
-}
-
 async function serveDevNotFound(
   server: ViteDevServer,
   res: ServerResponse,
@@ -304,163 +268,6 @@ async function serveDevNotFound(
     next();
   }
 }
-
-export function shouldBypassDevSSR(
-  requestUrl: URL | string,
-  req: Pick<IncomingMessage, "headers" | "method">,
-  options: {
-    app?: ResolvedPrachtApp;
-    apiRoutes?: ResolvedApiRoute[];
-    matchApiRoute?: (routes: ResolvedApiRoute[], pathname: string) => unknown;
-    matchAppRoute?: (app: ResolvedPrachtApp, pathname: string) => unknown;
-  } = {},
-): boolean {
-  const url = typeof requestUrl === "string" ? new URL(requestUrl, "http://localhost") : requestUrl;
-  const pathname = url.pathname;
-
-  if (isReservedDevPath(pathname)) {
-    return true;
-  }
-
-  if (isRouteStateRequest(url, req)) {
-    return false;
-  }
-
-  const isApiRequest = pathname === "/api" || pathname.startsWith("/api/");
-  if (isApiRequest) {
-    return false;
-  }
-
-  const method = (req.method ?? "GET").toUpperCase();
-  if (method !== "GET" && method !== "HEAD") {
-    return false;
-  }
-
-  const fetchDest = readRequestHeader(req.headers["sec-fetch-dest"]).toLowerCase();
-  const hasRouteMatch = matchesResolvedRoute(pathname, options);
-
-  if (hasRouteMatch && !NON_DOCUMENT_FETCH_DESTINATIONS.has(fetchDest)) {
-    return false;
-  }
-
-  if (NON_DOCUMENT_FETCH_DESTINATIONS.has(fetchDest)) {
-    return true;
-  }
-
-  const accept = readRequestHeader(req.headers.accept).toLowerCase();
-  if (accept.includes("text/html") || accept.includes("application/xhtml+xml")) {
-    return false;
-  }
-
-  return hasKnownAssetExtension(pathname);
-}
-
-function matchesResolvedRoute(
-  pathname: string,
-  options: {
-    app?: ResolvedPrachtApp;
-    apiRoutes?: ResolvedApiRoute[];
-    matchApiRoute?: (routes: ResolvedApiRoute[], pathname: string) => unknown;
-    matchAppRoute?: (app: ResolvedPrachtApp, pathname: string) => unknown;
-  },
-): boolean {
-  if (options.app && options.matchAppRoute && options.matchAppRoute(options.app, pathname)) {
-    return true;
-  }
-
-  if (
-    options.apiRoutes?.length &&
-    options.matchApiRoute &&
-    options.matchApiRoute(options.apiRoutes, pathname)
-  ) {
-    return true;
-  }
-
-  return false;
-}
-
-function isRouteStateRequest(url: URL, req: Pick<IncomingMessage, "headers" | "method">): boolean {
-  return (
-    req.headers["x-pracht-route-state-request"] === "1" || url.searchParams.get("_data") === "1"
-  );
-}
-
-function readRequestHeader(value: string | string[] | undefined): string {
-  if (Array.isArray(value)) {
-    return value.join(", ");
-  }
-
-  return value ?? "";
-}
-
-function hasKnownAssetExtension(pathname: string): boolean {
-  const fileName = pathname.split("/").pop() ?? "";
-  const extensionIndex = fileName.lastIndexOf(".");
-  if (extensionIndex <= 0) {
-    return false;
-  }
-
-  const extension = fileName.slice(extensionIndex).toLowerCase();
-  return DEV_ASSET_EXTENSIONS.has(extension);
-}
-
-function isReservedDevPath(pathname: string): boolean {
-  return (
-    pathname === CLIENT_BROWSER_PATH ||
-    pathname === ISLANDS_CLIENT_BROWSER_PATH ||
-    pathname === "/@vite/client" ||
-    pathname === "/@react-refresh" ||
-    pathname.startsWith("/@vite/") ||
-    pathname.startsWith("/@id/") ||
-    pathname.startsWith("/@fs/") ||
-    pathname.startsWith("/__vite_")
-  );
-}
-
-const NON_DOCUMENT_FETCH_DESTINATIONS = new Set([
-  "audio",
-  "embed",
-  "font",
-  "image",
-  "manifest",
-  "object",
-  "paintworklet",
-  "report",
-  "script",
-  "serviceworker",
-  "sharedworker",
-  "style",
-  "track",
-  "video",
-  "worker",
-]);
-
-const DEV_ASSET_EXTENSIONS = new Set([
-  ".avif",
-  ".bmp",
-  ".cjs",
-  ".css",
-  ".gif",
-  ".ico",
-  ".jpeg",
-  ".jpg",
-  ".js",
-  ".json",
-  ".map",
-  ".markdown",
-  ".md",
-  ".mjs",
-  ".pdf",
-  ".png",
-  ".svg",
-  ".txt",
-  ".wasm",
-  ".webmanifest",
-  ".webp",
-  ".woff",
-  ".woff2",
-  ".xml",
-]);
 
 async function nodeToWebRequest(req: IncomingMessage, maxBodySize: number): Promise<Request> {
   // Dev server is always a direct connection — never trust forwarded headers.
