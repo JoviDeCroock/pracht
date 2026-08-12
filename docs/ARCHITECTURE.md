@@ -537,8 +537,10 @@ prefetch-api.ts — imperative prefetch() surface + router registration (no list
     ↑
 prefetch.ts     — prefetch listener wiring (intent/viewport/render), loaded by the client router after hydration
     ↑
-router.ts       — client router, hydration bootstrap (imports runtime-context + prefetch-api)
+router.ts       — client URL, history, fetch, scroll, and hydration orchestration
 router-browser.ts — same-origin URL resolution, hashchange dispatch, and View Transition commits
+router-navigation.ts — public navigation context, hook, and typed navigation contract
+router-renderer.ts — module loading, route-state resolution, Preact commits, and hydration
 
 navigation-state.ts — shared useNavigation() store written by router.ts and <Form> (no internal deps)
 scroll-restoration.ts — sessionStorage-backed per-history-entry scroll position store (no internal deps)

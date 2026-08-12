@@ -1,9 +1,3 @@
-import { createContext, h } from "preact";
-import { hydrate, render } from "preact";
-import { useContext, useLayoutEffect, useMemo, useState } from "preact/hooks";
-import type { StateUpdater } from "preact/hooks";
-import type { FunctionComponent } from "preact";
-
 import { buildHrefUntyped, matchResolvedRoute } from "./route-matching.ts";
 import {
   decodeFragmentId,
@@ -38,8 +32,6 @@ import type {
   NavigateOptions,
   ResolvedPrachtApp,
   RouteId,
-  RouteMatch,
-  RouteParams,
   RouteTarget,
   UntypedRouteTarget,
 } from "./types.ts";
@@ -48,42 +40,25 @@ import {
   parseSafeNavigationUrl,
   routeNeedsServerFetch,
 } from "./runtime-client-fetch.ts";
-import { deserializeRouteError, type SerializedRouteError } from "./runtime-errors.ts";
-import {
-  type PrachtHydrationState,
-  PrachtRuntimeProvider,
-  RouteDataContext,
-} from "./runtime-context.ts";
+import type { SerializedRouteError } from "./runtime-errors.ts";
+import type { PrachtHydrationState } from "./runtime-context.ts";
 import type { RouteStateResult } from "./runtime-client-fetch.ts";
 import {
   commitWithOptionalViewTransition,
   dispatchHashChange,
   resolveBrowserRouteTarget,
 } from "./router-browser.ts";
+import type { NavigateFn } from "./router-navigation.ts";
+import { createClientRouteRenderer, type RouterModuleMap } from "./router-renderer.ts";
 
-interface RouteRenderState {
-  Shell: FunctionComponent | null;
-  Component: FunctionComponent;
-  componentProps: Record<string, unknown>;
-  data: unknown;
-  params: RouteParams;
-  routeId: string;
-  url: string;
-  version: number;
-}
+export { useNavigate } from "./router-navigation.ts";
+export type { NavigateFn } from "./router-navigation.ts";
 
 declare global {
   interface Window {
     __PRACHT_NAVIGATE__?: InternalNavigateFn;
     __PRACHT_ROUTER_READY__?: boolean;
   }
-}
-
-type ModuleMap = Record<string, () => Promise<unknown>>;
-
-export interface NavigateFn {
-  (to: string, options?: NavigateOptions): Promise<void>;
-  <TRoute extends RouteId>(to: RouteTarget<TRoute>, options?: NavigateOptions): Promise<void>;
 }
 
 interface InternalNavigateOptions extends NavigateOptions {
@@ -99,19 +74,13 @@ interface InternalNavigateFn {
   ): Promise<void>;
 }
 
-const NavigateContext = createContext<NavigateFn>(async () => {});
-
-export function useNavigate(): NavigateFn {
-  return useContext(NavigateContext);
-}
-
 export interface InitClientRouterOptions {
   app: ResolvedPrachtApp;
-  routeModules: ModuleMap;
-  shellModules: ModuleMap;
+  routeModules: RouterModuleMap;
+  shellModules: RouterModuleMap;
   initialState: PrachtHydrationState;
   root: HTMLElement;
-  findModuleKey: (modules: ModuleMap, file: string) => string | null;
+  findModuleKey: (modules: RouterModuleMap, file: string) => string | null;
 }
 
 export async function initClientRouter(options: InitClientRouterOptions): Promise<void> {
@@ -121,34 +90,17 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
     installHydrationMismatchWarning();
   }
 
-  const moduleCache = new Map<string, Promise<unknown>>();
-
-  function loadModule(modules: ModuleMap, key: string): Promise<unknown> {
-    let cached = moduleCache.get(key);
-    if (!cached) {
-      cached = modules[key]();
-      moduleCache.set(key, cached);
-    }
-    return cached;
-  }
-
-  function startRouteImport(match: RouteMatch): Promise<unknown> | null {
-    const routeKey = findModuleKey(routeModules, match.route.file);
-    if (!routeKey) return null;
-    return loadModule(routeModules, routeKey);
-  }
-
-  function startShellImport(match: RouteMatch): Promise<unknown> | null {
-    if (!match.route.shellFile) return null;
-    const shellKey = findModuleKey(shellModules, match.route.shellFile);
-    if (!shellKey) return null;
-    return loadModule(shellModules, shellKey);
-  }
-
-  let updateRouteState: ((state: StateUpdater<RouteRenderState>) => void) | null = null;
-  let routeStateVersion = 0;
   let latestNavigationId = 0;
   let activeNavigationAbort: AbortController | null = null;
+
+  const renderer = createClientRouteRenderer({
+    app,
+    routeModules,
+    shellModules,
+    root,
+    findModuleKey,
+    navigate,
+  });
 
   // --- Scroll restoration -------------------------------------------------
   // The router owns scrolling: positions are keyed per history entry (via a
@@ -284,136 +236,6 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
     }
   }
 
-  // Runs after the DOM for a newly committed route state is in place —
-  // scroll restoration must not race Preact's asynchronous re-render (the
-  // outgoing page's height would clamp the restored position).
-  let afterCommitCallback: (() => void) | null = null;
-
-  // The route component's `data` prop is a snapshot taken when the route state
-  // was resolved, but revalidation (`useRevalidate()`, `<Form capability>`, the
-  // capability-settled listener) commits new data to the runtime provider
-  // instead of re-resolving the route. Reading the provider here keeps the prop
-  // and `useRouteData()` on the same value, so a component that destructures
-  // `{ data }` sees a refresh exactly like a hook consumer does.
-  function RouteComponent({
-    Component,
-    componentProps,
-  }: {
-    Component: FunctionComponent;
-    componentProps: Record<string, unknown>;
-  }) {
-    const runtime = useContext(RouteDataContext);
-    // Error and SPA-pending states pass props that carry no loader data
-    // (`{ error }` / `{}`); only the loaded-data shape tracks the provider.
-    const props =
-      runtime && "data" in componentProps
-        ? { ...componentProps, data: runtime.data }
-        : componentProps;
-    return h(Component as FunctionComponent<Record<string, unknown>>, props);
-  }
-
-  function RouterRoot({ initialState }: { initialState: RouteRenderState }) {
-    const [routeState, setRouteState] = useState(initialState);
-    updateRouteState = setRouteState;
-    const navigateValue = useMemo(() => navigate, []);
-
-    const { Shell, Component, componentProps, data, params, routeId, url, version } = routeState;
-
-    useLayoutEffect(() => {
-      if (!afterCommitCallback) return;
-      const callback = afterCommitCallback;
-      afterCommitCallback = null;
-      callback();
-    }, [version]);
-    const routeElement = h(RouteComponent, { Component, componentProps });
-    const componentTree = Shell
-      ? h(Shell as FunctionComponent<Record<string, unknown>>, null, routeElement)
-      : routeElement;
-
-    return h(
-      NavigateContext.Provider as FunctionComponent<Record<string, unknown>>,
-      { value: navigateValue },
-      h(
-        PrachtRuntimeProvider as FunctionComponent<Record<string, unknown>>,
-        { data, params, routeId, routes: app.routes, stateVersion: version, url },
-        componentTree,
-      ),
-    );
-  }
-
-  function applyRouteState(routeState: RouteRenderState): void {
-    if (updateRouteState) {
-      updateRouteState(routeState);
-      return;
-    }
-
-    render(h(RouterRoot, { initialState: routeState }), root);
-  }
-
-  async function resolveRouteState(
-    match: RouteMatch,
-    state: { data: unknown; error?: SerializedRouteError | null },
-    currentUrl: string,
-    routeModPromise?: Promise<any> | null,
-    shellModPromise?: Promise<any> | null,
-  ): Promise<RouteRenderState | null> {
-    const routeMod = await (routeModPromise ?? startRouteImport(match));
-    if (!routeMod) return null;
-
-    let Shell: FunctionComponent | null = null;
-    const resolvedShell = await (shellModPromise ?? startShellImport(match));
-    if (resolvedShell) {
-      Shell = resolvedShell.Shell;
-    }
-
-    const DefaultComponent = typeof routeMod.default === "function" ? routeMod.default : undefined;
-    const ErrorBoundary = routeMod.ErrorBoundary ?? resolvedShell?.ErrorBoundary;
-    const Component = (
-      state.error ? ErrorBoundary : (routeMod.Component ?? DefaultComponent)
-    ) as FunctionComponent<any>;
-    if (!Component) return null;
-
-    const componentProps: Record<string, unknown> = state.error
-      ? { error: deserializeRouteError(state.error) }
-      : { data: state.data, params: match.params };
-
-    return {
-      Shell,
-      Component,
-      componentProps,
-      data: state.data,
-      params: match.params,
-      routeId: match.route.id ?? "",
-      url: currentUrl,
-      version: ++routeStateVersion,
-    };
-  }
-
-  async function resolveSpaPendingState(
-    match: RouteMatch,
-    currentUrl: string,
-    shellModPromise?: Promise<any> | null,
-  ): Promise<RouteRenderState | null> {
-    const resolvedShell = await (shellModPromise ?? startShellImport(match));
-    if (!resolvedShell) return null;
-
-    const Shell = (resolvedShell.Shell as FunctionComponent) ?? null;
-    const Loading = resolvedShell.Loading as FunctionComponent | null;
-
-    if (!Shell && !Loading) return null;
-
-    return {
-      Shell,
-      Component: Loading ?? (() => null),
-      componentProps: {},
-      data: undefined,
-      params: match.params,
-      routeId: match.route.id ?? "",
-      url: currentUrl,
-      version: ++routeStateVersion,
-    };
-  }
-
   function resolveRedirectTarget(location: string): {
     documentUrl?: string;
     externalUrl?: string;
@@ -506,8 +328,8 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
       } else {
         statePromise = Promise.resolve({ type: "data" as const, data: undefined });
       }
-      const routeModPromise = startRouteImport(match);
-      const shellModPromise = startShellImport(match);
+      const routeModPromise = renderer.startRouteImport(match);
+      const shellModPromise = renderer.startShellImport(match);
 
       // Await route state (need it to handle redirects before rendering)
       let state: { data: unknown; error?: SerializedRouteError | null } = {
@@ -605,7 +427,7 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
       }
 
       // Module imports started above are already in-flight
-      const routeState = await resolveRouteState(
+      const routeState = await renderer.resolveRouteState(
         match,
         state,
         target.requestUrl,
@@ -620,8 +442,8 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
       }
 
       const commit = () => {
-        afterCommitCallback = () => restoreOrResetScroll(opts, target.browserUrl);
-        applyRouteState(routeState);
+        renderer.afterCommit(() => restoreOrResetScroll(opts, target.browserUrl));
+        renderer.applyRouteState(routeState);
       };
       const useViewTransition = opts?.viewTransition ?? app.viewTransitions === true;
       await commitWithOptionalViewTransition(commit, useViewTransition);
@@ -650,7 +472,7 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
   if (initialMatch) {
     const initialShellPromise =
       initialMatch.route.render === "spa" && options.initialState.pending
-        ? startShellImport(initialMatch)
+        ? renderer.startShellImport(initialMatch)
         : null;
     let state = {
       data: options.initialState.data,
@@ -661,13 +483,13 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
       // Use query parameter URL to match the <link rel="preload"> tag from SSR
       const dataPromise = fetchPrachtRouteState(initialRequestUrl, { useDataParam: true });
 
-      const pendingState = await resolveSpaPendingState(
+      const pendingState = await renderer.resolveSpaPendingState(
         initialMatch,
         initialRequestUrl,
         initialShellPromise,
       );
       if (pendingState) {
-        hydrate(h(RouterRoot, { initialState: pendingState }), root);
+        renderer.mountRouteState(pendingState, "hydrate");
       }
 
       try {
@@ -698,7 +520,7 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
         return;
       }
 
-      const resolvedState = await resolveRouteState(
+      const resolvedState = await renderer.resolveRouteState(
         initialMatch,
         state,
         initialRequestUrl,
@@ -706,10 +528,10 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
         initialShellPromise,
       );
       if (resolvedState) {
-        applyRouteState(resolvedState);
+        renderer.applyRouteState(resolvedState);
       }
     } else {
-      const initialRouteState = await resolveRouteState(
+      const initialRouteState = await renderer.resolveRouteState(
         initialMatch,
         state,
         initialRequestUrl,
@@ -718,31 +540,13 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
       );
       if (initialRouteState) {
         if (initialMatch.route.render === "spa") {
-          render(h(RouterRoot, { initialState: initialRouteState }), root);
+          renderer.mountRouteState(initialRouteState, "render");
         } else {
           markHydrating();
-          hydrate(h(RouterRoot, { initialState: initialRouteState }), root);
+          renderer.mountRouteState(initialRouteState, "hydrate");
           onHydrationComplete(() => {
-            if (!hydrationBrowserTarget || !updateRouteState) return;
-
-            updateRouteState((currentState) => {
-              const hydratedTarget = resolveBrowserRouteTarget(currentState.url);
-              if (!hydratedTarget) return currentState;
-              const nextRequestUrl = hydratedTarget.pathname + hydrationBrowserTarget.search;
-              // A navigation that committed while a Suspense boundary was
-              // hydrating owns the newer state. Revalidated data lives in the
-              // runtime provider and survives this URL-only update.
-              if (
-                currentState.version !== initialRouteState.version ||
-                currentState.url === nextRequestUrl
-              ) {
-                return currentState;
-              }
-              return {
-                ...currentState,
-                url: nextRequestUrl,
-              };
-            });
+            if (!hydrationBrowserTarget) return;
+            renderer.syncHydratedUrl(initialRouteState, hydrationBrowserTarget.search);
           });
         }
       }
@@ -884,10 +688,7 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
     }
   }
 
-  const warmModules: ModuleWarmFn = (match) => {
-    startRouteImport(match);
-    startShellImport(match);
-  };
+  const warmModules: ModuleWarmFn = renderer.warmModules;
   registerPrefetchTarget(app, warmModules);
   void import("./prefetch.ts").then(({ setupPrefetching }) => {
     setupPrefetching(app, warmModules);
