@@ -6,28 +6,14 @@ import { ROUTE_STATE_REQUEST_HEADER, SAFE_METHODS } from "./runtime-constants.ts
 import {
   buildRuntimeDiagnostics,
   createSerializedRouteError,
-  isPrachtHttpError,
   shouldExposeServerErrors,
-  type PrachtRuntimeDiagnosticPhase,
 } from "./runtime-errors.ts";
-import { withDefaultSecurityHeaders } from "./runtime-headers.ts";
-import { resolveDataFunctions, resolveRegistryModule } from "./runtime-manifest.ts";
-import {
-  mergeDocumentHeaders,
-  mergeHeadMetadata,
-  runMiddlewareChain,
-} from "./runtime-middleware.ts";
-import { renderPageRepresentation } from "./runtime-page-render.ts";
+import { withDefaultSecurityHeaders, withRouteResponseHeaders } from "./runtime-headers.ts";
+import { createNotFoundMatch, executePageMatch } from "./runtime-page-pipeline.ts";
 import { isFirstPartyFetch, isSameOriginRequest } from "./runtime-request-provenance.ts";
-import {
-  jsonErrorResponse,
-  normalizePageResponse,
-  renderRouteErrorResponse,
-} from "./runtime-response.ts";
-import { withRouteResponseHeaders } from "./runtime-headers.ts";
+import { jsonErrorResponse } from "./runtime-response.ts";
 import type { PrachtPhaseTimings } from "./runtime-timing.ts";
 import type {
-  BaseRouteArgs,
   CapabilityAuditHook,
   ModuleRegistry,
   HrefRouteDefinition,
@@ -35,8 +21,6 @@ import type {
   ResolvedApiRoute,
   ResolvedPrachtApp,
   RouteMatch,
-  RouteModule,
-  ShellModule,
 } from "./types.ts";
 
 export interface HandlePrachtRequestOptions<TContext = unknown> {
@@ -171,6 +155,30 @@ export async function handlePrachtRequest<TContext>(
     if (projectionResponse) return projectionResponse;
   }
 
+  const executePage = (
+    pageMatch: RouteMatch,
+    pageOptions: { isNotFoundPage: boolean; status: number },
+  ): Promise<Response> =>
+    executePageMatch({
+      clientEntryUrl: options.clientEntryUrl,
+      context: requestContext,
+      cssManifest: options.cssManifest,
+      debugErrors: options.debugErrors,
+      islandsBootstrapRequired: options.islandsBootstrapRequired,
+      islandsEntryUrl: options.islandsEntryUrl,
+      isNotFoundPage: pageOptions.isNotFoundPage,
+      isRouteStateRequest,
+      jsManifest: options.jsManifest,
+      match: pageMatch,
+      registry,
+      request: options.request,
+      requestPath,
+      resolvedApp,
+      status: pageOptions.status,
+      timings: options.timings,
+      url,
+    });
+
   const match = matchAppRoute(resolvedApp, url.pathname);
 
   if (!match) {
@@ -195,7 +203,7 @@ export async function handlePrachtRequest<TContext>(
     // first-party adapter, after static-asset serving) has failed.
     const notFoundMatch = createNotFoundMatch(resolvedApp, url.pathname);
     if (notFoundMatch && SAFE_METHODS.has(options.request.method)) {
-      return renderPageMatch(notFoundMatch, { isNotFoundPage: true, status: 404 });
+      return executePage(notFoundMatch, { isNotFoundPage: true, status: 404 });
     }
 
     return withDefaultSecurityHeaders(
@@ -234,248 +242,7 @@ export async function handlePrachtRequest<TContext>(
     );
   }
 
-  return renderPageMatch(match, { isNotFoundPage: false, status: 200 });
-
-  /**
-   * Render one page match through the middleware → loader → render pipeline.
-   *
-   * `status` is the success status of the rendered document (200 for a normal
-   * route, 404 for the not-found page). `isNotFoundPage` marks a render that
-   * is already the not-found page, so a 404 thrown from *its* loader cannot
-   * re-enter this path.
-   */
-  async function renderPageMatch(
-    match: RouteMatch,
-    pageOptions: { isNotFoundPage: boolean; status: number },
-  ): Promise<Response> {
-    const requestSignal = AbortSignal.timeout(30_000);
-    const pageContext = requestContext;
-    const routeArgs: BaseRouteArgs<TContext> = {
-      request: options.request,
-      params: match.params,
-      context: pageContext,
-      signal: requestSignal,
-      url,
-      route: match.route,
-    };
-    let routeModulePromise: Promise<RouteModule | undefined> | undefined;
-    let routeModule: RouteModule | undefined;
-    let shellModule: ShellModule | undefined;
-    let loaderFile: string | undefined;
-    let currentPhase: PrachtRuntimeDiagnosticPhase = "middleware";
-    const timings = options.timings;
-
-    try {
-      // Kick off every piece of the pipeline that doesn't depend on the
-      // middleware chain's result up front, so they run concurrently with
-      // middleware rather than waiting in line:
-      //
-      //   • route module import                          (needs only match.route.file)
-      //   • shell module import                          (needs only match.route.shellFile)
-      //   • data-module resolution (separate loader file) (needs routeModule)
-      //
-      // Only the loader itself still waits for middleware, because it
-      // receives the (potentially middleware-mutated) context.
-      routeModulePromise = resolveRegistryModule<RouteModule>(
-        registry.routeModules,
-        match.route.file,
-      );
-
-      const shellModulePromise: Promise<ShellModule | undefined> = match.route.shellFile
-        ? resolveRegistryModule<ShellModule>(registry.shellModules, match.route.shellFile)
-        : Promise.resolve(undefined);
-
-      const dataFunctionsPromise = routeModulePromise.then((mod) =>
-        resolveDataFunctions(match.route, mod, registry),
-      );
-
-      // Suppress unhandled-rejection warnings for in-flight promises that we
-      // may not reach (e.g. middleware short-circuits with a response). Each
-      // promise is still awaited via the original reference below, so real
-      // errors still surface through the existing try/catch.
-      routeModulePromise.catch(() => {});
-      shellModulePromise.catch(() => {});
-      dataFunctionsPromise.catch(() => {});
-
-      const pageTerminal = async (): Promise<Response> => {
-        currentPhase = "render";
-        routeModule = await routeModulePromise;
-        if (!routeModule) {
-          throw new Error(
-            pageOptions.isNotFoundPage
-              ? `notFound page module ${JSON.stringify(match.route.file)} was not found in the module registry. ` +
-                  "The not-found page is loaded from the same registry as route modules, so it has to live in the routes directory."
-              : "Route module not found",
-          );
-        }
-
-        currentPhase = "loader";
-        const { loader, loaderFile: resolvedLoaderFile } = await dataFunctionsPromise;
-        loaderFile = resolvedLoaderFile;
-
-        let loaderResult: unknown;
-        if (loader) {
-          const loaderStart = timings ? performance.now() : 0;
-          loaderResult = await loader(routeArgs);
-          if (timings) {
-            timings.loader = performance.now() - loaderStart;
-          }
-        }
-
-        // Allow loaders to return a Response directly (e.g. for redirects)
-        if (loaderResult instanceof Response) {
-          return loaderResult;
-        }
-
-        const data = loaderResult;
-
-        if (isRouteStateRequest) {
-          return withRouteResponseHeaders(Response.json({ data }), {
-            isRouteStateRequest: true,
-            loaderCache: match.route.loaderCache,
-          });
-        }
-
-        // Shell import was kicked off up front; this await is usually already
-        // resolved by the time we get here (it runs in parallel with the loader).
-        currentPhase = "render";
-        shellModule = await shellModulePromise;
-
-        // head and document headers are independent; run them concurrently.
-        const [head, documentHeaders] = await Promise.all([
-          mergeHeadMetadata(shellModule, routeModule, routeArgs, data),
-          mergeDocumentHeaders(shellModule, routeModule, routeArgs, data),
-        ]);
-
-        return renderPageRepresentation({
-          clientEntryUrl: options.clientEntryUrl,
-          cssManifest: options.cssManifest,
-          data,
-          documentHeaders,
-          hasLoader: Boolean(loader),
-          head,
-          islandsBootstrapRequired: options.islandsBootstrapRequired,
-          islandsEntryUrl: options.islandsEntryUrl,
-          jsManifest: options.jsManifest,
-          match,
-          request: options.request,
-          requestPath,
-          resolvedApp,
-          routeModule,
-          shellModule,
-          status: pageOptions.status,
-        });
-      };
-
-      // Dev-only instrumentation: wrap the terminal so middleware time can be
-      // derived as "chain total minus terminal", and terminal time minus the
-      // loader becomes the render phase. Production passes no collector and
-      // uses the un-wrapped terminal.
-      let terminal = pageTerminal;
-      let chainStart = 0;
-      if (timings) {
-        terminal = async () => {
-          const terminalStart = performance.now();
-          try {
-            return await pageTerminal();
-          } finally {
-            timings.render = performance.now() - terminalStart - (timings.loader ?? 0);
-          }
-        };
-        chainStart = performance.now();
-      }
-
-      const response = await runMiddlewareChain({
-        context: pageContext,
-        middlewareFiles: match.route.middlewareFiles,
-        params: match.params,
-        registry,
-        request: options.request,
-        route: match.route,
-        signal: requestSignal,
-        url,
-        terminal,
-      });
-      if (timings) {
-        timings.mw = performance.now() - chainStart - (timings.render ?? 0) - (timings.loader ?? 0);
-      }
-      return normalizePageResponse(response, {
-        isRouteStateRequest,
-        loaderCache: match.route.loaderCache,
-        markdown: match.route.markdown,
-      });
-    } catch (error: unknown) {
-      // A thrown `Response` is a deliberate short-circuit, not a failure: it is
-      // how a loader aborts its own render to redirect (`throw redirect(...)`)
-      // or answer directly, which returning cannot express from inside a helper
-      // the loader called. Same value either way, so it takes the same path a
-      // returned `Response` does.
-      //
-      // Normalizing here means normalizing *inside* the catch, where a throw
-      // has nothing left to catch it and would reject out of
-      // `handlePrachtRequest` — an unhandled rejection in the adapter, not a
-      // 500. A shared module-scope `Response` with a body delivered twice does
-      // exactly that (the second read finds the body disturbed), so failures
-      // fall through to the error renderer like any other loader fault.
-      let thrownResponseFailure: unknown;
-      if (error instanceof Response) {
-        try {
-          return normalizePageResponse(error, {
-            isRouteStateRequest,
-            loaderCache: match.route.loaderCache,
-            markdown: match.route.markdown,
-          });
-        } catch (normalizeError: unknown) {
-          thrownResponseFailure = normalizeError;
-        }
-      }
-
-      // A 404 thrown by a loader or middleware (`throw notFound()`) is not a
-      // crash — it means "this URL has no content". Render the app-level
-      // not-found page for it, unless the route declares its own
-      // ErrorBoundary (the more specific handler wins) or we are already
-      // rendering the not-found page.
-      if (!pageOptions.isNotFoundPage && isNotFoundError(error) && !isRouteStateRequest) {
-        const notFoundMatch = createNotFoundMatch(resolvedApp, url.pathname);
-        if (notFoundMatch) {
-          const module = routeModule ?? (await routeModulePromise?.catch(() => undefined));
-          if (!module?.ErrorBoundary) {
-            return renderPageMatch(notFoundMatch, { isNotFoundPage: true, status: 404 });
-          }
-        }
-      }
-
-      return renderRouteErrorResponse({
-        error: thrownResponseFailure ?? error,
-        isRouteStateRequest,
-        loaderFile,
-        options,
-        phase: currentPhase,
-        routeArgs,
-        routeId: match.route.id ?? "",
-        routeModule,
-        routes: resolvedApp.routes,
-        shellFile: match.route.shellFile,
-        shellModule,
-        requestPath,
-      });
-    }
-  }
-}
-
-/**
- * A `RouteMatch` for the app-level not-found page, or `undefined` when the
- * app declares none. `pathname` is the request path so diagnostics and
- * `useLocation()` still report where the visitor actually landed.
- */
-function createNotFoundMatch(app: ResolvedPrachtApp, pathname: string): RouteMatch | undefined {
-  const route = app.notFound;
-  if (!route || !("segments" in route)) return undefined;
-  return { route, params: {}, pathname };
-}
-
-function isNotFoundError(error: unknown): boolean {
-  return isPrachtHttpError(error) && error.status === 404;
+  return executePage(match, { isNotFoundPage: false, status: 200 });
 }
 
 function getRequestPath(url: URL): string {

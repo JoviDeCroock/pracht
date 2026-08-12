@@ -497,6 +497,7 @@ runtime-api.ts — explicit API matching, middleware, invocation, and error norm
 runtime-agent-surface.ts — lazy agent runtimes, signature binding, and invocation host setup
 runtime-agent-projection.ts — MCP and capability HTTP selection and fail-closed routing
 runtime-page-render.ts — Markdown, SPA, hydrated, islands, and zero-JavaScript representations
+runtime-page-pipeline.ts — concurrent module loading, middleware, loaders, timings, and fallback
     ↑
 prefetch-cache.ts — bounded route-state cache shared by navigation, forms, and prefetching
     ↑
