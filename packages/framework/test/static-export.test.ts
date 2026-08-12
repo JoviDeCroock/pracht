@@ -197,10 +197,14 @@ describe("prerenderApp staticExport", () => {
 
 describe("buildStaticFallbackHtml", () => {
   it("emits an empty-body document with the fallback hydration marker", () => {
-    const html = buildStaticFallbackHtml({ clientEntryUrl: "/assets/client-abc.js" });
+    const html = buildStaticFallbackHtml({
+      clientEntryUrl: "/assets/client-abc.js",
+      notFoundData: { message: "Built custom 404" },
+    });
     expect(html).toContain('<div id="pracht-root"></div>');
     expect(html).toContain('"fallback":true');
     expect(html).toContain('"pending":true');
+    expect(html).toContain('"message":"Built custom 404"');
     expect(html).toContain('src="/assets/client-abc.js"');
   });
 });

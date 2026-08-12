@@ -33,6 +33,7 @@ A static export has no server, so the build fails closed on anything that needs 
 
 - Every route must be `render: "ssg"` or loaderless `"spa"`. SSG loaders run at build time and must succeed; loader redirects/errors and dynamic SSG routes without `getStaticPaths()` fail the build. SPA loaders, `ssr`, and `isg` are build errors naming the routes; use browser-side fetching for live SPA data or use `@pracht/adapter-node`, `@pracht/adapter-cloudflare`, or `@pracht/adapter-vercel`.
 - Route and not-found middleware are build errors because no request runtime exists to enforce them.
+- The `notFound` page must use full hydration (the default). A static host serves the same prebuilt `404.html` for every miss, so the full client router is required to adopt the visitor's actual URL.
 - API routes are build errors.
 - Manifest-registered capabilities exposed over HTTP/MCP/WebMCP are build errors (server-only capabilities invoked from build-time loaders are fine). Registered capability modules must load successfully so validation can fail closed; unused files in the capabilities directory are ignored.
 
@@ -44,10 +45,10 @@ SSG loaders run at build time. For each loader-backed SSG route, the build seria
 
 - Pages: `<path>/index.html` (clean URLs — hosts must serve `index.html` for directory URLs).
 - Route state: `_pracht/state/<path>/index.json`.
-- `404.html`: the app's `notFound` page, rendered at build time (GitHub Pages / S3 error-document convention).
+- `404.html`: the app's `notFound` page, rendered independently of ordinary route matching at build time (GitHub Pages / S3 error-document convention).
 - `200.html` (opt-in via `staticAdapter({ fallback: "200.html" })`): SPA fallback document for hosts that can rewrite unmatched URLs; required for deep links into dynamic `render: "spa"` routes.
 
-The fallback only boots matched SPA routes. Paths matching a dynamic SSG route but omitted by `getStaticPaths()` render the app's `notFound` page rather than running without build-time loader state.
+The fallback only boots matched SPA routes. Paths matching a dynamic SSG route but omitted by `getStaticPaths()` render the app's `notFound` page rather than running without build-time loader state. When the fallback renders `notFound`, it reuses the loader data serialized into `404.html`; the loader does not run again.
 
 Fallback names may not collide with `index.html` or `404.html`, including case variants on case-insensitive filesystems.
 

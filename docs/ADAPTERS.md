@@ -1036,6 +1036,10 @@ aggregated error — before any prerendering — when the app needs one:
   external API instead.
 - **Route and not-found middleware** are hard errors: a static host has no
   request runtime in which to enforce redirects, authentication, or headers.
+- The **`notFound` page must use full hydration** (the default). Every unknown
+  URL receives the same prebuilt `404.html`, so the full client router is what
+  replaces the build URL with the visitor's actual location. `"islands"` and
+  `"none"` are hard errors for a static not-found page.
 - **API routes** are hard errors (nothing can answer them).
 - **Capabilities exposed over HTTP/MCP/WebMCP** are hard errors. Unexposed
   capabilities are fine — `invokeCapability()` from build-time loaders runs
@@ -1098,10 +1102,11 @@ client-side fetch to an external API instead.
 ### 404 and the SPA fallback
 
 - `404.html` — the app's `defineApp({ notFound })` page, rendered at build
-  time (the GitHub Pages / S3 error-document convention). The hydrated page
-  adopts `window.location`, so it displays and navigates from the URL actually
-  visited, not the synthetic build-time path. Apps without a `notFound` page
-  emit no `404.html` (the host serves its own error page).
+  time independently of ordinary route matching, so a broad dynamic route
+  such as `/:slug` or `/*` cannot suppress it. The full-hydration page adopts
+  `window.location`, so it displays and navigates from the URL actually
+  visited, not `/404.html`. Apps without a `notFound` page emit no `404.html`
+  (the host serves its own error page).
 - `200.html` — opt-in via `staticAdapter({ fallback: "200.html" })`: an
   empty-shell document that boots the client router and resolves the real
   route from `window.location`. Configure the host to rewrite unmatched URLs
@@ -1116,6 +1121,9 @@ client-side fetch to an external API instead.
   The fallback only client-renders matched SPA routes: a dynamic SSG pattern
   that matches a path omitted by `getStaticPaths()` renders the app's
   `notFound` page instead of running without its missing build-time state.
+  The fallback embeds the same build-time `notFound` loader data serialized
+  into `404.html`, so this client render receives the normal data without
+  executing the loader again.
 - A host that serves `404.html` with status **200** (S3 without an error-
   document configuration, some CDN defaults) changes nothing for the client —
   hydration adopts `window.location` either way — but crawlers will index

@@ -136,6 +136,27 @@ describe("validateStaticExport", () => {
     expect((error as Error).message).toContain("static host has no request runtime");
   });
 
+  it("fails closed when notFound cannot adopt the requested URL", async () => {
+    for (const hydration of ["islands", "none"] as const) {
+      const error = await validateStaticExport({
+        resolvedApp: {
+          notFound: {
+            hydration,
+            middlewareFiles: [],
+            path: "/__pracht-not-found__",
+            render: "ssr",
+          },
+          routes: [{ hasLoader: false, middlewareFiles: [], path: "/", render: "ssg" }],
+        },
+      }).catch((thrown: Error) => thrown);
+
+      expect(error).toBeInstanceOf(Error);
+      expect((error as Error).message).toContain(`hydration: "${hydration}"`);
+      expect((error as Error).message).toContain("must use full hydration");
+      expect((error as Error).message).toContain("real URL");
+    }
+  });
+
   it("fails closed on API routes", async () => {
     const error = await validateStaticExport({
       resolvedApp: { routes: [{ path: "/", render: "ssg" }] },
@@ -308,6 +329,7 @@ describe("writeStaticExportArtifacts", () => {
   it("writes state files, 404.html, and the configured fallback", async () => {
     const clientDir = createTempDir();
     const logs: string[] = [];
+    let fallbackNotFoundData: unknown;
 
     const result = await writeStaticExportArtifacts({
       clientDir,
@@ -318,8 +340,12 @@ describe("writeStaticExportArtifacts", () => {
       ],
       serverMod: {
         staticExportConfig: { fallback: "200.html" },
-        renderStaticNotFoundHtml: async () => "<!DOCTYPE html><html><body>404</body></html>",
-        renderStaticFallbackHtml: () => "<!DOCTYPE html><html><body>fallback</body></html>",
+        renderStaticNotFoundHtml: async () =>
+          '<!DOCTYPE html><html><body>404<script id="pracht-state" type="application/json">{"data":{"message":"Built custom 404"}}</script></body></html>',
+        renderStaticFallbackHtml: (notFoundData) => {
+          fallbackNotFoundData = notFoundData;
+          return "<!DOCTYPE html><html><body>fallback</body></html>";
+        },
       },
       log: (message) => logs.push(message),
     });
@@ -334,6 +360,7 @@ describe("writeStaticExportArtifacts", () => {
     expect(existsSync(resolve(clientDir, "_pracht/state/plain/index.json"))).toBe(false);
     expect(readFileSync(resolve(clientDir, "404.html"), "utf-8")).toContain("404");
     expect(readFileSync(resolve(clientDir, "200.html"), "utf-8")).toContain("fallback");
+    expect(fallbackNotFoundData).toEqual({ message: "Built custom 404" });
   });
 
   it("skips 404.html when the app has no notFound page, and the fallback when unconfigured", async () => {
