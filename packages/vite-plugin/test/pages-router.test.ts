@@ -1,4 +1,4 @@
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import type { ConfigEnv, UserConfig } from "vite";
@@ -10,7 +10,11 @@ import {
   pracht,
 } from "../src/index.ts";
 import { createPrachtDevModuleSource } from "../src/plugin-codegen.ts";
-import { generatePagesManifestSource, scanPagesDirectory } from "../src/pages-router.ts";
+import {
+  generatePagesManifestSource,
+  generateRoutesFile,
+  scanPagesDirectory,
+} from "../src/pages-router.ts";
 
 const tempDirs: string[] = [];
 
@@ -627,6 +631,41 @@ describe("generatePagesManifestSource", () => {
       /Multiple pages middleware files/,
     );
   });
+
+  it("rejects root _middleware without a named middleware export during codegen", () => {
+    const pagesDir = makeTempPagesDir();
+
+    writeFileSync(join(pagesDir, "index.tsx"), "export function Component() { return null; }\n");
+    writeFileSync(
+      join(pagesDir, "_middleware.ts"),
+      "export default async (_args, next) => next();\n",
+    );
+
+    expect(() => generatePagesManifestSource(scanPagesDirectory(pagesDir), { pagesDir })).toThrow(
+      /does not export a `middleware` function/,
+    );
+  });
+
+  it("emits ejected refs relative to the requested output path", () => {
+    const pagesDir = makeTempPagesDir();
+    const outputDir = join(pagesDir, "generated");
+    const outputPath = join(outputDir, "routes.ts");
+    mkdirSync(outputDir, { recursive: true });
+
+    writeFileSync(join(pagesDir, "index.tsx"), "export function Component() { return null; }\n");
+    writeFileSync(join(pagesDir, "_app.tsx"), "export function Shell() { return null; }\n");
+    writeFileSync(
+      join(pagesDir, "_middleware.ts"),
+      "export const middleware = async (_args, next) => next();\n",
+    );
+
+    generateRoutesFile(pagesDir, outputPath, { pagesDir });
+    const source = readFileSync(outputPath, "utf-8");
+
+    expect(source).toContain('route("/", () => import("../index.tsx")');
+    expect(source).toContain('pages: () => import("../_app.tsx")');
+    expect(source).toContain('pages: () => import("../_middleware.ts")');
+  });
 });
 
 describe("pracht plugin config", () => {
@@ -756,6 +795,17 @@ describe("createPrachtRegistryModuleSource", () => {
     const source = createPrachtClientModuleSource({ pagesDir: "/src/pages" }, { root });
 
     expect(source).toContain('"!/src/pages/**/_middleware.*"');
+  });
+
+  it("keeps _middleware out of ejected pages route and shell globs", () => {
+    const source = createPrachtClientModuleSource({
+      appFile: "/src/routes.ts",
+      routesDir: "/src/pages",
+      shellsDir: "/src/pages",
+      middlewareDir: "/src/pages",
+    });
+
+    expect(source.match(/!\/src\/pages\/\*\*\/_middleware\.\*/g)).toHaveLength(4);
   });
 
   it("creates adapter-neutral development metadata", () => {

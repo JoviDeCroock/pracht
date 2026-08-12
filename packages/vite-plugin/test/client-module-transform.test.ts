@@ -202,6 +202,24 @@ export default function Home() {
     expect(transformed).toContain("function Home");
   });
 
+  it("removes pages middleware and imports used only by it", () => {
+    const source = `
+import { serverSecret } from "../server-secret";
+
+export const middleware = async (_args, next) => {
+  const response = await next();
+  response.headers.set("x-secret", serverSecret);
+  return response;
+};
+`;
+
+    const transformed = stripServerOnlyExportsForClient(source);
+
+    expect(transformed).not.toContain("../server-secret");
+    expect(transformed).not.toContain("middleware");
+    expect(transformed).not.toContain("x-secret");
+  });
+
   it("does not strip export declarations that appear inside string/template literals", () => {
     const source = [
       "import { CodeBlock } from '../components';",
@@ -630,6 +648,67 @@ describe("client route module build", () => {
     expect(source).toContain('"/src/routes/index.custom":true');
     expect(source).toContain('"./shells/app.custom":true');
     expect(source).toContain('"/src/shells/app.custom":true');
+  });
+
+  it("keeps ejected pages middleware out of the client bundle", async () => {
+    const root = makeTempProject();
+    mkdirSync(join(root, "src", "pages"), { recursive: true });
+
+    writeFileSync(
+      join(root, "src", "routes.ts"),
+      `
+import { defineApp, group, route } from "@pracht/core";
+
+export const app = defineApp({
+  shells: { pages: () => import("./pages/_app.tsx") },
+  middleware: { pages: () => import("./pages/_middleware.ts") },
+  routes: [
+    group({ shell: "pages", middleware: ["pages"] }, [
+      route("/", () => import("./pages/index.tsx")),
+    ]),
+  ],
+});
+`,
+    );
+    writeFileSync(
+      join(root, "src", "pages", "index.tsx"),
+      "export function Component() { return <main>EJECTED_PAGE_COMPONENT</main>; }\n",
+    );
+    writeFileSync(
+      join(root, "src", "pages", "_app.tsx"),
+      "export function Shell({ children }) { return <div>{children}</div>; }\n",
+    );
+    writeFileSync(
+      join(root, "src", "pages", "_middleware.ts"),
+      [
+        'import { serverSecret } from "../server-secret";',
+        "export const middleware = async (_args, next) => {",
+        "  const response = await next();",
+        '  response.headers.set("x-secret", serverSecret);',
+        "  return response;",
+        "};",
+        "",
+      ].join("\n"),
+    );
+    writeFileSync(
+      join(root, "src", "server-secret.ts"),
+      'export const serverSecret = "EJECTED_MIDDLEWARE_SERVER_SECRET";\n',
+    );
+
+    await buildTempProject(root, {
+      appFile: "/src/routes.ts",
+      routesDir: "/src/pages",
+      shellsDir: "/src/pages",
+      middlewareDir: "/src/pages",
+    });
+
+    const output = readBuiltJs(root);
+    expect(output).toContain("EJECTED_PAGE_COMPONENT");
+    expect(output).not.toContain("EJECTED_MIDDLEWARE_SERVER_SECRET");
+    expect(output).not.toContain("x-secret");
+    expect(readdirSync(join(root, "dist", "assets"))).not.toContainEqual(
+      expect.stringMatching(/^_middleware-/),
+    );
   });
 
   it("fails the build when client code imports a capability module directly", async () => {

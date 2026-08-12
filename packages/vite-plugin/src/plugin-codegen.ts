@@ -169,12 +169,15 @@ export function createPrachtClientModuleSource(
   const routeGlob = `${dirPrefix}/**/*.{ts,tsx,js,jsx,md,mdx}`;
   const additionalRouteGlob = `${dirPrefix}/**/*.${extensionGlob(bareRouteExtensions)}`;
   const routeExcludes = createNonFullHydrationExcludes(resolved, buildOptions.root);
-  if (isPagesMode) {
-    // Middleware is server-only and `middleware` is not one of the exports the
-    // client transform strips, so keep `_middleware` files out of the client
-    // route glob entirely — otherwise their code (and imports) would be
-    // emitted as a browser-loadable chunk.
-    routeExcludes.push(`!${resolved.pagesDir}/**/_middleware.*`);
+  const pagesMiddlewareDir = isPagesMode ? resolved.pagesDir : resolved.middlewareDir;
+  if (isPagesMode || sameConfigDirectory(resolved.routesDir, resolved.middlewareDir)) {
+    // Pages middleware is server-only. Keep it out of the client registry in
+    // both auto-discovered pages mode and the documented ejected layout where
+    // routesDir and middlewareDir point at the same pages directory. The
+    // client transform also strips a `middleware` export as defense in depth,
+    // but excluding the module is what prevents side-effect imports and an
+    // otherwise empty browser chunk from being emitted at all.
+    routeExcludes.push(`!${pagesMiddlewareDir}/**/_middleware.*`);
   }
   const routeGlobPattern = routeExcludes.length > 0 ? [routeGlob, ...routeExcludes] : routeGlob;
   const additionalRouteGlobPattern =
@@ -188,6 +191,13 @@ export function createPrachtClientModuleSource(
   const additionalShellGlob = isPagesMode
     ? `${resolved.pagesDir}/**/_app.${extensionGlob(bareRouteExtensions)}`
     : `${resolved.shellsDir}/**/*.${extensionGlob(bareRouteExtensions)}`;
+  const shellExcludes =
+    !isPagesMode && sameConfigDirectory(resolved.shellsDir, resolved.middlewareDir)
+      ? [`!${resolved.middlewareDir}/**/_middleware.*`]
+      : [];
+  const shellGlobPattern = shellExcludes.length > 0 ? [shellGlob, ...shellExcludes] : shellGlob;
+  const additionalShellGlobPattern =
+    shellExcludes.length > 0 ? [additionalShellGlob, ...shellExcludes] : additionalShellGlob;
   // Base directory for relative manifest refs: the app manifest file's
   // directory (refs like "./routes/home.tsx" are written relative to it).
   const appFilePosix = resolved.appFile.replace(/\\/g, "/").replace(/^\.\//, "");
@@ -206,8 +216,8 @@ export function createPrachtClientModuleSource(
     `  ...import.meta.glob(${JSON.stringify(additionalRouteGlobPattern)}),`,
     `};`,
     `const shellModules = {`,
-    `  ...import.meta.glob(${JSON.stringify(shellGlob)}, { query: ${JSON.stringify(PRACHT_CLIENT_MODULE_QUERY)} }),`,
-    `  ...import.meta.glob(${JSON.stringify(additionalShellGlob)}),`,
+    `  ...import.meta.glob(${JSON.stringify(shellGlobPattern)}, { query: ${JSON.stringify(PRACHT_CLIENT_MODULE_QUERY)} }),`,
+    `  ...import.meta.glob(${JSON.stringify(additionalShellGlobPattern)}),`,
     `};`,
     "",
     "const resolvedApp = resolveApp(app);",
@@ -284,6 +294,15 @@ export function createPrachtClientModuleSource(
     // capability opts in, so apps without WebMCP exposure ship zero extra bytes.
     ...(hasWebmcpCapabilities(resolved, buildOptions.root) ? createWebmcpBootstrapSource() : []),
   ].join("\n");
+}
+
+function sameConfigDirectory(left: string, right: string): boolean {
+  const normalize = (value: string) =>
+    value
+      .replace(/\\/g, "/")
+      .replace(/^\.?\//, "")
+      .replace(/\/$/, "");
+  return normalize(left) === normalize(right);
 }
 
 /**

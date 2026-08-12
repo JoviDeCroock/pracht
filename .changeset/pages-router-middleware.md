@@ -20,8 +20,10 @@ Fail-open shapes are hard errors instead of silently ignored files: a nested
 root-level files, and a module without a `middleware` export all fail the
 build, `pracht doctor`, and `pracht verify` (the runtime already refused to
 serve routes whose middleware lacks the export). The client bundle excludes
-`_middleware` files from the pages route glob so server-only middleware code
-is never emitted as a browser-loadable chunk.
+`_middleware` files from the pages route and shell globs in both auto-discovered
+and ejected layouts, and the client transform strips `middleware` exports as a
+second boundary, so server-only middleware code and imports are never emitted
+as browser-loadable chunks.
 
 `generateRoutesFile` now emits route and notFound references relative to the
 ejected manifest's directory (`./pages/index.tsx` for `src/routes.ts` beside

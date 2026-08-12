@@ -359,8 +359,8 @@ Scope and limits:
 
 - **Page routes only.** API routes under `src/api` are not wrapped — the same independent-by-default behavior an explicit manifest has. Wrap API handlers in [higher-order functions](/docs/middleware#without-a-manifest-higher-order-functions) instead.
 - **Root level only, single file.** A `_middleware.ts` inside a subdirectory, a `_middleware/` directory, and a `_middleware.tsrx` file are hard errors at build, `doctor`, and `verify` time — never silently ignored files that look like an auth gate. Per-group middleware requires [ejecting to an explicit manifest](#ejecting-to-explicit-manifest).
-- **Runs when the page renders.** For `ssr` (the default) and `spa` routes that is every request, including client-side route-state fetches. `ssg` and `isg` pages render at build/revalidation time on a sanitized request (`GET`, path only — no visitor cookies), and any headers the middleware sets are baked into the static output and replayed for every visitor. Cookie- or session-based gating therefore belongs on `ssr`/`spa` routes.
-- The module must export `middleware`; a module that does not fails `doctor`/`verify`, and requests to page routes fail closed at runtime.
+- **Runs for page rendering and route state.** For `ssr` (the default) and `spa` routes that is every document and client-side route-state request. `ssg` and `isg` documents render at build/revalidation time on a sanitized request (`GET`, path only — no visitor cookies), and any headers the middleware sets are baked into the static output and replayed for every visitor. Their client-side route-state JSON fetches are separate live requests and still traverse middleware with the visitor request. That can vary the JSON response but cannot protect the already-public static HTML, so cookie- or session-based gating belongs on `ssr`/`spa` routes.
+- The module must export `middleware`; a module that does not fails build, `doctor`, and `verify`, and requests to page routes fail closed at runtime.
 - The [404 page](#404-page) renders without middleware — it is a not-found response, not a route.
 
 Like every other `_`-prefixed file, `_middleware.ts` never becomes a route.

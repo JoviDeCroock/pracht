@@ -25,7 +25,14 @@ export {
   stripPrachtClientModuleQuery,
 } from "./client-module-query.ts";
 
-const SERVER_ONLY_EXPORTS = new Set(["loader", "head", "headers", "getStaticPaths", "markdown"]);
+const SERVER_ONLY_EXPORTS = new Set([
+  "loader",
+  "head",
+  "headers",
+  "getStaticPaths",
+  "markdown",
+  "middleware",
+]);
 
 export function stripServerOnlyExportsForClient(
   code: string,
