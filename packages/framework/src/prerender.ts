@@ -24,8 +24,8 @@ export interface PrerenderResult {
   /**
    * Serialized route-state JSON for the path — the exact body the live
    * `x-pracht-route-state-request` endpoint would answer with. Captured only
-   * for `staticExport` builds, and only for routes whose client navigation
-   * performs a server fetch (a loader or route middleware).
+   * for `staticExport` builds, and only for loader-backed SSG routes whose
+   * client navigation needs the build-time payload.
    */
   routeState?: string;
   /** Whether this page is a `render: "spa"` shell (staticExport builds only). */
@@ -57,9 +57,8 @@ export interface PrerenderAppOptions {
   concurrency?: number;
   /**
    * Static-export mode (`@pracht/adapter-static`): additionally prerender
-   * `render: "spa"` routes (their shell document), and capture each page's
-   * route-state JSON so the build can serialize it to a static file for
-   * client-side navigation.
+   * loaderless `render: "spa"` routes (their shell document), and capture SSG
+   * loader state so the build can serialize it for client-side navigation.
    */
   staticExport?: boolean;
 }
@@ -92,7 +91,7 @@ export async function prerenderApp(
     ) {
       continue;
     }
-    const paths = await collectSSGPaths(route, options.registry);
+    const paths = await collectSSGPaths(route, options.registry, options.staticExport === true);
     for (const pathname of paths) {
       if (render === "isg" && route.revalidate) {
         normalizeRouteRevalidate(route.revalidate);
@@ -128,6 +127,15 @@ export async function prerenderApp(
         ]);
 
         if (response.status !== 200) {
+          if (options.staticExport === true) {
+            const location = response.headers.get("location");
+            const redirectDetail = location ? ` (redirect: ${location})` : "";
+            throw new Error(
+              `Static export failed to render ${item.render.toUpperCase()} route "${item.pathname}": ` +
+                `document request returned status ${response.status}${redirectDetail}. ` +
+                "A static build cannot preserve request-time redirects or failures; make the loader succeed at build time or use a serverful adapter.",
+            );
+          }
           console.warn(
             `  Warning: ${item.render.toUpperCase()} route "${item.pathname}" returned status ${response.status}, skipping.`,
           );
@@ -138,7 +146,7 @@ export async function prerenderApp(
 
         const html = await response.text();
 
-        // Static exports serialize the loader payload to a static JSON file so
+        // Static exports serialize SSG loader payloads to static JSON files so
         // client-side navigation can fetch it without a server. Rendering the
         // same request with the route-state header keeps the payload
         // byte-identical to what the live endpoint would answer. Islands and
@@ -162,6 +170,15 @@ export async function prerenderApp(
           if (stateResponse.status === 200) {
             routeState = await stateResponse.text();
           } else {
+            if (options.staticExport === true) {
+              const location = stateResponse.headers.get("location");
+              const redirectDetail = location ? ` (redirect: ${location})` : "";
+              throw new Error(
+                `Static export failed to serialize route state for "${item.pathname}": ` +
+                  `route-state request returned status ${stateResponse.status}${redirectDetail}. ` +
+                  "Make the loader succeed at build time or use a serverful adapter.",
+              );
+            }
             console.warn(
               `  Warning: route-state render for "${item.pathname}" returned status ${stateResponse.status}; no static state file will be written.`,
             );
@@ -219,7 +236,11 @@ function assertSafePrerenderHeaders(
   );
 }
 
-async function collectSSGPaths(route: ResolvedRoute, registry?: ModuleRegistry): Promise<string[]> {
+async function collectSSGPaths(
+  route: ResolvedRoute,
+  registry?: ModuleRegistry,
+  staticExport = false,
+): Promise<string[]> {
   const hasDynamicSegments = route.segments.some(
     (s) => s.type === "param" || s.type === "catchall",
   );
@@ -241,6 +262,12 @@ async function collectSSGPaths(route: ResolvedRoute, registry?: ModuleRegistry):
           `In-app navigation renders it client-side (without loader data); deep links need staticAdapter({ fallback: "200.html" }) plus a host rewrite.`,
       );
     } else {
+      if (staticExport) {
+        throw new Error(
+          `Static export cannot emit dynamic SSG route "${route.path}" because it has no getStaticPaths() export. ` +
+            "Add getStaticPaths() to enumerate every output path or use a serverful adapter.",
+        );
+      }
       console.warn(
         `  Warning: ${(route.render ?? "ssg").toUpperCase()} route "${route.path}" has dynamic segments but no getStaticPaths() export, skipping.`,
       );

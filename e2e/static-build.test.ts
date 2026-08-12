@@ -134,6 +134,16 @@ function buildExample(exampleDir: string, env: Record<string, string> = {}): voi
   });
 }
 
+function buildFailureOutput(exampleDir: string): string {
+  try {
+    buildExample(exampleDir);
+  } catch (error) {
+    const failure = error as Error & { stderr?: Buffer };
+    return String(failure.stderr ?? failure.message);
+  }
+  throw new Error("Expected the static build to fail.");
+}
+
 async function waitForRouter(page: Page): Promise<void> {
   await page.waitForFunction(() => (window as any).__PRACHT_ROUTER_READY__);
 }
@@ -171,18 +181,19 @@ test("static export serves a full app from a dumb static host with zero server",
       expect(existsSync(resolve(clientDir, path)), `${path} should exist`).toBe(true);
     }
 
-    // Route-state files exist exactly for the routes whose navigation fetches
-    // state (loaderless /plain has none; non-enumerated /items/:id cannot).
+    // Route-state files exist exactly for loader-backed SSG routes. Loaderless
+    // SSG and SPA routes fetch nothing from the static host.
     for (const path of [
       "_pracht/state/index.json",
       "_pracht/state/about/index.json",
       "_pracht/state/posts/hello-world/index.json",
       "_pracht/state/posts/second-post/index.json",
-      "_pracht/state/dashboard/index.json",
     ]) {
       expect(existsSync(resolve(clientDir, path)), `${path} should exist`).toBe(true);
     }
     expect(existsSync(resolve(clientDir, "_pracht/state/plain/index.json"))).toBe(false);
+    expect(existsSync(resolve(clientDir, "_pracht/state/dashboard/index.json"))).toBe(false);
+    expect(existsSync(resolve(clientDir, "_pracht/state/items/42/index.json"))).toBe(false);
 
     // State files carry the same payload the live endpoint would, as plain
     // JSON (loader HTML stays inert data, exactly like the live endpoint).
@@ -241,18 +252,20 @@ test("static export serves a full app from a dumb static host with zero server",
     await page.click('#post a[href="/posts/second-post"]');
     await expect(page.locator("#post h1")).toHaveText("Second post");
 
-    // SPA route: shell prerendered, loader data from the state file.
+    // Loaderless SPA route: shell prerendered, component rendered client-side,
+    // and no route-state request is made.
     await page.click('nav a[href="/dashboard"]');
     await expect(page.locator("#dashboard li").first()).toHaveText("Deploys");
     expect(await page.evaluate(() => (window as any).__NO_RELOAD__)).toBe(true);
+    expect(stateFileRequests.some((url) => url.includes("/_pracht/state/dashboard/"))).toBe(false);
 
     // In-app navigation to a dynamic SPA route (no prerendered document, no
-    // state file) stays client-side and renders without loader data — it must
+    // state file) stays client-side — it must
     // NOT fall back to a document load, which on a plain static host would
     // land the user on the 404 page for a perfectly routable URL.
     await page.click('#dashboard a[href="/items/42"]');
     await expect(page.locator("#item h1")).toHaveText("Item 42");
-    await expect(page.locator("#item-note")).toHaveText("no build-time data");
+    await expect(page.locator("#item-note")).toHaveText("client-only route");
     await page.waitForURL(`${origin}/items/42`);
     expect(await page.evaluate(() => (window as any).__NO_RELOAD__)).toBe(true);
     // And back out again, still client-side.
@@ -261,12 +274,9 @@ test("static export serves a full app from a dumb static host with zero server",
     expect(await page.evaluate(() => (window as any).__NO_RELOAD__)).toBe(true);
 
     // The entire session was static-host-shaped: no route-state header
-    // requests, and the only miss is the dynamic SPA route's (deliberately
-    // non-existent) state file.
+    // requests and no failed static-file requests.
     expect(routeStateHeaderRequests).toEqual([]);
-    expect(
-      failedRequests.filter((url) => !url.endsWith("/_pracht/state/items/42/index.json")),
-    ).toEqual([]);
+    expect(failedRequests).toEqual([]);
 
     // Direct load of an unknown URL: the host serves 404.html with a 404
     // status, and the hydrated page shows the *real* requested path.
@@ -285,14 +295,14 @@ test("static export serves a full app from a dumb static host with zero server",
     await expect(page.locator("#not-found h1")).toContainText("404");
 
     // With a host rewrite to 200.html, the same deep link boots the client
-    // router, resolves the route from window.location, and renders without
-    // build-time data — and without a reload loop.
+    // router, resolves the route from window.location, and renders without a
+    // reload loop.
     fallbackServer = (await startDumbStaticHost(clientDir, { fallback: "200.html" })).server;
     const fallbackOrigin = `http://127.0.0.1:${(fallbackServer.address() as AddressInfo).port}`;
 
     await page.goto(`${fallbackOrigin}/items/42`);
     await expect(page.locator("#item h1")).toHaveText("Item 42");
-    await expect(page.locator("#item-note")).toHaveText("no build-time data");
+    await expect(page.locator("#item-note")).toHaveText("client-only route");
     // Navigation away from the fallback boot stays client-side.
     await page.evaluate(() => {
       (window as any).__NO_RELOAD__ = true;
@@ -318,10 +328,10 @@ test("static export serves a full app from a dumb static host with zero server",
 });
 
 // ---------------------------------------------------------------------------
-// Fail-closed validation: SSR routes and API routes are build errors.
+// Fail-closed validation: every request-runtime feature is a build error.
 // ---------------------------------------------------------------------------
 
-test("static export build fails closed on SSR routes and API routes", async () => {
+test("static export build fails closed on request-runtime features", async () => {
   test.setTimeout(180_000);
 
   const { exampleDir, tempDir } = createTempExampleDir(staticFixtureDir, "pracht-static-invalid-");
@@ -330,10 +340,31 @@ test("static export build fails closed on SSR routes and API routes", async () =
     const routesPath = resolve(exampleDir, "src/routes.ts");
     writeFileSync(
       routesPath,
-      readFileSync(routesPath, "utf-8").replace(
-        'route("/about", () => import("./routes/about.tsx"), { id: "about", render: "ssg" }),',
-        'route("/about", () => import("./routes/about.tsx"), { id: "about", render: "ssr" }),',
-      ),
+      readFileSync(routesPath, "utf-8")
+        .replace(
+          "export const app = defineApp({",
+          'export const app = defineApp({\n  middleware: { auth: () => import("./middleware/auth.ts") },',
+        )
+        .replace(
+          'route("/about", () => import("./routes/about.tsx"), { id: "about", render: "ssg" }),',
+          'route("/about", () => import("./routes/about.tsx"), { id: "about", render: "ssr" }),',
+        )
+        .replace(
+          'route("/plain", () => import("./routes/plain.tsx"), { id: "plain", render: "ssg" }),',
+          'route("/plain", () => import("./routes/plain.tsx"), { id: "plain", render: "ssg", middleware: ["auth"] }),',
+        ),
+      "utf-8",
+    );
+    mkdirSync(resolve(exampleDir, "src/middleware"), { recursive: true });
+    writeFileSync(
+      resolve(exampleDir, "src/middleware/auth.ts"),
+      "export async function middleware(_args: unknown, next: () => Promise<Response>) {\n  return next();\n}\n",
+      "utf-8",
+    );
+    const dashboardPath = resolve(exampleDir, "src/routes/dashboard.tsx");
+    writeFileSync(
+      dashboardPath,
+      `export function loader() { return { widgets: [] }; }\n${readFileSync(dashboardPath, "utf-8")}`,
       "utf-8",
     );
     mkdirSync(resolve(exampleDir, "src/api"), { recursive: true });
@@ -343,21 +374,116 @@ test("static export build fails closed on SSR routes and API routes", async () =
       "utf-8",
     );
 
-    let failure: Error | undefined;
-    try {
-      buildExample(exampleDir);
-    } catch (error) {
-      failure = error as Error;
-    }
-
-    expect(failure).toBeDefined();
-    const output = String(
-      (failure as Error & { stderr?: Buffer }).stderr ?? (failure as Error).message,
-    );
+    const output = buildFailureOutput(exampleDir);
     expect(output).toContain("Static export (@pracht/adapter-static) cannot build this app");
     expect(output).toContain('/about (render: "ssr")');
+    expect(output).toContain("/dashboard");
+    expect(output).toContain("Static SPA routes must be loaderless");
+    expect(output).toContain("/plain");
+    expect(output).toContain("static host has no request runtime");
     expect(output).toContain("/api/health");
     expect(output).toContain("@pracht/adapter-node");
+  } finally {
+    rmSync(tempDir, { force: true, recursive: true });
+  }
+});
+
+for (const scenario of [
+  {
+    name: "redirecting SSG loader",
+    source:
+      'export function loader() { return new Response(null, { status: 302, headers: { location: "/new" } }); }\nexport function Component() { return <main>old</main>; }\n',
+    expected: "document request returned status 302 (redirect: /new)",
+  },
+  {
+    name: "throwing SSG loader",
+    source:
+      'export function loader() { throw new Error("build data unavailable"); }\nexport function Component() { return <main>broken</main>; }\nexport function ErrorBoundary() { return <main>caught</main>; }\n',
+    expected: "document request returned status 500",
+  },
+]) {
+  test(`static export build rejects a ${scenario.name}`, () => {
+    test.setTimeout(180_000);
+    const { exampleDir, tempDir } = createTempExampleDir(
+      staticFixtureDir,
+      "pracht-static-loader-failure-",
+    );
+
+    try {
+      writeFileSync(resolve(exampleDir, "src/routes/about.tsx"), scenario.source, "utf-8");
+      const output = buildFailureOutput(exampleDir);
+      expect(output).toContain(scenario.expected);
+    } finally {
+      rmSync(tempDir, { force: true, recursive: true });
+    }
+  });
+}
+
+test("static export build rejects dynamic SSG without getStaticPaths", () => {
+  test.setTimeout(180_000);
+  const { exampleDir, tempDir } = createTempExampleDir(
+    staticFixtureDir,
+    "pracht-static-missing-paths-",
+  );
+
+  try {
+    const postPath = resolve(exampleDir, "src/routes/post.tsx");
+    writeFileSync(
+      postPath,
+      readFileSync(postPath, "utf-8").replace(
+        /export function getStaticPaths\(\): RouteParams\[\] \{[\s\S]*?\n\}/,
+        "",
+      ),
+      "utf-8",
+    );
+    const output = buildFailureOutput(exampleDir);
+    expect(output).toContain('dynamic SSG route "/posts/:slug"');
+    expect(output).toContain("has no getStaticPaths() export");
+  } finally {
+    rmSync(tempDir, { force: true, recursive: true });
+  }
+});
+
+test("static export build fails closed when a registered capability throws on import", () => {
+  test.setTimeout(180_000);
+  const { exampleDir, tempDir } = createTempExampleDir(
+    staticFixtureDir,
+    "pracht-static-capability-import-",
+  );
+
+  try {
+    const routesPath = resolve(exampleDir, "src/routes.ts");
+    writeFileSync(
+      routesPath,
+      readFileSync(routesPath, "utf-8").replace(
+        "export const app = defineApp({",
+        'export const app = defineApp({\n  capabilities: { broken: () => import("./capabilities/broken.ts") },',
+      ),
+      "utf-8",
+    );
+    mkdirSync(resolve(exampleDir, "src/capabilities"), { recursive: true });
+    writeFileSync(
+      resolve(exampleDir, "src/capabilities/broken.ts"),
+      `function defineCapability<T>(definition: T): T { return definition; }
+const broken = defineCapability({
+  title: "Broken capability",
+  description: "Throws while its module is evaluated.",
+  input: { type: "object", properties: {}, additionalProperties: false },
+  output: { type: "object", properties: {} },
+  effect: "read",
+  expose: { http: true },
+  run() { return {}; },
+});
+throw new Error("capability import exploded");
+export default broken;
+`,
+      "utf-8",
+    );
+
+    const output = buildFailureOutput(exampleDir);
+    expect(output).toContain("broken");
+    expect(output).toContain("capability import exploded");
+    expect(output).toContain("cannot be validated safely");
   } finally {
     rmSync(tempDir, { force: true, recursive: true });
   }

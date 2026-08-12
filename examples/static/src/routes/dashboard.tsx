@@ -1,16 +1,12 @@
-import type { LoaderArgs, RouteComponentProps } from "@pracht/core";
+const WIDGETS = ["Deploys", "Traffic", "Errors"];
 
-export async function loader(_args: LoaderArgs) {
-  return { widgets: ["Deploys", "Traffic", "Errors"] };
-}
-
-export function Component({ data }: RouteComponentProps<typeof loader>) {
+export function Component() {
   return (
     <section id="dashboard">
       <h1>Dashboard</h1>
-      <p>Rendered entirely in the browser from build-time data.</p>
+      <p>Rendered entirely in the browser without a Pracht loader.</p>
       <ul>
-        {data.widgets.map((widget) => (
+        {WIDGETS.map((widget) => (
           <li key={widget}>{widget}</li>
         ))}
       </ul>
