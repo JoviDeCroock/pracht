@@ -248,12 +248,18 @@ npx netlify deploy --build --prod
 
 The build emits `netlify/functions/pracht.mjs`. Page requests go through that
 function so Markdown negotiation and route-state requests remain correct;
-hashed assets bypass it and stay outside the function bundle. Netlify durable
-caching implements time-based ISG and per-path cache tags implement
-authenticated webhook revalidation. `Netlify-Vary` owns route-state variants,
-while the standard `Vary: Accept` header owns Markdown negotiation. Shared ISG
-renders strip visitor-specific request data and Netlify context metadata before
-loaders or context factories run.
+hashed assets bypass it and stay outside the function bundle. The generated
+config enumerates only client files the function can serve and roots matching
+exclusions at the function file so Netlify's tracer cannot re-add bypassed
+trees. Netlify durable caching
+implements time-based ISG and per-path cache tags implement authenticated
+webhook revalidation. A trailing-slash ISG document request permanently
+redirects to the canonical slashless URL before rendering, and webhook
+revalidation normalizes either spelling before purging the cache tag.
+`Netlify-Vary` owns route-state variants, while the standard `Vary: Accept`
+header owns Markdown negotiation. Shared ISG renders strip visitor-specific
+request data and Netlify context metadata before loaders or context factories
+run.
 
 `pracht preview` exits with guidance because it cannot emulate Netlify's
 Functions and CDN behavior. Build the generated function before using

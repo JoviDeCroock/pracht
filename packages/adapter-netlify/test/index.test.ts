@@ -15,6 +15,7 @@ import {
 import {
   createNetlifyHandler,
   createNetlifyServerEntryModule,
+  finalizeNetlifyBuild,
   netlifyAdapter,
   netlifyRouteCacheTag,
   resolveNetlifyStaticDir,
@@ -50,16 +51,30 @@ describe("createNetlifyServerEntryModule", () => {
     expect(source).not.toContain('from "@netlify/functions"');
     expect(source).toContain('"staleWhileRevalidate":60');
     expect(source).toContain("islandsBootstrapRequired");
+    expect(source).toContain("finalizePrachtBuild");
   });
 });
 
 describe("netlifyAdapter", () => {
   it("emits a catch-all Functions v2 wrapper with asset exclusions", async () => {
     const root = await tempDir();
-    const adapter = netlifyAdapter({
-      excludedPath: ["/content/*"],
+    await mkdir(join(root, "dist/client/assets"), { recursive: true });
+    await mkdir(join(root, "dist/client/_pracht"), { recursive: true });
+    await mkdir(join(root, "dist/client/content"), { recursive: true });
+    await mkdir(join(root, "dist/client/docs"), { recursive: true });
+    await mkdir(join(root, "dist/client/exact/child"), { recursive: true });
+    await writeFile(join(root, "dist/client/assets/app.js"), "asset");
+    await writeFile(join(root, "dist/client/_pracht/headers.json"), "{}");
+    await writeFile(join(root, "dist/client/content/manual.pdf"), "content");
+    await writeFile(join(root, "dist/client/docs/index.html"), "docs");
+    await writeFile(join(root, "dist/client/exact/index.html"), "exact");
+    await writeFile(join(root, "dist/client/exact/child/index.html"), "child");
+    await writeFile(join(root, "dist/client/robots.txt"), "User-agent: *");
+    const options = {
+      excludedPath: ["/content/*", "/exact"],
       functionName: "site",
-    });
+    };
+    const adapter = netlifyAdapter(options);
     const plugin = adapter.vitePlugins?.()[0];
     expect(plugin).toBeDefined();
 
@@ -76,14 +91,34 @@ describe("netlifyAdapter", () => {
     if (typeof closeBundle !== "function") throw new Error("missing closeBundle hook");
     await closeBundle.call({} as never);
 
-    const source = await readFile(join(root, "netlify/functions/site.mjs"), "utf-8");
+    let source = await readFile(join(root, "netlify/functions/site.mjs"), "utf-8");
     expect(source).toContain('"path": "/*"');
     expect(source).toContain('"/assets/*"');
     expect(source).toContain('"/content/*"');
-    expect(source).toContain('"dist/client/**"');
-    expect(source).toContain('"!dist/client/assets/**"');
-    expect(source).toContain('"!dist/client/_pracht/**"');
-    expect(source).toContain('"!dist/client/content/**"');
+    expect(source).toContain('"../../dist/client/**"');
+    expect(source).toContain('"!../../dist/client/assets/**"');
+    expect(source).toContain('"!../../dist/client/_pracht/**"');
+    expect(source).toContain('"!../../dist/client/content/**"');
+    expect(source).not.toContain('"!../../dist/client/exact/index.html"');
+    expect(source).not.toContain('"!../../dist/client/exact/**"');
+    expect(source).toContain('import handler from "../../dist/server/server.js"');
+
+    await finalizeNetlifyBuild(root, options);
+    source = await readFile(join(root, "netlify/functions/site.mjs"), "utf-8");
+    expect(source).toContain('"../../dist/client/_headers"');
+    expect(source).toContain('"../../dist/client/docs/index.html"');
+    expect(source).toContain('"../../dist/client/robots.txt"');
+    expect(source).not.toContain('"../../dist/client/**"');
+    expect(source).toContain('"!../../dist/client/assets/**"');
+    expect(source).toContain('"!../../dist/client/_pracht/**"');
+    expect(source).toContain('"!../../dist/client/content/**"');
+    expect(source).not.toContain("dist/client/assets/app.js");
+    expect(source).not.toContain("dist/client/_pracht/headers.json");
+    expect(source).not.toContain("dist/client/content/manual.pdf");
+    // URLPattern `/exact` does not exclude `/exact/` or
+    // `/exact/index.html`, so those requests can still reach the function.
+    expect(source).toContain('"../../dist/client/exact/index.html"');
+    expect(source).toContain('"../../dist/client/exact/child/index.html"');
     expect(source).toContain('import handler from "../../dist/server/server.js"');
 
     // Excluded paths bypass the function, so the static layer needs the
@@ -313,6 +348,16 @@ describe("createNetlifyHandler", () => {
     expect(response.headers.get("netlify-vary")).toBe(
       "query=_data,header=x-pracht-route-state-request",
     );
+
+    const trailingSlash = await handler(
+      new Request("https://example.com/pricing/?visitor=2", {
+        headers: { cookie: "session=another-visitor" },
+      }),
+      {},
+    );
+    expect(trailingSlash.status).toBe(308);
+    expect(trailingSlash.headers.get("location")).toBe("/pricing?visitor=2");
+    expect(seenPricingRequests).toHaveLength(1);
   });
 
   it("keeps cached ISG HTML apart from route-state and Markdown variants", async () => {
@@ -640,6 +685,42 @@ describe("createNetlifyHandler", () => {
     await expect(response.json()).resolves.toMatchObject({
       failed: [],
       revalidated: ["/pricing"],
+      skipped: [],
+    });
+    expect(purgeCache).toHaveBeenCalledWith({
+      tags: [netlifyRouteCacheTag("/pricing")],
+    });
+  });
+
+  it("normalizes trailing-slash paths before purging tagged ISG responses", async () => {
+    process.env.PRACHT_REVALIDATE_TOKEN = "secret";
+    const purgeCache = vi.fn(async () => undefined);
+    const handler = createNetlifyHandler({
+      app,
+      isgManifest: {
+        "/pricing": {
+          revalidate: [timeRevalidate(60), webhookRevalidate()],
+        },
+      },
+      purgeCache,
+      registry,
+    });
+    const response = await handler(
+      new Request("https://example.com/__pracht/revalidate", {
+        body: JSON.stringify({ paths: ["/pricing/"] }),
+        headers: {
+          authorization: "Bearer secret",
+          "content-type": "application/json",
+        },
+        method: "POST",
+      }),
+      {},
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      failed: [],
+      revalidated: ["/pricing/"],
       skipped: [],
     });
     expect(purgeCache).toHaveBeenCalledWith({

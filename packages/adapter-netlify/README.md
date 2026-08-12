@@ -24,8 +24,9 @@ export default defineConfig({
 ```
 
 The build emits `netlify/functions/pracht.mjs`. Its Functions v2 `config`
-claims page URLs, excludes Pracht's asset directories, and bundles
-`dist/client` plus the generated headers, Markdown, and ISG manifests.
+claims page URLs, excludes Pracht's asset directories, and bundles the exact
+`dist/client` files the function can serve plus the generated headers,
+Markdown, and ISG manifests.
 
 Set Netlify's publish directory to `dist/client`:
 
@@ -58,7 +59,9 @@ netlifyAdapter({ excludedPath: ["/content/*", "/images/*"] });
 Exact static files not excluded from the function are still served correctly;
 the exclusion only avoids a function invocation. Prefix-shaped exclusions are
 also omitted from the generated function bundle, so large static asset trees do
-not count against Netlify's function size limit.
+not count against Netlify's function size limit. Exact exclusions omit only the
+matching file; an `index.html` representation stays bundled because the
+corresponding trailing-slash URL can still invoke the function.
 
 ## Context
 
@@ -79,7 +82,10 @@ metadata.
   explicit route cache policy remains authoritative.
 - Time-revalidated ISG routes use their Pracht revalidation interval as the
   Netlify CDN `max-age`, with stale-while-revalidate enabled. Cacheable custom
-  policies remain authoritative.
+  policies remain authoritative. A document request with one trailing slash
+  permanently redirects to the canonical slashless URL before rendering, so
+  only one URI enters the durable cache. Webhook revalidation normalizes the
+  same path before purging its cache tag.
 - Cached SSG and ISG HTML uses `Netlify-Vary:
   query=_data,header=x-pracht-route-state-request`, so both route-state
   transports keep their own cache variant while unrelated query parameters

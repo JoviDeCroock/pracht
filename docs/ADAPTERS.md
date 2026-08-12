@@ -740,7 +740,12 @@ assets. Add application-specific static prefixes with
 `netlifyAdapter({ excludedPath: ["/images/*"] })`; do not exclude page URLs.
 Default and prefix-shaped exclusions are also omitted from the generated
 function bundle, so large static asset trees do not count against Netlify's
-function size limit.
+function size limit. The generated config enumerates each remaining client file
+and writes exclusions relative to the generated function file, so Netlify's
+Functions v2 file tracer cannot pull bypassed trees back into the bundle.
+An exact exclusion such as `/feed.xml` omits only that exact file; unlike a
+prefix exclusion, it does not also exclude `/feed.xml/` or an `index.html`
+representation that those URLs can still invoke the function to read.
 
 ### SSG and ISG
 
@@ -758,7 +763,11 @@ function size limit.
   ISG routes get no build-time snapshot on Netlify — the handler always renders
   them through the durable cache, so a snapshot would only be reachable at its
   literal `/index.html` URL where it would never revalidate. The first request
-  after a deploy renders cold. Because sanitization also strips
+  after a deploy renders cold. A document request with one trailing slash gets
+  a permanent redirect to the slashless manifest path before Pracht renders,
+  so only the canonical URL enters the durable cache. Webhook revalidation
+  accepts either spelling and purges the canonical cache tag. Because
+  sanitization also strips
   `Accept-Language` and masks geolocation, an ISG route whose middleware or
   loader picks a locale from the request will cache its default-locale output
   for every visitor globally — localized ISG pages need the locale in the path
@@ -778,7 +787,11 @@ function size limit.
   headers the function applies everywhere else. A hand-authored
   `public/_headers` wins — pracht then skips generating one and warns.
   Default and prefix-shaped exclusions are also omitted from the function's
-  `includedFiles`, keeping large bypassed asset trees outside its bundle.
+  `includedFiles`, keeping large bypassed asset trees outside its bundle. The
+  generated config lists each remaining client file explicitly because the
+  production Functions v2 tracer follows the server's filesystem access. Its
+  matching exclusions are rooted relative to the generated function file so
+  traced bypassed trees are removed too.
   `excludedPath` entries are validated against whitespace/control characters so
   they cannot inject rules into that plain-text file.
 - Cacheable webhook-capable ISG responses carry per-path

@@ -372,7 +372,13 @@ route-state requests still reach Pracht. `/assets/*` and `/_pracht/*` bypass
 the function by default. Add app-specific static prefixes with
 `excludedPath`, but do not exclude page URLs. Default and prefix-shaped
 exclusions are also omitted from the generated function bundle, so large static
-asset trees do not count against Netlify's function size limit.
+asset trees do not count against Netlify's function size limit. The generated
+config enumerates the remaining client files and roots matching exclusions at
+the function file so the Functions v2 tracer cannot pull bypassed trees back
+into the bundle.
+An exact exclusion omits only the matching file; it does not omit an
+`index.html` representation for a trailing-slash URL that can still invoke the
+function.
 
 ### Caching and revalidation
 
@@ -382,6 +388,10 @@ while a fresh render completes. Webhook-capable routes receive per-path cache
 tags, including when they provide a cacheable custom policy; authenticated
 requests to `/__pracht/revalidate` purge those tags. Explicit SSG and ISG cache
 policies remain authoritative.
+A document request with one trailing slash permanently redirects to the
+slashless ISG URL before rendering, so only the canonical URL enters the
+durable cache. Webhook revalidation accepts either spelling and purges the
+canonical cache tag.
 
 SSR and API responses that declare `Cache-Control: public` are promoted into
 the durable cache with the same route-state `Netlify-Vary` protection.
@@ -402,7 +412,8 @@ Because `/assets/*` and other excluded prefixes bypass the function, the build
 also emits `dist/client/_headers` with the immutable asset cache policy and
 pracht's default security headers for Netlify's static layer. A hand-authored
 `public/_headers` file wins; pracht skips generating one and warns. Default and
-prefix-shaped exclusions are also omitted from the function's `includedFiles`.
+prefix-shaped exclusions are also omitted from the function's `includedFiles`;
+the remaining client files are listed explicitly.
 
 Shared ISG renders sanitize both the request and Netlify context before loaders
 and context factories run. Visitor cookies, authorization, query strings,

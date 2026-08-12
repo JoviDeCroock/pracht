@@ -47,9 +47,14 @@ test("pracht build emits a working Netlify Functions v2 entry", async () => {
     expect(source).toContain('"excludedPath"');
     expect(source).toContain('"/assets/*"');
     expect(source).toContain('"includedFiles"');
-    expect(source).toContain('"dist/client/**"');
-    expect(source).toContain('"!dist/client/assets/**"');
-    expect(source).toContain('"!dist/client/_pracht/**"');
+    expect(source).toContain('"../../dist/client/index.html"');
+    expect(source).toContain('"../../dist/client/docs/index.html"');
+    expect(source).toContain('"../../dist/client/robots.txt"');
+    expect(source).not.toContain('"../../dist/client/**"');
+    expect(source).toContain('"!../../dist/client/assets/**"');
+    expect(source).toContain('"!../../dist/client/_pracht/**"');
+    expect(source).not.toMatch(/"\.\.\/\.\.\/dist\/client\/assets\//);
+    expect(source).not.toMatch(/"\.\.\/\.\.\/dist\/client\/_pracht\//);
     expect(source).toContain('"nodeBundler": "esbuild"');
     expect(readFileSync(serverEntryPath, "utf-8")).toContain('buildTarget = "netlify"');
 
@@ -97,6 +102,13 @@ test("pracht build emits a working Netlify Functions v2 entry", async () => {
       expect(isg.headers.get("netlify-vary")).toBe(
         "query=_data,header=x-pracht-route-state-request",
       );
+
+      const trailingSlashIsg = await handler(
+        new Request("https://example.com/pricing/?visitor=2"),
+        context,
+      );
+      expect(trailingSlashIsg.status).toBe(308);
+      expect(trailingSlashIsg.headers.get("location")).toBe("/pricing?visitor=2");
 
       // Client navigations fetch route state with a request header on the page
       // URL; the response must be JSON and must never enter the durable cache.

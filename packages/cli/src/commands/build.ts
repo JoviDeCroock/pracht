@@ -386,6 +386,10 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
       log(`\n  Vercel build output → ${outputPath}\n`);
     }
 
+    if (typeof serverMod.finalizePrachtBuild === "function") {
+      await serverMod.finalizePrachtBuild({ clientDir, root });
+    }
+
     const budgets = (serverMod.budgets ?? {}) as Record<string, string | number>;
     const hasBudgets = Object.keys(budgets).length > 0;
 

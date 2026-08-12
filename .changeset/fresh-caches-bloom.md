@@ -16,9 +16,13 @@ Cached page documents carry `Netlify-Vary` entries for both route-state
 transports, while Markdown negotiation remains in the standard `Vary: Accept`
 header because `Accept` is not a valid `Netlify-Vary` directive. The build emits
 a `dist/client/_headers` file so excluded static paths keep the immutable asset
-policy and default security headers, and omits default and prefix-shaped
-exclusions from the function bundle so large static trees do not count against
-Netlify's function size limit.
+policy and default security headers, and enumerates only non-excluded client
+files in the function bundle so large static trees do not count against
+Netlify's function size limit. Matching exclusions are rooted relative to the
+generated function file so the Functions v2 tracer cannot add bypassed trees
+back to the archive. Trailing-slash ISG document requests permanently redirect
+to the canonical slashless URL before rendering, and webhook revalidation
+normalizes the same path before looking up and purging its cache tag.
 Promotion of explicit `Cache-Control: public` SSR/API policies into the durable
 cache fails closed: responses to route-state-shaped requests and responses that
 carry `Set-Cookie` or `Vary: Cookie`/`Authorization` are stamped
