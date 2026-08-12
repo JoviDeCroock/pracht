@@ -320,6 +320,13 @@ test("static export serves a full app from a dumb static host with zero server",
     await page.goto(`${fallbackOrigin}/totally/unknown`);
     await expect(page.locator("#not-found h1")).toContainText("404");
     await expect(page.locator("#requested-path")).toHaveText("/totally/unknown");
+
+    // A dynamic SSG pattern can match a path getStaticPaths() did not emit.
+    // The generic fallback must not render that route without its missing
+    // build-time loader state; it remains a not-found path.
+    await page.goto(`${fallbackOrigin}/posts/not-generated`);
+    await expect(page.locator("#not-found h1")).toContainText("404");
+    await expect(page.locator("#requested-path")).toHaveText("/posts/not-generated");
   } finally {
     await stopServer(server);
     await stopServer(fallbackServer);

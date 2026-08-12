@@ -593,6 +593,8 @@ Client-side navigation normally fetches route-state JSON from the server. A stat
 
 The app's `notFound` page is rendered to `404.html` (the GitHub Pages / S3 convention); the hydrated page adopts the URL actually visited. With `fallback: "200.html"` plus a host rewrite for unmatched URLs, deep links into dynamic `render: "spa"` routes boot the client router and resolve the route from `window.location`.
 
+The fallback only client-renders matched SPA routes. A path that matches a dynamic SSG pattern but was not emitted by `getStaticPaths()` renders the app's `notFound` page instead of running without its missing build-time state.
+
 ### Build, preview, deploy
 
 ```sh
