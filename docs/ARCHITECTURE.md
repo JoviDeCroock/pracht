@@ -518,6 +518,7 @@ runtime-capabilities.ts — HTTP transport
 runtime-request-provenance.ts — browser provenance and exact-origin request policy
 runtime-api.ts — explicit API matching, middleware, invocation, and error normalization
 api-routes.ts — file-path discovery, route specificity ordering, and API path matching
+app-agent-validation.ts — fail-closed agent policy and trust-setting validation
 runtime-agent-surface.ts — lazy agent runtimes, signature binding, and invocation host setup
 runtime-agent-projection.ts — MCP and capability HTTP selection and fail-closed routing
 runtime-page-render.ts — Markdown, SPA, hydrated, islands, and zero-JavaScript representations

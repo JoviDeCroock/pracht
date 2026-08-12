@@ -16,9 +16,8 @@ import type {
   WebhookRevalidatePolicy,
   PrachtApp,
   PrachtAppConfig,
-  PrachtAgentsConfig,
 } from "./types.ts";
-import { isValidCapabilityHttpPath } from "@pracht/capabilities";
+import { validateAgentsConfig } from "./app-agent-validation.ts";
 import { formatUnknownNameError } from "./name-suggestions.ts";
 import { NOT_FOUND_ROUTE_ID, NOT_FOUND_ROUTE_PATH } from "./runtime-constants.ts";
 import { matchResolvedRoute, normalizeRoutePath, parseRouteSegments } from "./route-matching.ts";
@@ -458,56 +457,6 @@ function assertKnownMetaKeys(meta: object, allowed: string[], context: string): 
         registered: allowed,
         context,
       }),
-    );
-  }
-}
-
-const AGENT_POLICY_MODES = ["observe", "require"];
-const CONFIRMATION_MODES = ["token", "human"];
-
-/**
- * Validate `defineApp({ agents })`. The security-relevant setting — the Web
- * Bot Auth `policy` — is compared with `=== "require"` at dispatch, so a typo
- * (`"requre"`) would silently fail open. Reject unknown policies and
- * non-positive numeric trust settings so the manifest fails closed instead.
- */
-function validateAgentsConfig(agents: PrachtAgentsConfig | undefined): void {
-  if (!agents) return;
-  const { webBotAuth, confirmation, mcp } = agents;
-  if (webBotAuth) {
-    if (webBotAuth.policy !== undefined && !AGENT_POLICY_MODES.includes(webBotAuth.policy)) {
-      throw new Error(
-        `defineApp({ agents.webBotAuth.policy }) must be one of ${AGENT_POLICY_MODES.map((mode) => `"${mode}"`).join(", ")}, got ${JSON.stringify(webBotAuth.policy)}.`,
-      );
-    }
-    for (const key of [
-      "clockSkewSeconds",
-      "maxLifetimeSeconds",
-      "directoryCacheTtlSeconds",
-    ] as const) {
-      assertPositiveNumber(webBotAuth[key], `agents.webBotAuth.${key}`);
-    }
-  }
-  if (confirmation) {
-    if (confirmation.mode !== undefined && !CONFIRMATION_MODES.includes(confirmation.mode)) {
-      throw new Error(
-        `defineApp({ agents.confirmation.mode }) must be one of ${CONFIRMATION_MODES.map((mode) => `"${mode}"`).join(", ")}, got ${JSON.stringify(confirmation.mode)}.`,
-      );
-    }
-    assertPositiveNumber(confirmation.ttlSeconds, "agents.confirmation.ttlSeconds");
-  }
-  if (mcp?.path !== undefined && !isValidCapabilityHttpPath(mcp.path)) {
-    throw new Error(
-      'defineApp({ agents.mcp.path }) must be an exact same-origin pathname starting with "/".',
-    );
-  }
-}
-
-function assertPositiveNumber(value: number | undefined, label: string): void {
-  if (value === undefined) return;
-  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
-    throw new Error(
-      `defineApp({ ${label} }) must be a positive number, got ${JSON.stringify(value)}.`,
     );
   }
 }
