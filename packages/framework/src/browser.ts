@@ -78,6 +78,20 @@ export type { PrachtPublicEnv, PrachtServerEnv, PublicEnvOf } from "./env.ts";
 // `callCapability` to produce `useCapability`. It must be reachable from the
 // browser entry — that is the one the client build resolves `@pracht/core` to.
 export { createUseCapability, type CapabilityHookResult } from "./capability-hook.ts";
+export {
+  createEventStream,
+  serializeEventStreamMessage,
+  type EventStream,
+  type EventStreamInit,
+  type EventStreamMessage,
+} from "./event-stream.ts";
+export { isUpgradeRequest } from "./upgrade.ts";
+export {
+  useEventSource,
+  type EventSourceState,
+  type EventSourceStatus,
+  type UseEventSourceOptions,
+} from "./event-source-hook.ts";
 export { forwardRef } from "./forwardRef.ts";
 export { useIsHydrated } from "./hydration.ts";
 export { Suspense, lazy } from "preact-suspense";

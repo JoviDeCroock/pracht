@@ -506,10 +506,33 @@ skipping the header and cache post-processing every other response goes through.
 Response constructor rejects any status below 200 outright. A copied handshake
 is not a degraded handshake; it is a socket nobody holds.
 
+Handlers can use `isUpgradeRequest(request)` from `@pracht/core/server` to
+answer plain HTTP requests to the socket path with `426 Upgrade Required`
+instead of a broken handshake.
+
 The Node and Vercel adapters cannot serve upgrades at all. On Node this is
 structural: `http.Server` delivers upgrades to its `upgrade` event rather than
 to the request handler, so they never reach pracht. See
-[ADAPTERS.md](./ADAPTERS.md#websockets) for the `ws`-alongside-pracht pattern.
+[ADAPTERS.md](./ADAPTERS.md#websockets) for the `ws`-alongside-pracht pattern
+(the Node adapter's `configureServerFrom` entry option).
+
+---
+
+## Server-Sent Events
+
+An SSE response is not a protocol switch — it is an ordinary `200` streaming
+response, so it flows through the standard pipeline on **every** adapter (the
+Node handler pipes the body, workerd and Vercel stream it natively) and keeps
+the default security headers. `createEventStream(request)` from
+`@pracht/core/server` produces the response plus a `send`/`close` pair, stamps
+`Cache-Control: no-store, no-transform` (which also keeps
+`preventHeuristicCaching` off its back and tells transforming proxies to leave
+the framing alone), and wires disconnect cleanup to both signals a runtime can
+deliver: `request.signal` aborting and the body stream being cancelled. In dev,
+the SSR middleware detects `text/event-stream` and pipes instead of buffering —
+buffering would never terminate. The client half is the `useEventSource()`
+hook. End-to-end example: `examples/basic` (`/live` + `src/api/live.ts`);
+recipe: `examples/docs/src/routes/docs/recipes-streaming.md`.
 
 ---
 

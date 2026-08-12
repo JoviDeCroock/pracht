@@ -25,6 +25,7 @@ import {
   IconSparkles,
   IconPresentationAnalytics,
   IconActivity,
+  IconBroadcast,
   IconShieldCheck,
   IconWorldBolt,
   IconPhoto,
@@ -93,6 +94,7 @@ const NAV = [
       { href: "/docs/recipes/view-transitions", Icon: IconSparkles, title: "View Transitions" },
       { href: "/docs/recipes/testing", Icon: IconTestPipe, title: "Testing" },
       { href: "/docs/recipes/logging", Icon: IconActivity, title: "Logging" },
+      { href: "/docs/recipes/streaming", Icon: IconBroadcast, title: "Streaming" },
       {
         href: "/docs/recipes/fullstack-cloudflare",
         Icon: IconCloud,

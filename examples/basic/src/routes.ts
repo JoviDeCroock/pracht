@@ -82,6 +82,10 @@ export const app = defineApp({
         id: "gallery",
         render: "ssr",
       }),
+      route("/live", () => import("./routes/live.tsx"), {
+        id: "live",
+        render: "ssr",
+      }),
     ]),
     group({ shell: "app", middleware: ["auth"] }, [
       route("/dashboard", () => import("./routes/dashboard.tsx"), {

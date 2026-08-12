@@ -161,6 +161,16 @@ export function GET({ params, url }: ApiRouteArgs) {
 - Use `request.json()`, `request.formData()`, etc. for body parsing.
 - Always return `Response` objects (typically `Response.json()`).
 - Dynamic segments use bracket syntax in filenames: `[id].ts`, `[...slug].ts`.
+- For live server→client updates, use Server-Sent Events:
+  `createEventStream(request, { keepAlive: 15 })` from `@pracht/core/server`
+  returns `{ response, send, close }` — return `response`, push with
+  `send({ data, event?, id? })`, and stop producing when `send()` returns
+  `false` (client disconnected). Consume in components with
+  `useEventSource(url, { json: true })` from `@pracht/core`. Works on all
+  adapters. For WebSockets use `isUpgradeRequest(request)` plus the
+  per-adapter recipes in `docs/ADAPTERS.md` (Cloudflare: API route + Durable
+  Object; Node: `nodeAdapter({ configureServerFrom })`; Vercel: unsupported —
+  use SSE).
 
 ## Wiring Into the Manifest (manual fallback only)
 

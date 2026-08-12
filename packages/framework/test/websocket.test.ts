@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { defineApp, handlePrachtRequest, resolveApiRoutes, route } from "../src/index.ts";
+import { isUpgradeRequest } from "../src/upgrade.ts";
 import {
   isProtocolSwitchResponse,
   withDefaultSecurityHeaders,
@@ -22,6 +23,36 @@ function createUpgradeResponse(): Response & { webSocket: unknown } {
 }
 
 const routeStateOptions = { isRouteStateRequest: false };
+
+describe("isUpgradeRequest", () => {
+  it("matches a WebSocket handshake", () => {
+    const request = new Request("http://localhost/api/ws", {
+      headers: { connection: "Upgrade", upgrade: "websocket" },
+    });
+    expect(isUpgradeRequest(request)).toBe(true);
+  });
+
+  it("matches case-insensitively and inside a protocol list", () => {
+    expect(
+      isUpgradeRequest(new Request("http://localhost/", { headers: { upgrade: "WebSocket" } })),
+    ).toBe(true);
+    expect(
+      isUpgradeRequest(
+        new Request("http://localhost/", { headers: { upgrade: "h2c, websocket" } }),
+      ),
+    ).toBe(true);
+  });
+
+  it("rejects plain requests and non-websocket upgrades", () => {
+    expect(isUpgradeRequest(new Request("http://localhost/"))).toBe(false);
+    expect(
+      isUpgradeRequest(new Request("http://localhost/", { headers: { upgrade: "h2c" } })),
+    ).toBe(false);
+    expect(
+      isUpgradeRequest(new Request("http://localhost/", { headers: { upgrade: "websocket2" } })),
+    ).toBe(false);
+  });
+});
 
 describe("isProtocolSwitchResponse", () => {
   it("detects a 101 handshake", () => {

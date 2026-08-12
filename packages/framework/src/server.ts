@@ -102,6 +102,14 @@ export {
   routeSupportsMarkdown,
 } from "./runtime-negotiation.ts";
 export type { MarkdownManifest } from "./runtime-negotiation.ts";
+export {
+  createEventStream,
+  serializeEventStreamMessage,
+  type EventStream,
+  type EventStreamInit,
+  type EventStreamMessage,
+} from "./event-stream.ts";
+export { isUpgradeRequest } from "./upgrade.ts";
 export { resolveRegistryModule } from "./runtime-manifest.ts";
 export { createCapabilityTestHost } from "./testing-capabilities.ts";
 export type {

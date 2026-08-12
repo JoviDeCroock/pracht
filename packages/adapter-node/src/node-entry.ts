@@ -7,6 +7,17 @@ export interface NodeServerEntryModuleOptions {
   createContextFrom?: string;
   /** Maximum request body size in bytes. Defaults to 1 MiB. */
   maxBodySize?: number;
+  /**
+   * Vite-resolvable module path exporting `configureServer(server)`. The
+   * generated entry calls it (and awaits it) with the underlying `node:http`
+   * server after `createServer()` and before `listen()`, when the entry is
+   * run as the process entrypoint. This is the hook for everything pracht's
+   * request handler cannot see — chiefly attaching a WebSocket server to the
+   * `upgrade` event, which Node routes past the request handler entirely.
+   * See docs/ADAPTERS.md § WebSockets for the full recipe including the
+   * Origin check.
+   */
+  configureServerFrom?: string;
 }
 
 export function createNodeServerEntryModule(options: NodeServerEntryModuleOptions = {}): string {
@@ -15,6 +26,9 @@ export function createNodeServerEntryModule(options: NodeServerEntryModuleOption
   const contextImport = options.createContextFrom
     ? `import { createContext as createPrachtContext } from ${JSON.stringify(options.createContextFrom)};`
     : "const createPrachtContext = undefined;";
+  const configureServerImport = options.configureServerFrom
+    ? `import { configureServer as configurePrachtServer } from ${JSON.stringify(options.configureServerFrom)};`
+    : "const configurePrachtServer = undefined;";
 
   return [
     'import { existsSync, readFileSync } from "node:fs";',
@@ -23,6 +37,7 @@ export function createNodeServerEntryModule(options: NodeServerEntryModuleOption
     'import { fileURLToPath, pathToFileURL } from "node:url";',
     'import { createNodeRequestHandler } from "@pracht/adapter-node";',
     contextImport,
+    configureServerImport,
     "",
     "const serverDir = dirname(fileURLToPath(import.meta.url));",
     'const staticDir = resolve(serverDir, "../client");',
@@ -60,6 +75,7 @@ export function createNodeServerEntryModule(options: NodeServerEntryModuleOption
     "const entryHref = process.argv[1] ? pathToFileURL(process.argv[1]).href : null;",
     "if (entryHref && import.meta.url === entryHref) {",
     "  const server = createServer(handler);",
+    "  if (configurePrachtServer) await configurePrachtServer(server);",
     `  const port = Number(process.env.PORT ?? ${port});`,
     "  server.listen(port, () => {",
     "    console.log(`pracht node server listening on http://localhost:${port}`);",

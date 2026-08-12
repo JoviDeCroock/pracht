@@ -91,6 +91,25 @@ describe("createNodeServerEntryModule", () => {
     expect(source).toContain("islandsEntryUrl: islandsEntryUrl ?? undefined");
     expect(source).toContain("islandsBootstrapRequired");
   });
+
+  it("imports and awaits a configureServer module before listen()", () => {
+    const source = createNodeServerEntryModule({
+      configureServerFrom: "/src/server/websockets.ts",
+    });
+
+    expect(source).toContain(
+      'import { configureServer as configurePrachtServer } from "/src/server/websockets.ts";',
+    );
+    const configureIndex = source.indexOf("await configurePrachtServer(server)");
+    const listenIndex = source.indexOf("server.listen(");
+    expect(configureIndex).toBeGreaterThan(-1);
+    expect(listenIndex).toBeGreaterThan(configureIndex);
+  });
+
+  it("stubs configureServer out when the option is not set", () => {
+    const source = createNodeServerEntryModule();
+    expect(source).toContain("const configurePrachtServer = undefined;");
+  });
 });
 
 describe("createNodeRequestHandler", () => {

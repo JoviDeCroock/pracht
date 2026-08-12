@@ -167,45 +167,73 @@ its `upgrade` event, not to the request handler, so a handshake never reaches
 `handler(req, res)` at all. (With no `upgrade` listener attached, Node closes
 those connections.)
 
-Attach a WebSocket server to the same HTTP server instead. The generated entry
-only calls `createServer()` when it is the process entrypoint, so importing
-`handler` and building the server yourself is supported:
+Attach a WebSocket server to the same HTTP server instead. The
+`configureServerFrom` entry option is the supported hook: it names a module
+whose `configureServer(server)` export the generated entry calls (and awaits)
+with the underlying `http.Server` after `createServer()` and before
+`listen()`:
 
-```javascript
-import { createServer } from "node:http";
-import { WebSocketServer } from "ws";
-import { handler } from "./dist/server/server.js";
-
-const server = createServer(handler); // pracht serves ordinary requests
-const wss = new WebSocketServer({ noServer: true });
-
-server.on("upgrade", (req, socket, head) => {
-  // Check the Origin header yourself here: browsers do not apply CORS to
-  // WebSocket, so a cross-site page can otherwise open an authenticated
-  // socket (cross-site WebSocket hijacking). Pracht's own
-  // `api.requireSameOrigin` check cannot help — this never reaches pracht.
-  wss.handleUpgrade(req, socket, head, (ws) => wss.emit("connection", ws, req));
-});
-
-server.listen(3000);
+```typescript
+// vite.config.ts
+nodeAdapter({ configureServerFrom: "/src/server/websockets.ts" });
 ```
+
+```typescript
+// src/server/websockets.ts
+import type { Server } from "node:http";
+import { WebSocketServer } from "ws";
+
+export function configureServer(server: Server) {
+  const wss = new WebSocketServer({ noServer: true });
+
+  server.on("upgrade", (req, socket, head) => {
+    // Check the Origin header yourself here: browsers do not apply CORS to
+    // WebSocket, so a cross-site page can otherwise open an authenticated
+    // socket (cross-site WebSocket hijacking). Pracht's own
+    // `api.requireSameOrigin` check cannot help — this never reaches pracht.
+    if (req.headers.origin !== process.env.PRACHT_ORIGIN) {
+      socket.destroy();
+      return;
+    }
+    wss.handleUpgrade(req, socket, head, (ws) => wss.emit("connection", ws, req));
+  });
+
+  wss.on("connection", (ws) => {
+    ws.on("message", (message) => ws.send(String(message)));
+  });
+}
+```
+
+The generated entry only calls `createServer()` when it is the process
+entrypoint, so importing `handler` and building the server yourself remains
+supported — attach the same `upgrade` listener to your own
+`createServer(handler)` in that case.
 
 For upgrades served *through* pracht's routing (as an API route), use the
 [Cloudflare adapter](#websockets-1). The Vercel adapter cannot serve them
-either.
+either. For server→client streaming that works on every adapter — including
+this one — use Server-Sent Events via `createEventStream()` from
+`@pracht/core/server` (see the Streaming recipe in the docs app,
+`examples/docs/src/routes/docs/recipes-streaming.md`): an SSE response is an
+ordinary streaming `Response`, which the Node handler pipes without any of
+the upgrade machinery.
 
 ### Generated entry options
 
-When using `nodeAdapter()` in `vite.config.ts`, generated entries can import a context factory and tune body limits:
+When using `nodeAdapter()` in `vite.config.ts`, generated entries can import a context factory, tune body limits, and hook the underlying HTTP server:
 
 ```typescript
 nodeAdapter({
   createContextFrom: "/src/server/context.ts",
   maxBodySize: 10 * 1024 * 1024,
+  configureServerFrom: "/src/server/websockets.ts",
 });
 ```
 
 The context module must export `createContext(args)`. Node passes `{ request, req, res }`.
+The configure module must export `configureServer(server)` (sync or async); it
+runs with the `node:http` server before `listen()` when the generated entry is
+the process entrypoint — see [WebSockets](#websockets) above.
 
 ### Entry module
 
@@ -565,9 +593,10 @@ and have the API route forward the upgrade to it:
 ```typescript
 // src/api/ws.ts
 import type { BaseRouteArgs } from "@pracht/core";
+import { isUpgradeRequest } from "@pracht/core/server";
 
 export async function GET({ context, request, url }: BaseRouteArgs) {
-  if (request.headers.get("upgrade") !== "websocket") {
+  if (!isUpgradeRequest(request)) {
     return new Response("Expected a WebSocket upgrade", { status: 426 });
   }
 

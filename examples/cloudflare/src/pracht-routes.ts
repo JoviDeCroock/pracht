@@ -24,6 +24,14 @@ export const routes = [
     path: "/long",
   },
   {
+    id: "fragment",
+    path: "/fragment",
+  },
+  {
+    id: "live",
+    path: "/live",
+  },
+  {
     id: "dashboard",
     path: "/dashboard",
   },
