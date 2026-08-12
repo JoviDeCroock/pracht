@@ -88,8 +88,9 @@ described in `VISION_MVP.md`.
   files, and `pracht doctor` validates app wiring across the whole project.
 - **Starter CLI** — `packages/start/src/index.js` is the stable public facade;
   command flow, options and prompts, child-process integration, and scaffold
-  generation live in focused sibling modules so contributors can change one
-  concern without navigating the generated templates.
+  generation live in focused sibling modules. Pnpm workspace discovery and
+  build-script policy are isolated in `workspace-policy.js`, separate from the
+  generated application templates.
 - **Package builds** — `tsdown` compiles `pracht`, `@pracht/openapi`, `@pracht/vite-plugin`,
   `@pracht/preact-ssr-precompile`, `@pracht/adapter-node`,
   `@pracht/adapter-cloudflare`, `@pracht/adapter-netlify`,
