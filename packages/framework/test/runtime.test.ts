@@ -892,10 +892,21 @@ describe("handlePrachtRequest cache variance", () => {
         routeModules: {
           "./routes/pricing.tsx": async () => ({
             Component: () => h("main", null, "MVP"),
+            head: () => ({
+              fonts: [defineFont({ family: "Pricing", src: "/fonts/pricing.woff2" })],
+            }),
             loader: async () =>
               Response.json(
                 { data: { plan: "MVP" } },
-                { headers: { "cache-control": "private, max-age=5" } },
+                {
+                  headers: {
+                    "cache-control": "private, max-age=5",
+                    "content-encoding": "br",
+                    "content-length": "1",
+                    etag: '"loader-payload"',
+                    "x-loader-header": "preserved",
+                  },
+                },
               ),
           }),
         },
@@ -906,6 +917,14 @@ describe("handlePrachtRequest cache variance", () => {
     });
 
     expect(response.headers.get("cache-control")).toBe("private, max-age=5");
+    expect(response.headers.get("x-loader-header")).toBe("preserved");
+    expect(response.headers.get("content-length")).toBeNull();
+    expect(response.headers.get("content-encoding")).toBeNull();
+    expect(response.headers.get("etag")).toBeNull();
+    await expect(response.json()).resolves.toMatchObject({
+      data: { plan: "MVP" },
+      fontHead: { css: expect.stringContaining('font-family:"Pricing"') },
+    });
   });
 
   it("applies a route loaderCache duration to loader Response data", async () => {
@@ -2002,6 +2021,43 @@ describe("handlePrachtRequest ErrorBoundary", () => {
         status: 404,
       },
     });
+  });
+
+  it("includes shell font fragments in route-state error payloads", async () => {
+    const shellFont = defineFont({ family: "Error Shell", src: "/fonts/error.woff2" });
+    const app = defineApp({
+      shells: { app: "./shells/app.tsx" },
+      routes: [route("/boom", "./routes/boom.tsx", { shell: "app" })],
+    });
+
+    const response = await handlePrachtRequest({
+      app,
+      registry: {
+        routeModules: {
+          "./routes/boom.tsx": async () => ({
+            Component: () => null,
+            ErrorBoundary: () => h("p", null, "Failed"),
+            loader: async () => {
+              throw new PrachtHttpError(500, "Failed");
+            },
+          }),
+        },
+        shellModules: {
+          "./shells/app.tsx": async () => ({
+            Shell: ({ children }) => h("main", null, children),
+            head: () => ({ fonts: [shellFont] }),
+          }),
+        },
+      },
+      request: new Request("http://localhost/boom", {
+        headers: { "x-pracht-route-state-request": "1" },
+      }),
+    });
+
+    expect(response.status).toBe(500);
+    const payload = (await response.json()) as Record<string, any>;
+    expect(payload.fontHead.css).toContain('font-family:"Error Shell"');
+    expect(payload.fontHead.preloadLinks).toEqual(shellFont.preloadLinks);
   });
 
   it("includes structured loader diagnostics in debug route-state responses", async () => {

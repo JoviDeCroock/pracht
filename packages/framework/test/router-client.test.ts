@@ -456,7 +456,25 @@ describe("initClientRouter", () => {
 
     root.innerHTML = '<main><span id="count">1</span><button id="refresh">Refresh</button></main>';
     history.replaceState(null, "", "/dashboard");
-    fetchSpy.mockResolvedValue(createJsonResponse({ data: { count: 2 } }));
+    document.head.innerHTML =
+      '<link data-pracht-font-preload rel="preload" as="font" href="/old.woff2"><style data-pracht-fonts>@font-face{font-family:"Old"}</style>';
+    fetchSpy.mockResolvedValue(
+      createJsonResponse({
+        data: { count: 2 },
+        fontHead: {
+          preloadLinks: [
+            {
+              rel: "preload",
+              as: "font",
+              href: "/fresh.woff2",
+              type: "font/woff2",
+              crossorigin: "anonymous",
+            },
+          ],
+          css: '@font-face{font-family:"Fresh"}',
+        },
+      }),
+    );
 
     await initClientRouter({
       app,
@@ -486,6 +504,59 @@ describe("initClientRouter", () => {
       }),
     );
     expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(document.head.querySelector('link[href="/old.woff2"]')).toBeNull();
+    expect(document.head.querySelector('link[href="/fresh.woff2"]')).not.toBeNull();
+    expect(document.head.querySelector("style[data-pracht-fonts]")?.textContent).toBe(
+      '@font-face{font-family:"Fresh"}',
+    );
+  });
+
+  it("updates generated font CSS when client navigation renders an error boundary", async () => {
+    const app = resolveApp(
+      defineApp({
+        routes: [
+          route("/", "./routes/home.tsx", { id: "home", render: "ssr", hasHead: true }),
+          route("/boom", "./routes/boom.tsx", { id: "boom", render: "ssr", hasHead: true }),
+        ],
+      }),
+    );
+    document.head.innerHTML =
+      '<link data-pracht-font-preload rel="preload" as="font" href="/old.woff2"><style data-pracht-fonts>@font-face{font-family:"Old"}</style>';
+    fetchSpy.mockResolvedValue(
+      createJsonResponse(
+        {
+          error: { message: "loader exploded", name: "Error", status: 500 },
+          fontHead: {
+            preloadLinks: [],
+            css: '@font-face{font-family:"Error Shell"}',
+          },
+        },
+        { status: 500 },
+      ),
+    );
+
+    await initClientRouter({
+      app,
+      routeModules: {
+        "./routes/home.tsx": async () => ({ default: () => h("main", null, "Home") }),
+        "./routes/boom.tsx": async () => ({
+          default: () => null,
+          ErrorBoundary: ({ error }: { error: Error }) => h("main", null, error.message),
+        }),
+      },
+      shellModules: {},
+      initialState: { data: null, routeId: "home", url: "/" },
+      root,
+      findModuleKey: (_modules, file) => file,
+    });
+
+    await window.__PRACHT_NAVIGATE__!("/boom");
+
+    expect(root.textContent).toBe("loader exploded");
+    expect(document.head.querySelector('link[href="/old.woff2"]')).toBeNull();
+    expect(document.head.querySelector("style[data-pracht-fonts]")?.textContent).toBe(
+      '@font-face{font-family:"Error Shell"}',
+    );
   });
 
   it("refreshes the route component's data prop when route data revalidates", async () => {

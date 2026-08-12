@@ -6,7 +6,7 @@ import type { ResolvedRoute } from "./types.ts";
 export type RouteStateResult =
   | { type: "data"; data: unknown; fontHead?: FontHeadFragments }
   | { type: "redirect"; location: string }
-  | { type: "error"; error: SerializedRouteError };
+  | { type: "error"; error: SerializedRouteError; fontHead?: FontHeadFragments };
 
 const SAFE_NAVIGATION_PROTOCOLS = new Set(["http:", "https:"]);
 
@@ -82,6 +82,7 @@ export async function fetchPrachtRouteState(
     if (json.error) {
       return {
         error: json.error,
+        fontHead: json.fontHead,
         type: "error",
       };
     }

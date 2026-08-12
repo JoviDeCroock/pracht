@@ -71,6 +71,24 @@ import type {
 
 const SAME_ORIGIN_FETCH_SITE = "same-origin";
 
+const BODY_REPRESENTATION_HEADERS = [
+  "content-digest",
+  "content-encoding",
+  "content-length",
+  "content-md5",
+  "content-range",
+  "digest",
+  "etag",
+  "repr-digest",
+  "transfer-encoding",
+] as const;
+
+function headersForReserializedBody(headers: Headers): Headers {
+  const nextHeaders = new Headers(headers);
+  for (const name of BODY_REPRESENTATION_HEADERS) nextHeaders.delete(name);
+  return nextHeaders;
+}
+
 /**
  * Build-time proof that the app has no agent surface at all — no registered
  * capabilities and no `defineApp({ agents })`. The vite plugin only defines it
@@ -737,7 +755,7 @@ export async function handlePrachtRequest<TContext>(
                   {
                     status: loaderResult.status,
                     statusText: loaderResult.statusText,
-                    headers: loaderResult.headers,
+                    headers: headersForReserializedBody(loaderResult.headers),
                   },
                 );
               }

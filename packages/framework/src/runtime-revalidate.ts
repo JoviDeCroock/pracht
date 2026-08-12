@@ -1,6 +1,7 @@
 import { deserializeRouteError } from "./runtime-errors.ts";
 import { fetchPrachtRouteState, navigateToClientLocation } from "./runtime-client-fetch.ts";
 import type { PrachtRuntimeValue } from "./runtime-context.ts";
+import { applyFontHeadFragments } from "./runtime-fonts.ts";
 
 /**
  * Re-fetch the active route's loader data and commit it to the runtime.
@@ -27,6 +28,7 @@ export async function revalidateRouteData(
     throw deserializeRouteError(result.error);
   }
 
+  if (result.fontHead) applyFontHeadFragments(result.fontHead);
   runtime?.setData(result.data);
   return result.data;
 }

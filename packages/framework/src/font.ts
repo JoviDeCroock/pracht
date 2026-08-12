@@ -174,7 +174,10 @@ function isValidUnicodeRangeToken(token: string): boolean {
   if (body.length > 6) return false;
   if (body.includes("?")) {
     // Hex digits followed only by trailing `?` wildcards.
-    return /^[0-9A-Fa-f]*\?+$/.test(body);
+    return (
+      /^[0-9A-Fa-f]*\?+$/.test(body) &&
+      Number.parseInt(body.replaceAll("?", "F"), 16) <= UNICODE_MAX_CODE_POINT
+    );
   }
   if (!/^[0-9A-Fa-f]{1,6}$/.test(body)) return false;
   return Number.parseInt(body, 16) <= UNICODE_MAX_CODE_POINT;
@@ -236,11 +239,17 @@ function validateStyle(family: string, value: string): string {
   return value;
 }
 
-function validateMetric(family: string, name: string, value: string): string {
-  if (!METRIC_OVERRIDE_RE.test(value.trim())) {
+function validateMetric(
+  family: string,
+  name: string,
+  value: string,
+  options?: { allowNormal?: boolean },
+): string {
+  const normalized = value.trim();
+  if (!METRIC_OVERRIDE_RE.test(normalized) || (normalized === "normal" && !options?.allowNormal)) {
     fail(family, `invalid ${name} ${JSON.stringify(value)} — expected a percentage like "105%"`);
   }
-  return value.trim();
+  return normalized;
 }
 
 function hasWhitespaceOrControlCharacters(value: string): boolean {
@@ -355,19 +364,19 @@ export function defineFont(options: DefineFontOptions): PrachtFont {
   if (options.ascentOverride !== undefined) {
     metricEntries.push([
       "ascent-override",
-      validateMetric(family, "ascentOverride", options.ascentOverride),
+      validateMetric(family, "ascentOverride", options.ascentOverride, { allowNormal: true }),
     ]);
   }
   if (options.descentOverride !== undefined) {
     metricEntries.push([
       "descent-override",
-      validateMetric(family, "descentOverride", options.descentOverride),
+      validateMetric(family, "descentOverride", options.descentOverride, { allowNormal: true }),
     ]);
   }
   if (options.lineGapOverride !== undefined) {
     metricEntries.push([
       "line-gap-override",
-      validateMetric(family, "lineGapOverride", options.lineGapOverride),
+      validateMetric(family, "lineGapOverride", options.lineGapOverride, { allowNormal: true }),
     ]);
   }
 
@@ -436,8 +445,8 @@ export function defineFont(options: DefineFontOptions): PrachtFont {
   const classCss = `.${className}{font-family:${fontFamily}}`;
 
   const preload = options.preload ?? true;
-  const preloadCandidates = sources.filter((source) => source.format === "woff2");
-  const preloadSources = preloadCandidates.length > 0 ? preloadCandidates : [sources[0]];
+  const preferredPreload = sources.find((source) => source.format === "woff2") ?? sources[0];
+  const preloadSources = [preferredPreload];
   const preloadLinks: HeadAttributes[] = preloadSources.map((source) => ({
     rel: "preload",
     as: "font",

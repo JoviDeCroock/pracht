@@ -40,6 +40,7 @@ import type {
   RouteModule,
   ShellModule,
 } from "./types.ts";
+import { collectFontHeadFragments, type FontHeadFragments } from "./font.ts";
 
 let _renderToStringAsync: typeof import("preact-render-to-string").renderToStringAsync | undefined;
 export async function getRenderToStringAsync() {
@@ -61,16 +62,22 @@ interface HandleRequestOptionsLike {
 
 export function jsonErrorResponse(
   routeError: SerializedRouteError,
-  options: { isRouteStateRequest: boolean },
+  options: { fontHead?: FontHeadFragments; isRouteStateRequest: boolean },
 ): Response {
   const headers = applySecurityAndRouteHeaders(
     new Headers({ "content-type": "application/json; charset=utf-8" }),
     options.isRouteStateRequest ? { isRouteStateRequest: true } : undefined,
   );
-  return new Response(JSON.stringify({ error: routeError }), {
-    status: routeError.status,
-    headers,
-  });
+  return new Response(
+    JSON.stringify({
+      error: routeError,
+      ...(options.fontHead ? { fontHead: options.fontHead } : {}),
+    }),
+    {
+      status: routeError.status,
+      headers,
+    },
+  );
 }
 
 export function jsonRedirectResponse(
@@ -181,10 +188,6 @@ export async function renderRouteErrorResponse<TContext>(options: {
       }
     : routeError;
 
-  if (options.isRouteStateRequest) {
-    return jsonErrorResponse(routeErrorWithDiagnostics, { isRouteStateRequest: true });
-  }
-
   const shellModule =
     options.shellModule ??
     (options.shellFile
@@ -193,6 +196,15 @@ export async function renderRouteErrorResponse<TContext>(options: {
           options.shellFile,
         )
       : undefined);
+
+  if (options.isRouteStateRequest) {
+    const head = shellModule?.head ? await shellModule.head(options.routeArgs) : undefined;
+    return jsonErrorResponse(routeErrorWithDiagnostics, {
+      fontHead: head ? collectFontHeadFragments(head.fonts ?? []) : undefined,
+      isRouteStateRequest: true,
+    });
+  }
+
   const ErrorBoundary = options.routeModule?.ErrorBoundary ?? shellModule?.ErrorBoundary;
 
   if (!ErrorBoundary) {

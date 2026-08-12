@@ -185,10 +185,14 @@ describe("defineFont", () => {
     );
   });
 
-  it("only preloads woff2 variants when several formats are listed", () => {
+  it("preloads only the first supported woff2 source when several variants are listed", () => {
     const font = defineFont({
       family: "Custom",
-      src: [{ url: "/fonts/custom.woff2" }, { url: "/fonts/custom.woff", format: "woff" }],
+      src: [
+        { url: "/fonts/custom.woff2" },
+        { url: "/fonts/custom-alt.woff2" },
+        { url: "/fonts/custom.woff", format: "woff" },
+      ],
     });
     expect(font.preloadLinks).toEqual([
       {
@@ -244,6 +248,17 @@ describe("defineFont", () => {
     expect(() => defineFont({ family: "X", src: "/f.woff2", sizeAdjust: "107% }" })).toThrow(
       /invalid sizeAdjust/,
     );
+    expect(() => defineFont({ family: "X", src: "/f.woff2", sizeAdjust: "normal" })).toThrow(
+      /invalid sizeAdjust/,
+    );
+    expect(
+      defineFont({
+        family: "X",
+        src: "/f.woff2",
+        fallbacks: ["Arial"],
+        ascentOverride: "normal",
+      }).fallbackFaceCss,
+    ).toContain("ascent-override:normal");
     expect(() => defineFont({ family: "X", src: "/f.woff2 evil" })).toThrow(
       /whitespace or control characters/,
     );
@@ -294,7 +309,15 @@ describe("defineFont", () => {
   it("rejects unicode-range tokens that browsers treat as invalid", () => {
     // A single invalid token invalidates the whole descriptor, silently
     // widening the face to every code point.
-    const bad = ["U+4?-FF", "U+?4", "U+110000", "U+00FF-0000", "U+0000-110000"];
+    const bad = [
+      "U+4?-FF",
+      "U+?4",
+      "U+110000",
+      "U+??????",
+      "U+11????",
+      "U+00FF-0000",
+      "U+0000-110000",
+    ];
     for (const range of bad) {
       expect(() => defineFont({ family: "X", src: "/f.woff2", unicodeRange: range })).toThrow(
         /invalid unicodeRange/,
@@ -303,9 +326,9 @@ describe("defineFont", () => {
     const ok = defineFont({
       family: "X",
       src: "/f.woff2",
-      unicodeRange: "U+0000-00FF, U+4??, u+10FFFF, U+??????",
+      unicodeRange: "U+0000-00FF, U+4??, u+10FFFF, U+10????",
     });
-    expect(ok.faceCss).toContain("unicode-range:U+0000-00FF, U+4??, u+10FFFF, U+??????");
+    expect(ok.faceCss).toContain("unicode-range:U+0000-00FF, U+4??, u+10FFFF, U+10????");
   });
 });
 

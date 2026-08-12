@@ -5,7 +5,7 @@ import { inter } from "../fonts";
 
 export function Shell({ children }: ShellProps) {
   return (
-    <div style={{ "--font": inter.fontFamily }}>
+    <div style={inter.style}>
       <header class="site-header">
         <div class="inner">
           <a href="/" class="logo">

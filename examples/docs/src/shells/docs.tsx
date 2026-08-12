@@ -143,9 +143,9 @@ export function Shell({ children }: ShellProps) {
   const docsActive = currentPath.startsWith("/docs");
 
   return (
-    // Feed the site-wide font variable from the font object so the CSS stack
-    // (including the adjusted "Inter Fallback" face) has a single source.
-    <div class="docs-layout" style={{ "--font": inter.fontFamily }}>
+    // Apply the generated stack to the shell root, including its adjusted
+    // fallback face, so every descendant inherits it.
+    <div class="docs-layout" style={inter.style}>
       <header class="site-header">
         <div class="inner">
           <a href="/" class="logo">
