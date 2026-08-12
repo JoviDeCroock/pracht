@@ -506,7 +506,8 @@ api-request-validation.ts — request parsing, normalized issues, and Standard S
     ↑
 runtime-context.ts — hydration state reader and Preact runtime provider
     ↑
-runtime-hooks.ts — public browser hooks/components (Link, Form, useRevalidate, etc.)
+runtime-form.ts — enhanced form validation, capability submission, and response handling
+runtime-hooks.ts — public browser hook/Link facade and stable Form re-export
     ↑
 runtime.ts      — SSR handler and prerendering (static import of app.ts)
 runtime-capability-registry.ts — capability manifest loading, contract validation,

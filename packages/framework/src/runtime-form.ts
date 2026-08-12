@@ -1,0 +1,307 @@
+import { h } from "preact";
+import type { JSX } from "preact";
+import type { StandardSchemaV1 } from "@standard-schema/spec";
+
+import {
+  formDataToRecord,
+  isApiValidationErrorBody,
+  validateStandardSchema,
+  type ApiValidationIssue,
+} from "./api-validation.ts";
+import {
+  beginSubmittingNavigation,
+  createNavigationLocation,
+  settleNavigation,
+} from "./navigation-state.ts";
+import { SAFE_METHODS } from "./runtime-constants.ts";
+import {
+  CAPABILITY_EFFECT_HEADER,
+  CAPABILITY_FORM_REDIRECT_HEADER,
+  CAPABILITY_FORM_REQUEST_HEADER,
+  CAPABILITY_SETTLED_EVENT,
+  capabilityHttpPath,
+} from "@pracht/capabilities";
+import { clearPrefetchCache } from "./prefetch-cache.ts";
+import { navigateToClientLocation, parseSafeNavigationUrl } from "./runtime-client-fetch.ts";
+import type {
+  ApiPath,
+  CapabilityEnvelope,
+  CapabilityOutputFor,
+  HttpCapabilityName,
+} from "./types.ts";
+
+/** Envelope data type for a capability name, when typegen has registered it. */
+type CapabilityFormResult<TName extends string> = CapabilityEnvelope<CapabilityOutputFor<TName>>;
+
+export interface FormProps<TName extends HttpCapabilityName = HttpCapabilityName> extends Omit<
+  JSX.HTMLAttributes<HTMLFormElement>,
+  "action" | "method"
+> {
+  /**
+   * Form action. Autocompletes API route paths registered by `pracht typegen`
+   * while still accepting any URL string (dynamic segments must be
+   * interpolated by the caller).
+   */
+  action?: ApiPath | (string & {});
+  method?: string;
+  /**
+   * Post this form to a capability's HTTP projection instead of an `action`
+   * URL — the same endpoint agents call, so the human form and the agent
+   * tool literally share one contract. Fields are coerced onto the
+   * capability's input schema server-side; after a successful submission the
+   * active route's data revalidates automatically. Works without JavaScript:
+   * the endpoint accepts the form-encoded fallback and redirects back to the
+   * page. Set `action` explicitly for capabilities with a custom
+   * `expose.http.path`.
+   *
+   * Only http-exposed capabilities are accepted: a private one has no endpoint
+   * to post to, so naming it here is a compile error rather than a 404 at
+   * submit time. Before `pracht typegen` has run, any name is accepted.
+   */
+  capability?: TName;
+  /** Called with the typed envelope after a `capability` submission settles. */
+  onCapabilityResult?: (envelope: CapabilityFormResult<TName>) => void;
+  /**
+   * Standard Schema validated against the form's data (one entry per field,
+   * arrays for repeated fields) before submitting. When validation fails the
+   * request is skipped and `onValidationIssues` fires with the issues.
+   */
+  schema?: StandardSchemaV1;
+  /**
+   * Called with normalized validation issues when the client-side `schema`
+   * rejects a submission, or when the server responds with the standardized
+   * validation failure produced by `defineApi()` (HTTP 400/422,
+   * `{ error: "validation", issues }`).
+   */
+  onValidationIssues?: (issues: ApiValidationIssue[]) => void;
+  /**
+   * Called with the server's response for every non-redirect fetch
+   * submission — success payloads (2xx) and failures (4xx/5xx) alike. Read
+   * the body with `response.json()`; validation-issue handling parses a
+   * clone, so the body is never consumed before this callback.
+   */
+  onResponse?: (response: Response) => void;
+}
+
+const validatedNativeSubmissions = new WeakSet<HTMLFormElement>();
+
+export function Form<TName extends HttpCapabilityName = HttpCapabilityName>(
+  props: FormProps<TName>,
+) {
+  const {
+    onSubmit,
+    method,
+    action,
+    capability,
+    onCapabilityResult,
+    schema,
+    onValidationIssues,
+    onResponse,
+    ...rest
+  } = props;
+  // Capability forms post to the capability's HTTP projection; the action
+  // attribute keeps the no-JS fallback working (the endpoint accepts
+  // form-encoded bodies and redirects document posts back on success).
+  const actionAttribute = capability ? (action ?? capabilityHttpPath(capability)) : action;
+
+  return h("form", {
+    ...rest,
+    method: capability ? "post" : method,
+    action: actionAttribute,
+    onSubmit: async (event: Event) => {
+      const form = event.currentTarget;
+      if (!(form instanceof HTMLFormElement)) {
+        return;
+      }
+      if (validatedNativeSubmissions.delete(form)) {
+        return;
+      }
+
+      onSubmit?.(event as never);
+      if (event.defaultPrevented) {
+        return;
+      }
+
+      const submitter =
+        typeof SubmitEvent !== "undefined" && event instanceof SubmitEvent ? event.submitter : null;
+      const nativeSubmitter =
+        (submitter instanceof HTMLButtonElement || submitter instanceof HTMLInputElement) &&
+        submitter.form === form
+          ? submitter
+          : undefined;
+
+      if (capability) {
+        const submitterAction = nativeSubmitter?.getAttribute("formaction");
+        const endpoint = submitterAction ?? actionAttribute ?? form.action;
+        const endpointUrl = parseSafeNavigationUrl(endpoint, window.location.href);
+        if (!endpointUrl) {
+          event.preventDefault();
+          console.error(`[pracht] refused to submit capability form to unsafe URL: ${endpoint}`);
+          return;
+        }
+        const isCrossOriginEndpoint = endpointUrl.origin !== window.location.origin;
+        // A cross-origin form target cannot participate in the enhanced
+        // response handshake. Let the browser perform the native submission
+        // so redirects and authentication flows retain document semantics.
+        if (isCrossOriginEndpoint && !schema) {
+          return;
+        }
+        event.preventDefault();
+        const formData = new FormData(form, nativeSubmitter);
+
+        if (schema) {
+          const result = await validateStandardSchema(schema, formDataToRecord(formData), "body");
+          if (result.issues) {
+            onValidationIssues?.(result.issues);
+            return;
+          }
+        }
+        if (isCrossOriginEndpoint) {
+          validatedNativeSubmissions.add(form);
+          try {
+            form.requestSubmit(nativeSubmitter);
+          } finally {
+            validatedNativeSubmissions.delete(form);
+          }
+          return;
+        }
+
+        clearPrefetchCache();
+        // Expose the in-flight submission through useNavigation().
+        const navigationToken = beginSubmittingNavigation(
+          createNavigationLocation(endpoint),
+          formData,
+        );
+        let envelope: CapabilityEnvelope;
+        let response: Response | undefined;
+        try {
+          response = await fetch(endpoint, {
+            method: "POST",
+            body: formData,
+            credentials: "same-origin",
+            headers: { [CAPABILITY_FORM_REQUEST_HEADER]: "1" },
+          });
+          const enhancedRedirect = response.headers.get(CAPABILITY_FORM_REDIRECT_HEADER);
+          if (
+            enhancedRedirect ||
+            response.redirected ||
+            (response.status >= 300 && response.status < 400)
+          ) {
+            const location =
+              enhancedRedirect ??
+              (response.redirected ? response.url : response.headers.get("location"));
+            await navigateToClientLocation(location ?? endpoint, { reloadRouteState: true });
+            return;
+          }
+          try {
+            envelope = (await response.clone().json()) as CapabilityEnvelope;
+          } catch {
+            envelope = {
+              ok: false,
+              error: {
+                code: "invalid_response",
+                message: `Capability endpoint returned a non-JSON response (status ${response.status}).`,
+              },
+            };
+          }
+        } catch (error: unknown) {
+          envelope = {
+            ok: false,
+            error: {
+              code: "network_error",
+              message: error instanceof Error ? error.message : String(error),
+            },
+          };
+        } finally {
+          settleNavigation(navigationToken);
+        }
+
+        if (response) {
+          onResponse?.(response);
+        }
+        if (envelope.ok) {
+          form.reset();
+        }
+        // The runtime provider revalidates route data on this event. The
+        // server returns the matched capability's effect class so read-only
+        // form submissions avoid invalidating the active route.
+        window.dispatchEvent(
+          new CustomEvent(CAPABILITY_SETTLED_EVENT, {
+            detail: {
+              name: capability,
+              ok: envelope.ok,
+              effect: response?.headers.get(CAPABILITY_EFFECT_HEADER) ?? null,
+            },
+          }),
+        );
+        onCapabilityResult?.(envelope as CapabilityFormResult<TName>);
+        return;
+      }
+
+      const submitterMethod = nativeSubmitter?.getAttribute("formmethod") || undefined;
+      const formMethod = (submitterMethod ?? method ?? form.method ?? "post").toUpperCase();
+      const isSafeMethod = SAFE_METHODS.has(formMethod);
+      if (isSafeMethod && !schema) {
+        return;
+      }
+
+      event.preventDefault();
+      const submitterAction = nativeSubmitter?.getAttribute("formaction");
+      const actionUrl = submitterAction ?? action ?? form.action;
+      const formData = new FormData(form, nativeSubmitter);
+
+      if (schema) {
+        const result = await validateStandardSchema(schema, formDataToRecord(formData), "body");
+        if (result.issues) {
+          onValidationIssues?.(result.issues);
+          return;
+        }
+      }
+
+      if (isSafeMethod) {
+        validatedNativeSubmissions.add(form);
+        try {
+          form.requestSubmit(nativeSubmitter);
+        } finally {
+          validatedNativeSubmissions.delete(form);
+        }
+        return;
+      }
+
+      clearPrefetchCache();
+      // Expose the in-flight submission through useNavigation().
+      const navigationToken = beginSubmittingNavigation(
+        createNavigationLocation(actionUrl),
+        formData,
+      );
+      try {
+        const response = await fetch(actionUrl, {
+          method: formMethod,
+          body: formData,
+          redirect: "manual",
+        });
+
+        if (
+          response.type === "opaqueredirect" ||
+          (response.status >= 300 && response.status < 400)
+        ) {
+          const location = response.headers.get("location");
+          await navigateToClientLocation(location ?? actionUrl, { reloadRouteState: true });
+        } else {
+          if ((response.status === 400 || response.status === 422) && onValidationIssues) {
+            const body = await response
+              .clone()
+              .json()
+              .catch(() => null);
+            if (isApiValidationErrorBody(body)) {
+              onValidationIssues(body.issues);
+            }
+          }
+          onResponse?.(response);
+        }
+      } finally {
+        settleNavigation(navigationToken);
+      }
+    },
+  } as JSX.HTMLAttributes<HTMLFormElement>);
+}

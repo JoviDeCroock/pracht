@@ -1,7 +1,7 @@
 /**
  * Shared reactive store for the current client navigation / form submission.
  *
- * The client router (`router.ts`) and `<Form>` (`runtime-hooks.ts`) write to
+ * The client router (`router.ts`) and `<Form>` (`runtime-form.ts`) write to
  * this store; `useNavigation()` subscribes to it. The store lives in its own
  * module so both writers can import it without creating a cycle, and so it
  * stays safe to import during SSR (no `window` access at module scope).
