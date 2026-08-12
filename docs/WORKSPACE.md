@@ -92,7 +92,9 @@ described in `VISION_MVP.md`.
   build-script policy are isolated in `workspace-policy.js`, separate from the
   generated application templates; bundled skills and MCP configuration are
   loaded through `agent-tools.js`, and registry lookups plus offline fallbacks
-  live in `package-versions.js`.
+  live in `package-versions.js`. Pure generated-file templates are grouped by
+  responsibility under `src/templates/`, leaving `scaffold.js` responsible for
+  composition and filesystem writes.
 - **Package builds** — `tsdown` compiles `pracht`, `@pracht/openapi`, `@pracht/vite-plugin`,
   `@pracht/preact-ssr-precompile`, `@pracht/adapter-node`,
   `@pracht/adapter-cloudflare`, `@pracht/adapter-netlify`,
