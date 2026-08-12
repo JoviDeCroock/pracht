@@ -128,6 +128,20 @@ describe("shouldBypassDevSSR", () => {
     ).toBe(false);
   });
 
+  it("checks every possible home and suffix alias target", () => {
+    expect(
+      shouldBypassDevSSR(
+        "/index.md",
+        { headers: { accept: "*/*" }, method: "GET" },
+        {
+          ...routeMatchers,
+          matchAppRoute: (_app: unknown, pathname: string) =>
+            pathname === "/index" ? ({ pathname } as const) : undefined,
+        },
+      ),
+    ).toBe(false);
+  });
+
   it("keeps dotted document routes inside framework handling", () => {
     expect(
       shouldBypassDevSSR(

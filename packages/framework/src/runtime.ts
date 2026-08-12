@@ -585,7 +585,7 @@ export async function handlePrachtRequest<TContext>(
     : matchAppRoute(resolvedApp, routeRequest.pathname);
   let preloadedRouteModule: RouteModule | undefined;
 
-  if (routeRequest.markdownAlias && SAFE_METHODS.has(options.request.method)) {
+  const resolveMarkdownMatches = async () => {
     const markdownMatches: Array<{ match: RouteMatch; module: RouteModule }> = [];
     for (const candidate of resolveMarkdownAliasPaths(url.pathname, options.app.markdown)) {
       const candidateMatch = matchAppRoute(resolvedApp, candidate);
@@ -598,6 +598,37 @@ export async function handlePrachtRequest<TContext>(
         markdownMatches.push({ match: candidateMatch, module: candidateModule });
       }
     }
+    return markdownMatches;
+  };
+
+  // Static `.md` routes deliberately keep their literal pathname. If that
+  // pathname would also expose another route's Markdown alias, fail explicitly
+  // instead of silently making the alias unavailable. Prerendered variants are
+  // rejected during the build; this request-time check covers SSR/SPA routes
+  // without eagerly evaluating their modules on the build machine.
+  if (
+    preserveLiteralPath &&
+    !isRouteStateRequest &&
+    SAFE_METHODS.has(options.request.method) &&
+    resolveMarkdownAliasPaths(url.pathname, options.app.markdown).length > 0
+  ) {
+    const collisions = await resolveMarkdownMatches();
+    const collision = collisions[0];
+    if (collision) {
+      return withDefaultSecurityHeaders(
+        new Response(
+          `Markdown alias ${JSON.stringify(normalizedRequestPath)} for ${JSON.stringify(collision.match.pathname)} collides with the declared route ${JSON.stringify(normalizedRequestPath)}. Change one of the route paths or configure a different defineApp({ markdown: { homeAlias } }) value.`,
+          {
+            status: 500,
+            headers: { "content-type": "text/plain; charset=utf-8" },
+          },
+        ),
+      );
+    }
+  }
+
+  if (routeRequest.markdownAlias && SAFE_METHODS.has(options.request.method)) {
+    const markdownMatches = await resolveMarkdownMatches();
 
     if (markdownMatches.length > 1) {
       return withDefaultSecurityHeaders(

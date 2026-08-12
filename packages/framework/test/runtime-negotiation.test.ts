@@ -290,6 +290,32 @@ describe("handlePrachtRequest markdown negotiation", () => {
     expect(response.headers.get("content-type")).toContain("text/html");
   });
 
+  it("reports aliases shadowed by exact SSR routes", async () => {
+    const response = await handlePrachtRequest({
+      app: defineApp({
+        routes: [
+          route("/guide", "./routes/guide.tsx", { render: "ssr" }),
+          route("/guide.md", "./routes/literal.tsx", { render: "ssr" }),
+        ],
+      }),
+      registry: {
+        routeModules: {
+          "./routes/guide.tsx": async () => ({
+            markdown: "# Guide\n",
+            Component: () => null,
+          }),
+          "./routes/literal.tsx": async () => ({ Component: () => null }),
+        },
+      },
+      request: new Request("http://localhost/guide.md"),
+    });
+
+    expect(response.status).toBe(500);
+    expect(await response.text()).toContain(
+      'Markdown alias "/guide.md" for "/guide" collides with the declared route "/guide.md".',
+    );
+  });
+
   it("uses the sole Markdown-capable route when a home alias has two route matches", async () => {
     const response = await handlePrachtRequest({
       app: defineApp({
