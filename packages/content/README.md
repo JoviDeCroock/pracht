@@ -61,7 +61,8 @@ defineCollection({
 
 Duplicate `(id, locale)`, `(path, locale)`, source, and artifact registrations
 fail before output is emitted. Routes and output paths must be safe,
-root-relative URL paths; source paths cannot escape the collection root.
+root-relative URL paths; source paths cannot escape the collection root,
+including through an explicitly registered symbolic link.
 
 ## Documents and lookup
 
@@ -114,7 +115,10 @@ The first plugin transforms collection sources through the collection's
 with GET/HEAD in development and emits identical static files in client builds.
 File watcher events invalidate only the affected memoized document and the
 shared route/source index. Artifact `contentType` values are carried into
-Pracht's production headers manifest as well as the development response.
+Pracht's production headers manifest and applied by the Node, Cloudflare, and
+Vercel adapters as well as the development response. A collection artifact at
+`/llms.txt` cannot be combined with Pracht's core `llmsTxt` generator; the build
+rejects that collision instead of overwriting the curated collection output.
 
 For request-time loaders and capabilities, import the generated snapshot rather
 than the filesystem-backed authoring collection:
@@ -172,6 +176,7 @@ Keeping the literal `defineCapability({ ... })` in the application lets
 `expose`, the capability remains private. The search helper is intentionally
 basic and dependency-free; applications needing stemming, ranking, or a
 persistent index should consume `collection.iterate()` from their search
-backend instead.
+backend instead. The page helper advertises configured locales in its schema
+and returns `found: false` for malformed routes or unsupported locales.
 
 See the full framework guide at [docs/CONTENT.md](../../docs/CONTENT.md).

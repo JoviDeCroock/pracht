@@ -80,4 +80,31 @@ describe("content capabilities", () => {
 
     expect(output.results[0].snippet).toContain("needle");
   });
+
+  it("returns a missing result for invalid paths and unsupported locales", async () => {
+    temporaryDirectory = await mkdtemp(join(tmpdir(), "pracht-content-capabilities-"));
+    await writeFile(join(temporaryDirectory, "guide.md"), "Guide");
+    const page = createContentPageCapability(
+      defineCollection({
+        name: "docs",
+        root: temporaryDirectory,
+        locales: { default: "en", supported: ["en", "fr"] },
+      }),
+    );
+    const args = {
+      context: {},
+      request: new Request("https://example.com"),
+      signal: new AbortController().signal,
+    };
+
+    await expect(page.run({ ...args, input: { path: "guide" } })).resolves.toMatchObject({
+      found: false,
+      path: "guide",
+    });
+    await expect(
+      page.run({ ...args, input: { locale: "de", path: "/guide" } }),
+    ).resolves.toMatchObject({ found: false, locale: "de", path: "/guide" });
+    const properties = page.input.properties as Record<string, Record<string, unknown>>;
+    expect(properties.locale).toMatchObject({ enum: ["en", "fr"] });
+  });
 });

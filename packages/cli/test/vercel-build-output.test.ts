@@ -96,6 +96,30 @@ describe("writeVercelBuildOutput", () => {
     expect(routesJson(withoutMarkdown)).not.toContain("mM][aA][rR][kK]");
   });
 
+  it("emits configured headers for non-HTML static assets without adding page rewrites", () => {
+    const root = createBuildRoot();
+
+    writeVercelBuildOutput({
+      headersManifest: {
+        "/llms.txt": { "content-type": "text/markdown; charset=utf-8" },
+      },
+      isgManifest: {},
+      root,
+      staticAssetRoutes: ["/llms.txt"],
+      staticRoutes: [],
+    });
+
+    const config = JSON.parse(readFileSync(join(root, ".vercel/output/config.json"), "utf-8")) as {
+      headers: { headers: { key: string; value: string }[]; source: string }[];
+      routes: { dest?: string; src?: string }[];
+    };
+    expect(config.headers).toContainEqual({
+      headers: [{ key: "content-type", value: "text/markdown; charset=utf-8" }],
+      source: "/llms.txt",
+    });
+    expect(config.routes.some((entry) => entry.dest === "/llms.txt/index.html")).toBe(false);
+  });
+
   it("routes ISG markdown routes to the render function, not the prerender function", () => {
     const root = createBuildRoot();
 

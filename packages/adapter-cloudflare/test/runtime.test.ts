@@ -715,4 +715,32 @@ describe("WebSocket upgrades", () => {
     expect(assetFetch).toHaveBeenCalled();
     expect(response.status).toBe(200);
   });
+
+  it("applies generated headers to non-HTML static assets", async () => {
+    const { executionContext } = createExecutionContext();
+    const { app, apiRoutes, registry } = createChatApp(createUpgradeResponse());
+    const handler = createCloudflareFetchHandler({
+      app,
+      apiRoutes,
+      headersManifest: {
+        "/llms.txt": { "content-type": "text/markdown; charset=utf-8" },
+      },
+      registry,
+    });
+
+    const response = await handler(
+      new Request("https://chat.example/llms.txt"),
+      {
+        ASSETS: {
+          fetch: async () =>
+            new Response("# Docs\n", {
+              headers: { "content-type": "text/plain; charset=utf-8" },
+            }),
+        },
+      },
+      executionContext,
+    );
+
+    expect(response.headers.get("content-type")).toBe("text/markdown; charset=utf-8");
+  });
 });

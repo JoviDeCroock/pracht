@@ -1,6 +1,8 @@
 ---
 "@pracht/content": minor
 "@pracht/cli": patch
+"@pracht/adapter-cloudflare": patch
+"@pracht/adapter-node": patch
 ---
 
 Add the opt-in, server-only `@pracht/content` collection primitive. One
@@ -29,3 +31,8 @@ root-prefix `llms.txt` sections, whitespace-stable search snippets, and
 production artifact content-type metadata. Request-time loaders and
 capabilities now use `virtual:pracht/content/<name>`, a JSON-validated,
 filesystem-free snapshot that runs across Node, Vercel, and Cloudflare.
+
+Final review fixes apply generated content types to non-HTML assets on every
+adapter, reject core/collection `llms.txt` collisions, fail closed on symbolic
+links escaping the collection root, return missing page-capability results for
+malformed routes or unsupported locales, and accept empty YAML frontmatter.

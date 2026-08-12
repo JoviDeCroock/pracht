@@ -293,9 +293,7 @@ async function serveStaticFile(
       "last-modified": fileStat.mtime.toUTCString(),
     }),
   );
-  if (staticResult.contentType.includes("text/html")) {
-    applyHeadersManifest(headers, headersManifest, pathname);
-  }
+  applyHeadersManifest(headers, headersManifest, pathname);
 
   if (isNotModified(request, headers)) {
     res.statusCode = 304;

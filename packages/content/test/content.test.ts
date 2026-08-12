@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -8,6 +8,7 @@ import {
   defineCollection,
   llmsTxtArtifacts,
   markdownRepresentation,
+  parseFrontmatter,
   rawContentArtifacts,
 } from "../src/index.ts";
 import { defineSnapshotCollection } from "../src/runtime.ts";
@@ -129,6 +130,19 @@ describe("defineCollection", () => {
     );
   });
 
+  it("rejects explicit sources whose symbolic links escape the collection root", async () => {
+    const root = await fixture({ "inside.md": "Inside" });
+    const outside = await fixture({ "outside.md": "Outside" });
+    await symlink(join(outside, "outside.md"), join(root, "linked.md"));
+    const collection = defineCollection({
+      name: "linked",
+      root,
+      sources: [{ source: "linked.md" }],
+    });
+
+    await expect(collection.all()).rejects.toThrow(/after resolving symbolic links/);
+  });
+
   it("invalidates transformed source memoization deliberately", async () => {
     const root = await fixture({ "page.md": "First" });
     const compile = vi.fn(({ body }: { body: string }) => body.length);
@@ -183,6 +197,12 @@ describe("defineCollection", () => {
     expect((await runtime.resolveByRoute("/fr/docs/default"))?.fallback).toBe(true);
     expect((await runtime.getBySource("en/guide.md"))?.body).toBe("English");
     expect((await runtime.all())[0].source).toMatch(/^virtual:pracht\/content\/docs\//);
+  });
+});
+
+describe("parseFrontmatter", () => {
+  it("removes an empty frontmatter block from the document body", () => {
+    expect(parseFrontmatter("---\n---\nBody")).toEqual({ body: "Body", frontmatter: {} });
   });
 });
 

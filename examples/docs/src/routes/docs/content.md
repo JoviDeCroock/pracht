@@ -121,13 +121,18 @@ redirect to the canonical locale URL.
 from collection metadata and source. It is separate from Pracht's app-graph
 `llmsTxt` option: use the framework option for a route/API/capability index, and
 the collection helper when titles, descriptions, sections, and full source are
-the desired policy.
+the desired policy. Enabling both at `/llms.txt` fails the build instead of
+silently overwriting the collection output. Custom artifact content types are
+also applied to non-HTML static assets by the Node, Cloudflare, and Vercel
+adapters.
 
 `@pracht/content/capabilities` also exports page and basic full-text-search
 field factories. Wrap their `input`, `output`, and `run` fields in an app-owned
 literal `defineCapability({ ... })` call. That keeps the effect, middleware,
 exposure, and `agentPolicy` visible to `pracht verify`; omitting `expose` keeps
-the capability private.
+the capability private. The page helper returns a missing result for malformed
+routes and unsupported locales instead of turning agent input into an execution
+failure.
 
 The complete API and extension points live in
 [`packages/content/README.md`](https://github.com/JoviDeCroock/pracht/tree/main/packages/content).
