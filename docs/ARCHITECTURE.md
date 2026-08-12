@@ -336,6 +336,8 @@ identity so symlinked projects cannot bypass either client or manifest guards.
 `plugin-manifest-transform.ts` owns the authoring-to-runtime manifest rewrite,
 while the primary `pracht` plugin retains the stable transform hook used by Vite
 and direct plugin tooling.
+`plugin-hot-update.ts` owns page-directory watching, virtual-module invalidation,
+and the server-only full-reload decision used by the primary lifecycle hook.
 
 ### `/_pracht` devtools page
 

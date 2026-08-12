@@ -7,7 +7,7 @@ import { loadEnv, type Plugin } from "vite";
 import type { RenderMode } from "@pracht/core";
 import { PRACHT_GRAPH_ONLY_ENV } from "@pracht/core/server";
 import { createEnvSafetyPlugin, PUBLIC_ENV_PREFIX, SERVER_ENV_MODULE_ID } from "./env-safety.ts";
-import { sendServerOnlyFullReload } from "./hot-update-reload.ts";
+import { handlePrachtHotUpdate, watchPagesDirectory } from "./plugin-hot-update.ts";
 import {
   PRACHT_CAPABILITIES_MODULE_ID,
   PRACHT_CLIENT_MODULE_ID,
@@ -30,7 +30,6 @@ import {
 } from "./plugin-capabilities.ts";
 import { createClientModuleSafetyPlugin } from "./plugin-client-safety.ts";
 import {
-  clearPagesAppSourceCache,
   createPrachtClientModuleSource,
   createPrachtDevModuleSource,
   createPrachtIslandsClientModuleSource,
@@ -44,12 +43,8 @@ import {
 import { createEdgeRuntimeSafetyPlugin } from "./plugin-edge-runtime-safety.ts";
 import { transformAppManifestModule } from "./plugin-manifest-transform.ts";
 import { createOptimizeDepsPlugin, PREACT_DEDUPE } from "./plugin-optimize-deps.ts";
-import { resolveConfigPath, toPosixPath } from "./plugin-paths.ts";
-import {
-  resolveOptions,
-  type PrachtPluginOptions,
-  type ResolvedPrachtPluginOptions,
-} from "./plugin-options.ts";
+import { resolveConfigPath } from "./plugin-paths.ts";
+import { resolveOptions, type PrachtPluginOptions } from "./plugin-options.ts";
 
 export type { RenderMode };
 export type { PrachtAdapter } from "./plugin-adapter.ts";
@@ -317,65 +312,7 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
     },
 
     handleHotUpdate({ file, server }) {
-      const serverRoot = toPosixPath(server.config.root);
-      const normalizedFile = toPosixPath(file);
-      const relative = normalizedFile.startsWith(serverRoot)
-        ? normalizedFile.slice(serverRoot.length)
-        : normalizedFile;
-
-      if (isPagesMode && relative.startsWith(resolved.pagesDir)) {
-        clearPagesAppSourceCache();
-        invalidateVirtualModules(server);
-        sendServerOnlyFullReload(server, file);
-        return;
-      }
-
-      if (!isPagesMode && relative === resolved.appFile) {
-        server.restart();
-        return [];
-      }
-
-      const dirs = [
-        resolved.routesDir,
-        resolved.shellsDir,
-        resolved.middlewareDir,
-        resolved.apiDir,
-        resolved.serverDir,
-        resolved.islandsDir,
-        resolved.capabilitiesDir,
-      ];
-      if (dirs.some((dir) => relative.startsWith(dir))) {
-        const serverMod = server.moduleGraph.getModuleById(PRACHT_SERVER_MODULE_ID);
-        if (serverMod) server.moduleGraph.invalidateModule(serverMod);
-        const devMod = server.moduleGraph.getModuleById(PRACHT_DEV_MODULE_ID);
-        if (devMod) server.moduleGraph.invalidateModule(devMod);
-        if (relative.startsWith(resolved.routesDir)) {
-          const clientMod = server.moduleGraph.getModuleById(PRACHT_CLIENT_MODULE_ID);
-          if (clientMod) server.moduleGraph.invalidateModule(clientMod);
-        }
-        if (relative.startsWith(resolved.islandsDir)) {
-          const islandsMod = server.moduleGraph.getModuleById(PRACHT_ISLANDS_CLIENT_MODULE_ID);
-          if (islandsMod) server.moduleGraph.invalidateModule(islandsMod);
-        }
-        if (relative.startsWith(resolved.capabilitiesDir)) {
-          // Exposure metadata and schemas are baked into the generated
-          // browser modules — regenerate them alongside the server module.
-          // The client entries embed the WebMCP bootstrap conditionally on
-          // `hasWebmcpCapabilities()`, so they must regenerate too when a
-          // capability adds or drops webmcp exposure.
-          for (const moduleId of [
-            PRACHT_CAPABILITIES_MODULE_ID,
-            PRACHT_WEBMCP_MODULE_ID,
-            PRACHT_CLIENT_MODULE_ID,
-            PRACHT_ISLANDS_CLIENT_MODULE_ID,
-          ]) {
-            const capabilityMod = server.moduleGraph.getModuleById(moduleId);
-            if (capabilityMod) server.moduleGraph.invalidateModule(capabilityMod);
-          }
-        }
-      }
-
-      sendServerOnlyFullReload(server, file);
+      return handlePrachtHotUpdate({ file, server }, resolved);
     },
   };
 
@@ -421,33 +358,4 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
 
 function isGraphOnlyMode(): boolean {
   return process.env[PRACHT_GRAPH_ONLY_ENV] === "1";
-}
-
-function watchPagesDirectory(
-  server: import("vite").ViteDevServer,
-  resolved: ResolvedPrachtPluginOptions,
-  root: string,
-): void {
-  const abs = resolveConfigPath(root, resolved.pagesDir);
-  server.watcher.on("add", (f: string) => {
-    if (toPosixPath(f).startsWith(toPosixPath(abs))) {
-      clearPagesAppSourceCache();
-      server.restart();
-    }
-  });
-  server.watcher.on("unlink", (f: string) => {
-    if (toPosixPath(f).startsWith(toPosixPath(abs))) {
-      clearPagesAppSourceCache();
-      server.restart();
-    }
-  });
-}
-
-function invalidateVirtualModules(server: import("vite").ViteDevServer): void {
-  const clientMod = server.moduleGraph.getModuleById(PRACHT_CLIENT_MODULE_ID);
-  const serverMod = server.moduleGraph.getModuleById(PRACHT_SERVER_MODULE_ID);
-  const devMod = server.moduleGraph.getModuleById(PRACHT_DEV_MODULE_ID);
-  if (clientMod) server.moduleGraph.invalidateModule(clientMod);
-  if (serverMod) server.moduleGraph.invalidateModule(serverMod);
-  if (devMod) server.moduleGraph.invalidateModule(devMod);
 }

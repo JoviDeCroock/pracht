@@ -1,9 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  handlePrachtHotUpdate,
   isServerOnlyModuleFile,
   sendServerOnlyFullReload,
   type HotUpdateServerLike,
-} from "../src/hot-update-reload.ts";
+} from "../src/plugin-hot-update.ts";
+import { resolveOptions } from "../src/plugin-options.ts";
 
 interface GraphEntry {
   file: string;
@@ -106,5 +108,45 @@ describe("sendServerOnlyFullReload", () => {
     const { server, send } = createServer({ client: [ROUTE], ssr: [ROUTE] });
     expect(sendServerOnlyFullReload(server, ROUTE)).toBe(false);
     expect(send).not.toHaveBeenCalled();
+  });
+});
+
+describe("handlePrachtHotUpdate", () => {
+  it("restarts manifest apps when their app file changes", () => {
+    const restart = vi.fn();
+    const result = handlePrachtHotUpdate(
+      {
+        file: "/app/src/routes.ts",
+        server: {
+          config: { root: "/app" },
+          restart,
+          moduleGraph: {},
+        } as never,
+      },
+      resolveOptions({}),
+    );
+
+    expect(result).toEqual([]);
+    expect(restart).toHaveBeenCalledOnce();
+  });
+
+  it("invalidates server, dev, and client projections for route changes", () => {
+    const invalidateModule = vi.fn();
+    const getModuleById = vi.fn((id: string) => ({ id }));
+    handlePrachtHotUpdate(
+      {
+        file: "/app/src/routes/home.tsx",
+        server: {
+          config: { root: "/app" },
+          moduleGraph: { getModuleById, invalidateModule },
+        } as never,
+      },
+      resolveOptions({}),
+    );
+
+    expect(invalidateModule).toHaveBeenCalledTimes(3);
+    expect(getModuleById).toHaveBeenCalledWith("virtual:pracht/server");
+    expect(getModuleById).toHaveBeenCalledWith("virtual:pracht/dev-metadata");
+    expect(getModuleById).toHaveBeenCalledWith("virtual:pracht/client");
   });
 });
