@@ -25,9 +25,8 @@ import {
 import {
   createPrachtCapabilitiesClientModuleSource,
   createPrachtWebmcpModuleSource,
-  hasAgentSurface,
-  hasWebmcpCapabilities,
-} from "./plugin-capabilities.ts";
+} from "./capability-browser-codegen.ts";
+import { hasAgentSurface, hasWebmcpCapabilities } from "./plugin-capabilities.ts";
 import { createClientModuleSafetyPlugin } from "./plugin-client-safety.ts";
 import {
   createPrachtClientModuleSource,
@@ -71,8 +70,8 @@ export {
 export {
   createPrachtCapabilitiesClientModuleSource,
   createPrachtWebmcpModuleSource,
-  extractCapabilities,
-} from "./plugin-capabilities.ts";
+} from "./capability-browser-codegen.ts";
+export { extractCapabilities } from "./plugin-capabilities.ts";
 export {
   PRACHT_CAPABILITIES_MODULE_ID,
   PRACHT_CLIENT_MODULE_ID,

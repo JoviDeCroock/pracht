@@ -65,6 +65,9 @@ described in `VISION_MVP.md`.
   `configureServer` hook adds SSR middleware to the Vite dev server. The
   `handleHotUpdate` hook invalidates virtual modules when route/shell/middleware/API files change and
   triggers full reload when the app manifest (`src/routes.ts`) changes.
+  Capability discovery and conservative agent-surface detection live in
+  `plugin-capabilities.ts`; `capability-browser-codegen.ts` consumes that
+  metadata to generate the HTTP client and WebMCP browser projections.
 - **OpenAPI companion** — `prachtOpenApi()` augments the generated server graph
   without changing core API authoring. It serves a live OpenAPI JSON document
   and optional Scalar/Swagger page in development; `pracht build` writes the

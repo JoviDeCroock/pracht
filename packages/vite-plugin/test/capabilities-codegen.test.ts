@@ -7,8 +7,8 @@ import type { CapabilityErrorPayload } from "virtual:pracht/capabilities";
 import {
   createPrachtCapabilitiesClientModuleSource,
   createPrachtWebmcpModuleSource,
-  extractCapabilities,
-} from "../src/plugin-capabilities.ts";
+} from "../src/capability-browser-codegen.ts";
+import { extractCapabilities } from "../src/plugin-capabilities.ts";
 import {
   createPrachtClientModuleSource,
   createPrachtIslandsClientModuleSource,

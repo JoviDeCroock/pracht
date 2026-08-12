@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { createWebmcpBootstrapSource } from "./capability-browser-codegen.ts";
 import { PRACHT_CLIENT_MODULE_QUERY } from "./client-module-query.ts";
 import {
   CLIENT_BROWSER_PATH,
@@ -16,7 +17,7 @@ import {
   createRouteLoaderHintsForVirtualModules,
   generatePagesAppInlineSource,
 } from "./plugin-route-sources.ts";
-import { createWebmcpBootstrapSource, hasWebmcpCapabilities } from "./plugin-capabilities.ts";
+import { hasWebmcpCapabilities } from "./plugin-capabilities.ts";
 
 export { clearPagesAppSourceCache } from "./plugin-route-sources.ts";
 
