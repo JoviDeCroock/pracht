@@ -489,7 +489,9 @@ runtime-capability-pipeline.ts — shared input validation, named middleware, ex
 runtime-capability-audit.ts — observer registration, trusted identity snapshots,
                               and fail-safe audit delivery
 runtime-capability-invocation.ts — request-scoped hosts and direct or nested server calls
-runtime-capabilities.ts — HTTP transport and destructive confirmation
+runtime-capability-confirmation.ts — destructive prepare/commit orchestration,
+                                     durable approval policy, and replay protection
+runtime-capabilities.ts — HTTP transport
     ↑
 prefetch-cache.ts — bounded route-state cache shared by navigation, forms, and prefetching
     ↑
