@@ -453,7 +453,12 @@ already emitted. Constraints to know:
   `"beforeHydration"` can run; client strategies warn in dev and do nothing.
 - On `hydration: "islands"` routes, client strategies run for `<Script>`
   usages inside islands (they hydrate); `"beforeHydration"` works anywhere on
-  the page.
+  the page. A client strategy outside an island can never run and warns in
+  dev.
+- Inline JavaScript children are emitted verbatim except for HTML parser
+  breakout sequences (`</script`, `<script`, `<!--`), which are neutralized.
+  JSON script types (e.g. `type="application/ld+json"`) get full
+  JSON-safe `\uXXXX` escaping instead.
 
 ---
 

@@ -1068,6 +1068,37 @@ describe("handlePrachtRequest head metadata", () => {
     expect(html).not.toContain("onload");
     expect(html).not.toContain("</script><script>");
   });
+
+  it("keeps head() JavaScript children with bare operators syntactically valid", async () => {
+    // Untyped head() script entries are JavaScript, where `\uXXXX` escaping
+    // outside string literals is a syntax error. Only HTML parser breakout
+    // sequences (`</script`, `<script`, `<!--`) are neutralized.
+    const source = 'window.__flags = window.a && window.b; console.log("</script>");';
+    const app = defineApp({
+      routes: [route("/js", "./routes/js.tsx", { render: "ssr" })],
+    });
+
+    const response = await handlePrachtRequest({
+      app,
+      registry: {
+        routeModules: {
+          "./routes/js.tsx": async () => ({
+            Component: () => h("main", null, "js"),
+            head: () => ({
+              script: [{ children: source, id: "flags" }],
+            }),
+          }),
+        },
+      },
+      request: new Request("http://localhost/js"),
+    });
+
+    const html = await response.text();
+    const inner = html.match(/<script id="flags">([\s\S]*?)<\/script>/)?.[1] ?? "";
+    expect(inner).toContain("window.a && window.b");
+    expect(inner).toContain('console.log("<\\/script>");');
+    expect(() => new Function(inner)).not.toThrow();
+  });
 });
 
 describe("handlePrachtRequest speculation rules", () => {

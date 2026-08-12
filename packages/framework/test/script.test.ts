@@ -2,7 +2,12 @@
 import { h, render } from "preact";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { defineApp, handlePrachtRequest, route } from "../src/index.ts";
+import { defineApp, handlePrachtRequest, lazy, route, Suspense } from "../src/index.ts";
+import {
+  _resetIslandsForTesting,
+  registerServerIslands,
+  setIslandsClientEntryUrl,
+} from "../src/islands-server.ts";
 import {
   _resetScriptRegistryForTesting,
   Script,
@@ -64,6 +69,7 @@ afterEach(() => {
   scratch.remove();
   for (const el of injectedScripts()) el.remove();
   for (const el of document.querySelectorAll("script")) el.remove();
+  _resetIslandsForTesting();
   vi.restoreAllMocks();
 });
 
@@ -108,7 +114,67 @@ describe("<Script> SSR emission", () => {
     expect(html).toContain('<script id="flags">');
     expect(html).toContain("window.flags = { beta: true };");
     // Closing tags inside the inline source cannot break out of the element.
-    expect(html).toContain('console.log("\\u003c/script\\u003e");');
+    expect(html).toContain('console.log("<\\/script>");');
+    expect(html).not.toContain('console.log("</script>");');
+  });
+
+  it("keeps inline JavaScript with bare <, >, and && syntactically valid", async () => {
+    // Real-world third-party snippets (Segment, GTM, …) contain bare `&&`
+    // and comparison operators outside string literals. Full `\uXXXX`
+    // escaping would turn them into syntax errors.
+    const source = "window.console && console.error; if (1 < 2 && 3 > 2) { window.__ops = true; }";
+    const html = await renderRoute({
+      Component: () =>
+        h("main", null, h(Script, { strategy: "beforeHydration", id: "ops" }, source)),
+    });
+
+    const inner = html.match(/<script id="ops">([\s\S]*?)<\/script>/)?.[1] ?? "";
+    expect(inner).toBe(source);
+    // Emitted source must parse as JavaScript.
+    expect(() => new Function(inner)).not.toThrow();
+  });
+
+  it("neutralizes every HTML parser breakout sequence while preserving JS semantics", async () => {
+    const source = 'var probe = "</script><script>alert(1)</script>" + "<!--" + "<script>";';
+    const html = await renderRoute({
+      Component: () =>
+        h("main", null, h(Script, { strategy: "beforeHydration", id: "breakout" }, source)),
+    });
+
+    const inner = html.match(/<script id="breakout">([\s\S]*?)<\/script>/)?.[1] ?? "";
+    // No literal parser-significant sequence survives in the emitted text.
+    expect(inner.toLowerCase()).not.toContain("</script>");
+    expect(inner.toLowerCase()).not.toContain("<script>");
+    expect(inner).not.toContain("<!--");
+    // The escaping is a JS no-op inside string literals: evaluating the
+    // emitted source yields the original string.
+    const result = new Function(`${inner}; return probe;`)() as string;
+    expect(result).toBe("</script><script>alert(1)</script>" + "<!--" + "<script>");
+  });
+
+  it("emits JSON script types with JSON-safe full escaping", async () => {
+    const payload = JSON.stringify({ headline: "</script><script>alert(1)</script>" });
+    const html = await renderRoute({
+      Component: () =>
+        h(
+          "main",
+          null,
+          h(
+            Script,
+            { strategy: "beforeHydration", id: "ld", type: "application/ld+json" },
+            payload,
+          ),
+        ),
+    });
+
+    const inner =
+      html.match(/<script id="ld" type="application\/ld\+json">([\s\S]*?)<\/script>/)?.[1] ?? "";
+    expect(inner).toContain("\\u003c");
+    expect(inner).not.toContain("</script>");
+    // `\uXXXX` escapes are valid JSON: consumers can parse the text directly.
+    expect((JSON.parse(inner) as { headline: string }).headline).toBe(
+      "</script><script>alert(1)</script>",
+    );
   });
 
   it("only passes allowlisted attributes through to SSR HTML (no on*)", async () => {
@@ -183,6 +249,21 @@ describe("<Script> SSR emission", () => {
 
     expect(html).toContain(`${SCRIPT_PLACEHOLDER_ATTRIBUTE}="src:/visible.js"`);
     expect(html).not.toContain('<script src="/visible.js"');
+  });
+
+  it("renders the visible placeholder out of flow so it cannot disturb layout", async () => {
+    // position:absolute at the static position: never splits inline content
+    // (a block box would) and never becomes a flex/grid item consuming a
+    // `gap` slot, while staying observable by IntersectionObserver.
+    const html = await renderRoute({
+      Component: () => h("main", null, h(Script, { strategy: "visible", src: "/visible.js" })),
+    });
+
+    const placeholder = html.match(
+      new RegExp(`<span[^>]*${SCRIPT_PLACEHOLDER_ATTRIBUTE}[^>]*>`),
+    )?.[0];
+    expect(placeholder).toContain("position:absolute");
+    expect(placeholder).not.toContain("display:block");
   });
 
   it("escapes attribute values so props cannot break out of the SSR tag", async () => {
@@ -465,5 +546,162 @@ describe("<Script> client strategies", () => {
 
     expect(warn).toHaveBeenCalledWith(expect.stringContaining("requires either"));
     expect(injectedScripts().length).toBe(0);
+  });
+
+  it("still injects when an unrelated element holds the same id", async () => {
+    // A non-script element sharing the id must not be mistaken for an
+    // already-present script tag.
+    const decoy = document.createElement("div");
+    decoy.id = "widget";
+    document.body.appendChild(decoy);
+
+    try {
+      render(h(Script, { id: "widget", src: "/widget.js" }), scratch);
+      await flush();
+
+      expect(injectedScripts().length).toBe(1);
+      expect(injectedScripts()[0].getAttribute("src")).toBe("/widget.js");
+    } finally {
+      decoy.remove();
+    }
+  });
+});
+
+describe('<Script> on hydration: "islands" routes', () => {
+  function ServerCounter({ start = 0 }: { start?: number }) {
+    return h("button", {}, `Count: ${start}`);
+  }
+
+  function registerTestIslands(): void {
+    registerServerIslands({ "/src/islands/ServerCounter.tsx": { default: ServerCounter } });
+    setIslandsClientEntryUrl("/assets/islands-client-test.js");
+  }
+
+  it("warns in dev for client strategies outside any island (they can never run)", async () => {
+    registerTestIslands();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await renderRoute({
+      hydration: "islands",
+      Component: () =>
+        h(
+          "main",
+          null,
+          h(ServerCounter, { start: 1 }),
+          h(Script, { strategy: "afterHydration", src: "/static-region.js" }),
+        ),
+    });
+
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("outside any island"));
+  });
+
+  it("does not warn for client strategies inside an island (they hydrate)", async () => {
+    registerTestIslands();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    function IslandWithScript({ start = 0 }: { start?: number }) {
+      return h(
+        "div",
+        null,
+        `Count: ${start}`,
+        h(Script, { strategy: "afterHydration", src: "/inside-island.js" }),
+      );
+    }
+    registerServerIslands({ "/src/islands/IslandWithScript.tsx": { default: IslandWithScript } });
+
+    await renderRoute({
+      hydration: "islands",
+      Component: () => h("main", null, h(IslandWithScript, { start: 2 })),
+    });
+
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("captures beforeHydration scripts from inside an island into the head", async () => {
+    registerTestIslands();
+
+    function IslandWithBefore() {
+      return h("div", null, h(Script, { strategy: "beforeHydration", src: "/island-before.js" }));
+    }
+    registerServerIslands({ "/src/islands/IslandWithBefore.tsx": { default: IslandWithBefore } });
+
+    const html = await renderRoute({
+      hydration: "islands",
+      Component: () => h("main", null, h(IslandWithBefore, {})),
+    });
+
+    const headEnd = html.indexOf("</head>");
+    const scriptIndex = html.indexOf('<script src="/island-before.js">');
+    expect(scriptIndex).toBeGreaterThan(-1);
+    expect(scriptIndex).toBeLessThan(headEnd);
+  });
+});
+
+describe("<Script> capture isolation and Suspense", () => {
+  it("captures beforeHydration scripts from a Suspense boundary that resolves late", async () => {
+    const Late = lazy(
+      () =>
+        new Promise<{ default: () => ReturnType<typeof h> }>((resolve) =>
+          setTimeout(
+            () =>
+              resolve({
+                default: () => h(Script, { strategy: "beforeHydration", src: "/late-suspense.js" }),
+              }),
+            10,
+          ),
+        ),
+    );
+
+    const html = await renderRoute({
+      Component: () => h("main", null, h(Suspense, { fallback: null }, h(Late, {}))),
+    });
+
+    const headEnd = html.indexOf("</head>");
+    const scriptIndex = html.indexOf('<script src="/late-suspense.js">');
+    expect(scriptIndex).toBeGreaterThan(-1);
+    expect(scriptIndex).toBeLessThan(headEnd);
+  });
+
+  it("keeps concurrent server renders from cross-contaminating captures", async () => {
+    // Two interleaved async renders (the parallel-SSG-prerender shape): each
+    // suspends mid-render so their lifetimes overlap, and each must only see
+    // its own beforeHydration script.
+    const lateComponent = (src: string, delay: number) =>
+      lazy(
+        () =>
+          new Promise<{ default: () => ReturnType<typeof h> }>((resolve) =>
+            setTimeout(
+              () => resolve({ default: () => h(Script, { strategy: "beforeHydration", src }) }),
+              delay,
+            ),
+          ),
+      );
+    const LateA = lateComponent("/page-a.js", 20);
+    const LateB = lateComponent("/page-b.js", 5);
+
+    const renderPage = (path: string, Late: typeof LateA) => {
+      const app = defineApp({
+        routes: [route(path, "./routes/page.tsx", { render: "ssr" })],
+      });
+      return handlePrachtRequest({
+        app,
+        registry: {
+          routeModules: {
+            "./routes/page.tsx": async () => ({
+              Component: () => h("main", null, h(Suspense, { fallback: null }, h(Late, {}))),
+            }),
+          },
+        },
+        request: new Request(`http://localhost${path}`),
+        debugErrors: true,
+      }).then((response) => response.text());
+    };
+
+    const [htmlA, htmlB] = await Promise.all([renderPage("/a", LateA), renderPage("/b", LateB)]);
+
+    expect(htmlA).toContain('<script src="/page-a.js">');
+    expect(htmlA).not.toContain("/page-b.js");
+    expect(htmlB).toContain('<script src="/page-b.js">');
+    expect(htmlB).not.toContain("/page-a.js");
   });
 });

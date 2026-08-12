@@ -10,6 +10,7 @@ import {
   ISLAND_STRATEGIES,
   ISLAND_STRATEGY_ATTRIBUTE,
 } from "./islands-shared.ts";
+import { ScriptCaptureContext } from "./script.ts";
 import type { IslandStrategy } from "./types.ts";
 
 /**
@@ -142,6 +143,7 @@ function IslandBoundary(props: Record<string, unknown>) {
     [ISLAND_TYPE_PROP]: ComponentType<any>;
   };
   const capture = useContext(IslandCaptureContext);
+  const scriptCapture = useContext(ScriptCaptureContext);
   const descriptor = islandRegistry.get(type);
 
   if (!capture || !descriptor) {
@@ -184,11 +186,22 @@ function IslandBoundary(props: Record<string, unknown>) {
   // Islands nested inside this island's subtree hydrate as part of this
   // island, so they must not emit their own markers: null out the capture
   // context for the wrapped subtree.
-  return h(
-    ISLAND_ELEMENT,
-    attributes,
-    h(IslandCaptureContext.Provider, { value: null }, renderOriginal(type, componentProps)),
+  let subtree = h(
+    IslandCaptureContext.Provider,
+    { value: null },
+    renderOriginal(type, componentProps),
   );
+  if (scriptCapture) {
+    // Re-provide the script capture with the inside-island flag set (scripts
+    // and dedupe keys are shared by reference) so <Script> knows client
+    // strategies inside this subtree do hydrate and must not warn.
+    subtree = h(
+      ScriptCaptureContext.Provider,
+      { value: { ...scriptCapture, insideIsland: true } },
+      subtree,
+    );
+  }
+  return h(ISLAND_ELEMENT, attributes, subtree);
 }
 
 function validateIslandStrategy(client: unknown, descriptor: IslandDescriptor): IslandStrategy {

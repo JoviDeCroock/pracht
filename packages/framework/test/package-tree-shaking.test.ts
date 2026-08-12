@@ -118,6 +118,9 @@ describe("published package tree shaking", () => {
     ["createHref", 1_400],
     ["apiFetch", 2_200],
     ["PrachtHttpError", 350],
+    // Standalone cost incl. the useIsHydrated machinery; in a hydrating app
+    // most of that is already present, so the marginal cost is lower.
+    ["Script", 2_400],
   ])("keeps a named %s import below %i gzip bytes", async (exportName, maxGzipBytes) => {
     expect((await bundleExport(exportName)).gzipBytes).toBeLessThanOrEqual(maxGzipBytes);
   });

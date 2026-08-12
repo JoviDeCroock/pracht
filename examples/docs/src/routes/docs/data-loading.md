@@ -291,7 +291,8 @@ A script identified by `id`, `src`, or its inline content is never injected twic
 
 - `"beforeHydration"` only applies to server-rendered documents. When such a component first mounts via a client-side navigation, the script is injected immediately instead (with a dev warning).
 - On `hydration: "none"` routes no client JavaScript ships, so only `"beforeHydration"` can run; client strategies warn in dev and do nothing.
-- On `hydration: "islands"` routes, client strategies run for `<Script>` usages inside islands (they hydrate); `"beforeHydration"` works anywhere on the page.
+- On `hydration: "islands"` routes, client strategies run for `<Script>` usages inside islands (they hydrate); `"beforeHydration"` works anywhere on the page. A client strategy outside an island can never run and warns in dev.
+- Inline JavaScript children are emitted verbatim except for HTML parser breakout sequences (`</script`, `<script`, `<!--`), which are neutralized. JSON script types (e.g. `type="application/ld+json"`) get full JSON-safe `\uXXXX` escaping instead.
 
 ---
 

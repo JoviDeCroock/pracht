@@ -25,6 +25,29 @@ export function escapeScriptText(value: string): string {
     .replace(/\u2029/g, "\\u2029");
 }
 
+/** Script types whose content is JSON, where `\uXXXX` escapes are always valid. */
+const JSON_SCRIPT_TYPE_RE =
+  /^(?:application\/(?:[^\s;]*\+)?json|importmap|speculationrules)\s*(?:;|$)/i;
+
+/**
+ * Escape user-authored inline `<script>` children for HTML embedding.
+ *
+ * JSON payloads (`application/json`, `application/ld+json`, `importmap`,
+ * `speculationrules`) get the full `escapeScriptText` treatment: `\uXXXX`
+ * escapes are valid anywhere in JSON, so every `<`, `>`, and `&` can be
+ * neutralized. JavaScript source cannot: a `\uXXXX` escape outside a string
+ * literal is a syntax error (escaping `a && b` in full would not parse), so
+ * for JS only the sequences the HTML parser treats specially inside a script
+ * element are broken up: `</script`, `<script`, and `<!--` become
+ * `<\/script`, `<\script`, and `<\!--` (the HTML-spec-recommended escaping;
+ * a JS no-op inside string and template literals, where such sequences
+ * realistically occur).
+ */
+export function escapeScriptChildren(value: string, type?: string): string {
+  if (type && JSON_SCRIPT_TYPE_RE.test(type.trim())) return escapeScriptText(value);
+  return value.replace(/<(!--|\/?script)/gi, "<\\$1");
+}
+
 const SAFE_ATTRIBUTE_NAME_RE = /^[A-Za-z_:][A-Za-z0-9:._-]*$/;
 const GLOBAL_HEAD_ATTRIBUTE_PREFIXES = ["data-", "aria-"];
 const META_ATTRIBUTES = new Set([
@@ -140,7 +163,7 @@ export function buildHtmlDocument(options: {
   const scriptTags = (head.script ?? [])
     .map((script) => {
       const attrs = renderAttributes(script, SCRIPT_ATTRIBUTES);
-      const children = script.children ? escapeScriptText(script.children) : "";
+      const children = script.children ? escapeScriptChildren(script.children, script.type) : "";
       return attrs ? `<script ${attrs}>${children}</script>` : `<script>${children}</script>`;
     })
     .join("\n    ");

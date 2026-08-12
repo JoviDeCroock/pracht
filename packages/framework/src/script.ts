@@ -81,6 +81,13 @@ export interface ScriptCapture {
   keys: Set<string>;
   /** Hydration mode of the route being rendered; drives dev warnings. */
   hydration: HydrationMode;
+  /**
+   * True inside an island subtree during an islands-mode server render (the
+   * island boundary re-provides the capture with this flag; scripts/keys are
+   * shared by reference). Client strategies hydrate there — everywhere else
+   * on an islands route they never run, which is worth a dev warning.
+   */
+  insideIsland?: boolean;
 }
 
 export const ScriptCaptureContext = createContext<ScriptCapture | null>(null);
@@ -208,6 +215,13 @@ export function Script(props: ScriptProps): VNode | null {
           'strategies can never run — use strategy: "beforeHydration" or a head() script ' +
           "entry instead.",
       );
+    } else if (DEV && capture.hydration === "islands" && !capture.insideIsland) {
+      console.warn(
+        `[pracht] <Script strategy="${strategy}"> (${describeScript(props)}) rendered outside ` +
+          'any island on a hydration: "islands" route. Only islands hydrate on these routes, ' +
+          "so this script can never run — move it inside an island, or use " +
+          'strategy: "beforeHydration".',
+      );
     }
     return strategy === "visible" ? renderPlaceholder(key, placeholderRef) : null;
   }
@@ -225,9 +239,12 @@ export function Script(props: ScriptProps): VNode | null {
 function renderPlaceholder(key: string, ref: { current: HTMLElement | null }): VNode {
   return h("span", {
     [SCRIPT_PLACEHOLDER_ATTRIBUTE]: key,
-    // A zero-size block box: invisible to layout but still observable by
-    // IntersectionObserver (edge intersection counts for zero-area targets).
-    style: "display:block;width:0;height:0;overflow:hidden",
+    // Absolutely positioned at its static position: a zero-size box that is
+    // removed from the flow entirely — it cannot split inline content the way
+    // a block box would, and it never becomes a flex/grid item consuming a
+    // `gap` slot — while remaining observable by IntersectionObserver (edge
+    // intersection counts for zero-area targets).
+    style: "position:absolute;width:0;height:0;overflow:hidden",
     ref,
   } as Record<string, unknown>);
 }
@@ -300,32 +317,47 @@ function toHeadScriptDescriptor(
 
 /**
  * Escape for inline emission inside a `<script>` element — same escaping the
- * head() script pipeline applies (see escapeScriptText in runtime-html.ts,
+ * head() script pipeline applies (see escapeScriptChildren in runtime-html.ts,
  * duplicated here so the browser bundle does not pull in the server HTML
- * builder).
+ * builder). JSON payloads get full `\uXXXX` escaping (valid anywhere in
+ * JSON); JavaScript source only breaks up the sequences the HTML parser
+ * treats specially inside a script element (`</script`, `<script`, `<!--`),
+ * because `\uXXXX` escapes outside string literals are JS syntax errors.
  */
-function escapeInlineScriptText(value: string): string {
-  return value
-    .replace(/</g, "\\u003c")
-    .replace(/>/g, "\\u003e")
-    .replace(/&/g, "\\u0026")
-    .split(String.fromCharCode(0x2028))
-    .join("\\u2028")
-    .split(String.fromCharCode(0x2029))
-    .join("\\u2029");
+const JSON_SCRIPT_TYPE_RE =
+  /^(?:application\/(?:[^\s;]*\+)?json|importmap|speculationrules)\s*(?:;|$)/i;
+
+function escapeInlineScriptText(value: string, type?: string): string {
+  if (type && JSON_SCRIPT_TYPE_RE.test(type.trim())) {
+    return value
+      .replace(/</g, "\\u003c")
+      .replace(/>/g, "\\u003e")
+      .replace(/&/g, "\\u0026")
+      .split(String.fromCharCode(0x2028))
+      .join("\\u2028")
+      .split(String.fromCharCode(0x2029))
+      .join("\\u2029");
+  }
+  return value.replace(/<(!--|\/?script)/gi, "<\\$1");
 }
 
 function renderInlineScriptTag(props: ScriptProps, inline: string | undefined): VNode {
   const attributes: Record<string, unknown> = toAttributeRecord(props);
   if (!props.src && inline !== undefined) {
-    attributes.dangerouslySetInnerHTML = { __html: escapeInlineScriptText(inline) };
+    attributes.dangerouslySetInnerHTML = { __html: escapeInlineScriptText(inline, props.type) };
   }
   return h("script", attributes);
 }
 
 function existsInDocument(props: ScriptProps, inline: string | undefined): boolean {
   if (typeof document === "undefined") return false;
-  if (props.id) return document.getElementById(props.id) != null;
+  if (props.id) {
+    const el = document.getElementById(props.id);
+    // Only a <script> holding the id counts as "already present": an
+    // unrelated element that happens to share the id must not silently
+    // swallow the script.
+    if (el != null) return el.tagName === "SCRIPT";
+  }
   const scripts = document.querySelectorAll("script");
   if (props.src) {
     for (const el of scripts) {
@@ -334,7 +366,7 @@ function existsInDocument(props: ScriptProps, inline: string | undefined): boole
     return false;
   }
   if (inline !== undefined) {
-    const escaped = escapeInlineScriptText(inline);
+    const escaped = escapeInlineScriptText(inline, props.type);
     for (const el of scripts) {
       if (el.textContent === inline || el.textContent === escaped) return true;
     }
