@@ -17,14 +17,14 @@ export const app = defineApp({
       // Dynamic SSG: getStaticPaths() enumerates the pages (and their
       // route-state files) at build time.
       route("/posts/:slug", () => import("./routes/post.tsx"), { id: "post", render: "ssg" }),
-      // SPA route with a build-time loader: the shell HTML and the loader
-      // payload are both emitted statically.
+      // Static SPA routes are loaderless: their shell HTML is emitted at
+      // build time and the component runs entirely in the browser.
       route("/dashboard", () => import("./routes/dashboard.tsx"), {
         id: "dashboard",
         render: "spa",
       }),
-      // Dynamic SPA route: not prerenderable (no getStaticPaths), so deep
-      // links only work behind a host rewrite to the 200.html fallback.
+      // Dynamic loaderless SPA route: deep links only work behind a host
+      // rewrite to the 200.html fallback.
       route("/items/:id", () => import("./routes/item.tsx"), { id: "item", render: "spa" }),
     ]),
   ],

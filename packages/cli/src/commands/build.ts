@@ -8,7 +8,11 @@ import { build as viteBuild } from "vite";
 
 import { readClientBuildAssets } from "../build-metadata.js";
 import { writeVercelBuildOutput } from "../build-shared.js";
-import { validateStaticExport, writeStaticExportArtifacts } from "../build-static.js";
+import {
+  isStaticExportBuild,
+  validateStaticExport,
+  writeStaticExportArtifacts,
+} from "../build-static.js";
 import {
   collectBundleReport,
   evaluateBudgets,
@@ -160,10 +164,10 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
     registerPrerenderModuleHooks();
     const serverMod = await import(pathToFileURL(serverEntry).href);
     buildTarget = typeof serverMod.buildTarget === "string" ? serverMod.buildTarget : null;
-    const isStaticExport = buildTarget === "static";
+    const isStaticExport = isStaticExportBuild(serverMod);
     if (isStaticExport) {
       // Fail closed before prerendering: a static export has no server, so
-      // SSR/ISG routes, API routes, and network-exposed capabilities are
+      // Request-runtime routes/features and network-exposed capabilities are
       // build errors (with every offender listed at once).
       await validateStaticExport(serverMod);
     }

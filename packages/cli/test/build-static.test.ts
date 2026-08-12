@@ -4,6 +4,7 @@ import { join, resolve, sep } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
+  isStaticExportBuild,
   resolveRouteStateOutputPath,
   validateStaticExport,
   writeStaticExportArtifacts,
@@ -28,9 +29,12 @@ describe("validateStaticExport", () => {
     await expect(
       validateStaticExport({
         resolvedApp: {
+          capabilities: {
+            private: "/src/capabilities/private.ts",
+          },
           routes: [
-            { path: "/", render: "ssg" },
-            { path: "/app", render: "spa" },
+            { hasLoader: true, middlewareFiles: [], path: "/", render: "ssg" },
+            { hasLoader: false, middlewareFiles: [], path: "/app", render: "spa" },
           ],
         },
         apiRoutes: [],
@@ -69,6 +73,69 @@ describe("validateStaticExport", () => {
     expect(message).not.toContain("- / (");
   });
 
+  it("fails closed on SPA loaders, including routes whose loader status is unknown", async () => {
+    const error = await validateStaticExport({
+      resolvedApp: {
+        routes: [
+          { hasLoader: false, path: "/client-only", render: "spa" },
+          { hasLoader: true, path: "/with-loader", render: "spa" },
+          { path: "/unknown-loader", render: "spa" },
+        ],
+      },
+    }).catch((thrown: Error) => thrown);
+
+    expect(error).toBeInstanceOf(Error);
+    const message = (error as Error).message;
+    expect(message).toContain("/with-loader");
+    expect(message).toContain("/unknown-loader");
+    expect(message).not.toContain("/client-only");
+    expect(message).toContain("Static SPA routes must be loaderless");
+  });
+
+  it("fails closed on route middleware for SSG and SPA routes", async () => {
+    const error = await validateStaticExport({
+      resolvedApp: {
+        routes: [
+          {
+            hasLoader: true,
+            middlewareFiles: ["/src/middleware/content.ts"],
+            path: "/article",
+            render: "ssg",
+          },
+          {
+            hasLoader: false,
+            middlewareFiles: ["/src/middleware/auth.ts"],
+            path: "/dashboard",
+            render: "spa",
+          },
+        ],
+      },
+    }).catch((thrown: Error) => thrown);
+
+    expect(error).toBeInstanceOf(Error);
+    const message = (error as Error).message;
+    expect(message).toContain("/article");
+    expect(message).toContain("/dashboard");
+    expect(message).toContain("static host has no request runtime");
+  });
+
+  it("fails closed on notFound middleware", async () => {
+    const error = await validateStaticExport({
+      resolvedApp: {
+        notFound: {
+          middlewareFiles: ["/src/middleware/auth.ts"],
+          path: "/__pracht-not-found__",
+          render: "ssg",
+        },
+        routes: [{ hasLoader: false, middlewareFiles: [], path: "/", render: "spa" }],
+      },
+    }).catch((thrown: Error) => thrown);
+
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toContain("/__pracht-not-found__");
+    expect((error as Error).message).toContain("static host has no request runtime");
+  });
+
   it("fails closed on API routes", async () => {
     const error = await validateStaticExport({
       resolvedApp: { routes: [{ path: "/", render: "ssg" }] },
@@ -82,7 +149,13 @@ describe("validateStaticExport", () => {
 
   it("fails closed on capabilities exposed over http/mcp/webmcp", async () => {
     const error = await validateStaticExport({
-      resolvedApp: { routes: [{ path: "/", render: "ssg" }] },
+      resolvedApp: {
+        capabilities: {
+          "notes.search": "./capabilities/search.ts",
+          "notes.private": "./capabilities/private.ts",
+        },
+        routes: [{ path: "/", render: "ssg" }],
+      },
       registry: {
         capabilityModules: {
           "/src/capabilities/search.ts": async () => ({
@@ -96,9 +169,76 @@ describe("validateStaticExport", () => {
     }).catch((thrown: Error) => thrown);
 
     expect(error).toBeInstanceOf(Error);
-    expect((error as Error).message).toContain("/src/capabilities/search.ts");
+    expect((error as Error).message).toContain("notes.search");
+    expect((error as Error).message).toContain("./capabilities/search.ts");
     expect((error as Error).message).toContain("http, mcp");
-    expect((error as Error).message).not.toContain("/src/capabilities/private.ts");
+    expect((error as Error).message).not.toContain("notes.private");
+  });
+
+  it("ignores capability files that are not registered in the app manifest", async () => {
+    await expect(
+      validateStaticExport({
+        resolvedApp: { capabilities: {}, routes: [{ path: "/", render: "ssg" }] },
+        registry: {
+          capabilityModules: {
+            "/src/capabilities/unused.ts": async () => ({
+              default: { expose: { http: true } },
+            }),
+          },
+        },
+      }),
+    ).resolves.toBeUndefined();
+  });
+
+  it("fails closed when a registered capability cannot be imported", async () => {
+    const error = await validateStaticExport({
+      resolvedApp: {
+        capabilities: { "notes.search": "/src/capabilities/search.ts" },
+        routes: [{ path: "/", render: "ssg" }],
+      },
+      registry: {
+        capabilityModules: {
+          "/src/capabilities/search.ts": async () => {
+            throw new Error("missing build environment");
+          },
+        },
+      },
+    }).catch((thrown: Error) => thrown);
+
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toContain("notes.search");
+    expect((error as Error).message).toContain("missing build environment");
+    expect((error as Error).message).toContain("cannot be validated safely");
+  });
+
+  it("fails closed when a registered capability module is missing", async () => {
+    const error = await validateStaticExport({
+      resolvedApp: {
+        capabilities: { "notes.search": "/src/capabilities/search.ts" },
+        routes: [{ path: "/", render: "ssg" }],
+      },
+      registry: { capabilityModules: {} },
+    }).catch((thrown: Error) => thrown);
+
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toContain("registered module was not found");
+  });
+
+  it("fails closed when a registered module has no default capability export", async () => {
+    const error = await validateStaticExport({
+      resolvedApp: {
+        capabilities: { "notes.search": "/src/capabilities/search.ts" },
+        routes: [{ path: "/", render: "ssg" }],
+      },
+      registry: {
+        capabilityModules: {
+          "/src/capabilities/search.ts": async () => ({}),
+        },
+      },
+    }).catch((thrown: Error) => thrown);
+
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toContain("module has no default capability export");
   });
 
   it("fails closed on routes under the reserved /_pracht namespace", async () => {
@@ -122,6 +262,14 @@ describe("validateStaticExport", () => {
     const message = (error as Error).message;
     expect(message).toContain("/x");
     expect(message).toContain("/api/x");
+  });
+});
+
+describe("isStaticExportBuild", () => {
+  it("uses the adapter's staticTarget metadata instead of its id", () => {
+    expect(isStaticExportBuild({ staticTarget: true })).toBe(true);
+    expect(isStaticExportBuild({ staticTarget: false })).toBe(false);
+    expect(isStaticExportBuild({})).toBe(false);
   });
 });
 

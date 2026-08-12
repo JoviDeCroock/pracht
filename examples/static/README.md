@@ -1,6 +1,6 @@
 # Pracht static-export example
 
-A small manifest app built with `@pracht/adapter-static`: SSG routes with loaders, a dynamic SSG route (`getStaticPaths`), SPA routes (including a dynamic one that relies on the `200.html` fallback), and a notFound page emitted as `404.html`.
+A small manifest app built with `@pracht/adapter-static`: SSG routes with build-time loaders, a dynamic SSG route (`getStaticPaths`), loaderless SPA routes (including a dynamic one that relies on the `200.html` fallback), and a notFound page emitted as `404.html`.
 
 ```bash
 pnpm build      # in this directory: node ../../packages/cli/bin/pracht.js build

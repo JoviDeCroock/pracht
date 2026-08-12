@@ -15,7 +15,7 @@ described in `VISION_MVP.md`.
 | `packages/adapter-cloudflare` | `@pracht/adapter-cloudflare` | Cloudflare Workers fetch handler, generated worker entry source, static asset handoff, and Cache API ISG     |
 | `packages/adapter-netlify`    | `@pracht/adapter-netlify`    | Netlify Functions v2 handler, bundled static output, durable CDN caching, and tag-based ISG revalidation     |
 | `packages/adapter-vercel`     | `@pracht/adapter-vercel`     | Vercel Edge handler, Build Output API entry source, and native ISR artifacts                                 |
-| `packages/adapter-static`     | `@pracht/adapter-static`     | Pure static export: fail-closed build validation, serialized route-state files for client navigation, 404/SPA-fallback documents, static preview server |
+| `packages/adapter-static`     | `@pracht/adapter-static`     | Strict SSG/loaderless-SPA export: fail-closed runtime-feature validation, SSG route-state files, 404/SPA fallback, static preview server |
 | `packages/preact-worker-facets` | `@pracht/preact-worker-facets` | Experimental Cloudflare Dynamic Worker + Durable Object facets runtime for inert, stateful Preact components |
 | `packages/image`              | `@pracht/image`              | Responsive, CLS-safe `<Image>` component, pluggable optimization loaders, sharp-backed Node endpoint (see `docs/IMAGES.md`) |
 | `packages/i18n`               | `@pracht/i18n`               | i18n primitives: locale-detection middleware, lazy typed dictionaries, `t()`/`tPlural()`, `localePath()`/`hreflang()` helpers (see `packages/i18n/README.md`) |
@@ -115,11 +115,12 @@ described in `VISION_MVP.md`.
 - **Vercel adapter** — Emits an Edge-compatible handler, copies the build into
   `.vercel/output/static` and `.vercel/output/functions/render.func`, rewrites
   clean SSG URLs to static HTML, and emits native prerender functions for ISG.
-- **Static adapter** — Pure static export: fail-closed build validation
-  (SSR/ISG routes, API routes, and exposed capabilities are build errors),
-  serialized `_pracht/state/…` route-state files so client navigation works
-  with zero server, `404.html`/`200.html` documents, and a tiny static
-  preview server behind `pracht preview`.
+- **Static adapter** — Narrow pure static export: SSG plus loaderless SPA,
+  with fail-closed build validation for every request-runtime feature
+  (SSR/ISG, SPA loaders, middleware, API routes, and exposed capabilities),
+  serialized `_pracht/state/…` files for SSG loader navigation,
+  `404.html`/`200.html` documents, and a tiny static preview server behind
+  `pracht preview`.
 - **Preact Worker facets prototype** — `@pracht/preact-worker-facets` provides
   experimental helpers for running Preact-style component modules inside
   Cloudflare Dynamic Workers. A supervisor Durable Object owns auth, source

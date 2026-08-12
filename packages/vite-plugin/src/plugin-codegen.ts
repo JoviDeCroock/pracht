@@ -359,6 +359,7 @@ export function createPrachtServerModuleSource(
     "applyRouteHints(resolvedApp, routeLoaderHints, routeHeadHints);",
     `export const apiRoutes = resolveApiRoutes(Object.keys(apiModules), ${JSON.stringify(resolved.apiDir)});`,
     `export const buildTarget = ${JSON.stringify(adapter?.id ?? "node")};`,
+    `export const staticTarget = ${JSON.stringify(adapter?.staticTarget === true)};`,
     `export const clientEntryUrl = ${JSON.stringify(clientBuild.clientEntryUrl ?? CLIENT_BROWSER_PATH)};`,
     `export const islandsEntryUrl = ${JSON.stringify(islandsEntryUrl ?? null)};`,
     `export const islandsBootstrapRequired = ${JSON.stringify(islandsBootstrapRequired)};`,
@@ -410,6 +411,7 @@ export function createPrachtDevModuleSource(
     "export const resolvedApp = resolveApp(app);",
     `export const apiRoutes = resolveApiRoutes(Object.keys(apiModules), ${JSON.stringify(resolved.apiDir)});`,
     `export const buildTarget = ${JSON.stringify(resolved.adapter?.id ?? "node")};`,
+    `export const staticTarget = ${JSON.stringify(resolved.adapter?.staticTarget === true)};`,
     "",
   ].join("\n");
 }

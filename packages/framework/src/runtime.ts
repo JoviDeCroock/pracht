@@ -885,6 +885,10 @@ export async function handlePrachtRequest<TContext>(
         );
 
         if (match.route.render === "spa") {
+          // The generated hasLoader hint can be absent for direct runtime
+          // callers, but the resolved loader is authoritative here. Route
+          // middleware also participates in the route-state request.
+          const needsRouteState = loader != null || match.route.middlewareFiles.length > 0;
           let body = "";
           const Shell = shellModule?.Shell as FunctionComponent | undefined;
           const Loading = shellModule?.Loading as FunctionComponent | undefined;
@@ -928,14 +932,14 @@ export async function handlePrachtRequest<TContext>(
                 routeId: match.route.id ?? "",
                 data: null,
                 error: null,
-                pending: true,
+                pending: needsRouteState,
               },
               clientEntryUrl: options.clientEntryUrl,
               cssUrls,
               modulePreloadUrls,
-              // Static exports preload the serialized state file — the
-              // `_data=1` endpoint does not exist without a server.
-              routeStatePreloadUrl: loader
+              // Routes with loader/middleware state preload it. Static exports
+              // point this at a serialized file; other adapters use `_data=1`.
+              routeStatePreloadUrl: needsRouteState
                 ? IS_STATIC_TARGET
                   ? buildStaticRouteStateUrl(requestPath)
                   : buildRouteStateUrl(requestPath)

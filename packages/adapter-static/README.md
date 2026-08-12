@@ -31,13 +31,14 @@ pracht preview    # serves dist/client/ locally with a tiny static file server
 
 A static export has no server, so the build fails closed on anything that needs one:
 
-- Every route must be `render: "ssg"` (or `"spa"` — the shell HTML is prerendered). `ssr` and `isg` routes are build errors naming the routes; use `@pracht/adapter-node`, `@pracht/adapter-cloudflare`, or `@pracht/adapter-vercel` for those.
+- Every route must be `render: "ssg"` or loaderless `"spa"`. SSG loaders run at build time and must succeed; loader redirects/errors and dynamic SSG routes without `getStaticPaths()` fail the build. SPA loaders, `ssr`, and `isg` are build errors naming the routes; use browser-side fetching for live SPA data or use `@pracht/adapter-node`, `@pracht/adapter-cloudflare`, or `@pracht/adapter-vercel`.
+- Route and not-found middleware are build errors because no request runtime exists to enforce them.
 - API routes are build errors.
-- Capabilities exposed over HTTP/MCP/WebMCP are build errors (server-only capabilities invoked from build-time loaders are fine).
+- Manifest-registered capabilities exposed over HTTP/MCP/WebMCP are build errors (server-only capabilities invoked from build-time loaders are fine). Registered capability modules must load successfully so validation can fail closed; unused files in the capabilities directory are ignored.
 
 ## Client-side navigation
 
-Loaders run at build time. For each prerendered route that a client navigation would fetch state for, the build serializes the route-state JSON to `dist/client/_pracht/state/<path>/index.json`, and the client router (compiled with `__PRACHT_STATIC_TARGET__`) fetches that file instead of the live route-state endpoint. Navigation therefore stays client-side on a dumb static host.
+SSG loaders run at build time. For each loader-backed SSG route, the build serializes route-state JSON to `dist/client/_pracht/state/<path>/index.json`, and the client router (compiled with `__PRACHT_STATIC_TARGET__`) fetches that file instead of the live route-state endpoint. Loaderless SPA routes fetch no Pracht state and run entirely in the browser. Navigation therefore stays client-side on a dumb static host.
 
 ## Output conventions
 
@@ -45,5 +46,7 @@ Loaders run at build time. For each prerendered route that a client navigation w
 - Route state: `_pracht/state/<path>/index.json`.
 - `404.html`: the app's `notFound` page, rendered at build time (GitHub Pages / S3 error-document convention).
 - `200.html` (opt-in via `staticAdapter({ fallback: "200.html" })`): SPA fallback document for hosts that can rewrite unmatched URLs; required for deep links into dynamic `render: "spa"` routes.
+
+Fallback names may not collide with `index.html` or `404.html`, including case variants on case-insensitive filesystems.
 
 See `docs/ADAPTERS.md` in the repository for the full documentation, host configuration notes, and limitations.

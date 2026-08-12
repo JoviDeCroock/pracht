@@ -18,15 +18,16 @@ const FALLBACK_FILENAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*\.html$/;
 function assertValidStaticAdapterOptions(options: StaticAdapterOptions): void {
   const fallback = options.fallback;
   if (fallback === undefined) return;
-  if (!FALLBACK_FILENAME_RE.test(fallback)) {
-    throw new Error(
-      `staticAdapter({ fallback }) expects a plain HTML file name such as "200.html", got ${JSON.stringify(fallback)}.`,
-    );
-  }
-  if (fallback === "index.html" || fallback === "404.html") {
+  const normalizedFallback = fallback.toLowerCase();
+  if (normalizedFallback === "index.html" || normalizedFallback === "404.html") {
     throw new Error(
       `staticAdapter({ fallback: ${JSON.stringify(fallback)} }) collides with a reserved output file — ` +
         '"index.html" is the root route and "404.html" is the rendered not-found page. Use "200.html".',
+    );
+  }
+  if (!FALLBACK_FILENAME_RE.test(fallback)) {
+    throw new Error(
+      `staticAdapter({ fallback }) expects a plain HTML file name such as "200.html", got ${JSON.stringify(fallback)}.`,
     );
   }
 }
@@ -50,6 +51,7 @@ export function createStaticServerEntryModule(options: StaticAdapterOptions = {}
     "// convention). Uses an unmatched path so the app's `notFound` page",
     "// renders; returns null when the app declares none.",
     "export async function renderStaticNotFoundHtml() {",
+    "  if (!resolvedApp.notFound) return null;",
     "  const response = await handlePrachtRequest({",
     "    app: resolvedApp,",
     "    registry,",
@@ -61,7 +63,15 @@ export function createStaticServerEntryModule(options: StaticAdapterOptions = {}
     "    jsManifest,",
     "  });",
     '  const contentType = response.headers.get("content-type") ?? "";',
-    '  if (response.status !== 404 || !contentType.includes("text/html")) return null;',
+    "  if (response.status !== 200 && response.status !== 404) {",
+    '    const location = response.headers.get("location");',
+    '    const detail = location ? ` (redirect: ${location})` : "";',
+    "    throw new Error(`Static export failed to render the notFound page: status ${response.status}${detail}. Make its loader succeed at build time or use a serverful adapter.`);",
+    "  }",
+    '  if (response.status === 404 && !contentType.includes("text/html")) {',
+    '    throw new Error(`Static export failed to render the notFound page as HTML (content-type: ${contentType || "missing"}).`);',
+    "  }",
+    "  if (response.status !== 404) return null;",
     "  return await response.text();",
     "}",
     "",
@@ -96,8 +106,9 @@ export function createStaticServerEntryModule(options: StaticAdapterOptions = {}
  *
  * `pracht build` prerenders every route into `dist/client/` — deploy that
  * directory to any static host. Build-time validation fails closed on
- * anything that needs a server: `render: "ssr"` / `"isg"` routes, API routes,
- * and network-exposed capabilities.
+ * anything that needs a server: `render: "ssr"` / `"isg"` routes, SPA
+ * loaders, request middleware, API routes, and network-exposed capabilities.
+ * SSG loaders run at build time; static SPA routes are loaderless.
  */
 export function staticAdapter(options: StaticAdapterOptions = {}): PrachtAdapter {
   assertValidStaticAdapterOptions(options);
