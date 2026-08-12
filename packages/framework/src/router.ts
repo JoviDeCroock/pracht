@@ -9,12 +9,7 @@ import {
 import { getCachedRouteState } from "./prefetch-cache.ts";
 import { registerPrefetchTarget } from "./prefetch-api.ts";
 import type { ModuleWarmFn } from "./prefetch-api.ts";
-import {
-  NOT_FOUND_ROUTE_ID,
-  PRESERVE_SCROLL_ATTRIBUTE,
-  VIEW_TRANSITION_ATTRIBUTE,
-} from "./runtime-constants.ts";
-import { normalizeSpeculation, supportsSpeculationRules } from "./runtime-speculation.ts";
+import { NOT_FOUND_ROUTE_ID } from "./runtime-constants.ts";
 import type {
   NavigateOptions,
   ResolvedPrachtApp,
@@ -32,6 +27,7 @@ import type { PrachtHydrationState } from "./runtime-context.ts";
 import type { RouteStateResult } from "./runtime-client-fetch.ts";
 import { commitWithOptionalViewTransition, resolveBrowserRouteTarget } from "./router-browser.ts";
 import { createRouterHistoryController } from "./router-history.ts";
+import { installRouterLinkInterceptor } from "./router-links.ts";
 import type { NavigateFn } from "./router-navigation.ts";
 import { createClientRouteRenderer, type RouterModuleMap } from "./router-renderer.ts";
 
@@ -389,67 +385,12 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
     }
   }
 
-  document.addEventListener("click", (e: MouseEvent) => {
-    const anchor = (e.target as Element).closest?.("a");
-    if (!anchor) return;
-
-    // Skip modified clicks (new tab, etc.)
-    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
-    if (e.defaultPrevented) return;
-    if (e.button !== 0) return;
-
-    // Skip if target opens a new window
-    const target = anchor.getAttribute("target");
-    if (target && target !== "_self") return;
-
-    // Skip download links
-    if (anchor.hasAttribute("download")) return;
-
-    const href = anchor.getAttribute("href");
-    if (!href) return;
-
-    // Resolve relative URLs. A bare `#fragment` resolves against the full
-    // current URL — against the origin alone it would lose the path.
-    const isFragmentHref = href.startsWith("#");
-    let url: URL;
-    try {
-      url = new URL(href, isFragmentHref ? window.location.href : window.location.origin);
-    } catch {
-      return;
-    }
-
-    // Skip external origins
-    if (url.origin !== window.location.origin) return;
-
-    // In-page fragment navigation: same document, only the fragment differs.
-    // Handled before the speculation check below because no document is
-    // fetched here, so prerendering has nothing to activate.
-    const isSameDocument =
-      url.pathname + url.search === window.location.pathname + window.location.search;
-    if (isSameDocument && (url.hash !== "" || isFragmentHref)) {
-      e.preventDefault();
-      historyController.commitFragmentNavigation(
-        url,
-        anchor.hasAttribute(PRESERVE_SCROLL_ATTRIBUTE),
-      );
-      return;
-    }
-
-    // If the destination route opted into `prerender` speculation rules, let
-    // the browser perform a normal navigation so it can activate the
-    // prerendered document. Intercepting here would cancel the activation
-    // and force a redundant SPA fetch of the route-state JSON.
-    const targetMatch = matchResolvedRoute(app, url.pathname);
-    if (targetMatch && supportsSpeculationRules()) {
-      const spec = normalizeSpeculation(targetMatch.route.speculation);
-      if (spec?.mode === "prerender") return;
-    }
-
-    e.preventDefault();
-    const navOptions: NavigateOptions = {};
-    if (anchor.hasAttribute(PRESERVE_SCROLL_ATTRIBUTE)) navOptions.preserveScroll = true;
-    if (anchor.hasAttribute(VIEW_TRANSITION_ATTRIBUTE)) navOptions.viewTransition = true;
-    navigate(url.pathname + url.search + url.hash, navOptions);
+  installRouterLinkInterceptor({
+    app,
+    history: historyController,
+    navigate: (url, navigationOptions) => {
+      void navigate(url, navigationOptions);
+    },
   });
 
   historyController.installPopstateHandler((url) => {

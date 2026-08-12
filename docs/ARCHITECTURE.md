@@ -540,6 +540,7 @@ prefetch.ts     — prefetch listener wiring (intent/viewport/render), loaded by
 router.ts       — client route matching, fetch, redirect, and hydration orchestration
 router-browser.ts — same-origin URL resolution, hashchange dispatch, and View Transition commits
 router-history.ts — history entry keys, fragment commits, popstate, and scroll restoration
+router-links.ts — anchor eligibility, fragment interception, and speculation-aware navigation
 router-navigation.ts — public navigation context, hook, and typed navigation contract
 router-renderer.ts — module loading, route-state resolution, Preact commits, and hydration
 
