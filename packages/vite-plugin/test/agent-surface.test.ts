@@ -97,6 +97,24 @@ export const app = defineApp({
   });
 
   it.each([
+    {
+      name: "a shorthand request-time config",
+      config: "webBotAuth",
+    },
+    {
+      name: "skills plus a shorthand request-time config",
+      config: 'skills: { directory: "./skills", manifest: { name: "example" } }, webBotAuth',
+    },
+  ])("keeps the request runtime for $name", ({ config }) => {
+    const root = createManifest(`import { defineApp } from "@pracht/core";
+
+const webBotAuth = { policy: "observe" };
+export const app = defineApp({ agents: { ${config} }, routes: [] });
+`);
+    expect(hasAgentSurface({}, root)).toBe(true);
+  });
+
+  it.each([
     String.raw`"ag\u0065nts"`,
     String.raw`"capabil\u0069ties"`,
     String.raw`\u0061gents`,

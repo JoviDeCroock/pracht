@@ -118,7 +118,9 @@ export function hasAgentSurface(
 function agentsConfigNeedsRequestRuntime(value: string | undefined): boolean {
   const trimmed = value?.trim();
   if (!trimmed?.startsWith("{") || !trimmed.endsWith("}")) return true;
-  const scan = scanTopLevelPropertyEntries(trimmed.slice(1, -1));
+  const objectBody = trimmed.slice(1, -1);
+  if (hasOpaqueTopLevelProperty(objectBody, true)) return true;
+  const scan = scanTopLevelPropertyEntries(objectBody);
   if (scan.truncated) return true;
   for (const name of scan.properties.keys()) {
     if (name !== "skills") return true;
@@ -127,7 +129,7 @@ function agentsConfigNeedsRequestRuntime(value: string | undefined): boolean {
 }
 
 /** Whether an object literal body contains an opaque key at its top level. */
-function hasOpaqueTopLevelProperty(objectBody: string): boolean {
+function hasOpaqueTopLevelProperty(objectBody: string, requirePropertyValues = false): boolean {
   let braces = 0;
   let brackets = 0;
   let parentheses = 0;
@@ -136,6 +138,15 @@ function hasOpaqueTopLevelProperty(objectBody: string): boolean {
   for (let index = 0; index < objectBody.length; index += 1) {
     const char = objectBody[index];
     const next = objectBody[index + 1];
+    const atTopLevel = braces === 0 && brackets === 0 && parentheses === 0;
+
+    if (atTopLevel && expectingKey && requirePropertyValues) {
+      const identifier = /^[A-Za-z_$][A-Za-z0-9_$]*/.exec(objectBody.slice(index));
+      if (identifier) {
+        const valueSeparator = skipWhitespaceAndComments(objectBody, index + identifier[0].length);
+        if (objectBody[valueSeparator] !== ":") return true;
+      }
+    }
 
     if (char === '"' || char === "'" || char === "`") {
       const quote = char;
@@ -145,6 +156,10 @@ function hasOpaqueTopLevelProperty(objectBody: string): boolean {
         } else if (objectBody[index] === quote) {
           break;
         }
+      }
+      if (atTopLevel && expectingKey && requirePropertyValues) {
+        const valueSeparator = skipWhitespaceAndComments(objectBody, index + 1);
+        if (objectBody[valueSeparator] !== ":") return true;
       }
       continue;
     }
@@ -166,7 +181,6 @@ function hasOpaqueTopLevelProperty(objectBody: string): boolean {
     // production-only optimization incorrectly answer false.
     if (char === "/") return true;
 
-    const atTopLevel = braces === 0 && brackets === 0 && parentheses === 0;
     if (atTopLevel && expectingKey && char === "[") return true;
     if (atTopLevel && expectingKey && char === "\\") return true;
     if (atTopLevel && char === ":") expectingKey = false;
@@ -181,6 +195,29 @@ function hasOpaqueTopLevelProperty(objectBody: string): boolean {
   }
 
   return false;
+}
+
+function skipWhitespaceAndComments(source: string, start: number): number {
+  let index = start;
+  while (index < source.length) {
+    if (/\s/.test(source[index])) {
+      index += 1;
+      continue;
+    }
+    if (source[index] === "/" && source[index + 1] === "/") {
+      const lineEnd = source.indexOf("\n", index + 2);
+      index = lineEnd === -1 ? source.length : lineEnd + 1;
+      continue;
+    }
+    if (source[index] === "/" && source[index + 1] === "*") {
+      const blockEnd = source.indexOf("*/", index + 2);
+      if (blockEnd === -1) return source.length;
+      index = blockEnd + 2;
+      continue;
+    }
+    break;
+  }
+  return index;
 }
 
 /**
