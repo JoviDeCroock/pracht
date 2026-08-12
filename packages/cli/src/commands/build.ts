@@ -7,6 +7,7 @@ import { defineCommand } from "citty";
 import { build as viteBuild } from "vite";
 
 import { readClientBuildAssets } from "../build-metadata.js";
+import { createBuildRouteOutput, writeBuildRouteManifests } from "../build-route-output.js";
 import { writeVercelBuildOutput } from "../build-shared.js";
 import {
   writeGeneratedLlmsTxt,
@@ -72,21 +73,6 @@ export default defineCommand({
     });
   },
 });
-
-// Mirrors getTimeRevalidateSeconds from @pracht/core without importing it:
-// the CLI reads the manifest the built server bundle produced, so the entry
-// shape (single policy or array) is the framework's RouteRevalidate.
-function hasTimeRevalidate(revalidate: unknown): boolean {
-  const policies = Array.isArray(revalidate) ? revalidate : [revalidate];
-  return policies.some(
-    (policy) =>
-      typeof policy === "object" &&
-      policy !== null &&
-      (policy as { kind?: unknown }).kind === "time" &&
-      typeof (policy as { seconds?: unknown }).seconds === "number" &&
-      (policy as { seconds: number }).seconds > 0,
-  );
-}
 
 function indentBlock(block: string): string {
   return block
@@ -184,39 +170,13 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
       withISGManifest: true,
       concurrency: serverMod.prerenderConcurrency,
     });
-    const headersManifest: Record<string, Record<string, string>> = Object.fromEntries(
-      pages.map((page: { path: string; headers?: Record<string, string> }) => [
-        page.path,
-        page.headers ?? {},
-      ]),
-    );
-    const markdownManifest: Record<string, true> = Object.fromEntries(
-      pages
-        .filter((page: { markdown?: boolean }) => page.markdown)
-        .map((page: { path: string }) => [page.path, true]),
-    );
-
-    // With Workers Caching enabled, time-revalidated ISG pages are rendered
-    // on demand and cached at the edge. A prerendered static snapshot would
-    // be served ahead of the Worker and never revalidate, so it must not be
-    // emitted. Webhook-only ISG routes are not edge-cached — they keep their
-    // snapshot and revalidate through the worker-managed Cache API path.
     const cloudflareWorkersCacheEnabled =
       serverMod.buildTarget === "cloudflare" && serverMod.cloudflareWorkersCacheEnabled === true;
-    const edgeCachedIsgPaths = cloudflareWorkersCacheEnabled
-      ? Object.keys(isgManifest).filter((path) => hasTimeRevalidate(isgManifest[path]?.revalidate))
-      : [];
-    // Netlify serves every ISG path through the function and the durable CDN
-    // cache — the handler checks the ISG manifest before the bundled static
-    // output, so a snapshot would only ever be reachable at its literal
-    // `/index.html` URL, where it would serve the build-time copy forever.
-    const netlifyIsgPaths =
-      serverMod.buildTarget === "netlify" ? Object.keys(isgManifest) : ([] as string[]);
-    const skippedSnapshotPaths = new Set([...edgeCachedIsgPaths, ...netlifyIsgPaths]);
-    const staticPages =
-      skippedSnapshotPaths.size > 0
-        ? pages.filter((page: { path: string }) => !skippedSnapshotPaths.has(page.path))
-        : pages;
+    const { edgeCachedIsgPaths, headersManifest, markdownManifest, staticPages } =
+      createBuildRouteOutput(pages, isgManifest, {
+        cloudflareWorkersCacheEnabled,
+        netlifyIsgEnabled: serverMod.buildTarget === "netlify",
+      });
 
     writePrerenderedPages(staticPages, { clientDir, root, log });
 
@@ -238,46 +198,15 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
           })
         : [];
 
-    if (Object.keys(headersManifest).length > 0) {
-      const headersManifestJson = `${JSON.stringify(headersManifest, null, 2)}\n`;
-      writeFileSync(
-        resolve(root, "dist/server/headers-manifest.json"),
-        headersManifestJson,
-        "utf-8",
-      );
-      mkdirSync(resolve(clientDir, "_pracht"), { recursive: true });
-      writeFileSync(resolve(clientDir, "_pracht/headers.json"), headersManifestJson, "utf-8");
-    }
-
-    // Always emit this manifest, including for SSR-only apps with no
-    // prerendered pages. An absent file means "legacy/custom entry" to the
-    // adapters and deliberately preserves their old conservative fallback;
-    // `{}` is the authoritative proof that no static route serves Markdown.
-    const markdownManifestJson = `${JSON.stringify(markdownManifest, null, 2)}\n`;
-    writeFileSync(
-      resolve(root, "dist/server/markdown-manifest.json"),
-      markdownManifestJson,
-      "utf-8",
-    );
-    mkdirSync(resolve(clientDir, "_pracht"), { recursive: true });
-    writeFileSync(resolve(clientDir, "_pracht/markdown.json"), markdownManifestJson, "utf-8");
-
-    if (Object.keys(isgManifest).length > 0) {
-      const isgManifestPath = resolve(root, "dist/server/isg-manifest.json");
-      const isgManifestJson = `${JSON.stringify(isgManifest, null, 2)}\n`;
-      writeFileSync(isgManifestPath, isgManifestJson, "utf-8");
-      if (buildTarget === "cloudflare") {
-        // Only the Cloudflare worker runtime reads the manifest from the
-        // static assets (via readPrachtISGManifest). On other targets the
-        // client dir is served publicly, so writing it there would leak the
-        // ISG route list and revalidation policies.
-        mkdirSync(resolve(clientDir, "_pracht"), { recursive: true });
-        writeFileSync(resolve(clientDir, "_pracht/isg.json"), isgManifestJson, "utf-8");
-      }
-      log(
-        `\n  ISG manifest → dist/server/isg-manifest.json (${Object.keys(isgManifest).length} route(s))\n`,
-      );
-    }
+    writeBuildRouteManifests({
+      buildTarget,
+      clientDir,
+      headersManifest,
+      isgManifest,
+      log,
+      markdownManifest,
+      root,
+    });
 
     if (serverMod.buildTarget === "cloudflare") {
       if (cloudflareWorkersCacheEnabled && edgeCachedIsgPaths.length > 0) {

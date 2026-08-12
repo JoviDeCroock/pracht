@@ -78,6 +78,8 @@ described in `VISION_MVP.md`.
   Netlify function generation, and Vercel `.vercel/output/` generation when the app targets those adapters),
   while `build-static-output.ts` owns the path-confined `dist/client/` writes
   for prerendered pages, generated `llms.txt`, and OpenAPI companion artifacts,
+  and `build-route-output.ts` derives and writes headers, Markdown, and ISG
+  metadata with adapter-specific privacy and edge-caching policy,
   `pracht preview` builds and serves the production output locally (Node runs
   `dist/server/server.js`, Cloudflare delegates to `wrangler dev`, Netlify
   points at `netlify dev`, and Vercel points at `vercel build`/`vercel dev`),
