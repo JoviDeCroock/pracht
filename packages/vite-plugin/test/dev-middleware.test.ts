@@ -4,9 +4,8 @@ import {
   collectDevCssUrls,
   createDevCssManifest,
   injectDevCssLinks,
-  isDevNotFoundRequest,
-  shouldBypassDevSSR,
-} from "../src/plugin-dev-ssr.ts";
+} from "../src/plugin-dev-css.ts";
+import { isDevNotFoundRequest, shouldBypassDevSSR } from "../src/plugin-dev-ssr.ts";
 
 function moduleNode(url: string, type: "js" | "css" = "js", importedModules: any[] = []): any {
   return { importedModules: new Set(importedModules), type, url };

@@ -311,10 +311,13 @@ Secrets in loader code stay server-side. The client only receives serialized dat
 
 ## Dev Server Debugging
 
-The Vite dev SSR middleware (`packages/vite-plugin/src/plugin-dev-ssr.ts`) adds two
-dev-only debugging surfaces. Neither exists in production builds, and adapters that
-own the dev server (`ownsDevServer: true`, e.g. Cloudflare's workerd-based dev) bypass
-this middleware and therefore don't expose them.
+Development serving is split by responsibility: `plugin-dev-ssr.ts` owns framework
+request routing, devtools, and error/not-found responses, while `plugin-dev-css.ts`
+owns Vite module-graph stylesheet discovery, document injection, and the response
+adapter used by adapter-owned dev servers. The SSR middleware adds two dev-only
+debugging surfaces. Neither exists in production builds, and adapters that own the
+dev server (`ownsDevServer: true`, e.g. Cloudflare's workerd-based dev) bypass this
+middleware and therefore don't expose them.
 
 ### `/_pracht` devtools page
 
