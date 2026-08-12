@@ -86,6 +86,10 @@ described in `VISION_MVP.md`.
   from the resolved route graph for typed links and href helpers,
   `pracht generate route|shell|middleware|api` scaffolds framework-native
   files, and `pracht doctor` validates app wiring across the whole project.
+- **Starter CLI** — `packages/start/src/index.js` is the stable public facade;
+  command flow, options and prompts, child-process integration, and scaffold
+  generation live in focused sibling modules so contributors can change one
+  concern without navigating the generated templates.
 - **Package builds** — `tsdown` compiles `pracht`, `@pracht/openapi`, `@pracht/vite-plugin`,
   `@pracht/preact-ssr-precompile`, `@pracht/adapter-node`,
   `@pracht/adapter-cloudflare`, `@pracht/adapter-netlify`,
