@@ -41,7 +41,7 @@ export interface ClientRouteRendererOptions {
   shellModules: RouterModuleMap;
   root: HTMLElement;
   findModuleKey: (modules: RouterModuleMap, file: string) => string | null;
-  navigate: NavigateFn;
+  getNavigate: () => NavigateFn;
 }
 
 export interface ClientRouteRenderer {
@@ -68,7 +68,7 @@ export interface ClientRouteRenderer {
 export function createClientRouteRenderer(
   options: ClientRouteRendererOptions,
 ): ClientRouteRenderer {
-  const { app, routeModules, shellModules, root, findModuleKey, navigate } = options;
+  const { app, routeModules, shellModules, root, findModuleKey, getNavigate } = options;
   const moduleCache = new Map<string, Promise<unknown>>();
   let updateRouteState: ((state: StateUpdater<RouteRenderState>) => void) | null = null;
   let routeStateVersion = 0;
@@ -119,7 +119,7 @@ export function createClientRouteRenderer(
   function RouterRoot({ initialState }: { initialState: RouteRenderState }) {
     const [routeState, setRouteState] = useState(initialState);
     updateRouteState = setRouteState;
-    const navigateValue = useMemo(() => navigate, []);
+    const navigateValue = useMemo(() => getNavigate(), []);
 
     const { Shell, Component, componentProps, data, params, routeId, url, version } = routeState;
 
