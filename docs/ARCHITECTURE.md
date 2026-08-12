@@ -327,6 +327,9 @@ Build-time deployment checks are also isolated from the main plugin composition:
 `plugin-edge-runtime-safety.ts` owns the post-bundle scan that rejects surviving
 Node.js builtin imports for edge adapters. This keeps platform compatibility
 validation independent from virtual-module generation and development serving.
+`plugin-optimize-deps.ts` owns Preact deduplication and the Vite scan entries for
+generated route files and virtual client dependencies, including the workspace-link
+guard that prevents splitting the core runtime into two copies.
 
 ### `/_pracht` devtools page
 
