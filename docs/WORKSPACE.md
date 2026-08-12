@@ -90,6 +90,9 @@ described in `VISION_MVP.md`.
   live in `typegen-capability-source.ts`,
   `pracht generate route|shell|middleware|api` scaffolds framework-native
   files, and `pracht doctor` validates app wiring across the whole project.
+  Generation operations, path rules, and source templates live together under
+  `packages/cli/src/generation/`; both the interactive CLI command and the MCP
+  server call that domain layer instead of depending on one another.
   Verification keeps its stable facade in `verification-checks.ts`; manifest
   wiring, API discovery, and pages-router/Markdown checks live in focused
   `verification-*-checks.ts` modules, while project-wide budgets, dependency,

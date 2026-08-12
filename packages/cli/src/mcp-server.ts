@@ -14,7 +14,7 @@ import {
   generateMiddleware,
   generateRoute,
   generateShell,
-} from "./commands/generate.js";
+} from "./generation/index.js";
 import { runInspect } from "./commands/inspect.js";
 import {
   DEFAULT_CAPABILITIES_OUT,

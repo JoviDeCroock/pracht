@@ -1,5 +1,5 @@
 import { quote } from "../utils.js";
-import { dynamicParamNames, titleCase } from "./generate-paths.js";
+import { dynamicParamNames, titleCase } from "./paths.js";
 
 export interface RouteModuleParts {
   includeErrorBoundary: boolean;
