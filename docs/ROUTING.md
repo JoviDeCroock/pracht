@@ -796,6 +796,7 @@ directory and generates the route manifest automatically.
 | `pages/_app.tsx`        | _(shell, not a route)_ |
 | `pages/_middleware.ts`  | _(middleware, not a route)_ |
 | `pages/_anything.tsx`   | _(ignored)_            |
+| `pages/_components/button.tsx` | _(ignored — the whole directory is reserved)_ |
 
 Markdown and MDX pages are routed the same way as `.tsx` pages, but pracht does
 not transform them: `.md` **and** `.mdx` both need a Vite transform plugin such
@@ -803,6 +804,13 @@ as `@mdx-js/rollup` registered alongside `pracht()`. Without one, Vite hands the
 raw Markdown to the JS parser and the route fails at request time (`Invalid
 Character`) and at build time. `pracht doctor` and `pracht verify` warn when a
 Markdown page is routed and no such plugin is registered.
+
+The underscore prefix reserves both files and directory trees for non-route
+implementation details. Pracht never creates routes from their contents, so
+`pages/_components/button.tsx` is ignored rather than exposed at
+`/_components/button`. `_app` and `_middleware` are recognized only at the
+pages root; `_middleware/` remains a hard error because silently ignoring a
+directory that looks like an authorization boundary would fail open.
 
 ### Shell via `_app.tsx`
 

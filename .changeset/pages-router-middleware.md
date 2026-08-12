@@ -25,6 +25,12 @@ and ejected layouts, and the client transform strips `middleware` exports as a
 second boundary, so server-only middleware code and imports are never emitted
 as browser-loadable chunks.
 
+The pages scanner now applies the documented underscore reservation to whole
+directory trees as well as files, so helpers such as
+`pages/_components/button.tsx` stay out of the route graph instead of becoming
+public `/_components/button` pages. The special `_middleware/` directory shape
+continues to fail closed rather than being silently ignored.
+
 `generateRoutesFile` now emits route and notFound references relative to the
 ejected manifest's directory (`./pages/index.tsx` for `src/routes.ts` beside
 `src/pages/`), matching how `_app`/`_middleware` were already referenced —

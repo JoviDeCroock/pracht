@@ -55,20 +55,29 @@ export function describePagesFile(
   const name = basename(routePath);
   const source = readFileSync(file, "utf-8");
   const analysisSource = maskMarkdownFences(source, relativePath);
+  const parentSegments = relativePath.split("/").slice(0, -1);
 
-  if (hasPagesAppShell(file, additionalExtensions)) {
+  // Files inside a `_middleware/` directory are middleware-shaped too: without
+  // this, `_middleware/index.ts` silently becomes a page route at
+  // `/_middleware` while looking like an auth gate.
+  if (parentSegments.includes("_middleware")) {
+    return { file, kind: "middleware", nested: true, shape: "directory" };
+  }
+
+  // The underscore prefix reserves whole directories as well as individual
+  // files. Keep implementation helpers such as `_components/button.tsx` out
+  // of the route graph, while the `_middleware/` case above remains a hard
+  // error because silently ignoring an auth-looking directory would fail open.
+  if (parentSegments.some((segment) => segment.startsWith("_"))) {
+    return { file, kind: "ignored" };
+  }
+
+  if (!relativePath.includes("/") && hasPagesAppShell(file, additionalExtensions)) {
     return {
       file,
       kind: "shell",
       hasRevalidateExport: extractRevalidate(analysisSource).kind !== "missing",
     };
-  }
-
-  // Files inside a `_middleware/` directory are middleware-shaped too: without
-  // this, `_middleware/index.ts` silently becomes a page route at
-  // `/_middleware` while looking like an auth gate.
-  if (relativePath.split("/").slice(0, -1).includes("_middleware")) {
-    return { file, kind: "middleware", nested: true, shape: "directory" };
   }
 
   if (name === "_middleware" && PAGES_MIDDLEWARE_SOURCE_RE.test(file)) {

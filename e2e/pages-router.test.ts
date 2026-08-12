@@ -35,6 +35,19 @@ test("@-prefixed static routes render in dev", async ({ page }) => {
   await expect(page.locator("h1")).toContainText("@alice");
 });
 
+test("underscore-prefixed directories can provide helpers without becoming routes", async ({
+  page,
+  request,
+}) => {
+  await page.goto("/");
+  await expect(page.locator(".page-note")).toContainText(
+    "Underscore directories can hold helpers without creating routes.",
+  );
+
+  const response = await request.get("/_components/page-note");
+  expect(response.status()).toBe(404);
+});
+
 // ---------------------------------------------------------------------------
 // _app.tsx shell wraps all pages
 // ---------------------------------------------------------------------------

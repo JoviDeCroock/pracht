@@ -193,6 +193,11 @@ function scan(
     const stat = statSync(abs);
 
     if (stat.isDirectory()) {
+      // The underscore prefix reserves both files and whole subtrees for
+      // non-route implementation details. `_middleware/` is still rejected
+      // separately by findPagesMiddlewareFile() because silently ignoring an
+      // auth-looking directory would fail open.
+      if (entry.startsWith("_")) continue;
       scan(abs, root, pages, pageExtensions, shellExtensions, additionalExtensions);
       continue;
     }
@@ -443,7 +448,10 @@ export function generatePagesManifestSource(
 
   const allFiles = scanAllFiles(pagesDir);
   const appFile = allFiles.find(
-    (f) => basename(f, extname(f)) === "_app" && shellExtensions.has(extname(f)),
+    (f) =>
+      !relative(pagesDir, f).replace(/\\/g, "/").includes("/") &&
+      basename(f, extname(f)) === "_app" &&
+      shellExtensions.has(extname(f)),
   );
   const middlewareFile = findPagesMiddlewareFile(pagesDir);
 
