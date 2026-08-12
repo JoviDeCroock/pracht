@@ -521,6 +521,7 @@ api-routes.ts — file-path discovery, route specificity ordering, and API path 
 app-agent-validation.ts — fail-closed agent policy and trust-setting validation
 runtime-agent-surface.ts — lazy agent runtimes, signature binding, and invocation host setup
 runtime-agent-projection.ts — MCP and capability HTTP selection and fail-closed routing
+runtime-mcp-protocol.ts — JSON-RPC framing, initialization validation, and version negotiation
 runtime-page-render.ts — Markdown, SPA, hydrated, islands, and zero-JavaScript representations
 runtime-page-pipeline.ts — concurrent module loading, middleware, loaders, timings, and fallback
     ↑

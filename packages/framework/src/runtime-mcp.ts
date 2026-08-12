@@ -39,11 +39,28 @@ import type {
   PrachtAgentIdentity,
   PrachtAgentsConfig,
 } from "./types.ts";
+import {
+  acceptsJson,
+  isNonBrowserRequest,
+  isSupportedProtocolVersion,
+  JSONRPC_INTERNAL_ERROR,
+  JSONRPC_INVALID_PARAMS,
+  JSONRPC_INVALID_REQUEST,
+  JSONRPC_METHOD_NOT_FOUND,
+  JSONRPC_PARSE_ERROR,
+  jsonRpcResponse,
+  MCP_LATEST_PROTOCOL_VERSION,
+  MCP_PROTOCOL_VERSION_HEADER,
+  MCP_PROTOCOL_VERSIONS,
+  negotiateProtocolVersion,
+  readInitializeParams,
+} from "./runtime-mcp-protocol.ts";
 
-/** Newest first; `initialize` negotiates down to a version both sides know. */
-export const MCP_PROTOCOL_VERSIONS = ["2025-11-25", "2025-06-18"] as const;
-export const MCP_LATEST_PROTOCOL_VERSION = MCP_PROTOCOL_VERSIONS[0];
-export const MCP_PROTOCOL_VERSION_HEADER = "mcp-protocol-version";
+export {
+  MCP_LATEST_PROTOCOL_VERSION,
+  MCP_PROTOCOL_VERSION_HEADER,
+  MCP_PROTOCOL_VERSIONS,
+} from "./runtime-mcp-protocol.ts";
 
 /**
  * `_meta` key carrying a prepare/commit confirmation token on a `tools/call`.
@@ -54,12 +71,6 @@ export const MCP_PROTOCOL_VERSION_HEADER = "mcp-protocol-version";
  * protocol's designated extension slot.
  */
 export const MCP_CONFIRMATION_META_KEY = "io.pracht/confirmation";
-
-const JSONRPC_PARSE_ERROR = -32700;
-const JSONRPC_INVALID_REQUEST = -32600;
-const JSONRPC_METHOD_NOT_FOUND = -32601;
-const JSONRPC_INVALID_PARAMS = -32602;
-const JSONRPC_INTERNAL_ERROR = -32603;
 
 /** Normalize an incoming MCP request path without retaining protocol helpers in unrelated apps. */
 export function normalizeMcpRequestPath(path: string): string {
@@ -536,10 +547,6 @@ function toolResult(match: ResolvedCapability, envelope: CapabilityEnvelope, sta
 // Helpers
 // ---------------------------------------------------------------------------
 
-function isSupportedProtocolVersion(version: string): boolean {
-  return (MCP_PROTOCOL_VERSIONS as readonly string[]).includes(version);
-}
-
 function isCapabilityEnvelope(value: unknown): value is CapabilityEnvelope {
   if (!value || typeof value !== "object") return false;
   const candidate = value as Partial<CapabilityEnvelope>;
@@ -557,64 +564,4 @@ function isCapabilityEnvelope(value: unknown): value is CapabilityEnvelope {
         (issue) => !!issue && typeof issue.path === "string" && typeof issue.message === "string",
       ))
   );
-}
-
-function negotiateProtocolVersion(requested: unknown): string {
-  return typeof requested === "string" && isSupportedProtocolVersion(requested)
-    ? requested
-    : MCP_LATEST_PROTOCOL_VERSION;
-}
-
-interface McpInitializeParams {
-  protocolVersion: string;
-  capabilities: Record<string, unknown>;
-  clientInfo: { name: string; version: string };
-}
-
-function readInitializeParams(value: unknown): McpInitializeParams | null {
-  if (!isObjectRecord(value)) return null;
-  const { protocolVersion, capabilities, clientInfo } = value;
-  if (typeof protocolVersion !== "string" || !isObjectRecord(capabilities)) return null;
-  if (
-    !isObjectRecord(clientInfo) ||
-    typeof clientInfo.name !== "string" ||
-    clientInfo.name.trim() === "" ||
-    typeof clientInfo.version !== "string" ||
-    clientInfo.version.trim() === ""
-  ) {
-    return null;
-  }
-  return {
-    protocolVersion,
-    capabilities,
-    clientInfo: { name: clientInfo.name, version: clientInfo.version },
-  };
-}
-
-function isObjectRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === "object" && !Array.isArray(value);
-}
-
-function acceptsJson(request: Request): boolean {
-  const accept = request.headers.get("accept");
-  if (!accept) return true;
-  return accept.includes("application/json") || accept.includes("*/*");
-}
-
-/** Reject browser fetches/forms; remote MCP clients send neither header. */
-function isNonBrowserRequest(request: Request): boolean {
-  return !request.headers.has("origin") && !request.headers.has("sec-fetch-site");
-}
-
-function jsonRpcResponse(status: number, protocolVersion: string, body: unknown): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: {
-      "content-type": "application/json; charset=utf-8",
-      // The negotiated version, not simply the newest one we support: a client
-      // that initialized at an older version should not be told the connection
-      // is speaking a version it never agreed to.
-      [MCP_PROTOCOL_VERSION_HEADER]: protocolVersion,
-    },
-  });
 }
