@@ -64,11 +64,13 @@ exactly the route it was asked to, behind the right middleware?"), then reads on
 the component/loader bodies. Collateral changes the task didn't mention show up as
 extra plan lines immediately.
 
-Implementation: `packages/cli/src/graph-snapshot.ts` owns snapshot persistence and
-semantic comparison, `packages/cli/src/graph-plan-format.ts` owns terminal/Markdown
-presentation and build-budget annotations, and `packages/cli/src/graph-types.ts`
-holds their shared contracts. `packages/cli/src/commands/plan.ts` orchestrates
-them, and `packages/cli/src/app-server.ts` provides shared Vite boot.
+Implementation: `packages/cli/src/graph-snapshot.ts` owns live graph capture,
+snapshot persistence, and git baseline loading; `packages/cli/src/graph-diff.ts`
+owns semantic comparison and agent-surface widening classification;
+`packages/cli/src/graph-plan-format.ts` owns terminal/Markdown presentation and
+build-budget annotations; and `packages/cli/src/graph-types.ts` holds their shared
+contracts. `packages/cli/src/commands/plan.ts` orchestrates them, and
+`packages/cli/src/app-server.ts` provides shared Vite boot.
 
 ## 2. Constraints — invariants the machine enforces
 
