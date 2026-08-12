@@ -44,7 +44,30 @@ export interface ClientRouteRendererOptions {
   navigate: NavigateFn;
 }
 
-export function createClientRouteRenderer(options: ClientRouteRendererOptions) {
+export interface ClientRouteRenderer {
+  afterCommit(callback: () => void): void;
+  applyRouteState(state: RouteRenderState): void;
+  mountRouteState(state: RouteRenderState, mode: "hydrate" | "render"): void;
+  resolveRouteState(
+    match: RouteMatch,
+    state: { data: unknown; error?: SerializedRouteError | null },
+    currentUrl: string,
+    routeModPromise?: Promise<unknown> | null,
+    shellModPromise?: Promise<unknown> | null,
+  ): Promise<RouteRenderState | null>;
+  resolveSpaPendingState(
+    match: RouteMatch,
+    currentUrl: string,
+    shellModPromise?: Promise<unknown> | null,
+  ): Promise<RouteRenderState | null>;
+  startRouteImport(match: RouteMatch): Promise<unknown> | null;
+  startShellImport(match: RouteMatch): Promise<unknown> | null;
+  warmModules(match: RouteMatch): void;
+}
+
+export function createClientRouteRenderer(
+  options: ClientRouteRendererOptions,
+): ClientRouteRenderer {
   const { app, routeModules, shellModules, root, findModuleKey, navigate } = options;
   const moduleCache = new Map<string, Promise<unknown>>();
   let updateRouteState: ((state: StateUpdater<RouteRenderState>) => void) | null = null;

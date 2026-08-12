@@ -1,6 +1,5 @@
 import { buildHrefUntyped, matchResolvedRoute } from "./route-matching.ts";
 import { installHydrationMismatchWarning } from "./hydration-mismatch.ts";
-import { markHydrating, onHydrationComplete } from "./hydration.ts";
 import {
   beginLoadingNavigation,
   createNavigationLocation,
@@ -9,7 +8,6 @@ import {
 import { getCachedRouteState } from "./prefetch-cache.ts";
 import { registerPrefetchTarget } from "./prefetch-api.ts";
 import type { ModuleWarmFn } from "./prefetch-api.ts";
-import { NOT_FOUND_ROUTE_ID } from "./runtime-constants.ts";
 import type {
   NavigateOptions,
   ResolvedPrachtApp,
@@ -26,6 +24,7 @@ import type { SerializedRouteError } from "./runtime-errors.ts";
 import type { PrachtHydrationState } from "./runtime-context.ts";
 import type { RouteStateResult } from "./runtime-client-fetch.ts";
 import { commitWithOptionalViewTransition, resolveBrowserRouteTarget } from "./router-browser.ts";
+import { bootstrapInitialRoute } from "./router-bootstrap.ts";
 import { createRouterHistoryController } from "./router-history.ts";
 import { installRouterLinkInterceptor } from "./router-links.ts";
 import type { NavigateFn } from "./router-navigation.ts";
@@ -284,106 +283,7 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
     }
   }
 
-  // The serialized URL produced the server/static HTML, so it must also drive
-  // the first client render. Visitor-specific query parameters are published
-  // after the complete hydration tree settles to keep that render identical.
-  const initialTarget = resolveBrowserRouteTarget(options.initialState.url);
-  const initialRequestUrl = initialTarget?.requestUrl ?? options.initialState.url;
-  const initialBrowserUrl = initialTarget?.browserUrl ?? options.initialState.url;
-  const initialPathname = initialTarget?.pathname ?? options.initialState.url;
-  const hydrationBrowserTarget = resolveBrowserRouteTarget(
-    window.location.pathname + window.location.search + window.location.hash,
-  );
-  // The not-found page is served at a URL that matches no route, so matching
-  // cannot find it — the hydration state's reserved route id does.
-  const initialMatch =
-    matchResolvedRoute(app, initialPathname) ??
-    (options.initialState.routeId === NOT_FOUND_ROUTE_ID && app.notFound
-      ? { route: app.notFound, params: {}, pathname: initialPathname }
-      : undefined);
-  if (initialMatch) {
-    const initialShellPromise =
-      initialMatch.route.render === "spa" && options.initialState.pending
-        ? renderer.startShellImport(initialMatch)
-        : null;
-    let state = {
-      data: options.initialState.data,
-      error: options.initialState.error ?? null,
-    };
-
-    if (initialMatch.route.render === "spa" && options.initialState.pending) {
-      // Use query parameter URL to match the <link rel="preload"> tag from SSR
-      const dataPromise = fetchPrachtRouteState(initialRequestUrl, { useDataParam: true });
-
-      const pendingState = await renderer.resolveSpaPendingState(
-        initialMatch,
-        initialRequestUrl,
-        initialShellPromise,
-      );
-      if (pendingState) {
-        renderer.mountRouteState(pendingState, "hydrate");
-      }
-
-      try {
-        const result = await dataPromise;
-        if (result.type === "redirect") {
-          const safeRedirect = parseSafeNavigationUrl(result.location, window.location.href);
-          if (!safeRedirect) {
-            console.error(`[pracht] refused to navigate to unsafe URL: ${result.location}`);
-            return;
-          }
-          window.location.href = safeRedirect.toString();
-          return;
-        }
-
-        if (result.type === "error") {
-          state = {
-            data: undefined,
-            error: result.error,
-          };
-        } else {
-          state = {
-            data: result.data,
-            error: null,
-          };
-        }
-      } catch {
-        window.location.href = initialBrowserUrl;
-        return;
-      }
-
-      const resolvedState = await renderer.resolveRouteState(
-        initialMatch,
-        state,
-        initialRequestUrl,
-        undefined,
-        initialShellPromise,
-      );
-      if (resolvedState) {
-        renderer.applyRouteState(resolvedState);
-      }
-    } else {
-      const initialRouteState = await renderer.resolveRouteState(
-        initialMatch,
-        state,
-        initialRequestUrl,
-        undefined,
-        initialShellPromise,
-      );
-      if (initialRouteState) {
-        if (initialMatch.route.render === "spa") {
-          renderer.mountRouteState(initialRouteState, "render");
-        } else {
-          markHydrating();
-          renderer.mountRouteState(initialRouteState, "hydrate");
-          onHydrationComplete(() => {
-            if (!hydrationBrowserTarget) return;
-            renderer.syncHydratedUrl(initialRouteState, hydrationBrowserTarget.search);
-          });
-        }
-      }
-    }
-  }
+  await bootstrapInitialRoute({ app, initialState: options.initialState, renderer });
 
   installRouterLinkInterceptor({
     app,
