@@ -381,6 +381,13 @@ tags, including when they provide a cacheable custom policy; authenticated
 requests to `/__pracht/revalidate` purge those tags. Explicit SSG and ISG cache
 policies remain authoritative.
 
+SSR and API responses that declare `Cache-Control: public` are promoted into
+the durable cache with the same route-state `Netlify-Vary` protection.
+Promotion fails closed: responses to route-state requests and responses that
+carry `Set-Cookie` or `Vary: Cookie`/`Authorization` get
+`Netlify-CDN-Cache-Control: private` instead, so a personalized render can
+never become the CDN's shared answer.
+
 Netlify's CDN ignores the standard `Vary` header, so cached page HTML sets
 `Netlify-Vary: query=_data,header=x-pracht-route-state-request` — both
 route-state transports (query param and request header) keep their own cache

@@ -204,7 +204,7 @@ export function createNetlifyHandler<
       return applyNetlifyISGCacheHeaders(response, isgRoute, url.pathname, cache, markdownCapable);
     }
 
-    return applyNetlifyDynamicCacheHeaders(request, response);
+    return applyNetlifyDynamicCacheHeaders(request, response, routeStateRequest);
   };
 }
 
@@ -477,7 +477,11 @@ function applyNetlifyISGCacheHeaders(
   return prepared;
 }
 
-function applyNetlifyDynamicCacheHeaders(request: Request, response: Response): Response {
+function applyNetlifyDynamicCacheHeaders(
+  request: Request,
+  response: Response,
+  routeStateRequest: boolean,
+): Response {
   const prepared = preventHeuristicCaching(request, response);
   const cacheControl = prepared.headers.get("cache-control");
   if (
@@ -486,6 +490,27 @@ function applyNetlifyDynamicCacheHeaders(request: Request, response: Response): 
     !/(?:^|,)\s*public\b/i.test(cacheControl)
   ) {
     return prepared;
+  }
+
+  // A `public` browser policy alone would make Netlify's CDN store this
+  // response, so anything that must not be shared has to say so in the CDN's
+  // own header before it leaves the function:
+  //
+  // - Route-state-shaped requests (`?_data=1` or the transport header) answer
+  //   with JSON for first-party fetches but fall back to a full HTML document
+  //   when browser provenance is missing. Both shapes share one CDN cache key
+  //   modulo `Netlify-Vary` — `query` cannot see who asked — so a cached HTML
+  //   answer under `?_data=1` would poison every later client navigation's
+  //   JSON fetch for the route's TTL. A cross-site `<a href="/page?_data=1">`
+  //   is all it takes to plant one.
+  // - A response carrying `Set-Cookie` or `Vary: Cookie`/`Authorization` was
+  //   rendered from one visitor's request state. Promoting it durable — or
+  //   letting the CDN store it off the browser policy — would replay that
+  //   visitor's document (and any cookie) to everyone.
+  if (routeStateRequest || !isCacheableISGResponse(prepared)) {
+    const headers = new Headers(prepared.headers);
+    headers.set("netlify-cdn-cache-control", "private");
+    return cloneResponse(prepared, headers);
   }
 
   const headers = new Headers(prepared.headers);

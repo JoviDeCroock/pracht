@@ -500,6 +500,91 @@ describe("createNetlifyHandler", () => {
     expect(response.headers.get("netlify-vary")).toBe("query,header=x-pracht-route-state-request");
   });
 
+  it("never lets a route-state-shaped request's response enter the shared cache", async () => {
+    // The route exports a public browser policy. A `?_data=1` request without
+    // browser provenance renders the full HTML document — cached under the
+    // same CDN key the first-party JSON fetch uses (`Netlify-Vary: query`
+    // cannot see who asked), so a cross-site `<a href="/dashboard?_data=1">`
+    // could otherwise poison every later client navigation with HTML.
+    const handler = createNetlifyHandler({
+      app,
+      registry: {
+        ...registry,
+        routeModules: {
+          ...registry.routeModules,
+          "/src/routes/dashboard.tsx": async () => ({
+            default: () => h("main", null, "dashboard"),
+            headers: () => ({ "cache-control": "public, max-age=300" }),
+          }),
+        },
+      },
+    });
+
+    const crossSiteData = await handler(
+      new Request("https://example.com/dashboard?_data=1", {
+        headers: { "sec-fetch-site": "cross-site" },
+      }),
+      {},
+    );
+    expect(crossSiteData.headers.get("content-type")).toContain("text/html");
+    expect(crossSiteData.headers.get("netlify-cdn-cache-control")).toBe("private");
+
+    const headerTransport = await handler(
+      new Request("https://example.com/dashboard", {
+        headers: { "x-pracht-route-state-request": "1" },
+      }),
+      {},
+    );
+    expect(headerTransport.headers.get("netlify-cdn-cache-control") ?? "private").toBe("private");
+  });
+
+  it("refuses to promote a public policy whose response is not shareable", async () => {
+    // `Cache-Control: public` alone makes Netlify's CDN store the response, so
+    // a per-visitor render (Set-Cookie / Vary: Cookie) must say `private` in
+    // the CDN's own header — promotion would replay one visitor's document and
+    // cookie to everyone.
+    const apiRoutes = resolveApiRoutes(["/src/api/session.ts"]);
+    const handler = createNetlifyHandler({
+      apiRoutes,
+      app: defineApp({ routes: [] }),
+      registry: {
+        apiModules: {
+          "/src/api/session.ts": async () => ({
+            GET: () =>
+              new Response("{}", {
+                headers: {
+                  "cache-control": "public, max-age=600",
+                  "content-type": "application/json",
+                  "set-cookie": "session=one-visitor; Path=/; HttpOnly",
+                },
+              }),
+          }),
+        },
+      },
+    });
+
+    const response = await handler(new Request("https://example.com/api/session"), {});
+    expect(response.headers.get("netlify-cdn-cache-control")).toBe("private");
+    expect(response.headers.get("set-cookie")).toBe("session=one-visitor; Path=/; HttpOnly");
+    expect(response.headers.get("cache-control")).toBe("public, max-age=600");
+
+    const varyHandler = createNetlifyHandler({
+      app,
+      registry: {
+        ...registry,
+        routeModules: {
+          ...registry.routeModules,
+          "/src/routes/dashboard.tsx": async () => ({
+            default: () => h("main", null, "dashboard"),
+            headers: () => ({ "cache-control": "public, max-age=300", vary: "Cookie" }),
+          }),
+        },
+      },
+    });
+    const varied = await varyHandler(new Request("https://example.com/dashboard"), {});
+    expect(varied.headers.get("netlify-cdn-cache-control")).toBe("private");
+  });
+
   it("preserves multiple Set-Cookie headers on dynamic responses", async () => {
     const apiRoutes = resolveApiRoutes(["/src/api/login.ts"]);
     const handler = createNetlifyHandler({

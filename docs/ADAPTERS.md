@@ -755,7 +755,11 @@ assets. Add application-specific static prefixes with
   ISG routes get no build-time snapshot on Netlify — the handler always renders
   them through the durable cache, so a snapshot would only be reachable at its
   literal `/index.html` URL where it would never revalidate. The first request
-  after a deploy renders cold.
+  after a deploy renders cold. Because sanitization also strips
+  `Accept-Language` and masks geolocation, an ISG route whose middleware or
+  loader picks a locale from the request will cache its default-locale output
+  for every visitor globally — localized ISG pages need the locale in the path
+  (`/en/pricing`), the same rule the other adapters' shared ISG caches imply.
 - Netlify's CDN ignores the standard `Vary` header, so cached SSG and ISG HTML
   names its variants through `Netlify-Vary:
   query=_data,header=x-pracht-route-state-request`: both route-state
@@ -784,8 +788,14 @@ assets. Add application-specific static prefixes with
   `Netlify-Vary: query,header=x-pracht-route-state-request` (plus `|accept`
   when the response varies on `Accept`) so the CDN-cached document cannot
   shadow route-state fetches; `query` keeps Netlify's default full-query cache
-  key for dynamic routes. An explicit `Netlify-CDN-Cache-Control` or
-  `Netlify-Vary` stays fully user-owned.
+  key for dynamic routes. Promotion itself fails closed: a route-state-shaped
+  request (either transport) or a response that is not shareable
+  (`Set-Cookie`, `Vary: Cookie`/`Authorization`) gets
+  `Netlify-CDN-Cache-Control: private` instead — a bare `Cache-Control:
+  public` would otherwise make Netlify's CDN store one visitor's render (or,
+  for a cross-site `?_data=1` navigation, cache the HTML fallback under the
+  same key later first-party JSON fetches use). An explicit
+  `Netlify-CDN-Cache-Control` or `Netlify-Vary` stays fully user-owned.
 
 Generated entries can import a context factory, and custom handlers can be
 created directly:

@@ -17,6 +17,12 @@ transports and (on Markdown-capable routes) `Accept`, since Netlify's CDN
 ignores the standard `Vary` header, and the build emits a `dist/client/_headers`
 file so excluded static paths keep the immutable asset policy and default
 security headers.
+Promotion of explicit `Cache-Control: public` SSR/API policies into the durable
+cache fails closed: responses to route-state-shaped requests and responses that
+carry `Set-Cookie` or `Vary: Cookie`/`Authorization` are stamped
+`Netlify-CDN-Cache-Control: private` instead, so a cross-site `?_data=1`
+navigation cannot poison the route-state cache key with HTML and one visitor's
+personalized render can never become the CDN's shared answer.
 `create-pracht` can scaffold the adapter with `netlify.toml`, local preview,
 and deployment scripts, while `pracht preview` detects Netlify projects and
 points to `pracht build && netlify dev` instead of trying to run their function

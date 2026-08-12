@@ -78,9 +78,12 @@ metadata.
 - Time-revalidated ISG routes use their Pracht revalidation interval as the
   Netlify CDN `max-age`, with stale-while-revalidate enabled. Cacheable custom
   policies remain authoritative.
-- Cached SSG and ISG HTML uses `Netlify-Vary: query=_data`, preserving the
-  route-state variant while collapsing unrelated query parameters. A custom
-  `Netlify-Vary` header takes precedence.
+- Netlify's CDN ignores the standard `Vary` header, so cached SSG and ISG HTML
+  uses `Netlify-Vary: query=_data,header=x-pracht-route-state-request` (plus
+  `|accept` on Markdown-capable routes): both route-state transports and
+  Markdown negotiation keep their own cache variant while unrelated query
+  parameters collapse onto the pathname entry. A custom `Netlify-Vary` header
+  takes precedence.
 - Cacheable webhook-revalidated ISG responses carry per-path cache tags, even
   when the route provides a custom cache policy.
   `POST /__pracht/revalidate` authenticates with `PRACHT_REVALIDATE_TOKEN` and
@@ -89,7 +92,17 @@ metadata.
   context. Visitor cookies, authorization, query strings, bodies, IP address,
   geolocation, request IDs, and arbitrary request-local context cannot enter
   cached HTML. Deployment-wide site/server metadata and `waitUntil()` remain
-  available; attempts to mutate cookies fail closed.
+  available; attempts to mutate cookies fail closed. Because `Accept-Language`
+  and geolocation are stripped too, an ISG route that picks a locale from the
+  request caches its default-locale output for every visitor — put the locale
+  in the path (`/en/pricing`) if an ISG page must localize.
+- SSR and API responses that declare `Cache-Control: public` are promoted into
+  the durable cache with the route-state `Netlify-Vary` entries. Promotion
+  fails closed: responses to route-state-shaped requests and responses that
+  are not shareable (`Set-Cookie`, `Vary: Cookie`/`Authorization`) get
+  `Netlify-CDN-Cache-Control: private` instead, so one visitor's render can
+  never become the CDN's answer for everyone. An explicit
+  `Netlify-CDN-Cache-Control` header stays fully user-owned.
 
 Tune the cache windows when needed:
 

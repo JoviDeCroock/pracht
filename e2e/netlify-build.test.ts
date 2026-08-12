@@ -106,6 +106,20 @@ test("pracht build emits a working Netlify Functions v2 entry", async () => {
       expect(routeState.headers.get("content-type")).toContain("application/json");
       expect(routeState.headers.has("netlify-cdn-cache-control")).toBe(false);
 
+      // A cross-site `?_data=1` navigation lacks browser provenance, so the
+      // framework answers with the HTML document. It shares a CDN cache key
+      // with first-party JSON fetches (modulo Netlify-Vary), so it must never
+      // become durable-cacheable.
+      const crossSiteData = await handler(
+        new Request("https://example.com/?_data=1", {
+          headers: { "sec-fetch-site": "cross-site" },
+        }),
+        context,
+      );
+      expect(crossSiteData.headers.get("content-type")).toContain("text/html");
+      const crossSiteCdnPolicy = crossSiteData.headers.get("netlify-cdn-cache-control");
+      expect(crossSiteCdnPolicy === null || crossSiteCdnPolicy === "private").toBe(true);
+
       const missing = await handler(new Request("https://example.com/no-such-page"), context);
       expect(missing.status).toBe(404);
       expect(missing.headers.get("cache-control")).toBe("private, no-cache");
