@@ -20,6 +20,7 @@ import {
   coerceFormInput,
 } from "@pracht/capabilities";
 import { formatUnknownNameError } from "./name-suggestions.ts";
+import { emitCapabilityAudit } from "./runtime-capability-audit.ts";
 import {
   capabilityMiddlewareRoute,
   envelopeResponse,
@@ -67,6 +68,7 @@ import type {
 } from "./types.ts";
 
 export { CAPABILITY_HTTP_PREFIX, capabilityHttpPath };
+export { setCapabilityAuditHook } from "./runtime-capability-audit.ts";
 export { envelopeResponse } from "./runtime-capability-pipeline.ts";
 export {
   isRegisteredCapabilityHttpPath,
@@ -77,36 +79,6 @@ export type { CapabilityHostApp, ResolvedCapability } from "./runtime-capability
 
 /** Longest a capability may run before its signal aborts, matching API routes. */
 const CAPABILITY_TIMEOUT_MS = 30_000;
-
-// ---------------------------------------------------------------------------
-// Audit trail
-// ---------------------------------------------------------------------------
-
-// Module-level hook so server-only application code (middleware modules,
-// capability modules, custom server entries) can subscribe without a way to
-// pass functions through the serializable app manifest. Same registration
-// style as `setActiveCapabilityHost`/`setIslandsClientEntryUrl`.
-let capabilityAuditHook: CapabilityAuditHook | null = null;
-
-export function setCapabilityAuditHook(hook: CapabilityAuditHook | null): void {
-  capabilityAuditHook = hook;
-}
-
-/** Audit hooks observe; they must never break a request. */
-function emitCapabilityAudit(event: CapabilityAuditEvent, extra?: CapabilityAuditHook): void {
-  const snapshot = Object.freeze({
-    ...event,
-    agent: snapshotAgentIdentity(event.agent),
-  });
-  for (const hook of [capabilityAuditHook, extra]) {
-    if (!hook) continue;
-    try {
-      hook(snapshot);
-    } catch {
-      // Deliberately swallowed.
-    }
-  }
-}
 
 export interface HandleCapabilityRequestOptions<TContext> {
   match: ResolvedCapability;

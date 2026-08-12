@@ -486,7 +486,9 @@ runtime-capability-registry.ts — capability manifest loading, contract validat
                                  cache identity, and HTTP path matching
 runtime-capability-pipeline.ts — shared input validation, named middleware, execution,
                                  output validation, and response normalization
-runtime-capabilities.ts — HTTP transport, confirmation, audit, and direct server invocation
+runtime-capability-audit.ts — observer registration, trusted identity snapshots,
+                              and fail-safe audit delivery
+runtime-capabilities.ts — HTTP transport, confirmation, and direct server invocation
     ↑
 prefetch-cache.ts — bounded route-state cache shared by navigation, forms, and prefetching
     ↑
