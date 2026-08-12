@@ -90,9 +90,12 @@ described in `VISION_MVP.md`.
   Netlify function generation, and Vercel `.vercel/output/` generation when the app targets those adapters).
   Its command stays focused on orchestration: `build-static-output.ts` owns
   path-confined client writes, `build-route-output.ts` owns route metadata and
-  edge-caching policy, `build-analysis.ts` owns bundle budgets and reporting,
-  and `build-adapter-output.ts` finalizes deployment output while delegating
-  Vercel Build Output API details to `vercel-build-output.ts`.
+  edge-caching policy, and `build-analysis.ts` orchestrates bundle analysis.
+  Its stable `bundle-report.ts` facade delegates client-manifest collection,
+  budget evaluation, size parsing, and terminal formatting to focused modules
+  under `bundle-report/`. `build-adapter-output.ts` finalizes deployment output
+  while delegating Vercel Build Output API details to
+  `vercel-build-output.ts`.
   `pracht preview` builds and serves the production output locally (Node runs
   `dist/server/server.js`, Cloudflare delegates to `wrangler dev`, Netlify
   points at `netlify dev`, and Vercel points at `vercel build`/`vercel dev`),
