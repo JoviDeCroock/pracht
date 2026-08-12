@@ -146,7 +146,7 @@ export function hasPagesAppShell(filePath: string, additionalExtensions: string[
   const extension = basename(filePath).slice("_app".length);
   return (
     basename(filePath).startsWith("_app.") &&
-    new Set([".ts", ".tsx", ".js", ".jsx", ...additionalExtensions]).has(extension)
+    new Set([".ts", ".tsx", ".tsrx", ".js", ".jsx", ...additionalExtensions]).has(extension)
   );
 }
 

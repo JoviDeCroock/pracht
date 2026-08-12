@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { readProjectConfig } from "../src/project.ts";
+import { hasPagesAppShell, readProjectConfig } from "../src/project.ts";
 
 const tempDirs: string[] = [];
 
@@ -81,5 +81,11 @@ describe("readProjectConfig additionalExtensions", () => {
     );
 
     expect(project.additionalExtensions).toEqual([".tsrx", ".vue"]);
+  });
+});
+
+describe("hasPagesAppShell", () => {
+  it("preserves implicit TSRX shell compatibility", () => {
+    expect(hasPagesAppShell("/app/src/pages/_app.tsrx")).toBe(true);
   });
 });
