@@ -249,10 +249,12 @@ into the initial document by default.
 - Pages where server rendering adds no value
 
 On a static export (`@pracht/adapter-static`), SPA routes prerender their
-shell HTML and their loader runs once at build time. Dynamic SPA routes
-without `getStaticPaths()` have no prerendered file — deep links to them need
-the adapter's `fallback: "200.html"` option plus a host rewrite, and they
-render without loader data (fetch client-side instead).
+shell HTML and their loader runs at build time (twice — document render and
+state-file serialization — so it must be deterministic). Dynamic SPA routes
+without `getStaticPaths()` have no prerendered file: in-app client navigation
+renders them without loader data, and deep links to them additionally need
+the adapter's `fallback: "200.html"` option plus a host rewrite (fetch data
+client-side for these routes instead of using a loader).
 
 ---
 

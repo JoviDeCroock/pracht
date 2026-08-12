@@ -246,10 +246,27 @@ test("static export serves a full app from a dumb static host with zero server",
     await expect(page.locator("#dashboard li").first()).toHaveText("Deploys");
     expect(await page.evaluate(() => (window as any).__NO_RELOAD__)).toBe(true);
 
+    // In-app navigation to a dynamic SPA route (no prerendered document, no
+    // state file) stays client-side and renders without loader data — it must
+    // NOT fall back to a document load, which on a plain static host would
+    // land the user on the 404 page for a perfectly routable URL.
+    await page.click('#dashboard a[href="/items/42"]');
+    await expect(page.locator("#item h1")).toHaveText("Item 42");
+    await expect(page.locator("#item-note")).toHaveText("no build-time data");
+    await page.waitForURL(`${origin}/items/42`);
+    expect(await page.evaluate(() => (window as any).__NO_RELOAD__)).toBe(true);
+    // And back out again, still client-side.
+    await page.click('#item a[href="/dashboard"]');
+    await expect(page.locator("#dashboard h1")).toHaveText("Dashboard");
+    expect(await page.evaluate(() => (window as any).__NO_RELOAD__)).toBe(true);
+
     // The entire session was static-host-shaped: no route-state header
-    // requests, no failed requests.
+    // requests, and the only miss is the dynamic SPA route's (deliberately
+    // non-existent) state file.
     expect(routeStateHeaderRequests).toEqual([]);
-    expect(failedRequests).toEqual([]);
+    expect(
+      failedRequests.filter((url) => !url.endsWith("/_pracht/state/items/42/index.json")),
+    ).toEqual([]);
 
     // Direct load of an unknown URL: the host serves 404.html with a 404
     // status, and the hydrated page shows the *real* requested path.
@@ -282,6 +299,11 @@ test("static export serves a full app from a dumb static host with zero server",
     });
     await page.click('#item a[href="/dashboard"]');
     await expect(page.locator("#dashboard h1")).toHaveText("Dashboard");
+    expect(await page.evaluate(() => (window as any).__NO_RELOAD__)).toBe(true);
+    // In-app navigation back into the dynamic SPA route stays client-side on
+    // the fallback host too (no bounce through the 200.html document).
+    await page.click('#dashboard a[href="/items/42"]');
+    await expect(page.locator("#item h1")).toHaveText("Item 42");
     expect(await page.evaluate(() => (window as any).__NO_RELOAD__)).toBe(true);
 
     // Unknown URLs through the fallback render the not-found page client-side.
