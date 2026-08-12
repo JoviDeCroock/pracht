@@ -1,7 +1,6 @@
 import { dirname, resolve } from "node:path";
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 
-import { formatBytes } from "./bundle-report.js";
 import { maskCommentsAndStrings } from "@pracht/capabilities/static";
 
 import { extractRegistryEntries, extractRelativeModulePaths } from "./manifest.js";
@@ -21,12 +20,6 @@ import {
   toModuleSpecifier,
   type Check,
 } from "./verification-helpers.js";
-import { detectAdapterTarget } from "./commands/preview.js";
-import {
-  findWranglerConfig,
-  readWranglerAssetsHtmlHandling,
-  readWranglerMainEntries,
-} from "./wrangler-config.js";
 import {
   collectDuplicateRoutePaths,
   describePagesFile,
@@ -34,7 +27,7 @@ import {
   type PagesRoute,
 } from "./verification-pages.js";
 
-const SERVER_ENTRY_PATH = "dist/server/server.js";
+export { collectBudgetChecks, collectPackageChecks } from "./verification-project-checks.js";
 
 export function collectConfigChecks(
   project: ProjectConfig,
@@ -746,234 +739,4 @@ export function collectApiVerification(
       ),
     );
   }
-}
-
-interface BudgetReportFile {
-  results?: {
-    path: string;
-    gzipBytes: number;
-    limitBytes: number;
-    ok: boolean;
-  }[];
-}
-
-export function collectBudgetChecks(project: ProjectConfig, checks: Check[]): void {
-  const reportPath = resolve(project.root, "dist/server/budget-report.json");
-  if (!existsSync(reportPath)) return;
-
-  let report: BudgetReportFile;
-  try {
-    report = JSON.parse(readFileSync(reportPath, "utf-8"));
-  } catch {
-    checks.push(
-      createCheck("warning", "dist/server/budget-report.json exists but could not be parsed."),
-    );
-    return;
-  }
-
-  const results = report.results ?? [];
-  if (results.length === 0) return;
-
-  const failed = results.filter((result) => !result.ok);
-  if (failed.length === 0) {
-    checks.push(
-      createCheck(
-        "ok",
-        `All ${results.length} route client JS budget${results.length === 1 ? "" : "s"} pass (from the last \`pracht build\`).`,
-      ),
-    );
-    return;
-  }
-
-  for (const result of failed) {
-    checks.push(
-      createCheck(
-        "error",
-        `Route ${JSON.stringify(result.path)} exceeds its client JS budget: ${formatBytes(result.gzipBytes)} gzip > ${formatBytes(result.limitBytes)} (from the last \`pracht build\`).`,
-      ),
-    );
-  }
-}
-
-export function collectPackageChecks(
-  project: ProjectConfig,
-  checks: Check[],
-  packageJsonPath: string,
-): void {
-  if (!existsSync(packageJsonPath)) {
-    checks.push(createCheck("warning", "No package.json found in the current app root."));
-    return;
-  }
-
-  const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf-8"));
-  const deps: Record<string, string> = {
-    ...packageJson.dependencies,
-    ...packageJson.devDependencies,
-  };
-
-  if (!("@pracht/cli" in deps)) {
-    checks.push(
-      createCheck("warning", "`@pracht/cli` is not listed in package.json dependencies."),
-    );
-  }
-
-  const adapterPackages = Object.keys(deps).filter((name) => name.startsWith("@pracht/adapter-"));
-  if (adapterPackages.length === 0) {
-    checks.push(
-      createCheck("warning", "No built-in pracht adapter dependency was found in package.json."),
-    );
-  } else {
-    checks.push(
-      createCheck(
-        "ok",
-        `Found adapter dependency ${adapterPackages.map((name) => JSON.stringify(name)).join(", ")}.`,
-      ),
-    );
-  }
-
-  collectCapabilitiesDependencyCheck(project, deps, checks);
-  collectCloudflareEntryCheck(project, dirname(packageJsonPath), checks);
-}
-
-/**
- * Capability modules import `defineCapability` from `@pracht/capabilities`,
- * which is a separate package the app has to install. Without it the registry
- * fails to resolve at request time (`internal_error`) and — more confusingly —
- * every capability's metadata reads as unknown, so the dev banner and
- * `pracht inspect capabilities` report exposed capabilities as `private` with
- * no effect class.
- */
-function collectCapabilitiesDependencyCheck(
-  project: ProjectConfig,
-  deps: Record<string, string>,
-  checks: Check[],
-): void {
-  if (project.mode !== "manifest") return;
-
-  const manifestPath = resolveProjectPath(project.root, project.appFile);
-  if (!existsSync(manifestPath)) return;
-  const entries = extractRegistryEntries(readFileSync(manifestPath, "utf-8"), "capabilities");
-  if (entries.length === 0) return;
-
-  if ("@pracht/capabilities" in deps) {
-    checks.push(createCheck("ok", 'Found capability dependency "@pracht/capabilities".'));
-    return;
-  }
-
-  checks.push(
-    createCheck(
-      "error",
-      "The app registers capabilities but `@pracht/capabilities` is not in package.json. " +
-        "Install it (`npm install @pracht/capabilities`) — without it capability dispatch " +
-        "answers 500 at runtime and capability metadata reads as private/unknown in the dev " +
-        "banner and `pracht inspect capabilities`.",
-    ),
-  );
-}
-
-/**
- * `dist/server/server.js` also exports the build metadata the CLI's prerender
- * pass needs (buildTarget, manifests, the resolved app, ...). workerd validates
- * every named export of the deployed entry module and refuses to start when one
- * of them is not a handler, so pointing `main` at it fails at `wrangler dev` /
- * `wrangler deploy` time with an opaque type error. `pracht build` writes
- * `dist/server/worker.js` for exactly this reason.
- *
- * Reported as a warning, and only ever about an entry that was actually read.
- * Two things here are heuristics — which adapter the vite config resolves to
- * (a text match) and which `main` entries a wrangler config declares (a
- * conservative reader that skips shapes it does not recognize) — so this must
- * not be able to fail a build. It stays silent when nothing is provably wrong
- * rather than claiming the config is fine: "no entries read" means unknown,
- * not correct.
- */
-function collectCloudflareEntryCheck(project: ProjectConfig, root: string, checks: Check[]): void {
-  if (detectAdapterTarget(project) !== "cloudflare") return;
-
-  const configFile = findWranglerConfig(root);
-  if (!configFile) return;
-
-  const display = displayPath(root, configFile);
-  collectCloudflareTrailingSlashCheck(project, root, configFile, display, checks);
-
-  for (const entry of readWranglerMainEntries(configFile)) {
-    if (!normalizePath(entry.main).endsWith(SERVER_ENTRY_PATH)) continue;
-
-    const where = entry.environment ? ` for environment "${entry.environment}"` : "";
-    checks.push(
-      createCheck(
-        "warning",
-        `${display} sets "main"${where} to ${JSON.stringify(entry.main)}. ` +
-          'Point it at "dist/server/worker.js" — the deploy entry `pracht build` emits. ' +
-          "workerd rejects server.js because it also exports build metadata that is not a Worker handler.",
-      ),
-    );
-  }
-}
-
-/**
- * Cloudflare's assets binding defaults to `html_handling: "auto-trailing-slash"`,
- * which answers `GET /guide` with a 307 to `/guide/`. Node and Vercel answer
- * `200`, so the canonical URL of every prerendered route differs by adapter —
- * and the generated `llms.txt` emits the non-slash form, sending agents through
- * a redirect on Cloudflare only.
- *
- * `create-pracht` writes `"drop-trailing-slash"` into new Cloudflare scaffolds;
- * this catches the apps that predate it. Warning-only and silent whenever
- * anything is unproven: a TOML config, an unparsable file, no assets block, or
- * an app with nothing prerendered to redirect.
- */
-function collectCloudflareTrailingSlashCheck(
-  project: ProjectConfig,
-  root: string,
-  configFile: string,
-  display: string,
-  checks: Check[],
-): void {
-  const assets = readWranglerAssetsHtmlHandling(configFile);
-  if (!assets || assets.htmlHandling !== undefined) return;
-  if (!appHasPrerenderedRoutes(project, root)) return;
-
-  checks.push(
-    createCheck(
-      "warning",
-      `${display} does not set "assets.html_handling". Cloudflare's default redirects ` +
-        "every prerendered route to its trailing-slash form (307), so its canonical URL " +
-        'differs from Node and Vercel. Add "html_handling": "drop-trailing-slash" ' +
-        '(or "none" when you do your own routing).',
-    ),
-  );
-}
-
-/**
- * Whether the app plausibly emits prerendered HTML. Proven from build output
- * when there is any, and otherwise inferred from declared render modes — the
- * same text-level heuristic the surrounding Cloudflare checks already accept,
- * because the only consequence of being wrong is a suppressed suggestion.
- */
-function appHasPrerenderedRoutes(project: ProjectConfig, root: string): boolean {
-  const clientDir = resolve(root, "dist/client");
-  if (existsSync(clientDir)) {
-    return listFilesRecursively(clientDir).some((file) => file.endsWith(".html"));
-  }
-
-  const sourceDir =
-    project.mode === "manifest"
-      ? resolveProjectPath(project.root, project.appFile)
-      : resolveProjectPath(project.root, project.pagesDir);
-  if (!existsSync(sourceDir)) return false;
-
-  const files = statSync(sourceDir).isDirectory()
-    ? listFilesRecursively(sourceDir).filter((file) => MODULE_SOURCE_RE.test(file))
-    : [sourceDir];
-
-  return files.some((file) => {
-    let source: string;
-    try {
-      source = readFileSync(file, "utf-8");
-    } catch {
-      return false;
-    }
-    return /["']ssg["']|["']isg["']/.test(source);
-  });
 }
