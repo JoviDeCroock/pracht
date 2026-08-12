@@ -386,9 +386,11 @@ its own cache variant, while tracking and other unrelated query parameters
 collapse onto the pathname entry. A custom `Netlify-Vary` header takes
 precedence.
 
-Shared ISG renders are sanitized before loaders and context factories run, so
-visitor cookies, authorization, query strings, and bodies cannot personalize
-the cached response.
+Shared ISG renders sanitize both the request and Netlify context before loaders
+and context factories run. Visitor cookies, authorization, query strings,
+bodies, IP/geolocation, request IDs, and arbitrary request-local context cannot
+personalize the cached response. Deployment-wide site/server metadata and
+`waitUntil()` remain available.
 
 ### Local preview and deploy
 

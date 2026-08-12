@@ -251,6 +251,86 @@ describe("createNetlifyHandler", () => {
     expect(response.headers.get("netlify-vary")).toBe("query=_data");
   });
 
+  it("sanitizes visitor-specific Netlify context before shared ISG renders", async () => {
+    const platformContext = {
+      cookies: {
+        delete: vi.fn(),
+        get: vi.fn(() => "visitor-session"),
+        set: vi.fn(),
+      },
+      customVisitorValue: "visitor-specific",
+      geo: { city: "Brussels" },
+      ip: "203.0.113.7",
+      requestId: "visitor-request-id",
+      site: { id: "site-id" },
+      url: new URL("https://example.com/pricing?visitor=1"),
+      waitUntil(this: unknown, _promise: Promise<unknown>) {
+        expect(this).toBe(platformContext);
+      },
+    };
+    let seenContext: Record<string, unknown> | undefined;
+    const handler = createNetlifyHandler({
+      app,
+      createContext: ({ context }) => {
+        seenContext = context;
+        context.waitUntil?.(Promise.resolve());
+        return context;
+      },
+      isgManifest: {
+        "/pricing": {
+          revalidate: [timeRevalidate(60), webhookRevalidate()],
+        },
+      },
+      registry,
+    });
+
+    const response = await handler(
+      new Request("https://example.com/pricing?visitor=1", {
+        headers: { cookie: "session=visitor" },
+      }),
+      platformContext,
+    );
+
+    expect(response.headers.get("netlify-cdn-cache-control")).toContain("public, durable");
+    expect(seenContext).toMatchObject({
+      cookies: expect.any(Object),
+      geo: {},
+      ip: "",
+      requestId: "",
+      site: { id: "site-id" },
+      url: new URL("https://example.com/pricing"),
+    });
+    const sharedCookies = seenContext?.cookies as
+      | { get(name: string): string | undefined }
+      | undefined;
+    expect(sharedCookies?.get("session")).toBeUndefined();
+    expect(seenContext).not.toHaveProperty("customVisitorValue");
+    expect(seenContext).not.toHaveProperty("next");
+    expect(platformContext.cookies.get).not.toHaveBeenCalled();
+  });
+
+  it("rejects cookie mutations while rendering shared ISG output", async () => {
+    const handler = createNetlifyHandler({
+      app,
+      createContext: ({ context }) => {
+        (context.cookies as { set(name: string, value: string): void }).set("session", "value");
+        return context;
+      },
+      isgManifest: {
+        "/pricing": {
+          revalidate: [timeRevalidate(60), webhookRevalidate()],
+        },
+      },
+      registry,
+    });
+
+    await expect(
+      handler(new Request("https://example.com/pricing"), {
+        cookies: { set: vi.fn() },
+      }),
+    ).rejects.toThrow("Netlify cookies cannot be changed while rendering a shared ISG response");
+  });
+
   it("keeps cacheable custom ISG policies tagged for webhook purges", async () => {
     const handler = createNetlifyHandler({
       app,
