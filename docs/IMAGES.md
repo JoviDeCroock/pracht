@@ -74,8 +74,10 @@ import hero from "./hero.jpg?pracht";
 <Image src={hero} alt="Hero" placeholder="blur" />;
 ```
 
-- **`src`** goes through Vite's normal asset pipeline: hashed file names,
-  `base`, and dev serving behave exactly like a plain asset import.
+- **`src`** goes through Vite's normal asset pipeline: source-directory
+  imports get hashed file names, while root-relative imports from `publicDir`
+  keep their stable public names; `base` and dev serving behave exactly like
+  the corresponding plain asset import.
 - **`width`/`height`** come from sharp metadata with EXIF orientation applied
   (a portrait photo whose raster is stored rotated reports its *display*
   dimensions), so `<Image src={hero}>` gets intrinsic sizing — and no layout

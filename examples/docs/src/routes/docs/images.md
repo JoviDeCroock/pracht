@@ -102,7 +102,7 @@ export function Component() {
 
 Passing the metadata object as `src` gives the image intrinsic `width`/`height` automatically — no layout shift, no hand-maintained dimensions. The pieces:
 
-- `src` goes through Vite's regular asset pipeline: hashed file names in production, `base`-aware URLs, and on-demand serving in dev.
+- `src` goes through Vite's regular asset pipeline: source-directory imports get hashed file names in production, root-relative imports from `publicDir` keep their stable public names, and both get `base`-aware URLs plus normal dev serving.
 - `width` and `height` come from `sharp` metadata with EXIF orientation applied, so rotated photos report their display dimensions.
 - `blurDataURL` is a tiny (8px wide) inline WebP generated at build time, used by `placeholder="blur"`.
 

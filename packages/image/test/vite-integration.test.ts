@@ -1,4 +1,13 @@
-import { copyFile, mkdtemp, readFile, readdir, rm, utimes, writeFile } from "node:fs/promises";
+import {
+  copyFile,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  utimes,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -70,6 +79,50 @@ describe("prachtImage in a real Vite build", () => {
       expect(chunk).toContain("data:image/webp;base64,");
     },
   );
+
+  it(
+    "reads publicDir images from disk while preserving their public URL semantics",
+    { timeout: 60_000 },
+    async () => {
+      const { build } = await import("vite");
+      const root = await makeRoot();
+      await mkdir(join(root, "public"));
+      await copyFile(fixture("landscape.jpg"), join(root, "public", "photo.jpg"));
+      await writeFile(
+        join(root, "entry.js"),
+        [
+          'import publicMeta from "/photo.jpg?pracht";',
+          'import sourceMeta from "./public/photo.jpg?pracht";',
+          "console.log(publicMeta, sourceMeta);",
+        ].join("\n"),
+      );
+
+      await build({
+        root,
+        base: "/sub/",
+        logLevel: "error",
+        plugins: [prachtImage()],
+        build: {
+          outDir: join(root, "dist"),
+          rollupOptions: { input: join(root, "entry.js") },
+        },
+      });
+
+      const assets = await readdir(join(root, "dist", "assets"));
+      const chunkName = assets.find((file) => file.endsWith(".js"));
+      const chunk = await readFile(join(root, "dist", "assets", chunkName!), "utf8");
+      expect(chunk).toMatch(/src:[`"']\/sub\/photo\.jpg/);
+      const images = assets.filter((file) => file.endsWith(".jpg"));
+      expect(images).toHaveLength(1);
+      expect(chunk).toMatch(new RegExp(`src:[\`"']/sub/assets/${images[0]}`));
+      expect(chunk).toContain("width:32");
+      expect(chunk).toContain("height:20");
+      expect(chunk).toContain("data:image/webp;base64,");
+      await expect(readFile(join(root, "dist", "photo.jpg"))).resolves.toEqual(
+        await readFile(fixture("landscape.jpg")),
+      );
+    },
+  );
 });
 
 describe("prachtImage in the Vite dev server", () => {
@@ -122,4 +175,48 @@ describe("prachtImage in the Vite dev server", () => {
       }
     },
   );
+
+  it("invalidates metadata when an image in publicDir changes", { timeout: 60_000 }, async () => {
+    const { createServer } = await import("vite");
+    const root = await makeRoot();
+    await mkdir(join(root, "public"));
+    const image = join(root, "public", "photo.jpg");
+    await copyFile(fixture("landscape.jpg"), image);
+    await writeFile(join(root, "main.js"), 'import meta from "/photo.jpg?pracht";\n');
+    await writeFile(join(root, "index.html"), '<script type="module" src="/main.js"></script>');
+
+    const server = await createServer({
+      root,
+      logLevel: "error",
+      plugins: [prachtImage()],
+      server: {
+        middlewareMode: true,
+        hmr: false,
+        watch: { usePolling: true, interval: 50 },
+      },
+    });
+
+    try {
+      const first = await server.transformRequest("/photo.jpg?pracht");
+      expect(first?.code).toContain("export const width = 32;");
+      expect(first?.code).toMatch(/import src from "\/photo\.jpg\?[^"]*url&no-inline";/);
+
+      await copyFile(fixture("exif-rotated.jpg"), image);
+      await utimes(image, new Date(), new Date(Date.now() + 5000));
+
+      const mod = await server.moduleGraph.getModuleByUrl("/photo.jpg?pracht");
+      expect(mod).toBeDefined();
+      const deadline = Date.now() + 10_000;
+      while (mod!.transformResult != null && Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      expect(mod!.transformResult).toBeNull();
+
+      const second = await server.transformRequest("/photo.jpg?pracht");
+      expect(second?.code).toContain("export const width = 20;");
+      expect(second?.code).toContain("export const height = 32;");
+    } finally {
+      await server.close();
+    }
+  });
 });

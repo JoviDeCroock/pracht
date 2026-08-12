@@ -16,9 +16,10 @@ next/image's loader pattern.
   [sharp](https://sharp.pixelplumbing.com) (optional peer dependency) with a
   trusted-local-origin/remote-allowlist security model and revalidated cache
   headers.
-- Build-time `?pracht` image imports (`@pracht/image/vite`): hashed asset URL,
-  intrinsic dimensions (EXIF-orientation aware), and a tiny inline
-  `blurDataURL` for CSS-only `placeholder="blur"`.
+- Build-time `?pracht` image imports (`@pracht/image/vite`): Vite-managed asset
+  URL (hashed source assets or stable `publicDir` URLs), intrinsic dimensions
+  (EXIF-orientation aware), and a tiny inline `blurDataURL` for CSS-only
+  `placeholder="blur"`.
 
 ```bash
 pnpm add @pracht/image

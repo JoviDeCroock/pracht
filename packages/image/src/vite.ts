@@ -1,4 +1,5 @@
 import { readFile, stat } from "node:fs/promises";
+import { isAbsolute, relative, resolve, sep } from "node:path";
 import type { Plugin } from "vite";
 
 import type { PrachtImageMetadata } from "./metadata.ts";
@@ -137,18 +138,18 @@ export async function analyzeImage(
  * (default 4 KB) turn `src` into a `data:` URI, which breaks
  * optimization-endpoint loaders (`/api/_pracht/image?url=data%3A…` is not a
  * fetchable same-origin path) and double-ships the bytes next to
- * `blurDataURL`. The metadata contract promises a real, hashed asset URL.
- * Exported for tests.
+ * `blurDataURL`. The metadata contract promises a real asset URL (hashed for
+ * source files, stable for publicDir files). Exported for tests.
  */
 export function createImageModuleCode(
-  filePath: string,
+  assetId: string,
   analyzed: Omit<PrachtImageMetadata, "src">,
 ): string {
   // Vite ids always use forward slashes, including Windows drive paths
   // (`C:/…`). Normalize before embedding the path in the generated import.
-  const assetId = `${filePath.replace(/\\/g, "/")}?url&no-inline`;
+  const assetImport = `${assetId.replace(/\\/g, "/")}?url&no-inline`;
   return [
-    `import src from ${JSON.stringify(assetId)};`,
+    `import src from ${JSON.stringify(assetImport)};`,
     `export const width = ${JSON.stringify(analyzed.width)};`,
     `export const height = ${JSON.stringify(analyzed.height)};`,
     `export const blurDataURL = ${JSON.stringify(analyzed.blurDataURL)};`,
@@ -161,6 +162,31 @@ interface CacheEntry {
   mtimeMs: number;
   size: number;
   code: Promise<string>;
+}
+
+interface ResolvedImage {
+  /** Filesystem path read by sharp and watched for changes. */
+  filePath: string;
+  /** Vite id imported by the generated metadata module. */
+  assetId: string;
+}
+
+async function resolvePublicFile(publicDir: string, source: string): Promise<string | undefined> {
+  if (!publicDir || !source.startsWith("/")) return undefined;
+
+  const candidate = resolve(publicDir, `.${source}`);
+  const relativePath = relative(publicDir, candidate);
+  if (
+    relativePath === "" ||
+    relativePath === ".." ||
+    relativePath.startsWith(`..${sep}`) ||
+    isAbsolute(relativePath)
+  ) {
+    return undefined;
+  }
+
+  const stats = await stat(candidate).catch(() => undefined);
+  return stats?.isFile() ? candidate : undefined;
 }
 
 /**
@@ -178,9 +204,10 @@ interface CacheEntry {
  * ```
  *
  * The import yields `{ src, width, height, blurDataURL }`: `src` goes through
- * Vite's normal asset pipeline (hashed URLs, `base`, dev server), dimensions
- * come from sharp metadata with EXIF orientation applied, and `blurDataURL`
- * is a tiny inline WebP generated at build time. Add
+ * Vite's normal asset pipeline (hashed source assets, stable publicDir URLs,
+ * `base`, dev server), dimensions come from sharp metadata with EXIF
+ * orientation applied, and `blurDataURL` is a tiny inline WebP generated at
+ * build time. Add
  * `/// <reference types="@pracht/image/client" />` (or `"types":
  * ["@pracht/image/client"]` in tsconfig) so TypeScript understands the query.
  */
@@ -194,17 +221,21 @@ export function prachtImage(options: PrachtImageOptions = {}): Plugin {
     throw new Error("prachtImage({ blurQuality }) expects an integer between 1 and 100.");
   }
   const importSharp = createSharpImporter(options.loadSharp ?? (() => import("sharp")));
-  // Keyed by file path, invalidated by mtime+size so edits to the source
-  // image are picked up in dev (Vite reloads the module, we re-transform)
-  // and repeated builds/environments reuse the sharp work.
+  // Include the asset id in the cache key: the same file can be imported via
+  // publicDir (stable root-relative URL) or by filesystem path (hashed URL).
+  // Invalidating by mtime+size picks up edits in dev while repeated
+  // builds/environments reuse the sharp work for matching URL semantics.
   const cache = new Map<string, CacheEntry>();
+  const resolvedImages = new Map<string, ResolvedImage>();
+  let publicDir = "";
 
-  async function transform(filePath: string): Promise<string> {
+  async function transform(filePath: string, assetId: string): Promise<string> {
     const stats = await stat(filePath).catch(() => {
       throw new Error(`[pracht/image] Could not read "${filePath}" for a "?pracht" import.`);
     });
 
-    const cached = cache.get(filePath);
+    const cacheKey = `${filePath}\0${assetId}`;
+    const cached = cache.get(cacheKey);
     if (cached && cached.mtimeMs === stats.mtimeMs && cached.size === stats.size) {
       return cached.code;
     }
@@ -220,13 +251,13 @@ export function prachtImage(options: PrachtImageOptions = {}): Plugin {
             `${error instanceof Error ? error.message : String(error)}`,
         );
       }
-      return createImageModuleCode(filePath, analyzed);
+      return createImageModuleCode(assetId, analyzed);
     })();
     // Drop failed transforms so a fixed image (or a later sharp install) is
     // retried instead of replaying a cached rejection.
-    code.catch(() => cache.delete(filePath));
+    code.catch(() => cache.delete(cacheKey));
 
-    cache.set(filePath, { mtimeMs: stats.mtimeMs, size: stats.size, code });
+    cache.set(cacheKey, { mtimeMs: stats.mtimeMs, size: stats.size, code });
     return code;
   }
 
@@ -235,20 +266,53 @@ export function prachtImage(options: PrachtImageOptions = {}): Plugin {
     // Run before Vite's asset plugin, which would otherwise treat
     // `hero.jpg?pracht` as a plain asset URL import.
     enforce: "pre",
+    configResolved(config) {
+      publicDir = config.publicDir;
+    },
     async resolveId(source, importer) {
       if (!isPrachtImageId(source)) return null;
       // Resolve the underlying file with the query stripped so relative
       // paths and aliases work, then re-attach the query as the module id.
-      const resolved = await this.resolve(stripImageQuery(source), importer, { skipSelf: true });
+      const sourcePath = stripImageQuery(source);
+      const resolved = await this.resolve(sourcePath, importer, { skipSelf: true });
       if (!resolved) return null;
-      return `${resolved.id}?${PRACHT_IMAGE_QUERY}`;
+
+      // Vite deliberately resolves a publicDir asset such as `/hero.jpg` to
+      // that root-relative URL rather than its disk location. Sharp still
+      // needs the real file path, while the generated `?url` import must keep
+      // the public URL so Vite preserves its stable filename and applies base.
+      const publicFile =
+        resolved.id === sourcePath ? await resolvePublicFile(publicDir, sourcePath) : undefined;
+      const moduleId = `${resolved.id}${resolved.id.includes("?") ? "&" : "?"}${PRACHT_IMAGE_QUERY}`;
+      resolvedImages.set(moduleId, {
+        filePath: publicFile ?? resolved.id,
+        assetId: publicFile ? sourcePath : resolved.id,
+      });
+      return moduleId;
     },
     async load(id) {
       if (!isPrachtImageId(id)) return null;
-      const filePath = stripImageQuery(id);
+      const resolved = resolvedImages.get(id) ?? {
+        filePath: stripImageQuery(id),
+        assetId: stripImageQuery(id),
+      };
       // Watch the source file so dev rebuilds when the image itself changes.
-      this.addWatchFile(filePath);
-      return transform(filePath);
+      this.addWatchFile(resolved.filePath);
+      return transform(resolved.filePath, resolved.assetId);
+    },
+    watchChange(filePath) {
+      if (this.environment.mode !== "dev") return;
+
+      // publicDir modules use a root-relative URL as their module id, so Vite's
+      // normal file-to-module index does not associate them with the public
+      // file on disk. Invalidate those mapped modules explicitly when the
+      // watcher reports a change; source-directory ids are already covered by
+      // Vite and the duplicate invalidation is harmless.
+      for (const [moduleId, resolved] of resolvedImages) {
+        if (resolved.filePath.replace(/\\/g, "/") !== filePath.replace(/\\/g, "/")) continue;
+        const module = this.environment.moduleGraph.getModuleById(moduleId);
+        if (module) this.environment.moduleGraph.invalidateModule(module);
+      }
     },
   };
 }
