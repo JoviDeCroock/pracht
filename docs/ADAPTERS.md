@@ -999,13 +999,21 @@ pracht({ adapter: staticAdapter({ fallback: "200.html" }) });
 A static export has no runtime server, so `pracht build` fails with an
 aggregated error — before any prerendering — when the app needs one:
 
-- **Routes** must be `render: "ssg"` (or `"spa"`, whose shell HTML is
-  prerendered). `ssr` and `isg` routes are hard errors naming each route and
-  pointing at the serverful adapters.
+- **Routes** must be `render: "ssg"` or loaderless `"spa"`. SSG loaders run
+  only during the build and must return a successful response; loader redirects
+  and errors fail the build. Dynamic SSG routes must export `getStaticPaths()`.
+  SPA loaders, `ssr`, and `isg` are hard errors naming each route and pointing
+  at the serverful adapters. Fetch live SPA data in the browser from an
+  external API instead.
+- **Route and not-found middleware** are hard errors: a static host has no
+  request runtime in which to enforce redirects, authentication, or headers.
 - **API routes** are hard errors (nothing can answer them).
 - **Capabilities exposed over HTTP/MCP/WebMCP** are hard errors. Unexposed
   capabilities are fine — `invokeCapability()` from build-time loaders runs
-  during prerender.
+  during prerender. Validation follows the manifest's registered capability
+  graph rather than every file in `src/capabilities/`; a registered module that
+  is missing or fails to load is also a hard error because its exposure cannot
+  be established safely.
 - **Routes under `/_pracht/`** are hard errors: that namespace is reserved for
   build metadata and the route-state tree below.
 - Webhook/time revalidation is N/A by construction (no ISG routes exist).
@@ -1016,16 +1024,15 @@ On every other adapter, client navigation fetches route-state JSON from the
 page URL with the `x-pracht-route-state-request` header — impossible on a
 static host. The static adapter solves this at build time:
 
-- For each prerendered route whose navigation performs a state fetch (a loader
-  or route middleware), the build renders the route-state request **a second
-  time** — the same rendering the live endpoint performs — and writes the JSON
+- For each loader-backed SSG route, the build renders the route-state request
+  **a second time** — the same rendering the live endpoint performs — and writes the JSON
   body to `dist/client/_pracht/state/<path>/index.json` (`/` →
   `_pracht/state/index.json`). The `index.json` leaf keeps `/blog` and
   `/blog/hello` from contending for one path, and `_pracht/` is already
   reserved, so state files can never collide with a prerendered route or a
   `public/` file.
-- **Loaders (and route middleware) therefore run twice per page** during a
-  static build: once for the HTML document, once for the state file. Like
+- **SSG loaders therefore run twice per page** during a static build: once for
+  the HTML document, once for the state file. Like
   `getStaticPaths()`, they must be deterministic and side-effect free at build
   time — a loader that reads `Date.now()`, randomness, or mutable external
   state produces an HTML document and a state file with *different* data, so
@@ -1033,11 +1040,14 @@ static host. The static adapter solves this at build time:
 - The client bundle is compiled with the `__PRACHT_STATIC_TARGET__` define
   (driven by the adapter's `staticTarget: true` flag), which switches
   `fetchPrachtRouteState()` — navigation, prefetch, SPA boot, revalidation —
-  to those files. Every other adapter compiles the flag to `false` and
-  dead-code-eliminates the static branch; dev servers always use the live
-  endpoint.
-- Loaderless routes fetch nothing; islands/`none`-hydration routes keep their
-  MPA full-document navigation and get no state files.
+  to those files. The generated server metadata carries the same flag so the
+  CLI emits the state/404/fallback artifacts even when a custom static adapter
+  uses an id other than `"static"`. Every other adapter compiles the flag to
+  `false` and dead-code-eliminates the static branch; dev servers always use
+  the live endpoint.
+- Loaderless routes fetch nothing. Loaderless SPA routes boot and navigate
+  entirely in the browser without Pracht route state. Islands/`none`-hydration
+  routes keep their MPA full-document navigation and get no state files.
 - Query strings are dropped when resolving the state URL: build-time loader
   data has no query variants, matching what the build generated.
 
@@ -1047,17 +1057,14 @@ endpoint. Loader data containing HTML stays inert data. A state fetch that
 misses (a stale navigation after a redeploy that removed a route, a host that
 answers the miss with an HTML error document) rejects; for `ssg` routes the
 router then falls back to a full-document navigation, which the host answers
-with the real page or its 404 document. For `render: "spa"` routes — whose
-dynamic, non-enumerated paths have no state file by construction — the router
-renders the route client-side **without loader data** instead of reloading:
-a document load could only land on the host's 404 page or bounce through the
-SPA fallback document.
+with the real page or its 404 document. Static SPA routes never request state.
 
-**Revalidation is a no-op with fresh-looking plumbing**: `useRevalidate()`
-(and the automatic refresh after a settled capability call) refetches the
-static state file with `cache: "reload"` — it always returns the build-time
-payload again. Data on a static export only changes by redeploying. Put
-truly live data behind a client-side fetch to an external API instead.
+**Revalidation of SSG loader data is a no-op with fresh-looking plumbing**:
+`useRevalidate()` (and the automatic refresh after a settled capability call)
+refetches the static state file with `cache: "reload"` — it always returns the
+build-time payload again. Data on a static export only changes by redeploying.
+Static SPA routes have no Pracht loader state; put truly live data behind a
+client-side fetch to an external API instead.
 
 ### 404 and the SPA fallback
 
@@ -1074,12 +1081,9 @@ truly live data behind a client-side fetch to an external API instead.
   `render: "spa"` routes, which have no prerendered file; without a rewrite
   those URLs land on `404.html`. (In-app client navigation to dynamic SPA
   routes works without the fallback — the router renders them client-side,
-  without loader data. The rewrite only governs full-document loads: deep
-  links, reloads, opening in a new tab.) During a fallback boot, a missing
-  state file renders the route without loader data instead of reloading (a
-  reload would re-serve the fallback document and loop). GitHub Pages cannot
-  rewrite — deep links to and reloads of dynamic SPA paths land on the 404
-  page there.
+  without Pracht route state. The rewrite only governs full-document loads: deep
+  links, reloads, opening in a new tab.) GitHub Pages cannot rewrite — deep
+  links to and reloads of dynamic SPA paths land on the 404 page there.
 - A host that serves `404.html` with status **200** (S3 without an error-
   document configuration, some CDN defaults) changes nothing for the client —
   hydration adopts `window.location` either way — but crawlers will index
@@ -1344,8 +1348,9 @@ export default async function handle(request) {
     edge: true,
     // Optional: set to true when the adapter produces a pure static export
     // with no runtime server. Production builds then compile the client with
-    // __PRACHT_STATIC_TARGET__ = true, switching route-state fetching to the
-    // serialized /_pracht/state/… files (see the Static Adapter section).
+    // __PRACHT_STATIC_TARGET__ = true and tell the CLI to emit serialized
+    // /_pracht/state/… files plus static-only artifacts. The adapter id can
+    // remain platform-specific (see the Static Adapter section).
     staticTarget: true,
   };
 }

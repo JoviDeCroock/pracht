@@ -113,3 +113,23 @@ describe("createPrachtServerModuleSource budgets export", () => {
     expect(source).toContain("export const budgets = {};");
   });
 });
+
+describe("createPrachtServerModuleSource static target export", () => {
+  it("exports staticTarget independently from a custom adapter id", () => {
+    const source = createPrachtServerModuleSource({
+      adapter: {
+        id: "custom-static",
+        serverImports: 'import { resolveApp, resolveApiRoutes } from "@pracht/core/server";',
+        staticTarget: true,
+        createServerEntryModule: () => "",
+      },
+    });
+
+    expect(source).toContain('export const buildTarget = "custom-static";');
+    expect(source).toContain("export const staticTarget = true;");
+  });
+
+  it("exports staticTarget false for serverful adapters", () => {
+    expect(createPrachtServerModuleSource()).toContain("export const staticTarget = false;");
+  });
+});

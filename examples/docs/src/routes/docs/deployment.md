@@ -126,18 +126,10 @@ local development runtime.
 
 Deploys through a fetch-style Netlify Functions v2 handler with SSG documents
 and ISG responses stored in Netlify's durable CDN cache.
----
-
-## Static hosts
-
-Apps whose routes are all `ssg` (or `spa`), with no API routes and no
-network-exposed capabilities, can skip servers entirely with
-`@pracht/adapter-static` — GitHub Pages, S3, nginx, Netlify, any file host.
 
 ```ts [vite.config.ts]
 import { defineConfig } from "vite";
 import { pracht } from "@pracht/vite-plugin";
-<<<<<<< HEAD
 import { netlifyAdapter } from "@pracht/adapter-netlify";
 
 export default defineConfig({
@@ -169,7 +161,19 @@ stay outside the generated function bundle.
 `pracht preview` deliberately does not emulate Netlify's Functions and CDN
 behavior; build the generated function before using `netlify dev` for the
 platform-shaped local runtime.
-=======
+
+---
+
+## Static hosts
+
+Apps whose routes are all `ssg` (or loaderless `spa`), with no request
+middleware, API routes, or network-exposed capabilities, can skip servers
+entirely with `@pracht/adapter-static` — GitHub Pages, S3, nginx, Netlify, any
+file host.
+
+```ts [vite.config.ts]
+import { defineConfig } from "vite";
+import { pracht } from "@pracht/vite-plugin";
 import { staticAdapter } from "@pracht/adapter-static";
 
 export default defineConfig({
@@ -183,15 +187,15 @@ pracht build      # dist/client/ is the whole deployment
 pracht preview
 ```
 
-The build serializes each route's loader payload to static
+The build serializes each loader-backed SSG route's payload to static
 `_pracht/state/…/index.json` files so client-side navigation works without a
 server, emits the `notFound` page as `404.html`, and — with
 `staticAdapter({ fallback: "200.html" })` — an SPA fallback document for hosts
-that can rewrite unmatched URLs. Anything that needs a runtime server (`ssr`
-or `isg` routes, API routes, exposed capabilities) fails the build with an
-error naming the offenders. See the [Adapters Reference](/docs/adapters) for
-host configuration details.
->>>>>>> bb5ab272 (Add @pracht/adapter-static: pure static export)
+that can rewrite unmatched URLs. Loaderless SPA routes fetch no Pracht state
+and can call external APIs directly from the browser. Anything that needs a
+runtime server (`ssr` or `isg` routes, SPA loaders, middleware, API routes,
+exposed capabilities) fails the build with an error naming the offenders. See
+the [Adapters Reference](/docs/adapters) for host configuration details.
 
 ---
 

@@ -48,7 +48,11 @@ describe("prerenderApp staticExport", () => {
           render: "ssg",
           hydration: "islands",
         }),
-        route("/app", "./routes/app.tsx", { render: "spa", shell: "shell" }),
+        route("/app", "./routes/app.tsx", {
+          render: "spa",
+          shell: "shell",
+          hasLoader: false,
+        }),
       ],
       shells: {
         shell: "./shells/shell.tsx",
@@ -71,7 +75,6 @@ describe("prerenderApp staticExport", () => {
       }),
       "/src/routes/app.tsx": async () => ({
         Component: () => h("main", null, "app"),
-        loader: async () => ({ widgets: [1, 2, 3] }),
       }),
     },
     shellModules: {
@@ -122,19 +125,73 @@ describe("prerenderApp staticExport", () => {
     expect(islandPage?.routeState).toBeUndefined();
   });
 
-  it("prerenders SPA shells and captures their loader state", async () => {
+  it("prerenders loaderless SPA shells without pending route state", async () => {
     const pages = await prerenderApp({ app: createStaticApp(), registry, staticExport: true });
     const app = pages.find((page) => page.path === "/app");
     expect(app?.spa).toBe(true);
     expect(app?.html).toContain("loading");
-    expect(app?.html).toContain('"pending":true');
-    expect(JSON.parse(app!.routeState!)).toEqual({ data: { widgets: [1, 2, 3] } });
+    expect(app?.html).toContain('"pending":false');
+    expect(app?.routeState).toBeUndefined();
   });
 
   it("does not prerender SPA routes outside staticExport mode", async () => {
     const pages = await prerenderApp({ app: createStaticApp(), registry });
     expect(pages.some((page) => page.path === "/app")).toBe(false);
     expect(pages.every((page) => page.routeState === undefined)).toBe(true);
+  });
+
+  it("fails a static export when a build-time loader redirects", async () => {
+    const app = defineApp({
+      routes: [route("/old", "./routes/redirect.tsx", { render: "ssg", hasLoader: true })],
+    });
+    const redirectRegistry = {
+      routeModules: {
+        "/src/routes/redirect.tsx": async () => ({
+          Component: () => h("main", null, "old"),
+          loader: () => new Response(null, { headers: { location: "/new" }, status: 302 }),
+        }),
+      },
+    };
+
+    await expect(
+      prerenderApp({ app, registry: redirectRegistry, staticExport: true }),
+    ).rejects.toThrow(/document request returned status 302 \(redirect: \/new\)/);
+  });
+
+  it("fails a static export when a build-time loader errors", async () => {
+    const app = defineApp({
+      routes: [route("/broken", "./routes/broken.tsx", { render: "ssg", hasLoader: true })],
+    });
+    const brokenRegistry = {
+      routeModules: {
+        "/src/routes/broken.tsx": async () => ({
+          Component: () => h("main", null, "broken"),
+          ErrorBoundary: () => h("main", null, "caught"),
+          loader: () => {
+            throw new Error("build data unavailable");
+          },
+        }),
+      },
+    };
+
+    await expect(
+      prerenderApp({ app, registry: brokenRegistry, staticExport: true }),
+    ).rejects.toThrow(/document request returned status 500/);
+  });
+
+  it("fails a static export when dynamic SSG has no getStaticPaths", async () => {
+    const app = defineApp({
+      routes: [route("/posts/:slug", "./routes/post.tsx", { render: "ssg" })],
+    });
+    const dynamicRegistry = {
+      routeModules: {
+        "/src/routes/post.tsx": async () => ({ Component: () => h("main", null, "post") }),
+      },
+    };
+
+    await expect(
+      prerenderApp({ app, registry: dynamicRegistry, staticExport: true }),
+    ).rejects.toThrow(/dynamic SSG route.*has no getStaticPaths/);
   });
 });
 

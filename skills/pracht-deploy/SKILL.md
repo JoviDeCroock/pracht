@@ -309,10 +309,13 @@ functions.
 
 ## Static Export Deployment
 
-For apps where every route is `render: "ssg"` (or `"spa"`), with no API routes
-and no HTTP/MCP/WebMCP-exposed capabilities. Anything else fails the build
-with an error naming the offenders — that is the signal to pick a serverful
-adapter instead.
+For apps where every route is `render: "ssg"` (or loaderless `"spa"`), with no
+request middleware, API routes, or HTTP/MCP/WebMCP-exposed capabilities. SSG
+loaders run only at build time and must succeed; dynamic SSG routes must export
+`getStaticPaths()`. Anything else fails the build with an error naming the
+offenders — that is the signal to pick a serverful adapter instead. Only
+manifest-registered capabilities participate; every registered capability
+module must load successfully so exposure validation can fail closed.
 
 ### Setup
 
@@ -337,9 +340,11 @@ Upload `dist/client/` to any static host (GitHub Pages, S3, nginx, Netlify).
 `dist/server/` is build tooling only — never deploy it. The host must serve
 `<dir>/index.html` for clean URLs and should use `404.html` as its error
 document. Client navigation fetches the serialized
-`_pracht/state/<path>/index.json` files, so no rewrite rules are needed for
-data. See docs/ADAPTERS.md § Static Adapter for host header configuration and
-limitations (markdown negotiation, percent-encoded params, base paths).
+`_pracht/state/<path>/index.json` files for loader-backed SSG routes. Loaderless
+SPA routes fetch no Pracht state; use browser-side requests to an external API
+for live data. See docs/ADAPTERS.md § Static Adapter for host header
+configuration and limitations (markdown negotiation, percent-encoded params,
+base paths).
 
 ---
 

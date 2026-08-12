@@ -31,7 +31,8 @@ serializes each SSG route's loader payload to
 `dist/client/_pracht/state/<path>/index.json` and the client router fetches
 that file instead, so navigation stays client-side with zero server — see
 [ADAPTERS.md](ADAPTERS.md#static-adapter). An app where every route is
-`ssg`/`spa`, with no API routes and no network-exposed capabilities, can
+`ssg` or loaderless `spa`, with no request middleware, API routes, or
+network-exposed capabilities, can
 therefore deploy `dist/client/` to any static host.
 
 ### Dynamic SSG paths
@@ -248,13 +249,12 @@ into the initial document by default.
 - Complex interactive UIs (editors, dashboards)
 - Pages where server rendering adds no value
 
-On a static export (`@pracht/adapter-static`), SPA routes prerender their
-shell HTML and their loader runs at build time (twice — document render and
-state-file serialization — so it must be deterministic). Dynamic SPA routes
-without `getStaticPaths()` have no prerendered file: in-app client navigation
-renders them without loader data, and deep links to them additionally need
-the adapter's `fallback: "200.html"` option plus a host rewrite (fetch data
-client-side for these routes instead of using a loader).
+On a static export (`@pracht/adapter-static`), SPA routes must be loaderless.
+Their shell HTML is prerendered and their components run entirely in the
+browser; fetch live data client-side from an external API. Dynamic SPA routes
+have no prerendered file: in-app client navigation renders them directly, and
+deep links additionally need the adapter's `fallback: "200.html"` option plus
+a host rewrite.
 
 ---
 

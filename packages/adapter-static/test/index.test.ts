@@ -24,6 +24,8 @@ describe("staticAdapter", () => {
     const source = staticAdapter({ fallback: "200.html" }).createServerEntryModule();
     expect(source).toContain('export const staticExportConfig = { fallback: "200.html" };');
     expect(source).toContain("export async function renderStaticNotFoundHtml()");
+    expect(source).toContain("if (!resolvedApp.notFound) return null;");
+    expect(source).toContain("Static export failed to render the notFound page");
     expect(source).toContain("export function renderStaticFallbackHtml()");
     expect(source).toContain("createStaticPreviewHandler");
   });
@@ -42,7 +44,9 @@ describe("staticAdapter", () => {
 
   it("rejects reserved fallback names", () => {
     expect(() => staticAdapter({ fallback: "index.html" })).toThrow(/reserved/);
+    expect(() => staticAdapter({ fallback: "Index.html" })).toThrow(/reserved/);
     expect(() => staticAdapter({ fallback: "404.html" })).toThrow(/reserved/);
+    expect(() => staticAdapter({ fallback: "404.HTML" })).toThrow(/reserved/);
   });
 });
 

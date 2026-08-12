@@ -529,15 +529,16 @@ pracht({ adapter: staticAdapter({ fallback: "200.html" }) })
 
 The build fails closed — before prerendering, with every offender listed — when the app needs a server:
 
-- every route must be `render: "ssg"` (or `"spa"`, whose shell HTML is prerendered);
+- every route must be `render: "ssg"` or loaderless `"spa"`; SSG loaders must succeed at build time and dynamic SSG routes must export `getStaticPaths()`;
+- no route or not-found middleware;
 - no API routes;
-- no capabilities exposed over HTTP/MCP/WebMCP (unexposed capabilities invoked from build-time loaders are fine).
+- no manifest-registered capabilities exposed over HTTP/MCP/WebMCP (unexposed capabilities invoked from build-time loaders are fine); registered capability modules must load successfully so the build can establish that exposure safely.
 
 `ssr` and `isg` routes belong on the Node, Cloudflare, or Vercel adapters.
 
 ### Client navigation from static files
 
-Client-side navigation normally fetches route-state JSON from the server. A static export has none, so the build serializes each route's loader payload to `dist/client/_pracht/state/<path>/index.json`, and the client bundle — compiled with the adapter's `staticTarget` flag — fetches those files instead. Navigation stays client-side on a dumb file server; loaderless routes fetch nothing, and islands pages keep their MPA navigation.
+Client-side navigation normally fetches route-state JSON from the server. A static export has none, so the build serializes each loader-backed SSG route's payload to `dist/client/_pracht/state/<path>/index.json`, and the client bundle — compiled with the adapter's `staticTarget` flag — fetches those files instead. The CLI reads that same flag independently of the adapter id, so custom static adapters emit the same artifacts. Loaderless SPA routes run entirely in the browser and fetch no Pracht state; islands pages keep their MPA navigation.
 
 ### 404 and SPA fallback
 
