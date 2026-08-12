@@ -466,8 +466,8 @@ export function generateMiddleware(name: string, project: ProjectConfig): Genera
     if (name !== "_middleware") {
       throw new Error(
         "Pages router apps register middleware through a single root-level `_middleware.ts` " +
-          "applied to every page route. Run `pracht generate middleware _middleware`, or eject " +
-          "to an explicit manifest for named per-route middleware.",
+          "applied to every page route. Run `pracht generate middleware --name _middleware`, or " +
+          "eject to an explicit manifest for named per-route middleware.",
       );
     }
 

@@ -894,10 +894,17 @@ Scope and limits:
   same independent-by-default behavior an explicit manifest has. Wrap API
   handlers in plain higher-order functions instead
   (`export const GET = withAuth(handler)`).
-- **Root level only.** A `_middleware.ts` inside a subdirectory is a hard
-  error at build, `doctor`, and `verify` time — not a silently ignored file
-  that looks like an auth gate. Per-group middleware requires ejecting to an
-  explicit manifest.
+- **Root level only, single file.** A `_middleware.ts` inside a
+  subdirectory, a `_middleware/` directory, and a `_middleware.tsrx` file
+  are hard errors at build, `doctor`, and `verify` time — never silently
+  ignored files that look like an auth gate. Per-group middleware requires
+  ejecting to an explicit manifest.
+- **Runs when the page renders.** For `ssr` (the default) and `spa` routes
+  that is every request, including client-side route-state fetches. `ssg`
+  and `isg` pages render at build/revalidation time on a sanitized request
+  (`GET`, path only — no visitor cookies), and any headers the middleware
+  sets are baked into the static output and replayed for every visitor.
+  Cookie- or session-based gating therefore belongs on `ssr`/`spa` routes.
 - The module must export `middleware`; a module that does not fails
   `doctor`/`verify`, and requests to page routes fail closed at runtime.
 - The 404 page renders without middleware — it is a not-found response, not
@@ -991,8 +998,24 @@ generateRoutesFile("src/pages", "src/routes.ts", {
 });
 ```
 
-Then remove `pagesDir` from your pracht config. The generated file includes
-a header comment explaining how to use it directly.
+Then remove `pagesDir` from your pracht config and point the discovery
+directories at the files the ejected manifest references — the runtime
+resolves manifest refs through those directory registries, so a manifest
+pointing outside them fails closed at request time:
+
+```typescript
+pracht({
+  appFile: "/src/routes.ts",
+  routesDir: "/src/pages", // route files stay in src/pages
+  shellsDir: "/src/pages", // _app.tsx
+  middlewareDir: "/src/pages", // _middleware.ts
+});
+```
+
+Alternatively, move the files into the conventional `src/routes`,
+`src/shells`, and `src/middleware` directories and update the manifest refs.
+The generated file includes a header comment explaining how to use it
+directly.
 
 ---
 

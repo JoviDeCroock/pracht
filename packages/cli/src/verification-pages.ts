@@ -8,13 +8,21 @@ import { isPageSource, normalizeRoutePath } from "./verification-helpers.js";
 export type PagesFile =
   | { file: string; kind: "shell"; hasRevalidateExport: boolean }
   | { file: string; kind: "not-found"; hasRevalidateExport: boolean }
-  | { file: string; kind: "middleware"; nested: boolean }
+  | {
+      file: string;
+      kind: "middleware";
+      nested: boolean;
+      shape: "directory" | "file" | "unsupported-extension";
+    }
   | { file: string; kind: "ignored" }
   | PagesRoute;
 
 // Mirrors the vite plugin's pages middleware extensions (and the
-// `middlewareDir` registry glob). `_middleware.md` stays an ignored file.
+// `middlewareDir` registry glob). `_middleware.md` stays an ignored file
+// (Markdown cannot export a function), but `_middleware.tsrx` is a
+// middleware-shaped file the registry cannot load — an error, not a route.
 const PAGES_MIDDLEWARE_SOURCE_RE = /\.(ts|tsx|js|jsx)$/;
+const PAGES_MIDDLEWARE_UNSUPPORTED_RE = /\.tsrx$/;
 
 export interface PagesRoute {
   file: string;
@@ -56,8 +64,24 @@ export function describePagesFile(
     };
   }
 
+  // Files inside a `_middleware/` directory are middleware-shaped too: without
+  // this, `_middleware/index.ts` silently becomes a page route at
+  // `/_middleware` while looking like an auth gate.
+  if (relativePath.split("/").slice(0, -1).includes("_middleware")) {
+    return { file, kind: "middleware", nested: true, shape: "directory" };
+  }
+
   if (name === "_middleware" && PAGES_MIDDLEWARE_SOURCE_RE.test(file)) {
-    return { file, kind: "middleware", nested: relativePath.includes("/") };
+    return { file, kind: "middleware", nested: relativePath.includes("/"), shape: "file" };
+  }
+
+  if (name === "_middleware" && PAGES_MIDDLEWARE_UNSUPPORTED_RE.test(file)) {
+    return {
+      file,
+      kind: "middleware",
+      nested: relativePath.includes("/"),
+      shape: "unsupported-extension",
+    };
   }
 
   if (name.startsWith("_")) {
