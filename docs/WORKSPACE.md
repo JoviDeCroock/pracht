@@ -73,6 +73,10 @@ described in `VISION_MVP.md`.
   Capability discovery and conservative agent-surface detection live in
   `plugin-capabilities.ts`; `capability-browser-codegen.ts` consumes that
   metadata to generate the HTTP client and WebMCP browser projections.
+- **SSR JSX precompiler** — `@pracht/preact-ssr-precompile` keeps its public
+  Vite plugin facade in `index.ts`, JSX-to-template lowering in `transform.ts`,
+  and parsing, AST traversal, filtering, and offset-safe edits in
+  `source-analysis.ts`.
 - **OpenAPI companion** — `prachtOpenApi()` augments the generated server graph
   without changing core API authoring. It serves a live OpenAPI JSON document
   and optional Scalar/Swagger page in development; `pracht build` writes the

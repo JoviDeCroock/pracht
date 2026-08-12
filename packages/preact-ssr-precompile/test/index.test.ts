@@ -450,4 +450,31 @@ export const view = <div>hello</div>;
     expect(clientResult).toBeUndefined();
     expect(serverResult && typeof serverResult === "object" && "code" in serverResult).toBe(true);
   });
+
+  it("filters filenames before handing source to the transform engine", async () => {
+    const plugin = preactSsrPrecompile({
+      include: "/routes/",
+      exclude: "/vendor/",
+      ssrOnly: false,
+    });
+    const transform = (
+      typeof plugin.transform === "function" ? plugin.transform : plugin.transform?.handler
+    ) as any;
+    const source = "export const node = <div>x</div>;";
+
+    const included = await transform?.call({} as never, source, "/app/routes/home.jsx?raw", {});
+    const outside = await transform?.call({} as never, source, "/app/components/card.jsx", {});
+    const excluded = await transform?.call({} as never, source, "/app/routes/vendor/card.jsx", {});
+    const withoutJsx = await transform?.call(
+      {} as never,
+      "export const value = 1;",
+      "/app/routes/data.ts",
+      {},
+    );
+
+    expect(included && typeof included === "object" && "code" in included).toBe(true);
+    expect(outside).toBeUndefined();
+    expect(excluded).toBeUndefined();
+    expect(withoutJsx).toBeUndefined();
+  });
 });
