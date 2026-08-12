@@ -4,17 +4,15 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
-  capabilityHttpPath,
   collectExpectationFailures,
   findEvalFiles,
   matchesSubset,
   parseScenario,
   resolveStepReferences,
-  runScenario,
-  waitForServer,
   type EvalScenario,
   type EvalStepResult,
-} from "../src/eval-runner.js";
+} from "../src/eval-scenario.js";
+import { capabilityHttpPath, runScenario, waitForServer } from "../src/eval-runner.js";
 
 const tempDirs: string[] = [];
 

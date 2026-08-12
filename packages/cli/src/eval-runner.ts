@@ -1,294 +1,31 @@
-/**
- * `pracht eval` — scripted agent-task harness.
- *
- * Runs JSON scenario files against a live app's capability HTTP projection
- * and checks each step's outcome, turning the capability graph's proof
- * metrics ("can an agent actually complete this task through my tools?")
- * into repeatable CI checks. Scenario format (docs/AGENT_TRUST.md):
- *
- *   {
- *     "name": "notes flow",
- *     "task": "search, then purge with confirmation",
- *     "url": "http://localhost:3000",        // optional; --url overrides
- *     "steps": [
- *       {
- *         "capability": "notes.search",       // or "path": "/api/custom"
- *         "input": { "query": "roadmap" },
- *         "confirm": "$steps[0].error.confirmationToken",  // sets the confirmation header
- *         "expect": { "ok": true, "errorCode": "...", "status": 200,
- *                     "output": { "notes": [] } }  // subset match
- *       }
- *     ],
- *     "signAs": {                              // optional Web Bot Auth identity
- *       "agent": "https://my-agent.example",
- *       "privateKeyJwk": { "kty": "OKP", "crv": "Ed25519", "d": "...", "x": "..." }
- *     }
- *   }
- *
- * `signAs` signs every step with RFC 9421 HTTP Message Signatures, which is
- * what a capability declaring `agentPolicy: "require"` demands. Per-step
- * `"sign": false` opts a step out, so one scenario can prove both the signed
- * and unsigned halves of an agent-trust policy.
- *
- * Reference syntax: a string value that is exactly `$steps[<index>].<path>`
- * is replaced with that value from an earlier step's result. The root object
- * per step is `{ status, ok, data, error }` — e.g.
- * `$steps[0].error.confirmationToken` or `$steps[1].data.note.id`.
- */
+/** HTTP execution and server readiness for validated `pracht eval` scenarios. */
 
-import { readdirSync, readFileSync, statSync } from "node:fs";
-import { join, resolve } from "node:path";
 import { capabilityHttpPath, CONFIRMATION_HEADER } from "@pracht/capabilities";
-import { createAgentSignatureHeaders, type AgentSigningJwk } from "@pracht/core/agent-auth";
+import { createAgentSignatureHeaders } from "@pracht/core/agent-auth";
+import {
+  collectExpectationFailures,
+  resolveStepReferences,
+  type EvalScenario,
+  type EvalScenarioResult,
+  type EvalStepResult,
+} from "./eval-scenario.js";
 
-export interface EvalExpectation {
-  ok?: boolean;
-  errorCode?: string;
-  status?: number;
-  /** Deep subset match against the envelope's `data`. */
-  output?: unknown;
-}
-
-export interface EvalStep {
-  capability: string;
-  /** Custom HTTP path override (for `expose.http.path` capabilities). */
-  path?: string;
-  input?: unknown;
-  headers?: Record<string, string>;
-  /**
-   * Confirmation token for committing a destructive capability — usually a
-   * `$steps[n].error.confirmationToken` reference. Sets the confirmation
-   * header without spelling out the header name.
-   */
-  confirm?: string;
-  /**
-   * Opt this step out of the scenario's `signAs` identity — for asserting that
-   * an `agentPolicy: "require"` capability rejects unsigned callers.
-   */
-  sign?: boolean;
-  expect?: EvalExpectation;
-}
-
-/**
- * Web Bot Auth identity used to sign every step of a scenario.
- *
- * The signature covers `@authority`, so it is computed per request against the
- * URL actually being called — which is why this cannot be expressed as static
- * `headers` and needed first-class support.
- */
-export interface EvalSignAs {
-  agent: string;
-  privateKeyJwk: AgentSigningJwk;
-  keyId?: string;
-  lifetimeSeconds?: number;
-}
-
-export interface EvalScenario {
-  name: string;
-  task?: string;
-  url?: string;
-  /** Sign every step (unless the step sets `"sign": false`) as this agent. */
-  signAs?: EvalSignAs;
-  steps: EvalStep[];
-}
-
-export interface EvalStepResult {
-  capability: string;
-  status: number;
-  ok: boolean;
-  latencyMs: number;
-  /** Envelope error code when the step failed at the capability layer. */
-  errorCode: string | null;
-  /** Expectation failures; empty when the step passed. */
-  failures: string[];
-  /** Parsed envelope + status, used for `$steps[n]` references. */
-  resultForReferences: Record<string, unknown>;
-}
-
-export interface EvalScenarioResult {
-  name: string;
-  file: string;
-  ok: boolean;
-  steps: EvalStepResult[];
-  /** Scenario-level failure (bad file, no URL, network error). */
-  error: string | null;
-}
-
+export {
+  collectExpectationFailures,
+  findEvalFiles,
+  matchesSubset,
+  parseScenario,
+  resolveStepReferences,
+} from "./eval-scenario.js";
+export type {
+  EvalExpectation,
+  EvalScenario,
+  EvalScenarioResult,
+  EvalSignAs,
+  EvalStep,
+  EvalStepResult,
+} from "./eval-scenario.js";
 export { capabilityHttpPath };
-
-// ---------------------------------------------------------------------------
-// Scenario discovery and parsing
-// ---------------------------------------------------------------------------
-
-/**
- * Resolve scenario files: explicit paths as-is, otherwise every
- * `*.eval.json` under `evals/` (recursively).
- */
-export function findEvalFiles(cwd: string, explicit: string[]): string[] {
-  if (explicit.length > 0) {
-    return explicit.map((file) => resolve(cwd, file));
-  }
-  const files: string[] = [];
-  walkForEvalFiles(resolve(cwd, "evals"), files);
-  return files.sort();
-}
-
-function walkForEvalFiles(dir: string, files: string[]): void {
-  let entries: string[];
-  try {
-    entries = readdirSync(dir);
-  } catch {
-    return;
-  }
-  for (const entry of entries) {
-    const full = join(dir, entry);
-    let stats;
-    try {
-      stats = statSync(full);
-    } catch {
-      continue;
-    }
-    if (stats.isDirectory()) {
-      walkForEvalFiles(full, files);
-    } else if (entry.endsWith(".eval.json")) {
-      files.push(full);
-    }
-  }
-}
-
-export function parseScenario(file: string): EvalScenario {
-  const parsed: unknown = JSON.parse(readFileSync(file, "utf-8"));
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    throw new Error("scenario must be a JSON object");
-  }
-  const scenario = parsed as Partial<EvalScenario>;
-  if (typeof scenario.name !== "string" || scenario.name === "") {
-    throw new Error('scenario is missing a "name"');
-  }
-  if (!Array.isArray(scenario.steps) || scenario.steps.length === 0) {
-    throw new Error('scenario needs a non-empty "steps" array');
-  }
-  for (const [index, step] of scenario.steps.entries()) {
-    if (!step || typeof step !== "object" || typeof step.capability !== "string") {
-      throw new Error(`step ${index} is missing a "capability" name`);
-    }
-  }
-  // Validated here rather than at first use: a malformed identity would
-  // otherwise surface as an unsigned request being rejected by the server,
-  // which reads like an application failure instead of a scenario bug.
-  if (scenario.signAs !== undefined) {
-    const signAs = scenario.signAs as Partial<EvalSignAs>;
-    if (!signAs || typeof signAs !== "object") {
-      throw new Error('"signAs" must be an object with "agent" and "privateKeyJwk"');
-    }
-    if (typeof signAs.agent !== "string" || signAs.agent === "") {
-      throw new Error('"signAs.agent" must be the agent\'s identity URL');
-    }
-    const jwk = signAs.privateKeyJwk as Partial<AgentSigningJwk> | undefined;
-    if (!jwk || jwk.kty !== "OKP" || jwk.crv !== "Ed25519") {
-      throw new Error('"signAs.privateKeyJwk" must be an Ed25519 OKP JWK');
-    }
-    if (typeof jwk.d !== "string" || typeof jwk.x !== "string") {
-      throw new Error('"signAs.privateKeyJwk" needs both "d" (private) and "x" (public)');
-    }
-  }
-  return scenario as EvalScenario;
-}
-
-// ---------------------------------------------------------------------------
-// Reference substitution
-// ---------------------------------------------------------------------------
-
-const REFERENCE_RE = /^\$steps\[(\d+)\]\.(.+)$/;
-
-/**
- * Replace `$steps[n].<path>` string values (in inputs/headers) with values
- * from earlier step results. Unknown indices or paths throw — a scenario
- * referencing a value that does not exist is a scenario bug.
- */
-export function resolveStepReferences(value: unknown, prior: EvalStepResult[]): unknown {
-  if (typeof value === "string") {
-    const match = REFERENCE_RE.exec(value);
-    if (!match) return value;
-    const index = Number(match[1]);
-    if (index >= prior.length) {
-      throw new Error(`reference "${value}" points at step ${index}, which has not run yet`);
-    }
-    let current: unknown = prior[index].resultForReferences;
-    for (const segment of match[2].split(".")) {
-      if (!current || typeof current !== "object") {
-        throw new Error(`reference "${value}" found nothing at "${segment}"`);
-      }
-      current = (current as Record<string, unknown>)[segment];
-    }
-    if (current === undefined) {
-      throw new Error(`reference "${value}" resolved to undefined`);
-    }
-    return current;
-  }
-  if (Array.isArray(value)) {
-    return value.map((item) => resolveStepReferences(item, prior));
-  }
-  if (value && typeof value === "object") {
-    const result: Record<string, unknown> = {};
-    for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
-      result[key] = resolveStepReferences(entry, prior);
-    }
-    return result;
-  }
-  return value;
-}
-
-// ---------------------------------------------------------------------------
-// Expectation matching
-// ---------------------------------------------------------------------------
-
-/** Deep subset match: every property in `expected` must equal/subset-match `actual`. */
-export function matchesSubset(actual: unknown, expected: unknown): boolean {
-  if (expected === null || typeof expected !== "object") {
-    return actual === expected;
-  }
-  if (Array.isArray(expected)) {
-    if (!Array.isArray(actual) || actual.length !== expected.length) return false;
-    return expected.every((item, index) => matchesSubset(actual[index], item));
-  }
-  if (!actual || typeof actual !== "object" || Array.isArray(actual)) return false;
-  return Object.entries(expected as Record<string, unknown>).every(([key, value]) =>
-    matchesSubset((actual as Record<string, unknown>)[key], value),
-  );
-}
-
-export function collectExpectationFailures(
-  expect: EvalExpectation | undefined,
-  status: number,
-  envelope: { ok?: unknown; data?: unknown; error?: { code?: unknown } },
-): string[] {
-  const failures: string[] = [];
-  if (!expect) {
-    // No expectation: the step must simply succeed.
-    if (envelope.ok !== true) {
-      failures.push(
-        `expected ok envelope, got ${String(envelope.error?.code ?? "ok=" + String(envelope.ok))} (status ${status})`,
-      );
-    }
-    return failures;
-  }
-  if (expect.ok !== undefined && envelope.ok !== expect.ok) {
-    failures.push(`expected ok=${expect.ok}, got ok=${String(envelope.ok)}`);
-  }
-  if (expect.status !== undefined && status !== expect.status) {
-    failures.push(`expected status ${expect.status}, got ${status}`);
-  }
-  if (expect.errorCode !== undefined && envelope.error?.code !== expect.errorCode) {
-    failures.push(
-      `expected error code "${expect.errorCode}", got ${JSON.stringify(envelope.error?.code ?? null)}`,
-    );
-  }
-  if (expect.output !== undefined && !matchesSubset(envelope.data, expect.output)) {
-    failures.push(`output does not match expected subset ${JSON.stringify(expect.output)}`);
-  }
-  return failures;
-}
 
 // ---------------------------------------------------------------------------
 // Execution

@@ -103,6 +103,9 @@ described in `VISION_MVP.md`.
   live in `typegen-capability-source.ts`,
   `pracht generate route|shell|middleware|api` scaffolds framework-native
   files, and `pracht doctor` validates app wiring across the whole project.
+  Eval scenario discovery, validation, step references, and expectations live
+  in `eval-scenario.ts`; `eval-runner.ts` owns signed HTTP execution and server
+  readiness while preserving the existing runner import surface.
   Generation operations, path rules, and source templates live together under
   `packages/cli/src/generation/`; both the interactive CLI command and the MCP
   server call that domain layer instead of depending on one another.
