@@ -54,7 +54,9 @@ metadata for the failure phase and matched framework files when available.
 ### App graph serialization
 
 The graph helpers exported from `@pracht/core` and `@pracht/core/server` support
-custom inspection and development tooling:
+custom inspection and development tooling. Resolved graph serialization lives in
+`src/app-graph.ts`; runtime and source-only API export detection lives in
+`src/api-export-detection.ts` behind the same public exports:
 
 - `serializeAppRoutes()` serializes resolved page routes.
 - `serializeApiRoutes()` loads API modules and reports their callable exports.
