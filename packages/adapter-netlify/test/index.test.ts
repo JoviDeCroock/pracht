@@ -82,6 +82,45 @@ describe("netlifyAdapter", () => {
     expect(source).toContain('"/content/*"');
     expect(source).toContain('"dist/client/**"');
     expect(source).toContain('import handler from "../../dist/server/server.js"');
+
+    // Excluded paths bypass the function, so the static layer needs the
+    // immutable asset policy and default security headers via `_headers`.
+    const headersFile = await readFile(join(root, "dist/client/_headers"), "utf-8");
+    expect(headersFile).toContain(
+      "/assets/*\n  Cache-Control: public, max-age=31536000, immutable",
+    );
+    expect(headersFile).toContain("/content/*");
+    expect(headersFile).toContain("  X-Content-Type-Options: nosniff");
+    expect(headersFile).toContain("  X-Frame-Options: SAMEORIGIN");
+  });
+
+  it("leaves a hand-authored public/_headers alone", async () => {
+    const root = await tempDir();
+    await mkdir(join(root, "public"), { recursive: true });
+    await writeFile(join(root, "public/_headers"), "/assets/*\n  X-Custom: 1\n");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const plugin = netlifyAdapter().vitePlugins?.()[0];
+    const configResolved = plugin?.configResolved;
+    if (typeof configResolved !== "function") throw new Error("missing configResolved hook");
+    await configResolved.call({} as never, { root, build: { ssr: true } } as never);
+    const closeBundle = plugin?.closeBundle;
+    if (typeof closeBundle !== "function") throw new Error("missing closeBundle hook");
+    await closeBundle.call({} as never);
+
+    await expect(readFile(join(root, "dist/client/_headers"), "utf-8")).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("public/_headers exists"));
+  });
+
+  it("rejects excludedPath patterns that could inject _headers rules", () => {
+    // A newline inside a pattern would let one entry write arbitrary header
+    // rules for arbitrary paths in the generated plain-text `_headers` file.
+    expect(() => netlifyAdapter({ excludedPath: ["/a\n/b\n  X-Evil: 1"] })).toThrow(/excludedPath/);
+    expect(() => netlifyAdapter({ excludedPath: ["/spaced path/*"] })).toThrow(/excludedPath/);
+    expect(() => netlifyAdapter({ excludedPath: ["images/*"] })).toThrow(/excludedPath/);
+    expect(() => netlifyAdapter({ excludedPath: ["/images/*"] })).not.toThrow();
   });
 });
 
@@ -143,7 +182,28 @@ describe("createNetlifyHandler", () => {
     expect(response.headers.get("x-route")).toBe("guide");
     expect(response.headers.get("vary")).toBe("Accept");
     expect(response.headers.get("netlify-cdn-cache-control")).toContain("durable");
-    expect(response.headers.get("netlify-vary")).toBe("query=_data");
+    // Netlify ignores standard `Vary`, so the cached document must name its
+    // variants itself: route-state fetches arrive as a request header on the
+    // page URL, and this route negotiates Markdown via `Accept`.
+    expect(response.headers.get("netlify-vary")).toBe(
+      "query=_data,header=x-pracht-route-state-request|accept",
+    );
+  });
+
+  it("does not fragment non-Markdown documents on Accept", async () => {
+    const staticDir = await createStaticBuild();
+    const handler = createNetlifyHandler({
+      app,
+      markdownManifest: { "/guide": true },
+      registry,
+      staticDir,
+    });
+
+    const response = await handler(new Request("https://example.com/"), {});
+    expect(await response.text()).toBe("<html>home</html>");
+    expect(response.headers.get("netlify-vary")).toBe(
+      "query=_data,header=x-pracht-route-state-request",
+    );
   });
 
   it("keeps an explicit SSG cache policy authoritative", async () => {
@@ -248,7 +308,38 @@ describe("createNetlifyHandler", () => {
     expect(response.headers.get("cache-control")).toBe("public, max-age=0, must-revalidate");
     expect(response.headers.get("netlify-cdn-cache-control")).toContain("max-age=60");
     expect(response.headers.get("netlify-cache-tag")).toContain(netlifyRouteCacheTag("/pricing"));
-    expect(response.headers.get("netlify-vary")).toBe("query=_data");
+    // Without a markdown manifest (legacy/custom entry) negotiation falls
+    // through for every route, so the cached copy must vary on Accept too.
+    expect(response.headers.get("netlify-vary")).toBe(
+      "query=_data,header=x-pracht-route-state-request|accept",
+    );
+  });
+
+  it("keeps cached ISG HTML apart from route-state and Markdown variants", async () => {
+    const handler = createNetlifyHandler({
+      app,
+      isgManifest: {
+        "/pricing": {
+          revalidate: [timeRevalidate(60), webhookRevalidate()],
+        },
+      },
+      markdownManifest: {},
+      registry,
+    });
+    const response = await handler(new Request("https://example.com/pricing"), {});
+    expect(response.headers.get("netlify-vary")).toBe(
+      "query=_data,header=x-pracht-route-state-request",
+    );
+
+    // The route-state variant itself must never enter the durable cache.
+    const state = await handler(
+      new Request("https://example.com/pricing", {
+        headers: { "x-pracht-route-state-request": "1" },
+      }),
+      {},
+    );
+    expect(state.headers.get("content-type")).toContain("application/json");
+    expect(state.headers.has("netlify-cdn-cache-control")).toBe(false);
   });
 
   it("sanitizes visitor-specific Netlify context before shared ISG renders", async () => {
@@ -382,6 +473,57 @@ describe("createNetlifyHandler", () => {
     const response = await handler(new Request("https://example.com/dashboard"), {});
     expect(response.headers.has("cache-control")).toBe(false);
     expect(response.headers.get("netlify-cdn-cache-control")).toBe("public, max-age=300");
+    // An explicit Netlify policy is user-owned end to end — no synthesized vary.
+    expect(response.headers.has("netlify-vary")).toBe(false);
+  });
+
+  it("keeps promoted public SSR documents apart from route-state fetches", async () => {
+    const handler = createNetlifyHandler({
+      app,
+      registry: {
+        ...registry,
+        routeModules: {
+          ...registry.routeModules,
+          "/src/routes/dashboard.tsx": async () => ({
+            default: () => h("main", null, "dashboard"),
+            headers: () => ({ "cache-control": "public, max-age=300" }),
+          }),
+        },
+      },
+    });
+
+    const response = await handler(new Request("https://example.com/dashboard"), {});
+    expect(response.headers.get("netlify-cdn-cache-control")).toBe("public, max-age=300, durable");
+    // Promotion makes the response CDN-cacheable, so the cached entry must not
+    // shadow header-transport route-state fetches. `query` keeps Netlify's
+    // default full-query cache key for dynamic routes.
+    expect(response.headers.get("netlify-vary")).toBe("query,header=x-pracht-route-state-request");
+  });
+
+  it("preserves multiple Set-Cookie headers on dynamic responses", async () => {
+    const apiRoutes = resolveApiRoutes(["/src/api/login.ts"]);
+    const handler = createNetlifyHandler({
+      apiRoutes,
+      app: defineApp({ routes: [] }),
+      registry: {
+        apiModules: {
+          "/src/api/login.ts": async () => ({
+            GET: () => {
+              const headers = new Headers({ "content-type": "application/json" });
+              headers.append("set-cookie", "a=1; Path=/; HttpOnly");
+              headers.append("set-cookie", "b=2; Path=/; HttpOnly");
+              return new Response("{}", { headers });
+            },
+          }),
+        },
+      },
+    });
+
+    const response = await handler(new Request("https://example.com/api/login"), {});
+    expect(response.headers.getSetCookie()).toEqual([
+      "a=1; Path=/; HttpOnly",
+      "b=2; Path=/; HttpOnly",
+    ]);
   });
 
   it("purges tagged ISG responses through the authenticated webhook", async () => {

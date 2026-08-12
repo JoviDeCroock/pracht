@@ -381,10 +381,18 @@ tags, including when they provide a cacheable custom policy; authenticated
 requests to `/__pracht/revalidate` purge those tags. Explicit SSG and ISG cache
 policies remain authoritative.
 
-Cached page HTML sets `Netlify-Vary: query=_data`. Route-state transport keeps
-its own cache variant, while tracking and other unrelated query parameters
-collapse onto the pathname entry. A custom `Netlify-Vary` header takes
-precedence.
+Netlify's CDN ignores the standard `Vary` header, so cached page HTML sets
+`Netlify-Vary: query=_data,header=x-pracht-route-state-request` — both
+route-state transports (query param and request header) keep their own cache
+variant, while tracking and other unrelated query parameters collapse onto the
+pathname entry. Routes that export `markdown` add `|accept` to the header list
+so `Accept: text/markdown` reaches the function for negotiation instead of the
+cached HTML. A custom `Netlify-Vary` header takes precedence.
+
+Because `/assets/*` and other excluded prefixes bypass the function, the build
+also emits `dist/client/_headers` with the immutable asset cache policy and
+pracht's default security headers for Netlify's static layer. A hand-authored
+`public/_headers` file wins; pracht skips generating one and warns.
 
 Shared ISG renders sanitize both the request and Netlify context before loaders
 and context factories run. Visitor cookies, authorization, query strings,

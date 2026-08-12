@@ -37,6 +37,9 @@ test("pracht build emits a working Netlify Functions v2 entry", async () => {
     expect(existsSync(serverEntryPath)).toBe(true);
     expect(existsSync(resolve(exampleDir, "dist/server/isg-manifest.json"))).toBe(true);
     expect(existsSync(resolve(exampleDir, "dist/client/_pracht/isg.json"))).toBe(false);
+    // ISG paths render through the function + durable cache; a snapshot would
+    // only be reachable at /pricing/index.html, serving stale content forever.
+    expect(existsSync(resolve(exampleDir, "dist/client/pricing/index.html"))).toBe(false);
 
     const source = readFileSync(wrapperPath, "utf-8");
     expect(source).toContain('import handler from "../../dist/server/server.js"');
@@ -48,6 +51,14 @@ test("pracht build emits a working Netlify Functions v2 entry", async () => {
     expect(source).toContain('"nodeBundler": "esbuild"');
     expect(readFileSync(serverEntryPath, "utf-8")).toContain('buildTarget = "netlify"');
 
+    // /assets/* bypasses the function, so the publish directory must carry the
+    // immutable asset policy and security headers through `_headers`.
+    const headersFile = readFileSync(resolve(exampleDir, "dist/client/_headers"), "utf-8");
+    expect(headersFile).toContain(
+      "/assets/*\n  Cache-Control: public, max-age=31536000, immutable",
+    );
+    expect(headersFile).toContain("  X-Content-Type-Options: nosniff");
+
     const previousStaticDir = process.env.PRACHT_STATIC_DIR;
     try {
       process.env.PRACHT_STATIC_DIR = resolve(exampleDir, "dist/client");
@@ -58,7 +69,11 @@ test("pracht build emits a working Netlify Functions v2 entry", async () => {
       expect(html.status).toBe(200);
       expect(html.headers.get("x-pracht-shell")).toBe("public");
       expect(html.headers.get("netlify-cdn-cache-control")).toContain("durable");
-      expect(html.headers.get("netlify-vary")).toBe("query=_data");
+      // `/` exports markdown, so its cached HTML must vary on Accept as well
+      // as the route-state header — Netlify ignores standard `Vary`.
+      expect(html.headers.get("netlify-vary")).toBe(
+        "query=_data,header=x-pracht-route-state-request|accept",
+      );
       expect(await html.text()).toContain("Pracht starts with an explicit app manifest.");
 
       const markdown = await handler(
@@ -76,7 +91,24 @@ test("pracht build emits a working Netlify Functions v2 entry", async () => {
       expect(isg.status).toBe(200);
       expect(isg.headers.get("netlify-cdn-cache-control")).toContain("max-age=3600");
       expect(isg.headers.get("netlify-cache-tag")).toContain("pracht:path:%2Fpricing");
-      expect(isg.headers.get("netlify-vary")).toBe("query=_data");
+      expect(isg.headers.get("netlify-vary")).toBe(
+        "query=_data,header=x-pracht-route-state-request",
+      );
+
+      // Client navigations fetch route state with a request header on the page
+      // URL; the response must be JSON and must never enter the durable cache.
+      const routeState = await handler(
+        new Request("https://example.com/pricing", {
+          headers: { "x-pracht-route-state-request": "1" },
+        }),
+        context,
+      );
+      expect(routeState.headers.get("content-type")).toContain("application/json");
+      expect(routeState.headers.has("netlify-cdn-cache-control")).toBe(false);
+
+      const missing = await handler(new Request("https://example.com/no-such-page"), context);
+      expect(missing.status).toBe(404);
+      expect(missing.headers.get("cache-control")).toBe("private, no-cache");
     } finally {
       if (previousStaticDir === undefined) delete process.env.PRACHT_STATIC_DIR;
       else process.env.PRACHT_STATIC_DIR = previousStaticDir;

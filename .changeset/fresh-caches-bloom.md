@@ -12,6 +12,11 @@ route-state requests, serves bundled SSG output, maps ISG to Netlify durable CDN
 caching, preserves explicit cache policies, collapses unrelated page query
 parameters, purges webhook-revalidated paths through cache tags, and strips
 visitor-specific request and Netlify context data before shared ISG rendering.
+Cached page documents carry `Netlify-Vary` entries for both route-state
+transports and (on Markdown-capable routes) `Accept`, since Netlify's CDN
+ignores the standard `Vary` header, and the build emits a `dist/client/_headers`
+file so excluded static paths keep the immutable asset policy and default
+security headers.
 `create-pracht` can scaffold the adapter with `netlify.toml`, local preview,
 and deployment scripts, while `pracht preview` detects Netlify projects and
 points to `pracht build && netlify dev` instead of trying to run their function

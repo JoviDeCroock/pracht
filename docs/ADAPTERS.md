@@ -752,16 +752,40 @@ assets. Add application-specific static prefixes with
   metadata and `waitUntil()` remain available. Their Pracht time policy becomes
   the durable CDN `max-age`; stale-while-revalidate is configurable with
   `staleWhileRevalidate`. A cacheable custom policy remains authoritative.
-- Cached SSG and ISG HTML sets `Netlify-Vary: query=_data`, so route-state
-  transport stays distinct while unrelated query parameters collapse onto the
-  pathname cache entry. A custom `Netlify-Vary` header takes precedence.
+  ISG routes get no build-time snapshot on Netlify — the handler always renders
+  them through the durable cache, so a snapshot would only be reachable at its
+  literal `/index.html` URL where it would never revalidate. The first request
+  after a deploy renders cold.
+- Netlify's CDN ignores the standard `Vary` header, so cached SSG and ISG HTML
+  names its variants through `Netlify-Vary:
+  query=_data,header=x-pracht-route-state-request`: both route-state
+  transports (the `?_data=1` query param and the request header client
+  navigations actually send) get their own cache key instead of receiving the
+  cached HTML, while unrelated query parameters collapse onto the pathname
+  cache entry. Markdown-capable routes add `|accept` to the header list so
+  `Accept: text/markdown` reaches the function for real negotiation — scoped to
+  routes that export `markdown`, so ordinary pages cannot be fragmented by
+  arbitrary Accept strings. Route-state and Markdown responses are never
+  durable-cached themselves. A custom `Netlify-Vary` header takes precedence.
+- Because `/assets/*` (and other `excludedPath` prefixes) bypass the function,
+  the build also writes a `dist/client/_headers` file that gives Netlify's
+  static layer the immutable asset policy and the same default security
+  headers the function applies everywhere else. A hand-authored
+  `public/_headers` wins — pracht then skips generating one and warns.
+  `excludedPath` entries are validated against whitespace/control characters so
+  they cannot inject rules into that plain-text file.
 - Cacheable webhook-capable ISG responses carry per-path
   `Netlify-Cache-Tag` values, including responses with custom cache policies.
   Authenticated `POST /__pracht/revalidate` requests purge those tags through
   `@netlify/functions`.
 - SSR and API responses without an explicit policy get Pracht's fail-closed
   `private, no-cache` default. Explicit public policies are also copied to
-  Netlify's durable cache header.
+  Netlify's durable cache header, and the promoted response gets
+  `Netlify-Vary: query,header=x-pracht-route-state-request` (plus `|accept`
+  when the response varies on `Accept`) so the CDN-cached document cannot
+  shadow route-state fetches; `query` keeps Netlify's default full-query cache
+  key for dynamic routes. An explicit `Netlify-CDN-Cache-Control` or
+  `Netlify-Vary` stays fully user-owned.
 
 Generated entries can import a context factory, and custom handlers can be
 created directly:
