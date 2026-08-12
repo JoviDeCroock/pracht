@@ -333,6 +333,9 @@ guard that prevents splitting the core runtime into two copies.
 `plugin-client-safety.ts` owns client-side server-export stripping and registered
 capability import rejection; `plugin-paths.ts` centralizes canonical Vite file
 identity so symlinked projects cannot bypass either client or manifest guards.
+`plugin-manifest-transform.ts` owns the authoring-to-runtime manifest rewrite,
+while the primary `pracht` plugin retains the stable transform hook used by Vite
+and direct plugin tooling.
 
 ### `/_pracht` devtools page
 

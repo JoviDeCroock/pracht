@@ -42,8 +42,9 @@ import {
   injectDevCssForPath,
 } from "./plugin-dev-ssr.ts";
 import { createEdgeRuntimeSafetyPlugin } from "./plugin-edge-runtime-safety.ts";
+import { transformAppManifestModule } from "./plugin-manifest-transform.ts";
 import { createOptimizeDepsPlugin, PREACT_DEDUPE } from "./plugin-optimize-deps.ts";
-import { canonicalFilePath, resolveConfigPath, toPosixPath } from "./plugin-paths.ts";
+import { resolveConfigPath, toPosixPath } from "./plugin-paths.ts";
 import {
   resolveOptions,
   type PrachtPluginOptions,
@@ -277,20 +278,10 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
     },
 
     transform(code, id) {
-      // Transform () => import("./path") to "./path" in the app manifest file.
-      // This lets users write import() for IDE click-to-navigate while keeping
-      // the framework's string-based file resolution intact.
-      const appFileAbs = canonicalFilePath(resolveConfigPath(root, resolved.appFile));
-      const normalizedId = canonicalFilePath(id.split("?")[0]);
-      if (normalizedId !== appFileAbs) return null;
-
-      const withStringModuleRefs = code.replace(
-        /\(\)\s*=>\s*import\(\s*(['"])([^'"]+)\1\s*\)/g,
-        "$1$2$1",
-      );
-      const transformed = rewriteManifestCoreImports(withStringModuleRefs);
-      if (transformed === code) return null;
-      return { code: transformed, map: null };
+      return transformAppManifestModule(code, id, {
+        appFile: resolved.appFile,
+        root,
+      });
     },
 
     configureServer(server) {
@@ -430,29 +421,6 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
 
 function isGraphOnlyMode(): boolean {
   return process.env[PRACHT_GRAPH_ONLY_ENV] === "1";
-}
-
-const MANIFEST_CORE_IMPORTS = new Set(["defineApp", "group", "route", "timeRevalidate"]);
-
-function rewriteManifestCoreImports(code: string): string {
-  return code.replace(
-    /import\s+(type\s+)?\{([^}]+)\}\s+from\s+(['"])@pracht\/core\3/g,
-    (match, typeKeyword: string | undefined, specifiers: string, quote: string) => {
-      const valueImports = specifiers
-        .split(",")
-        .map((specifier) => specifier.trim())
-        .filter(Boolean)
-        .filter((specifier) => !specifier.startsWith("type "))
-        .map((specifier) => specifier.split(/\s+as\s+/)[0]?.trim())
-        .filter(Boolean);
-
-      if (!typeKeyword && valueImports.some((specifier) => !MANIFEST_CORE_IMPORTS.has(specifier))) {
-        return match;
-      }
-
-      return `import ${typeKeyword ?? ""}{${specifiers}} from ${quote}@pracht/core/manifest${quote}`;
-    },
-  );
 }
 
 function watchPagesDirectory(
