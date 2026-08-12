@@ -498,7 +498,8 @@ types.ts        — pure types, no internal deps
     ↑
 name-suggestions.ts — edit-distance "did you mean" helpers for wiring errors
     ↑
-app.ts          — route manifest DSL, resolution, matching, and inherited route flattening
+app-definition.ts — route/group/app authoring DSL and module-reference normalization
+app.ts          — resolved route graph, matching, and inherited route flattening
 app-validation.ts — manifest keys, registered names, cache values, and render compatibility
     ↑
 runtime-context.ts — hydration state reader and Preact runtime provider
