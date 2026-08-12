@@ -35,8 +35,104 @@ export interface SubmitFormOptions<TContext = RegisteredContext> {
   signal?: AbortSignal;
 }
 
+let multipartBoundarySequence = 0;
+
+function isBlobField(value: FormFieldValue): value is Blob {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as Blob;
+  return (
+    typeof candidate.size === "number" &&
+    typeof candidate.type === "string" &&
+    typeof candidate.slice === "function"
+  );
+}
+
+function escapeMultipartHeaderValue(value: string): string {
+  return value.replace(/\r/g, "%0D").replace(/\n/g, "%0A").replace(/"/g, "%22");
+}
+
+async function readBlobBytes(blob: Blob): Promise<Uint8Array<ArrayBuffer>> {
+  if (typeof blob.arrayBuffer === "function") {
+    return new Uint8Array(await blob.arrayBuffer());
+  }
+
+  if (typeof FileReader === "function") {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onerror = () => reject(reader.error ?? new Error("Failed to read form Blob/File"));
+      reader.onload = () => {
+        if (reader.result instanceof ArrayBuffer) {
+          resolve(new Uint8Array(reader.result));
+          return;
+        }
+        reject(new TypeError("Expected FileReader to produce an ArrayBuffer"));
+      };
+      reader.readAsArrayBuffer(blob);
+    });
+  }
+
+  throw new TypeError(
+    "Cannot read this Blob/File in the current test environment. " +
+      "Provide a standard Blob implementation with arrayBuffer() or FileReader support.",
+  );
+}
+
+function concatenateBytes(parts: readonly Uint8Array<ArrayBuffer>[]): Uint8Array<ArrayBuffer> {
+  const length = parts.reduce((total, part) => total + part.byteLength, 0);
+  const result = new Uint8Array(new ArrayBuffer(length));
+  let offset = 0;
+  for (const part of parts) {
+    result.set(part, offset);
+    offset += part.byteLength;
+  }
+  return result;
+}
+
+async function encodeMultipart(entries: readonly [string, FormFieldValue][]): Promise<{
+  body: Uint8Array<ArrayBuffer>;
+  contentType: string;
+}> {
+  const boundary = `----pracht-test-${Date.now().toString(36)}-${multipartBoundarySequence++}`;
+  const encoder = new TextEncoder();
+  const parts: Uint8Array<ArrayBuffer>[] = [];
+
+  for (const [name, value] of entries) {
+    const disposition =
+      `--${boundary}\r\nContent-Disposition: form-data; ` +
+      `name="${escapeMultipartHeaderValue(name)}"`;
+    if (isBlobField(value)) {
+      const filename =
+        typeof (value as Blob & { name?: unknown }).name === "string"
+          ? (value as Blob & { name: string }).name
+          : "blob";
+      const contentType = /[\r\n]/.test(value.type)
+        ? "application/octet-stream"
+        : value.type || "application/octet-stream";
+      parts.push(
+        encoder.encode(
+          `${disposition}; filename="${escapeMultipartHeaderValue(filename)}"\r\n` +
+            `Content-Type: ${contentType}\r\n\r\n`,
+        ),
+        await readBlobBytes(value),
+        encoder.encode("\r\n"),
+      );
+    } else {
+      parts.push(encoder.encode(`${disposition}\r\n\r\n${String(value)}\r\n`));
+    }
+  }
+
+  parts.push(encoder.encode(`--${boundary}--\r\n`));
+  return {
+    body: concatenateBytes(parts),
+    contentType: `multipart/form-data; boundary=${boundary}`,
+  };
+}
+
 /** Build the form `Request` that {@link submitForm} sends, without calling a handler. */
-export function createFormRequest(fields: FormFields, options: SubmitFormOptions = {}): Request {
+export async function createFormRequest(
+  fields: FormFields,
+  options: SubmitFormOptions = {},
+): Promise<Request> {
   const url = new URL(options.url ?? "/", TEST_ORIGIN);
   const method = (options.method ?? "POST").toUpperCase();
 
@@ -47,7 +143,7 @@ export function createFormRequest(fields: FormFields, options: SubmitFormOptions
     }
   }
 
-  const hasFile = entries.some(([, value]) => value instanceof Blob);
+  const hasFile = entries.some(([, value]) => isBlobField(value));
 
   // A GET/HEAD form submits its fields in the URL, not a body — the same
   // thing a browser does for `<form method="get">`. The Request constructor
@@ -68,22 +164,18 @@ export function createFormRequest(fields: FormFields, options: SubmitFormOptions
   }
 
   const encoding = options.encoding ?? (hasFile ? "multipart" : "urlencoded");
-
-  let body: FormData | URLSearchParams;
+  const headers = new Headers(options.headers);
+  let body: BodyInit;
   if (encoding === "multipart") {
-    const form = new FormData();
-    for (const [name, value] of entries) {
-      if (value instanceof Blob) {
-        form.append(name, value);
-      } else {
-        form.append(name, String(value));
-      }
+    const encoded = await encodeMultipart(entries);
+    body = encoded.body;
+    if (!headers.has("content-type")) {
+      headers.set("content-type", encoded.contentType);
     }
-    body = form;
   } else {
     if (hasFile) {
       throw new Error(
-        'submitForm(): Blob/File fields cannot be sent as "urlencoded". ' +
+        'createFormRequest(): Blob/File fields cannot be sent as "urlencoded". ' +
           'Use encoding: "multipart" (or omit encoding to switch automatically).',
       );
     }
@@ -91,13 +183,17 @@ export function createFormRequest(fields: FormFields, options: SubmitFormOptions
     for (const [name, value] of entries) {
       search.append(name, String(value));
     }
-    body = search;
+    body = search.toString();
+    if (!headers.has("content-type")) {
+      headers.set("content-type", "application/x-www-form-urlencoded;charset=UTF-8");
+    }
   }
 
-  // `Request` sets the matching Content-Type itself: multipart/form-data with
-  // the boundary for FormData, application/x-www-form-urlencoded for
-  // URLSearchParams — exactly what `defineApi()` sniffs to pick form parsing.
-  return new Request(url, { method, headers: options.headers, body });
+  // Serialize to realm-neutral bytes/text before handing the body to Request.
+  // Vitest's JSDOM mode supplies its own FormData, File, and URLSearchParams
+  // while retaining Node's Request implementation, which rejects those
+  // otherwise-valid cross-realm objects.
+  return new Request(url, { method, headers, body });
 }
 
 /**
@@ -123,7 +219,7 @@ export async function submitForm<TContext = RegisteredContext>(
   fields: FormFields,
   options: SubmitFormOptions<TContext> = {},
 ): Promise<Response> {
-  const request = createFormRequest(fields, options as SubmitFormOptions);
+  const request = await createFormRequest(fields, options as SubmitFormOptions);
   const args = createApiArgs<TContext>({
     request,
     params: options.params,

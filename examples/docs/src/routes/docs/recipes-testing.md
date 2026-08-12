@@ -64,6 +64,7 @@ await expect(pending).rejects.toThrow();
 `createApiArgs()` builds the same shape for API handlers — plain or `defineApi()`-wrapped — and `readJson()` reads a response body without consuming it:
 
 ```ts [src/api/items.test.ts]
+import type { ApiValidationErrorBody } from "@pracht/core";
 import { describe, it, expect } from "vitest";
 import { createApiArgs, readJson } from "@pracht/test";
 import { GET, POST } from "./items";
@@ -88,7 +89,7 @@ describe("items API route", () => {
     const response = await POST(createApiArgs({ url: "/api/items", body: { name: "" } }));
 
     expect(response.status).toBe(422);
-    const body = await readJson(response);
+    const body = await readJson<ApiValidationErrorBody>(response);
     expect(body.issues).toEqual([{ in: "body", path: ["name"], message: "Required" }]);
   });
 });
@@ -96,7 +97,7 @@ describe("items API route", () => {
 
 ### Testing form submissions
 
-`submitForm()` builds the request a form submission actually sends — `application/x-www-form-urlencoded` by default, switching to `multipart/form-data` automatically when any field is a `File` — and calls the handler with it. This exercises the same `FormData` parsing path `defineApi()` applies to real `<Form>` and native submissions:
+`submitForm()` builds the request a form submission actually sends — `application/x-www-form-urlencoded` by default, switching to `multipart/form-data` automatically when any field is a `File` — and calls the handler with it. This exercises the same `FormData` parsing path `defineApi()` applies to real `<Form>` and native submissions. The underlying async `createFormRequest()` serializes fields to realm-neutral text/bytes, so it also works when Vitest's JSDOM environment owns `File` and `FormData` while Node owns `Request`:
 
 ```ts [src/api/contact.test.ts]
 import { describe, it, expect } from "vitest";
@@ -167,7 +168,18 @@ describe("auth middleware", () => {
 });
 ```
 
-A middleware (or the final handler) that **throws** a `Response` — the `requireUser()` pattern, where a shared helper throws `redirect("/login")` — resolves as the chain's response, exactly like the server treats it. Thrown non-`Response` errors, including `notFound()`, reject so your test can assert on them.
+`createMiddlewareArgs()` supplies page-route metadata. For middleware attached through `defineApp({ api: { middleware: [...] } })`, use `createApiMiddlewareArgs()` instead; its `route` matches the `ResolvedApiRoute` shape production passes.
+
+Page and API dispatch catch a **thrown** `Response` outside the middleware chain and send it as-is, so `runMiddleware()` resolves that response by default. The raw capability middleware chain instead rejects the value and maps it to an `internal_error` envelope; use `createCapabilityTestHost()` to test that full pipeline, or opt into raw-chain behavior explicitly:
+
+```ts
+const args = createMiddlewareArgs({ url: "/dashboard" });
+await expect(
+  runMiddleware(auth, args, undefined, { thrownResponse: "reject" }),
+).rejects.toBeInstanceOf(Response);
+```
+
+Thrown non-`Response` errors, including `notFound()`, always reject.
 
 Chains work the same way, including `context` mutations flowing downstream — pass the middleware in the order the manifest applies them:
 

@@ -52,9 +52,9 @@ pnpm add -D vitest @types/node @pracht/test
 ```
 
 `@pracht/test` provides the typed args factories (`createLoaderArgs`,
-`createApiArgs`, `createMiddlewareArgs`), the `runMiddleware()` chain runner,
-`submitForm()`, and the `readJson()`/`readRedirect()` response readers used in
-the templates below.
+`createApiArgs`, `createMiddlewareArgs`, `createApiMiddlewareArgs`), the
+`runMiddleware()` chain runner, `submitForm()`, and the
+`readJson()`/`readRedirect()` response readers used in the templates below.
 
 Component-test extras — `@preact/preset-vite` must be an explicit dev
 dependency: the configs in Step 3 import it, and a transitive-only copy
@@ -190,7 +190,13 @@ describe("<name> middleware", () => {
 ```
 
 `runMiddleware()` accepts an array to test a chain in manifest order,
-including `context` mutations flowing downstream and short-circuits.
+including `context` mutations flowing downstream and returned-response
+short-circuits. A thrown `Response` resolves by default, matching page/API
+outer normalization. For raw capability-chain behavior, pass
+`undefined, { thrownResponse: "reject" }` after the args/final-handler slots;
+prefer `createCapabilityTestHost()` so the test asserts the real typed
+`internal_error` envelope. For middleware attached through `defineApp({ api })`,
+use `createApiMiddlewareArgs()` so `route` has the API metadata shape.
 
 ### Component test template (browser mode)
 

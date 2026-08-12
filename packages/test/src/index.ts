@@ -1,4 +1,5 @@
 export {
+  createApiMiddlewareArgs,
   createApiArgs,
   createLoaderArgs,
   createMiddlewareArgs,
@@ -11,12 +12,14 @@ export type {
   CreateLoaderArgsInput,
   CreateMiddlewareArgsInput,
   TestAbortControls,
+  TestApiMiddlewareArgs,
   TestApiArgs,
   TestLoaderArgs,
   TestMiddlewareArgs,
   TestRequestInput,
 } from "./args.ts";
 export { runMiddleware } from "./middleware.ts";
+export type { RunMiddlewareOptions } from "./middleware.ts";
 export { createFormRequest, submitForm } from "./form.ts";
 export type { FormFields, FormFieldValue, SubmitFormOptions } from "./form.ts";
 export { readJson, readRedirect } from "./response.ts";

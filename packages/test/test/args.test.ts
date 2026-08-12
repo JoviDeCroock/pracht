@@ -2,7 +2,12 @@ import type { LoaderArgs } from "@pracht/core";
 import { notFound, redirect } from "@pracht/core";
 import { describe, expect, it } from "vitest";
 
-import { createApiArgs, createLoaderArgs, createMiddlewareArgs } from "../src/index.ts";
+import {
+  createApiArgs,
+  createApiMiddlewareArgs,
+  createLoaderArgs,
+  createMiddlewareArgs,
+} from "../src/index.ts";
 
 describe("createLoaderArgs", () => {
   it("builds complete LoaderArgs from no input", () => {
@@ -122,6 +127,26 @@ describe("createMiddlewareArgs", () => {
     expect(args.route.path).toBe("/dashboard");
     expect(args.route.middlewareFiles).toEqual([]);
     expect(args.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it("builds API middleware args with runtime-faithful API route metadata", () => {
+    const args = createApiMiddlewareArgs({
+      url: "/api/users/42",
+      params: { id: "42" },
+      route: {
+        path: "/api/users/:id",
+        file: "./api/users/[id].ts",
+        segments: [{ type: "static", value: "api" }],
+      },
+    });
+
+    expect(args.route).toEqual({
+      path: "/api/users/:id",
+      file: "./api/users/[id].ts",
+      segments: [{ type: "static", value: "api" }],
+    });
+    expect("middlewareFiles" in args.route).toBe(false);
+    expect(args.params).toEqual({ id: "42" });
   });
 });
 

@@ -31,7 +31,7 @@ function requiredStrings<TField extends string>(
 
 describe("createFormRequest", () => {
   it("builds an urlencoded POST by default", async () => {
-    const request = createFormRequest({ name: "Alice", count: 2, subscribed: true });
+    const request = await createFormRequest({ name: "Alice", count: 2, subscribed: true });
 
     expect(request.method).toBe("POST");
     expect(request.headers.get("content-type")).toContain("application/x-www-form-urlencoded");
@@ -43,7 +43,7 @@ describe("createFormRequest", () => {
 
   it("switches to multipart when a field is a File", async () => {
     const file = new File(["hello"], "hello.txt", { type: "text/plain" });
-    const request = createFormRequest({ title: "doc", attachment: file });
+    const request = await createFormRequest({ title: "doc", attachment: file });
 
     expect(request.headers.get("content-type")).toContain("multipart/form-data");
     const form = await request.formData();
@@ -52,20 +52,20 @@ describe("createFormRequest", () => {
   });
 
   it("repeats entries for array fields", async () => {
-    const request = createFormRequest({ tag: ["a", "b"] });
+    const request = await createFormRequest({ tag: ["a", "b"] });
     const body = new URLSearchParams(await request.text());
     expect(body.getAll("tag")).toEqual(["a", "b"]);
   });
 
-  it("refuses File fields with explicit urlencoded encoding", () => {
+  it("refuses File fields with explicit urlencoded encoding", async () => {
     const file = new File(["x"], "x.txt");
-    expect(() => createFormRequest({ file }, { encoding: "urlencoded" })).toThrow(
+    await expect(createFormRequest({ file }, { encoding: "urlencoded" })).rejects.toThrow(
       /cannot be sent as "urlencoded"/,
     );
   });
 
-  it("serializes GET forms into the URL query string, like a browser", () => {
-    const request = createFormRequest(
+  it("serializes GET forms into the URL query string, like a browser", async () => {
+    const request = await createFormRequest(
       { q: "search term", page: 2 },
       { method: "GET", url: "/api/items?stale=1" },
     );
@@ -79,9 +79,9 @@ describe("createFormRequest", () => {
     expect(request.body).toBeNull();
   });
 
-  it("refuses File fields in GET forms", () => {
+  it("refuses File fields in GET forms", async () => {
     const file = new File(["x"], "x.txt");
-    expect(() => createFormRequest({ file }, { method: "GET" })).toThrow(
+    await expect(createFormRequest({ file }, { method: "GET" })).rejects.toThrow(
       /cannot be submitted with a GET form/,
     );
   });

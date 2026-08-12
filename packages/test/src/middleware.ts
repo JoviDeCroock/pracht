@@ -1,5 +1,15 @@
 import type { MiddlewareArgs, MiddlewareFn, RegisteredContext } from "@pracht/core";
 
+export interface RunMiddlewareOptions {
+  /**
+   * Page and API dispatch normalize a thrown `Response` outside the raw
+   * middleware chain, which is the default here. Set this to `reject` only
+   * when intentionally modelling a raw capability middleware chain; prefer
+   * `createCapabilityTestHost()` when the complete capability envelope matters.
+   */
+  thrownResponse?: "reject" | "resolve";
+}
+
 /**
  * Run one middleware or a chain of middleware exactly the way the runtime
  * does: each middleware receives `next` and may call it at most once; calling
@@ -17,17 +27,17 @@ import type { MiddlewareArgs, MiddlewareFn, RegisteredContext } from "@pracht/co
  * `args.context` mutations made by one middleware are visible to the next —
  * the same ordering contract the server applies.
  *
- * A **thrown** `Response` (e.g. `throw redirect("/login")` from a shared
- * `requireUser()` helper) resolves as the chain's response, exactly like the
- * runtime treats it: the throw unwinds past upstream middleware first, so
- * response decoration after `await next()` is skipped unless that middleware
- * catches. Thrown non-`Response` errors (including `notFound()`'s
- * `PrachtHttpError`) reject, so tests can assert on them directly.
+ * A **thrown** `Response` resolves as the result by default, matching page and
+ * API dispatch's outer normalization. Pass `{ thrownResponse: "reject" }` as
+ * the fourth argument only when modelling the raw chain used by capability
+ * dispatch, which maps that throw to `internal_error`. Thrown non-`Response`
+ * errors always reject.
  */
 export async function runMiddleware<TContext = RegisteredContext>(
   middleware: MiddlewareFn<TContext> | readonly MiddlewareFn<TContext>[],
   args: MiddlewareArgs<TContext>,
   finalHandler?: () => Response | Promise<Response>,
+  options: RunMiddlewareOptions = {},
 ): Promise<Response> {
   const chain = typeof middleware === "function" ? [middleware] : middleware;
   const terminal = finalHandler ?? (() => new Response(null, { status: 200 }));
@@ -59,11 +69,10 @@ export async function runMiddleware<TContext = RegisteredContext>(
   try {
     return await dispatch(0);
   } catch (error: unknown) {
-    // Same contract as the server: a thrown Response is the middleware (or
-    // final handler) answering, not failing. The runtime catches it around
-    // the whole chain, so upstream middleware never see it — mirrored here
-    // by catching outside `dispatch` rather than per middleware.
-    if (error instanceof Response) {
+    // Page/API dispatch catches a thrown Response outside the entire chain,
+    // after it has unwound past upstream middleware. Preserve that established
+    // helper default; capability tests can opt into raw-chain rejection.
+    if (error instanceof Response && options.thrownResponse !== "reject") {
       return error;
     }
     throw error;

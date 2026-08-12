@@ -71,8 +71,16 @@ export interface TestAbortControls {
 }
 
 export type TestLoaderArgs<TContext = RegisteredContext> = LoaderArgs<TContext> & TestAbortControls;
-export type TestMiddlewareArgs<TContext = RegisteredContext> = MiddlewareArgs<TContext> &
-  TestAbortControls;
+export type TestMiddlewareArgs<TContext = RegisteredContext> = Omit<
+  MiddlewareArgs<TContext>,
+  "route"
+> &
+  TestAbortControls & { route: ResolvedRoute };
+export type TestApiMiddlewareArgs<TContext = RegisteredContext> = Omit<
+  MiddlewareArgs<TContext>,
+  "route"
+> &
+  TestAbortControls & { route: ResolvedApiRoute };
 export type TestApiArgs<TContext = RegisteredContext> = ApiRouteArgs<TContext> & TestAbortControls;
 
 function isBodyInit(body: unknown): body is BodyInit {
@@ -193,6 +201,17 @@ export function createMiddlewareArgs<TContext = RegisteredContext>(
   input: CreateMiddlewareArgsInput<TContext> = {},
 ): TestMiddlewareArgs<TContext> {
   return createLoaderArgs(input);
+}
+
+/**
+ * Build middleware args for a chain attached through `defineApp({ api })`.
+ * Unlike page middleware, the matched route has API metadata only — no
+ * `middleware`, `middlewareFiles`, render mode, shell, or loader fields.
+ */
+export function createApiMiddlewareArgs<TContext = RegisteredContext>(
+  input: CreateApiArgsInput<TContext> = {},
+): TestApiMiddlewareArgs<TContext> {
+  return createApiArgs(input);
 }
 
 /**

@@ -2,7 +2,12 @@ import type { MiddlewareFn } from "@pracht/core";
 import { notFound, redirect } from "@pracht/core";
 import { describe, expect, it } from "vitest";
 
-import { createMiddlewareArgs, readRedirect, runMiddleware } from "../src/index.ts";
+import {
+  createApiMiddlewareArgs,
+  createMiddlewareArgs,
+  readRedirect,
+  runMiddleware,
+} from "../src/index.ts";
 
 describe("runMiddleware", () => {
   it("runs a single middleware through to the final handler", async () => {
@@ -76,6 +81,20 @@ describe("runMiddleware", () => {
     expect(order).toEqual(["first:before", "second:user-1", "handler", "first:after"]);
   });
 
+  it("runs API middleware with the same route metadata shape as production", async () => {
+    const inspectRoute: MiddlewareFn = async ({ route }, next) => {
+      expect(route.path).toBe("/api/health");
+      expect("middlewareFiles" in route).toBe(false);
+      return next();
+    };
+
+    const response = await runMiddleware(
+      inspectRoute,
+      createApiMiddlewareArgs({ url: "/api/health" }),
+    );
+    expect(response.status).toBe(200);
+  });
+
   it("lets upstream middleware decorate the final response", async () => {
     const timing: MiddlewareFn = async (_args, next) => {
       const response = await next();
@@ -107,7 +126,7 @@ describe("runMiddleware", () => {
     );
   });
 
-  it("resolves a thrown Response as the chain's response, like the runtime", async () => {
+  it("resolves a thrown Response as page/API outer dispatch does", async () => {
     // The `requireUser()` pattern: a shared helper throws redirect() where
     // the return value cannot escape from. The server treats the thrown
     // Response as the answer; runMiddleware must match.
@@ -142,6 +161,16 @@ describe("runMiddleware", () => {
       throw redirect("/done", 303);
     });
     expect(readRedirect(response)).toEqual({ status: 303, location: "/done" });
+  });
+
+  it("can reject a thrown Response for raw capability-chain semantics", async () => {
+    const throwing: MiddlewareFn = async () => {
+      throw redirect("/login");
+    };
+
+    await expect(
+      runMiddleware(throwing, createMiddlewareArgs(), undefined, { thrownResponse: "reject" }),
+    ).rejects.toBeInstanceOf(Response);
   });
 
   it("still rejects thrown non-Response errors, including notFound()", async () => {
