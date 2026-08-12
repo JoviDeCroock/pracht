@@ -495,6 +495,7 @@ runtime-capabilities.ts — HTTP transport
 runtime-request-provenance.ts — browser provenance and exact-origin request policy
 runtime-api.ts — explicit API matching, middleware, invocation, and error normalization
 runtime-agent-surface.ts — lazy agent runtimes, signature binding, and invocation host setup
+runtime-agent-projection.ts — MCP and capability HTTP selection and fail-closed routing
     ↑
 prefetch-cache.ts — bounded route-state cache shared by navigation, forms, and prefetching
     ↑

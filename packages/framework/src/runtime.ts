@@ -1,6 +1,7 @@
 import { h } from "preact";
 import type { FunctionComponent } from "preact";
 import { matchAppRoute, resolveApp } from "./app.ts";
+import { dispatchAgentProjection } from "./runtime-agent-projection.ts";
 import { AGENT_SURFACE_ENABLED, initializeAgentSurface } from "./runtime-agent-surface.ts";
 import { dispatchApiRequest } from "./runtime-api.ts";
 import { ROUTE_STATE_REQUEST_HEADER, SAFE_METHODS } from "./runtime-constants.ts";
@@ -11,11 +12,7 @@ import {
   shouldExposeServerErrors,
   type PrachtRuntimeDiagnosticPhase,
 } from "./runtime-errors.ts";
-import {
-  appendVaryHeader,
-  withDefaultSecurityHeaders,
-  withEnhancedCapabilityFormRedirect,
-} from "./runtime-headers.ts";
+import { appendVaryHeader, withDefaultSecurityHeaders } from "./runtime-headers.ts";
 import { PrachtRuntimeProvider } from "./runtime-context.ts";
 import { buildHtmlDocument, htmlResponse } from "./runtime-html.ts";
 import { getAppSpeculationRules } from "./runtime-speculation.ts";
@@ -40,7 +37,6 @@ import {
   mergeHeadMetadata,
   runMiddlewareChain,
 } from "./runtime-middleware.ts";
-import type { ResolvedCapability } from "./runtime-capabilities.ts";
 import { buildRouteStateUrl } from "./runtime-client-fetch.ts";
 import { isFirstPartyFetch, isSameOriginRequest } from "./runtime-request-provenance.ts";
 import {
@@ -174,139 +170,27 @@ export async function handlePrachtRequest<TContext>(
     if (apiResponse) return apiResponse;
   }
 
-  // Capability projections. Explicit API route files take precedence (they
-  // matched above). A configured MCP endpoint remains live with an empty or
-  // broken graph so clients receive an empty list or a protocol error instead
-  // of falling through to the application's page router.
-  const isMcpRequest =
-    !!mcpConfig &&
-    !!mcpRuntime &&
-    mcpRuntime.normalizeMcpRequestPath(url.pathname) ===
-      mcpRuntime.resolveMcpEndpoint(options.app.agents);
   // Keep the build-time guard explicit at the projection site. Returning the
   // lazy runtime through the initialization boundary hides its proven `null`
   // value from some bundlers; this constant lets them remove the whole branch.
-  if (AGENT_SURFACE_ENABLED && capabilityRuntime && (hasCapabilities || isMcpRequest)) {
-    if (isMcpRequest) {
-      // Adapter contexts may retain the incoming transport request. Bind the
-      // same trusted provenance as the synthesized capability request so that
-      // using either request for composition preserves the MCP guard.
-      capabilityRuntime.setActiveCapabilityHost(
-        options.request,
-        options.app,
-        registry,
-        "mcp",
-        options.onCapabilityAudit,
-        agent,
-      );
-    }
-    const {
-      CAPABILITY_HTTP_PREFIX,
-      envelopeResponse,
-      handleCapabilityRequest,
-      isRegisteredCapabilityHttpPath,
-      matchCapabilityRoute,
-      resolveAppCapabilities,
-    } = capabilityRuntime;
-    let capabilities: ResolvedCapability[] | null = hasCapabilities ? null : [];
-    let capabilityResolutionError: unknown;
-    try {
-      if (hasCapabilities) {
-        capabilities = await resolveAppCapabilities(options.app, registry);
-      }
-    } catch (error: unknown) {
-      capabilityResolutionError = error;
-      warnCapabilityResolutionFailure(error);
-      // A broken capability definition must not take down page rendering;
-      // requests to capability paths still fail closed below.
-      if (
-        !isMcpRequest &&
-        (url.pathname.startsWith(CAPABILITY_HTTP_PREFIX) ||
-          (await isRegisteredCapabilityHttpPath(options.app, registry, url.pathname)))
-      ) {
-        return withDefaultSecurityHeaders(
-          envelopeResponse(500, {
-            ok: false,
-            error: {
-              code: "internal_error",
-              message: exposeDiagnostics
-                ? `Capability registry failed to resolve: ${error instanceof Error ? error.message : String(error)}`
-                : "Capability registry failed to resolve.",
-            },
-          }),
-        );
-      }
-    }
-
-    if (isMcpRequest && mcpConfig && mcpRuntime) {
-      const mcpResponse = await mcpRuntime.handleMcpRequest({
-        app: options.app,
-        capabilities: capabilities ?? [],
-        context: requestContext,
-        registry,
-        request: options.request,
-        url,
-        exposeErrors: exposeDiagnostics,
-        mcp: mcpConfig,
-        apiMiddlewareFiles,
-        agents: options.app.agents,
-        agent,
-        onAudit: options.onCapabilityAudit,
-        resolutionError: capabilityResolutionError,
-      });
-      return withDefaultSecurityHeaders(mcpResponse);
-    }
-
-    if (capabilities) {
-      const capabilityMatch = matchCapabilityRoute(capabilities, url.pathname);
-      if (capabilityMatch) {
-        // Same CSRF stance as state-changing API requests: capability calls
-        // are session-authenticated POSTs, so cross-origin browser requests
-        // are rejected unless the app opted out.
-        if (
-          requireSameOrigin &&
-          !SAFE_METHODS.has(options.request.method) &&
-          !isSameOriginRequest(options.request, url)
-        ) {
-          return withDefaultSecurityHeaders(
-            envelopeResponse(403, {
-              ok: false,
-              error: { code: "cross_origin_blocked", message: "Cross-origin request blocked" },
-            }),
-          );
-        }
-
-        const capabilityResponse = await handleCapabilityRequest({
-          match: capabilityMatch,
-          context: requestContext,
-          registry,
-          request: options.request,
-          url,
-          exposeErrors: exposeDiagnostics,
-          apiMiddlewareFiles,
-          agents: options.app.agents,
-          agent,
-          onAudit: options.onCapabilityAudit,
-        });
-        return withDefaultSecurityHeaders(
-          withEnhancedCapabilityFormRedirect(capabilityResponse, options.request),
-        );
-      }
-
-      // Unmatched requests under the capability prefix get the typed 404
-      // instead of falling through to the HTML not-found page.
-      if (url.pathname.startsWith(CAPABILITY_HTTP_PREFIX)) {
-        return withDefaultSecurityHeaders(
-          envelopeResponse(404, {
-            ok: false,
-            error: {
-              code: "unknown_capability",
-              message: "No capability is exposed at this path.",
-            },
-          }),
-        );
-      }
-    }
+  if (AGENT_SURFACE_ENABLED && capabilityRuntime) {
+    const projectionResponse = await dispatchAgentProjection({
+      agent,
+      apiMiddlewareFiles,
+      app: options.app,
+      capabilityRuntime,
+      context: requestContext,
+      exposeErrors: exposeDiagnostics,
+      hasCapabilities,
+      mcpConfig,
+      mcpRuntime,
+      onAudit: options.onCapabilityAudit,
+      registry,
+      request: options.request,
+      requireSameOrigin,
+      url,
+    });
+    if (projectionResponse) return projectionResponse;
   }
 
   const match = matchAppRoute(resolvedApp, url.pathname);
@@ -821,18 +705,6 @@ function createNotFoundMatch(app: ResolvedPrachtApp, pathname: string): RouteMat
 
 function isNotFoundError(error: unknown): boolean {
   return isPrachtHttpError(error) && error.status === 404;
-}
-
-let warnedCapabilityResolutionFailure = false;
-
-/** Resolution failures repeat on every request — log the details once. */
-function warnCapabilityResolutionFailure(error: unknown): void {
-  if (warnedCapabilityResolutionFailure) return;
-  warnedCapabilityResolutionFailure = true;
-  console.error(
-    "[pracht] Capability registry failed to resolve; capability requests will fail closed:",
-    error,
-  );
 }
 
 function getRequestPath(url: URL): string {

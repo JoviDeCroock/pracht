@@ -27,8 +27,8 @@ declare const __PRACHT_AGENT_SURFACE__: boolean | undefined;
 export const AGENT_SURFACE_ENABLED =
   typeof __PRACHT_AGENT_SURFACE__ === "undefined" || __PRACHT_AGENT_SURFACE__;
 
-type CapabilityRuntime = typeof import("./runtime-capabilities.ts");
-type McpRuntime = typeof import("./runtime-mcp.ts");
+export type CapabilityRuntime = typeof import("./runtime-capabilities.ts");
+export type McpRuntime = typeof import("./runtime-mcp.ts");
 
 export type AgentSurfaceInitialization<TContext> =
   | {
