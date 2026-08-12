@@ -80,8 +80,15 @@ Creates the app's i18n instance:
 - **`middleware`** — resolves the locale (default order: URL prefix →
   cookie → `Accept-Language` q-values), sets `context.locale`, and persists
   an explicit URL-prefix choice in the locale cookie (`Path=/`,
-  `SameSite=Lax`, one year, `Secure` on https). Header-derived locales are
-  never persisted, so prerendered documents never carry `Set-Cookie`.
+  `SameSite=Lax`, one year, `Secure` on https). Persistence is skipped on
+  prerenderable (SSG/ISG) routes — their output is stored and replayed to
+  every visitor, so it must never carry `Set-Cookie` — and header-derived
+  locales are never persisted. The middleware also appends
+  `Vary: Cookie` / `Accept-Language` when those sources were consulted, so
+  shared caches key correctly. Note: a **thrown** `Response`
+  (`throw redirect(...)`) short-circuits past the middleware chain and gets
+  neither the cookie nor `Vary` — `return` redirects from loaders on
+  localized routes instead.
 - **`localePath(path, locale)`** — prefix/replace the locale in a path,
   preserving query and hash. Throws for unregistered locales, so user input
   can never be reflected into a URL.
@@ -94,7 +101,10 @@ Creates the app's i18n instance:
 Only registered locales can ever win detection: URL prefixes, cookie values,
 and `Accept-Language` tags are validated against the registry, malformed
 q-values (`;q=`, `;q=abc`) are dropped rather than promoted, and oversized
-headers are truncated.
+headers are truncated. Header matching follows RFC 4647 lookup —
+progressive truncation (`zh-Hant-TW` → `zh-Hant` → `zh`) — plus a
+same-language best fit (`en-GB` matches a registered `en-US`) before
+falling through to lower-preference entries.
 
 Note that route matching is exact: `pathPrefix: "/nl"` serves `/nl/...`,
 not `/NL/...`. Keep locale prefixes lowercase in links (use `localePath`).

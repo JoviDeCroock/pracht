@@ -11,14 +11,14 @@ function makeRequest(url: string, headers: Record<string, string> = {}): Request
 
 // The registered app context type is irrelevant here — the middleware only
 // writes `locale` — so the args are assembled untyped and cast once.
-function middlewareArgs(request: Request): MiddlewareArgs {
+function middlewareArgs(request: Request, route: Record<string, unknown> = {}): MiddlewareArgs {
   return {
     request,
     params: {},
     context: {},
     signal: new AbortController().signal,
     url: new URL(request.url),
-    route: {},
+    route,
   } as unknown as MiddlewareArgs;
 }
 
@@ -26,8 +26,9 @@ async function runMiddleware(
   request: Request,
   instance = i18n,
   response: () => Response = () => new Response("ok"),
+  route: Record<string, unknown> = { render: "ssr" },
 ): Promise<{ response: Response; context: I18nRequestContext }> {
-  const args = middlewareArgs(request);
+  const args = middlewareArgs(request, route);
   const result = await instance.middleware(args, () => Promise.resolve(response()));
   return { response: result, context: args.context as unknown as I18nRequestContext };
 }
@@ -239,6 +240,81 @@ describe("middleware", () => {
     });
     const { response } = await runMiddleware(makeRequest("http://app.test/nl/"), none);
     expect(response.headers.get("set-cookie")).toContain("SameSite=None; Secure");
+  });
+
+  it("never persists the cookie on prerenderable (SSG/ISG) routes", async () => {
+    // A Set-Cookie baked into prerendered output fails the SSG build
+    // (`assertSafePrerenderHeaders`) and makes every ISG regeneration
+    // uncacheable (`isCacheableISGResponse`) — stale content forever.
+    for (const render of ["ssg", "isg"]) {
+      const { response, context } = await runMiddleware(
+        makeRequest("http://app.test/nl/shop"),
+        i18n,
+        () => new Response("ok"),
+        { render },
+      );
+      expect(context.locale).toBe("nl");
+      expect(response.headers.get("set-cookie")).toBeNull();
+    }
+  });
+});
+
+describe("middleware Vary", () => {
+  it("adds no Vary when the URL prefix decided first", async () => {
+    const { response } = await runMiddleware(makeRequest("http://app.test/nl/shop"));
+    expect(response.headers.get("vary")).toBeNull();
+  });
+
+  it("varies on Cookie and Accept-Language for unprefixed routes", async () => {
+    // Nothing matched → every configured source was consulted.
+    const { response } = await runMiddleware(makeRequest("http://app.test/shop"));
+    expect(response.headers.get("vary")).toBe("Cookie, Accept-Language");
+  });
+
+  it("varies only on the sources consulted up to the winner", async () => {
+    const { response } = await runMiddleware(
+      makeRequest("http://app.test/shop", { cookie: "pracht_locale=nl" }),
+    );
+    expect(response.headers.get("vary")).toBe("Cookie");
+  });
+
+  it("omits Cookie from Vary when the cookie is disabled", async () => {
+    const noCookie = defineI18n({ locales: ["en", "nl"], defaultLocale: "en", cookie: false });
+    const { response } = await runMiddleware(
+      makeRequest("http://app.test/shop", { "accept-language": "nl" }),
+      noCookie,
+    );
+    expect(response.headers.get("vary")).toBe("Accept-Language");
+  });
+
+  it("appends to an existing Vary without duplicating entries", async () => {
+    const { response } = await runMiddleware(makeRequest("http://app.test/shop"), i18n, () => {
+      return new Response("ok", { headers: { vary: "X-Pracht-Route-State, cookie" } });
+    });
+    expect(response.headers.get("vary")).toBe("X-Pracht-Route-State, cookie, Accept-Language");
+  });
+
+  it("varies redirect responses from the detector route", async () => {
+    // The unprefixed detector's 302 target depends on cookie + header; a
+    // shared cache replaying it without a key on those would send every
+    // visitor to one user's locale.
+    const { response } = await runMiddleware(
+      makeRequest("http://app.test/welcome", { "accept-language": "nl" }),
+      i18n,
+      () => Response.redirect("http://app.test/nl/welcome", 302),
+    );
+    expect(response.status).toBe(302);
+    expect(response.headers.get("vary")).toBe("Cookie, Accept-Language");
+  });
+
+  it("passes protocol-switch responses through untouched", async () => {
+    const upgrade = { status: 199, headers: new Headers() } as unknown as Response;
+    const { response } = await runMiddleware(
+      makeRequest("http://app.test/shop"),
+      i18n,
+      () => upgrade,
+    );
+    expect(response).toBe(upgrade);
   });
 });
 

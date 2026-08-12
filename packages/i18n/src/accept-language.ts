@@ -67,8 +67,10 @@ export interface MatchAcceptLanguageOptions {
  *
  * Matching per entry, in q-value order:
  * 1. exact tag match (case-insensitive) — `nl` → `nl`
- * 2. the tag's primary language matches a registered locale — `nl-BE` → `nl`
- * 3. the tag matches a registered locale's primary language — `en` → `en-US`
+ * 2. RFC 4647 lookup: the tag progressively truncated from the right —
+ *    `zh-Hant-TW` → `zh-Hant` → `zh`, so `nl-BE` → `nl`
+ * 3. a registered locale sharing the tag's primary language — `en` → `en-US`
+ *    and `en-GB` → `en-US`
  *
  * Returns `null` when nothing matches; only values from `locales` are ever
  * returned, so arbitrary header input cannot be reflected downstream.
@@ -84,13 +86,23 @@ export function matchAcceptLanguage(
       if (options.wildcard !== undefined) return options.wildcard;
       continue;
     }
-    let index = lowered.indexOf(tag);
-    if (index === -1) {
-      const language = tag.split("-", 1)[0] ?? tag;
-      index = lowered.indexOf(language);
+    // RFC 4647 lookup: try the tag, then progressively strip subtags from
+    // the right until a registered locale matches (`zh-hant-tw` → `zh-hant`
+    // → `zh`).
+    let candidate: string = tag;
+    let index = lowered.indexOf(candidate);
+    while (index === -1) {
+      const dash = candidate.lastIndexOf("-");
+      if (dash === -1) break;
+      candidate = candidate.slice(0, dash);
+      index = lowered.indexOf(candidate);
     }
     if (index === -1) {
-      index = lowered.findIndex((locale) => locale.startsWith(`${tag}-`));
+      // Best-fit fallback across regions: a registered locale whose primary
+      // language matches the tag's (`en` → `en-US`, `en-GB` → `en-US`) is a
+      // better answer than falling through to a lower-q language.
+      const language = tag.split("-", 1)[0] ?? tag;
+      index = lowered.findIndex((locale) => locale.startsWith(`${language}-`));
     }
     if (index !== -1) return locales[index] as string;
   }

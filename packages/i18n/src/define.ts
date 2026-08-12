@@ -179,14 +179,54 @@ function readCookieValue(header: string | null, name: string): string | null {
   return null;
 }
 
-/** Append a Set-Cookie header, cloning when the headers are immutable. */
-function withSetCookie(response: Response, cookie: string): Response {
+/**
+ * Append a value to `Vary` without duplicating entries (case-insensitive)
+ * and respecting an existing `Vary: *`.
+ */
+function appendVary(headers: Headers, value: string): void {
+  const current = headers.get("vary");
+  if (!current) {
+    headers.set("vary", value);
+    return;
+  }
+  const values = current
+    .split(",")
+    .map((part) => part.trim().toLowerCase())
+    .filter(Boolean);
+  if (values.includes("*") || values.includes(value.toLowerCase())) return;
+  headers.set("vary", `${current}, ${value}`);
+}
+
+/**
+ * True for responses that switch protocols instead of carrying a body (a
+ * WebSocket `101` handshake). Reconstructing one drops the socket handle and
+ * the `Response` constructor rejects sub-200 statuses, so they must pass
+ * through untouched.
+ */
+function isProtocolSwitchResponse(response: Response): boolean {
+  return response.status < 200 || (response as { webSocket?: unknown }).webSocket != null;
+}
+
+/**
+ * Apply detection headers (`Vary`, optionally `Set-Cookie`), cloning when
+ * the response's headers are immutable.
+ */
+function withDetectionHeaders(
+  response: Response,
+  setCookie: string | null,
+  vary: readonly string[],
+): Response {
+  if (isProtocolSwitchResponse(response)) return response;
+  const apply = (headers: Headers): void => {
+    for (const value of vary) appendVary(headers, value);
+    if (setCookie !== null) headers.append("set-cookie", setCookie);
+  };
   try {
-    response.headers.append("set-cookie", cookie);
+    apply(response.headers);
     return response;
   } catch {
     const clone = new Response(response.body, response);
-    clone.headers.append("set-cookie", cookie);
+    apply(clone.headers);
     return clone;
   }
 }
@@ -250,7 +290,7 @@ export function defineI18n<const L extends string>(config: I18nConfig<L>): I18n<
       `defineI18n: defaultLocale "${defaultLocale}" is not in locales (${locales.join(", ")}).`,
     );
   }
-  const detectOrder = config.detect ?? DETECT_SOURCES;
+  const detectOrder = Object.freeze([...(config.detect ?? DETECT_SOURCES)]);
   if (detectOrder.length === 0) {
     throw new TypeError("defineI18n: `detect` must contain at least one source.");
   }
@@ -357,18 +397,44 @@ export function defineI18n<const L extends string>(config: I18nConfig<L>): I18n<
       (args.context as Record<string, unknown>).locale = detection.locale;
     }
     const response = await next();
+
+    // `Vary` bookkeeping: every source consulted before detection settled —
+    // up to and including the winner, or all of them when nothing matched —
+    // is request state the response depends on, so shared caches must key
+    // on the matching header. The path source contributes nothing (the URL
+    // is already the cache key). Note this intentionally makes an ISG route
+    // that relies on cookie/header detection uncacheable (`Vary: Cookie`
+    // fails `isCacheableISGResponse`): a per-request locale can never be
+    // served from a shared cache — keep ISG/SSG routes inside locale
+    // `pathPrefix` groups with `"path"` first in the detect order.
+    const consulted =
+      detection.source === "default"
+        ? detectOrder
+        : detectOrder.slice(0, detectOrder.indexOf(detection.source) + 1);
+    const vary: string[] = [];
+    for (const source of consulted) {
+      if (source === "cookie" && cookie !== false) vary.push("Cookie");
+      else if (source === "header") vary.push("Accept-Language");
+    }
+
     // Persist only an *explicit* choice — the URL prefix the user navigated
     // to — so unprefixed pages remember it. Header-derived locales are not
-    // persisted: they would pin a first-request guess forever, and
-    // prerendered (SSG/ISG) documents must never carry Set-Cookie.
-    if (
+    // persisted (they would pin a first-request guess forever), and
+    // prerenderable (SSG/ISG) routes never persist at all: their output is
+    // stored and replayed to every visitor, so a Set-Cookie would fail the
+    // prerender build and make every ISG regeneration uncacheable.
+    const render = (args.route as { render?: string } | undefined)?.render;
+    const prerenderable = render === "ssg" || render === "isg";
+    const setCookie =
+      !prerenderable &&
       cookie !== false &&
       detection.source === "path" &&
       readLocaleCookie(args.request) !== detection.locale
-    ) {
-      return withSetCookie(response, serializeCookie(detection.locale, args.url));
-    }
-    return response;
+        ? serializeCookie(detection.locale, args.url)
+        : null;
+
+    if (vary.length === 0 && setCookie === null) return response;
+    return withDetectionHeaders(response, setCookie, vary);
   };
 
   return {

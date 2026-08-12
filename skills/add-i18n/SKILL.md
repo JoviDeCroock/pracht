@@ -1,6 +1,6 @@
 ---
 name: add-i18n
-version: 2.0.0
+version: 2.0.1
 description: |
   Wire internationalization into a pracht app with the first-party
   `@pracht/i18n` package, following the framework's recommended pattern
@@ -99,9 +99,12 @@ export const middleware = i18n.middleware;
 ```
 
 The middleware sets `context.locale` and persists URL-prefix choices in a
-`SameSite=Lax` cookie (never for header-derived locales, so prerendered
-documents never carry `Set-Cookie`). Type the context once via the Register
-pattern:
+`SameSite=Lax` cookie — but only on per-request (SSR/SPA) routes: SSG/ISG
+output is stored and replayed to every visitor, so the middleware never
+attaches `Set-Cookie` there (a baked-in cookie would fail the prerender
+build and block ISG revalidation). It also appends `Vary: Cookie` /
+`Accept-Language` when those sources were consulted, so shared caches key
+correctly. Type the context once via the Register pattern:
 
 ```ts
 // src/env.d.ts
@@ -147,7 +150,11 @@ Notes:
 
 - Reusing one `localizedRoutes` array is fine with auto-generated ids; if
   the app sets explicit `id`s, each locale's copy needs unique ids.
-- The unprefixed detector redirects using what the middleware resolved:
+- The unprefixed detector redirects using what the middleware resolved.
+  `return` the redirect — a *thrown* Response short-circuits past the
+  middleware chain, so the i18n middleware could not stamp
+  `Vary: Cookie, Accept-Language` on it (a shared cache could then replay
+  one visitor's locale redirect to everyone):
 
 ```ts
 // src/routes/locale-redirect.tsx
@@ -155,7 +162,7 @@ import { redirect, type LoaderArgs } from "@pracht/core";
 import { i18n } from "../i18n/index.ts";
 
 export async function loader({ context, request }: LoaderArgs) {
-  throw redirect(i18n.localePath("/", context.locale), { request });
+  return redirect(i18n.localePath("/", context.locale), { request });
 }
 
 export function Component() {
@@ -201,8 +208,17 @@ the app's canonical origin.
 ## Step 6: SEO touch-ups
 
 - Set `lang` from the resolved locale in `head()` (as above).
-- Keep the detector route SSR; locale-prefixed routes may be `ssg` — every
-  prefixed URL is a real route, so each locale prerenders.
+- Keep the detector route SSR; locale-prefixed routes may be `ssg` or
+  `isg` — every prefixed URL is a real route, so each locale prerenders,
+  and the middleware skips cookie persistence on those routes so no
+  `Set-Cookie` lands in stored output. Keep `"path"` first in the detect
+  order for prerendered routes: cookie/header detection cannot run against
+  a stored document (prerender/ISG requests carry no cookies or
+  `Accept-Language`), and a route that *depends* on those sources gets
+  `Vary: Cookie` and is refused by the ISG cache.
+- Prerendered `head()` runs against a placeholder request origin — pass the
+  app's canonical origin to `hreflang()` on SSG/ISG routes instead of
+  `url.origin`, or the alternates bake in `http://localhost`.
 - Update the sitemap (cross-reference with `audit-seo`) to include all
   per-locale URLs.
 

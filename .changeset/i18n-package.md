@@ -23,3 +23,12 @@ return translations, components consume them via route data).
 Only registered locales can win detection; malformed `Accept-Language`
 q-values are dropped, unregistered URL/cookie locales are ignored, and
 `localePath()` throws rather than reflecting unknown locales into URLs.
+
+Caching-correctness guarantees: cookie persistence is skipped on
+prerenderable (SSG/ISG) routes, so locale-prefixed routes can prerender
+without a `Set-Cookie` failing the build or blocking ISG revalidation;
+the middleware appends `Vary: Cookie` / `Accept-Language` for consulted
+detection sources so shared caches key correctly; and `Accept-Language`
+matching follows RFC 4647 lookup (progressive truncation,
+`zh-Hant-TW` → `zh-Hant`) with a same-language best fit
+(`en-GB` → registered `en-US`).

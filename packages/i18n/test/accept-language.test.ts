@@ -81,6 +81,20 @@ describe("matchAcceptLanguage", () => {
     expect(matchAcceptLanguage("pt", ["en", "pt-BR"])).toBe("pt-BR");
   });
 
+  it("truncates multi-subtag tags per RFC 4647 lookup", () => {
+    // zh-Hant-TW → zh-Hant (not straight to the primary language).
+    expect(matchAcceptLanguage("zh-Hant-TW", ["zh-Hant", "zh"])).toBe("zh-Hant");
+    expect(matchAcceptLanguage("zh-Hans-CN", ["zh-Hant", "zh"])).toBe("zh");
+  });
+
+  it("best-fits a regional tag to a registered locale of the same language", () => {
+    // en-GB shares no exact/truncated match with en-US, but a same-language
+    // locale beats falling through to a lower-q different language.
+    expect(matchAcceptLanguage("en-GB, nl;q=0.9", ["en-US", "nl"])).toBe("en-US");
+    // ...while a truly unrelated language still falls through by q-value.
+    expect(matchAcceptLanguage("de-AT, nl;q=0.9", ["en-US", "nl"])).toBe("nl");
+  });
+
   it("respects q-value ordering", () => {
     expect(matchAcceptLanguage("nl;q=0.3, en;q=0.9", locales)).toBe("en");
   });

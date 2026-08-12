@@ -84,9 +84,9 @@ import { i18n } from "../i18n/index.ts";
 export const middleware = i18n.middleware;
 ```
 
-The middleware resolves the locale via the configured detection order, sets `context.locale` for loaders, and — when the URL prefix chose the locale — persists it in a cookie (`pracht_locale`, `Path=/`, `SameSite=Lax`, one year, `Secure` on https). Header-derived locales are never persisted, so prerendered documents never carry `Set-Cookie`.
+The middleware resolves the locale via the configured detection order, sets `context.locale` for loaders, and — when the URL prefix chose the locale — persists it in a cookie (`pracht_locale`, `Path=/`, `SameSite=Lax`, one year, `Secure` on https). Persistence only happens on per-request (SSR/SPA) routes: SSG/ISG output is stored and replayed to every visitor, so the middleware never attaches `Set-Cookie` there. It also appends `Vary: Cookie` / `Vary: Accept-Language` when those detection sources were consulted, so a shared cache in front of the app keys on them.
 
-Only registered locales can ever win: unregistered URL prefixes and cookie values are ignored, malformed `Accept-Language` entries (`;q=`, garbage tags) are dropped, and `fr-CA` falls back to a registered `fr`.
+Only registered locales can ever win: unregistered URL prefixes and cookie values are ignored, malformed `Accept-Language` entries (`;q=`, garbage tags) are dropped, and matching follows RFC 4647 lookup (`fr-CA` → `fr`, `zh-Hant-TW` → `zh-Hant`) with a same-language best fit (`en-GB` → a registered `en-US`) before falling through to lower-preference entries.
 
 Type `context.locale` once via the framework's `Register` pattern:
 
@@ -132,14 +132,14 @@ export const app = defineApp({
 > [!NOTE]
 > Route matching is exact, so locale prefixes are lowercase URLs. Build links with `i18n.localePath()` and they always come out canonical. Reusing one `localizedRoutes` array between prefixes needs unique route ids per locale if you set explicit `id`s.
 
-The detector route reads the locale the middleware already resolved (cookie first for returning visitors, then `Accept-Language`) and forwards:
+The detector route reads the locale the middleware already resolved (cookie first for returning visitors, then `Accept-Language`) and forwards. `return` the redirect rather than throwing it: a thrown `Response` short-circuits past the middleware chain, so the i18n middleware could not stamp `Vary: Cookie, Accept-Language` on it — and a shared cache could then replay one visitor's locale redirect to everyone:
 
 ```tsx [src/routes/locale-redirect.tsx]
 import { redirect, type LoaderArgs } from "@pracht/core";
 import { i18n } from "../i18n/index.ts";
 
 export async function loader({ context, request }: LoaderArgs) {
-  throw redirect(i18n.localePath("/", context.locale), { request });
+  return redirect(i18n.localePath("/", context.locale), { request });
 }
 
 export function Component() {
@@ -223,7 +223,8 @@ Navigating to the other prefix is an explicit choice, so the middleware refreshe
 
 ## Tips
 
-- **SSG**: locale-prefixed routes can be `render: "ssg"` — every prefixed URL is a real route, so each locale prerenders. Keep the *detector* route SSR: its answer depends on the visitor's cookie/headers. Cookie persistence also only triggers on URL-prefix detection, so prerendered pages never bake in a `Set-Cookie`.
+- **SSG/ISG**: locale-prefixed routes can be `render: "ssg"` or `"isg"` — every prefixed URL is a real route, so each locale prerenders, and the middleware skips cookie persistence on prerenderable routes so no `Set-Cookie` ever lands in stored output. Keep the *detector* route SSR: its answer depends on the visitor's cookie/headers, and cookie/header detection cannot run against a stored document (prerender and ISG-revalidation requests carry no cookies or `Accept-Language`). For prerendered routes, keep `"path"` first in the detect order — a prerendered route that *depends* on cookie/header detection gets `Vary: Cookie` and is refused by the ISG cache rather than serving one visitor's locale to everyone.
+- On SSG/ISG routes, pass your canonical origin to `hreflang()` (`{ origin: "https://example.com" }`) — `url.origin` at prerender time is a placeholder (`http://localhost`) and would be baked into the static document.
 - Set `lang` from the resolved locale in `head()` (as above) so browsers and screen readers know the language.
 - Use `Intl.DateTimeFormat` / `Intl.NumberFormat` with `data.locale` for dates and numbers — no library needed.
 - A working end-to-end setup (two locales, detector redirect, hreflang, cookie override, plural rendering) lives in [`examples/basic`](https://github.com/JoviDeCroock/pracht/tree/main/examples/basic) under `/welcome`.
