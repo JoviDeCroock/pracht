@@ -60,4 +60,24 @@ describe("content capabilities", () => {
       ],
     });
   });
+
+  it("keeps the matched term inside snippets after whitespace normalization", async () => {
+    temporaryDirectory = await mkdtemp(join(tmpdir(), "pracht-content-capabilities-"));
+    const body = `start${" \n".repeat(2_000)}needle ${Array.from(
+      { length: 400 },
+      (_, index) => `tail${index}`,
+    ).join(" ")}`;
+    await writeFile(join(temporaryDirectory, "guide.md"), body);
+    const search = createContentSearchCapability(
+      defineCollection({ name: "docs", root: temporaryDirectory }),
+    );
+    const output = await search.run({
+      context: {},
+      input: { query: "needle" },
+      request: new Request("https://example.com"),
+      signal: new AbortController().signal,
+    });
+
+    expect(output.results[0].snippet).toContain("needle");
+  });
 });

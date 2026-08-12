@@ -1,4 +1,12 @@
-import { cpSync, existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { register } from "node:module";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -95,6 +103,28 @@ function indentBlock(block: string): string {
     .join("\n");
 }
 
+function readContentArtifactHeaders(clientDir: string): Record<string, Record<string, string>> {
+  const metadataPath = resolve(clientDir, "_pracht/content-headers.json");
+  if (!existsSync(metadataPath)) return {};
+  const parsed: unknown = JSON.parse(readFileSync(metadataPath, "utf8"));
+  rmSync(metadataPath, { force: true });
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("The content artifact headers manifest is invalid.");
+  }
+  for (const [path, headers] of Object.entries(parsed)) {
+    if (
+      !path.startsWith("/") ||
+      !headers ||
+      typeof headers !== "object" ||
+      Array.isArray(headers) ||
+      Object.values(headers).some((value) => typeof value !== "string")
+    ) {
+      throw new Error("The content artifact headers manifest is invalid.");
+    }
+  }
+  return parsed as Record<string, Record<string, string>>;
+}
+
 export interface BuildResult {
   buildTarget: string | null;
 }
@@ -160,6 +190,7 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
       rmSync(sourcePath, { force: true, recursive: true });
     }
   }
+  const contentArtifactHeaders = readContentArtifactHeaders(clientDir);
 
   // `public/` is deliberately not re-copied here: the client build already
   // emitted it (Vite honours a custom `publicDir` and `build.copyPublicDir`
@@ -205,12 +236,15 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
       // Validate the concrete set before writing even the first page.
       validateStaticExportOutputPaths(pages, serverMod);
     }
-    const headersManifest: Record<string, Record<string, string>> = Object.fromEntries(
-      pages.map((page: { path: string; headers?: Record<string, string> }) => [
-        page.path,
-        page.headers ?? {},
-      ]),
-    );
+    const headersManifest: Record<string, Record<string, string>> = {
+      ...Object.fromEntries(
+        pages.map((page: { path: string; headers?: Record<string, string> }) => [
+          page.path,
+          page.headers ?? {},
+        ]),
+      ),
+      ...contentArtifactHeaders,
+    };
     const markdownManifest: Record<string, true> = Object.fromEntries(
       pages
         .filter((page: { markdown?: boolean }) => page.markdown)

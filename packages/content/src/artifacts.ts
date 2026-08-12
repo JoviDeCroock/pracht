@@ -117,7 +117,7 @@ function matchesSection<TFrontmatter extends Record<string, unknown>, TCompiled>
     return match(document as ContentDocument<Record<string, unknown>, unknown>);
   }
   const prefix = match.endsWith("/") && match !== "/" ? match.slice(0, -1) : match;
-  return document.path === prefix || document.path.startsWith(`${prefix}/`);
+  return prefix === "/" || document.path === prefix || document.path.startsWith(`${prefix}/`);
 }
 
 function stringField(frontmatter: Record<string, unknown>, field: string): string | undefined {

@@ -96,7 +96,8 @@ specified in the config, it takes precedence over inline exports.
 Content-heavy apps can add the server-only `@pracht/content` companion for one
 canonical document registry shared by loaders and build tooling: route/source
 mapping, locale fallback, raw/frontmatter/compiled representations,
-memoization, iteration, and static asset emission. Markdown rendering,
+memoization, iteration, filesystem-free runtime snapshots, and static asset
+emission. Markdown rendering,
 `llms-full.txt`, page/search capabilities, and exposure policy stay opt-in
 rather than becoming core framework conventions. See
 [docs/CONTENT.md](docs/CONTENT.md).

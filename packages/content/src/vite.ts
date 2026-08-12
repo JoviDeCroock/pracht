@@ -3,7 +3,11 @@ import { extname } from "node:path";
 import type { Connect, Plugin, ViteDevServer } from "vite";
 
 import { artifactFileName } from "./path.ts";
-import type { ContentArtifact } from "./types.ts";
+import type { ContentArtifact, ContentCollectionSnapshot } from "./types.ts";
+
+const CONTENT_MODULE_PREFIX = "virtual:pracht/content/";
+const RESOLVED_CONTENT_MODULE_PREFIX = `\0${CONTENT_MODULE_PREFIX}`;
+export const CONTENT_HEADERS_FILE = "_pracht/content-headers.json";
 
 export interface ViteContentCollection {
   readonly name: string;
@@ -11,6 +15,7 @@ export interface ViteContentCollection {
   invalidate(source?: string): void;
   ownsSource(source: string): boolean;
   renderModule(source: string, raw?: string): Promise<string | undefined>;
+  snapshot(): Promise<ContentCollectionSnapshot<Record<string, unknown>, unknown>>;
 }
 
 export interface PrachtContentOptions {
@@ -28,6 +33,28 @@ export function prachtContent(options: PrachtContentOptions): Plugin[] {
   const transformPlugin: Plugin = {
     name: "pracht:content",
     enforce: "pre",
+
+    resolveId(id) {
+      if (!id.startsWith(CONTENT_MODULE_PREFIX)) return null;
+      const name = decodeURIComponent(id.slice(CONTENT_MODULE_PREFIX.length));
+      return collections.some((collection) => collection.name === name)
+        ? `${RESOLVED_CONTENT_MODULE_PREFIX}${encodeURIComponent(name)}`
+        : null;
+    },
+
+    async load(id) {
+      if (!id.startsWith(RESOLVED_CONTENT_MODULE_PREFIX)) return null;
+      const name = decodeURIComponent(id.slice(RESOLVED_CONTENT_MODULE_PREFIX.length));
+      const collection = collections.find((candidate) => candidate.name === name);
+      if (!collection) return null;
+      const snapshot = await collection.snapshot();
+      return [
+        `import { defineSnapshotCollection } from "@pracht/content/runtime";`,
+        `const snapshot = ${serializeSnapshot(snapshot)};`,
+        `export const collection = defineSnapshotCollection(snapshot);`,
+        `export default collection;`,
+      ].join("\n");
+    },
 
     async transform(code, id) {
       const clean = id.split("?")[0];
@@ -62,17 +89,67 @@ export function prachtContent(options: PrachtContentOptions): Plugin[] {
     },
 
     async generateBundle() {
-      for (const artifact of await collectArtifacts(collections)) {
+      const artifacts = await collectArtifacts(collections);
+      const headers: Record<string, Record<string, string>> = {};
+      for (const artifact of artifacts) {
         this.emitFile({
           type: "asset",
           fileName: artifactFileName(artifact.path),
           source: artifact.source,
+        });
+        headers[artifact.path] = {
+          "content-type": artifact.contentType ?? inferContentType(artifact.path),
+          "x-content-type-options": "nosniff",
+        };
+      }
+      if (artifacts.length > 0) {
+        this.emitFile({
+          type: "asset",
+          fileName: CONTENT_HEADERS_FILE,
+          source: `${JSON.stringify(headers, null, 2)}\n`,
         });
       }
     },
   };
 
   return [transformPlugin, artifactPlugin];
+}
+
+function serializeSnapshot(
+  snapshot: ContentCollectionSnapshot<Record<string, unknown>, unknown>,
+): string {
+  assertJsonValue(snapshot, "content snapshot", new Set());
+  return JSON.stringify(snapshot);
+}
+
+function assertJsonValue(value: unknown, path: string, ancestors: Set<object>): void {
+  if (
+    value === null ||
+    typeof value === "string" ||
+    typeof value === "boolean" ||
+    (typeof value === "number" && Number.isFinite(value))
+  ) {
+    return;
+  }
+  if (typeof value !== "object") {
+    throw new TypeError(`${path} must be JSON-serializable for a production content module.`);
+  }
+  if (ancestors.has(value)) {
+    throw new TypeError(`${path} must not contain circular values.`);
+  }
+  ancestors.add(value);
+  if (Array.isArray(value)) {
+    value.forEach((entry, index) => assertJsonValue(entry, `${path}[${index}]`, ancestors));
+  } else {
+    const prototype = Object.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) {
+      throw new TypeError(`${path} must contain only plain JSON objects.`);
+    }
+    for (const [key, entry] of Object.entries(value)) {
+      assertJsonValue(entry, `${path}.${key}`, ancestors);
+    }
+  }
+  ancestors.delete(value);
 }
 
 function validateCollections(options: PrachtContentOptions): readonly ViteContentCollection[] {
@@ -84,7 +161,7 @@ function validateCollections(options: PrachtContentOptions): readonly ViteConten
     if (
       !collection ||
       typeof collection.name !== "string" ||
-      typeof collection.all !== "function"
+      typeof collection.snapshot !== "function"
     ) {
       throw new TypeError("prachtContent() collections must come from defineCollection().");
     }
@@ -104,7 +181,12 @@ function registerInvalidation(
 ): void {
   const invalidate = (file: string) => {
     for (const collection of collections) {
-      if (collection.ownsSource(file)) collection.invalidate(file);
+      if (!collection.ownsSource(file)) continue;
+      collection.invalidate(file);
+      const module = server.moduleGraph.getModuleById(
+        `${RESOLVED_CONTENT_MODULE_PREFIX}${encodeURIComponent(collection.name)}`,
+      );
+      if (module) server.moduleGraph.invalidateModule(module);
     }
   };
   server.watcher.on("add", invalidate);
@@ -182,8 +264,9 @@ function inferContentType(path: string): string {
       return "application/json; charset=utf-8";
     case ".md":
     case ".markdown":
-    case ".txt":
       return "text/markdown; charset=utf-8";
+    case ".txt":
+      return "text/plain; charset=utf-8";
     case ".xml":
       return "application/xml; charset=utf-8";
     default:

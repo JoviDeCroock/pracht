@@ -23,3 +23,9 @@ Vite plugins, locale-neutral id lookups retain the configured default locale,
 and development artifact failures no longer block unrelated Vite or application
 requests. Verification only treats the `@pracht/content/vite` integration as a
 registered Markdown transform.
+
+Follow-up hardening adds cached registry indexes, root-relative invalidation,
+root-prefix `llms.txt` sections, whitespace-stable search snippets, and
+production artifact content-type metadata. Request-time loaders and
+capabilities now use `virtual:pracht/content/<name>`, a JSON-validated,
+filesystem-free snapshot that runs across Node, Vercel, and Cloudflare.

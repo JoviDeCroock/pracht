@@ -20,7 +20,8 @@
     "directory": "packages/content"
   },
   "files": [
-    "dist"
+    "dist",
+    "virtual.d.ts"
   ],
   "type": "module",
   "exports": {
@@ -31,6 +32,13 @@
     "./capabilities": {
       "types": "./dist/capabilities.d.mts",
       "default": "./dist/capabilities.mjs"
+    },
+    "./runtime": {
+      "types": "./dist/runtime.d.mts",
+      "default": "./dist/runtime.mjs"
+    },
+    "./virtual": {
+      "types": "./virtual.d.ts"
     },
     "./vite": {
       "types": "./dist/vite.d.mts",

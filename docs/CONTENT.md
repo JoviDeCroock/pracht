@@ -29,6 +29,7 @@ The package owns:
 - exact raw source, parsed YAML frontmatter/body, and an application-defined
   compiled value;
 - per-source compilation memoization and Vite watcher invalidation;
+- a portable Vite-generated snapshot for request-time server consumers;
 - deterministic async build iteration;
 - validated static artifact generation and matching dev endpoints;
 - small adapters for Pracht loaders and route Markdown exports.
@@ -81,7 +82,9 @@ The built-in YAML parser produces `frontmatter` and `body`, while `raw` always
 retains the exact original source. `compile(input)` may return any value: HTML,
 an AST, a page model, or a search record. Filesystem loads reuse compilation
 while mtime and size are unchanged. Vite supplies the live transformed source
-and clears the affected entry on add/change/unlink.
+and clears the affected entry plus the cached registry on add/change/unlink.
+Repeated lookups otherwise reuse the same route/source index instead of
+rescanning the collection root.
 
 Failed parsing or compilation is never cached. The next request/build retries,
 which keeps a temporary authoring error from poisoning the development server.
@@ -93,9 +96,31 @@ document list. `prachtContent()` serves their output live in development and
 emits the same bytes during the client build. `rawContentArtifacts()` and
 `llmsTxtArtifacts()` cover common cases; a custom generator can emit JSON,
 XML, Markdown, or binary `Uint8Array` content.
+Explicit artifact content types are preserved in the production headers
+manifest as well as development responses.
 
 Artifacts are opt-in. In particular, adding a collection does not publish raw
 source or create an agent surface.
+
+## Runtime snapshots
+
+The collection imported by `vite.config.ts` is an authoring/build object backed
+by the source filesystem. Server loaders and capabilities should instead import
+the generated module for that collection name:
+
+```ts
+import docs from "virtual:pracht/content/docs";
+```
+
+`prachtContent()` serializes the documents, locale fallback configuration, and
+route aliases into that module. The deployed server therefore performs lookup
+without `node:fs` or a copied source tree on Cloudflare, Vercel, and Node.
+Compiled and frontmatter values included in a runtime snapshot must be
+JSON-serializable; a build fails with the offending value path otherwise.
+
+Applications can add `@pracht/content/virtual` to `compilerOptions.types` for a
+generic declaration and optionally augment their named virtual module with
+more specific document types.
 
 ## Optional capabilities
 

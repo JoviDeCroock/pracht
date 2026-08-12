@@ -1,8 +1,10 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import type { Connect, ViteDevServer } from "vite";
+import { build } from "vite";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { defineCollection } from "../src/index.ts";
@@ -44,6 +46,120 @@ describe("prachtContent", () => {
       await transform.call({} as never, "text", join(temporaryDirectory, "page.txt")),
     ).toBeNull();
     expect(await transform.call({} as never, "# Draft", unregistered)).toBeNull();
+  });
+
+  it("generates a filesystem-free production module for each collection", async () => {
+    temporaryDirectory = await mkdtemp(join(tmpdir(), "pracht-content-vite-"));
+    await writeFile(join(temporaryDirectory, "page.md"), "Page");
+    const collection = defineCollection({ name: "docs", root: temporaryDirectory });
+    const [plugin] = prachtContent({ collections: [collection] });
+    const resolveId = hookHandler(plugin.resolveId);
+    const load = hookHandler(plugin.load);
+
+    const resolved = await resolveId.call(
+      {} as never,
+      "virtual:pracht/content/docs",
+      undefined,
+      {} as never,
+    );
+    expect(resolved).toBe("\0virtual:pracht/content/docs");
+    const result = await load.call({} as never, String(resolved));
+    const code = typeof result === "string" ? result : result?.code;
+    expect(code).toContain('from "@pracht/content/runtime"');
+    expect(code).toContain('"body":"Page"');
+    expect(code).not.toContain(temporaryDirectory);
+    expect(code).not.toContain("node:fs");
+  });
+
+  it("runs a bundled collection snapshot after the source tree is removed", async () => {
+    temporaryDirectory = await mkdtemp(join(tmpdir(), "pracht-content-vite-"));
+    const source = join(temporaryDirectory, "page.md");
+    const output = join(temporaryDirectory, "dist");
+    await writeFile(source, "Portable");
+    const collection = defineCollection({
+      name: "docs",
+      root: temporaryDirectory,
+      routeBase: "/docs",
+    });
+
+    await build({
+      configFile: false,
+      logLevel: "silent",
+      plugins: prachtContent({ collections: [collection] }),
+      resolve: {
+        alias: {
+          "@pracht/content/runtime": fileURLToPath(new URL("../src/runtime.ts", import.meta.url)),
+        },
+      },
+      build: {
+        outDir: output,
+        ssr: true,
+        rollupOptions: { input: "virtual:pracht/content/docs" },
+      },
+    });
+    await rm(source);
+    const [entry] = (await readdir(output)).filter((file) => /\.m?js$/.test(file));
+    const runtime = (await import(pathToFileURL(join(output, entry)).href)).default;
+
+    await expect(runtime.getByRoute("/docs/page")).resolves.toMatchObject({ body: "Portable" });
+  });
+
+  it("invalidates generated runtime modules when a collection source changes", async () => {
+    temporaryDirectory = await mkdtemp(join(tmpdir(), "pracht-content-vite-"));
+    const source = join(temporaryDirectory, "page.md");
+    await writeFile(source, "First");
+    const collection = defineCollection({ name: "docs", root: temporaryDirectory });
+    const [plugin] = prachtContent({ collections: [collection] });
+    const configureServer = hookHandler(plugin.configureServer);
+    const load = hookHandler(plugin.load);
+    let change: ((file: string) => void) | undefined;
+    const runtimeModule = {};
+    const invalidateModule = vi.fn();
+    const server = {
+      moduleGraph: {
+        getModuleById: vi.fn(() => runtimeModule),
+        invalidateModule,
+      },
+      watcher: {
+        on(event: string, handler: (file: string) => void) {
+          if (event === "change") change = handler;
+        },
+      },
+    } as unknown as ViteDevServer;
+    configureServer.call({} as never, server);
+
+    await writeFile(source, "Second");
+    change?.(source);
+    const result = await load.call({} as never, "\0virtual:pracht/content/docs");
+    const code = typeof result === "string" ? result : result?.code;
+
+    expect(code).toContain('"body":"Second"');
+    expect(invalidateModule).toHaveBeenCalledWith(runtimeModule);
+  });
+
+  it("emits artifact content types for the production headers manifest", async () => {
+    temporaryDirectory = await mkdtemp(join(tmpdir(), "pracht-content-vite-"));
+    await writeFile(join(temporaryDirectory, "page.md"), "Page");
+    const collection = defineCollection({
+      name: "docs",
+      root: temporaryDirectory,
+      artifacts: [() => ({ path: "/search.data", source: "{}", contentType: "application/json" })],
+    });
+    const [, plugin] = prachtContent({ collections: [collection] });
+    const generateBundle = hookHandler(plugin.generateBundle);
+    const emitFile = vi.fn();
+
+    await generateBundle.call({ emitFile } as never, {} as never, {} as never, false);
+
+    expect(emitFile).toHaveBeenCalledWith(
+      expect.objectContaining({ fileName: "search.data", source: "{}" }),
+    );
+    expect(emitFile).toHaveBeenCalledWith(
+      expect.objectContaining({
+        fileName: "_pracht/content-headers.json",
+        source: expect.stringContaining('"content-type": "application/json"'),
+      }),
+    );
   });
 
   it("serves generated artifacts in development with HEAD and method handling", async () => {

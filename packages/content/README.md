@@ -89,6 +89,10 @@ interface ContentDocument<Frontmatter, Compiled> {
   registry.
 - `invalidate()` clears one source or the complete compilation cache.
 
+The filesystem registry is memoized and rebuilt only after `invalidate()`.
+Relative invalidation paths, like source lookup paths, resolve from the
+collection root.
+
 The default parser accepts YAML frontmatter. Pass `parse` to use another
 format. The default compiled representation is `body`; pass `compile` for HTML,
 an AST, a search record, or an application-specific object.
@@ -108,13 +112,30 @@ export default defineConfig({
 The first plugin transforms collection sources through the collection's
 `module` hook in every Vite environment. The second serves generated artifacts
 with GET/HEAD in development and emits identical static files in client builds.
-File watcher events invalidate only the affected memoized document.
+File watcher events invalidate only the affected memoized document and the
+shared route/source index. Artifact `contentType` values are carried into
+Pracht's production headers manifest as well as the development response.
+
+For request-time loaders and capabilities, import the generated snapshot rather
+than the filesystem-backed authoring collection:
+
+```ts
+import docs from "virtual:pracht/content/docs";
+```
+
+The suffix is the collection `name`. This module embeds the documents and
+locale/fallback indexes into the server bundle, so it works in Cloudflare,
+Vercel, and dist-only Node deployments without source files or `node:fs`.
+Frontmatter and compiled values used this way must be JSON-serializable. Add
+`@pracht/content/virtual` to `compilerOptions.types` for the generic ambient
+module declaration, or augment the module locally with application-specific
+frontmatter and compiled types.
 
 ## Loaders and Markdown negotiation
 
-`contentLoader()` turns route lookup into a Pracht-compatible structural loader
-without making `@pracht/core` a dependency. Use `select` to keep loader data
-serializable and small. `markdownRepresentation(document, "raw" | "body")`
+`contentLoader()` turns snapshot lookup into a Pracht-compatible structural
+loader without making `@pracht/core` a dependency. Use `select` to keep loader
+data serializable and small. `markdownRepresentation(document, "raw" | "body")`
 selects the string a generated route module can export as its server-only
 `markdown` representation.
 
@@ -131,7 +152,7 @@ fields for an app-owned capability:
 ```ts
 import { defineCapability } from "@pracht/capabilities";
 import { createContentPageCapability } from "@pracht/content/capabilities";
-import { docs } from "../../../content";
+import docs from "virtual:pracht/content/docs";
 
 const page = createContentPageCapability(docs);
 

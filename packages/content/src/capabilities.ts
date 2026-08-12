@@ -159,7 +159,8 @@ function rankDocument<TFrontmatter extends Record<string, unknown>, TCompiled>(
 ): ContentSearchResult | undefined {
   const title = documentTitle(document, titleField);
   const lowerTitle = title.toLocaleLowerCase();
-  const lowerBody = document.body.toLocaleLowerCase();
+  const normalizedBody = normalizeBody(document.body);
+  const lowerBody = normalizedBody.toLocaleLowerCase();
   let score = 0;
   let firstMatch = -1;
   for (const term of terms) {
@@ -173,7 +174,7 @@ function rankDocument<TFrontmatter extends Record<string, unknown>, TCompiled>(
   return {
     path: document.path,
     score,
-    snippet: snippet(document.body, firstMatch),
+    snippet: snippet(normalizedBody, firstMatch),
     title,
   };
 }
@@ -201,10 +202,13 @@ function occurrences(value: string, term: string): number {
 }
 
 function snippet(body: string, match: number): string {
-  const normalized = body.replace(/\s+/g, " ").trim();
-  if (normalized.length <= 240) return normalized;
-  const start = Math.max(0, Math.min(normalized.length - 240, match < 0 ? 0 : match - 80));
-  return `${start > 0 ? "…" : ""}${normalized.slice(start, start + 240).trim()}${start + 240 < normalized.length ? "…" : ""}`;
+  if (body.length <= 240) return body;
+  const start = Math.max(0, Math.min(body.length - 240, match < 0 ? 0 : match - 80));
+  return `${start > 0 ? "…" : ""}${body.slice(start, start + 240).trim()}${start + 240 < body.length ? "…" : ""}`;
+}
+
+function normalizeBody(body: string): string {
+  return body.replace(/\s+/g, " ").trim();
 }
 
 function compare(left: string, right: string): number {
