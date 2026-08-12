@@ -24,7 +24,7 @@
  * ```
  */
 
-import { ed25519JwkThumbprint } from "./runtime-agent-auth.ts";
+import { ed25519JwkThumbprint } from "./runtime-agent-directory.ts";
 
 /** Ed25519 private key in JWK form — the `d` (private) and `x` (public) pair. */
 export interface AgentSigningJwk {
