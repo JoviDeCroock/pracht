@@ -80,6 +80,8 @@ described in `VISION_MVP.md`.
   for prerendered pages, generated `llms.txt`, and OpenAPI companion artifacts,
   and `build-route-output.ts` derives and writes headers, Markdown, and ISG
   metadata with adapter-specific privacy and edge-caching policy,
+  while `build-analysis.ts` owns bundle reporting, persisted budget evidence,
+  and fail-versus-warn policy without mutating process state,
   `pracht preview` builds and serves the production output locally (Node runs
   `dist/server/server.js`, Cloudflare delegates to `wrangler dev`, Netlify
   points at `netlify dev`, and Vercel points at `vercel build`/`vercel dev`),

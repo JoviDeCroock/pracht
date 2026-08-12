@@ -6,6 +6,7 @@ import { pathToFileURL } from "node:url";
 import { defineCommand } from "citty";
 import { build as viteBuild } from "vite";
 
+import { runBuildAnalysis } from "../build-analysis.js";
 import { readClientBuildAssets } from "../build-metadata.js";
 import { createBuildRouteOutput, writeBuildRouteManifests } from "../build-route-output.js";
 import { writeVercelBuildOutput } from "../build-shared.js";
@@ -14,15 +15,6 @@ import {
   writeOpenApiBuildArtifacts,
   writePrerenderedPages,
 } from "../build-static-output.js";
-import {
-  collectBundleReport,
-  evaluateBudgets,
-  formatBudgetResults,
-  formatBundleReport,
-  formatBytes,
-  shouldUseColor,
-  type BundleReportRoute,
-} from "../bundle-report.js";
 
 export {
   resolveGeneratedArtifactOutputPath,
@@ -73,13 +65,6 @@ export default defineCommand({
     });
   },
 });
-
-function indentBlock(block: string): string {
-  return block
-    .split("\n")
-    .map((line) => (line ? `  ${line}` : line))
-    .join("\n");
-}
 
 export interface BuildResult {
   buildTarget: string | null;
@@ -270,79 +255,22 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
       await serverMod.finalizePrachtBuild({ clientDir, root });
     }
 
-    const budgets = (serverMod.budgets ?? {}) as Record<string, string | number>;
-    const hasBudgets = Object.keys(budgets).length > 0;
-
-    if (analyze || hasBudgets) {
-      const routes = (serverMod.resolvedApp?.routes ?? []) as BundleReportRoute[];
-      const report = collectBundleReport({
-        routes,
-        jsManifest,
-        clientEntryJs,
-        islandsEntryJs,
-        islandFiles: Array.isArray(serverMod.islandFiles) ? serverMod.islandFiles : [],
-        clientDir,
-      });
-      const evaluation = hasBudgets ? evaluateBudgets(report, budgets) : null;
-      const color = shouldUseColor();
-
-      if (analyzeJson) {
-        console.log(
-          JSON.stringify(
-            {
-              shared: report.shared,
-              routes: report.routes,
-              ...(evaluation ? { budgets: evaluation } : {}),
-            },
-            null,
-            2,
-          ),
-        );
-      } else if (analyze) {
-        console.log(`\n${indentBlock(formatBundleReport(report, { color }))}\n`);
-      }
-
-      if (evaluation) {
-        writeFileSync(
-          resolve(root, "dist/server/budget-report.json"),
-          `${JSON.stringify(
-            {
-              generatedAt: new Date().toISOString(),
-              budgets,
-              results: evaluation.results,
-              unmatched: evaluation.unmatched,
-              ok: evaluation.ok,
-            },
-            null,
-            2,
-          )}\n`,
-          "utf-8",
-        );
-
-        if (!analyzeJson) {
-          console.log(`\n${indentBlock(formatBudgetResults(evaluation, { color }))}\n`);
-        }
-
-        if (!evaluation.ok) {
-          const failed = evaluation.results.filter((result) => !result.ok);
-          const summary = failed
-            .map(
-              (result) =>
-                `${result.path} (${formatBytes(result.gzipBytes)} gzip > ${formatBytes(result.limitBytes)})`,
-            )
-            .join(", ");
-          if (budgetFail) {
-            console.error(`\n  Build failed: client JS budget exceeded for ${summary}.\n`);
-            process.exitCode = 1;
-            return { buildTarget };
-          }
-          if (!analyzeJson) {
-            console.warn(
-              `\n  Warning: client JS budget exceeded for ${summary} (--no-budget-fail).\n`,
-            );
-          }
-        }
-      }
+    const analysis = runBuildAnalysis({
+      analyze,
+      analyzeJson,
+      budgetFail,
+      budgets: (serverMod.budgets ?? {}) as Record<string, string | number>,
+      clientDir,
+      clientEntryJs,
+      islandFiles: Array.isArray(serverMod.islandFiles) ? serverMod.islandFiles : [],
+      islandsEntryJs,
+      jsManifest,
+      root,
+      routes: serverMod.resolvedApp?.routes ?? [],
+    });
+    if (analysis.shouldFailBuild) {
+      process.exitCode = 1;
+      return { buildTarget };
     }
   }
 
