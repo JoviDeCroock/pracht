@@ -232,9 +232,19 @@ async function collectSSGPaths(route: ResolvedRoute, registry?: ModuleRegistry):
   const routeModule = await resolveRegistryModule<RouteModule>(registry?.routeModules, route.file);
 
   if (!routeModule?.getStaticPaths) {
-    console.warn(
-      `  Warning: ${(route.render ?? "ssg").toUpperCase()} route "${route.path}" has dynamic segments but no getStaticPaths() export, skipping.`,
-    );
+    if (route.render === "spa") {
+      // Only reachable in staticExport mode (spa routes are otherwise never
+      // prerendered). Not prerendering a dynamic spa route is the expected
+      // shape — but deep links to it then need the SPA fallback document.
+      console.warn(
+        `  Note: dynamic SPA route "${route.path}" has no getStaticPaths() export, so no document or state file is prerendered for it. ` +
+          `In-app navigation renders it client-side (without loader data); deep links need staticAdapter({ fallback: "200.html" }) plus a host rewrite.`,
+      );
+    } else {
+      console.warn(
+        `  Warning: ${(route.render ?? "ssg").toUpperCase()} route "${route.path}" has dynamic segments but no getStaticPaths() export, skipping.`,
+      );
+    }
     return [];
   }
 
