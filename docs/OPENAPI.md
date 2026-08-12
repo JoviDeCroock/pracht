@@ -62,7 +62,9 @@ correct media type.
 
 Generated paths are reserved while the plugin is enabled. Development logs a
 warning when a Pracht route or `public/` file collides; production generation
-replaces a colliding public/build file and reports that replacement.
+replaces a colliding public/build file and reports that replacement. OpenAPI
+artifacts must not overlap files from another generator such as `llmsTxt`;
+`pracht build` reports both paths before writing generated output.
 
 ## Document responses and operations
 

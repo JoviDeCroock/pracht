@@ -211,6 +211,39 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
       }
     }
 
+    let openApiArtifacts: Array<{
+      content: string;
+      outputPath: string;
+      path?: string;
+    }> = [];
+    let openApiWarnings: Array<{
+      message?: unknown;
+      method?: unknown;
+      path?: unknown;
+    }> = [];
+    if (typeof serverMod.generatePrachtOpenApiArtifacts === "function") {
+      const generated = await serverMod.generatePrachtOpenApiArtifacts();
+      openApiArtifacts = Array.isArray(generated?.artifacts) ? generated.artifacts : [];
+      openApiWarnings = Array.isArray(generated?.warnings) ? generated.warnings : [];
+
+      for (const artifact of openApiArtifacts) {
+        if (
+          !artifact ||
+          typeof artifact.outputPath !== "string" ||
+          typeof artifact.content !== "string"
+        ) {
+          throw new Error("OpenAPI generator returned an invalid build artifact.");
+        }
+        resolveGeneratedArtifactOutputPath(clientDir, artifact.outputPath);
+      }
+    }
+
+    const generatedArtifacts = [
+      ...llmsTxtArtifacts.map((artifact) => ({ ...artifact, generator: "llms.txt" })),
+      ...openApiArtifacts.map((artifact) => ({ ...artifact, generator: "OpenAPI" })),
+    ];
+    assertGeneratedArtifactPathsDoNotOverlap(clientDir, generatedArtifacts);
+
     const publishedPages = excludePrerenderPagesShadowedByGeneratedArtifacts(
       pages as Array<{
         headers?: Record<string, string>;
@@ -218,7 +251,7 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
         markdown?: boolean;
         path: string;
       }>,
-      llmsTxtArtifacts,
+      generatedArtifacts,
     );
     const publishedPagePaths = new Set(publishedPages.map((page: { path: string }) => page.path));
     for (const path of Object.keys(isgManifest)) {
@@ -287,25 +320,9 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
     // Companion artifact generators can inspect the bundled server graph and
     // return static files without coupling their authoring API to core. The
     // OpenAPI plugin uses this for /openapi.json and its optional docs page.
-    if (typeof serverMod.generatePrachtOpenApiArtifacts === "function") {
-      const generated = await serverMod.generatePrachtOpenApiArtifacts();
-      const artifacts = Array.isArray(generated?.artifacts) ? generated.artifacts : [];
-      const seenOutputPaths = new Set<string>();
-      for (const artifact of artifacts) {
-        if (
-          !artifact ||
-          typeof artifact.outputPath !== "string" ||
-          typeof artifact.content !== "string"
-        ) {
-          throw new Error("OpenAPI generator returned an invalid build artifact.");
-        }
+    if (openApiArtifacts.length > 0 || openApiWarnings.length > 0) {
+      for (const artifact of openApiArtifacts) {
         const filePath = resolveGeneratedArtifactOutputPath(clientDir, artifact.outputPath);
-        if (seenOutputPaths.has(filePath)) {
-          throw new Error(
-            `OpenAPI generator returned duplicate output path ${JSON.stringify(artifact.outputPath)}.`,
-          );
-        }
-        seenOutputPaths.add(filePath);
         if (
           typeof artifact.path === "string" &&
           artifact.path.startsWith("/") &&
@@ -324,8 +341,7 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
         log(`\n  OpenAPI → dist/client/${artifact.outputPath}\n`);
       }
 
-      const warnings = Array.isArray(generated?.warnings) ? generated.warnings : [];
-      for (const warning of warnings) {
+      for (const warning of openApiWarnings) {
         const method = typeof warning?.method === "string" ? `${warning.method} ` : "";
         const path = typeof warning?.path === "string" ? warning.path : "unknown route";
         const message = typeof warning?.message === "string" ? warning.message : String(warning);
@@ -562,6 +578,36 @@ export function resolveGeneratedArtifactOutputPath(clientDir: string, outputPath
     );
   }
   return filePath;
+}
+
+export function assertGeneratedArtifactPathsDoNotOverlap(
+  clientDir: string,
+  artifacts: readonly { generator: string; outputPath: string }[],
+): void {
+  const resolvedArtifacts = artifacts.map((artifact) => ({
+    ...artifact,
+    filePath: resolveGeneratedArtifactOutputPath(clientDir, artifact.outputPath),
+  }));
+
+  for (let index = 0; index < resolvedArtifacts.length; index += 1) {
+    const current = resolvedArtifacts[index];
+    for (let otherIndex = 0; otherIndex < index; otherIndex += 1) {
+      const other = resolvedArtifacts[otherIndex];
+      if (
+        current.filePath !== other.filePath &&
+        !current.filePath.startsWith(`${other.filePath}${sep}`) &&
+        !other.filePath.startsWith(`${current.filePath}${sep}`)
+      ) {
+        continue;
+      }
+
+      throw new Error(
+        `${current.generator} artifact ${JSON.stringify(current.outputPath)} overlaps ` +
+          `${other.generator} artifact ${JSON.stringify(other.outputPath)} in dist/client. ` +
+          "Configure the generators to use distinct file paths.",
+      );
+    }
+  }
 }
 
 export function excludePrerenderPagesShadowedByGeneratedArtifacts<T extends { path: string }>(

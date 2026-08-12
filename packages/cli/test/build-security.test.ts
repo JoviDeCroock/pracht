@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
+  assertGeneratedArtifactPathsDoNotOverlap,
   excludePrerenderPagesShadowedByGeneratedArtifacts,
   resolveGeneratedArtifactOutputPath,
   resolvePrerenderOutputPath,
@@ -73,5 +74,33 @@ describe("excludePrerenderPagesShadowedByGeneratedArtifacts", () => {
         { outputPath: "llms.txt" },
       ]),
     ).toEqual([{ path: "/guide" }, { path: "/other" }]);
+  });
+});
+
+describe("assertGeneratedArtifactPathsDoNotOverlap", () => {
+  it("accepts independent generated files", () => {
+    expect(() =>
+      assertGeneratedArtifactPathsDoNotOverlap(clientDir, [
+        { generator: "llms.txt", outputPath: "llms.txt" },
+        { generator: "OpenAPI", outputPath: "openapi.json" },
+        { generator: "OpenAPI", outputPath: "docs/index.html" },
+      ]),
+    ).not.toThrow();
+  });
+
+  it("rejects exact and file-directory overlaps across generators", () => {
+    expect(() =>
+      assertGeneratedArtifactPathsDoNotOverlap(clientDir, [
+        { generator: "llms.txt", outputPath: "llms.txt" },
+        { generator: "OpenAPI", outputPath: "llms.txt/openapi.json" },
+      ]),
+    ).toThrow('OpenAPI artifact "llms.txt/openapi.json" overlaps llms.txt artifact "llms.txt"');
+
+    expect(() =>
+      assertGeneratedArtifactPathsDoNotOverlap(clientDir, [
+        { generator: "llms.txt", outputPath: "docs/getting-started.md" },
+        { generator: "OpenAPI", outputPath: "docs/getting-started.md" },
+      ]),
+    ).toThrow(/overlaps/);
   });
 });

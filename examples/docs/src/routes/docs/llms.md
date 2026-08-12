@@ -124,6 +124,8 @@ excluded and framework-reserved concrete paths never invoke them. Generated
 paths also win over matching app routes and `public/` files consistently in
 development and production. Prerendered descendants that would require a
 generated file path to become a directory are left to the runtime instead.
+Artifacts from companion generators such as `@pracht/openapi` must use distinct,
+non-overlapping file paths; the build reports both paths before writing output.
 
 ---
 

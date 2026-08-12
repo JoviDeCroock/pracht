@@ -164,5 +164,8 @@ name.
   matching `public/` file is shadowed in dev and overwritten during build, with
   a warning. SSG/ISG routes below a generated file path are also left to the
   runtime instead of producing an incompatible file/directory layout.
+- Generated llms.txt paths must not overlap artifacts from companion generators
+  such as `@pracht/openapi`; `pracht build` reports both conflicting paths before
+  writing output so generator order cannot produce a partial or invalid build.
 - The docs example uses `page`, `render`, `full`, and `markdownSuffix` to map
   its own frontmatter format without adding that format to Pracht.
