@@ -370,7 +370,9 @@ export default defineConfig({
 The generated catch-all function owns page URLs so Markdown negotiation and
 route-state requests still reach Pracht. `/assets/*` and `/_pracht/*` bypass
 the function by default. Add app-specific static prefixes with
-`excludedPath`, but do not exclude page URLs.
+`excludedPath`, but do not exclude page URLs. Default and prefix-shaped
+exclusions are also omitted from the generated function bundle, so large static
+asset trees do not count against Netlify's function size limit.
 
 ### Caching and revalidation
 
@@ -388,18 +390,19 @@ carry `Set-Cookie` or `Vary: Cookie`/`Authorization` get
 `Netlify-CDN-Cache-Control: private` instead, so a personalized render can
 never become the CDN's shared answer.
 
-Netlify's CDN ignores the standard `Vary` header, so cached page HTML sets
-`Netlify-Vary: query=_data,header=x-pracht-route-state-request` — both
-route-state transports (query param and request header) keep their own cache
-variant, while tracking and other unrelated query parameters collapse onto the
-pathname entry. Routes that export `markdown` add `|accept` to the header list
-so `Accept: text/markdown` reaches the function for negotiation instead of the
-cached HTML. A custom `Netlify-Vary` header takes precedence.
+Cached page HTML sets `Netlify-Vary:
+query=_data,header=x-pracht-route-state-request` so both route-state transports
+(query param and request header) keep their own cache variant, while tracking
+and other unrelated query parameters collapse onto the pathname entry. Netlify
+combines that key with Pracht's standard `Vary: Accept` header on routes that
+export `markdown`; `Accept` is not a valid `Netlify-Vary` directive. A custom
+`Netlify-Vary` header takes precedence.
 
 Because `/assets/*` and other excluded prefixes bypass the function, the build
 also emits `dist/client/_headers` with the immutable asset cache policy and
 pracht's default security headers for Netlify's static layer. A hand-authored
-`public/_headers` file wins; pracht skips generating one and warns.
+`public/_headers` file wins; pracht skips generating one and warns. Default and
+prefix-shaped exclusions are also omitted from the function's `includedFiles`.
 
 Shared ISG renders sanitize both the request and Netlify context before loaders
 and context factories run. Visitor cookies, authorization, query strings,

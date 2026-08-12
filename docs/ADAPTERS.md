@@ -738,6 +738,9 @@ bypass it. This keeps `Accept: text/markdown` negotiation and route-state
 requests inside Pracht without charging a function invocation for hashed
 assets. Add application-specific static prefixes with
 `netlifyAdapter({ excludedPath: ["/images/*"] })`; do not exclude page URLs.
+Default and prefix-shaped exclusions are also omitted from the generated
+function bundle, so large static asset trees do not count against Netlify's
+function size limit.
 
 ### SSG and ISG
 
@@ -760,22 +763,22 @@ assets. Add application-specific static prefixes with
   loader picks a locale from the request will cache its default-locale output
   for every visitor globally — localized ISG pages need the locale in the path
   (`/en/pricing`), the same rule the other adapters' shared ISG caches imply.
-- Netlify's CDN ignores the standard `Vary` header, so cached SSG and ISG HTML
-  names its variants through `Netlify-Vary:
+- Cached SSG and ISG HTML names its route-state variants through `Netlify-Vary:
   query=_data,header=x-pracht-route-state-request`: both route-state
   transports (the `?_data=1` query param and the request header client
   navigations actually send) get their own cache key instead of receiving the
   cached HTML, while unrelated query parameters collapse onto the pathname
-  cache entry. Markdown-capable routes add `|accept` to the header list so
-  `Accept: text/markdown` reaches the function for real negotiation — scoped to
-  routes that export `markdown`, so ordinary pages cannot be fragmented by
-  arbitrary Accept strings. Route-state and Markdown responses are never
-  durable-cached themselves. A custom `Netlify-Vary` header takes precedence.
+  cache entry. Netlify combines that key with Pracht's standard `Vary: Accept`
+  header on Markdown-capable routes; `Accept` is not a valid `Netlify-Vary`
+  directive. Route-state and Markdown responses are never durable-cached
+  themselves. A custom `Netlify-Vary` header takes precedence.
 - Because `/assets/*` (and other `excludedPath` prefixes) bypass the function,
   the build also writes a `dist/client/_headers` file that gives Netlify's
   static layer the immutable asset policy and the same default security
   headers the function applies everywhere else. A hand-authored
   `public/_headers` wins — pracht then skips generating one and warns.
+  Default and prefix-shaped exclusions are also omitted from the function's
+  `includedFiles`, keeping large bypassed asset trees outside its bundle.
   `excludedPath` entries are validated against whitespace/control characters so
   they cannot inject rules into that plain-text file.
 - Cacheable webhook-capable ISG responses carry per-path
@@ -785,12 +788,12 @@ assets. Add application-specific static prefixes with
 - SSR and API responses without an explicit policy get Pracht's fail-closed
   `private, no-cache` default. Explicit public policies are also copied to
   Netlify's durable cache header, and the promoted response gets
-  `Netlify-Vary: query,header=x-pracht-route-state-request` (plus `|accept`
-  when the response varies on `Accept`) so the CDN-cached document cannot
-  shadow route-state fetches; `query` keeps Netlify's default full-query cache
-  key for dynamic routes. Promotion itself fails closed: a route-state-shaped
-  request (either transport) or a response that is not shareable
-  (`Set-Cookie`, `Vary: Cookie`/`Authorization`) gets
+  `Netlify-Vary: query,header=x-pracht-route-state-request` so the CDN-cached
+  document cannot shadow route-state fetches; a standard `Vary: Accept` remains
+  responsible for content negotiation, and `query` keeps Netlify's default
+  full-query cache key for dynamic routes. Promotion itself fails closed: a
+  route-state-shaped request (either transport) or a response that is not
+  shareable (`Set-Cookie`, `Vary: Cookie`/`Authorization`) gets
   `Netlify-CDN-Cache-Control: private` instead — a bare `Cache-Control:
   public` would otherwise make Netlify's CDN store one visitor's render (or,
   for a cross-site `?_data=1` navigation, cache the HTML fallback under the

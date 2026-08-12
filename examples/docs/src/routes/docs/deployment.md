@@ -155,7 +155,8 @@ The generated function preserves Markdown negotiation and client route-state
 requests while hashed assets bypass it. Time-based ISG uses durable
 stale-while-revalidate caching; authenticated webhook revalidation purges
 per-path cache tags. Use `netlifyAdapter({ excludedPath: [...] })` for extra
-static prefixes, but do not exclude page URLs.
+static prefixes, but do not exclude page URLs. Prefix-shaped exclusions also
+stay outside the generated function bundle.
 
 `pracht preview` deliberately does not emulate Netlify's Functions and CDN
 behavior; build the generated function before using `netlify dev` for the

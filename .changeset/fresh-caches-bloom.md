@@ -13,10 +13,12 @@ caching, preserves explicit cache policies, collapses unrelated page query
 parameters, purges webhook-revalidated paths through cache tags, and strips
 visitor-specific request and Netlify context data before shared ISG rendering.
 Cached page documents carry `Netlify-Vary` entries for both route-state
-transports and (on Markdown-capable routes) `Accept`, since Netlify's CDN
-ignores the standard `Vary` header, and the build emits a `dist/client/_headers`
-file so excluded static paths keep the immutable asset policy and default
-security headers.
+transports, while Markdown negotiation remains in the standard `Vary: Accept`
+header because `Accept` is not a valid `Netlify-Vary` directive. The build emits
+a `dist/client/_headers` file so excluded static paths keep the immutable asset
+policy and default security headers, and omits default and prefix-shaped
+exclusions from the function bundle so large static trees do not count against
+Netlify's function size limit.
 Promotion of explicit `Cache-Control: public` SSR/API policies into the durable
 cache fails closed: responses to route-state-shaped requests and responses that
 carry `Set-Cookie` or `Vary: Cookie`/`Authorization` are stamped

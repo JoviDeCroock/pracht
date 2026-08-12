@@ -48,6 +48,8 @@ test("pracht build emits a working Netlify Functions v2 entry", async () => {
     expect(source).toContain('"/assets/*"');
     expect(source).toContain('"includedFiles"');
     expect(source).toContain('"dist/client/**"');
+    expect(source).toContain('"!dist/client/assets/**"');
+    expect(source).toContain('"!dist/client/_pracht/**"');
     expect(source).toContain('"nodeBundler": "esbuild"');
     expect(readFileSync(serverEntryPath, "utf-8")).toContain('buildTarget = "netlify"');
 
@@ -69,11 +71,12 @@ test("pracht build emits a working Netlify Functions v2 entry", async () => {
       expect(html.status).toBe(200);
       expect(html.headers.get("x-pracht-shell")).toBe("public");
       expect(html.headers.get("netlify-cdn-cache-control")).toContain("durable");
-      // `/` exports markdown, so its cached HTML must vary on Accept as well
-      // as the route-state header — Netlify ignores standard `Vary`.
+      // Netlify-Vary owns the route-state transport; standard Vary owns the
+      // Markdown representation because Netlify rejects Accept there.
       expect(html.headers.get("netlify-vary")).toBe(
-        "query=_data,header=x-pracht-route-state-request|accept",
+        "query=_data,header=x-pracht-route-state-request",
       );
+      expect(html.headers.get("vary")).toContain("Accept");
       expect(await html.text()).toContain("Pracht starts with an explicit app manifest.");
 
       const markdown = await handler(

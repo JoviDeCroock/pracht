@@ -56,7 +56,9 @@ netlifyAdapter({ excludedPath: ["/content/*", "/images/*"] });
 ```
 
 Exact static files not excluded from the function are still served correctly;
-the exclusion only avoids a function invocation.
+the exclusion only avoids a function invocation. Prefix-shaped exclusions are
+also omitted from the generated function bundle, so large static asset trees do
+not count against Netlify's function size limit.
 
 ## Context
 
@@ -78,12 +80,13 @@ metadata.
 - Time-revalidated ISG routes use their Pracht revalidation interval as the
   Netlify CDN `max-age`, with stale-while-revalidate enabled. Cacheable custom
   policies remain authoritative.
-- Netlify's CDN ignores the standard `Vary` header, so cached SSG and ISG HTML
-  uses `Netlify-Vary: query=_data,header=x-pracht-route-state-request` (plus
-  `|accept` on Markdown-capable routes): both route-state transports and
-  Markdown negotiation keep their own cache variant while unrelated query
-  parameters collapse onto the pathname entry. A custom `Netlify-Vary` header
-  takes precedence.
+- Cached SSG and ISG HTML uses `Netlify-Vary:
+  query=_data,header=x-pracht-route-state-request`, so both route-state
+  transports keep their own cache variant while unrelated query parameters
+  collapse onto the pathname entry. Netlify combines that key with the
+  standard `Vary: Accept` header Pracht emits for Markdown-capable routes;
+  `Accept` is not a valid `Netlify-Vary` directive. A custom `Netlify-Vary`
+  header takes precedence.
 - Cacheable webhook-revalidated ISG responses carry per-path cache tags, even
   when the route provides a custom cache policy.
   `POST /__pracht/revalidate` authenticates with `PRACHT_REVALIDATE_TOKEN` and

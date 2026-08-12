@@ -81,6 +81,9 @@ describe("netlifyAdapter", () => {
     expect(source).toContain('"/assets/*"');
     expect(source).toContain('"/content/*"');
     expect(source).toContain('"dist/client/**"');
+    expect(source).toContain('"!dist/client/assets/**"');
+    expect(source).toContain('"!dist/client/_pracht/**"');
+    expect(source).toContain('"!dist/client/content/**"');
     expect(source).toContain('import handler from "../../dist/server/server.js"');
 
     // Excluded paths bypass the function, so the static layer needs the
@@ -182,11 +185,10 @@ describe("createNetlifyHandler", () => {
     expect(response.headers.get("x-route")).toBe("guide");
     expect(response.headers.get("vary")).toBe("Accept");
     expect(response.headers.get("netlify-cdn-cache-control")).toContain("durable");
-    // Netlify ignores standard `Vary`, so the cached document must name its
-    // variants itself: route-state fetches arrive as a request header on the
-    // page URL, and this route negotiates Markdown via `Accept`.
+    // Netlify-Vary owns Pracht's custom route-state transport, while the
+    // standard Vary header remains responsible for content negotiation.
     expect(response.headers.get("netlify-vary")).toBe(
-      "query=_data,header=x-pracht-route-state-request|accept",
+      "query=_data,header=x-pracht-route-state-request",
     );
   });
 
@@ -308,10 +310,8 @@ describe("createNetlifyHandler", () => {
     expect(response.headers.get("cache-control")).toBe("public, max-age=0, must-revalidate");
     expect(response.headers.get("netlify-cdn-cache-control")).toContain("max-age=60");
     expect(response.headers.get("netlify-cache-tag")).toContain(netlifyRouteCacheTag("/pricing"));
-    // Without a markdown manifest (legacy/custom entry) negotiation falls
-    // through for every route, so the cached copy must vary on Accept too.
     expect(response.headers.get("netlify-vary")).toBe(
-      "query=_data,header=x-pracht-route-state-request|accept",
+      "query=_data,header=x-pracht-route-state-request",
     );
   });
 
