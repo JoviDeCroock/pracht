@@ -26,6 +26,7 @@
       "@pracht/capabilities": ["./packages/capabilities/src/index.ts"],
       "@pracht/content": ["./packages/content/src/index.ts"],
       "@pracht/content/capabilities": ["./packages/content/src/capabilities.ts"],
+      "@pracht/content/runtime": ["./packages/content/src/runtime.ts"],
       "@pracht/content/vite": ["./packages/content/src/vite.ts"],
       "@pracht/openapi": ["./packages/openapi/src/index.ts"],
       "@pracht/openapi/vite": ["./packages/openapi/src/vite.ts"],

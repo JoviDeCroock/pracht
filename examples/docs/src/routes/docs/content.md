@@ -86,13 +86,14 @@ export default defineConfig({
 
 ## Resolve content on the server
 
-The package is server-only. Loaders and other server code can resolve by public
-route, locale-neutral id, or source file, and build plugins can iterate the
-same registry without maintaining a second filesystem scanner.
+The package is server-only. Loaders and other deployed server code consume a
+filesystem-free snapshot generated from the same registry. Import it by
+collection name so Cloudflare, Vercel, and dist-only Node deployments do not
+need the source tree at request time.
 
 ```ts [src/server/docs-loader.ts]
 import { contentLoader } from "@pracht/content";
-import { docs } from "../../content";
+import docs from "virtual:pracht/content/docs";
 
 export const loader = contentLoader(docs, {
   select(document) {
@@ -103,6 +104,11 @@ export const loader = contentLoader(docs, {
   },
 });
 ```
+
+Snapshot frontmatter and compiled values must be JSON-serializable. Add
+`@pracht/content/virtual` to `compilerOptions.types` for the generic virtual
+module declaration; applications can augment it when they want exact compiled
+and frontmatter types.
 
 Locale lookup falls back to the default locale unless `fallback: false` is
 requested. `resolveById()` and `resolveByRoute()` additionally report whether

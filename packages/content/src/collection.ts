@@ -12,6 +12,7 @@ import {
 import type {
   ContentArtifact,
   ContentCollection,
+  ContentCollectionSnapshot,
   ContentDocument,
   ContentLocaleOptions,
   ContentLookupOptions,
@@ -66,6 +67,7 @@ export function defineCollection<
     ? Object.freeze(options.sources.map((source) => ({ ...source })))
     : undefined;
   const cache = new Map<string, CachedDocument<TFrontmatter, TCompiled>>();
+  let registryCache: Promise<RegistryIndex> | undefined;
   let artifactCache: Promise<readonly ContentArtifact[]> | undefined;
 
   const collection: ContentCollection<TFrontmatter, TCompiled> = {
@@ -182,17 +184,57 @@ export function defineCollection<
       }
     },
 
+    async snapshot(): Promise<ContentCollectionSnapshot<TFrontmatter, TCompiled>> {
+      const registry = await buildRegistry();
+      const documents = await Promise.all(
+        registry.descriptors.map(async (descriptor) => {
+          const { locale, source: _source, ...document } = await loadDescriptor(descriptor);
+          return locale === undefined ? document : { ...document, locale };
+        }),
+      );
+      return {
+        name: options.name,
+        extensions: [...extensions],
+        ...(locales
+          ? {
+              locales: {
+                ...locales,
+                ...(locales.fallback === undefined
+                  ? {}
+                  : { fallback: cloneFallback(locales.fallback) }),
+                supported: [...locales.supported],
+              },
+            }
+          : {}),
+        documents,
+        routeAliases: [...registry.routeAliases].map(([path, alias]) => ({ ...alias, path })),
+      };
+    },
+
     invalidate(source) {
       artifactCache = undefined;
+      registryCache = undefined;
       if (source === undefined) {
         cache.clear();
         return;
       }
-      cache.delete(resolve(source.split("?")[0]));
+      cache.delete(resolveCollectionSource(source));
     },
   };
 
   async function buildRegistry(): Promise<RegistryIndex> {
+    if (registryCache) return registryCache;
+    const pending = createRegistry();
+    registryCache = pending;
+    try {
+      return await pending;
+    } catch (error) {
+      if (registryCache === pending) registryCache = undefined;
+      throw error;
+    }
+  }
+
+  async function createRegistry(): Promise<RegistryIndex> {
     const sources = explicitSources ?? (await scanSources(root, extensions));
     const descriptors = sources
       .map((source) => createDescriptor(source))
@@ -424,6 +466,19 @@ export function defineCollection<
   }
 
   return Object.freeze(collection);
+}
+
+function cloneFallback(
+  fallback: ContentLocaleOptions["fallback"],
+): ContentLocaleOptions["fallback"] {
+  if (Array.isArray(fallback)) return [...fallback];
+  if (!fallback || typeof fallback === "string") return fallback;
+  return Object.fromEntries(
+    Object.entries(fallback).map(([locale, value]) => [
+      locale,
+      Array.isArray(value) ? [...value] : value,
+    ]),
+  );
 }
 
 function assertOptions<TFrontmatter extends Record<string, unknown>, TCompiled>(

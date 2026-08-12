@@ -10,6 +10,7 @@ import {
   markdownRepresentation,
   rawContentArtifacts,
 } from "../src/index.ts";
+import { defineSnapshotCollection } from "../src/runtime.ts";
 
 const temporaryDirectories: string[] = [];
 
@@ -141,6 +142,48 @@ describe("defineCollection", () => {
     expect((await collection.loadSource(source, "Second")).compiled).toBe(6);
     expect(compile).toHaveBeenCalledTimes(2);
   });
+
+  it("caches the registry and resolves relative invalidation against the collection root", async () => {
+    const root = await fixture({ "page.md": "Same" });
+    let revision = 1;
+    const route = vi.fn(() => "/page");
+    const collection = defineCollection({
+      name: "docs",
+      root,
+      sources: [{ source: "page.md" }],
+      route,
+      compile: () => revision,
+    });
+
+    expect((await collection.loadSource("page.md", "Same")).compiled).toBe(1);
+    await collection.getByRoute("/page");
+    expect(route).toHaveBeenCalledTimes(1);
+
+    revision = 2;
+    collection.invalidate("page.md");
+    expect((await collection.loadSource("page.md", "Same")).compiled).toBe(2);
+    expect(route).toHaveBeenCalledTimes(2);
+  });
+
+  it("rehydrates portable snapshots with locale fallback and no source filesystem", async () => {
+    const root = await fixture({
+      "en/guide.md": "English",
+      "fr/guide.md": "Français",
+      "en/default.md": "Default",
+    });
+    const collection = defineCollection({
+      name: "docs",
+      root,
+      routeBase: "/docs",
+      locales: { default: "en", supported: ["en", "fr"] },
+    });
+    const runtime = defineSnapshotCollection(await collection.snapshot());
+
+    expect((await runtime.getByRoute("/fr/docs/guide"))?.body).toBe("Français");
+    expect((await runtime.resolveByRoute("/fr/docs/default"))?.fallback).toBe(true);
+    expect((await runtime.getBySource("en/guide.md"))?.body).toBe("English");
+    expect((await runtime.all())[0].source).toMatch(/^virtual:pracht\/content\/docs\//);
+  });
 });
 
 describe("collection integration helpers", () => {
@@ -176,6 +219,24 @@ describe("collection integration helpers", () => {
     );
     expect(String(artifacts[3].source)).toContain("# One body");
     expect(String(artifacts[3].source)).not.toContain("title: One");
+  });
+
+  it("treats a root llms.txt section as a prefix for every content route", async () => {
+    const root = await fixture({ "guide.md": "---\ntitle: Guide\n---\nBody" });
+    const collection = defineCollection({
+      name: "docs",
+      root,
+      routeBase: "/docs",
+      artifacts: [
+        llmsTxtArtifacts({
+          title: "Docs",
+          sections: [{ heading: "Everything", match: "/" }],
+          fullPath: false,
+        }),
+      ],
+    });
+
+    expect(String((await collection.emitArtifacts())[0].source)).toContain("[Guide](/docs/guide)");
   });
 
   it("adapts route lookup to loaders and markdown negotiation", async () => {

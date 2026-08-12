@@ -72,7 +72,8 @@ described in `VISION_MVP.md`.
   apps one server-only route/source registry with locale fallback, raw,
   frontmatter/body, application-defined compiled representations, and
   per-source memoization. `prachtContent()` reuses it for Vite transforms,
-  watcher invalidation, live generated assets, and client build output. Loader,
+  watcher invalidation, portable server snapshots, live generated assets, and
+  client build output. Loader,
   Markdown negotiation, curated `llms.txt`, raw asset, and private-by-default
   page/search capability adapters remain opt-in.
 - **Client hydration** — The generated client module matches the current route,
