@@ -8,13 +8,8 @@ import type { ComponentChildren, FunctionComponent } from "preact";
 import type { HttpMethod } from "./api-client-types.ts";
 import type { CapabilityModule } from "./capability-types.ts";
 import type { RouteConstraint } from "./constraints.ts";
-import type { PrachtRequestContext, Register, RegisteredContext } from "./registration.ts";
-import type {
-  BuildHrefOptions,
-  RouteParamInput,
-  RouteParams,
-  SearchParamsInput,
-} from "./route-inputs.ts";
+import type { PrachtRequestContext, RegisteredContext } from "./registration.ts";
+import type { RouteParams } from "./route-inputs.ts";
 
 export type {
   ApiBodyFor,
@@ -36,6 +31,16 @@ export type {
   Register,
   RegisteredContext,
 } from "./registration.ts";
+export type {
+  HrefArgs,
+  HrefFn,
+  HrefOptions,
+  RouteDataFor,
+  RouteId,
+  RouteParamsFor,
+  RouteSearchFor,
+  RouteTarget,
+} from "./route-client-types.ts";
 export type {
   BuildHrefOptions,
   RouteParamInput,
@@ -106,81 +111,6 @@ export interface HrefRouteDefinition {
   path: string;
   segments?: readonly RouteSegment[];
 }
-
-type RegisteredRouteMap = Register extends { routes: infer TRoutes }
-  ? TRoutes extends Record<string, unknown>
-    ? TRoutes
-    : {}
-  : {};
-
-type HasRegisteredRoutes = keyof RegisteredRouteMap extends never ? false : true;
-type EmptyRouteParams = Record<never, never>;
-type IsEmptyRouteParams<TParams> = keyof TParams extends never ? true : false;
-
-export type RouteId = HasRegisteredRoutes extends true
-  ? Extract<keyof RegisteredRouteMap, string>
-  : string;
-
-export type RouteParamsFor<TRoute extends RouteId> = HasRegisteredRoutes extends true
-  ? TRoute extends keyof RegisteredRouteMap
-    ? RegisteredRouteMap[TRoute] extends { params: infer TParams }
-      ? TParams extends Record<string, unknown>
-        ? TParams
-        : EmptyRouteParams
-      : EmptyRouteParams
-    : never
-  : Record<string, RouteParamInput>;
-
-export type RouteSearchFor<TRoute extends RouteId> = HasRegisteredRoutes extends true
-  ? TRoute extends keyof RegisteredRouteMap
-    ? RegisteredRouteMap[TRoute] extends { search: infer TSearch }
-      ? TSearch
-      : SearchParamsInput
-    : never
-  : SearchParamsInput;
-
-export type RouteDataFor<TRoute extends RouteId> = HasRegisteredRoutes extends true
-  ? TRoute extends keyof RegisteredRouteMap
-    ? RegisteredRouteMap[TRoute] extends { data: infer TData }
-      ? TData
-      : unknown
-    : never
-  : unknown;
-
-type TypedHrefOptions<TRoute extends RouteId> =
-  IsEmptyRouteParams<RouteParamsFor<TRoute>> extends true
-    ? {
-        params?: never;
-        search?: RouteSearchFor<TRoute>;
-        hash?: string;
-      }
-    : {
-        params: RouteParamsFor<TRoute>;
-        search?: RouteSearchFor<TRoute>;
-        hash?: string;
-      };
-
-export type HrefOptions<TRoute extends RouteId = RouteId> = HasRegisteredRoutes extends true
-  ? TRoute extends RouteId
-    ? TypedHrefOptions<TRoute>
-    : never
-  : BuildHrefOptions;
-
-export type HrefArgs<TRoute extends RouteId = RouteId> = HasRegisteredRoutes extends true
-  ? TRoute extends RouteId
-    ? IsEmptyRouteParams<RouteParamsFor<TRoute>> extends true
-      ? [options?: TypedHrefOptions<TRoute>]
-      : [options: TypedHrefOptions<TRoute>]
-    : never
-  : [options?: BuildHrefOptions];
-
-export type RouteTarget<TRoute extends RouteId = RouteId> = HasRegisteredRoutes extends true
-  ? TRoute extends RouteId
-    ? { route: TRoute } & TypedHrefOptions<TRoute>
-    : never
-  : { route: string } & BuildHrefOptions;
-
-export type HrefFn = <TRoute extends RouteId>(route: TRoute, ...args: HrefArgs<TRoute>) => string;
 
 /**
  * A reference to a module file — either a plain string path or a lazy import
