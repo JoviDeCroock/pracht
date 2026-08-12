@@ -16,9 +16,13 @@ import {
   shouldBypassDevSSR,
 } from "./plugin-dev-routing.ts";
 import { handleDevError, serveDevNotFound } from "./plugin-dev-responses.ts";
+import {
+  DEFAULT_DEV_MAX_BODY_SIZE,
+  DevRequestBodyTooLargeError,
+  nodeToWebRequest,
+} from "./plugin-dev-request.ts";
 
 const BODYLESS_METHODS = new Set(["GET", "HEAD"]);
-const DEFAULT_MAX_BODY_SIZE = 1024 * 1024; // 1 MiB
 
 export {
   collectDevCssUrls,
@@ -36,7 +40,7 @@ export function createDevSSRMiddleware(
   server: ViteDevServer,
   options: { maxBodySize?: number; llmsTxt?: boolean } = {},
 ): Connect.NextHandleFunction {
-  const maxBodySize = options.maxBodySize ?? DEFAULT_MAX_BODY_SIZE;
+  const maxBodySize = options.maxBodySize ?? DEFAULT_DEV_MAX_BODY_SIZE;
   let warnedDevtoolsCollision = false;
   let warnedLlmsTxtCollision = false;
 
@@ -135,7 +139,7 @@ export function createDevSSRMiddleware(
       try {
         webRequest = await nodeToWebRequest(req, maxBodySize);
       } catch (err) {
-        if (err instanceof Error && err.message === "Request body too large") {
+        if (err instanceof DevRequestBodyTooLargeError) {
           res.statusCode = 413;
           res.end("Payload Too Large");
           return;
@@ -197,45 +201,4 @@ export function createDevSSRMiddleware(
       await handleDevError(server, req, res, next, url, error);
     }
   };
-}
-
-async function nodeToWebRequest(req: IncomingMessage, maxBodySize: number): Promise<Request> {
-  // Dev server is always a direct connection — never trust forwarded headers.
-  // Protocol is always plain HTTP (Vite's dev server does not use TLS), and
-  // host comes from the standard Host header which is safe for direct clients.
-  const protocol = "http";
-  const host = req.headers.host ?? "localhost";
-  const url = new URL(req.url ?? "/", `${protocol}://${host}`);
-  const method = req.method ?? "GET";
-
-  const headers = new Headers();
-  for (const [key, value] of Object.entries(req.headers)) {
-    if (value === undefined) continue;
-    if (Array.isArray(value)) {
-      for (const v of value) headers.append(key, v);
-    } else {
-      headers.set(key, value);
-    }
-  }
-
-  const init: RequestInit = { method, headers };
-
-  if (!BODYLESS_METHODS.has(method.toUpperCase())) {
-    const chunks: Uint8Array[] = [];
-    let totalSize = 0;
-    for await (const chunk of req) {
-      const buf = typeof chunk === "string" ? Buffer.from(chunk) : chunk;
-      totalSize += buf.byteLength;
-      if (totalSize > maxBodySize) {
-        throw new Error("Request body too large");
-      }
-      chunks.push(buf);
-    }
-    const body = Buffer.concat(chunks);
-    if (body.byteLength > 0) {
-      init.body = body;
-    }
-  }
-
-  return new Request(url, init);
 }
