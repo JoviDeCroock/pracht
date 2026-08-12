@@ -43,6 +43,7 @@ interface VercelBuildOutputOptions {
   revalidateToken?: string;
   regions?: VercelRegions;
   root: string;
+  staticAssetRoutes?: string[];
   staticRoutes: string[];
 }
 
@@ -55,6 +56,7 @@ export function writeVercelBuildOutput({
   revalidateToken = process.env.PRACHT_REVALIDATE_TOKEN || randomBytes(32).toString("hex"),
   regions,
   root,
+  staticAssetRoutes = [],
   staticRoutes,
 }: VercelBuildOutputOptions): string {
   const deployBase = resolveVercelDeployBase(base);
@@ -100,6 +102,7 @@ export function writeVercelBuildOutput({
         functionName,
         headersManifest,
         markdownRoutes,
+        staticAssetRoutes,
         staticRoutes,
         isgRoutes: Object.keys(isgManifest),
         deployBase,
@@ -265,6 +268,7 @@ function createVercelOutputConfig({
   functionName,
   headersManifest,
   markdownRoutes,
+  staticAssetRoutes,
   staticRoutes,
   isgRoutes,
 }: {
@@ -272,6 +276,7 @@ function createVercelOutputConfig({
   functionName?: string;
   headersManifest: Record<string, Record<string, string>>;
   markdownRoutes: string[];
+  staticAssetRoutes: string[];
   isgRoutes: string[];
   staticRoutes: string[];
 }): Record<string, unknown> {
@@ -363,7 +368,7 @@ function createVercelOutputConfig({
     },
   ];
 
-  for (const route of sortStaticRoutes(staticRoutes)) {
+  for (const route of sortStaticRoutes([...staticRoutes, ...staticAssetRoutes])) {
     const routeHeaders = headersManifest[route];
     if (!routeHeaders) continue;
     headers.push({

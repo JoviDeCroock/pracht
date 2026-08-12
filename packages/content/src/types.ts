@@ -133,6 +133,7 @@ export interface ContentCollection<
   readonly name: string;
   readonly root: string;
   readonly extensions: readonly string[];
+  readonly locales?: ContentLocaleOptions;
   all(): Promise<readonly ContentDocument<TFrontmatter, TCompiled>[]>;
   iterate(): AsyncGenerator<ContentDocument<TFrontmatter, TCompiled>, void, void>;
   getById(

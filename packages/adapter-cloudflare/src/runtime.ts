@@ -299,9 +299,7 @@ async function maybeServeAsset(
   const headers = new Headers(response.headers);
   headers.append("Vary", "x-pracht-route-state-request");
   applyDefaultSecurityHeaders(headers);
-  if ((headers.get("content-type") ?? "").includes("text/html")) {
-    applyHeadersManifest(headers, headersManifest, url.pathname);
-  }
+  applyHeadersManifest(headers, headersManifest, url.pathname);
   const location = headers.get("location");
   if (
     response.status >= 300 &&

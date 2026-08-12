@@ -1,4 +1,4 @@
-import { readFile, readdir, stat } from "node:fs/promises";
+import { readFile, readdir, realpath, stat } from "node:fs/promises";
 import { extname, isAbsolute, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -63,6 +63,7 @@ export function defineCollection<
   );
   const routeBase = normalizeRoutePath(options.routeBase ?? "/", "content routeBase");
   const locales = normalizeLocales(options.locales);
+  let realRoot: string | undefined;
   const explicitSources = options.sources
     ? Object.freeze(options.sources.map((source) => ({ ...source })))
     : undefined;
@@ -74,6 +75,7 @@ export function defineCollection<
     name: options.name,
     root,
     extensions,
+    locales,
 
     async all() {
       const registry = await buildRegistry();
@@ -406,6 +408,16 @@ export function defineCollection<
     descriptor: SourceDescriptor,
     rawOverride?: string,
   ): Promise<ContentDocument<TFrontmatter, TCompiled>> {
+    const [resolvedRoot, resolvedSource] = await Promise.all([
+      resolveRealRoot(),
+      realpath(descriptor.source),
+    ]);
+    if (!isInsideRoot(resolvedRoot, resolvedSource)) {
+      throw new TypeError(
+        `Content source ${JSON.stringify(descriptor.relativeSource)} must stay inside the collection root after resolving symbolic links.`,
+      );
+    }
+
     let fingerprint: string;
     let raw: string | undefined = rawOverride;
     if (rawOverride !== undefined) {
@@ -463,6 +475,10 @@ export function defineCollection<
   function resolveCollectionSource(source: string): string {
     const clean = source.split("?")[0];
     return isAbsolute(clean) ? resolve(clean) : resolve(root, clean);
+  }
+
+  async function resolveRealRoot(): Promise<string> {
+    return realRoot ?? (realRoot = await realpath(root));
   }
 
   return Object.freeze(collection);

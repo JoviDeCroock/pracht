@@ -1,5 +1,6 @@
 import type { CapabilityRunArgs, JsonSchema } from "@pracht/capabilities";
 
+import { normalizeRoutePath } from "./path.ts";
 import type { ContentCollection, ContentDocument } from "./types.ts";
 
 interface ContentPageInput {
@@ -59,7 +60,12 @@ export function createContentPageCapability<
       type: "object",
       properties: {
         path: { type: "string", minLength: 1, description: "Exact root-relative page route." },
-        locale: { type: "string", minLength: 1, description: "Preferred content locale." },
+        locale: {
+          type: "string",
+          minLength: 1,
+          ...(collection.locales ? { enum: [...collection.locales.supported] } : {}),
+          description: "Preferred content locale.",
+        },
       },
       required: ["path"],
       additionalProperties: false,
@@ -77,15 +83,22 @@ export function createContentPageCapability<
       additionalProperties: false,
     },
     async run({ input }) {
-      const document = await collection.getByRoute(input.path, { locale: input.locale });
+      let path: string;
+      try {
+        path = normalizeRoutePath(input.path);
+      } catch {
+        return missingPage(input.path, input.locale);
+      }
+      if (
+        input.locale &&
+        collection.locales &&
+        !collection.locales.supported.includes(input.locale)
+      ) {
+        return missingPage(path, input.locale);
+      }
+      const document = await collection.getByRoute(path, { locale: input.locale });
       if (!document) {
-        return {
-          content: "",
-          found: false,
-          locale: input.locale ?? "",
-          path: input.path,
-          title: "",
-        };
+        return missingPage(path, input.locale);
       }
       return {
         content: document.body,
@@ -96,6 +109,10 @@ export function createContentPageCapability<
       };
     },
   };
+}
+
+function missingPage(path: string, locale: string | undefined): ContentPageOutput {
+  return { content: "", found: false, locale: locale ?? "", path, title: "" };
 }
 
 /** Opt-in, dependency-free full-text search capability fields over a collection. */

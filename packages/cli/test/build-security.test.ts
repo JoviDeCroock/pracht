@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
+  assertNoContentArtifactPathCollision,
   resolveGeneratedArtifactOutputPath,
   resolvePrerenderOutputPath,
 } from "../src/commands/build.ts";
@@ -54,5 +55,27 @@ describe("resolveGeneratedArtifactOutputPath", () => {
     expect(() => resolveGeneratedArtifactOutputPath(clientDir, "../openapi.json")).toThrow(
       /outside dist\/client/,
     );
+  });
+});
+
+describe("assertNoContentArtifactPathCollision", () => {
+  it("rejects a collection llms.txt that the core generator would overwrite", () => {
+    expect(() =>
+      assertNoContentArtifactPathCollision(
+        { "/llms.txt": { "content-type": "text/markdown" } },
+        "/llms.txt",
+        "the core generator",
+      ),
+    ).toThrow(/collides with the core generator/);
+  });
+
+  it("allows distinct generated paths", () => {
+    expect(() =>
+      assertNoContentArtifactPathCollision(
+        { "/llms-full.txt": { "content-type": "text/markdown" } },
+        "/llms.txt",
+        "the core generator",
+      ),
+    ).not.toThrow();
   });
 });

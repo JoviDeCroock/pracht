@@ -48,6 +48,7 @@ export function defineSnapshotCollection<
     name: snapshot.name,
     root: `virtual:pracht/content/${encodeURIComponent(snapshot.name)}`,
     extensions: Object.freeze([...snapshot.extensions]),
+    locales,
 
     async all() {
       return documents;

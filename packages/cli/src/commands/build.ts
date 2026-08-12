@@ -125,6 +125,17 @@ function readContentArtifactHeaders(clientDir: string): Record<string, Record<st
   return parsed as Record<string, Record<string, string>>;
 }
 
+export function assertNoContentArtifactPathCollision(
+  contentArtifactHeaders: Record<string, Record<string, string>>,
+  path: string,
+  generator: string,
+): void {
+  if (!Object.hasOwn(contentArtifactHeaders, path)) return;
+  throw new Error(
+    `Content artifact ${JSON.stringify(path)} collides with ${generator}. Configure a different content artifact path or disable one generator.`,
+  );
+}
+
 export interface BuildResult {
   buildTarget: string | null;
 }
@@ -292,6 +303,11 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
     // The server module only exports generateLlmsTxt when the vite plugin's
     // `llmsTxt` option is enabled — disabled builds skip this entirely.
     if (typeof serverMod.generateLlmsTxt === "function") {
+      assertNoContentArtifactPathCollision(
+        contentArtifactHeaders,
+        "/llms.txt",
+        "Pracht's core llms.txt generator",
+      );
       // Vite copies `public/` into the client output before this runs, so a
       // hand-authored `public/llms.txt` is about to be overwritten. Silently
       // discarding a file the user wrote is the worst outcome; say so.
@@ -480,6 +496,7 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
         markdownRoutes: Object.keys(markdownManifest),
         regions: serverMod.vercelRegions,
         root,
+        staticAssetRoutes: Object.keys(contentArtifactHeaders),
         staticRoutes: [
           ...pages
             .map((page: { path: string }) => page.path)

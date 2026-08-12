@@ -54,6 +54,8 @@ directory, and can be replaced with a `route(context)` callback.
 
 All route and artifact paths are canonical, safe root-relative URL paths.
 Source paths are resolved under `root`; traversal outside it is rejected.
+Explicit sources are checked again after symbolic links are resolved, so a
+link inside the collection cannot read or publish a file outside the root.
 Ambiguous source, route/locale, id/locale, and artifact registrations throw
 instead of letting ordering select a winner.
 
@@ -97,7 +99,11 @@ emits the same bytes during the client build. `rawContentArtifacts()` and
 `llmsTxtArtifacts()` cover common cases; a custom generator can emit JSON,
 XML, Markdown, or binary `Uint8Array` content.
 Explicit artifact content types are preserved in the production headers
-manifest as well as development responses.
+manifest and applied to static assets by the Node, Cloudflare, and Vercel
+adapters as well as development responses. If Pracht's core `llmsTxt` option is
+also enabled, a collection using the default `/llms.txt` path fails the build
+instead of being silently overwritten; configure a distinct `summaryPath` or
+use only one generator.
 
 Artifacts are opt-in. In particular, adding a collection does not publish raw
 source or create an agent surface.
@@ -131,6 +137,10 @@ application wraps those fields in its own literal `defineCapability({ ... })`
 call, so `pracht verify` can still statically audit the title, read effect,
 middleware, exposure, and agent identity policy. Omitting `expose` keeps the
 capability private.
+
+The page helper constrains configured locales in its input schema and treats
+malformed routes or unsupported locales as a missing result rather than an
+execution failure.
 
 The basic search helper scores title matches above body matches and requires
 every query term. It is an integration example and a useful small-site default,
