@@ -1,6 +1,7 @@
 import { h } from "preact";
 import type { FunctionComponent } from "preact";
-import { matchApiRoute, matchAppRoute, resolveApp } from "./app.ts";
+import { matchAppRoute, resolveApp } from "./app.ts";
+import { dispatchApiRequest } from "./runtime-api.ts";
 import { ROUTE_STATE_REQUEST_HEADER, SAFE_METHODS } from "./runtime-constants.ts";
 import {
   buildRuntimeDiagnostics,
@@ -45,18 +46,14 @@ import {
   getRenderToStringAsync,
   jsonErrorResponse,
   normalizePageResponse,
-  renderApiErrorResponse,
   renderRouteErrorResponse,
 } from "./runtime-response.ts";
 import { withRouteResponseHeaders } from "./runtime-headers.ts";
 import { markdownResponse, prefersMarkdown } from "./runtime-negotiation.ts";
 import type { PrachtPhaseTimings } from "./runtime-timing.ts";
 import type {
-  ApiRouteArgs,
-  ApiRouteModule,
   BaseRouteArgs,
   CapabilityAuditHook,
-  HttpMethod,
   ModuleRegistry,
   HrefRouteDefinition,
   PrachtAgentIdentity,
@@ -146,6 +143,10 @@ export async function handlePrachtRequest<TContext>(
   const isRouteStateRequest = headerSignalsRouteState || dataParamIsFirstParty;
   const exposeDiagnostics = shouldExposeServerErrors(options);
   const requireSameOrigin = options.app.api.requireSameOrigin ?? true;
+  const apiMiddlewareFiles = (options.app.api.middleware ?? []).flatMap((name) => {
+    const middlewareFile = options.app.middleware[name];
+    return middlewareFile ? [middlewareFile] : [];
+  });
   // A WebSocket handshake is a GET, so the method check used for API
   // mutations would wave it through — but browsers do not apply CORS to
   // WebSocket. Apply the origin check before route dispatch because page
@@ -234,103 +235,17 @@ export async function handlePrachtRequest<TContext>(
   }
 
   if (options.apiRoutes?.length) {
-    const apiMatch = matchApiRoute(options.apiRoutes, url.pathname);
-    if (apiMatch) {
-      const apiMiddlewareFiles = (options.app.api.middleware ?? []).flatMap((name) => {
-        const middlewareFile = options.app.middleware[name];
-        return middlewareFile ? [middlewareFile] : [];
-      });
-      let currentPhase: PrachtRuntimeDiagnosticPhase = "middleware";
-
-      if (
-        requireSameOrigin &&
-        !SAFE_METHODS.has(options.request.method) &&
-        !isSameOriginRequest(options.request, url)
-      ) {
-        return withDefaultSecurityHeaders(
-          new Response("Cross-origin request blocked", {
-            status: 403,
-            headers: { "content-type": "text/plain; charset=utf-8" },
-          }),
-        );
-      }
-
-      const requestSignal = AbortSignal.timeout(30_000);
-      const apiContext = requestContext;
-
-      const apiTerminal = async (): Promise<Response> => {
-        currentPhase = "api";
-        const apiModule = await resolveRegistryModule<ApiRouteModule>(
-          registry.apiModules,
-          apiMatch.route.file,
-        );
-
-        if (!apiModule) {
-          throw new Error("API route module not found");
-        }
-
-        const method = options.request.method.toUpperCase() as HttpMethod;
-        const handler = apiModule[method] ?? apiModule.default;
-
-        if (!handler) {
-          return new Response("Method not allowed", {
-            status: 405,
-            headers: { "content-type": "text/plain; charset=utf-8" },
-          });
-        }
-
-        const apiRouteArgs: ApiRouteArgs<TContext> = {
-          request: options.request,
-          params: apiMatch.params,
-          context: apiContext,
-          signal: requestSignal,
-          url,
-          route: apiMatch.route,
-        };
-
-        return handler(apiRouteArgs);
-      };
-
-      try {
-        const response = await runMiddlewareChain({
-          context: apiContext,
-          middlewareFiles: apiMiddlewareFiles,
-          params: apiMatch.params,
-          registry,
-          request: options.request,
-          route: apiMatch.route,
-          signal: requestSignal,
-          url,
-          terminal: apiTerminal,
-        });
-        return withDefaultSecurityHeaders(
-          withEnhancedCapabilityFormRedirect(response, options.request),
-        );
-      } catch (error: unknown) {
-        // Same short-circuit contract as page loaders: a thrown `Response` is
-        // the handler answering, not failing. Guarded because this runs inside
-        // the catch, where a further throw would reject out of
-        // `handlePrachtRequest` instead of becoming a 500.
-        let thrownResponseFailure: unknown;
-        if (error instanceof Response) {
-          try {
-            return withDefaultSecurityHeaders(
-              withEnhancedCapabilityFormRedirect(error, options.request),
-            );
-          } catch (normalizeError: unknown) {
-            thrownResponseFailure = normalizeError;
-          }
-        }
-
-        return renderApiErrorResponse({
-          error: thrownResponseFailure ?? error,
-          middlewareFiles: apiMiddlewareFiles,
-          options,
-          phase: currentPhase,
-          route: apiMatch.route,
-        });
-      }
-    }
+    const apiResponse = await dispatchApiRequest({
+      apiRoutes: options.apiRoutes,
+      context: requestContext,
+      debugErrors: options.debugErrors,
+      middlewareFiles: apiMiddlewareFiles,
+      registry,
+      request: options.request,
+      requireSameOrigin,
+      url,
+    });
+    if (apiResponse) return apiResponse;
   }
 
   // Capability projections. Explicit API route files take precedence (they
@@ -404,10 +319,7 @@ export async function handlePrachtRequest<TContext>(
         url,
         exposeErrors: exposeDiagnostics,
         mcp: mcpConfig,
-        apiMiddlewareFiles: (options.app.api.middleware ?? []).flatMap((name) => {
-          const middlewareFile = options.app.middleware[name];
-          return middlewareFile ? [middlewareFile] : [];
-        }),
+        apiMiddlewareFiles,
         agents: options.app.agents,
         agent,
         onAudit: options.onCapabilityAudit,
@@ -422,7 +334,6 @@ export async function handlePrachtRequest<TContext>(
         // Same CSRF stance as state-changing API requests: capability calls
         // are session-authenticated POSTs, so cross-origin browser requests
         // are rejected unless the app opted out.
-        const requireSameOrigin = options.app.api?.requireSameOrigin ?? true;
         if (
           requireSameOrigin &&
           !SAFE_METHODS.has(options.request.method) &&
@@ -443,10 +354,7 @@ export async function handlePrachtRequest<TContext>(
           request: options.request,
           url,
           exposeErrors: exposeDiagnostics,
-          apiMiddlewareFiles: (options.app.api.middleware ?? []).flatMap((name) => {
-            const middlewareFile = options.app.middleware[name];
-            return middlewareFile ? [middlewareFile] : [];
-          }),
+          apiMiddlewareFiles,
           agents: options.app.agents,
           agent,
           onAudit: options.onCapabilityAudit,

@@ -493,6 +493,7 @@ runtime-capability-confirmation.ts — destructive prepare/commit orchestration,
                                      durable approval policy, and replay protection
 runtime-capabilities.ts — HTTP transport
 runtime-request-provenance.ts — browser provenance and exact-origin request policy
+runtime-api.ts — explicit API matching, middleware, invocation, and error normalization
     ↑
 prefetch-cache.ts — bounded route-state cache shared by navigation, forms, and prefetching
     ↑
