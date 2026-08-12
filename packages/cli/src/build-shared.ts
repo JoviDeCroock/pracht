@@ -342,7 +342,6 @@ function createVercelOutputConfig({
       headers: Object.fromEntries(PRACHT_BASELINE_SECURITY_HEADERS),
       src: "/(.*)",
     },
-    ...documentHeaderRoutes(staticRoutes, headersManifest),
     {
       dest: target,
       has: [{ type: "header", key: ROUTE_STATE_REQUEST_HEADER, value: "1" }],
@@ -353,6 +352,10 @@ function createVercelOutputConfig({
       has: [{ type: "query", key: "_data", value: "1" }],
       src: "/(.*)",
     },
+    // Document headers belong only to HTML/static responses. Keep them after
+    // both route-state dispatch rules so a public document Cache-Control value
+    // can never replace the runtime's no-store/private policy on loader JSON.
+    ...documentHeaderRoutes(staticRoutes, headersManifest),
   ];
 
   // Routes that export `markdown` answer `Accept: text/markdown` with their

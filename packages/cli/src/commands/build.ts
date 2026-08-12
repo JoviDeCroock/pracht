@@ -192,6 +192,7 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
       includeRouteState: isStaticTarget,
       includeNotFound: isStaticTarget,
       requireStaticPaths: isStaticTarget,
+      requireSuccessfulDocuments: isStaticTarget,
     });
     // A dynamic SPA route's document is a fallback for its whole pattern, not
     // a page at `page.path` — that value is a placeholder the render needed.

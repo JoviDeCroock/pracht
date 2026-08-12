@@ -299,6 +299,10 @@ Dynamic SSG routes must enumerate every URL with `getStaticPaths()`. `ssr`,
 requirement fail the build with every offending route listed. HTTP-exposed
 capabilities and `defineApp({ agents })` also require a runtime; private
 capabilities may still be invoked by SSG loaders during the build.
+Every planned document must return `200`; the build does not silently omit a
+redirected or rejected islands/no-hydration path. The 404 document is rendered
+directly, and its route-level `head()` metadata is omitted because one file is
+served for every unmatched browser URL.
 
 SSG loader results are written under `dist/client/_pracht/state/` for client
 navigation from the same loader pass that produced the HTML. They are

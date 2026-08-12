@@ -152,13 +152,16 @@ The target supports SSG, SPA, islands, no-hydration pages, and a generated
 `404.html`. Loader-backed SSG navigation reads build-time JSON snapshots made
 by the same loader pass as the HTML. Dynamic SSG routes must export
 `getStaticPaths()`. SSR, ISG, API routes, HTTP capabilities, agent runtime
-configuration, and per-param dynamic SPA loaders/middleware fail the build.
+configuration, per-param dynamic SPA loaders/middleware, and any planned
+document that returns a non-success status fail the build.
 
 One document answers a dynamic SPA pattern, so route-level `head()` metadata is
 omitted rather than baking placeholder params into every URL. Portable static
 host rules also cannot apply a not-found module's custom headers to arbitrary
-missing paths; both cases produce build warnings when host-specific work is
-needed.
+missing paths. The not-found document is rendered directly, and its route-level
+`head()` is omitted because the same file answers every missing URL. These cases
+produce build warnings when host- or client-specific work is needed. Preview
+also preserves encoded `getStaticPaths()` URLs.
 
 ---
 

@@ -1497,7 +1497,31 @@ describe("prerenderApp", () => {
         },
       }),
     ).rejects.toThrow(
-      'Cannot emit static route state for "/account": the document request returned status 401',
+      'Cannot emit static document for "/account": the document request returned status 401',
+    );
+  });
+
+  it("fails closed when a static document without route state returns non-200", async () => {
+    const app = defineApp({
+      routes: [route("/private", "./routes/private.tsx", { render: "ssg", hydration: "none" })],
+    });
+
+    await expect(
+      prerenderApp({
+        app,
+        includeRouteState: true,
+        requireSuccessfulDocuments: true,
+        registry: {
+          routeModules: {
+            "/src/routes/private.tsx": async () => ({
+              Component: () => h("main", null, "Private"),
+              loader: async () => new Response(null, { status: 401 }),
+            }),
+          },
+        },
+      }),
+    ).rejects.toThrow(
+      'Cannot emit static document for "/private": the document request returned status 401',
     );
   });
 
@@ -1566,6 +1590,39 @@ describe("prerenderApp", () => {
     expect(page.fallbackFor).toBe("/projects/:id");
     expect(page.html).not.toContain("Project _");
     expect(warn.mock.calls.flat().join(" ")).toContain("head() export");
+    warn.mockRestore();
+  });
+
+  it("renders notFound directly and omits probe-derived head metadata", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const app = defineApp({
+      routes: [route("/:slug", "./routes/page.tsx", { render: "ssg" })],
+      notFound: "./routes/not-found.tsx",
+    });
+
+    const result = await prerenderApp({
+      app,
+      includeNotFound: true,
+      requireStaticPaths: true,
+      withISGManifest: true,
+      registry: {
+        routeModules: {
+          "/src/routes/page.tsx": async () => ({
+            Component: () => h("main", null, "Page"),
+            getStaticPaths: () => [{ slug: "known" }],
+          }),
+          "/src/routes/not-found.tsx": async () => ({
+            Component: () => h("main", null, "Missing"),
+            head: ({ url }) => ({ title: `Missing ${url.pathname}` }),
+          }),
+        },
+      },
+    });
+
+    expect(result.pages.map((page) => page.path)).toEqual(["/known"]);
+    expect(result.notFound?.html).toContain("<main>Missing</main>");
+    expect(result.notFound?.html).not.toContain("Missing /__pracht_not_found__");
+    expect(warn.mock.calls.flat().join(" ")).toContain("head() export on the notFound page");
     warn.mockRestore();
   });
 

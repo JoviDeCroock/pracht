@@ -221,6 +221,8 @@ export interface HandlePrachtRequestOptions<TContext = unknown> {
    * to avoid executing application code twice and publishing mismatched data.
    */
   captureRouteState?: (json: string) => void;
+  /** Build-only: render the configured notFound page without route matching. */
+  forceNotFoundPage?: boolean;
   /**
    * Dev-only phase-timing collector. When provided, the runtime records
    * middleware/loader/render durations (ms) onto it so callers can emit a
@@ -345,6 +347,19 @@ export async function handlePrachtRequest<TContext>(
     // one is registered here. Only reachable if the manifest analyzer missed a
     // registration; say so loudly rather than 404ing capabilities in silence.
     warnAgentSurfaceElided();
+  }
+
+  if (options.forceNotFoundPage) {
+    const notFoundMatch = createNotFoundMatch(resolvedApp, url.pathname);
+    if (notFoundMatch && SAFE_METHODS.has(options.request.method)) {
+      return renderPageMatch(notFoundMatch, { isNotFoundPage: true, status: 404 });
+    }
+    return withDefaultSecurityHeaders(
+      new Response("Not found", {
+        status: 404,
+        headers: { "content-type": "text/plain; charset=utf-8" },
+      }),
+    );
   }
 
   if (options.apiRoutes?.length) {

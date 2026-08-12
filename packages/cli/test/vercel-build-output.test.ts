@@ -96,6 +96,37 @@ describe("writeVercelBuildOutput", () => {
     expect(routesJson(withoutMarkdown)).not.toContain("mM][aA][rR][kK]");
   });
 
+  it("dispatches route-state requests before applying document headers", () => {
+    const root = createBuildRoot();
+
+    writeVercelBuildOutput({
+      headersManifest: {
+        "/account": { "cache-control": "public, max-age=300" },
+      },
+      isgManifest: {},
+      root,
+      staticRoutes: ["/account"],
+    });
+
+    const config = JSON.parse(readFileSync(join(root, ".vercel/output/config.json"), "utf-8")) as {
+      routes: { has?: { key?: string; type?: string }[]; headers?: Record<string, string> }[];
+    };
+    const headerStateIndex = config.routes.findIndex((entry) =>
+      entry.has?.some((condition) => condition.type === "header"),
+    );
+    const queryStateIndex = config.routes.findIndex((entry) =>
+      entry.has?.some((condition) => condition.type === "query"),
+    );
+    const documentHeaderIndex = config.routes.findIndex(
+      (entry) => entry.headers?.["cache-control"] === "public, max-age=300",
+    );
+
+    expect(headerStateIndex).toBeGreaterThan(-1);
+    expect(queryStateIndex).toBeGreaterThan(-1);
+    expect(documentHeaderIndex).toBeGreaterThan(headerStateIndex);
+    expect(documentHeaderIndex).toBeGreaterThan(queryStateIndex);
+  });
+
   it("routes ISG markdown routes to the render function, not the prerender function", () => {
     const root = createBuildRoot();
 

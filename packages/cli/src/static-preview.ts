@@ -54,7 +54,7 @@ export function createStaticPreviewServer(
 
   return createServer((req, res) => {
     const url = new URL(req.url ?? "/", "http://localhost");
-    const pathname = safeDecode(url.pathname);
+    const pathname = preserveSafePathname(url.pathname);
 
     if (pathname === null) {
       res.writeHead(400).end("Bad Request");
@@ -133,9 +133,13 @@ function matchesHeaderSource(source: string, pathname: string): boolean {
   return source === pathname || `${source}/` === pathname;
 }
 
-function safeDecode(pathname: string): string | null {
+function preserveSafePathname(pathname: string): string | null {
   try {
-    return decodeURIComponent(pathname);
+    // Validate the escape sequences, but keep the encoded pathname used by
+    // prerender output (`a b` is written under `a%20b`, not `a b`). Decoding
+    // here also turns an encoded slash inside one route param into a separator.
+    decodeURIComponent(pathname);
+    return pathname;
   } catch {
     return null;
   }

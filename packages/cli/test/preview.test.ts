@@ -9,6 +9,7 @@ import {
   normalizeAdapterTarget,
   resolveWranglerBin,
 } from "../src/commands/preview.ts";
+import { createStaticPreviewServer } from "../src/static-preview.ts";
 
 describe("detectAdapterTarget", () => {
   it("detects the cloudflare adapter from the factory call", () => {
@@ -70,6 +71,36 @@ describe("normalizeAdapterTarget", () => {
     expect(normalizeAdapterTarget("my-platform")).toBe(null);
     expect(normalizeAdapterTarget(undefined)).toBe(null);
     expect(normalizeAdapterTarget(42)).toBe(null);
+  });
+});
+
+describe("createStaticPreviewServer", () => {
+  it("preserves encoded SSG paths during filesystem lookup", async () => {
+    const clientDir = mkdtempSync(join(tmpdir(), "pracht-static-preview-"));
+    const encodedDir = join(clientDir, "docs/a%20b");
+    mkdirSync(encodedDir, { recursive: true });
+    writeFileSync(join(encodedDir, "index.html"), "encoded page", "utf-8");
+
+    const server = createStaticPreviewServer(clientDir, {
+      headers: [],
+      host: "generic",
+      notFound: null,
+      rewrites: [],
+    });
+
+    try {
+      await new Promise<void>((resolveListen) => server.listen(0, "127.0.0.1", resolveListen));
+      const address = server.address();
+      if (!address || typeof address === "string") throw new Error("Preview server has no port");
+
+      const response = await fetch(`http://127.0.0.1:${address.port}/docs/a%20b`);
+      expect(response.status).toBe(200);
+      expect(await response.text()).toBe("encoded page");
+    } finally {
+      server.closeAllConnections();
+      await new Promise<void>((resolveClose) => server.close(() => resolveClose()));
+      rmSync(clientDir, { force: true, recursive: true });
+    }
   });
 });
 

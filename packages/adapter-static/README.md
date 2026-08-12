@@ -63,13 +63,16 @@ build time, route-level `head()` metadata is omitted from shared fallbacks with
 a warning; put shared metadata on the shell or update the document head in the
 client. Static hosts also cannot portably attach a `notFound` route's custom
 headers to every missing request path, so those headers require status-aware
-host configuration.
+host configuration. The not-found document is rendered directly even when a
+dynamic app route could match the internal build path, and its route-level
+`head()` metadata is omitted with the same warning. Any planned document that
+does not return `200` fails the build instead of being silently omitted.
 
 ## Preview
 
 `pracht preview` serves `dist/client` with the emitted rewrite and header rules
-applied, so clean URLs, SPA fallbacks, and `404.html` behave the way the host
-will serve them.
+applied, so clean and encoded URLs, SPA fallbacks, and `404.html` behave the way
+the host will serve them.
 
 Use the HTTP preview rather than opening generated HTML with `file://`. Pracht
 emits root-relative hashed stylesheet URLs such as `/assets/site-abc.css`; a

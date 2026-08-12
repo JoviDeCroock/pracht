@@ -61,8 +61,11 @@ configuration because portable path rules see the original missing URL.
 
 The build rejects SSR, ISG, API routes, HTTP-exposed capabilities, and
 `defineApp({ agents })`. It warns when raw Markdown negotiation or per-request
-metadata/headers need a runtime. Test clean URLs, rewrites, headers, islands,
-and 404 status locally with `pracht preview --skip-build`.
+metadata/headers need a runtime. Every planned document must return `200`, so
+redirected or rejected islands/no-hydration routes cannot disappear silently.
+The 404 is rendered directly; its route-level `head()` is omitted because the
+same file answers every missing URL. Test clean and encoded URLs, rewrites,
+headers, islands, and 404 status locally with `pracht preview --skip-build`.
 
 ---
 

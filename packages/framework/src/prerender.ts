@@ -80,6 +80,8 @@ export interface PrerenderAppOptions {
   includeNotFound?: boolean;
   /** Fail instead of skipping a dynamic SSG route without `getStaticPaths()`. */
   requireStaticPaths?: boolean;
+  /** Fail instead of skipping any planned document that returns a non-200 response. */
+  requireSuccessfulDocuments?: boolean;
 }
 
 export async function prerenderApp(options: PrerenderAppOptions): Promise<PrerenderResult[]>;
@@ -172,10 +174,10 @@ export async function prerenderApp(
         ]);
 
         if (response.status !== 200) {
-          if (needsRouteState) {
+          if (options.requireSuccessfulDocuments || needsRouteState) {
             throw new Error(
-              `Cannot emit static route state for "${item.pathname}": the document request ` +
-                `returned status ${response.status}. Static client navigation has no server fallback.`,
+              `Cannot emit static document for "${item.pathname}": the document request returned ` +
+                `status ${response.status}. Static deployment has no server fallback.`,
             );
           }
           console.warn(
@@ -273,14 +275,26 @@ function buildSpaFallbackPath(route: ResolvedRoute): string {
 
 /**
  * Render the app's `notFound` page as a standalone document. Static hosts
- * serve one file for every unmatched URL, so it is rendered at a path that
- * matches no route and marked as a fallback document.
+ * serve one file for every unmatched URL, so the runtime is told to render the
+ * not-found entry directly instead of relying on a probe path not to match.
  */
 async function prerenderNotFoundPage(
   options: PrerenderAppOptions,
 ): Promise<PrerenderResult | undefined> {
   const resolved = resolveApp(options.app);
   if (!resolved.notFound) return undefined;
+
+  const routeModule = await resolveRegistryModule<RouteModule>(
+    options.registry?.routeModules,
+    resolved.notFound.file,
+  );
+  if (routeModule?.head) {
+    console.warn(
+      "  Warning: the head() export on the notFound page is not applied. One document answers " +
+        "every missing URL, so build-time metadata would contain the internal prerender path; " +
+        "use shared shell metadata or update document.head in the client.",
+    );
+  }
 
   const url = new URL(NOT_FOUND_PRERENDER_PATH, "http://localhost");
   const response = await handlePrachtRequest({
@@ -293,15 +307,14 @@ async function prerenderNotFoundPage(
     cssManifest: options.cssManifest,
     jsManifest: options.jsManifest,
     fallbackDocument: true,
+    forceNotFoundPage: true,
+    omitRouteHead: true,
   });
 
   if (response.status !== 404) {
-    // A catch-all route claimed the probe path, so the app has no unmatched
-    // URLs for a 404 document to answer.
-    console.warn(
-      `  Warning: the notFound page was not reached (status ${response.status}); skipping 404 output.`,
+    throw new Error(
+      `Cannot emit the static notFound document: the direct render returned status ${response.status}.`,
     );
-    return undefined;
   }
 
   assertSafePrerenderHeaders(response.headers, {

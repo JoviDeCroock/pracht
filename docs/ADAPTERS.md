@@ -789,7 +789,9 @@ export default {
 - **Static security headers**: the generated `config.json` includes continuing
   header route entries that apply the same baseline security headers to all responses,
   including static assets served by Vercel's CDN. Static prerendered routes also
-  get route and shell document headers from the prerender header manifest.
+  get route and shell document headers from the prerender header manifest. The
+  route-state header/query dispatch entries run first, so document cache policy
+  cannot replace the runtime's `no-store` or private loader-data policy.
   SSG/ISG prerendering rejects dangerous document headers such as `Set-Cookie`,
   `Authorization`, `Proxy-Authenticate`, `WWW-Authenticate`, and secret-shaped
   custom `x-*` headers before they can enter that manifest.
@@ -914,9 +916,11 @@ pracht({ adapter: staticAdapter({ host: "netlify" }) });
 - `hydration: "islands"` and `"none"`: retain their normal narrow/zero-JS
   output. Navigation to them stays MPA-style.
 - `defineApp({ notFound })`: becomes `dist/client/404.html` and retains the
-  requested browser URL when it hydrates. Route-level `headers()` cannot be
-  applied to arbitrary missing request paths by portable static-host rules, so
-  the build warns and leaves those headers to status-aware host configuration.
+  requested browser URL when it hydrates. It is rendered directly, so dynamic
+  app routes cannot accidentally claim an internal probe URL. Route-level
+  `head()` is omitted because one file answers every missing URL, and route-level
+  `headers()` cannot be applied to arbitrary missing request paths by portable
+  static-host rules; both cases warn when host/client-specific work is needed.
 - `ssr`, `isg`, and API routes: build errors. They require a request-time
   runtime, so emitting a deployment that silently 404s would be incorrect.
 - HTTP-exposed capabilities and `defineApp({ agents })`: build errors for the
@@ -941,6 +945,11 @@ metadata from that shared document and warns; use shell metadata shared by the
 whole pattern, or update `document.head` from client code when metadata truly
 depends on the browser URL.
 
+Every planned SSG or SPA document must return `200`. Redirects, authorization
+responses, and other non-success statuses fail a static build even for islands
+and no-hydration routes, because there is no runtime that could answer the
+missing file after deployment.
+
 ### Headers, clean URLs, and CSS
 
 The host output replays Pracht's baseline security headers and safe route/shell
@@ -962,8 +971,9 @@ pracht build
 pracht preview --skip-build
 ```
 
-The preview server applies clean URLs, dynamic SPA rewrites, header rules, and
-the 404 status locally. For Vercel, select `host: "vercel"` and run
+The preview server applies clean URLs (including encoded dynamic SSG params),
+dynamic SPA rewrites, header rules, and the 404 status locally. For Vercel,
+select `host: "vercel"` and run
 `vercel deploy --prebuilt`; the emitted output contains a `static/` directory
 and `config.json`, but no `functions/` directory.
 
