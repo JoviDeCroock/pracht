@@ -1,6 +1,6 @@
-import type { BaseRouteArgs } from "@pracht/core";
+import type { ApiRouteArgs } from "@pracht/core";
 
-export async function POST({ request }: BaseRouteArgs) {
+export async function POST({ request }: ApiRouteArgs) {
   if (new URL(request.url).searchParams.has("redirect")) {
     return Response.redirect(new URL("/", request.url), 302);
   }

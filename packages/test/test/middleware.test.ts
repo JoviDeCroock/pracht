@@ -1,5 +1,5 @@
 import type { MiddlewareFn } from "@pracht/core";
-import { redirect } from "@pracht/core";
+import { notFound, redirect } from "@pracht/core";
 import { describe, expect, it } from "vitest";
 
 import { createMiddlewareArgs, readRedirect, runMiddleware } from "../src/index.ts";
@@ -105,6 +105,53 @@ describe("runMiddleware", () => {
     await expect(runMiddleware(broken, createMiddlewareArgs())).rejects.toThrow(
       /did not return a Response/,
     );
+  });
+
+  it("resolves a thrown Response as the chain's response, like the runtime", async () => {
+    // The `requireUser()` pattern: a shared helper throws redirect() where
+    // the return value cannot escape from. The server treats the thrown
+    // Response as the answer; runMiddleware must match.
+    const gate: MiddlewareFn = async ({ request }, next) => {
+      if (!request.headers.get("cookie")) throw redirect("/login", { request });
+      return next();
+    };
+
+    const response = await runMiddleware(gate, createMiddlewareArgs({ url: "/dashboard" }));
+    expect(readRedirect(response)).toEqual({ status: 302, location: "/login" });
+  });
+
+  it("unwinds a thrown Response past upstream middleware without running their decoration", async () => {
+    let decorated = false;
+    const timing: MiddlewareFn = async (_args, next) => {
+      const response = await next();
+      decorated = true;
+      return response;
+    };
+    const throwing: MiddlewareFn = async () => {
+      throw redirect("/login");
+    };
+
+    const response = await runMiddleware([timing, throwing], createMiddlewareArgs());
+    expect(readRedirect(response).location).toBe("/login");
+    expect(decorated).toBe(false);
+  });
+
+  it("resolves a Response thrown by the final handler", async () => {
+    const passthrough: MiddlewareFn = async (_args, next) => next();
+    const response = await runMiddleware(passthrough, createMiddlewareArgs(), () => {
+      throw redirect("/done", 303);
+    });
+    expect(readRedirect(response)).toEqual({ status: 303, location: "/done" });
+  });
+
+  it("still rejects thrown non-Response errors, including notFound()", async () => {
+    const missing: MiddlewareFn = async () => {
+      throw notFound();
+    };
+    await expect(runMiddleware(missing, createMiddlewareArgs())).rejects.toMatchObject({
+      name: "PrachtHttpError",
+      status: 404,
+    });
   });
 
   it("runs only the final handler for an empty chain", async () => {

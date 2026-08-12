@@ -167,9 +167,9 @@ API routes are also where WebSocket upgrades belong. Return a `101` response and
 This requires a runtime that can hold a connection open, which today means the **Cloudflare adapter** with a Durable Object owning the socket:
 
 ```ts [src/api/ws.ts]
-import type { BaseRouteArgs } from "@pracht/core";
+import type { ApiRouteArgs } from "@pracht/core";
 
-export async function GET({ context, request, url }: BaseRouteArgs) {
+export async function GET({ context, request, url }: ApiRouteArgs) {
   if (request.headers.get("upgrade") !== "websocket") {
     return new Response("Expected a WebSocket upgrade", { status: 426 });
   }

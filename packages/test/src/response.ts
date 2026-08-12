@@ -25,6 +25,11 @@ export interface RedirectResult {
  * Throws when the response is not a redirect or carries no `Location` header.
  */
 export function readRedirect(response: Response): RedirectResult {
+  if (response.status === 304) {
+    throw new Error(
+      "Expected a redirect response, got status 304 (Not Modified is not a redirect)",
+    );
+  }
   if (response.status < 300 || response.status > 399) {
     throw new Error(`Expected a redirect response, got status ${response.status}`);
   }

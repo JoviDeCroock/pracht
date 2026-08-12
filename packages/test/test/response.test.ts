@@ -37,6 +37,12 @@ describe("readRedirect", () => {
   });
 
   it("throws for a 3xx without a Location header", () => {
-    expect(() => readRedirect(new Response(null, { status: 304 }))).toThrow(/Location header/);
+    expect(() => readRedirect(new Response(null, { status: 302 }))).toThrow(/Location header/);
+  });
+
+  it("rejects 304 Not Modified as a non-redirect", () => {
+    expect(() => readRedirect(new Response(null, { status: 304 }))).toThrow(
+      /304 \(Not Modified is not a redirect\)/,
+    );
   });
 });

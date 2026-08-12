@@ -109,7 +109,13 @@ export function createTestRequest(input: TestRequestInput = {}): Request {
     }
   }
 
-  return new Request(url, { method, headers, body });
+  const init: RequestInit & { duplex?: "half" } = { method, headers, body };
+  if (body instanceof ReadableStream) {
+    // Fetch requires opting into streaming uploads; without it the Request
+    // constructor throws "duplex option is required when sending a body".
+    init.duplex = "half";
+  }
+  return new Request(url, init);
 }
 
 interface BuiltBaseArgs<TContext> {

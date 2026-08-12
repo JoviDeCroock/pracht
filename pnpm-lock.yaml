@@ -81,6 +81,9 @@ importers:
       '@pracht/cli':
         specifier: workspace:*
         version: link:../../packages/cli
+      '@pracht/test':
+        specifier: workspace:*
+        version: link:../../packages/test
       '@pracht/vite-plugin':
         specifier: workspace:*
         version: link:../../packages/vite-plugin

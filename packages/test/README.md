@@ -12,11 +12,13 @@ with Vitest (or any test runner).
   cancellation tests.
 - `runMiddleware()` — execute a middleware chain with the runtime's `next()`
   semantics (sequential, at-most-once `next()`, short-circuit on an early
-  `Response`).
+  `Response`; a thrown `Response` — e.g. `throw redirect()` from a shared
+  helper — resolves as the chain's response, like the server treats it).
 - `submitForm()` / `createFormRequest()` — build a urlencoded or multipart
   form `POST` (auto-switching when a field is a `File`) and call an API
   handler with it, hitting the same `FormData` parsing path `defineApi()`
-  uses for real submissions.
+  uses for real submissions. `method: "GET"` serializes the fields into the
+  URL query string instead, like a browser `<form method="get">`.
 - `readJson()` / `readRedirect()` — minimal response readers: parse a JSON
   body without consuming the original response, or extract
   `{ status, location }` from a redirect.
@@ -26,7 +28,14 @@ pnpm add -D @pracht/test
 ```
 
 ```ts
-import { createLoaderArgs, runMiddleware, submitForm, readJson, readRedirect } from "@pracht/test";
+import {
+  createLoaderArgs,
+  createMiddlewareArgs,
+  runMiddleware,
+  submitForm,
+  readJson,
+  readRedirect,
+} from "@pracht/test";
 import { loader } from "./routes/dashboard";
 import { middleware as auth } from "./middleware/auth";
 import { POST } from "./api/contact";

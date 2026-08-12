@@ -12,12 +12,17 @@ from a shorthand (`url`, `method`, `headers`, a JSON-encoding `body`,
 `url` from the request, and expose the `AbortController` behind `signal` for
 cancellation tests. `runMiddleware()` executes one middleware or a chain with
 the runtime's exact `next()` semantics — sequential dispatch, at-most-once
-`next()`, short-circuit on an early `Response`, fail loudly on a non-`Response`
-return — so auth gates and context-augmenting middleware are unit-testable
-including their short-circuits. `submitForm()` (with `createFormRequest()`)
-builds a urlencoded or multipart form `POST` — auto-switching to multipart
-when a field is a `File` — and calls an API handler with it, exercising the
-same `FormData` parsing path `defineApi()` applies to real submissions.
+`next()`, short-circuit on an early `Response`, a thrown `Response` (the
+`requireUser()` pattern) resolving as the chain's response, fail loudly on a
+non-`Response` return — so auth gates and context-augmenting middleware are
+unit-testable including their short-circuits. `submitForm()` (with
+`createFormRequest()`) builds a urlencoded or multipart form `POST` —
+auto-switching to multipart when a field is a `File` — and calls an API
+handler with it, exercising the same `FormData` parsing path `defineApi()`
+applies to real submissions; `method: "GET"` serializes the fields into the
+URL query string like a browser `<form method="get">`, exercising a `query`
+schema instead. `ReadableStream` bodies get the required `duplex` option
+automatically.
 `readJson()` and `readRedirect()` are minimal response readers: parse a JSON
 body without consuming the original response, or extract
 `{ status, location }` from a redirect. No capability harness is included:

@@ -1,4 +1,4 @@
-import type { BaseRouteArgs } from "@pracht/core";
+import type { ApiRouteArgs } from "@pracht/core";
 
 declare const __PRACHT_IMAGE_BACKEND__: string;
 
@@ -6,7 +6,7 @@ declare const __PRACHT_IMAGE_BACKEND__: string;
 // Node uses the Sharp-backed optimizer. Edge targets retain the same public
 // route and generated API type while redirecting validated same-origin paths;
 // the compile-time branch keeps @pracht/image/node out of edge bundles.
-let nodeImageHandler: ((args: BaseRouteArgs) => Response | Promise<Response>) | undefined;
+let nodeImageHandler: ((args: ApiRouteArgs) => Response | Promise<Response>) | undefined;
 
 function containsAsciiControl(value: string): boolean {
   return Array.from(value).some((character) => {
@@ -15,7 +15,7 @@ function containsAsciiControl(value: string): boolean {
   });
 }
 
-async function handleImage(args: BaseRouteArgs): Promise<Response> {
+async function handleImage(args: ApiRouteArgs): Promise<Response> {
   if (__PRACHT_IMAGE_BACKEND__ === "node") {
     if (!nodeImageHandler) {
       const { createImageHandler } = await import("@pracht/image/node");

@@ -63,6 +63,28 @@ describe("createFormRequest", () => {
       /cannot be sent as "urlencoded"/,
     );
   });
+
+  it("serializes GET forms into the URL query string, like a browser", () => {
+    const request = createFormRequest(
+      { q: "search term", page: 2 },
+      { method: "GET", url: "/api/items?stale=1" },
+    );
+
+    expect(request.method).toBe("GET");
+    const url = new URL(request.url);
+    expect(url.searchParams.get("q")).toBe("search term");
+    expect(url.searchParams.get("page")).toBe("2");
+    // A GET submission replaces the query already present on the URL.
+    expect(url.searchParams.has("stale")).toBe(false);
+    expect(request.body).toBeNull();
+  });
+
+  it("refuses File fields in GET forms", () => {
+    const file = new File(["x"], "x.txt");
+    expect(() => createFormRequest({ file }, { method: "GET" })).toThrow(
+      /cannot be submitted with a GET form/,
+    );
+  });
 });
 
 describe("submitForm", () => {
@@ -107,6 +129,21 @@ describe("submitForm", () => {
     });
 
     expect(await readJson(response)).toEqual({ filename: "notes.txt", contents: "file body" });
+  });
+
+  it("drives a defineApi query schema with a GET form", async () => {
+    const GET = defineApi({
+      query: requiredStrings("q"),
+      handler: ({ query }) => ({ results: [query.q] }),
+    });
+
+    const ok = await submitForm(GET, { q: "roadmap" }, { method: "GET", url: "/api/search" });
+    expect(await readJson(ok)).toEqual({ results: ["roadmap"] });
+
+    const invalid = await submitForm(GET, { other: "field" }, { method: "GET" });
+    expect(invalid.status).toBe(422);
+    const body = await readJson<ApiValidationErrorBody>(invalid);
+    expect(body.issues).toEqual([{ in: "query", message: "Required", path: ["q"] }]);
   });
 
   it("passes url, params, and context through to the handler args", async () => {

@@ -3,10 +3,12 @@ import type { ApiRouteArgs, RegisteredContext, ResolvedApiRoute, RouteParams } f
 import { createApiArgs, TEST_ORIGIN } from "./args.ts";
 
 /**
- * A form field value: primitives are stringified the way a browser form
- * serializes them; `Blob`/`File` values force multipart encoding. Arrays
- * produce repeated entries (multi-selects, checkbox groups), which
- * `formDataToRecord()` on the server groups back into arrays.
+ * A form field value: primitives are stringified with `String()`;
+ * `Blob`/`File` values force multipart encoding. Arrays produce repeated
+ * entries (multi-selects, checkbox groups), which `formDataToRecord()` on
+ * the server groups back into arrays. Pass exactly the entries a browser
+ * would put on the wire — e.g. a checked checkbox posts `"on"` and an
+ * unchecked one is omitted entirely, not sent as `false`.
  */
 export type FormFieldValue = string | number | boolean | Blob;
 export type FormFields = Record<string, FormFieldValue | readonly FormFieldValue[]>;
@@ -14,7 +16,11 @@ export type FormFields = Record<string, FormFieldValue | readonly FormFieldValue
 export interface SubmitFormOptions<TContext = RegisteredContext> {
   /** Absolute or relative URL; relative paths resolve against `http://localhost`. Default `/`. */
   url?: string | URL;
-  /** Default `POST`. */
+  /**
+   * Default `POST`. `GET`/`HEAD` forms carry no body — like a browser, the
+   * fields are serialized into the URL's query string instead (replacing any
+   * query already present on `url`).
+   */
   method?: string;
   /**
    * Wire encoding. Defaults to `urlencoded` — what a plain `<form>` posts —
@@ -42,6 +48,25 @@ export function createFormRequest(fields: FormFields, options: SubmitFormOptions
   }
 
   const hasFile = entries.some(([, value]) => value instanceof Blob);
+
+  // A GET/HEAD form submits its fields in the URL, not a body — the same
+  // thing a browser does for `<form method="get">`. The Request constructor
+  // would throw on a GET body anyway; encode the query string instead.
+  if (method === "GET" || method === "HEAD") {
+    if (hasFile) {
+      throw new Error(
+        `createFormRequest(): Blob/File fields cannot be submitted with a ${method} form. ` +
+          'Use the default "POST" (or another body-carrying method).',
+      );
+    }
+    const search = new URLSearchParams();
+    for (const [name, value] of entries) {
+      search.append(name, String(value));
+    }
+    url.search = search.toString();
+    return new Request(url, { method, headers: options.headers });
+  }
+
   const encoding = options.encoding ?? (hasFile ? "multipart" : "urlencoded");
 
   let body: FormData | URLSearchParams;
@@ -89,7 +114,9 @@ export function createFormRequest(fields: FormFields, options: SubmitFormOptions
  *
  * Works with plain handlers and `defineApi()`-wrapped handlers alike; the
  * request's `Content-Type` drives the same `FormData` parsing the server
- * applies to real submissions.
+ * applies to real submissions. With `method: "GET"` the fields are serialized
+ * into the URL query string instead (browser `<form method="get">` behavior),
+ * which exercises a `defineApi()` `query` schema rather than `body`.
  */
 export async function submitForm<TContext = RegisteredContext>(
   handler: (args: ApiRouteArgs<TContext>) => Response | Promise<Response>,

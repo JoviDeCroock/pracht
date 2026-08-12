@@ -16,6 +16,13 @@ import type { MiddlewareArgs, MiddlewareFn, RegisteredContext } from "@pracht/co
  * defaults to an empty 200 `Response`. Middleware runs sequentially, so
  * `args.context` mutations made by one middleware are visible to the next —
  * the same ordering contract the server applies.
+ *
+ * A **thrown** `Response` (e.g. `throw redirect("/login")` from a shared
+ * `requireUser()` helper) resolves as the chain's response, exactly like the
+ * runtime treats it: the throw unwinds past upstream middleware first, so
+ * response decoration after `await next()` is skipped unless that middleware
+ * catches. Thrown non-`Response` errors (including `notFound()`'s
+ * `PrachtHttpError`) reject, so tests can assert on them directly.
  */
 export async function runMiddleware<TContext = RegisteredContext>(
   middleware: MiddlewareFn<TContext> | readonly MiddlewareFn<TContext>[],
@@ -49,5 +56,16 @@ export async function runMiddleware<TContext = RegisteredContext>(
     return response;
   };
 
-  return dispatch(0);
+  try {
+    return await dispatch(0);
+  } catch (error: unknown) {
+    // Same contract as the server: a thrown Response is the middleware (or
+    // final handler) answering, not failing. The runtime catches it around
+    // the whole chain, so upstream middleware never see it — mirrored here
+    // by catching outside `dispatch` rather than per middleware.
+    if (error instanceof Response) {
+      return error;
+    }
+    throw error;
+  }
 }

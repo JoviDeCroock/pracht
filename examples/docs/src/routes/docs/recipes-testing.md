@@ -132,7 +132,7 @@ describe("contact API route", () => {
 });
 ```
 
-Repeated fields (multi-selects, checkbox groups) are passed as arrays: `{ tag: ["a", "b"] }` produces two `tag` entries, which `formDataToRecord()` on the server groups back into an array.
+Repeated fields (multi-selects, checkbox groups) are passed as arrays: `{ tag: ["a", "b"] }` produces two `tag` entries, which `formDataToRecord()` on the server groups back into an array. A `method: "GET"` form carries no body — like a browser, the fields are serialized into the URL query string, which exercises a `defineApi()` `query` schema instead of `body`.
 
 ---
 
@@ -166,6 +166,8 @@ describe("auth middleware", () => {
   });
 });
 ```
+
+A middleware (or the final handler) that **throws** a `Response` — the `requireUser()` pattern, where a shared helper throws `redirect("/login")` — resolves as the chain's response, exactly like the server treats it. Thrown non-`Response` errors, including `notFound()`, reject so your test can assert on them.
 
 Chains work the same way, including `context` mutations flowing downstream — pass the middleware in the order the manifest applies them:
 

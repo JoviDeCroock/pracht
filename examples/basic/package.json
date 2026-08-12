@@ -26,6 +26,7 @@
   },
   "devDependencies": {
     "@pracht/cli": "workspace:*",
+    "@pracht/test": "workspace:*",
     "@pracht/vite-plugin": "workspace:*",
     "preact": "^10.26.9",
     "preact-render-to-string": "^6.5.13",

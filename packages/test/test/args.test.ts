@@ -49,6 +49,12 @@ describe("createLoaderArgs", () => {
     expect(await args.request.text()).toBe("raw text");
   });
 
+  it("supports ReadableStream bodies (streaming uploads need duplex)", async () => {
+    const stream = new Blob(["streamed"]).stream();
+    const args = createLoaderArgs({ method: "POST", body: stream });
+    expect(await args.request.text()).toBe("streamed");
+  });
+
   it("uses a real Request when given, ignoring the shorthand fields", () => {
     const request = new Request("http://example.com/real", { method: "DELETE" });
     const args = createLoaderArgs({ request, url: "/ignored", method: "GET" });
