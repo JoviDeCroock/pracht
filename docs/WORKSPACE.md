@@ -121,6 +121,10 @@ described in `VISION_MVP.md`.
   owns their shared generated loader-hint helper, `plugin-registry-codegen.ts`
   owns lazy module glob generation, and `plugin-llms-txt-config.ts` owns
   package-metadata fallback for generated `llms.txt` configuration.
+  Client route projection keeps `client-module-transform.ts` as its orchestration
+  entry, `client-module-server-exports.ts` as server-export selection,
+  `client-module-binding-pruning.ts` as iterative dependency/liveness pruning,
+  and the existing state/render/scope modules as their shared infrastructure.
   The public `pages-router.ts` entry is a stable facade over the focused
   `pages-router/` domain: `discovery.ts` owns filesystem traversal,
   `page-analysis.ts` owns Markdown-aware static policy extraction,

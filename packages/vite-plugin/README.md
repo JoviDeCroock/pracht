@@ -88,6 +88,10 @@ The pracht plugin globs `.tsrx` files alongside `.tsx` for routes and shells
 (both manifest- and pages-router modes), and its server-only export stripping
 pass treats them the same way — no separate pracht option is required.
 
+For contributors, that stripping pass is organized as an explicit pipeline:
+server-export selection, dependency/liveness pruning, and offset-preserving
+rendering live in separate internal modules behind `client-module-transform.ts`.
+
 ## Peer Dependencies
 
 - `vite@^8.0.0`
