@@ -991,7 +991,12 @@ import { staticAdapter } from "@pracht/adapter-static";
 pracht({ adapter: staticAdapter() });
 
 // optional SPA fallback document:
-pracht({ adapter: staticAdapter({ fallback: "200.html" }) });
+pracht({
+  adapter: staticAdapter({
+    fallback: "200.html",
+    fallbackHead: { title: "My app" }, // shared by every rewritten URL
+  }),
+});
 ```
 
 ### Build-time validation (fail closed)
@@ -1019,7 +1024,9 @@ aggregated error — before any prerendering — when the app needs one:
   is missing or fails to load is also a hard error because its exposure cannot
   be established safely.
 - **Routes under `/_pracht/`** are hard errors: that namespace is reserved for
-  build metadata and the route-state tree below.
+  build metadata and the route-state tree below. The concrete paths returned
+  by `getStaticPaths()` are revalidated before any page is written, so a
+  dynamic route cannot generate into that namespace either.
 - A **Vite `base` other than `/`** is a hard error. Prerendered documents
   reference `/assets/…` and `/_pracht/state/…` from the origin root, so a
   sub-path deploy (a GitHub Pages project site, an S3 key prefix) would build
@@ -1100,6 +1107,10 @@ client-side fetch to an external API instead.
   without Pracht route state. The rewrite only governs full-document loads: deep
   links, reloads, opening in a new tab.) GitHub Pages cannot rewrite — deep
   links to and reloads of dynamic SPA paths land on the 404 page there.
+  One fallback file is shared by every rewritten URL and therefore cannot run
+  URL-specific route, shell, or not-found `head()` exports. If a fallback-rendered
+  route declares one, configure explicit generic `fallbackHead` metadata shared
+  by every fallback URL; the build fails closed when it is omitted.
   The fallback only client-renders matched SPA routes: a dynamic SSG pattern
   that matches a path omitted by `getStaticPaths()` renders the app's
   `notFound` page instead of running without its missing build-time state.
