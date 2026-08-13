@@ -33,10 +33,11 @@ export const STATIC_STATE_PREFIX = "/_pracht/state";
 /**
  * Map a request URL (path + optional query) to its static route-state file.
  *
- * The scheme mirrors the prerendered HTML layout — `/` →
- * `/_pracht/state/index.json`, `/blog/hello` →
- * `/_pracht/state/blog/hello/index.json` — using an `index.json` leaf so
- * `/blog` and `/blog/hello` never contend for the same path name.
+ * The scheme uses an opaque hexadecimal name for every URL segment and a
+ * `.json` leaf — `/` → `/_pracht/state/index.json`, while `/blog/hello` maps
+ * to two encoded components. Encoding every component and putting `.json`
+ * only on the leaf keeps every valid pair of routes distinct, including
+ * `/docs` versus `/docs/index.json`.
  *
  * The query string is dropped deliberately: static loader data was produced
  * at build time from the bare pathname, so every query variant of a URL maps
@@ -52,5 +53,18 @@ export function buildStaticRouteStateUrl(url: string): string {
   if (hashIndex !== -1) pathname = pathname.slice(0, hashIndex);
   pathname = pathname.replace(/\/+$/, "");
   if (pathname === "") return `${STATIC_STATE_PREFIX}/index.json`;
-  return `${STATIC_STATE_PREFIX}${pathname}/index.json`;
+
+  const segments = pathname.split("/").filter(Boolean).map(encodeStaticStateSegment);
+  const leaf = segments.pop();
+  if (!leaf) return `${STATIC_STATE_PREFIX}/index.json`;
+  const directory = segments.length > 0 ? `/${segments.join("/")}` : "";
+  return `${STATIC_STATE_PREFIX}${directory}/${leaf}.json`;
+}
+
+function encodeStaticStateSegment(segment: string): string {
+  let encoded = "";
+  for (let index = 0; index < segment.length; index += 1) {
+    encoded += segment.charCodeAt(index).toString(16).padStart(4, "0");
+  }
+  return encoded;
 }

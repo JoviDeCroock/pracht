@@ -1057,8 +1057,8 @@ aggregated error — before any prerendering — when the app needs one:
 
 Two shapes are warnings rather than errors, because they are only wrong for
 some deploys: percent-encoded prerender paths (the build lists them), and a
-`fallback` document in an app with no `notFound` page and no route matching
-every URL (unknown URLs would render blank).
+`fallback` document in an app with no `notFound` page and no client-routable
+SPA catch-all (unknown URLs would render blank).
 
 ### Client-side navigation without a server
 
@@ -1068,11 +1068,12 @@ static host. The static adapter solves this at build time:
 
 - For each loader-backed SSG route, the build renders the route-state request
   **a second time** — the same rendering the live endpoint performs — and writes the JSON
-  body to `dist/client/_pracht/state/<path>/index.json` (`/` →
-  `_pracht/state/index.json`). The `index.json` leaf keeps `/blog` and
-  `/blog/hello` from contending for one path, and `_pracht/` is already
-  reserved, so state files can never collide with a prerendered route or a
-  `public/` file.
+  body to a collision-safe opaque `.json` file under
+  `dist/client/_pracht/state/` (`/` → `_pracht/state/index.json`). Each URL
+  segment is encoded before it becomes a filesystem component, and only the
+  leaf receives `.json`, so pairs such as `/docs` and `/docs/index.json`
+  cannot contend for one file/directory path. `_pracht/` is already reserved,
+  so state files cannot collide with a prerendered route or a `public/` file.
 - **SSG loaders therefore run twice per page** during a static build: once for
   the HTML document, once for the state file. Like
   `getStaticPaths()`, they must be deterministic and side-effect free at build
@@ -1132,10 +1133,14 @@ client-side fetch to an external API instead.
   `notFound` page instead of running without its missing build-time state.
   The fallback embeds the same build-time `notFound` loader data serialized
   into `404.html`, so this client render receives the normal data without
-  executing the loader again. An app with no `notFound` page and no route
-  matching every URL (`/*`, `/:rest*`) has nothing to render for an unknown
-  URL behind the rewrite — the visitor gets an empty document. The build
-  warns when a `fallback` is emitted in that shape.
+  executing the loader again. An app with no `notFound` page and no
+  client-routable SPA catch-all (`/*`, `/:rest*`) has nothing to render for an
+  unknown URL behind the rewrite — the visitor gets an empty document. An SSG
+  catch-all does not help because fallback boot never client-renders SSG
+  routes. The build warns when a `fallback` is emitted in that shape.
+- Prerendered route directories may not occupy `404.html` or the configured
+  fallback file path. The CLI reports those fixed-artifact collisions instead
+  of failing later with a filesystem error.
 - **The rewrite turns unknown URLs into soft 404s**: a host that answers
   `/* → 200.html` with status 200 does so for genuinely unknown URLs too, so
   they are `200` even though the client renders the `notFound` page. Hosts

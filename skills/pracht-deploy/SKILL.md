@@ -344,8 +344,8 @@ Upload `dist/client/` to any static host (GitHub Pages, S3, nginx, Netlify).
 `dist/server/` is build tooling only — never deploy it. The host must serve
 `<dir>/index.html` for clean URLs and should use `404.html` as its error
 document. A static `notFound` page must use full hydration so that shared
-document can adopt the visitor's real URL. Client navigation fetches the serialized
-`_pracht/state/<path>/index.json` files for loader-backed SSG routes. Loaderless
+document can adopt the visitor's real URL. Client navigation fetches collision-safe
+opaque `.json` files under `_pracht/state/` for loader-backed SSG routes. Loaderless
 SPA routes fetch no Pracht state; use browser-side requests to an external API
 for live data. See docs/ADAPTERS.md § Static Adapter for host header
 configuration and limitations (markdown negotiation, percent-encoded params,
@@ -353,7 +353,7 @@ base paths). The SPA fallback only client-renders matched SPA routes; dynamic
 SSG paths omitted by `getStaticPaths()` render the app's not-found page with
 the build-time loader data carried over from `404.html`. The host rewrite that
 serves the fallback answers unknown URLs with status 200 (soft 404), and an app
-with no `notFound` page and no catch-all route renders them blank — the build
+with no `notFound` page and no client-routable SPA catch-all renders them blank — the build
 warns about that shape.
 
 ---

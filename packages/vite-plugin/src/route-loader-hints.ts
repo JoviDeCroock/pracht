@@ -5,38 +5,123 @@ import {
   normalizeAdditionalExtensions,
   withAdditionalExtensions,
 } from "./route-extensions.ts";
+import { initSync, parse } from "es-module-lexer";
 
-const LOADER_DECLARATION_RE = /export\s+(?:async\s+)?(?:function|const|let|var)\s+loader\b/;
-const EXPORT_BLOCK_RE = /export\s*\{([^}]*)\}\s*(?:from\s*["'][^"']+["'])?/g;
-const EXPORT_ALL_RE = /export\s+\*\s+from\s*["'][^"']+["']/;
+initSync();
 
-function exportSpecifiersIncludeLoader(specifiers: string): boolean {
-  return specifiers
-    .split(",")
-    .map((specifier) => specifier.trim())
-    .filter(Boolean)
-    .some((specifier) => {
-      const match = /^(?:type\s+)?([A-Za-z_$][\w$]*)(?:\s+as\s+([A-Za-z_$][\w$]*))?$/.exec(
-        specifier,
-      );
-      if (!match) return false;
-      const [, localName, exportedName] = match;
-      return (exportedName ?? localName) === "loader";
-    });
+function isExportAllStatement(source: string): boolean {
+  const withoutComments = source.replace(/\/\*[\s\S]*?\*\/|\/\/[^\r\n]*/g, " ");
+  return /^\s*export\s*\*/.test(withoutComments);
+}
+
+function maskCommentsAndStrings(source: string): string {
+  let result = "";
+  let state: "code" | "line-comment" | "block-comment" | "single" | "double" | "template" = "code";
+
+  for (let index = 0; index < source.length; index += 1) {
+    const char = source[index];
+    const next = source[index + 1];
+    if (state === "code") {
+      if (char === "/" && next === "/") {
+        state = "line-comment";
+        result += "  ";
+        index += 1;
+      } else if (char === "/" && next === "*") {
+        state = "block-comment";
+        result += "  ";
+        index += 1;
+      } else if (char === "'") {
+        state = "single";
+        result += " ";
+      } else if (char === '"') {
+        state = "double";
+        result += " ";
+      } else if (char === "`") {
+        state = "template";
+        result += " ";
+      } else {
+        result += char;
+      }
+      continue;
+    }
+
+    if (char === "\n" || char === "\r") {
+      if (state === "line-comment") state = "code";
+      result += char;
+      continue;
+    }
+    if (state === "block-comment" && char === "*" && next === "/") {
+      state = "code";
+      result += "  ";
+      index += 1;
+      continue;
+    }
+    if ((state === "single" || state === "double" || state === "template") && char === "\\") {
+      result += "  ";
+      index += 1;
+      continue;
+    }
+    if (
+      (state === "single" && char === "'") ||
+      (state === "double" && char === '"') ||
+      (state === "template" && char === "`")
+    ) {
+      state = "code";
+    }
+    result += " ";
+  }
+
+  return result;
+}
+
+function detectLoaderExportFallback(source: string): boolean {
+  const masked = maskCommentsAndStrings(source);
+  if (/\bexport\s+(?:async\s+)?function\s+loader\b/.test(masked)) return true;
+  if (/\bexport\s+(?:const|let|var)\s+[^;]*\bloader\s*(?::[^=,;]+)?=/.test(masked)) {
+    return true;
+  }
+  if (/\bexport\s*\*/.test(masked)) return true;
+
+  for (const match of masked.matchAll(/\bexport\s*\{([^}]*)\}/g)) {
+    const hasLoader = match[1]
+      .split(",")
+      .map((specifier) => specifier.trim())
+      .filter(Boolean)
+      .some((specifier) => {
+        const names = /^(?:type\s+)?([A-Za-z_$][\w$]*)(?:\s+as\s+([A-Za-z_$][\w$]*))?$/.exec(
+          specifier,
+        );
+        if (!names || specifier.startsWith("type ")) return false;
+        return (names[2] ?? names[1]) === "loader";
+      });
+    if (hasLoader) return true;
+  }
+
+  return false;
 }
 
 export function detectLoaderExport(source: string): boolean {
-  if (LOADER_DECLARATION_RE.test(source)) return true;
+  try {
+    const [imports, exports] = parse(source);
+    if (exports.some((entry) => entry.n === "loader")) return true;
 
-  for (const match of source.matchAll(EXPORT_BLOCK_RE)) {
-    if (exportSpecifiersIncludeLoader(match[1])) {
-      return true;
+    // `export *` can expose a loader through a re-export. The lexer reports it
+    // as an import record without a named export, so inspect only that exact
+    // export statement. Ordinary imports and comments/strings mentioning a
+    // loader must not turn a client-only SPA route into a false positive.
+    for (const entry of imports) {
+      if (entry.d === -1 && isExportAllStatement(source.slice(entry.ss, entry.se))) {
+        return true;
+      }
     }
+  } catch {
+    // es-module-lexer intentionally parses JavaScript rather than every JSX or
+    // TSRX construct. Fall back to a comment/string-masked export scan so valid
+    // component syntax does not make every loaderless SPA route look unsafe.
+    return detectLoaderExportFallback(source);
   }
 
-  // `export *` can expose a loader through re-exports. Treat it as a loader
-  // route to avoid skipping route-state fetches incorrectly.
-  return EXPORT_ALL_RE.test(source);
+  return false;
 }
 
 function scanRouteFiles(dir: string, files: string[], extensions: Set<string>): void {
