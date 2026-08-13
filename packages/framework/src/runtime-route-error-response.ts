@@ -8,7 +8,7 @@ import {
   shouldExposeServerErrors,
   type PrachtRuntimeDiagnosticPhase,
 } from "./runtime-errors.ts";
-import { withDefaultSecurityHeaders } from "./runtime-headers.ts";
+import { withDefaultSecurityHeaders } from "./runtime-response-security.ts";
 import { buildHtmlDocument, htmlResponse } from "./runtime-html.ts";
 import {
   CLIENT_ENTRY_MANIFEST_KEY,

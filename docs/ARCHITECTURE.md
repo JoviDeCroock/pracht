@@ -545,6 +545,11 @@ runtime-middleware-chain.ts — concurrent module loading and sequential fail-cl
 runtime-document-metadata.ts — shell/route head and document-header aggregation
 runtime-middleware.ts — stable middleware helper facade
 runtime-header-values.ts — portable value validation, application, and Vary composition
+runtime-response-security.ts — browser security defaults and protocol-switch preservation
+runtime-response-cache.ts — cross-adapter heuristic caching prevention
+runtime-route-response-headers.ts — route-state cache and response-header policy
+runtime-capability-form-redirect.ts — enhanced-form redirect transport handshake
+runtime-headers.ts — stable response-header helper facade
 runtime-form.ts — stable Form props/render facade and event-flow orchestration
 runtime-form-native.ts — submitter resolution and validated native resubmission guard
 runtime-api-form.ts — ordinary API validation, fetch, redirect, and response handling

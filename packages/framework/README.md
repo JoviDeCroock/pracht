@@ -86,8 +86,12 @@ aggregation. `runtime-middleware.ts` remains the stable internal facade.
 
 Portable response-header primitives live in `runtime-header-values.ts`:
 user-provided value validation, header application, and `Vary` composition.
-Security defaults and caching policy remain in `runtime-headers.ts`, which
-continues to re-export the former helper surface.
+Security defaults and protocol-switch preservation live in
+`runtime-response-security.ts`; heuristic cache prevention, route-state
+headers, and enhanced capability-form redirect negotiation live in
+`runtime-response-cache.ts`, `runtime-route-response-headers.ts`, and
+`runtime-capability-form-redirect.ts`. `runtime-headers.ts` continues to
+re-export the former helper surface.
 
 The isolated `@pracht/core/agent-auth` entry keeps `agent-auth-sign.ts` as its
 public facade. Signing contracts live in `agent-auth-sign-types.ts`, RFC 9421

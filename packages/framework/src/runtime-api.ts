@@ -10,10 +10,8 @@
 import { matchApiRoute } from "./app.ts";
 import { SAFE_METHODS } from "./runtime-constants.ts";
 import type { PrachtRuntimeDiagnosticPhase } from "./runtime-errors.ts";
-import {
-  withDefaultSecurityHeaders,
-  withEnhancedCapabilityFormRedirect,
-} from "./runtime-headers.ts";
+import { withEnhancedCapabilityFormRedirect } from "./runtime-capability-form-redirect.ts";
+import { withDefaultSecurityHeaders } from "./runtime-response-security.ts";
 import { resolveRegistryModule } from "./runtime-manifest.ts";
 import { runMiddlewareChain } from "./runtime-middleware-chain.ts";
 import { isSameOriginRequest } from "./runtime-request-provenance.ts";

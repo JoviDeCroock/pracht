@@ -1,5 +1,5 @@
 import { appendVaryHeader } from "./runtime-header-values.ts";
-import { applyDefaultSecurityHeaders } from "./runtime-headers.ts";
+import { applyDefaultSecurityHeaders } from "./runtime-response-security.ts";
 import { normalizeRoutePath } from "./route-matching.ts";
 import type { ResolvedRoute, RouteModule } from "./types.ts";
 

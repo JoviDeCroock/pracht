@@ -4,7 +4,7 @@ import {
   shouldExposeServerErrors,
   type PrachtRuntimeDiagnosticPhase,
 } from "./runtime-errors.ts";
-import { withDefaultSecurityHeaders } from "./runtime-headers.ts";
+import { withDefaultSecurityHeaders } from "./runtime-response-security.ts";
 import type { RuntimeResponseOptions } from "./runtime-response-types.ts";
 import { jsonErrorResponse } from "./runtime-route-state-response.ts";
 import type { ResolvedApiRoute } from "./types.ts";

@@ -8,7 +8,8 @@ import {
   createSerializedRouteError,
   shouldExposeServerErrors,
 } from "./runtime-errors.ts";
-import { withDefaultSecurityHeaders, withRouteResponseHeaders } from "./runtime-headers.ts";
+import { withDefaultSecurityHeaders } from "./runtime-response-security.ts";
+import { withRouteResponseHeaders } from "./runtime-route-response-headers.ts";
 import { createNotFoundMatch, executePageMatch } from "./runtime-page-pipeline.ts";
 import { isFirstPartyFetch, isSameOriginRequest } from "./runtime-request-provenance.ts";
 import { jsonErrorResponse } from "./runtime-route-state-response.ts";
@@ -271,11 +272,11 @@ function isHrefRouteDefinition(value: unknown): value is HrefRouteDefinition {
 
 // Public runtime surface — re-exported so `./runtime.ts` remains the
 // single import entry for the framework's runtime API.
+export { preventHeuristicCaching } from "./runtime-response-cache.ts";
 export {
   applyDefaultSecurityHeaders,
   isProtocolSwitchResponse,
-  preventHeuristicCaching,
-} from "./runtime-headers.ts";
+} from "./runtime-response-security.ts";
 export { isFirstPartyFetch } from "./runtime-request-provenance.ts";
 export { formatServerTimingHeader, type PrachtPhaseTimings } from "./runtime-timing.ts";
 export {

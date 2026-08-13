@@ -89,8 +89,11 @@ described in `VISION_MVP.md`.
   `runtime-middleware.ts` preserves the former internal import facade.
 - **Header primitives** — `runtime-header-values.ts` owns adapter-portable CR/LF
   validation, applying user header initializers, and case-insensitive `Vary`
-  composition. Response security and cache policy remain in
-  `runtime-headers.ts`, which preserves the former helper exports.
+  composition. `runtime-response-security.ts` owns browser defaults and
+  protocol-switch preservation, `runtime-response-cache.ts` owns heuristic
+  cache prevention, `runtime-route-response-headers.ts` owns route-state cache
+  negotiation, and `runtime-capability-form-redirect.ts` owns the enhanced-form
+  redirect handshake. `runtime-headers.ts` preserves the former helper facade.
 - **Agent request signing** — The isolated `@pracht/core/agent-auth` entry keeps
   `agent-auth-sign.ts` as its public facade. `agent-auth-sign-types.ts` owns the
   signing contracts, `agent-auth-request-signing.ts` owns RFC 9421 request and

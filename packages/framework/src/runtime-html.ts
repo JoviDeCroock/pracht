@@ -1,6 +1,6 @@
 import { HYDRATION_STATE_ELEMENT_ID } from "./runtime-constants.ts";
 import { applyHeaders } from "./runtime-header-values.ts";
-import { applySecurityAndRouteHeaders } from "./runtime-headers.ts";
+import { applySecurityAndRouteHeaders } from "./runtime-route-response-headers.ts";
 import type { PrachtHydrationState } from "./runtime-hooks.ts";
 import type { SpeculationRulesDocument } from "./runtime-speculation.ts";
 import { escapeScriptChildren } from "./script-escape.ts";

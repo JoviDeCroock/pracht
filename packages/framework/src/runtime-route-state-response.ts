@@ -1,8 +1,8 @@
 import {
   applySecurityAndRouteHeaders,
-  appendVaryHeader,
   withRouteResponseHeaders,
-} from "./runtime-headers.ts";
+} from "./runtime-route-response-headers.ts";
+import { appendVaryHeader } from "./runtime-header-values.ts";
 import type { SerializedRouteError } from "./runtime-errors.ts";
 import type { LoaderCache } from "./types.ts";
 

@@ -7,7 +7,7 @@
  */
 
 import { isPrachtHttpError, type PrachtRuntimeDiagnosticPhase } from "./runtime-errors.ts";
-import { withRouteResponseHeaders } from "./runtime-headers.ts";
+import { withRouteResponseHeaders } from "./runtime-route-response-headers.ts";
 import { resolveDataFunctions, resolveRegistryModule } from "./runtime-manifest.ts";
 import { mergeDocumentHeaders, mergeHeadMetadata } from "./runtime-document-metadata.ts";
 import { runMiddlewareChain } from "./runtime-middleware-chain.ts";

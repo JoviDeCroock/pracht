@@ -9,10 +9,8 @@
 
 import type { CapabilityRuntime, McpRuntime } from "./runtime-agent-surface.ts";
 import { SAFE_METHODS } from "./runtime-constants.ts";
-import {
-  withDefaultSecurityHeaders,
-  withEnhancedCapabilityFormRedirect,
-} from "./runtime-headers.ts";
+import { withEnhancedCapabilityFormRedirect } from "./runtime-capability-form-redirect.ts";
+import { withDefaultSecurityHeaders } from "./runtime-response-security.ts";
 import { isSameOriginRequest } from "./runtime-request-provenance.ts";
 import type {
   CapabilityAuditHook,

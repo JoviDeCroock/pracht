@@ -7,7 +7,7 @@
  * the dynamic runtimes below in one place.
  */
 
-import { withDefaultSecurityHeaders } from "./runtime-headers.ts";
+import { withDefaultSecurityHeaders } from "./runtime-response-security.ts";
 import type {
   CapabilityAuditHook,
   McpProjectionConfig,
