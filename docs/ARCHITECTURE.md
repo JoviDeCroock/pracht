@@ -442,6 +442,11 @@ An adapter must:
 5. **Implement** ISG revalidation only when the platform has appropriate persistent storage/cache semantics; otherwise document the fallback clearly
 6. **Generate** a platform entry module via the Vite plugin
 
+Adapter package entrypoints should stay as public facades. Platform-plugin
+composition, generated entry source, graph-inspection substitutes, request
+runtime, and cache/storage policy belong to focused modules so contributors can
+change one platform boundary without loading the others into the same file.
+
 See [docs/ADAPTERS.md](ADAPTERS.md) for per-platform details.
 
 ---

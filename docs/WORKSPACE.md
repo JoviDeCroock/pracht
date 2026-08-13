@@ -212,7 +212,9 @@ described in `VISION_MVP.md`.
   API. `runtime.ts` orchestrates requests, `runtime-assets.ts` owns asset and
   route-manifest negotiation, and `runtime-isg.ts` owns the worker-managed
   Cache API and webhook regeneration path. The separate `cache.ts` module owns
-  opt-in front-of-Worker CDN caching policy.
+  opt-in front-of-Worker CDN caching policy. Its public `index.ts` is a thin
+  facade over `adapter.ts` composition, `server-entry.ts` Worker source
+  generation, and `graph-runtime-stubs.ts` fail-closed inspection substitutes.
 - **Netlify adapter** — Emits a Functions v2 catch-all, serves bundled SSG
   documents while preserving Markdown and route-state negotiation, and maps
   ISG freshness and webhook revalidation to Netlify durable cache headers and
