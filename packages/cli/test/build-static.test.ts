@@ -1,6 +1,6 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve, sep } from "node:path";
+import { dirname, join, relative, resolve, sep } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
@@ -325,7 +325,7 @@ describe("resolveRouteStateOutputPath", () => {
       resolve(clientDir, "_pracht/state/index.json"),
     );
     expect(resolveRouteStateOutputPath(clientDir, "/blog/hello")).toBe(
-      resolve(clientDir, "_pracht/state/0062006c006f0067/00680065006c006c006f.json"),
+      resolve(clientDir, "_pracht/state/s-0062006c006f0067/s-00680065006c006c006f/_state.json"),
     );
   });
 
@@ -334,9 +334,27 @@ describe("resolveRouteStateOutputPath", () => {
     expect(resolveRouteStateOutputPath(clientDir, "/posts/caf%C3%A9")).toBe(
       resolve(
         clientDir,
-        "_pracht/state/0070006f007300740073/006300610066002500430033002500410039.json",
+        "_pracht/state/s-0070006f007300740073/s-006300610066002500430033002500410039/_state.json",
       ),
     );
+  });
+
+  it("keeps long route segments within filesystem component limits", () => {
+    const clientDir = createTempDir();
+    const routePath = `/${"a".repeat(64)}`;
+    const outputPath = resolveRouteStateOutputPath(clientDir, routePath);
+
+    mkdirSync(dirname(outputPath), { recursive: true });
+    writeFileSync(outputPath, "{}", "utf-8");
+
+    expect(readFileSync(outputPath, "utf-8")).toBe("{}");
+    expect(
+      Math.max(
+        ...relative(clientDir, outputPath)
+          .split(sep)
+          .map((part) => Buffer.byteLength(part)),
+      ),
+    ).toBeLessThan(256);
   });
 
   it("keeps path-like route segments distinct and inside the state tree", () => {
@@ -436,7 +454,7 @@ describe("writeStaticExportArtifacts", () => {
     });
 
     const output = logs.join("\n");
-    expect(output).toContain("no client-routable SPA catch-all matches every URL");
+    expect(output).toContain("no unshadowed client-routable SPA catch-all matches every URL");
     expect(output).toContain("empty document with status 200");
   });
 
@@ -457,7 +475,9 @@ describe("writeStaticExportArtifacts", () => {
         log: (message) => logs.push(message),
       });
 
-      expect(logs.join("\n")).not.toContain("no client-routable SPA catch-all matches every URL");
+      expect(logs.join("\n")).not.toContain(
+        "no unshadowed client-routable SPA catch-all matches every URL",
+      );
     }
   });
 
@@ -477,7 +497,58 @@ describe("writeStaticExportArtifacts", () => {
       log: (message) => logs.push(message),
     });
 
-    expect(logs.join("\n")).toContain("no client-routable SPA catch-all matches every URL");
+    expect(logs.join("\n")).toContain(
+      "no unshadowed client-routable SPA catch-all matches every URL",
+    );
+  });
+
+  it("warns when an earlier dynamic SSG route shadows the SPA catch-all", async () => {
+    const clientDir = createTempDir();
+    const logs: string[] = [];
+
+    await writeStaticExportArtifacts({
+      clientDir,
+      pages: [],
+      serverMod: {
+        resolvedApp: {
+          routes: [
+            { path: "/posts/:slug", render: "ssg" },
+            { path: "/*", render: "spa" },
+          ],
+        },
+        staticExportConfig: { fallback: "200.html" },
+        renderStaticNotFoundHtml: async () => null,
+        renderStaticFallbackHtml: () => "<html></html>",
+      },
+      log: (message) => logs.push(message),
+    });
+
+    expect(logs.join("\n")).toContain(
+      "no unshadowed client-routable SPA catch-all matches every URL",
+    );
+  });
+
+  it("warns when the SPA catch-all cannot hydrate in the fallback document", async () => {
+    for (const hydration of ["islands", "none"]) {
+      const clientDir = createTempDir();
+      const logs: string[] = [];
+
+      await writeStaticExportArtifacts({
+        clientDir,
+        pages: [],
+        serverMod: {
+          resolvedApp: { routes: [{ path: "/*", render: "spa", hydration }] },
+          staticExportConfig: { fallback: "200.html" },
+          renderStaticNotFoundHtml: async () => null,
+          renderStaticFallbackHtml: () => "<html></html>",
+        },
+        log: (message) => logs.push(message),
+      });
+
+      expect(logs.join("\n")).toContain(
+        "no unshadowed client-routable SPA catch-all matches every URL",
+      );
+    }
   });
 
   it("rejects route directories that collide with 404.html or the SPA fallback", async () => {

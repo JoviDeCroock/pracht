@@ -11,9 +11,9 @@ describe("buildStaticRouteStateUrl", () => {
   });
 
   it("maps nested paths to collision-safe opaque components", () => {
-    expect(buildStaticRouteStateUrl("/blog")).toBe("/_pracht/state/0062006c006f0067.json");
+    expect(buildStaticRouteStateUrl("/blog")).toBe("/_pracht/state/s-0062006c006f0067/_state.json");
     expect(buildStaticRouteStateUrl("/blog/hello")).toBe(
-      "/_pracht/state/0062006c006f0067/00680065006c006c006f.json",
+      "/_pracht/state/s-0062006c006f0067/s-00680065006c006c006f/_state.json",
     );
     expect(buildStaticRouteStateUrl("/docs")).not.toBe(
       buildStaticRouteStateUrl("/docs/index.json"),
@@ -22,20 +22,38 @@ describe("buildStaticRouteStateUrl", () => {
 
   it("drops the query string — build-time loader data has no query variants", () => {
     expect(buildStaticRouteStateUrl("/pricing?ref=a&x=1")).toBe(
-      "/_pracht/state/00700072006900630069006e0067.json",
+      "/_pracht/state/s-00700072006900630069006e0067/_state.json",
     );
     expect(buildStaticRouteStateUrl("/?_data=1")).toBe("/_pracht/state/index.json");
   });
 
   it("normalizes trailing slashes to the slashless build output path", () => {
-    expect(buildStaticRouteStateUrl("/about/")).toBe("/_pracht/state/00610062006f00750074.json");
-    expect(buildStaticRouteStateUrl("/about///")).toBe("/_pracht/state/00610062006f00750074.json");
+    expect(buildStaticRouteStateUrl("/about/")).toBe(
+      "/_pracht/state/s-00610062006f00750074/_state.json",
+    );
+    expect(buildStaticRouteStateUrl("/about///")).toBe(
+      "/_pracht/state/s-00610062006f00750074/_state.json",
+    );
   });
 
   it("preserves percent-encoded segments exactly as the build wrote them", () => {
     expect(buildStaticRouteStateUrl("/posts/caf%C3%A9")).toBe(
-      "/_pracht/state/0070006f007300740073/006300610066002500430033002500410039.json",
+      "/_pracht/state/s-0070006f007300740073/s-006300610066002500430033002500410039/_state.json",
     );
+  });
+
+  it("splits long segments below filesystem component limits without losing identity", () => {
+    const longSegment = "a".repeat(64);
+    const url = buildStaticRouteStateUrl(`/${longSegment}`);
+    const components = url.split("/").filter(Boolean);
+
+    expect(components).toHaveLength(5);
+    expect(components[2]).toMatch(/^s-/);
+    expect(components[3]).toMatch(/^c-/);
+    expect(Math.max(...components.map((component) => Buffer.byteLength(component)))).toBeLessThan(
+      256,
+    );
+    expect(url).not.toBe(buildStaticRouteStateUrl(`/${longSegment}b`));
   });
 
   it("stays inside the state prefix", () => {

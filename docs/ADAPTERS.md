@@ -1070,10 +1070,11 @@ static host. The static adapter solves this at build time:
   **a second time** — the same rendering the live endpoint performs — and writes the JSON
   body to a collision-safe opaque `.json` file under
   `dist/client/_pracht/state/` (`/` → `_pracht/state/index.json`). Each URL
-  segment is encoded before it becomes a filesystem component, and only the
-  leaf receives `.json`, so pairs such as `/docs` and `/docs/index.json`
-  cannot contend for one file/directory path. `_pracht/` is already reserved,
-  so state files cannot collide with a prerendered route or a `public/` file.
+  segment is encoded before it becomes a filesystem component, long encodings
+  are split below common filesystem name limits, and a reserved leaf receives
+  `.json`, so pairs such as `/docs` and `/docs/index.json` cannot contend for
+  one file/directory path. `_pracht/` is already reserved, so state files
+  cannot collide with a prerendered route or a `public/` file.
 - **SSG loaders therefore run twice per page** during a static build: once for
   the HTML document, once for the state file. Like
   `getStaticPaths()`, they must be deterministic and side-effect free at build
@@ -1134,10 +1135,12 @@ client-side fetch to an external API instead.
   The fallback embeds the same build-time `notFound` loader data serialized
   into `404.html`, so this client render receives the normal data without
   executing the loader again. An app with no `notFound` page and no
-  client-routable SPA catch-all (`/*`, `/:rest*`) has nothing to render for an
-  unknown URL behind the rewrite — the visitor gets an empty document. An SSG
-  catch-all does not help because fallback boot never client-renders SSG
-  routes. The build warns when a `fallback` is emitted in that shape.
+  unshadowed client-routable SPA catch-all (`/*`, `/:rest*`) has nothing to
+  render for an unknown URL behind the rewrite — the visitor gets an empty
+  document. An SSG catch-all does not help because fallback boot never
+  client-renders SSG routes; nor does a SPA catch-all placed after a dynamic
+  SSG route, because route precedence lets that SSG route consume omitted
+  paths first. The build warns when a `fallback` is emitted in that shape.
 - Prerendered route directories may not occupy `404.html` or the configured
   fallback file path. The CLI reports those fixed-artifact collisions instead
   of failing later with a filesystem error.
