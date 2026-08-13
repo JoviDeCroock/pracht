@@ -286,6 +286,31 @@ function matchesEveryPath(routePath: string): boolean {
   return routePath === "/*" || /^\/:[^/]+\*$/.test(routePath);
 }
 
+function hasDynamicSegments(routePath: string): boolean {
+  return routePath.split("/").some((segment) => segment === "*" || segment.startsWith(":"));
+}
+
+function isClientRoutableSpaRoute(route: StaticRouteView): boolean {
+  return route.render === "spa" && route.hydration !== "islands" && route.hydration !== "none";
+}
+
+/**
+ * A SPA catch-all only covers every fallback URL when no earlier dynamic
+ * route can win matching while being impossible to render client-side. Exact
+ * SSG routes are safe because their prerendered files prevent the host rewrite
+ * from reaching the fallback document in the first place.
+ */
+function hasUnshadowedClientRoutableSpaCatchAll(routes: StaticRouteView[]): boolean {
+  const catchAllIndex = routes.findIndex(
+    (route) => isClientRoutableSpaRoute(route) && matchesEveryPath(route.path),
+  );
+  if (catchAllIndex === -1) return false;
+
+  return routes
+    .slice(0, catchAllIndex)
+    .every((route) => !hasDynamicSegments(route.path) || isClientRoutableSpaRoute(route));
+}
+
 function assertNoFixedArtifactRouteCollisions(
   pages: Array<{ path: string }>,
   fixedFiles: string[],
@@ -395,16 +420,17 @@ export async function writeStaticExportArtifacts(options: {
     );
 
     // The fallback document renders whatever the client router resolves from
-    // `window.location`. With no notFound page and no client-routable SPA
-    // catch-all, that resolves to nothing: the visitor gets a blank page, and
-    // the host's rewrite means it answers 200 instead of 404.
-    const hasCatchAllRoute = (serverMod.resolvedApp?.routes ?? []).some(
-      (route) => route.render === "spa" && matchesEveryPath(route.path),
+    // `window.location`. With no notFound page and no unshadowed,
+    // client-routable SPA catch-all, that resolves to nothing: the visitor
+    // gets a blank page, and the host's rewrite means it answers 200 instead
+    // of 404.
+    const hasCatchAllRoute = hasUnshadowedClientRoutableSpaCatchAll(
+      serverMod.resolvedApp?.routes ?? [],
     );
     if (!wrote404 && !hasCatchAllRoute) {
       log(
         `\n  Warning: ${configuredFallback} is emitted but the app declares no notFound page,\n` +
-          "  and no client-routable SPA catch-all matches every URL. Behind the host rewrite, unknown URLs render an\n" +
+          "  and no unshadowed client-routable SPA catch-all matches every URL. Behind the host rewrite, unknown URLs render an\n" +
           "  empty document with status 200. Add defineApp({ notFound }) so they render a real\n" +
           "  page, or drop the `fallback` option so unknown URLs keep the host's 404.\n",
       );

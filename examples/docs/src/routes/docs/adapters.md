@@ -540,7 +540,7 @@ The build fails closed — before prerendering, with every offender listed — w
 
 ### Client navigation from static files
 
-Client-side navigation normally fetches route-state JSON from the server. A static export has none, so the build serializes each loader-backed SSG route's payload to a collision-safe opaque `.json` file under `dist/client/_pracht/state/`, and the client bundle — compiled with the adapter's `staticTarget` flag — fetches those files instead. The CLI reads that same flag independently of the adapter id, so custom static adapters emit the same artifacts. Loaderless SPA routes run entirely in the browser and fetch no Pracht state; islands pages keep their MPA navigation.
+Client-side navigation normally fetches route-state JSON from the server. A static export has none, so the build serializes each loader-backed SSG route's payload to a bounded, collision-safe opaque `.json` file under `dist/client/_pracht/state/`, and the client bundle — compiled with the adapter's `staticTarget` flag — fetches those files instead. The CLI reads that same flag independently of the adapter id, so custom static adapters emit the same artifacts. Loaderless SPA routes run entirely in the browser and fetch no Pracht state; islands pages keep their MPA navigation.
 
 ### 404 and SPA fallback
 
@@ -548,7 +548,7 @@ The app's `notFound` page is rendered to `404.html` independently of ordinary ro
 
 The fallback only client-renders matched SPA routes. A path that matches a dynamic SSG pattern but was not emitted by `getStaticPaths()` renders the app's `notFound` page instead of running without its missing build-time state. That client render reuses the build-time `notFound` loader data serialized into `404.html`.
 
-The rewrite answers unknown URLs with status 200, so they become soft 404s; and with no `notFound` page and no client-routable SPA catch-all, they render blank (the build warns). Prerendered route directories may not occupy `404.html` or the configured fallback file path; the build reports those collisions explicitly.
+The rewrite answers unknown URLs with status 200, so they become soft 404s; and with no `notFound` page and no unshadowed client-routable SPA catch-all, they render blank (the build warns). Prerendered route directories may not occupy `404.html` or the configured fallback file path; the build reports those collisions explicitly.
 
 ### Build, preview, deploy
 
