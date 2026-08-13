@@ -17,7 +17,7 @@ import {
   RevalidationReport,
   resolveRevalidationToken,
 } from "@pracht/core/server";
-import { pipeToResponse, writeNodeResponseHeaders } from "./node-request.ts";
+import { pipeToResponse, writeNodeResponseHeaders } from "./node-response.ts";
 import { applyHeadersManifest, createWeakEtag, isNotModified } from "./node-static.ts";
 import type { HeadersManifest, NodeAdapterContextArgs, NodeAdapterOptions } from "./node-types.ts";
 

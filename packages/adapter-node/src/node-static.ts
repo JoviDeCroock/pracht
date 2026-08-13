@@ -3,7 +3,7 @@ import { lstat, realpath, stat } from "node:fs/promises";
 import type { ServerResponse } from "node:http";
 import { extname, resolve, sep } from "node:path";
 import { applyDefaultSecurityHeaders, type ISGManifestEntry } from "@pracht/core/server";
-import { pipeToResponse, writeNodeResponseHeaders } from "./node-request.ts";
+import { pipeToResponse, writeNodeResponseHeaders } from "./node-response.ts";
 import type { HeadersManifest } from "./node-types.ts";
 
 export type { HeadersManifest } from "./node-types.ts";

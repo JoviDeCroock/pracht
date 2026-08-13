@@ -25,6 +25,14 @@ node dist/server/server.js
 - Supports generated-entry context factories via `nodeAdapter({ createContextFrom })`
 - Supports configurable request body limits via `nodeAdapter({ maxBodySize })`
 
+## Architecture
+
+The Node/Web HTTP bridge keeps inbound request conversion and origin trust in
+`node-request.ts`, outbound response headers and streaming in
+`node-response.ts`, and client-disconnect classification in
+`node-disconnect.ts`. Request orchestration consumes those focused modules from
+`node-handler.ts`.
+
 ## Context factory
 
 Generated entries can import an app-level context factory:

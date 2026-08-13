@@ -187,8 +187,10 @@ described in `VISION_MVP.md`.
   webhook regeneration of on-disk HTML. `node-handler.ts` owns request
   orchestration and terminal error handling, `node-static.ts` owns static-file
   resolution and HTTP serving, `node-isg.ts` owns snapshot persistence,
-  staleness, and webhook regeneration, and `node-types.ts` keeps those layers
-  acyclic.
+  staleness, and webhook regeneration. The HTTP bridge keeps inbound request
+  conversion and origin trust in `node-request.ts`, outbound headers and body
+  streaming in `node-response.ts`, and connection-loss classification in
+  `node-disconnect.ts`; `node-types.ts` keeps the adapter layers acyclic.
 - **Cloudflare adapter** — Serves `env.ASSETS` when available, falls back to
   `handlePrachtRequest()`, gives loaders/API routes/middleware access to `env`
   and `executionContext`, and stores regenerated ISG HTML in the Workers Cache
