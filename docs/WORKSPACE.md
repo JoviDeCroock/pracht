@@ -45,7 +45,11 @@ described in `VISION_MVP.md`.
   method handlers return 405 when no default handler exists. Shared API policy
   can be applied explicitly with `defineApp({ api: { middleware: [...] } })`.
 - **Capability contracts** — `@pracht/capabilities` owns contract definition,
-  schema validation, and the shared wire protocol. `schema.ts` remains the
+  schema validation, and the shared wire protocol. `capability-types.ts` owns
+  author-facing definitions, normalized/runtime contracts, and envelopes;
+  `capability-definition.ts` owns eager definition validation, exposure
+  normalization, and runtime construction; `capability.ts` preserves the
+  former public facade. `schema.ts` remains the
   public schema facade while definition diagnostics, default application,
   runtime validation, types, and JSON-value primitives live in focused sibling
   modules. Its `static` entry keeps `static.ts` as a stable facade: capability

@@ -16,7 +16,7 @@ export type {
   CapabilityHttpExposure,
   CapabilityRunArgs,
   CapabilityValidationResult,
-} from "./capability.ts";
+} from "./capability-types.ts";
 export {
   CAPABILITY_EFFECT_HEADER,
   CAPABILITY_ERROR_CODES,

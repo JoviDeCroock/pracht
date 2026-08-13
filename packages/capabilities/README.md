@@ -55,6 +55,11 @@ zod in your bundles. The stable schema facade delegates definition diagnostics,
 default application, and runtime value validation to focused implementation
 modules over one shared JSON-value model.
 
+For contributors, `capability-types.ts` owns the public definition, runtime,
+and envelope contracts. `capability-definition.ts` owns eager validation,
+exposure normalization, and construction. `capability.ts` remains the stable
+facade, keeping type-only consumers independent of construction policy.
+
 See [docs/CAPABILITIES.md](https://github.com/JoviDeCroock/pracht/blob/main/docs/CAPABILITIES.md)
 for the full guide, including the supported schema subset and security
 defaults.
