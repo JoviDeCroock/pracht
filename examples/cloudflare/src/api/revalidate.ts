@@ -1,4 +1,4 @@
-import type { BaseRouteArgs } from "@pracht/core";
+import type { ApiRouteArgs } from "@pracht/core";
 import { purgeCache, routeCacheTag } from "@pracht/adapter-cloudflare/cache";
 
 // Webhook-based ISG revalidation: purge the cached /pricing page so the next
@@ -10,7 +10,7 @@ import { purgeCache, routeCacheTag } from "@pracht/adapter-cloudflare/cache";
 // the cache (or run up render costs): set it with
 // `wrangler secret put REVALIDATE_SECRET` (or in `.dev.vars` locally) and
 // send it in the `x-revalidate-secret` header.
-export async function POST({ request, context }: BaseRouteArgs) {
+export async function POST({ request, context }: ApiRouteArgs) {
   const secret = (context.env as { REVALIDATE_SECRET?: string }).REVALIDATE_SECRET;
   if (!secret || request.headers.get("x-revalidate-secret") !== secret) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });

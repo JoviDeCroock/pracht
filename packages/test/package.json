@@ -1,0 +1,47 @@
+{
+  "name": "@pracht/test",
+  "version": "0.0.0",
+  "description": "First-party testing utilities for Pracht apps: typed factories for loader, API, and middleware args, a middleware chain runner, form submission helpers, and minimal response readers.",
+  "keywords": [
+    "pracht",
+    "preact",
+    "testing",
+    "vitest",
+    "loaders",
+    "middleware",
+    "api-routes"
+  ],
+  "license": "MIT",
+  "homepage": "https://github.com/JoviDeCroock/pracht/tree/main/packages/test",
+  "bugs": {
+    "url": "https://github.com/JoviDeCroock/pracht/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/JoviDeCroock/pracht",
+    "directory": "packages/test"
+  },
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.mts",
+      "default": "./dist/index.mjs"
+    }
+  },
+  "publishConfig": {
+    "provenance": true
+  },
+  "scripts": {
+    "build": "tsdown",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "@pracht/core": "workspace:*"
+  },
+  "devDependencies": {
+    "@standard-schema/spec": "^1.0.0"
+  }
+}

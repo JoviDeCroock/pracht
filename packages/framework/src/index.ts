@@ -264,6 +264,7 @@ export type {
   MiddlewareFn,
   MiddlewareModule,
   MiddlewareNext,
+  MiddlewareRoute,
   ModuleImporter,
   ModuleRef,
   NotFoundConfig,

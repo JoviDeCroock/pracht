@@ -1,6 +1,6 @@
-import type { BaseRouteArgs } from "@pracht/core";
+import type { ApiRouteArgs } from "@pracht/core";
 
-export async function GET({ context }: BaseRouteArgs) {
+export async function GET({ context }: ApiRouteArgs) {
   const cached = await context.env.MY_KV.get("health:last-check");
   await context.env.MY_KV.put("health:last-check", new Date().toISOString());
 

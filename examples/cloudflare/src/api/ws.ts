@@ -1,4 +1,4 @@
-import type { BaseRouteArgs } from "@pracht/core";
+import type { ApiRouteArgs } from "@pracht/core";
 
 /**
  * WebSocket upgrades are served by API routes. The handshake itself is
@@ -15,7 +15,7 @@ import type { BaseRouteArgs } from "@pracht/core";
  * `api: { requireSameOrigin: false }` in `defineApp` only if you intend this
  * endpoint to be reachable from other origins, and authenticate it yourself.
  */
-export async function GET({ context, request, url }: BaseRouteArgs): Promise<Response> {
+export async function GET({ context, request, url }: ApiRouteArgs): Promise<Response> {
   if (request.headers.get("upgrade") !== "websocket") {
     return new Response("Expected a WebSocket upgrade", { status: 426 });
   }

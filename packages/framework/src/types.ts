@@ -918,7 +918,19 @@ export interface BaseRouteArgs<TContext = RegisteredContext> {
 
 export interface LoaderArgs<TContext = RegisteredContext> extends BaseRouteArgs<TContext> {}
 
-export interface MiddlewareArgs<TContext = RegisteredContext> extends BaseRouteArgs<TContext> {}
+/** The matched page or API route whose middleware chain is running. */
+export type MiddlewareRoute = ResolvedRoute | ResolvedApiRoute;
+
+/**
+ * Middleware wraps both page and API routes. Narrow `route` by checking for
+ * page-only metadata such as `middlewareFiles` before reading those fields.
+ */
+export type MiddlewareArgs<TContext = RegisteredContext> = Omit<
+  BaseRouteArgs<TContext>,
+  "route"
+> & {
+  route: MiddlewareRoute;
+};
 
 export type HeadAttributes = Record<string, string | undefined>;
 

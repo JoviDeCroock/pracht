@@ -155,6 +155,7 @@ The skills are distributed three ways (see the [catalog](skills/README.md)):
 - [docs/AGENT_WORKFLOW.md](docs/AGENT_WORKFLOW.md) — constraints, app-graph snapshots, `pracht plan`/`report`
 - [docs/ENV.md](docs/ENV.md) — typed env access, `PRACHT_PUBLIC_` prefix rule, leak detection
 - [packages/start/README.md](packages/start/README.md) — starter CLI details
+- [packages/test/README.md](packages/test/README.md) — `@pracht/test` unit-testing utilities for loaders, API routes, middleware, and forms
 
 ## Contributing
 

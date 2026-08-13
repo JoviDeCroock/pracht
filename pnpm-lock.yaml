@@ -81,6 +81,9 @@ importers:
       '@pracht/cli':
         specifier: workspace:*
         version: link:../../packages/cli
+      '@pracht/test':
+        specifier: workspace:*
+        version: link:../../packages/test
       '@pracht/vite-plugin':
         specifier: workspace:*
         version: link:../../packages/vite-plugin
@@ -389,6 +392,16 @@ importers:
         version: 8.0.3(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)(@types/node@22.19.17)(esbuild@0.27.3)(yaml@2.9.0)
 
   packages/start: {}
+
+  packages/test:
+    dependencies:
+      '@pracht/core':
+        specifier: workspace:*
+        version: link:../framework
+    devDependencies:
+      '@standard-schema/spec':
+        specifier: ^1.0.0
+        version: 1.1.0
 
   packages/vite-plugin:
     dependencies:

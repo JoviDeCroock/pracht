@@ -33,7 +33,8 @@
       "@pracht/adapter-vercel": ["./packages/adapter-vercel/src/index.ts"],
       "@pracht/image": ["./packages/image/src/index.ts"],
       "@pracht/image/node": ["./packages/image/src/node.ts"],
-      "@pracht/image/vite": ["./packages/image/src/vite.ts"]
+      "@pracht/image/vite": ["./packages/image/src/vite.ts"],
+      "@pracht/test": ["./packages/test/src/index.ts"]
     }
   },
   // Generated route registrations and ambient platform modules are global to

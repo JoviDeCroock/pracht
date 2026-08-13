@@ -189,7 +189,7 @@ export async function runMiddlewareChain<TContext>(options: {
       context: options.context,
       signal: options.signal,
       url: options.url,
-      route: options.route as BaseRouteArgs<TContext>["route"],
+      route: options.route,
     };
 
     const response = await mwModule.middleware(args, next);
