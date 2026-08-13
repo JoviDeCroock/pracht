@@ -42,6 +42,10 @@ Server islands likewise keep registry, vnode interception, and marker rendering
 in `islands-server.ts`, with strategy and JSON prop wire validation isolated in
 `islands-serialization.ts` behind the existing public validator.
 
+Request entry setup lives in `runtime-request-setup.ts`; terminal page matching
+and method/not-found settlement live in `runtime-page-dispatch.ts`, leaving
+`runtime.ts` as the readable API → agent → page coordinator.
+
 Capability transport keeps its request contract in the type-only
 `runtime-capability-transport-types.ts`. MCP-only middleware output
 revalidation lives in `runtime-capability-mcp-output.ts`, separate from the

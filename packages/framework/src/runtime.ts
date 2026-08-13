@@ -1,26 +1,18 @@
-import { matchAppRoute, resolveApp } from "./app.ts";
 import { dispatchAgentProjection } from "./runtime-agent-projection.ts";
 import { AGENT_SURFACE_ENABLED, initializeAgentSurface } from "./runtime-agent-surface.ts";
 import { dispatchApiRequest } from "./runtime-api.ts";
-import { ROUTE_STATE_REQUEST_HEADER, SAFE_METHODS } from "./runtime-constants.ts";
-import {
-  buildRuntimeDiagnostics,
-  createSerializedRouteError,
-  shouldExposeServerErrors,
-} from "./runtime-errors.ts";
+import { shouldExposeServerErrors } from "./runtime-errors.ts";
+import { dispatchPageRequest } from "./runtime-page-dispatch.ts";
 import { withDefaultSecurityHeaders } from "./runtime-response-security.ts";
-import { withRouteResponseHeaders } from "./runtime-route-response-headers.ts";
-import { createNotFoundMatch, executePageMatch } from "./runtime-page-pipeline.ts";
-import { isFirstPartyFetch, isSameOriginRequest } from "./runtime-request-provenance.ts";
-import { jsonErrorResponse } from "./runtime-route-state-response.ts";
+import { executePageMatch } from "./runtime-page-pipeline.ts";
+import { isSameOriginRequest } from "./runtime-request-provenance.ts";
+import { createRuntimeRequestState, resolveRuntimeApp } from "./runtime-request-setup.ts";
 import type { PrachtPhaseTimings } from "./runtime-timing.ts";
 import type {
   CapabilityAuditHook,
   ModuleRegistry,
-  HrefRouteDefinition,
   PrachtApp,
   ResolvedApiRoute,
-  ResolvedPrachtApp,
   RouteMatch,
 } from "./types.ts";
 
@@ -67,25 +59,9 @@ export interface HandlePrachtRequestOptions<TContext = unknown> {
 export async function handlePrachtRequest<TContext>(
   options: HandlePrachtRequestOptions<TContext>,
 ): Promise<Response> {
-  const url = new URL(options.request.url);
-  const hasDataParam = url.searchParams.get("_data") === "1";
-  if (hasDataParam) {
-    url.searchParams.delete("_data");
-  }
-  const requestPath = getRequestPath(url);
+  const { isRouteStateRequest, requestPath, url } = createRuntimeRequestState(options.request);
   const registry = options.registry ?? {};
-  const resolvedApp = getResolvedApp(options.app);
-  // The route-state endpoint returns loader output as JSON. Two entry
-  // points into it: the explicit header (only settable via fetch, so the
-  // browser forces CORS preflight cross-origin) and the `_data=1` query
-  // param (settable by any <a href>, <link>, or redirect). To keep the
-  // query-param form from becoming a CSRF oracle for GET loaders with
-  // side effects, require browser provenance hints to indicate an exact
-  // same-origin fetch/navigation. The header form does not need this
-  // check — it's CORS-protected.
-  const headerSignalsRouteState = options.request.headers.get(ROUTE_STATE_REQUEST_HEADER) === "1";
-  const dataParamIsFirstParty = hasDataParam && isFirstPartyFetch(options.request);
-  const isRouteStateRequest = headerSignalsRouteState || dataParamIsFirstParty;
+  const resolvedApp = resolveRuntimeApp(options.app);
   const exposeDiagnostics = shouldExposeServerErrors(options);
   const requireSameOrigin = options.app.api.requireSameOrigin ?? true;
   const apiMiddlewareFiles = (options.app.api.middleware ?? []).flatMap((name) => {
@@ -180,94 +156,14 @@ export async function handlePrachtRequest<TContext>(
       url,
     });
 
-  const match = matchAppRoute(resolvedApp, url.pathname);
-
-  if (!match) {
-    if (isRouteStateRequest) {
-      return jsonErrorResponse(
-        createSerializedRouteError("Not found", 404, {
-          diagnostics: exposeDiagnostics
-            ? buildRuntimeDiagnostics({
-                phase: "match",
-                status: 404,
-              })
-            : undefined,
-          name: "Error",
-        }),
-        { isRouteStateRequest: true },
-      );
-    }
-
-    // Nothing matched. When the app declares a `notFound` page, render it
-    // with a 404 status — it lives outside the route table, so unlike a
-    // catch-all route it only ever runs *after* matching (and, in every
-    // first-party adapter, after static-asset serving) has failed.
-    const notFoundMatch = createNotFoundMatch(resolvedApp, url.pathname);
-    if (notFoundMatch && SAFE_METHODS.has(options.request.method)) {
-      return executePage(notFoundMatch, { isNotFoundPage: true, status: 404 });
-    }
-
-    return withDefaultSecurityHeaders(
-      new Response("Not found", {
-        status: 404,
-        headers: { "content-type": "text/plain; charset=utf-8" },
-      }),
-    );
-  }
-
-  if (!SAFE_METHODS.has(options.request.method)) {
-    if (isRouteStateRequest) {
-      return jsonErrorResponse(
-        createSerializedRouteError("Method not allowed", 405, {
-          diagnostics: exposeDiagnostics
-            ? buildRuntimeDiagnostics({
-                middlewareFiles: match.route.middlewareFiles,
-                phase: "action",
-                route: match.route,
-                shellFile: match.route.shellFile,
-                status: 405,
-              })
-            : undefined,
-          name: "Error",
-        }),
-        { isRouteStateRequest: true },
-      );
-    }
-
-    return withRouteResponseHeaders(
-      new Response("Method not allowed", {
-        status: 405,
-        headers: { "content-type": "text/plain; charset=utf-8" },
-      }),
-      { isRouteStateRequest },
-    );
-  }
-
-  return executePage(match, { isNotFoundPage: false, status: 200 });
-}
-
-function getRequestPath(url: URL): string {
-  return `${url.pathname}${url.search}`;
-}
-
-function getResolvedApp(app: PrachtApp): ResolvedPrachtApp {
-  const routes = (app as { routes: readonly unknown[] }).routes;
-  const notFoundResolved = !app.notFound || "segments" in app.notFound;
-  if ((routes.length === 0 || isHrefRouteDefinition(routes[0])) && notFoundResolved) {
-    return app as unknown as ResolvedPrachtApp;
-  }
-
-  return resolveApp(app);
-}
-
-function isHrefRouteDefinition(value: unknown): value is HrefRouteDefinition {
-  return Boolean(
-    value &&
-    typeof value === "object" &&
-    "path" in value &&
-    "segments" in value &&
-    Array.isArray((value as { segments?: unknown }).segments),
-  );
+  return dispatchPageRequest({
+    executePage,
+    exposeDiagnostics,
+    isRouteStateRequest,
+    request: options.request,
+    resolvedApp,
+    url,
+  });
 }
 
 // Public runtime surface — re-exported so `./runtime.ts` remains the

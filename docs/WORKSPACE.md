@@ -111,7 +111,10 @@ described in `VISION_MVP.md`.
   cache lives in `runtime-confirmation-replay.ts`. Durable approval workflow
   orchestration remains in `runtime-capability-confirmation.ts`.
 - **Server rendering** — `handlePrachtRequest()` executes the full request
-  lifecycle: API route check → middleware chain → loader → Preact
+  lifecycle in explicit API → agent → page order. `runtime-request-setup.ts`
+  owns route-state request normalization and source/resolved app preparation;
+  `runtime-page-dispatch.ts` owns page matching, method gating, and not-found
+  settlement. A matched page then runs middleware → loader → Preact
   `renderToString` → HTML document assembly with hydration state
   (`window.__PRACHT_STATE__`), head metadata/header merging, and client entry
   injection. `runtime-route-state-response.ts` owns route-state JSON and

@@ -558,7 +558,9 @@ runtime-hooks.ts — public browser hook/Link facade and stable Form re-export
 islands-server.ts — island registry, vnode interception, and SSR marker boundaries
 islands-serialization.ts — hydration-strategy and JSON prop wire validation
     ↑
-runtime.ts      — SSR handler and prerendering (static import of app.ts)
+runtime-request-setup.ts — route-state request normalization and resolved-app preparation
+runtime-page-dispatch.ts — terminal page matching, method gating, and not-found settlement
+runtime.ts      — stable API → agent → page request lifecycle coordinator
 runtime-rendering.ts — lazy shared Preact server-renderer loading
 runtime-route-state-response.ts — JSON errors, redirects, and route-state cache headers
 runtime-response-types.ts — shared generated-asset options for runtime error views
@@ -686,14 +688,10 @@ modules depend on narrower leaves, while `types.ts` only aggregates their public
 contracts. Concrete behavior such as `notFound()` does not live in that type
 aggregate.
 
-**Important:** `runtime.ts` imports `resolveApp` and `buildPathFromSegments` directly from
-`app.ts` via a static import. Earlier versions used `await import("./app.ts")` dynamic
-imports inside `prerenderApp` and `collectSSGPaths` — these were a defensive workaround
-against a perceived circular dependency that never actually existed (since `app.ts` only
-imports from `types.ts`). The dynamic imports have been replaced with static imports.
-
-The only intentional dynamic import in `runtime.ts` is `preact-render-to-string`, which
-is lazy-loaded to keep the SSR-only dependency out of the client bundle.
+`runtime-request-setup.ts` statically imports app resolution from `app.ts`; the
+type graph remains acyclic because `app.ts` depends on narrower contracts.
+Server rendering loads `preact-render-to-string` lazily through
+`runtime-rendering.ts`, keeping the SSR-only dependency out of client bundles.
 
 The client router intentionally dynamic-imports `prefetch.ts` after router
 initialization. Navigation keeps the small shared cache available synchronously,
