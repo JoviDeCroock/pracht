@@ -550,6 +550,10 @@ api-export-detection.ts — runtime/source fallback, re-export traversal, and HT
 api-export-source-scan.ts — stable internal source-analysis facade
 api-export-source-lexical.ts — offset-preserving masking and module-scope tracking
 api-export-callable-source.ts — conservative callable-default inference
+llms-txt.ts — deterministic section rendering and stable public builder
+llms-txt-types.ts — public builder configuration contracts
+llms-txt-entries.ts — page, API, and capability entry collection
+llms-txt-exclusions.ts — reserved-path and configured publication policy
 app-agent-validation.ts — fail-closed agent policy and trust-setting validation
 runtime-agent-surface.ts — lazy agent runtimes, signature binding, and invocation host setup
 runtime-agent-projection.ts — MCP and capability HTTP selection and fail-closed routing

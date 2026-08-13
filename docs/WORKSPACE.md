@@ -63,6 +63,10 @@ described in `VISION_MVP.md`.
   `api-export-source-lexical.ts`, callable-default inference in
   `api-export-callable-source.ts`, and the former scanner entrypoint as a thin
   internal facade.
+- **Agent-readable index** — `@pracht/core` keeps `llms-txt.ts` as the public
+  deterministic renderer. Public configuration contracts live in
+  `llms-txt-types.ts`, graph-to-entry collection in `llms-txt-entries.ts`, and
+  reserved-path plus configured exclusion policy in `llms-txt-exclusions.ts`.
 - **Server rendering** — `handlePrachtRequest()` executes the full request
   lifecycle: API route check → middleware chain → loader → Preact
   `renderToString` → HTML document assembly with hydration state

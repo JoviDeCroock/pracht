@@ -91,6 +91,14 @@ strict module loading for authoritative inspection, planning, and verification;
 silently inferred or null metadata is not authoritative enough for those
 workflows.
 
+### llms.txt generation
+
+`buildLlmsTxt()` remains the public builder in `src/llms-txt.ts`. Contributor
+boundaries keep its public contracts in `llms-txt-types.ts`, graph-to-entry
+collection in `llms-txt-entries.ts`, and fail-closed reserved-path plus user
+exclusion policy in `llms-txt-exclusions.ts`. The facade owns deterministic
+section rendering and output formatting.
+
 ## Rendering Modes
 
 Each route can specify its rendering mode:
