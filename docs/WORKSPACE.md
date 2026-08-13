@@ -74,6 +74,10 @@ described in `VISION_MVP.md`.
   pipeline dispatch; `runtime-capability-api-middleware.ts` owns app API policy;
   and `runtime-capability-mcp-output.ts` owns MCP-only success-envelope schema
   settlement.
+- **Enhanced forms** — `runtime-form.ts` keeps the public props and rendering
+  facade. `runtime-form-native.ts` owns submitter/native-resubmission mechanics,
+  `runtime-api-form.ts` owns ordinary API submissions, and
+  `runtime-capability-form.ts` owns capability transport and settlement events.
 - **Agent request signing** — The isolated `@pracht/core/agent-auth` entry keeps
   `agent-auth-sign.ts` as its public facade. `agent-auth-sign-types.ts` owns the
   signing contracts, `agent-auth-request-signing.ts` owns RFC 9421 request and

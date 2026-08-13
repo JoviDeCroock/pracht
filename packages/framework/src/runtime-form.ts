@@ -1,28 +1,15 @@
+import { capabilityHttpPath } from "@pracht/capabilities";
+import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { h } from "preact";
 import type { JSX } from "preact";
-import type { StandardSchemaV1 } from "@standard-schema/spec";
 
+import type { ApiValidationIssue } from "./api-validation.ts";
+import { submitApiForm } from "./runtime-api-form.ts";
+import { submitCapabilityForm } from "./runtime-capability-form.ts";
 import {
-  formDataToRecord,
-  isApiValidationErrorBody,
-  validateStandardSchema,
-  type ApiValidationIssue,
-} from "./api-validation.ts";
-import {
-  beginSubmittingNavigation,
-  createNavigationLocation,
-  settleNavigation,
-} from "./navigation-state.ts";
-import { SAFE_METHODS } from "./runtime-constants.ts";
-import {
-  CAPABILITY_EFFECT_HEADER,
-  CAPABILITY_FORM_REDIRECT_HEADER,
-  CAPABILITY_FORM_REQUEST_HEADER,
-  CAPABILITY_SETTLED_EVENT,
-  capabilityHttpPath,
-} from "@pracht/capabilities";
-import { clearPrefetchCache } from "./prefetch-cache.ts";
-import { navigateToClientLocation, parseSafeNavigationUrl } from "./runtime-client-fetch.ts";
+  consumeValidatedNativeSubmission,
+  resolveNativeFormSubmitter,
+} from "./runtime-form-native.ts";
 import type {
   ApiPath,
   CapabilityEnvelope,
@@ -83,8 +70,6 @@ export interface FormProps<TName extends HttpCapabilityName = HttpCapabilityName
   onResponse?: (response: Response) => void;
 }
 
-const validatedNativeSubmissions = new WeakSet<HTMLFormElement>();
-
 export function Form<TName extends HttpCapabilityName = HttpCapabilityName>(
   props: FormProps<TName>,
 ) {
@@ -100,8 +85,7 @@ export function Form<TName extends HttpCapabilityName = HttpCapabilityName>(
     ...rest
   } = props;
   // Capability forms post to the capability's HTTP projection; the action
-  // attribute keeps the no-JS fallback working (the endpoint accepts
-  // form-encoded bodies and redirects document posts back on success).
+  // attribute keeps the no-JS fallback working.
   const actionAttribute = capability ? (action ?? capabilityHttpPath(capability)) : action;
 
   return h("form", {
@@ -110,198 +94,38 @@ export function Form<TName extends HttpCapabilityName = HttpCapabilityName>(
     action: actionAttribute,
     onSubmit: async (event: Event) => {
       const form = event.currentTarget;
-      if (!(form instanceof HTMLFormElement)) {
-        return;
-      }
-      if (validatedNativeSubmissions.delete(form)) {
-        return;
-      }
+      if (!(form instanceof HTMLFormElement)) return;
+      if (consumeValidatedNativeSubmission(form)) return;
 
       onSubmit?.(event as never);
-      if (event.defaultPrevented) {
-        return;
-      }
+      if (event.defaultPrevented) return;
 
-      const submitter =
-        typeof SubmitEvent !== "undefined" && event instanceof SubmitEvent ? event.submitter : null;
-      const nativeSubmitter =
-        (submitter instanceof HTMLButtonElement || submitter instanceof HTMLInputElement) &&
-        submitter.form === form
-          ? submitter
-          : undefined;
-
+      const submitter = resolveNativeFormSubmitter(event, form);
       if (capability) {
-        const submitterAction = nativeSubmitter?.getAttribute("formaction");
-        const endpoint = submitterAction ?? actionAttribute ?? form.action;
-        const endpointUrl = parseSafeNavigationUrl(endpoint, window.location.href);
-        if (!endpointUrl) {
-          event.preventDefault();
-          console.error(`[pracht] refused to submit capability form to unsafe URL: ${endpoint}`);
-          return;
-        }
-        const isCrossOriginEndpoint = endpointUrl.origin !== window.location.origin;
-        // A cross-origin form target cannot participate in the enhanced
-        // response handshake. Let the browser perform the native submission
-        // so redirects and authentication flows retain document semantics.
-        if (isCrossOriginEndpoint && !schema) {
-          return;
-        }
-        event.preventDefault();
-        const formData = new FormData(form, nativeSubmitter);
-
-        if (schema) {
-          const result = await validateStandardSchema(schema, formDataToRecord(formData), "body");
-          if (result.issues) {
-            onValidationIssues?.(result.issues);
-            return;
-          }
-        }
-        if (isCrossOriginEndpoint) {
-          validatedNativeSubmissions.add(form);
-          try {
-            form.requestSubmit(nativeSubmitter);
-          } finally {
-            validatedNativeSubmissions.delete(form);
-          }
-          return;
-        }
-
-        clearPrefetchCache();
-        // Expose the in-flight submission through useNavigation().
-        const navigationToken = beginSubmittingNavigation(
-          createNavigationLocation(endpoint),
-          formData,
-        );
-        let envelope: CapabilityEnvelope;
-        let response: Response | undefined;
-        try {
-          response = await fetch(endpoint, {
-            method: "POST",
-            body: formData,
-            credentials: "same-origin",
-            headers: { [CAPABILITY_FORM_REQUEST_HEADER]: "1" },
-          });
-          const enhancedRedirect = response.headers.get(CAPABILITY_FORM_REDIRECT_HEADER);
-          if (
-            enhancedRedirect ||
-            response.redirected ||
-            (response.status >= 300 && response.status < 400)
-          ) {
-            const location =
-              enhancedRedirect ??
-              (response.redirected ? response.url : response.headers.get("location"));
-            await navigateToClientLocation(location ?? endpoint, { reloadRouteState: true });
-            return;
-          }
-          try {
-            envelope = (await response.clone().json()) as CapabilityEnvelope;
-          } catch {
-            envelope = {
-              ok: false,
-              error: {
-                code: "invalid_response",
-                message: `Capability endpoint returned a non-JSON response (status ${response.status}).`,
-              },
-            };
-          }
-        } catch (error: unknown) {
-          envelope = {
-            ok: false,
-            error: {
-              code: "network_error",
-              message: error instanceof Error ? error.message : String(error),
-            },
-          };
-        } finally {
-          settleNavigation(navigationToken);
-        }
-
-        if (response) {
-          onResponse?.(response);
-        }
-        if (envelope.ok) {
-          form.reset();
-        }
-        // The runtime provider revalidates route data on this event. The
-        // server returns the matched capability's effect class so read-only
-        // form submissions avoid invalidating the active route.
-        window.dispatchEvent(
-          new CustomEvent(CAPABILITY_SETTLED_EVENT, {
-            detail: {
-              name: capability,
-              ok: envelope.ok,
-              effect: response?.headers.get(CAPABILITY_EFFECT_HEADER) ?? null,
-            },
-          }),
-        );
-        onCapabilityResult?.(envelope as CapabilityFormResult<TName>);
-        return;
-      }
-
-      const submitterMethod = nativeSubmitter?.getAttribute("formmethod") || undefined;
-      const formMethod = (submitterMethod ?? method ?? form.method ?? "post").toUpperCase();
-      const isSafeMethod = SAFE_METHODS.has(formMethod);
-      if (isSafeMethod && !schema) {
-        return;
-      }
-
-      event.preventDefault();
-      const submitterAction = nativeSubmitter?.getAttribute("formaction");
-      const actionUrl = submitterAction ?? action ?? form.action;
-      const formData = new FormData(form, nativeSubmitter);
-
-      if (schema) {
-        const result = await validateStandardSchema(schema, formDataToRecord(formData), "body");
-        if (result.issues) {
-          onValidationIssues?.(result.issues);
-          return;
-        }
-      }
-
-      if (isSafeMethod) {
-        validatedNativeSubmissions.add(form);
-        try {
-          form.requestSubmit(nativeSubmitter);
-        } finally {
-          validatedNativeSubmissions.delete(form);
-        }
-        return;
-      }
-
-      clearPrefetchCache();
-      // Expose the in-flight submission through useNavigation().
-      const navigationToken = beginSubmittingNavigation(
-        createNavigationLocation(actionUrl),
-        formData,
-      );
-      try {
-        const response = await fetch(actionUrl, {
-          method: formMethod,
-          body: formData,
-          redirect: "manual",
+        await submitCapabilityForm({
+          action: actionAttribute,
+          capability,
+          event,
+          form,
+          onCapabilityResult,
+          onResponse,
+          onValidationIssues,
+          schema,
+          submitter,
         });
-
-        if (
-          response.type === "opaqueredirect" ||
-          (response.status >= 300 && response.status < 400)
-        ) {
-          const location = response.headers.get("location");
-          await navigateToClientLocation(location ?? actionUrl, { reloadRouteState: true });
-        } else {
-          if ((response.status === 400 || response.status === 422) && onValidationIssues) {
-            const body = await response
-              .clone()
-              .json()
-              .catch(() => null);
-            if (isApiValidationErrorBody(body)) {
-              onValidationIssues(body.issues);
-            }
-          }
-          onResponse?.(response);
-        }
-      } finally {
-        settleNavigation(navigationToken);
+        return;
       }
+
+      await submitApiForm({
+        action,
+        event,
+        form,
+        method,
+        onResponse,
+        onValidationIssues,
+        schema,
+        submitter,
+      });
     },
   } as JSX.HTMLAttributes<HTMLFormElement>);
 }

@@ -540,7 +540,10 @@ api-request-validation.ts — request parsing, normalized issues, and Standard S
     ↑
 runtime-context.ts — hydration state reader and Preact runtime provider
     ↑
-runtime-form.ts — enhanced form validation, capability submission, and response handling
+runtime-form.ts — stable Form props/render facade and event-flow orchestration
+runtime-form-native.ts — submitter resolution and validated native resubmission guard
+runtime-api-form.ts — ordinary API validation, fetch, redirect, and response handling
+runtime-capability-form.ts — capability endpoint safety, envelopes, and settlement events
 runtime-hooks.ts — public browser hook/Link facade and stable Form re-export
 islands-server.ts — island registry, vnode interception, and SSR marker boundaries
 islands-serialization.ts — hydration-strategy and JSON prop wire validation
