@@ -1,6 +1,6 @@
 /** Runtime and source-only detection of callable API route exports. */
 
-import type { AppGraphModuleAccess, AppGraphStaticModuleAccess } from "./app-graph.ts";
+import type { AppGraphModuleAccess, AppGraphStaticModuleAccess } from "./app-graph-types.ts";
 import {
   findTopLevelOffsets,
   hasStaticallyCallableDefaultExport,

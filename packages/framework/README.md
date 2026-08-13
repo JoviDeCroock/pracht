@@ -59,8 +59,10 @@ the concrete `PrachtHttpError` and `notFound()` behavior.
 ### App graph serialization
 
 The graph helpers exported from `@pracht/core` and `@pracht/core/server` support
-custom inspection and development tooling. Resolved graph serialization lives in
-`src/app-graph.ts`; runtime and source-only API export detection lives in
+custom inspection and development tooling. `src/app-graph.ts` is their stable
+composition facade: shared contracts live in `app-graph-types.ts`, and route,
+API, and capability serialization live in focused `app-graph-*` modules.
+Runtime and source-only API export detection remains in
 `src/api-export-detection.ts` behind the same public exports:
 
 - `serializeAppRoutes()` serializes resolved page routes.

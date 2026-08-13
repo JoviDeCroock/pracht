@@ -54,6 +54,11 @@ described in `VISION_MVP.md`.
   It also owns the executable-source mask and environment-reference policy used
   by both the Vite build guard and CLI verification, preventing security checks
   from drifting across framework surfaces.
+- **Shared app graph** — `@pracht/core` keeps `app-graph.ts` as the composition
+  facade consumed by inspection, devtools, type generation, and planning.
+  Contracts, route serialization, API serialization, and capability
+  serialization live in focused `app-graph-*` modules; API export detection
+  depends directly on the contracts layer so the graph remains acyclic.
 - **Server rendering** — `handlePrachtRequest()` executes the full request
   lifecycle: API route check → middleware chain → loader → Preact
   `renderToString` → HTML document assembly with hydration state
