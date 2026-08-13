@@ -1000,6 +1000,7 @@ describe("handlePrachtRequest cache variance", () => {
   });
 
   it("keeps loader Response errors out of the route loaderCache policy", async () => {
+    const errorFont = defineFont({ family: "Pricing Error", src: "/fonts/pricing-error.woff2" });
     const app = defineApp({
       routes: [route("/pricing", "./routes/pricing.tsx", { render: "ssr", loaderCache: 3600 })],
     });
@@ -1010,7 +1011,15 @@ describe("handlePrachtRequest cache variance", () => {
         routeModules: {
           "./routes/pricing.tsx": async () => ({
             Component: () => h("main", null, "MVP"),
-            loader: async () => Response.json({ error: { message: "nope" } }, { status: 500 }),
+            head: () => ({ fonts: [errorFont] }),
+            loader: async () =>
+              Response.json(
+                { error: { message: "nope" } },
+                {
+                  headers: { "content-length": "1", etag: '"stale-error"' },
+                  status: 500,
+                },
+              ),
           }),
         },
       },
@@ -1020,6 +1029,11 @@ describe("handlePrachtRequest cache variance", () => {
     });
 
     expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(response.headers.get("content-length")).toBeNull();
+    expect(response.headers.get("etag")).toBeNull();
+    const payload = (await response.json()) as Record<string, any>;
+    expect(payload.fontHead.css).toContain('font-family:"Pricing Error"');
+    expect(payload.fontHead.preloadLinks).toEqual(errorFont.preloadLinks);
   });
 
   it("treats _data=1 query parameter as a route-state request", async () => {
@@ -1107,6 +1121,47 @@ describe("handlePrachtRequest cache variance", () => {
     expect(response.headers.get("content-type")).toContain("application/json");
     expect(response.headers.get("cache-control")).toBe("no-store");
     await expect(response.json()).resolves.toEqual({ redirect: "/" });
+  });
+
+  it("adds merged font fragments to middleware route-state short-circuits", async () => {
+    const shellFont = defineFont({ family: "Shell Gate", src: "/fonts/shell-gate.woff2" });
+    const routeFont = defineFont({ family: "Route Gate", src: "/fonts/route-gate.woff2" });
+    const app = defineApp({
+      middleware: { gate: "./middleware/gate.ts" },
+      shells: { app: "./shells/app.tsx" },
+      routes: [route("/gate", "./routes/gate.tsx", { middleware: ["gate"], shell: "app" })],
+    });
+
+    const response = await handlePrachtRequest({
+      app,
+      registry: {
+        middlewareModules: {
+          "./middleware/gate.ts": async () => ({
+            middleware: async () => Response.json({ data: { gated: true } }),
+          }),
+        },
+        routeModules: {
+          "./routes/gate.tsx": async () => ({
+            Component: () => null,
+            head: () => ({ fonts: [routeFont] }),
+          }),
+        },
+        shellModules: {
+          "./shells/app.tsx": async () => ({
+            Shell: ({ children }) => h("main", null, children),
+            head: () => ({ fonts: [shellFont] }),
+          }),
+        },
+      },
+      request: new Request("http://localhost/gate", {
+        headers: { "x-pracht-route-state-request": "1" },
+      }),
+    });
+
+    const payload = (await response.json()) as Record<string, any>;
+    expect(payload.data).toEqual({ gated: true });
+    expect(payload.fontHead.css).toContain('font-family:"Shell Gate"');
+    expect(payload.fontHead.css).toContain('font-family:"Route Gate"');
   });
 });
 
@@ -2042,6 +2097,36 @@ describe("handlePrachtRequest ErrorBoundary", () => {
     expect(html).not.toContain("Database credentials invalid");
   });
 
+  it("includes route-scoped fonts in error-boundary documents", async () => {
+    const routeFont = defineFont({ family: "Boundary Font", src: "/fonts/boundary.woff2" });
+    const app = defineApp({
+      routes: [route("/boom", "./routes/boom.tsx")],
+    });
+
+    const response = await handlePrachtRequest({
+      app,
+      registry: {
+        routeModules: {
+          "./routes/boom.tsx": async () => ({
+            Component: () => null,
+            ErrorBoundary: () => h("p", { class: routeFont.className }, "Failed"),
+            head: () => ({ fonts: [routeFont] }),
+            loader: async () => {
+              throw new PrachtHttpError(500, "Failed");
+            },
+          }),
+        },
+      },
+      request: new Request("http://localhost/boom"),
+    });
+
+    expect(response.status).toBe(500);
+    const html = await response.text();
+    expect(html).toContain(`class="${routeFont.className}"`);
+    expect(html).toContain('font-family:"Boundary Font"');
+    expect(html).toContain('href="/fonts/boundary.woff2"');
+  });
+
   it("returns a route-state error payload for loader failures", async () => {
     const app = defineApp({
       routes: [route("/posts/:slug", "./routes/post.tsx")],
@@ -2074,11 +2159,13 @@ describe("handlePrachtRequest ErrorBoundary", () => {
         name: "PrachtHttpError",
         status: 404,
       },
+      fontHead: { preloadLinks: [], css: "" },
     });
   });
 
-  it("includes shell font fragments in route-state error payloads", async () => {
+  it("includes shell and route font fragments in route-state error payloads", async () => {
     const shellFont = defineFont({ family: "Error Shell", src: "/fonts/error.woff2" });
+    const routeFont = defineFont({ family: "Error Route", src: "/fonts/route-error.woff2" });
     const app = defineApp({
       shells: { app: "./shells/app.tsx" },
       routes: [route("/boom", "./routes/boom.tsx", { shell: "app" })],
@@ -2091,6 +2178,7 @@ describe("handlePrachtRequest ErrorBoundary", () => {
           "./routes/boom.tsx": async () => ({
             Component: () => null,
             ErrorBoundary: () => h("p", null, "Failed"),
+            head: () => ({ fonts: [routeFont] }),
             loader: async () => {
               throw new PrachtHttpError(500, "Failed");
             },
@@ -2111,7 +2199,49 @@ describe("handlePrachtRequest ErrorBoundary", () => {
     expect(response.status).toBe(500);
     const payload = (await response.json()) as Record<string, any>;
     expect(payload.fontHead.css).toContain('font-family:"Error Shell"');
-    expect(payload.fontHead.preloadLinks).toEqual(shellFont.preloadLinks);
+    expect(payload.fontHead.css).toContain('font-family:"Error Route"');
+    expect(payload.fontHead.preloadLinks).toEqual([
+      ...shellFont.preloadLinks,
+      ...routeFont.preloadLinks,
+    ]);
+  });
+
+  it("falls back to shell fonts when an error route head requires loader data", async () => {
+    const shellFont = defineFont({ family: "Safe Shell", src: "/fonts/safe-shell.woff2" });
+    const app = defineApp({
+      shells: { app: "./shells/app.tsx" },
+      routes: [route("/boom", "./routes/boom.tsx", { shell: "app" })],
+    });
+
+    const response = await handlePrachtRequest({
+      app,
+      registry: {
+        routeModules: {
+          "./routes/boom.tsx": async () => ({
+            Component: () => null,
+            ErrorBoundary: () => h("p", null, "Failed"),
+            head: ({ data }: any) => ({ title: data.title }),
+            loader: async () => {
+              throw new PrachtHttpError(500, "Original failure");
+            },
+          }),
+        },
+        shellModules: {
+          "./shells/app.tsx": async () => ({
+            Shell: ({ children }) => h("main", null, children),
+            head: () => ({ fonts: [shellFont] }),
+          }),
+        },
+      },
+      request: new Request("http://localhost/boom", {
+        headers: { "x-pracht-route-state-request": "1" },
+      }),
+    });
+
+    expect(response.status).toBe(500);
+    const payload = (await response.json()) as Record<string, any>;
+    expect(payload.error.message).toBe("Internal Server Error");
+    expect(payload.fontHead.css).toContain('font-family:"Safe Shell"');
   });
 
   it("includes structured loader diagnostics in debug route-state responses", async () => {
@@ -2183,6 +2313,7 @@ describe("handlePrachtRequest ErrorBoundary", () => {
         name: "Error",
         status: 500,
       },
+      fontHead: { preloadLinks: [], css: "" },
     });
   });
 
@@ -2234,6 +2365,7 @@ describe("handlePrachtRequest ErrorBoundary", () => {
         name: "Error",
         status: 500,
       },
+      fontHead: { preloadLinks: [], css: "" },
     });
   });
 
@@ -2269,6 +2401,7 @@ describe("handlePrachtRequest ErrorBoundary", () => {
         name: "Error",
         status: 500,
       },
+      fontHead: { preloadLinks: [], css: "" },
     });
   });
 
@@ -2304,6 +2437,7 @@ describe("handlePrachtRequest ErrorBoundary", () => {
         name: "Error",
         status: 503,
       },
+      fontHead: { preloadLinks: [], css: "" },
     });
   });
 
@@ -2349,6 +2483,7 @@ describe("handlePrachtRequest ErrorBoundary", () => {
         name: "Error",
         status: 500,
       },
+      fontHead: { preloadLinks: [], css: "" },
     });
   });
 
@@ -2388,6 +2523,7 @@ describe("handlePrachtRequest ErrorBoundary", () => {
           name: "Error",
           status: 500,
         },
+        fontHead: { preloadLinks: [], css: "" },
       });
     } finally {
       if (previousNodeEnv === undefined) {

@@ -36,6 +36,7 @@ import {
 } from "./runtime-manifest.ts";
 import {
   mergeDocumentHeaders,
+  mergeErrorHeadMetadata,
   mergeHeadMetadata,
   runMiddlewareChain,
 } from "./runtime-middleware.ts";
@@ -89,15 +90,15 @@ function headersForReserializedBody(headers: Headers): Headers {
   return nextHeaders;
 }
 
-async function attachFontHeadToLoaderResponse<TContext>(options: {
+async function attachFontHeadToRouteStateResponse<TContext>(options: {
   response: Response;
   isRouteStateRequest: boolean;
   routeArgs: BaseRouteArgs<TContext>;
-  routeModule: RouteModule;
+  routeModule: RouteModule | undefined | Promise<RouteModule | undefined>;
   shellModule: ShellModule | undefined | Promise<ShellModule | undefined>;
 }): Promise<Response> {
-  const { response, isRouteStateRequest, routeArgs, routeModule } = options;
-  if (!isRouteStateRequest || !response.ok) return response;
+  const { response, isRouteStateRequest, routeArgs } = options;
+  if (!isRouteStateRequest) return response;
 
   const contentType = response.headers.get("content-type") ?? "";
   if (!contentType.includes("application/json")) return response;
@@ -105,17 +106,19 @@ async function attachFontHeadToLoaderResponse<TContext>(options: {
   const payload = (await response.clone().json()) as unknown;
   if (payload === null || typeof payload !== "object" || Array.isArray(payload)) return response;
 
-  const shellModule = await options.shellModule;
-  const data = (payload as Record<string, unknown>).data;
-  const fontHead =
-    shellModule?.head || routeModule.head
-      ? collectFontHeadFragments(
-          (await mergeHeadMetadata(shellModule, routeModule, routeArgs, data)).fonts ?? [],
-        )
-      : collectFontHeadFragments([]);
+  const body = payload as Record<string, unknown>;
+  if (Object.hasOwn(body, "fontHead") || typeof body.redirect === "string") return response;
+
+  const [routeModule, shellModule] = await Promise.all([options.routeModule, options.shellModule]);
+  const data = body.data;
+  const head =
+    response.ok && !Object.hasOwn(body, "error")
+      ? await mergeHeadMetadata(shellModule, routeModule, routeArgs, data)
+      : await mergeErrorHeadMetadata(shellModule, routeModule, routeArgs);
+  const fontHead = collectFontHeadFragments(head.fonts ?? []);
   return Response.json(
     {
-      ...(payload as Record<string, unknown>),
+      ...body,
       fontHead,
     },
     {
@@ -783,13 +786,7 @@ export async function handlePrachtRequest<TContext>(
 
         // Allow loaders to return a Response directly (e.g. for redirects)
         if (loaderResult instanceof Response) {
-          return attachFontHeadToLoaderResponse({
-            response: loaderResult,
-            isRouteStateRequest,
-            routeArgs,
-            routeModule,
-            shellModule: shellModulePromise,
-          });
+          return loaderResult;
         }
 
         const data = loaderResult;
@@ -1078,10 +1075,17 @@ export async function handlePrachtRequest<TContext>(
       if (timings) {
         timings.mw = performance.now() - chainStart - (timings.render ?? 0) - (timings.loader ?? 0);
       }
-      return normalizePageResponse(response, {
+      const normalizedResponse = normalizePageResponse(response, {
         isRouteStateRequest,
         loaderCache: match.route.loaderCache,
         markdown: match.route.markdown,
+      });
+      return await attachFontHeadToRouteStateResponse({
+        response: normalizedResponse,
+        isRouteStateRequest,
+        routeArgs,
+        routeModule: routeModulePromise,
+        shellModule: shellModulePromise,
       });
     } catch (error: unknown) {
       // A thrown `Response` is a deliberate short-circuit, not a failure: it is

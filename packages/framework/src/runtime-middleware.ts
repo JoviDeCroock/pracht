@@ -229,6 +229,35 @@ export async function mergeHeadMetadata(
       : Promise.resolve({} as HeadMetadata),
   ]);
 
+  return mergeHeadValues(shellHead, routeHead);
+}
+
+/**
+ * Resolve head metadata while rendering an error boundary. Route heads receive
+ * no loader data on this path, so a data-dependent head may fail; keep the
+ * shell head in that case while still retaining static route registrations
+ * such as fonts.
+ */
+export async function mergeErrorHeadMetadata(
+  shellModule: ShellModule | undefined,
+  routeModule: RouteModule | undefined,
+  routeArgs: BaseRouteArgs<unknown>,
+): Promise<HeadMetadata> {
+  const shellHead = shellModule?.head ? await shellModule.head(routeArgs) : {};
+  let routeHead: HeadMetadata = {};
+  if (routeModule?.head) {
+    try {
+      routeHead = await routeModule.head({ ...routeArgs, data: undefined } as any);
+    } catch {
+      // Preserve the original loader/render failure. The shell head remains a
+      // safe fallback when route metadata requires unavailable loader data.
+    }
+  }
+
+  return mergeHeadValues(shellHead, routeHead);
+}
+
+function mergeHeadValues(shellHead: HeadMetadata, routeHead: HeadMetadata): HeadMetadata {
   return {
     title: routeHead.title ?? shellHead.title,
     lang: routeHead.lang ?? shellHead.lang,

@@ -25,7 +25,7 @@ import {
   resolvePageJsUrls,
   resolveRegistryModule,
 } from "./runtime-manifest.ts";
-import { mergeDocumentHeaders } from "./runtime-middleware.ts";
+import { mergeDocumentHeaders, mergeErrorHeadMetadata } from "./runtime-middleware.ts";
 import { PrachtRuntimeProvider } from "./runtime-hooks.ts";
 import {
   getIslandsClientEntryUrl,
@@ -198,9 +198,9 @@ export async function renderRouteErrorResponse<TContext>(options: {
       : undefined);
 
   if (options.isRouteStateRequest) {
-    const head = shellModule?.head ? await shellModule.head(options.routeArgs) : undefined;
+    const head = await mergeErrorHeadMetadata(shellModule, options.routeModule, options.routeArgs);
     return jsonErrorResponse(routeErrorWithDiagnostics, {
-      fontHead: head ? collectFontHeadFragments(head.fonts ?? []) : undefined,
+      fontHead: collectFontHeadFragments(head.fonts ?? []),
       isRouteStateRequest: true,
     });
   }
@@ -223,7 +223,7 @@ export async function renderRouteErrorResponse<TContext>(options: {
       }),
     );
   }
-  const head = shellModule?.head ? await shellModule.head(options.routeArgs) : {};
+  const head = await mergeErrorHeadMetadata(shellModule, options.routeModule, options.routeArgs);
   const documentHeaders = await mergeDocumentHeaders(
     shellModule,
     undefined,
