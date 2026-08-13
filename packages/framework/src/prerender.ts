@@ -1,5 +1,5 @@
 import { resolveApp } from "./app.ts";
-import { buildPathFromSegments } from "./route-matching.ts";
+import { buildPathFromSegments } from "./route-href.ts";
 import { isDangerousPrerenderHeader, normalizeRouteRevalidate } from "./revalidation.ts";
 import { hasMarkdownRepresentation } from "./runtime-negotiation.ts";
 import { resolveRegistryModule } from "./runtime-manifest.ts";

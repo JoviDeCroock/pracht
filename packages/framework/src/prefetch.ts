@@ -1,4 +1,4 @@
-import { matchResolvedRoute } from "./route-matching.ts";
+import { matchResolvedRoute } from "./route-pattern.ts";
 import { clearPrefetchCache, getCachedRouteState, trimMapToSize } from "./prefetch-cache.ts";
 import { prefetchRouteState } from "./prefetch-api.ts";
 import { PREFETCH_ATTRIBUTE } from "./runtime-constants.ts";

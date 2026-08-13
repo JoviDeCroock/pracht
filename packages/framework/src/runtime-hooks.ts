@@ -2,7 +2,7 @@ import { h } from "preact";
 import type { JSX } from "preact";
 import { useContext, useEffect, useMemo, useState } from "preact/hooks";
 
-import { buildHrefUntyped } from "./route-matching.ts";
+import { buildHrefUntyped } from "./route-href.ts";
 import { getNavigation, subscribeToNavigation, type Navigation } from "./navigation-state.ts";
 import {
   PREFETCH_ATTRIBUTE,

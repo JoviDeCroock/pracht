@@ -1,4 +1,4 @@
-import { matchResolvedRoute } from "./route-matching.ts";
+import { matchResolvedRoute } from "./route-pattern.ts";
 import { markHydrating, onHydrationComplete } from "./hydration.ts";
 import type { ClientRouteRenderer } from "./router-renderer.ts";
 import { resolveBrowserRouteTarget } from "./router-browser.ts";

@@ -1,4 +1,4 @@
-import { matchResolvedRoute } from "./route-matching.ts";
+import { matchResolvedRoute } from "./route-pattern.ts";
 import type { RouterHistoryController } from "./router-history.ts";
 import { PRESERVE_SCROLL_ATTRIBUTE, VIEW_TRANSITION_ATTRIBUTE } from "./runtime-constants.ts";
 import { normalizeSpeculation, supportsSpeculationRules } from "./runtime-speculation.ts";

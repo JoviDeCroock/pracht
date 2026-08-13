@@ -16,9 +16,9 @@ import {
   VALIDATE_MANIFEST,
 } from "./app-validation.ts";
 import { NOT_FOUND_ROUTE_ID, NOT_FOUND_ROUTE_PATH } from "./runtime-constants.ts";
-import { matchResolvedRoute, normalizeRoutePath, parseRouteSegments } from "./route-matching.ts";
+import { matchResolvedRoute, normalizeRoutePath, parseRouteSegments } from "./route-pattern.ts";
 
-export { buildHref, buildPathFromSegments } from "./route-matching.ts";
+export { buildHref, buildPathFromSegments } from "./route-href.ts";
 export { matchApiRoute, resolveApiRoutes } from "./api-routes.ts";
 export { defineApp, group, route, timeRevalidate, webhookRevalidate } from "./app-definition.ts";
 

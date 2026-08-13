@@ -7,7 +7,8 @@
  * the core client bundle.
  */
 
-import { buildHrefUntyped, matchResolvedRoute } from "./route-matching.ts";
+import { buildHrefUntyped } from "./route-href.ts";
+import { matchResolvedRoute } from "./route-pattern.ts";
 import {
   cacheRouteState,
   EMPTY_ROUTE_STATE_PROMISE,

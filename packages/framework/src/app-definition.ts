@@ -1,5 +1,5 @@
 import { assertKnownNotFoundConfig } from "./app-validation.ts";
-import { normalizeRoutePath } from "./route-matching.ts";
+import { normalizeRoutePath } from "./route-pattern.ts";
 import type {
   GroupDefinition,
   GroupMeta,

@@ -20,6 +20,11 @@ Route modules may export the page as a function default export or as a named
 `Component` export. Named exports such as `loader`, `head`, `ErrorBoundary`, and
 `getStaticPaths` keep their special route-module behavior.
 
+For contributors, inbound route pattern parsing/matching lives in
+`route-pattern.ts`, while outbound path, param, search, hash, and href
+construction lives in `route-href.ts`. `route-matching.ts` remains the stable
+internal facade, and runtime consumers depend directly on the narrower layer.
+
 ### Server
 
 - `handlePrachtRequest()` — server renderer that produces full HTML with hydration markers

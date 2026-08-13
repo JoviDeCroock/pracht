@@ -31,6 +31,9 @@ described in `VISION_MVP.md`.
   dynamic-segment and catch-all matching. `buildHref()`/`createHref()` build
   adapter-agnostic URLs from resolved route ids, and `<Link route="...">` plus
   route-object `useNavigate()` keep client navigation on the same route map.
+  Pattern normalization, parsing, and matching live in `route-pattern.ts`;
+  outbound param/path/search/hash construction lives in `route-href.ts`;
+  `route-matching.ts` preserves the former internal facade.
 - **API routes** — File-based auto-discovery from `src/api/`. Files are globbed
   by the Vite plugin and resolved to URL paths (e.g. `src/api/health.ts` →
   `/api/health`, `src/api/users/[id].ts` → `/api/users/:id`,

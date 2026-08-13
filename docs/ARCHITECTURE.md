@@ -532,6 +532,9 @@ name-suggestions.ts — edit-distance "did you mean" helpers for wiring errors
 app-definition.ts — route/group/app authoring DSL and module-reference normalization
 app.ts          — resolved route graph, matching, and inherited route flattening
 app-validation.ts — manifest keys, registered names, cache values, and render compatibility
+route-pattern.ts — normalized route parsing, safe segments, and pathname matching
+route-href.ts — typed/untyped href, param, search, hash, and path construction
+route-matching.ts — stable route primitive facade
 api-validation.ts — stable typed API validation facade
 api-validation-types.ts — JSON compatibility and defineApi inference contracts
 api-json-response.ts — payload-preserving JSON response construction

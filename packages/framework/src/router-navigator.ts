@@ -1,4 +1,5 @@
-import { buildHrefUntyped, matchResolvedRoute } from "./route-matching.ts";
+import { buildHrefUntyped } from "./route-href.ts";
+import { matchResolvedRoute } from "./route-pattern.ts";
 import {
   beginLoadingNavigation,
   createNavigationLocation,

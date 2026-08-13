@@ -3,7 +3,7 @@ import {
   normalizeRoutePath,
   parseRouteSegments,
   splitPathSegments,
-} from "./route-matching.ts";
+} from "./route-pattern.ts";
 import type { ApiRouteMatch, ResolvedApiRoute, RouteSegment } from "./types.ts";
 
 /**

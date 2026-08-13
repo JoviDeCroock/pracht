@@ -1,9 +1,5 @@
-import {
-  buildPathFromSegments,
-  normalizeHrefParams,
-  parseRouteSegments,
-  serializeSearch,
-} from "./route-matching.ts";
+import { buildPathFromSegments, normalizeHrefParams, serializeSearch } from "./route-href.ts";
+import { parseRouteSegments } from "./route-pattern.ts";
 import { isApiValidationErrorBody, type ApiValidationIssue } from "./api-validation.ts";
 import type {
   ApiFetchArgs,

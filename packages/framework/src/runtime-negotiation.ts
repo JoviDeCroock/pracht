@@ -1,6 +1,6 @@
 import { appendVaryHeader } from "./runtime-header-values.ts";
 import { applyDefaultSecurityHeaders } from "./runtime-response-security.ts";
-import { normalizeRoutePath } from "./route-matching.ts";
+import { normalizeRoutePath } from "./route-pattern.ts";
 import type { ResolvedRoute, RouteModule } from "./types.ts";
 
 export const MARKDOWN_MEDIA_TYPE = "text/markdown";
