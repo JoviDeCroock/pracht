@@ -572,8 +572,12 @@ runtime-response-types.ts — shared generated-asset options for runtime error v
 runtime-api-error-response.ts — API diagnostics, sanitization, and plaintext fallback
 runtime-route-error-response.ts — route ErrorBoundary rendering and hydration assets
 runtime-response.ts — stable response-helper facade
+revalidation-cache.ts — shared-cache eligibility and persisted-header safety policy
+revalidation-policy.ts — route revalidation normalization and policy lookup
+revalidation-report.ts — webhook skip classification and adapter-neutral outcome reporting
 revalidation-request.ts — webhook authentication, bounded path parsing, and safe regeneration requests
-revalidation.ts — cache policy, single-flight control, outcome reporting, and stable request facade
+revalidation-single-flight.ts — keyed regeneration concurrency control
+revalidation.ts — stable revalidation compatibility facade
 runtime-capability-registry.ts — capability manifest loading, contract validation,
                                  cache identity, and HTTP path matching
 runtime-capability-pipeline.ts — shared input validation, named middleware, execution,

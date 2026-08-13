@@ -114,29 +114,34 @@ export type {
 export { buildLlmsTxt } from "./llms-txt.ts";
 export type { BuildLlmsTxtOptions, LlmsTxtSection } from "./llms-txt.ts";
 export { prerenderApp } from "./prerender.ts";
+export { isCacheableISGResponse, isDangerousPrerenderHeader } from "./revalidation-cache.ts";
 export {
-  createISGRegenerationRequest,
-  createRevalidationSingleFlight,
   getTimeRevalidateSeconds,
   hasWebhookRevalidate,
-  isAuthorizedRevalidationRequest,
-  isCacheableISGResponse,
-  isDangerousPrerenderHeader,
-  jsonResponse,
   normalizeRouteRevalidate,
+} from "./revalidation-policy.ts";
+export {
+  classifyRevalidationSkip,
+  RevalidationReport,
+  type RevalidationDetail,
+  type RevalidationOutcome,
+  type RevalidationReportBody,
+  type RevalidationSkipReason,
+} from "./revalidation-report.ts";
+export {
+  createISGRegenerationRequest,
+  isAuthorizedRevalidationRequest,
+  jsonResponse,
   PRACHT_REVALIDATE_ENDPOINT,
   PRACHT_REVALIDATE_TOKEN_ENV,
   PRACHT_REVALIDATE_TOKEN_HEADER,
   readRevalidationRequest,
   resolveRevalidationToken,
-  RevalidationReport,
-  classifyRevalidationSkip,
-  type RevalidationDetail,
-  type RevalidationOutcome,
-  type RevalidationReportBody,
-  type RevalidationSkipReason,
+} from "./revalidation-request.ts";
+export {
+  createRevalidationSingleFlight,
   type RevalidationSingleFlight,
-} from "./revalidation.ts";
+} from "./revalidation-single-flight.ts";
 export { PRACHT_GRAPH_ONLY_ENV } from "./runtime-constants.ts";
 export { redirect, type RedirectOptions } from "./runtime-redirect.ts";
 export {

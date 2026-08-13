@@ -154,6 +154,13 @@ described in `VISION_MVP.md`.
   config. Node uses file mtime, Cloudflare uses the Cache API with `env.ASSETS`
   fallback, and Vercel emits Build Output API prerender functions. Routes can
   opt into `timeRevalidate()`, `webhookRevalidate()`, or both.
+  `revalidation.ts` preserves the former helper surface as a compatibility
+  facade. Route-policy validation and lookup live in `revalidation-policy.ts`,
+  cache and persisted-header safety in `revalidation-cache.ts`, keyed
+  regeneration deduplication in `revalidation-single-flight.ts`,
+  adapter-neutral webhook reporting in `revalidation-report.ts`, and the
+  authenticated HTTP boundary in `revalidation-request.ts`. Internal framework
+  consumers import the narrow policy or cache layer directly.
 - **Middleware** — Named middleware from the manifest runs before loaders and can
   redirect, return a Response, or augment the context.
 - **Vite plugin** — Generates `virtual:pracht/client` (hydration entry) and

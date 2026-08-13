@@ -54,6 +54,14 @@ Request entry setup lives in `runtime-request-setup.ts`; terminal page matching
 and method/not-found settlement live in `runtime-page-dispatch.ts`, leaving
 `runtime.ts` as the readable API → agent → page coordinator.
 
+ISG revalidation keeps `revalidation.ts` as its stable compatibility facade.
+Route-policy normalization, shared-cache and persisted-header safety,
+single-flight regeneration, webhook outcome reporting, and authenticated
+request parsing live in `revalidation-policy.ts`, `revalidation-cache.ts`,
+`revalidation-single-flight.ts`, `revalidation-report.ts`, and
+`revalidation-request.ts` respectively. Internal consumers import the narrow
+layer they need.
+
 Capability transport keeps its request contract in the type-only
 `runtime-capability-transport-types.ts`. MCP-only middleware output
 revalidation lives in `runtime-capability-mcp-output.ts`, separate from the

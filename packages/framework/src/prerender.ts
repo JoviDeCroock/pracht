@@ -1,6 +1,7 @@
 import { resolveApp } from "./app-resolution.ts";
 import { buildPathFromSegments } from "./route-href.ts";
-import { isDangerousPrerenderHeader, normalizeRouteRevalidate } from "./revalidation.ts";
+import { isDangerousPrerenderHeader } from "./revalidation-cache.ts";
+import { normalizeRouteRevalidate } from "./revalidation-policy.ts";
 import { hasMarkdownRepresentation } from "./runtime-negotiation.ts";
 import { resolveRegistryModule } from "./runtime-manifest.ts";
 import { handlePrachtRequest } from "./runtime.ts";
