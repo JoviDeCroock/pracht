@@ -30,4 +30,5 @@ export {
   type I18nDetectSource,
   type I18nDetection,
   type I18nRequestContext,
+  type LocaleCookieOptions,
 } from "./define.ts";

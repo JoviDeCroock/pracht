@@ -538,6 +538,72 @@ describe("<Form> validation", () => {
     await expect(responses[0].json()).resolves.toEqual({ created: "pracht" });
   });
 
+  it("navigates to the target of a followed API route redirect", async () => {
+    // The submission must not use `redirect: "manual"`: a same-origin 3xx
+    // then comes back opaque-filtered (status 0, no readable `Location`), so
+    // the client would fall back to the action URL and land the visitor on
+    // the API route itself instead of the page it redirected to.
+    // `redirected`/`url` are read-only accessors on a real Response, so the
+    // followed-redirect shape the browser produces is mocked directly.
+    const target = `${window.location.origin}/greeting`;
+    fetchSpy.mockResolvedValue({
+      redirected: true,
+      url: target,
+      status: 200,
+      headers: new Headers(),
+    } as unknown as Response);
+    const navigate = vi.fn(async () => undefined);
+    window.__PRACHT_NAVIGATE__ = navigate;
+    const responses: Response[] = [];
+
+    render(
+      h(
+        Form,
+        { action: "/api/locale", method: "post", onResponse: (found) => responses.push(found) },
+        h("input", { name: "locale", value: "nl" }),
+      ),
+      root,
+    );
+
+    await submit();
+
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "/api/locale",
+      expect.objectContaining({ method: "POST" }),
+    );
+    expect(fetchSpy.mock.calls[0]?.[1]).not.toHaveProperty("redirect");
+    // Same-origin targets are normalized to a path before navigating.
+    expect(navigate).toHaveBeenCalledWith("/greeting", {
+      _reloadRouteState: true,
+      replace: undefined,
+    });
+    expect(responses).toHaveLength(0);
+  });
+
+  it("still reads the Location header from an unfollowed redirect", async () => {
+    fetchSpy.mockResolvedValue(
+      new Response(null, { status: 303, headers: { location: "/greeting" } }),
+    );
+    const navigate = vi.fn(async () => undefined);
+    window.__PRACHT_NAVIGATE__ = navigate;
+
+    render(
+      h(
+        Form,
+        { action: "/api/locale", method: "post" },
+        h("input", { name: "locale", value: "nl" }),
+      ),
+      root,
+    );
+
+    await submit();
+
+    expect(navigate).toHaveBeenCalledWith("/greeting", {
+      _reloadRouteState: true,
+      replace: undefined,
+    });
+  });
+
   it("keeps the response body readable in onResponse after issues are parsed", async () => {
     const errorBody = {
       error: "validation",

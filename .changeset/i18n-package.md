@@ -21,8 +21,12 @@ return translations, components consume them via route data).
   fallback.
 
 Only registered locales can win detection; malformed `Accept-Language`
-q-values are dropped, unregistered URL/cookie locales are ignored, and
+q-values are dropped in full (including valid numeric prefixes followed by
+garbage), unregistered URL/cookie/wildcard locales are ignored, and
 `localePath()` throws rather than reflecting unknown locales into URLs.
+
+`SameSite=None` locale cookies always include `Secure`, even if configuration
+tries to disable it, so browsers do not silently reject locale persistence.
 
 Caching-correctness guarantees: cookie persistence is skipped on
 prerenderable (SSG/ISG) routes, so locale-prefixed routes can prerender

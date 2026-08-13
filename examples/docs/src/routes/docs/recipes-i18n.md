@@ -24,6 +24,22 @@ Pracht's i18n story follows one pattern, now packaged as `@pracht/i18n`:
 npm install @pracht/i18n
 ```
 
+### Two URL strategies
+
+Steps 1, 2 and 5 are the same either way. What differs is whether the locale is part of the URL:
+
+| Concern | **A. Locale-prefixed URLs** (`/en/about`, `/fr/about`) | **B. One URL per page** (`/about`) |
+| --- | --- | --- |
+| Locale comes from | the path (cookie/header only on unprefixed entry points) | the cookie, falling back to `Accept-Language` |
+| Switching | navigate to the other prefix | write the cookie (form post, or client-side) |
+| SEO | each language is its own indexable URL; `hreflang` alternates work | one indexable URL — crawlers see whatever their `Accept-Language` resolves to |
+| Caching | `render: "ssg"`/`"isg"` per locale; shared caches key on the URL | SSR only: responses carry `Vary: Cookie, Accept-Language` |
+| Cost of adopting | every URL changes | nothing changes |
+
+Strategy A is the better default for public, indexable content — if you are starting fresh, take it. Strategy B is the answer when the URLs already exist and cannot move (or when the app is behind a login, where indexing does not matter): it keeps one URL per page and switches with no navigation at all.
+
+The detection order is the same in both (`["path", "cookie", "header"]`), so you can mix them in one app: the path source simply never matches on a prefix-free route.
+
 ---
 
 ## 1. Define Locales and Dictionaries
@@ -86,7 +102,7 @@ export const middleware = i18n.middleware;
 
 The middleware resolves the locale via the configured detection order, sets `context.locale` for loaders, and — when the URL prefix chose the locale — persists it in a cookie (`pracht_locale`, `Path=/`, `SameSite=Lax`, one year, `Secure` on https). Persistence only happens on per-request (SSR/SPA) routes: SSG/ISG output is stored and replayed to every visitor, so the middleware never attaches `Set-Cookie` there. It also appends `Vary: Cookie` / `Vary: Accept-Language` when those detection sources were consulted, so a shared cache in front of the app keys on them.
 
-Only registered locales can ever win: unregistered URL prefixes and cookie values are ignored, malformed `Accept-Language` entries (`;q=`, garbage tags) are dropped, and matching follows RFC 4647 lookup (`fr-CA` → `fr`, `zh-Hant-TW` → `zh-Hant`) with a same-language best fit (`en-GB` → a registered `en-US`) before falling through to lower-preference entries.
+Only registered locales can ever win: unregistered URL prefixes and cookie values are ignored, malformed `Accept-Language` entries (`;q=`, `q=0.5junk`, garbage tags) are dropped, wildcard fallbacks are checked against the locale registry, and matching follows RFC 4647 lookup (`fr-CA` → `fr`, `zh-Hant-TW` → `zh-Hant`) with a same-language best fit (`en-GB` → a registered `en-US`) before falling through to lower-preference entries.
 
 Type `context.locale` once via the framework's `Register` pattern:
 
@@ -102,7 +118,7 @@ declare module "@pracht/core" {
 
 ---
 
-## 3. Wire Routes with Locale Prefixes
+## 3. Strategy A — Locale-Prefixed Routes
 
 Use one `pathPrefix` group per locale — this works with today's router and means **only registered locales produce URLs**: `/zz/about` is a plain 404, never duplicate default-locale content at a bogus URL (a `/:locale/about` param route cannot make that guarantee — it matches any first segment).
 
@@ -149,7 +165,132 @@ export function Component() {
 
 ---
 
-## 4. Load Translations in Your Loader
+### Language switcher
+
+`localePath()` swaps the locale prefix while preserving the rest of the path, query, and hash — and throws on unregistered locales, so user input can never be reflected into a URL:
+
+```tsx [src/components/LanguageSwitcher.tsx]
+import { useLocation } from "@pracht/core";
+import { i18n, type AppLocale } from "../i18n/index.ts";
+
+const labels: Record<AppLocale, string> = { en: "English", fr: "Français" };
+
+export function LanguageSwitcher({ currentLocale }: { currentLocale: AppLocale }) {
+  const { pathname } = useLocation();
+
+  return (
+    <nav class="lang-switcher">
+      {i18n.locales.map((locale) => (
+        <a
+          key={locale}
+          href={i18n.localePath(pathname, locale)}
+          class={locale === currentLocale ? "active" : ""}
+        >
+          {labels[locale]}
+        </a>
+      ))}
+    </nav>
+  );
+}
+```
+
+Navigating to the other prefix is an explicit choice, so the middleware refreshes the locale cookie and unprefixed entry points remember it.
+
+---
+
+## 4. Strategy B — One URL Per Page
+
+If your URLs are fixed — an existing site, a shared link surface, an app behind a login — keep them and let the locale live in the cookie. Nothing about the manifest changes: register routes as usual and add the i18n middleware to the group.
+
+```ts [src/routes.ts]
+group({ shell: "main", middleware: ["i18n"] }, [
+  route("/", "./routes/home.tsx", { render: "ssr" }),
+  route("/about", "./routes/about.tsx", { render: "ssr" }),
+]);
+```
+
+Detection now resolves through the cookie (a choice the visitor already made) and then `Accept-Language`, and the middleware stamps `Vary: Cookie, Accept-Language` so a shared cache in front of the app cannot serve one visitor's language to another. That also means these routes are per-request: keep them `render: "ssr"` (or `"spa"`), not `"ssg"`/`"isg"`.
+
+There is no URL prefix to persist, so the switch is what writes the cookie. Two ways, and they compose:
+
+**Server switch (works without JavaScript).** An API route sets the cookie and redirects back to the same URL; `<Form>` intercepts it when hydrated, follows the 303, and re-runs the loader:
+
+```ts [src/api/locale.ts]
+import { redirect, type BaseRouteArgs } from "@pracht/core";
+import { i18n } from "../i18n/index.ts";
+
+export async function POST({ request, url }: BaseRouteArgs) {
+  const form = await request.formData();
+  const locale = form.get("locale");
+  if (!i18n.isLocale(locale)) return new Response("Unknown locale", { status: 400 });
+
+  // Only bounce back to one of your own paths — `next` is user input.
+  const next = form.get("next");
+  const target = typeof next === "string" && /^\/(?![/\\])/.test(next) ? next : "/";
+
+  const response = redirect(target, { request, status: 303 });
+  response.headers.append("set-cookie", i18n.localeCookie(locale, { url }));
+  return response;
+}
+```
+
+```tsx [src/components/LanguageSwitcher.tsx]
+import { Form, useLocation } from "@pracht/core";
+import { i18n } from "../i18n/index.ts";
+
+export function LanguageSwitcher() {
+  const { pathname } = useLocation();
+  return (
+    <Form method="post" action="/api/locale" aria-label="Language switcher">
+      <input type="hidden" name="next" value={pathname} />
+      {i18n.locales.map((locale) => (
+        <button key={locale} type="submit" name="locale" value={locale}>
+          {locale}
+        </button>
+      ))}
+    </Form>
+  );
+}
+```
+
+`localeCookie(locale, { url })` serializes exactly what the middleware reads — same name, path, `Max-Age`, `SameSite`, and `Secure` inferred from the request URL. `SameSite=None` always forces `Secure`, because browsers otherwise reject the cookie. Pass `null` to clear it and go back to automatic detection.
+
+**Client switch (no request at all).** Write the cookie from the browser and swap the dictionary in place — the URL never changes and nothing is re-fetched:
+
+```tsx
+import { useEffect, useState } from "preact/hooks";
+import { t } from "@pracht/i18n";
+import { dictionaries, i18n, type AppLocale } from "../i18n/index.ts";
+
+export function Component({ data }: RouteComponentProps<typeof loader>) {
+  const [override, setOverride] = useState<typeof data.messages | null>(null);
+  // Loader data wins again whenever it changes.
+  useEffect(() => setOverride(null), [data.locale]);
+  const messages = override ?? data.messages;
+
+  async function switchTo(locale: AppLocale) {
+    i18n.setLocaleCookie(locale); // remembered for the next server render
+    setOverride(await dictionaries.load(locale)); // lazy chunk, then rerender
+  }
+
+  // `head()` runs on the server only: any locale change that does not reload
+  // the document has to keep <html lang> in sync itself.
+  useEffect(() => {
+    document.documentElement.lang = messages.$locale;
+  }, [messages.$locale]);
+
+  return <h1 onDblClick={() => switchTo("fr")}>{t(messages, "home.title")}</h1>;
+}
+```
+
+`dictionaries.load()` works in the browser exactly as it does on the server (each locale is its own lazily imported chunk), and `i18n.detectClient()` is the browser-side counterpart of `detect()` — it reads `location.pathname`, `document.cookie`, and `navigator.languages` in the same configured order, which is handy if a client-only surface needs to resolve the locale on its own.
+
+> [!NOTE]
+> One URL per page cannot express `hreflang` — there is no alternate URL to point at — so skip `i18n.hreflang()` here and accept that search engines index a single language version. If indexable multilingual content matters more than the URLs, that is the argument for strategy A.
+
+---
+
+## 5. Load Translations in Your Loader
 
 ```tsx [src/routes/home.tsx]
 import type { HeadArgs, LoaderArgs, RouteComponentProps } from "@pracht/core";
@@ -188,46 +329,13 @@ Because `messages` is plain JSON, it serializes into route data and the exact sa
 
 ---
 
-## 5. Language Switcher
-
-`localePath()` swaps the locale prefix while preserving the rest of the path, query, and hash — and throws on unregistered locales, so user input can never be reflected into a URL:
-
-```tsx [src/components/LanguageSwitcher.tsx]
-import { useLocation } from "@pracht/core";
-import { i18n, type AppLocale } from "../i18n/index.ts";
-
-const labels: Record<AppLocale, string> = { en: "English", fr: "Français" };
-
-export function LanguageSwitcher({ currentLocale }: { currentLocale: AppLocale }) {
-  const { pathname } = useLocation();
-
-  return (
-    <nav class="lang-switcher">
-      {i18n.locales.map((locale) => (
-        <a
-          key={locale}
-          href={i18n.localePath(pathname, locale)}
-          class={locale === currentLocale ? "active" : ""}
-        >
-          {labels[locale]}
-        </a>
-      ))}
-    </nav>
-  );
-}
-```
-
-Navigating to the other prefix is an explicit choice, so the middleware refreshes the locale cookie and unprefixed entry points remember it.
-
----
-
 ## Tips
 
 - **SSG/ISG**: locale-prefixed routes can be `render: "ssg"` or `"isg"` — every prefixed URL is a real route, so each locale prerenders, and the middleware skips cookie persistence on prerenderable routes so no `Set-Cookie` ever lands in stored output. Keep the *detector* route SSR: its answer depends on the visitor's cookie/headers, and cookie/header detection cannot run against a stored document (prerender and ISG-revalidation requests carry no cookies or `Accept-Language`). For prerendered routes, keep `"path"` first in the detect order — a prerendered route that *depends* on cookie/header detection gets `Vary: Cookie` and is refused by the ISG cache rather than serving one visitor's locale to everyone.
 - On SSG/ISG routes, pass your canonical origin to `hreflang()` (`{ origin: "https://example.com" }`) — `url.origin` at prerender time is a placeholder (`http://localhost`) and would be baked into the static document.
-- Set `lang` from the resolved locale in `head()` (as above) so browsers and screen readers know the language.
+- Set `lang` from the resolved locale in `head()` (as above) so browsers and screen readers know the language. `head()` runs on the server, so a locale change that never reloads the document — the client switch in strategy B — must set `document.documentElement.lang` itself.
 - Use `Intl.DateTimeFormat` / `Intl.NumberFormat` with `data.locale` for dates and numbers — no library needed.
-- A working end-to-end setup (two locales, detector redirect, hreflang, cookie override, plural rendering) lives in [`examples/basic`](https://github.com/JoviDeCroock/pracht/tree/main/examples/basic) under `/welcome`.
+- A working end-to-end setup lives in [`examples/basic`](https://github.com/JoviDeCroock/pracht/tree/main/examples/basic): strategy A under `/welcome` (two locales, detector redirect, hreflang, cookie override, plural rendering) and strategy B under `/greeting` (one URL, form-post switch via `/api/locale`, client-side switch) — both against a single i18n instance.
 
 ---
 

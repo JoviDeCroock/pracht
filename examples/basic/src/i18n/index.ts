@@ -7,7 +7,10 @@ export const i18n = defineI18n({
   locales: ["en", "nl"],
   defaultLocale: "en",
   // Detection order (also the default): explicit URL prefix beats the
-  // remembered cookie beats the browser's Accept-Language header.
+  // remembered cookie beats the browser's Accept-Language header. This order
+  // serves both strategies dogfooded here — the prefix wins on /en/welcome
+  // and /nl/welcome, and simply never matches on the prefix-free /greeting,
+  // where the cookie decides.
   detect: ["path", "cookie", "header"],
 });
 
@@ -23,3 +26,6 @@ export const dictionaries = createDictionaries(
   },
   { defaultLocale: "en" },
 );
+
+/** A loaded dictionary — handy when client code holds one in state. */
+export type AppMessages = Awaited<ReturnType<typeof dictionaries.load>>;

@@ -1,16 +1,18 @@
 ---
 name: add-i18n
-version: 2.0.1
+version: 2.1.0
 description: |
   Wire internationalization into a pracht app with the first-party
   `@pracht/i18n` package, following the framework's recommended pattern
   (middleware detects locale, loaders return translations, components
   consume via route data). Sets up the i18n instance, lazy locale
   dictionaries with typed keys, the detection middleware (URL-prefix,
-  cookie, and `Accept-Language`), locale-prefixed route groups, and
-  hreflang metadata.
+  cookie, and `Accept-Language`), and either strategy: locale-prefixed
+  route groups with hreflang metadata, or one URL per page with a
+  cookie-backed switcher that changes no URLs.
   Use when asked to "add i18n", "set up translations", "make my app
-  multilingual", "add locale routing", or "extract strings".
+  multilingual", "add locale routing", "switch language without changing
+  URLs", or "extract strings".
 allowed-tools:
   - Bash
   - Read
@@ -27,22 +29,39 @@ Pracht ships its i18n primitives as `@pracht/i18n`: locale-detection
 middleware, lazy dictionaries with keys typed from the default locale,
 `t()`/`tPlural()` (plurals via `Intl.PluralRules`), `localePath()`, and an
 `hreflang()` helper for `head()`. The full guide lives at
-`examples/docs/src/routes/docs/recipes-i18n.md`; a working setup is in
-`examples/basic` (`/welcome`, `/en/welcome`, `/nl/welcome`). That page also
-keeps a hand-rolled fallback recipe if the user refuses the dependency.
+`examples/docs/src/routes/docs/recipes-i18n.md`; working setups are in
+`examples/basic` — locale-prefixed (`/welcome`, `/en/welcome`,
+`/nl/welcome`) and prefix-free (`/greeting`, `src/api/locale.ts`). That page
+also keeps a hand-rolled fallback recipe if the user refuses the dependency.
 
 If the pracht MCP server is registered (see docs/MCP.md), prefer its tools
 (`inspect_routes`, `inspect_api`, `inspect_build`, `doctor`, `verify`,
 `generate_*`) over shelling out. Prerequisite: `pracht inspect` needs a vite
 config with the pracht plugin registered.
 
-## Step 1: Pick locales and detection order
+## Step 1: Pick locales and a URL strategy
 
 Use `AskUserQuestion` once for: supported locales (default: `en` plus one or
-two more), the default locale, and the detection order. The package default —
-`["path", "cookie", "header"]` (explicit URL prefix beats the remembered
-cookie beats `Accept-Language`) — is right for almost everyone; only change
-it when the user explicitly wants cookie-only or header-only detection.
+two more), the default locale, and the **URL strategy**:
+
+- **A. Locale-prefixed URLs** (`/en/about`) — the default for public,
+  indexable content: each language is its own URL, `hreflang()` works, and
+  routes can stay `ssg`/`isg`. Adopting it changes every URL.
+- **B. One URL per page** (`/about`) — for an existing site whose URLs
+  cannot move, or an app behind a login where indexing does not matter. The
+  cookie decides the locale, switching needs no navigation, and no URL
+  changes. Cost: `Vary: Cookie, Accept-Language` makes those routes
+  per-request (`ssr`/`spa`, never `ssg`/`isg`) and a single URL cannot carry
+  hreflang alternates.
+
+Ask explicitly if the user already has a live site — never migrate an
+existing app's URLs without saying so. Both strategies can coexist in one
+app on one instance.
+
+Keep the default detection order `["path", "cookie", "header"]` in both
+cases (the path source simply never matches a prefix-free route); only
+change it when the user explicitly wants cookie-only or header-only
+detection.
 
 Install the package:
 
@@ -106,6 +125,9 @@ build and block ISG revalidation). It also appends `Vary: Cookie` /
 `Accept-Language` when those sources were consulted, so shared caches key
 correctly. Type the context once via the Register pattern:
 
+Cookie configuration stays browser-valid: `SameSite=None` always forces
+`Secure`, even if an explicit option attempts to disable it.
+
 ```ts
 // src/env.d.ts
 import type { I18nRequestContext } from "@pracht/i18n";
@@ -121,6 +143,8 @@ Intersect with the existing registered context type if the app already has
 one.
 
 ## Step 4: Wire the manifest
+
+### Strategy A — locale-prefixed URLs
 
 One `pathPrefix` group per locale — only registered locales produce URLs, so
 `/zz/about` 404s instead of serving duplicate default-locale content (never
@@ -172,8 +196,49 @@ export function Component() {
 
 - Route matching is exact: locale prefixes are lowercase URLs; build links
   with `i18n.localePath()` so they always come out canonical.
-- Cookie/header-only strategies (no URL prefixes): add the middleware to the
-  root group and skip the prefix groups and detector route.
+
+### Strategy B — one URL per page
+
+Nothing about the routes changes: add the middleware to the group and skip
+the prefix groups and the detector route entirely. Detection falls to the
+cookie, then `Accept-Language`; the middleware adds
+`Vary: Cookie, Accept-Language`, so keep those routes `ssr`/`spa`.
+
+Because no URL prefix ever signals an explicit choice, the *switcher* writes
+the cookie. Generate an API route (works with JavaScript disabled):
+
+```ts
+// src/api/locale.ts
+import { redirect, type BaseRouteArgs } from "@pracht/core";
+import { i18n } from "../i18n/index.ts";
+
+export async function POST({ request, url }: BaseRouteArgs) {
+  const form = await request.formData();
+  const locale = form.get("locale");
+  if (!i18n.isLocale(locale)) return new Response("Unknown locale", { status: 400 });
+
+  // `next` is user input — only bounce back to one of your own paths.
+  const next = form.get("next");
+  const target = typeof next === "string" && /^\/(?![/\\])/.test(next) ? next : "/";
+
+  const response = redirect(target, { request, status: 303 });
+  response.headers.append("set-cookie", i18n.localeCookie(locale, { url }));
+  return response;
+}
+```
+
+…and a `<Form method="post" action="/api/locale">` switcher with one
+`<button name="locale" value={locale}>` per locale plus a hidden `next`
+field carrying `useLocation().pathname`. Hydrated, `<Form>` follows the 303
+and re-runs the loader; without JavaScript the browser does.
+
+For an instant switch with no request at all, `i18n.setLocaleCookie(locale)`
+writes the same cookie from the browser and
+`await dictionaries.load(locale)` swaps the dictionary in place — hold the
+result in state, reset it when loader data changes, and set
+`document.documentElement.lang` by hand (`head()` already ran server-side).
+`i18n.detectClient()` is the browser-side `detect()` if a client-only
+surface needs to resolve the locale itself.
 
 ## Step 5: Use in loaders and components
 
@@ -203,7 +268,8 @@ export function Component({ data }: RouteComponentProps<typeof loader>) {
 `messages` is a plain serializable object, so the same `t()` calls work
 after hydration and on client navigations. `hreflang()` emits one alternate
 link per locale plus `x-default` pointing at the unprefixed detector; pass
-the app's canonical origin.
+the app's canonical origin. Under strategy B, omit the `link` entry: there
+is no alternate URL to point at, so emitting hreflang would be a lie.
 
 ## Step 6: SEO touch-ups
 
@@ -221,19 +287,31 @@ the app's canonical origin.
   `url.origin`, or the alternates bake in `http://localhost`.
 - Update the sitemap (cross-reference with `audit-seo`) to include all
   per-locale URLs.
+- Strategy B only: one URL means one indexed language (whatever the
+  crawler's `Accept-Language` resolves to). Say this out loud to the user;
+  if it matters, that is the argument for strategy A. Still set `lang`, and
+  leave sitemap entries as the single canonical URLs they already are.
 
 ## Step 7: Verify
 
-- Step 4 changed route paths — run `pracht typegen` to refresh the generated
-  route types/`href()` helper. Add `pracht typegen --check` to CI so stale
-  types fail the build.
+- If step 4 changed route paths (strategy A) or added the API route, run
+  `pracht typegen` to refresh the generated route types/`href()` helper. Add
+  `pracht typegen --check` to CI so stale types fail the build.
 - Boot dev: `pracht dev`.
-- `curl -i` the unprefixed detector with `Accept-Language: fr` (expect a 302
-  to `/fr/...`), with a `pracht_locale` cookie (cookie beats header), and
-  with garbage (`;q=`, unknown tags — expect the default locale).
-- Visit a locale-prefixed page; confirm translated content, the
-  `Set-Cookie` on first visit, and the hreflang links in the document head.
-- Visit an unsupported prefix (e.g. `/zz/about`); confirm it 404s.
+- Strategy A: `curl -i` the unprefixed detector with `Accept-Language: fr`
+  (expect a 302 to `/fr/...`), with a `pracht_locale` cookie (cookie beats
+  header), and with garbage (`;q=`, unknown tags — expect the default
+  locale). Visit a locale-prefixed page; confirm translated content, the
+  `Set-Cookie` on first visit, and the hreflang links in the head. Visit an
+  unsupported prefix (e.g. `/zz/about`); confirm it 404s.
+- Strategy B: `curl -i` the page with `Accept-Language: fr` (expect French
+  content, `Vary: Cookie, Accept-Language`, no `Set-Cookie`) and with
+  `Cookie: pracht_locale=fr` while sending `Accept-Language: en` (cookie
+  wins). `curl -i -X POST` the switcher with `-d locale=fr` and an
+  `Origin` header matching the host (mutation API routes are
+  same-origin-checked): expect a 303 plus `Set-Cookie`. Post an unregistered
+  locale and an off-origin `next`; expect a 400 and a same-origin redirect.
+  In the browser, switch and confirm the URL never changes.
 - `pnpm test` and `pnpm e2e` still pass.
 - Run `pracht verify --json` and confirm no failures.
 
@@ -243,7 +321,8 @@ the app's canonical origin.
    locale in module-level state — concurrent requests will collide.
 2. Only registered locales may ever reach paths, cookies, or hreflang.
    `defineI18n`/`localePath` enforce this — never bypass them with string
-   concatenation on user input.
+   concatenation on user input. Accept-Language wildcard fallbacks are also
+   resolved through the registered locale list.
 3. For SSG, only prerender URL combinations that exist; provide
    `getStaticPaths` returning the locale × dynamic-param product when a
    localized route has dynamic segments.
@@ -252,5 +331,8 @@ the app's canonical origin.
 5. Never bundle every translation into the client: `createDictionaries`
    loaders are per-locale lazy imports resolved in loaders; keep them that
    way.
+6. Never move an existing app's URLs without asking. Locale prefixes are a
+   strategy, not a requirement — if the user says their URLs are fixed,
+   strategy B is the answer, not a redirect table.
 
 $ARGUMENTS

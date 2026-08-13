@@ -91,11 +91,21 @@ export const app = defineApp({
         render: "ssr",
       }),
     ]),
-    // @pracht/i18n dogfood: one pathPrefix group per registered locale (so
-    // only registered locales ever match — /zz/welcome 404s), sharing one
+    // @pracht/i18n dogfood, both URL strategies against one i18n instance.
+    //
+    // Locale-prefixed (/welcome): one pathPrefix group per registered locale
+    // (so only registered locales ever match — /zz/welcome 404s), sharing one
     // route file, plus an unprefixed detector route that redirects to the
     // cookie/Accept-Language locale. SSR because detection is per-request.
+    //
+    // Prefix-free (/greeting): one URL for every locale, chosen by cookie and
+    // switched via POST /api/locale or client-side — for sites that cannot
+    // change their URLs.
     group({ shell: "public", middleware: ["i18n"] }, [
+      route("/greeting", () => import("./routes/greeting.tsx"), {
+        id: "greeting",
+        render: "ssr",
+      }),
       route("/welcome", () => import("./routes/welcome-redirect.tsx"), {
         id: "welcome",
         render: "ssr",

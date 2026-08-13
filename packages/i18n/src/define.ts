@@ -58,6 +58,16 @@ export interface I18nDetection<L extends string> {
   source: I18nDetectSource | "default";
 }
 
+export interface LocaleCookieOptions {
+  /**
+   * Request URL, used to infer the `Secure` attribute (set on https) exactly
+   * like the middleware does. API routes and loaders get one in their args.
+   */
+  url?: URL | string;
+  /** Force the `Secure` attribute instead of inferring it from `url`. */
+  secure?: boolean;
+}
+
 export interface HreflangOptions<L extends string = string> {
   /**
    * Absolute origin (`https://example.com`) prepended to every href. Google
@@ -107,6 +117,27 @@ export interface I18n<L extends string> {
   isLocale(value: unknown): value is L;
   /** Run detection outside the middleware (e.g. in a standalone loader). */
   detect(request: Request, url?: URL): I18nDetection<L>;
+  /**
+   * Browser-side counterpart of `detect()`: resolves the locale from the same
+   * configured sources, reading `location.pathname`, `document.cookie`, and
+   * `navigator.languages`. Sources unavailable in the current environment are
+   * skipped, so calling it during SSR yields the default locale.
+   */
+  detectClient(): I18nDetection<L>;
+  /**
+   * Serialize a `Set-Cookie` value that remembers `locale`, or an expired one
+   * when passed `null` (back to automatic detection). Use it wherever an
+   * explicit locale choice is made without a URL prefix — typically an API
+   * route behind a language switcher. Throws when the cookie is disabled or
+   * the locale is not registered.
+   */
+  localeCookie(locale: L | null, options?: LocaleCookieOptions): string;
+  /**
+   * Browser-only: write the locale cookie through `document.cookie` with the
+   * same name and attributes the middleware reads, so a client-side switch
+   * survives the next server render. Returns the serialized value.
+   */
+  setLocaleCookie(locale: L | null, options?: LocaleCookieOptions): string;
   /**
    * Prefix a path with a locale, replacing any existing locale prefix and
    * preserving query/hash: `localePath("/en/shop?page=2", "nl")` →
@@ -377,18 +408,88 @@ export function defineI18n<const L extends string>(config: I18nConfig<L>): I18n<
     return { locale: defaultLocale, source: "default" };
   }
 
-  function serializeCookie(locale: L, url: URL): string {
-    if (cookie === false) throw new TypeError("i18n cookie is disabled.");
+  function isHttps(url: URL | string | undefined): boolean {
+    if (url === undefined) return false;
+    if (typeof url !== "string") return url.protocol === "https:";
+    try {
+      return new URL(url).protocol === "https:";
+    } catch {
+      return false;
+    }
+  }
+
+  function serializeCookie(locale: L | null, options: LocaleCookieOptions = {}): string {
+    if (cookie === false) {
+      throw new TypeError("i18n: the locale cookie is disabled (`cookie: false`).");
+    }
+    if (locale !== null && !isLocale(locale)) {
+      throw new TypeError(
+        `localeCookie: unknown locale "${String(locale)}". Registered locales: ${locales.join(", ")}.`,
+      );
+    }
     const attributes = [
-      `${cookie.name}=${locale}`,
+      // Clearing keeps every other attribute identical so the browser matches
+      // and replaces the existing cookie instead of adding a second one.
+      `${cookie.name}=${locale ?? ""}`,
       `Path=${cookie.path}`,
-      `Max-Age=${cookie.maxAge}`,
+      `Max-Age=${locale === null ? 0 : cookie.maxAge}`,
       `SameSite=${cookie.sameSite}`,
     ];
     if (cookie.domain !== undefined) attributes.push(`Domain=${cookie.domain}`);
-    const secure = cookie.secure ?? (cookie.sameSite === "None" || url.protocol === "https:");
+    // Browsers reject SameSite=None cookies without Secure. Do not let an
+    // explicit false override produce a cookie that silently fails to persist.
+    const secure =
+      cookie.sameSite === "None" || (options.secure ?? cookie.secure ?? isHttps(options.url));
     if (secure) attributes.push("Secure");
     return attributes.join("; ");
+  }
+
+  function setLocaleCookie(locale: L | null, options: LocaleCookieOptions = {}): string {
+    if (typeof document === "undefined") {
+      throw new TypeError(
+        "setLocaleCookie: no `document` in this environment. Use localeCookie() and send it as a Set-Cookie header instead.",
+      );
+    }
+    const url =
+      options.url ?? (typeof location === "undefined" ? undefined : (location.href as string));
+    const serialized = serializeCookie(locale, { ...options, url });
+    document.cookie = serialized;
+    return serialized;
+  }
+
+  function detectClient(): I18nDetection<L> {
+    // Node exposes a global `navigator` whose `language` is the *server's*
+    // locale, so a server render must not fall through to the header source.
+    // `document` is the browser marker every source here depends on.
+    if (typeof document === "undefined") return { locale: defaultLocale, source: "default" };
+    for (const source of detectOrder) {
+      if (source === "path") {
+        if (typeof location === "undefined") continue;
+        const { locale } = splitLocale(location.pathname);
+        if (locale !== null) return { locale, source };
+      } else if (source === "cookie") {
+        if (cookie === false || typeof document === "undefined") continue;
+        const locale = toLocale(readCookieValue(document.cookie, cookie.name));
+        if (locale !== null) return { locale, source };
+      } else {
+        if (typeof navigator === "undefined") continue;
+        // `navigator.languages` is already in preference order and carries no
+        // q-values, so joining it reads as an `Accept-Language` header where
+        // position decides — which is exactly the matcher's tie-break.
+        const languages =
+          navigator.languages && navigator.languages.length > 0
+            ? navigator.languages
+            : navigator.language
+              ? [navigator.language]
+              : [];
+        if (languages.length === 0) continue;
+        const locale = matchAcceptLanguage(languages.join(","), locales, {
+          wildcard: defaultLocale,
+        }) as L | null;
+        if (locale !== null) return { locale, source };
+      }
+    }
+    return { locale: defaultLocale, source: "default" };
   }
 
   const middleware: MiddlewareFn = async (args, next) => {
@@ -430,7 +531,7 @@ export function defineI18n<const L extends string>(config: I18nConfig<L>): I18n<
       cookie !== false &&
       detection.source === "path" &&
       readLocaleCookie(args.request) !== detection.locale
-        ? serializeCookie(detection.locale, args.url)
+        ? serializeCookie(detection.locale, { url: args.url })
         : null;
 
     if (vary.length === 0 && setCookie === null) return response;
@@ -443,6 +544,9 @@ export function defineI18n<const L extends string>(config: I18nConfig<L>): I18n<
     cookieName: cookie === false ? null : cookie.name,
     isLocale,
     detect,
+    detectClient,
+    localeCookie: serializeCookie,
+    setLocaleCookie,
     localePath,
     splitLocale,
     hreflang,

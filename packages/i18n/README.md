@@ -48,6 +48,9 @@ group({ middleware: ["i18n"] }, [
 ]),
 ```
 
+> Locale prefixes are a choice, not a requirement — see
+> [URL strategies](#url-strategies) if your URLs cannot change.
+
 ```tsx
 // src/routes/welcome.tsx
 export async function loader({ context }: LoaderArgs<I18nRequestContext<"en" | "nl">>) {
@@ -69,9 +72,50 @@ export function Component({ data }: RouteComponentProps<typeof loader>) {
 ```
 
 A complete, tested setup lives in
-[`examples/basic`](../../examples/basic) (`/welcome`, `/en/welcome`,
-`/nl/welcome`), and the full guide is the
+[`examples/basic`](../../examples/basic) — locale-prefixed (`/welcome`,
+`/en/welcome`, `/nl/welcome`) and prefix-free (`/greeting`) against one
+instance — and the full guide is the
 [i18n recipe](https://pracht.resynapse.dev/docs/recipes/i18n).
+
+## URL strategies
+
+Detection, dictionaries, and `t()` are identical either way; the only
+question is whether the locale is part of the URL.
+
+**A. Locale-prefixed URLs** (`/en/about`) — one `pathPrefix` group per
+locale, switching means navigating, `hreflang()` gives every language its
+own indexable URL, and routes can be `ssg`/`isg`. The better default for
+public content.
+
+**B. One URL per page** (`/about`) — nothing about your routes changes. The
+cookie decides, `Accept-Language` seeds the first visit, and the middleware
+adds `Vary: Cookie, Accept-Language` (so these routes stay per-request:
+`ssr` or `spa`, never `ssg`/`isg`). Adopting it changes no URLs, and
+switching needs no navigation:
+
+```ts
+// src/api/locale.ts — switch that works without JavaScript
+export async function POST({ request, url }: BaseRouteArgs) {
+  const form = await request.formData();
+  const locale = form.get("locale");
+  if (!i18n.isLocale(locale)) return new Response("Unknown locale", { status: 400 });
+  const response = redirect("/", { request, status: 303 });
+  response.headers.append("set-cookie", i18n.localeCookie(locale, { url }));
+  return response;
+}
+```
+
+```ts
+// …or entirely on the client: no request, same URL
+i18n.setLocaleCookie("nl"); // remembered for the next server render
+setMessages(await dictionaries.load("nl")); // lazily imported chunk
+```
+
+The trade-off is SEO: a single URL cannot carry `hreflang` alternates, so
+crawlers index whichever locale their `Accept-Language` resolves to. The
+detection order is the same for both (`["path", "cookie", "header"]`), so
+one app can mix them — the path source simply never matches a prefix-free
+route.
 
 ## `defineI18n({ locales, defaultLocale, detect?, cookie? })`
 
@@ -94,6 +138,17 @@ Creates the app's i18n instance:
   can never be reflected into a URL.
 - **`splitLocale(path)`** / **`isLocale(value)`** / **`detect(request)`** —
   the underlying primitives.
+- **`localeCookie(locale, { url?, secure? })`** — serialize the locale
+  cookie (`null` clears it) for prefix-free switches: the middleware never
+  sees an explicit choice when the URL does not carry one, so the switch
+  writes it. `url` infers `Secure` exactly like the middleware;
+  `SameSite=None` always forces `Secure`, including when an explicit option
+  says otherwise, because browsers reject the cookie without it.
+- **`setLocaleCookie(locale)`** / **`detectClient()`** — the browser
+  counterparts: write the cookie through `document.cookie`, and resolve the
+  locale from `location.pathname` / `document.cookie` /
+  `navigator.languages` in the configured order (returns the default locale
+  when called during SSR).
 - **`hreflang(path, { origin?, xDefault? })`** — `link[]` alternate entries
   for `head()`: one per locale plus `x-default` (the unprefixed detector
   route by default).
@@ -101,7 +156,9 @@ Creates the app's i18n instance:
 Only registered locales can ever win detection: URL prefixes, cookie values,
 and `Accept-Language` tags are validated against the registry, malformed
 q-values (`;q=`, `;q=abc`) are dropped rather than promoted, and oversized
-headers are truncated. Header matching follows RFC 4647 lookup —
+headers are truncated. A q-value must be a complete decimal token, so a
+numeric prefix such as `q=0.5junk` is rejected too. Wildcards can only resolve
+to a registered locale. Header matching follows RFC 4647 lookup —
 progressive truncation (`zh-Hant-TW` → `zh-Hant` → `zh`) — plus a
 same-language best fit (`en-GB` matches a registered `en-US`) before
 falling through to lower-preference entries.

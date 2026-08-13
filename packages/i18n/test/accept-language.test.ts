@@ -28,6 +28,7 @@ describe("parseAcceptLanguage", () => {
     // `;q=` and `;q=abc` must not beat a well-formed lower preference.
     expect(parseAcceptLanguage("nl;q=, en;q=0.2")).toEqual([{ tag: "en", quality: 0.2 }]);
     expect(parseAcceptLanguage("nl;q=abc, en;q=0.2")).toEqual([{ tag: "en", quality: 0.2 }]);
+    expect(parseAcceptLanguage("nl;q=0.5junk, en;q=0.2")).toEqual([{ tag: "en", quality: 0.2 }]);
   });
 
   it("drops q=0 entries (explicitly not acceptable)", () => {
@@ -111,8 +112,14 @@ describe("matchAcceptLanguage", () => {
 
   it("resolves wildcard to the provided locale at its q position", () => {
     expect(matchAcceptLanguage("*", locales, { wildcard: "en" })).toBe("en");
+    expect(matchAcceptLanguage("*", ["en-US"], { wildcard: "EN-us" })).toBe("en-US");
     expect(matchAcceptLanguage("*;q=0.9, nl;q=0.4", locales, { wildcard: "en" })).toBe("en");
     expect(matchAcceptLanguage("nl;q=0.9, *;q=0.4", locales, { wildcard: "en" })).toBe("nl");
+  });
+
+  it("ignores wildcard targets outside the registered locale set", () => {
+    expect(matchAcceptLanguage("*", locales, { wildcard: "../admin" })).toBeNull();
+    expect(matchAcceptLanguage("*;q=0.9, nl;q=0.4", locales, { wildcard: "fr" })).toBe("nl");
   });
 
   it("ignores wildcard when no wildcard target is configured", () => {

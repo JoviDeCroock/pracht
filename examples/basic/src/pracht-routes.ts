@@ -32,6 +32,10 @@ export const routes = [
     path: "/live",
   },
   {
+    id: "greeting",
+    path: "/greeting",
+  },
+  {
     id: "welcome",
     path: "/welcome",
   },

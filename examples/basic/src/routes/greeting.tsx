@@ -1,0 +1,97 @@
+import { Form, type HeadArgs, type LoaderArgs, type RouteComponentProps } from "@pracht/core";
+import { t, type I18nRequestContext } from "@pracht/i18n";
+import { useEffect, useState } from "preact/hooks";
+
+import { dictionaries, i18n, type AppLocale, type AppMessages } from "../i18n/index.ts";
+
+type Context = I18nRequestContext<AppLocale>;
+
+// The prefix-free strategy: this page keeps one URL for every locale (no
+// /en, no /nl), so detection falls to the cookie and then Accept-Language,
+// and the switcher writes the cookie instead of navigating. SSR only — the
+// middleware stamps `Vary: Cookie, Accept-Language`, which by design makes
+// the response uncacheable in shared caches.
+export async function loader({ context }: LoaderArgs<Context>) {
+  const messages = await dictionaries.load(context.locale);
+  return { locale: context.locale, messages };
+}
+
+export function head({ data }: HeadArgs<typeof loader, Context>) {
+  return {
+    lang: data.locale,
+    title: t(data.messages, "greeting.title"),
+    // Deliberately no hreflang: there is no alternate URL to point at. That
+    // is the SEO cost of one URL per page — crawlers index whichever locale
+    // their own Accept-Language resolves to.
+  };
+}
+
+export function Component({ data }: RouteComponentProps<typeof loader>) {
+  // Set only by the instant client-side switch below; loader data wins again
+  // as soon as it changes (the <Form> switch re-runs the loader).
+  const [clientMessages, setClientMessages] = useState<AppMessages | null>(null);
+  useEffect(() => setClientMessages(null), [data.locale]);
+
+  const messages = clientMessages ?? data.messages;
+  const locale = messages.$locale as AppLocale;
+  const otherLocales = i18n.locales.filter((candidate) => candidate !== locale);
+
+  // `head()` runs on the server only, so any locale change that does not
+  // reload the document has to keep <html lang> in sync itself. This covers
+  // both switches below.
+  useEffect(() => {
+    document.documentElement.lang = locale;
+  }, [locale]);
+
+  async function switchOnTheClient(next: AppLocale) {
+    // Remember the choice for the next server render, then swap the
+    // dictionary in place: no navigation, no round trip, same URL.
+    i18n.setLocaleCookie(next);
+    setClientMessages(await dictionaries.load(next));
+  }
+
+  return (
+    <section>
+      <h1 data-testid="greeting-title">{t(messages, "greeting.title")}</h1>
+      <p>{t(messages, "greeting.lead", { language: t(messages, `language.${locale}`) })}</p>
+      <p>{t(messages, "greeting.detection")}</p>
+
+      {/*
+        Server switch: works with JavaScript disabled — a native POST to the
+        API route that sets the cookie and 303s back to this same URL.
+      */}
+      <Form method="post" action="/api/locale" aria-label="Language switcher">
+        <input type="hidden" name="next" value="/greeting" />
+        <span>{t(messages, "greeting.switch.server")}</span>{" "}
+        {otherLocales.map((candidate) => (
+          <button
+            key={candidate}
+            type="submit"
+            name="locale"
+            value={candidate}
+            data-testid={`greeting-switch-server-${candidate}`}
+          >
+            {t(messages, `language.${candidate}`)}
+          </button>
+        ))}
+      </Form>
+
+      {/* Client switch: cookie write + lazy dictionary import, no request. */}
+      <p>
+        <span>{t(messages, "greeting.switch.client")}</span>{" "}
+        {otherLocales.map((candidate) => (
+          <button
+            key={candidate}
+            type="button"
+            data-testid={`greeting-switch-client-${candidate}`}
+            onClick={() => {
+              void switchOnTheClient(candidate);
+            }}
+          >
+            {t(messages, `language.${candidate}`)}
+          </button>
+        ))}
+      </p>
+    </section>
+  );
+}

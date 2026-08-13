@@ -12,6 +12,10 @@ const MAX_ENTRIES = 24;
 // `*` or a BCP 47-shaped tag: 1-8 alpha primary subtag plus alphanumeric
 // subtags. Anything else (garbage bytes, path characters, quotes) is skipped.
 const TAG_PATTERN = /^(?:\*|[a-zA-Z]{1,8}(?:-[a-zA-Z0-9]{1,8})*)$/;
+// Require the entire q-value to be a decimal number. `parseFloat()` alone
+// accepts valid-looking prefixes such as `0.5junk`, which would let malformed
+// preferences outrank a well-formed fallback.
+const QUALITY_PATTERN = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$/;
 
 export interface AcceptLanguageEntry {
   /** Lowercased language tag, or `"*"`. */
@@ -40,7 +44,7 @@ export function parseAcceptLanguage(header: string | null | undefined): AcceptLa
       const name = (equals === -1 ? param : param.slice(0, equals)).trim().toLowerCase();
       if (name !== "q") continue;
       const value = equals === -1 ? "" : param.slice(equals + 1).trim();
-      const parsed = Number.parseFloat(value);
+      const parsed = QUALITY_PATTERN.test(value) ? Number(value) : Number.NaN;
       // `;q=` and `;q=abc` are dropped instead of defaulting to 1 — a
       // malformed preference must never outrank a well-formed one.
       quality = Number.isFinite(parsed) ? Math.min(Math.max(parsed, 0), 1) : 0;
@@ -83,7 +87,10 @@ export function matchAcceptLanguage(
   const lowered = locales.map((locale) => locale.toLowerCase());
   for (const { tag } of parseAcceptLanguage(header)) {
     if (tag === "*") {
-      if (options.wildcard !== undefined) return options.wildcard;
+      if (options.wildcard !== undefined) {
+        const index = lowered.indexOf(options.wildcard.toLowerCase());
+        if (index !== -1) return locales[index] as string;
+      }
       continue;
     }
     // RFC 4647 lookup: try the tag, then progressively strip subtags from

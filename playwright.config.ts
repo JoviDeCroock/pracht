@@ -64,8 +64,9 @@ export default defineConfig({
       },
     },
     {
+      // Both specs run against examples/basic (see the webServer entry below).
       name: "capabilities",
-      testMatch: /capabilities\.test\.ts/,
+      testMatch: /capabilities\.test\.ts|i18n\.test\.ts/,
       use: {
         baseURL: e2eUrls.capabilities,
       },
