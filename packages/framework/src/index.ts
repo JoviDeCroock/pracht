@@ -127,11 +127,11 @@ export {
 } from "./runtime-confirmation.ts";
 export { createUseCapability, type CapabilityHookResult } from "./capability-hook.ts";
 export {
-  createMemoryApprovalStore,
   setCapabilityApprovalStore,
   setCapabilityApprovalPrincipalResolver,
 } from "./runtime-approval.ts";
-export type { MemoryApprovalStoreOptions } from "./runtime-approval.ts";
+export { createMemoryApprovalStore } from "./runtime-approval-memory-store.ts";
+export type { MemoryApprovalStoreOptions } from "./runtime-approval-memory-store.ts";
 export { forwardRef } from "./forwardRef.ts";
 export { useIsHydrated } from "./hydration.ts";
 export { Script } from "./script.ts";

@@ -121,7 +121,10 @@ described in `VISION_MVP.md`.
   cache lives in `runtime-confirmation-replay.ts`. Durable proposal creation,
   consumption, and backend failure settlement live in
   `runtime-capability-approval-transitions.ts`; principal/token orchestration
-  remains in `runtime-capability-confirmation.ts`.
+  remains in `runtime-capability-confirmation.ts`. Approval registration,
+  principal binding, and proposal identity stay in `runtime-approval.ts`; the
+  single-instance reference backend lives independently in
+  `runtime-approval-memory-store.ts`.
 - **Server rendering** — `handlePrachtRequest()` executes the full request
   lifecycle in explicit API → agent → page order. `runtime-request-setup.ts`
   owns route-state request normalization and source/resolved app preparation;

@@ -86,6 +86,10 @@ best-effort per-instance replay cache lives in
 live in `runtime-capability-approval-transitions.ts`, while principal binding,
 token verification, and flow orchestration remain in
 `runtime-capability-confirmation.ts`.
+Approval registration and identity policy live in `runtime-approval.ts`; the
+in-memory reference implementation is isolated in
+`runtime-approval-memory-store.ts` so alternative durable backends do not
+share implementation dependencies with policy.
 
 Enhanced form submission keeps `runtime-form.ts` as the public rendering and
 event-flow facade. Native resubmission mechanics, ordinary API submission, and

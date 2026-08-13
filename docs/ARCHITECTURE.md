@@ -588,6 +588,8 @@ runtime-capability-invocation.ts — stable direct-invocation overload facade
 runtime-confirmation-token.ts — canonical input binding, HMAC token codec, and verification
 runtime-confirmation-replay.ts — bounded per-instance single-use token tracking
 runtime-confirmation.ts — secret configuration and stable confirmation facade
+runtime-approval-memory-store.ts — isolated single-instance reference approval backend
+runtime-approval.ts — approval registration, principal binding, and proposal identity
 runtime-capability-approval-transitions.ts — fail-closed durable prepare/consume transitions
 runtime-capability-confirmation.ts — principal binding, token gate, and flow orchestration
 runtime-capability-transport-types.ts — type-only HTTP/MCP dispatch contracts

@@ -25,13 +25,14 @@
 
 import { hmacSha256Base64Url, type CapabilityConfirmationMode } from "./runtime-confirmation.ts";
 import type {
-  CapabilityApprovalConsumeResult,
   CapabilityApprovalPrincipalResolver,
-  CapabilityApprovalRecord,
   CapabilityApprovalStore,
   PrachtAgentIdentity,
   PrachtRequestContext,
 } from "./types.ts";
+
+export { createMemoryApprovalStore } from "./runtime-approval-memory-store.ts";
+export type { MemoryApprovalStoreOptions } from "./runtime-approval-memory-store.ts";
 
 // Module-level registration, like `setCapabilityAuditHook` and
 // `setCapabilityConfirmationSecret`: the app manifest carries serializable
@@ -127,95 +128,4 @@ export async function capabilityApprovalId(
     confirmationSecret,
     `pracht-approval-id:${JSON.stringify([principal, capability, inputHash, approvalMode])}`,
   );
-}
-
-export interface MemoryApprovalStoreOptions {
-  /** Clock override, unix seconds. Defaults to `Date.now()`. */
-  now?: () => number;
-}
-
-/**
- * In-memory reference implementation.
- *
- * Correct for a single instance, and the semantics every other backend must
- * reproduce — but it is *not* durable: it is lost on restart and not shared
- * across replicas. Use it in tests, in development, and in single-instance
- * deployments; back a multi-replica deployment with a store that has
- * conditional writes.
- */
-export function createMemoryApprovalStore(
-  options: MemoryApprovalStoreOptions = {},
-): CapabilityApprovalStore {
-  const now = options.now ?? (() => Math.floor(Date.now() / 1000));
-  const records = new Map<string, CapabilityApprovalRecord>();
-
-  // Keep the store's records private. In particular, returning the same object
-  // from `get()` or `listPending()` would let application code change a pending
-  // proposal to approved without going through `decide()`. Capability inputs
-  // use the JSON data model, so structured cloning also isolates nested input.
-  const cloneRecord = (record: CapabilityApprovalRecord): CapabilityApprovalRecord =>
-    structuredClone(record);
-
-  const sweep = (timestamp: number): void => {
-    for (const [id, record] of records) {
-      if (record.expiresAt < timestamp) records.delete(id);
-    }
-  };
-
-  return {
-    async create(record) {
-      const timestamp = now();
-      sweep(timestamp);
-      const existing = records.get(record.id);
-      if (existing && existing.expiresAt >= timestamp) {
-        return cloneRecord(existing);
-      }
-      const stored = cloneRecord(record);
-      records.set(stored.id, stored);
-      return cloneRecord(stored);
-    },
-
-    async get(id) {
-      const record = records.get(id);
-      return record ? cloneRecord(record) : null;
-    },
-
-    async listPending() {
-      const timestamp = now();
-      return [...records.values()]
-        .filter((record) => record.state === "pending" && record.expiresAt >= timestamp)
-        .map(cloneRecord);
-    },
-
-    async decide(id, decision, by) {
-      const timestamp = now();
-      const record = records.get(id);
-      if (!record || record.state !== "pending" || record.expiresAt < timestamp) return false;
-      records.set(id, { ...record, state: decision, decidedBy: by, decidedAt: timestamp });
-      return true;
-    },
-
-    // Read and write with no await in between: on a single-threaded runtime
-    // that is the compare-and-set the store contract requires.
-    async consume(id): Promise<CapabilityApprovalConsumeResult> {
-      const timestamp = now();
-      const record = records.get(id);
-      if (!record) return { ok: false, reason: "unknown" };
-      if (record.expiresAt < timestamp) {
-        records.delete(id);
-        return { ok: false, reason: "expired" };
-      }
-      if (record.state === "consumed") return { ok: false, reason: "already_used" };
-      if (record.state === "rejected") return { ok: false, reason: "rejected" };
-      if (record.requiresApproval && record.state !== "approved") {
-        return { ok: false, reason: "awaiting_approval" };
-      }
-      const consumed: CapabilityApprovalRecord = {
-        ...record,
-        state: "consumed",
-      };
-      records.set(id, consumed);
-      return { ok: true, record: cloneRecord(consumed) };
-    },
-  };
 }

@@ -89,11 +89,11 @@ export {
   setCapabilityConfirmationSecret,
 } from "./runtime-confirmation.ts";
 export {
-  createMemoryApprovalStore,
   setCapabilityApprovalPrincipalResolver,
   setCapabilityApprovalStore,
 } from "./runtime-approval.ts";
-export type { MemoryApprovalStoreOptions } from "./runtime-approval.ts";
+export { createMemoryApprovalStore } from "./runtime-approval-memory-store.ts";
+export type { MemoryApprovalStoreOptions } from "./runtime-approval-memory-store.ts";
 export { verifyAgentSignature } from "./runtime-agent-auth.ts";
 export type { VerifyAgentSignatureOptions } from "./runtime-agent-auth.ts";
 export {
