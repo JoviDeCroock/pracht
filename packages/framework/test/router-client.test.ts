@@ -373,6 +373,11 @@ describe("initClientRouter", () => {
         routes: [
           route("/", "./routes/home.tsx", { id: "home", render: "ssr", hasHead: true }),
           route("/next", "./routes/next.tsx", { id: "next", render: "ssr", hasHead: true }),
+          route("/unknown", "./routes/unknown.tsx", {
+            id: "unknown",
+            render: "ssr",
+            hasHead: true,
+          }),
           route("/plain", "./routes/plain.tsx", {
             id: "plain",
             render: "ssr",
@@ -384,7 +389,7 @@ describe("initClientRouter", () => {
     );
     document.head.innerHTML =
       '<link data-pracht-font-preload rel="preload" as="font" href="/old.woff2"><style data-pracht-fonts nonce="request-nonce">@font-face{font-family:"Old";src:url("/old.woff2")}</style>';
-    fetchSpy.mockResolvedValue(
+    fetchSpy.mockResolvedValueOnce(
       createJsonResponse({
         data: null,
         fontHead: {
@@ -401,12 +406,19 @@ describe("initClientRouter", () => {
         },
       }),
     );
+    fetchSpy.mockResolvedValueOnce(
+      createJsonResponse({
+        data: null,
+        fontHead: { preloadLinks: [], css: "" },
+      }),
+    );
 
     await initClientRouter({
       app,
       routeModules: {
         "./routes/home.tsx": async () => ({ default: () => h("main", null, "Home") }),
         "./routes/next.tsx": async () => ({ default: () => h("main", null, "Next") }),
+        "./routes/unknown.tsx": async () => ({ default: () => h("main", null, "Unknown") }),
         "./routes/plain.tsx": async () => ({ default: () => h("main", null, "Plain") }),
       },
       shellModules: {},
@@ -423,11 +435,19 @@ describe("initClientRouter", () => {
     expect(style?.textContent).toBe('@font-face{font-family:"New";src:url("/new.woff2")}');
     expect(style?.nonce).toBe("request-nonce");
 
+    // A conservative build hint can require a fetch even though the loaded
+    // route has no head export. The server's authoritative empty fragments
+    // must clear the font-bearing route we are leaving.
+    await window.__PRACHT_NAVIGATE__!("/unknown");
+    expect(document.head.querySelector("link[data-pracht-font-preload]")).toBeNull();
+    expect(style?.textContent).toBe("");
+    expect(style?.nonce).toBe("request-nonce");
+
     await window.__PRACHT_NAVIGATE__!("/plain");
     expect(document.head.querySelector("link[data-pracht-font-preload]")).toBeNull();
     expect(style?.textContent).toBe("");
     expect(style?.nonce).toBe("request-nonce");
-    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
   });
 
   it("bypasses the HTTP cache when revalidating route data", async () => {

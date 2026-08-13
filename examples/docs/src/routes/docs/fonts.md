@@ -75,7 +75,8 @@ export default function Home() {
 `inter.fontFamily` is the full stack including fallbacks, e.g. `"Inter", "Arial", sans-serif`.
 Importing a font or using its `className` does not register it by itself: list
 the font in the active shell or route `head().fonts`. Pracht updates generated
-font CSS and preload links when client navigation changes the active route.
+font CSS and preload links when client navigation changes the active route,
+including clearing both when the destination registers no fonts.
 
 ## Options
 

@@ -806,7 +806,10 @@ describe("handlePrachtRequest cache variance", () => {
     expect(response.headers.get("content-type")).toContain("application/json");
     expect(response.headers.get("vary")).toContain("x-pracht-route-state-request");
     expect(response.headers.get("cache-control")).toBe("no-store");
-    await expect(response.json()).resolves.toEqual({ data: { plan: "MVP" } });
+    await expect(response.json()).resolves.toEqual({
+      data: { plan: "MVP" },
+      fontHead: { preloadLinks: [], css: "" },
+    });
   });
 
   it("includes merged font head fragments in route-state responses", async () => {
@@ -855,7 +858,10 @@ describe("handlePrachtRequest cache variance", () => {
     });
 
     expect(response.headers.get("cache-control")).toBe("private, max-age=3600");
-    await expect(response.json()).resolves.toEqual({ data: { plan: "MVP" } });
+    await expect(response.json()).resolves.toEqual({
+      data: { plan: "MVP" },
+      fontHead: { preloadLinks: [], css: "" },
+    });
   });
 
   it.each([false, 0] as const)("treats loaderCache %s as no-store", async (loaderCache) => {
@@ -933,6 +939,39 @@ describe("handlePrachtRequest cache variance", () => {
     },
   );
 
+  it.each(["return", "throw"] as const)(
+    "includes empty font fragments when loaders %s JSON without a head",
+    async (delivery) => {
+      const app = defineApp({
+        routes: [route("/plain", "./routes/plain.tsx", { render: "ssr" })],
+      });
+
+      const response = await handlePrachtRequest({
+        app,
+        registry: {
+          routeModules: {
+            "./routes/plain.tsx": async () => ({
+              Component: () => h("main", null, "Plain"),
+              loader: async () => {
+                const response = Response.json({ data: { page: "plain" } });
+                if (delivery === "throw") throw response;
+                return response;
+              },
+            }),
+          },
+        },
+        request: new Request("http://localhost/plain", {
+          headers: { "x-pracht-route-state-request": "1" },
+        }),
+      });
+
+      await expect(response.json()).resolves.toEqual({
+        data: { page: "plain" },
+        fontHead: { preloadLinks: [], css: "" },
+      });
+    },
+  );
+
   it("applies a route loaderCache duration to loader Response data", async () => {
     const app = defineApp({
       routes: [route("/pricing", "./routes/pricing.tsx", { render: "ssr", loaderCache: 3600 })],
@@ -954,7 +993,10 @@ describe("handlePrachtRequest cache variance", () => {
     });
 
     expect(response.headers.get("cache-control")).toBe("private, max-age=3600");
-    await expect(response.json()).resolves.toEqual({ data: { plan: "MVP" } });
+    await expect(response.json()).resolves.toEqual({
+      data: { plan: "MVP" },
+      fontHead: { preloadLinks: [], css: "" },
+    });
   });
 
   it("keeps loader Response errors out of the route loaderCache policy", async () => {
@@ -1000,7 +1042,10 @@ describe("handlePrachtRequest cache variance", () => {
 
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toContain("application/json");
-    await expect(response.json()).resolves.toEqual({ data: { plan: "MVP" } });
+    await expect(response.json()).resolves.toEqual({
+      data: { plan: "MVP" },
+      fontHead: { preloadLinks: [], css: "" },
+    });
   });
 
   it("strips _data param from the URL passed to loaders", async () => {
@@ -1297,7 +1342,10 @@ describe("handlePrachtRequest document headers", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("x-route")).toBeNull();
     expect(response.headers.get("x-shell")).toBeNull();
-    await expect(response.json()).resolves.toEqual({ data: { plan: "MVP" } });
+    await expect(response.json()).resolves.toEqual({
+      data: { plan: "MVP" },
+      fontHead: { preloadLinks: [], css: "" },
+    });
   });
 });
 

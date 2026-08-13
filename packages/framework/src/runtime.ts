@@ -106,14 +106,17 @@ async function attachFontHeadToLoaderResponse<TContext>(options: {
   if (payload === null || typeof payload !== "object" || Array.isArray(payload)) return response;
 
   const shellModule = await options.shellModule;
-  if (!shellModule?.head && !routeModule.head) return response;
-
   const data = (payload as Record<string, unknown>).data;
-  const head = await mergeHeadMetadata(shellModule, routeModule, routeArgs, data);
+  const fontHead =
+    shellModule?.head || routeModule.head
+      ? collectFontHeadFragments(
+          (await mergeHeadMetadata(shellModule, routeModule, routeArgs, data)).fonts ?? [],
+        )
+      : collectFontHeadFragments([]);
   return Response.json(
     {
       ...(payload as Record<string, unknown>),
-      fontHead: collectFontHeadFragments(head.fonts ?? []),
+      fontHead,
     },
     {
       status: response.status,
@@ -798,10 +801,7 @@ export async function handlePrachtRequest<TContext>(
           shellModule = await shellModulePromise;
           const head = await mergeHeadMetadata(shellModule, routeModule, routeArgs, data);
           const fontHead = collectFontHeadFragments(head.fonts ?? []);
-          const body = {
-            data,
-            ...(shellModule?.head || routeModule.head ? { fontHead } : {}),
-          };
+          const body = { data, fontHead };
           return withRouteResponseHeaders(Response.json(body), {
             isRouteStateRequest: true,
             loaderCache: match.route.loaderCache,

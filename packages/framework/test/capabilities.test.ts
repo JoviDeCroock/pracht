@@ -746,6 +746,7 @@ describe("invokeCapability", () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({
       data: { ok: true, data: { notes: ["from-loader:10"] } },
+      fontHead: { preloadLinks: [], css: "" },
     });
   });
 
@@ -770,6 +771,7 @@ describe("invokeCapability", () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({
       data: { ok: true, data: { notes: ["from-loader:10"] } },
+      fontHead: { preloadLinks: [], css: "" },
     });
   });
 
@@ -836,6 +838,7 @@ describe("invokeCapability", () => {
 
     expect(await response.json()).toEqual({
       data: { ok: true, data: { notes: ["missing"] } },
+      fontHead: { preloadLinks: [], css: "" },
     });
     expect(events).toHaveLength(1);
     expect(events[0]).toMatchObject({ transport: "server", via: "http", agent: null });
@@ -898,9 +901,11 @@ describe("invokeCapability", () => {
 
     expect(await firstResponse.json()).toEqual({
       data: { ok: true, data: { notes: ["first"] } },
+      fontHead: { preloadLinks: [], css: "" },
     });
     expect(await secondResponse.json()).toEqual({
       data: { ok: true, data: { notes: ["second"] } },
+      fontHead: { preloadLinks: [], css: "" },
     });
   });
 

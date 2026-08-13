@@ -117,7 +117,7 @@ navigation — including navigating _to_ SSR routes.
 
 | Request | Response | Notes |
 |---------|----------|-------|
-| `GET /dashboard` (route-state) | JSON `{ data, fontHead? }` | ~no HTML rendering |
+| `GET /dashboard` (route-state) | JSON `{ data, fontHead }` | ~no HTML rendering; empty fragments clear fonts from the previous route |
 | `import(route.js)` | JS chunk | Cached after first visit |
 
 **Loader runs:** On the server, same as a full request — but only JSON is returned.
@@ -392,7 +392,7 @@ x-pracht-route-state-request: 1
                                  match route
                                  run middleware
                                  run loader
-                                 return JSON { data, fontHead? }
+                                 return JSON { data, fontHead }
 ◄───────────────────────────────────────────────────────────
 200 application/json
 Vary: x-pracht-route-state-request
