@@ -38,16 +38,16 @@ A static export has no server, so the build fails closed on anything that needs 
 - Manifest-registered capabilities exposed over HTTP/MCP/WebMCP are build errors (server-only capabilities invoked from build-time loaders are fine). Registered capability modules must load successfully so validation can fail closed; unused files in the capabilities directory are ignored.
 - A Vite `base` other than `/` is a build error: prerendered documents reference `/assets/…` and `/_pracht/state/…` from the origin root, so a sub-path deploy (GitHub Pages project site, S3 key prefix) would build cleanly and serve a site whose every asset 404s.
 
-The build also warns — without failing — on percent-encoded prerender paths (hosts that decode URLs before the filesystem lookup will miss those directories) and on a `fallback` document in an app with no `notFound` page and no client-routable SPA catch-all (unknown URLs would render blank).
+The build also warns — without failing — on percent-encoded prerender paths (hosts that decode URLs before the filesystem lookup will miss those directories) and on a `fallback` document in an app with no `notFound` page and no unshadowed client-routable SPA catch-all (unknown URLs would render blank).
 
 ## Client-side navigation
 
-SSG loaders run at build time. For each loader-backed SSG route, the build serializes route-state JSON under `dist/client/_pracht/state/` using collision-safe opaque path components, and the client router (compiled with `__PRACHT_STATIC_TARGET__`) fetches that file instead of the live route-state endpoint. Loaderless SPA routes fetch no Pracht state and run entirely in the browser. Navigation therefore stays client-side on a dumb static host.
+SSG loaders run at build time. For each loader-backed SSG route, the build serializes route-state JSON under `dist/client/_pracht/state/` using bounded, collision-safe opaque path components, and the client router (compiled with `__PRACHT_STATIC_TARGET__`) fetches that file instead of the live route-state endpoint. Loaderless SPA routes fetch no Pracht state and run entirely in the browser. Navigation therefore stays client-side on a dumb static host.
 
 ## Output conventions
 
 - Pages: `<path>/index.html` (clean URLs — hosts must serve `index.html` for directory URLs).
-- Route state: collision-safe opaque `.json` files under `_pracht/state/` (`/` uses `_pracht/state/index.json`).
+- Route state: bounded, collision-safe opaque `.json` files under `_pracht/state/` (`/` uses `_pracht/state/index.json`).
 - `404.html`: the app's `notFound` page, rendered independently of ordinary route matching at build time (GitHub Pages / S3 error-document convention).
 - `200.html` (opt-in via `staticAdapter({ fallback: "200.html" })`): SPA fallback document for hosts that can rewrite unmatched URLs; required for deep links into dynamic `render: "spa"` routes.
 

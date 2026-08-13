@@ -33,11 +33,13 @@ export const STATIC_STATE_PREFIX = "/_pracht/state";
 /**
  * Map a request URL (path + optional query) to its static route-state file.
  *
- * The scheme uses an opaque hexadecimal name for every URL segment and a
- * `.json` leaf — `/` → `/_pracht/state/index.json`, while `/blog/hello` maps
- * to two encoded components. Encoding every component and putting `.json`
- * only on the leaf keeps every valid pair of routes distinct, including
- * `/docs` versus `/docs/index.json`.
+ * The scheme uses opaque hexadecimal components for every URL segment and a
+ * reserved `_state.json` leaf — `/` → `/_pracht/state/index.json`, while
+ * `/blog/hello` maps to two encoded directories plus the leaf. Long encoded
+ * segments are split across bounded continuation components, so otherwise
+ * valid route params cannot exceed a filesystem's per-component name limit.
+ * The `s-` (segment) / `c-` (continuation) markers keep the mapping injective,
+ * including `/docs` versus `/docs/index.json`.
  *
  * The query string is dropped deliberately: static loader data was produced
  * at build time from the bare pathname, so every query variant of a URL maps
@@ -54,17 +56,25 @@ export function buildStaticRouteStateUrl(url: string): string {
   pathname = pathname.replace(/\/+$/, "");
   if (pathname === "") return `${STATIC_STATE_PREFIX}/index.json`;
 
-  const segments = pathname.split("/").filter(Boolean).map(encodeStaticStateSegment);
-  const leaf = segments.pop();
-  if (!leaf) return `${STATIC_STATE_PREFIX}/index.json`;
-  const directory = segments.length > 0 ? `/${segments.join("/")}` : "";
-  return `${STATIC_STATE_PREFIX}${directory}/${leaf}.json`;
+  const components = pathname.split("/").filter(Boolean).flatMap(encodeStaticStateSegment);
+  if (components.length === 0) return `${STATIC_STATE_PREFIX}/index.json`;
+  return `${STATIC_STATE_PREFIX}/${components.join("/")}/_state.json`;
 }
 
-function encodeStaticStateSegment(segment: string): string {
+// Keep plenty of room below the common 255-byte filesystem component limit.
+// Hex output is ASCII, and a multiple of four never splits a UTF-16 code unit.
+const STATIC_STATE_HEX_CHUNK_LENGTH = 240;
+
+function encodeStaticStateSegment(segment: string): string[] {
   let encoded = "";
   for (let index = 0; index < segment.length; index += 1) {
     encoded += segment.charCodeAt(index).toString(16).padStart(4, "0");
   }
-  return encoded;
+
+  const components: string[] = [];
+  for (let offset = 0; offset < encoded.length; offset += STATIC_STATE_HEX_CHUNK_LENGTH) {
+    const marker = offset === 0 ? "s-" : "c-";
+    components.push(`${marker}${encoded.slice(offset, offset + STATIC_STATE_HEX_CHUNK_LENGTH)}`);
+  }
+  return components;
 }

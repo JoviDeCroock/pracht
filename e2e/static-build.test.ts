@@ -531,7 +531,7 @@ test("static export warns when the SPA fallback has no notFound page to render",
     );
 
     const output = buildExampleOutput(exampleDir, { PRACHT_STATIC_FALLBACK: "200.html" });
-    expect(output).toContain("no client-routable SPA catch-all matches every URL");
+    expect(output).toContain("no unshadowed client-routable SPA catch-all matches every URL");
     expect(output).toContain("empty document with status 200");
     expect(existsSync(resolve(exampleDir, "dist/client/200.html"))).toBe(true);
     expect(existsSync(resolve(exampleDir, "dist/client/404.html"))).toBe(false);
