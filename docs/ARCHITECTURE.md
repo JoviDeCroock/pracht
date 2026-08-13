@@ -522,7 +522,10 @@ name-suggestions.ts — edit-distance "did you mean" helpers for wiring errors
 app-definition.ts — route/group/app authoring DSL and module-reference normalization
 app.ts          — resolved route graph, matching, and inherited route flattening
 app-validation.ts — manifest keys, registered names, cache values, and render compatibility
-api-validation.ts — defineApi generic contract, typed JSON responses, and stable public facade
+api-validation.ts — stable typed API validation facade
+api-validation-types.ts — JSON compatibility and defineApi inference contracts
+api-json-response.ts — payload-preserving JSON response construction
+api-validated-handler.ts — defineApi request validation and handler execution
 api-request-validation.ts — request parsing, normalized issues, and Standard Schema execution
     ↑
 runtime-context.ts — hydration state reader and Preact runtime provider

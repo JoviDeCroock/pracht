@@ -71,6 +71,12 @@ the declaration owner. App models, route policy, navigation contracts, and
 runtime module contracts live in focused sibling modules; `http-errors.ts` owns
 the concrete `PrachtHttpError` and `notFound()` behavior.
 
+Typed API validation follows the same rule: `api-validation.ts` is the stable
+facade, `api-validation-types.ts` owns inference and public contracts,
+`api-validated-handler.ts` owns `defineApi()` execution, `api-json-response.ts`
+owns typed JSON responses, and `api-request-validation.ts` owns request parsing
+plus Standard Schema diagnostics.
+
 ### App graph serialization
 
 The graph helpers exported from `@pracht/core` and `@pracht/core/server` support

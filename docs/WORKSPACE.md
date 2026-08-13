@@ -221,6 +221,11 @@ described in `VISION_MVP.md`.
   aggregate consumed by public entries. Navigation policy, route policy,
   authored/resolved app models, and runtime module contracts live in focused
   sibling modules; concrete HTTP error behavior lives in `http-errors.ts`.
+- **Typed API validation** — `api-validation.ts` is the stable facade;
+  `api-validation-types.ts` owns inference contracts,
+  `api-validated-handler.ts` owns validated handler execution,
+  `api-json-response.ts` owns payload-preserving JSON responses, and
+  `api-request-validation.ts` owns parsing plus Standard Schema diagnostics.
 - **Node adapter** — Translates Node requests to Web `Request` objects, calls
   `handlePrachtRequest()`, and implements ISG stale-while-revalidate plus
   webhook regeneration of on-disk HTML. `node-handler.ts` owns request
