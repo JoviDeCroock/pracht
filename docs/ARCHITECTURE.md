@@ -549,8 +549,10 @@ runtime-capability-invocation.ts — request-scoped hosts and direct or nested s
 runtime-capability-confirmation.ts — destructive prepare/commit orchestration,
                                      durable approval policy, and replay protection
 runtime-capability-transport-types.ts — type-only HTTP/MCP dispatch contracts
+runtime-capability-http-dispatch.ts — body parsing, agent policy, confirmation, and pipeline dispatch
+runtime-capability-api-middleware.ts — app API middleware wrapping and short-circuit normalization
 runtime-capability-mcp-output.ts — MCP middleware success-envelope schema settlement
-runtime-capabilities.ts — HTTP transport
+runtime-capabilities.ts — public transport facade, effect header, and audit orchestration
 runtime-request-provenance.ts — browser provenance and exact-origin request policy
 runtime-api.ts — explicit API matching, middleware, invocation, and error normalization
 api-routes.ts — file-path discovery, route specificity ordering, and API path matching

@@ -42,7 +42,10 @@ loading of the Preact server renderer. API failure policy lives in
 Capability transport keeps its request contract in the type-only
 `runtime-capability-transport-types.ts`. MCP-only middleware output
 revalidation lives in `runtime-capability-mcp-output.ts`, separate from the
-ordinary HTTP dispatch orchestrated by `runtime-capabilities.ts`.
+ordinary request parsing, agent policy, form fallback, and pipeline dispatch in
+`runtime-capability-http-dispatch.ts`. App-level API middleware wrapping lives
+in `runtime-capability-api-middleware.ts`; `runtime-capabilities.ts` retains the
+public facade, effect header, and one-event audit orchestration.
 
 ### Client
 
