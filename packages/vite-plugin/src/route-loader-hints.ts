@@ -1,77 +1,18 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { extname, join, relative } from "node:path";
+import { maskCommentsAndStrings } from "@pracht/capabilities/static";
+import { initSync, parse } from "es-module-lexer";
 import {
   DEFAULT_ROUTE_EXTENSIONS,
   normalizeAdditionalExtensions,
   withAdditionalExtensions,
 } from "./route-extensions.ts";
-import { initSync, parse } from "es-module-lexer";
 
 initSync();
 
 function isExportAllStatement(source: string): boolean {
   const withoutComments = source.replace(/\/\*[\s\S]*?\*\/|\/\/[^\r\n]*/g, " ");
   return /^\s*export\s*\*/.test(withoutComments);
-}
-
-function maskCommentsAndStrings(source: string): string {
-  let result = "";
-  let state: "code" | "line-comment" | "block-comment" | "single" | "double" | "template" = "code";
-
-  for (let index = 0; index < source.length; index += 1) {
-    const char = source[index];
-    const next = source[index + 1];
-    if (state === "code") {
-      if (char === "/" && next === "/") {
-        state = "line-comment";
-        result += "  ";
-        index += 1;
-      } else if (char === "/" && next === "*") {
-        state = "block-comment";
-        result += "  ";
-        index += 1;
-      } else if (char === "'") {
-        state = "single";
-        result += " ";
-      } else if (char === '"') {
-        state = "double";
-        result += " ";
-      } else if (char === "`") {
-        state = "template";
-        result += " ";
-      } else {
-        result += char;
-      }
-      continue;
-    }
-
-    if (char === "\n" || char === "\r") {
-      if (state === "line-comment") state = "code";
-      result += char;
-      continue;
-    }
-    if (state === "block-comment" && char === "*" && next === "/") {
-      state = "code";
-      result += "  ";
-      index += 1;
-      continue;
-    }
-    if ((state === "single" || state === "double" || state === "template") && char === "\\") {
-      result += "  ";
-      index += 1;
-      continue;
-    }
-    if (
-      (state === "single" && char === "'") ||
-      (state === "double" && char === '"') ||
-      (state === "template" && char === "`")
-    ) {
-      state = "code";
-    }
-    result += " ";
-  }
-
-  return result;
 }
 
 function detectLoaderExportFallback(source: string): boolean {
@@ -116,8 +57,8 @@ export function detectLoaderExport(source: string): boolean {
     }
   } catch {
     // es-module-lexer intentionally parses JavaScript rather than every JSX or
-    // TSRX construct. Fall back to a comment/string-masked export scan so valid
-    // component syntax does not make every loaderless SPA route look unsafe.
+    // TSRX construct. Fall back to the shared syntax-aware masking scan so
+    // comments, strings, and regex contents cannot hide or forge an export.
     return detectLoaderExportFallback(source);
   }
 

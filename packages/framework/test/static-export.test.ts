@@ -222,6 +222,11 @@ describe("buildStaticFallbackHtml", () => {
   it("emits an empty-body document with the fallback hydration marker", () => {
     const html = buildStaticFallbackHtml({
       clientEntryUrl: "/assets/client-abc.js",
+      head: {
+        link: [{ href: "/favicon.svg", rel: "icon" }],
+        meta: [{ content: "fallback description", name: "description" }],
+        title: "Fallback title",
+      },
       notFoundData: { message: "Built custom 404" },
     });
     expect(html).toContain('<div id="pracht-root"></div>');
@@ -229,5 +234,8 @@ describe("buildStaticFallbackHtml", () => {
     expect(html).toContain('"pending":true');
     expect(html).toContain('"message":"Built custom 404"');
     expect(html).toContain('src="/assets/client-abc.js"');
+    expect(html).toContain("<title>Fallback title</title>");
+    expect(html).toContain('content="fallback description"');
+    expect(html).toContain('href="/favicon.svg"');
   });
 });

@@ -7,6 +7,7 @@ import {
   isStaticExportBuild,
   resolveRouteStateOutputPath,
   validateStaticExport,
+  validateStaticExportOutputPaths,
   writeStaticExportArtifacts,
 } from "../src/build-static.ts";
 
@@ -274,6 +275,56 @@ describe("validateStaticExport", () => {
     expect((error as Error).message).toContain("reserved");
   });
 
+  it("fails closed when a dynamic SPA fallback cannot preserve route or shell head metadata", async () => {
+    const serverMod = {
+      resolvedApp: {
+        routes: [
+          {
+            file: "/src/routes/item.tsx",
+            hasLoader: false,
+            path: "/items/:id",
+            render: "spa",
+            shellFile: "/src/shells/site.tsx",
+          },
+        ],
+      },
+      registry: {
+        routeModules: {
+          "/src/routes/item.tsx": async () => ({ Component: () => null }),
+        },
+        shellModules: {
+          "/src/shells/site.tsx": async () => ({ head: () => ({ title: "Item" }) }),
+        },
+      },
+      staticExportConfig: { fallback: "200.html" },
+    };
+
+    await expect(validateStaticExport(serverMod)).rejects.toThrow(/fallbackHead/);
+    await expect(
+      validateStaticExport({
+        ...serverMod,
+        staticExportConfig: { fallback: "200.html", fallbackHead: { title: "Shared" } },
+      }),
+    ).resolves.toBeUndefined();
+  });
+
+  it("requires shared fallback metadata when the not-found page declares head", async () => {
+    await expect(
+      validateStaticExport({
+        resolvedApp: {
+          notFound: { file: "/src/routes/not-found.tsx", path: "/__pracht-not-found__" },
+          routes: [{ path: "/", render: "ssg" }],
+        },
+        registry: {
+          routeModules: {
+            "/src/routes/not-found.tsx": async () => ({ head: () => ({ title: "Missing" }) }),
+          },
+        },
+        staticExportConfig: { fallback: "200.html" },
+      }),
+    ).rejects.toThrow(/not-found\.tsx/);
+  });
+
   it("fails closed on a sub-path Vite base", async () => {
     const error = await validateStaticExport({
       buildBase: "/app/",
@@ -315,6 +366,25 @@ describe("isStaticExportBuild", () => {
     expect(isStaticExportBuild({ staticTarget: true })).toBe(true);
     expect(isStaticExportBuild({ staticTarget: false })).toBe(false);
     expect(isStaticExportBuild({})).toBe(false);
+  });
+});
+
+describe("validateStaticExportOutputPaths", () => {
+  it("rejects concrete getStaticPaths output in the reserved namespace", () => {
+    expect(() =>
+      validateStaticExportOutputPaths([{ path: "/_PRACHT/state/owned" }], {
+        resolvedApp: { routes: [{ path: "/:section/:slug", render: "ssg" }] },
+      }),
+    ).toThrow(/reserved \/_pracht\/ output namespace/);
+  });
+
+  it("preflights fixed fallback artifact collisions", () => {
+    expect(() =>
+      validateStaticExportOutputPaths([{ path: "/200.html/nested" }], {
+        resolvedApp: { routes: [] },
+        staticExportConfig: { fallback: "200.html" },
+      }),
+    ).toThrow(/conflicts with dist\/client\/200.html/);
   });
 });
 

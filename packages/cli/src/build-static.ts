@@ -14,11 +14,13 @@ import { buildStaticRouteStateUrl } from "@pracht/core/server";
  */
 
 interface StaticRouteView {
+  file?: string;
   hasLoader?: boolean;
   hydration?: string;
   middlewareFiles?: string[];
   path: string;
   render?: string;
+  shellFile?: string;
 }
 
 interface StaticServerModuleView {
@@ -32,8 +34,10 @@ interface StaticServerModuleView {
   apiRoutes?: Array<{ path: string }>;
   registry?: {
     capabilityModules?: Record<string, () => Promise<unknown>>;
+    routeModules?: Record<string, () => Promise<unknown>>;
+    shellModules?: Record<string, () => Promise<unknown>>;
   };
-  staticExportConfig?: { fallback?: string | null };
+  staticExportConfig?: { fallback?: string | null; fallbackHead?: unknown };
   renderStaticNotFoundHtml?: () => Promise<string | null>;
   renderStaticFallbackHtml?: (notFoundData?: unknown) => string | Promise<string>;
 }
@@ -56,7 +60,7 @@ function normalizeModulePath(path: string): string {
   return path.replace(/^\.?\//, "");
 }
 
-function resolveCapabilityImporter(
+function resolveRegistryImporter(
   modules: Record<string, () => Promise<unknown>>,
   file: string,
 ): (() => Promise<unknown>) | undefined {
@@ -152,14 +156,70 @@ export async function validateStaticExport(serverMod: StaticServerModuleView): P
 
   // Reserved output namespace: the build writes framework metadata and the
   // serialized route-state tree under dist/client/_pracht/.
-  const reservedRoutes = routes.filter(
-    (route) => route.path === "/_pracht" || route.path.startsWith("/_pracht/"),
-  );
+  const reservedRoutes = routes.filter((route) => isReservedStaticOutputPath(route.path));
   if (reservedRoutes.length > 0) {
     problems.push(
       `these routes collide with the reserved /_pracht/ output namespace (route-state files, build metadata):\n` +
         reservedRoutes.map((route) => `    - ${route.path}`).join("\n"),
     );
+  }
+
+  if (serverMod.staticExportConfig?.fallback && !serverMod.staticExportConfig.fallbackHead) {
+    const dynamicSpaRoutes = routes.filter(
+      (route) => hasDynamicSegments(route.path) && isClientRoutableSpaRoute(route),
+    );
+    const fallbackRenderedRoutes = notFound ? [...dynamicSpaRoutes, notFound] : dynamicSpaRoutes;
+    const headRoutes: string[] = [];
+    const uninspectableRoutes: string[] = [];
+    for (const route of fallbackRenderedRoutes) {
+      const moduleTargets = [
+        route.file
+          ? { file: route.file, modules: serverMod.registry?.routeModules, source: "route" }
+          : null,
+        route.shellFile
+          ? { file: route.shellFile, modules: serverMod.registry?.shellModules, source: "shell" }
+          : null,
+      ].filter(Boolean) as Array<{
+        file: string;
+        modules: Record<string, () => Promise<unknown>> | undefined;
+        source: string;
+      }>;
+
+      for (const target of moduleTargets) {
+        const importer = target.modules
+          ? resolveRegistryImporter(target.modules, target.file)
+          : undefined;
+        if (!importer) {
+          uninspectableRoutes.push(`    - ${route.path} (${target.source}: ${target.file})`);
+          continue;
+        }
+        try {
+          const module = (await importer()) as { head?: unknown };
+          if (typeof module.head === "function") {
+            headRoutes.push(`    - ${route.path} (${target.source}: ${target.file})`);
+          }
+        } catch (error) {
+          uninspectableRoutes.push(
+            `    - ${route.path} (${target.source}: ${target.file}): ${formatUnknownError(error)}`,
+          );
+        }
+      }
+    }
+
+    if (uninspectableRoutes.length > 0) {
+      problems.push(
+        `the SPA fallback metadata could not be validated because these fallback-rendered route modules could not be inspected safely:\n` +
+          uninspectableRoutes.join("\n") +
+          "\n  Set an explicit shared `fallbackHead`, fix the module registry, or use a serverful adapter.",
+      );
+    }
+    if (headRoutes.length > 0) {
+      problems.push(
+        `these fallback-rendered routes declare route or shell head metadata, but one static fallback document cannot run URL-specific \`head()\` functions:\n` +
+          headRoutes.join("\n") +
+          "\n  Set `staticAdapter({ fallback, fallbackHead })` to explicit metadata shared by every rewritten URL, remove the head export, or use a serverful adapter.",
+      );
+    }
   }
 
   const apiRoutes = serverMod.apiRoutes ?? [];
@@ -176,7 +236,7 @@ export async function validateStaticExport(serverMod: StaticServerModuleView): P
   const exposedCapabilities: string[] = [];
   const invalidCapabilities: string[] = [];
   for (const [name, file] of Object.entries(registeredCapabilities)) {
-    const importer = resolveCapabilityImporter(capabilityModules, file);
+    const importer = resolveRegistryImporter(capabilityModules, file);
     if (!importer) {
       invalidCapabilities.push(`    - ${name} (${file}): registered module was not found`);
       continue;
@@ -294,6 +354,10 @@ function isClientRoutableSpaRoute(route: StaticRouteView): boolean {
   return route.render === "spa" && route.hydration !== "islands" && route.hydration !== "none";
 }
 
+function isReservedStaticOutputPath(path: string): boolean {
+  return path.split("/").filter(Boolean)[0]?.toLowerCase() === "_pracht";
+}
+
 /**
  * A SPA catch-all only covers every fallback URL when no earlier dynamic
  * route can win matching while being impossible to render client-side. Exact
@@ -336,6 +400,32 @@ function assertNoFixedArtifactRouteCollisions(
 }
 
 /**
+ * Validate every concrete path returned by prerendering before the CLI writes
+ * any page. Dynamic getStaticPaths() values are not visible in the route
+ * manifest, so they must be checked at this boundary as well.
+ */
+export function validateStaticExportOutputPaths(
+  pages: Array<{ path: string }>,
+  serverMod: StaticServerModuleView,
+): void {
+  const reservedPaths = pages.filter((page) => isReservedStaticOutputPath(page.path));
+  if (reservedPaths.length > 0) {
+    throw new Error(
+      "Static export cannot write prerendered pages under the reserved /_pracht/ output namespace:\n" +
+        reservedPaths.map((page) => `    - ${page.path}`).join("\n") +
+        "\nChange getStaticPaths() so it does not emit framework-owned paths.",
+    );
+  }
+
+  const configuredFallback = serverMod.staticExportConfig?.fallback ?? null;
+  const fixedFiles = [
+    ...(serverMod.resolvedApp?.notFound ? ["404.html"] : []),
+    ...(configuredFallback ? [configuredFallback] : []),
+  ];
+  assertNoFixedArtifactRouteCollisions(pages, fixedFiles);
+}
+
+/**
  * Prerender output keeps the percent-encoded form of dynamic params
  * (`/posts/café` → a directory literally named `caf%C3%A9`). Hosts that
  * decode the URL before the filesystem lookup — most of them — never find
@@ -358,11 +448,7 @@ export async function writeStaticExportArtifacts(options: {
 }): Promise<StaticArtifactsResult> {
   const { clientDir, pages, serverMod, log } = options;
   const configuredFallback = serverMod.staticExportConfig?.fallback ?? null;
-  const fixedFiles = [
-    ...(serverMod.resolvedApp?.notFound ? ["404.html"] : []),
-    ...(configuredFallback ? [configuredFallback] : []),
-  ];
-  assertNoFixedArtifactRouteCollisions(pages, fixedFiles);
+  validateStaticExportOutputPaths(pages, serverMod);
 
   let stateFileCount = 0;
   for (const page of pages) {

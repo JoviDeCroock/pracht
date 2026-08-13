@@ -11,6 +11,7 @@ import { writeVercelBuildOutput } from "../build-shared.js";
 import {
   isStaticExportBuild,
   validateStaticExport,
+  validateStaticExportOutputPaths,
   writeStaticExportArtifacts,
 } from "../build-static.js";
 import {
@@ -187,6 +188,11 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
       withISGManifest: true,
       concurrency: serverMod.prerenderConcurrency,
     });
+    if (isStaticExport) {
+      // getStaticPaths() can produce paths that are absent from the manifest.
+      // Validate the concrete set before writing even the first page.
+      validateStaticExportOutputPaths(pages, serverMod);
+    }
     const headersManifest: Record<string, Record<string, string>> = Object.fromEntries(
       pages.map((page: { path: string; headers?: Record<string, string> }) => [
         page.path,

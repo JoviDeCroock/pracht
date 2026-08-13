@@ -8,6 +8,7 @@ import { buildHtmlDocument } from "./runtime-html.ts";
 import { resolveRegistryModule } from "./runtime-manifest.ts";
 import { handlePrachtRequest } from "./runtime.ts";
 import type {
+  HeadMetadata,
   ModuleRegistry,
   PrachtApp,
   ResolvedRoute,
@@ -290,16 +291,19 @@ async function collectSSGPaths(
  * this document is served for *any* URL, so no route- or shell-specific
  * markup can be correct here.
  *
+ * `head` is likewise explicit metadata shared by every rewritten URL. The
+ * build cannot run a route-specific `head()` function for an arbitrary path.
+ *
  * `notFoundData` is copied from the already-rendered `404.html` hydration
  * state. If the fallback resolves an unknown URL instead of a dynamic SPA
  * route, the not-found component therefore sees its normal build-time loader
  * data without executing the loader a second time.
  */
 export function buildStaticFallbackHtml(
-  options: { clientEntryUrl?: string; notFoundData?: unknown } = {},
+  options: { clientEntryUrl?: string; head?: HeadMetadata; notFoundData?: unknown } = {},
 ): string {
   return buildHtmlDocument({
-    head: {},
+    head: options.head ?? {},
     body: "",
     hydrationState: {
       url: "/",

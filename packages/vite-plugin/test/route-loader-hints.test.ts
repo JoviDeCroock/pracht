@@ -39,6 +39,14 @@ describe("detectLoaderExport", () => {
       `),
     ).toBe(true);
   });
+
+  it("does not mistake regex contents for comments in the JSX fallback", () => {
+    expect(
+      detectLoaderExport(
+        'export function Component() { return <p>{/a\\/*b/.test("x")}</p>; } export function loader() { return {}; }',
+      ),
+    ).toBe(true);
+  });
 });
 
 describe("createRouteLoaderHints", () => {

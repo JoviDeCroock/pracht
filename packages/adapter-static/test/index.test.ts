@@ -21,21 +21,33 @@ describe("staticAdapter", () => {
   });
 
   it("generates an entry exposing the static-export build hooks", () => {
-    const source = staticAdapter({ fallback: "200.html" }).createServerEntryModule();
-    expect(source).toContain('export const staticExportConfig = { fallback: "200.html" };');
+    const source = staticAdapter({
+      fallback: "200.html",
+      fallbackHead: { meta: [{ content: "shared", name: "description" }], title: "Fallback" },
+    }).createServerEntryModule();
+    expect(source).toContain(
+      'export const staticExportConfig = { fallback: "200.html", fallbackHead: {"meta":[{"content":"shared","name":"description"}],"title":"Fallback"} };',
+    );
     expect(source).toContain("const staticNotFoundApp = { ...resolvedApp, routes: [] };");
     expect(source).toContain("export async function renderStaticNotFoundHtml()");
     expect(source).toContain("app: staticNotFoundApp");
     expect(source).toContain("if (!resolvedApp.notFound) return null;");
     expect(source).toContain("Static export failed to render the notFound page");
     expect(source).toContain("export function renderStaticFallbackHtml(notFoundData)");
+    expect(source).toContain("head: staticExportConfig.fallbackHead ?? undefined,");
     expect(source).toContain("notFoundData,");
     expect(source).toContain("createStaticPreviewHandler");
   });
 
   it("defaults to no fallback document", () => {
     expect(createStaticServerEntryModule()).toContain(
-      "export const staticExportConfig = { fallback: null };",
+      "export const staticExportConfig = { fallback: null, fallbackHead: null };",
+    );
+  });
+
+  it("rejects fallback metadata without a fallback document", () => {
+    expect(() => staticAdapter({ fallbackHead: { title: "Unused" } })).toThrow(
+      /requires a fallback file/,
     );
   });
 
