@@ -5,7 +5,7 @@ import {
   maskComments,
   maskCommentsAndStrings,
   skipInsignificant,
-} from "./static-source-parser.ts";
+} from "./static-source-lexical.ts";
 
 /** Parse the `capabilities: { ... }` block of an exported app manifest. */
 export function extractCapabilityRegistrations(

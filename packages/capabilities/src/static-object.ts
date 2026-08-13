@@ -1,5 +1,4 @@
 import {
-  evaluateLiteral,
   findMatchingBrace,
   findQuotedObjectProperty,
   findStringEnd,
@@ -7,7 +6,8 @@ import {
   maskCommentsAndStrings,
   skipInsignificant,
   skipToTopLevelComma,
-} from "./static-source-parser.ts";
+} from "./static-source-lexical.ts";
+import { evaluateLiteral } from "./static-literal.ts";
 
 /**
  * Result of scanning an object literal without executing its source.

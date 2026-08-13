@@ -45,8 +45,9 @@ described in `VISION_MVP.md`.
   schema validation, and the shared wire protocol. Its `static` entry keeps
   `static.ts` as a stable facade: capability projection, app-manifest
   extraction, generic object scanning, and module-binding traversal live in
-  focused sibling modules, while offset-preserving lexing and inline
-  data-literal parsing remain isolated in `static-source-parser.ts`.
+  focused sibling modules. `static-source-lexical.ts` owns offset-preserving
+  JavaScript scanning, `static-literal.ts` owns non-executing inline data
+  parsing, and `static-source-parser.ts` preserves their former internal facade.
   It also owns the executable-source mask and environment-reference policy used
   by both the Vite build guard and CLI verification, preventing security checks
   from drifting across framework surfaces.

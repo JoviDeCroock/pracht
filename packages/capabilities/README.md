@@ -62,6 +62,7 @@ defaults.
 Build tools share the conservative `@pracht/capabilities/static` entry instead
 of executing application modules. Its public facade composes focused analyzers
 for capability projection, exported app manifests, top-level object literals,
-and module bindings over one offset-preserving source parser. Unreadable spreads
-and computed keys remain explicit fail-closed results rather than being treated
-as absent policy.
+and module bindings. Offset-preserving JavaScript scanning and non-executing
+inline literal parsing have separate implementation modules behind their former
+source-parser facade. Unreadable spreads and computed keys remain explicit
+fail-closed results rather than being treated as absent policy.

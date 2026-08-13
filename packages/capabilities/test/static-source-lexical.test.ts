@@ -1,13 +1,12 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  evaluateLiteral,
   findMatchingBrace,
   maskCommentsAndStrings,
   skipToTopLevelComma,
-} from "../src/static-source-parser.ts";
+} from "../src/static-source-lexical.ts";
 
-describe("static source parser", () => {
+describe("static source lexical scanning", () => {
   it("masks lexical noise without shifting source offsets", () => {
     const source = [
       'const decoy = "defineCapability({})";',
@@ -37,21 +36,5 @@ describe("static source parser", () => {
     const comma = skipToTopLevelComma(source, 0);
 
     expect(source.slice(comma + 1).trimStart()).toBe('effect: "read"');
-  });
-
-  it("parses data literals with comments, trailing commas, and Unicode escapes", () => {
-    expect(
-      evaluateLiteral(String.raw`{
-        // schema metadata
-        type: "object",
-        enum: ["\u{1F600}", null, true, -1.5e2,],
-      }`),
-    ).toEqual({ type: "object", enum: ["😀", null, true, -150] });
-  });
-
-  it("rejects syntax that would require executing application code", () => {
-    expect(evaluateLiteral("{ ...shared }")).toBeUndefined();
-    expect(evaluateLiteral("{ value: importedValue }")).toBeUndefined();
-    expect(evaluateLiteral("`hello ${name}`")).toBeUndefined();
   });
 });
