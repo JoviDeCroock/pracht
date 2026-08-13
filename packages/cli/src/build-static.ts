@@ -1,5 +1,6 @@
 import { writeFileSync, mkdirSync } from "node:fs";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
+import { buildStaticRouteStateUrl } from "@pracht/core/server";
 
 /**
  * Static-export (`@pracht/adapter-static`) build pipeline: fail-closed
@@ -229,10 +230,8 @@ export async function validateStaticExport(serverMod: StaticServerModuleView): P
 
 /**
  * Resolve the output path of a route's serialized route-state JSON:
- * `/` → `_pracht/state/index.json`, `/blog/hello` →
- * `_pracht/state/blog/hello/index.json`. Mirrors the client's
- * `buildStaticRouteStateUrl()` and applies the same traversal guards as
- * `resolvePrerenderOutputPath`.
+ * Mirrors the client's opaque `buildStaticRouteStateUrl()` scheme and applies
+ * the same traversal guards as `resolvePrerenderOutputPath`.
  */
 export function resolveRouteStateOutputPath(clientDir: string, routePath: string): string {
   if (routePath.includes("\0") || routePath.includes("\\")) {
@@ -240,11 +239,8 @@ export function resolveRouteStateOutputPath(clientDir: string, routePath: string
   }
 
   const stateRoot = resolve(clientDir, "_pracht/state");
-  const trimmed = routePath.replace(/\/+$/, "");
-  const filePath =
-    trimmed === ""
-      ? resolve(stateRoot, "index.json")
-      : resolve(stateRoot, `.${trimmed}`, "index.json");
+  const stateUrl = buildStaticRouteStateUrl(routePath);
+  const filePath = resolve(clientDir, `.${stateUrl}`);
   const relativePath = relative(stateRoot, filePath);
 
   if (
@@ -290,6 +286,30 @@ function matchesEveryPath(routePath: string): boolean {
   return routePath === "/*" || /^\/:[^/]+\*$/.test(routePath);
 }
 
+function assertNoFixedArtifactRouteCollisions(
+  pages: Array<{ path: string }>,
+  fixedFiles: string[],
+): void {
+  const collisions: string[] = [];
+  for (const page of pages) {
+    const firstSegment = page.path.split("/").filter(Boolean)[0]?.toLowerCase();
+    if (!firstSegment) continue;
+    for (const fixedFile of fixedFiles) {
+      if (firstSegment === fixedFile.toLowerCase()) {
+        collisions.push(`    - ${page.path} conflicts with dist/client/${fixedFile}`);
+      }
+    }
+  }
+
+  if (collisions.length > 0) {
+    throw new Error(
+      "Static export cannot write its fixed fallback artifacts because prerendered route directories use the same paths:\n" +
+        collisions.join("\n") +
+        "\nRename the route or choose a different staticAdapter({ fallback }) file.",
+    );
+  }
+}
+
 /**
  * Prerender output keeps the percent-encoded form of dynamic params
  * (`/posts/café` → a directory literally named `caf%C3%A9`). Hosts that
@@ -312,6 +332,12 @@ export async function writeStaticExportArtifacts(options: {
   log: (message: string) => void;
 }): Promise<StaticArtifactsResult> {
   const { clientDir, pages, serverMod, log } = options;
+  const configuredFallback = serverMod.staticExportConfig?.fallback ?? null;
+  const fixedFiles = [
+    ...(serverMod.resolvedApp?.notFound ? ["404.html"] : []),
+    ...(configuredFallback ? [configuredFallback] : []),
+  ];
+  assertNoFixedArtifactRouteCollisions(pages, fixedFiles);
 
   let stateFileCount = 0;
   for (const page of pages) {
@@ -336,7 +362,6 @@ export async function writeStaticExportArtifacts(options: {
     );
   }
 
-  const configuredFallback = serverMod.staticExportConfig?.fallback ?? null;
   let wrote404 = false;
   let notFoundData: unknown;
   if (typeof serverMod.renderStaticNotFoundHtml === "function") {
@@ -370,16 +395,16 @@ export async function writeStaticExportArtifacts(options: {
     );
 
     // The fallback document renders whatever the client router resolves from
-    // `window.location`. With no notFound page and no route matching every
-    // URL, that resolves to nothing: the visitor gets a blank page, and the
-    // host's rewrite means it answers 200 instead of 404.
-    const hasCatchAllRoute = (serverMod.resolvedApp?.routes ?? []).some((route) =>
-      matchesEveryPath(route.path),
+    // `window.location`. With no notFound page and no client-routable SPA
+    // catch-all, that resolves to nothing: the visitor gets a blank page, and
+    // the host's rewrite means it answers 200 instead of 404.
+    const hasCatchAllRoute = (serverMod.resolvedApp?.routes ?? []).some(
+      (route) => route.render === "spa" && matchesEveryPath(route.path),
     );
     if (!wrote404 && !hasCatchAllRoute) {
       log(
         `\n  Warning: ${configuredFallback} is emitted but the app declares no notFound page,\n` +
-          "  and no route matches every URL. Behind the host rewrite, unknown URLs render an\n" +
+          "  and no client-routable SPA catch-all matches every URL. Behind the host rewrite, unknown URLs render an\n" +
           "  empty document with status 200. Add defineApp({ notFound }) so they render a real\n" +
           "  page, or drop the `fallback` option so unknown URLs keep the host's 404.\n",
       );

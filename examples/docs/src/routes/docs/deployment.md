@@ -226,8 +226,8 @@ pracht build      # dist/client/ is the whole deployment
 pracht preview
 ```
 
-The build serializes each loader-backed SSG route's payload to static
-`_pracht/state/…/index.json` files so client-side navigation works without a
+The build serializes each loader-backed SSG route's payload to collision-safe
+opaque `.json` files under `_pracht/state/` so client-side navigation works without a
 server, emits the `notFound` page as `404.html`, and — with
 `staticAdapter({ fallback: "200.html" })` — an SPA fallback document for hosts
 that can rewrite unmatched URLs. Loaderless SPA routes fetch no Pracht state

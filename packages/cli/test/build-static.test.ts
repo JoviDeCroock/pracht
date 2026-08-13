@@ -325,21 +325,27 @@ describe("resolveRouteStateOutputPath", () => {
       resolve(clientDir, "_pracht/state/index.json"),
     );
     expect(resolveRouteStateOutputPath(clientDir, "/blog/hello")).toBe(
-      resolve(clientDir, "_pracht/state/blog/hello/index.json"),
+      resolve(clientDir, "_pracht/state/0062006c006f0067/00680065006c006c006f.json"),
     );
   });
 
-  it("keeps percent-encoded params inside the state tree", () => {
+  it("encodes percent-encoded params inside the state tree", () => {
     const clientDir = `${sep}tmp${sep}client`;
     expect(resolveRouteStateOutputPath(clientDir, "/posts/caf%C3%A9")).toBe(
-      resolve(clientDir, "_pracht/state/posts/caf%C3%A9/index.json"),
+      resolve(
+        clientDir,
+        "_pracht/state/0070006f007300740073/006300610066002500430033002500410039.json",
+      ),
     );
   });
 
-  it("refuses traversal out of the state tree", () => {
+  it("keeps path-like route segments distinct and inside the state tree", () => {
     const clientDir = `${sep}tmp${sep}client`;
-    expect(() => resolveRouteStateOutputPath(clientDir, "/../../etc/passwd")).toThrow(/outside/);
-    expect(() => resolveRouteStateOutputPath(clientDir, "/..")).toThrow(/outside/);
+    const parent = resolveRouteStateOutputPath(clientDir, "/docs");
+    const child = resolveRouteStateOutputPath(clientDir, "/docs/index.json");
+    expect(parent).not.toBe(child);
+    expect(parent.startsWith(resolve(clientDir, "_pracht/state"))).toBe(true);
+    expect(child.startsWith(resolve(clientDir, "_pracht/state"))).toBe(true);
   });
 
   it("refuses NUL bytes and backslashes", () => {
@@ -378,10 +384,10 @@ describe("writeStaticExportArtifacts", () => {
     expect(readFileSync(resolve(clientDir, "_pracht/state/index.json"), "utf-8")).toBe(
       '{"data":{"a":1}}',
     );
-    expect(readFileSync(resolve(clientDir, "_pracht/state/about/index.json"), "utf-8")).toBe(
+    expect(readFileSync(resolveRouteStateOutputPath(clientDir, "/about"), "utf-8")).toBe(
       '{"data":{"b":2}}',
     );
-    expect(existsSync(resolve(clientDir, "_pracht/state/plain/index.json"))).toBe(false);
+    expect(existsSync(resolveRouteStateOutputPath(clientDir, "/plain"))).toBe(false);
     expect(readFileSync(resolve(clientDir, "404.html"), "utf-8")).toContain("404");
     expect(readFileSync(resolve(clientDir, "200.html"), "utf-8")).toContain("fallback");
     expect(fallbackNotFoundData).toEqual({ message: "Built custom 404" });
@@ -430,7 +436,7 @@ describe("writeStaticExportArtifacts", () => {
     });
 
     const output = logs.join("\n");
-    expect(output).toContain("no route matches every URL");
+    expect(output).toContain("no client-routable SPA catch-all matches every URL");
     expect(output).toContain("empty document with status 200");
   });
 
@@ -451,7 +457,46 @@ describe("writeStaticExportArtifacts", () => {
         log: (message) => logs.push(message),
       });
 
-      expect(logs.join("\n")).not.toContain("no route matches every URL");
+      expect(logs.join("\n")).not.toContain("no client-routable SPA catch-all matches every URL");
+    }
+  });
+
+  it("warns when only an SSG root splat matches every unmatched URL", async () => {
+    const clientDir = createTempDir();
+    const logs: string[] = [];
+
+    await writeStaticExportArtifacts({
+      clientDir,
+      pages: [],
+      serverMod: {
+        resolvedApp: { routes: [{ path: "/*", render: "ssg" }] },
+        staticExportConfig: { fallback: "200.html" },
+        renderStaticNotFoundHtml: async () => null,
+        renderStaticFallbackHtml: () => "<html></html>",
+      },
+      log: (message) => logs.push(message),
+    });
+
+    expect(logs.join("\n")).toContain("no client-routable SPA catch-all matches every URL");
+  });
+
+  it("rejects route directories that collide with 404.html or the SPA fallback", async () => {
+    for (const routePath of ["/404.html", "/404.html/nested", "/200.html"]) {
+      const clientDir = createTempDir();
+      await expect(
+        writeStaticExportArtifacts({
+          clientDir,
+          pages: [{ path: routePath }],
+          serverMod: {
+            resolvedApp: {
+              notFound: { path: "/__pracht-not-found__" },
+              routes: [],
+            },
+            staticExportConfig: { fallback: "200.html" },
+          },
+          log: () => {},
+        }),
+      ).rejects.toThrow(new RegExp(`${routePath.replaceAll("/", "\\/")} conflicts`));
     }
   });
 

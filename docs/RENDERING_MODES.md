@@ -27,9 +27,9 @@ output is written to `dist/client/about/index.html`. No server is needed for the
 initial document request — it's served as a static file. Client-side navigation
 uses the route-state JSON endpoint when an adapter runtime is available. On a
 pure static export (`@pracht/adapter-static`), the build additionally
-serializes each SSG route's loader payload to
-`dist/client/_pracht/state/<path>/index.json` and the client router fetches
-that file instead, so navigation stays client-side with zero server — see
+serializes each SSG route's loader payload to a collision-safe opaque `.json`
+file under `dist/client/_pracht/state/` and the client router fetches that file
+instead, so navigation stays client-side with zero server — see
 [ADAPTERS.md](ADAPTERS.md#static-adapter). An app where every route is
 `ssg` or loaderless `spa`, with no request middleware, API routes, or
 network-exposed capabilities, can

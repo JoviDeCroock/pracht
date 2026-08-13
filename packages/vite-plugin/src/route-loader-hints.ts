@@ -1,17 +1,52 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { extname, join, relative } from "node:path";
+
 import { maskCommentsAndStrings } from "@pracht/capabilities/static";
+import { initSync, parse } from "es-module-lexer";
+
 import {
   DEFAULT_ROUTE_EXTENSIONS,
   normalizeAdditionalExtensions,
   withAdditionalExtensions,
 } from "./route-extensions.ts";
 
-const LOADER_DECLARATION_RE = /export\s+(?:async\s+)?(?:function|const|let|var)\s+loader\b/;
+initSync();
+
 const HEAD_DECLARATION_RE = /export\s+(?:async\s+)?(?:function|const|let|var)\s+head\b/;
 const EXPORT_BLOCK_RE = /export\s*\{([^}]*)\}\s*(?:from\s*["'][^"']+["'])?/g;
 const EXPORT_ALL_RE = /export\s+\*\s+from\b/;
 const EXPORT_VARIABLE_DECLARATION_RE = /export\s+(?:const|let|var)\b/g;
+
+function isExportAllStatement(source: string): boolean {
+  const withoutComments = source.replace(/\/\*[\s\S]*?\*\/|\/\/[^\r\n]*/g, " ");
+  return /^\s*export\s*\*/.test(withoutComments);
+}
+
+function detectLoaderExportFallback(source: string): boolean {
+  const masked = maskCommentsAndStrings(source);
+  if (/\bexport\s+(?:async\s+)?function\s+loader\b/.test(masked)) return true;
+  if (/\bexport\s+(?:const|let|var)\s+[^;]*\bloader\s*(?::[^=,;]+)?=/.test(masked)) {
+    return true;
+  }
+  if (/\bexport\s*\*/.test(masked)) return true;
+
+  for (const match of masked.matchAll(/\bexport\s*\{([^}]*)\}/g)) {
+    const hasLoader = match[1]
+      .split(",")
+      .map((specifier) => specifier.trim())
+      .filter(Boolean)
+      .some((specifier) => {
+        const names = /^(?:type\s+)?([A-Za-z_$][\w$]*)(?:\s+as\s+([A-Za-z_$][\w$]*))?$/.exec(
+          specifier,
+        );
+        if (!names || specifier.startsWith("type ")) return false;
+        return (names[2] ?? names[1]) === "loader";
+      });
+    if (hasLoader) return true;
+  }
+
+  return false;
+}
 
 function topLevelAssignmentIndex(source: string): number {
   let parentheses = 0;
@@ -75,20 +110,6 @@ function exportSpecifiersInclude(specifiers: string, exportName: string): boolea
     });
 }
 
-export function detectLoaderExport(source: string): boolean {
-  if (LOADER_DECLARATION_RE.test(source)) return true;
-
-  for (const match of source.matchAll(EXPORT_BLOCK_RE)) {
-    if (exportSpecifiersInclude(match[1], "loader")) {
-      return true;
-    }
-  }
-
-  // `export *` can expose a loader through re-exports. Treat it as a loader
-  // route to avoid skipping route-state fetches incorrectly.
-  return EXPORT_ALL_RE.test(source);
-}
-
 export function detectHeadExport(source: string): boolean {
   // Markdown and MDX transforms can synthesize a head export from frontmatter.
   // Keep them conservative even when the raw source has no JS declaration.
@@ -103,6 +124,30 @@ export function detectHeadExport(source: string): boolean {
     if (exportSpecifiersInclude(match[1], "head")) return true;
   }
   return EXPORT_ALL_RE.test(analysisSource);
+}
+
+export function detectLoaderExport(source: string): boolean {
+  try {
+    const [imports, exports] = parse(source);
+    if (exports.some((entry) => entry.n === "loader")) return true;
+
+    // `export *` can expose a loader through a re-export. The lexer reports it
+    // as an import record without a named export, so inspect only that exact
+    // export statement. Ordinary imports and comments/strings mentioning a
+    // loader must not turn a client-only SPA route into a false positive.
+    for (const entry of imports) {
+      if (entry.d === -1 && isExportAllStatement(source.slice(entry.ss, entry.se))) {
+        return true;
+      }
+    }
+  } catch {
+    // es-module-lexer intentionally parses JavaScript rather than every JSX or
+    // TSRX construct. Fall back to a comment/string-masked export scan so valid
+    // component syntax does not make every loaderless SPA route look unsafe.
+    return detectLoaderExportFallback(source);
+  }
+
+  return false;
 }
 
 function scanRouteFiles(dir: string, files: string[], extensions: Set<string>): void {
@@ -204,5 +249,6 @@ export function createRouteHeadHints(
     if (routeRootPrefix) keys.add(`${routeRootPrefix}/${relativeToRoutesDir}`);
     for (const key of keys) hints[key] = hasHead;
   }
+
   return hints;
 }
