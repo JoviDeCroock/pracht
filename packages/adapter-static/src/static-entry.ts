@@ -1,3 +1,4 @@
+import type { HeadMetadata } from "@pracht/core";
 import type { PrachtAdapter } from "@pracht/vite-plugin";
 
 export interface StaticAdapterOptions {
@@ -9,6 +10,12 @@ export interface StaticAdapterOptions {
    * the file is inert.
    */
   fallback?: string;
+  /**
+   * Metadata for the shared SPA fallback document. Every rewritten URL gets
+   * this same head because route, shell, and not-found `head()` exports run on
+   * the server and cannot be resolved for an arbitrary URL in a static document.
+   */
+  fallbackHead?: HeadMetadata;
   /** Port used by `pracht preview` / running the generated entry directly. Defaults to 3000. */
   port?: number;
 }
@@ -17,7 +24,12 @@ const FALLBACK_FILENAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*\.html$/;
 
 function assertValidStaticAdapterOptions(options: StaticAdapterOptions): void {
   const fallback = options.fallback;
-  if (fallback === undefined) return;
+  if (fallback === undefined) {
+    if (options.fallbackHead !== undefined) {
+      throw new Error("staticAdapter({ fallbackHead }) requires a fallback file.");
+    }
+    return;
+  }
   const normalizedFallback = fallback.toLowerCase();
   if (normalizedFallback === "index.html" || normalizedFallback === "404.html") {
     throw new Error(
@@ -35,6 +47,7 @@ function assertValidStaticAdapterOptions(options: StaticAdapterOptions): void {
 export function createStaticServerEntryModule(options: StaticAdapterOptions = {}): string {
   assertValidStaticAdapterOptions(options);
   const fallback = options.fallback ?? null;
+  const fallbackHead = options.fallbackHead ?? null;
   const port = options.port ?? 3000;
 
   return [
@@ -45,7 +58,7 @@ export function createStaticServerEntryModule(options: StaticAdapterOptions = {}
     "// this bundle to prerender) and `pracht preview` (which runs this file",
     "// directly to serve dist/client locally).",
     "",
-    `export const staticExportConfig = { fallback: ${JSON.stringify(fallback)} };`,
+    `export const staticExportConfig = { fallback: ${JSON.stringify(fallback)}, fallbackHead: ${JSON.stringify(fallbackHead)} };`,
     "",
     "// Remove ordinary routes from the build-only not-found app so a broad",
     "// dynamic pattern (`/:slug`, `/*`) cannot consume the synthetic request",
@@ -81,6 +94,7 @@ export function createStaticServerEntryModule(options: StaticAdapterOptions = {}
     "export function renderStaticFallbackHtml(notFoundData) {",
     "  return buildStaticFallbackHtml({",
     "    clientEntryUrl: clientEntryUrl ?? undefined,",
+    "    head: staticExportConfig.fallbackHead ?? undefined,",
     "    notFoundData,",
     "  });",
     "}",

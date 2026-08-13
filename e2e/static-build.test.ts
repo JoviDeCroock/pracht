@@ -318,6 +318,11 @@ test("static export serves a full app from a dumb static host with zero server",
     await page.goto(`${fallbackOrigin}/items/42`);
     await expect(page.locator("#item h1")).toHaveText("Item 42");
     await expect(page.locator("#item-note")).toHaveText("client-only route");
+    await expect(page).toHaveTitle("Pracht Static Example");
+    await expect(page.locator('meta[name="viewport"]')).toHaveAttribute(
+      "content",
+      "width=device-width, initial-scale=1",
+    );
     // Navigation away from the fallback boot stays client-side.
     await page.evaluate(() => {
       (window as any).__NO_RELOAD__ = true;
@@ -463,6 +468,42 @@ test("static export build rejects dynamic SSG without getStaticPaths", () => {
     const output = buildFailureOutput(exampleDir);
     expect(output).toContain('dynamic SSG route "/posts/:slug"');
     expect(output).toContain("has no getStaticPaths() export");
+  } finally {
+    rmSync(tempDir, { force: true, recursive: true });
+  }
+});
+
+test("static export preflights concrete paths before writing reserved output", () => {
+  test.setTimeout(180_000);
+  const { exampleDir, tempDir } = createTempExampleDir(
+    staticFixtureDir,
+    "pracht-static-reserved-path-",
+  );
+
+  try {
+    const routesPath = resolve(exampleDir, "src/routes.ts");
+    writeFileSync(
+      routesPath,
+      readFileSync(routesPath, "utf-8").replace(
+        'route("/posts/:slug", () => import("./routes/post.tsx"), { id: "post", render: "ssg" })',
+        'route("/:section/:slug", () => import("./routes/post.tsx"), { id: "post", render: "ssg" })',
+      ),
+      "utf-8",
+    );
+    const postPath = resolve(exampleDir, "src/routes/post.tsx");
+    writeFileSync(
+      postPath,
+      readFileSync(postPath, "utf-8").replace(
+        "return Object.keys(POSTS).map((slug) => ({ slug }));",
+        'return [{ section: "_pracht", slug: "owned" }];',
+      ),
+      "utf-8",
+    );
+
+    const output = buildFailureOutput(exampleDir);
+    expect(output).toContain("reserved /_pracht/ output namespace");
+    expect(output).toContain("/_pracht/owned");
+    expect(existsSync(resolve(exampleDir, "dist/client/_pracht/owned/index.html"))).toBe(false);
   } finally {
     rmSync(tempDir, { force: true, recursive: true });
   }

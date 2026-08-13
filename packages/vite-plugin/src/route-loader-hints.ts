@@ -142,8 +142,8 @@ export function detectLoaderExport(source: string): boolean {
     }
   } catch {
     // es-module-lexer intentionally parses JavaScript rather than every JSX or
-    // TSRX construct. Fall back to a comment/string-masked export scan so valid
-    // component syntax does not make every loaderless SPA route look unsafe.
+    // TSRX construct. Fall back to the shared syntax-aware masking scan so
+    // comments, strings, and regex contents cannot hide or forge an export.
     return detectLoaderExportFallback(source);
   }
 

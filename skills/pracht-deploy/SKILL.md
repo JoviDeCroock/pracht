@@ -336,7 +336,8 @@ error, because prerendered asset and route-state URLs are root-relative.
    import { staticAdapter } from "@pracht/adapter-static";
    export default { plugins: [pracht({ adapter: staticAdapter() })] };
    // With dynamic SPA routes, add { fallback: "200.html" } and configure the
-   // host to rewrite unmatched URLs to it.
+   // host to rewrite unmatched URLs to it. If the route or shell exports
+   // head(), also set generic fallbackHead metadata shared by every rewrite.
    ```
 
 ### Build & Deploy
@@ -360,7 +361,9 @@ SSG paths omitted by `getStaticPaths()` render the app's not-found page with
 the build-time loader data carried over from `404.html`. The host rewrite that
 serves the fallback answers unknown URLs with status 200 (soft 404), and an app
 with no `notFound` page and no unshadowed client-routable SPA catch-all renders them blank — the build
-warns about that shape.
+warns about that shape. A dynamic SPA route, its shell, or the not-found page
+with `head()` requires an explicit `fallbackHead`, because the shared static
+document cannot evaluate URL-specific server metadata.
 
 ---
 

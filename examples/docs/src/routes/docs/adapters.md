@@ -568,7 +568,12 @@ server.listen(3000);
 import { staticAdapter } from "@pracht/adapter-static";
 pracht({ adapter: staticAdapter() })
 // optional SPA fallback for host rewrites:
-pracht({ adapter: staticAdapter({ fallback: "200.html" }) })
+pracht({
+  adapter: staticAdapter({
+    fallback: "200.html",
+    fallbackHead: { title: "My app" }, // shared by every rewritten URL
+  }),
+})
 
 // package.json
 "@pracht/adapter-static": "*"
@@ -583,6 +588,7 @@ The build fails closed — before prerendering, with every offender listed — w
 - the `notFound` page must use full hydration (the default) so `404.html` can adopt the visitor's real URL;
 - no API routes;
 - no manifest-registered capabilities exposed over HTTP/MCP/WebMCP (unexposed capabilities invoked from build-time loaders are fine); registered capability modules must load successfully so the build can establish that exposure safely;
+- neither route patterns nor concrete paths returned by `getStaticPaths()` may write under the reserved `/_pracht/` namespace; concrete output is checked before any page is written;
 - Vite `base` must stay `/`: prerendered asset and route-state URLs are root-relative, so a sub-path deploy would 404 everything.
 
 `ssr` and `isg` routes belong on the Node, Cloudflare, or Vercel adapters.
@@ -594,6 +600,8 @@ Client-side navigation normally fetches route-state JSON from the server. A stat
 ### 404 and SPA fallback
 
 The app's `notFound` page is rendered to `404.html` independently of ordinary route matching (the GitHub Pages / S3 convention); the full-hydration page adopts the URL actually visited. With `fallback: "200.html"` plus a host rewrite for unmatched URLs, deep links into dynamic `render: "spa"` routes boot the client router and resolve the route from `window.location`.
+
+The fallback is one document shared by every rewritten URL, so it cannot run a route-, shell-, or not-found-specific `head()` export. If a fallback-rendered route declares one, configure explicit generic `fallbackHead` metadata shared by every fallback URL; the build fails closed when it is omitted.
 
 The fallback only client-renders matched SPA routes. A path that matches a dynamic SSG pattern but was not emitted by `getStaticPaths()` renders the app's `notFound` page instead of running without its missing build-time state. That client render reuses the build-time `notFound` loader data serialized into `404.html`.
 

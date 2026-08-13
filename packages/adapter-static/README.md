@@ -36,6 +36,7 @@ A static export has no server, so the build fails closed on anything that needs 
 - The `notFound` page must use full hydration (the default). A static host serves the same prebuilt `404.html` for every miss, so the full client router is required to adopt the visitor's actual URL.
 - API routes are build errors.
 - Manifest-registered capabilities exposed over HTTP/MCP/WebMCP are build errors (server-only capabilities invoked from build-time loaders are fine). Registered capability modules must load successfully so validation can fail closed; unused files in the capabilities directory are ignored.
+- Route patterns and concrete paths returned by `getStaticPaths()` may not write under the reserved `/_pracht/` namespace. Concrete output is preflighted before any page is written.
 - A Vite `base` other than `/` is a build error: prerendered documents reference `/assets/…` and `/_pracht/state/…` from the origin root, so a sub-path deploy (GitHub Pages project site, S3 key prefix) would build cleanly and serve a site whose every asset 404s.
 
 The build also warns — without failing — on percent-encoded prerender paths (hosts that decode URLs before the filesystem lookup will miss those directories) and on a `fallback` document in an app with no `notFound` page and no unshadowed client-routable SPA catch-all (unknown URLs would render blank).
@@ -50,6 +51,20 @@ SSG loaders run at build time. For each loader-backed SSG route, the build seria
 - Route state: bounded, collision-safe opaque `.json` files under `_pracht/state/` (`/` uses `_pracht/state/index.json`).
 - `404.html`: the app's `notFound` page, rendered independently of ordinary route matching at build time (GitHub Pages / S3 error-document convention).
 - `200.html` (opt-in via `staticAdapter({ fallback: "200.html" })`): SPA fallback document for hosts that can rewrite unmatched URLs; required for deep links into dynamic `render: "spa"` routes.
+
+One fallback file is shared by every rewritten URL, so it cannot evaluate a
+dynamic route or shell `head()` export. When those exports exist, provide
+explicit generic metadata shared by every fallback URL:
+
+```ts
+staticAdapter({
+  fallback: "200.html",
+  fallbackHead: { title: "My app", meta: [{ name: "robots", content: "noindex" }] },
+});
+```
+
+The build fails closed if a dynamic SPA route, its shell, or the not-found page
+exports `head()` and `fallbackHead` is omitted.
 
 The fallback only boots matched SPA routes. Paths matching a dynamic SSG route but omitted by `getStaticPaths()` render the app's `notFound` page rather than running without build-time loader state. When the fallback renders `notFound`, it reuses the loader data serialized into `404.html`; the loader does not run again.
 
