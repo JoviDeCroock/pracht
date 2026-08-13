@@ -104,6 +104,10 @@ Dynamic children are wrapped in `jsxEscape()`. Dynamic attributes are serialized
 with `jsxAttr()`, with extra handling for `aria-*`, `data-*`, and enumerated
 boolean attributes so output matches `preact-render-to-string`.
 
+For contributors, `transform.ts` owns AST lowering and template construction,
+`html-serialization.ts` owns the pure HTML output rules, and
+`source-analysis.ts` owns parsing and offset-safe source edits.
+
 ## Options
 
 ```ts

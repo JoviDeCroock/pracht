@@ -426,6 +426,12 @@ still receives an ordinary VNode tree. The transform is conservative and falls
 back for components, spreads, custom elements, `dangerouslySetInnerHTML`, and
 HTML elements with special Preact SSR behavior.
 
+The package keeps AST lowering in `transform.ts` and the pure output rules in
+`html-serialization.ts`. Attribute-name normalization, entity encoding, JSX
+text whitespace, boolean attributes, and safe native-element classification
+therefore share one testable policy boundary instead of being embedded in the
+tree traversal.
+
 ---
 
 ## Adapter Pattern

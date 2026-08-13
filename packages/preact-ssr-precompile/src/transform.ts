@@ -2,6 +2,14 @@
 
 import { generateTransform, rolldownString, type RolldownString } from "rolldown-string";
 import {
+  encodeHtmlEntities,
+  isStringifiedBooleanAttribute,
+  isUnsafeHtmlElementName,
+  isVoidHtmlElement,
+  normalizeHtmlAttributeName,
+  serializeJsxText,
+} from "./html-serialization.js";
+import {
   applyReplacementsInRange,
   collectIdentifierNames,
   getNodeArray,
@@ -18,29 +26,6 @@ const DEFAULT_IMPORT_SOURCE = "preact";
 
 const DEFAULT_SKIP_ELEMENTS = new Set(["svg", "math", "textarea", "select", "option"]);
 
-const VOID_ELEMENTS = new Set([
-  "area",
-  "base",
-  "br",
-  "col",
-  "embed",
-  "hr",
-  "img",
-  "input",
-  "link",
-  "meta",
-  "param",
-  "source",
-  "track",
-  "wbr",
-]);
-
-const HTML_ENUMERATED_ATTRS = new Set(["draggable", "spellcheck"]);
-const NAMESPACE_REPLACE_REGEX = /^(xlink|xmlns|xml)([A-Z])/;
-const HTML_LOWER_CASE =
-  /^(?:accessK|auto[A-Z]|cell|ch|col|cont|cross|dateT|encT|form[A-Z]|frame|hrefL|inputM|maxL|minL|noV|playsI|popoverT|readO|rowS|src[A-Z]|tabI|useM|item[A-Z])/;
-const UNSAFE_NAME = /[\s\n\\/='"<>]/;
-const ENCODED_ENTITIES = /["&<]/;
 const IDENTIFIER_NAME = /^[$A-Z_a-z][$\w]*$/;
 
 /** Transform JSX in a single module. Exposed for tests and non-Vite integrations. */
@@ -207,7 +192,7 @@ class TransformContext {
     if (strings.length === 0) strings.push("");
 
     const tagName = getElementIdentifierName(opening.name as NodeLike) ?? "";
-    strings[strings.length - 1] += `<${encodeEntities(tagName)}`;
+    strings[strings.length - 1] += `<${encodeHtmlEntities(tagName)}`;
 
     for (const attr of getNodeArray(opening.attributes)) {
       if (attr.type !== "JSXAttribute") continue;
@@ -215,7 +200,7 @@ class TransformContext {
     }
 
     const children = getNodeArray(node.children);
-    if (VOID_ELEMENTS.has(tagName)) {
+    if (isVoidHtmlElement(tagName)) {
       strings[strings.length - 1] += "/>";
       return;
     }
@@ -233,7 +218,7 @@ class TransformContext {
     const rawAttrName = getAttributeName(attr, this.code);
     if (!rawAttrName) return;
 
-    const attrName = normalizeHtmlAttrName(rawAttrName);
+    const attrName = normalizeHtmlAttributeName(rawAttrName);
 
     if (this.dynamicProps.has(rawAttrName) || attrName === "key" || attrName === "ref") {
       strings.push("");
@@ -280,7 +265,7 @@ class TransformContext {
   ): void {
     for (const [index, child] of children.entries()) {
       if (child.type === "JSXText") {
-        const text = jsxTextToString(
+        const text = serializeJsxText(
           String(child.value ?? ""),
           true,
           isParentSerializable && index === children.length - 1,
@@ -335,7 +320,7 @@ class TransformContext {
       if (attr.type !== "JSXAttribute") continue;
       const rawAttrName = getAttributeName(attr, this.code);
       if (!rawAttrName) continue;
-      const propName = isComponent ? rawAttrName : normalizeHtmlAttrName(rawAttrName);
+      const propName = isComponent ? rawAttrName : normalizeHtmlAttributeName(rawAttrName);
       const value = attr.value as NodeLike | null | undefined;
 
       if (propName === "key") {
@@ -363,7 +348,7 @@ class TransformContext {
 
     for (const [index, child] of children.entries()) {
       if (child.type === "JSXText") {
-        const text = jsxTextToString(
+        const text = serializeJsxText(
           String(child.value ?? ""),
           false,
           index === children.length - 1,
@@ -414,27 +399,27 @@ class TransformContext {
   private appendStaticAttribute(strings: string[], attrName: string, value: unknown): void {
     if (value == null) return;
 
-    if (isStringifiedBooleanAttr(attrName) && typeof value === "boolean") {
+    if (isStringifiedBooleanAttribute(attrName) && typeof value === "boolean") {
       strings[strings.length - 1] +=
-        ` ${encodeEntities(attrName)}=${JSON.stringify(String(value))}`;
+        ` ${encodeHtmlEntities(attrName)}=${JSON.stringify(String(value))}`;
       return;
     }
 
     if (value === false || typeof value === "function" || typeof value === "object") return;
 
     if (value === true || value === "") {
-      strings[strings.length - 1] += ` ${encodeEntities(attrName)}`;
+      strings[strings.length - 1] += ` ${encodeHtmlEntities(attrName)}`;
       return;
     }
 
     strings[strings.length - 1] +=
-      ` ${encodeEntities(attrName)}=${JSON.stringify(encodeEntities(String(value)))}`;
+      ` ${encodeHtmlEntities(attrName)}=${JSON.stringify(encodeHtmlEntities(String(value)))}`;
   }
 
   private jsxAttrCall(attrName: string, expression: string): string {
     const serializedName = JSON.stringify(attrName);
     this.usedHelpers.add("jsxAttr");
-    const attr = isStringifiedBooleanAttr(attrName)
+    const attr = isStringifiedBooleanAttribute(attrName)
       ? `((value) => typeof value === "boolean" ? ${this.jsxAttrIdent}(${serializedName}, String(value)) : ${this.jsxAttrIdent}(${serializedName}, value))(${expression})`
       : `${this.jsxAttrIdent}(${serializedName}, ${expression})`;
     return `((attr) => attr ? " " + attr : "")(${attr})`;
@@ -453,7 +438,7 @@ class TransformContext {
     if (isComponentTagName(name)) return false;
     if (this.skipElements.has(name)) return false;
     if (name.includes("-")) return false;
-    if (name.includes("\0") || UNSAFE_NAME.test(name)) return false;
+    if (isUnsafeHtmlElementName(name)) return false;
 
     for (const attr of getNodeArray(opening.attributes)) {
       if (attr.type === "JSXSpreadAttribute") return false;
@@ -469,7 +454,7 @@ class TransformContext {
 function getStaticChildText(expr: NodeLike): string | null {
   if (expr.type !== "Literal") return null;
   if (expr.value == null || typeof expr.value === "boolean") return "";
-  return encodeEntities(String(expr.value));
+  return encodeHtmlEntities(String(expr.value));
 }
 
 function isIgnoredLiteralChild(expr: NodeLike): boolean {
@@ -513,80 +498,6 @@ function getAttributeName(attr: NodeLike, code: string): string | null {
   return null;
 }
 
-function normalizeHtmlAttrName(name: string): string {
-  switch (name) {
-    case "htmlFor":
-      return "for";
-    case "className":
-      return "class";
-    case "defaultChecked":
-      return "checked";
-    case "defaultSelected":
-      return "selected";
-    case "defaultValue":
-      return "value";
-    case "acceptCharset":
-      return "accept-charset";
-    case "httpEquiv":
-      return "http-equiv";
-    default:
-      if (NAMESPACE_REPLACE_REGEX.test(name))
-        return name.replace(NAMESPACE_REPLACE_REGEX, "$1:$2").toLowerCase();
-      if (HTML_LOWER_CASE.test(name)) return name.toLowerCase();
-      return name;
-  }
-}
-
 function objectPropertyKey(name: string): string {
   return IDENTIFIER_NAME.test(name) ? name : JSON.stringify(name);
-}
-
-function jsxTextToString(value: string, escape: boolean, trimLastChild: boolean): string {
-  let text = "";
-  const lines = value.split(/\r\n|\r|\n/);
-
-  for (const [index, originalLine] of lines.entries()) {
-    let line = index === 0 ? originalLine : originalLine.trimStart();
-    if (index < lines.length - 1 || trimLastChild) line = line.trimEnd();
-    if (line === "") continue;
-    if (index > 0 && text !== "") text += " ";
-    text += line;
-  }
-
-  return escape ? encodeEntities(text) : text;
-}
-
-function encodeEntities(value: string): string {
-  if (value.length === 0 || ENCODED_ENTITIES.test(value) === false) return value;
-
-  let last = 0;
-  let out = "";
-  for (let index = 0; index < value.length; index++) {
-    let replacement = "";
-    switch (value.charCodeAt(index)) {
-      case 34:
-        replacement = "&quot;";
-        break;
-      case 38:
-        replacement = "&amp;";
-        break;
-      case 60:
-        replacement = "&lt;";
-        break;
-      default:
-        continue;
-    }
-
-    if (index !== last) out += value.slice(last, index);
-    out += replacement;
-    last = index + 1;
-  }
-
-  if (last !== value.length) out += value.slice(last);
-  return out;
-}
-
-function isStringifiedBooleanAttr(name: string): boolean {
-  // Mirrors preact-render-to-string: aria-* and data-* boolean values render as strings.
-  return name.charCodeAt(4) === 45 || HTML_ENUMERATED_ATTRS.has(name);
 }
