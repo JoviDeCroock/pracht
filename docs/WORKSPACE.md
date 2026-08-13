@@ -67,6 +67,11 @@ described in `VISION_MVP.md`.
   deterministic renderer. Public configuration contracts live in
   `llms-txt-types.ts`, graph-to-entry collection in `llms-txt-entries.ts`, and
   reserved-path plus configured exclusion policy in `llms-txt-exclusions.ts`.
+- **Capability transport** — `runtime-capabilities.ts` retains HTTP dispatch
+  orchestration and stable exports. Its shared request/result contracts live in
+  `runtime-capability-transport-types.ts`, while MCP-only middleware success
+  envelope validation lives in `runtime-capability-mcp-output.ts` so protocol
+  settlement cannot leak into ordinary HTTP policy.
 - **Server rendering** — `handlePrachtRequest()` executes the full request
   lifecycle: API route check → middleware chain → loader → Preact
   `renderToString` → HTML document assembly with hydration state

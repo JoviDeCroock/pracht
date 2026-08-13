@@ -39,6 +39,11 @@ loading of the Preact server renderer. API failure policy lives in
 `runtime-route-error-response.ts`, and their shared generated-asset options in
 `runtime-response-types.ts`; `runtime-response.ts` is the compatibility facade.
 
+Capability transport keeps its request contract in the type-only
+`runtime-capability-transport-types.ts`. MCP-only middleware output
+revalidation lives in `runtime-capability-mcp-output.ts`, separate from the
+ordinary HTTP dispatch orchestrated by `runtime-capabilities.ts`.
+
 ### Client
 
 - `startApp()` — client-side hydration and runtime

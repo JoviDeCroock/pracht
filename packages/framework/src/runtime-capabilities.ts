@@ -21,6 +21,7 @@ import {
 } from "@pracht/capabilities";
 import { capabilityEnvelopeOutcome, emitCapabilityAudit } from "./runtime-capability-audit.ts";
 import { enforceDestructiveConfirmation } from "./runtime-capability-confirmation.ts";
+import { revalidateMcpSuccessEnvelope } from "./runtime-capability-mcp-output.ts";
 import {
   capabilityMiddlewareRoute,
   CAPABILITY_TIMEOUT_MS,
@@ -29,15 +30,12 @@ import {
   normalizeMiddlewareShortCircuit,
   runCapabilityPipeline,
 } from "./runtime-capability-pipeline.ts";
-import type { ResolvedCapability } from "./runtime-capability-registry.ts";
-import { runMiddlewareChain } from "./runtime-middleware.ts";
 import type {
-  CapabilityAuditEvent,
-  CapabilityAuditHook,
-  ModuleRegistry,
-  PrachtAgentIdentity,
-  PrachtAgentsConfig,
-} from "./types.ts";
+  CapabilityDispatchResult,
+  HandleCapabilityRequestOptions,
+} from "./runtime-capability-transport-types.ts";
+import { runMiddlewareChain } from "./runtime-middleware.ts";
+import type { CapabilityAuditEvent } from "./types.ts";
 
 export { CAPABILITY_HTTP_PREFIX, capabilityHttpPath };
 export { setCapabilityAuditHook } from "./runtime-capability-audit.ts";
@@ -54,24 +52,7 @@ export {
   resolveAppCapabilities,
 } from "./runtime-capability-registry.ts";
 export type { CapabilityHostApp, ResolvedCapability } from "./runtime-capability-registry.ts";
-
-export interface HandleCapabilityRequestOptions<TContext> {
-  match: ResolvedCapability;
-  context: TContext;
-  registry: ModuleRegistry;
-  request: Request;
-  url: URL;
-  exposeErrors: boolean;
-  /** App-level `api.middleware`, wrapped around the HTTP projection only. */
-  apiMiddlewareFiles?: string[];
-  /** App-level agent trust config (`defineApp({ agents })`). */
-  agents?: PrachtAgentsConfig;
-  /** Verified agent identity for this request, `null` when unsigned/unverified. */
-  agent?: PrachtAgentIdentity | null;
-  /** Trusted transport selected by an internal framework projection. */
-  transport?: "mcp";
-  onAudit?: CapabilityAuditHook;
-}
+export type { HandleCapabilityRequestOptions } from "./runtime-capability-transport-types.ts";
 
 /**
  * Handle a matched capability HTTP request. Method/CSRF checks already ran in
@@ -118,60 +99,6 @@ export async function handleCapabilityRequest<TContext>(
  * and status are finalized. The MCP adapter can then translate the same
  * settled response without making its audit trail disagree with the client.
  */
-async function revalidateMcpSuccessEnvelope<TContext>(
-  options: HandleCapabilityRequestOptions<TContext>,
-  dispatched: { response: Response; outcome: string },
-): Promise<{ response: Response; outcome: string }> {
-  if (!dispatched.outcome.startsWith("middleware_")) return dispatched;
-
-  let parsed: unknown;
-  try {
-    parsed = await dispatched.response.clone().json();
-  } catch {
-    return dispatched;
-  }
-  if (
-    !parsed ||
-    typeof parsed !== "object" ||
-    (parsed as { ok?: unknown }).ok !== true ||
-    !("data" in parsed)
-  ) {
-    return dispatched;
-  }
-
-  const validatedOutput = options.match.capability.validateOutput(
-    (parsed as { data: unknown }).data,
-  );
-  const headers = new Headers(dispatched.response.headers);
-  headers.set("content-type", "application/json; charset=utf-8");
-  headers.delete("content-length");
-  if (validatedOutput.ok) {
-    return {
-      response: new Response(JSON.stringify({ ok: true, data: validatedOutput.value }), {
-        status: dispatched.response.status,
-        headers,
-      }),
-      outcome: dispatched.outcome,
-    };
-  }
-
-  return audited(
-    new Response(
-      JSON.stringify(
-        errorEnvelope({
-          code: "invalid_output",
-          message: options.exposeErrors
-            ? `Capability "${options.match.name}" produced output that does not match its output schema.`
-            : "Capability failed.",
-          issues: options.exposeErrors ? validatedOutput.issues : undefined,
-        }),
-      ),
-      { status: 500, headers },
-    ),
-    "invalid_output",
-  );
-}
-
 /**
  * Capability endpoints are part of the application's HTTP API surface, so the
  * app-level API middleware chain wraps the complete dispatch. This deliberately
@@ -180,7 +107,7 @@ async function revalidateMcpSuccessEnvelope<TContext>(
  */
 async function dispatchCapabilityHttpWithApiMiddleware<TContext>(
   options: HandleCapabilityRequestOptions<TContext>,
-): Promise<{ response: Response; outcome: string }> {
+): Promise<CapabilityDispatchResult> {
   const middlewareFiles = options.apiMiddlewareFiles ?? [];
   if (middlewareFiles.length === 0) {
     return dispatchCapabilityHttp(options);
@@ -188,7 +115,7 @@ async function dispatchCapabilityHttpWithApiMiddleware<TContext>(
 
   // Holder object because the value is assigned inside the terminal closure;
   // TypeScript does not carry that assignment into the outer control flow.
-  const holder: { dispatched: { response: Response; outcome: string } | null } = {
+  const holder: { dispatched: CapabilityDispatchResult | null } = {
     dispatched: null,
   };
   try {
@@ -240,7 +167,7 @@ function withCapabilityEffect(response: Response, effect: string): Response {
 
 async function dispatchCapabilityHttp<TContext>(
   options: HandleCapabilityRequestOptions<TContext>,
-): Promise<{ response: Response; outcome: string }> {
+): Promise<CapabilityDispatchResult> {
   const { capability, name } = options.match;
 
   if (options.request.method.toUpperCase() !== "POST") {

@@ -548,6 +548,8 @@ runtime-capability-audit.ts — observer registration, trusted identity snapshot
 runtime-capability-invocation.ts — request-scoped hosts and direct or nested server calls
 runtime-capability-confirmation.ts — destructive prepare/commit orchestration,
                                      durable approval policy, and replay protection
+runtime-capability-transport-types.ts — type-only HTTP/MCP dispatch contracts
+runtime-capability-mcp-output.ts — MCP middleware success-envelope schema settlement
 runtime-capabilities.ts — HTTP transport
 runtime-request-provenance.ts — browser provenance and exact-origin request policy
 runtime-api.ts — explicit API matching, middleware, invocation, and error normalization
