@@ -118,7 +118,10 @@ described in `VISION_MVP.md`.
   smoke-test policy lives in `route.ts`, manifest-backed shell/middleware
   registration lives in `registry.ts`, and capability/API generation has one
   focused module per artifact. Both the interactive CLI command and the MCP
-  server call that domain layer instead of depending on one another.
+  server call that domain layer instead of depending on one another. The MCP
+  server keeps its composition facade in `mcp-server.ts`; read-only inspection,
+  workflow/quality, and mutation tool catalogs live in focused modules under
+  `mcp-server/`, alongside their shared cwd and error-result policy.
   Verification keeps its stable facade in `verification-checks.ts`; manifest
   wiring, API discovery, and pages-router/Markdown checks live in focused
   `verification-*-checks.ts` modules, while project-wide budgets, dependency,

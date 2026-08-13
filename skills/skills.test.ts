@@ -198,9 +198,14 @@ function flagsForSubcommand(subcommand: string): Set<string> {
   return flags;
 }
 
-const mcpServerSource = readFileSync(join(CLI_SRC, "mcp-server.ts"), "utf-8");
+const mcpToolDir = join(CLI_SRC, "mcp-server");
+const mcpToolFiles = readdirSync(mcpToolDir, { withFileTypes: true })
+  .filter((entry) => entry.isFile() && entry.name.endsWith("-tools.ts"))
+  .map((entry) => join(mcpToolDir, entry.name))
+  .sort();
+const mcpToolSource = mcpToolFiles.map((file) => readFileSync(file, "utf-8")).join("\n");
 const MCP_TOOLS = new Set(
-  [...mcpServerSource.matchAll(/registerTool\(\s*"([\w-]+)"/g)].map((m) => m[1]),
+  [...mcpToolSource.matchAll(/registerTool\(\s*"([\w-]+)"/g)].map((m) => m[1]),
 );
 
 // ---------------------------------------------------------------------------
@@ -311,7 +316,8 @@ describe("drift-guard source extraction", () => {
     expect(withArgs.length).toBeGreaterThanOrEqual(CLI_SUBCOMMANDS.size - 1);
   });
 
-  it("extracts MCP tool names from packages/cli/src/mcp-server.ts", () => {
+  it("extracts MCP tool names from packages/cli/src/mcp-server/*-tools.ts", () => {
+    expect(mcpToolFiles.length).toBeGreaterThanOrEqual(3);
     expect(MCP_TOOLS.size).toBeGreaterThanOrEqual(5);
   });
 });
@@ -378,7 +384,7 @@ describe.each(skills)("skills/$name/SKILL.md", (skill) => {
     for (const match of parsed(skill).body.matchAll(/\b(?:inspect|generate)_[a-z][a-z0-9_]*\b/g)) {
       expect(
         MCP_TOOLS.has(match[0]),
-        `MCP tool "${match[0]}" is not registered in packages/cli/src/mcp-server.ts; known: ${[...MCP_TOOLS].join(", ")}`,
+        `MCP tool "${match[0]}" is not registered in packages/cli/src/mcp-server/*-tools.ts; known: ${[...MCP_TOOLS].join(", ")}`,
       ).toBe(true);
     }
   });
