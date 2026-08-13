@@ -45,4 +45,32 @@ describe("request args in JSDOM", () => {
       frame.remove();
     }
   });
+
+  it("normalizes File entries inside cross-realm FormData", async () => {
+    const frame = document.createElement("iframe");
+    document.body.append(frame);
+
+    try {
+      const foreign = frame.contentWindow as unknown as {
+        File?: typeof File;
+        FormData?: typeof FormData;
+      } | null;
+      if (!foreign?.File || !foreign.FormData) {
+        throw new Error("Expected the iframe to provide File and FormData");
+      }
+      const body = new foreign.FormData();
+      body.append("name", "Alice");
+      body.append("upload", new foreign.File(["hello"], "hello.txt", { type: "text/plain" }));
+
+      const request = createTestRequest({ body });
+      const parsed = await request.formData();
+      const upload = parsed.get("upload") as File;
+      expect(parsed.get("name")).toBe("Alice");
+      expect(upload.name).toBe("hello.txt");
+      expect(upload.type).toBe("text/plain");
+      expect(await upload.text()).toBe("hello");
+    } finally {
+      frame.remove();
+    }
+  });
 });

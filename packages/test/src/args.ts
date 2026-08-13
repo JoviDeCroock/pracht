@@ -8,7 +8,13 @@ import type {
   RouteParams,
 } from "@pracht/core";
 
-import { isBlobLike, readBlobBytes } from "./body.ts";
+import {
+  isBlobLike,
+  normalizeFormNewlines,
+  readBlobBytes,
+  streamMultipart,
+  type MultipartEntry,
+} from "./body.ts";
 
 /** Base origin used when `url` is omitted or relative. */
 export const TEST_ORIGIN = "http://localhost";
@@ -108,7 +114,6 @@ function isArrayBufferLike(body: unknown): body is ArrayBuffer {
 function isBodyInit(body: unknown): body is BodyInit {
   return (
     typeof body === "string" ||
-    isFormDataLike(body) ||
     body instanceof ReadableStream ||
     isArrayBufferLike(body) ||
     ArrayBuffer.isView(body)
@@ -158,6 +163,16 @@ export function createTestRequest(input: TestRequestInput = {}): Request {
       body = input.body.toString();
       if (!headers.has("content-type")) {
         headers.set("content-type", "application/x-www-form-urlencoded;charset=UTF-8");
+      }
+    } else if (isFormDataLike(input.body)) {
+      const entries: MultipartEntry[] = Array.from(input.body.entries(), ([name, value]) => [
+        normalizeFormNewlines(name),
+        isBlobLike(value) ? value : normalizeFormNewlines(String(value)),
+      ]);
+      const encoded = streamMultipart(entries);
+      body = encoded.body;
+      if (!headers.has("content-type")) {
+        headers.set("content-type", encoded.contentType);
       }
     } else if (isBodyInit(input.body)) {
       body = input.body;

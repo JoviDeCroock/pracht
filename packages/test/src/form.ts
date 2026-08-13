@@ -1,7 +1,7 @@
 import type { ApiRouteArgs, RegisteredContext, ResolvedApiRoute, RouteParams } from "@pracht/core";
 
 import { createApiArgs, TEST_ORIGIN } from "./args.ts";
-import { isBlobLike, readBlobBytes } from "./body.ts";
+import { encodeMultipart, isBlobLike, normalizeFormNewlines, type MultipartEntry } from "./body.ts";
 
 /**
  * A form field value: primitives are stringified with `String()`;
@@ -36,67 +36,6 @@ export interface SubmitFormOptions<TContext = RegisteredContext> {
   signal?: AbortSignal;
 }
 
-let multipartBoundarySequence = 0;
-
-function normalizeFormNewlines(value: string): string {
-  return value.replace(/\r\n|\r|\n/g, "\r\n");
-}
-
-function escapeMultipartHeaderValue(value: string): string {
-  return value.replace(/\r/g, "%0D").replace(/\n/g, "%0A").replace(/"/g, "%22");
-}
-
-function concatenateBytes(parts: readonly Uint8Array<ArrayBuffer>[]): Uint8Array<ArrayBuffer> {
-  const length = parts.reduce((total, part) => total + part.byteLength, 0);
-  const result = new Uint8Array(new ArrayBuffer(length));
-  let offset = 0;
-  for (const part of parts) {
-    result.set(part, offset);
-    offset += part.byteLength;
-  }
-  return result;
-}
-
-async function encodeMultipart(entries: readonly [string, FormFieldValue][]): Promise<{
-  body: Uint8Array<ArrayBuffer>;
-  contentType: string;
-}> {
-  const boundary = `----pracht-test-${Date.now().toString(36)}-${multipartBoundarySequence++}`;
-  const encoder = new TextEncoder();
-  const parts: Uint8Array<ArrayBuffer>[] = [];
-
-  for (const [name, value] of entries) {
-    const disposition =
-      `--${boundary}\r\nContent-Disposition: form-data; ` +
-      `name="${escapeMultipartHeaderValue(name)}"`;
-    if (isBlobLike(value)) {
-      const filename =
-        typeof (value as Blob & { name?: unknown }).name === "string"
-          ? (value as Blob & { name: string }).name
-          : "blob";
-      const contentType = /[\r\n]/.test(value.type)
-        ? "application/octet-stream"
-        : value.type || "application/octet-stream";
-      parts.push(
-        encoder.encode(
-          `${disposition}; filename="${escapeMultipartHeaderValue(filename)}"\r\n` +
-            `Content-Type: ${contentType}\r\n\r\n`,
-        ),
-        await readBlobBytes(value),
-        encoder.encode("\r\n"),
-      );
-    } else {
-      parts.push(encoder.encode(`${disposition}\r\n\r\n${String(value)}\r\n`));
-    }
-  }
-
-  parts.push(encoder.encode(`--${boundary}--\r\n`));
-  return {
-    body: concatenateBytes(parts),
-    contentType: `multipart/form-data; boundary=${boundary}`,
-  };
-}
-
 /** Build the form `Request` that {@link submitForm} sends, without calling a handler. */
 export async function createFormRequest(
   fields: FormFields,
@@ -105,7 +44,7 @@ export async function createFormRequest(
   const url = new URL(options.url ?? "/", TEST_ORIGIN);
   const method = (options.method ?? "POST").toUpperCase();
 
-  const entries: [string, FormFieldValue][] = [];
+  const entries: MultipartEntry[] = [];
   for (const [name, value] of Object.entries(fields)) {
     for (const entry of Array.isArray(value) ? value : [value]) {
       entries.push([
