@@ -274,6 +274,30 @@ describe("validateStaticExport", () => {
     expect((error as Error).message).toContain("reserved");
   });
 
+  it("fails closed on a sub-path Vite base", async () => {
+    const error = await validateStaticExport({
+      buildBase: "/app/",
+      resolvedApp: { routes: [{ path: "/", render: "ssg" }] },
+    }).catch((thrown: Error) => thrown);
+
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toContain('"/app/"');
+    expect((error as Error).message).toContain("root-relative");
+  });
+
+  it("accepts the default base, however it is spelled by the bundle", async () => {
+    await expect(
+      validateStaticExport({
+        buildBase: "/",
+        resolvedApp: { routes: [{ path: "/", render: "ssg" }] },
+      }),
+    ).resolves.toBeUndefined();
+    // Bundles built before `buildBase` existed carry no value at all.
+    await expect(
+      validateStaticExport({ resolvedApp: { routes: [{ path: "/", render: "ssg" }] } }),
+    ).resolves.toBeUndefined();
+  });
+
   it("aggregates every problem into one error", async () => {
     const error = await validateStaticExport({
       resolvedApp: { routes: [{ path: "/x", render: "ssr" }] },
@@ -382,5 +406,72 @@ describe("writeStaticExportArtifacts", () => {
     expect(existsSync(resolve(clientDir, "404.html"))).toBe(false);
     expect(existsSync(resolve(clientDir, "200.html"))).toBe(false);
     expect(logs.join("\n")).toContain("No 404.html emitted");
+  });
+
+  it("warns when the fallback has no notFound page and no catch-all to render", async () => {
+    const clientDir = createTempDir();
+    const logs: string[] = [];
+
+    await writeStaticExportArtifacts({
+      clientDir,
+      pages: [],
+      serverMod: {
+        resolvedApp: {
+          routes: [
+            { path: "/", render: "ssg" },
+            { path: "/:slug", render: "spa" },
+          ],
+        },
+        staticExportConfig: { fallback: "200.html" },
+        renderStaticNotFoundHtml: async () => null,
+        renderStaticFallbackHtml: () => "<html></html>",
+      },
+      log: (message) => logs.push(message),
+    });
+
+    const output = logs.join("\n");
+    expect(output).toContain("no route matches every URL");
+    expect(output).toContain("empty document with status 200");
+  });
+
+  it("stays quiet when a root splat can render every unmatched URL", async () => {
+    for (const catchAllPath of ["/*", "/:rest*"]) {
+      const clientDir = createTempDir();
+      const logs: string[] = [];
+
+      await writeStaticExportArtifacts({
+        clientDir,
+        pages: [],
+        serverMod: {
+          resolvedApp: { routes: [{ path: catchAllPath, render: "spa" }] },
+          staticExportConfig: { fallback: "200.html" },
+          renderStaticNotFoundHtml: async () => null,
+          renderStaticFallbackHtml: () => "<html></html>",
+        },
+        log: (message) => logs.push(message),
+      });
+
+      expect(logs.join("\n")).not.toContain("no route matches every URL");
+    }
+  });
+
+  it("warns about percent-encoded prerender paths", async () => {
+    const clientDir = createTempDir();
+    const logs: string[] = [];
+
+    await writeStaticExportArtifacts({
+      clientDir,
+      pages: [
+        { path: "/posts/hello", routeState: '{"data":{}}' },
+        { path: "/posts/caf%C3%A9", routeState: '{"data":{}}' },
+      ],
+      serverMod: { staticExportConfig: { fallback: null } },
+      log: (message) => logs.push(message),
+    });
+
+    const output = logs.join("\n");
+    expect(output).toContain("/posts/caf%C3%A9");
+    expect(output).not.toContain("- /posts/hello");
+    expect(output).toContain("decode URLs before the filesystem lookup");
   });
 });

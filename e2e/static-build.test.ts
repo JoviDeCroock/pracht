@@ -134,6 +134,20 @@ function buildExample(exampleDir: string, env: Record<string, string> = {}): voi
   });
 }
 
+function buildExampleOutput(exampleDir: string, env: Record<string, string> = {}): string {
+  return String(
+    execFileSync(process.execPath, [cliEntry, "build"], {
+      cwd: exampleDir,
+      env: {
+        ...process.env,
+        NODE_OPTIONS: "--experimental-strip-types",
+        ...env,
+      },
+      stdio: "pipe",
+    }),
+  );
+}
+
 function buildFailureOutput(exampleDir: string): string {
   try {
     buildExample(exampleDir);
@@ -449,6 +463,78 @@ test("static export build rejects dynamic SSG without getStaticPaths", () => {
     const output = buildFailureOutput(exampleDir);
     expect(output).toContain('dynamic SSG route "/posts/:slug"');
     expect(output).toContain("has no getStaticPaths() export");
+  } finally {
+    rmSync(tempDir, { force: true, recursive: true });
+  }
+});
+
+test("static export build rejects a sub-path Vite base", () => {
+  test.setTimeout(180_000);
+  const { exampleDir, tempDir } = createTempExampleDir(staticFixtureDir, "pracht-static-base-");
+
+  try {
+    const viteConfigPath = resolve(exampleDir, "vite.config.ts");
+    writeFileSync(
+      viteConfigPath,
+      readFileSync(viteConfigPath, "utf-8").replace(
+        "export default defineConfig({",
+        'export default defineConfig({\n  base: "/app/",',
+      ),
+      "utf-8",
+    );
+
+    // The CLI colorizes the backticked `base`, so match around it.
+    const output = buildFailureOutput(exampleDir);
+    expect(output).toContain('is set to "/app/"');
+    expect(output).toContain("root-relative");
+  } finally {
+    rmSync(tempDir, { force: true, recursive: true });
+  }
+});
+
+test("static export warns about percent-encoded prerender paths", () => {
+  test.setTimeout(180_000);
+  const { exampleDir, tempDir } = createTempExampleDir(staticFixtureDir, "pracht-static-encoded-");
+
+  try {
+    const postPath = resolve(exampleDir, "src/routes/post.tsx");
+    writeFileSync(
+      postPath,
+      readFileSync(postPath, "utf-8").replace(
+        '"second-post": { title: "Second post", body: "Another build-time post." },',
+        '"second-post": { title: "Second post", body: "Another build-time post." },\n  "café": { title: "Café", body: "Unicode slug." },',
+      ),
+      "utf-8",
+    );
+
+    const output = buildExampleOutput(exampleDir);
+    expect(output).toContain("/posts/caf%C3%A9");
+    expect(output).toContain("decode URLs before the filesystem lookup");
+    // The build still succeeds — the directory is only unreachable on hosts
+    // that decode before the filesystem lookup.
+    expect(existsSync(resolve(exampleDir, "dist/client/posts/caf%C3%A9/index.html"))).toBe(true);
+  } finally {
+    rmSync(tempDir, { force: true, recursive: true });
+  }
+});
+
+test("static export warns when the SPA fallback has no notFound page to render", () => {
+  test.setTimeout(180_000);
+  const { exampleDir, tempDir } = createTempExampleDir(staticFixtureDir, "pracht-static-blank-");
+
+  try {
+    const routesPath = resolve(exampleDir, "src/routes.ts");
+    writeFileSync(
+      routesPath,
+      readFileSync(routesPath, "utf-8").replace(/  notFound: \{[\s\S]*?\n  \},\n/, ""),
+      "utf-8",
+    );
+
+    const output = buildExampleOutput(exampleDir, { PRACHT_STATIC_FALLBACK: "200.html" });
+    expect(output).toContain("no route matches every URL");
+    expect(output).toContain("empty document with status 200");
+    expect(existsSync(resolve(exampleDir, "dist/client/200.html"))).toBe(true);
+    expect(existsSync(resolve(exampleDir, "dist/client/404.html"))).toBe(false);
   } finally {
     rmSync(tempDir, { force: true, recursive: true });
   }
