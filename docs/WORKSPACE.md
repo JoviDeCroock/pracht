@@ -73,6 +73,11 @@ described in `VISION_MVP.md`.
   Capability discovery and conservative agent-surface detection live in
   `plugin-capabilities.ts`; `capability-browser-codegen.ts` consumes that
   metadata to generate the HTTP client and WebMCP browser projections.
+  The public `pages-router.ts` entry is a stable facade over the focused
+  `pages-router/` domain: `discovery.ts` owns filesystem traversal,
+  `page-analysis.ts` owns Markdown-aware static policy extraction,
+  `route-path.ts` owns route identity and specificity, and `manifest.ts` owns
+  policy validation plus generated manifest files.
 - **SSR JSX precompiler** — `@pracht/preact-ssr-precompile` keeps its public
   Vite plugin facade in `index.ts`, JSX-to-template lowering in `transform.ts`,
   and parsing, AST traversal, filtering, and offset-safe edits in
