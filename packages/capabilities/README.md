@@ -56,3 +56,12 @@ zod in your bundles.
 See [docs/CAPABILITIES.md](https://github.com/JoviDeCroock/pracht/blob/main/docs/CAPABILITIES.md)
 for the full guide, including the supported schema subset and security
 defaults.
+
+## Static analysis
+
+Build tools share the conservative `@pracht/capabilities/static` entry instead
+of executing application modules. Its public facade composes focused analyzers
+for capability projection, exported app manifests, top-level object literals,
+and module bindings over one offset-preserving source parser. Unreadable spreads
+and computed keys remain explicit fail-closed results rather than being treated
+as absent policy.

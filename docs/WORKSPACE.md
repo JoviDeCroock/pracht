@@ -43,8 +43,10 @@ described in `VISION_MVP.md`.
   can be applied explicitly with `defineApp({ api: { middleware: [...] } })`.
 - **Capability contracts** — `@pracht/capabilities` owns contract definition,
   schema validation, and the shared wire protocol. Its `static` entry keeps
-  capability/app extraction in `static.ts`, with reusable offset-preserving
-  lexing and inline data-literal parsing isolated in `static-source-parser.ts`.
+  `static.ts` as a stable facade: capability projection, app-manifest
+  extraction, generic object scanning, and module-binding traversal live in
+  focused sibling modules, while offset-preserving lexing and inline
+  data-literal parsing remain isolated in `static-source-parser.ts`.
   It also owns the executable-source mask and environment-reference policy used
   by both the Vite build guard and CLI verification, preventing security checks
   from drifting across framework surfaces.
