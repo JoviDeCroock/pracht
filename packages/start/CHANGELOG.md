@@ -1,5 +1,222 @@
 # create-pracht
 
+## 0.5.0
+
+### Minor Changes
+
+- [#307](https://github.com/JoviDeCroock/pracht/pull/307) [`a6ae18e`](https://github.com/JoviDeCroock/pracht/commit/a6ae18ea6e5c74cd09ff05e1beac1687917da296) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Add a first-party Netlify Functions v2 deployment adapter.
+  
+  The adapter emits a catch-all function that preserves Markdown negotiation and
+  route-state requests, serves bundled SSG output, maps ISG to Netlify durable CDN
+  caching, preserves explicit cache policies, collapses unrelated page query
+  parameters, purges webhook-revalidated paths through cache tags, and strips
+  visitor-specific request and Netlify context data before shared ISG rendering.
+  Cached page documents carry `Netlify-Vary` entries for both route-state
+  transports, while Markdown negotiation remains in the standard `Vary: Accept`
+  header because `Accept` is not a valid `Netlify-Vary` directive. The build emits
+  a `dist/client/_headers` file so excluded static paths keep the immutable asset
+  policy and default security headers, and enumerates only non-excluded client
+  files in the function bundle so large static trees do not count against
+  Netlify's function size limit. Matching exclusions are rooted relative to the
+  generated function file so the Functions v2 tracer cannot add bypassed trees
+  back to the archive. Trailing-slash ISG document requests permanently redirect
+  to the canonical slashless URL before rendering, and webhook revalidation
+  normalizes the same path before looking up and purging its cache tag.
+  Promotion of explicit `Cache-Control: public` SSR/API policies into the durable
+  cache fails closed: responses to route-state-shaped requests and responses that
+  carry `Set-Cookie` or `Vary: Cookie`/`Authorization` are stamped
+  `Netlify-CDN-Cache-Control: private` instead, so a cross-site `?_data=1`
+  navigation cannot poison the route-state cache key with HTML and one visitor's
+  personalized render can never become the CDN's shared answer.
+  Netlify cache defaults now remain active beside cache-control headers intended
+  for other providers, and explicit zero-length stale or static cache windows are
+  preserved instead of silently becoming the one-year defaults.
+  `create-pracht` can scaffold the adapter with `netlify.toml`, local preview,
+  and deployment scripts, while `pracht preview` detects Netlify projects and
+  points to `pracht build && netlify dev` instead of trying to run their function
+  as a Node server. The shared cache-safety guard now also recognizes Netlify's
+  targeted cache-control header as an explicit application policy.
+  Bundled static lookup now serves percent-encoded spaces and Unicode filenames
+  without permitting encoded separators or traversal segments. Cacheable
+  Markdown representations of prerendered pages also reuse the HTML response's
+  `Netlify-Vary` instructions, keeping the cache-key contract stable regardless
+  of which representation fills the cache first.
+
+- [#270](https://github.com/JoviDeCroock/pracht/pull/270) [`268d93a`](https://github.com/JoviDeCroock/pracht/commit/268d93ab9a2f032959a64e70ade23586cd48dbf0) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Scaffold a not-found page. New manifest apps get `src/routes/not-found.tsx` wired
+  through `defineApp({ notFound })`; pages-router apps get `src/pages/404.tsx`,
+  which pracht wires automatically. Previously the manifest only carried a
+  commented-out `notFound:` hint pointing at a file that was never generated, which
+  made `pracht doctor` report a missing module reference on a fresh scaffold.
+  
+  Pages-router verification now reports `pages/404.tsx` as the automatically
+  wired not-found page instead of counting it as a route, and rejects ambiguous
+  projects where multiple files resolve to the not-found page.
+
+### Patch Changes
+
+- [#292](https://github.com/JoviDeCroock/pracht/pull/292) [`d589e05`](https://github.com/JoviDeCroock/pracht/commit/d589e057f8751e3ae0d1819770d1c46201e83a1f) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Close the findings of the 2026-08-11 framework permutation audit.
+  
+  **Vercel ISG webhook revalidation could never authenticate.** The adapter read
+  `PRACHT_REVALIDATE_TOKEN` through a `globalThis.process.env` alias; the package
+  bundler inlined that single-use alias, and the *app* build's `process.env`
+  define then collapsed it to `return {}[PRACHT_REVALIDATE_TOKEN_ENV]`. Every
+  `POST /__pracht/revalidate` answered `401` regardless of configuration, on both
+  the Edge render function and the Node ISG launcher. The read now goes through
+  `serverEnv` via a new `resolveRevalidationToken()` in `@pracht/core`, which all
+  three adapters share, and the Vercel build E2E asserts both the absence of
+  collapsed env reads in the emitted bundle and a working authenticated request —
+  unit tests against `src/` could not catch a defect the build introduced.
+  
+  **A uniform default `Cache-Control` across adapters.** `preventHeuristicCaching`
+  moved from `@pracht/adapter-cloudflare` into `@pracht/core` and now runs on Node
+  and Vercel too, so `GET`/`HEAD` responses with no caching policy get
+  `private, no-cache` on every adapter. A shared cache in front of the origin may
+  otherwise apply heuristic freshness to an authenticated SSR page, and `Cookie` is
+  not part of its cache key. Previously an app hardened on Cloudflare lost the
+  protection when it moved to Node or Vercel. Any CDN-targeted policy the app sets
+  itself — including the vendor-neutral `CDN-Cache-Control` — suppresses the
+  default, and ISG document responses are exempt on every adapter so a route's
+  caching headers do not depend on whether its snapshot exists yet.
+  
+  **A Web Bot Auth signer.** `@pracht/core/agent-auth` is a new entry point
+  exporting `signAgentRequest()`, `createAgentSignatureHeaders()`, and
+  `generateAgentKeyPair()` — the RFC 9421 signing side the framework verified but
+  never shipped. `pracht eval` scenarios gain a `signAs` block (and per-step
+  `"sign": false`), so a capability declaring `agentPolicy: "require"` is finally
+  reachable from the framework's own agent-task harness rather than only from
+  Playwright.
+  
+  **Revalidation webhooks explain themselves.** `POST /__pracht/revalidate` adds a
+  `details` array naming why each path was skipped (`not_a_route`, `not_isg`,
+  `not_prerendered`, `no_webhook_policy`) or failed. The three existing path
+  arrays are unchanged. All three adapters now build the response through one
+  shared `RevalidationReport`.
+  
+  **llms.txt no longer advertises framework plumbing.** Paths containing a
+  `_pracht` or `__pracht` segment — such as the `@pracht/image` endpoint at
+  `/api/_pracht/image` — are excluded from the generated index by default. A build
+  that would overwrite a hand-authored `public/llms.txt` now warns instead of
+  discarding it silently, and `pracht llms` gains `--out` plus a note about the
+  two unrelated documents that share the name.
+  
+  **Verification and scaffolding.** `pracht verify` warns when a Cloudflare app's
+  assets binding leaves `html_handling` at a default that 307-redirects every
+  prerendered route, and reports when no `.pracht/app-graph.json` snapshot exists
+  rather than staying silent. `create-pracht` points `.mcp.json` at the project's
+  own CLI (`npx --no-install pracht mcp`) instead of the registry's latest, names
+  the pages router's manifest-only tradeoffs at the router prompt, and documents
+  in `--help` that `--template` and `--tailwind` set the same thing (last one
+  wins).
+
+- [#281](https://github.com/JoviDeCroock/pracht/pull/281) [`9a56a5a`](https://github.com/JoviDeCroock/pracht/commit/9a56a5ad3148638cf04833dbd5c348e7814e9478) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Pin the Cloudflare scaffold's `compatibility_date` instead of generating today's.
+  
+  `create-pracht --adapter=cf` wrote `new Date().toISOString().slice(0, 10)` into
+  `wrangler.jsonc`. workerd refuses to start when asked for a compatibility date
+  newer than the one its binary was built with, and the scaffold date is — by
+  construction — at or beyond the newest released workerd, so a freshly
+  scaffolded Cloudflare app could not run `wrangler dev` or `pracht preview` on
+  the day it was created:
+  
+  ```
+  ✘ [ERROR] service core:user:my-app: This Worker requires compatibility date
+    "2026-08-10", but the newest date supported by this server binary is
+    "2026-08-08".
+  ```
+  
+  The scaffold now emits a fixed date that the oldest wrangler it accepts
+  already supports, matching how the repo's own example apps are configured.
+
+- [#280](https://github.com/JoviDeCroock/pracht/pull/280) [`ec01a2c`](https://github.com/JoviDeCroock/pracht/commit/ec01a2c8507294b51a5a50fd604dfae6520d2ffb) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Point the Cloudflare scaffold's `wrangler.jsonc` at the built worker entry.
+  
+  `create-pracht --adapter=cf` wrote `"main": "dist/server/server.js"`. That
+  module also exports the build metadata the CLI's prerender pass needs
+  (`buildTarget`, the manifests, the resolved app, ...), and workerd validates
+  every named export of the deployed entry module — so a freshly scaffolded
+  Cloudflare app could not start at all:
+  
+  ```
+  ✘ [ERROR] service core:user:my-app: Uncaught TypeError: Incorrect type for map
+    entry 'buildTarget': the provided value is not of type 'function or
+    ExportedHandler'.
+  ```
+  
+  `pracht build` already emits `dist/server/worker.js` for exactly this reason —
+  a thin wrapper re-exporting only the default handler and any Worker entrypoint
+  classes — and both `docs/ADAPTERS.md` and the repo's example apps use it. Only
+  the scaffold was out of sync.
+  
+  `pracht doctor` / `pracht verify` now warn when a Cloudflare app's wrangler
+  config points `main` at that file, so projects scaffolded before this fix are
+  told before they deploy rather than at `wrangler dev` time. The config is read
+  the way wrangler reads it — `wrangler.json` before `wrangler.jsonc` before
+  `wrangler.toml`, comments and trailing commas stripped rather than pattern
+  matched — and every `env.<name>.main` override is reported alongside the
+  top-level entry. It is a warning rather than an error, and stays silent unless
+  it has actually read an offending entry: both the adapter detection and the
+  wrangler reader are conservative heuristics, so this must never fail a build or
+  claim a config it could not fully parse is fine.
+
+- [#290](https://github.com/JoviDeCroock/pracht/pull/290) [`b486764`](https://github.com/JoviDeCroock/pracht/commit/b48676405e57d93ab91dabb94f64c102774198cf) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Update the bundled deployment skill with complete Node origin, Cloudflare Worker handler and local-secret, runnable custom-domain preview, and Vercel preview guidance.
+
+- [#287](https://github.com/JoviDeCroock/pracht/pull/287) [`6caf395`](https://github.com/JoviDeCroock/pracht/commit/6caf395d38d7d621ec1a402bff5926d7f3bd19e9) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - A batch of smaller fixes found while dogfooding the framework end to end.
+  
+  - **Dev server no longer injects the Vite client into non-HTML responses.** A
+    missing `content-type` was treated as `text/html`, so `transformIndexHtml`
+    ran over bodiless responses — an MCP `notifications/*` 202 came back with
+    `<script type="module" src="/@vite/client">` as its body, and so did
+    redirects. Production was unaffected.
+  - **The remote MCP endpoint reports the negotiated protocol version.** Every
+    JSON-RPC response stamped `mcp-protocol-version` with the newest version the
+    server supports, so a client that initialized at an older version was told
+    the connection speaks one it never agreed to.
+  - **`pracht plan`, `report`, and `verify --changed` no longer leak git's
+    stderr.** Outside a git repository — which is what `create-pracht --no-git`
+    produces — `fatal: not a git repository` printed above each command's own,
+    much better, explanation.
+  - **`pracht inspect` reports `hydration=full` instead of `hydration=n/a`** for
+    routes that use the default, and the `pracht dev` route table gains a
+    HYDRATION column when at least one route opts out — `/islands` and `/static`
+    were previously indistinguishable from a fully hydrated route in the table
+    whose job is to say what runs where.
+  - **Scaffolded READMEs list the build command**, and bun scaffolds say
+    `bun run build`. Every adapter's README covered install/dev/typecheck/
+    preview/start but not `build` — and `bun build` is Bun's own bundler, which
+    shadows the package script (unlike `bun dev` / `bun start` / `bun preview`,
+    which fall through to it). `AGENTS.md` had the same collision.
+  - **The generated `.mcp.json` invokes `@pracht/cli`.** It ran `npx pracht mcp`,
+    which resolves to a registry package literally named `pracht` whenever the
+    local bin is not on the path.
+  
+  Documentation, for behaviour that is working as intended but was undocumented:
+  
+  - `docs/API_VALIDATION.md` notes that API routes and capabilities use different
+    error envelopes (and different `path` encodings), which an agent calling both
+    surfaces of one app has to handle.
+  - `docs/ADAPTERS.md` documents Cloudflare's trailing-slash redirect on
+    prerendered nested routes, which makes canonical URLs differ from Node.
+  - `docs/ROUTING.md` lists what the pages router does not have — middleware,
+    named shells, capabilities (and therefore WebMCP, remote MCP, and
+    `pracht eval`), constraints, and `agents`.
+
+- [#290](https://github.com/JoviDeCroock/pracht/pull/290) [`b486764`](https://github.com/JoviDeCroock/pracht/commit/b48676405e57d93ab91dabb94f64c102774198cf) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Generate a narrow, version-appropriate build-script allowlist in `pnpm-workspace.yaml` so pnpm 10 and 11 dependency installs honor the policy without a separate approval step. Standalone configs include the starter itself and allow only the required esbuild, workerd, and optional Tailwind native build; apps inside a covering pnpm workspace instead receive version-correct root-policy guidance without creating a nested workspace.
+
+- [#276](https://github.com/JoviDeCroock/pracht/pull/276) [`1449857`](https://github.com/JoviDeCroock/pracht/commit/14498576af39f9c4e00276128a0ce5f86da6fb6c) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Make `--no-agent-tools` skip `AGENTS.md` and `CLAUDE.md` too.
+  
+  Scaffolding with agent tooling disabled still wrote `AGENTS.md` and symlinked
+  `CLAUDE.md` at it, so opting out left agent instruction files behind. Opting out
+  now produces a project with no agent files at all; `README.md` documents the same
+  commands and project structure for humans.
+
+- [#288](https://github.com/JoviDeCroock/pracht/pull/288) [`8bda980`](https://github.com/JoviDeCroock/pracht/commit/8bda98077404cb45d2d664ba70842a5034a913ae) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Fix three things a freshly scaffolded app hit immediately.
+  
+  - **Cloudflare URLs now match the other adapters.** The assets binding's default `html_handling` redirects every prerendered route to its trailing-slash form, so the same app answered `200` on Node and Vercel and `307` on Cloudflare — for every URL the generated `llms.txt` advertises. The scaffold's `wrangler.jsonc` sets `"html_handling": "drop-trailing-slash"`.
+  - **pnpm installs cleanly.** pnpm blocks dependency install scripts unless allowlisted, so a Cloudflare scaffold failed with `ERR_PNPM_IGNORED_BUILDS` for `workerd` (whose postinstall fetches the runtime binary) and `esbuild`. The scaffold now writes a `pnpm-workspace.yaml` with `allowBuilds` — the same form this repo uses, and the only one pnpm 11 reads (it ignores the `pnpm` field in package.json and warns about it). npm and yarn ignore the file. When the app lands inside an existing pnpm workspace the file is *not* written, because pnpm resolves the setting from the workspace root and a nested one would both be ignored and re-root the workspace for anyone installing from the app directory; the allowlist to add to the root config is printed instead.
+  - **The summary says what was scaffolded** — router, Tailwind, and agent tooling alongside the adapter — and a pages-router scaffold states up front that middleware, capabilities, constraints, and the agent surface are manifest-only. Its `AGENTS.md` no longer tells agents to run `pracht generate middleware` / `generate shell`, which are manifest-only commands.
+
+- [#291](https://github.com/JoviDeCroock/pracht/pull/291) [`d7a9c76`](https://github.com/JoviDeCroock/pracht/commit/d7a9c76d22058a8cf45de026ce52d2f4d61fd875) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Keep WebMCP tools available on islands-mode responses that render no UI islands, while preserving zero-JavaScript `hydration: "none"` routes and carrying the requirement safely through built-in adapters and prerendering.
+  
+  Add fail-closed pages-router ISG time policies through `export const REVALIDATE = seconds`, harden static discovery against comments, strings, Markdown fences, shell misuse, and ambiguous config, teach generation, build, doctor, verify, docs, and skills the contract, and align generated human documentation with agent guidance about pages-router limitations.
+
 ## 0.4.2
 
 ### Patch Changes

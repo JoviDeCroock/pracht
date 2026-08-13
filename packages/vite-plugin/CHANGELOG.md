@@ -1,5 +1,337 @@
 # @pracht/vite-plugin
 
+## 0.8.0
+
+### Minor Changes
+
+- [#288](https://github.com/JoviDeCroock/pracht/pull/288) [`8bda980`](https://github.com/JoviDeCroock/pracht/commit/8bda98077404cb45d2d664ba70842a5034a913ae) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Close the gaps between what the agent surface does and what agents can find out about it.
+  
+  - **`pracht llms` covers capabilities.** The authoring guide agents read documented routes, shells, middleware, API routes, and islands, and said nothing about `src/capabilities/`, `defineCapability`, effect classes, the destructive confirmation flow, `agents.mcp`, or `pracht eval` — including the `@pracht/capabilities` install step that a capability module needs. It now has a Capabilities section, and states the pages router's manifest-only limitations.
+  - **A missing `@pracht/capabilities` is named.** Registering capabilities without the package produced a runtime `500 internal_error` and, worse, made every capability's metadata unreadable — so the dev banner and `pracht inspect capabilities` reported exposed capabilities as `private` with no effect class. `pracht verify` and `doctor` now fail with the install command, the graph carries the load error, and both surfaces print `unreadable` with the reason instead of an under-report.
+  - **`llmsTxt: { exclude }`.** llms.txt listed every static route regardless of reachability, including pages behind an auth middleware (`401`) and error routes (`500`), with no opt-out. Paths — pages, API routes, and capability dispatch endpoints — can now be excluded with the same segment globs `defineApp({ constraints })` uses. Patterns are validated structurally up front, so an invalid one cannot depend on which routes happen to exist, or silently match nothing and publish the URLs it was written to hide.
+  - **`pracht plan` fails on a typo'd base ref.** An unknown ref reported every route as added and exited 0 — indistinguishable from a genuinely new app. An explicitly passed `--base` that does not resolve is now an error; the *default* `origin/main` degrades with a clear note instead, because a fresh `create-pracht` repo has no remote and `actions/checkout` at its default depth creates no such tracking ref either. "ref exists, no snapshot" and "not a git repository" get their own messages.
+  - **`pracht inspect routes` shows shell and middleware**, which the dev banner and `--json` already did, and `--json` gains `hydrationEffective` so a machine reader can tell the effective mode without hard-coding the default.
+  - **New MCP tools** `typegen` and `eval`, so an agent driving `pracht mcp` no longer has to shell out for them. `eval` reports per-file load failures instead of aborting the batch.
+  - **A capability that cannot be executed is no longer reported as private.** The graph fell back to `null` metadata for a module it could not load, which every surface then rendered as "private, no effect class" — under-reporting the agent surface in the dev banner, `pracht inspect`, the committed snapshot, and generated types alike. This is routine on Cloudflare, where a capability importing `cloudflare:workers` at the top level deploys fine but cannot load in the CLI's Node graph server. `serializeCapabilities` now falls back to the same static extractor the browser projection is built from, so effect, exposure, HTTP path, and input schema come out right; only the output schema is missing, and `pracht typegen` warns that such a capability types as `unknown`. (Fixed alongside it: the CLI read capability sources with the root-relative rule, which walks above the project for the manifest-relative paths capabilities actually use.)
+  - `pracht generate` no longer reflows the manifest's imports or writes blank lines with trailing whitespace, `pracht generate <sub>` reports errors without an internal stack trace, and the dev server serves `/llms.txt` with the same security headers production does.
+  
+  Also adds **`pracht generate capability`** (and a matching `generate_capability` MCP tool), which was the one piece of capability scaffolding an agent had to hand-write. It emits `expose`, `effect`, and `input` as the inline literals the browser projection's static analysis requires, registers the name in the manifest, and refuses the combinations the runtime rejects anyway (`destructive` over `webmcp`/`mcp`, `webmcp` without `http`).
+  
+  **Snapshot note:** an app with a capability whose contract cannot be read statically (a spread, a computed key, `middleware: SHARED`) gets a one-time `App graph snapshot is stale` from `pracht verify` on upgrade — the entry gains an `unverifiedContract` marker. That is deliberate: those snapshots previously recorded the capability as ungated with no policy, which is the fail-open case this release closes. Run `pracht plan --write` once and commit. Apps whose capability contracts are all inline literals see no snapshot change.
+
+- [#276](https://github.com/JoviDeCroock/pracht/pull/276) [`1449857`](https://github.com/JoviDeCroock/pracht/commit/14498576af39f9c4e00276128a0ce5f86da6fb6c) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Drop the agent surface from server bundles that do not use it.
+  
+  `handlePrachtRequest` statically imported the capability dispatch and the Web Bot
+  Auth verifier, so every app shipped them whether or not it registered a
+  capability or configured `agents` — about 15 KB gzip (a third) of an
+  islands-example server bundle.
+  
+  Both now load on demand, and the vite plugin defines `__PRACHT_AGENT_SURFACE__`
+  as `false` for builds whose manifest provably registers neither, which lets the
+  bundler eliminate them outright even when `llmsTxt` indexes pages and API
+  routes. The analysis is deliberately one-sided: an
+  unreadable or non-literal manifest, a parse failure, a spread, a shorthand
+  registration, a computed key, or opaque syntax such as a regular-expression
+  literal keeps the runtime, and a build that elided the runtime while capabilities
+  are registered logs a loud error instead of 404ing quietly. Dev builds always
+  keep the runtime so a freshly added capability works without a restart. Escaped
+  quoted property names are decoded by the shared static scanner, while escaped
+  identifier keys conservatively keep the runtime.
+
+- [#260](https://github.com/JoviDeCroock/pracht/pull/260) [`a7de3d3`](https://github.com/JoviDeCroock/pracht/commit/a7de3d349ec402edc9909349e6478d772b197a4d) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Add an opt-in OpenAPI 3.1 companion plugin with live JSON and optional
+  Scalar/Swagger UI endpoints, matching static build artifacts for every adapter,
+  typed operation descriptors, Standard JSON Schema conversion, and configurable
+  completeness warnings. Generated endpoint paths are canonicalized and checked
+  for static output collisions, and request-body requiredness matches runtime
+  schema validation. Compatible CLI and Vite plugin versions are enforced through
+  peer dependencies, catch-all parameter schemas retain their constraints, and
+  bodyless HTTP methods no longer advertise unreachable request bodies.
+
+- [#290](https://github.com/JoviDeCroock/pracht/pull/290) [`b486764`](https://github.com/JoviDeCroock/pracht/commit/b48676405e57d93ab91dabb94f64c102774198cf) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Keep read-only app-graph commands independent from deployment runtimes and shared Vite
+  optimizer state. Cloudflare inspection now exits cleanly, concurrent graph readers use
+  isolated caches, and graph-loaded contracts retain safe stubs for Cloudflare runtime
+  imports, including the current `cloudflare:workers` entrypoint classes, environment,
+  execution helpers, cache, and tracing shapes. Environment and service-binding placeholders
+  remain safe to import or retain, and runtime classes remain safe to import or subclass.
+  Binding property reads, construction, mutation, membership checks, reflection, and
+  enumeration fail loudly instead of imitating an empty binding environment or runtime.
+  Cloudflare allows top-level binding reads, but graph-loaded API and capability modules
+  must defer them into handlers, `run()`, or another request-time function so placeholder
+  truthiness, `typeof`, or strict equality cannot silently corrupt graph metadata. The
+  development banner resolves methods
+  exposed through API module re-exports without executing every API module at startup,
+  following Vite's alias and TypeScript resolution semantics while keeping source reads
+  inside the application root. Static graph scans only report default API handlers when
+  local syntax establishes a callable value and ignore export-like text inside regular
+  expressions. Live inspect, plan, type generation, and verification now fail closed with
+  the original module error when a registered capability cannot load instead of silently
+  emitting null security and transport metadata. Live API graph consumers likewise retain
+  the route, file, and original initialization error instead of silently inferring methods
+  from source after a failed import; API type generation remains intentionally non-executing.
+  TypeScript declaration files under `apiDir` are excluded consistently from generated
+  registries, dependency scanning, runtime route normalization, CLI discovery, graph
+  inspection, verification, planning, and type generation rather than appearing as bogus
+  `/api/*.d` endpoints.
+  
+  The public graph API now exposes `detectApiExportsStatic()` and
+  `serializeApiRoutesStatic()` for side-effect-free consumers, together with
+  `AppGraphStaticModuleAccess` and strict options for `serializeApiRoutes()` and
+  `serializeCapabilities()`.
+  
+  Custom adapters can now provide `graphVitePlugins()` separately from their deployment
+  `vitePlugins()`. Pracht loads only that explicitly graph-safe hook for inspect, plan,
+  verify, report, doctor, and type-generation servers, preventing deployment runtimes from
+  starting while still allowing adapters to resolve platform-only contract imports.
+
+- [#255](https://github.com/JoviDeCroock/pracht/pull/255) [`4b31b30`](https://github.com/JoviDeCroock/pracht/commit/4b31b305f563d509aec10ea1047d4af1ffb9268c) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Make the capability client API type-safe end to end.
+  
+  `pracht typegen` already emitted capability input/output types, but every
+  capability entry point had an untyped fallback overload: a mismatched input or a
+  misspelled name silently matched it and failed at runtime instead of at compile
+  time. The generated registration now carries each capability's `effect` and
+  `exposed` transports alongside its schemas (plus its title/description as
+  JSDoc), and the untyped fallback no longer applies once an app has registered
+  capabilities.
+  
+  With generated types in the program, the compiler now rejects:
+  
+  - unknown or misspelled capability names;
+  - inputs that do not match the capability's input schema;
+  - browser calls to capabilities that are not http-exposed;
+  - calling a `destructive` capability without explicitly preparing for a token
+    or providing that token to commit.
+  
+  An emitted empty registration still counts as generated: removing the last
+  capability does not reopen the pre-typegen fallback, so stale names remain
+  compile errors. When a capability name is a union, its input must be valid for
+  every possible member rather than merely one of them; narrow the name first
+  when the member schemas differ.
+  
+  Capabilities whose input schema requires nothing are callable with no argument
+  at all (`callCapability("notes.stats")`).
+  
+  `prepare` is not sent over the wire. The browser dispatcher uses it locally to
+  remove any confirmation token inherited through caller-supplied headers, so a
+  prepare call cannot accidentally commit. Refusing to run that unconfirmed call
+  stays the server's job, and it fails closed — including with
+  `confirmation_unavailable` when no `PRACHT_CONFIRMATION_SECRET` is configured.
+  
+  The exported `capabilityEndpoints` table now has a **null prototype**, so a
+  capability named `toString` cannot shadow an inherited member during lookup.
+  Indexing and enumeration are unchanged; `capabilityEndpoints.hasOwnProperty(name)`
+  is not — use `Object.hasOwn(capabilityEndpoints, name)`.
+  
+  The browser dispatcher also validates that parsed JSON has the capability
+  envelope shape. Valid JSON such as `null` is returned as `invalid_response`
+  instead of escaping the typed client as an impossible value.
+  
+  `virtual:pracht/capabilities` also exports a nested `capabilities` client, so
+  dotted names read as object paths — `capabilities.notes.search({ query })`. It
+  shares the endpoint table, settled event, and revalidation behaviour of
+  `callCapability`, so there is one runtime path. Before typegen, the nested
+  client keeps the same permissive fallback as `callCapability`; generated types
+  then replace it with the exact registered graph.
+  
+  **Re-run `pracht typegen` after upgrading.** A `src/pracht-capabilities.d.ts`
+  generated by an earlier version has no `effect` or `exposed` fields, so the new
+  exposure and confirmation checks cannot apply to it. Such a file keeps working
+  exactly as before — calls are accepted, exposure is unchecked, and `destructive`
+  capabilities are gated only at runtime — but you get none of the new compile-time
+  checks until the file is regenerated. `pracht typegen --check` in CI catches it.
+  
+  Breaking for apps that already generated capability types. Apps that have not
+  run `pracht typegen` are unaffected.
+  
+  - The explicit `invokeCapability<Output>(name, input, ctx)` type-argument form
+    no longer applies to registered names. Drop the type argument and let it
+    infer — that form existed only as the fallback that is now closed.
+  - `callCapability`'s name parameter and `<Form capability>`'s prop narrowed from
+    `string` to `HttpCapabilityName`, so a name computed at runtime — including
+    one read back out of `capabilityEndpoints` — no longer compiles. Assert it
+    with `name as HttpCapabilityName` (exported from `@pracht/core`); the runtime
+    still answers an unknown name with an `unknown_capability` envelope.
+  
+  `@pracht/core` exports `HttpCapabilityName` (for the assertion above) and
+  `NonDestructiveCapabilityName`, the effect-class split `callCapability` uses to
+  keep an unresolved name from being reported as an argument count.
+  
+  `title`/`description` are emitted as JSDoc on each generated registration entry
+  and nested-client method, so editor hovers on `capabilities.notes.search`
+  surface the same contract prose. String arguments to `callCapability()` do not
+  carry property documentation.
+  
+  The standalone `createCapabilityTestHost()` reads names and the input/output
+  generics retained by the capability objects supplied to it. To keep an input
+  typed while allowing the output to infer from `run()`, annotate the handler with
+  `CapabilityRunArgs<Input>`; alternatively provide both
+  `defineCapability<Input, Output>` generics. Supplying only the first generic
+  uses TypeScript's default `unknown` output, which the host cannot recover later.
+  
+  Two notes on how the checks behave at the edges. A capability name typed as a
+  union (`"notes.search" | "notes.purge"`) demands an explicit prepare marker or
+  confirmation token if *any* member is `destructive`, and the same applies when
+  the build could not read a capability's effect — the gate closes when
+  `destructive` is possible, not only when it is certain. And when a name is also
+  a namespace (`notes` alongside `notes.search`), the generated client exposes the
+  namespace, so the shorter name is reachable only through `callCapability()`;
+  `pracht verify` warns about it.
+
+- [#255](https://github.com/JoviDeCroock/pracht/pull/255) [`14fce3b`](https://github.com/JoviDeCroock/pracht/commit/14fce3b22e25965dc047265221c5fb3ee18d3f35) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Add `useCapability()` for calls driven by user interaction.
+  
+  `<Form capability>` already covers form submissions, but a button, a search box,
+  or a picker left components hand-rolling pending/error/result state around
+  `callCapability`. The hook is that state and nothing more:
+  
+  ```tsx
+  const search = useCapability("notes.search");
+  await search.call({ query });
+  // search.data / search.error / search.pending / search.reset()
+  ```
+  
+  Typed from the same registration as `callCapability`, so a `destructive`
+  capability demands an explicit prepare marker or confirmation token and a
+  private one still does not compile.
+  
+  It dispatches when called, never during render. Data a page needs on load still
+  belongs in a `loader` with `invokeCapability()`, which server-renders — fetching
+  during render would add a client-side waterfall and produce nothing during SSR.
+  
+  Concurrent calls are last-one-wins, so an earlier response arriving after a later
+  one cannot render a stale result; `data` stays visible while a follow-up call is
+  pending or fails; nothing writes after unmount; `pending` never latches, including
+  when the dispatcher throws; and switching the capability name drops the previous
+  one's state — even after switching away and back — rather than carrying it under
+  the new one's output type. `call` and `reset` are scoped to the capability name
+  they were created for, so a handler a component still holds from before a name
+  change (a debounce wrapper, an interval, a listener bound in a mount effect)
+  cannot abandon the current capability's call.
+  
+  A dispatcher rejection or malformed fulfilled value always clears `pending`
+  before surfacing the programming error. The generated browser dispatcher turns
+  malformed JSON envelopes into `invalid_response`; the factory keeps the same
+  no-latched-spinner guarantee for custom dispatchers.
+  
+  `@pracht/core` also exports `createUseCapability`, the factory the generated
+  `virtual:pracht/capabilities` module binds to its own `callCapability`.
+  Applications import `useCapability` from that module; the factory is exported
+  only so one dispatch path can serve every projection.
+
+### Patch Changes
+
+- [#287](https://github.com/JoviDeCroock/pracht/pull/287) [`6caf395`](https://github.com/JoviDeCroock/pracht/commit/6caf395d38d7d621ec1a402bff5926d7f3bd19e9) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - A batch of smaller fixes found while dogfooding the framework end to end.
+  
+  - **Dev server no longer injects the Vite client into non-HTML responses.** A
+    missing `content-type` was treated as `text/html`, so `transformIndexHtml`
+    ran over bodiless responses — an MCP `notifications/*` 202 came back with
+    `<script type="module" src="/@vite/client">` as its body, and so did
+    redirects. Production was unaffected.
+  - **The remote MCP endpoint reports the negotiated protocol version.** Every
+    JSON-RPC response stamped `mcp-protocol-version` with the newest version the
+    server supports, so a client that initialized at an older version was told
+    the connection speaks one it never agreed to.
+  - **`pracht plan`, `report`, and `verify --changed` no longer leak git's
+    stderr.** Outside a git repository — which is what `create-pracht --no-git`
+    produces — `fatal: not a git repository` printed above each command's own,
+    much better, explanation.
+  - **`pracht inspect` reports `hydration=full` instead of `hydration=n/a`** for
+    routes that use the default, and the `pracht dev` route table gains a
+    HYDRATION column when at least one route opts out — `/islands` and `/static`
+    were previously indistinguishable from a fully hydrated route in the table
+    whose job is to say what runs where.
+  - **Scaffolded READMEs list the build command**, and bun scaffolds say
+    `bun run build`. Every adapter's README covered install/dev/typecheck/
+    preview/start but not `build` — and `bun build` is Bun's own bundler, which
+    shadows the package script (unlike `bun dev` / `bun start` / `bun preview`,
+    which fall through to it). `AGENTS.md` had the same collision.
+  - **The generated `.mcp.json` invokes `@pracht/cli`.** It ran `npx pracht mcp`,
+    which resolves to a registry package literally named `pracht` whenever the
+    local bin is not on the path.
+  
+  Documentation, for behaviour that is working as intended but was undocumented:
+  
+  - `docs/API_VALIDATION.md` notes that API routes and capabilities use different
+    error envelopes (and different `path` encodings), which an agent calling both
+    surfaces of one app has to handle.
+  - `docs/ADAPTERS.md` documents Cloudflare's trailing-slash redirect on
+    prerendered nested routes, which makes canonical URLs differ from Node.
+  - `docs/ROUTING.md` lists what the pages router does not have — middleware,
+    named shells, capabilities (and therefore WebMCP, remote MCP, and
+    `pracht eval`), constraints, and `agents`.
+
+- [#271](https://github.com/JoviDeCroock/pracht/pull/271) [`0cd2f78`](https://github.com/JoviDeCroock/pracht/commit/0cd2f782b8b3d31ae408c26f1d6069e689eeb9d6) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Give edge server bundles a server environment.
+  
+  `ssr.target: "webworker"` — which the Cloudflare and Vercel adapters need so the
+  bundle is not Node-flavoured CJS — makes Vite treat the SSR environment as a
+  client for package resolution, which was wrong for a server bundle:
+  
+  - The client condition list applied, so a package's `browser` entry won.
+    `@pracht/core/env/server` consequently resolved to the stub whose whole job is
+    to make a *client* import fail loudly, and every `serverEnv` access in a
+    deployed edge build threw. The environment now resolves `worker` first, and
+    `@pracht/core/env/server` answers it with the real implementation.
+  - Vite also rewrites raw `process.env` reads for webworker bundles. `serverEnv`
+    now reaches Vercel's ambient environment through `globalThis.process`, which
+    survives that transform without enabling `keepProcessEnv` for the entire
+    bundle. Cloudflare and other runtimes without `process` remain safe, including
+    when bundled dependencies contain unguarded environment reads, and Vite keeps
+    ownership of its distinct mode and `NODE_ENV` semantics.
+  
+  Adapters that own request-scoped bindings keep installing them with
+  `setServerEnv()`.
+
+- [#288](https://github.com/JoviDeCroock/pracht/pull/288) [`8bda980`](https://github.com/JoviDeCroock/pracht/commit/8bda98077404cb45d2d664ba70842a5034a913ae) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Make graph-reading CLI commands terminate on the Cloudflare adapter. `pracht verify`, `doctor`, `inspect`, `typegen`, `plan`, and `report` printed their results and then hung indefinitely, because the short-lived Vite server they boot loaded `@cloudflare/vite-plugin`, which starts workerd and a debugger socket that `server.close()` does not reclaim. Two concurrent invocations also collided on the inspector port. In CI — and in the agent loop the docs prescribe (`pracht verify` must pass, `pracht plan --write`, `pracht report`) — the job simply never finished.
+  
+  These commands only ever evaluate `virtual:pracht/dev-metadata`, which is adapter-neutral by design, so the CLI now sets `PRACHT_GRAPH_ONLY=1` and the vite plugin omits adapter-contributed plugins for that server. The flag is ref-counted: Vite evaluates the app config asynchronously, so restoring it as soon as one `createServer()` resolved let an overlapping call load the adapter plugins anyway — which the MCP server, serving all of these from one long-lived process, is well placed to trigger.
+  
+  `pracht verify` on a Cloudflare app went from never exiting to ~1.4s.
+
+- [#282](https://github.com/JoviDeCroock/pracht/pull/282) [`5a25979`](https://github.com/JoviDeCroock/pracht/commit/5a25979aac27ae3b69d58739004d690d161a86e6) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Dedupe Preact so a second copy in the graph cannot break hooks.
+  
+  Preact keeps hook state on module-level `options` belonging to the instance
+  that rendered the tree. A second copy — from package-manager hoisting, a
+  `link:`ed package, or a UI library that depends on Preact itself — makes every
+  hook-using component fail during SSR with:
+  
+  ```
+  Cannot read properties of undefined (reading '__H')
+  ```
+  
+  which names neither the component nor the cause. The plugin now sets
+  `resolve.dedupe` for `preact` and `preact-render-to-string`, which covers dev
+  SSR, the client bundle, and edge SSR builds (where `ssr.noExternal` bundles
+  everything). Production Node servers keep Preact external and resolve it
+  through Node at runtime, so a duplicate there is still a `node_modules` layout
+  problem rather than something Vite can collapse.
+  
+  Apps that already resolve a single Preact are unaffected: two example apps
+  build to byte-identical output.
+
+- [#290](https://github.com/JoviDeCroock/pracht/pull/290) [`b486764`](https://github.com/JoviDeCroock/pracht/commit/b48676405e57d93ab91dabb94f64c102774198cf) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Keep graph-only MCP and capability metadata separate from lazy request transports so server builds no longer report ineffective dynamic imports, and explicitly classify Rolldown's tree-shaken `node:module` helper in edge builds while failing the build if any Node builtin import actually survives. Application route registration also no longer narrows framework-internal navigation implementations, allowing generated route declarations to typecheck against source workspaces.
+
+- [#293](https://github.com/JoviDeCroock/pracht/pull/293) [`e37ff77`](https://github.com/JoviDeCroock/pracht/commit/e37ff770fa2900be90981ac59cbb870311e9ecad) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Static markdown is served as `text/markdown`, in dev and in production.
+  
+  `@pracht/adapter-node`'s MIME table had no `.md` entry, so a markdown file in
+  the static output was served as `application/octet-stream` — browsers offered
+  it as a download and agents fetching it got a content type they had no reason
+  to parse. Apps publishing a skills catalog or docs corpus as plain files had to
+  route it through middleware to set the header by hand. `.md` and `.markdown`
+  now map to `text/markdown; charset=utf-8`, and `.txt` gained the `charset=utf-8`
+  it was missing (it matters for `llms.txt` with non-ASCII content).
+  
+  The dev server had the matching gap from the other side: `.md` was not in its
+  static-asset extension list, so `pracht dev` handed those requests to the SSR
+  router and answered 404 for a file that existed in `public/`. Markdown now
+  resolves the same way in both.
+
+- [#291](https://github.com/JoviDeCroock/pracht/pull/291) [`d7a9c76`](https://github.com/JoviDeCroock/pracht/commit/d7a9c76d22058a8cf45de026ce52d2f4d61fd875) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Keep WebMCP tools available on islands-mode responses that render no UI islands, while preserving zero-JavaScript `hydration: "none"` routes and carrying the requirement safely through built-in adapters and prerendering.
+  
+  Add fail-closed pages-router ISG time policies through `export const REVALIDATE = seconds`, harden static discovery against comments, strings, Markdown fences, shell misuse, and ambiguous config, teach generation, build, doctor, verify, docs, and skills the contract, and align generated human documentation with agent guidance about pages-router limitations.
+- Updated dependencies [[`8bda980`](https://github.com/JoviDeCroock/pracht/commit/8bda98077404cb45d2d664ba70842a5034a913ae), [`1449857`](https://github.com/JoviDeCroock/pracht/commit/14498576af39f9c4e00276128a0ce5f86da6fb6c), [`d589e05`](https://github.com/JoviDeCroock/pracht/commit/d589e057f8751e3ae0d1819770d1c46201e83a1f), [`2872dfa`](https://github.com/JoviDeCroock/pracht/commit/2872dfa12d289b0fcbd067cbbf05096f6350b68d), [`e0bd8a9`](https://github.com/JoviDeCroock/pracht/commit/e0bd8a928f8248664859d8ea0d9a9c78ae76e815), [`6caf395`](https://github.com/JoviDeCroock/pracht/commit/6caf395d38d7d621ec1a402bff5926d7f3bd19e9), [`7de4718`](https://github.com/JoviDeCroock/pracht/commit/7de4718761cb2fe1427f1a3c5ece8ffe6f2a1778), [`0cd2f78`](https://github.com/JoviDeCroock/pracht/commit/0cd2f782b8b3d31ae408c26f1d6069e689eeb9d6), [`ffd9383`](https://github.com/JoviDeCroock/pracht/commit/ffd93836654031488f2a19ad478fbff617dcf0a2), [`a6ae18e`](https://github.com/JoviDeCroock/pracht/commit/a6ae18ea6e5c74cd09ff05e1beac1687917da296), [`8bda980`](https://github.com/JoviDeCroock/pracht/commit/8bda98077404cb45d2d664ba70842a5034a913ae), [`f8bb0bf`](https://github.com/JoviDeCroock/pracht/commit/f8bb0bf7e01c255fcf29bf2661e9cb18d7222b24), [`8bda980`](https://github.com/JoviDeCroock/pracht/commit/8bda98077404cb45d2d664ba70842a5034a913ae), [`1449857`](https://github.com/JoviDeCroock/pracht/commit/14498576af39f9c4e00276128a0ce5f86da6fb6c), [`8bda980`](https://github.com/JoviDeCroock/pracht/commit/8bda98077404cb45d2d664ba70842a5034a913ae), [`9d56146`](https://github.com/JoviDeCroock/pracht/commit/9d56146212579c31e94ea3fa148318459bde42f7), [`e37ff77`](https://github.com/JoviDeCroock/pracht/commit/e37ff770fa2900be90981ac59cbb870311e9ecad), [`b486764`](https://github.com/JoviDeCroock/pracht/commit/b48676405e57d93ab91dabb94f64c102774198cf), [`b486764`](https://github.com/JoviDeCroock/pracht/commit/b48676405e57d93ab91dabb94f64c102774198cf), [`24f412a`](https://github.com/JoviDeCroock/pracht/commit/24f412adaa6f790f6896a554ed6e180151fb5cfe), [`159f1a8`](https://github.com/JoviDeCroock/pracht/commit/159f1a848dc9727341f3e2adf227634e7fda6b5c), [`00f7982`](https://github.com/JoviDeCroock/pracht/commit/00f79826ade75bafbb334f6e5705391eaab49c92), [`e37ff77`](https://github.com/JoviDeCroock/pracht/commit/e37ff770fa2900be90981ac59cbb870311e9ecad), [`d7a9c76`](https://github.com/JoviDeCroock/pracht/commit/d7a9c76d22058a8cf45de026ce52d2f4d61fd875), [`9058c8e`](https://github.com/JoviDeCroock/pracht/commit/9058c8e0c79a6888003cd804f8449ec0d3e57843), [`4b31b30`](https://github.com/JoviDeCroock/pracht/commit/4b31b305f563d509aec10ea1047d4af1ffb9268c), [`eb6bd81`](https://github.com/JoviDeCroock/pracht/commit/eb6bd81a757fe697edf04d73570245979de6ce04), [`14fce3b`](https://github.com/JoviDeCroock/pracht/commit/14fce3b22e25965dc047265221c5fb3ee18d3f35), [`61f9824`](https://github.com/JoviDeCroock/pracht/commit/61f9824a99b30324a0b5501044aebab473967df9)]:
+  - @pracht/core@0.13.0
+  - @pracht/capabilities@0.2.0
+  - @pracht/adapter-node@0.3.9
+  - @pracht/preact-ssr-precompile@0.1.3
+
 ## 0.7.6
 
 ### Patch Changes

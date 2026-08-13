@@ -1,5 +1,107 @@
 # @pracht/adapter-vercel
 
+## 0.2.9
+
+### Patch Changes
+
+- [#292](https://github.com/JoviDeCroock/pracht/pull/292) [`d589e05`](https://github.com/JoviDeCroock/pracht/commit/d589e057f8751e3ae0d1819770d1c46201e83a1f) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Close the findings of the 2026-08-11 framework permutation audit.
+  
+  **Vercel ISG webhook revalidation could never authenticate.** The adapter read
+  `PRACHT_REVALIDATE_TOKEN` through a `globalThis.process.env` alias; the package
+  bundler inlined that single-use alias, and the *app* build's `process.env`
+  define then collapsed it to `return {}[PRACHT_REVALIDATE_TOKEN_ENV]`. Every
+  `POST /__pracht/revalidate` answered `401` regardless of configuration, on both
+  the Edge render function and the Node ISG launcher. The read now goes through
+  `serverEnv` via a new `resolveRevalidationToken()` in `@pracht/core`, which all
+  three adapters share, and the Vercel build E2E asserts both the absence of
+  collapsed env reads in the emitted bundle and a working authenticated request —
+  unit tests against `src/` could not catch a defect the build introduced.
+  
+  **A uniform default `Cache-Control` across adapters.** `preventHeuristicCaching`
+  moved from `@pracht/adapter-cloudflare` into `@pracht/core` and now runs on Node
+  and Vercel too, so `GET`/`HEAD` responses with no caching policy get
+  `private, no-cache` on every adapter. A shared cache in front of the origin may
+  otherwise apply heuristic freshness to an authenticated SSR page, and `Cookie` is
+  not part of its cache key. Previously an app hardened on Cloudflare lost the
+  protection when it moved to Node or Vercel. Any CDN-targeted policy the app sets
+  itself — including the vendor-neutral `CDN-Cache-Control` — suppresses the
+  default, and ISG document responses are exempt on every adapter so a route's
+  caching headers do not depend on whether its snapshot exists yet.
+  
+  **A Web Bot Auth signer.** `@pracht/core/agent-auth` is a new entry point
+  exporting `signAgentRequest()`, `createAgentSignatureHeaders()`, and
+  `generateAgentKeyPair()` — the RFC 9421 signing side the framework verified but
+  never shipped. `pracht eval` scenarios gain a `signAs` block (and per-step
+  `"sign": false`), so a capability declaring `agentPolicy: "require"` is finally
+  reachable from the framework's own agent-task harness rather than only from
+  Playwright.
+  
+  **Revalidation webhooks explain themselves.** `POST /__pracht/revalidate` adds a
+  `details` array naming why each path was skipped (`not_a_route`, `not_isg`,
+  `not_prerendered`, `no_webhook_policy`) or failed. The three existing path
+  arrays are unchanged. All three adapters now build the response through one
+  shared `RevalidationReport`.
+  
+  **llms.txt no longer advertises framework plumbing.** Paths containing a
+  `_pracht` or `__pracht` segment — such as the `@pracht/image` endpoint at
+  `/api/_pracht/image` — are excluded from the generated index by default. A build
+  that would overwrite a hand-authored `public/llms.txt` now warns instead of
+  discarding it silently, and `pracht llms` gains `--out` plus a note about the
+  two unrelated documents that share the name.
+  
+  **Verification and scaffolding.** `pracht verify` warns when a Cloudflare app's
+  assets binding leaves `html_handling` at a default that 307-redirects every
+  prerendered route, and reports when no `.pracht/app-graph.json` snapshot exists
+  rather than staying silent. `create-pracht` points `.mcp.json` at the project's
+  own CLI (`npx --no-install pracht mcp`) instead of the registry's latest, names
+  the pages router's manifest-only tradeoffs at the router prompt, and documents
+  in `--help` that `--template` and `--tailwind` set the same thing (last one
+  wins).
+
+- [#291](https://github.com/JoviDeCroock/pracht/pull/291) [`d7a9c76`](https://github.com/JoviDeCroock/pracht/commit/d7a9c76d22058a8cf45de026ce52d2f4d61fd875) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Keep WebMCP tools available on islands-mode responses that render no UI islands, while preserving zero-JavaScript `hydration: "none"` routes and carrying the requirement safely through built-in adapters and prerendering.
+  
+  Add fail-closed pages-router ISG time policies through `export const REVALIDATE = seconds`, harden static discovery against comments, strings, Markdown fences, shell misuse, and ambiguous config, teach generation, build, doctor, verify, docs, and skills the contract, and align generated human documentation with agent guidance about pages-router limitations.
+
+- [#277](https://github.com/JoviDeCroock/pracht/pull/277) [`61f9824`](https://github.com/JoviDeCroock/pracht/commit/61f9824a99b30324a0b5501044aebab473967df9) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Render Vercel and Cloudflare Workers Caching ISG routes on a sanitized request so a cache miss cannot store a personalized page.
+  
+  Vercel's prerender functions were invoked with a faithful copy of the visitor's
+  request, so loaders saw that visitor's `Cookie` and `Authorization` headers while
+  producing HTML that Vercel stores in the ISR cache (keyed on the path alone) and
+  replays to everyone else. `createVercelNodeListener` now renders on the same
+  sanitized ISG request the Node and Cloudflare regeneration paths use — `GET`,
+  `Accept: text/html`, path only, no query string or body — and strips credential
+  headers (`Set-Cookie`, `Authorization`, `WWW-Authenticate`, `Proxy-Authenticate`,
+  secret-shaped `x-*`) from the response before Vercel caches it, matching what
+  build-time prerendering already refuses to emit. Responses that mark themselves
+  uncacheable are logged, since Vercel's prerender cache stores them regardless.
+  
+  Cloudflare Workers Caching cold and stale renders now use the same sanitized
+  request as the worker-managed Cache API regeneration path before calling
+  `createContext`, middleware, or loaders. Query strings still participate in the
+  edge cache key, but they cannot influence the shared response that application
+  code renders; markdown-capable routes retain a canonical `text/markdown`
+  variant without forwarding the visitor's raw `Accept` value.
+  
+  `createISGRegenerationRequest(pathname, base)` now accepts a `URL` or absolute
+  URL string as its base in addition to a `Request`, and `@pracht/core` exports
+  `isDangerousPrerenderHeader` plus the server-side `prefersMarkdown` negotiation
+  helper for adapters that write into a shared cache.
+
+- [#272](https://github.com/JoviDeCroock/pracht/pull/272) [`46c9fa1`](https://github.com/JoviDeCroock/pracht/commit/46c9fa17a5b92d06ede98a2f0ffaaadc0869b11d) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Fix `vercel deploy --prebuilt` failing with `Unexpected function type "EdgeFunction"` for ISG routes.
+  
+  Vercel only supports ISR on Serverless Functions, but the build paired each
+  `<route>.prerender-config.json` with the edge function, so any app with an ISG
+  route produced an output Vercel refused to deploy. ISG routes are now emitted as
+  Node Serverless Functions while the main handler stays on the edge; both load
+  the same Web-API-only server bundle. Generated Vercel entries export a
+  `nodeListener` (`createVercelNodeListener(handle)`) for those functions to use,
+  and a custom server entry that omits it now fails the build with a descriptive
+  error instead of at request time. The Node listener exposes a compatible
+  `waitUntil()` context, and Edge's `regions: "all"` sentinel is omitted from Node
+  function configs so they use the project's default Serverless region.
+- Updated dependencies [[`8bda980`](https://github.com/JoviDeCroock/pracht/commit/8bda98077404cb45d2d664ba70842a5034a913ae), [`1449857`](https://github.com/JoviDeCroock/pracht/commit/14498576af39f9c4e00276128a0ce5f86da6fb6c), [`d589e05`](https://github.com/JoviDeCroock/pracht/commit/d589e057f8751e3ae0d1819770d1c46201e83a1f), [`2872dfa`](https://github.com/JoviDeCroock/pracht/commit/2872dfa12d289b0fcbd067cbbf05096f6350b68d), [`e0bd8a9`](https://github.com/JoviDeCroock/pracht/commit/e0bd8a928f8248664859d8ea0d9a9c78ae76e815), [`6caf395`](https://github.com/JoviDeCroock/pracht/commit/6caf395d38d7d621ec1a402bff5926d7f3bd19e9), [`7de4718`](https://github.com/JoviDeCroock/pracht/commit/7de4718761cb2fe1427f1a3c5ece8ffe6f2a1778), [`0cd2f78`](https://github.com/JoviDeCroock/pracht/commit/0cd2f782b8b3d31ae408c26f1d6069e689eeb9d6), [`ffd9383`](https://github.com/JoviDeCroock/pracht/commit/ffd93836654031488f2a19ad478fbff617dcf0a2), [`a6ae18e`](https://github.com/JoviDeCroock/pracht/commit/a6ae18ea6e5c74cd09ff05e1beac1687917da296), [`8bda980`](https://github.com/JoviDeCroock/pracht/commit/8bda98077404cb45d2d664ba70842a5034a913ae), [`f8bb0bf`](https://github.com/JoviDeCroock/pracht/commit/f8bb0bf7e01c255fcf29bf2661e9cb18d7222b24), [`8bda980`](https://github.com/JoviDeCroock/pracht/commit/8bda98077404cb45d2d664ba70842a5034a913ae), [`1449857`](https://github.com/JoviDeCroock/pracht/commit/14498576af39f9c4e00276128a0ce5f86da6fb6c), [`9d56146`](https://github.com/JoviDeCroock/pracht/commit/9d56146212579c31e94ea3fa148318459bde42f7), [`e37ff77`](https://github.com/JoviDeCroock/pracht/commit/e37ff770fa2900be90981ac59cbb870311e9ecad), [`b486764`](https://github.com/JoviDeCroock/pracht/commit/b48676405e57d93ab91dabb94f64c102774198cf), [`b486764`](https://github.com/JoviDeCroock/pracht/commit/b48676405e57d93ab91dabb94f64c102774198cf), [`24f412a`](https://github.com/JoviDeCroock/pracht/commit/24f412adaa6f790f6896a554ed6e180151fb5cfe), [`159f1a8`](https://github.com/JoviDeCroock/pracht/commit/159f1a848dc9727341f3e2adf227634e7fda6b5c), [`00f7982`](https://github.com/JoviDeCroock/pracht/commit/00f79826ade75bafbb334f6e5705391eaab49c92), [`d7a9c76`](https://github.com/JoviDeCroock/pracht/commit/d7a9c76d22058a8cf45de026ce52d2f4d61fd875), [`9058c8e`](https://github.com/JoviDeCroock/pracht/commit/9058c8e0c79a6888003cd804f8449ec0d3e57843), [`4b31b30`](https://github.com/JoviDeCroock/pracht/commit/4b31b305f563d509aec10ea1047d4af1ffb9268c), [`eb6bd81`](https://github.com/JoviDeCroock/pracht/commit/eb6bd81a757fe697edf04d73570245979de6ce04), [`14fce3b`](https://github.com/JoviDeCroock/pracht/commit/14fce3b22e25965dc047265221c5fb3ee18d3f35), [`61f9824`](https://github.com/JoviDeCroock/pracht/commit/61f9824a99b30324a0b5501044aebab473967df9)]:
+  - @pracht/core@0.13.0
+
 ## 0.2.8
 
 ### Patch Changes

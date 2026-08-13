@@ -1,5 +1,52 @@
 # @pracht/image
 
+## 0.2.0
+
+### Minor Changes
+
+- [#304](https://github.com/JoviDeCroock/pracht/pull/304) [`72a24ec`](https://github.com/JoviDeCroock/pracht/commit/72a24ec3bd2525394cdf43be5a299b3eb8819f37) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Add build-time image imports and blur placeholders.
+  
+  - New `@pracht/image/vite` entry exports `prachtImage()`, an opt-in Vite
+    plugin that turns `import hero from "./hero.jpg?pracht"` into typed
+    metadata `{ src, width, height, blurDataURL }`. The file goes through
+    Vite's normal asset pipeline (hashed source assets, stable `publicDir` URLs,
+    `base`, and dev serving) with inlining disabled (`no-inline`), so `src` is
+    always a real URL — never a `data:` URI — and stays compatible with
+    optimization-endpoint loaders; the dimensions come from sharp metadata
+    with EXIF orientation applied, and
+    `blurDataURL` is a tiny inline WebP generated at build time. sharp remains
+    an optional peer dependency, required only at build time for `?pracht`
+    imports, with a clear install hint when missing. SVG imports pass their
+    dimensions through without a blur; animated GIFs blur their first frame;
+    CMYK JPEGs convert to sRGB.
+  - `<Image>` now accepts a `?pracht` metadata object as `src` (intrinsic
+    dimensions and `blurDataURL` applied automatically, explicit props win),
+    plus `placeholder="blur"` and `blurDataURL` props. The placeholder renders
+    as a CSS-only background on the `<img>` — SSR-safe, zero hydration, no
+    inline event handlers — and `blurDataURL` values are validated as
+    well-formed `data:image/…` URIs before being interpolated into the style
+    attribute.
+  - New `@pracht/image/client` types entry ships the `*?pracht` module
+    declaration: reference it with `/// <reference types="@pracht/image/client" />`
+    or `"types": ["@pracht/image/client"]`.
+
+### Patch Changes
+
+- [#293](https://github.com/JoviDeCroock/pracht/pull/293) [`e37ff77`](https://github.com/JoviDeCroock/pracht/commit/e37ff770fa2900be90981ac59cbb870311e9ecad) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Widen the `preact` peer range to accept 11.x prereleases.
+  
+  The peer was `^10.0.0` (`^10.26.0` for the precompiler), so installing pracht
+  alongside `preact@11.0.0-beta.x` or `11.0.0-rc.0` printed peer warnings on
+  every install even though nothing was actually broken. The range is now
+  `^10.0.0 || ^11.0.0-0`, matching what `preact-render-to-string` already
+  declares.
+  
+  The only preact internals pracht touches are the `options` hooks in the
+  dev-only hydration-mismatch warning, which is installed behind
+  `import.meta.env.DEV` and degrades to silence if the hooks it taps are never
+  called. The SSR precompiler's `jsxTemplate` / `jsxAttr` / `jsxEscape` helpers
+  are still exported from `preact/jsx-runtime` in 11. CI still runs against
+  preact 10 — 11 is permitted, not yet verified.
+
 ## 0.1.1
 
 ### Patch Changes

@@ -1,5 +1,149 @@
 # @pracht/capabilities
 
+## 0.2.0
+
+### Minor Changes
+
+- [#275](https://github.com/JoviDeCroock/pracht/pull/275) [`e0bd8a9`](https://github.com/JoviDeCroock/pracht/commit/e0bd8a928f8248664859d8ea0d9a9c78ae76e815) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Harden remote MCP capability composition, verified agent identity, and audit
+  attribution.
+  
+  `CapabilityAuditEvent` gains `via`, which attributes server-side composition to
+  the trusted HTTP or MCP request that caused it. Audit hooks receive immutable
+  event and identity snapshots, including through request-local callbacks.
+  
+  MCP-originated `invokeCapability()` calls now re-apply the callee's
+  `agentPolicy` and reject destructive effects before middleware or capability
+  code can run. Trusted MCP provenance is bound to both the incoming transport
+  request and the synthesized capability request, so adapter contexts that retain
+  either request cannot escape the nested-call guard. Private non-destructive
+  composition and named middleware remain available.
+  
+  Verified Web Bot Auth identity is exposed as a read-only immutable snapshot on
+  request contexts, capability hosts, audit events, and test hosts. Binding that
+  identity to frozen or sealed ordinary application contexts preserves their
+  receivers, private fields, array branding, callable construction and property
+  surfaces, reflection behavior, and writable source fields, including live
+  descriptors, prototype changes made through another retained reference, and
+  overlays frozen after retained source updates. Application-defined
+  `Symbol.toStringTag` brands do not change whether an ordinary context can be
+  overlaid. Immutable native built-ins, including platform globals and
+  cross-realm instances, fail closed based on their actual prototypes because an
+  overlay cannot preserve their internal slots; wrap them in a fresh mutable
+  request-context object. Reusing a context across different
+  verified identities fails closed, including when immutable contexts require an
+  overlay, and reflected methods and accessors preserve their original
+  private-field receivers across integrity operations. Receiver-bound helpers on
+  immutable contexts continue to observe the original object, so apps that need
+  helpers to read `agent` or middleware-added state should supply a mutable
+  per-request context. Every one of these fail-closed cases is delivered as a
+  response — a 500 from `handlePrachtRequest()`, an `internal_error` envelope from
+  `invokeCapability()` — never as a rejection out of the adapter. HTTP and MCP
+  composition retain the transport-verified identity even when application code
+  supplies a replacement context object to `invokeCapability()`.
+
+- [#264](https://github.com/JoviDeCroock/pracht/pull/264) [`7de4718`](https://github.com/JoviDeCroock/pracht/commit/7de4718761cb2fe1427f1a3c5ece8ffe6f2a1778) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Add a durable approval store for destructive capabilities.
+  
+  The stateless prepare/commit flow proves a commit is bound to one principal,
+  one capability, and one exact input — but a captured token replays until it
+  expires, and the calling agent can hand its own token straight back to itself.
+  
+  `setCapabilityApprovalStore()` closes the replay gap. Prepare records a
+  proposal (keyed by a secret-derived digest of principal + capability + input +
+  approval mode, so repeated prepares address one proposal without exposing
+  low-entropy principals); commit verifies the HMAC first, then consumes the
+  proposal exactly once. Store-backed tokens use a distinct version and bind the
+  approval mode, so rolling deployments fail closed on older or differently
+  configured replicas. `agents.confirmation.mode: "human"` also closes the
+  self-approval gap by refusing the commit with `confirmation_pending` until a
+  person approves out of band.
+  `setCapabilityApprovalPrincipalResolver()` binds proposals to an
+  application-authenticated user or tenant; human mode fails closed without that
+  identity or a verified Web Bot Auth agent. `createMemoryApprovalStore()` ships
+  as the reference implementation for tests, development, and single-instance
+  deployments. Durable implementations must atomically insert proposals and
+  compare-and-set consumption so concurrent prepares cannot resurrect a commit;
+  consumed and rejected proposals stay closed until their TTL expires.
+  
+  The caller interaction is unchanged: callers still just echo the confirmation
+  token. `CapabilityErrorCode` gains `confirmation_pending`, and the error
+  payload gains an optional `approvalId`.
+
+- [#265](https://github.com/JoviDeCroock/pracht/pull/265) [`24f412a`](https://github.com/JoviDeCroock/pracht/commit/24f412adaa6f790f6896a554ed6e180151fb5cfe) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Serve capabilities as remote MCP tools over stateless Streamable HTTP.
+  
+  `defineApp({ agents: { mcp: {} } })` opens one endpoint (default `/mcp`)
+  projecting every capability that sets `expose.mcp` as an MCP tool. It is a
+  transport adapter, not a second pipeline: `tools/call` synthesizes the request
+  the HTTP projection would have received and calls the same dispatch, so input
+  validation, named middleware, `agentPolicy`, output validation, and audit
+  events are identical across HTTP, WebMCP, and MCP by construction. No MCP SDK
+  dependency.
+  
+  `expose.mcp` does not require `expose.http`, so a capability can be reachable
+  by remote agents without a public browser endpoint. Dotted capability names map
+  to underscored tool names (`notes.search` → `notes_search`); collisions are a
+  `pracht verify` error and the runtime refuses to serve an ambiguous tool list.
+  Projected names beyond the 64-character host limit are rejected by verification
+  and the runtime as well. Accepted JSON-RPC requests keep protocol errors on HTTP
+  200 so Streamable HTTP clients can parse the structured error response.
+  Cookie-bearing and browser-originated requests are rejected before capability
+  dispatch, `Authorization` is forwarded, and destructive capabilities stay off
+  the MCP surface. Rejecting `Origin` and `Sec-Fetch-Site` avoids trusting a
+  Host-derived request URL and closes the DNS-rebinding path. Error results keep
+  machine-readable details in `_meta` instead of off-schema `structuredContent`.
+  The endpoint supports the `2025-11-25` and `2025-06-18` protocol profiles;
+  MCP-exposed input and output schemas must be object-rooted until the complete
+  `2026-07-28` wire codec ships.
+  
+  `CapabilityAuditEvent.transport` gains `"mcp"`, `AppGraph` gains
+  `mcpEndpoint`, and `pracht dev` prints the endpoint next to the capability
+  table (`mcp(unserved)` when `expose.mcp` is declared but no endpoint is
+  configured).
+  
+  MCP audit attribution is internal dispatch state rather than a client-set
+  header. A configured endpoint remains protocol-active with an empty graph and
+  returns JSON-RPC errors when registry resolution fails. Custom endpoint paths
+  are validated as exact same-origin pathnames and accept one trailing slash.
+  Malformed non-object `tools/call.arguments` are rejected as JSON-RPC invalid
+  params before capability dispatch. App-graph snapshots record MCP endpoint
+  activation, moves, and removal, with activation flagged as an agent-surface
+  widening by `pracht plan`.
+  
+  Capability HTTP paths may not collide with the configured MCP endpoint, and
+  malformed `initialize` parameters now return JSON-RPC invalid params. MCP tool
+  annotations also leave `destructiveHint` unset for `write` capabilities because
+  the write effect alone does not prove an operation is purely additive.
+  Middleware-produced success envelopes are revalidated against the advertised
+  output schema before their data is returned as MCP `structuredContent` and
+  before the audit outcome and status are finalized.
+  Synthesized MCP requests retain the request-bound capability host, so named
+  middleware and capability bodies can compose registered capabilities through
+  `invokeCapability()` without losing the active application registry.
+
+### Patch Changes
+
+- [#276](https://github.com/JoviDeCroock/pracht/pull/276) [`1449857`](https://github.com/JoviDeCroock/pracht/commit/14498576af39f9c4e00276128a0ce5f86da6fb6c) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Drop the agent surface from server bundles that do not use it.
+  
+  `handlePrachtRequest` statically imported the capability dispatch and the Web Bot
+  Auth verifier, so every app shipped them whether or not it registered a
+  capability or configured `agents` — about 15 KB gzip (a third) of an
+  islands-example server bundle.
+  
+  Both now load on demand, and the vite plugin defines `__PRACHT_AGENT_SURFACE__`
+  as `false` for builds whose manifest provably registers neither, which lets the
+  bundler eliminate them outright even when `llmsTxt` indexes pages and API
+  routes. The analysis is deliberately one-sided: an
+  unreadable or non-literal manifest, a parse failure, a spread, a shorthand
+  registration, a computed key, or opaque syntax such as a regular-expression
+  literal keeps the runtime, and a build that elided the runtime while capabilities
+  are registered logs a loud error instead of 404ing quietly. Dev builds always
+  keep the runtime so a freshly added capability works without a restart. Escaped
+  quoted property names are decoded by the shared static scanner, while escaped
+  identifier keys conservatively keep the runtime.
+
+- [#271](https://github.com/JoviDeCroock/pracht/pull/271) [`eb6bd81`](https://github.com/JoviDeCroock/pracht/commit/eb6bd81a757fe697edf04d73570245979de6ce04) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Map capability middleware responses with status 429 to the typed
+  `rate_limited` error code across HTTP, MCP, generated clients, and direct server
+  invocation while preserving the middleware's `Retry-After` response header.
+
 ## 0.1.1
 
 ### Patch Changes
