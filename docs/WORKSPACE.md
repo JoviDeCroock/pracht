@@ -97,10 +97,12 @@ described in `VISION_MVP.md`.
   Capability discovery and conservative agent-surface detection live in
   `plugin-capabilities.ts`; `capability-browser-codegen.ts` consumes that
   metadata to generate the HTTP client and WebMCP browser projections.
-  `plugin-codegen.ts` remains the virtual-module assembly facade, while
-  `plugin-registry-codegen.ts` owns lazy module glob generation and
-  `plugin-llms-txt-config.ts` owns package-metadata fallback for generated
-  `llms.txt` configuration.
+  `plugin-codegen.ts` remains the virtual-module assembly facade for server and
+  development entries, `plugin-client-codegen.ts` owns client and islands
+  bootstraps, and `plugin-codegen-route-hints.ts` owns their shared generated
+  loader-hint helper. `plugin-registry-codegen.ts` owns lazy module glob
+  generation and `plugin-llms-txt-config.ts` owns package-metadata fallback for
+  generated `llms.txt` configuration.
   The public `pages-router.ts` entry is a stable facade over the focused
   `pages-router/` domain: `discovery.ts` owns filesystem traversal,
   `page-analysis.ts` owns Markdown-aware static policy extraction,
