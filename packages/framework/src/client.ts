@@ -1,4 +1,4 @@
-export { resolveApp } from "./app.ts";
+export { resolveApp } from "./app-resolution.ts";
 export { initClientRouter } from "./router.ts";
 export { readHydrationState } from "./runtime-context.ts";
 

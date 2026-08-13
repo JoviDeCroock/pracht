@@ -1,4 +1,4 @@
-import { resolveApp } from "./app.ts";
+import { resolveApp } from "./app-resolution.ts";
 import { ROUTE_STATE_REQUEST_HEADER } from "./runtime-constants.ts";
 import { isFirstPartyFetch } from "./runtime-request-provenance.ts";
 import type { HrefRouteDefinition, PrachtApp, ResolvedPrachtApp } from "./types.ts";

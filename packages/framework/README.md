@@ -24,6 +24,9 @@ For contributors, inbound route pattern parsing/matching lives in
 `route-pattern.ts`, while outbound path, param, search, hash, and href
 construction lives in `route-href.ts`. `route-matching.ts` remains the stable
 internal facade, and runtime consumers depend directly on the narrower layer.
+Authored manifest inheritance and flattening live in `app-resolution.ts`, while
+`app-matching.ts` owns the authored/resolved matching boundary and `app.ts`
+retains the public composition surface.
 
 ### Server
 

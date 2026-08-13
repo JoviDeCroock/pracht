@@ -33,7 +33,10 @@ described in `VISION_MVP.md`.
   route-object `useNavigate()` keep client navigation on the same route map.
   Pattern normalization, parsing, and matching live in `route-pattern.ts`;
   outbound param/path/search/hash construction lives in `route-href.ts`;
-  `route-matching.ts` preserves the former internal facade.
+  `route-matching.ts` preserves the former internal facade. Authored route-tree
+  inheritance, validation, and flattening live in `app-resolution.ts`, while
+  `app-matching.ts` accepts authored or resolved graphs and `app.ts` remains
+  the stable composition facade.
 - **API routes** — File-based auto-discovery from `src/api/`. Files are globbed
   by the Vite plugin and resolved to URL paths (e.g. `src/api/health.ts` →
   `/api/health`, `src/api/users/[id].ts` → `/api/users/:id`,

@@ -7,7 +7,7 @@
  * error normalization.
  */
 
-import { matchApiRoute } from "./app.ts";
+import { matchApiRoute } from "./api-routes.ts";
 import { SAFE_METHODS } from "./runtime-constants.ts";
 import type { PrachtRuntimeDiagnosticPhase } from "./runtime-errors.ts";
 import { withEnhancedCapabilityFormRedirect } from "./runtime-capability-form-redirect.ts";

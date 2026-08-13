@@ -1,4 +1,4 @@
-import { matchAppRoute } from "./app.ts";
+import { matchAppRoute } from "./app-matching.ts";
 import { SAFE_METHODS } from "./runtime-constants.ts";
 import { buildRuntimeDiagnostics, createSerializedRouteError } from "./runtime-errors.ts";
 import { createNotFoundMatch } from "./runtime-page-pipeline.ts";

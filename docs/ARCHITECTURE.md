@@ -530,7 +530,9 @@ types.ts        — stable aggregate over the focused public type domains
 name-suggestions.ts — edit-distance "did you mean" helpers for wiring errors
     ↑
 app-definition.ts — route/group/app authoring DSL and module-reference normalization
-app.ts          — resolved route graph, matching, and inherited route flattening
+app-resolution.ts — inherited route flattening, manifest validation, and not-found resolution
+app-matching.ts — authored/resolved application matching boundary
+app.ts          — stable authoring, resolution, matching, API, and href facade
 app-validation.ts — manifest keys, registered names, cache values, and render compatibility
 route-pattern.ts — normalized route parsing, safe segments, and pathname matching
 route-href.ts — typed/untyped href, param, search, hash, and path construction

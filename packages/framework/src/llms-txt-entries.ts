@@ -1,5 +1,5 @@
 import { API_METHOD_ORDER } from "./api-export-detection.ts";
-import { buildPathFromSegments } from "./app.ts";
+import { buildPathFromSegments } from "./route-href.ts";
 import { resolveRegistryModule } from "./runtime-manifest.ts";
 import { hasMarkdownRepresentation } from "./runtime-negotiation.ts";
 import type {
