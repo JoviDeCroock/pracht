@@ -172,11 +172,19 @@ export function Component() {
 ```tsx [src/components/LanguageSwitcher.tsx]
 import { useLocation } from "@pracht/core";
 import { i18n, type AppLocale } from "../i18n/index.ts";
+import { useEffect } from "preact/hooks";
 
 const labels: Record<AppLocale, string> = { en: "English", fr: "Français" };
 
 export function LanguageSwitcher({ currentLocale }: { currentLocale: AppLocale }) {
   const { pathname } = useLocation();
+
+  // SSG/ISG responses are shared and cannot set a visitor-specific cookie.
+  // Persist the explicit prefix after hydration so the SSR detector remembers
+  // it later. This is harmless on SSR pages where middleware already did so.
+  useEffect(() => {
+    i18n.setLocaleCookie(currentLocale);
+  }, [currentLocale]);
 
   return (
     <nav class="lang-switcher">
@@ -194,7 +202,7 @@ export function LanguageSwitcher({ currentLocale }: { currentLocale: AppLocale }
 }
 ```
 
-Navigating to the other prefix is an explicit choice, so the middleware refreshes the locale cookie and unprefixed entry points remember it.
+Navigating to the other prefix is an explicit choice. On SSR routes the middleware refreshes the locale cookie; on SSG/ISG routes the hydrated switcher above does it because their stored response cannot safely carry a visitor-specific `Set-Cookie`. Either way, later unprefixed entry points remember the choice once hydration has run. A no-JavaScript visit to a prerendered page cannot persist a cookie; if that requirement matters, keep localized pages SSR or add platform edge middleware before static asset serving.
 
 ---
 
@@ -295,6 +303,8 @@ export function Component({ data }: RouteComponentProps<typeof loader>) {
 ```tsx [src/routes/home.tsx]
 import type { HeadArgs, LoaderArgs, RouteComponentProps } from "@pracht/core";
 import { t, tPlural } from "@pracht/i18n";
+import { useEffect } from "preact/hooks";
+
 import { dictionaries, i18n } from "../i18n/index.ts";
 
 export async function loader({ context }: LoaderArgs) {
@@ -313,6 +323,8 @@ export function head({ data, url }: HeadArgs<typeof loader>) {
 }
 
 export function Component({ data }: RouteComponentProps<typeof loader>) {
+  // Needed when this localized page is SSG/ISG; harmless on SSR.
+  useEffect(() => i18n.setLocaleCookie(data.locale), [data.locale]);
   return (
     <div>
       <h1>{t(data.messages, "home.title")}</h1>
@@ -331,7 +343,7 @@ Because `messages` is plain JSON, it serializes into route data and the exact sa
 
 ## Tips
 
-- **SSG/ISG**: locale-prefixed routes can be `render: "ssg"` or `"isg"` — every prefixed URL is a real route, so each locale prerenders, and the middleware skips cookie persistence on prerenderable routes so no `Set-Cookie` ever lands in stored output. Keep the *detector* route SSR: its answer depends on the visitor's cookie/headers, and cookie/header detection cannot run against a stored document (prerender and ISG-revalidation requests carry no cookies or `Accept-Language`). For prerendered routes, keep `"path"` first in the detect order — a prerendered route that *depends* on cookie/header detection gets `Vary: Cookie` and is refused by the ISG cache rather than serving one visitor's locale to everyone.
+- **SSG/ISG**: locale-prefixed routes can be `render: "ssg"` or `"isg"` — every prefixed URL is a real route, so each locale prerenders, and the middleware skips cookie persistence on prerenderable routes so no `Set-Cookie` ever lands in stored output. Persist `data.locale` with `setLocaleCookie()` after hydration (as above) if the SSR detector should remember an explicit prefixed visit; without JavaScript, use SSR or platform edge middleware. Keep the *detector* route SSR: its answer depends on the visitor's cookie/headers, and cookie/header detection cannot run against a stored document (prerender and ISG-revalidation requests carry no cookies or `Accept-Language`). For prerendered routes, keep `"path"` first in the detect order — a prerendered route that *depends* on cookie/header detection gets `Vary: Cookie` and is refused by the ISG cache rather than serving one visitor's locale to everyone.
 - On SSG/ISG routes, pass your canonical origin to `hreflang()` (`{ origin: "https://example.com" }`) — `url.origin` at prerender time is a placeholder (`http://localhost`) and would be baked into the static document.
 - Set `lang` from the resolved locale in `head()` (as above) so browsers and screen readers know the language. `head()` runs on the server, so a locale change that never reloads the document — the client switch in strategy B — must set `document.documentElement.lang` itself.
 - Use `Intl.DateTimeFormat` / `Intl.NumberFormat` with `data.locale` for dates and numbers — no library needed.

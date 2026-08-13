@@ -196,6 +196,13 @@ export function Component() {
 
 - Route matching is exact: locale prefixes are lowercase URLs; build links
   with `i18n.localePath()` so they always come out canonical.
+- If localized routes are SSG/ISG, their stored response cannot safely carry
+  a visitor-specific `Set-Cookie`. In a hydrated component shared by those
+  routes, persist the explicit prefix with
+  `useEffect(() => i18n.setLocaleCookie(data.locale), [data.locale])` so the
+  SSR detector remembers it later. This is harmless on SSR pages. Without
+  JavaScript, remembering a prerendered visit requires SSR or platform edge
+  middleware before static asset serving.
 
 ### Strategy B — one URL per page
 
@@ -246,6 +253,7 @@ surface needs to resolve the locale itself.
 import type { HeadArgs, LoaderArgs, RouteComponentProps } from "@pracht/core";
 import { t, tPlural } from "@pracht/i18n";
 import { dictionaries, i18n } from "../i18n/index.ts";
+import { useEffect } from "preact/hooks";
 
 export async function loader({ context }: LoaderArgs) {
   const messages = await dictionaries.load(context.locale);
@@ -261,6 +269,9 @@ export function head({ data, url }: HeadArgs<typeof loader>) {
 }
 
 export function Component({ data }: RouteComponentProps<typeof loader>) {
+  // Required for SSG/ISG locale routes; harmless when SSR middleware already
+  // persisted the matching path locale.
+  useEffect(() => i18n.setLocaleCookie(data.locale), [data.locale]);
   return <h1>{t(data.messages, "home.title", { name: "Jovi" })}</h1>;
 }
 ```
@@ -277,11 +288,13 @@ is no alternate URL to point at, so emitting hreflang would be a lie.
 - Keep the detector route SSR; locale-prefixed routes may be `ssg` or
   `isg` — every prefixed URL is a real route, so each locale prerenders,
   and the middleware skips cookie persistence on those routes so no
-  `Set-Cookie` lands in stored output. Keep `"path"` first in the detect
-  order for prerendered routes: cookie/header detection cannot run against
-  a stored document (prerender/ISG requests carry no cookies or
-  `Accept-Language`), and a route that *depends* on those sources gets
-  `Vary: Cookie` and is refused by the ISG cache.
+  `Set-Cookie` lands in stored output. Persist the resolved path locale after
+  hydration when the SSR detector should remember it; without JavaScript,
+  use SSR or platform edge middleware. Keep `"path"` first in the detect order
+  for prerendered routes: cookie/header detection cannot run against a stored
+  document (prerender/ISG requests carry no cookies or `Accept-Language`), and
+  a route that *depends* on those sources gets `Vary: Cookie` and is refused by
+  the ISG cache.
 - Prerendered `head()` runs against a placeholder request origin — pass the
   app's canonical origin to `hreflang()` on SSG/ISG routes instead of
   `url.origin`, or the alternates bake in `http://localhost`.
@@ -301,9 +314,11 @@ is no alternate URL to point at, so emitting hreflang would be a lie.
 - Strategy A: `curl -i` the unprefixed detector with `Accept-Language: fr`
   (expect a 302 to `/fr/...`), with a `pracht_locale` cookie (cookie beats
   header), and with garbage (`;q=`, unknown tags — expect the default
-  locale). Visit a locale-prefixed page; confirm translated content, the
-  `Set-Cookie` on first visit, and the hreflang links in the head. Visit an
-  unsupported prefix (e.g. `/zz/about`); confirm it 404s.
+  locale). Visit a locale-prefixed page; confirm translated content and the
+  hreflang links in the head. On SSR, confirm `Set-Cookie` on first visit. On
+  SSG/ISG, confirm the stored response has no `Set-Cookie`, hydration writes
+  the locale cookie, and then the unprefixed detector returns to that locale.
+  Visit an unsupported prefix (e.g. `/zz/about`); confirm it 404s.
 - Strategy B: `curl -i` the page with `Accept-Language: fr` (expect French
   content, `Vary: Cookie, Accept-Language`, no `Set-Cookie`) and with
   `Cookie: pracht_locale=fr` while sending `Accept-Language: en` (cookie

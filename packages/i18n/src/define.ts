@@ -519,11 +519,13 @@ export function defineI18n<const L extends string>(config: I18nConfig<L>): I18n<
     }
 
     // Persist only an *explicit* choice — the URL prefix the user navigated
-    // to — so unprefixed pages remember it. Header-derived locales are not
-    // persisted (they would pin a first-request guess forever), and
-    // prerenderable (SSG/ISG) routes never persist at all: their output is
-    // stored and replayed to every visitor, so a Set-Cookie would fail the
-    // prerender build and make every ISG regeneration uncacheable.
+    // to. Header-derived locales are not persisted (they would pin a
+    // first-request guess forever), and prerenderable (SSG/ISG) routes never
+    // persist here: their output is stored and replayed to every visitor, so
+    // a Set-Cookie would fail the prerender build and make every ISG
+    // regeneration uncacheable. Prerendered locale routes that want
+    // unprefixed detector pages to remember the choice call
+    // `setLocaleCookie()` after hydration instead.
     const render = (args.route as { render?: string } | undefined)?.render;
     const prerenderable = render === "ssg" || render === "isg";
     const setCookie =

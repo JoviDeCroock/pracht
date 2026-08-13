@@ -96,7 +96,10 @@ export const app = defineApp({
     // Locale-prefixed (/welcome): one pathPrefix group per registered locale
     // (so only registered locales ever match — /zz/welcome 404s), sharing one
     // route file, plus an unprefixed detector route that redirects to the
-    // cookie/Accept-Language locale. SSR because detection is per-request.
+    // cookie/Accept-Language locale. The localized pages are SSG; their
+    // hydrated component remembers the explicit prefix because a static
+    // response cannot safely carry a visitor-specific Set-Cookie header. The
+    // unprefixed detector stays SSR because detection is per-request.
     //
     // Prefix-free (/greeting): one URL for every locale, chosen by cookie and
     // switched via POST /api/locale or client-side — for sites that cannot
@@ -113,13 +116,13 @@ export const app = defineApp({
       group({ pathPrefix: "/en" }, [
         route("/welcome", () => import("./routes/welcome.tsx"), {
           id: "welcome-en",
-          render: "ssr",
+          render: "ssg",
         }),
       ]),
       group({ pathPrefix: "/nl" }, [
         route("/welcome", () => import("./routes/welcome.tsx"), {
           id: "welcome-nl",
-          render: "ssr",
+          render: "ssg",
         }),
       ]),
     ]),

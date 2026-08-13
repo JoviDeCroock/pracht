@@ -53,6 +53,12 @@ group({ middleware: ["i18n"] }, [
 
 ```tsx
 // src/routes/welcome.tsx
+import type { HeadArgs, LoaderArgs, RouteComponentProps } from "@pracht/core";
+import { t, type I18nRequestContext } from "@pracht/i18n";
+import { useEffect } from "preact/hooks";
+
+import { dictionaries, i18n } from "../i18n/index.ts";
+
 export async function loader({ context }: LoaderArgs<I18nRequestContext<"en" | "nl">>) {
   const messages = await dictionaries.load(context.locale);
   return { locale: context.locale, messages };
@@ -67,6 +73,9 @@ export function head({ data, url }: HeadArgs<typeof loader>) {
 }
 
 export function Component({ data }: RouteComponentProps<typeof loader>) {
+  // Required on SSG/ISG pages: their stored response cannot set a
+  // visitor-specific cookie. It is harmless when middleware already did so.
+  useEffect(() => i18n.setLocaleCookie(data.locale), [data.locale]);
   return <h1>{t(data.messages, "welcome.title", { name: "Jovi" })}</h1>;
 }
 ```
@@ -85,7 +94,9 @@ question is whether the locale is part of the URL.
 **A. Locale-prefixed URLs** (`/en/about`) — one `pathPrefix` group per
 locale, switching means navigating, `hreflang()` gives every language its
 own indexable URL, and routes can be `ssg`/`isg`. The better default for
-public content.
+public content. On SSG/ISG pages, persist the explicit prefix after hydration
+with `setLocaleCookie()` because a stored response cannot safely carry a
+visitor-specific cookie.
 
 **B. One URL per page** (`/about`) — nothing about your routes changes. The
 cookie decides, `Accept-Language` seeds the first visit, and the middleware
@@ -132,7 +143,9 @@ Creates the app's i18n instance:
   shared caches key correctly. Note: a **thrown** `Response`
   (`throw redirect(...)`) short-circuits past the middleware chain and gets
   neither the cookie nor `Vary` — `return` redirects from loaders on
-  localized routes instead.
+  localized routes instead. SSG/ISG requests cannot persist a visitor-specific
+  cookie in stored output; call `setLocaleCookie(data.locale)` in a hydrated
+  localized component so later unprefixed detector routes remember the choice.
 - **`localePath(path, locale)`** — prefix/replace the locale in a path,
   preserving query and hash. Throws for unregistered locales, so user input
   can never be reflected into a URL.
@@ -183,6 +196,9 @@ export default {
   over the default locale so every key resolves. The result is a plain
   serializable object (plus a reserved `$locale` key) — return it from a
   loader and use the same `t()` on the client.
+- `$`-prefixed keys are reserved and omitted from both the loaded object and
+  its translation-key type. Other own flat keys, including `__proto__`, are
+  preserved without consulting or mutating an object prototype.
 - `t(messages, key, params?)` — typed keys derived from the default
   locale's shape; `{param}` interpolation is single-pass (values containing
   braces are never re-interpolated) and reads own properties only. Unknown

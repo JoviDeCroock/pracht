@@ -95,6 +95,31 @@ describe("createDictionaries", () => {
     expect(Object.keys(messages).sort()).toEqual(["$locale", "good"]);
   });
 
+  it("keeps own translation keys that are special on normal object prototypes", async () => {
+    const raw = JSON.parse('{"__proto__":"translated","constructor":"built"}') as Record<
+      string,
+      string
+    >;
+    const dictionaries = createDictionaries({ en: () => raw }, { defaultLocale: "en" });
+    const messages = await dictionaries.load("en");
+
+    expect(Object.hasOwn(messages, "__proto__")).toBe(true);
+    expect(t(messages, "__proto__")).toBe("translated");
+    expect(t(messages, "constructor")).toBe("built");
+  });
+
+  it("does not expose stripped reserved keys as translation keys", async () => {
+    const dictionaries = createDictionaries(
+      { en: () => ({ $meta: "reserved", good: "value" }) as const },
+      { defaultLocale: "en" },
+    );
+    const messages = await dictionaries.load("en");
+
+    t(messages, "good");
+    // @ts-expect-error — `$`-prefixed dictionary entries are stripped at load time.
+    t(messages, "$meta");
+  });
+
   it("retries after a failed import instead of caching the rejection", async () => {
     let attempts = 0;
     const dictionaries = createDictionaries(

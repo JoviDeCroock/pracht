@@ -35,18 +35,22 @@ type DictionaryOf<TLoader> = TLoader extends () => infer R
  * are reserved and stripped from user dictionaries.
  */
 export type Messages<D extends DictionaryShape = DictionaryShape> = {
-  readonly [K in keyof D]: string;
+  readonly [K in keyof D as K extends `$${string}` ? never : K]: string;
 } & { readonly $locale: string };
 
 /** All translatable keys of a loaded dictionary. */
-export type TranslationKey<M> = Exclude<keyof M & string, "$locale">;
+export type TranslationKey<M> = Exclude<keyof M & string, `$${string}`>;
 
 /**
  * Base keys usable with `tPlural()`: keys for which the default locale
  * defines at least `<key>.other`.
  */
 export type PluralKey<M> = {
-  [K in keyof M & string]: K extends `${infer Base}.other` ? Base : never;
+  [K in keyof M & string]: K extends `$${string}`
+    ? never
+    : K extends `${infer Base}.other`
+      ? Base
+      : never;
 }[keyof M & string];
 
 export interface DictionariesOptions<L extends string> {
@@ -79,7 +83,10 @@ function unwrapModule(module: DictionaryModule): DictionaryShape {
 }
 
 function sanitizeDictionary(raw: DictionaryShape): Record<string, string> {
-  const dictionary: Record<string, string> = {};
+  // A normal object treats `__proto__` assignment specially instead of
+  // creating an own property. Translation keys are arbitrary flat strings,
+  // so keep the sanitized cache free of inherited/special keys entirely.
+  const dictionary = Object.create(null) as Record<string, string>;
   for (const key of Object.keys(raw)) {
     // `$`-prefixed keys are reserved for the framework (`$locale`).
     if (key.startsWith("$")) continue;

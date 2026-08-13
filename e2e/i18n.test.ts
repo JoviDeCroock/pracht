@@ -18,6 +18,25 @@ test("greeting resolves the locale from Accept-Language and varies on it", async
   expect(response.headers()["set-cookie"]).toBeUndefined();
 });
 
+test("a prerendered locale prefix is remembered by the unprefixed detector", async ({ page }) => {
+  await page.context().clearCookies();
+  const response = await page.goto("/nl/welcome");
+  await page.waitForFunction(() => (window as any).__PRACHT_ROUTER_READY__);
+
+  // Stored SSG output must remain visitor-neutral; hydration persists the
+  // explicit prefix instead.
+  expect(response?.headers()["set-cookie"]).toBeUndefined();
+  await expect
+    .poll(async () => {
+      const cookies = await page.context().cookies();
+      return cookies.find((cookie) => cookie.name === "pracht_locale")?.value;
+    })
+    .toBe("nl");
+
+  await page.goto("/welcome");
+  await expect(page).toHaveURL("/nl/welcome");
+});
+
 test("greeting form switch changes the language and keeps the URL", async ({ page }) => {
   await page.goto("/greeting");
   await page.waitForFunction(() => (window as any).__PRACHT_ROUTER_READY__);

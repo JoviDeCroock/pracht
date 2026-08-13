@@ -1,5 +1,6 @@
 import type { HeadArgs, LoaderArgs, RouteComponentProps } from "@pracht/core";
 import { t, tPlural, type I18nRequestContext } from "@pracht/i18n";
+import { useEffect } from "preact/hooks";
 
 import { dictionaries, i18n, type AppLocale } from "../i18n/index.ts";
 
@@ -35,6 +36,15 @@ export function head({ data, url }: HeadArgs<typeof loader, Context>) {
 export function Component({ data }: RouteComponentProps<typeof loader>) {
   const { locale, messages } = data;
   const otherLocales = i18n.locales.filter((candidate) => candidate !== locale);
+
+  // These locale-prefixed pages are prerendered, so their stored response
+  // cannot carry a visitor-specific Set-Cookie header. Remember the explicit
+  // prefix after hydration so the SSR /welcome detector can honor it later.
+  // The same effect is safe on SSR pages (where the middleware already wrote
+  // the matching cookie).
+  useEffect(() => {
+    i18n.setLocaleCookie(locale);
+  }, [locale]);
 
   return (
     <section>
