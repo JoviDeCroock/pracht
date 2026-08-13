@@ -86,6 +86,10 @@ source analysis that confirms registered middleware exports the named
 contract diagnostics, literal field decoding, and graph-wide projection checks
 in separate modules.
 
+Type generation keeps graph inspection and source composition in the command
+orchestrator. `typegen-output.ts` owns project-root confinement, output collision
+diagnostics, stale checks, idempotent writes, and safe legacy-file cleanup.
+
 ```bash
 pracht verify
 pracht verify --changed

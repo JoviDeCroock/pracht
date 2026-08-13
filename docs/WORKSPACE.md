@@ -175,7 +175,9 @@ described in `VISION_MVP.md`.
   resolved route graph, API handlers, and build metadata for agents/tools,
   `pracht typegen` emits `src/pracht.d.ts` and `src/pracht-routes.ts`
   from the resolved route graph for typed links and href helpers; its command,
-  graph validation, and file lifecycle remain in `commands/typegen.ts`, while
+  inspection, and graph validation remain in `commands/typegen.ts`, while
+  output confinement, collision policy, stale checks, writes, and legacy cleanup
+  live in `typegen-output.ts`,
   route/API declarations and href runtime formatting live in
   `typegen-route-source.ts`, and capability registration/client declarations
   live in `typegen-capability-source.ts`,
