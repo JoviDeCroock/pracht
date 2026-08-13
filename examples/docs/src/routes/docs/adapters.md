@@ -387,7 +387,10 @@ use their Pracht time window as the CDN `max-age` and serve stale responses
 while a fresh render completes. Webhook-capable routes receive per-path cache
 tags, including when they provide a cacheable custom policy; authenticated
 requests to `/__pracht/revalidate` purge those tags. Explicit SSG and ISG cache
-policies remain authoritative.
+policies expressed through `Cache-Control`, `CDN-Cache-Control`, or
+`Netlify-CDN-Cache-Control` remain authoritative; headers for another CDN do
+not disable Netlify's default. Both adapter cache windows accept `0`, disabling
+stale serving or the SSG fresh lifetime respectively.
 A document request with one trailing slash permanently redirects to the
 slashless ISG URL before rendering, so only the canonical URL enters the
 durable cache. Webhook revalidation accepts either spelling and purges the

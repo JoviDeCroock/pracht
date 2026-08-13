@@ -55,9 +55,9 @@ export async function purgeNetlifyCache(options?: NetlifyPurgeCacheOptions): Pro
 }
 
 export interface NetlifyCacheOptions {
-  /** Seconds stale ISG output may be served while Netlify refreshes it. Defaults to one year. */
+  /** Seconds stale ISG output may be served while Netlify refreshes it. Set to 0 to disable. Defaults to one year. */
   staleWhileRevalidate?: number;
-  /** Edge lifetime for immutable-per-deploy SSG documents. Defaults to one year. */
+  /** Edge lifetime for immutable-per-deploy SSG documents. Set to 0 for no freshness. Defaults to one year. */
   staticMaxAge?: number;
 }
 
@@ -115,13 +115,10 @@ const EMPTY_NETLIFY_COOKIES = Object.freeze({
   get: () => undefined,
   set: rejectSharedContextCookieMutation,
 });
-const EXPLICIT_CACHE_POLICY_HEADERS = [
+const NETLIFY_CACHE_POLICY_HEADERS = [
   "cache-control",
   "cdn-cache-control",
-  "cloudflare-cdn-cache-control",
   "netlify-cdn-cache-control",
-  "surrogate-control",
-  "vercel-cdn-cache-control",
 ] as const;
 
 /**
@@ -710,7 +707,7 @@ async function serveStaticFile(
 }
 
 function hasExplicitCachePolicy(headers: Headers): boolean {
-  return EXPLICIT_CACHE_POLICY_HEADERS.some((name) => headers.has(name));
+  return NETLIFY_CACHE_POLICY_HEADERS.some((name) => headers.has(name));
 }
 
 /**
@@ -774,11 +771,11 @@ function resolveCacheOptions(
   options: NetlifyCacheOptions | undefined,
 ): Required<NetlifyCacheOptions> {
   return {
-    staleWhileRevalidate: positiveInteger(
+    staleWhileRevalidate: nonNegativeInteger(
       options?.staleWhileRevalidate,
       DEFAULT_STALE_WHILE_REVALIDATE,
     ),
-    staticMaxAge: positiveInteger(options?.staticMaxAge, DEFAULT_STATIC_MAX_AGE),
+    staticMaxAge: nonNegativeInteger(options?.staticMaxAge, DEFAULT_STATIC_MAX_AGE),
   };
 }
 
@@ -810,10 +807,10 @@ function rejectSharedContextCookieMutation(): never {
   throw new Error("Netlify cookies cannot be changed while rendering a shared ISG response.");
 }
 
-function positiveInteger(value: number | undefined, fallback: number): number {
+function nonNegativeInteger(value: number | undefined, fallback: number): number {
   if (typeof value !== "number" || !Number.isFinite(value)) return fallback;
   const integer = Math.floor(value);
-  return integer > 0 ? integer : fallback;
+  return integer >= 0 ? integer : fallback;
 }
 
 function normalizePathname(pathname: string): string {

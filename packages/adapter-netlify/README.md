@@ -79,7 +79,9 @@ metadata.
 
 - SSG documents are read from the bundled client output and stored in
   Netlify's durable cache. Atomic deploys invalidate the cached deployment. An
-  explicit route cache policy remains authoritative.
+  explicit Netlify-supported route cache policy (`Cache-Control`,
+  `CDN-Cache-Control`, or `Netlify-CDN-Cache-Control`) remains authoritative;
+  headers targeting another CDN do not disable Netlify's durable-cache default.
 - Time-revalidated ISG routes use their Pracht revalidation interval as the
   Netlify CDN `max-age`, with stale-while-revalidate enabled. Cacheable custom
   policies remain authoritative. A document request with one trailing slash
@@ -121,3 +123,7 @@ netlifyAdapter({
   staticMaxAge: 604_800,
 });
 ```
+
+Both cache windows accept `0`: it disables stale serving for
+`staleWhileRevalidate` and gives SSG documents no fresh lifetime for
+`staticMaxAge`.

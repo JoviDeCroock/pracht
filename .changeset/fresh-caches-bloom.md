@@ -29,6 +29,9 @@ carry `Set-Cookie` or `Vary: Cookie`/`Authorization` are stamped
 `Netlify-CDN-Cache-Control: private` instead, so a cross-site `?_data=1`
 navigation cannot poison the route-state cache key with HTML and one visitor's
 personalized render can never become the CDN's shared answer.
+Netlify cache defaults now remain active beside cache-control headers intended
+for other providers, and explicit zero-length stale or static cache windows are
+preserved instead of silently becoming the one-year defaults.
 `create-pracht` can scaffold the adapter with `netlify.toml`, local preview,
 and deployment scripts, while `pracht preview` detects Netlify projects and
 points to `pracht build && netlify dev` instead of trying to run their function

@@ -263,6 +263,27 @@ describe("createNetlifyHandler", () => {
     expect(response.headers.get("netlify-vary")).toBe("query=preview");
   });
 
+  it.each(["cloudflare-cdn-cache-control", "surrogate-control", "vercel-cdn-cache-control"])(
+    "does not treat %s as a Netlify SSG cache policy",
+    async (header) => {
+      const staticDir = await createStaticBuild();
+      const handler = createNetlifyHandler({
+        app,
+        headersManifest: {
+          "/guide": { [header]: "public, max-age=600" },
+        },
+        registry,
+        staticDir,
+      });
+
+      const response = await handler(new Request("https://example.com/guide"), {});
+      expect(response.headers.get(header)).toBe("public, max-age=600");
+      expect(response.headers.get("netlify-cdn-cache-control")).toBe(
+        "public, durable, max-age=31536000",
+      );
+    },
+  );
+
   it("serves exact assets with their MIME type when the function receives them", async () => {
     const staticDir = await createStaticBuild();
     const handler = createNetlifyHandler({ app, registry, staticDir });
@@ -498,6 +519,56 @@ describe("createNetlifyHandler", () => {
       `app:pricing,pracht:isg,${netlifyRouteCacheTag("/pricing")}`,
     );
     expect(response.headers.get("netlify-vary")).toBe("query=preview");
+  });
+
+  it("applies the Netlify ISG policy beside another platform's cache header", async () => {
+    const handler = createNetlifyHandler({
+      app,
+      isgManifest: {
+        "/pricing": {
+          revalidate: timeRevalidate(60),
+        },
+      },
+      registry: {
+        ...registry,
+        routeModules: {
+          ...registry.routeModules,
+          "/src/routes/pricing.tsx": async () => ({
+            default: () => h("main", null, "pricing"),
+            headers: () => ({ "vercel-cdn-cache-control": "public, max-age=600" }),
+          }),
+        },
+      },
+    });
+
+    const response = await handler(new Request("https://example.com/pricing"), {});
+    expect(response.headers.get("vercel-cdn-cache-control")).toBe("public, max-age=600");
+    expect(response.headers.get("netlify-cdn-cache-control")).toBe(
+      "public, durable, max-age=60, stale-while-revalidate=31536000",
+    );
+  });
+
+  it("honors zero-length Netlify cache windows", async () => {
+    const staticDir = await createStaticBuild();
+    const handler = createNetlifyHandler({
+      app,
+      cache: { staleWhileRevalidate: 0, staticMaxAge: 0 },
+      isgManifest: {
+        "/pricing": {
+          revalidate: timeRevalidate(60),
+        },
+      },
+      registry,
+      staticDir,
+    });
+
+    const ssg = await handler(new Request("https://example.com/guide"), {});
+    expect(ssg.headers.get("netlify-cdn-cache-control")).toBe("public, durable, max-age=0");
+
+    const isg = await handler(new Request("https://example.com/pricing"), {});
+    expect(isg.headers.get("netlify-cdn-cache-control")).toBe(
+      "public, durable, max-age=60, stale-while-revalidate=0",
+    );
   });
 
   it("does not add a private browser policy beside an explicit Netlify policy", async () => {

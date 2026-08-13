@@ -256,6 +256,9 @@ implements time-based ISG and per-path cache tags implement authenticated
 webhook revalidation. A trailing-slash ISG document request permanently
 redirects to the canonical slashless URL before rendering, and webhook
 revalidation normalizes either spelling before purging the cache tag.
+Only `Cache-Control`, `CDN-Cache-Control`, and `Netlify-CDN-Cache-Control`
+override the adapter's cache defaults; provider-specific headers for another
+CDN do not. Set a cache window to `0` to disable stale serving or freshness.
 `Netlify-Vary` owns route-state variants, while the standard `Vary: Accept`
 header owns Markdown negotiation. Shared ISG renders strip visitor-specific
 request data and Netlify context metadata before loaders or context factories

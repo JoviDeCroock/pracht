@@ -752,8 +752,10 @@ representation that those URLs can still invoke the function to read.
 - SSG documents are read from the bundled `dist/client` output and use
   `Netlify-CDN-Cache-Control` with durable caching. Route and shell headers from
   `headers-manifest.json` are applied before the response enters the cache. An
-  explicit cache policy remains authoritative instead of being combined with
-  Pracht's durable-cache default.
+  explicit Netlify-supported cache policy (`Cache-Control`,
+  `CDN-Cache-Control`, or `Netlify-CDN-Cache-Control`) remains authoritative
+  instead of being combined with Pracht's durable-cache default. Headers that
+  target another CDN do not disable Netlify caching.
 - ISG renders use a sanitized, pathname-only request and an allowlisted
   Netlify context. Visitor cookies, IP/geolocation, request IDs, and arbitrary
   request-local context are unavailable, while deployment-wide site/server
@@ -826,6 +828,10 @@ netlifyAdapter({
   staticMaxAge: 604_800,
 });
 ```
+
+Both cache windows accept `0`: it disables stale serving for
+`staleWhileRevalidate` and gives SSG documents no fresh lifetime for
+`staticMaxAge`.
 
 The context factory receives `{ request, context }`, where `context` is
 Netlify's Functions v2 context. Build first, then use `netlify dev` for local
