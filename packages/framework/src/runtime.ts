@@ -89,6 +89,40 @@ function headersForReserializedBody(headers: Headers): Headers {
   return nextHeaders;
 }
 
+async function attachFontHeadToLoaderResponse<TContext>(options: {
+  response: Response;
+  isRouteStateRequest: boolean;
+  routeArgs: BaseRouteArgs<TContext>;
+  routeModule: RouteModule;
+  shellModule: ShellModule | undefined | Promise<ShellModule | undefined>;
+}): Promise<Response> {
+  const { response, isRouteStateRequest, routeArgs, routeModule } = options;
+  if (!isRouteStateRequest || !response.ok) return response;
+
+  const contentType = response.headers.get("content-type") ?? "";
+  if (!contentType.includes("application/json")) return response;
+
+  const payload = (await response.clone().json()) as unknown;
+  if (payload === null || typeof payload !== "object" || Array.isArray(payload)) return response;
+
+  const shellModule = await options.shellModule;
+  if (!shellModule?.head && !routeModule.head) return response;
+
+  const data = (payload as Record<string, unknown>).data;
+  const head = await mergeHeadMetadata(shellModule, routeModule, routeArgs, data);
+  return Response.json(
+    {
+      ...(payload as Record<string, unknown>),
+      fontHead: collectFontHeadFragments(head.fonts ?? []),
+    },
+    {
+      status: response.status,
+      statusText: response.statusText,
+      headers: headersForReserializedBody(response.headers),
+    },
+  );
+}
+
 /**
  * Build-time proof that the app has no agent surface at all — no registered
  * capabilities and no `defineApp({ agents })`. The vite plugin only defines it
@@ -730,7 +764,15 @@ export async function handlePrachtRequest<TContext>(
         let loaderResult: unknown;
         if (loader) {
           const loaderStart = timings ? performance.now() : 0;
-          loaderResult = await loader(routeArgs);
+          try {
+            loaderResult = await loader(routeArgs);
+          } catch (error: unknown) {
+            // A thrown Response is the loader's answer, just like a returned
+            // Response. Normalize both through the same route-state path so
+            // redirects, cache headers, and font metadata cannot diverge.
+            if (!(error instanceof Response)) throw error;
+            loaderResult = error;
+          }
           if (timings) {
             timings.loader = performance.now() - loaderStart;
           }
@@ -738,30 +780,13 @@ export async function handlePrachtRequest<TContext>(
 
         // Allow loaders to return a Response directly (e.g. for redirects)
         if (loaderResult instanceof Response) {
-          if (isRouteStateRequest && loaderResult.ok) {
-            const contentType = loaderResult.headers.get("content-type") ?? "";
-            if (contentType.includes("application/json")) {
-              const payload = (await loaderResult.clone().json()) as unknown;
-              if (payload !== null && typeof payload === "object" && !Array.isArray(payload)) {
-                shellModule = await shellModulePromise;
-                const data = (payload as Record<string, unknown>).data;
-                const head = await mergeHeadMetadata(shellModule, routeModule, routeArgs, data);
-                const fontHead = collectFontHeadFragments(head.fonts ?? []);
-                return Response.json(
-                  {
-                    ...(payload as Record<string, unknown>),
-                    ...(shellModule?.head || routeModule.head ? { fontHead } : {}),
-                  },
-                  {
-                    status: loaderResult.status,
-                    statusText: loaderResult.statusText,
-                    headers: headersForReserializedBody(loaderResult.headers),
-                  },
-                );
-              }
-            }
-          }
-          return loaderResult;
+          return attachFontHeadToLoaderResponse({
+            response: loaderResult,
+            isRouteStateRequest,
+            routeArgs,
+            routeModule,
+            shellModule: shellModulePromise,
+          });
         }
 
         const data = loaderResult;

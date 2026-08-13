@@ -189,11 +189,16 @@ describe("defineFont", () => {
     const font = defineFont({
       family: "Custom",
       src: [
+        { url: "/fonts/custom.woff", format: "woff" },
         { url: "/fonts/custom.woff2" },
         { url: "/fonts/custom-alt.woff2" },
-        { url: "/fonts/custom.woff", format: "woff" },
       ],
     });
+    expect(font.sources.map((source) => source.url)).toEqual([
+      "/fonts/custom.woff2",
+      "/fonts/custom-alt.woff2",
+      "/fonts/custom.woff",
+    ]);
     expect(font.preloadLinks).toEqual([
       {
         rel: "preload",

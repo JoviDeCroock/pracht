@@ -33,7 +33,8 @@ export interface DefineFontOptions {
   family: string;
   /**
    * Public path of the font file (woff2 assumed), or an array of variants
-   * (`string` or `{ url, format }`) for the same face.
+   * (`string` or `{ url, format }`) for the same face. WOFF2 variants are
+   * emitted before fallback formats so the preloaded source is selected.
    */
   src: string | ReadonlyArray<string | FontSourceInput>;
   /** `font-weight` descriptor: `400`, `"700"`, `"auto"`, or a variable range `"100 900"`. */
@@ -266,7 +267,7 @@ function resolveSources(family: string, src: DefineFontOptions["src"]): FontSour
   if (!Array.isArray(list) || list.length === 0) {
     fail(family, "src must be a public path or a non-empty array of variants");
   }
-  return list.map((entry) => {
+  const sources = list.map((entry) => {
     const url = typeof entry === "string" ? entry : entry.url;
     const format = typeof entry === "string" ? "woff2" : (entry.format ?? "woff2");
     if (typeof url !== "string" || url.trim() === "") {
@@ -280,6 +281,15 @@ function resolveSources(family: string, src: DefineFontOptions["src"]): FontSour
     }
     return { url, format: format.toLowerCase() };
   });
+
+  // Modern browsers support both WOFF and WOFF2 and select the first usable
+  // src entry. Keep WOFF2 first so the source chosen by @font-face is also the
+  // one the head renderer preloads; otherwise a WOFF-first input downloads the
+  // WOFF file while an unused WOFF2 preload runs in parallel.
+  return [
+    ...sources.filter((source) => source.format === "woff2"),
+    ...sources.filter((source) => source.format !== "woff2"),
+  ];
 }
 
 /**
@@ -445,8 +455,7 @@ export function defineFont(options: DefineFontOptions): PrachtFont {
   const classCss = `.${className}{font-family:${fontFamily}}`;
 
   const preload = options.preload ?? true;
-  const preferredPreload = sources.find((source) => source.format === "woff2") ?? sources[0];
-  const preloadSources = [preferredPreload];
+  const preloadSources = [sources[0]];
   const preloadLinks: HeadAttributes[] = preloadSources.map((source) => ({
     rel: "preload",
     as: "font",

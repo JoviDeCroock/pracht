@@ -92,10 +92,25 @@ describe("scanPagesDirectory", () => {
       join(pagesDir, "about.tsx"),
       'export { metadata as head } from "./shared";\nexport default function Page() { return null; }\n',
     );
+    writeFileSync(
+      join(pagesDir, "comment.tsx"),
+      "// export function head() { return {}; }\nexport default function Page() { return null; }\n",
+    );
+    writeFileSync(
+      join(pagesDir, "example.tsx"),
+      "const example = `export const head = () => ({})`;\nexport default function Page() { return null; }\n",
+    );
+    writeFileSync(
+      join(pagesDir, "annotated.tsx"),
+      "export function /* navigation metadata */ head() { return {}; }\nexport default function Page() { return null; }\n",
+    );
 
     const pages = scanPagesDirectory(pagesDir);
     expect(pages.find((page) => page.routePath === "/")?.hasHead).toBe(true);
     expect(pages.find((page) => page.routePath === "/about")?.hasHead).toBe(true);
+    expect(pages.find((page) => page.routePath === "/comment")?.hasHead).toBe(false);
+    expect(pages.find((page) => page.routePath === "/example")?.hasHead).toBe(false);
+    expect(pages.find((page) => page.routePath === "/annotated")?.hasHead).toBe(true);
   });
 
   it("extracts the HYDRATION export and emits it in the generated manifest", () => {

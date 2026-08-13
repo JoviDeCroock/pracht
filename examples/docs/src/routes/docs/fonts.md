@@ -98,7 +98,11 @@ defineFont({
 });
 ```
 
-`src` accepts multiple variants of the same face. `woff2` is assumed unless a `format` is given, and only `woff2` variants are preloaded (browsers pick one source; preloading the rest wastes bandwidth):
+`src` accepts multiple variants of the same face. `woff2` is assumed unless a
+`format` is given. Pracht emits WOFF2 variants before fallback formats and
+preloads the first WOFF2 source (or the first source when no WOFF2 variant is
+present), so the preload and browser-selected source stay aligned without
+downloading every fallback:
 
 ```ts
 defineFont({

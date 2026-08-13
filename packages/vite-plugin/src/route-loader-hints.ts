@@ -1,5 +1,6 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { extname, join, relative } from "node:path";
+import { maskCommentsAndStrings } from "@pracht/capabilities/static";
 import {
   DEFAULT_ROUTE_EXTENSIONS,
   normalizeAdditionalExtensions,
@@ -9,7 +10,7 @@ import {
 const LOADER_DECLARATION_RE = /export\s+(?:async\s+)?(?:function|const|let|var)\s+loader\b/;
 const HEAD_DECLARATION_RE = /export\s+(?:async\s+)?(?:function|const|let|var)\s+head\b/;
 const EXPORT_BLOCK_RE = /export\s*\{([^}]*)\}\s*(?:from\s*["'][^"']+["'])?/g;
-const EXPORT_ALL_RE = /export\s+\*\s+from\s*["'][^"']+["']/;
+const EXPORT_ALL_RE = /export\s+\*\s+from\b/;
 
 function exportSpecifiersInclude(specifiers: string, exportName: string): boolean {
   return specifiers
@@ -40,17 +41,18 @@ export function detectLoaderExport(source: string): boolean {
   return EXPORT_ALL_RE.test(source);
 }
 
-function scanRouteFiles(dir: string, files: string[], extensions: Set<string>): void {
 export function detectHeadExport(source: string): boolean {
   // Markdown and MDX transforms can synthesize a head export from frontmatter.
   // Keep them conservative even when the raw source has no JS declaration.
-  if (HEAD_DECLARATION_RE.test(source)) return true;
-  for (const match of source.matchAll(EXPORT_BLOCK_RE)) {
+  const analysisSource = maskCommentsAndStrings(source);
+  if (HEAD_DECLARATION_RE.test(analysisSource)) return true;
+  for (const match of analysisSource.matchAll(EXPORT_BLOCK_RE)) {
     if (exportSpecifiersInclude(match[1], "head")) return true;
   }
-  return EXPORT_ALL_RE.test(source);
+  return EXPORT_ALL_RE.test(analysisSource);
 }
 
+function scanRouteFiles(dir: string, files: string[], extensions: Set<string>): void {
   let entries: string[];
   try {
     entries = readdirSync(dir);

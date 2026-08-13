@@ -881,51 +881,57 @@ describe("handlePrachtRequest cache variance", () => {
     expect(response.headers.get("cache-control")).toBe("no-store");
   });
 
-  it("preserves an explicit loader Response cache policy", async () => {
-    const app = defineApp({
-      routes: [route("/pricing", "./routes/pricing.tsx", { render: "ssr", loaderCache: 3600 })],
-    });
+  it.each(["return", "throw"] as const)(
+    "preserves an explicit loader Response cache policy when loaders %s it",
+    async (delivery) => {
+      const app = defineApp({
+        routes: [route("/pricing", "./routes/pricing.tsx", { render: "ssr", loaderCache: 3600 })],
+      });
 
-    const response = await handlePrachtRequest({
-      app,
-      registry: {
-        routeModules: {
-          "./routes/pricing.tsx": async () => ({
-            Component: () => h("main", null, "MVP"),
-            head: () => ({
-              fonts: [defineFont({ family: "Pricing", src: "/fonts/pricing.woff2" })],
-            }),
-            loader: async () =>
-              Response.json(
-                { data: { plan: "MVP" } },
-                {
-                  headers: {
-                    "cache-control": "private, max-age=5",
-                    "content-encoding": "br",
-                    "content-length": "1",
-                    etag: '"loader-payload"',
-                    "x-loader-header": "preserved",
+      const response = await handlePrachtRequest({
+        app,
+        registry: {
+          routeModules: {
+            "./routes/pricing.tsx": async () => ({
+              Component: () => h("main", null, "MVP"),
+              head: () => ({
+                fonts: [defineFont({ family: "Pricing", src: "/fonts/pricing.woff2" })],
+              }),
+              loader: async () => {
+                const response = Response.json(
+                  { data: { plan: "MVP" } },
+                  {
+                    headers: {
+                      "cache-control": "private, max-age=5",
+                      "content-encoding": "br",
+                      "content-length": "1",
+                      etag: '"loader-payload"',
+                      "x-loader-header": "preserved",
+                    },
                   },
-                },
-              ),
-          }),
+                );
+                if (delivery === "throw") throw response;
+                return response;
+              },
+            }),
+          },
         },
-      },
-      request: new Request("http://localhost/pricing", {
-        headers: { "x-pracht-route-state-request": "1" },
-      }),
-    });
+        request: new Request("http://localhost/pricing", {
+          headers: { "x-pracht-route-state-request": "1" },
+        }),
+      });
 
-    expect(response.headers.get("cache-control")).toBe("private, max-age=5");
-    expect(response.headers.get("x-loader-header")).toBe("preserved");
-    expect(response.headers.get("content-length")).toBeNull();
-    expect(response.headers.get("content-encoding")).toBeNull();
-    expect(response.headers.get("etag")).toBeNull();
-    await expect(response.json()).resolves.toMatchObject({
-      data: { plan: "MVP" },
-      fontHead: { css: expect.stringContaining('font-family:"Pricing"') },
-    });
-  });
+      expect(response.headers.get("cache-control")).toBe("private, max-age=5");
+      expect(response.headers.get("x-loader-header")).toBe("preserved");
+      expect(response.headers.get("content-length")).toBeNull();
+      expect(response.headers.get("content-encoding")).toBeNull();
+      expect(response.headers.get("etag")).toBeNull();
+      await expect(response.json()).resolves.toMatchObject({
+        data: { plan: "MVP" },
+        fontHead: { css: expect.stringContaining('font-family:"Pricing"') },
+      });
+    },
+  );
 
   it("applies a route loaderCache duration to loader Response data", async () => {
     const app = defineApp({
