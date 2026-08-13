@@ -74,6 +74,10 @@ described in `VISION_MVP.md`.
   pipeline dispatch; `runtime-capability-api-middleware.ts` owns app API policy;
   and `runtime-capability-mcp-output.ts` owns MCP-only success-envelope schema
   settlement.
+- **Agent request signing** — The isolated `@pracht/core/agent-auth` entry keeps
+  `agent-auth-sign.ts` as its public facade. `agent-auth-sign-types.ts` owns the
+  signing contracts, `agent-auth-request-signing.ts` owns RFC 9421 request and
+  header construction, and `agent-auth-key-pair.ts` owns Ed25519 key lifecycle.
 - **Server rendering** — `handlePrachtRequest()` executes the full request
   lifecycle: API route check → middleware chain → loader → Preact
   `renderToString` → HTML document assembly with hydration state

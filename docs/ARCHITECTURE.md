@@ -573,6 +573,10 @@ runtime-agent-projection.ts — MCP and capability HTTP selection and fail-close
 runtime-agent-auth.ts — Web Bot Auth freshness, directory allowlisting, and verification policy
 runtime-agent-directory.ts — bounded key discovery, caching, and strict Ed25519 JWKS validation
 runtime-agent-signature.ts — structured signature parsing and RFC 9421 base construction
+agent-auth-sign.ts — stable outbound signing entry facade
+agent-auth-sign-types.ts — outbound signing options, headers, and JWK contracts
+agent-auth-request-signing.ts — RFC 9421 signing base and request/header construction
+agent-auth-key-pair.ts — Ed25519 key generation and thumbprint lifecycle
 runtime-context-overlay.ts — immutable context proxy invariants, receiver binding, and native-slot guards
 runtime-mcp-protocol.ts — JSON-RPC framing, initialization validation, and version negotiation
 runtime-mcp-tools.ts — tools/list descriptors and capability-envelope result projection

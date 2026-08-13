@@ -47,6 +47,11 @@ ordinary request parsing, agent policy, form fallback, and pipeline dispatch in
 in `runtime-capability-api-middleware.ts`; `runtime-capabilities.ts` retains the
 public facade, effect header, and one-event audit orchestration.
 
+The isolated `@pracht/core/agent-auth` entry keeps `agent-auth-sign.ts` as its
+public facade. Signing contracts live in `agent-auth-sign-types.ts`, RFC 9421
+request/header construction in `agent-auth-request-signing.ts`, and Ed25519 key
+lifecycle in `agent-auth-key-pair.ts`.
+
 ### Client
 
 - `startApp()` — client-side hydration and runtime
