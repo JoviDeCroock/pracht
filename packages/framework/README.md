@@ -58,6 +58,14 @@ and `runtime-capability-invocation-dispatch.ts` owns pipeline execution and
 auditing. Shared contracts live in `runtime-capability-invocation-types.ts` so
 the policy and transport modules depend on types instead of the public facade.
 
+The deployed remote MCP entry follows the same shape. `runtime-mcp.ts` is the
+stable export and method-routing facade; `runtime-mcp-request.ts` owns
+stateless transport hardening and JSON-RPC preparation, while
+`runtime-mcp-tool-registry.ts` owns fail-closed tool-name validation. Protocol
+primitives, result projection, and call execution stay isolated in the
+existing `runtime-mcp-protocol.ts`, `runtime-mcp-tools.ts`, and
+`runtime-mcp-dispatch.ts` modules.
+
 Enhanced form submission keeps `runtime-form.ts` as the public rendering and
 event-flow facade. Native resubmission mechanics, ordinary API submission, and
 capability submission live in `runtime-form-native.ts`, `runtime-api-form.ts`,

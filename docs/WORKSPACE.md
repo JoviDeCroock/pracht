@@ -86,6 +86,12 @@ described in `VISION_MVP.md`.
   `agent-auth-sign.ts` as its public facade. `agent-auth-sign-types.ts` owns the
   signing contracts, `agent-auth-request-signing.ts` owns RFC 9421 request and
   header construction, and `agent-auth-key-pair.ts` owns Ed25519 key lifecycle.
+- **Remote MCP projection** — `runtime-mcp.ts` retains public exports and method
+  routing. `runtime-mcp-request.ts` owns the stateless HTTP trust boundary and
+  JSON-RPC request preparation; `runtime-mcp-tool-registry.ts` owns exposed
+  name validation and collision policy; existing protocol, descriptor, and
+  call execution responsibilities remain in `runtime-mcp-protocol.ts`,
+  `runtime-mcp-tools.ts`, and `runtime-mcp-dispatch.ts` respectively.
 - **Server rendering** — `handlePrachtRequest()` executes the full request
   lifecycle: API route check → middleware chain → loader → Preact
   `renderToString` → HTML document assembly with hydration state

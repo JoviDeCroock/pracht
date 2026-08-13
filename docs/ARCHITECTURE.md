@@ -598,8 +598,11 @@ agent-auth-request-signing.ts — RFC 9421 signing base and request/header const
 agent-auth-key-pair.ts — Ed25519 key generation and thumbprint lifecycle
 runtime-context-overlay.ts — immutable context proxy invariants, receiver binding, and native-slot guards
 runtime-mcp-protocol.ts — JSON-RPC framing, initialization validation, and version negotiation
+runtime-mcp-request.ts — stateless HTTP hardening and JSON-RPC request preparation
+runtime-mcp-tool-registry.ts — exposed tool namespace validation and collision policy
 runtime-mcp-tools.ts — tools/list descriptors and capability-envelope result projection
 runtime-mcp-dispatch.ts — tool lookup, credential-safe request synthesis, host rebinding, and execution
+runtime-mcp.ts — stable remote MCP facade and method routing
 runtime-page-render.ts — Markdown, SPA, hydrated, islands, and zero-JavaScript representations
 runtime-page-pipeline.ts — concurrent module loading, middleware, loaders, timings, and fallback
     ↑
