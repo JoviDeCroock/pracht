@@ -169,11 +169,12 @@ from `@pracht/capabilities`:
 
 Platform adapters export a request handler shaped for their runtime:
 
-| Adapter              | Runtime           | Notes                                |
-| -------------------- | ----------------- | ------------------------------------ |
-| `adapter-node`       | Node.js `http`    | Static file serving, ISG mtime check |
+| Adapter              | Runtime           | Notes                                                     |
+| -------------------- | ----------------- | --------------------------------------------------------- |
+| `adapter-node`       | Node.js `http`    | Static file serving, ISG mtime check                      |
 | `adapter-cloudflare` | Workers `fetch`   | `env.ASSETS`, Cache API-backed ISG, opt-in Workers Caching |
-| `adapter-vercel`     | Serverless / Edge | Build Output API v3 + native ISR     |
+| `adapter-netlify`    | Functions v2      | Durable CDN caching and tag-based ISG purges              |
+| `adapter-vercel`     | Serverless / Edge | Build Output API v3 + native ISR                          |
 
 Each adapter:
 
@@ -249,7 +250,7 @@ SSR and SSG, deployed to Node. Thoroughly tested with Playwright E2E tests.
 4. **`packages/cli`** — developer tooling (instant local DX)
    - `pracht dev` — one command, instant Vite dev server with HMR
    - `pracht build` — production build with clear output
-   - Node targets run the production build with `node dist/server/server.js`; Cloudflare and Vercel use their platform CLIs
+   - Node targets run the production build with `node dist/server/server.js`; Cloudflare, Netlify, and Vercel use their platform CLIs
    - Zero config to start — sensible defaults, override when needed
    - Fast feedback loop: save a file → see the change instantly
 
@@ -272,6 +273,7 @@ pracht/
     vite-plugin/      # Vite integration, virtual modules, build
     adapter-node/     # Node.js server adapter
     adapter-cloudflare/  # Cloudflare Workers adapter
+    adapter-netlify/     # Netlify Functions v2 adapter
     adapter-vercel/      # Vercel Edge adapter
     cli/              # Dev/build/generate/inspect/verify/plan/report/doctor commands
     image/            # Responsive <Image> component + optimization loaders

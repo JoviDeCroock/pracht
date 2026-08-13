@@ -3,10 +3,11 @@ name: pracht-deploy
 version: 1.1.0
 description: |
   Pracht deployment guide. Walks through adapter configuration, building, and
-  deploying to Node.js, Cloudflare Workers, or Vercel. Handles wrangler config,
-  Docker and production checklist.
+  deploying to Node.js, Cloudflare Workers, Netlify, or Vercel. Handles platform
+  config, Docker and production checklist.
   Use when asked to "deploy", "set up deployment", "configure adapter",
-  "deploy to cloudflare", "deploy to vercel", or "production build".
+  "deploy to cloudflare", "deploy to netlify", "deploy to vercel", or
+  "production build".
 allowed-tools:
   - Bash
   - Read
@@ -34,6 +35,7 @@ If the pracht MCP server is registered (docs/MCP.md), prefer the `inspect_build`
 | ------------------ | ---------------------------- | ------ |
 | Node.js            | `@pracht/adapter-node`       | Stable |
 | Cloudflare Workers | `@pracht/adapter-cloudflare` | Stable |
+| Netlify            | `@pracht/adapter-netlify`    | Stable |
 | Vercel             | `@pracht/adapter-vercel`     | Stable |
 
 ---
@@ -206,13 +208,68 @@ Before enabling it, audit ISG URLs for unbounded query strings. Workers Caching
 keys the exact path and query string, including parameter order and trailing
 slashes; use a bounded query allowlist/canonical redirect or an uncached gateway
 with a pathname-only `cf.cacheKey`, and normalize `Accept` there for routes that
-export markdown. See `docs/ADAPTERS.md#cache-key-cardinality`.
+export markdown or declare `markdown: true` for middleware-owned negotiation.
+See `docs/ADAPTERS.md#cache-key-cardinality`.
 
 Time-revalidated ISG pages then render on demand, are cached at the edge for
 their `revalidate` window (stale pages served instantly while the Worker
 re-renders in the background), and can be purged early with `purgeCache()` from
 `@pracht/adapter-cloudflare/cache`. Webhook-only ISG routes keep their
 build-time snapshots and the worker-managed path either way.
+
+---
+
+## Netlify Deployment
+
+### Setup
+
+1. Ensure `@pracht/adapter-netlify` and `netlify-cli` are installed.
+2. In `vite.config.ts`:
+   ```ts
+   import { pracht } from "@pracht/vite-plugin";
+   import { netlifyAdapter } from "@pracht/adapter-netlify";
+   export default { plugins: [pracht({ adapter: netlifyAdapter() })] };
+   ```
+3. Add `netlify.toml`:
+   ```toml
+   [build]
+     command = "pnpm build"
+     publish = "dist/client"
+
+   [functions]
+     directory = "netlify/functions"
+   ```
+
+### Build, Preview, and Deploy
+
+```bash
+npx pracht build && npx netlify dev
+npx netlify deploy --build --prod
+```
+
+The build emits `netlify/functions/pracht.mjs`. Page requests go through that
+function so Markdown negotiation and route-state requests remain correct;
+hashed assets bypass it and stay outside the function bundle. The generated
+config enumerates only client files the function can serve and roots matching
+exclusions at the function file so Netlify's tracer cannot re-add bypassed
+trees. Netlify durable caching
+implements time-based ISG and per-path cache tags implement authenticated
+webhook revalidation. A trailing-slash ISG document request permanently
+redirects to the canonical slashless URL before rendering, and webhook
+revalidation normalizes either spelling before purging the cache tag.
+Only `Cache-Control`, `CDN-Cache-Control`, and `Netlify-CDN-Cache-Control`
+override the adapter's cache defaults; provider-specific headers for another
+CDN do not. Set a cache window to `0` to disable stale serving or freshness.
+`Netlify-Vary` owns route-state variants, while the standard `Vary: Accept`
+header owns Markdown negotiation. Cacheable negotiated SSG representations use
+the same `Netlify-Vary` instructions as their prerendered HTML. Shared ISG
+renders strip visitor-specific request data and Netlify context metadata before
+loaders or context factories run.
+
+`pracht preview` exits with guidance because it cannot emulate Netlify's
+Functions and CDN behavior. Build the generated function before using
+`netlify dev` for the platform-shaped local runtime. Configure
+`PRACHT_REVALIDATE_TOKEN` in Netlify when webhook revalidation is enabled.
 
 ---
 
@@ -261,7 +318,7 @@ functions.
 
 1. Read `vite.config.ts` and `package.json` before giving advice.
 2. Run `pracht build` to verify the build succeeds before deploying.
-3. Smoke-test the production runtime before pushing to production. For Node.js and Cloudflare, run `pracht preview`.
+3. Smoke-test the production runtime before pushing to production. For Node.js and Cloudflare, run `pracht preview`; for Netlify, run `pracht build && netlify dev`.
 4. If the user needs an adapter that isn't installed, help them add it (`pnpm add @pracht/adapter-*`).
 5. Don't push to production without the user's explicit confirmation.
 

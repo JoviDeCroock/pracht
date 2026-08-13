@@ -18,6 +18,7 @@ export const app = defineApp({
   },
   middleware: {
     auth: () => import("./middleware/auth.ts"),
+    productMarkdown: () => import("./middleware/product-markdown.ts"),
   },
   notFound: {
     component: () => import("./routes/not-found.tsx"),
@@ -64,6 +65,8 @@ export const app = defineApp({
       }),
       route("/products/:productId", () => import("./routes/product.tsx"), {
         id: "product",
+        markdown: true,
+        middleware: ["productMarkdown"],
         render: "ssg",
         speculation: "prerender",
       }),

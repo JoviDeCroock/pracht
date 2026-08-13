@@ -16,6 +16,7 @@ import { buildPathFromSegments } from "./app.ts";
 import { API_METHOD_ORDER } from "./app-graph.ts";
 import { matchRoutePattern } from "./constraints.ts";
 import { resolveRegistryModule } from "./runtime-manifest.ts";
+import { hasMarkdownRepresentation } from "./runtime-negotiation.ts";
 import type {
   ApiRouteModule,
   ModuleRegistry,
@@ -65,7 +66,7 @@ export interface BuildLlmsTxtOptions {
 
 interface LlmsTxtPageEntry {
   path: string;
-  /** True when the route module exports a server-only `markdown` string. */
+  /** True when the route declares a Markdown representation. */
   markdown: boolean;
 }
 
@@ -230,7 +231,7 @@ async function collectPageEntries(
 
   for (const route of routes) {
     const routeModule = await loadRouteModule(registry, route.file);
-    const markdown = typeof routeModule?.markdown === "string";
+    const markdown = hasMarkdownRepresentation(route, routeModule);
 
     if (!isDynamicRoute(route)) {
       if (!entries.has(route.path)) {

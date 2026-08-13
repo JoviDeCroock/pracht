@@ -280,6 +280,47 @@ describe("create-pracht", () => {
     expect(ageDays).toBeLessThan(365);
   });
 
+  it("scaffolds a Netlify starter", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pracht-start-netlify-"));
+    const targetDir = join(root, "my-netlify-app");
+
+    await scaffoldProject({
+      adapter: {
+        description: "Netlify Functions with durable CDN caching",
+        id: "netlify",
+        label: "Netlify",
+        packageName: "@pracht/adapter-netlify",
+        short: "netlify",
+      },
+      packageManager: "pnpm",
+      resolveRemoteVersions: false,
+      targetDir,
+    });
+
+    const packageJson = JSON.parse(await readFile(join(targetDir, "package.json"), "utf-8"));
+    const viteConfig = await readFile(join(targetDir, "vite.config.ts"), "utf-8");
+    const netlifyConfig = await readFile(join(targetDir, "netlify.toml"), "utf-8");
+    const gitignore = await readFile(join(targetDir, ".gitignore"), "utf-8");
+
+    expect(packageJson.dependencies).toMatchObject({
+      "@pracht/adapter-netlify": "^0.1.0",
+      "@pracht/core": "^0.12.0",
+    });
+    expect(packageJson.devDependencies["netlify-cli"]).toBe("^21.6.0");
+    expect(packageJson.scripts).toMatchObject({
+      deploy: "netlify deploy --build --prod",
+      preview: "pracht build && netlify dev",
+    });
+    expect(viteConfig).toContain('import { netlifyAdapter } from "@pracht/adapter-netlify";');
+    expect(viteConfig).toContain("adapter: netlifyAdapter()");
+    expect(netlifyConfig).toContain('command = "pnpm build"');
+    expect(netlifyConfig).toContain('publish = "dist/client"');
+    expect(netlifyConfig).toContain('directory = "netlify/functions"');
+    expect(gitignore).toContain(".netlify");
+    expect(existsSync(join(targetDir, "Dockerfile"))).toBe(false);
+    expect(existsSync(join(targetDir, "wrangler.jsonc"))).toBe(false);
+  });
+
   it("scaffolds a vercel starter", async () => {
     const root = await mkdtemp(join(tmpdir(), "pracht-start-vercel-"));
     const targetDir = join(root, "my-vercel-app");

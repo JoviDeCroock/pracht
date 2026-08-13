@@ -122,6 +122,48 @@ local development runtime.
 
 ---
 
+## Netlify
+
+Deploys through a fetch-style Netlify Functions v2 handler with SSG documents
+and ISG responses stored in Netlify's durable CDN cache.
+
+```ts [vite.config.ts]
+import { defineConfig } from "vite";
+import { pracht } from "@pracht/vite-plugin";
+import { netlifyAdapter } from "@pracht/adapter-netlify";
+
+export default defineConfig({
+  plugins: [pracht({ adapter: netlifyAdapter() })],
+});
+```
+
+```toml [netlify.toml]
+[build]
+  command = "pnpm build"
+  publish = "dist/client"
+
+[functions]
+  directory = "netlify/functions"
+```
+
+```sh
+pracht build && netlify dev
+netlify deploy --build --prod
+```
+
+The generated function preserves Markdown negotiation and client route-state
+requests while hashed assets bypass it. Time-based ISG uses durable
+stale-while-revalidate caching; authenticated webhook revalidation purges
+per-path cache tags. Use `netlifyAdapter({ excludedPath: [...] })` for extra
+static prefixes, but do not exclude page URLs. Prefix-shaped exclusions also
+stay outside the generated function bundle.
+
+`pracht preview` deliberately does not emulate Netlify's Functions and CDN
+behavior; build the generated function before using `netlify dev` for the
+platform-shaped local runtime.
+
+---
+
 ## Custom Context
 
 Generated adapter entries can import a context factory that enriches the context passed to loaders, API routes, and middleware:

@@ -188,6 +188,7 @@ describe("route() with RouteConfig object", () => {
         route("/dashboard", {
           component: "./routes/dashboard.tsx",
           loader: "./server/dashboard-loader.ts",
+          markdown: true,
           render: "ssr",
         }),
       ],
@@ -199,6 +200,7 @@ describe("route() with RouteConfig object", () => {
     expect(resolved.routes[0]).toMatchObject({
       file: "./routes/dashboard.tsx",
       loaderFile: "./server/dashboard-loader.ts",
+      markdown: true,
       render: "ssr",
     });
   });

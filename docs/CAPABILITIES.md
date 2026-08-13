@@ -220,7 +220,7 @@ With `expose.http` set, the capability is dispatched at
 `POST /api/capabilities/<name-with-dots-as-slashes>` (e.g. `notes.search` →
 `/api/capabilities/notes/search`), or at a custom `expose.http.path`. Dispatch
 happens in the framework's request handler, so every adapter (Node,
-Cloudflare, Vercel) gets it without adapter changes. Explicit files in
+Cloudflare, Netlify, Vercel) gets it without adapter changes. Explicit files in
 `src/api/` take precedence on path collisions.
 
 The app-level API middleware configured with

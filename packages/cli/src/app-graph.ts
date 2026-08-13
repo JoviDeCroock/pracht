@@ -16,6 +16,7 @@ export interface AppGraphRoute {
   id: string;
   loaderCache: number | false | null;
   loaderFile: string | null;
+  markdown?: true;
   middleware: string[];
   path: string;
   prefetch: string | null;
@@ -53,6 +54,7 @@ interface ResolvedRouteEntry {
   id: string;
   loaderCache?: number | false;
   loaderFile?: string;
+  markdown?: boolean;
   middleware: string[];
   path: string;
   prefetch?: string;
@@ -225,6 +227,7 @@ export function serializeResolvedRoutes(routes: ResolvedRouteEntry[]): AppGraphR
     id: route.id,
     loaderCache: route.loaderCache ?? null,
     loaderFile: route.loaderFile ?? null,
+    ...(route.markdown === true ? { markdown: true as const } : {}),
     middleware: route.middleware,
     path: route.path,
     prefetch: route.prefetch ?? null,

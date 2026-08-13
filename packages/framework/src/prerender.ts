@@ -1,6 +1,7 @@
 import { resolveApp } from "./app.ts";
 import { buildPathFromSegments } from "./route-matching.ts";
 import { isDangerousPrerenderHeader, normalizeRouteRevalidate } from "./revalidation.ts";
+import { hasMarkdownRepresentation } from "./runtime-negotiation.ts";
 import { resolveRegistryModule } from "./runtime-manifest.ts";
 import { handlePrachtRequest } from "./runtime.ts";
 import type {
@@ -15,7 +16,7 @@ export interface PrerenderResult {
   path: string;
   html: string;
   headers?: Record<string, string>;
-  /** Whether the route module exports a raw Markdown representation. */
+  /** Whether the route declares a Markdown representation. */
   markdown: boolean;
 }
 
@@ -114,7 +115,7 @@ export async function prerenderApp(
           headers: Object.fromEntries(response.headers),
           html,
           item,
-          markdown: typeof routeModule?.markdown === "string",
+          markdown: hasMarkdownRepresentation(item.route, routeModule),
         };
       }),
     );

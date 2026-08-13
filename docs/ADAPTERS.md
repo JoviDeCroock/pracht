@@ -9,7 +9,7 @@ handling and pracht's Web Request/Response interface.
 ## Architecture
 
 ```
-Platform Request (e.g. Node IncomingMessage, CF Worker fetch)
+Platform Request (e.g. Node IncomingMessage, Worker/Function fetch)
   → Adapter converts to Web Request
   → Adapter checks: is this a static asset?
     → Yes: serve from dist/client/
@@ -431,9 +431,10 @@ enabling Workers Caching, keep ISG query shapes bounded and canonical:
   the query string to application code.
 
 Cloudflare compares request-header values named by `Vary` verbatim. Pracht
-therefore adds `Vary: Accept` only to routes that actually export `markdown`,
-but those routes can still accumulate variants for semantically equivalent
-browser and agent `Accept` strings. For high-traffic markdown-capable routes,
+therefore adds `Vary: Accept` only to routes that declare a Markdown
+representation, but those routes can still accumulate variants for semantically
+equivalent browser and agent `Accept` strings. For high-traffic
+markdown-capable routes,
 normalize `Accept` to a small HTML/markdown set in the same uncached-gateway
 pattern. Purges by Pracht's cache tags or path prefixes invalidate all variants
 of the matching URL together.
@@ -711,6 +712,141 @@ export default {
 
 ---
 
+## Netlify Adapter
+
+`@pracht/adapter-netlify` emits a fetch-style Netlify Functions v2 handler and
+a generated catch-all wrapper under `netlify/functions/`. Set the site's
+publish directory to `dist/client` and its functions directory to
+`netlify/functions`:
+
+```typescript
+import { netlifyAdapter } from "@pracht/adapter-netlify";
+
+pracht({ adapter: netlifyAdapter() });
+```
+
+```toml
+[build]
+  command = "pnpm build"
+  publish = "dist/client"
+
+[functions]
+  directory = "netlify/functions"
+```
+
+The generated function claims page URLs, while `/assets/*` and `/_pracht/*`
+bypass it. This keeps `Accept: text/markdown` negotiation and route-state
+requests inside Pracht without charging a function invocation for hashed
+assets. Add application-specific static prefixes with
+`netlifyAdapter({ excludedPath: ["/images/*"] })`; do not exclude page URLs.
+Default and prefix-shaped exclusions are also omitted from the generated
+function bundle, so large static asset trees do not count against Netlify's
+function size limit. The generated config enumerates each remaining client file
+and writes exclusions relative to the generated function file, so Netlify's
+Functions v2 file tracer cannot pull bypassed trees back into the bundle.
+An exact exclusion such as `/feed.xml` omits only that exact file; unlike a
+prefix exclusion, it does not also exclude `/feed.xml/` or an `index.html`
+representation that those URLs can still invoke the function to read.
+Bundled static lookup decodes percent-encoded spaces and Unicode characters,
+while rejecting encoded separators and traversal segments before filesystem
+resolution.
+
+### SSG and ISG
+
+- SSG documents are read from the bundled `dist/client` output and use
+  `Netlify-CDN-Cache-Control` with durable caching. Route and shell headers from
+  `headers-manifest.json` are applied before the response enters the cache. An
+  explicit Netlify-supported cache policy (`Cache-Control`,
+  `CDN-Cache-Control`, or `Netlify-CDN-Cache-Control`) remains authoritative
+  instead of being combined with Pracht's durable-cache default. Headers that
+  target another CDN do not disable Netlify caching.
+- ISG renders use a sanitized, pathname-only request and an allowlisted
+  Netlify context. Visitor cookies, IP/geolocation, request IDs, and arbitrary
+  request-local context are unavailable, while deployment-wide site/server
+  metadata and `waitUntil()` remain available. Their Pracht time policy becomes
+  the durable CDN `max-age`; stale-while-revalidate is configurable with
+  `staleWhileRevalidate`. A cacheable custom policy remains authoritative.
+  ISG routes get no build-time snapshot on Netlify — the handler always renders
+  them through the durable cache, so a snapshot would only be reachable at its
+  literal `/index.html` URL where it would never revalidate. The first request
+  after a deploy renders cold. A document request with one trailing slash gets
+  a permanent redirect to the slashless manifest path before Pracht renders,
+  so only the canonical URL enters the durable cache. Webhook revalidation
+  accepts either spelling and purges the canonical cache tag. Because
+  sanitization also strips
+  `Accept-Language` and masks geolocation, an ISG route whose middleware or
+  loader picks a locale from the request will cache its default-locale output
+  for every visitor globally — localized ISG pages need the locale in the path
+  (`/en/pricing`), the same rule the other adapters' shared ISG caches imply.
+- Cached SSG and ISG HTML names its route-state variants through `Netlify-Vary:
+  query=_data,header=x-pracht-route-state-request`: both route-state
+  transports (the `?_data=1` query param and the request header client
+  navigations actually send) get their own cache key instead of receiving the
+  cached HTML, while unrelated query parameters collapse onto the pathname
+  cache entry. Netlify combines that key with Pracht's standard `Vary: Accept`
+  header on Markdown-capable routes; `Accept` is not a valid `Netlify-Vary`
+  directive. Route-state and Markdown responses are never durable-cached
+  themselves by default. If an application explicitly makes a negotiated SSG
+  representation cacheable, it reuses the prerendered HTML's `Netlify-Vary`
+  instructions so every response from that URL defines the same cache key. A
+  custom `Netlify-Vary` header takes precedence.
+- Because `/assets/*` (and other `excludedPath` prefixes) bypass the function,
+  the build also writes a `dist/client/_headers` file that gives Netlify's
+  static layer the immutable asset policy and the same default security
+  headers the function applies everywhere else. A hand-authored
+  `public/_headers` wins — pracht then skips generating one and warns.
+  Default and prefix-shaped exclusions are also omitted from the function's
+  `includedFiles`, keeping large bypassed asset trees outside its bundle. The
+  generated config lists each remaining client file explicitly because the
+  production Functions v2 tracer follows the server's filesystem access. Its
+  matching exclusions are rooted relative to the generated function file so
+  traced bypassed trees are removed too.
+  `excludedPath` entries are validated against whitespace/control characters so
+  they cannot inject rules into that plain-text file.
+- Cacheable webhook-capable ISG responses carry per-path
+  `Netlify-Cache-Tag` values, including responses with custom cache policies.
+  Authenticated `POST /__pracht/revalidate` requests purge those tags through
+  `@netlify/functions`.
+- SSR and API responses without an explicit policy get Pracht's fail-closed
+  `private, no-cache` default. Explicit public policies are also copied to
+  Netlify's durable cache header, and the promoted response gets
+  `Netlify-Vary: query,header=x-pracht-route-state-request` so the CDN-cached
+  document cannot shadow route-state fetches; a standard `Vary: Accept` remains
+  responsible for content negotiation, and `query` keeps Netlify's default
+  full-query cache key for dynamic routes. Promotion itself fails closed: a
+  route-state-shaped request (either transport) or a response that is not
+  shareable (`Set-Cookie`, `Vary: Cookie`/`Authorization`) gets
+  `Netlify-CDN-Cache-Control: private` instead — a bare `Cache-Control:
+  public` would otherwise make Netlify's CDN store one visitor's render (or,
+  for a cross-site `?_data=1` navigation, cache the HTML fallback under the
+  same key later first-party JSON fetches use). An explicit
+  `Netlify-CDN-Cache-Control` or `Netlify-Vary` stays fully user-owned.
+
+Generated entries can import a context factory, and custom handlers can be
+created directly:
+
+```typescript
+import { createNetlifyHandler } from "@pracht/adapter-netlify";
+
+netlifyAdapter({
+  createContextFrom: "/src/server/context.ts",
+  functionName: "pracht",
+  staleWhileRevalidate: 86_400,
+  staticMaxAge: 604_800,
+});
+```
+
+Both cache windows accept `0`: it disables stale serving for
+`staleWhileRevalidate` and gives SSG documents no fresh lifetime for
+`staticMaxAge`.
+
+The context factory receives `{ request, context }`, where `context` is
+Netlify's Functions v2 context. Build first, then use `netlify dev` for local
+platform testing; `pracht preview` does not emulate Netlify's Functions or CDN
+cache.
+
+---
+
 ## Vercel Adapter (Phase 2)
 
 ### `createVercelEdgeHandler(options)`
@@ -852,20 +988,21 @@ nginx reverse proxy — may apply RFC 9111 heuristic freshness to a `200` with n
 `Cache-Control`, and `Cookie` is not part of its cache key. Without the default,
 an authenticated SSR page or an API `GET` can be stored and replayed to a
 different user. That hazard belongs to "shared cache in front of an origin", not
-to any one platform, so Node, Cloudflare, and Vercel apply the identical default
+to any one platform, so Node, Cloudflare, Netlify, and Vercel apply the identical default
 through one shared implementation: an app hardened on one adapter keeps the
 protection when it moves to another.
 
 Untouched: anything that already declares a policy — route-state JSON, static
 assets, and your own `headers()` exports or middleware — including a
 CDN-targeted one (`CDN-Cache-Control`, `Cloudflare-CDN-Cache-Control`,
-`Vercel-CDN-Cache-Control`, `Surrogate-Control`). Also untouched:
+`Netlify-CDN-Cache-Control`, `Vercel-CDN-Cache-Control`, `Surrogate-Control`). Also untouched:
 non-`GET`/`HEAD` responses, protocol-switch (`101`) responses, and ISG
 documents.
 
 ISG is exempt deliberately. Those responses are stored and replayed by the
 platform — Vercel's prerender cache, the Node on-disk snapshot, Cloudflare's
-Cache API — so stamping `private, no-cache` would both defeat that cache and
+Cache API, or Netlify's durable cache — so stamping `private, no-cache` would
+both defeat that cache and
 make a route's headers depend on whether its snapshot exists yet. ISG responses
 carry `public, max-age=0, must-revalidate` instead.
 
@@ -881,19 +1018,21 @@ export function headers() {
 
 ## Markdown and the static fast path
 
-Routes that export `markdown` answer `Accept: text/markdown` with their raw
-source instead of HTML (see [DATA_LOADING.md](DATA_LOADING.md)). Prerendered
-documents are served by the adapter before the framework runs, so the Node and
-Cloudflare adapters have to decide up front whether a cached document can answer
-a given request. Both require **two** conditions before skipping the static file
-(Node), the assets binding, or the edge cache (Cloudflare):
+Routes that export `markdown`, or declare `markdown: true` when middleware owns
+negotiation, can answer `Accept: text/markdown` instead of HTML (see
+[DATA_LOADING.md](DATA_LOADING.md)). Prerendered
+documents are served by the adapter before the framework runs, so the Node,
+Cloudflare, and Netlify adapters have to decide up front whether a cached
+document can answer a given request. All three require **two** conditions before
+skipping the static file (Node and Netlify), the assets binding, or the edge
+cache (Cloudflare):
 
 1. the request prefers markdown over HTML — the same `prefersMarkdown()`
    negotiation the runtime uses, so `*/*`, `text/html,*/*`, and a q-weighted
    `text/html,text/markdown;q=0.1` all keep getting HTML; and
 2. the route appears in `markdown-manifest.json`, which the build derives from
-   the route module's actual `markdown` export rather than user-defined response
-   headers.
+   the route module's actual `markdown` export or explicit `markdown: true`
+   route metadata rather than user-defined response headers.
 
 An app with no markdown routes therefore never leaves its static fast path,
 whoever is asking: agent traffic cannot force SSR renders of prerendered pages,
@@ -903,8 +1042,9 @@ the same guarantee even when the app has no prerendered documents.
 
 A `.md` file in `public/` is a different thing entirely: it is a plain static
 asset, copied to `dist/client/` by the build and served by content type, not by
-negotiation. Those files answer every request the same way: the Node adapter
-sends `Content-Type: text/markdown; charset=utf-8`, and on Cloudflare and Vercel
+negotiation. Those files answer every request the same way: the Node and
+Netlify adapters send `Content-Type: text/markdown; charset=utf-8`, and on
+Cloudflare and Vercel
 the platform's own asset layer types the file (the `ASSETS` binding and the
 static rewrite respectively, neither of which the adapter intercepts). This is
 the route to take for a corpus that is markdown all the way down (a skills
@@ -919,11 +1059,11 @@ necessity (Vercel's `has` takes a regex, not a q-value parser), so anything
 mentioning `text/markdown` reaches the function, which then applies the real
 negotiation and still answers HTML when HTML is preferred. The trade is that on
 those routes a client can force a function invocation with the header alone,
-even at `q=0` — so the entry is emitted only for routes that actually export
-`markdown`. Every other prerendered page keeps its static fast path whatever
-the client sends. ISG routes that export `markdown` route to the render
-function rather than their prerender function, which re-renders on a sanitized
-`Accept: text/html` and can only produce HTML.
+even at `q=0` — so the entry is emitted only for routes that declare a Markdown
+representation. Every other prerendered page keeps its static fast path
+whatever the client sends. ISG routes with a Markdown representation route to
+the render function rather than their prerender function, which re-renders on
+a sanitized `Accept: text/html` and can only produce HTML.
 
 ---
 

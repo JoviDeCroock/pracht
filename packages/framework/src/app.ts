@@ -361,6 +361,7 @@ function flattenRouteNode(
     render,
     hydration,
     loaderCache,
+    markdown: node.markdown,
     middleware,
     middlewareFiles: middleware.map((name) => {
       if (VALIDATE_MANIFEST && !hasOwnEntry(app.middleware, name)) {
@@ -405,6 +406,7 @@ const ROUTE_META_KEYS = [
   "hydration",
   "id",
   "loaderCache",
+  "markdown",
   "middleware",
   "prefetch",
   "render",

@@ -275,6 +275,7 @@ const ROUTE_DIFF_FIELDS = [
   "file",
   "loaderFile",
   "loaderCache",
+  "markdown",
   "revalidate",
   "id",
 ] as const;
@@ -767,6 +768,7 @@ function describeRoute(route: AppGraphRoute): string {
   if (route.hydration) parts.push(`hydration=${route.hydration}`);
   parts.push(`shell=${route.shell ?? "none"}`);
   parts.push(`middleware=[${route.middleware.join(", ")}]`);
+  if (route.markdown) parts.push("markdown=true");
   if (route.loaderFile) parts.push(`loader=${route.loaderFile}`);
   if (route.revalidate) parts.push(`revalidate=${JSON.stringify(route.revalidate)}`);
   return parts.join("  ");

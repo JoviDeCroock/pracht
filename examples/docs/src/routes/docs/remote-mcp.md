@@ -63,7 +63,7 @@ Input validation, named middleware, `agentPolicy`, output validation, and the au
 
 The synthesized request carries the same request-bound capability host, so named middleware and capability bodies can compose private non-destructive operations with `invokeCapability()`. Trusted MCP provenance adds two fail-closed rules to ordinary server composition: the nested call re-applies the callee's `agentPolicy` and refuses `destructive` effects before middleware or the body can run. The incoming transport request carries that provenance too, so adapter context that retains it cannot escape the nested-call guard. Every nested attempt audits as `{ transport: "server", via: "mcp" }`, keeping indirect effects and denials attributable to the agent that caused them.
 
-The endpoint is stateless: no session id, no server→client stream, no resumability. That is what the Node, Cloudflare, and Vercel adapters already serve, so the same app runs unchanged on all three.
+The endpoint is stateless: no session id, no server→client stream, no resumability. That is what the Node, Cloudflare, Netlify, and Vercel adapters already serve, so the same app runs unchanged on all four.
 
 ---
 

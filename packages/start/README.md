@@ -35,13 +35,14 @@ npm run dev
 node ./packages/start/bin/create-pracht.js
 node ./packages/start/bin/create-pracht.js my-app --adapter=node --skip-install
 node ./packages/start/bin/create-pracht.js my-app --adapter=vercel --skip-install
+node ./packages/start/bin/create-pracht.js my-app --adapter=netlify --skip-install
 node ./packages/start/bin/create-pracht.js my-app --template=tailwind --yes
 node ./packages/start/bin/create-pracht.js my-app --adapter=node --no-tailwind --no-git --yes
 ```
 
 ## Options
 
-- `--adapter=node|cf|vercel` — choose the hosting adapter (default: node).
+- `--adapter=node|cf|netlify|vercel` — choose the hosting adapter (default: node).
 - `--router=manifest|pages` — choose the routing system (default: manifest).
 - `--template=minimal|tailwind` — non-interactive template selection; `minimal` is the default output, `tailwind` is minimal plus Tailwind CSS wiring.
 - `--tailwind` / `--no-tailwind` — enable or disable Tailwind CSS without going through the prompt.

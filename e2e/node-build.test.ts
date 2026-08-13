@@ -49,7 +49,12 @@ test("pracht build emits a deployable Node server entry", async () => {
     const markdownManifest = JSON.parse(
       readFileSync(resolve(exampleDir, "dist/server/markdown-manifest.json"), "utf-8"),
     );
-    expect(markdownManifest).toEqual({ "/": true });
+    expect(markdownManifest).toEqual({
+      "/": true,
+      "/products/1": true,
+      "/products/2": true,
+      "/products/3": true,
+    });
     expect(
       JSON.parse(readFileSync(resolve(exampleDir, "dist/client/_pracht/markdown.json"), "utf-8")),
     ).toEqual(markdownManifest);
@@ -94,6 +99,13 @@ test("pracht build emits a deployable Node server entry", async () => {
     expect(homeMarkdown.headers.get("content-type")).toContain("text/markdown");
     expect(await homeMarkdown.text()).toContain("# Pracht Example");
 
+    const productMarkdown = await fetch(`${origin}/products/1`, {
+      headers: { accept: "text/markdown" },
+    });
+    expect(productMarkdown.headers.get("content-type")).toContain("text/markdown");
+    expect(productMarkdown.headers.get("vary")).toContain("Accept");
+    expect(await productMarkdown.text()).toBe("# Product 1\n");
+
     // Dynamic SSG routes should be prerendered as static HTML files
     for (const id of ["1", "2", "3"]) {
       const htmlPath = resolve(exampleDir, `dist/client/products/${id}/index.html`);
@@ -114,8 +126,8 @@ test("pracht build emits a deployable Node server entry", async () => {
     expect(llmsTxt).toContain("> Example app for the pracht framework.");
     expect(llmsTxt).toContain("- [/](/): supports `Accept: text/markdown`");
     // Dynamic SSG instances are listed; the raw pattern is not.
-    expect(llmsTxt).toContain("- [/products/1](/products/1)");
-    expect(llmsTxt).toContain("- [/products/3](/products/3)");
+    expect(llmsTxt).toContain("- [/products/1](/products/1): supports `Accept: text/markdown`");
+    expect(llmsTxt).toContain("- [/products/3](/products/3): supports `Accept: text/markdown`");
     expect(llmsTxt).not.toContain("/products/:productId");
     expect(llmsTxt).toContain("- [/api/echo](/api/echo): POST");
     expect(llmsTxt).toContain("- [/api/health](/api/health): GET");

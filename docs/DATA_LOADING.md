@@ -41,8 +41,25 @@ A `markdown` string export opts the route into Markdown-for-Agents content
 negotiation: when a request arrives with `Accept: text/markdown`, the runtime
 still executes middleware, the route loader, and document header resolution
 first, then returns the raw markdown source with `Content-Type: text/markdown`
-instead of rendering the component. Both the HTML and markdown responses carry
-`Vary: Accept`; routes without a `markdown` export do not vary on `Accept` — and
+instead of rendering the component.
+
+When middleware generates the representation instead, declare that capability
+in the route manifest so the build and adapters can see it:
+
+```typescript
+route("/guide/:version/:name", "./routes/guide.tsx", {
+  markdown: true,
+  middleware: ["guideMarkdown"],
+  render: "ssg",
+});
+```
+
+The middleware remains responsible for inspecting `Accept` and returning the
+Markdown response. `markdown: true` records every concrete prerendered path in
+the Markdown manifest, annotates it in generated `llms.txt`, and adds
+`Vary: Accept` to document responses. It does not synthesize Markdown on its
+own. A module `markdown` export is detected automatically and does not need the
+route option. Routes that use neither mechanism do not vary on `Accept`, and
 their prerendered document keeps answering markdown-preferring requests instead
 of falling through to a render (see
 [ADAPTERS.md](ADAPTERS.md#markdown-and-the-static-fast-path)).

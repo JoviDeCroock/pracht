@@ -1004,6 +1004,7 @@ export async function handlePrachtRequest<TContext>(
       return normalizePageResponse(response, {
         isRouteStateRequest,
         loaderCache: match.route.loaderCache,
+        markdown: match.route.markdown,
       });
     } catch (error: unknown) {
       // A thrown `Response` is a deliberate short-circuit, not a failure: it is
@@ -1024,6 +1025,7 @@ export async function handlePrachtRequest<TContext>(
           return normalizePageResponse(error, {
             isRouteStateRequest,
             loaderCache: match.route.loaderCache,
+            markdown: match.route.markdown,
           });
         } catch (normalizeError: unknown) {
           thrownResponseFailure = normalizeError;

@@ -37,7 +37,7 @@ This reserves two paths while enabled:
 
 Both paths are live in the normal Vite development server. `pracht build`
 writes the equivalent static files to `dist/client/openapi.json` and, when the
-UI is enabled, `dist/client/docs/index.html`. Node, Cloudflare, and Vercel then
+UI is enabled, `dist/client/docs/index.html`. Node, Cloudflare, Netlify, and Vercel then
 serve them through their existing static-asset paths.
 
 Paths are configurable:

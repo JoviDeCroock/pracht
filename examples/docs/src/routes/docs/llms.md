@@ -51,6 +51,22 @@ export const markdown = rawSource;
 
 That means every documentation page is already an LLM-friendly endpoint.
 
+If middleware generates Markdown — for example, one dynamic route module that
+serves a large document corpus — declare the capability in route metadata:
+
+```ts [src/routes.ts]
+route("/guide/:version/:name", "./routes/guide.tsx", {
+  markdown: true,
+  middleware: ["guideMarkdown"],
+  render: "ssg",
+});
+```
+
+The middleware still performs the negotiation. The declaration makes the
+build record concrete prerendered paths, keeps adapters from serving HTML ahead
+of middleware, adds `Vary: Accept`, and annotates generated `llms.txt`. Routes
+with a `markdown` export are detected automatically.
+
 ---
 
 ## Accept Header Rules
@@ -71,7 +87,7 @@ This makes the feature safe to enable on public pages: humans get the polished a
 
 ## Discovery with llms.txt
 
-pracht can generate `/llms.txt` for you: the vite plugin's `llmsTxt` option emits the file from the resolved app graph — every page URL, every API endpoint with its methods, and every HTTP-exposed [capability](/docs/capabilities) with its dispatch endpoint, effect class, and description. Routes with a `markdown` export are annotated with `` supports `Accept: text/markdown` ``.
+pracht can generate `/llms.txt` for you: the vite plugin's `llmsTxt` option emits the file from the resolved app graph — every page URL, every API endpoint with its methods, and every HTTP-exposed [capability](/docs/capabilities) with its dispatch endpoint, effect class, and description. Routes with a `markdown` export or `markdown: true` metadata are annotated with `` supports `Accept: text/markdown` ``.
 
 ```ts [vite.config.ts]
 pracht({

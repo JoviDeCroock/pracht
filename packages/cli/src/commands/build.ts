@@ -196,9 +196,16 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
     const edgeCachedIsgPaths = cloudflareWorkersCacheEnabled
       ? Object.keys(isgManifest).filter((path) => hasTimeRevalidate(isgManifest[path]?.revalidate))
       : [];
+    // Netlify serves every ISG path through the function and the durable CDN
+    // cache — the handler checks the ISG manifest before the bundled static
+    // output, so a snapshot would only ever be reachable at its literal
+    // `/index.html` URL, where it would serve the build-time copy forever.
+    const netlifyIsgPaths =
+      serverMod.buildTarget === "netlify" ? Object.keys(isgManifest) : ([] as string[]);
+    const skippedSnapshotPaths = new Set([...edgeCachedIsgPaths, ...netlifyIsgPaths]);
     const staticPages =
-      edgeCachedIsgPaths.length > 0
-        ? pages.filter((page: { path: string }) => !edgeCachedIsgPaths.includes(page.path))
+      skippedSnapshotPaths.size > 0
+        ? pages.filter((page: { path: string }) => !skippedSnapshotPaths.has(page.path))
         : pages;
 
     if (staticPages.length > 0) {
@@ -377,6 +384,10 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
       });
 
       log(`\n  Vercel build output → ${outputPath}\n`);
+    }
+
+    if (typeof serverMod.finalizePrachtBuild === "function") {
+      await serverMod.finalizePrachtBuild({ clientDir, root });
     }
 
     const budgets = (serverMod.budgets ?? {}) as Record<string, string | number>;

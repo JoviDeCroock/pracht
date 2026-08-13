@@ -290,8 +290,8 @@ function createVercelOutputConfig({
   //
   // The cost, stated plainly: on these routes a client can force a function
   // invocation by sending the header, even with `q=0`. It is bounded to routes
-  // that actually export `markdown` — every other prerendered page keeps its
-  // static fast path whatever the client asks for.
+  // that declare a Markdown representation — every other prerendered page
+  // keeps its static fast path whatever the client asks for.
   const markdownRouteSet = new Set(markdownRoutes);
   const markdownRouteEntry = (route: string) => ({
     dest: target,

@@ -11,6 +11,7 @@ import {
 } from "./runtime-errors.ts";
 import {
   applySecurityAndRouteHeaders,
+  appendVaryHeader,
   withDefaultSecurityHeaders,
   withRouteResponseHeaders,
 } from "./runtime-headers.ts";
@@ -87,7 +88,7 @@ export function jsonRedirectResponse(
 
 export function normalizePageResponse(
   response: Response,
-  options: { isRouteStateRequest: boolean; loaderCache?: LoaderCache },
+  options: { isRouteStateRequest: boolean; loaderCache?: LoaderCache; markdown?: boolean },
 ): Response {
   if (options.isRouteStateRequest && response.status >= 300 && response.status < 400) {
     const location = response.headers.get("location");
@@ -99,10 +100,14 @@ export function normalizePageResponse(
     }
   }
 
-  return withRouteResponseHeaders(response, {
+  const normalized = withRouteResponseHeaders(response, {
     isRouteStateRequest: options.isRouteStateRequest,
     loaderCache: response.ok ? options.loaderCache : undefined,
   });
+  if (options.markdown === true && !options.isRouteStateRequest) {
+    appendVaryHeader(normalized.headers, "Accept");
+  }
+  return normalized;
 }
 
 export function renderApiErrorResponse<TContext>(options: {

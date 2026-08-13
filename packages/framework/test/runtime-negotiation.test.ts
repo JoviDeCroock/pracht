@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { defineApp, handlePrachtRequest, route } from "../src/index.ts";
+import { defineApp, handlePrachtRequest, route, type MiddlewareFn } from "../src/index.ts";
 import {
   markdownResponse,
   prefersMarkdown,
@@ -77,6 +77,54 @@ describe("handlePrachtRequest markdown negotiation", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toBe("text/markdown; charset=utf-8");
     expect(await response.text()).toBe("# Home\n");
+  });
+
+  it("preserves middleware-owned negotiation declared in route metadata", async () => {
+    const middlewareApp = defineApp({
+      middleware: { markdown: "./middleware/markdown.ts" },
+      routes: [
+        route("/guide/:page", "./routes/guide.tsx", {
+          markdown: true,
+          middleware: ["markdown"],
+        }),
+      ],
+    });
+    const registry = {
+      middlewareModules: {
+        "./middleware/markdown.ts": async () => ({
+          middleware: (({ request, params }, next) =>
+            request.headers.get("accept") === "text/markdown"
+              ? new Response(`# ${params.page}\n`, {
+                  headers: { "content-type": "text/markdown; charset=utf-8" },
+                })
+              : next()) satisfies MiddlewareFn,
+        }),
+      },
+      routeModules: {
+        "./routes/guide.tsx": async () => ({ Component: () => null }),
+      },
+    };
+
+    const markdown = await handlePrachtRequest({
+      app: middlewareApp,
+      registry,
+      request: new Request("http://localhost/guide/install", {
+        headers: { accept: "text/markdown" },
+      }),
+    });
+    expect(markdown.headers.get("content-type")).toBe("text/markdown; charset=utf-8");
+    expect(markdown.headers.get("vary")).toContain("Accept");
+    expect(await markdown.text()).toBe("# install\n");
+
+    const html = await handlePrachtRequest({
+      app: middlewareApp,
+      registry,
+      request: new Request("http://localhost/guide/install", {
+        headers: { accept: "text/html" },
+      }),
+    });
+    expect(html.headers.get("content-type")).toContain("text/html");
+    expect(html.headers.get("vary")).toContain("Accept");
   });
 
   it("still renders HTML when the client only sends */*", async () => {

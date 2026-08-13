@@ -37,8 +37,27 @@ export default function Dashboard({ data }: RouteComponentProps<typeof loader>) 
 ```
 
 The route component can be a function default export or a named `Component`
-export. Named route exports such as `loader`, `head`, `headers`,
+export. Named route exports such as `loader`, `head`, `headers`, `markdown`,
 `ErrorBoundary`, and `getStaticPaths` remain separate special exports.
+
+A `markdown` string export lets the runtime return the raw source when a
+request prefers `Accept: text/markdown`; middleware, loaders, and document
+headers still run first. If middleware owns that negotiation instead, declare
+it on the route so the build and adapters do not mistake the prerendered HTML
+for the only representation:
+
+```ts [src/routes.ts]
+route("/guide/:version/:name", "./routes/guide.tsx", {
+  markdown: true,
+  middleware: ["guideMarkdown"],
+  render: "ssg",
+});
+```
+
+The middleware must inspect `Accept` and return the Markdown response;
+`markdown: true` supplies capability metadata, adds `Vary: Accept`, records
+every concrete prerendered path for adapters, and annotates generated
+`llms.txt`. A module `markdown` export is detected automatically.
 
 ### LoaderArgs
 

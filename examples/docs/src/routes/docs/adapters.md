@@ -25,7 +25,7 @@ Platform request (Node / CF / Vercel)
 
 Adapters also preserve route and shell document headers for prerendered HTML so static SSG/ISG responses match dynamic document responses.
 
-For prerendered routes that export `markdown`, the Node and Cloudflare adapters bypass the static document only when the request prefers `text/markdown` over HTML and the exact route appears in the generated Markdown manifest. Routes without a markdown representation stay on the static fast path even when an agent requests markdown; SSR-only builds emit an empty manifest so public assets receive the same protection, while custom entries without manifest metadata preserve negotiation by falling through to the framework.
+For prerendered routes that export `markdown`, or declare `markdown: true` when middleware owns negotiation, the Node, Cloudflare, and Netlify adapters bypass the static document only when the request prefers `text/markdown` over HTML and the exact route appears in the generated Markdown manifest. Routes without a Markdown representation stay on the static fast path even when an agent requests Markdown; SSR-only builds emit an empty manifest so public assets receive the same protection, while custom entries without manifest metadata preserve negotiation by falling through to the framework.
 
 ---
 
@@ -342,6 +342,101 @@ custom Vercel server entry must provide the same export.
 
 ---
 
+## Netlify Functions
+
+The Netlify adapter emits a fetch-style Functions v2 handler, bundles the
+client build for exact static-file serving, and maps ISG to Netlify's durable
+CDN cache.
+
+### Setup
+
+```ts [vite.config.ts]
+import { netlifyAdapter } from "@pracht/adapter-netlify";
+
+export default defineConfig({
+  plugins: [pracht({ adapter: netlifyAdapter() })],
+});
+```
+
+```toml [netlify.toml]
+[build]
+  command = "pnpm build"
+  publish = "dist/client"
+
+[functions]
+  directory = "netlify/functions"
+```
+
+The generated catch-all function owns page URLs so Markdown negotiation and
+route-state requests still reach Pracht. `/assets/*` and `/_pracht/*` bypass
+the function by default. Add app-specific static prefixes with
+`excludedPath`, but do not exclude page URLs. Default and prefix-shaped
+exclusions are also omitted from the generated function bundle, so large static
+asset trees do not count against Netlify's function size limit. The generated
+config enumerates the remaining client files and roots matching exclusions at
+the function file so the Functions v2 tracer cannot pull bypassed trees back
+into the bundle.
+An exact exclusion omits only the matching file; it does not omit an
+`index.html` representation for a trailing-slash URL that can still invoke the
+function.
+
+### Caching and revalidation
+
+SSG documents use `Netlify-CDN-Cache-Control` with durable caching. ISG routes
+use their Pracht time window as the CDN `max-age` and serve stale responses
+while a fresh render completes. Webhook-capable routes receive per-path cache
+tags, including when they provide a cacheable custom policy; authenticated
+requests to `/__pracht/revalidate` purge those tags. Explicit SSG and ISG cache
+policies expressed through `Cache-Control`, `CDN-Cache-Control`, or
+`Netlify-CDN-Cache-Control` remain authoritative; headers for another CDN do
+not disable Netlify's default. Both adapter cache windows accept `0`, disabling
+stale serving or the SSG fresh lifetime respectively.
+A document request with one trailing slash permanently redirects to the
+slashless ISG URL before rendering, so only the canonical URL enters the
+durable cache. Webhook revalidation accepts either spelling and purges the
+canonical cache tag.
+
+SSR and API responses that declare `Cache-Control: public` are promoted into
+the durable cache with the same route-state `Netlify-Vary` protection.
+Promotion fails closed: responses to route-state requests and responses that
+carry `Set-Cookie` or `Vary: Cookie`/`Authorization` get
+`Netlify-CDN-Cache-Control: private` instead, so a personalized render can
+never become the CDN's shared answer.
+
+Cached page HTML sets `Netlify-Vary:
+query=_data,header=x-pracht-route-state-request` so both route-state transports
+(query param and request header) keep their own cache variant, while tracking
+and other unrelated query parameters collapse onto the pathname entry. Netlify
+combines that key with Pracht's standard `Vary: Accept` header on routes that
+export `markdown`; `Accept` is not a valid `Netlify-Vary` directive. A custom
+`Netlify-Vary` header takes precedence.
+
+Because `/assets/*` and other excluded prefixes bypass the function, the build
+also emits `dist/client/_headers` with the immutable asset cache policy and
+pracht's default security headers for Netlify's static layer. A hand-authored
+`public/_headers` file wins; pracht skips generating one and warns. Default and
+prefix-shaped exclusions are also omitted from the function's `includedFiles`;
+the remaining client files are listed explicitly.
+
+Shared ISG renders sanitize both the request and Netlify context before loaders
+and context factories run. Visitor cookies, authorization, query strings,
+bodies, IP/geolocation, request IDs, and arbitrary request-local context cannot
+personalize the cached response. Deployment-wide site/server metadata and
+`waitUntil()` remain available.
+
+### Local preview and deploy
+
+```sh
+pracht build && netlify dev
+netlify deploy --build --prod
+```
+
+`pracht preview` does not emulate Netlify's Functions or CDN cache behavior.
+Build the generated function before using `netlify dev` for a platform-shaped
+local runtime.
+
+---
+
 ## Node.js
 
 Run pracht as a standard Node.js HTTP server. The adapter handles static file serving, ISG stale-while-revalidate, request translation, and the generated `dist/server/server.js` entry boots the production server directly.
@@ -497,4 +592,4 @@ At the runtime level, an adapter also typically needs to:
 7. Export an entry module generator for the Vite plugin
 
 > [!INFO]
-> See the source of `@pracht/adapter-cloudflare` or `@pracht/adapter-node` in the monorepo for a concrete reference implementation.
+> See the source of `@pracht/adapter-cloudflare`, `@pracht/adapter-netlify`, or `@pracht/adapter-node` in the monorepo for a concrete reference implementation.
