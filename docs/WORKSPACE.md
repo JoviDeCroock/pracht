@@ -93,7 +93,9 @@ described in `VISION_MVP.md`.
   entry composes focused modules under `packages/openapi/src/vite/`: `options.ts`
   owns fail-closed endpoint configuration, `graph-codegen.ts` owns the injected
   artifact generator, and `dev-server.ts` owns live HTTP serving and collision
-  warnings.
+  warnings. OpenAPI document generation likewise keeps `generate.ts` as its
+  public facade; document traversal, operation/response assembly, schema
+  conversion, and route-path translation live under `packages/openapi/src/generate/`.
 - **Client hydration** — The generated client module matches the current route,
   lazy-loads the route and shell modules via `import.meta.glob()`, and calls
   `hydrate()` from Preact.
