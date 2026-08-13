@@ -45,6 +45,9 @@ described in `VISION_MVP.md`.
   schema validation, and the shared wire protocol. Its `static` entry keeps
   capability/app extraction in `static.ts`, with reusable offset-preserving
   lexing and inline data-literal parsing isolated in `static-source-parser.ts`.
+  It also owns the executable-source mask and environment-reference policy used
+  by both the Vite build guard and CLI verification, preventing security checks
+  from drifting across framework surfaces.
 - **Server rendering** — `handlePrachtRequest()` executes the full request
   lifecycle: API route check → middleware chain → loader → Preact
   `renderToString` → HTML document assembly with hydration state
@@ -79,9 +82,9 @@ described in `VISION_MVP.md`.
   `route-path.ts` owns route identity and specificity, and `manifest.ts` owns
   policy validation plus generated manifest files.
   Environment leak protection keeps `env-safety.ts` as its public facade;
-  policy constants and report types, executable-source masking, reference
-  scanning, diagnostics, and Vite build hooks live in matching modules under
-  `env-safety/` so detection policy stays independent from bundler lifecycle.
+  report models, diagnostics, and Vite build hooks live under `env-safety/`,
+  while detection delegates to the shared `@pracht/capabilities/static` source
+  policy used by CLI verification.
 - **SSR JSX precompiler** — `@pracht/preact-ssr-precompile` keeps its public
   Vite plugin facade in `index.ts`, JSX-to-template lowering in `transform.ts`,
   and parsing, AST traversal, filtering, and offset-safe edits in

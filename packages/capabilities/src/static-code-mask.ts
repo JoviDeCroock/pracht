@@ -2,7 +2,7 @@
  * Marks source offsets that belong to executable JavaScript rather than
  * comments, string contents, template text, or regular-expression literals.
  */
-export function getCodePositionMask(code: string): Uint8Array {
+export function createCodePositionMask(code: string): Uint8Array {
   const mask = new Uint8Array(code.length);
   const templateExpressionDepths: number[] = [];
   let mode: "block-comment" | "code" | "double" | "line-comment" | "regex" | "single" | "template" =

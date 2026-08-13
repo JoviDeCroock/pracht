@@ -3,7 +3,9 @@
  * projection codegen) and the CLI (`pracht verify`, `pracht typegen`). Every
  * consumer parses the same `defineCapability({ ... })` call sites without
  * executing application code. Domain extraction stays here; offset-preserving
- * lexing and inline-literal parsing live in `static-source-parser.ts`.
+ * lexing and inline-literal parsing live in `static-source-parser.ts`. The
+ * executable-position mask and environment-reference policy shared by Vite
+ * and CLI verification live in `static-code-mask.ts` and `static-environment.ts`.
  *
  * Constraint this imposes on capability authors: values the tools need
  * (`expose`, `effect`, `input`, string fields) must be inline literals — no
@@ -24,6 +26,14 @@ import {
 } from "./static-source-parser.ts";
 
 export { evaluateLiteral, maskCommentsAndStrings };
+export { createCodePositionMask } from "./static-code-mask.ts";
+export {
+  PRACHT_PUBLIC_ENV_PREFIX,
+  VITE_BUILTIN_ENV_NAMES,
+  WHOLE_ENV_READ,
+  scanEnvironmentReferences,
+  type EnvironmentReference,
+} from "./static-environment.ts";
 
 /**
  * The parts of a capability contract that decide what gets projected to the
