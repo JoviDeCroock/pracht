@@ -4,6 +4,8 @@ import { useEffect } from "preact/hooks";
 
 import { dictionaries, i18n, type AppLocale } from "../i18n/index.ts";
 
+const CANONICAL_ORIGIN = "https://pracht-example.resynapse.dev";
+
 // `context.locale` is set by the i18n middleware. This example types it
 // per-file to keep the monorepo-wide `Register` clean; an app would
 // normally register it once instead:
@@ -27,9 +29,9 @@ export function head({ data, url }: HeadArgs<typeof loader, Context>) {
     lang: data.locale,
     title: t(data.messages, "welcome.title"),
     // Alternate links for every registered locale plus x-default, pointing
-    // at the unprefixed detector route. Use your canonical origin in
-    // production instead of the request origin.
-    link: i18n.hreflang(url.pathname, { origin: url.origin }),
+    // at the unprefixed detector route. SSG runs with a placeholder request
+    // origin, so use the example deployment's real canonical origin.
+    link: i18n.hreflang(url.pathname, { origin: CANONICAL_ORIGIN }),
   };
 }
 

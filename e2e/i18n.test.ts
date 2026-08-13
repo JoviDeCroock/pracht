@@ -26,6 +26,10 @@ test("a prerendered locale prefix is remembered by the unprefixed detector", asy
   // Stored SSG output must remain visitor-neutral; hydration persists the
   // explicit prefix instead.
   expect(response?.headers()["set-cookie"]).toBeUndefined();
+  const html = await response?.text();
+  expect(html).toContain(
+    'rel="alternate" hreflang="nl" href="https://pracht-example.resynapse.dev/nl/welcome"',
+  );
   await expect
     .poll(async () => {
       const cookies = await page.context().cookies();
@@ -38,7 +42,7 @@ test("a prerendered locale prefix is remembered by the unprefixed detector", asy
 });
 
 test("greeting form switch changes the language and keeps the URL", async ({ page }) => {
-  await page.goto("/greeting");
+  await page.goto("/greeting?from=switcher");
   await page.waitForFunction(() => (window as any).__PRACHT_ROUTER_READY__);
   await expect(page.getByTestId("greeting-title")).toContainText("One URL, every language");
 
@@ -46,7 +50,7 @@ test("greeting form switch changes the language and keeps the URL", async ({ pag
 
   // The API route answers with a 303 back to this page. A hydrated <Form>
   // must land on that target, not on the API route it posted to.
-  await expect(page).toHaveURL("/greeting");
+  await expect(page).toHaveURL("/greeting?from=switcher");
   await expect(page.getByTestId("greeting-title")).toContainText("Eén URL, elke taal");
 
   const cookies = await page.context().cookies();
@@ -54,7 +58,7 @@ test("greeting form switch changes the language and keeps the URL", async ({ pag
 
   // The choice survives a reload, still on the same URL.
   await page.reload();
-  await expect(page).toHaveURL("/greeting");
+  await expect(page).toHaveURL("/greeting?from=switcher");
   await expect(page.getByTestId("greeting-title")).toContainText("Eén URL, elke taal");
 });
 

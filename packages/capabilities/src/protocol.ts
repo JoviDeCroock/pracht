@@ -145,14 +145,15 @@ export const CAPABILITY_TRANSPORT_HEADER = "x-pracht-transport";
 export const CAPABILITY_EFFECT_HEADER = "x-pracht-capability-effect";
 
 /**
- * Marker sent by enhanced `<Form capability>` submissions. Pracht API and
- * capability dispatch turn redirect responses into a readable redirect
- * header so the browser can navigate without following an external target as
- * a CORS fetch.
+ * Marker sent by enhanced `<Form>` submissions. Pracht API and capability
+ * dispatch turn redirect responses into a readable redirect header so the
+ * browser can navigate without fetching the destination first or following an
+ * external target as a CORS fetch. The historical name remains part of the
+ * public protocol for compatibility.
  */
 export const CAPABILITY_FORM_REQUEST_HEADER = "x-pracht-capability-form";
 
-/** Redirect target returned for an enhanced capability-form submission. */
+/** Redirect target returned for an enhanced Pracht form submission. */
 export const CAPABILITY_FORM_REDIRECT_HEADER = "x-pracht-capability-redirect";
 
 /**

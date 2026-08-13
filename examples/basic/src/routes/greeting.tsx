@@ -1,4 +1,10 @@
-import { Form, type HeadArgs, type LoaderArgs, type RouteComponentProps } from "@pracht/core";
+import {
+  Form,
+  useLocation,
+  type HeadArgs,
+  type LoaderArgs,
+  type RouteComponentProps,
+} from "@pracht/core";
 import { t, type I18nRequestContext } from "@pracht/i18n";
 import { useEffect, useState } from "preact/hooks";
 
@@ -35,6 +41,7 @@ export function Component({ data }: RouteComponentProps<typeof loader>) {
   const messages = clientMessages ?? data.messages;
   const locale = messages.$locale as AppLocale;
   const otherLocales = i18n.locales.filter((candidate) => candidate !== locale);
+  const { pathname, search } = useLocation();
 
   // `head()` runs on the server only, so any locale change that does not
   // reload the document has to keep <html lang> in sync itself. This covers
@@ -61,7 +68,7 @@ export function Component({ data }: RouteComponentProps<typeof loader>) {
         API route that sets the cookie and 303s back to this same URL.
       */}
       <Form method="post" action="/api/locale" aria-label="Language switcher">
-        <input type="hidden" name="next" value="/greeting" />
+        <input type="hidden" name="next" value={`${pathname}${search}`} />
         <span>{t(messages, "greeting.switch.server")}</span>{" "}
         {otherLocales.map((candidate) => (
           <button

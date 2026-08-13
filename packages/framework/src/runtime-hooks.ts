@@ -436,21 +436,26 @@ export function Form<TName extends HttpCapabilityName = HttpCapabilityName>(
         formData,
       );
       try {
-        // Redirects are *followed*, then read back off `response.url` — the
-        // same handshake the capability branch above uses. `redirect:
-        // "manual"` looks tempting here, but a same-origin 3xx then comes
-        // back as an opaque-filtered response with status 0 and no readable
-        // headers, so `location` is always null and the fallback navigated
-        // to the action URL — landing the visitor on the API route (a GET,
-        // typically 405) instead of the page the API route redirected to.
+        // Opt into the same redirect handshake capability forms use. Pracht
+        // API dispatch turns a 3xx into a readable 204 response carrying the
+        // target, so fetch neither loads the destination before the router
+        // does nor tries to CORS-fetch an external login/SSO page.
         const response = await fetch(actionUrl, {
           method: formMethod,
           body: formData,
           credentials: "same-origin",
+          headers: { [CAPABILITY_FORM_REQUEST_HEADER]: "1" },
         });
 
-        if (response.redirected || (response.status >= 300 && response.status < 400)) {
-          const location = response.redirected ? response.url : response.headers.get("location");
+        const enhancedRedirect = response.headers.get(CAPABILITY_FORM_REDIRECT_HEADER);
+        if (
+          enhancedRedirect ||
+          response.redirected ||
+          (response.status >= 300 && response.status < 400)
+        ) {
+          const location =
+            enhancedRedirect ??
+            (response.redirected ? response.url : response.headers.get("location"));
           await navigateToClientLocation(location ?? actionUrl, { reloadRouteState: true });
         } else {
           if ((response.status === 400 || response.status === 422) && onValidationIssues) {

@@ -11,5 +11,8 @@ A hydrated `<Form method="post" action="/api/...">` submitted with
 Visitors landed on the API route itself (a GET, typically `405 Method Not
 Allowed`) instead of the redirect target, which is the documented shape for
 login forms and any other API route that redirects back after a mutation.
-Submissions now follow the redirect and read the target off `response.url`,
-the same handshake `<Form capability>` already used.
+Submissions now opt into the same readable redirect handshake
+`<Form capability>` already used. API dispatch returns the target without
+fetching it first, then the client performs exactly one navigation. This also
+keeps cross-origin login and SSO targets out of the form submission's CORS
+fetch.

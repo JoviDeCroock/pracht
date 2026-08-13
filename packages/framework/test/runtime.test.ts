@@ -15,6 +15,10 @@ import {
   useParams,
   useSearchParams,
 } from "../src/index.ts";
+import {
+  CAPABILITY_FORM_REDIRECT_HEADER,
+  CAPABILITY_FORM_REQUEST_HEADER,
+} from "../../capabilities/src/index.ts";
 
 function parseHydrationState(html: string) {
   const match = html.match(
@@ -165,6 +169,31 @@ describe("handlePrachtRequest API middleware", () => {
 
     expect(response.status).toBe(303);
     expect(response.headers.get("location")).toBe("/login");
+  });
+
+  it("returns enhanced API form redirects without fetching the destination", async () => {
+    const app = defineApp({ routes: [route("/", "./routes/home.tsx")] });
+    const request = new Request("http://localhost/api/submit", { method: "POST" });
+    request.headers.set(CAPABILITY_FORM_REQUEST_HEADER, "1");
+
+    const response = await handlePrachtRequest({
+      apiRoutes: resolveApiRoutes(["/src/api/submit.ts"]),
+      app,
+      registry: {
+        apiModules: {
+          "/src/api/submit.ts": async () => ({
+            POST: async () => redirect("https://auth.example/login", { status: 303 }),
+          }),
+        },
+      },
+      request,
+    });
+
+    expect(response.status).toBe(204);
+    expect(response.headers.get("location")).toBeNull();
+    expect(response.headers.get(CAPABILITY_FORM_REDIRECT_HEADER)).toBe(
+      "https://auth.example/login",
+    );
   });
 });
 

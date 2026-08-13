@@ -236,8 +236,10 @@ export async function POST({ request, url }: BaseRouteArgs) {
 
 …and a `<Form method="post" action="/api/locale">` switcher with one
 `<button name="locale" value={locale}>` per locale plus a hidden `next`
-field carrying `useLocation().pathname`. Hydrated, `<Form>` follows the 303
-and re-runs the loader; without JavaScript the browser does.
+field carrying `useLocation().pathname + useLocation().search` so switching
+does not drop the current query. Hydrated, `<Form>` uses the framework's
+redirect handshake and re-runs the loader; without JavaScript the browser
+follows the 303 normally.
 
 For an instant switch with no request at all, `i18n.setLocaleCookie(locale)`
 writes the same cookie from the browser and

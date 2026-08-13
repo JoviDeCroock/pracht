@@ -7,8 +7,9 @@ import { i18n } from "../i18n/index.ts";
  * URL, so the choice is persisted in the locale cookie instead of the path.
  *
  * Without JavaScript this is a native form POST that ends in a 303 back to the
- * page; with JavaScript `<Form>` intercepts it, follows the 303, and re-runs
- * the loader — which now sees the new cookie. Mutation API routes are
+ * page; with JavaScript `<Form>` intercepts it, reads the redirect target
+ * through Pracht's enhanced-form handshake, and re-runs the loader — which
+ * now sees the new cookie. Mutation API routes are
  * same-origin-checked by the framework (`api.requireSameOrigin`), so no CSRF
  * token is needed here.
  */

@@ -183,9 +183,11 @@ export function withDefaultSecurityHeaders(response: Response): Response {
 }
 
 /**
- * Keep enhanced capability-form redirects inside the original same-origin
- * fetch. The client performs the browser navigation after reading the target,
- * so cross-origin login pages are never fetched through CORS.
+ * Keep enhanced Pracht form redirects inside the original same-origin fetch.
+ * Both API-backed and capability-backed forms use this protocol. The client
+ * performs the browser navigation after reading the target, so the destination
+ * is not loaded twice and cross-origin login pages are never fetched through
+ * CORS.
  */
 export function withEnhancedCapabilityFormRedirect(response: Response, request: Request): Response {
   if (request.headers.get(CAPABILITY_FORM_REQUEST_HEADER) !== "1") {

@@ -177,7 +177,7 @@ import { useEffect } from "preact/hooks";
 const labels: Record<AppLocale, string> = { en: "English", fr: "Français" };
 
 export function LanguageSwitcher({ currentLocale }: { currentLocale: AppLocale }) {
-  const { pathname } = useLocation();
+  const { pathname, search } = useLocation();
 
   // SSG/ISG responses are shared and cannot set a visitor-specific cookie.
   // Persist the explicit prefix after hydration so the SSR detector remembers
@@ -191,7 +191,7 @@ export function LanguageSwitcher({ currentLocale }: { currentLocale: AppLocale }
       {i18n.locales.map((locale) => (
         <a
           key={locale}
-          href={i18n.localePath(pathname, locale)}
+          href={i18n.localePath(`${pathname}${search}`, locale)}
           class={locale === currentLocale ? "active" : ""}
         >
           {labels[locale]}
@@ -221,7 +221,7 @@ Detection now resolves through the cookie (a choice the visitor already made) an
 
 There is no URL prefix to persist, so the switch is what writes the cookie. Two ways, and they compose:
 
-**Server switch (works without JavaScript).** An API route sets the cookie and redirects back to the same URL; `<Form>` intercepts it when hydrated, follows the 303, and re-runs the loader:
+**Server switch (works without JavaScript).** An API route sets the cookie and redirects back to the same URL; `<Form>` intercepts it when hydrated, reads the redirect target through Pracht's enhanced-form handshake, and re-runs the loader without fetching the destination twice:
 
 ```ts [src/api/locale.ts]
 import { redirect, type BaseRouteArgs } from "@pracht/core";
@@ -247,10 +247,10 @@ import { Form, useLocation } from "@pracht/core";
 import { i18n } from "../i18n/index.ts";
 
 export function LanguageSwitcher() {
-  const { pathname } = useLocation();
+  const { pathname, search } = useLocation();
   return (
     <Form method="post" action="/api/locale" aria-label="Language switcher">
-      <input type="hidden" name="next" value={pathname} />
+      <input type="hidden" name="next" value={`${pathname}${search}`} />
       {i18n.locales.map((locale) => (
         <button key={locale} type="submit" name="locale" value={locale}>
           {locale}
