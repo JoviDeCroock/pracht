@@ -109,6 +109,9 @@ describe("@pracht/cli generate", () => {
       runCli(["generate", "route", "--path", "/blog/:slug", "--json"], { cwd: appDir }).stdout,
     );
     expect(result.created).toContain("e2e/blog-slug.spec.ts");
+    expect(result.notes).toEqual([
+      expect.stringContaining("npm install --save-dev @playwright/test"),
+    ]);
 
     const testSource = readFileSync(join(appDir, "e2e/blog-slug.spec.ts"), "utf-8");
     expect(testSource).toContain('test("renders /blog/:slug"');
@@ -118,6 +121,22 @@ describe("@pracht/cli generate", () => {
     // --no-test opts out even when the setup exists.
     runCli(["generate", "route", "--path", "/contact", "--no-test"], { cwd: appDir });
     expect(existsSync(join(appDir, "e2e/contact.spec.ts"))).toBe(false);
+  });
+
+  it("explains the Playwright dependency when --test forces a smoke test", () => {
+    const appDir = createTempDir("pracht-cli-forced-smoke-");
+    writeManifestApp(appDir);
+
+    const result = JSON.parse(
+      runCli(["generate", "route", "--path", "/reports", "--test", "--json"], {
+        cwd: appDir,
+      }).stdout,
+    );
+
+    expect(result.created).toContain("e2e/reports.spec.ts");
+    expect(result.notes).toEqual([
+      expect.stringContaining("The generated smoke test imports `@playwright/test`"),
+    ]);
   });
 
   it("scaffolds pages-router routes without touching a manifest", () => {
