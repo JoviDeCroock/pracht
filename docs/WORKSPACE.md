@@ -73,7 +73,11 @@ described in `VISION_MVP.md`.
   owns request parsing, agent policy, progressive-enhancement redirects, and
   pipeline dispatch; `runtime-capability-api-middleware.ts` owns app API policy;
   and `runtime-capability-mcp-output.ts` owns MCP-only success-envelope schema
-  settlement.
+  settlement. Direct server composition keeps its public overloads in
+  `runtime-capability-invocation.ts`, host types and request binding in
+  `runtime-capability-invocation-types.ts` and `runtime-capability-host.ts`,
+  nested transport policy in `runtime-capability-composition.ts`, and shared
+  pipeline/audit execution in `runtime-capability-invocation-dispatch.ts`.
 - **Enhanced forms** — `runtime-form.ts` keeps the public props and rendering
   facade. `runtime-form-native.ts` owns submitter/native-resubmission mechanics,
   `runtime-api-form.ts` owns ordinary API submissions, and

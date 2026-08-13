@@ -563,7 +563,11 @@ runtime-capability-pipeline.ts — shared input validation, named middleware, ex
                                  output validation, and response normalization
 runtime-capability-audit.ts — observer registration, trusted identity snapshots,
                               and fail-safe audit delivery
-runtime-capability-invocation.ts — request-scoped hosts and direct or nested server calls
+runtime-capability-invocation-types.ts — host and direct invocation contracts
+runtime-capability-host.ts — request-scoped host binding and identity snapshots
+runtime-capability-composition.ts — nested transport policy and trusted context binding
+runtime-capability-invocation-dispatch.ts — explicit-host pipeline and audit execution
+runtime-capability-invocation.ts — stable direct-invocation overload facade
 runtime-capability-confirmation.ts — destructive prepare/commit orchestration,
                                      durable approval policy, and replay protection
 runtime-capability-transport-types.ts — type-only HTTP/MCP dispatch contracts

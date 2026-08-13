@@ -50,6 +50,14 @@ ordinary request parsing, agent policy, form fallback, and pipeline dispatch in
 in `runtime-capability-api-middleware.ts`; `runtime-capabilities.ts` retains the
 public facade, effect header, and one-event audit orchestration.
 
+Direct capability composition follows the same focused layering:
+`runtime-capability-invocation.ts` retains the stable typed overloads,
+`runtime-capability-host.ts` owns request-local host binding,
+`runtime-capability-composition.ts` owns nested MCP and trusted-context policy,
+and `runtime-capability-invocation-dispatch.ts` owns pipeline execution and
+auditing. Shared contracts live in `runtime-capability-invocation-types.ts` so
+the policy and transport modules depend on types instead of the public facade.
+
 Enhanced form submission keeps `runtime-form.ts` as the public rendering and
 event-flow facade. Native resubmission mechanics, ordinary API submission, and
 capability submission live in `runtime-form-native.ts`, `runtime-api-form.ts`,
