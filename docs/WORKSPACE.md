@@ -71,7 +71,10 @@ described in `VISION_MVP.md`.
   lifecycle: API route check → middleware chain → loader → Preact
   `renderToString` → HTML document assembly with hydration state
   (`window.__PRACHT_STATE__`), head metadata/header merging, and client entry
-  injection. The dev-only error overlay keeps `error-overlay.ts` as its
+  injection. `runtime-route-state-response.ts` owns route-state JSON and
+  redirect normalization, while `runtime-rendering.ts` owns lazy shared access
+  to the Preact server renderer; error views remain in `runtime-response.ts`.
+  The dev-only error overlay keeps `error-overlay.ts` as its
   published facade, with stack parsing, editor-path normalization, and
   standalone HTML rendering in focused modules under `error-overlay/`.
 - **Render modes** — SSR, SSG, and ISG routes render server-side; SPA routes

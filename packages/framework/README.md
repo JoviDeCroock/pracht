@@ -32,6 +32,11 @@ raw details intentionally during debugging; the flag is ignored when
 `NODE_ENV=production`. Debug responses also attach `error.diagnostics`
 metadata for the failure phase and matched framework files when available.
 
+For contributors, shared route-state JSON and redirect normalization lives in
+`runtime-route-state-response.ts`, while `runtime-rendering.ts` owns lazy
+loading of the Preact server renderer. Higher-level API and route error views
+remain behind `runtime-response.ts`.
+
 ### Client
 
 - `startApp()` — client-side hydration and runtime

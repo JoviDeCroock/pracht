@@ -15,7 +15,8 @@ import {
   runMiddlewareChain,
 } from "./runtime-middleware.ts";
 import { renderPageRepresentation } from "./runtime-page-render.ts";
-import { normalizePageResponse, renderRouteErrorResponse } from "./runtime-response.ts";
+import { renderRouteErrorResponse } from "./runtime-response.ts";
+import { normalizePageResponse } from "./runtime-route-state-response.ts";
 import type { PrachtPhaseTimings } from "./runtime-timing.ts";
 import type {
   BaseRouteArgs,

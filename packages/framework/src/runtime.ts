@@ -11,7 +11,7 @@ import {
 import { withDefaultSecurityHeaders, withRouteResponseHeaders } from "./runtime-headers.ts";
 import { createNotFoundMatch, executePageMatch } from "./runtime-page-pipeline.ts";
 import { isFirstPartyFetch, isSameOriginRequest } from "./runtime-request-provenance.ts";
-import { jsonErrorResponse } from "./runtime-response.ts";
+import { jsonErrorResponse } from "./runtime-route-state-response.ts";
 import type { PrachtPhaseTimings } from "./runtime-timing.ts";
 import type {
   CapabilityAuditHook,

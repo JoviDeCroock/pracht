@@ -27,7 +27,7 @@ import {
   resolvePageJsUrls,
 } from "./runtime-manifest.ts";
 import { markdownResponse, prefersMarkdown } from "./runtime-negotiation.ts";
-import { getRenderToStringAsync } from "./runtime-response.ts";
+import { getRenderToStringAsync } from "./runtime-rendering.ts";
 import { getAppSpeculationRules } from "./runtime-speculation.ts";
 import { createScriptCapture, ScriptCaptureContext, withCapturedScripts } from "./script.ts";
 import type {

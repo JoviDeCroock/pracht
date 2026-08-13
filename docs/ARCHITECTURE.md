@@ -531,6 +531,9 @@ runtime-form.ts — enhanced form validation, capability submission, and respons
 runtime-hooks.ts — public browser hook/Link facade and stable Form re-export
     ↑
 runtime.ts      — SSR handler and prerendering (static import of app.ts)
+runtime-rendering.ts — lazy shared Preact server-renderer loading
+runtime-route-state-response.ts — JSON errors, redirects, and route-state cache headers
+runtime-response.ts — API and route error views plus compatibility re-exports
 revalidation-request.ts — webhook authentication, bounded path parsing, and safe regeneration requests
 revalidation.ts — cache policy, single-flight control, outcome reporting, and stable request facade
 runtime-capability-registry.ts — capability manifest loading, contract validation,
