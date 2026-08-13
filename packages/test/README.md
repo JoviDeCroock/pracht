@@ -11,7 +11,8 @@ with Vitest (or any test runner).
   `Request`, with sensible defaults for everything and the `AbortController`
   behind `signal` exposed for cancellation tests. The two middleware factories
   model the distinct page and API route metadata shapes production supplies.
-  Blob/File and `URLSearchParams` bodies are normalized across DOM realms, so
+  Blob/File and `URLSearchParams` bodies are normalized across DOM realms, and
+  foreign-realm `FormData`/`ArrayBuffer` values retain their wire encoding, so
   JSDOM values work with Node's `Request` implementation.
 - `runMiddleware()` — execute a middleware chain with the runtime's `next()`
   semantics (sequential, at-most-once `next()`, short-circuit on an early
@@ -27,6 +28,8 @@ with Vitest (or any test runner).
   fields into the URL query string instead, like a browser
   `<form method="get">`. The encoding also works when JSDOM supplies the
   form globals while Node supplies `Request`.
+  Field names and string values use the same CRLF newline normalization as a
+  browser form submission.
 - `readJson()` / `readRedirect()` — minimal response readers: parse a JSON
   body without consuming the original response, or extract
   `{ status, location }` from a redirect.

@@ -133,7 +133,7 @@ describe("contact API route", () => {
 });
 ```
 
-Repeated fields (multi-selects, checkbox groups) are passed as arrays: `{ tag: ["a", "b"] }` produces two `tag` entries, which `formDataToRecord()` on the server groups back into an array. A `method: "GET"` form carries no body — like a browser, the fields are serialized into the URL query string, which exercises a `defineApi()` `query` schema instead of `body`.
+Repeated fields (multi-selects, checkbox groups) are passed as arrays: `{ tag: ["a", "b"] }` produces two `tag` entries, which `formDataToRecord()` on the server groups back into an array. Field names and string values receive the same CRLF newline normalization as a browser form submission. A `method: "GET"` form carries no body — like a browser, the fields are serialized into the URL query string, which exercises a `defineApi()` `query` schema instead of `body`.
 
 ---
 

@@ -86,12 +86,31 @@ export type TestApiMiddlewareArgs<TContext = RegisteredContext> = Omit<
   TestAbortControls & { route: ResolvedApiRoute };
 export type TestApiArgs<TContext = RegisteredContext> = ApiRouteArgs<TContext> & TestAbortControls;
 
+function hasBodyBrand(body: unknown, brand: string): body is object {
+  return (
+    typeof body === "object" && body !== null && Object.prototype.toString.call(body) === brand
+  );
+}
+
+function isFormDataLike(body: unknown): body is FormData {
+  return (
+    hasBodyBrand(body, "[object FormData]") && typeof (body as FormData).entries === "function"
+  );
+}
+
+function isArrayBufferLike(body: unknown): body is ArrayBuffer {
+  return (
+    hasBodyBrand(body, "[object ArrayBuffer]") &&
+    typeof (body as ArrayBuffer).byteLength === "number"
+  );
+}
+
 function isBodyInit(body: unknown): body is BodyInit {
   return (
     typeof body === "string" ||
-    body instanceof FormData ||
+    isFormDataLike(body) ||
     body instanceof ReadableStream ||
-    body instanceof ArrayBuffer ||
+    isArrayBufferLike(body) ||
     ArrayBuffer.isView(body)
   );
 }

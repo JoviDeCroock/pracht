@@ -38,6 +38,10 @@ export interface SubmitFormOptions<TContext = RegisteredContext> {
 
 let multipartBoundarySequence = 0;
 
+function normalizeFormNewlines(value: string): string {
+  return value.replace(/\r\n|\r|\n/g, "\r\n");
+}
+
 function escapeMultipartHeaderValue(value: string): string {
   return value.replace(/\r/g, "%0D").replace(/\n/g, "%0A").replace(/"/g, "%22");
 }
@@ -104,7 +108,10 @@ export async function createFormRequest(
   const entries: [string, FormFieldValue][] = [];
   for (const [name, value] of Object.entries(fields)) {
     for (const entry of Array.isArray(value) ? value : [value]) {
-      entries.push([name, entry as FormFieldValue]);
+      entries.push([
+        normalizeFormNewlines(name),
+        isBlobLike(entry) ? entry : normalizeFormNewlines(String(entry)),
+      ]);
     }
   }
 

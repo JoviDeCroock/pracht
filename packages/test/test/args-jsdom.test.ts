@@ -24,4 +24,25 @@ describe("request args in JSDOM", () => {
     );
     expect(new URLSearchParams(await request.text()).get("query")).toBe("search term");
   });
+
+  it("preserves FormData created in another DOM realm", async () => {
+    const frame = document.createElement("iframe");
+    document.body.append(frame);
+
+    try {
+      const ForeignFormData = (
+        frame.contentWindow as unknown as { FormData?: typeof FormData } | null
+      )?.FormData;
+      if (!ForeignFormData) throw new Error("Expected the iframe to provide FormData");
+      const body = new ForeignFormData();
+      body.append("name", "Alice");
+
+      expect(body).not.toBeInstanceOf(FormData);
+      const request = createTestRequest({ body });
+      expect(request.headers.get("content-type")).toContain("multipart/form-data");
+      expect((await request.formData()).get("name")).toBe("Alice");
+    } finally {
+      frame.remove();
+    }
+  });
 });

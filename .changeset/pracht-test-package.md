@@ -12,7 +12,9 @@ from a shorthand (`url`, `method`, `headers`, a JSON-encoding `body`,
 `params`, a partial `context`, `route` overrides) or a real `Request`, derive
 `url` from the request, and expose the `AbortController` behind `signal` for
 cancellation tests. Blob/File and `URLSearchParams` bodies are normalized so
-the factories also work when JSDOM owns those values and Node owns `Request`.
+the factories also work when JSDOM owns those values and Node owns `Request`;
+foreign-realm `FormData` and `ArrayBuffer` bodies retain their wire encoding
+instead of falling through to JSON serialization.
 `runMiddleware()` executes one middleware or a chain with
 the runtime's exact `next()` semantics — sequential dispatch, at-most-once
 `next()`, short-circuit on an early `Response`, a thrown `Response` resolving
@@ -27,7 +29,9 @@ owns `File`/`FormData` and Node owns `Request` — auto-switches to multipart
 when a field is a `File`, and calls an API handler with it, exercising the
 same `FormData` parsing path `defineApi()` applies to real submissions;
 `method: "GET"` serializes the fields into the URL query string like a browser
-`<form method="get">`, exercising a `query` schema instead. `ReadableStream`
+`<form method="get">`, exercising a `query` schema instead. Field names and
+string values use the browser form algorithm's CRLF newline normalization in
+URL-encoded, multipart, and query submissions. `ReadableStream`
 bodies get the required `duplex` option automatically.
 `readJson()` and `readRedirect()` are minimal response readers: parse a JSON
 body without consuming the original response, or extract

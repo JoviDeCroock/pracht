@@ -1,5 +1,6 @@
 import type { LoaderArgs } from "@pracht/core";
 import { notFound, redirect } from "@pracht/core";
+import { runInNewContext } from "node:vm";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -58,6 +59,14 @@ describe("createLoaderArgs", () => {
     const stream = new Blob(["streamed"]).stream();
     const args = createLoaderArgs({ method: "POST", body: stream });
     expect(await args.request.text()).toBe("streamed");
+  });
+
+  it("preserves an ArrayBuffer created in another realm", async () => {
+    const body = runInNewContext("new Uint8Array([65, 66, 67]).buffer") as ArrayBuffer;
+    const args = createLoaderArgs({ body });
+
+    expect(args.request.headers.get("content-type")).not.toBe("application/json");
+    expect(await args.request.text()).toBe("ABC");
   });
 
   it("uses a real Request when given, ignoring the shorthand fields", () => {

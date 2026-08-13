@@ -57,6 +57,24 @@ describe("createFormRequest", () => {
     expect(body.getAll("tag")).toEqual(["a", "b"]);
   });
 
+  it("normalizes scalar newlines like browser form submission", async () => {
+    for (const encoding of ["urlencoded", "multipart"] as const) {
+      const request = await createFormRequest(
+        {
+          "line\nname": "first\nsecond",
+          carriage: "first\rsecond",
+          windows: "first\r\nsecond",
+        },
+        { encoding },
+      );
+      const form = await request.formData();
+
+      expect(form.get("line\r\nname")).toBe("first\r\nsecond");
+      expect(form.get("carriage")).toBe("first\r\nsecond");
+      expect(form.get("windows")).toBe("first\r\nsecond");
+    }
+  });
+
   it("refuses File fields with explicit urlencoded encoding", async () => {
     const file = new File(["x"], "x.txt");
     await expect(createFormRequest({ file }, { encoding: "urlencoded" })).rejects.toThrow(
