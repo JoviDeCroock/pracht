@@ -36,6 +36,9 @@ A static export has no server, so the build fails closed on anything that needs 
 - The `notFound` page must use full hydration (the default). A static host serves the same prebuilt `404.html` for every miss, so the full client router is required to adopt the visitor's actual URL.
 - API routes are build errors.
 - Manifest-registered capabilities exposed over HTTP/MCP/WebMCP are build errors (server-only capabilities invoked from build-time loaders are fine). Registered capability modules must load successfully so validation can fail closed; unused files in the capabilities directory are ignored.
+- A Vite `base` other than `/` is a build error: prerendered documents reference `/assets/…` and `/_pracht/state/…` from the origin root, so a sub-path deploy (GitHub Pages project site, S3 key prefix) would build cleanly and serve a site whose every asset 404s.
+
+The build also warns — without failing — on percent-encoded prerender paths (hosts that decode URLs before the filesystem lookup will miss those directories) and on a `fallback` document in an app with no `notFound` page and no route matching every URL (unknown URLs would render blank).
 
 ## Client-side navigation
 
@@ -51,5 +54,7 @@ SSG loaders run at build time. For each loader-backed SSG route, the build seria
 The fallback only boots matched SPA routes. Paths matching a dynamic SSG route but omitted by `getStaticPaths()` render the app's `notFound` page rather than running without build-time loader state. When the fallback renders `notFound`, it reuses the loader data serialized into `404.html`; the loader does not run again.
 
 Fallback names may not collide with `index.html` or `404.html`, including case variants on case-insensitive filesystems.
+
+A host rewrite to the fallback answers unknown URLs with status 200, so they become soft 404s even though the client renders the `notFound` page. Skip `fallback` when correct 404 statuses matter more than deep links into dynamic SPA routes.
 
 See `docs/ADAPTERS.md` in the repository for the full documentation, host configuration notes, and limitations.

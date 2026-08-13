@@ -287,6 +287,7 @@ export function createPrachtServerModuleSource(
   buildOptions: {
     root?: string;
     isBuild?: boolean;
+    base?: string;
   } = {},
 ): string {
   const resolved = resolveOptions(options);
@@ -344,6 +345,10 @@ export function createPrachtServerModuleSource(
     `export const apiRoutes = resolveApiRoutes(Object.keys(apiModules), ${JSON.stringify(resolved.apiDir)});`,
     `export const buildTarget = ${JSON.stringify(adapter?.id ?? "node")};`,
     `export const staticTarget = ${JSON.stringify(adapter?.staticTarget === true)};`,
+    // Vite's `base`. Prerendered documents and the serialized route-state URLs
+    // are root-relative, so the CLI rejects a static export configured with a
+    // sub-path base instead of emitting a deploy whose assets all 404.
+    `export const buildBase = ${JSON.stringify(buildOptions.base ?? "/")};`,
     `export const clientEntryUrl = ${JSON.stringify(clientBuild.clientEntryUrl ?? CLIENT_BROWSER_PATH)};`,
     `export const islandsEntryUrl = ${JSON.stringify(islandsEntryUrl ?? null)};`,
     `export const islandsBootstrapRequired = ${JSON.stringify(islandsBootstrapRequired)};`,
