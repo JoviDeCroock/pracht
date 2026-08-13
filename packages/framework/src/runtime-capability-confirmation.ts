@@ -14,6 +14,10 @@ import {
   resolveCapabilityApprovalStore,
 } from "./runtime-approval.ts";
 import {
+  consumeCapabilityApproval,
+  prepareCapabilityApproval,
+} from "./runtime-capability-approval-transitions.ts";
+import {
   canonicalJson,
   CONFIRMATION_HEADER,
   CONFIRMATION_SECRET_ENV,
@@ -138,43 +142,26 @@ export async function enforceDestructiveConfirmation<TContext>(
     : null;
 
   if (!presented) {
-    let expiresAtLimit = 0;
+    let tokenTtlSeconds = ttlSeconds;
     if (store && approvalId && inputHash) {
-      const now = Math.floor(Date.now() / 1000);
-      const created = await withApprovalStore(name, options.exposeErrors, () =>
-        store.create({
-          id: approvalId,
-          principal,
-          capability: name,
-          inputHash,
-          input: validatedInput,
-          requiresApproval: mode === "human",
-          createdAt: now,
-          expiresAt: now + ttlSeconds,
-          state: "pending",
-          decidedBy: null,
-          decidedAt: null,
-        }),
-      );
-      if (!created.ok) return created.failure;
-      if (created.value.state === "consumed" || created.value.state === "rejected") {
-        const reason = created.value.state === "consumed" ? "already_used" : "rejected";
-        return {
-          status: 403,
-          envelope: errorEnvelope({
-            code: "confirmation_invalid",
-            message: `Confirmation request rejected (${reason}).`,
-          }),
-        };
-      }
-      // Re-preparing an existing proposal must not extend its life, so the
-      // token expires with the proposal rather than `now + ttlSeconds`.
-      expiresAtLimit = created.value.expiresAt - now;
+      const prepared = await prepareCapabilityApproval({
+        approvalId,
+        capability: name,
+        exposeErrors: options.exposeErrors,
+        input: validatedInput,
+        inputHash,
+        mode,
+        principal,
+        store,
+        ttlSeconds,
+      });
+      if (!prepared.ok) return prepared.failure;
+      tokenTtlSeconds = prepared.value.ttlSeconds;
     }
 
     const { token, expiresAt } = await createConfirmationToken({
       ...binding,
-      ttlSeconds: store ? Math.max(1, expiresAtLimit) : ttlSeconds,
+      ttlSeconds: tokenTtlSeconds,
     });
     return {
       status: 409,
@@ -208,30 +195,13 @@ export async function enforceDestructiveConfirmation<TContext>(
   }
 
   if (store && approvalId) {
-    const consumed = await withApprovalStore(name, options.exposeErrors, () =>
-      store.consume(approvalId),
-    );
+    const consumed = await consumeCapabilityApproval({
+      approvalId,
+      capability: name,
+      exposeErrors: options.exposeErrors,
+      store,
+    });
     if (!consumed.ok) return consumed.failure;
-
-    if (!consumed.value.ok) {
-      if (consumed.value.reason === "awaiting_approval") {
-        return {
-          status: 409,
-          envelope: errorEnvelope({
-            code: "confirmation_pending",
-            message: `Capability "${name}" is awaiting human approval.`,
-            approvalId,
-          }),
-        };
-      }
-      return {
-        status: 403,
-        envelope: errorEnvelope({
-          code: "confirmation_invalid",
-          message: `Confirmation token rejected (${consumed.value.reason}).`,
-        }),
-      };
-    }
     return null;
   }
 
@@ -249,34 +219,4 @@ export async function enforceDestructiveConfirmation<TContext>(
   }
 
   return null;
-}
-
-/**
- * Approval stores talk to a database, so they can fail. A store that is down
- * must never wave a destructive call through: any rejection becomes a closed
- * gate.
- */
-async function withApprovalStore<T>(
-  capability: string,
-  exposeErrors: boolean,
-  operation: () => Promise<T>,
-): Promise<
-  { ok: true; value: T } | { ok: false; failure: { status: number; envelope: CapabilityEnvelope } }
-> {
-  try {
-    return { ok: true, value: await operation() };
-  } catch (error: unknown) {
-    return {
-      ok: false,
-      failure: {
-        status: 403,
-        envelope: errorEnvelope({
-          code: "confirmation_unavailable",
-          message:
-            `Destructive capability "${capability}" cannot run: the approval store failed` +
-            (exposeErrors ? ` (${error instanceof Error ? error.message : String(error)}).` : "."),
-        }),
-      },
-    };
-  }
 }

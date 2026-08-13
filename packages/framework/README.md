@@ -74,7 +74,9 @@ Destructive confirmation keeps `runtime-confirmation.ts` as its stable facade
 and secret-configuration boundary. Canonical input binding plus HMAC token
 creation and verification live in `runtime-confirmation-token.ts`; the
 best-effort per-instance replay cache lives in
-`runtime-confirmation-replay.ts`. Durable proposal orchestration remains in
+`runtime-confirmation-replay.ts`. Durable proposal creation and consumption
+live in `runtime-capability-approval-transitions.ts`, while principal binding,
+token verification, and flow orchestration remain in
 `runtime-capability-confirmation.ts`.
 
 Enhanced form submission keeps `runtime-form.ts` as the public rendering and

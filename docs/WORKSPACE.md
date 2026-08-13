@@ -108,8 +108,10 @@ described in `VISION_MVP.md`.
   configuration and stable exports. Deterministic input binding, token
   encoding, cryptographic verification, and hashing live in
   `runtime-confirmation-token.ts`; the best-effort per-instance single-use
-  cache lives in `runtime-confirmation-replay.ts`. Durable approval workflow
-  orchestration remains in `runtime-capability-confirmation.ts`.
+  cache lives in `runtime-confirmation-replay.ts`. Durable proposal creation,
+  consumption, and backend failure settlement live in
+  `runtime-capability-approval-transitions.ts`; principal/token orchestration
+  remains in `runtime-capability-confirmation.ts`.
 - **Server rendering** — `handlePrachtRequest()` executes the full request
   lifecycle in explicit API → agent → page order. `runtime-request-setup.ts`
   owns route-state request normalization and source/resolved app preparation;
