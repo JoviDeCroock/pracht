@@ -114,8 +114,9 @@ described in `VISION_MVP.md`.
   Its stable `bundle-report.ts` facade delegates client-manifest collection,
   budget evaluation, size parsing, and terminal formatting to focused modules
   under `bundle-report/`. `build-adapter-output.ts` finalizes deployment output
-  while delegating Vercel Build Output API details to
-  `vercel-build-output.ts`.
+  through `vercel-build-output.ts`; pure Vercel routing/function configuration
+  lives in `vercel-output-config.ts`, while ISR filesystem materialization and
+  shared-function linking live in `vercel-prerender-output.ts`.
   `pracht preview` builds and serves the production output locally (Node runs
   `dist/server/server.js`, Cloudflare delegates to `wrangler dev`, Netlify
   points at `netlify dev`, and Vercel points at `vercel build`/`vercel dev`),

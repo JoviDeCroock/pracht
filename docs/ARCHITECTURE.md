@@ -407,6 +407,11 @@ dist/
     server.js                  # Platform entry module
 ```
 
+Vercel output generation keeps `vercel-build-output.ts` as the orchestration
+boundary. `vercel-output-config.ts` owns the pure Build Output API routing and
+function documents, while `vercel-prerender-output.ts` owns ISR function
+materialization, fallback movement, and shared-function linking.
+
 ### Optional server JSX precompile
 
 `pracht({ precompileSsrJsx: true })` inserts `@pracht/preact-ssr-precompile`
