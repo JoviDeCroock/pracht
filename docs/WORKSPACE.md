@@ -89,7 +89,11 @@ described in `VISION_MVP.md`.
 - **OpenAPI companion** — `prachtOpenApi()` augments the generated server graph
   without changing core API authoring. It serves a live OpenAPI JSON document
   and optional Scalar/Swagger page in development; `pracht build` writes the
-  same artifacts under `dist/client/` for every adapter.
+  same artifacts under `dist/client/` for every adapter. Its public `vite.ts`
+  entry composes focused modules under `packages/openapi/src/vite/`: `options.ts`
+  owns fail-closed endpoint configuration, `graph-codegen.ts` owns the injected
+  artifact generator, and `dev-server.ts` owns live HTTP serving and collision
+  warnings.
 - **Client hydration** — The generated client module matches the current route,
   lazy-loads the route and shell modules via `import.meta.glob()`, and calls
   `hydrate()` from Preact.
