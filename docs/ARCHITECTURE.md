@@ -570,7 +570,8 @@ runtime-speculation.ts — builds the `<script type="speculationrules">` payload
 hydration.ts    — Preact options hooks for tracking hydration (no internal deps)
 href.ts         — createHref helper layered on buildHref
 forwardRef.ts   — forwardRef helper (no internal deps)
-error-overlay.ts — dev error page HTML + stack-frame parsing (no internal deps)
+error-overlay.ts — stable dev error-overlay package facade
+error-overlay/   — stack parsing, editor path normalization, and standalone HTML rendering
 dev-404.ts      — dev-only 404 page HTML listing registered routes (no internal deps)
 ```
 
@@ -767,6 +768,10 @@ renders a standalone HTML error page via `buildErrorOverlayHtml()` (exposed
 as `@pracht/core/error-overlay`). The overlay is deliberately not a Preact
 component — it must render even when Preact itself fails — and it is only
 served by the dev middleware, never in production builds.
+
+The published entry is a small facade: `error-overlay/stack.ts` owns V8 stack
+classification, `editor-path.ts` owns filesystem paths for Vite's editor
+endpoint, and `render.ts` owns the dependency-free HTML document.
 
 Two ergonomics features are built in:
 

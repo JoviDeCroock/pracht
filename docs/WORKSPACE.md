@@ -52,7 +52,9 @@ described in `VISION_MVP.md`.
   lifecycle: API route check → middleware chain → loader → Preact
   `renderToString` → HTML document assembly with hydration state
   (`window.__PRACHT_STATE__`), head metadata/header merging, and client entry
-  injection.
+  injection. The dev-only error overlay keeps `error-overlay.ts` as its
+  published facade, with stack parsing, editor-path normalization, and
+  standalone HTML rendering in focused modules under `error-overlay/`.
 - **Render modes** — SSR, SSG, and ISG routes render server-side; SPA routes
   keep the route component client-only but now render their matched shell
   immediately, optionally with a shell `Loading` fallback. Route-state JSON
