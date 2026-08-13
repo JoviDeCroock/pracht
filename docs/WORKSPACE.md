@@ -78,6 +78,10 @@ described in `VISION_MVP.md`.
   `page-analysis.ts` owns Markdown-aware static policy extraction,
   `route-path.ts` owns route identity and specificity, and `manifest.ts` owns
   policy validation plus generated manifest files.
+  Environment leak protection keeps `env-safety.ts` as its public facade;
+  policy constants and report types, executable-source masking, reference
+  scanning, diagnostics, and Vite build hooks live in matching modules under
+  `env-safety/` so detection policy stays independent from bundler lifecycle.
 - **SSR JSX precompiler** — `@pracht/preact-ssr-precompile` keeps its public
   Vite plugin facade in `index.ts`, JSX-to-template lowering in `transform.ts`,
   and parsing, AST traversal, filtering, and offset-safe edits in
