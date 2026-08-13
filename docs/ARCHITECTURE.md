@@ -598,8 +598,12 @@ dev-404.ts      — dev-only 404 page HTML listing registered routes (no interna
 
 The Vite plugin keeps virtual-module assembly separate from source discovery:
 
-- `plugin-codegen.ts` composes the client, islands, server, development, and
-  registry virtual modules.
+- `plugin-codegen.ts` composes the client, islands, server, and development
+  virtual modules behind the existing generator surface.
+- `plugin-registry-codegen.ts` owns the lazy route, shell, middleware, API,
+  data, and capability registry source shared by server and development.
+- `plugin-llms-txt-config.ts` owns package-metadata fallback and normalization
+  for the generated server module's `llms.txt` configuration.
 - `plugin-route-sources.ts` scans manifest/pages sources for hydration
   exclusions and loader hints, and owns the cached inline pages manifest.
 

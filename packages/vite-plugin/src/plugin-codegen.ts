@@ -1,5 +1,3 @@
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
 import { createWebmcpBootstrapSource } from "./capability-browser-codegen.ts";
 import { PRACHT_CLIENT_MODULE_QUERY } from "./client-module-query.ts";
 import {
@@ -7,19 +5,18 @@ import {
   ISLANDS_CLIENT_BROWSER_PATH,
   readClientBuildAssets,
 } from "./plugin-assets.ts";
-import {
-  resolveOptions,
-  type PrachtPluginOptions,
-  type ResolvedPrachtPluginOptions,
-} from "./plugin-options.ts";
+import { resolveOptions, type PrachtPluginOptions } from "./plugin-options.ts";
 import {
   createNonFullHydrationExcludes,
   createRouteLoaderHintsForVirtualModules,
   generatePagesAppInlineSource,
 } from "./plugin-route-sources.ts";
 import { hasWebmcpCapabilities } from "./plugin-capabilities.ts";
+import { resolveLlmsTxtConfig } from "./plugin-llms-txt-config.ts";
+import { createPrachtRegistryModuleSource } from "./plugin-registry-codegen.ts";
 
 export { clearPagesAppSourceCache } from "./plugin-route-sources.ts";
+export { createPrachtRegistryModuleSource } from "./plugin-registry-codegen.ts";
 
 export function createPrachtClientModuleSource(
   options: PrachtPluginOptions = {},
@@ -290,43 +287,6 @@ export function createPrachtDevModuleSource(
   ].join("\n");
 }
 
-interface ResolvedLlmsTxtConfig {
-  title: string;
-  description?: string;
-  origin?: string;
-  include?: string[];
-  exclude?: string[];
-}
-
-/**
- * Fill llms.txt title/description from the app's package.json when the user
- * did not set them explicitly. Returns null when the feature is disabled so
- * the server module codegen stays byte-for-byte unchanged.
- */
-function resolveLlmsTxtConfig(
-  resolved: ResolvedPrachtPluginOptions,
-  root = process.cwd(),
-): ResolvedLlmsTxtConfig | null {
-  if (!resolved.llmsTxt) return null;
-
-  let pkg: { name?: unknown; description?: unknown } = {};
-  try {
-    pkg = JSON.parse(readFileSync(resolve(root, "package.json"), "utf-8"));
-  } catch {}
-
-  const config: ResolvedLlmsTxtConfig = {
-    title: resolved.llmsTxt.title ?? (typeof pkg.name === "string" && pkg.name ? pkg.name : "App"),
-  };
-  const description =
-    resolved.llmsTxt.description ??
-    (typeof pkg.description === "string" && pkg.description ? pkg.description : undefined);
-  if (description) config.description = description;
-  if (resolved.llmsTxt.origin) config.origin = resolved.llmsTxt.origin;
-  if (resolved.llmsTxt.include) config.include = resolved.llmsTxt.include;
-  if (resolved.llmsTxt.exclude?.length) config.exclude = resolved.llmsTxt.exclude;
-  return config;
-}
-
 function createApplyRouteLoaderHintsSource(): string[] {
   return [
     "function applyRouteLoaderHints(resolvedApp, routeLoaderHints) {",
@@ -341,48 +301,4 @@ function createApplyRouteLoaderHintsSource(): string[] {
     "}",
     "",
   ];
-}
-
-export function createPrachtRegistryModuleSource(options: PrachtPluginOptions = {}): string {
-  const resolved = resolveOptions(options);
-  const apiGlobs = [`${resolved.apiDir}/**/*.{ts,js,tsx,jsx}`, `!${resolved.apiDir}/**/*.d.ts`];
-  const isPagesMode = !!resolved.pagesDir;
-
-  const routeGlob = isPagesMode
-    ? `${resolved.pagesDir}/**/*.{ts,tsx,js,jsx,md,mdx}`
-    : `${resolved.routesDir}/**/*.{ts,tsx,js,jsx,md,mdx}`;
-  const routeTsrxGlob = isPagesMode
-    ? `${resolved.pagesDir}/**/*.tsrx`
-    : `${resolved.routesDir}/**/*.tsrx`;
-
-  const shellGlob = isPagesMode
-    ? `${resolved.pagesDir}/**/_app.{ts,tsx,js,jsx}`
-    : `${resolved.shellsDir}/**/*.{ts,tsx,js,jsx,md,mdx}`;
-  const shellTsrxGlob = isPagesMode
-    ? `${resolved.pagesDir}/**/_app.tsrx`
-    : `${resolved.shellsDir}/**/*.tsrx`;
-
-  return [
-    `export const routeModules = {`,
-    `  ...import.meta.glob(${JSON.stringify(routeGlob)}),`,
-    `  ...import.meta.glob(${JSON.stringify(routeTsrxGlob)}),`,
-    `};`,
-    `export const shellModules = {`,
-    `  ...import.meta.glob(${JSON.stringify(shellGlob)}),`,
-    `  ...import.meta.glob(${JSON.stringify(shellTsrxGlob)}),`,
-    `};`,
-    `export const middlewareModules = import.meta.glob(${JSON.stringify(`${resolved.middlewareDir}/**/*.{ts,tsx,js,jsx}`)});`,
-    `export const apiModules = import.meta.glob(${JSON.stringify(apiGlobs)});`,
-    `export const dataModules = import.meta.glob(${JSON.stringify(`${resolved.serverDir}/**/*.{ts,js,tsx,jsx}`)});`,
-    `export const capabilityModules = import.meta.glob(${JSON.stringify(`${resolved.capabilitiesDir}/**/*.{ts,js,tsx,jsx}`)});`,
-    "",
-    "export const registry = {",
-    "  routeModules,",
-    "  shellModules,",
-    "  middlewareModules,",
-    "  apiModules,",
-    "  dataModules,",
-    "  capabilityModules,",
-    "};",
-  ].join("\n");
 }
