@@ -15,7 +15,7 @@ import {
   withEnhancedCapabilityFormRedirect,
 } from "./runtime-headers.ts";
 import { resolveRegistryModule } from "./runtime-manifest.ts";
-import { runMiddlewareChain } from "./runtime-middleware.ts";
+import { runMiddlewareChain } from "./runtime-middleware-chain.ts";
 import { isSameOriginRequest } from "./runtime-request-provenance.ts";
 import { renderApiErrorResponse } from "./runtime-api-error-response.ts";
 import type {

@@ -11,7 +11,7 @@ import type {
   CapabilityDispatchResult,
   HandleCapabilityRequestOptions,
 } from "./runtime-capability-transport-types.ts";
-import { runMiddlewareChain } from "./runtime-middleware.ts";
+import { runMiddlewareChain } from "./runtime-middleware-chain.ts";
 
 /** Wrap HTTP capability dispatch in the app-level API middleware chain. */
 export async function dispatchCapabilityHttpWithApiMiddleware<TContext>(

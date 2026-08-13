@@ -122,7 +122,7 @@ export function createCapabilityTestHost(): never {
 }
 export { fetchPrachtRouteState, parseSafeNavigationUrl } from "./runtime-client-fetch.ts";
 export { initClientRouter, useNavigate } from "./router.ts";
-export { redirect, type RedirectOptions } from "./runtime-middleware.ts";
+export { redirect, type RedirectOptions } from "./runtime-redirect.ts";
 export { notFound, PrachtHttpError } from "./http-errors.ts";
 
 export type {

@@ -82,6 +82,11 @@ described in `VISION_MVP.md`.
   facade. `runtime-form-native.ts` owns submitter/native-resubmission mechanics,
   `runtime-api-form.ts` owns ordinary API submissions, and
   `runtime-capability-form.ts` owns capability transport and settlement events.
+- **Middleware and redirects** — Public redirect helpers live in
+  `runtime-redirect.ts`; `runtime-middleware-chain.ts` owns concurrent module
+  loading and ordered, fail-closed execution; and
+  `runtime-document-metadata.ts` owns shell/route head and header aggregation.
+  `runtime-middleware.ts` preserves the former internal import facade.
 - **Agent request signing** — The isolated `@pracht/core/agent-auth` entry keeps
   `agent-auth-sign.ts` as its public facade. `agent-auth-sign-types.ts` owns the
   signing contracts, `agent-auth-request-signing.ts` owns RFC 9421 request and

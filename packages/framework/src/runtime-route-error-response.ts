@@ -19,7 +19,7 @@ import {
   resolvePageJsUrls,
   resolveRegistryModule,
 } from "./runtime-manifest.ts";
-import { mergeDocumentHeaders } from "./runtime-middleware.ts";
+import { mergeDocumentHeaders } from "./runtime-document-metadata.ts";
 import { PrachtRuntimeProvider } from "./runtime-hooks.ts";
 import { getRenderToStringAsync } from "./runtime-rendering.ts";
 import type { RuntimeResponseOptions } from "./runtime-response-types.ts";

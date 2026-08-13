@@ -7,7 +7,7 @@
  */
 
 import { canonicalJson } from "./runtime-confirmation.ts";
-import { runMiddlewareChain } from "./runtime-middleware.ts";
+import { runMiddlewareChain } from "./runtime-middleware-chain.ts";
 import type { ResolvedCapability } from "./runtime-capability-registry.ts";
 import type {
   CapabilityEnvelope,

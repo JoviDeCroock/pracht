@@ -78,6 +78,12 @@ event-flow facade. Native resubmission mechanics, ordinary API submission, and
 capability submission live in `runtime-form-native.ts`, `runtime-api-form.ts`,
 and `runtime-capability-form.ts` respectively.
 
+Middleware helpers are similarly separated by responsibility:
+`runtime-redirect.ts` owns safe redirect construction,
+`runtime-middleware-chain.ts` owns ordered fail-closed execution, and
+`runtime-document-metadata.ts` owns shell/route head and document-header
+aggregation. `runtime-middleware.ts` remains the stable internal facade.
+
 The isolated `@pracht/core/agent-auth` entry keeps `agent-auth-sign.ts` as its
 public facade. Signing contracts live in `agent-auth-sign-types.ts`, RFC 9421
 request/header construction in `agent-auth-request-signing.ts`, and Ed25519 key

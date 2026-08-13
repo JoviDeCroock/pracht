@@ -9,11 +9,8 @@
 import { isPrachtHttpError, type PrachtRuntimeDiagnosticPhase } from "./runtime-errors.ts";
 import { withRouteResponseHeaders } from "./runtime-headers.ts";
 import { resolveDataFunctions, resolveRegistryModule } from "./runtime-manifest.ts";
-import {
-  mergeDocumentHeaders,
-  mergeHeadMetadata,
-  runMiddlewareChain,
-} from "./runtime-middleware.ts";
+import { mergeDocumentHeaders, mergeHeadMetadata } from "./runtime-document-metadata.ts";
+import { runMiddlewareChain } from "./runtime-middleware-chain.ts";
 import { renderPageRepresentation } from "./runtime-page-render.ts";
 import { renderRouteErrorResponse } from "./runtime-route-error-response.ts";
 import { normalizePageResponse } from "./runtime-route-state-response.ts";
