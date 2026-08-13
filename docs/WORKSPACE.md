@@ -87,6 +87,10 @@ described in `VISION_MVP.md`.
   loading and ordered, fail-closed execution; and
   `runtime-document-metadata.ts` owns shell/route head and header aggregation.
   `runtime-middleware.ts` preserves the former internal import facade.
+- **Header primitives** — `runtime-header-values.ts` owns adapter-portable CR/LF
+  validation, applying user header initializers, and case-insensitive `Vary`
+  composition. Response security and cache policy remain in
+  `runtime-headers.ts`, which preserves the former helper exports.
 - **Agent request signing** — The isolated `@pracht/core/agent-auth` entry keeps
   `agent-auth-sign.ts` as its public facade. `agent-auth-sign-types.ts` owns the
   signing contracts, `agent-auth-request-signing.ts` owns RFC 9421 request and

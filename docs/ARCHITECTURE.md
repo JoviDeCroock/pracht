@@ -544,6 +544,7 @@ runtime-redirect.ts — safe redirect target validation and method-aware status 
 runtime-middleware-chain.ts — concurrent module loading and sequential fail-closed execution
 runtime-document-metadata.ts — shell/route head and document-header aggregation
 runtime-middleware.ts — stable middleware helper facade
+runtime-header-values.ts — portable value validation, application, and Vary composition
 runtime-form.ts — stable Form props/render facade and event-flow orchestration
 runtime-form-native.ts — submitter resolution and validated native resubmission guard
 runtime-api-form.ts — ordinary API validation, fetch, redirect, and response handling

@@ -84,6 +84,11 @@ Middleware helpers are similarly separated by responsibility:
 `runtime-document-metadata.ts` owns shell/route head and document-header
 aggregation. `runtime-middleware.ts` remains the stable internal facade.
 
+Portable response-header primitives live in `runtime-header-values.ts`:
+user-provided value validation, header application, and `Vary` composition.
+Security defaults and caching policy remain in `runtime-headers.ts`, which
+continues to re-export the former helper surface.
+
 The isolated `@pracht/core/agent-auth` entry keeps `agent-auth-sign.ts` as its
 public facade. Signing contracts live in `agent-auth-sign-types.ts`, RFC 9421
 request/header construction in `agent-auth-request-signing.ts`, and Ed25519 key

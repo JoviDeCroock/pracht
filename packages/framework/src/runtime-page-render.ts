@@ -16,7 +16,7 @@ import {
 } from "./islands-server.ts";
 import { buildRouteStateUrl } from "./runtime-client-fetch.ts";
 import { PrachtRuntimeProvider } from "./runtime-context.ts";
-import { appendVaryHeader } from "./runtime-headers.ts";
+import { appendVaryHeader } from "./runtime-header-values.ts";
 import { buildHtmlDocument, htmlResponse } from "./runtime-html.ts";
 import {
   CLIENT_ENTRY_MANIFEST_KEY,

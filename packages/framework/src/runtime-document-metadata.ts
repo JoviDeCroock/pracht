@@ -1,4 +1,4 @@
-import { applyHeaders } from "./runtime-headers.ts";
+import { applyHeaders } from "./runtime-header-values.ts";
 import type { BaseRouteArgs, HeadMetadata, RouteModule, ShellModule } from "./types.ts";
 
 /** Resolve shell and route head exports concurrently, then merge route last. */
