@@ -38,6 +38,9 @@ loading of the Preact server renderer. API failure policy lives in
 `runtime-api-error-response.ts`, route error-boundary HTML in
 `runtime-route-error-response.ts`, and their shared generated-asset options in
 `runtime-response-types.ts`; `runtime-response.ts` is the compatibility facade.
+Server islands likewise keep registry, vnode interception, and marker rendering
+in `islands-server.ts`, with strategy and JSON prop wire validation isolated in
+`islands-serialization.ts` behind the existing public validator.
 
 Capability transport keeps its request contract in the type-only
 `runtime-capability-transport-types.ts`. MCP-only middleware output

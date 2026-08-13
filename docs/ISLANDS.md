@@ -165,6 +165,10 @@ outer island.)
   props="...">` marker (`display: contents`, so it never affects layout).
   Detection state travels through render context, so concurrent prerenders
   can't leak islands across pages.
+- For framework contributors, `islands-server.ts` owns component registration,
+  vnode interception, and boundary rendering. `islands-serialization.ts` owns
+  hydration-strategy validation and the JSON prop wire contract while the
+  public `validateIslandProps()` facade remains stable.
 - The HTML document for islands routes contains **no hydration-state script
   and no client runtime**. It references only `virtual:pracht/islands-client`:
   a small bootstrap that scans the DOM for markers, dynamically imports only

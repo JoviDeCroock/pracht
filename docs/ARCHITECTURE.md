@@ -542,6 +542,8 @@ runtime-context.ts — hydration state reader and Preact runtime provider
     ↑
 runtime-form.ts — enhanced form validation, capability submission, and response handling
 runtime-hooks.ts — public browser hook/Link facade and stable Form re-export
+islands-server.ts — island registry, vnode interception, and SSR marker boundaries
+islands-serialization.ts — hydration-strategy and JSON prop wire validation
     ↑
 runtime.ts      — SSR handler and prerendering (static import of app.ts)
 runtime-rendering.ts — lazy shared Preact server-renderer loading

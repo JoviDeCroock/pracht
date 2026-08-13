@@ -88,6 +88,9 @@ described in `VISION_MVP.md`.
   HTML live in `runtime-api-error-response.ts` and
   `runtime-route-error-response.ts`, with `runtime-response.ts` retained as a
   stable facade.
+  Islands rendering keeps registry/vnode-boundary behavior in
+  `islands-server.ts` and hydration strategy plus JSON prop policy in
+  `islands-serialization.ts` behind the existing public validator.
   The dev-only error overlay keeps `error-overlay.ts` as its
   published facade, with stack parsing, editor-path normalization, and
   standalone HTML rendering in focused modules under `error-overlay/`.
