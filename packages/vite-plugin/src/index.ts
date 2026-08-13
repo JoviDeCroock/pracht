@@ -144,6 +144,7 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
   }
 
   let isBuild = false;
+  let base = "/";
 
   const prachtPlugin: Plugin = {
     name: "pracht",
@@ -280,6 +281,7 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
     configResolved(config) {
       root = config.root;
       isBuild = config.command === "build";
+      base = config.base;
       routeFileDirs = computeRouteFileDirs(root, resolved);
       capabilityModulePaths = new Set(
         resolveCapabilityModulePaths(resolved, root).map(canonicalFilePath),
@@ -326,7 +328,7 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
         return createPrachtDevModuleSource(resolved, { root });
       }
       if (isServerModule(id)) {
-        return createPrachtServerModuleSource(resolved, { root, isBuild });
+        return createPrachtServerModuleSource(resolved, { root, isBuild, base });
       }
       if (isCapabilitiesModule(id)) {
         return createPrachtCapabilitiesClientModuleSource(resolved, { root });

@@ -323,7 +323,9 @@ offenders — that is the signal to pick a serverful adapter instead. Only
 manifest-registered capabilities participate; every registered capability
 module must load successfully so exposure validation can fail closed. The
 `notFound` page must use full hydration (the default), because the shared
-`404.html` needs the client router to adopt the visitor's actual URL.
+`404.html` needs the client router to adopt the visitor's actual URL. Static
+exports must deploy at an origin root: a Vite `base` other than `/` is a build
+error, because prerendered asset and route-state URLs are root-relative.
 
 ### Setup
 
@@ -355,7 +357,10 @@ for live data. See docs/ADAPTERS.md § Static Adapter for host header
 configuration and limitations (markdown negotiation, percent-encoded params,
 base paths). The SPA fallback only client-renders matched SPA routes; dynamic
 SSG paths omitted by `getStaticPaths()` render the app's not-found page with
-the build-time loader data carried over from `404.html`.
+the build-time loader data carried over from `404.html`. The host rewrite that
+serves the fallback answers unknown URLs with status 200 (soft 404), and an app
+with no `notFound` page and no catch-all route renders them blank — the build
+warns about that shape.
 
 ---
 

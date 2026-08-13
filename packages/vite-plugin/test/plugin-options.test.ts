@@ -154,4 +154,11 @@ describe("createPrachtServerModuleSource static target export", () => {
   it("exports staticTarget false for serverful adapters", () => {
     expect(createPrachtServerModuleSource()).toContain("export const staticTarget = false;");
   });
+
+  it("exports the resolved Vite base so the CLI can reject sub-path static deploys", () => {
+    expect(createPrachtServerModuleSource({}, { base: "/app/" })).toContain(
+      'export const buildBase = "/app/";',
+    );
+    expect(createPrachtServerModuleSource()).toContain('export const buildBase = "/";');
+  });
 });

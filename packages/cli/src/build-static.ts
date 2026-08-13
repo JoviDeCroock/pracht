@@ -22,6 +22,7 @@ interface StaticRouteView {
 
 interface StaticServerModuleView {
   staticTarget?: boolean;
+  buildBase?: string;
   resolvedApp?: {
     routes?: StaticRouteView[];
     notFound?: StaticRouteView;
@@ -89,6 +90,19 @@ export async function validateStaticExport(serverMod: StaticServerModuleView): P
   const routes = serverMod.resolvedApp?.routes ?? [];
   const notFound = serverMod.resolvedApp?.notFound;
   const pageRoutes = notFound ? [...routes, notFound] : routes;
+
+  // Sub-path deploys (GitHub Pages project sites, an S3 key prefix) would
+  // build cleanly and then serve a dead site: prerendered documents reference
+  // `/assets/…` and `/_pracht/state/…` from the origin root, so every script
+  // and state file 404s under the base. Fail here instead.
+  const buildBase = serverMod.buildBase ?? "/";
+  if (buildBase !== "/") {
+    problems.push(
+      `Vite \`base\` is set to ${JSON.stringify(buildBase)}, but static exports emit root-relative asset and route-state URLs:\n` +
+        `    - every prerendered page would request /assets/… and /_pracht/state/… from the origin root\n` +
+        '  Base paths are not wired through yet. Deploy at an origin root (base: "/"), or use a serverful adapter.',
+    );
+  }
   const serverRendered = routes.filter((route) => route.render !== "ssg" && route.render !== "spa");
   if (serverRendered.length > 0) {
     const listed = serverRendered
@@ -268,6 +282,25 @@ function readStaticNotFoundData(html: string): unknown {
 }
 
 /**
+ * A root splat (`/*`, `/:rest*`) matches every URL, so a fallback document
+ * always resolves to that route — there is no unmatched URL left to render
+ * blank. A single dynamic segment (`/:slug`) only covers one path depth.
+ */
+function matchesEveryPath(routePath: string): boolean {
+  return routePath === "/*" || /^\/:[^/]+\*$/.test(routePath);
+}
+
+/**
+ * Prerender output keeps the percent-encoded form of dynamic params
+ * (`/posts/café` → a directory literally named `caf%C3%A9`). Hosts that
+ * decode the URL before the filesystem lookup — most of them — never find
+ * those files, and the failure only shows up after deploying.
+ */
+function findPercentEncodedPaths(pages: Array<{ path: string }>): string[] {
+  return pages.map((page) => page.path).filter((path) => /%[0-9A-Fa-f]{2}/.test(path));
+}
+
+/**
  * Write the static-deploy artifacts next to the prerendered pages:
  * per-route state JSON, `404.html` from the app's notFound page, and the
  * optional SPA fallback document.
@@ -290,6 +323,17 @@ export async function writeStaticExportArtifacts(options: {
   }
   if (stateFileCount > 0) {
     log(`\n  Route state → dist/client/_pracht/state (${stateFileCount} file(s))\n`);
+  }
+
+  const percentEncodedPaths = findPercentEncodedPaths(pages);
+  if (percentEncodedPaths.length > 0) {
+    log(
+      "\n  Warning: these prerendered paths contain percent-encoded characters, so their\n" +
+        "  output directories are named literally (for example caf%C3%A9):\n" +
+        percentEncodedPaths.map((path) => `    - ${path}`).join("\n") +
+        "\n  Hosts that decode URLs before the filesystem lookup (most do) will answer 404\n" +
+        "  for them. Prefer ASCII-safe getStaticPaths() params on static exports.\n",
+    );
   }
 
   const configuredFallback = serverMod.staticExportConfig?.fallback ?? null;
@@ -324,6 +368,22 @@ export async function writeStaticExportArtifacts(options: {
       `  SPA fallback → dist/client/${configuredFallback} ` +
         "(configure your host to rewrite unmatched URLs to it)\n",
     );
+
+    // The fallback document renders whatever the client router resolves from
+    // `window.location`. With no notFound page and no route matching every
+    // URL, that resolves to nothing: the visitor gets a blank page, and the
+    // host's rewrite means it answers 200 instead of 404.
+    const hasCatchAllRoute = (serverMod.resolvedApp?.routes ?? []).some((route) =>
+      matchesEveryPath(route.path),
+    );
+    if (!wrote404 && !hasCatchAllRoute) {
+      log(
+        `\n  Warning: ${configuredFallback} is emitted but the app declares no notFound page,\n` +
+          "  and no route matches every URL. Behind the host rewrite, unknown URLs render an\n" +
+          "  empty document with status 200. Add defineApp({ notFound }) so they render a real\n" +
+          "  page, or drop the `fallback` option so unknown URLs keep the host's 404.\n",
+      );
+    }
   }
 
   return { stateFileCount, wrote404, fallbackFile };

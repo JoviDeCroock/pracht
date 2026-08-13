@@ -582,7 +582,8 @@ The build fails closed — before prerendering, with every offender listed — w
 - no route or not-found middleware;
 - the `notFound` page must use full hydration (the default) so `404.html` can adopt the visitor's real URL;
 - no API routes;
-- no manifest-registered capabilities exposed over HTTP/MCP/WebMCP (unexposed capabilities invoked from build-time loaders are fine); registered capability modules must load successfully so the build can establish that exposure safely.
+- no manifest-registered capabilities exposed over HTTP/MCP/WebMCP (unexposed capabilities invoked from build-time loaders are fine); registered capability modules must load successfully so the build can establish that exposure safely;
+- Vite `base` must stay `/`: prerendered asset and route-state URLs are root-relative, so a sub-path deploy would 404 everything.
 
 `ssr` and `isg` routes belong on the Node, Cloudflare, or Vercel adapters.
 
@@ -595,6 +596,8 @@ Client-side navigation normally fetches route-state JSON from the server. A stat
 The app's `notFound` page is rendered to `404.html` independently of ordinary route matching (the GitHub Pages / S3 convention); the full-hydration page adopts the URL actually visited. With `fallback: "200.html"` plus a host rewrite for unmatched URLs, deep links into dynamic `render: "spa"` routes boot the client router and resolve the route from `window.location`.
 
 The fallback only client-renders matched SPA routes. A path that matches a dynamic SSG pattern but was not emitted by `getStaticPaths()` renders the app's `notFound` page instead of running without its missing build-time state. That client render reuses the build-time `notFound` loader data serialized into `404.html`.
+
+The rewrite answers unknown URLs with status 200, so they become soft 404s; and with no `notFound` page and no route matching every URL, they render blank (the build warns).
 
 ### Build, preview, deploy
 

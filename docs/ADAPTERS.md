@@ -1147,7 +1147,16 @@ aggregated error — before any prerendering — when the app needs one:
   be established safely.
 - **Routes under `/_pracht/`** are hard errors: that namespace is reserved for
   build metadata and the route-state tree below.
+- A **Vite `base` other than `/`** is a hard error. Prerendered documents
+  reference `/assets/…` and `/_pracht/state/…` from the origin root, so a
+  sub-path deploy (a GitHub Pages project site, an S3 key prefix) would build
+  cleanly and then 404 every script and state file.
 - Webhook/time revalidation is N/A by construction (no ISG routes exist).
+
+Two shapes are warnings rather than errors, because they are only wrong for
+some deploys: percent-encoded prerender paths (the build lists them), and a
+`fallback` document in an app with no `notFound` page and no route matching
+every URL (unknown URLs would render blank).
 
 ### Client-side navigation without a server
 
@@ -1221,7 +1230,17 @@ client-side fetch to an external API instead.
   `notFound` page instead of running without its missing build-time state.
   The fallback embeds the same build-time `notFound` loader data serialized
   into `404.html`, so this client render receives the normal data without
-  executing the loader again.
+  executing the loader again. An app with no `notFound` page and no route
+  matching every URL (`/*`, `/:rest*`) has nothing to render for an unknown
+  URL behind the rewrite — the visitor gets an empty document. The build
+  warns when a `fallback` is emitted in that shape.
+- **The rewrite turns unknown URLs into soft 404s**: a host that answers
+  `/* → 200.html` with status 200 does so for genuinely unknown URLs too, so
+  they are `200` even though the client renders the `notFound` page. Hosts
+  that check for a matching file first (Netlify, nginx `try_files`) keep the
+  status of files that exist; nothing restores the `404` status for the
+  rewritten ones. Skip `fallback` when correct 404 statuses matter more than
+  deep links into dynamic SPA routes.
 - A host that serves `404.html` with status **200** (S3 without an error-
   document configuration, some CDN defaults) changes nothing for the client —
   hydration adopts `window.location` either way — but crawlers will index
@@ -1247,9 +1266,12 @@ client-side fetch to an external API instead.
   percent-encoded form (`/posts/caf%C3%A9` → a directory literally named
   `caf%C3%A9`). Hosts that decode URLs before filesystem lookup (most do)
   will miss those files — prefer ASCII-safe param values for static exports.
+  The build warns and lists the affected paths.
 - **Base paths** (deploying under a sub-path such as GitHub Pages project
-  sites) are not yet wired through: prerendered asset and state URLs are
-  root-relative. Deploy static exports at an origin root for now.
+  sites) are not wired through: prerendered asset and state URLs are
+  root-relative. A static build with Vite `base` set to anything but `/` is a
+  build error rather than a deploy whose every asset 404s. Deploy static
+  exports at an origin root.
 
 ### `pracht preview`
 
