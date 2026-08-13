@@ -2369,6 +2369,42 @@ describe("handlePrachtRequest ErrorBoundary", () => {
     });
   });
 
+  it("includes route fonts when middleware fails before the route terminal", async () => {
+    const routeFont = defineFont({ family: "Gate Error", src: "/fonts/gate-error.woff2" });
+    const app = defineApp({
+      middleware: { gate: "./middleware/gate.ts" },
+      routes: [route("/gate", "./routes/gate.tsx", { middleware: ["gate"] })],
+    });
+
+    const response = await handlePrachtRequest({
+      app,
+      registry: {
+        middlewareModules: {
+          "./middleware/gate.ts": async () => ({
+            middleware: async () => {
+              throw new Error("gate failed");
+            },
+          }),
+        },
+        routeModules: {
+          "./routes/gate.tsx": async () => ({
+            Component: () => null,
+            ErrorBoundary: () => h("p", { class: routeFont.className }, "Failed"),
+            head: () => ({ fonts: [routeFont] }),
+          }),
+        },
+      },
+      request: new Request("http://localhost/gate", {
+        headers: { "x-pracht-route-state-request": "1" },
+      }),
+    });
+
+    expect(response.status).toBe(500);
+    const payload = (await response.json()) as Record<string, any>;
+    expect(payload.fontHead.css).toContain('font-family:"Gate Error"');
+    expect(payload.fontHead.preloadLinks).toEqual(routeFont.preloadLinks);
+  });
+
   it("sanitizes unexpected 5xx loader failures in route-state responses", async () => {
     const app = defineApp({
       routes: [route("/posts/:slug", "./routes/post.tsx")],

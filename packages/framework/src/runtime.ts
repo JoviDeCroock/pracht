@@ -1128,6 +1128,11 @@ export async function handlePrachtRequest<TContext>(
         }
       }
 
+      // Middleware can fail before pageTerminal assigns routeModule. The import
+      // was still started in parallel, so retain route-scoped error metadata
+      // (notably fonts used by the route ErrorBoundary) when it resolves.
+      routeModule ??= await routeModulePromise?.catch(() => undefined);
+
       return renderRouteErrorResponse({
         error: thrownResponseFailure ?? error,
         isRouteStateRequest,
