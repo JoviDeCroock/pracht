@@ -14,7 +14,8 @@ import { capabilityModuleLoader, createSourceReader } from "./app-graph.js";
 import { withAppServer } from "./app-server.js";
 import type { BaseSnapshotResult, GraphSnapshot } from "./graph-types.js";
 
-export { diffCapabilities, diffGraphSnapshots } from "./graph-diff.js";
+export { diffCapabilities } from "./graph-capability-diff.js";
+export { diffGraphSnapshots } from "./graph-diff.js";
 export {
   formatPlanLines,
   formatPlanMarkdown,

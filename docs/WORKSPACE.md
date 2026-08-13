@@ -140,6 +140,10 @@ described in `VISION_MVP.md`.
   Eval scenario discovery, validation, step references, and expectations live
   in `eval-scenario.ts`; `eval-runner.ts` owns signed HTTP execution and server
   readiness while preserving the existing runner import surface.
+  Graph planning keeps route, API, constraint, and MCP endpoint composition in
+  `graph-diff.ts`, while capability guard and input-schema widening
+  classification lives in `graph-capability-diff.ts`; `graph-snapshot.ts`
+  remains their stable facade.
   Generation operations, path rules, and source templates live together under
   `packages/cli/src/generation/`; `index.ts` is the stable facade, route and
   smoke-test policy lives in `route.ts`, manifest-backed shell/middleware

@@ -97,7 +97,9 @@ Semantic app-graph diff against a base git ref. Reads the
 lockfile), resolves the live graph, and prints the routes, API endpoints, and
 constraints that were added, removed, or changed — an intent-level changelog
 for reviewers. Per-route gzip sizes are annotated when the last build wrote a
-budget report.
+budget report. Generic route/API comparison and trust-sensitive capability
+surface classification live in separate planner modules behind the same graph
+snapshot facade.
 
 ```bash
 pracht plan                       # diff against origin/main
