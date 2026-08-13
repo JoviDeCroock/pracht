@@ -151,9 +151,11 @@ described in `VISION_MVP.md`.
   `mcp-server/`, alongside their shared cwd and error-result policy.
   Verification keeps its stable facade in `verification-checks.ts`; manifest
   wiring, API discovery, and pages-router/Markdown checks live in focused
-  `verification-*-checks.ts` modules, while project-wide budgets, dependency,
-  and deployment policy share `verification-project-checks.ts`. Capability
-  verification keeps manifest/file traversal in `verification-capabilities.ts`,
+  `verification-*-checks.ts` modules. Middleware export source analysis lives
+  separately in `middleware-export-source.ts`, while project-wide budgets,
+  dependency, and deployment policy share `verification-project-checks.ts`.
+  Capability verification keeps manifest/file traversal in
+  `verification-capabilities.ts`,
   per-contract static analysis in `verification-capability-contract.ts`, and
   graph-wide generated-client/MCP checks in
   `verification-capability-projections.ts`.

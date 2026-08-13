@@ -80,6 +80,10 @@ When the app declares `defineApp({ constraints })` or commits a
 graph, enforces every constraint, and fails if the snapshot is stale (fix with
 `pracht plan --write`).
 
+Internally, verification keeps filesystem and project checks separate from the
+source analysis that confirms registered middleware exports the named
+`middleware` binding.
+
 ```bash
 pracht verify
 pracht verify --changed
