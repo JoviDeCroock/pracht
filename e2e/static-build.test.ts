@@ -18,6 +18,7 @@ import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
 
 import { fixtureCopyFilter } from "./fixture-copy.ts";
+import { buildStaticRouteStateUrl } from "../packages/framework/src/runtime-static.ts";
 
 const repoRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const staticFixtureDir = resolve(repoRoot, "examples/static");
@@ -197,17 +198,16 @@ test("static export serves a full app from a dumb static host with zero server",
 
     // Route-state files exist exactly for loader-backed SSG routes. Loaderless
     // SSG and SPA routes fetch nothing from the static host.
-    for (const path of [
-      "_pracht/state/index.json",
-      "_pracht/state/about/index.json",
-      "_pracht/state/posts/hello-world/index.json",
-      "_pracht/state/posts/second-post/index.json",
-    ]) {
+    for (const path of ["/", "/about", "/posts/hello-world", "/posts/second-post"].map(
+      (routePath) => buildStaticRouteStateUrl(routePath).slice(1),
+    )) {
       expect(existsSync(resolve(clientDir, path)), `${path} should exist`).toBe(true);
     }
-    expect(existsSync(resolve(clientDir, "_pracht/state/plain/index.json"))).toBe(false);
-    expect(existsSync(resolve(clientDir, "_pracht/state/dashboard/index.json"))).toBe(false);
-    expect(existsSync(resolve(clientDir, "_pracht/state/items/42/index.json"))).toBe(false);
+    expect(existsSync(resolve(clientDir, `.${buildStaticRouteStateUrl("/plain")}`))).toBe(false);
+    expect(existsSync(resolve(clientDir, `.${buildStaticRouteStateUrl("/dashboard")}`))).toBe(
+      false,
+    );
+    expect(existsSync(resolve(clientDir, `.${buildStaticRouteStateUrl("/items/42")}`))).toBe(false);
 
     // State files carry the same payload the live endpoint would, as plain
     // JSON (loader HTML stays inert data, exactly like the live endpoint).
@@ -256,7 +256,7 @@ test("static export serves a full app from a dumb static host with zero server",
     await page.waitForURL(`${origin}/about`);
     await expect(page.locator("#built-at")).toContainText("Build time");
     expect(await page.evaluate(() => (window as any).__NO_RELOAD__)).toBe(true);
-    expect(stateFileRequests.some((url) => url.endsWith("/_pracht/state/about/index.json"))).toBe(
+    expect(stateFileRequests.some((url) => url.endsWith(buildStaticRouteStateUrl("/about")))).toBe(
       true,
     );
 
@@ -531,7 +531,7 @@ test("static export warns when the SPA fallback has no notFound page to render",
     );
 
     const output = buildExampleOutput(exampleDir, { PRACHT_STATIC_FALLBACK: "200.html" });
-    expect(output).toContain("no route matches every URL");
+    expect(output).toContain("no client-routable SPA catch-all matches every URL");
     expect(output).toContain("empty document with status 200");
     expect(existsSync(resolve(exampleDir, "dist/client/200.html"))).toBe(true);
     expect(existsSync(resolve(exampleDir, "dist/client/404.html"))).toBe(false);

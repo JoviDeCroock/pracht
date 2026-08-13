@@ -10,26 +10,31 @@ describe("buildStaticRouteStateUrl", () => {
     expect(buildStaticRouteStateUrl("/")).toBe("/_pracht/state/index.json");
   });
 
-  it("maps nested paths with an index.json leaf so /blog and /blog/post never collide", () => {
-    expect(buildStaticRouteStateUrl("/blog")).toBe("/_pracht/state/blog/index.json");
-    expect(buildStaticRouteStateUrl("/blog/hello")).toBe("/_pracht/state/blog/hello/index.json");
+  it("maps nested paths to collision-safe opaque components", () => {
+    expect(buildStaticRouteStateUrl("/blog")).toBe("/_pracht/state/0062006c006f0067.json");
+    expect(buildStaticRouteStateUrl("/blog/hello")).toBe(
+      "/_pracht/state/0062006c006f0067/00680065006c006c006f.json",
+    );
+    expect(buildStaticRouteStateUrl("/docs")).not.toBe(
+      buildStaticRouteStateUrl("/docs/index.json"),
+    );
   });
 
   it("drops the query string — build-time loader data has no query variants", () => {
     expect(buildStaticRouteStateUrl("/pricing?ref=a&x=1")).toBe(
-      "/_pracht/state/pricing/index.json",
+      "/_pracht/state/00700072006900630069006e0067.json",
     );
     expect(buildStaticRouteStateUrl("/?_data=1")).toBe("/_pracht/state/index.json");
   });
 
   it("normalizes trailing slashes to the slashless build output path", () => {
-    expect(buildStaticRouteStateUrl("/about/")).toBe("/_pracht/state/about/index.json");
-    expect(buildStaticRouteStateUrl("/about///")).toBe("/_pracht/state/about/index.json");
+    expect(buildStaticRouteStateUrl("/about/")).toBe("/_pracht/state/00610062006f00750074.json");
+    expect(buildStaticRouteStateUrl("/about///")).toBe("/_pracht/state/00610062006f00750074.json");
   });
 
   it("preserves percent-encoded segments exactly as the build wrote them", () => {
     expect(buildStaticRouteStateUrl("/posts/caf%C3%A9")).toBe(
-      "/_pracht/state/posts/caf%C3%A9/index.json",
+      "/_pracht/state/0070006f007300740073/006300610066002500430033002500410039.json",
     );
   });
 

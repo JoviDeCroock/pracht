@@ -72,9 +72,9 @@ describe("createStaticPreviewHandler", () => {
     writeFileSync(resolve(staticDir, "about/index.html"), "<h1>about</h1>", "utf-8");
     mkdirSync(resolve(staticDir, "assets"), { recursive: true });
     writeFileSync(resolve(staticDir, "assets/app-abc.js"), "console.log(1)", "utf-8");
-    mkdirSync(resolve(staticDir, "_pracht/state/about"), { recursive: true });
+    mkdirSync(resolve(staticDir, "_pracht/state"), { recursive: true });
     writeFileSync(
-      resolve(staticDir, "_pracht/state/about/index.json"),
+      resolve(staticDir, "_pracht/state/00610062006f00750074.json"),
       '{"data":{"ok":true}}',
       "utf-8",
     );
@@ -105,7 +105,7 @@ describe("createStaticPreviewHandler", () => {
     expect(about.headers.get("content-type")).toContain("text/html");
     expect(await about.text()).toContain("about");
 
-    const state = await fetch(`${origin}/_pracht/state/about/index.json`);
+    const state = await fetch(`${origin}/_pracht/state/00610062006f00750074.json`);
     expect(state.status).toBe(200);
     expect(state.headers.get("content-type")).toBe("application/json");
     await expect(state.json()).resolves.toEqual({ data: { ok: true } });
