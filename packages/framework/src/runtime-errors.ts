@@ -1,4 +1,5 @@
-import type { PrachtHttpError, ResolvedApiRoute, ResolvedRoute } from "./types.ts";
+import type { ResolvedApiRoute, ResolvedRoute } from "./app-types.ts";
+import type { PrachtHttpError } from "./http-errors.ts";
 
 export type PrachtRuntimeDiagnosticPhase =
   | "match"

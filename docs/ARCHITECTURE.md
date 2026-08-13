@@ -500,7 +500,12 @@ agent-types.ts — Web Bot Auth, approval-store, MCP projection, and audit contr
 route-inputs.ts — route-param and search-param wire inputs shared by links and API calls
 route-client-types.ts — generated route IDs, params, search, data, and href inference
 api-client-types.ts — generated API registration, request options, and response inference
-types.ts        — shared route, manifest, runtime, and module-contract type facade
+navigation-types.ts — navigation options, prefetch policy, and speculation contracts
+route-policy-types.ts — rendering, hydration, revalidation, and route metadata contracts
+app-types.ts — authored and resolved application, route, API, and segment models
+runtime-module-types.ts — loader, middleware, route/shell module, and registry contracts
+http-errors.ts — concrete PrachtHttpError and notFound() behavior
+types.ts        — stable aggregate over the focused public type domains
     ↑
 name-suggestions.ts — edit-distance "did you mean" helpers for wiring errors
     ↑
@@ -599,6 +604,11 @@ The published core package also exposes small browser-oriented entries:
   browser condition points at a throwing stub as a backstop for other bundlers.
 - The root `@pracht/core` export has a browser condition that points at a
   client-safe public entry for route and shell modules.
+
+The type graph follows the same ownership rule as the runtime graph: domain
+modules depend on narrower leaves, while `types.ts` only aggregates their public
+contracts. Concrete behavior such as `notFound()` does not live in that type
+aggregate.
 
 **Important:** `runtime.ts` imports `resolveApp` and `buildPathFromSegments` directly from
 `app.ts` via a static import. Earlier versions used `await import("./app.ts")` dynamic

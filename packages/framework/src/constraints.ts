@@ -13,7 +13,7 @@
  * `"**"` on its own matches every route.
  */
 
-import type { RenderMode } from "./types.ts";
+import type { RenderMode } from "./route-policy-types.ts";
 
 export interface RequireMiddlewareConstraint {
   kind: "require-middleware";

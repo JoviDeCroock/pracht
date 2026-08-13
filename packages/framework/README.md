@@ -51,6 +51,11 @@ metadata for the failure phase and matched framework files when available.
 - `RouteComponentProps<T>` — props type for route components
 - `LoaderArgs` — argument type passed to loaders
 
+For framework contributors, `src/types.ts` is the stable aggregate rather than
+the declaration owner. App models, route policy, navigation contracts, and
+runtime module contracts live in focused sibling modules; `http-errors.ts` owns
+the concrete `PrachtHttpError` and `notFound()` behavior.
+
 ### App graph serialization
 
 The graph helpers exported from `@pracht/core` and `@pracht/core/server` support

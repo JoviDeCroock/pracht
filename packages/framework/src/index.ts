@@ -190,7 +190,7 @@ export {
   type IslandDescriptor,
   type IslandUsage,
 } from "./islands-server.ts";
-export { notFound, PrachtHttpError } from "./types.ts";
+export { notFound, PrachtHttpError } from "./http-errors.ts";
 export type {
   ApiConfig,
   ApiRouteArgs,

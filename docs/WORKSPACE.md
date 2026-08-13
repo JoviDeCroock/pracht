@@ -171,6 +171,10 @@ described in `VISION_MVP.md`.
   keep server-only runtime code and route-only browser helpers out of the
   critical client bootstrap graph while generated server modules avoid the
   browser export condition. The CLI remains plain JS.
+- **Core type ownership** — `packages/framework/src/types.ts` remains the stable
+  aggregate consumed by public entries. Navigation policy, route policy,
+  authored/resolved app models, and runtime module contracts live in focused
+  sibling modules; concrete HTTP error behavior lives in `http-errors.ts`.
 - **Node adapter** — Translates Node requests to Web `Request` objects, calls
   `handlePrachtRequest()`, and implements ISG stale-while-revalidate plus
   webhook regeneration of on-disk HTML. `node-handler.ts` owns request
