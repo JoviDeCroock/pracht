@@ -34,8 +34,10 @@ metadata for the failure phase and matched framework files when available.
 
 For contributors, shared route-state JSON and redirect normalization lives in
 `runtime-route-state-response.ts`, while `runtime-rendering.ts` owns lazy
-loading of the Preact server renderer. Higher-level API and route error views
-remain behind `runtime-response.ts`.
+loading of the Preact server renderer. API failure policy lives in
+`runtime-api-error-response.ts`, route error-boundary HTML in
+`runtime-route-error-response.ts`, and their shared generated-asset options in
+`runtime-response-types.ts`; `runtime-response.ts` is the compatibility facade.
 
 ### Client
 

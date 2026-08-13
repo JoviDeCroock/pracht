@@ -533,7 +533,10 @@ runtime-hooks.ts — public browser hook/Link facade and stable Form re-export
 runtime.ts      — SSR handler and prerendering (static import of app.ts)
 runtime-rendering.ts — lazy shared Preact server-renderer loading
 runtime-route-state-response.ts — JSON errors, redirects, and route-state cache headers
-runtime-response.ts — API and route error views plus compatibility re-exports
+runtime-response-types.ts — shared generated-asset options for runtime error views
+runtime-api-error-response.ts — API diagnostics, sanitization, and plaintext fallback
+runtime-route-error-response.ts — route ErrorBoundary rendering and hydration assets
+runtime-response.ts — stable response-helper facade
 revalidation-request.ts — webhook authentication, bounded path parsing, and safe regeneration requests
 revalidation.ts — cache policy, single-flight control, outcome reporting, and stable request facade
 runtime-capability-registry.ts — capability manifest loading, contract validation,

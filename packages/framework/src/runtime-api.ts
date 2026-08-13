@@ -17,7 +17,7 @@ import {
 import { resolveRegistryModule } from "./runtime-manifest.ts";
 import { runMiddlewareChain } from "./runtime-middleware.ts";
 import { isSameOriginRequest } from "./runtime-request-provenance.ts";
-import { renderApiErrorResponse } from "./runtime-response.ts";
+import { renderApiErrorResponse } from "./runtime-api-error-response.ts";
 import type {
   ApiRouteArgs,
   ApiRouteModule,

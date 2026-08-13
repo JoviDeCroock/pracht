@@ -73,7 +73,10 @@ described in `VISION_MVP.md`.
   (`window.__PRACHT_STATE__`), head metadata/header merging, and client entry
   injection. `runtime-route-state-response.ts` owns route-state JSON and
   redirect normalization, while `runtime-rendering.ts` owns lazy shared access
-  to the Preact server renderer; error views remain in `runtime-response.ts`.
+  to the Preact server renderer. API failure policy and route error-boundary
+  HTML live in `runtime-api-error-response.ts` and
+  `runtime-route-error-response.ts`, with `runtime-response.ts` retained as a
+  stable facade.
   The dev-only error overlay keeps `error-overlay.ts` as its
   published facade, with stack parsing, editor-path normalization, and
   standalone HTML rendering in focused modules under `error-overlay/`.
