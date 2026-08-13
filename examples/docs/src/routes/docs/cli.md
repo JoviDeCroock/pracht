@@ -135,7 +135,7 @@ pracht generate api --path /health --methods GET,POST
 - Pages-router apps scaffold route files into `src/pages/`.
 - Add `--json` when another tool or agent needs machine-readable output.
 
-`generate route` also emits a Playwright smoke test at `e2e/<route-id>.spec.ts` whenever the app has a Playwright setup (a `playwright.config.*` file or an `e2e/` directory). The test visits the route with example values for dynamic params (`/blog/:slug` → `/blog/example-slug`), asserts the response status is below 400, and checks the `h1` text. `--test` forces the test, `--no-test` skips it.
+`generate route` also emits a Playwright smoke test at `e2e/<route-id>.spec.ts` whenever the app has a Playwright setup (a `playwright.config.*` file or an `e2e/` directory). The test visits the route with example values for dynamic params (`/blog/:slug` → `/blog/example-slug`), asserts the response status is below 400, and checks the `h1` text. `--test` forces the test, `--no-test` skips it. Generated tests import `@playwright/test`; if it is not installed, the generator prints the required follow-up (`pnpm add -D @playwright/test`).
 
 ---
 

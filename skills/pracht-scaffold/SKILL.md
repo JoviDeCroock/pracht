@@ -53,7 +53,7 @@ pracht generate api --path /health --methods GET,POST
 - `--shell`/`--middleware` names must already be registered in the app manifest — the CLI errors otherwise. Generate the shell/middleware first, then the route that references it.
 - If the pracht MCP server is registered (docs/MCP.md), call the `generate_route`/`generate_shell`/`generate_middleware`/`generate_api` MCP tools instead of Bash — same behavior, structured results.
 - Add `--json` when another agent/tool needs machine-readable output.
-- `generate route` also emits a Playwright smoke test in `e2e/` when the app has a Playwright setup (`playwright.config.*` or an `e2e/` directory). Pass `--no-test` to skip it, `--test` to force it. Keep the generated test — it is the output-level proof the route works.
+- `generate route` also emits a Playwright smoke test in `e2e/` when the app has a Playwright setup (`playwright.config.*` or an `e2e/` directory). Pass `--no-test` to skip it, `--test` to force it. The test imports `@playwright/test`; if that dependency is absent, follow the generator's install note before typechecking. Keep the generated test — it is the output-level proof the route works.
 - Use `pracht inspect routes --json` or `pracht inspect api --json` to confirm current wiring before manual edits when the existing graph matters. `pracht inspect` requires the pracht plugin registered in the project's vite config.
 - If the app has typed routes (`src/pracht-routes.ts` / `.d.ts`) or the user asks for typed links, run `pracht typegen` after adding or renaming routes.
 - If the app commits `.pracht/app-graph.json`, run `pracht plan --write` after changing routes and include the refreshed snapshot — `pracht verify` fails when it is stale.

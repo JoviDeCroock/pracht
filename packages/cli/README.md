@@ -130,7 +130,9 @@ pracht llms --write
 Create a new route module. In manifest apps this also updates `src/routes.ts`.
 When the app has a Playwright setup (`playwright.config.*` or an `e2e/`
 directory), a smoke test is emitted at `e2e/<route-id>.spec.ts` as well —
-`--no-test` skips it, `--test` forces it.
+`--no-test` skips it, `--test` forces it. Generated tests import
+`@playwright/test`; when that dependency is absent, the command prints an
+install follow-up (for example, `pnpm add -D @playwright/test`).
 
 ```bash
 pracht generate route --path /dashboard --render ssr --shell app --middleware auth

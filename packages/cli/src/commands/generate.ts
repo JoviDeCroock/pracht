@@ -356,6 +356,12 @@ function maybeGenerateSmokeTest(
   const testFile = resolve(project.root, "e2e", `${routeIdFromPath(routePath)}.spec.ts`);
   writeGeneratedFile(testFile, buildRouteSmokeTestSource({ routePath, title }));
   result.created.push(displayPath(project.root, testFile));
+  if (!hasPlaywrightDependency(project.root)) {
+    result.notes ??= [];
+    result.notes.push(
+      "The generated smoke test imports `@playwright/test`, which is not installed yet. Install it with your package manager (for example: npm install --save-dev @playwright/test).",
+    );
+  }
 }
 
 function hasPlaywrightSetup(root: string): boolean {
@@ -369,6 +375,18 @@ function hasPlaywrightSetup(root: string): boolean {
       .map((name) => resolve(root, name))
       .some((file) => existsSync(file)) || existsSync(resolve(root, "e2e"))
   );
+}
+
+function hasPlaywrightDependency(root: string): boolean {
+  try {
+    const packageJson = JSON.parse(readFileSync(resolve(root, "package.json"), "utf-8"));
+    return Boolean(
+      packageJson.dependencies?.["@playwright/test"] ??
+      packageJson.devDependencies?.["@playwright/test"],
+    );
+  } catch {
+    return true; // Unreadable package.json — do not invent package-manager advice.
+  }
 }
 
 function generatePagesRoute({

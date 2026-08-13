@@ -19,7 +19,7 @@ Those are app-graph questions, and pracht resolves the entire app graph — rout
 - **Constraints** declare invariants once; `pracht verify` enforces them deterministically.
 - **`pracht plan`** diffs the resolved graph against a base git ref, so reviewers read an intent-level changelog instead of reverse-engineering it from file diffs.
 - **`pracht report`** assembles the factual half of a PR description from machine truth.
-- **Generated smoke tests** give every scaffolded route a Playwright check for free.
+- **Generated smoke tests** give every scaffolded route an immediate Playwright check.
 - **`pracht llms`** and the MCP server hand agents the framework's conventions directly.
 
 ---
@@ -148,7 +148,7 @@ test("renders /blog/:slug", async ({ page }) => {
 });
 ```
 
-`--test` forces the test even without a detected Playwright setup; `--no-test` skips it. The MCP `generate_route` tool accepts a matching `test` boolean.
+`--test` forces the test even without a detected Playwright setup; `--no-test` skips it. Generated tests import `@playwright/test`, so install it first with `pnpm add -D @playwright/test` when the app does not already use Playwright; the generator prints this follow-up when needed. The MCP `generate_route` tool accepts a matching `test` boolean.
 
 It's a floor, not a ceiling — but it means every agent-scaffolded route starts life with a failing-loudly check instead of zero coverage.
 

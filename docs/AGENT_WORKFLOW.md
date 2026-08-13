@@ -110,6 +110,10 @@ non-error status and renders its heading. Dynamic segments get example values
 matching the `getStaticPaths` stub (`/blog/:slug` → `/blog/example-slug`).
 `--test` forces emission, `--no-test` skips it.
 
+Generated tests import `@playwright/test`. Existing Playwright apps already
+have that dependency; when `--test` forces a smoke test in an app without it,
+the generator prints the install step (`pnpm add -D @playwright/test`).
+
 The point: every LLM-authored route arrives with a falsifiable claim attached.
 "The route exists and renders" is proven by CI, not asserted in a PR description.
 
