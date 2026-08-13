@@ -261,9 +261,10 @@ Only `Cache-Control`, `CDN-Cache-Control`, and `Netlify-CDN-Cache-Control`
 override the adapter's cache defaults; provider-specific headers for another
 CDN do not. Set a cache window to `0` to disable stale serving or freshness.
 `Netlify-Vary` owns route-state variants, while the standard `Vary: Accept`
-header owns Markdown negotiation. Shared ISG renders strip visitor-specific
-request data and Netlify context metadata before loaders or context factories
-run.
+header owns Markdown negotiation. Cacheable negotiated SSG representations use
+the same `Netlify-Vary` instructions as their prerendered HTML. Shared ISG
+renders strip visitor-specific request data and Netlify context metadata before
+loaders or context factories run.
 
 `pracht preview` exits with guidance because it cannot emulate Netlify's
 Functions and CDN behavior. Build the generated function before using

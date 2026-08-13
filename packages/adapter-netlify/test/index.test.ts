@@ -201,6 +201,8 @@ describe("createNetlifyHandler", () => {
     await writeFile(join(dir, "index.html"), "<html>home</html>");
     await writeFile(join(dir, "guide/index.html"), "<html>static guide</html>");
     await writeFile(join(dir, "assets/app.js"), "export default 1");
+    await writeFile(join(dir, "legal terms.txt"), "Terms");
+    await writeFile(join(dir, "café.txt"), "Coffee");
     await writeFile(join(dir, "robots.txt"), "User-agent: *");
     return dir;
   }
@@ -304,6 +306,22 @@ describe("createNetlifyHandler", () => {
     expect(await response.text()).toBe("User-agent: *");
   });
 
+  it("serves percent-encoded static filenames without decoding path separators", async () => {
+    const staticDir = await createStaticBuild();
+    const handler = createNetlifyHandler({ app, registry, staticDir });
+
+    const spaced = await handler(new Request("https://example.com/legal%20terms.txt"), {});
+    expect(spaced.status).toBe(200);
+    expect(await spaced.text()).toBe("Terms");
+
+    const unicode = await handler(new Request("https://example.com/caf%C3%A9.txt"), {});
+    expect(unicode.status).toBe(200);
+    expect(await unicode.text()).toBe("Coffee");
+
+    const encodedSeparator = await handler(new Request("https://example.com/assets%2Fapp.js"), {});
+    expect(encodedSeparator.status).toBe(404);
+  });
+
   it("bypasses static HTML for negotiated Markdown and route-state requests", async () => {
     const staticDir = await createStaticBuild();
     const handler = createNetlifyHandler({
@@ -329,6 +347,43 @@ describe("createNetlifyHandler", () => {
       {},
     );
     await expect(state.json()).resolves.toEqual({ data: { page: "guide" } });
+  });
+
+  it("uses one Netlify-Vary policy for cached HTML and Markdown representations", async () => {
+    const staticDir = await createStaticBuild();
+    const handler = createNetlifyHandler({
+      app,
+      headersManifest: {
+        "/guide": { "cache-control": "public, max-age=300", vary: "Accept" },
+      },
+      markdownManifest: { "/guide": true },
+      registry: {
+        ...registry,
+        routeModules: {
+          ...registry.routeModules,
+          "/src/routes/guide.tsx": async () => ({
+            default: () => h("main", null, "guide"),
+            headers: () => ({ "cache-control": "public, max-age=300" }),
+            markdown: "# Guide",
+          }),
+        },
+      },
+      staticDir,
+    });
+
+    const html = await handler(new Request("https://example.com/guide?lang=en"), {});
+    const markdown = await handler(
+      new Request("https://example.com/guide?lang=en", {
+        headers: { accept: "text/markdown" },
+      }),
+      {},
+    );
+
+    expect(html.headers.get("netlify-vary")).toBe(
+      "query=_data,header=x-pracht-route-state-request",
+    );
+    expect(markdown.headers.get("netlify-vary")).toBe(html.headers.get("netlify-vary"));
+    expect(markdown.headers.get("netlify-cdn-cache-control")).toBe("public, max-age=300, durable");
   });
 
   it("fails closed against heuristic caching for dynamic SSR", async () => {

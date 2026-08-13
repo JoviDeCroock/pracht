@@ -214,7 +214,19 @@ export function createNetlifyHandler<
       return applyNetlifyISGCacheHeaders(response, isgRoute, pathname, cache);
     }
 
-    return applyNetlifyDynamicCacheHeaders(request, response, routeStateRequest);
+    const sharesStaticPageCachePolicy =
+      options.staticDir !== undefined &&
+      staticMethod &&
+      wantsMarkdown &&
+      !(pathname in isgManifest) &&
+      (await resolveStaticFile(options.staticDir, pathname))?.document === true;
+
+    return applyNetlifyDynamicCacheHeaders(
+      request,
+      response,
+      routeStateRequest,
+      sharesStaticPageCachePolicy,
+    );
   };
 }
 
@@ -596,6 +608,7 @@ function applyNetlifyDynamicCacheHeaders(
   request: Request,
   response: Response,
   routeStateRequest: boolean,
+  sharesStaticPageCachePolicy: boolean,
 ): Response {
   const prepared = preventHeuristicCaching(request, response);
   const cacheControl = prepared.headers.get("cache-control");
@@ -635,7 +648,8 @@ function applyNetlifyDynamicCacheHeaders(
   // standard `Vary: Accept` owns content negotiation. `query` preserves
   // Netlify's default full-query cache key.
   if (!headers.has("netlify-vary")) {
-    headers.set("netlify-vary", `query,header=${ROUTE_STATE_REQUEST_HEADER}`);
+    if (sharesStaticPageCachePolicy) ensureNetlifyPageVary(headers);
+    else headers.set("netlify-vary", `query,header=${ROUTE_STATE_REQUEST_HEADER}`);
   }
   return cloneResponse(prepared, headers);
 }
@@ -827,9 +841,30 @@ function cloneResponse(response: Response, headers: Headers): Response {
 }
 
 function resolveUrlPath(root: string, pathname: string, suffix?: string): string | null {
-  if (pathname.includes("\0") || pathname.includes("\\")) return null;
-  const candidate = suffix ? resolve(root, `.${pathname}`, suffix) : resolve(root, `.${pathname}`);
+  const decodedPathname = decodeStaticPathname(pathname);
+  if (decodedPathname === null) return null;
+  const candidate = suffix
+    ? resolve(root, `.${decodedPathname}`, suffix)
+    : resolve(root, `.${decodedPathname}`);
   return pathIsInside(root, candidate) ? candidate : null;
+}
+
+function decodeStaticPathname(pathname: string): string | null {
+  const decodedSegments: string[] = [];
+  for (const segment of pathname.split("/")) {
+    let decoded: string;
+    try {
+      decoded = decodeURIComponent(segment);
+    } catch {
+      return null;
+    }
+    if (decoded === "." || decoded === ".." || decoded.includes("/") || decoded.includes("\\")) {
+      return null;
+    }
+    if (decoded.includes("\0")) return null;
+    decodedSegments.push(decoded);
+  }
+  return decodedSegments.join("/");
 }
 
 async function isContainedFile(root: string, candidate: string): Promise<boolean> {

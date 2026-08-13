@@ -61,7 +61,9 @@ the exclusion only avoids a function invocation. Prefix-shaped exclusions are
 also omitted from the generated function bundle, so large static asset trees do
 not count against Netlify's function size limit. Exact exclusions omit only the
 matching file; an `index.html` representation stays bundled because the
-corresponding trailing-slash URL can still invoke the function.
+corresponding trailing-slash URL can still invoke the function. Percent-encoded
+spaces and Unicode characters are decoded when resolving bundled files; encoded
+path separators and traversal segments are rejected.
 
 ## Context
 
@@ -94,7 +96,9 @@ metadata.
   collapse onto the pathname entry. Netlify combines that key with the
   standard `Vary: Accept` header Pracht emits for Markdown-capable routes;
   `Accept` is not a valid `Netlify-Vary` directive. A custom `Netlify-Vary`
-  header takes precedence.
+  header takes precedence. A cacheable negotiated representation of an SSG
+  page uses the same `Netlify-Vary` instructions as its prerendered HTML so the
+  first cached representation cannot redefine the URL's cache key.
 - Cacheable webhook-revalidated ISG responses carry per-path cache tags, even
   when the route provides a custom cache policy.
   `POST /__pracht/revalidate` authenticates with `PRACHT_REVALIDATE_TOKEN` and

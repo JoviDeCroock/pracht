@@ -747,6 +747,9 @@ Functions v2 file tracer cannot pull bypassed trees back into the bundle.
 An exact exclusion such as `/feed.xml` omits only that exact file; unlike a
 prefix exclusion, it does not also exclude `/feed.xml/` or an `index.html`
 representation that those URLs can still invoke the function to read.
+Bundled static lookup decodes percent-encoded spaces and Unicode characters,
+while rejecting encoded separators and traversal segments before filesystem
+resolution.
 
 ### SSG and ISG
 
@@ -783,7 +786,10 @@ representation that those URLs can still invoke the function to read.
   cache entry. Netlify combines that key with Pracht's standard `Vary: Accept`
   header on Markdown-capable routes; `Accept` is not a valid `Netlify-Vary`
   directive. Route-state and Markdown responses are never durable-cached
-  themselves. A custom `Netlify-Vary` header takes precedence.
+  themselves by default. If an application explicitly makes a negotiated SSG
+  representation cacheable, it reuses the prerendered HTML's `Netlify-Vary`
+  instructions so every response from that URL defines the same cache key. A
+  custom `Netlify-Vary` header takes precedence.
 - Because `/assets/*` (and other `excludedPath` prefixes) bypass the function,
   the build also writes a `dist/client/_headers` file that gives Netlify's
   static layer the immutable asset policy and the same default security

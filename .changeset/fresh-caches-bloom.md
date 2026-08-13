@@ -37,3 +37,8 @@ and deployment scripts, while `pracht preview` detects Netlify projects and
 points to `pracht build && netlify dev` instead of trying to run their function
 as a Node server. The shared cache-safety guard now also recognizes Netlify's
 targeted cache-control header as an explicit application policy.
+Bundled static lookup now serves percent-encoded spaces and Unicode filenames
+without permitting encoded separators or traversal segments. Cacheable
+Markdown representations of prerendered pages also reuse the HTML response's
+`Netlify-Vary` instructions, keeping the cache-key contract stable regardless
+of which representation fills the cache first.
