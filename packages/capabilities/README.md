@@ -51,7 +51,9 @@ Capabilities are private by default; `expose.http` serves them at
 `{ ok, data | error }` envelope, and `expose.webmcp` registers them as WebMCP
 page tools that dispatch through the HTTP projection so all enforcement stays
 server-side. Validation uses a dependency-free JSON Schema subset — no ajv or
-zod in your bundles.
+zod in your bundles. The stable schema facade delegates definition diagnostics,
+default application, and runtime value validation to focused implementation
+modules over one shared JSON-value model.
 
 See [docs/CAPABILITIES.md](https://github.com/JoviDeCroock/pracht/blob/main/docs/CAPABILITIES.md)
 for the full guide, including the supported schema subset and security

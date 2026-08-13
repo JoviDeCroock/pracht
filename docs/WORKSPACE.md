@@ -42,12 +42,15 @@ described in `VISION_MVP.md`.
   method handlers return 405 when no default handler exists. Shared API policy
   can be applied explicitly with `defineApp({ api: { middleware: [...] } })`.
 - **Capability contracts** — `@pracht/capabilities` owns contract definition,
-  schema validation, and the shared wire protocol. Its `static` entry keeps
-  `static.ts` as a stable facade: capability projection, app-manifest
-  extraction, generic object scanning, and module-binding traversal live in
-  focused sibling modules. `static-source-lexical.ts` owns offset-preserving
-  JavaScript scanning, `static-literal.ts` owns non-executing inline data
-  parsing, and `static-source-parser.ts` preserves their former internal facade.
+  schema validation, and the shared wire protocol. `schema.ts` remains the
+  public schema facade while definition diagnostics, default application,
+  runtime validation, types, and JSON-value primitives live in focused sibling
+  modules. Its `static` entry keeps `static.ts` as a stable facade: capability
+  projection, app-manifest extraction, generic object scanning, and
+  module-binding traversal live in focused sibling modules.
+  `static-source-lexical.ts` owns offset-preserving JavaScript scanning,
+  `static-literal.ts` owns non-executing inline data parsing, and
+  `static-source-parser.ts` preserves their former internal facade.
   It also owns the executable-source mask and environment-reference policy used
   by both the Vite build guard and CLI verification, preventing security checks
   from drifting across framework surfaces.
