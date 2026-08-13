@@ -92,6 +92,12 @@ described in `VISION_MVP.md`.
   name validation and collision policy; existing protocol, descriptor, and
   call execution responsibilities remain in `runtime-mcp-protocol.ts`,
   `runtime-mcp-tools.ts`, and `runtime-mcp-dispatch.ts` respectively.
+- **Destructive confirmation** — `runtime-confirmation.ts` retains secret
+  configuration and stable exports. Deterministic input binding, token
+  encoding, cryptographic verification, and hashing live in
+  `runtime-confirmation-token.ts`; the best-effort per-instance single-use
+  cache lives in `runtime-confirmation-replay.ts`. Durable approval workflow
+  orchestration remains in `runtime-capability-confirmation.ts`.
 - **Server rendering** — `handlePrachtRequest()` executes the full request
   lifecycle: API route check → middleware chain → loader → Preact
   `renderToString` → HTML document assembly with hydration state

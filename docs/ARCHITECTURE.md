@@ -568,6 +568,9 @@ runtime-capability-host.ts — request-scoped host binding and identity snapshot
 runtime-capability-composition.ts — nested transport policy and trusted context binding
 runtime-capability-invocation-dispatch.ts — explicit-host pipeline and audit execution
 runtime-capability-invocation.ts — stable direct-invocation overload facade
+runtime-confirmation-token.ts — canonical input binding, HMAC token codec, and verification
+runtime-confirmation-replay.ts — bounded per-instance single-use token tracking
+runtime-confirmation.ts — secret configuration and stable confirmation facade
 runtime-capability-confirmation.ts — destructive prepare/commit orchestration,
                                      durable approval policy, and replay protection
 runtime-capability-transport-types.ts — type-only HTTP/MCP dispatch contracts
