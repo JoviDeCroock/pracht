@@ -197,8 +197,10 @@ described in `VISION_MVP.md`.
   dependency, and deployment policy share `verification-project-checks.ts`.
   Capability verification keeps manifest/file traversal in
   `verification-capabilities.ts`,
-  per-contract static analysis in `verification-capability-contract.ts`, and
-  graph-wide generated-client/MCP checks in
+  per-contract diagnostic orchestration in
+  `verification-capability-contract.ts`, literal string/middleware/exposure
+  decoding in `verification-capability-fields.ts`, and graph-wide
+  generated-client/MCP checks in
   `verification-capability-projections.ts`.
 - **Starter CLI** — `packages/start/src/index.js` is the stable public facade;
   command flow, options and prompts, child-process integration, and scaffold

@@ -82,7 +82,9 @@ graph, enforces every constraint, and fails if the snapshot is stale (fix with
 
 Internally, verification keeps filesystem and project checks separate from the
 source analysis that confirms registered middleware exports the named
-`middleware` binding.
+`middleware` binding. Capability verification likewise keeps manifest traversal,
+contract diagnostics, literal field decoding, and graph-wide projection checks
+in separate modules.
 
 ```bash
 pracht verify

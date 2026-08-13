@@ -1,7 +1,6 @@
 import {
   collectInvalidSchemaKeywordValues,
   collectUnsupportedSchemaKeywords,
-  isValidCapabilityHttpPath,
   isValidMcpToolName,
   MCP_SCHEMA_ROOT_ERROR,
   MCP_TOOL_NAME_ERROR,
@@ -13,6 +12,11 @@ import {
   scanTopLevelProperties,
 } from "@pracht/capabilities/static";
 
+import {
+  readExposeFlags,
+  readMiddlewareNames,
+  readStaticString,
+} from "./verification-capability-fields.js";
 import { createCheck, type Check } from "./verification-helpers.js";
 
 const CAPABILITY_EFFECTS = new Set(["read", "write", "destructive"]);
@@ -247,85 +251,4 @@ export function collectCapabilityContractChecks(
     ),
   );
   return projectionSummary;
-}
-
-type StaticString =
-  | { kind: "absent" }
-  | { kind: "invalid" }
-  | { kind: "unknown" }
-  | { kind: "valid"; value: string };
-
-function readStaticString(text: string | undefined): StaticString {
-  if (!text) return { kind: "absent" };
-  const value = evaluateLiteral(text);
-  if (value === undefined) return { kind: "unknown" };
-  if (typeof value !== "string" || value.trim() === "") return { kind: "invalid" };
-  return { kind: "valid", value };
-}
-
-type MiddlewareNames =
-  | { kind: "absent" }
-  | { kind: "invalid" }
-  | { kind: "unknown" }
-  | { kind: "valid"; names: string[] };
-
-function readMiddlewareNames(text: string | undefined): MiddlewareNames {
-  if (!text) return { kind: "absent" };
-  const value = evaluateLiteral(text);
-  if (value === undefined) return { kind: "unknown" };
-  if (!Array.isArray(value) || value.some((name) => typeof name !== "string")) {
-    return { kind: "invalid" };
-  }
-  return { kind: "valid", names: value };
-}
-
-function readExposeFlags(text: string | undefined): {
-  hasHttp: boolean;
-  hasMcp: boolean;
-  hasWebmcp: boolean;
-  /** `expose` is present but not an inline literal, so it can't be verified. */
-  unknown: boolean;
-  problems: string[];
-} {
-  if (text === undefined) {
-    return { hasHttp: false, hasMcp: false, hasWebmcp: false, unknown: false, problems: [] };
-  }
-  const value = evaluateLiteral(text);
-  if (value === undefined) {
-    return { hasHttp: false, hasMcp: false, hasWebmcp: false, unknown: true, problems: [] };
-  }
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return {
-      hasHttp: false,
-      hasMcp: false,
-      hasWebmcp: false,
-      unknown: false,
-      problems: ['"expose" must be an inline object literal'],
-    };
-  }
-  const expose = value as Record<string, unknown>;
-  const problems: string[] = [];
-  let hasHttp = false;
-  if (expose.http === true) {
-    hasHttp = true;
-  } else if (expose.http && typeof expose.http === "object" && !Array.isArray(expose.http)) {
-    hasHttp = true;
-    const http = expose.http as Record<string, unknown>;
-    if (http.method !== undefined && http.method !== "POST") {
-      problems.push('HTTP exposure only supports method: "POST"');
-    }
-    if (http.path !== undefined && !isValidCapabilityHttpPath(http.path)) {
-      problems.push('HTTP exposure "path" must be an exact same-origin pathname starting with "/"');
-    }
-  } else if (expose.http !== undefined && expose.http !== false && expose.http !== null) {
-    problems.push('"expose.http" must be true or an object');
-  }
-
-  return {
-    hasHttp,
-    hasMcp: expose.mcp === true,
-    hasWebmcp: expose.webmcp === true,
-    unknown: false,
-    problems,
-  };
 }
