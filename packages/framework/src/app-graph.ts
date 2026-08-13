@@ -39,6 +39,8 @@ export interface AppGraphRoute {
   id: string;
   loaderCache: number | false | null;
   loaderFile: string | null;
+  /** Present only when middleware-owned Markdown negotiation is declared. */
+  markdown?: true;
   middleware: string[];
   path: string;
   prefetch: string | null;
@@ -148,6 +150,7 @@ export function serializeAppRoutes(routes: readonly ResolvedRoute[]): AppGraphRo
     id: route.id ?? "",
     loaderCache: route.loaderCache ?? null,
     loaderFile: route.loaderFile ?? null,
+    ...(route.markdown === true ? { markdown: true as const } : {}),
     middleware: route.middleware,
     path: route.path,
     prefetch: route.prefetch ?? null,

@@ -1487,6 +1487,41 @@ describe("prerenderApp", () => {
     });
   });
 
+  it("records middleware-provided markdown declared in route metadata", async () => {
+    const app = defineApp({
+      routes: [
+        route("/guide/:page", "./routes/guide.tsx", {
+          markdown: true,
+          middleware: ["markdown"],
+          render: "ssg",
+        }),
+      ],
+      middleware: { markdown: "./middleware/markdown.ts" },
+    });
+
+    const pages = await prerenderApp({
+      app,
+      registry: {
+        middlewareModules: {
+          "/src/middleware/markdown.ts": async () => ({
+            middleware: (_args, next) => next(),
+          }),
+        },
+        routeModules: {
+          "/src/routes/guide.tsx": async () => ({
+            Component: () => h("main", null, "Guide"),
+            getStaticPaths: () => [{ page: "one" }, { page: "two" }],
+          }),
+        },
+      },
+    });
+
+    expect(pages.map((page) => ({ markdown: page.markdown, path: page.path }))).toEqual([
+      { markdown: true, path: "/guide/one" },
+      { markdown: true, path: "/guide/two" },
+    ]);
+  });
+
   it.each([
     ["authorization", "Bearer secret"],
     ["proxy-authenticate", 'Basic realm="proxy"'],

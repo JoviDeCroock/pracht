@@ -68,7 +68,7 @@ File-based routing (Next.js, SvelteKit) couples URL structure to directory struc
 | ----- | --------- | ----------------------------------------------------- |
 | path  | string    | URL pattern, e.g. `/blog/:slug`                       |
 | file  | string    | Relative path to the route module                     |
-| meta  | RouteMeta | Optional render mode, shell, middleware, revalidation |
+| meta  | RouteMeta | Optional render mode, shell, middleware, Markdown capability, revalidation |
 
 ### group(meta, routes)
 

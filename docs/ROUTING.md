@@ -123,6 +123,7 @@ interface RouteMeta {
   shell?: string; // Named shell from defineApp.shells
   render?: "spa" | "ssr" | "ssg" | "isg";
   hydration?: "full" | "islands" | "none"; // Partial hydration (see ISLANDS.md)
+  markdown?: boolean; // Middleware negotiates a Markdown representation
   middleware?: string[]; // Named middleware from defineApp.middleware
   revalidate?: RouteRevalidate; // ISG revalidation policy
   loaderCache?: number | false; // Browser cache seconds for route-state loader data

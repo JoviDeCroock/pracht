@@ -85,7 +85,11 @@ describe("diffGraphSnapshots", () => {
     const head = makeSnapshot({
       routes: [
         makeRoute("/"),
-        makeRoute("/dashboard", { middleware: ["auth", "audit"], render: "spa" }),
+        makeRoute("/dashboard", {
+          markdown: true,
+          middleware: ["auth", "audit"],
+          render: "spa",
+        }),
         makeRoute("/pricing", { render: "isg", revalidate: { kind: "time", seconds: 3600 } }),
       ],
     });
@@ -101,6 +105,7 @@ describe("diffGraphSnapshots", () => {
         changes: [
           { field: "render", from: "ssr", to: "spa" },
           { field: "middleware", from: ["auth"], to: ["auth", "audit"] },
+          { field: "markdown", from: null, to: true },
         ],
       },
     ]);

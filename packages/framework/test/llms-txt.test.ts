@@ -10,7 +10,7 @@ function createResolvedApp() {
     defineApp({
       routes: [
         route("/", "./routes/home.tsx", { render: "ssg" }),
-        route("/about", "./routes/about.tsx", { render: "ssr" }),
+        route("/about", "./routes/about.tsx", { markdown: true, render: "ssr" }),
         route("/blog/:slug", "./routes/blog.tsx", { render: "ssg" }),
         route("/users/:id", "./routes/user.tsx", { render: "ssr" }),
         route("/settings", "./routes/settings.tsx", { render: "spa" }),
@@ -60,7 +60,7 @@ describe("buildLlmsTxt", () => {
 ## Pages
 
 - [/](/): supports \`Accept: text/markdown\`
-- [/about](/about)
+- [/about](/about): supports \`Accept: text/markdown\`
 - [/blog/getting-started](/blog/getting-started)
 - [/blog/hello-world](/blog/hello-world)
 - [/settings](/settings)
@@ -119,7 +119,7 @@ describe("buildLlmsTxt", () => {
     expect(output).toContain("- [/about](/about)");
   });
 
-  it("renders without a registry (no markdown notes, no dynamic expansion)", async () => {
+  it("renders metadata-declared markdown without a registry or dynamic expansion", async () => {
     const output = await buildLlmsTxt({
       app: createResolvedApp(),
       apiRoutes,
@@ -127,7 +127,7 @@ describe("buildLlmsTxt", () => {
     });
 
     expect(output).toContain("- [/](/)\n");
-    expect(output).not.toContain("text/markdown");
+    expect(output).toContain("- [/about](/about): supports `Accept: text/markdown`");
     expect(output).toContain("- [/api/health](/api/health)\n");
   });
 });

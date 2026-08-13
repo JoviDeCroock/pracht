@@ -208,7 +208,8 @@ Before enabling it, audit ISG URLs for unbounded query strings. Workers Caching
 keys the exact path and query string, including parameter order and trailing
 slashes; use a bounded query allowlist/canonical redirect or an uncached gateway
 with a pathname-only `cf.cacheKey`, and normalize `Accept` there for routes that
-export markdown. See `docs/ADAPTERS.md#cache-key-cardinality`.
+export markdown or declare `markdown: true` for middleware-owned negotiation.
+See `docs/ADAPTERS.md#cache-key-cardinality`.
 
 Time-revalidated ISG pages then render on demand, are cached at the edge for
 their `revalidate` window (stale pages served instantly while the Worker

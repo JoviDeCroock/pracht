@@ -94,8 +94,9 @@ comparison, so repeated builds produce byte-identical files.
   with a `getStaticPaths()` export; each prerendered instance becomes its own
   entry. Dynamic SSR/SPA routes are skipped — there is no concrete URL to
   link.
-- Routes with a server-only `markdown` export (Markdown-for-Agents content
-  negotiation, see [docs/DATA_LOADING.md](DATA_LOADING.md)) are annotated with
+- Routes with a server-only `markdown` export, or `markdown: true` route
+  metadata for middleware-owned negotiation (see
+  [docs/DATA_LOADING.md](DATA_LOADING.md)), are annotated with
   `supports \`Accept: text/markdown\``.
 - Link names are the route paths themselves. Page titles are not derivable
   statically (`head()` needs a request), and paths are unambiguous for agents.

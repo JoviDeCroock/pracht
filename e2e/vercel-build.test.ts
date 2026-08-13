@@ -100,6 +100,11 @@ test("pracht build emits a deployable Vercel Build Output setup", async () => {
           dest: "/render",
         }),
         expect.objectContaining({ src: "^/$", dest: "/index.html" }),
+        expect.objectContaining({
+          src: "^/products/1/?$",
+          has: [{ type: "header", key: "accept", value: expect.stringContaining("[mM]") }],
+          dest: "/render",
+        }),
         expect.objectContaining({ src: "^/docs/?$", dest: "/docs/index.html" }),
         expect.objectContaining({ src: "^/pricing/?$", dest: "/pricing" }),
         expect.objectContaining({ handle: "filesystem" }),

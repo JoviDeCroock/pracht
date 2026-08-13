@@ -502,6 +502,8 @@ export interface RouteMeta {
   shell?: string;
   render?: RenderMode;
   hydration?: HydrationMode;
+  /** Declare that middleware negotiates a Markdown representation for this route. */
+  markdown?: boolean;
   middleware?: string[];
   revalidate?: RouteRevalidate;
   loaderCache?: LoaderCache;

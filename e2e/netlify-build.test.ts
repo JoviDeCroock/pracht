@@ -91,6 +91,19 @@ test("pracht build emits a working Netlify Functions v2 entry", async () => {
       expect(markdown.headers.get("content-type")).toContain("text/markdown");
       expect(await markdown.text()).toContain("# Pracht Example");
 
+      // This dynamic SSG route has no module-level `markdown` export. Route
+      // metadata declares that middleware owns negotiation, so every concrete
+      // path must still bypass bundled HTML and reach the middleware.
+      const productMarkdown = await handler(
+        new Request("https://example.com/products/1", {
+          headers: { accept: "text/markdown" },
+        }),
+        context,
+      );
+      expect(productMarkdown.headers.get("content-type")).toContain("text/markdown");
+      expect(productMarkdown.headers.get("vary")).toContain("Accept");
+      expect(await productMarkdown.text()).toBe("# Product 1\n");
+
       const api = await handler(new Request("https://example.com/api/health"), context);
       expect(api.headers.get("cache-control")).toBe("private, no-cache");
       await expect(api.json()).resolves.toEqual({ status: "ok" });

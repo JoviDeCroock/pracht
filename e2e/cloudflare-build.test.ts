@@ -216,6 +216,15 @@ test("built Cloudflare worker bootstraps WebMCP on a zero-island route", async (
       throw new Error(result.stderr || result.stdout || "Cloudflare basic build failed");
     }
 
+    expect(
+      JSON.parse(readFileSync(resolve(exampleDir, "dist/server/markdown-manifest.json"), "utf-8")),
+    ).toEqual({
+      "/": true,
+      "/products/1": true,
+      "/products/2": true,
+      "/products/3": true,
+    });
+
     const serverEntryPath = resolve(exampleDir, "dist/server/server.js");
     const { default: worker } = await import(pathToFileURL(serverEntryPath).href);
     const response = await worker.fetch(

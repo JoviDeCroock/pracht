@@ -431,9 +431,10 @@ enabling Workers Caching, keep ISG query shapes bounded and canonical:
   the query string to application code.
 
 Cloudflare compares request-header values named by `Vary` verbatim. Pracht
-therefore adds `Vary: Accept` only to routes that actually export `markdown`,
-but those routes can still accumulate variants for semantically equivalent
-browser and agent `Accept` strings. For high-traffic markdown-capable routes,
+therefore adds `Vary: Accept` only to routes that declare a Markdown
+representation, but those routes can still accumulate variants for semantically
+equivalent browser and agent `Accept` strings. For high-traffic
+markdown-capable routes,
 normalize `Accept` to a small HTML/markdown set in the same uncached-gateway
 pattern. Purges by Pracht's cache tags or path prefixes invalidate all variants
 of the matching URL together.
@@ -1011,8 +1012,9 @@ export function headers() {
 
 ## Markdown and the static fast path
 
-Routes that export `markdown` answer `Accept: text/markdown` with their raw
-source instead of HTML (see [DATA_LOADING.md](DATA_LOADING.md)). Prerendered
+Routes that export `markdown`, or declare `markdown: true` when middleware owns
+negotiation, can answer `Accept: text/markdown` instead of HTML (see
+[DATA_LOADING.md](DATA_LOADING.md)). Prerendered
 documents are served by the adapter before the framework runs, so the Node,
 Cloudflare, and Netlify adapters have to decide up front whether a cached
 document can answer a given request. All three require **two** conditions before
@@ -1023,8 +1025,8 @@ cache (Cloudflare):
    negotiation the runtime uses, so `*/*`, `text/html,*/*`, and a q-weighted
    `text/html,text/markdown;q=0.1` all keep getting HTML; and
 2. the route appears in `markdown-manifest.json`, which the build derives from
-   the route module's actual `markdown` export rather than user-defined response
-   headers.
+   the route module's actual `markdown` export or explicit `markdown: true`
+   route metadata rather than user-defined response headers.
 
 An app with no markdown routes therefore never leaves its static fast path,
 whoever is asking: agent traffic cannot force SSR renders of prerendered pages,
@@ -1051,11 +1053,11 @@ necessity (Vercel's `has` takes a regex, not a q-value parser), so anything
 mentioning `text/markdown` reaches the function, which then applies the real
 negotiation and still answers HTML when HTML is preferred. The trade is that on
 those routes a client can force a function invocation with the header alone,
-even at `q=0` — so the entry is emitted only for routes that actually export
-`markdown`. Every other prerendered page keeps its static fast path whatever
-the client sends. ISG routes that export `markdown` route to the render
-function rather than their prerender function, which re-renders on a sanitized
-`Accept: text/html` and can only produce HTML.
+even at `q=0` — so the entry is emitted only for routes that declare a Markdown
+representation. Every other prerendered page keeps its static fast path
+whatever the client sends. ISG routes with a Markdown representation route to
+the render function rather than their prerender function, which re-renders on
+a sanitized `Accept: text/html` and can only produce HTML.
 
 ---
 

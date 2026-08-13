@@ -1,9 +1,18 @@
 import { applyDefaultSecurityHeaders, appendVaryHeader } from "./runtime-headers.ts";
 import { normalizeRoutePath } from "./route-matching.ts";
+import type { ResolvedRoute, RouteModule } from "./types.ts";
 
 export const MARKDOWN_MEDIA_TYPE = "text/markdown";
 
 export type MarkdownManifest = Record<string, true>;
+
+/** Whether a route exposes Markdown through metadata or a raw module export. */
+export function hasMarkdownRepresentation(
+  route: Pick<ResolvedRoute, "markdown">,
+  routeModule: Pick<RouteModule, "markdown"> | undefined,
+): boolean {
+  return route.markdown === true || typeof routeModule?.markdown === "string";
+}
 
 interface AcceptEntry {
   type: string;
