@@ -542,7 +542,9 @@ runtime-request-provenance.ts — browser provenance and exact-origin request po
 runtime-api.ts — explicit API matching, middleware, invocation, and error normalization
 api-routes.ts — file-path discovery, route specificity ordering, and API path matching
 api-export-detection.ts — runtime/source fallback, re-export traversal, and HTTP method reporting
-api-export-source-scan.ts — conservative lexical masking and callable export analysis
+api-export-source-scan.ts — stable internal source-analysis facade
+api-export-source-lexical.ts — offset-preserving masking and module-scope tracking
+api-export-callable-source.ts — conservative callable-default inference
 app-agent-validation.ts — fail-closed agent policy and trust-setting validation
 runtime-agent-surface.ts — lazy agent runtimes, signature binding, and invocation host setup
 runtime-agent-projection.ts — MCP and capability HTTP selection and fail-closed routing

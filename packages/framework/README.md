@@ -63,7 +63,11 @@ custom inspection and development tooling. `src/app-graph.ts` is their stable
 composition facade: shared contracts live in `app-graph-types.ts`, and route,
 API, and capability serialization live in focused `app-graph-*` modules.
 Runtime and source-only API export detection remains in
-`src/api-export-detection.ts` behind the same public exports:
+`src/api-export-detection.ts` behind the same public exports. Its conservative
+source scanner keeps `api-export-source-scan.ts` as the internal facade,
+delegating offset-preserving JavaScript masking to
+`api-export-source-lexical.ts` and callable-default inference to
+`api-export-callable-source.ts`:
 
 - `serializeAppRoutes()` serializes resolved page routes.
 - `serializeApiRoutes()` loads API modules and reports their callable exports.

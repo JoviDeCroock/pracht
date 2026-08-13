@@ -58,7 +58,11 @@ described in `VISION_MVP.md`.
   facade consumed by inspection, devtools, type generation, and planning.
   Contracts, route serialization, API serialization, and capability
   serialization live in focused `app-graph-*` modules; API export detection
-  depends directly on the contracts layer so the graph remains acyclic.
+  depends directly on the contracts layer so the graph remains acyclic. Its
+  source-only fallback keeps lexical masking and top-level offset tracking in
+  `api-export-source-lexical.ts`, callable-default inference in
+  `api-export-callable-source.ts`, and the former scanner entrypoint as a thin
+  internal facade.
 - **Server rendering** — `handlePrachtRequest()` executes the full request
   lifecycle: API route check → middleware chain → loader → Preact
   `renderToString` → HTML document assembly with hydration state
