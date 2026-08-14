@@ -244,6 +244,29 @@ describe("useEventSource", () => {
     expect(latest).toEqual({ data: undefined, lastEventId: undefined, status: "closed" });
   });
 
+  it("never renders the previous payload after the subscription changes", async () => {
+    function Probe(props: { url: string | null }) {
+      latest = useEventSource(props.url);
+      return h("span", null, latest.data === undefined ? "empty" : String(latest.data));
+    }
+
+    render(h(Probe, { url: "/api/private-a" }), root);
+    await flush();
+    source().emitMessage("message", "private-a", "a-1");
+    await flush();
+    expect(root.textContent).toBe("private-a");
+
+    // The new props render before the passive effect can close/reset the old
+    // subscription. The public state must nevertheless be clean immediately,
+    // so another user or endpoint never paints the previous payload.
+    render(h(Probe, { url: null }), root);
+    expect(root.textContent).toBe("empty");
+    expect(latest).toEqual({ data: undefined, lastEventId: undefined, status: "closed" });
+
+    await flush();
+    expect(source().closed).toBe(true);
+  });
+
   it("survives an unmount race before the connection ever opens", async () => {
     await renderHook("/api/live");
     // Unmount immediately — no open, no message ever arrived. The only

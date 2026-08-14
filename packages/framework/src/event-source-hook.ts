@@ -28,6 +28,31 @@ export interface EventSourceState<T> {
   lastEventId: string | undefined;
 }
 
+interface EventSourceSubscription {
+  href: string | null;
+  event: string;
+  json: boolean;
+  withCredentials: boolean;
+}
+
+interface InternalEventSourceState<T> {
+  state: EventSourceState<T>;
+  subscription: EventSourceSubscription;
+}
+
+function sameSubscription(left: EventSourceSubscription, right: EventSourceSubscription): boolean {
+  return (
+    left.href === right.href &&
+    left.event === right.event &&
+    left.json === right.json &&
+    left.withCredentials === right.withCredentials
+  );
+}
+
+function emptyState<T>(status: EventSourceStatus): EventSourceState<T> {
+  return { data: undefined, lastEventId: undefined, status };
+}
+
 /** `EventSource.CLOSED` — inlined so mocks without the constant still work. */
 const CLOSED_READY_STATE = 2;
 
@@ -54,21 +79,30 @@ export function useEventSource<T = string>(
 ): EventSourceState<T> {
   const { event = "message", json = false, withCredentials = false } = options;
   const href = url == null ? null : String(url);
+  const subscription: EventSourceSubscription = { event, href, json, withCredentials };
 
-  const [state, setState] = useState<EventSourceState<T>>({
-    data: undefined,
-    lastEventId: undefined,
-    status: href == null ? "closed" : "connecting",
+  const [current, setCurrent] = useState<InternalEventSourceState<T>>({
+    state: emptyState(href == null ? "closed" : "connecting"),
+    subscription,
   });
+
+  // Effects run after render. If the subscription changed, returning
+  // `current.state` here would paint the previous endpoint's payload for one
+  // frame before the cleanup/reset below runs. Derive the clean public state
+  // synchronously while the effect catches the internal state up.
+  const state = sameSubscription(current.subscription, subscription)
+    ? current.state
+    : emptyState<T>(href == null ? "closed" : "connecting");
 
   useEffect(() => {
     if (href == null || typeof EventSource === "undefined") {
-      setState((previous) =>
-        previous.status === "closed" &&
-        previous.data === undefined &&
-        previous.lastEventId === undefined
+      setCurrent((previous) =>
+        sameSubscription(previous.subscription, subscription) &&
+        previous.state.status === "closed" &&
+        previous.state.data === undefined &&
+        previous.state.lastEventId === undefined
           ? previous
-          : { data: undefined, lastEventId: undefined, status: "closed" },
+          : { state: emptyState("closed"), subscription },
       );
       return;
     }
@@ -77,24 +111,34 @@ export function useEventSource<T = string>(
     // endpoint's `data`/`lastEventId` into a different `url` (or a different
     // named event) would present another stream's payload as this one's. On
     // first mount this is a no-op — the initial state already looks like this.
-    setState((previous) =>
-      previous.status === "connecting" &&
-      previous.data === undefined &&
-      previous.lastEventId === undefined
+    setCurrent((previous) =>
+      sameSubscription(previous.subscription, subscription) &&
+      previous.state.status === "connecting" &&
+      previous.state.data === undefined &&
+      previous.state.lastEventId === undefined
         ? previous
-        : { data: undefined, lastEventId: undefined, status: "connecting" },
+        : { state: emptyState("connecting"), subscription },
     );
     const source = new EventSource(href, { withCredentials });
 
     const onOpen = (): void => {
-      setState((previous) => ({ ...previous, status: "open" }));
+      setCurrent((previous) =>
+        sameSubscription(previous.subscription, subscription)
+          ? { ...previous, state: { ...previous.state, status: "open" } }
+          : previous,
+      );
     };
     // EventSource reconnects on its own; `error` only means "gone for good"
     // once the readyState reaches CLOSED.
     const onError = (): void => {
       const status: EventSourceStatus =
         source.readyState === CLOSED_READY_STATE ? "closed" : "connecting";
-      setState((previous) => (previous.status === status ? previous : { ...previous, status }));
+      setCurrent((previous) => {
+        if (!sameSubscription(previous.subscription, subscription)) return previous;
+        return previous.state.status === status
+          ? previous
+          : { ...previous, state: { ...previous.state, status } };
+      });
     };
     const onMessage = (messageEvent: MessageEvent): void => {
       let data: T;
@@ -108,11 +152,18 @@ export function useEventSource<T = string>(
       } else {
         data = messageEvent.data as T;
       }
-      setState((previous) => ({
-        ...previous,
-        data,
-        lastEventId: messageEvent.lastEventId || undefined,
-      }));
+      setCurrent((previous) =>
+        sameSubscription(previous.subscription, subscription)
+          ? {
+              ...previous,
+              state: {
+                ...previous.state,
+                data,
+                lastEventId: messageEvent.lastEventId || undefined,
+              },
+            }
+          : previous,
+      );
     };
 
     source.addEventListener("open", onOpen);
@@ -120,7 +171,9 @@ export function useEventSource<T = string>(
     source.addEventListener(event, onMessage as EventListener);
 
     return () => {
-      // Closing also drops the listeners; no state updates after this point.
+      source.removeEventListener("open", onOpen);
+      source.removeEventListener("error", onError);
+      source.removeEventListener(event, onMessage as EventListener);
       source.close();
     };
   }, [href, event, json, withCredentials]);
