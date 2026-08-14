@@ -360,6 +360,12 @@ described in `VISION_MVP.md`.
   dispatch and cache defaults, `node-listener.ts` owns the sanitized Node ISG
   bridge, `revalidation.ts` owns webhook regeneration, and `server-entry.ts`
   owns generated module source.
+- **Image component** — `@pracht/image` keeps the public prop contract in
+  `image-types.ts`, responsive candidate planning in `image-sizing.ts`, inline
+  style safety and composition in `image-style.ts`, and development-only
+  guidance in `image-diagnostics.ts`. The `image.ts` facade focuses on resolving
+  metadata, loaders, and plain `<img>` markup while preserving the package's
+  stable public export.
 - **Image endpoint** — `@pracht/image/node` keeps request validation and response
   assembly in `node.ts`, trusted source/redirect policy in `node-source.ts`,
   Sharp loading and codec transformation in `node-transform.ts`, and shared
