@@ -73,6 +73,11 @@ described in `VISION_MVP.md`.
   `api-export-source-lexical.ts`, callable-default inference in
   `api-export-callable-source.ts`, and the former scanner entrypoint as a thin
   internal facade.
+- **Devtools page** — `@pracht/core/devtools` keeps `devtools.ts` as its
+  published app-graph facade. Endpoint identity lives in `devtools-paths.ts`,
+  escaped graph-to-table projection and safe-link policy in
+  `devtools-tables.ts`, and the standalone dependency-free document shell in
+  `devtools-page.ts`.
 - **Agent-readable index** — `@pracht/core` keeps `llms-txt.ts` as the public
   deterministic renderer. Public configuration contracts live in
   `llms-txt-types.ts`, graph-to-entry collection in `llms-txt-entries.ts`, and
