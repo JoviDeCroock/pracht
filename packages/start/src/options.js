@@ -109,7 +109,9 @@ export function parseArgs(argv) {
       const rawValue = arg.slice("--adapter=".length);
       const value = normalizeAdapter(rawValue);
       if (!value) {
-        throw new ValidationError(`Invalid adapter: ${rawValue}. Use node, cf, netlify, or vercel.`);
+        throw new ValidationError(
+          `Invalid adapter: ${rawValue}. Use node, cf, netlify, or vercel.`,
+        );
       }
       options.adapter = value;
       continue;

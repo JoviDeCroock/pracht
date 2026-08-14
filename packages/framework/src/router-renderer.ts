@@ -62,6 +62,7 @@ export interface ClientRouteRenderer {
   ): Promise<RouteRenderState | null>;
   startRouteImport(match: RouteMatch): Promise<unknown> | null;
   startShellImport(match: RouteMatch): Promise<unknown> | null;
+  syncHydratedUrl(initialState: RouteRenderState, search: string): void;
   warmModules(match: RouteMatch): void;
 }
 

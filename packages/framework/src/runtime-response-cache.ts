@@ -5,6 +5,7 @@ const CDN_CACHE_CONTROL_HEADERS = [
   "cache-control",
   "cdn-cache-control",
   "cloudflare-cdn-cache-control",
+  "netlify-cdn-cache-control",
   "surrogate-control",
   "vercel-cdn-cache-control",
 ] as const;
