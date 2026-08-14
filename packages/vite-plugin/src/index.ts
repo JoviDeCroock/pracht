@@ -1,8 +1,6 @@
 import { preactSsrPrecompile } from "@pracht/preact-ssr-precompile";
 import preact from "@preact/preset-vite";
-import { existsSync } from "node:fs";
-import { resolve } from "node:path";
-import { loadEnv, type Plugin } from "vite";
+import type { Plugin } from "vite";
 
 import type { RenderMode } from "@pracht/core";
 import { PRACHT_GRAPH_ONLY_ENV } from "@pracht/core/server";
@@ -26,8 +24,8 @@ import {
   createPrachtCapabilitiesClientModuleSource,
   createPrachtWebmcpModuleSource,
 } from "./capability-browser-codegen.ts";
-import { hasAgentSurface, hasWebmcpCapabilities } from "./plugin-capabilities.ts";
 import { createClientModuleSafetyPlugin } from "./plugin-client-safety.ts";
+import { createPrachtBuildConfig } from "./plugin-build-config.ts";
 import {
   createPrachtClientModuleSource,
   createPrachtDevModuleSource,
@@ -41,8 +39,7 @@ import {
 } from "./plugin-dev-ssr.ts";
 import { createEdgeRuntimeSafetyPlugin } from "./plugin-edge-runtime-safety.ts";
 import { transformAppManifestModule } from "./plugin-manifest-transform.ts";
-import { createOptimizeDepsPlugin, PREACT_DEDUPE } from "./plugin-optimize-deps.ts";
-import { resolveConfigPath } from "./plugin-paths.ts";
+import { createOptimizeDepsPlugin } from "./plugin-optimize-deps.ts";
 import { resolveOptions, type PrachtPluginOptions } from "./plugin-options.ts";
 
 export type { RenderMode };
@@ -97,123 +94,8 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
     name: "pracht",
     enforce: "pre",
 
-    config(_config, env) {
-      const isEdge = resolved.adapter.edge === true;
-      const isSSRBuild = env.isSsrBuild;
-
-      // Emit the islands bootstrap as its own client entry so islands-mode
-      // routes can load it without the full client runtime. WebMCP also owns
-      // this entry on islands routes, including responses that render no
-      // island components and apps that have no islands directory.
-      const configRoot = _config.root ?? process.cwd();
-      const wantsIslandsEntry =
-        env.command === "build" &&
-        !isSSRBuild &&
-        (existsSync(resolveConfigPath(configRoot, resolved.islandsDir)) ||
-          hasWebmcpCapabilities(resolved, configRoot));
-
-      // `publicEnv` needs every PRACHT_PUBLIC_ key, but reading the whole
-      // `import.meta.env` object to enumerate them makes Vite inline *all*
-      // exposed vars — VITE_ ones included — into the client bundle. Injecting
-      // the pre-filtered subset keeps that enumeration public-only.
-      const envDir = _config.envDir ? resolve(configRoot, _config.envDir) : configRoot;
-      const publicEnvDefine = JSON.stringify(loadEnv(env.mode, envDir, PUBLIC_ENV_PREFIX));
-
-      // Apps that register no capabilities and configure no agents get the
-      // capability + Web Bot Auth runtimes dead-code-eliminated out of the
-      // server bundle instead of shipping them unused. Build only: `config()`
-      // runs once, and in dev the manifest is edited live — a stale `false`
-      // would make a freshly added capability 404 until the server restarts.
-      const agentSurfaceDefine =
-        env.command === "build" ? String(hasAgentSurface(resolved, configRoot)) : "true";
-
-      return {
-        appType: "custom" as const,
-        // Expose PRACHT_PUBLIC_-prefixed vars on import.meta.env (client and
-        // server) while keeping Vite's default VITE_ prefix working.
-        envPrefix: ["VITE_", PUBLIC_ENV_PREFIX],
-        resolve: {
-          // Preact's hook state lives in module-level `options` on the Preact
-          // instance that rendered the tree. A second copy in the graph — from
-          // hoisting, a linked package, or a UI library with its own Preact
-          // dependency — makes any hook-using component die during SSR with
-          // `Cannot read properties of undefined (reading '__H')`, which names
-          // neither the component nor the cause. Collapsing the family onto one
-          // copy is the only sane default.
-          dedupe: PREACT_DEDUPE,
-        },
-        define: {
-          __PRACHT_PUBLIC_ENV__: publicEnvDefine,
-          __PRACHT_AGENT_SURFACE__: agentSurfaceDefine,
-        },
-        // The vendor split only makes sense for the client bundle; SSR builds
-        // that disable code splitting (e.g. webworker targets) reject
-        // `manualChunks` outright.
-        ...(isSSRBuild
-          ? {}
-          : {
-              build: {
-                rollupOptions: {
-                  ...(wantsIslandsEntry ? { input: [PRACHT_ISLANDS_CLIENT_MODULE_ID] } : {}),
-                  output: {
-                    manualChunks(id: string) {
-                      if (
-                        id.includes("node_modules/preact") ||
-                        id.includes("node_modules/preact-suspense")
-                      ) {
-                        return "vendor";
-                      }
-                    },
-                  },
-                },
-              },
-            }),
-        ...(isEdge && isSSRBuild
-          ? {
-              ssr: {
-                noExternal: true,
-                // Edge server bundles run outside Node; without this the SSR
-                // build emits Node-flavored CJS interop
-                // (`createRequire(import.meta.url)`) that workerd rejects at
-                // startup.
-                target: "webworker" as const,
-              },
-              // `ssr.target: "webworker"` applies the client condition list,
-              // so a package's `browser` entry wins in a server bundle. Correct
-              // that resolution without enabling `keepProcessEnv`: preserving
-              // raw `process.env` reads across the entire noExternal bundle
-              // would make unguarded dependency code throw on Cloudflare.
-              environments: {
-                ssr: {
-                  resolve: {
-                    // The client list resolved `@pracht/core/env/server` to the
-                    // stub that exists to make a *client* import fail loudly.
-                    // `worker` goes first so worker-aware packages (this one
-                    // included) can answer an edge server build with server
-                    // code; `browser` stays as the fallback that keeps
-                    // browser-only dependencies resolvable.
-                    conditions: ["worker", "module", "browser", "development|production"],
-                    // Rolldown's generated interop runtime references
-                    // `node:module` while deciding whether a helper is needed.
-                    // Edge builds tree-shake that helper, but Vite otherwise
-                    // warns that it auto-externalized a Node builtin. Marking
-                    // it explicitly keeps successful Worker builds quiet;
-                    // the edge-runtime-safety plugin still fails the build if
-                    // this or any other Node import survives tree shaking.
-                    external: ["node:module"],
-                  },
-                },
-              },
-              build: {
-                rollupOptions: {
-                  // Platform-scheme modules only exist inside the target
-                  // runtime and must stay runtime imports.
-                  external: [/^cloudflare:/],
-                },
-              },
-            }
-          : {}),
-      };
+    config(config, env) {
+      return createPrachtBuildConfig(resolved, config, env);
     },
 
     configResolved(config) {

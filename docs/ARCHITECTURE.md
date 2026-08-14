@@ -663,6 +663,10 @@ dev-404.ts      — dev-only 404 page HTML listing registered routes (no interna
 
 The Vite plugin keeps virtual-module assembly separate from source discovery:
 
+- `index.ts` composes the Vite lifecycle and adapter-contributed plugins.
+- `plugin-build-config.ts` owns client, Node SSR, and edge SSR configuration
+  policy, including environment defines, entrypoints, Preact deduplication, and
+  runtime resolution conditions.
 - `plugin-codegen.ts` is the stable generator facade.
 - `plugin-client-codegen.ts` owns client hydration and islands bootstrap source.
 - `plugin-server-codegen.ts` owns build-aware server and adapter entry assembly.

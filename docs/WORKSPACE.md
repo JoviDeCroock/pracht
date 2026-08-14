@@ -171,6 +171,10 @@ described in `VISION_MVP.md`.
   `configureServer` hook adds SSR middleware to the Vite dev server. The
   `handleHotUpdate` hook invalidates virtual modules when route/shell/middleware/API files change and
   triggers full reload when the app manifest (`src/routes.ts`) changes.
+  `index.ts` composes those lifecycle hooks and adapter plugins, while
+  `plugin-build-config.ts` owns client, Node SSR, and edge SSR configuration
+  policy such as public environment defines, islands entries, Preact
+  deduplication, and Worker resolution conditions.
   Capability discovery and conservative agent-surface detection live in
   `plugin-capabilities.ts`; `capability-browser-codegen.ts` consumes that
   metadata to generate the HTTP client and WebMCP browser projections.

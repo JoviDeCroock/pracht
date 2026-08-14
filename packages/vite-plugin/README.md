@@ -37,6 +37,11 @@ generator facade. Client hydration and islands bootstraps live in
 metadata fallback and normalization for the generated server module's
 `llms.txt` configuration.
 
+The public `src/index.ts` entry composes Vite lifecycle hooks and
+adapter-contributed plugins. Target-specific configuration is isolated in
+`plugin-build-config.ts`: it owns client, Node SSR, and edge SSR environment
+defines, entrypoints, Preact deduplication, and runtime resolution conditions.
+
 ## Optional Preact SSR JSX precompile
 
 Pracht can opt into the experimental `@pracht/preact-ssr-precompile` transform for
