@@ -543,7 +543,9 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
         (!transformOptions?.ssr && isRouteOrShellFile(id, routeFileDirs, routeFileExtensions));
       if (!shouldStrip) return null;
 
-      const transformed = stripServerOnlyExportsForClient(code, id);
+      const transformed = stripServerOnlyExportsForClient(code, id, {
+        middleware: isRootMiddlewareModule(id, root, resolved),
+      });
       if (transformed === code) return null;
       return { code: transformed, map: null };
     },
@@ -939,6 +941,24 @@ function isCapabilityModule(id: string, capabilityModulePaths: Set<string>): boo
   const path = queryStart === -1 ? id : id.slice(0, queryStart);
   if (path.startsWith("\0") || path.startsWith("virtual:")) return false;
   return capabilityModulePaths.has(canonicalFilePath(path));
+}
+
+function isRootMiddlewareModule(
+  id: string,
+  root: string,
+  resolved: ResolvedPrachtPluginOptions,
+): boolean {
+  const queryStart = id.indexOf("?");
+  const path = queryStart === -1 ? id : id.slice(0, queryStart);
+  if (path.startsWith("\0") || path.startsWith("virtual:")) return false;
+
+  const middlewareDir = resolved.pagesDir || resolved.middlewareDir;
+  const modulePath = canonicalFilePath(path);
+  return [".ts", ".tsx", ".js", ".jsx"].some(
+    (extension) =>
+      modulePath ===
+      canonicalFilePath(resolveConfigPath(root, `${middlewareDir}/_middleware${extension}`)),
+  );
 }
 
 /**

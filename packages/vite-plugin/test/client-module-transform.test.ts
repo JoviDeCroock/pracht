@@ -213,11 +213,28 @@ export const middleware = async (_args, next) => {
 };
 `;
 
-    const transformed = stripServerOnlyExportsForClient(source);
+    const transformed = stripServerOnlyExportsForClient(source, "src/pages/_middleware.ts", {
+      middleware: true,
+    });
 
     expect(transformed).not.toContain("../server-secret");
     expect(transformed).not.toContain("middleware");
     expect(transformed).not.toContain("x-secret");
+  });
+
+  it("preserves an ordinary client export named middleware in route modules", () => {
+    const source = `
+export const middleware = "CLIENT_MIDDLEWARE_LABEL";
+
+export default function Home() {
+  return <main>{middleware}</main>;
+}
+`;
+
+    const transformed = stripServerOnlyExportsForClient(source);
+
+    expect(transformed).toContain('middleware = "CLIENT_MIDDLEWARE_LABEL"');
+    expect(transformed).toContain("<main>{middleware}</main>");
   });
 
   it("does not strip export declarations that appear inside string/template literals", () => {
