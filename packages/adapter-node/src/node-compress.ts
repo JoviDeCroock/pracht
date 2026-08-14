@@ -142,13 +142,46 @@ export function mergeVaryOnNodeResponse(res: ServerResponse): void {
  * Derive the ETag of an encoded variant from the identity ETag. Encoded
  * variants must not share a validator with identity — a shared tag would let
  * a cache answer an `Accept-Encoding: identity` revalidation with a brotli
- * body — so the encoding is folded into the opaque tag.
+ * body — so the encoding is folded into the opaque tag. The derived tag is
+ * always weak: streaming compression can produce different wire bytes for the
+ * same decoded content when source chunk boundaries differ.
  */
 export function encodeEtagForEncoding(etag: string, encoding: ContentEncoding): string {
-  if (etag.endsWith('"')) {
-    return `${etag.slice(0, -1)}-${encoding}"`;
+  const opaqueTag = etag.startsWith("W/") ? etag.slice(2) : etag;
+  if (opaqueTag.endsWith('"')) {
+    return `W/${opaqueTag.slice(0, -1)}-${encoding}"`;
   }
-  return `${etag}-${encoding}`;
+  return `W/${opaqueTag}-${encoding}`;
+}
+
+/**
+ * Weakly compare an `If-None-Match` list with the selected representation's
+ * ETag. Commas inside the quoted opaque tag are data, not list separators.
+ */
+export function matchesIfNoneMatch(header: string | null, etag: string | null): boolean {
+  if (!header) return false;
+
+  const candidates: string[] = [];
+  let start = 0;
+  let quoted = false;
+  for (let index = 0; index < header.length; index += 1) {
+    const character = header[index];
+    if (character === '"') {
+      quoted = !quoted;
+    } else if (character === "," && !quoted) {
+      candidates.push(header.slice(start, index).trim());
+      start = index + 1;
+    }
+  }
+  candidates.push(header.slice(start).trim());
+
+  if (candidates.includes("*")) return true;
+  if (!etag) return false;
+
+  const weakOpaqueTag = (value: string): string =>
+    value.startsWith("W/") ? value.slice(2) : value;
+  const expected = weakOpaqueTag(etag);
+  return candidates.some((candidate) => weakOpaqueTag(candidate) === expected);
 }
 
 export interface CompressionStreamOptions {

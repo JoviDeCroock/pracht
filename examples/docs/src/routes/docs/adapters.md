@@ -482,9 +482,12 @@ compressible text types (`text/*`, JSON, JavaScript, SVG, and other
 `+json`/`+xml` types) stream through `node:zlib` with per-chunk flushing, so
 streamed bodies such as SSE are delivered incrementally; static assets and ISG
 snapshots are compressed once per file version and served from an in-memory
-LRU. Compressible responses carry `Vary: Accept-Encoding` (merged with existing
-`Vary` values), encoded variants use their own ETag with adapter-level dynamic
-revalidation, and `HEAD` advertises the same negotiated metadata as `GET`.
+LRU. Static WebAssembly is served as `application/wasm` and follows that static
+compression path. Compressible responses carry `Vary: Accept-Encoding` (merged
+with existing `Vary` values), encoded variants use their own weak ETag, and dynamic
+`If-None-Match` validation runs after the adapter selects the representation so
+identity and encoded validators cannot cross. `HEAD` advertises the same
+negotiated metadata as `GET`.
 Already-encoded responses, `Cache-Control: no-transform`, Range/`204`/`304`
 responses, integrity-protected responses (`Content-Digest`, `Repr-Digest`,
 legacy `Digest`/`Content-MD5`), binary media, and bodies under 1 KiB are never

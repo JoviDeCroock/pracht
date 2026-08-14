@@ -187,7 +187,9 @@ wildcards, and `q=0` exclusions are honored, all via `node:zlib`):
 What gets compressed: `text/*`, `application/json`, `application/javascript`,
 `application/xml`, `application/wasm`, and any `+json`/`+xml` structured
 syntax type (`image/svg+xml`, `application/manifest+json`, ...). Binary media
-(images, fonts, video) is never re-compressed.
+(images, fonts, video) is never re-compressed. Static `.wasm` assets are served
+as `application/wasm`, so they follow the same compression path as dynamic
+WebAssembly responses.
 
 What is never touched: responses that already carry a `Content-Encoding`,
 `Cache-Control: no-transform` responses, 1xx/204/205/206/304 statuses, Range
@@ -204,9 +206,12 @@ Correctness guarantees:
   response goes out identity-encoded — so shared caches key on the encoding.
 - Encoded variants get their own weak ETag (the encoding is folded into the
   tag, e.g. `W/"1a2f-18c-br"`), so `If-None-Match` revalidation can never
-  answer an identity request with a cached brotli body or vice versa. The
-  adapter evaluates those derived validators for dynamic responses, and the
-  `304` path keeps working per variant.
+  answer an identity request with a cached brotli body or vice versa. Strong
+  application ETags are weakened because streaming compression bytes can vary
+  with chunk boundaries. The adapter evaluates dynamic `If-None-Match` only
+  after selecting the outgoing representation, including valid quoted opaque
+  tags that contain commas, so application-level identity validation cannot
+  short-circuit an encoded request with a cross-encoding `304`.
 - `HEAD` advertises the same negotiated `Content-Encoding` and variant ETag as
   the corresponding `GET` while omitting the body (and compressed length when
   it is not already known).

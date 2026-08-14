@@ -37,6 +37,7 @@ import {
   isCompressibleContentType,
   isTransformableResponse,
   MAX_CACHEABLE_ASSET_SIZE,
+  matchesIfNoneMatch,
   mergeVaryValue,
   negotiateEncoding,
 } from "./node-compress.ts";
@@ -216,15 +217,16 @@ export function createNodeRequestHandler<TContext = unknown>(
       if (served) return;
     }
 
+    const applicationRequest = createApplicationRequest(request, compression);
     const context = options.createContext
-      ? await options.createContext({ request, req, res })
+      ? await options.createContext({ request: applicationRequest, req, res })
       : undefined;
 
     const response = await handlePrachtRequest({
       app: options.app,
       context,
       registry: options.registry,
-      request,
+      request: applicationRequest,
       apiRoutes: options.apiRoutes,
       clientEntryUrl: options.clientEntryUrl,
       islandsEntryUrl: options.islandsEntryUrl,
@@ -581,6 +583,29 @@ function isRouteStateRequest(url: URL, headers: Headers): boolean {
   return headers.get(ROUTE_STATE_REQUEST_HEADER) === "1" || url.searchParams.get("_data") === "1";
 }
 
+/**
+ * Dynamic compression owns `If-None-Match` after it has selected the outgoing
+ * representation. Do not let an application short-circuit an encoded request
+ * against the identity representation's ETag before that selection happens.
+ */
+function createApplicationRequest(
+  request: Request,
+  compression: CompressionState | undefined,
+): Request {
+  if (
+    !compression ||
+    (request.method !== "GET" && request.method !== "HEAD") ||
+    !request.headers.has("if-none-match") ||
+    !negotiateEncoding(request.headers.get("accept-encoding"))
+  ) {
+    return request;
+  }
+
+  const headers = new Headers(request.headers);
+  headers.delete("if-none-match");
+  return new Request(request, { headers });
+}
+
 function isStaticAssetMethod(method: string): boolean {
   return method === "GET" || method === "HEAD";
 }
@@ -603,9 +628,7 @@ function isNotModified(request: Request, headers: Headers): boolean {
     // negotiated, not a 304 that relabels its identity cache entry with the
     // brotli variant's validator.
     const etag = headers.get("etag");
-    if (!etag) return false;
-    const candidates = ifNoneMatch.split(",").map((value) => value.trim());
-    return candidates.includes("*") || candidates.includes(etag);
+    return matchesIfNoneMatch(ifNoneMatch, etag);
   }
 
   const lastModified = headers.get("last-modified");

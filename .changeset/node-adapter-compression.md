@@ -14,7 +14,10 @@ in-flight compression — and served from an in-memory LRU. Compressible
 responses always carry
 `Vary: Accept-Encoding` (merged with existing `Vary` members), encoded
 variants get their own weak ETag so conditional revalidation never crosses
-encodings, dynamic variant ETags revalidate through the adapter, `HEAD` uses
+encodings (including when applications provide strong identity validators),
+dynamic `If-None-Match` validation runs after representation selection and
+supports commas inside quoted opaque tags, static `.wasm` files are served as
+compressible `application/wasm`, `HEAD` uses
 the same negotiated representation metadata as `GET`, and already-encoded
 responses, `Cache-Control: no-transform`, Range/204/304 responses, binary
 media, integrity-protected responses, and bodies under 1 KiB (when the size is

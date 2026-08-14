@@ -30,6 +30,7 @@ describe("static content types", () => {
     ["skill.md", "text/markdown; charset=utf-8"],
     ["skill.markdown", "text/markdown; charset=utf-8"],
     ["llms.txt", "text/plain; charset=utf-8"],
+    ["module.wasm", "application/wasm"],
   ])("serves %s as %s", async (file, contentType) => {
     const staticDir = makeStaticDir({ [file]: "# hello" });
 

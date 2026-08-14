@@ -25,6 +25,7 @@ const MIME_TYPES: Record<string, string> = {
   ".markdown": "text/markdown; charset=utf-8",
   ".xml": "application/xml",
   ".webmanifest": "application/manifest+json",
+  ".wasm": "application/wasm",
 };
 
 /**

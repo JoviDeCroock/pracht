@@ -16,6 +16,7 @@ import { defineApp, resolveApiRoutes, route } from "@pracht/core";
 import { createNodeRequestHandler } from "../src/index.ts";
 import {
   CompressedAssetCache,
+  encodeEtagForEncoding,
   isCompressibleContentType,
   mergeVaryValue,
   negotiateEncoding,
@@ -126,6 +127,11 @@ describe("negotiateEncoding", () => {
     expect(negotiateEncoding("identity;q=0, gzip")).toBe("gzip");
     expect(negotiateEncoding("gzip;q=0.5, identity;q=1, *;q=0")).toBeNull();
     expect(negotiateEncoding("gzip;q=1, identity;q=1, *;q=0")).toBe("gzip");
+  });
+
+  it("weakens derived ETags for encoded variants", () => {
+    expect(encodeEtagForEncoding('"strong-v1"', "gzip")).toBe('W/"strong-v1-gzip"');
+    expect(encodeEtagForEncoding('W/"weak-v1"', "br")).toBe('W/"weak-v1-br"');
   });
 });
 
@@ -457,7 +463,7 @@ describe("dynamic response compression", () => {
   });
 
   it("revalidates an encoding-specific dynamic ETag", async () => {
-    const identityEtag = 'W/"dynamic-v1"';
+    const identityEtag = '"dynamic-v1"';
     const base = await listen(
       createNodeRequestHandler({
         apiRoutes: resolveApiRoutes(["/src/api/etag.ts"]),
@@ -480,18 +486,56 @@ describe("dynamic response compression", () => {
       }),
     );
 
+    const identity = await rawRequest(`${base}/api/etag`);
+    const crossEncoding = await rawRequest(`${base}/api/etag`, {
+      "accept-encoding": "gzip",
+      "if-none-match": identity.headers.etag!,
+    });
     const first = await rawRequest(`${base}/api/etag`, { "accept-encoding": "gzip" });
     const revalidated = await rawRequest(`${base}/api/etag`, {
       "accept-encoding": "gzip",
       "if-none-match": first.headers.etag!,
     });
 
+    expect(identity.headers.etag).toBe(identityEtag);
+    expect(crossEncoding.status).toBe(200);
+    expect(crossEncoding.headers["content-encoding"]).toBe("gzip");
+    expect(crossEncoding.headers.etag).toBe('W/"dynamic-v1-gzip"');
     expect(first.status).toBe(200);
     expect(first.headers.etag).toBe('W/"dynamic-v1-gzip"');
     expect(revalidated.status).toBe(304);
     expect(revalidated.headers.etag).toBe(first.headers.etag);
     expect(revalidated.headers.vary).toContain("Accept-Encoding");
     expect(revalidated.body.byteLength).toBe(0);
+  });
+
+  it("revalidates encoded ETags whose opaque tag contains a comma", async () => {
+    const base = await listen(
+      createNodeRequestHandler({
+        apiRoutes: resolveApiRoutes(["/src/api/comma-etag.ts"]),
+        app: defineApp({ routes: [] }),
+        registry: {
+          apiModules: {
+            "/src/api/comma-etag.ts": async () => ({
+              GET: async () =>
+                new Response("comma etag payload ".repeat(300), {
+                  headers: { etag: '"release,1"', "content-type": "text/plain" },
+                }),
+            }),
+          },
+        },
+      }),
+    );
+
+    const first = await rawRequest(`${base}/api/comma-etag`, { "accept-encoding": "gzip" });
+    const revalidated = await rawRequest(`${base}/api/comma-etag`, {
+      "accept-encoding": "gzip",
+      "if-none-match": first.headers.etag!,
+    });
+
+    expect(first.headers.etag).toBe('W/"release,1-gzip"');
+    expect(revalidated.status).toBe(304);
+    expect(revalidated.headers.etag).toBe(first.headers.etag);
   });
 
   it("uses the GET representation metadata for dynamic HEAD responses", async () => {
@@ -659,6 +703,7 @@ describe("static asset compression", () => {
     );
     writeFileSync(join(staticDir, "assets", "tiny.css"), "a{color:red}", "utf-8");
     writeFileSync(join(staticDir, "assets", "pixel.png"), Buffer.alloc(4096, 3));
+    writeFileSync(join(staticDir, "assets", "module.wasm"), Buffer.alloc(4096, 5));
     writeFileSync(
       join(staticDir, "index.html"),
       `<html><body>${"<p>prerendered</p>".repeat(200)}</body></html>`,
@@ -776,6 +821,19 @@ describe("static asset compression", () => {
     expect(response.status).toBe(200);
     expect(response.headers["content-encoding"]).toBe("gzip");
     expect(gunzipSync(response.body).toString("utf-8")).toContain("<p>prerendered</p>");
+  });
+
+  it("serves static WebAssembly with its compressible MIME type", async () => {
+    const { handler } = createStaticHandler();
+    const base = await listen(handler);
+
+    const response = await rawRequest(`${base}/assets/module.wasm`, {
+      "accept-encoding": "gzip",
+    });
+
+    expect(response.headers["content-type"]).toBe("application/wasm");
+    expect(response.headers["content-encoding"]).toBe("gzip");
+    expect(gunzipSync(response.body)).toEqual(Buffer.alloc(4096, 5));
   });
 
   it("drops an identity Content-Length when streaming a large compressed page", async () => {
