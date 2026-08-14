@@ -150,25 +150,46 @@ export function matchAcceptLanguage(
     }
     // RFC 4647 lookup: try the tag, then progressively strip subtags from
     // the right until a registered locale matches (`zh-hant-tw` → `zh-hant`
-    // → `zh`).
+    // → `zh`). A range also matches a longer registered tag, so `en-gb`
+    // prefers `en-gb-oxendict` over an unrelated same-language best fit.
+    const requestedScript = scriptSubtag(tag);
     let candidate: string = tag;
     let index = -1;
     while (true) {
-      index = lowered.indexOf(candidate);
-      if (index !== -1 && !isRejected(lowered[index] as string, tag)) break;
+      // Use the range that actually matched the registered locale when
+      // applying q=0 exclusions. If `en-US` had to truncate to `en`, a client
+      // that explicitly rejected `en` must not receive it.
+      const exact = lowered.indexOf(candidate);
+      index =
+        exact !== -1 && !isRejected(lowered[exact] as string, candidate)
+          ? exact
+          : lowered.findIndex((locale) => {
+              if (!locale.startsWith(`${candidate}-`) || isRejected(locale, candidate)) {
+                return false;
+              }
+              const candidateScript = scriptSubtag(locale);
+              return (
+                requestedScript === null ||
+                candidateScript === null ||
+                candidateScript === requestedScript
+              );
+            });
+      if (index !== -1) break;
       const dash = candidate.lastIndexOf("-");
       if (dash === -1) break;
       candidate = candidate.slice(0, dash);
     }
-    if (index === -1 || isRejected(lowered[index] as string, tag)) {
+    if (index === -1) {
       // Best-fit fallback across regions: a registered locale whose primary
       // language matches the tag's (`en` → `en-US`, `en-GB` → `en-US`) is a
       // better answer than falling through to a lower-q language. An explicit
       // script remains significant: `zh-Hans` must not best-fit `zh-Hant`.
       const language = tag.split("-", 1)[0] ?? tag;
-      const requestedScript = scriptSubtag(tag);
       index = lowered.findIndex((locale) => {
-        if (!locale.startsWith(`${language}-`) || isRejected(locale, tag)) return false;
+        // Best fit only establishes a primary-language match, so a q=0 range
+        // for that language still excludes the candidate. The more-specific
+        // request cannot override a rejection it did not directly match.
+        if (!locale.startsWith(`${language}-`) || isRejected(locale, language)) return false;
         const candidateScript = scriptSubtag(locale);
         return (
           requestedScript === null ||

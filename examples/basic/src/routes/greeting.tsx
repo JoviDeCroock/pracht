@@ -6,7 +6,7 @@ import {
   type RouteComponentProps,
 } from "@pracht/core";
 import { t, type I18nRequestContext } from "@pracht/i18n";
-import { useEffect, useState } from "preact/hooks";
+import { useEffect, useRef, useState } from "preact/hooks";
 
 import { dictionaries, i18n, type AppLocale, type AppMessages } from "../i18n/index.ts";
 
@@ -36,7 +36,15 @@ export function Component({ data }: RouteComponentProps<typeof loader>) {
   // Set only by the instant client-side switch below; loader data wins again
   // as soon as it changes (the <Form> switch re-runs the loader).
   const [clientMessages, setClientMessages] = useState<AppMessages | null>(null);
-  useEffect(() => setClientMessages(null), [data.locale]);
+  const clientSwitch = useRef(0);
+  useEffect(() => {
+    setClientMessages(null);
+    return () => {
+      // A server switch or unmount invalidates any lazy client switch that is
+      // still in flight, without discarding a click before this effect mounts.
+      clientSwitch.current += 1;
+    };
+  }, [data.locale]);
 
   const messages = clientMessages ?? data.messages;
   const locale = messages.$locale as AppLocale;
@@ -51,10 +59,19 @@ export function Component({ data }: RouteComponentProps<typeof loader>) {
   }, [locale]);
 
   async function switchOnTheClient(next: AppLocale) {
-    // Remember the choice for the next server render, then swap the
-    // dictionary in place: no navigation, no round trip, same URL.
-    i18n.setLocaleCookie(next);
-    setClientMessages(await dictionaries.load(next));
+    const switchId = ++clientSwitch.current;
+    try {
+      const nextMessages = await dictionaries.load(next);
+      // Lazy chunks can resolve out of order. Commit only the latest successful
+      // choice so the displayed dictionary and persisted cookie stay aligned.
+      if (switchId !== clientSwitch.current) return;
+      i18n.setLocaleCookie(next);
+      setClientMessages(nextMessages);
+    } catch (error: unknown) {
+      if (switchId === clientSwitch.current) {
+        console.error(`[pracht example] Failed to load the ${next} dictionary.`, error);
+      }
+    }
   }
 
   return (

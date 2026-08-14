@@ -77,10 +77,22 @@ describe("matchAcceptLanguage", () => {
 
   it("matches exact tags case-insensitively and returns the registered casing", () => {
     expect(matchAcceptLanguage("NL", locales)).toBe("nl");
+    expect(matchAcceptLanguage("en", ["en-US", "en"])).toBe("en");
   });
 
   it("falls back from a regional tag to its base language", () => {
     expect(matchAcceptLanguage("nl-BE, en;q=0.5", locales)).toBe("nl");
+  });
+
+  it("does not let lookup truncation bypass a rejected base locale", () => {
+    expect(matchAcceptLanguage("en;q=0, en-US;q=1, nl;q=0.5", locales)).toBe("nl");
+    expect(matchAcceptLanguage("en;q=0, en-US;q=1, nl;q=0.5", ["en-GB", "nl"])).toBe("nl");
+  });
+
+  it("prefers a longer registered tag matched by the requested range", () => {
+    expect(matchAcceptLanguage("en-GB, nl;q=0.5", ["en-US", "en-GB-oxendict", "nl"])).toBe(
+      "en-GB-oxendict",
+    );
   });
 
   it("matches a bare language against a registered regional locale", () => {

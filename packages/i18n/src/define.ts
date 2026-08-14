@@ -390,9 +390,10 @@ export function defineI18n<const L extends string>(config: I18nConfig<L>): I18n<
       href: `${origin}${localePath(path, locale)}`,
     }));
     if (options.xDefault !== false) {
+      const { pathname, suffix } = splitTarget(path);
       const href =
         options.xDefault === undefined
-          ? `${origin}${splitLocale(splitTarget(path).pathname).pathname}`
+          ? `${origin}${splitLocale(pathname).pathname}${suffix}`
           : `${origin}${localePath(path, options.xDefault)}`;
       links.push({ rel: "alternate", hreflang: "x-default", href });
     }

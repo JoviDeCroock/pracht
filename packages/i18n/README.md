@@ -118,9 +118,14 @@ export async function POST({ request, url }: BaseRouteArgs) {
 
 ```ts
 // …or entirely on the client: no request, same URL
-i18n.setLocaleCookie("nl"); // remembered for the next server render
-setMessages(await dictionaries.load("nl")); // lazily imported chunk
+const messages = await dictionaries.load("nl"); // lazily imported chunk
+i18n.setLocaleCookie("nl"); // remember only a successfully loaded locale
+setMessages(messages);
 ```
+
+When several locale choices can be made before their lazy chunks finish,
+guard the async work so only the latest successful selection updates both the
+cookie and component state; the full recipe below shows that pattern.
 
 The trade-off is SEO: a single URL cannot carry `hreflang` alternates, so
 crawlers index whichever locale their `Accept-Language` resolves to. The
@@ -168,7 +173,7 @@ Creates the app's i18n instance:
   when called during SSR).
 - **`hreflang(path, { origin?, xDefault? })`** — `link[]` alternate entries
   for `head()`: one per locale plus `x-default` (the unprefixed detector
-  route by default).
+  route by default), preserving the path's query/hash suffix on every target.
 
 Only registered locales can ever win detection: URL prefixes, cookie values,
 and `Accept-Language` tags are validated against the registry, malformed or
@@ -176,12 +181,15 @@ duplicate q-values (`;q=`, `;q=abc`, repeated `;q=`) are dropped rather than
 promoted, and oversized headers are truncated. A q-value must be a complete
 decimal token, so a numeric prefix such as `q=0.5junk` is rejected too.
 Wildcards can only resolve to a registered locale and never revive a locale
-explicitly rejected with `q=0`. Header matching follows RFC 4647 lookup —
-progressive truncation (`zh-Hant-TW` → `zh-Hant` → `zh`) — plus a
-script-compatible same-language best fit (`en-GB` matches a registered
-`en-US`, while `zh-Hans` does not best-fit `zh-Hant`) before falling through
-to lower-preference entries. Every locale accepted by `defineI18n()` remains
-detectable even when its full tag is longer than a common language-region pair.
+explicitly rejected with `q=0`; neither lookup truncation nor best-fit fallback
+can bypass that rejection.
+Header matching follows RFC 4647 lookup — direct range matches (registered
+`en-GB-oxendict` for requested `en-GB`) and progressive truncation
+(`zh-Hant-TW` → `zh-Hant` → `zh`) — plus a script-compatible same-language
+best fit (`en-GB` matches a registered `en-US`, while `zh-Hans` does not
+best-fit `zh-Hant`) before falling through to lower-preference entries. Every
+locale accepted by `defineI18n()` remains detectable even when its full tag is
+longer than a common language-region pair.
 
 Note that route matching is exact: `pathPrefix: "/nl"` serves `/nl/...`,
 not `/NL/...`. Keep locale prefixes lowercase in links (use `localePath`).

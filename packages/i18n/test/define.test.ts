@@ -401,6 +401,14 @@ describe("hreflang", () => {
     ]);
   });
 
+  it("preserves query and hash in the default x-default target", () => {
+    expect(i18n.hreflang("/en/search?q=term#top")).toEqual([
+      { rel: "alternate", hreflang: "en", href: "/en/search?q=term#top" },
+      { rel: "alternate", hreflang: "nl", href: "/nl/search?q=term#top" },
+      { rel: "alternate", hreflang: "x-default", href: "/search?q=term#top" },
+    ]);
+  });
+
   it("keeps a relative x-default target on the current origin", () => {
     const xDefault = i18n
       .hreflang("/nl/a/..//evil.example/x")

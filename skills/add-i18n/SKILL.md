@@ -249,6 +249,11 @@ writes the same cookie from the browser and
 `await dictionaries.load(locale)` swaps the dictionary in place — hold the
 result in state, reset it when loader data changes, and set
 `document.documentElement.lang` by hand (`head()` already ran server-side).
+Load the dictionary before writing the cookie, and guard concurrent lazy
+loads with a monotonically increasing request id so only the latest successful
+selection commits both the cookie and component state. Catch import failures
+instead of leaving an unhandled event-handler rejection or a partially applied
+locale choice.
 `i18n.detectClient()` is the browser-side `detect()` if a client-only
 surface needs to resolve the locale itself.
 
@@ -285,9 +290,10 @@ export function Component({ data }: RouteComponentProps<typeof loader>) {
 after hydration and on client navigations. `hreflang()` emits one alternate
 link per locale plus `x-default` pointing at the unprefixed detector; pass
 the app's canonical origin. Relative previews remain current-origin because
-`splitLocale()` always keeps the stripped pathname root-relative. Under
-strategy B, omit the `link` entry: there is no alternate URL to point at, so
-emitting hreflang would be a lie.
+`splitLocale()` always keeps the stripped pathname root-relative, and every
+alternate preserves an input query/hash suffix. Under strategy B, omit the
+`link` entry: there is no alternate URL to point at, so emitting hreflang
+would be a lie.
 
 ## Step 6: SEO touch-ups
 
@@ -346,7 +352,9 @@ emitting hreflang would be a lie.
    concatenation on user input. `localePath` also resolves dot segments before
    adding the locale prefix. Accept-Language wildcard fallbacks are resolved
    through the registered locale list, respect explicit `q=0` exclusions, and
-   same-language best fit never crosses conflicting script subtags.
+   neither lookup truncation nor best-fit fallback can bypass those exclusions.
+   Directly matched longer variants win before same-language best fit, which
+   never crosses conflicting script subtags.
 3. For SSG, only prerender URL combinations that exist; provide
    `getStaticPaths` returning the locale × dynamic-param product when a
    localized route has dynamic segments.

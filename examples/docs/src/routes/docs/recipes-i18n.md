@@ -104,6 +104,10 @@ The middleware resolves the locale via the configured detection order, sets `con
 
 Only registered locales can ever win: unregistered URL prefixes and cookie values are ignored, malformed `Accept-Language` entries (`;q=`, `q=0.5junk`, duplicate `q` parameters, garbage tags) are dropped, and wildcard fallbacks are checked against the locale registry without reviving a locale explicitly rejected by `q=0`. Matching follows RFC 4647 lookup (`fr-CA` → `fr`, `zh-Hant-TW` → `zh-Hant`) with a script-compatible same-language best fit (`en-GB` → a registered `en-US`, but `zh-Hans` never best-fits `zh-Hant`) before falling through to lower-preference entries. Locale tags accepted by `defineI18n()` remain detectable at their full configured length.
 
+Lookup truncation and best-fit fallback also preserve `q=0` exclusions, and a
+requested range directly matches a longer registered variant (`en-GB` →
+`en-GB-oxendict`) before same-language best fit is considered.
+
 Type `context.locale` once via the framework's `Register` pattern:
 
 ```ts [src/env.d.ts]
@@ -266,19 +270,38 @@ export function LanguageSwitcher() {
 **Client switch (no request at all).** Write the cookie from the browser and swap the dictionary in place — the URL never changes and nothing is re-fetched:
 
 ```tsx
-import { useEffect, useState } from "preact/hooks";
+import { useEffect, useRef, useState } from "preact/hooks";
 import { t } from "@pracht/i18n";
 import { dictionaries, i18n, type AppLocale } from "../i18n/index.ts";
 
 export function Component({ data }: RouteComponentProps<typeof loader>) {
   const [override, setOverride] = useState<typeof data.messages | null>(null);
+  const switchRequest = useRef(0);
   // Loader data wins again whenever it changes.
-  useEffect(() => setOverride(null), [data.locale]);
+  useEffect(() => {
+    setOverride(null);
+    return () => {
+      // Invalidate a pending client switch when loader data changes or this
+      // component unmounts, without discarding a click on initial mount.
+      switchRequest.current += 1;
+    };
+  }, [data.locale]);
   const messages = override ?? data.messages;
 
   async function switchTo(locale: AppLocale) {
-    i18n.setLocaleCookie(locale); // remembered for the next server render
-    setOverride(await dictionaries.load(locale)); // lazy chunk, then rerender
+    const request = ++switchRequest.current;
+    try {
+      const loaded = await dictionaries.load(locale);
+      // Lazy chunks can finish out of order. Only the latest successful choice
+      // may update the cookie and rendered dictionary.
+      if (request !== switchRequest.current) return;
+      i18n.setLocaleCookie(locale);
+      setOverride(loaded);
+    } catch (error: unknown) {
+      if (request === switchRequest.current) {
+        console.error(`[pracht] Failed to load the ${locale} dictionary.`, error);
+      }
+    }
   }
 
   // `head()` runs on the server only: any locale change that does not reload
@@ -287,7 +310,7 @@ export function Component({ data }: RouteComponentProps<typeof loader>) {
     document.documentElement.lang = messages.$locale;
   }, [messages.$locale]);
 
-  return <h1 onDblClick={() => switchTo("fr")}>{t(messages, "home.title")}</h1>;
+  return <h1 onDblClick={() => void switchTo("fr")}>{t(messages, "home.title")}</h1>;
 }
 ```
 
@@ -345,6 +368,7 @@ Because `messages` is plain JSON, it serializes into route data and the exact sa
 
 - **SSG/ISG**: locale-prefixed routes can be `render: "ssg"` or `"isg"` — every prefixed URL is a real route, so each locale prerenders, and the middleware skips cookie persistence on prerenderable routes so no `Set-Cookie` ever lands in stored output. Persist `data.locale` with `setLocaleCookie()` after hydration (as above) if the SSR detector should remember an explicit prefixed visit; without JavaScript, use SSR or platform edge middleware. Keep the *detector* route SSR: its answer depends on the visitor's cookie/headers, and cookie/header detection cannot run against a stored document (prerender and ISG-revalidation requests carry no cookies or `Accept-Language`). For prerendered routes, keep `"path"` first in the detect order — a prerendered route that *depends* on cookie/header detection gets `Vary: Cookie` and is refused by the ISG cache rather than serving one visitor's locale to everyone.
 - On SSG/ISG routes, pass your canonical origin to `hreflang()` (`{ origin: "https://example.com" }`) — `url.origin` at prerender time is a placeholder (`http://localhost`) and would be baked into the static document.
+- When passing a path with a query or hash to `hreflang()`, every alternate — including the default `x-default` detector target — preserves that suffix.
 - Set `lang` from the resolved locale in `head()` (as above) so browsers and screen readers know the language. `head()` runs on the server, so a locale change that never reloads the document — the client switch in strategy B — must set `document.documentElement.lang` itself.
 - Use `Intl.DateTimeFormat` / `Intl.NumberFormat` with `data.locale` for dates and numbers — no library needed.
 - A working end-to-end setup lives in [`examples/basic`](https://github.com/JoviDeCroock/pracht/tree/main/examples/basic): strategy A under `/welcome` (two locales, detector redirect, hreflang, cookie override, plural rendering) and strategy B under `/greeting` (one URL, form-post switch via `/api/locale`, client-side switch) — both against a single i18n instance.
