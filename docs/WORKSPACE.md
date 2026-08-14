@@ -107,6 +107,10 @@ described in `VISION_MVP.md`.
   resolution, live-graph comparison, snapshot refresh, and the shared plan
   report contract. The Citty command owns terminal/JSON/Markdown presentation;
   report generation and MCP tooling consume the plan service directly.
+- **CLI PR reports** — `packages/cli/src/report.ts` composes semantic planning,
+  verification, and bundle budgets into deterministic markdown. The Citty
+  command owns stdout/file delivery only, and MCP tooling invokes the same
+  report service without importing command code.
 - **Capability transport** — `runtime-capabilities.ts` is the stable facade and
   audit orchestrator. Shared request/result contracts live in
   `runtime-capability-transport-types.ts`; `runtime-capability-http-dispatch.ts`
