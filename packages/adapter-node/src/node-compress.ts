@@ -38,6 +38,8 @@ const COMPRESSIBLE_MIME_TYPES = new Set([
   "application/xml",
 ]);
 
+const INTEGRITY_HEADER_NAMES = ["content-digest", "repr-digest", "digest", "content-md5"];
+
 /**
  * Whether a `Content-Type` names a representation that compresses well.
  * `text/*`, well-known application types, and any `+json`/`+xml` structured
@@ -113,6 +115,11 @@ export function isTransformableResponse(status: number, headers: Headers): boole
   if (headers.has("content-range")) return false;
   const cacheControl = headers.get("cache-control");
   if (cacheControl && /(?:^|[\s,])no-transform(?:$|[\s,;=])/i.test(cacheControl)) return false;
+  // Integrity fields are calculated over the selected content/representation,
+  // which includes its Content-Encoding. Streaming compression cannot
+  // recompute them before the headers are sent, so preserve the identity body
+  // instead of forwarding a digest that no longer matches the wire bytes.
+  if (INTEGRITY_HEADER_NAMES.some((name) => headers.has(name))) return false;
   return true;
 }
 

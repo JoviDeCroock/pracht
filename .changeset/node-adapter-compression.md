@@ -17,6 +17,10 @@ variants get their own weak ETag so conditional revalidation never crosses
 encodings, dynamic variant ETags revalidate through the adapter, `HEAD` uses
 the same negotiated representation metadata as `GET`, and already-encoded
 responses, `Cache-Control: no-transform`, Range/204/304 responses, binary
-media, and bodies under 1 KiB (when the size is known) are left untouched.
+media, integrity-protected responses, and bodies under 1 KiB (when the size is
+known) are left untouched. Identity `Content-Length` values are removed before
+streaming an encoded static response, and a body failure before the first byte
+clears staged compression metadata before the adapter returns its unencoded
+500 fallback.
 Disable with `nodeAdapter({ compression: false })` — recommended when a reverse
 proxy or CDN in front of the server already compresses responses.

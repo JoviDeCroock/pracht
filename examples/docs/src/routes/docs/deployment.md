@@ -43,8 +43,9 @@ snapshots are compressed once per file version and served from an in-memory
 LRU. Compressible responses carry `Vary: Accept-Encoding`, encoded variants
 get their own ETag with dynamic conditional revalidation, `HEAD` advertises the
 same negotiated metadata as `GET`, and already-encoded, `no-transform`, Range,
-and sub-1 KiB responses are left alone. If a reverse proxy or CDN in front of
-the server already compresses responses, turn it off:
+integrity-protected (`Content-Digest`, `Repr-Digest`, legacy
+`Digest`/`Content-MD5`), and sub-1 KiB responses are left alone. If a reverse
+proxy or CDN in front of the server already compresses responses, turn it off:
 
 ```ts [vite.config.ts]
 nodeAdapter({ compression: false });

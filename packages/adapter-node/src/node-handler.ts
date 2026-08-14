@@ -297,8 +297,22 @@ export function createNodeRequestHandler<TContext = unknown>(
       }
 
       try {
+        // Header selection happens before a streamed body starts. If that body
+        // fails before sending bytes, discard every staged header from the
+        // abandoned response so the plain fallback is not mislabeled as
+        // brotli/gzip (or cached with the abandoned response's metadata).
+        for (const name of res.getHeaderNames()) res.removeHeader(name);
         res.statusCode = 500;
-        res.setHeader("content-type", "text/plain; charset=utf-8");
+        res.statusMessage = "Internal Server Error";
+        writeNodeResponseHeaders(
+          res,
+          applyDefaultSecurityHeaders(
+            new Headers({
+              "cache-control": "no-store",
+              "content-type": "text/plain; charset=utf-8",
+            }),
+          ),
+        );
         res.end("Internal Server Error");
       } catch {
         res.destroy();
@@ -385,6 +399,10 @@ function negotiateFileEncoding(
   if (!encoding) return null;
 
   headers.set("content-encoding", encoding);
+  // A manifest can carry the identity representation's Content-Length. The
+  // buffered path below replaces it with the exact encoded length; the
+  // streaming path must use chunked transfer instead.
+  headers.delete("content-length");
   const etag = headers.get("etag");
   if (etag) headers.set("etag", encodeEtagForEncoding(etag, encoding));
   return encoding;

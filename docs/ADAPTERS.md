@@ -191,7 +191,11 @@ syntax type (`image/svg+xml`, `application/manifest+json`, ...). Binary media
 
 What is never touched: responses that already carry a `Content-Encoding`,
 `Cache-Control: no-transform` responses, 1xx/204/205/206/304 statuses, Range
-responses, and bodies under 1 KiB when the size is known.
+responses, integrity-protected responses (`Content-Digest`, `Repr-Digest`,
+legacy `Digest`/`Content-MD5`), and bodies under 1 KiB when the size is known.
+Because those integrity fields depend on the selected content encoding, the
+adapter preserves their identity representation rather than forwarding a
+digest that no longer matches the bytes on the wire.
 
 Correctness guarantees:
 
@@ -206,6 +210,8 @@ Correctness guarantees:
 - `HEAD` advertises the same negotiated `Content-Encoding` and variant ETag as
   the corresponding `GET` while omitting the body (and compressed length when
   it is not already known).
+- If a dynamic body fails before any bytes are written, the adapter discards
+  its staged compression metadata and returns an unencoded, non-cacheable 500.
 
 **Behind a reverse proxy:** when nginx, Caddy, Cloudflare, or another
 CDN/proxy in front of the Node server already compresses responses, disable

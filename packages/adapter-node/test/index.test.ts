@@ -807,6 +807,7 @@ describe("createNodeRequestHandler", () => {
                       controller.error(failure);
                     },
                   }),
+                  { headers: { "content-type": "text/plain" } },
                 ),
             }),
           },
@@ -826,9 +827,14 @@ describe("createNodeRequestHandler", () => {
 
       // Nothing was written yet, so a real status is still possible — the
       // client must not just see the connection drop.
-      const response = await fetch(`http://127.0.0.1:${address.port}/api/stream`);
+      const response = await fetch(`http://127.0.0.1:${address.port}/api/stream`, {
+        headers: { "accept-encoding": "br" },
+      });
       expect(response.status).toBe(500);
-      await response.text();
+      expect(response.statusText).toBe("Internal Server Error");
+      expect(response.headers.get("content-encoding")).toBeNull();
+      expect(response.headers.get("cache-control")).toBe("no-store");
+      await expect(response.text()).resolves.toBe("Internal Server Error");
 
       await waitFor(() => errors.some((entry) => String(entry).includes("Unhandled error")));
     });

@@ -374,6 +374,38 @@ describe("dynamic response compression", () => {
     expect(response.body.byteLength).toBe(4096);
   });
 
+  it.each(["content-digest", "repr-digest", "digest", "content-md5"])(
+    "preserves identity encoding when a response carries %s",
+    async (integrityHeader) => {
+      const body = "integrity-protected payload ".repeat(200);
+      const base = await listen(
+        createNodeRequestHandler({
+          apiRoutes: resolveApiRoutes(["/src/api/integrity.ts"]),
+          app: defineApp({ routes: [] }),
+          registry: {
+            apiModules: {
+              "/src/api/integrity.ts": async () => ({
+                GET: async () =>
+                  new Response(body, {
+                    headers: {
+                      "content-type": "text/plain",
+                      [integrityHeader]: "identity-digest",
+                    },
+                  }),
+              }),
+            },
+          },
+        }),
+      );
+
+      const response = await rawRequest(`${base}/api/integrity`, { "accept-encoding": "br" });
+
+      expect(response.headers["content-encoding"]).toBeUndefined();
+      expect(response.headers[integrityHeader]).toBe("identity-digest");
+      expect(response.body.toString("utf-8")).toBe(body);
+    },
+  );
+
   it("skips tiny bodies when the Content-Length is known", async () => {
     const base = await listen(
       createNodeRequestHandler({
@@ -744,6 +776,30 @@ describe("static asset compression", () => {
     expect(response.status).toBe(200);
     expect(response.headers["content-encoding"]).toBe("gzip");
     expect(gunzipSync(response.body).toString("utf-8")).toContain("<p>prerendered</p>");
+  });
+
+  it("drops an identity Content-Length when streaming a large compressed page", async () => {
+    const staticDir = makeTempDir();
+    const html = `<html><body>${"large prerendered page ".repeat(60_000)}</body></html>`;
+    writeFileSync(join(staticDir, "index.html"), html, "utf-8");
+
+    const base = await listen(
+      createNodeRequestHandler({
+        app: defineApp({ routes: [] }),
+        canonicalOrigin: "http://localhost",
+        headersManifest: {
+          "/": { "content-length": String(Buffer.byteLength(html)) },
+        },
+        staticDir,
+      }),
+    );
+
+    const response = await rawRequest(`${base}/`, { "accept-encoding": "br" });
+
+    expect(Buffer.byteLength(html)).toBeGreaterThan(1024 * 1024);
+    expect(response.headers["content-encoding"]).toBe("br");
+    expect(response.headers["content-length"]).toBeUndefined();
+    expect(brotliDecompressSync(response.body).toString("utf-8")).toBe(html);
   });
 
   it("leaves tiny and binary files identity-encoded", async () => {

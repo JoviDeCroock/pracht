@@ -486,7 +486,10 @@ LRU. Compressible responses carry `Vary: Accept-Encoding` (merged with existing
 `Vary` values), encoded variants use their own ETag with adapter-level dynamic
 revalidation, and `HEAD` advertises the same negotiated metadata as `GET`.
 Already-encoded responses, `Cache-Control: no-transform`, Range/`204`/`304`
-responses, binary media, and bodies under 1 KiB are never compressed.
+responses, integrity-protected responses (`Content-Digest`, `Repr-Digest`,
+legacy `Digest`/`Content-MD5`), binary media, and bodies under 1 KiB are never
+compressed. If a dynamic body fails before sending bytes, the fallback 500 is
+sent without the abandoned response's compression metadata.
 
 When a reverse proxy or CDN in front of the server already compresses
 responses, disable the adapter's compression and let the proxy own it:
