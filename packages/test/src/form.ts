@@ -1,7 +1,8 @@
 import type { ApiRouteArgs, RegisteredContext, ResolvedApiRoute, RouteParams } from "@pracht/core";
 
-import { createApiArgs, TEST_ORIGIN } from "./args.ts";
+import { createApiArgs } from "./args-factories.ts";
 import { encodeMultipart, isBlobLike, normalizeFormNewlines, type MultipartEntry } from "./body.ts";
+import { TEST_ORIGIN } from "./request.ts";
 
 /**
  * A form field value: primitives are stringified with `String()`;
