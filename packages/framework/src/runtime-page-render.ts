@@ -25,7 +25,11 @@ import { renderStaticPageRepresentation } from "./runtime-page-render-static.ts"
 import type { RenderPageRepresentationOptions } from "./runtime-page-render-types.ts";
 import { getRenderToStringAsync } from "./runtime-rendering.ts";
 import { getAppSpeculationRules } from "./runtime-speculation.ts";
-import { createScriptCapture, ScriptCaptureContext, withCapturedScripts } from "./script.ts";
+import {
+  createScriptCapture,
+  ScriptCaptureContext,
+  withCapturedScripts,
+} from "./script-capture.ts";
 
 export type { RenderPageRepresentationOptions } from "./runtime-page-render-types.ts";
 

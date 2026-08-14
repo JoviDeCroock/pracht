@@ -104,6 +104,12 @@ described in `VISION_MVP.md`.
   cache prevention, `runtime-route-response-headers.ts` owns route-state cache
   negotiation, and `runtime-capability-form-redirect.ts` owns the enhanced-form
   redirect handshake. `runtime-headers.ts` preserves the former helper facade.
+- **Managed scripts** — `script.ts` keeps the public `<Script>` component and
+  rendering orchestration. `script-types.ts` owns public contracts and marker
+  attributes, `script-policy.ts` owns normalization and safe descriptor
+  projection, `script-capture.ts` owns request-local SSR collection,
+  `script-client.ts` owns document deduplication, injection, and scheduling,
+  and `script-escape.ts` remains the HTML parser-safety boundary.
 - **Agent request signing** — The isolated `@pracht/core/agent-auth` entry keeps
   `agent-auth-sign.ts` as its public facade. `agent-auth-sign-types.ts` owns the
   signing contracts, `agent-auth-request-signing.ts` owns RFC 9421 request and

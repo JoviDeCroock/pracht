@@ -631,6 +631,11 @@ agent-auth-sign.ts — stable outbound signing entry facade
 agent-auth-sign-types.ts — outbound signing options, headers, and JWK contracts
 agent-auth-request-signing.ts — RFC 9421 signing base and request/header construction
 agent-auth-key-pair.ts — Ed25519 key generation and thumbprint lifecycle
+script-types.ts — managed-script public contracts and DOM marker attributes
+script-policy.ts — strategy validation, inline normalization, and safe descriptor projection
+script-capture.ts — request-local SSR script collection and head merging
+script-client.ts — browser deduplication, injection, idle, and visibility scheduling
+script.ts — stable managed-script component facade and render orchestration
 runtime-context-overlay.ts — immutable context proxy invariants, receiver binding, and native-slot guards
 runtime-mcp-protocol.ts — JSON-RPC framing, initialization validation, and version negotiation
 runtime-mcp-request.ts — stateless HTTP hardening and JSON-RPC request preparation

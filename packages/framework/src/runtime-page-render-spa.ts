@@ -5,7 +5,11 @@ import { buildHtmlDocument, htmlResponse } from "./runtime-html.ts";
 import type { RenderPageRepresentationOptions } from "./runtime-page-render-types.ts";
 import { getRenderToStringAsync } from "./runtime-rendering.ts";
 import { getAppSpeculationRules } from "./runtime-speculation.ts";
-import { createScriptCapture, ScriptCaptureContext, withCapturedScripts } from "./script.ts";
+import {
+  createScriptCapture,
+  ScriptCaptureContext,
+  withCapturedScripts,
+} from "./script-capture.ts";
 
 export async function renderSpaPageRepresentation(
   options: RenderPageRepresentationOptions,

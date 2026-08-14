@@ -13,7 +13,7 @@ import {
   validateIslandStrategy,
   validateSerializableIslandProps,
 } from "./islands-serialization.ts";
-import { ScriptCaptureContext } from "./script.ts";
+import { ScriptCaptureContext } from "./script-capture.ts";
 import type { IslandStrategy } from "./types.ts";
 
 /**
