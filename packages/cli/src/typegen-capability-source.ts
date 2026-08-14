@@ -2,7 +2,7 @@
 
 import { schemaToTypeText } from "@pracht/capabilities";
 
-import type { InspectReport } from "./commands/inspect.js";
+import type { InspectReport } from "./inspect.js";
 
 type CapabilityEntry = NonNullable<InspectReport["capabilities"]>[number];
 

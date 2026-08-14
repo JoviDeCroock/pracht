@@ -2,7 +2,7 @@
 
 import { relative, resolve } from "node:path";
 
-import type { InspectReport } from "./commands/inspect.js";
+import type { InspectReport } from "./inspect.js";
 import { resolveProjectPath } from "./project.js";
 
 type RouteEntry = NonNullable<InspectReport["routes"]>[number];

@@ -95,6 +95,10 @@ described in `VISION_MVP.md`.
   focused read, edit, and module-path layers in `manifest-read.ts`,
   `manifest-edit.ts`, and `manifest-path.ts`. No catch-all manifest helper sits
   between contributor-facing commands and the operation they perform.
+- **CLI inspection** — `packages/cli/src/inspect.ts` owns command-agnostic app
+  graph collection and report contracts. The Citty command retains argument
+  parsing and human output only, while type generation and MCP tools consume
+  the inspection service directly without importing command presentation code.
 - **Capability transport** — `runtime-capabilities.ts` is the stable facade and
   audit orchestrator. Shared request/result contracts live in
   `runtime-capability-transport-types.ts`; `runtime-capability-http-dispatch.ts`

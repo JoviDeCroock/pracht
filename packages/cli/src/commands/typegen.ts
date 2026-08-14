@@ -21,7 +21,7 @@ import {
   type TypegenOutput,
 } from "../typegen-output.js";
 import { handleCliError } from "../utils.js";
-import { runInspect, type InspectReport } from "./inspect.js";
+import { runInspect, type InspectReport } from "../inspect.js";
 
 // The declaration must NOT share a basename with the runtime output
 // (`pracht-routes.d.ts` next to `pracht-routes.ts`): TypeScript treats such a

@@ -1,6 +1,6 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
-import { runInspect } from "../commands/inspect.js";
+import { runInspect } from "../inspect.js";
 import { cwdInput, guard, resolveCwd } from "./tool-helpers.js";
 
 export function registerInspectionTools(server: McpServer): void {
