@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
   resolveGeneratedArtifactOutputPath,
   resolvePrerenderOutputPath,
-} from "../src/commands/build.ts";
+} from "../src/build-static-output.ts";
 
 const clientDir = resolve("/tmp/pracht-app/dist/client");
 

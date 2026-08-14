@@ -8,7 +8,7 @@ import { defineCommand } from "citty";
 import { requirePositiveInteger } from "../utils.js";
 import { readProjectConfig, type ProjectConfig } from "../project.js";
 import { findWranglerConfig } from "../wrangler-config.js";
-import { runBuild } from "./build.js";
+import { runBuild } from "../build.js";
 
 const SERVER_ENTRY = "dist/server/server.js";
 const ADAPTER_TARGETS = new Set(["cloudflare", "netlify", "node", "vercel"]);
