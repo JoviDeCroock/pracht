@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   Form,
   Link,
+  Suspense,
   defineApp,
   initClientRouter,
   resolveApp,
@@ -15,7 +16,9 @@ import {
   useNavigate,
   useRevalidate,
   useRouteData,
+  useSearchParams,
 } from "../src/index.ts";
+import { _resetForTesting } from "../src/hydration.ts";
 
 function createJsonResponse(body: unknown, init?: ResponseInit): Response {
   return new Response(JSON.stringify(body), {
@@ -37,6 +40,7 @@ describe("initClientRouter", () => {
   let fetchSpy: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
+    _resetForTesting();
     document.body.innerHTML = "";
     root = document.createElement("div");
     document.body.appendChild(root);
@@ -57,6 +61,7 @@ describe("initClientRouter", () => {
   });
 
   it("renders shell-less SPA routes after the pending bootstrap fetch resolves", async () => {
+    history.replaceState(null, "", "/settings");
     const app = resolveApp(
       defineApp({
         routes: [route("/settings", "./routes/settings.tsx", { render: "spa" })],
@@ -94,6 +99,207 @@ describe("initClientRouter", () => {
       }),
     );
     expect(root.textContent).toContain("Hello Jovi");
+  });
+
+  it("publishes the visitor query after hydrating with prerendered route state", async () => {
+    history.replaceState(null, "", "/products?lang=zh&example=router#details");
+    const observedLanguages: Array<string | null> = [];
+
+    function Products({ data }: { data: { label: string } }) {
+      const searchParams = useSearchParams();
+      const language = searchParams.get("lang");
+      observedLanguages.push(language);
+      return h(
+        "main",
+        null,
+        language === "zh" ? h("span", null, `${data.label}: zh`) : `${data.label}: en`,
+      );
+    }
+
+    const app = resolveApp(
+      defineApp({
+        routes: [
+          route("/products", "./routes/products.tsx", {
+            id: "products",
+            render: "ssg",
+          }),
+        ],
+      }),
+    );
+
+    root.innerHTML = "<main>prerendered: en</main>";
+
+    await initClientRouter({
+      app,
+      routeModules: {
+        "./routes/products.tsx": async () => ({ default: Products }),
+      },
+      shellModules: {},
+      initialState: {
+        data: { label: "prerendered" },
+        routeId: "products",
+        url: "/products",
+      },
+      root,
+      findModuleKey: (_modules, file) => file,
+    });
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(observedLanguages[0]).toBeNull();
+    await flush();
+    expect(root.textContent).toBe("prerendered: zh");
+    expect(observedLanguages).toContain("zh");
+    expect(document.getElementById("__pracht_hydration_mismatch__")).toBeNull();
+    expect(window.location.hash).toBe("#details");
+  });
+
+  it("preserves revalidated data when publishing the visitor query after Suspense hydration", async () => {
+    history.replaceState(null, "", "/dashboard?lang=zh");
+    let resolveSuspense!: () => void;
+    const pending = new Promise<void>((resolve) => {
+      resolveSuspense = resolve;
+    });
+    let suspended = false;
+
+    function LazyChild() {
+      if (!suspended) {
+        suspended = true;
+        throw pending;
+      }
+      return h("div", null, "ready");
+    }
+
+    function Dashboard() {
+      const data = useRouteData<{ count: number }>();
+      const revalidate = useRevalidate();
+      const searchParams = useSearchParams();
+      return h(
+        "main",
+        null,
+        h("span", { id: "count" }, String(data.count)),
+        h("span", { id: "lang" }, searchParams.get("lang") ?? "none"),
+        h("button", { id: "refresh", onClick: () => void revalidate() }, "Refresh"),
+        h(Suspense as any, { fallback: null }, h(LazyChild, null)),
+      );
+    }
+
+    const app = resolveApp(
+      defineApp({
+        routes: [
+          route("/dashboard", "./routes/dashboard.tsx", {
+            id: "dashboard",
+            render: "ssg",
+          }),
+        ],
+      }),
+    );
+
+    root.innerHTML =
+      '<main><span id="count">1</span><span id="lang">none</span><button id="refresh">Refresh</button><div>ready</div></main>';
+    fetchSpy.mockResolvedValue(createJsonResponse({ data: { count: 2 } }));
+
+    await initClientRouter({
+      app,
+      routeModules: {
+        "./routes/dashboard.tsx": async () => ({ default: Dashboard }),
+      },
+      shellModules: {},
+      initialState: {
+        data: { count: 1 },
+        routeId: "dashboard",
+        url: "/dashboard",
+      },
+      root,
+      findModuleKey: (_modules, file) => file,
+    });
+
+    root.querySelector<HTMLButtonElement>("#refresh")!.click();
+    await flush();
+    expect(root.querySelector("#count")?.textContent).toBe("2");
+
+    resolveSuspense();
+    await flush();
+    await flush();
+
+    expect(root.querySelector("#lang")?.textContent).toBe("zh");
+    expect(root.querySelector("#count")?.textContent).toBe("2");
+  });
+
+  it("does not publish an in-flight destination query into the previous route", async () => {
+    history.replaceState(null, "", "/dashboard");
+    let resolveSuspense!: () => void;
+    const pending = new Promise<void>((resolve) => {
+      resolveSuspense = resolve;
+    });
+    let suspended = false;
+
+    function LazyChild() {
+      if (!suspended) {
+        suspended = true;
+        throw pending;
+      }
+      return h("div", null, "ready");
+    }
+
+    function Home() {
+      const searchParams = useSearchParams();
+      return h(
+        "main",
+        null,
+        h("span", { id: "page" }, `home:${searchParams.get("lang") ?? "none"}`),
+        h(Suspense as any, { fallback: null }, h(LazyChild, null)),
+      );
+    }
+
+    function Next() {
+      const searchParams = useSearchParams();
+      return h(
+        "main",
+        null,
+        h("span", { id: "page" }, `next:${searchParams.get("lang") ?? "none"}`),
+      );
+    }
+
+    const app = resolveApp(
+      defineApp({
+        routes: [
+          route("/dashboard", "./routes/dashboard.tsx", { id: "home", render: "ssg" }),
+          route("/next", "./routes/next.tsx", { id: "next", render: "ssg" }),
+        ],
+      }),
+    );
+    let releaseNextModule!: () => void;
+    const nextModule = new Promise<{ default: typeof Next }>((resolve) => {
+      releaseNextModule = () => resolve({ default: Next });
+    });
+
+    root.innerHTML = '<main><span id="page">home:none</span><div>ready</div></main>';
+    fetchSpy.mockResolvedValue(createJsonResponse({ data: null }));
+    await initClientRouter({
+      app,
+      routeModules: {
+        "./routes/dashboard.tsx": async () => ({ default: Home }),
+        "./routes/next.tsx": () => nextModule,
+      },
+      shellModules: {},
+      initialState: { data: null, routeId: "home", url: "/dashboard" },
+      root,
+      findModuleKey: (_modules, file) => file,
+    });
+
+    const navigation = window.__PRACHT_NAVIGATE__!("/next?lang=fr");
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    expect(window.location.pathname).toBe("/next");
+
+    resolveSuspense();
+    await flush();
+    await flush();
+    expect(root.querySelector("#page")?.textContent).toBe("home:none");
+
+    releaseNextModule();
+    await navigation;
+    await flush();
+    expect(root.querySelector("#page")?.textContent).toBe("next:fr");
   });
 
   it("renders typed links and navigates by route target objects", async () => {

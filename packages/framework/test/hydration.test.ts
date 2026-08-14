@@ -3,7 +3,12 @@ import { h, hydrate, render } from "preact";
 import { Suspense } from "preact-suspense";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { markHydrating, useIsHydrated, _resetForTesting } from "../src/hydration.ts";
+import {
+  markHydrating,
+  onHydrationComplete,
+  useIsHydrated,
+  _resetForTesting,
+} from "../src/hydration.ts";
 
 let scratch: HTMLDivElement;
 
@@ -64,6 +69,41 @@ describe("useIsHydrated", () => {
     await flush();
 
     expect(values[values.length - 1]).toBe(true);
+  });
+
+  it("runs completion callbacks only after hydration suspensions settle", async () => {
+    scratch.innerHTML = "<div><div>Hello</div></div>";
+    let resolvePromise!: () => void;
+    const promise = new Promise<void>((resolve) => {
+      resolvePromise = resolve;
+    });
+    let threw = false;
+    let completionCount = 0;
+
+    function LazyChild() {
+      if (!threw) {
+        threw = true;
+        throw promise;
+      }
+      return h("div", null, "Hello");
+    }
+
+    function App() {
+      return h(Suspense as any, { fallback: null }, h(LazyChild, null));
+    }
+
+    markHydrating();
+    hydrate(h(App, null), scratch);
+    onHydrationComplete(() => {
+      completionCount++;
+    });
+
+    await flush();
+    expect(completionCount).toBe(0);
+
+    resolvePromise();
+    await flush();
+    expect(completionCount).toBe(1);
   });
 
   it("returns false when markHydrating was never called", () => {

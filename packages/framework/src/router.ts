@@ -1,6 +1,7 @@
 import { createContext, h } from "preact";
 import { hydrate, render } from "preact";
 import { useContext, useLayoutEffect, useMemo, useState } from "preact/hooks";
+import type { StateUpdater } from "preact/hooks";
 import type { FunctionComponent } from "preact";
 
 import { buildHrefUntyped, matchResolvedRoute } from "./route-matching.ts";
@@ -11,7 +12,7 @@ import {
   scrollToFragmentTarget,
 } from "./fragment-navigation.ts";
 import { installHydrationMismatchWarning } from "./hydration-mismatch.ts";
-import { markHydrating } from "./hydration.ts";
+import { markHydrating, onHydrationComplete } from "./hydration.ts";
 import {
   beginLoadingNavigation,
   createNavigationLocation,
@@ -97,6 +98,7 @@ interface BrowserRouteTarget {
   browserUrl: string;
   pathname: string;
   requestUrl: string;
+  search: string;
 }
 
 const NavigateContext = createContext<NavigateFn>(async () => {});
@@ -145,7 +147,7 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
     return loadModule(shellModules, shellKey);
   }
 
-  let updateRouteState: ((state: RouteRenderState) => void) | null = null;
+  let updateRouteState: ((state: StateUpdater<RouteRenderState>) => void) | null = null;
   let routeStateVersion = 0;
   let latestNavigationId = 0;
   let activeNavigationAbort: AbortController | null = null;
@@ -630,10 +632,16 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
     }
   }
 
+  // The serialized URL produced the server/static HTML, so it must also drive
+  // the first client render. Visitor-specific query parameters are published
+  // after the complete hydration tree settles to keep that render identical.
   const initialTarget = resolveBrowserRouteTarget(options.initialState.url);
   const initialRequestUrl = initialTarget?.requestUrl ?? options.initialState.url;
   const initialBrowserUrl = initialTarget?.browserUrl ?? options.initialState.url;
   const initialPathname = initialTarget?.pathname ?? options.initialState.url;
+  const hydrationBrowserTarget = resolveBrowserRouteTarget(
+    window.location.pathname + window.location.search + window.location.hash,
+  );
   // The not-found page is served at a URL that matches no route, so matching
   // cannot find it — the hydration state's reserved route id does.
   const initialMatch =
@@ -716,6 +724,28 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
         } else {
           markHydrating();
           hydrate(h(RouterRoot, { initialState: initialRouteState }), root);
+          onHydrationComplete(() => {
+            if (!hydrationBrowserTarget || !updateRouteState) return;
+
+            updateRouteState((currentState) => {
+              const hydratedTarget = resolveBrowserRouteTarget(currentState.url);
+              if (!hydratedTarget) return currentState;
+              const nextRequestUrl = hydratedTarget.pathname + hydrationBrowserTarget.search;
+              // A navigation that committed while a Suspense boundary was
+              // hydrating owns the newer state. Revalidated data lives in the
+              // runtime provider and survives this URL-only update.
+              if (
+                currentState.version !== initialRouteState.version ||
+                currentState.url === nextRequestUrl
+              ) {
+                return currentState;
+              }
+              return {
+                ...currentState,
+                url: nextRequestUrl,
+              };
+            });
+          });
         }
       }
     }
@@ -947,6 +977,7 @@ function resolveBrowserRouteTarget(to: string): BrowserRouteTarget | null {
       browserUrl: url.pathname + url.search + url.hash,
       pathname: url.pathname,
       requestUrl: url.pathname + url.search,
+      search: url.search,
     };
   } catch {
     return null;

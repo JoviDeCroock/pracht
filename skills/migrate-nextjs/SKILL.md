@@ -78,7 +78,7 @@ For pages router projects, you can **skip manual manifest wiring entirely** (Pha
 | `"use client"` (few, in a mostly-server app) | `hydration: "islands"` + `src/islands/`            | Only islands ship JS; see the islands note in Phase 4                 |
 | `revalidatePath` / `res.revalidate()` | `webhookRevalidate()` + `POST /__pracht/revalidate`       | On-demand ISG regeneration; combinable with `timeRevalidate(seconds)` |
 | `useRouter()` (next/navigation) | `useNavigate()` from pracht                                     | Accepts paths or typed route targets after `pracht typegen`           |
-| `useSearchParams()`             | `useLocation()` from pracht                                     | Returns `{ pathname, search }`; loaders also receive `url` with searchParams |
+| `useSearchParams()`             | `useSearchParams()` from pracht                                 | Returns reactive read-only params; SSG receives the browser query after hydration, while loaders use `url.searchParams` |
 | `useParams()`                   | `useParams()` from pracht                                       | Direct equivalent; also available as `params` in loader args          |
 | `next/link` `<Link>`            | `<Link route="...">` or plain `<a>`                            | Prefer typed `<Link>` for known app routes after `pracht typegen`; plain anchors still work |
 | `next/link` `prefetch={false}`  | `<Link prefetch="none">`                                        | Pracht prefetches on hover/focus by default; also `"viewport"`, `"render"` |

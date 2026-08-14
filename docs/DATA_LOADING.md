@@ -545,6 +545,32 @@ export function Component() {
 }
 ```
 
+### `useSearchParams()`
+
+Read the current query string as a reactive, read-only `URLSearchParams` view:
+
+```typescript
+import { useSearchParams } from "@pracht/core";
+
+export function Component() {
+  const searchParams = useSearchParams();
+  return <p>Language: {searchParams.get("lang") ?? "en"}</p>;
+}
+```
+
+The hook updates after client navigation. An SSG page's hydration render uses
+the build-time query stored in its prerendered route state, keeping the client
+tree identical to the static HTML. After hydration completes, the hook updates
+from the visitor's browser URL, so a direct visit such as `/?lang=zh` re-renders
+with `lang=zh` without causing a hydration mismatch. Use `useIsHydrated()` or
+stable fallback UI when query-dependent markup should not visibly change after
+hydration.
+
+Changing the returned object is intentionally unsupported; navigate to a new
+URL to update the query string. SSG loader data remains build-time data and is
+not rerun for the visitor query. Use SSR when query parameters must affect
+server-loaded data or the initial HTML.
+
 ### `useRevalidate()`
 
 Imperatively re-run the current route's loader:

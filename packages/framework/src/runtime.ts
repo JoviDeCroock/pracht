@@ -1173,12 +1173,14 @@ export {
   useParams,
   useRevalidate,
   useRouteData,
+  useSearchParams,
   type FormProps,
   type LinkProps,
   type Location,
   type Navigation,
   type NavigationLocation,
   type PrachtHydrationState,
+  type ReadonlyURLSearchParams,
   type StartAppOptions,
 } from "./runtime-hooks.ts";
 export {

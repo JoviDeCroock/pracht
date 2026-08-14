@@ -1,6 +1,6 @@
 import { h } from "preact";
 import type { JSX } from "preact";
-import { useContext, useEffect, useState } from "preact/hooks";
+import { useContext, useEffect, useMemo, useState } from "preact/hooks";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 
 import {
@@ -142,6 +142,29 @@ export interface Location {
   search: string;
 }
 
+export type ReadonlyURLSearchParams = Omit<URLSearchParams, "append" | "delete" | "set" | "sort">;
+
+class PrachtReadonlyURLSearchParams extends URLSearchParams {
+  readonly #mutationError =
+    "useSearchParams() is read-only. Navigate to a new URL to change the query string.";
+
+  override append(_name: string, _value: string): never {
+    throw new TypeError(this.#mutationError);
+  }
+
+  override delete(_name: string, _value?: string): never {
+    throw new TypeError(this.#mutationError);
+  }
+
+  override set(_name: string, _value: string): never {
+    throw new TypeError(this.#mutationError);
+  }
+
+  override sort(): never {
+    throw new TypeError(this.#mutationError);
+  }
+}
+
 export function useRouteData<TRoute extends RouteId>(routeId: TRoute): RouteDataFor<TRoute>;
 export function useRouteData<TLoader extends LoaderLike>(): LoaderData<TLoader>;
 export function useRouteData<TData = unknown>(): TData;
@@ -160,6 +183,12 @@ export function useLocation(): Location {
     useContext(RouteDataContext)?.url ??
     (typeof window !== "undefined" ? window.location.pathname + window.location.search : "/");
   return parseLocation(url);
+}
+
+/** Read the current URL search parameters reactively. */
+export function useSearchParams(): ReadonlyURLSearchParams {
+  const { search } = useLocation();
+  return useMemo(() => new PrachtReadonlyURLSearchParams(search), [search]);
 }
 
 export function useParams(): RouteParams {

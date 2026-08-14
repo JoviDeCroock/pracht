@@ -150,7 +150,9 @@ export {
   useParams,
   useRevalidate,
   useRouteData,
+  useSearchParams,
   PrachtRuntimeProvider,
+  type ReadonlyURLSearchParams,
 } from "./runtime.ts";
 export { prefetch, type PrefetchFn } from "./prefetch-api.ts";
 export { prerenderApp } from "./prerender.ts";
