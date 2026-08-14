@@ -11,6 +11,56 @@ const LOADER_DECLARATION_RE = /export\s+(?:async\s+)?(?:function|const|let|var)\
 const HEAD_DECLARATION_RE = /export\s+(?:async\s+)?(?:function|const|let|var)\s+head\b/;
 const EXPORT_BLOCK_RE = /export\s*\{([^}]*)\}\s*(?:from\s*["'][^"']+["'])?/g;
 const EXPORT_ALL_RE = /export\s+\*\s+from\b/;
+const EXPORT_VARIABLE_DECLARATION_RE = /export\s+(?:const|let|var)\b/g;
+
+function topLevelAssignmentIndex(source: string): number {
+  let parentheses = 0;
+  let brackets = 0;
+  let braces = 0;
+  for (let index = 0; index < source.length; index += 1) {
+    const char = source[index];
+    if (char === "(") parentheses += 1;
+    else if (char === ")") parentheses = Math.max(0, parentheses - 1);
+    else if (char === "[") brackets += 1;
+    else if (char === "]") brackets = Math.max(0, brackets - 1);
+    else if (char === "{") braces += 1;
+    else if (char === "}") braces = Math.max(0, braces - 1);
+    else if (char === "=" && parentheses === 0 && brackets === 0 && braces === 0) return index;
+  }
+  return -1;
+}
+
+function bindingExportsName(source: string, exportName: string): boolean {
+  const assignmentIndex = topLevelAssignmentIndex(source);
+  const binding = assignmentIndex === -1 ? source : source.slice(0, assignmentIndex);
+  return new RegExp(`\\b${exportName}\\b`).test(binding);
+}
+
+function variableDeclarationExports(source: string, exportName: string): boolean {
+  for (const match of source.matchAll(EXPORT_VARIABLE_DECLARATION_RE)) {
+    let declarationStart = (match.index ?? 0) + match[0].length;
+    let parentheses = 0;
+    let brackets = 0;
+    let braces = 0;
+    for (let index = declarationStart; index <= source.length; index += 1) {
+      const char = source[index];
+      if (char === "(") parentheses += 1;
+      else if (char === ")") parentheses = Math.max(0, parentheses - 1);
+      else if (char === "[") brackets += 1;
+      else if (char === "]") brackets = Math.max(0, brackets - 1);
+      else if (char === "{") braces += 1;
+      else if (char === "}") braces = Math.max(0, braces - 1);
+
+      const atTopLevel = parentheses === 0 && brackets === 0 && braces === 0;
+      if (atTopLevel && (char === "," || char === ";" || char === undefined)) {
+        if (bindingExportsName(source.slice(declarationStart, index), exportName)) return true;
+        if (char !== ",") break;
+        declarationStart = index + 1;
+      }
+    }
+  }
+  return false;
+}
 
 function exportSpecifiersInclude(specifiers: string, exportName: string): boolean {
   return specifiers
@@ -45,7 +95,12 @@ export function detectHeadExport(source: string): boolean {
   // Markdown and MDX transforms can synthesize a head export from frontmatter.
   // Keep them conservative even when the raw source has no JS declaration.
   const analysisSource = maskCommentsAndStrings(source);
-  if (HEAD_DECLARATION_RE.test(analysisSource)) return true;
+  if (
+    HEAD_DECLARATION_RE.test(analysisSource) ||
+    variableDeclarationExports(analysisSource, "head")
+  ) {
+    return true;
+  }
   for (const match of analysisSource.matchAll(EXPORT_BLOCK_RE)) {
     if (exportSpecifiersInclude(match[1], "head")) return true;
   }
