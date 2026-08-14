@@ -1163,46 +1163,53 @@ describe("handlePrachtRequest cache variance", () => {
     await expect(response.json()).resolves.toEqual({ redirect: "/" });
   });
 
-  it("adds merged font fragments to middleware route-state short-circuits", async () => {
-    const shellFont = defineFont({ family: "Shell Gate", src: "/fonts/shell-gate.woff2" });
-    const routeFont = defineFont({ family: "Route Gate", src: "/fonts/route-gate.woff2" });
-    const app = defineApp({
-      middleware: { gate: "./middleware/gate.ts" },
-      shells: { app: "./shells/app.tsx" },
-      routes: [route("/gate", "./routes/gate.tsx", { middleware: ["gate"], shell: "app" })],
-    });
+  it.each(["return", "throw"] as const)(
+    "adds merged font fragments when middleware %s route-state short-circuits",
+    async (delivery) => {
+      const shellFont = defineFont({ family: "Shell Gate", src: "/fonts/shell-gate.woff2" });
+      const routeFont = defineFont({ family: "Route Gate", src: "/fonts/route-gate.woff2" });
+      const app = defineApp({
+        middleware: { gate: "./middleware/gate.ts" },
+        shells: { app: "./shells/app.tsx" },
+        routes: [route("/gate", "./routes/gate.tsx", { middleware: ["gate"], shell: "app" })],
+      });
 
-    const response = await handlePrachtRequest({
-      app,
-      registry: {
-        middlewareModules: {
-          "./middleware/gate.ts": async () => ({
-            middleware: async () => Response.json({ data: { gated: true } }),
-          }),
+      const response = await handlePrachtRequest({
+        app,
+        registry: {
+          middlewareModules: {
+            "./middleware/gate.ts": async () => ({
+              middleware: async () => {
+                const response = Response.json({ data: { gated: true } });
+                if (delivery === "throw") throw response;
+                return response;
+              },
+            }),
+          },
+          routeModules: {
+            "./routes/gate.tsx": async () => ({
+              Component: () => null,
+              head: () => ({ fonts: [routeFont] }),
+            }),
+          },
+          shellModules: {
+            "./shells/app.tsx": async () => ({
+              Shell: ({ children }) => h("main", null, children),
+              head: () => ({ fonts: [shellFont] }),
+            }),
+          },
         },
-        routeModules: {
-          "./routes/gate.tsx": async () => ({
-            Component: () => null,
-            head: () => ({ fonts: [routeFont] }),
-          }),
-        },
-        shellModules: {
-          "./shells/app.tsx": async () => ({
-            Shell: ({ children }) => h("main", null, children),
-            head: () => ({ fonts: [shellFont] }),
-          }),
-        },
-      },
-      request: new Request("http://localhost/gate", {
-        headers: { "x-pracht-route-state-request": "1" },
-      }),
-    });
+        request: new Request("http://localhost/gate", {
+          headers: { "x-pracht-route-state-request": "1" },
+        }),
+      });
 
-    const payload = (await response.json()) as Record<string, any>;
-    expect(payload.data).toEqual({ gated: true });
-    expect(payload.fontHead.css).toContain('font-family:"Shell Gate"');
-    expect(payload.fontHead.css).toContain('font-family:"Route Gate"');
-  });
+      const payload = (await response.json()) as Record<string, any>;
+      expect(payload.data).toEqual({ gated: true });
+      expect(payload.fontHead.css).toContain('font-family:"Shell Gate"');
+      expect(payload.fontHead.css).toContain('font-family:"Route Gate"');
+    },
+  );
 });
 
 describe("handlePrachtRequest head metadata", () => {

@@ -424,7 +424,11 @@ export function defineFont(options: DefineFontOptions): PrachtFont {
     : `${family} Fallback`;
 
   const stack = [
-    quoteFamily(family),
+    // The primary value always names the @font-face we register above, even
+    // when the author deliberately uses a name that collides with a generic
+    // family or vendor keyword (for example, "serif" or "-apple-system").
+    // Those names only retain their keyword meaning when they are unquoted.
+    `"${escapeCssString(family)}"`,
     ...(hasFallbackFace ? [quoteFamily(fallbackFamilyName)] : []),
     ...fallbacks.map(quoteFamily),
   ];

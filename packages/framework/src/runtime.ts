@@ -721,6 +721,7 @@ export async function handlePrachtRequest<TContext>(
     let routeModulePromise: Promise<RouteModule | undefined> | undefined;
     let routeModule: RouteModule | undefined;
     let shellModule: ShellModule | undefined;
+    let shellModulePromise: Promise<ShellModule | undefined> = Promise.resolve(undefined);
     let loaderFile: string | undefined;
     let currentPhase: PrachtRuntimeDiagnosticPhase = "middleware";
     const timings = options.timings;
@@ -741,7 +742,7 @@ export async function handlePrachtRequest<TContext>(
         match.route.file,
       );
 
-      const shellModulePromise: Promise<ShellModule | undefined> = match.route.shellFile
+      shellModulePromise = match.route.shellFile
         ? resolveRegistryModule<ShellModule>(registry.shellModules, match.route.shellFile)
         : Promise.resolve(undefined);
 
@@ -1109,10 +1110,17 @@ export async function handlePrachtRequest<TContext>(
       let thrownResponseFailure: unknown;
       if (error instanceof Response) {
         try {
-          return normalizePageResponse(error, {
+          const normalizedResponse = normalizePageResponse(error, {
             isRouteStateRequest,
             loaderCache: match.route.loaderCache,
             markdown: match.route.markdown,
+          });
+          return await attachFontHeadToRouteStateResponse({
+            response: normalizedResponse,
+            isRouteStateRequest,
+            routeArgs,
+            routeModule: routeModulePromise,
+            shellModule: shellModulePromise,
           });
         } catch (normalizeError: unknown) {
           thrownResponseFailure = normalizeError;

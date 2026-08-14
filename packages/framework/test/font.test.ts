@@ -138,6 +138,15 @@ describe("defineFont", () => {
     );
   });
 
+  it("quotes primary family names that collide with CSS font-family keywords", () => {
+    for (const family of ["serif", "system-ui", "-apple-system"]) {
+      const font = defineFont({ family, src: "/fonts/custom.woff2" });
+      expect(font.faceCss).toContain(`font-family:"${family}"`);
+      expect(font.fontFamily).toBe(`"${family}"`);
+      expect(font.classCss).toContain(`font-family:"${family}"`);
+    }
+  });
+
   it("trims fallback names and recognizes generic families case-insensitively", () => {
     const font = defineFont({
       family: "Inter",
