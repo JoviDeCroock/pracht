@@ -3,7 +3,7 @@ import { dirname, resolve } from "node:path";
 
 import { extractCapabilityRegistrations } from "@pracht/capabilities/static";
 
-import { extractRegistryEntries } from "./manifest.js";
+import { extractRegistryEntries } from "./manifest-read.js";
 import { resolveProjectPath, type ProjectConfig } from "./project.js";
 import { collectCapabilityContractChecks } from "./verification-capability-contract.js";
 import { collectCapabilityProjectionChecks } from "./verification-capability-projections.js";

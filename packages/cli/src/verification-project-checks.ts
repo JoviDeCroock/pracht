@@ -5,7 +5,7 @@ import { dirname, resolve } from "node:path";
 
 import { formatBytes } from "./bundle-report.js";
 import { detectAdapterTarget } from "./commands/preview.js";
-import { extractRegistryEntries } from "./manifest.js";
+import { extractRegistryEntries } from "./manifest-read.js";
 import {
   displayPath,
   listFilesRecursively,

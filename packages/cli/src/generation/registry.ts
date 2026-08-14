@@ -1,6 +1,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 
-import { toManifestModulePath, upsertObjectEntry } from "../manifest.js";
+import { upsertObjectEntry } from "../manifest-edit.js";
+import { toManifestModulePath } from "../manifest-path.js";
 import {
   assertFileExists,
   displayPath,

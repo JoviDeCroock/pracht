@@ -8,12 +8,9 @@ import {
   requireEnum,
   requirePositiveInteger,
 } from "../utils.js";
-import {
-  ensureCoreNamedImport,
-  extractRegistryEntries,
-  insertArrayItem,
-  toManifestModulePath,
-} from "../manifest.js";
+import { ensureCoreNamedImport, insertArrayItem } from "../manifest-edit.js";
+import { toManifestModulePath } from "../manifest-path.js";
+import { extractRegistryEntries } from "../manifest-read.js";
 import {
   assertFileExists,
   displayPath,

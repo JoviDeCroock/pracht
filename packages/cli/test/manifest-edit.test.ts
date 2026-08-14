@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { ensureCoreNamedImport, insertArrayItem, upsertObjectEntry } from "../src/manifest.ts";
+import { ensureCoreNamedImport, insertArrayItem, upsertObjectEntry } from "../src/manifest-edit.ts";
 
 /** Parse the result so a syntax error cannot pass as "looks right". */
 function expectParses(source: string): void {

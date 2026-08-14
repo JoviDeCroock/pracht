@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 
 import { exportsMiddleware } from "./middleware-export-source.js";
 
-import { extractRegistryEntries, extractRelativeModulePaths } from "./manifest.js";
+import { extractRegistryEntries, extractRelativeModulePaths } from "./manifest-read.js";
 import { displayPath, resolveProjectPath, type ProjectConfig } from "./project.js";
 import {
   createCheck,

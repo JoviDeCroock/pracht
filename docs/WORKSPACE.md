@@ -82,6 +82,11 @@ described in `VISION_MVP.md`.
   deterministic renderer. Public configuration contracts live in
   `llms-txt-types.ts`, graph-to-entry collection in `llms-txt-entries.ts`, and
   reserved-path plus configured exclusion policy in `llms-txt-exclusions.ts`.
+- **CLI manifest tooling** — generator and verifier code share offset-safe
+  lexical primitives from `manifest-source.ts` while depending directly on
+  focused read, edit, and module-path layers in `manifest-read.ts`,
+  `manifest-edit.ts`, and `manifest-path.ts`. No catch-all manifest helper sits
+  between contributor-facing commands and the operation they perform.
 - **Capability transport** — `runtime-capabilities.ts` is the stable facade and
   audit orchestrator. Shared request/result contracts live in
   `runtime-capability-transport-types.ts`; `runtime-capability-http-dispatch.ts`
