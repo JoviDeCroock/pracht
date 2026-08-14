@@ -309,10 +309,11 @@ functions.
 
 ## Static Export Deployment
 
-For apps where every route is `render: "ssg"` (or loaderless `"spa"`), with no
+For apps where every route is `render: "ssg"` (or loaderless, full-hydration
+`"spa"`), with no
 request middleware, API routes, or HTTP/MCP/WebMCP-exposed capabilities. SSG
-loaders run only at build time and must succeed; dynamic SSG routes must export
-`getStaticPaths()`. Anything else fails the build with an error naming the
+loaders run only at build time and must produce HTML plus valid JSON route
+state; dynamic SSG routes must export `getStaticPaths()`. Anything else fails the build with an error naming the
 offenders — that is the signal to pick a serverful adapter instead. Only
 manifest-registered capabilities participate; every registered capability
 module must load successfully so exposure validation can fail closed. The

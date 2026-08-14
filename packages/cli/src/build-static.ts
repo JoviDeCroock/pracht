@@ -130,6 +130,20 @@ export async function validateStaticExport(serverMod: StaticServerModuleView): P
     );
   }
 
+  const spaWithNonFullHydration = routes.filter(
+    (route) =>
+      route.render === "spa" && route.hydration !== undefined && route.hydration !== "full",
+  );
+  if (spaWithNonFullHydration.length > 0) {
+    problems.push(
+      `these SPA routes use non-full hydration, but SPA components render entirely in the browser:\n` +
+        spaWithNonFullHydration
+          .map((route) => `    - ${route.path} (hydration: "${route.hydration}")`)
+          .join("\n") +
+        '\n  Static SPA routes must use full hydration. Remove the hydration option (or set it to "full"), change the route to SSG, or use a serverful adapter.',
+    );
+  }
+
   const routesWithMiddleware = pageRoutes.filter(
     (route) => (route.middlewareFiles?.length ?? 0) > 0,
   );

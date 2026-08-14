@@ -93,6 +93,27 @@ describe("validateStaticExport", () => {
     expect(message).toContain("Static SPA routes must be loaderless");
   });
 
+  it("fails closed on SPA routes that cannot hydrate their client-only component", async () => {
+    const error = await validateStaticExport({
+      resolvedApp: {
+        routes: [
+          { hasLoader: false, path: "/default", render: "spa" },
+          { hasLoader: false, hydration: "full", path: "/full", render: "spa" },
+          { hasLoader: false, hydration: "islands", path: "/islands", render: "spa" },
+          { hasLoader: false, hydration: "none", path: "/none", render: "spa" },
+        ],
+      },
+    }).catch((thrown: Error) => thrown);
+
+    expect(error).toBeInstanceOf(Error);
+    const message = (error as Error).message;
+    expect(message).toContain('/islands (hydration: "islands")');
+    expect(message).toContain('/none (hydration: "none")');
+    expect(message).not.toContain("/default (");
+    expect(message).not.toContain("/full (");
+    expect(message).toContain("Static SPA routes must use full hydration");
+  });
+
   it("fails closed on route middleware for SSG and SPA routes", async () => {
     const error = await validateStaticExport({
       resolvedApp: {

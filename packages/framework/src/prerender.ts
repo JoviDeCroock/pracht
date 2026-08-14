@@ -143,6 +143,16 @@ export async function prerenderApp(
           return null;
         }
 
+        if (options.staticExport === true) {
+          const contentType = response.headers.get("content-type") ?? "";
+          if (!contentType.toLowerCase().includes("text/html")) {
+            throw new Error(
+              `Static export failed to render ${item.render.toUpperCase()} route "${item.pathname}" as HTML ` +
+                `(content-type: ${contentType || "missing"}). Page loaders must return serializable data instead of a successful non-HTML Response.`,
+            );
+          }
+        }
+
         assertSafePrerenderHeaders(response.headers, item);
 
         const html = await response.text();
@@ -170,6 +180,18 @@ export async function prerenderApp(
           });
           if (stateResponse.status === 200) {
             routeState = await stateResponse.text();
+            try {
+              const parsed = JSON.parse(routeState) as unknown;
+              if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+                throw new Error("expected a JSON object");
+              }
+            } catch {
+              throw new Error(
+                `Static export failed to serialize route state for "${item.pathname}": ` +
+                  "route-state request returned invalid JSON. " +
+                  "Page loaders must return serializable data instead of a custom route-state Response.",
+              );
+            }
           } else {
             if (options.staticExport === true) {
               const location = stateResponse.headers.get("location");

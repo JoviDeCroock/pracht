@@ -202,6 +202,48 @@ describe("prerenderApp staticExport", () => {
     ).rejects.toThrow(/document request returned status 500/);
   });
 
+  it("fails a static export when a successful document response is not HTML", async () => {
+    const app = defineApp({
+      routes: [route("/raw", "./routes/raw.tsx", { render: "ssg", hasLoader: true })],
+    });
+    const rawRegistry = {
+      routeModules: {
+        "/src/routes/raw.tsx": async () => ({
+          Component: () => h("main", null, "unused"),
+          loader: () =>
+            new Response("raw body", {
+              headers: { "content-type": "text/plain; charset=utf-8" },
+            }),
+        }),
+      },
+    };
+
+    await expect(prerenderApp({ app, registry: rawRegistry, staticExport: true })).rejects.toThrow(
+      /failed to render SSG route "\/raw" as HTML.*text\/plain/,
+    );
+  });
+
+  it("fails a static export when route-state output is not valid JSON", async () => {
+    const app = defineApp({
+      routes: [route("/state", "./routes/state.tsx", { render: "ssg", hasLoader: true })],
+    });
+    const invalidStateRegistry = {
+      routeModules: {
+        "/src/routes/state.tsx": async () => ({
+          Component: () => h("main", null, "state"),
+          loader: ({ request }: { request: Request }) =>
+            request.headers.has("x-pracht-route-state-request")
+              ? new Response("not json")
+              : { ok: true },
+        }),
+      },
+    };
+
+    await expect(
+      prerenderApp({ app, registry: invalidStateRegistry, staticExport: true }),
+    ).rejects.toThrow(/route-state request returned invalid JSON/);
+  });
+
   it("fails a static export when dynamic SSG has no getStaticPaths", async () => {
     const app = defineApp({
       routes: [route("/posts/:slug", "./routes/post.tsx", { render: "ssg" })],
