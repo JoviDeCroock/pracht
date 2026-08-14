@@ -284,8 +284,10 @@ export function Component({ data }: RouteComponentProps<typeof loader>) {
 `messages` is a plain serializable object, so the same `t()` calls work
 after hydration and on client navigations. `hreflang()` emits one alternate
 link per locale plus `x-default` pointing at the unprefixed detector; pass
-the app's canonical origin. Under strategy B, omit the `link` entry: there
-is no alternate URL to point at, so emitting hreflang would be a lie.
+the app's canonical origin. Relative previews remain current-origin because
+`splitLocale()` always keeps the stripped pathname root-relative. Under
+strategy B, omit the `link` entry: there is no alternate URL to point at, so
+emitting hreflang would be a lie.
 
 ## Step 6: SEO touch-ups
 

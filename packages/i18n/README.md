@@ -152,7 +152,9 @@ Creates the app's i18n instance:
   Throws for unregistered locales, so user input can never be reflected into
   a URL.
 - **`splitLocale(path)`** / **`isLocale(value)`** / **`detect(request)`** —
-  the underlying primitives.
+  the underlying primitives. `splitLocale()` always returns a root-relative
+  pathname, including when URL normalization exposes duplicate slashes after
+  the locale prefix.
 - **`localeCookie(locale, { url?, secure? })`** — serialize the locale
   cookie (`null` clears it) for prefix-free switches: the middleware never
   sees an explicit choice when the URL does not carry one, so the switch

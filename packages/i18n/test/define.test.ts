@@ -376,6 +376,12 @@ describe("localePath / splitLocale", () => {
     expect(i18n.splitLocale("/zz/shop")).toEqual({ locale: null, pathname: "/zz/shop" });
     expect(i18n.splitLocale("/")).toEqual({ locale: null, pathname: "/" });
   });
+
+  it("keeps the stripped pathname root-relative after URL normalization", () => {
+    for (const path of ["/nl//evil.example/x", "/nl/a/..//evil.example/x"]) {
+      expect(i18n.splitLocale(path)).toEqual({ locale: "nl", pathname: "/evil.example/x" });
+    }
+  });
 });
 
 describe("hreflang", () => {
@@ -393,6 +399,14 @@ describe("hreflang", () => {
       { rel: "alternate", hreflang: "nl", href: "/nl/shop" },
       { rel: "alternate", hreflang: "x-default", href: "/shop" },
     ]);
+  });
+
+  it("keeps a relative x-default target on the current origin", () => {
+    const xDefault = i18n
+      .hreflang("/nl/a/..//evil.example/x")
+      .find((link) => link.hreflang === "x-default");
+    expect(xDefault?.href).toBe("/evil.example/x");
+    expect(new URL(xDefault?.href ?? "", "https://app.test").origin).toBe("https://app.test");
   });
 
   it("can point x-default at a locale or omit it", () => {

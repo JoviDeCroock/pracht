@@ -365,7 +365,10 @@ export function defineI18n<const L extends string>(config: I18nConfig<L>): I18n<
     const locale = toLocale(segments[1] ?? "");
     if (locale === null) return { locale: null, pathname };
     const rest = segments.slice(2).join("/");
-    return { locale, pathname: rest.length === 0 ? "/" : `/${rest}` };
+    // Removing the locale can expose an internal duplicate slash as a leading
+    // `//`, which consumers would interpret as a protocol-relative URL.
+    // Re-normalize the remainder so the public result stays root-relative.
+    return { locale, pathname: normalizePathname(rest.length === 0 ? "/" : `/${rest}`) };
   }
 
   function localePath(path: string, locale: L): string {

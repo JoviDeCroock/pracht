@@ -167,7 +167,7 @@ export function Component() {
 
 ### Language switcher
 
-`localePath()` swaps the locale prefix while preserving the rest of the path, query, and hash. It resolves literal and encoded dot segments before prefixing, so browser URL normalization cannot escape the locale namespace, and throws on unregistered locales so user input can never be reflected into a URL:
+`localePath()` swaps the locale prefix while preserving the rest of the path, query, and hash. It resolves literal and encoded dot segments before prefixing, so browser URL normalization cannot escape the locale namespace, and throws on unregistered locales so user input can never be reflected into a URL. The companion `splitLocale()` helper keeps its returned pathname root-relative even when stripping the locale exposes duplicate slashes:
 
 ```tsx [src/components/LanguageSwitcher.tsx]
 import { useLocation } from "@pracht/core";
