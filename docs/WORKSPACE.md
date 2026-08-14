@@ -37,6 +37,12 @@ described in `VISION_MVP.md`.
   inheritance, validation, and flattening live in `app-resolution.ts`, while
   `app-matching.ts` accepts authored or resolved graphs and `app.ts` remains
   the stable composition facade.
+- **Client route rendering** — `router-renderer.ts` remains the composition
+  facade used by browser navigation. Shared contracts live in
+  `router-renderer-types.ts`, lazy route/shell imports and cache policy in
+  `router-module-loader.ts`, module-to-render-state projection in
+  `router-render-state.ts`, and Preact mounting, hydration synchronization, and
+  post-commit coordination in `router-view.ts`.
 - **API routes** — File-based auto-discovery from `src/api/`. Files are globbed
   by the Vite plugin and resolved to URL paths (e.g. `src/api/health.ts` →
   `/api/health`, `src/api/users/[id].ts` → `/api/users/:id`,
