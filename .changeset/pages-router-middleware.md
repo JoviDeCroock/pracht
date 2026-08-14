@@ -23,7 +23,9 @@ serve routes whose middleware lacks the export). The client bundle excludes
 `_middleware` files from the pages route and shell globs in both auto-discovered
 and ejected layouts, and the client transform strips `middleware` exports as a
 second boundary, so server-only middleware code and imports are never emitted
-as browser-loadable chunks.
+as browser-loadable chunks. That transform is scoped to the dedicated root
+middleware module, so an unrelated route or shell export named `middleware`
+keeps its normal client-module semantics.
 
 The pages scanner now applies the documented underscore reservation to whole
 directory trees as well as files, so helpers such as
@@ -38,5 +40,8 @@ previously the ejected refs pointed at files that do not exist next to the
 manifest and failed `pracht doctor`.
 
 `pracht generate middleware --name _middleware` (and the `generate_middleware`
-MCP tool) scaffolds the file in pages mode. HMR follows the existing pages
-conventions: edits hot-invalidate, add/remove restarts the dev server.
+MCP tool) scaffolds the file in pages mode and refuses to create a duplicate
+when another supported `_middleware` extension already exists. HMR follows the
+existing pages conventions: edits hot-invalidate, add/remove restarts the dev
+server. `doctor` and `verify` also reject `_middleware/` directories whose only
+contents are non-source placeholders, matching the build-time check.

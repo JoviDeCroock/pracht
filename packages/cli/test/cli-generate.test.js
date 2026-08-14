@@ -166,6 +166,26 @@ describe("@pracht/cli generate", () => {
     expect(middlewareSource).toContain("export const middleware: MiddlewareFn");
   });
 
+  it("refuses to duplicate an existing pages middleware extension", () => {
+    const appDir = createTempDir("pracht-cli-pages-middleware-existing-");
+    writePagesApp(appDir);
+    writeProjectFile(
+      appDir,
+      "src/pages/_middleware.js",
+      "export const middleware = async (_args, next) => next();",
+    );
+
+    const result = spawnSync(
+      process.execPath,
+      [cliPath, "generate", "middleware", "--name", "_middleware"],
+      { cwd: appDir, encoding: "utf-8" },
+    );
+
+    expect(result.status).not.toBe(0);
+    expect(`${result.stdout}${result.stderr}`).toContain("_middleware.js");
+    expect(existsSync(join(appDir, "src/pages/_middleware.ts"))).toBe(false);
+  });
+
   it("rejects named pages-router middleware", () => {
     const appDir = createTempDir("pracht-cli-pages-middleware-named-");
     writePagesApp(appDir);

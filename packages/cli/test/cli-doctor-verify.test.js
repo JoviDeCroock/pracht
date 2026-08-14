@@ -302,11 +302,7 @@ export const middleware: MiddlewareFn = async (_args, next) => next();
     const appDir = createTempDir("pracht-cli-doctor-pages-middleware-dir-");
     writePagesApp(appDir);
     writeProjectFile(appDir, "src/pages/index.tsx", "export function Component() { return null; }");
-    writeProjectFile(
-      appDir,
-      "src/pages/_middleware/index.ts",
-      "export const middleware = async (_args, next) => next();",
-    );
+    writeProjectFile(appDir, "src/pages/_middleware/.gitkeep", "");
 
     const result = runCliStatus(["doctor", "--json"], { cwd: appDir });
     expect(result.status).toBe(1);

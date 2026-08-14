@@ -471,6 +471,21 @@ export function generateMiddleware(name: string, project: ProjectConfig): Genera
       );
     }
 
+    const existingMiddlewareFiles = [".ts", ".tsx", ".js", ".jsx"]
+      .map((extension) =>
+        resolveScopedFile(project.root, project.pagesDir, `_middleware${extension}`),
+      )
+      .filter((file) => existsSync(file));
+    if (existingMiddlewareFiles.length > 0) {
+      throw new Error(
+        `Refusing to create pages middleware because ${existingMiddlewareFiles
+          .map((file) => JSON.stringify(displayPath(project.root, file)))
+          .join(
+            ", ",
+          )} already exists. Pages apps support exactly one root-level \`_middleware\` file.`,
+      );
+    }
+
     const middlewareFile = resolveScopedFile(project.root, project.pagesDir, "_middleware.ts");
     writeGeneratedFile(middlewareFile, buildMiddlewareModuleSource());
 

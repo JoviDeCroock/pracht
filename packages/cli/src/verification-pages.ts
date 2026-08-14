@@ -40,7 +40,9 @@ export function scanPagesDirectory(
   additionalExtensions: string[] = [],
 ): PagesFile[] {
   return listFilesRecursively(pagesDir)
-    .filter((file) => isPageSource(file, additionalExtensions))
+    .filter(
+      (file) => isPageSource(file, additionalExtensions) || isInsideMiddlewareDirectory(pagesDir, file),
+    )
     .map((file) => describePagesFile(pagesDir, file, additionalExtensions));
 }
 
@@ -53,8 +55,6 @@ export function describePagesFile(
   const extensionIndex = relativePath.lastIndexOf(".");
   const routePath = extensionIndex === -1 ? relativePath : relativePath.slice(0, extensionIndex);
   const name = basename(routePath);
-  const source = readFileSync(file, "utf-8");
-  const analysisSource = maskMarkdownFences(source, relativePath);
   const parentSegments = relativePath.split("/").slice(0, -1);
 
   // Files inside a `_middleware/` directory are middleware-shaped too: without
@@ -71,6 +71,9 @@ export function describePagesFile(
   if (parentSegments.some((segment) => segment.startsWith("_"))) {
     return { file, kind: "ignored" };
   }
+
+  const source = readFileSync(file, "utf-8");
+  const analysisSource = maskMarkdownFences(source, relativePath);
 
   if (!relativePath.includes("/") && hasPagesAppShell(file, additionalExtensions)) {
     return {
@@ -127,6 +130,14 @@ export function describePagesFile(
     renderMode: extractQuotedExport(analysisSource, "RENDER_MODE"),
     revalidate: extractRevalidate(analysisSource),
   };
+}
+
+function isInsideMiddlewareDirectory(pagesDir: string, file: string): boolean {
+  return relative(pagesDir, file)
+    .replace(/\\/g, "/")
+    .split("/")
+    .slice(0, -1)
+    .includes("_middleware");
 }
 
 function extractQuotedExport(source: string, name: string): string | undefined {
