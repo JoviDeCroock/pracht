@@ -6,9 +6,9 @@ export default defineConfig(async () => {
   const { nodeAdapter } = await import("@pracht/adapter-node");
 
   return {
-    // `tsrxPreact()` is `enforce: "pre"`, so it compiles `.tsrx` modules before
-    // the pracht pipeline sees them. Pracht's route/shell globs and server-only
-    // export stripping both recognise `.tsrx` automatically.
-    plugins: [tsrxPreact(), pracht({ adapter: nodeAdapter() })],
+    // `tsrxPreact()` transforms the custom format. Pracht still discovers
+    // `.tsrx` implicitly for compatibility; the explicit option demonstrates
+    // the generic configuration recommended for new custom formats.
+    plugins: [tsrxPreact(), pracht({ adapter: nodeAdapter(), additionalExtensions: [".tsrx"] })],
   };
 });

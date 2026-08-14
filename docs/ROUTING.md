@@ -728,6 +728,33 @@ export function headers() {
 }
 ```
 
+### Additional Route Extensions
+
+Route and shell formats beyond Pracht's built-in TypeScript, JavaScript, and
+Markdown extensions can opt into discovery through `additionalExtensions`:
+
+```typescript
+pracht({
+  pagesDir: "/src/pages",
+  additionalExtensions: [".vue"],
+});
+```
+
+Values must be dot-prefixed. The option works in both pages and manifest mode;
+Pracht discovers the modules and applies route-specific client/server handling,
+while a separately registered Vite plugin must compile the custom format. Add
+an ambient TypeScript module declaration when the format's tooling does not
+provide one. Keep the array inline or in a directly referenced `const` when
+possible so `pracht verify` and the development type watcher can classify the
+files statically; dynamic expressions still work at build time but produce a
+verification warning. Vite-scannable component formats participate in initial
+dependency scanning automatically. Other format plugins must opt their extension
+into Vite's dependency optimizer themselves.
+
+`.tsrx` remains discovered without this option for backward compatibility and
+keeps its bundled ambient module declaration. It may also be listed explicitly
+when adopting the format-agnostic configuration.
+
 ### Per-Route Render Mode
 
 Page files can export a `RENDER_MODE` constant to set the rendering strategy:

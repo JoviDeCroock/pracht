@@ -14,8 +14,9 @@ import {
 import {
   createCheck,
   isWithinDirectory,
+  isPageSource,
+  isRouteSource,
   MODULE_SOURCE_RE,
-  PAGE_SOURCE_RE,
   normalizePath,
   resolveApiRoutePath,
   toModuleSpecifier,
@@ -51,6 +52,17 @@ export function collectConfigChecks(
     checks.push(createCheck("error", "vite.config does not appear to register the pracht plugin."));
   } else {
     checks.push(createCheck("ok", "Vite config registers the pracht plugin."));
+  }
+
+  if (!project.additionalExtensionsIsStatic) {
+    checks.push(
+      createCheck(
+        "warning",
+        "additionalExtensions could not be resolved statically. The live Vite configuration " +
+          "still controls builds, but static route verification cannot classify custom-format " +
+          "files reliably. Use an inline string array or a const string array when possible.",
+      ),
+    );
   }
 }
 
@@ -340,16 +352,37 @@ function collectChangedManifestModuleChecks(
   const manifestDir = dirname(manifestPath);
   const referencedModules = new Set(relativeModules.map(normalizePath));
   const moduleDirectories = [
-    { dir: resolveProjectPath(project.root, project.routesDir), label: "route module" },
-    { dir: resolveProjectPath(project.root, project.shellsDir), label: "shell module" },
-    { dir: resolveProjectPath(project.root, project.middlewareDir), label: "middleware module" },
-    { dir: resolveProjectPath(project.root, project.serverDir), label: "server module" },
+    {
+      additionalExtensions: true,
+      dir: resolveProjectPath(project.root, project.routesDir),
+      label: "route module",
+    },
+    {
+      additionalExtensions: true,
+      dir: resolveProjectPath(project.root, project.shellsDir),
+      label: "shell module",
+    },
+    {
+      additionalExtensions: false,
+      dir: resolveProjectPath(project.root, project.middlewareDir),
+      label: "middleware module",
+    },
+    {
+      additionalExtensions: false,
+      dir: resolveProjectPath(project.root, project.serverDir),
+      label: "server module",
+    },
   ];
 
   for (const file of changedFiles) {
     const directory = moduleDirectories.find((entry) => isWithinDirectory(file, entry.dir));
     if (!directory) continue;
-    if (!MODULE_SOURCE_RE.test(file)) continue;
+    if (
+      !(directory.additionalExtensions
+        ? isRouteSource(file, project.additionalExtensions)
+        : MODULE_SOURCE_RE.test(file))
+    )
+      continue;
 
     const display = displayPath(project.root, file);
     const modulePath = normalizePath(toModuleSpecifier(manifestDir, file));
@@ -396,7 +429,7 @@ export function collectPagesVerification(
     return;
   }
 
-  const pages = scanPagesDirectory(pagesDir);
+  const pages = scanPagesDirectory(pagesDir, project.additionalExtensions);
   const routes = pages.filter((page) => page.kind === "route");
   const notFoundPages = pages.filter((page) => page.kind === "not-found");
   const appShells = pages.filter((page) => page.kind === "shell");
@@ -613,7 +646,7 @@ function collectChangedPagesChecks(
 ): void {
   for (const file of changedFiles) {
     if (!isWithinDirectory(file, pagesDir)) continue;
-    if (!PAGE_SOURCE_RE.test(file)) continue;
+    if (!isPageSource(file, project.additionalExtensions)) continue;
 
     const display = displayPath(project.root, file);
     if (!existsSync(file)) {
@@ -626,7 +659,7 @@ function collectChangedPagesChecks(
       continue;
     }
 
-    const page = describePagesFile(pagesDir, file);
+    const page = describePagesFile(pagesDir, file, project.additionalExtensions);
     if (page.kind === "shell") {
       checks.push(
         createCheck(
@@ -964,7 +997,11 @@ function appHasPrerenderedRoutes(project: ProjectConfig, root: string): boolean 
   if (!existsSync(sourceDir)) return false;
 
   const files = statSync(sourceDir).isDirectory()
-    ? listFilesRecursively(sourceDir).filter((file) => MODULE_SOURCE_RE.test(file))
+    ? listFilesRecursively(sourceDir).filter((file) =>
+        project.mode === "pages"
+          ? isPageSource(file, project.additionalExtensions)
+          : isRouteSource(file, project.additionalExtensions),
+      )
     : [sourceDir];
 
   return files.some((file) => {

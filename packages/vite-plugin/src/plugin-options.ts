@@ -2,6 +2,7 @@ import type { RenderMode } from "@pracht/core";
 import type { PreactSsrPrecompileOptions } from "@pracht/preact-ssr-precompile";
 import type { EnvSafetyOptions } from "./env-safety.ts";
 import { createDefaultNodeAdapter, type PrachtAdapter } from "./plugin-adapter.ts";
+import { normalizeAdditionalExtensions } from "./route-extensions.ts";
 
 export type LlmsTxtSection = "pages" | "api" | "capabilities";
 
@@ -42,6 +43,14 @@ export interface PrachtPluginOptions {
   middlewareDir?: string;
   apiDir?: string;
   serverDir?: string;
+  /**
+   * Additional dot-prefixed route and shell module extensions to discover,
+   * such as `[".vue"]`. Register the Vite plugin that transforms the format
+   * separately; Pracht only discovers the modules and applies its route
+   * client/server handling. Defaults to no additional extensions. `.tsrx`
+   * remains discovered without configuration for backward compatibility.
+   */
+  additionalExtensions?: readonly string[];
   /**
    * Directory containing island components hydrated on
    * `hydration: "islands"` routes. Defaults to "/src/islands".
@@ -98,6 +107,7 @@ const DEFAULTS: ResolvedPrachtPluginOptions = {
   shellsDir: "/src/shells",
   apiDir: "/src/api",
   serverDir: "/src/server",
+  additionalExtensions: [],
   islandsDir: "/src/islands",
   capabilitiesDir: "/src/capabilities",
   adapter: createDefaultNodeAdapter(),
@@ -121,6 +131,7 @@ export function resolveOptions(options: PrachtPluginOptions): ResolvedPrachtPlug
   if (resolved.llmsTxt === undefined) {
     resolved.llmsTxt = false;
   }
+  resolved.additionalExtensions = normalizeAdditionalExtensions(resolved.additionalExtensions);
   if (!new Set(["spa", "ssr", "ssg", "isg"]).has(resolved.pagesDefaultRender)) {
     throw new Error('pracht({ pagesDefaultRender }) expects "spa", "ssr", "ssg", or "isg".');
   }

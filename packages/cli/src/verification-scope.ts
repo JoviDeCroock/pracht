@@ -5,8 +5,9 @@ import { resolveProjectPath, type ProjectConfig } from "./project.js";
 import {
   CONFIG_FILE_NAMES,
   MODULE_SOURCE_RE,
-  PAGE_SOURCE_RE,
   isWithinDirectory,
+  isPageSource,
+  isRouteSource,
   normalizePath,
 } from "./verification-helpers.js";
 
@@ -94,12 +95,25 @@ export function filterFrameworkFiles(
     if (CONFIG_FILE_NAMES.has(basename(file))) return true;
     if (normalizePath(file) === normalizePath(packageJsonPath)) return true;
     if (project.mode === "manifest" && normalizePath(file) === normalizePath(appFile)) return true;
-    if (isWithinDirectory(file, routesDir) && MODULE_SOURCE_RE.test(file)) return true;
-    if (isWithinDirectory(file, shellsDir) && MODULE_SOURCE_RE.test(file)) return true;
+    if (
+      isWithinDirectory(file, routesDir) &&
+      (!project.additionalExtensionsIsStatic || isRouteSource(file, project.additionalExtensions))
+    )
+      return true;
+    if (
+      isWithinDirectory(file, shellsDir) &&
+      (!project.additionalExtensionsIsStatic || isRouteSource(file, project.additionalExtensions))
+    )
+      return true;
     if (isWithinDirectory(file, middlewareDir) && MODULE_SOURCE_RE.test(file)) return true;
     if (isWithinDirectory(file, serverDir) && MODULE_SOURCE_RE.test(file)) return true;
     if (isWithinDirectory(file, apiDir) && MODULE_SOURCE_RE.test(file)) return true;
-    if (pagesDir && isWithinDirectory(file, pagesDir) && PAGE_SOURCE_RE.test(file)) return true;
+    if (
+      pagesDir &&
+      isWithinDirectory(file, pagesDir) &&
+      (!project.additionalExtensionsIsStatic || isPageSource(file, project.additionalExtensions))
+    )
+      return true;
     return false;
   });
 }

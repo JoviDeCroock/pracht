@@ -4,7 +4,11 @@ import { join } from "node:path";
 import type { ConfigEnv, UserConfig } from "vite";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { createPrachtRegistryModuleSource, pracht } from "../src/index.ts";
+import {
+  createPrachtClientModuleSource,
+  createPrachtRegistryModuleSource,
+  pracht,
+} from "../src/index.ts";
 import { createPrachtDevModuleSource } from "../src/plugin-codegen.ts";
 import { generatePagesManifestSource, scanPagesDirectory } from "../src/pages-router.ts";
 
@@ -26,6 +30,35 @@ afterEach(() => {
 });
 
 describe("scanPagesDirectory", () => {
+  it("preserves built-in TSRX route and shell discovery", () => {
+    const pagesDir = makeTempPagesDir();
+    writeFileSync(join(pagesDir, "index.tsrx"), "export function Component() { return null; }\n");
+    writeFileSync(join(pagesDir, "_app.tsrx"), "export function Shell() { return null; }\n");
+
+    expect(scanPagesDirectory(pagesDir).map((page) => page.relativePath)).toEqual(["index.tsrx"]);
+    expect(generatePagesManifestSource(scanPagesDirectory(pagesDir), { pagesDir })).toContain(
+      "_app.tsrx",
+    );
+  });
+
+  it("discovers configured additional route and shell extensions only when enabled", () => {
+    const pagesDir = makeTempPagesDir();
+    writeFileSync(join(pagesDir, "index.custom"), "export function Component() { return null; }\n");
+    writeFileSync(join(pagesDir, "_app.custom"), "export function Shell() { return null; }\n");
+
+    expect(scanPagesDirectory(pagesDir)).toEqual([]);
+    expect(
+      scanPagesDirectory(pagesDir, [".custom"]).map((page) => [page.routePath, page.relativePath]),
+    ).toEqual([["/", "index.custom"]]);
+
+    const source = generatePagesManifestSource(scanPagesDirectory(pagesDir, [".custom"]), {
+      additionalExtensions: [".custom"],
+      pagesDir,
+    });
+    expect(source).toContain("shells: {");
+    expect(source).toContain("_app.custom");
+  });
+
   it("includes markdown and mdx pages in the generated route list", () => {
     const pagesDir = makeTempPagesDir();
     mkdirSync(join(pagesDir, "docs"), { recursive: true });
@@ -412,8 +445,8 @@ describe("pracht plugin config", () => {
 
     const expectedPrachtEntries = [
       "src/routes.ts",
-      "src/routes/**/*.{ts,tsx,js,jsx,md,mdx,tsrx}",
-      "src/shells/**/*.{ts,tsx,js,jsx,md,mdx,tsrx}",
+      "src/routes/**/*.{ts,tsx,js,jsx}",
+      "src/shells/**/*.{ts,tsx,js,jsx}",
       "src/middleware/**/*.{ts,tsx,js,jsx}",
       "src/api/**/*.{ts,js,tsx,jsx}",
       "!src/api/**/*.d.ts",
@@ -428,6 +461,29 @@ describe("pracht plugin config", () => {
       ...expectedPrachtEntries,
     ]);
   });
+
+  it("adds only Vite-scannable configured extensions to optimize-deps entries", async () => {
+    const plugins = await pracht({ additionalExtensions: [".tsrx", ".vue"] });
+    const plugin = plugins.find((candidate) => candidate.name === "pracht:optimize-deps-entries");
+    const config = plugin?.config;
+    expect(typeof config).toBe("function");
+
+    const result = (config as (config: UserConfig, env: ConfigEnv) => UserConfig)(
+      {},
+      { command: "serve", isSsrBuild: false, mode: "development" },
+    );
+
+    expect(result.optimizeDeps?.entries).toContain("src/routes/**/*.{ts,tsx,js,jsx,vue}");
+    expect(result.optimizeDeps?.entries).toContain("src/shells/**/*.{ts,tsx,js,jsx,vue}");
+
+    const withFormatOptimizer = (config as (config: UserConfig, env: ConfigEnv) => UserConfig)(
+      { optimizeDeps: { extensions: [".tsrx"] } },
+      { command: "serve", isSsrBuild: false, mode: "development" },
+    );
+    expect(withFormatOptimizer.optimizeDeps?.entries).toContain(
+      "src/routes/**/*.{ts,tsx,js,jsx,tsrx,vue}",
+    );
+  });
 });
 
 describe("createPrachtRegistryModuleSource", () => {
@@ -438,11 +494,38 @@ describe("createPrachtRegistryModuleSource", () => {
 
     expect(source).toContain("/src/pages/**/*.{ts,tsx,js,jsx,md,mdx}");
     expect(source).toContain("/src/pages/**/*.tsrx");
+    expect(source).toContain("/src/pages/**/_app.tsrx");
     expect(source).toContain(
       'import.meta.glob(["/src/api/**/*.{ts,js,tsx,jsx}","!/src/api/**/*.d.ts"])',
     );
     expect(source).toContain("/src/server/**/*.{ts,js,tsx,jsx}");
     expect(source).toContain("/src/middleware/**/*.{ts,tsx,js,jsx}");
+  });
+
+  it("adds configured route and shell extension globs", () => {
+    const source = createPrachtRegistryModuleSource({
+      additionalExtensions: [".tsrx", ".vue"],
+      pagesDir: "/src/pages",
+    });
+
+    expect(source).toContain("/src/pages/**/*.{tsrx,vue}");
+    expect(source).toContain("/src/pages/**/_app.{tsrx,vue}");
+  });
+
+  it("keeps compatibility TSRX client module ids bare without configuration", () => {
+    const source = createPrachtClientModuleSource();
+
+    expect(source).toContain('import.meta.glob("/src/routes/**/*.tsrx")');
+    expect(source).toContain('import.meta.glob("/src/shells/**/*.tsrx")');
+    expect(source).not.toContain('/src/routes/**/*.tsrx", { query:');
+  });
+
+  it("keeps additional client module ids bare for their format plugins", () => {
+    const source = createPrachtClientModuleSource({ additionalExtensions: [".custom"] });
+
+    expect(source).toContain('import.meta.glob("/src/routes/**/*.{tsrx,custom}")');
+    expect(source).toContain('import.meta.glob("/src/shells/**/*.{tsrx,custom}")');
+    expect(source).not.toContain('/src/routes/**/*.{tsrx,custom}", { query:');
   });
 
   it("creates adapter-neutral development metadata", () => {

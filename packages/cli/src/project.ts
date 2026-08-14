@@ -5,7 +5,11 @@ import { maskCommentsAndStrings } from "@pracht/capabilities/static";
 import { ensureTrailingNewline } from "./utils.js";
 import { PROJECT_DEFAULTS } from "./constants.js";
 
+const BUILT_IN_ROUTE_EXTENSIONS = new Set([".ts", ".tsx", ".js", ".jsx", ".md", ".mdx"]);
+
 export interface ProjectConfig {
+  additionalExtensions: string[];
+  additionalExtensionsIsStatic: boolean;
   apiDir: string;
   appFile: string;
   capabilitiesDir: string;
@@ -28,6 +32,8 @@ export function readProjectConfig(root: string): ProjectConfig {
   const rawConfig = configFile ? readFileSync(configFile, "utf-8") : "";
   const hasPagesDefaultRender = hasConfigProperty(rawConfig, "pagesDefaultRender");
   const resolvedPagesDefaultRender = readQuotedConfigValue(rawConfig, "pagesDefaultRender");
+  const hasAdditionalExtensions = hasConfigValue(rawConfig, "additionalExtensions");
+  const resolvedAdditionalExtensions = readQuotedConfigArray(rawConfig, "additionalExtensions");
   const config: Record<string, unknown> = {
     ...PROJECT_DEFAULTS,
     configFile,
@@ -35,15 +41,20 @@ export function readProjectConfig(root: string): ProjectConfig {
     mode: "manifest" as const,
     rawConfig,
     root,
+    additionalExtensionsIsStatic: !hasAdditionalExtensions || resolvedAdditionalExtensions !== null,
     pagesDefaultRenderIsStatic: !hasPagesDefaultRender || resolvedPagesDefaultRender !== null,
   };
 
   for (const key of Object.keys(PROJECT_DEFAULTS)) {
+    if (key === "additionalExtensions") continue;
     const value = readQuotedConfigValue(rawConfig, key);
     if (typeof value === "string") {
       config[key] = key === "pagesDefaultRender" ? value : normalizeConfigPath(value);
     }
   }
+  config.additionalExtensions = [
+    ...new Set((resolvedAdditionalExtensions ?? []).map((extension) => extension.toLowerCase())),
+  ].filter((extension) => !BUILT_IN_ROUTE_EXTENSIONS.has(extension));
 
   config.mode = config.pagesDir ? "pages" : "manifest";
   return config as unknown as ProjectConfig;
@@ -133,8 +144,12 @@ export function listFilesRecursively(dir: string): string[] {
   return files;
 }
 
-export function hasPagesAppShell(filePath: string): boolean {
-  return /^_app\.(ts|tsx|tsrx|js|jsx)$/.test(basename(filePath));
+export function hasPagesAppShell(filePath: string, additionalExtensions: string[] = []): boolean {
+  const extension = basename(filePath).slice("_app".length);
+  return (
+    basename(filePath).startsWith("_app.") &&
+    new Set([".ts", ".tsx", ".tsrx", ".js", ".jsx", ...additionalExtensions]).has(extension)
+  );
 }
 
 function findConfigFile(root: string): string | null {
@@ -171,8 +186,96 @@ function readQuotedConfigValue(source: string, key: string): string | null {
   return readQuotedValueAt(source, (declaration.index ?? 0) + declaration[0].length);
 }
 
+function readQuotedConfigArray(source: string, key: string): string[] | null {
+  if (!source) return null;
+  const masked = maskCommentsAndStrings(source);
+  const properties = [...masked.matchAll(new RegExp(`\\b${key}\\s*:`, "g"))];
+  if (properties.length > 1) return null;
+
+  let identifier: string | undefined;
+  if (properties.length === 1) {
+    const property = properties[0];
+    const valueStart = (property.index ?? 0) + property[0].length;
+    const direct = readStringArrayAt(source, valueStart);
+    if (direct !== null) return direct;
+    identifier = /^\s*([A-Za-z_$][\w$]*)\b/.exec(source.slice(valueStart))?.[1];
+  } else {
+    const shorthandProperties = [...masked.matchAll(new RegExp(`\\b${key}\\b(?=\\s*[,}])`, "g"))];
+    if (shorthandProperties.length !== 1) return null;
+    identifier = key;
+  }
+
+  if (!identifier) return null;
+  const declarations = [...masked.matchAll(new RegExp(`\\bconst\\s+${identifier}\\s*=`, "g"))];
+  if (declarations.length !== 1) return null;
+  const declaration = declarations[0];
+  return readStringArrayAt(source, (declaration.index ?? 0) + declaration[0].length);
+}
+
+function readStringArrayAt(source: string, start: number): string[] | null {
+  const values: string[] = [];
+  let offset = skipConfigTrivia(source, start);
+  if (source[offset] !== "[") return null;
+  offset += 1;
+
+  while (offset < source.length) {
+    offset = skipConfigTrivia(source, offset);
+    if (source[offset] === "]") return values;
+
+    const quote = source[offset];
+    if (quote !== '"' && quote !== "'" && quote !== "`") return null;
+    const valueStart = offset + 1;
+    offset = valueStart;
+    while (offset < source.length && source[offset] !== quote) {
+      // Escapes and template interpolation require JavaScript evaluation;
+      // this reader deliberately resolves static literal values only.
+      if (source[offset] === "\\" || (quote === "`" && source.startsWith("${", offset))) {
+        return null;
+      }
+      offset += 1;
+    }
+    if (offset === source.length || offset === valueStart) return null;
+    values.push(source.slice(valueStart, offset));
+
+    offset = skipConfigTrivia(source, offset + 1);
+    if (source[offset] === "]") return values;
+    if (source[offset] !== ",") return null;
+    offset += 1;
+  }
+  return null;
+}
+
+function skipConfigTrivia(source: string, start: number): number {
+  let offset = start;
+  while (offset < source.length) {
+    if (/\s/.test(source[offset])) {
+      offset += 1;
+      continue;
+    }
+    if (source.startsWith("//", offset)) {
+      const newline = source.indexOf("\n", offset + 2);
+      offset = newline === -1 ? source.length : newline + 1;
+      continue;
+    }
+    if (source.startsWith("/*", offset)) {
+      const end = source.indexOf("*/", offset + 2);
+      offset = end === -1 ? source.length : end + 2;
+      continue;
+    }
+    break;
+  }
+  return offset;
+}
+
 function hasConfigProperty(source: string, key: string): boolean {
   return new RegExp(`\\b${key}\\s*:`).test(maskCommentsAndStrings(source));
+}
+
+function hasConfigValue(source: string, key: string): boolean {
+  const masked = maskCommentsAndStrings(source);
+  return (
+    new RegExp(`\\b${key}\\s*:`).test(masked) || new RegExp(`\\b${key}\\b(?=\\s*[,}])`).test(masked)
+  );
 }
 
 function readQuotedValueAt(source: string, start: number): string | null {

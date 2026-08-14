@@ -1,7 +1,11 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { extname, join, relative } from "node:path";
+import {
+  DEFAULT_ROUTE_EXTENSIONS,
+  normalizeAdditionalExtensions,
+  withAdditionalExtensions,
+} from "./route-extensions.ts";
 
-const ROUTE_EXTENSIONS = new Set([".tsx", ".ts", ".jsx", ".js", ".md", ".mdx"]);
 const LOADER_DECLARATION_RE = /export\s+(?:async\s+)?(?:function|const|let|var)\s+loader\b/;
 const EXPORT_BLOCK_RE = /export\s*\{([^}]*)\}\s*(?:from\s*["'][^"']+["'])?/g;
 const EXPORT_ALL_RE = /export\s+\*\s+from\s*["'][^"']+["']/;
@@ -35,7 +39,7 @@ export function detectLoaderExport(source: string): boolean {
   return EXPORT_ALL_RE.test(source);
 }
 
-function scanRouteFiles(dir: string, files: string[]): void {
+function scanRouteFiles(dir: string, files: string[], extensions: Set<string>): void {
   let entries: string[];
   try {
     entries = readdirSync(dir);
@@ -47,11 +51,11 @@ function scanRouteFiles(dir: string, files: string[]): void {
     const abs = join(dir, entry);
     const stat = statSync(abs);
     if (stat.isDirectory()) {
-      scanRouteFiles(abs, files);
+      scanRouteFiles(abs, files, extensions);
       continue;
     }
 
-    if (ROUTE_EXTENSIONS.has(extname(entry))) {
+    if (extensions.has(extname(entry))) {
       files.push(abs);
     }
   }
@@ -63,11 +67,19 @@ function toPosixPath(path: string): string {
 
 export function createRouteLoaderHints(
   routesDir: string,
-  options: { appFileDir?: string; rootRelativePrefix?: string } = {},
+  options: {
+    additionalExtensions?: readonly string[];
+    appFileDir?: string;
+    rootRelativePrefix?: string;
+  } = {},
 ): Record<string, boolean> {
   const files: string[] = [];
   const hints: Record<string, boolean> = {};
-  scanRouteFiles(routesDir, files);
+  const extensions = withAdditionalExtensions(
+    DEFAULT_ROUTE_EXTENSIONS,
+    normalizeAdditionalExtensions(options.additionalExtensions),
+  );
+  scanRouteFiles(routesDir, files, extensions);
 
   for (const file of files) {
     const hasLoader = detectLoaderExport(readFileSync(file, "utf-8"));

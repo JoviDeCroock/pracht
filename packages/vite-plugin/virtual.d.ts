@@ -247,9 +247,8 @@ declare module "virtual:pracht/webmcp" {
   export function registerPrachtWebmcpTools(): boolean;
 }
 
-// `.tsrx` modules are compiled by `@tsrx/vite-plugin-preact`. Declare an
-// ambient module so apps can `import` them without a typed source — TypeScript
-// has no built-in support for the `.tsrx` extension.
+// Preserve the ambient declaration shipped with Pracht's compatibility-level
+// `.tsrx` discovery. Other custom formats provide their own declaration.
 declare module "*.tsrx" {
   const mod: Record<string, unknown>;
   export = mod;

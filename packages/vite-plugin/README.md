@@ -56,12 +56,11 @@ pracht({
 Keep it opt-in for now: it is best suited to SSR-heavy pages with large static
 DOM subtrees and should be benchmarked against your app before enabling broadly.
 
-## TSRX (`.tsrx`) Support
+## Additional Route Extensions
 
-`.tsrx` modules — TSRX/Ripple-flavoured Preact components — are supported out
-of the box. Bring your own
-[`@tsrx/vite-plugin-preact`](https://github.com/Ripple-TS/ripple) and add it to
-your `plugins` array alongside `pracht()`:
+Use `additionalExtensions` when a Vite plugin compiles route or shell modules
+with another file extension. For example, TSRX can use the explicit generic
+configuration (while remaining implicitly supported for compatibility):
 
 ```ts
 // vite.config.ts
@@ -70,13 +69,23 @@ import { pracht } from "@pracht/vite-plugin";
 import { tsrxPreact } from "@tsrx/vite-plugin-preact";
 
 export default defineConfig({
-  plugins: [tsrxPreact(), pracht()],
+  plugins: [tsrxPreact(), pracht({ additionalExtensions: [".tsrx"] })],
 });
 ```
 
-The pracht plugin globs `.tsrx` files alongside `.tsx` for routes and shells
-(both manifest- and pages-router modes), and its server-only export stripping
-pass treats them the same way — no separate pracht option is required.
+Extensions must be dot-prefixed. Pracht discovers configured extensions in
+route and shell directories for both manifest and pages-router modes and strips
+server-only route exports from client bundles. Vite-scannable component formats
+join initial dependency scanning automatically; other format plugins must opt
+their extension into Vite's dependency optimizer. The companion plugin remains
+responsible for compiling the file format, and the app should provide any
+ambient TypeScript module declaration that format requires. Keep the array
+inline or in a directly referenced `const` for complete CLI verification;
+dynamic expressions still build but produce a verification warning.
+
+Existing `.tsrx` routes and shells remain discovered without
+`additionalExtensions`, and Pracht keeps its ambient `.tsrx` declaration so a
+compatible CLI patch cannot strand applications on the previous plugin minor.
 
 ## Peer Dependencies
 

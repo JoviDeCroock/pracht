@@ -51,6 +51,11 @@ import {
   type PrachtPluginOptions,
   type ResolvedPrachtPluginOptions,
 } from "./plugin-options.ts";
+import {
+  DEFAULT_ROUTE_EXTENSIONS,
+  extensionGlob,
+  withAdditionalExtensions,
+} from "./route-extensions.ts";
 
 export type { RenderMode };
 export type { PrachtAdapter } from "./plugin-adapter.ts";
@@ -92,6 +97,10 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
   const isPagesMode = !!resolved.pagesDir;
   let root = process.cwd();
   let routeFileDirs: string[] = [];
+  const routeFileExtensions = withAdditionalExtensions(
+    DEFAULT_ROUTE_EXTENSIONS,
+    resolved.additionalExtensions,
+  );
   let capabilityModulePaths = new Set<string>();
 
   if (isPagesMode && options.appFile) {
@@ -419,7 +428,7 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
 
       const shouldStrip =
         isPrachtClientModuleId(id) ||
-        (!transformOptions?.ssr && isRouteOrShellFile(id, routeFileDirs));
+        (!transformOptions?.ssr && isRouteOrShellFile(id, routeFileDirs, routeFileExtensions));
       if (!shouldStrip) return null;
 
       const transformed = stripServerOnlyExportsForClient(code, id);
@@ -439,7 +448,7 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
     config(config) {
       return withPrachtOptimizeDepsEntries(
         config,
-        createPrachtOptimizeDepsEntries(resolved),
+        resolved,
         createPrachtOptimizeDepsInclude(config.root ?? process.cwd()),
       );
     },
@@ -625,15 +634,22 @@ function createPrachtOptimizeDepsInclude(root: string): string[] {
 
 function withPrachtOptimizeDepsEntries(
   config: UserConfig,
-  prachtEntries: string[],
+  resolved: ResolvedPrachtPluginOptions,
   prachtInclude: string[],
 ): UserConfig {
+  const prachtEntries = createPrachtOptimizeDepsEntries(resolved, config.optimizeDeps?.extensions);
   const environments = Object.fromEntries(
     Object.entries(config.environments ?? {}).map(([name, environment]) => [
       name,
       {
         optimizeDeps: {
-          entries: mergeOptimizeDepsEntries(environment.optimizeDeps?.entries, prachtEntries),
+          entries: mergeOptimizeDepsEntries(
+            environment.optimizeDeps?.entries,
+            createPrachtOptimizeDepsEntries(
+              resolved,
+              environment.optimizeDeps?.extensions ?? config.optimizeDeps?.extensions,
+            ),
+          ),
         },
       },
     ]),
@@ -650,9 +666,34 @@ function withPrachtOptimizeDepsEntries(
   };
 }
 
-function createPrachtOptimizeDepsEntries(resolved: ResolvedPrachtPluginOptions): string[] {
+const VITE_SCANNABLE_ROUTE_EXTENSIONS = new Set([
+  ".ts",
+  ".tsx",
+  ".js",
+  ".jsx",
+  ".mts",
+  ".mjs",
+  ".cts",
+  ".cjs",
+  // Vite's dependency scanner extracts module scripts from these formats.
+  ".vue",
+  ".svelte",
+  ".astro",
+  ".imba",
+]);
+
+function createPrachtOptimizeDepsEntries(
+  resolved: ResolvedPrachtPluginOptions,
+  optimizerExtensions: string[] | undefined,
+): string[] {
   const scriptExtensions = "{ts,tsx,js,jsx}";
-  const routeExtensions = "{ts,tsx,js,jsx,md,mdx,tsrx}";
+  const explicitlyScannable = new Set(optimizerExtensions ?? []);
+  const routeExtensions = extensionGlob(
+    [...new Set([...DEFAULT_ROUTE_EXTENSIONS, ...resolved.additionalExtensions])].filter(
+      (extension) =>
+        VITE_SCANNABLE_ROUTE_EXTENSIONS.has(extension) || explicitlyScannable.has(extension),
+    ),
+  );
   const apiDir = toOptimizeDepsEntry(resolved.apiDir);
   const apiEntries = [`${apiDir}/**/*.{ts,js,tsx,jsx}`, `!${apiDir}/**/*.d.ts`];
   const entries = resolved.pagesDir
@@ -722,8 +763,6 @@ function invalidateVirtualModules(server: import("vite").ViteDevServer): void {
   if (devMod) server.moduleGraph.invalidateModule(devMod);
 }
 
-const ROUTE_FILE_EXTENSIONS = new Set([".ts", ".tsx", ".js", ".jsx", ".md", ".mdx", ".tsrx"]);
-
 function computeRouteFileDirs(root: string, resolved: ResolvedPrachtPluginOptions): string[] {
   const dirs = resolved.pagesDir ? [resolved.pagesDir] : [resolved.routesDir, resolved.shellsDir];
   return dirs.map((dir) => canonicalFilePath(resolveConfigPath(root, dir))).map(withTrailingSep);
@@ -758,7 +797,7 @@ function canonicalFilePath(path: string): string {
   }
 }
 
-function isRouteOrShellFile(id: string, dirs: string[]): boolean {
+function isRouteOrShellFile(id: string, dirs: string[], extensions: Set<string>): boolean {
   if (dirs.length === 0) return false;
   const queryStart = id.indexOf("?");
   const path = queryStart === -1 ? id : id.slice(0, queryStart);
@@ -767,7 +806,7 @@ function isRouteOrShellFile(id: string, dirs: string[]): boolean {
   const extIndex = path.lastIndexOf(".");
   if (extIndex === -1) return false;
   const ext = path.slice(extIndex);
-  if (!ROUTE_FILE_EXTENSIONS.has(ext)) return false;
+  if (!extensions.has(ext)) return false;
   const normalized = toPosixPath(path);
   return dirs.some((dir) => normalized.startsWith(dir));
 }

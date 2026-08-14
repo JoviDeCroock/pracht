@@ -7,6 +7,28 @@ import {
 } from "../src/plugin-codegen.ts";
 import { resolveOptions } from "../src/plugin-options.ts";
 
+describe("resolveOptions additionalExtensions", () => {
+  it("defaults to no additional route extensions", () => {
+    expect(resolveOptions({}).additionalExtensions).toEqual([]);
+  });
+
+  it("normalizes, deduplicates, and excludes built-in extensions", () => {
+    const additionalExtensions = [".TSRX", ".tsrx", ".vue", ".tsx"] as const;
+    expect(resolveOptions({ additionalExtensions }).additionalExtensions).toEqual([
+      ".tsrx",
+      ".vue",
+    ]);
+  });
+
+  it("rejects values that are not dot-prefixed extensions", () => {
+    expect(() => resolveOptions({ additionalExtensions: ["vue"] })).toThrow(
+      /dot-prefixed extensions/,
+    );
+    // @ts-expect-error — extension values must be strings.
+    expect(() => resolveOptions({ additionalExtensions: [42] })).toThrow(/dot-prefixed extensions/);
+  });
+});
+
 describe("resolveOptions budgets", () => {
   it("defaults to no budgets", () => {
     expect(resolveOptions({}).budgets).toEqual({});
