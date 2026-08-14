@@ -476,16 +476,17 @@ when the public origin is fixed.
 ### Response compression
 
 Responses are compressed by default via `Accept-Encoding` negotiation — the
-highest q-value wins, brotli preferred on ties. Dynamic documents, route-state
-JSON, and other compressible text types (`text/*`, JSON, JavaScript, SVG, and
-other `+json`/`+xml` types) stream through `node:zlib` with per-chunk
-flushing, so streamed bodies such as SSE are delivered incrementally; static
-assets and ISG snapshots are compressed once per file version and served from
-an in-memory LRU. Compressible responses carry `Vary: Accept-Encoding` (merged with
-existing `Vary` values) and encoded variants use their own ETag, so
-conditional revalidation never crosses encodings. Already-encoded responses,
-`Cache-Control: no-transform`, Range/`204`/`304` responses, binary media, and
-bodies under 1 KiB are never compressed.
+highest q-value wins (including an explicitly higher `identity` preference),
+with brotli preferred on ties. Dynamic documents, route-state JSON, and other
+compressible text types (`text/*`, JSON, JavaScript, SVG, and other
+`+json`/`+xml` types) stream through `node:zlib` with per-chunk flushing, so
+streamed bodies such as SSE are delivered incrementally; static assets and ISG
+snapshots are compressed once per file version and served from an in-memory
+LRU. Compressible responses carry `Vary: Accept-Encoding` (merged with existing
+`Vary` values), encoded variants use their own ETag with adapter-level dynamic
+revalidation, and `HEAD` advertises the same negotiated metadata as `GET`.
+Already-encoded responses, `Cache-Control: no-transform`, Range/`204`/`304`
+responses, binary media, and bodies under 1 KiB are never compressed.
 
 When a reverse proxy or CDN in front of the server already compresses
 responses, disable the adapter's compression and let the proxy own it:

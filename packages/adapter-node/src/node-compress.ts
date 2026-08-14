@@ -56,10 +56,11 @@ export function isCompressibleContentType(value: string | null): boolean {
  * Pick the response encoding for an `Accept-Encoding` header. Honors
  * q-values, `*` wildcards, and explicit `q=0` exclusions. Per RFC 9110
  * §12.5.3 the acceptable coding with the highest non-zero qvalue is
- * preferred; brotli wins ties (including the common unweighted
- * `gzip, deflate, br`). Returns `null` (identity) when neither coding is
- * acceptable — including `identity;q=0` alone, where falling back to an
- * uncompressed 200 is the robust interpretation of the SHOULD-level 406.
+ * preferred; an explicitly higher `identity` preference wins, while brotli
+ * wins ties (including the common unweighted `gzip, deflate, br`). Returns
+ * `null` (identity) when neither coding is acceptable — including
+ * `identity;q=0` alone, where falling back to an uncompressed 200 is the
+ * robust interpretation of the SHOULD-level 406.
  */
 export function negotiateEncoding(header: string | null): ContentEncoding | null {
   if (!header) return null;
@@ -85,8 +86,16 @@ export function negotiateEncoding(header: string | null): ContentEncoding | null
 
   const brQuality = qualityOf("br");
   const gzipQuality = qualityOf("gzip");
-  if (brQuality >= gzipQuality) return brQuality > 0 ? "br" : null;
-  return gzipQuality > 0 ? "gzip" : null;
+  const encoding = brQuality >= gzipQuality ? "br" : "gzip";
+  const encodingQuality = Math.max(brQuality, gzipQuality);
+  const identityQuality = qualities.get("identity");
+
+  // `identity` is special: when it is absent, keep the server's freedom to
+  // choose any acceptable coding (including the common `gzip;q=0.5` case).
+  // When the client explicitly assigns it a higher weight, however, that is a
+  // real preference for no content coding and must win the negotiation.
+  if (identityQuality !== undefined && identityQuality > encodingQuality) return null;
+  return encodingQuality > 0 ? encoding : null;
 }
 
 /**

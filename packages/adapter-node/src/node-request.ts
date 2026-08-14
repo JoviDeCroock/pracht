@@ -230,7 +230,7 @@ export async function writeWebResponse(
     const contentLength = Number.parseInt(response.headers.get("content-length") ?? "", 10);
     const belowThreshold = !Number.isNaN(contentLength) && contentLength < COMPRESSION_MIN_SIZE;
 
-    if (response.body && compression.request.method !== "HEAD" && !belowThreshold) {
+    if ((response.body || compression.request.method === "HEAD") && !belowThreshold) {
       encoding = negotiateEncoding(compression.request.headers.get("accept-encoding"));
     }
 
@@ -242,6 +242,26 @@ export async function writeWebResponse(
         res.setHeader("etag", encodeEtagForEncoding(etag, encoding));
       }
     }
+  }
+
+  const responseEtag = res.getHeader("etag");
+  if (
+    encoding &&
+    response.status === 200 &&
+    (compression?.request.method === "GET" || compression?.request.method === "HEAD") &&
+    typeof responseEtag === "string" &&
+    matchesIfNoneMatch(compression.request.headers.get("if-none-match"), responseEtag)
+  ) {
+    // The application only knows its identity ETag, while the client sends
+    // back the encoding-specific validator emitted by this adapter. Evaluate
+    // that derived validator here so transparent compression does not turn a
+    // revalidation that should be 304 into a full 200 response.
+    res.statusCode = 304;
+    res.statusMessage = "Not Modified";
+    res.removeHeader("content-length");
+    if (response.body) await response.body.cancel();
+    res.end();
+    return;
   }
 
   if (!response.body) {
@@ -259,6 +279,17 @@ export async function writeWebResponse(
     encoding ? createCompressedStream(source, encoding, { incremental: true }) : source,
     res,
   );
+}
+
+function matchesIfNoneMatch(header: string | null, etag: string): boolean {
+  if (!header) return false;
+  const weakOpaqueTag = (value: string): string =>
+    value.startsWith("W/") ? value.slice(2) : value;
+  const expected = weakOpaqueTag(etag);
+  return header
+    .split(",")
+    .map((candidate) => candidate.trim())
+    .some((candidate) => candidate === "*" || weakOpaqueTag(candidate) === expected);
 }
 
 export function writeNodeResponseHeaders(res: ServerResponse, headers: Headers): void {

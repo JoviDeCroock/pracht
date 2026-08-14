@@ -124,6 +124,8 @@ describe("negotiateEncoding", () => {
     expect(negotiateEncoding("br;q=0.5, gzip;q=0.5")).toBe("br"); // ties go to brotli
     expect(negotiateEncoding("gzip;q=0.5, *;q=1")).toBe("br"); // wildcard covers br at q=1
     expect(negotiateEncoding("identity;q=0, gzip")).toBe("gzip");
+    expect(negotiateEncoding("gzip;q=0.5, identity;q=1, *;q=0")).toBeNull();
+    expect(negotiateEncoding("gzip;q=1, identity;q=1, *;q=0")).toBe("gzip");
   });
 });
 
@@ -422,6 +424,70 @@ describe("dynamic response compression", () => {
     expect(response.headers.vary).toContain("Accept-Encoding");
   });
 
+  it("revalidates an encoding-specific dynamic ETag", async () => {
+    const identityEtag = 'W/"dynamic-v1"';
+    const base = await listen(
+      createNodeRequestHandler({
+        apiRoutes: resolveApiRoutes(["/src/api/etag.ts"]),
+        app: defineApp({ routes: [] }),
+        registry: {
+          apiModules: {
+            "/src/api/etag.ts": async () => ({
+              GET: async ({ request }) =>
+                request.headers.get("if-none-match") === identityEtag
+                  ? new Response(null, {
+                      status: 304,
+                      headers: { etag: identityEtag },
+                    })
+                  : new Response("etag payload ".repeat(300), {
+                      headers: { etag: identityEtag, "content-type": "text/plain" },
+                    }),
+            }),
+          },
+        },
+      }),
+    );
+
+    const first = await rawRequest(`${base}/api/etag`, { "accept-encoding": "gzip" });
+    const revalidated = await rawRequest(`${base}/api/etag`, {
+      "accept-encoding": "gzip",
+      "if-none-match": first.headers.etag!,
+    });
+
+    expect(first.status).toBe(200);
+    expect(first.headers.etag).toBe('W/"dynamic-v1-gzip"');
+    expect(revalidated.status).toBe(304);
+    expect(revalidated.headers.etag).toBe(first.headers.etag);
+    expect(revalidated.headers.vary).toContain("Accept-Encoding");
+    expect(revalidated.body.byteLength).toBe(0);
+  });
+
+  it("uses the GET representation metadata for dynamic HEAD responses", async () => {
+    const headers = { etag: 'W/"head-v1"', "content-type": "text/plain" };
+    const base = await listen(
+      createNodeRequestHandler({
+        apiRoutes: resolveApiRoutes(["/src/api/head.ts"]),
+        app: defineApp({ routes: [] }),
+        registry: {
+          apiModules: {
+            "/src/api/head.ts": async () => ({
+              GET: async () => new Response("head payload ".repeat(300), { headers }),
+              HEAD: async () => new Response(null, { headers }),
+            }),
+          },
+        },
+      }),
+    );
+
+    const get = await rawRequest(`${base}/api/head`, { "accept-encoding": "br" });
+    const head = await rawRequest(`${base}/api/head`, { "accept-encoding": "br" }, "HEAD");
+
+    expect(head.status).toBe(200);
+    expect(head.headers["content-encoding"]).toBe(get.headers["content-encoding"]);
+    expect(head.headers.etag).toBe(get.headers.etag);
+    expect(head.body.byteLength).toBe(0);
+  });
+
   it("keeps a streamed multi-chunk body intact through the compressor", async () => {
     const chunks = Array.from({ length: 32 }, (_, i) => `chunk-${i}-${"z".repeat(256)}\n`);
     const base = await listen(
@@ -716,19 +782,21 @@ describe("static asset compression", () => {
     expect(response.body.toString("utf-8")).toContain("payload");
   });
 
-  it("omits the body but keeps negotiation headers identity-shaped for HEAD", async () => {
+  it("omits the body but keeps GET negotiation metadata for HEAD", async () => {
     const { handler } = createStaticHandler();
     const base = await listen(handler);
 
-    const response = await rawRequest(
+    const get = await rawRequest(`${base}/assets/app.js`, { "accept-encoding": "br, gzip" });
+    const head = await rawRequest(
       `${base}/assets/app.js`,
       { "accept-encoding": "br, gzip" },
       "HEAD",
     );
 
-    expect(response.status).toBe(200);
-    expect(response.headers["content-encoding"]).toBeUndefined();
-    expect(response.headers.vary).toContain("Accept-Encoding");
-    expect(response.body.byteLength).toBe(0);
+    expect(head.status).toBe(200);
+    expect(head.headers["content-encoding"]).toBe(get.headers["content-encoding"]);
+    expect(head.headers.etag).toBe(get.headers.etag);
+    expect(head.headers.vary).toContain("Accept-Encoding");
+    expect(head.body.byteLength).toBe(0);
   });
 });

@@ -377,7 +377,7 @@ function negotiateFileEncoding(
   // out as identity (small file today, larger after the next deploy).
   headers.set("vary", mergeVaryValue(headers.get("vary")));
 
-  if (fileSize < COMPRESSION_MIN_SIZE || request.method === "HEAD") {
+  if (fileSize < COMPRESSION_MIN_SIZE) {
     return null;
   }
 

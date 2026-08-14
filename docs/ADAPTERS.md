@@ -167,8 +167,8 @@ that manifest.
 The Node adapter compresses responses by default, negotiated against the
 request's `Accept-Encoding` header (the acceptable coding with the highest
 q-value wins per RFC 9110, brotli preferred on ties and in unweighted lists
-like `gzip, deflate, br`; `*` wildcards and `q=0` exclusions honored, all via
-`node:zlib`):
+like `gzip, deflate, br`; an explicitly higher `identity` preference, `*`
+wildcards, and `q=0` exclusions are honored, all via `node:zlib`):
 
 - **Dynamic responses** — SSR/ISG documents, route-state JSON, API responses
   with compressible types — stream through a zlib transform (brotli quality 4)
@@ -201,7 +201,11 @@ Correctness guarantees:
 - Encoded variants get their own weak ETag (the encoding is folded into the
   tag, e.g. `W/"1a2f-18c-br"`), so `If-None-Match` revalidation can never
   answer an identity request with a cached brotli body or vice versa. The
+  adapter evaluates those derived validators for dynamic responses, and the
   `304` path keeps working per variant.
+- `HEAD` advertises the same negotiated `Content-Encoding` and variant ETag as
+  the corresponding `GET` while omitting the body (and compressed length when
+  it is not already known).
 
 **Behind a reverse proxy:** when nginx, Caddy, Cloudflare, or another
 CDN/proxy in front of the Node server already compresses responses, disable
