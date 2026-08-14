@@ -40,11 +40,18 @@ If the pracht MCP server is registered (see `docs/MCP.md`), prefer its tools
 (`inspect_routes`, `inspect_api`, `inspect_build`, `doctor`, `verify`) over
 shelling out.
 
-Middleware is registered by name in the app manifest —
-`defineApp({ middleware: { auth: () => import("./middleware/auth.ts") } })` —
-and `inspect` reports those names, not files. Read the name→file map from
-`src/routes.ts` (or the configured manifest) to resolve each name, then read
-each middleware file and classify it:
+`inspect` reports middleware names, not files. Resolve them according to the
+app's router mode, then read each middleware file and classify it:
+
+- **Manifest router:** read the name→file map from `src/routes.ts` (or the
+  configured manifest), where middleware is registered through
+  `defineApp({ middleware: { auth: () => import("./middleware/auth.ts") } })`.
+- **Pages router:** when the Vite config sets `pagesDir`, the generated name
+  `"pages"` resolves to the root `<pagesDir>/_middleware.ts` (or `.tsx`, `.js`,
+  or `.jsx`). It applies to every page route and never wraps API routes. There
+  is no `src/routes.ts` manifest to inspect unless the app has ejected.
+
+Then classify each resolved middleware module:
 
 - **Gate** — on auth failure, returns a short-circuit `Response`
   (`redirect("/login", { request })`, or a 401/403 `Response`) WITHOUT calling

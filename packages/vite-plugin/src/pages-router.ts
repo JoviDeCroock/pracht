@@ -128,6 +128,11 @@ function exportsMiddleware(source: string, file: string): boolean {
 
   for (const statement of program.body as OxcNode[]) {
     if (statement.type === "ExportAllDeclaration") {
+      // `export type *` has no runtime bindings, while
+      // `export * as middleware` exposes a namespace object rather than the
+      // required function. Only an ordinary value `export * from` can
+      // conservatively re-export a working middleware binding.
+      if (statement.exportKind === "type" || statement.exported) continue;
       // The exported names cannot be known without loading the target module.
       // Preserve working re-export barrels; runtime validation still fails closed.
       return true;
