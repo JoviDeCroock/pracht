@@ -2,7 +2,8 @@
 
 import type { Plugin } from "vite";
 import { withMagicString } from "rolldown-string";
-import { createSimpleFilter, looksLikeJSX, stripQuery } from "./source-analysis.js";
+import { looksLikeJSX, stripQuery } from "./module-source.js";
+import { createSimpleFilter } from "./plugin-filter.js";
 import { transformPreactSsrMagicString } from "./transform.js";
 import type { PreactSsrPrecompileOptions } from "./types.js";
 

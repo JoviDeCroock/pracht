@@ -235,9 +235,12 @@ described in `VISION_MVP.md`.
   while detection delegates to the shared `@pracht/capabilities/static` source
   policy used by CLI verification.
 - **SSR JSX precompiler** — `@pracht/preact-ssr-precompile` keeps its public
-  Vite plugin facade in `index.ts`, JSX-to-template lowering in `transform.ts`,
-  pure HTML output policy in `html-serialization.ts`, and parsing, AST
-  traversal, filtering, and offset-safe edits in `source-analysis.ts`.
+  Vite plugin facade in `index.ts` and the programmatic lowering API in
+  `transform.ts`. Plugin inclusion policy lives independently in
+  `plugin-filter.ts`, with shared lightweight module/source classification in
+  `module-source.ts`; the `transform/` domain owns the per-module serialization
+  context, JSX syntax projection, pure HTML output policy, parsing, AST
+  traversal, and offset-safe source edits.
 - **OpenAPI companion** — `prachtOpenApi()` augments the generated server graph
   without changing core API authoring. It serves a live OpenAPI JSON document
   and optional Scalar/Swagger page in development; `pracht build` writes the

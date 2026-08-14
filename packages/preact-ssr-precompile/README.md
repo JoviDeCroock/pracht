@@ -104,9 +104,11 @@ Dynamic children are wrapped in `jsxEscape()`. Dynamic attributes are serialized
 with `jsxAttr()`, with extra handling for `aria-*`, `data-*`, and enumerated
 boolean attributes so output matches `preact-render-to-string`.
 
-For contributors, `transform.ts` owns AST lowering and template construction,
-`html-serialization.ts` owns the pure HTML output rules, and
-`source-analysis.ts` owns parsing and offset-safe source edits.
+For contributors, `transform.ts` is the stable programmatic facade,
+`plugin-filter.ts` owns Vite inclusion policy, and `module-source.ts` provides
+shared lightweight source classification. The `transform/` domain separates the
+per-module serialization context and JSX syntax projection from pure HTML output
+rules, parsing, and offset-safe source edits.
 
 ## Options
 

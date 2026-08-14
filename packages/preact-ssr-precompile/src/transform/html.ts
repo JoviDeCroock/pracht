@@ -1,4 +1,4 @@
-/** Pure HTML serialization policy used by the JSX lowering transform. */
+/** Pure HTML serialization policy for the JSX lowering transform. */
 
 const VOID_ELEMENTS = new Set([
   "area",

@@ -1,8 +1,8 @@
-/** Parsing, AST traversal, filtering, and offset-safe source edits. */
+/** Parsing, AST traversal, and offset-safe source edits for JSX lowering. */
 
 import { parseSync } from "rolldown/utils";
 import type { RolldownString } from "rolldown-string";
-import type { FilterPattern } from "./types.js";
+import { looksLikeJSX, stripQuery } from "../module-source.js";
 
 export type NodeLike = {
   type: string;
@@ -114,10 +114,6 @@ export function isNode(value: unknown): value is NodeLike {
   return !!value && typeof value === "object" && typeof (value as NodeLike).type === "string";
 }
 
-export function stripQuery(id: string): string {
-  return id.split("?", 1)[0];
-}
-
 export function parseProgram(id: string, code: string): NodeLike {
   const parseOptions = getParseOptions(id, code);
   return parseSync(id, code, {
@@ -151,32 +147,4 @@ function getParseOptions(
     lang,
     sourceType: isCommonJS ? "commonjs" : "module",
   };
-}
-
-// Cheap heuristic to skip parsing files that obviously contain no JSX. May
-// produce false positives (e.g. `f(x<Y)` in TypeScript generics or comparisons);
-// those fall through to parseProgram, which either re-parses as TSX or bails.
-export function looksLikeJSX(code: string): boolean {
-  return /<>|<\/[A-Za-z]|<[A-Za-z]/.test(code);
-}
-
-export function createSimpleFilter(
-  include: FilterPattern,
-  exclude: FilterPattern,
-): (id: string) => boolean {
-  const includes = normalizeFilterPattern(include);
-  const excludes = normalizeFilterPattern(exclude);
-  return (id) => matchesAny(id, includes) && !matchesAny(id, excludes);
-}
-
-function normalizeFilterPattern(pattern: FilterPattern): Array<string | RegExp> {
-  if (Array.isArray(pattern)) return [...(pattern as ReadonlyArray<string | RegExp>)];
-  return [pattern as string | RegExp];
-}
-
-function matchesAny(id: string, patterns: Array<string | RegExp>): boolean {
-  return patterns.some((pattern) => {
-    if (typeof pattern === "string") return id.includes(pattern);
-    return pattern.test(id);
-  });
 }
