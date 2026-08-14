@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   collectDevCssUrls,
+  createDevCssInjectionMiddleware,
   createDevCssManifest,
   injectDevCssLinks,
 } from "../src/plugin-dev-css.ts";
@@ -87,6 +88,82 @@ describe("development CSS discovery", () => {
         '    <link rel="stylesheet" href="/global.css">\n' +
         "  </head><body></body></html>",
     );
+  });
+
+  it("injects styles into adapter-owned HTML responses and removes stale lengths", async () => {
+    const routeEntry = moduleNode("/src/routes/home.tsx", "js", [
+      moduleNode("/src/routes/home.css", "css"),
+    ]);
+    const writeHeadCalls: unknown[][] = [];
+    let resolveEnd!: (body: string) => void;
+    const ended = new Promise<string>((resolve) => {
+      resolveEnd = resolve;
+    });
+    const headers = new Map<string, unknown>([
+      ["content-type", "text/html; charset=utf-8"],
+      ["content-length", "12"],
+    ]);
+    const response = {
+      end(chunk: unknown, callback?: () => void) {
+        callback?.();
+        resolveEnd(String(chunk));
+        return this;
+      },
+      getHeader(name: string) {
+        return headers.get(name.toLowerCase());
+      },
+      removeHeader(name: string) {
+        headers.delete(name.toLowerCase());
+      },
+      write() {
+        return true;
+      },
+      writeHead(...args: unknown[]) {
+        writeHeadCalls.push(args);
+        return this;
+      },
+    } as any;
+    const server = {
+      config: { logger: { warn() {} } },
+      environments: {
+        worker: {
+          moduleGraph: {
+            getModuleByUrl: async (url: string) =>
+              url === "/src/routes/home.tsx" ? routeEntry : undefined,
+          },
+        },
+      },
+      ssrLoadModule: async (id: string) =>
+        id === "@pracht/core/server"
+          ? {
+              matchAppRoute: () => ({
+                route: { file: "./routes/home.tsx" },
+              }),
+            }
+          : {
+              registry: {
+                routeModules: { "/src/routes/home.tsx": async () => ({}) },
+              },
+              resolvedApp: { routes: [] },
+            },
+    } as any;
+
+    createDevCssInjectionMiddleware(server)(
+      { headers: { accept: "text/html" }, method: "GET", url: "/" } as any,
+      response,
+      () => {
+        response.writeHead(200, { "Content-Length": "12", "X-Test": "yes" });
+        response.write("<html><head>");
+        response.end("</head><body></body></html>");
+      },
+    );
+
+    await expect(ended).resolves.toBe(
+      '<html><head>    <link rel="stylesheet" href="/src/routes/home.css">\n' +
+        "  </head><body></body></html>",
+    );
+    expect(headers.has("content-length")).toBe(false);
+    expect(writeHeadCalls).toEqual([[200, { "X-Test": "yes" }]]);
   });
 });
 

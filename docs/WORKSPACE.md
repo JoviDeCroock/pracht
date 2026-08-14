@@ -193,6 +193,10 @@ described in `VISION_MVP.md`.
   `plugin-build-config.ts` owns client, Node SSR, and edge SSR configuration
   policy such as public environment defines, islands entries, Preact
   deduplication, and Worker resolution conditions.
+  Development stylesheet injection keeps `plugin-dev-css.ts` as its internal
+  facade: module-graph traversal, HTML link generation, route-context loading,
+  and adapter-owned response interception live in focused `plugin-dev-css-*`
+  modules, while the main plugin imports only the layers it invokes.
   Capability discovery and conservative agent-surface detection live in
   `plugin-capabilities.ts`; `capability-browser-codegen.ts` consumes that
   metadata to generate the HTTP client and WebMCP browser projections.

@@ -32,11 +32,9 @@ import {
   createPrachtIslandsClientModuleSource,
   createPrachtServerModuleSource,
 } from "./plugin-codegen.ts";
-import {
-  createDevCssInjectionMiddleware,
-  createDevSSRMiddleware,
-  injectDevCssForPath,
-} from "./plugin-dev-ssr.ts";
+import { createDevCssInjectionMiddleware } from "./plugin-dev-css-middleware.ts";
+import { injectDevCssForPath } from "./plugin-dev-css-route.ts";
+import { createDevSSRMiddleware } from "./plugin-dev-ssr.ts";
 import { createEdgeRuntimeSafetyPlugin } from "./plugin-edge-runtime-safety.ts";
 import { transformAppManifestModule } from "./plugin-manifest-transform.ts";
 import { createOptimizeDepsPlugin } from "./plugin-optimize-deps.ts";
