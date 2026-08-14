@@ -9,7 +9,7 @@ import {
   DEFAULT_DECLARATION_OUT,
   DEFAULT_RUNTIME_OUT,
   runTypegen,
-} from "../commands/typegen.js";
+} from "../typegen.js";
 import { findEvalFiles, parseScenario, runScenario } from "../eval-runner.js";
 import { runDoctor, runVerification } from "../verification.js";
 import { cwdInput, guard, guardText, resolveCwd } from "./tool-helpers.js";

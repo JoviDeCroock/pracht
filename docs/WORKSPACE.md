@@ -99,6 +99,10 @@ described in `VISION_MVP.md`.
   graph collection and report contracts. The Citty command retains argument
   parsing and human output only, while type generation and MCP tools consume
   the inspection service directly without importing command presentation code.
+- **CLI type generation** — `packages/cli/src/typegen.ts` owns the reusable
+  inspect, validate, project, check, and write pipeline plus its result contract
+  and default output locations. The Citty command only maps arguments and
+  renders results; dev watch mode and MCP tooling call the service directly.
 - **Capability transport** — `runtime-capabilities.ts` is the stable facade and
   audit orchestrator. Shared request/result contracts live in
   `runtime-capability-transport-types.ts`; `runtime-capability-http-dispatch.ts`

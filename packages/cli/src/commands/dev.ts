@@ -14,7 +14,7 @@ import {
   DEFAULT_DECLARATION_OUT,
   DEFAULT_RUNTIME_OUT,
   runTypegen,
-} from "./typegen.js";
+} from "../typegen.js";
 
 export default defineCommand({
   meta: {
