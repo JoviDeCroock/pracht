@@ -672,6 +672,20 @@ describe("generatePagesManifestSource", () => {
     );
   });
 
+  it.each([
+    ["type-only star re-export", 'export type * from "./middleware-types";\n'],
+    ["namespace re-export", 'export * as middleware from "./middleware";\n'],
+  ])("rejects a %s as pages middleware", (_description, source) => {
+    const pagesDir = makeTempPagesDir();
+
+    writeFileSync(join(pagesDir, "index.tsx"), "export function Component() { return null; }\n");
+    writeFileSync(join(pagesDir, "_middleware.ts"), source);
+
+    expect(() => generatePagesManifestSource(scanPagesDirectory(pagesDir), { pagesDir })).toThrow(
+      /does not export a `middleware` function/,
+    );
+  });
+
   it("emits ejected refs relative to the requested output path", () => {
     const pagesDir = makeTempPagesDir();
     const outputDir = join(pagesDir, "generated");

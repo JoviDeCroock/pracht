@@ -45,3 +45,7 @@ when another supported `_middleware` extension already exists. HMR follows the
 existing pages conventions: edits hot-invalidate, add/remove restarts the dev
 server. `doctor` and `verify` also reject `_middleware/` directories whose only
 contents are non-source placeholders, matching the build-time check.
+
+Build-time export validation also rejects type-only star re-exports and
+namespace re-exports such as `export * as middleware`: neither exposes the
+runtime `middleware` function required by the generated registration.
