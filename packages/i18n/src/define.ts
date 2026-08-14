@@ -141,8 +141,9 @@ export interface I18n<L extends string> {
   /**
    * Prefix a path with a locale, replacing any existing locale prefix and
    * preserving query/hash: `localePath("/en/shop?page=2", "nl")` →
-   * `"/nl/shop?page=2"`. Throws on unregistered locales so user input can
-   * never be reflected into a path.
+   * `"/nl/shop?page=2"`. Browser-recognized dot segments are resolved before
+   * prefixing so the resulting URL cannot escape the locale namespace. Throws
+   * on unregistered locales so user input can never be reflected into a path.
    */
   localePath(path: string, locale: L): string;
   /** Split a pathname into its locale prefix (if any) and the rest. */
@@ -264,10 +265,18 @@ function withDetectionHeaders(
 
 function normalizePathname(path: string): string {
   let pathname = typeof path === "string" ? path : "/";
+  // Browsers treat backslashes as path separators for http(s) URLs. Normalize
+  // them before collapsing leading slash runs so a path such as `\\evil.test`
+  // cannot become protocol-relative during the URL normalization below.
+  pathname = pathname.replaceAll("\\", "/");
   if (!pathname.startsWith("/")) pathname = `/${pathname}`;
   // Collapse leading slash runs so `//host` can never read as
   // protocol-relative once an origin is prepended.
-  return pathname.replace(/^\/{2,}/, "/");
+  pathname = pathname.replace(/^\/{2,}/, "/");
+  // Resolve literal and percent-encoded dot segments before adding a locale
+  // prefix. If they were left in the returned value, the browser would resolve
+  // `/nl/%2e%2e/admin` to `/admin` and silently escape the locale namespace.
+  return new URL(pathname, "https://pracht.invalid").pathname;
 }
 
 function splitTarget(path: string): { pathname: string; suffix: string } {

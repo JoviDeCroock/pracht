@@ -338,7 +338,18 @@ describe("localePath / splitLocale", () => {
 
   it("normalizes protocol-relative-looking paths", () => {
     expect(i18n.localePath("//evil.com/x", "en")).toBe("/en/evil.com/x");
+    expect(i18n.localePath("\\\\evil.com/x", "en")).toBe("/en/evil.com/x");
     expect(i18n.localePath("shop", "en")).toBe("/en/shop");
+  });
+
+  it("resolves dot segments before adding the locale prefix", () => {
+    expect(i18n.localePath("../admin", "nl")).toBe("/nl/admin");
+    expect(i18n.localePath("/shop/../admin?from=shop#top", "nl")).toBe("/nl/admin?from=shop#top");
+    for (const path of ["/%2e%2e/admin", "/.%2e/admin", "/%2e./admin"]) {
+      const localized = i18n.localePath(path, "nl");
+      expect(localized).toBe("/nl/admin");
+      expect(new URL(localized, "https://app.test").pathname).toBe("/nl/admin");
+    }
   });
 
   it("splitLocale only recognizes registered locales", () => {

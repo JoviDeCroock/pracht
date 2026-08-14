@@ -15,4 +15,6 @@ Submissions now opt into the same readable redirect handshake
 `<Form capability>` already used. API dispatch returns the target without
 fetching it first, then the client performs exactly one navigation. This also
 keeps cross-origin login and SSO targets out of the form submission's CORS
-fetch.
+fetch. Cross-origin form actions retain native submission semantics instead of
+receiving the handshake header, which would turn a normal form post into a
+CORS-preflighted request.

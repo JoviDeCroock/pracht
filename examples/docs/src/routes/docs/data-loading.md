@@ -421,7 +421,7 @@ export function Component() {
 }
 ```
 
-The `<Form>` component intercepts submit and sends via `fetch` (no full page reload), and falls back to native submission if JavaScript fails.
+The `<Form>` component intercepts same-origin submissions and sends them via `fetch` (no full page reload), while cross-origin actions retain native form navigation so they do not require a custom-header CORS preflight. It also falls back to native submission if JavaScript fails.
 
 ---
 

@@ -406,9 +406,20 @@ export function Form<TName extends HttpCapabilityName = HttpCapabilityName>(
         return;
       }
 
-      event.preventDefault();
       const submitterAction = nativeSubmitter?.getAttribute("formaction");
       const actionUrl = submitterAction ?? action ?? form.action;
+      const actionTarget = parseSafeNavigationUrl(actionUrl, window.location.href);
+      const isCrossOriginAction =
+        actionTarget !== null && actionTarget.origin !== window.location.origin;
+      // Cross-origin targets cannot participate in Pracht's custom redirect
+      // handshake: its request header would force a CORS preflight that a
+      // normal form post does not need. Preserve native form semantics, while
+      // still intercepting first when a shared client schema must run.
+      if (isCrossOriginAction && !schema) {
+        return;
+      }
+
+      event.preventDefault();
       const formData = new FormData(form, nativeSubmitter);
 
       if (schema) {
@@ -419,7 +430,7 @@ export function Form<TName extends HttpCapabilityName = HttpCapabilityName>(
         }
       }
 
-      if (isSafeMethod) {
+      if (isSafeMethod || isCrossOriginAction) {
         validatedNativeSubmissions.add(form);
         try {
           form.requestSubmit(nativeSubmitter);

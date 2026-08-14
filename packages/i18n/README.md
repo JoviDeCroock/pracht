@@ -147,8 +147,10 @@ Creates the app's i18n instance:
   cookie in stored output; call `setLocaleCookie(data.locale)` in a hydrated
   localized component so later unprefixed detector routes remember the choice.
 - **`localePath(path, locale)`** — prefix/replace the locale in a path,
-  preserving query and hash. Throws for unregistered locales, so user input
-  can never be reflected into a URL.
+  preserving query and hash. It resolves literal/encoded dot segments before
+  prefixing, so browser URL normalization cannot escape the locale namespace.
+  Throws for unregistered locales, so user input can never be reflected into
+  a URL.
 - **`splitLocale(path)`** / **`isLocale(value)`** / **`detect(request)`** —
   the underlying primitives.
 - **`localeCookie(locale, { url?, secure? })`** — serialize the locale

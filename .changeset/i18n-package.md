@@ -23,7 +23,9 @@ return translations, components consume them via route data).
 Only registered locales can win detection; malformed `Accept-Language`
 q-values are dropped in full (including valid numeric prefixes followed by
 garbage), unregistered URL/cookie/wildcard locales are ignored, and
-`localePath()` throws rather than reflecting unknown locales into URLs.
+`localePath()` throws rather than reflecting unknown locales into URLs. It
+resolves literal and percent-encoded dot segments before prefixing, so browser
+URL normalization cannot escape the selected locale namespace.
 
 `SameSite=None` locale cookies always include `Secure`, even if configuration
 tries to disable it, so browsers do not silently reject locale persistence.

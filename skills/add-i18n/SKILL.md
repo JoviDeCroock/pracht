@@ -195,7 +195,10 @@ export function Component() {
 ```
 
 - Route matching is exact: locale prefixes are lowercase URLs; build links
-  with `i18n.localePath()` so they always come out canonical.
+  with `i18n.localePath()` so they always come out canonical. It resolves
+  literal and encoded dot segments before prefixing, so even a path assembled
+  from user input cannot escape the locale namespace during browser URL
+  normalization.
 - If localized routes are SSG/ISG, their stored response cannot safely carry
   a visitor-specific `Set-Cookie`. In a hydrated component shared by those
   routes, persist the explicit prefix with
@@ -338,8 +341,9 @@ is no alternate URL to point at, so emitting hreflang would be a lie.
    locale in module-level state — concurrent requests will collide.
 2. Only registered locales may ever reach paths, cookies, or hreflang.
    `defineI18n`/`localePath` enforce this — never bypass them with string
-   concatenation on user input. Accept-Language wildcard fallbacks are also
-   resolved through the registered locale list.
+   concatenation on user input. `localePath` also resolves dot segments before
+   adding the locale prefix. Accept-Language wildcard fallbacks are resolved
+   through the registered locale list.
 3. For SSG, only prerender URL combinations that exist; provide
    `getStaticPaths` returning the locale × dynamic-param product when a
    localized route has dynamic segments.

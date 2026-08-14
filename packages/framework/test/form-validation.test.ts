@@ -426,6 +426,45 @@ describe("<Form> validation", () => {
     );
   });
 
+  it("leaves cross-origin action targets to native form navigation", async () => {
+    render(
+      h(
+        Form,
+        { action: "https://auth.example/login", method: "post" },
+        h("input", { name: "returnTo", value: "/dashboard" }),
+      ),
+      root,
+    );
+
+    const form = root.querySelector("form")!;
+    const event = new Event("submit", { bubbles: true, cancelable: true });
+    form.dispatchEvent(event);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(event.defaultPrevented).toBe(false);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("validates cross-origin action targets before native form navigation", async () => {
+    const requestSubmit = vi
+      .spyOn(HTMLFormElement.prototype, "requestSubmit")
+      .mockImplementation(() => undefined);
+
+    render(
+      h(
+        Form,
+        { action: "https://auth.example/login", method: "post", schema: nameSchema },
+        h("input", { name: "name", value: "pracht" }),
+      ),
+      root,
+    );
+
+    await submit();
+
+    expect(requestSubmit).toHaveBeenCalledTimes(1);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
   it("lets a clicked button's safe formmethod use native submission", async () => {
     fetchSpy.mockResolvedValue(new Response(null, { status: 200 }));
 

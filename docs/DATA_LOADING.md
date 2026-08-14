@@ -700,6 +700,7 @@ The `<Form>` component:
 
 - Intercepts submit and sends via fetch to the specified action URL (no full page reload)
 - Handles redirects automatically
+- Leaves cross-origin actions to native form submission, avoiding custom-header CORS preflights
 - Falls back to native form submission if JavaScript fails
 - Publishes its pending state through `useNavigation()` — `state: "submitting"`
   with the submitted `FormData` — for pending buttons and optimistic UI
