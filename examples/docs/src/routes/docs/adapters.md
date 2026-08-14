@@ -583,7 +583,7 @@ pracht({
 
 The build fails closed — before prerendering, with every offender listed — when the app needs a server:
 
-- every route must be `render: "ssg"` or loaderless `"spa"`; SSG loaders must succeed at build time and dynamic SSG routes must export `getStaticPaths()`;
+- every route must be `render: "ssg"` or loaderless, full-hydration `"spa"`; SSG loaders must produce HTML plus valid JSON route state at build time, and dynamic SSG routes must export `getStaticPaths()`;
 - no route or not-found middleware;
 - the `notFound` page must use full hydration (the default) so `404.html` can adopt the visitor's real URL;
 - no API routes;

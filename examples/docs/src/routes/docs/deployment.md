@@ -205,7 +205,7 @@ platform-shaped local runtime.
 
 ## Static hosts
 
-Apps whose routes are all `ssg` (or loaderless `spa`), with no request
+Apps whose routes are all `ssg` (or loaderless, full-hydration `spa`), with no request
 middleware, API routes, or network-exposed capabilities, can skip servers
 entirely with `@pracht/adapter-static` — GitHub Pages, S3, nginx, Netlify, any
 file host.

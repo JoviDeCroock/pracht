@@ -31,7 +31,7 @@ pracht preview    # serves dist/client/ locally with a tiny static file server
 
 A static export has no server, so the build fails closed on anything that needs one:
 
-- Every route must be `render: "ssg"` or loaderless `"spa"`. SSG loaders run at build time and must succeed; loader redirects/errors and dynamic SSG routes without `getStaticPaths()` fail the build. SPA loaders, `ssr`, and `isg` are build errors naming the routes; use browser-side fetching for live SPA data or use `@pracht/adapter-node`, `@pracht/adapter-cloudflare`, or `@pracht/adapter-vercel`.
+- Every route must be `render: "ssg"` or loaderless, full-hydration `"spa"`. SSG loaders run at build time and must produce HTML plus valid JSON route state; loader redirects/errors, successful non-HTML responses, malformed route-state responses, and dynamic SSG routes without `getStaticPaths()` fail the build. SPA loaders, non-full SPA hydration, `ssr`, and `isg` are build errors naming the routes; use browser-side fetching for live SPA data or use `@pracht/adapter-node`, `@pracht/adapter-cloudflare`, or `@pracht/adapter-vercel`.
 - Route and not-found middleware are build errors because no request runtime exists to enforce them.
 - The `notFound` page must use full hydration (the default). A static host serves the same prebuilt `404.html` for every miss, so the full client router is required to adopt the visitor's actual URL.
 - API routes are build errors.

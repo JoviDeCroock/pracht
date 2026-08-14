@@ -381,6 +381,10 @@ test("static export build fails closed on request-runtime features", async () =>
         .replace(
           'route("/plain", () => import("./routes/plain.tsx"), { id: "plain", render: "ssg" }),',
           'route("/plain", () => import("./routes/plain.tsx"), { id: "plain", render: "ssg", middleware: ["auth"] }),',
+        )
+        .replace(
+          'id: "dashboard",\n        render: "spa",',
+          'hydration: "islands",\n        id: "dashboard",\n        render: "spa",',
         ),
       "utf-8",
     );
@@ -408,6 +412,8 @@ test("static export build fails closed on request-runtime features", async () =>
     expect(output).toContain('/about (render: "ssr")');
     expect(output).toContain("/dashboard");
     expect(output).toContain("Static SPA routes must be loaderless");
+    expect(output).toContain('/dashboard (hydration: "islands")');
+    expect(output).toContain("Static SPA routes must use full hydration");
     expect(output).toContain("/plain");
     expect(output).toContain("static host has no request runtime");
     expect(output).toContain("/api/health");
@@ -430,8 +436,20 @@ for (const scenario of [
       'export function loader() { throw new Error("build data unavailable"); }\nexport function Component() { return <main>broken</main>; }\nexport function ErrorBoundary() { return <main>caught</main>; }\n',
     expected: "document request returned status 500",
   },
+  {
+    name: "successful non-HTML SSG loader response",
+    source:
+      'export function loader() { return new Response("raw body", { headers: { "content-type": "text/plain" } }); }\nexport function Component() { return <main>unused</main>; }\n',
+    expected: 'failed to render SSG route "/about" as HTML',
+  },
+  {
+    name: "invalid route-state response",
+    source:
+      'export function loader({ request }) { return request.headers.has("x-pracht-route-state-request") ? new Response("not json") : { ok: true }; }\nexport function Component() { return <main>state</main>; }\n',
+    expected: "route-state request returned invalid JSON",
+  },
 ]) {
-  test(`static export build rejects a ${scenario.name}`, () => {
+  test(`static export build rejects ${scenario.name}`, () => {
     test.setTimeout(180_000);
     const { exampleDir, tempDir } = createTempExampleDir(
       staticFixtureDir,
