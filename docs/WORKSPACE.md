@@ -220,7 +220,11 @@ described in `VISION_MVP.md`.
   Client route projection keeps `client-module-transform.ts` as its orchestration
   entry, `client-module-server-exports.ts` as server-export selection,
   `client-module-binding-pruning.ts` as iterative dependency/liveness pruning,
-  and the existing state/render/scope modules as their shared infrastructure.
+  and the existing state/render modules as shared infrastructure. Lexical scope
+  analysis keeps `client-module-scope-analysis.ts` as its orchestration facade
+  over the `scope-analysis/` domain: contracts and AST helpers are independent
+  of declaration collection, while reference traversal delegates destructuring
+  patterns and binding resolution to focused sibling modules.
   The public `pages-router.ts` entry is a stable facade over the focused
   `pages-router/` domain: `discovery.ts` owns filesystem traversal,
   `page-analysis.ts` owns Markdown-aware static policy extraction,

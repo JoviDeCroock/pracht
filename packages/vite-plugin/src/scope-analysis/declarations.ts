@@ -5,7 +5,7 @@ import {
   getStatementDeclaration,
   getTsRuntimeChildren,
   isNode,
-} from "./scope-analysis-helpers.ts";
+} from "./ast.ts";
 import {
   SKIPPED_KEYS,
   type Binding,
@@ -14,7 +14,7 @@ import {
   type RetainedStatement,
   type Scope,
   type ScopeType,
-} from "./scope-analysis-types.ts";
+} from "./types.ts";
 
 export function createScope(type: ScopeType, parent: Scope | null, node: OxcNode | null): Scope {
   return {

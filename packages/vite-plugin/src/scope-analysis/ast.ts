@@ -1,4 +1,4 @@
-import { SKIPPED_KEYS, type OxcNode } from "./scope-analysis-types.ts";
+import { SKIPPED_KEYS, type OxcNode } from "./types.ts";
 
 export function getStatementDeclaration(statement: OxcNode): OxcNode | null {
   if (statement.type === "ExportNamedDeclaration") {

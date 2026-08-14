@@ -8,7 +8,7 @@ import { getRolldownLang } from "./client-module-query.ts";
 import { removeServerOnlyExports } from "./client-module-server-exports.ts";
 import { renderProgram } from "./client-module-transform-render.ts";
 import { createStatementStates } from "./client-module-transform-state.ts";
-import type { OxcNode } from "./scope-analysis-types.ts";
+import type { OxcNode } from "./scope-analysis/types.ts";
 
 export {
   PRACHT_CLIENT_MODULE_QUERY,

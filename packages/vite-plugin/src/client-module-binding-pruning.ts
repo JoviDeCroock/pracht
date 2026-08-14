@@ -11,8 +11,8 @@ import {
   collectBindingNamesFromPattern,
   getIdentifierName,
   getStatementDeclaration,
-} from "./scope-analysis-helpers.ts";
-import type { OxcNode } from "./scope-analysis-types.ts";
+} from "./scope-analysis/ast.ts";
+import type { OxcNode } from "./scope-analysis/types.ts";
 
 export function collectCurrentTopLevelBindingNames(states: StatementState[]): Set<string> {
   const names = new Set<string>();

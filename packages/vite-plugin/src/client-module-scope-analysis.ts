@@ -1,11 +1,15 @@
-import { createScope, declareBinding, declareProgramScopes } from "./scope-analysis-declare.ts";
-import { collectStatementReferences } from "./scope-analysis-references.ts";
+import {
+  createScope,
+  declareBinding,
+  declareProgramScopes,
+} from "./scope-analysis/declarations.ts";
+import { collectStatementReferences } from "./scope-analysis/references.ts";
 import type {
   OxcNode,
   RetainedStatement,
   Scope,
   ScopeAnalysisResult,
-} from "./scope-analysis-types.ts";
+} from "./scope-analysis/types.ts";
 
 export type {
   Binding,
@@ -14,7 +18,7 @@ export type {
   RetainedStatement,
   Scope,
   ScopeAnalysisResult,
-} from "./scope-analysis-types.ts";
+} from "./scope-analysis/types.ts";
 
 type AnalyzeScopeOptions = {
   excludedNames?: Iterable<string>;

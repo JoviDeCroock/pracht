@@ -1,3 +1,5 @@
+/** Internal contracts shared by the client-module scope analyzer. */
+
 export const JSX_COMPONENT_RE = /^[A-Z]/;
 
 export const SKIPPED_KEYS = new Set([

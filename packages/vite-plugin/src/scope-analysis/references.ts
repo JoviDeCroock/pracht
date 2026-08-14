@@ -1,12 +1,16 @@
-import { getTsRuntimeChildren, isNode } from "./scope-analysis-helpers.ts";
+import { getTsRuntimeChildren, isNode } from "./ast.ts";
+import {
+  collectPatternReferences as collectPatternNodeReferences,
+  type NodeReferenceCollector,
+} from "./pattern-references.ts";
+import { recordReference } from "./reference-resolution.ts";
 import {
   JSX_COMPONENT_RE,
   SKIPPED_KEYS,
-  type Binding,
   type OxcNode,
   type Scope,
   type ScopeAnalysisResult,
-} from "./scope-analysis-types.ts";
+} from "./types.ts";
 
 export function collectStatementReferences(
   statement: OxcNode,
@@ -406,113 +410,8 @@ function collectPatternReferences(
   result: ScopeAnalysisResult,
   excludedNames: Set<string>,
 ): void {
-  if (!node) return;
-  if (node.type.startsWith("TS")) {
-    for (const child of getTsRuntimeChildren(node)) {
-      collectNodeReferences(child, currentScope, scopesByNode, result, excludedNames);
-    }
-    return;
-  }
-
-  switch (node.type) {
-    case "AssignmentPattern":
-      collectNodeReferences(
-        node.right as OxcNode,
-        currentScope,
-        scopesByNode,
-        result,
-        excludedNames,
-      );
-      collectPatternReferences(
-        node.left as OxcNode,
-        currentScope,
-        scopesByNode,
-        result,
-        excludedNames,
-      );
-      return;
-    case "ObjectPattern":
-      for (const property of node.properties as OxcNode[]) {
-        if (property.type === "Property") {
-          if (property.computed) {
-            collectNodeReferences(
-              property.key as OxcNode,
-              currentScope,
-              scopesByNode,
-              result,
-              excludedNames,
-            );
-          }
-          collectPatternReferences(
-            property.value as OxcNode,
-            currentScope,
-            scopesByNode,
-            result,
-            excludedNames,
-          );
-          continue;
-        }
-
-        collectPatternReferences(
-          property.argument as OxcNode,
-          currentScope,
-          scopesByNode,
-          result,
-          excludedNames,
-        );
-      }
-      return;
-    case "ArrayPattern":
-      for (const element of node.elements as Array<OxcNode | null>) {
-        collectPatternReferences(element, currentScope, scopesByNode, result, excludedNames);
-      }
-      return;
-    case "RestElement":
-      collectPatternReferences(
-        node.argument as OxcNode,
-        currentScope,
-        scopesByNode,
-        result,
-        excludedNames,
-      );
-      return;
-    default:
-      return;
-  }
-}
-
-function recordReference(
-  name: string,
-  node: OxcNode,
-  currentScope: Scope,
-  result: ScopeAnalysisResult,
-  excludedNames: Set<string>,
-): void {
-  const resolvedBinding = resolveBinding(name, currentScope);
-  result.references.push({
-    name,
-    node,
-    resolvedBinding,
-  });
-
-  if (!resolvedBinding) return;
-  if (resolvedBinding.scope.type !== "program") return;
-  if (excludedNames.has(name)) return;
-
-  result.referencedTopLevelNames.add(name);
-}
-
-function resolveBinding(name: string, currentScope: Scope): Binding | null {
-  let scope: Scope | null = currentScope;
-
-  while (scope) {
-    const binding = scope.bindings.get(name);
-    if (binding) {
-      return binding;
-    }
-
-    scope = scope.parent;
-  }
-
-  return null;
+  const collectNode: NodeReferenceCollector = (referencedNode, referencedScope) => {
+    collectNodeReferences(referencedNode, referencedScope, scopesByNode, result, excludedNames);
+  };
+  collectPatternNodeReferences(node, currentScope, collectNode);
 }

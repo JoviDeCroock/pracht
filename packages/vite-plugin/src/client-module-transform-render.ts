@@ -3,8 +3,8 @@ import {
   getRemainingSpecifierIndices,
   type StatementState,
 } from "./client-module-transform-state.ts";
-import { getStatementDeclaration } from "./scope-analysis-helpers.ts";
-import type { OxcNode } from "./scope-analysis-types.ts";
+import { getStatementDeclaration } from "./scope-analysis/ast.ts";
+import type { OxcNode } from "./scope-analysis/types.ts";
 
 export function renderProgram(code: string, states: StatementState[]): string {
   let cursor = 0;

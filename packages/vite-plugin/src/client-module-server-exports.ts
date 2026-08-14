@@ -8,8 +8,8 @@ import {
   collectVariableDeclaratorDependencies,
   enqueueDependencies,
 } from "./client-module-binding-pruning.ts";
-import { collectBindingNamesFromPattern, getIdentifierName } from "./scope-analysis-helpers.ts";
-import type { OxcNode } from "./scope-analysis-types.ts";
+import { collectBindingNamesFromPattern, getIdentifierName } from "./scope-analysis/ast.ts";
+import type { OxcNode } from "./scope-analysis/types.ts";
 
 const SERVER_ONLY_EXPORTS = new Set(["loader", "head", "headers", "getStaticPaths", "markdown"]);
 

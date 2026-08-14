@@ -1,8 +1,5 @@
-import {
-  collectBindingNamesFromPattern,
-  getStatementDeclaration,
-} from "./scope-analysis-helpers.ts";
-import type { OxcNode, RetainedStatement } from "./scope-analysis-types.ts";
+import { collectBindingNamesFromPattern, getStatementDeclaration } from "./scope-analysis/ast.ts";
+import type { OxcNode, RetainedStatement } from "./scope-analysis/types.ts";
 
 export type StatementState = {
   node: OxcNode;
