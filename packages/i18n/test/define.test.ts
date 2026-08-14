@@ -107,6 +107,24 @@ describe("detection", () => {
     expect(i18n.detect(request)).toEqual({ locale: "nl", source: "header" });
   });
 
+  it("detects every locale accepted by configuration regardless of tag length", () => {
+    const longLocale = "sl-rozaj-biske-1994-foobar-bazquux-extra";
+    const configured = defineI18n({ locales: ["en", longLocale], defaultLocale: "en" });
+
+    expect(configured.detect(makeRequest(`https://app.test/${longLocale}/shop`))).toEqual({
+      locale: longLocale,
+      source: "path",
+    });
+    expect(
+      configured.detect(
+        makeRequest("https://app.test/shop", { cookie: `pracht_locale=${longLocale}` }),
+      ),
+    ).toEqual({ locale: longLocale, source: "cookie" });
+    expect(
+      configured.detect(makeRequest("https://app.test/shop", { "accept-language": longLocale })),
+    ).toEqual({ locale: longLocale, source: "header" });
+  });
+
   it("falls back to the cookie, then the Accept-Language header", () => {
     expect(
       i18n.detect(

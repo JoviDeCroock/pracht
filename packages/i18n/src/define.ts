@@ -344,10 +344,13 @@ export function defineI18n<const L extends string>(config: I18nConfig<L>): I18n<
   const cookie = config.cookie === false ? false : resolveCookie(config.cookie ?? {});
 
   const lowered = locales.map((locale) => locale.toLowerCase());
+  const maxLocaleLength = Math.max(...locales.map((locale) => locale.length));
 
   /** Map arbitrary input to a registered locale (canonical casing) or null. */
   function toLocale(value: unknown): L | null {
-    if (typeof value !== "string" || value.length === 0 || value.length > 35) return null;
+    if (typeof value !== "string" || value.length === 0 || value.length > maxLocaleLength) {
+      return null;
+    }
     const index = lowered.indexOf(value.toLowerCase());
     return index === -1 ? null : (locales[index] as L);
   }

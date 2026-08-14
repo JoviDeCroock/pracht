@@ -169,14 +169,17 @@ Creates the app's i18n instance:
   route by default).
 
 Only registered locales can ever win detection: URL prefixes, cookie values,
-and `Accept-Language` tags are validated against the registry, malformed
-q-values (`;q=`, `;q=abc`) are dropped rather than promoted, and oversized
-headers are truncated. A q-value must be a complete decimal token, so a
-numeric prefix such as `q=0.5junk` is rejected too. Wildcards can only resolve
-to a registered locale. Header matching follows RFC 4647 lookup —
+and `Accept-Language` tags are validated against the registry, malformed or
+duplicate q-values (`;q=`, `;q=abc`, repeated `;q=`) are dropped rather than
+promoted, and oversized headers are truncated. A q-value must be a complete
+decimal token, so a numeric prefix such as `q=0.5junk` is rejected too.
+Wildcards can only resolve to a registered locale and never revive a locale
+explicitly rejected with `q=0`. Header matching follows RFC 4647 lookup —
 progressive truncation (`zh-Hant-TW` → `zh-Hant` → `zh`) — plus a
-same-language best fit (`en-GB` matches a registered `en-US`) before
-falling through to lower-preference entries.
+script-compatible same-language best fit (`en-GB` matches a registered
+`en-US`, while `zh-Hans` does not best-fit `zh-Hant`) before falling through
+to lower-preference entries. Every locale accepted by `defineI18n()` remains
+detectable even when its full tag is longer than a common language-region pair.
 
 Note that route matching is exact: `pathPrefix: "/nl"` serves `/nl/...`,
 not `/NL/...`. Keep locale prefixes lowercase in links (use `localePath`).

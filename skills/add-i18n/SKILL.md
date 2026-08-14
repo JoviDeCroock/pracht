@@ -343,7 +343,8 @@ is no alternate URL to point at, so emitting hreflang would be a lie.
    `defineI18n`/`localePath` enforce this — never bypass them with string
    concatenation on user input. `localePath` also resolves dot segments before
    adding the locale prefix. Accept-Language wildcard fallbacks are resolved
-   through the registered locale list.
+   through the registered locale list, respect explicit `q=0` exclusions, and
+   same-language best fit never crosses conflicting script subtags.
 3. For SSG, only prerender URL combinations that exist; provide
    `getStaticPaths` returning the locale × dynamic-param product when a
    localized route has dynamic segments.

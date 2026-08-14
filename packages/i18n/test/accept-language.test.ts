@@ -31,6 +31,11 @@ describe("parseAcceptLanguage", () => {
     expect(parseAcceptLanguage("nl;q=0.5junk, en;q=0.2")).toEqual([{ tag: "en", quality: 0.2 }]);
   });
 
+  it("drops entries with duplicate q parameters instead of reviving them", () => {
+    expect(parseAcceptLanguage("nl;q=bogus;q=1, en;q=0.2")).toEqual([{ tag: "en", quality: 0.2 }]);
+    expect(parseAcceptLanguage("nl;q=0;q=1, en;q=0.2")).toEqual([{ tag: "en", quality: 0.2 }]);
+  });
+
   it("drops q=0 entries (explicitly not acceptable)", () => {
     expect(parseAcceptLanguage("nl;q=0, en;q=0.1")).toEqual([{ tag: "en", quality: 0.1 }]);
   });
@@ -96,6 +101,11 @@ describe("matchAcceptLanguage", () => {
     expect(matchAcceptLanguage("de-AT, nl;q=0.9", ["en-US", "nl"])).toBe("nl");
   });
 
+  it("does not best-fit across conflicting scripts", () => {
+    expect(matchAcceptLanguage("zh-Hans, en;q=0.8", ["zh-Hant", "en"])).toBe("en");
+    expect(matchAcceptLanguage("zh-Hans", ["zh-Hans-CN", "zh-Hant"])).toBe("zh-Hans-CN");
+  });
+
   it("respects q-value ordering", () => {
     expect(matchAcceptLanguage("nl;q=0.3, en;q=0.9", locales)).toBe("en");
   });
@@ -115,6 +125,11 @@ describe("matchAcceptLanguage", () => {
     expect(matchAcceptLanguage("*", ["en-US"], { wildcard: "EN-us" })).toBe("en-US");
     expect(matchAcceptLanguage("*;q=0.9, nl;q=0.4", locales, { wildcard: "en" })).toBe("en");
     expect(matchAcceptLanguage("nl;q=0.9, *;q=0.4", locales, { wildcard: "en" })).toBe("nl");
+  });
+
+  it("does not let wildcard revive an explicitly rejected locale", () => {
+    expect(matchAcceptLanguage("en;q=0, *;q=1", locales, { wildcard: "en" })).toBe("nl");
+    expect(matchAcceptLanguage("en;q=0, *;q=1", ["en"], { wildcard: "en" })).toBeNull();
   });
 
   it("ignores wildcard targets outside the registered locale set", () => {
