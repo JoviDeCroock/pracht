@@ -457,6 +457,11 @@ composition, generated entry source, graph-inspection substitutes, request
 runtime, and cache/storage policy belong to focused modules so contributors can
 change one platform boundary without loading the others into the same file.
 
+For Cloudflare, `runtime-isg-cache.ts` owns worker-managed Cache API serving and
+regeneration mechanics, while `runtime-isg-revalidation.ts` owns authenticated
+webhook batch policy and edge-cache purge coordination. `runtime-isg.ts`
+preserves the former internal facade.
+
 See [docs/ADAPTERS.md](ADAPTERS.md) for per-platform details.
 
 ---

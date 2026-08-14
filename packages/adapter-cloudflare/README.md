@@ -82,7 +82,11 @@ For framework contributors, `src/index.ts` is the stable public facade.
 `adapter.ts` composes the Vite adapter, `server-entry.ts` owns generated Worker
 source, and `graph-runtime-stubs.ts` owns the fail-closed Node substitutes used
 during graph inspection. Request execution remains in the focused `runtime-*`
-modules, while `cache.ts` owns the opt-in Workers Caching API.
+modules. Worker-managed ISG serving and regeneration mechanics live in
+`runtime-isg-cache.ts`; authenticated webhook batch policy and edge purge
+coordination live in `runtime-isg-revalidation.ts`; and `runtime-isg.ts`
+preserves their former facade. `cache.ts` separately owns the opt-in Workers
+Caching API.
 
 ## Context factory
 

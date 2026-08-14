@@ -320,8 +320,10 @@ described in `VISION_MVP.md`.
   `handlePrachtRequest()`, gives loaders/API routes/middleware access to `env`
   and `executionContext`, and stores regenerated ISG HTML in the Workers Cache
   API. `runtime.ts` orchestrates requests, `runtime-assets.ts` owns asset and
-  route-manifest negotiation, and `runtime-isg.ts` owns the worker-managed
-  Cache API and webhook regeneration path. The separate `cache.ts` module owns
+  route-manifest negotiation, `runtime-isg-cache.ts` owns worker-managed Cache
+  API serving and regeneration mechanics, and `runtime-isg-revalidation.ts`
+  owns authenticated webhook batch policy plus edge purge coordination.
+  `runtime-isg.ts` preserves the former internal facade. The separate `cache.ts` module owns
   opt-in front-of-Worker CDN caching policy. Its public `index.ts` is a thin
   facade over `adapter.ts` composition, `server-entry.ts` Worker source
   generation, and `graph-runtime-stubs.ts` fail-closed inspection substitutes.

@@ -14,11 +14,8 @@ import {
   resolveWorkersCacheOptions,
 } from "./cache.ts";
 import { maybeServeAsset } from "./runtime-assets.ts";
-import {
-  createWorkersCacheRenderRequest,
-  handleCloudflareRevalidationEndpoint,
-  maybeServeISG,
-} from "./runtime-isg.ts";
+import { createWorkersCacheRenderRequest, maybeServeISG } from "./runtime-isg-cache.ts";
+import { handleCloudflareRevalidationEndpoint } from "./runtime-isg-revalidation.ts";
 import type { CloudflareAdapterOptions, CloudflareExecutionContext } from "./runtime-types.ts";
 
 export type {
