@@ -1,0 +1,61 @@
+import type { NetlifyAdapterOptions } from "./types.ts";
+
+export function createNetlifyServerEntryModule(options: NetlifyAdapterOptions = {}): string {
+  const contextImport = options.createContextFrom
+    ? `import { createContext as createPrachtContext } from ${JSON.stringify(options.createContextFrom)};`
+    : "const createPrachtContext = undefined;";
+
+  return [
+    'import { existsSync, readFileSync } from "node:fs";',
+    'import { dirname, resolve } from "node:path";',
+    'import { fileURLToPath } from "node:url";',
+    'import { createNetlifyHandler, finalizeNetlifyBuild, purgeNetlifyCache, resolveNetlifyStaticDir } from "@pracht/adapter-netlify";',
+    contextImport,
+    "",
+    "const serverDir = dirname(fileURLToPath(import.meta.url));",
+    "function readManifest(name, fallback) {",
+    "  for (const file of [",
+    '    resolve(process.cwd(), "dist/server", name),',
+    "    resolve(serverDir, name),",
+    "  ]) {",
+    '    if (existsSync(file)) return JSON.parse(readFileSync(file, "utf-8"));',
+    "  }",
+    "  return fallback;",
+    "}",
+    "const staticDir = await resolveNetlifyStaticDir([",
+    "  process.env.PRACHT_STATIC_DIR,",
+    '  resolve(process.cwd(), "dist/client"),',
+    '  resolve(serverDir, "../client"),',
+    "]);",
+    'const isgManifest = readManifest("isg-manifest.json", {});',
+    'const headersManifest = readManifest("headers-manifest.json", {});',
+    'const markdownManifest = readManifest("markdown-manifest.json", undefined);',
+    "",
+    "const handler = createNetlifyHandler({",
+    "  app: resolvedApp,",
+    "  registry,",
+    "  apiRoutes,",
+    "  clientEntryUrl: clientEntryUrl ?? undefined,",
+    "  islandsEntryUrl: islandsEntryUrl ?? undefined,",
+    "  islandsBootstrapRequired,",
+    "  cssManifest,",
+    "  jsManifest,",
+    "  staticDir,",
+    "  isgManifest,",
+    "  headersManifest,",
+    "  markdownManifest,",
+    "  createContext: createPrachtContext,",
+    "  purgeCache: purgeNetlifyCache,",
+    `  cache: ${JSON.stringify({
+      staleWhileRevalidate: options.staleWhileRevalidate,
+      staticMaxAge: options.staticMaxAge,
+    })},`,
+    "});",
+    "",
+    "export default function handle(request, context) {",
+    "  return handler(request, context);",
+    "}",
+    `export const finalizePrachtBuild = ({ root }) => finalizeNetlifyBuild(root, ${JSON.stringify(options)});`,
+    "",
+  ].join("\n");
+}

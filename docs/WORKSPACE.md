@@ -334,7 +334,11 @@ described in `VISION_MVP.md`.
 - **Netlify adapter** — Emits a Functions v2 catch-all, serves bundled SSG
   documents while preserving Markdown and route-state negotiation, and maps
   ISG freshness and webhook revalidation to Netlify durable cache headers and
-  cache tags.
+  cache tags. Its public `index.ts` is a thin facade: `adapter.ts` owns Vite and
+  build-output composition, `server-entry.ts` owns generated server source,
+  `runtime-handler.ts` coordinates requests, and focused runtime modules own
+  cache policy, shared ISG context, path identity, revalidation, and static
+  file confinement.
 - **Vercel adapter** — Emits an Edge-compatible handler, copies the build into
   `.vercel/output/static` and `.vercel/output/functions/render.func`, rewrites
   clean SSG URLs to static HTML, and emits native prerender functions for ISG.
