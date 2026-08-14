@@ -331,6 +331,30 @@ export function resolveRouteStateOutputPath(clientDir: string, routePath: string
   return filePath;
 }
 
+export function resolvePrerenderOutputPath(clientDir: string, routePath: string): string {
+  if (routePath.includes("\0")) {
+    throw new Error(`Refusing to write prerendered route "${routePath}" with a NUL byte.`);
+  }
+
+  const root = resolve(clientDir);
+  const filePath =
+    routePath === "/" ? resolve(root, "index.html") : resolve(root, `.${routePath}`, "index.html");
+  const relativePath = relative(root, filePath);
+
+  if (
+    relativePath === "" ||
+    relativePath === ".." ||
+    relativePath.startsWith(`..${sep}`) ||
+    isAbsolute(relativePath)
+  ) {
+    throw new Error(
+      `Refusing to write prerendered route "${routePath}" outside dist/client (${filePath}).`,
+    );
+  }
+
+  return filePath;
+}
+
 export interface StaticArtifactsResult {
   stateFileCount: number;
   wrote404: boolean;
@@ -413,6 +437,64 @@ function assertNoFixedArtifactRouteCollisions(
   }
 }
 
+function assertNoPrerenderedPageOutputCollisions(pages: Array<{ path: string }>): void {
+  const virtualClientDir = resolve(sep, "__pracht_static_output__");
+  const outputs = pages.map((page) => {
+    const outputPath = resolvePrerenderOutputPath(virtualClientDir, page.path);
+    const relativeOutputPath = relative(virtualClientDir, outputPath);
+    return {
+      pagePath: page.path,
+      relativeOutputPath,
+      normalizedParts: relativeOutputPath.split(sep).map((part) => part.toLowerCase()),
+    };
+  });
+  const collisions: string[] = [];
+
+  outputs.sort((left, right) => {
+    const sharedLength = Math.min(left.normalizedParts.length, right.normalizedParts.length);
+    for (let index = 0; index < sharedLength; index += 1) {
+      if (left.normalizedParts[index] < right.normalizedParts[index]) return -1;
+      if (left.normalizedParts[index] > right.normalizedParts[index]) return 1;
+    }
+    return left.normalizedParts.length - right.normalizedParts.length;
+  });
+
+  for (let index = 1; index < outputs.length; index += 1) {
+    const shorter = outputs[index - 1];
+    const longer = outputs[index];
+    const sameOutput =
+      shorter.normalizedParts.length === longer.normalizedParts.length &&
+      shorter.normalizedParts.every(
+        (part, partIndex) => part === longer.normalizedParts[partIndex],
+      );
+    if (sameOutput) {
+      collisions.push(
+        `    - ${shorter.pagePath} and ${longer.pagePath} map to the same case-insensitive output path ` +
+          `dist/client/${shorter.normalizedParts.join("/")}`,
+      );
+      continue;
+    }
+
+    const fileDirectoryConflict = shorter.normalizedParts.every(
+      (part, partIndex) => part === longer.normalizedParts[partIndex],
+    );
+    if (fileDirectoryConflict) {
+      collisions.push(
+        `    - ${shorter.pagePath} and ${longer.pagePath} require ` +
+          `dist/client/${shorter.relativeOutputPath.split(sep).join("/")} to be both a file and a directory`,
+      );
+    }
+  }
+
+  if (collisions.length > 0) {
+    throw new Error(
+      "Static export cannot write prerendered pages because their output paths collide:\n" +
+        collisions.join("\n") +
+        "\nChange the route paths or getStaticPaths() output so every page has a distinct, portable filesystem path.",
+    );
+  }
+}
+
 /**
  * Validate every concrete path returned by prerendering before the CLI writes
  * any page. Dynamic getStaticPaths() values are not visible in the route
@@ -430,6 +512,8 @@ export function validateStaticExportOutputPaths(
         "\nChange getStaticPaths() so it does not emit framework-owned paths.",
     );
   }
+
+  assertNoPrerenderedPageOutputCollisions(pages);
 
   const configuredFallback = serverMod.staticExportConfig?.fallback ?? null;
   const fixedFiles = [

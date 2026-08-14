@@ -605,7 +605,7 @@ The fallback is one document shared by every rewritten URL, so it cannot run a r
 
 The fallback only client-renders matched SPA routes. A path that matches a dynamic SSG pattern but was not emitted by `getStaticPaths()` renders the app's `notFound` page instead of running without its missing build-time state. That client render reuses the build-time `notFound` loader data serialized into `404.html`.
 
-The rewrite answers unknown URLs with status 200, so they become soft 404s; and with no `notFound` page and no unshadowed client-routable SPA catch-all, they render blank (the build warns). Prerendered route directories may not occupy `404.html` or the configured fallback file path; the build reports those collisions explicitly.
+The rewrite answers unknown URLs with status 200, so they become soft 404s; and with no `notFound` page and no unshadowed client-routable SPA catch-all, they render blank (the build warns). Prerendered pages must map to distinct portable filesystem paths: the build rejects duplicate and case-folded outputs, file/directory conflicts such as `/` with `/index.html`, and route directories that occupy `404.html` or the configured fallback file path before writing any page.
 
 ### Build, preview, deploy
 

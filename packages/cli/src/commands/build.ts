@@ -10,6 +10,7 @@ import { readClientBuildAssets } from "../build-metadata.js";
 import { writeVercelBuildOutput } from "../build-shared.js";
 import {
   isStaticExportBuild,
+  resolvePrerenderOutputPath,
   validateStaticExport,
   validateStaticExportOutputPaths,
   writeStaticExportArtifacts,
@@ -23,6 +24,8 @@ import {
   shouldUseColor,
   type BundleReportRoute,
 } from "../bundle-report.js";
+
+export { resolvePrerenderOutputPath } from "../build-static.js";
 
 let prerenderHooksRegistered = false;
 
@@ -510,30 +513,6 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
 
   log("\n  Build complete.\n");
   return { buildTarget };
-}
-
-export function resolvePrerenderOutputPath(clientDir: string, routePath: string): string {
-  if (routePath.includes("\0")) {
-    throw new Error(`Refusing to write prerendered route "${routePath}" with a NUL byte.`);
-  }
-
-  const root = resolve(clientDir);
-  const filePath =
-    routePath === "/" ? resolve(root, "index.html") : resolve(root, `.${routePath}`, "index.html");
-  const relativePath = relative(root, filePath);
-
-  if (
-    relativePath === "" ||
-    relativePath === ".." ||
-    relativePath.startsWith(`..${sep}`) ||
-    isAbsolute(relativePath)
-  ) {
-    throw new Error(
-      `Refusing to write prerendered route "${routePath}" outside dist/client (${filePath}).`,
-    );
-  }
-
-  return filePath;
 }
 
 export function resolveGeneratedArtifactOutputPath(clientDir: string, outputPath: string): string {

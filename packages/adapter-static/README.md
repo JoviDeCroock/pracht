@@ -69,7 +69,7 @@ exports `head()` and `fallbackHead` is omitted.
 The fallback only boots matched SPA routes. Paths matching a dynamic SSG route but omitted by `getStaticPaths()` render the app's `notFound` page rather than running without build-time loader state. When the fallback renders `notFound`, it reuses the loader data serialized into `404.html`; the loader does not run again.
 
 Fallback names may not collide with `index.html` or `404.html`, including case variants on case-insensitive filesystems.
-Prerendered route directories also may not occupy `404.html` or the configured fallback file path; the build reports those collisions before writing the fixed artifacts.
+Prerendered pages must also map to distinct portable filesystem paths. The build rejects duplicate and case-folded outputs, file/directory conflicts such as `/` with `/index.html`, and route directories that occupy `404.html` or the configured fallback file path before writing any page.
 
 A host rewrite to the fallback answers unknown URLs with status 200, so they become soft 404s even though the client renders the `notFound` page. Skip `fallback` when correct 404 statuses matter more than deep links into dynamic SPA routes.
 

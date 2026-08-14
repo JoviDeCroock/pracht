@@ -364,7 +364,10 @@ serves the fallback answers unknown URLs with status 200 (soft 404), and an app
 with no `notFound` page and no unshadowed client-routable SPA catch-all renders them blank — the build
 warns about that shape. A dynamic SPA route, its shell, or the not-found page
 with `head()` requires an explicit `fallbackHead`, because the shared static
-document cannot evaluate URL-specific server metadata.
+document cannot evaluate URL-specific server metadata. Prerendered pages must
+map to distinct portable filesystem paths; duplicate/case-folded outputs and
+file/directory conflicts such as `/` with `/index.html` fail before any page is
+written.
 
 ---
 
