@@ -54,6 +54,12 @@ Request entry setup lives in `runtime-request-setup.ts`; terminal page matching
 and method/not-found settlement live in `runtime-page-dispatch.ts`, leaving
 `runtime.ts` as the readable API → agent → page coordinator.
 
+Page representation rendering keeps its shared input contract in
+`runtime-page-render-types.ts`. SPA shell/loading documents live in
+`runtime-page-render-spa.ts`, islands and zero-JavaScript document assembly in
+`runtime-page-render-static.ts`, and `runtime-page-render.ts` coordinates
+negotiation plus fully hydrated SSR.
+
 ISG revalidation keeps `revalidation.ts` as its stable compatibility facade.
 Route-policy normalization, shared-cache and persisted-header safety,
 single-flight regeneration, webhook outcome reporting, and authenticated

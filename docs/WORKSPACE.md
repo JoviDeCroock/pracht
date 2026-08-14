@@ -129,7 +129,11 @@ described in `VISION_MVP.md`.
   lifecycle in explicit API → agent → page order. `runtime-request-setup.ts`
   owns route-state request normalization and source/resolved app preparation;
   `runtime-page-dispatch.ts` owns page matching, method gating, and not-found
-  settlement. A matched page then runs middleware → loader → Preact
+  settlement. Representation rendering keeps its shared contract in
+  `runtime-page-render-types.ts`, SPA shell/loading documents in
+  `runtime-page-render-spa.ts`, islands and zero-JavaScript document assembly in
+  `runtime-page-render-static.ts`, and negotiation plus full hydration in
+  `runtime-page-render.ts`. A matched page then runs middleware → loader → Preact
   `renderToString` → HTML document assembly with hydration state
   (`window.__PRACHT_STATE__`), head metadata/header merging, and client entry
   injection. `runtime-route-state-response.ts` owns route-state JSON and

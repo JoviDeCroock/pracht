@@ -570,6 +570,10 @@ islands-serialization.ts — hydration-strategy and JSON prop wire validation
     ↑
 runtime-request-setup.ts — route-state request normalization and resolved-app preparation
 runtime-page-dispatch.ts — terminal page matching, method gating, and not-found settlement
+runtime-page-render-types.ts — shared page-representation input contract
+runtime-page-render-spa.ts — SPA shell/loading document rendering and route-state preload policy
+runtime-page-render-static.ts — islands and zero-JavaScript document/bootstrap assembly
+runtime-page-render.ts — negotiated representation and full-hydration rendering coordinator
 runtime.ts      — stable API → agent → page request lifecycle coordinator
 runtime-rendering.ts — lazy shared Preact server-renderer loading
 runtime-route-state-response.ts — JSON errors, redirects, and route-state cache headers
