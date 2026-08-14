@@ -916,12 +916,6 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
   });
 
   window.__PRACHT_NAVIGATE__ = navigate;
-  window.__PRACHT_ROUTER_READY__ = true;
-  // Public hydration marker for test tooling: server-rendered pages look
-  // interactive before the client router takes over, so tests (Playwright,
-  // etc.) should wait for `html[data-pracht-hydrated]` before driving forms —
-  // interacting earlier triggers native form submits instead of JS handlers.
-  document.documentElement.setAttribute("data-pracht-hydrated", "true");
 
   if (isStaticFallbackBoot) {
     const bootPath = window.location.pathname + window.location.search + window.location.hash;
@@ -946,6 +940,17 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
       if (notFoundState) applyRouteState(notFoundState);
     }
   }
+
+  // Publish readiness only after a static fallback has resolved and committed
+  // its real route. The fallback document starts with an empty body, so
+  // marking it ready before the async route import finishes would violate the
+  // public test/tooling contract below.
+  window.__PRACHT_ROUTER_READY__ = true;
+  // Public hydration marker for test tooling: server-rendered pages look
+  // interactive before the client router takes over, so tests (Playwright,
+  // etc.) should wait for `html[data-pracht-hydrated]` before driving forms —
+  // interacting earlier triggers native form submits instead of JS handlers.
+  document.documentElement.setAttribute("data-pracht-hydrated", "true");
 
   // Restore the scroll position after a reload or a return from an external
   // document — with `history.scrollRestoration = "manual"` the browser no

@@ -1033,12 +1033,13 @@ pracht({
 A static export has no runtime server, so `pracht build` fails with an
 aggregated error — before any prerendering — when the app needs one:
 
-- **Routes** must be `render: "ssg"` or loaderless `"spa"`. SSG loaders run
-  only during the build and must return a successful response; loader redirects
-  and errors fail the build. Dynamic SSG routes must export `getStaticPaths()`.
-  SPA loaders, `ssr`, and `isg` are hard errors naming each route and pointing
-  at the serverful adapters. Fetch live SPA data in the browser from an
-  external API instead.
+- **Routes** must be `render: "ssg"` or loaderless, full-hydration `"spa"`.
+  SSG loaders run only during the build and must produce an HTML document plus
+  valid JSON route state; redirects, errors, successful non-HTML responses,
+  and malformed route-state responses fail the build. Dynamic SSG routes must
+  export `getStaticPaths()`. SPA loaders, non-full SPA hydration, `ssr`, and
+  `isg` are hard errors naming each route and pointing at the serverful
+  adapters. Fetch live SPA data in the browser from an external API instead.
 - **Route and not-found middleware** are hard errors: a static host has no
   request runtime in which to enforce redirects, authentication, or headers.
 - The **`notFound` page must use full hydration** (the default). Every unknown
