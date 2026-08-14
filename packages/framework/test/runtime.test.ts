@@ -912,6 +912,7 @@ describe("handlePrachtRequest cache variance", () => {
                       "content-encoding": "br",
                       "content-length": "1",
                       etag: '"loader-payload"',
+                      "last-modified": "Thu, 13 Aug 2026 12:00:00 GMT",
                       "x-loader-header": "preserved",
                     },
                   },
@@ -932,6 +933,7 @@ describe("handlePrachtRequest cache variance", () => {
       expect(response.headers.get("content-length")).toBeNull();
       expect(response.headers.get("content-encoding")).toBeNull();
       expect(response.headers.get("etag")).toBeNull();
+      expect(response.headers.get("last-modified")).toBeNull();
       await expect(response.json()).resolves.toMatchObject({
         data: { plan: "MVP" },
         fontHead: { css: expect.stringContaining('font-family:"Pricing"') },
@@ -1033,6 +1035,44 @@ describe("handlePrachtRequest cache variance", () => {
     expect(response.headers.get("etag")).toBeNull();
     const payload = (await response.json()) as Record<string, any>;
     expect(payload.fontHead.css).toContain('font-family:"Pricing Error"');
+    expect(payload.fontHead.preloadLinks).toEqual(errorFont.preloadLinks);
+  });
+
+  it("adds error font fragments to structured-suffix JSON responses", async () => {
+    const errorFont = defineFont({ family: "Problem", src: "/fonts/problem.woff2" });
+    const app = defineApp({
+      routes: [route("/problem", "./routes/problem.tsx", { render: "ssr" })],
+    });
+
+    const response = await handlePrachtRequest({
+      app,
+      registry: {
+        routeModules: {
+          "./routes/problem.tsx": async () => ({
+            Component: () => h("main", null, "Problem"),
+            head: () => ({ fonts: [errorFont] }),
+            loader: async () =>
+              new Response(
+                JSON.stringify({
+                  error: { message: "Unprocessable", name: "Error", status: 422 },
+                }),
+                {
+                  headers: { "content-type": "application/problem+json" },
+                  status: 422,
+                },
+              ),
+          }),
+        },
+      },
+      request: new Request("http://localhost/problem", {
+        headers: { "x-pracht-route-state-request": "1" },
+      }),
+    });
+
+    expect(response.status).toBe(422);
+    expect(response.headers.get("content-type")).toBe("application/problem+json");
+    const payload = (await response.json()) as Record<string, any>;
+    expect(payload.fontHead.css).toContain('font-family:"Problem"');
     expect(payload.fontHead.preloadLinks).toEqual(errorFont.preloadLinks);
   });
 

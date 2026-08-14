@@ -80,6 +80,7 @@ const BODY_REPRESENTATION_HEADERS = [
   "content-range",
   "digest",
   "etag",
+  "last-modified",
   "repr-digest",
   "transfer-encoding",
 ] as const;
@@ -88,6 +89,11 @@ function headersForReserializedBody(headers: Headers): Headers {
   const nextHeaders = new Headers(headers);
   for (const name of BODY_REPRESENTATION_HEADERS) nextHeaders.delete(name);
   return nextHeaders;
+}
+
+function isJsonMediaType(contentType: string): boolean {
+  const mediaType = contentType.split(";", 1)[0]?.trim().toLowerCase();
+  return mediaType === "application/json" || mediaType?.endsWith("+json") === true;
 }
 
 async function attachFontHeadToRouteStateResponse<TContext>(options: {
@@ -101,7 +107,7 @@ async function attachFontHeadToRouteStateResponse<TContext>(options: {
   if (!isRouteStateRequest) return response;
 
   const contentType = response.headers.get("content-type") ?? "";
-  if (!contentType.includes("application/json")) return response;
+  if (!isJsonMediaType(contentType)) return response;
 
   const payload = (await response.clone().json()) as unknown;
   if (payload === null || typeof payload !== "object" || Array.isArray(payload)) return response;
