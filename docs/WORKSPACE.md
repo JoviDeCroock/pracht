@@ -366,6 +366,11 @@ described in `VISION_MVP.md`.
   guidance in `image-diagnostics.ts`. The `image.ts` facade focuses on resolving
   metadata, loaders, and plain `<img>` markup while preserving the package's
   stable public export.
+- **Image imports** — `@pracht/image/vite` keeps `vite.ts` as the published Vite
+  hook facade. Option validation, Sharp-backed metadata analysis, generated
+  asset-module semantics, and filesystem/cache transformation policy live in
+  `vite-options.ts`, `vite-analysis.ts`, `vite-module.ts`, and
+  `vite-transform.ts` respectively.
 - **Image endpoint** — `@pracht/image/node` keeps request validation and response
   assembly in `node.ts`, trusted source/redirect policy in `node-source.ts`,
   Sharp loading and codec transformation in `node-transform.ts`, and shared
