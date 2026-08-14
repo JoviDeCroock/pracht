@@ -1,11 +1,7 @@
 import { braceDepthAt, findCallInitializer } from "./static-module-binding.ts";
 import { scanTopLevelProperties } from "./static-object.ts";
-import {
-  findMatchingBrace,
-  maskComments,
-  maskCommentsAndStrings,
-  skipInsignificant,
-} from "./static-source-lexical.ts";
+import { maskComments, maskCommentsAndStrings } from "./static-source/mask.ts";
+import { findMatchingBrace, skipInsignificant } from "./static-source/scan.ts";
 
 /** Parse the `capabilities: { ... }` block of an exported app manifest. */
 export function extractCapabilityRegistrations(

@@ -58,9 +58,11 @@ described in `VISION_MVP.md`.
   modules. Its `static` entry keeps `static.ts` as a stable facade: capability
   projection, app-manifest extraction, generic object scanning, and
   module-binding traversal live in focused sibling modules.
-  `static-source-lexical.ts` owns offset-preserving JavaScript scanning,
+  `static-source-lexical.ts` preserves the former lexical facade while the
+  `static-source/` domain separates string/template boundaries, regex-vs-division
+  classification, offset-preserving masking, and structural delimiter scans.
   `static-literal.ts` owns non-executing inline data parsing, and
-  `static-source-parser.ts` preserves their former internal facade.
+  `static-source-parser.ts` preserves the broader former parser facade.
   It also owns the executable-source mask and environment-reference policy used
   by both the Vite build guard and CLI verification, preventing security checks
   from drifting across framework surfaces.

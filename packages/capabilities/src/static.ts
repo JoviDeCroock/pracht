@@ -19,7 +19,7 @@ export {
 } from "./static-object.ts";
 
 export { evaluateLiteral } from "./static-literal.ts";
-export { maskCommentsAndStrings } from "./static-source-lexical.ts";
+export { maskCommentsAndStrings } from "./static-source/mask.ts";
 export { createCodePositionMask } from "./static-code-mask.ts";
 export {
   PRACHT_PUBLIC_ENV_PREFIX,

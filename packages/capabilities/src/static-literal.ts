@@ -1,4 +1,5 @@
-import { findStringEnd, skipInsignificant } from "./static-source-lexical.ts";
+import { skipInsignificant } from "./static-source/scan.ts";
+import { findStringEnd } from "./static-source/strings.ts";
 
 interface ParsedLiteral {
   value: unknown;

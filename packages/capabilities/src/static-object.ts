@@ -1,12 +1,11 @@
 import {
   findMatchingBrace,
   findQuotedObjectProperty,
-  findStringEnd,
-  maskComments,
-  maskCommentsAndStrings,
   skipInsignificant,
   skipToTopLevelComma,
-} from "./static-source-lexical.ts";
+} from "./static-source/scan.ts";
+import { maskComments, maskCommentsAndStrings } from "./static-source/mask.ts";
+import { findStringEnd } from "./static-source/strings.ts";
 import { evaluateLiteral } from "./static-literal.ts";
 
 /**

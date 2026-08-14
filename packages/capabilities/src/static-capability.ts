@@ -1,7 +1,8 @@
 import { capabilityHttpPath, isValidCapabilityHttpPath } from "./protocol.ts";
 import { braceDepthAt, findCallInitializer } from "./static-module-binding.ts";
 import { scanTopLevelPropertyEntries } from "./static-object.ts";
-import { findMatchingBrace, maskCommentsAndStrings } from "./static-source-lexical.ts";
+import { maskCommentsAndStrings } from "./static-source/mask.ts";
+import { findMatchingBrace } from "./static-source/scan.ts";
 import { evaluateLiteral } from "./static-literal.ts";
 
 /** The statically readable portion of a capability's projected contract. */
