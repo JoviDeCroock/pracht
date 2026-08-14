@@ -407,6 +407,37 @@ describe("validateStaticExportOutputPaths", () => {
       }),
     ).toThrow(/conflicts with dist\/client\/200.html/);
   });
+
+  it("rejects pages that collide on case-insensitive filesystems", () => {
+    expect(() =>
+      validateStaticExportOutputPaths([{ path: "/Docs" }, { path: "/docs" }], {
+        resolvedApp: { routes: [] },
+      }),
+    ).toThrow(
+      /\/Docs and \/docs map to the same case-insensitive output path dist\/client\/docs\/index\.html/,
+    );
+  });
+
+  it("rejects page output file and directory conflicts", () => {
+    for (const pages of [
+      [{ path: "/" }, { path: "/index.html" }],
+      [{ path: "/guide" }, { path: "/guide/index.html" }],
+    ]) {
+      expect(() =>
+        validateStaticExportOutputPaths(pages, {
+          resolvedApp: { routes: [] },
+        }),
+      ).toThrow(/to be both a file and a directory/);
+    }
+  });
+
+  it("allows nested routes whose output files do not conflict", () => {
+    expect(() =>
+      validateStaticExportOutputPaths([{ path: "/docs" }, { path: "/docs/start" }], {
+        resolvedApp: { routes: [] },
+      }),
+    ).not.toThrow();
+  });
 });
 
 describe("resolveRouteStateOutputPath", () => {

@@ -1153,9 +1153,10 @@ client-side fetch to an external API instead.
   client-renders SSG routes; nor does a SPA catch-all placed after a dynamic
   SSG route, because route precedence lets that SSG route consume omitted
   paths first. The build warns when a `fallback` is emitted in that shape.
-- Prerendered route directories may not occupy `404.html` or the configured
-  fallback file path. The CLI reports those fixed-artifact collisions instead
-  of failing later with a filesystem error.
+- Prerendered pages must map to distinct portable filesystem paths. The CLI
+  rejects duplicate and case-folded outputs, file/directory conflicts such as
+  `/` with `/index.html`, and route directories that occupy `404.html` or the
+  configured fallback file path before writing any page.
 - **The rewrite turns unknown URLs into soft 404s**: a host that answers
   `/* → 200.html` with status 200 does so for genuinely unknown URLs too, so
   they are `200` even though the client renders the `notFound` page. Hosts
