@@ -2,7 +2,6 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
 import { AUTHORING_GUIDE } from "../authoring-guide.js";
-import { DEFAULT_BASE_REF, runPlan } from "../commands/plan.js";
 import { runReport } from "../commands/report.js";
 import {
   DEFAULT_CAPABILITIES_OUT,
@@ -11,6 +10,7 @@ import {
   runTypegen,
 } from "../typegen.js";
 import { findEvalFiles, parseScenario, runScenario } from "../eval-runner.js";
+import { DEFAULT_BASE_REF, runPlan } from "../plan.js";
 import { runDoctor, runVerification } from "../verification.js";
 import { cwdInput, guard, guardText, resolveCwd } from "./tool-helpers.js";
 

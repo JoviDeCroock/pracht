@@ -103,6 +103,10 @@ described in `VISION_MVP.md`.
   inspect, validate, project, check, and write pipeline plus its result contract
   and default output locations. The Citty command only maps arguments and
   renders results; dev watch mode and MCP tooling call the service directly.
+- **CLI semantic planning** — `packages/cli/src/plan.ts` owns baseline
+  resolution, live-graph comparison, snapshot refresh, and the shared plan
+  report contract. The Citty command owns terminal/JSON/Markdown presentation;
+  report generation and MCP tooling consume the plan service directly.
 - **Capability transport** — `runtime-capabilities.ts` is the stable facade and
   audit orchestrator. Shared request/result contracts live in
   `runtime-capability-transport-types.ts`; `runtime-capability-http-dispatch.ts`

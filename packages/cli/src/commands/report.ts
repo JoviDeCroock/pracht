@@ -5,9 +5,9 @@ import { defineCommand } from "citty";
 
 import { formatPlanMarkdown, GRAPH_SNAPSHOT_PATH } from "../graph-snapshot.js";
 import { formatBytes } from "../bundle-report.js";
+import { DEFAULT_BASE_REF, describeMissingBase, runPlan, type PlanReport } from "../plan.js";
 import { ensureTrailingNewline, handleCliError } from "../utils.js";
 import { runVerification, type VerificationReport } from "../verification.js";
-import { DEFAULT_BASE_REF, describeMissingBase, runPlan, type PlanReport } from "./plan.js";
 
 export default defineCommand({
   meta: {
