@@ -636,7 +636,10 @@ script-policy.ts — strategy validation, inline normalization, and safe descrip
 script-capture.ts — request-local SSR script collection and head merging
 script-client.ts — browser deduplication, injection, idle, and visibility scheduling
 script.ts — stable managed-script component facade and render orchestration
-runtime-context-overlay.ts — immutable context proxy invariants, receiver binding, and native-slot guards
+runtime-context-overlay-validation.ts — native-slot eligibility and prototype setter discovery
+runtime-context-overlay-target.ts — callable, constructable, array, prototype, and agent target setup
+runtime-context-overlay-reflection.ts — receiver binding and descriptor/prototype synchronization
+runtime-context-overlay.ts — stable immutable context Proxy trap coordinator
 runtime-mcp-protocol.ts — JSON-RPC framing, initialization validation, and version negotiation
 runtime-mcp-request.ts — stateless HTTP hardening and JSON-RPC request preparation
 runtime-mcp-tool-registry.ts — exposed tool namespace validation and collision policy

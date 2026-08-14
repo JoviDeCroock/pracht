@@ -88,6 +88,14 @@ described in `VISION_MVP.md`.
   `runtime-capability-invocation-types.ts` and `runtime-capability-host.ts`,
   nested transport policy in `runtime-capability-composition.ts`, and shared
   pipeline/audit execution in `runtime-capability-invocation-dispatch.ts`.
+- **Immutable request context** — `runtime-context-overlay.ts` coordinates the
+  Proxy traps that add framework-owned identity without mutating a frozen
+  application context. `runtime-context-overlay-validation.ts` rejects unsafe
+  native-slot values, `runtime-context-overlay-target.ts` preserves callable,
+  constructable, array, and prototype branding, and
+  `runtime-context-overlay-reflection.ts` owns receiver binding plus descriptor
+  and prototype synchronization. Shared internal contracts stay in
+  `runtime-context-overlay-types.ts`.
 - **Enhanced forms** — `runtime-form.ts` keeps the public props and rendering
   facade. `runtime-form-native.ts` owns submitter/native-resubmission mechanics,
   `runtime-api-form.ts` owns ordinary API submissions, and
