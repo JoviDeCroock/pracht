@@ -28,6 +28,17 @@ function detectLoaderExportFallback(source: string): boolean {
   if (/\bexport\s+(?:const|let|var)\s+[^;]*\bloader\s*(?::[^=,;]+)?=/.test(masked)) {
     return true;
   }
+  // es-module-lexer reports object destructuring property keys rather than
+  // their local bindings (`{ value: loader }` is reported as `value`). Keep
+  // the loader hint fail-closed for exported binding patterns so static
+  // builds never omit route state for a loader that really exists.
+  if (
+    /\bexport\s+(?:const|let|var)\s+(?:\{[^;]*\bloader\b[^;]*\}|\[[^;]*\bloader\b[^;]*\])\s*(?::[^=;]+)?=/.test(
+      masked,
+    )
+  ) {
+    return true;
+  }
   if (/\bexport\s*\*/.test(masked)) return true;
 
   for (const match of masked.matchAll(/\bexport\s*\{([^}]*)\}/g)) {
@@ -127,6 +138,11 @@ export function detectHeadExport(source: string): boolean {
 }
 
 export function detectLoaderExport(source: string): boolean {
+  // Run the syntax-aware scan even when es-module-lexer accepts the file. The
+  // lexer intentionally does not model binding patterns deeply enough to
+  // identify aliased destructuring exports.
+  if (detectLoaderExportFallback(source)) return true;
+
   try {
     const [imports, exports] = parse(source);
     if (exports.some((entry) => entry.n === "loader")) return true;
@@ -142,9 +158,10 @@ export function detectLoaderExport(source: string): boolean {
     }
   } catch {
     // es-module-lexer intentionally parses JavaScript rather than every JSX or
-    // TSRX construct. Fall back to the shared syntax-aware masking scan so
-    // comments, strings, and regex contents cannot hide or forge an export.
-    return detectLoaderExportFallback(source);
+    // TSRX construct. The syntax-aware scan above already handled declarations
+    // and re-exports without letting comments, strings, or regex contents forge
+    // an export.
+    return false;
   }
 
   return false;

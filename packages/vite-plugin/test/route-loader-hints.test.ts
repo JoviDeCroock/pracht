@@ -16,6 +16,13 @@ describe("detectLoaderExport", () => {
     expect(detectLoaderExport('export /* conservative */ * from "./data.ts";\n')).toBe(true);
   });
 
+  it("recognizes loaders exported through destructuring bindings", () => {
+    expect(detectLoaderExport("export const { value: loader } = source;\n")).toBe(true);
+    expect(detectLoaderExport("export const { nested: { loader } } = source;\n")).toBe(true);
+    expect(detectLoaderExport("export const [loader] = source;\n")).toBe(true);
+    expect(detectLoaderExport("export const route = { loader: source };\n")).toBe(false);
+  });
+
   it("ignores loader-shaped text in comments and strings", () => {
     expect(
       detectLoaderExport(
