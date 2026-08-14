@@ -4,7 +4,7 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 
 import { formatBytes } from "./bundle-report.js";
-import { detectAdapterTarget } from "./commands/preview.js";
+import { detectAdapterTarget } from "./adapter-target.js";
 import { extractRegistryEntries } from "./manifest-read.js";
 import {
   displayPath,

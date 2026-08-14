@@ -4,11 +4,8 @@ import { join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import {
-  detectAdapterTarget,
-  normalizeAdapterTarget,
-  resolveWranglerBin,
-} from "../src/commands/preview.ts";
+import { detectAdapterTarget, normalizeAdapterTarget } from "../src/adapter-target.ts";
+import { createPreviewPlan, resolveWranglerBin } from "../src/preview.ts";
 
 describe("detectAdapterTarget", () => {
   it("detects the cloudflare adapter from the factory call", () => {
@@ -128,5 +125,57 @@ describe("resolveWranglerBin", () => {
   it("returns null when wrangler is not installed anywhere", () => {
     const root = makeTempDir("pracht-preview-missing-");
     expect(resolveWranglerBin(root, { PATH: makeTempDir("pracht-preview-empty-") })).toBe(null);
+  });
+});
+
+describe("createPreviewPlan", () => {
+  const tempDirs: string[] = [];
+
+  function makeProject(config: string): string {
+    const root = mkdtempSync(join(tmpdir(), "pracht-preview-plan-"));
+    tempDirs.push(root);
+    writeFileSync(join(root, "vite.config.ts"), config);
+    return root;
+  }
+
+  afterEach(() => {
+    while (tempDirs.length > 0) {
+      rmSync(tempDirs.pop()!, { force: true, recursive: true });
+    }
+  });
+
+  it("returns platform guidance without constructing a local process", async () => {
+    const root = makeProject("export default { plugins: [pracht({ adapter: vercelAdapter() })] };");
+
+    const plan = await createPreviewPlan(root, { skipBuild: true });
+
+    expect(plan).toMatchObject({ kind: "unsupported", target: "vercel" });
+    if (plan.kind !== "unsupported") {
+      throw new Error("Expected Vercel preview guidance.");
+    }
+    expect(plan.guidance).toContain("vercel build");
+  });
+
+  it("constructs a Node production process from an existing build", async () => {
+    const root = makeProject("export default { plugins: [pracht()] };");
+    const serverDir = join(root, "dist/server");
+    mkdirSync(serverDir, { recursive: true });
+    writeFileSync(join(serverDir, "server.js"), "export const buildTarget = 'node';\n");
+    writeFileSync(join(root, "package.json"), '{"type":"module"}\n');
+
+    const plan = await createPreviewPlan(root, {
+      env: { EXAMPLE: "preserved", PORT: "9999" },
+      port: "4312",
+      skipBuild: true,
+    });
+
+    expect(plan).toMatchObject({
+      kind: "process",
+      args: [join(serverDir, "server.js")],
+      command: process.execPath,
+      cwd: root,
+      env: { EXAMPLE: "preserved", PORT: "4312" },
+      target: "node",
+    });
   });
 });

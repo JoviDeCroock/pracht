@@ -115,6 +115,10 @@ described in `VISION_MVP.md`.
   builds, output normalization, prerender execution, generated artifacts,
   adapter finalization, and budget analysis. The Citty command only maps build
   flags, while preview invokes the same service directly.
+- **CLI production preview** — `packages/cli/src/preview.ts` validates projects,
+  resolves existing or newly built adapter output, and creates the production
+  process plan. Shared built-in adapter inference lives in `adapter-target.ts`;
+  the Citty command owns presentation, child-process lifecycle, and exit codes.
 - **Capability transport** — `runtime-capabilities.ts` is the stable facade and
   audit orchestrator. Shared request/result contracts live in
   `runtime-capability-transport-types.ts`; `runtime-capability-http-dispatch.ts`
