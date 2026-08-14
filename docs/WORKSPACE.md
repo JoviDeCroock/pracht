@@ -255,7 +255,10 @@ described in `VISION_MVP.md`.
   `packages/cli/src/generation/`; `index.ts` is the stable facade, route and
   smoke-test policy lives in `route.ts`, manifest-backed shell/middleware
   registration lives in `registry.ts`, and capability/API generation has one
-  focused module per artifact. Both the interactive CLI command and the MCP
+  focused module per artifact. Emitted source construction mirrors those
+  workflows in `route-source.ts`, `registry-source.ts`, `capability-source.ts`,
+  and `api-source.ts`, while `source.ts` preserves the former template facade.
+  Both the interactive CLI command and the MCP
   server call that domain layer instead of depending on one another. The MCP
   server keeps its composition facade in `mcp-server.ts`; read-only inspection,
   workflow/quality, and mutation tool catalogs live in focused modules under

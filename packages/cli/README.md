@@ -151,6 +151,12 @@ pracht generate route --path /dashboard --render ssr --shell app --middleware au
 pracht generate route --path /blog/:slug --render ssg --no-test
 ```
 
+For contributors, generation workflow and emitted source ownership are paired
+by artifact under `src/generation/`. `route.ts`, `registry.ts`, `api.ts`, and
+`capability.ts` coordinate validation, writes, and manifest updates; their
+matching `*-source.ts` modules own the templates. `source.ts` remains the
+compatibility facade for the former combined template surface.
+
 ### `pracht generate shell`
 
 Create a shell module and register it in the app manifest.

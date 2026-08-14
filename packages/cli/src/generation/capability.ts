@@ -12,7 +12,7 @@ import {
 } from "../project.js";
 import { ensureTrailingNewline, parseCommaList, quote, requireEnum } from "../utils.js";
 import { titleFromPath } from "./paths.js";
-import { buildCapabilityModuleSource } from "./source.js";
+import { buildCapabilityModuleSource } from "./capability-source.js";
 import type { GenerateResult } from "./types.js";
 
 export interface CapabilityArgs {

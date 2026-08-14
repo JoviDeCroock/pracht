@@ -2,7 +2,7 @@ import { displayPath, resolveApiModulePath, writeGeneratedFile } from "../projec
 import type { ProjectConfig } from "../project.js";
 import { parseApiMethods } from "../utils.js";
 import { normalizeApiPath } from "./paths.js";
-import { buildApiRouteSource } from "./source.js";
+import { buildApiRouteSource } from "./api-source.js";
 import type { GenerateResult } from "./types.js";
 
 export interface ApiArgs {

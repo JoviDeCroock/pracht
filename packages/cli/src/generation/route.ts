@@ -33,7 +33,7 @@ import {
   buildManifestRouteModuleSource,
   buildPagesRouteModuleSource,
   buildRouteSmokeTestSource,
-} from "./source.js";
+} from "./route-source.js";
 import type { GenerateResult } from "./types.js";
 
 export interface RouteArgs {

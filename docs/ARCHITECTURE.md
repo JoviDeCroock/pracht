@@ -715,6 +715,17 @@ hydration path.
 
 ---
 
+## CLI Generation Structure
+
+The CLI keeps generation workflow and emitted source ownership aligned by
+artifact. `generation/route.ts`, `registry.ts`, `api.ts`, and `capability.ts`
+coordinate validation, paths, writes, and manifest updates; their matching
+`*-source.ts` modules own only source-template construction. The former
+`generation/source.ts` entry remains a compatibility facade over those focused
+template modules.
+
+---
+
 ## Type Safety
 
 Pracht provides end-to-end type inference from loader to component:

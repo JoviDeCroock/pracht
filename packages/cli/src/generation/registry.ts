@@ -10,7 +10,7 @@ import {
   type ProjectConfig,
 } from "../project.js";
 import { ensureTrailingNewline, quote } from "../utils.js";
-import { buildMiddlewareModuleSource, buildShellModuleSource } from "./source.js";
+import { buildMiddlewareModuleSource, buildShellModuleSource } from "./registry-source.js";
 import type { GenerateResult } from "./types.js";
 
 export function generateShell(name: string, project: ProjectConfig): GenerateResult {
