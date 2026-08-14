@@ -7,7 +7,7 @@ import type {
   PrachtApp,
   ResolvedApiRoute,
 } from "@pracht/core/server";
-import type { CloudflareWorkersCacheOption } from "./cache.ts";
+import type { CloudflareWorkersCacheOption } from "./cache-types.ts";
 
 export type HeadersManifest = Record<string, Record<string, string>>;
 export type ISGManifest = Record<string, ISGManifestEntry>;

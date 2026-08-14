@@ -12,7 +12,7 @@ import {
   applyWorkersCacheHeaders,
   findCacheableIsgRoute,
   resolveWorkersCacheOptions,
-} from "./cache.ts";
+} from "./cache-policy.ts";
 import { maybeServeAsset } from "./runtime-assets.ts";
 import { createWorkersCacheRenderRequest, maybeServeISG } from "./runtime-isg-cache.ts";
 import { handleCloudflareRevalidationEndpoint } from "./runtime-isg-revalidation.ts";

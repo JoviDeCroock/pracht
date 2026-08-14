@@ -10,7 +10,7 @@ import {
   readRevalidationRequest,
   RevalidationReport,
 } from "@pracht/core/server";
-import { purgeCache } from "./cache.ts";
+import { purgeCache } from "./cache-purge.ts";
 import {
   createISGCacheKey,
   getDefaultCache,

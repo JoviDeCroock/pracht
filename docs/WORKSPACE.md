@@ -345,8 +345,11 @@ described in `VISION_MVP.md`.
   route-manifest negotiation, `runtime-isg-cache.ts` owns worker-managed Cache
   API serving and regeneration mechanics, and `runtime-isg-revalidation.ts`
   owns authenticated webhook batch policy plus edge purge coordination.
-  `runtime-isg.ts` preserves the former internal facade. The separate `cache.ts` module owns
-  opt-in front-of-Worker CDN caching policy. Its public `index.ts` is a thin
+  `runtime-isg.ts` preserves the former internal facade. The published
+  `cache.ts` subpath is a facade over request-time edge policy in
+  `cache-policy.ts`, Workers-only invalidation in `cache-purge.ts`, and their
+  public contracts in `cache-types.ts`; runtime consumers import only the
+  layer they execute. Its public `index.ts` is a thin
   facade over `adapter.ts` composition, `server-entry.ts` Worker source
   generation, and `graph-runtime-stubs.ts` fail-closed inspection substitutes.
 - **Netlify adapter** — Emits a Functions v2 catch-all, serves bundled SSG

@@ -1,4 +1,5 @@
-import { resolveWorkersCacheOptions, type CloudflareWorkersCacheOption } from "./cache.ts";
+import { resolveWorkersCacheOptions } from "./cache-policy.ts";
+import type { CloudflareWorkersCacheOption } from "./cache-types.ts";
 
 export interface CloudflareServerEntryModuleOptions {
   assetsBinding?: string;
