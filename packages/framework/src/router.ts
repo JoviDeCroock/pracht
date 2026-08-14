@@ -665,9 +665,11 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
     IS_STATIC_TARGET &&
     !isStaticFallbackBoot &&
     options.initialState.routeId === NOT_FOUND_ROUTE_ID;
-  const initialStateUrl = isStaticNotFoundDocument
-    ? window.location.pathname + window.location.search
-    : options.initialState.url;
+  // Hydrate against the URL that produced the serialized HTML. Static
+  // `404.html` adopts the visitor's real path only after hydration completes;
+  // doing it before hydrate would make any location-dependent not-found tree
+  // differ from its build-time DOM.
+  const initialStateUrl = options.initialState.url;
 
   const initialTarget = resolveBrowserRouteTarget(initialStateUrl);
   const initialRequestUrl = initialTarget?.requestUrl ?? initialStateUrl;
@@ -777,7 +779,9 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
             updateRouteState((currentState) => {
               const hydratedTarget = resolveBrowserRouteTarget(currentState.url);
               if (!hydratedTarget) return currentState;
-              const nextRequestUrl = hydratedTarget.pathname + hydrationBrowserTarget.search;
+              const nextRequestUrl = isStaticNotFoundDocument
+                ? hydrationBrowserTarget.pathname + hydrationBrowserTarget.search
+                : hydratedTarget.pathname + hydrationBrowserTarget.search;
               // A navigation that committed while a Suspense boundary was
               // hydrating owns the newer state. Revalidated data lives in the
               // runtime provider and survives this URL-only update.

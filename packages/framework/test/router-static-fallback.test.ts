@@ -7,7 +7,13 @@ vi.mock("../src/runtime-static.ts", async (importOriginal) => {
   return { ...actual, IS_STATIC_TARGET: true };
 });
 
-import { defineApp, initClientRouter, resolveApp, route } from "../src/index.ts";
+vi.mock("../src/prefetch.ts", () => ({
+  setupPrefetching: vi.fn(),
+}));
+
+import { defineApp, initClientRouter, resolveApp, route, useLocation } from "../src/index.ts";
+import { _resetForTesting as resetHydrationForTesting } from "../src/hydration.ts";
+import { _resetHydrationMismatchForTesting } from "../src/hydration-mismatch.ts";
 
 describe("static fallback router readiness", () => {
   let root: HTMLDivElement;
@@ -29,6 +35,8 @@ describe("static fallback router readiness", () => {
     delete window.__PRACHT_ROUTER_READY__;
     delete globalThis.__PRACHT_ROUTE_DEFINITIONS__;
     document.documentElement.removeAttribute("data-pracht-hydrated");
+    resetHydrationForTesting();
+    _resetHydrationMismatchForTesting();
   });
 
   it("publishes readiness only after the fallback route commits", async () => {
@@ -91,5 +99,54 @@ describe("static fallback router readiness", () => {
     // settle before Vitest tears down the jsdom globals.
     await Promise.resolve();
     await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+  });
+
+  it("hydrates static not-found HTML before adopting the requested URL", async () => {
+    history.replaceState(null, "", "/actually-missing");
+    root.innerHTML = "<main><p>synthetic path</p></main>";
+    const renderedPaths: string[] = [];
+
+    function NotFound() {
+      const { pathname } = useLocation();
+      renderedPaths.push(pathname);
+      return h(
+        "main",
+        null,
+        pathname === "/404.html"
+          ? h("p", null, "synthetic path")
+          : h("section", null, "actual path"),
+      );
+    }
+
+    const app = resolveApp(
+      defineApp({
+        notFound: "./routes/not-found.tsx",
+        routes: [],
+      }),
+    );
+
+    await initClientRouter({
+      app,
+      routeModules: {
+        "./routes/not-found.tsx": async () => ({ default: NotFound }),
+      },
+      shellModules: {},
+      initialState: {
+        data: undefined,
+        error: null,
+        routeId: "__pracht_not_found__",
+        url: "/404.html",
+      },
+      root,
+      findModuleKey: (_modules, file) => file,
+    });
+
+    await Promise.resolve();
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+
+    expect(renderedPaths[0]).toBe("/404.html");
+    expect(renderedPaths.at(-1)).toBe("/actually-missing");
+    expect(root.textContent).toBe("actual path");
+    expect(document.querySelector("#__pracht_hydration_mismatch__")).toBeNull();
   });
 });
