@@ -13,7 +13,7 @@ import {
   toModuleSpecifier,
   type Check,
 } from "./verification-helpers.js";
-import { collectMarkdownTransformCheck } from "./verification-page-checks.js";
+import { collectMarkdownTransformCheck } from "./verification-markdown-checks.js";
 
 export function collectConfigChecks(
   project: ProjectConfig,

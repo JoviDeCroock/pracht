@@ -724,6 +724,11 @@ coordinate validation, paths, writes, and manifest updates; their matching
 `generation/source.ts` entry remains a compatibility facade over those focused
 template modules.
 
+Verification follows the same ownership rule. Pages-router checks live in
+`verification-page-checks.ts`, manifest wiring in
+`verification-manifest-checks.ts`, and the Markdown transform heuristic shared
+by both routing modes in `verification-markdown-checks.ts`.
+
 ---
 
 ## Type Safety

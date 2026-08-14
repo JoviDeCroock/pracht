@@ -84,7 +84,9 @@ Internally, verification keeps filesystem and project checks separate from the
 source analysis that confirms registered middleware exports the named
 `middleware` binding. Capability verification likewise keeps manifest traversal,
 contract diagnostics, literal field decoding, and graph-wide projection checks
-in separate modules.
+in separate modules. Pages-router and manifest checks share Markdown transform
+policy through `verification-markdown-checks.ts`, so neither routing mode owns
+the other's configuration diagnostics.
 
 Type generation keeps graph inspection and source composition in the command
 orchestrator. `typegen-output.ts` owns project-root confinement, output collision
