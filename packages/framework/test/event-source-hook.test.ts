@@ -229,12 +229,19 @@ describe("useEventSource", () => {
     expect(latest).toMatchObject({ data: "from-b", lastEventId: "b-1", status: "open" });
   });
 
-  it("disconnects when the url becomes null", async () => {
+  it("disconnects and clears the previous payload when the url becomes null", async () => {
     const rerender = await renderHook("/api/live");
+    source().emitMessage("message", "private-payload", "live-7");
+    await flush();
+    expect(latest).toMatchObject({
+      data: "private-payload",
+      lastEventId: "live-7",
+    });
+
     await rerender(null);
 
     expect(source().closed).toBe(true);
-    expect(latest).toMatchObject({ status: "closed" });
+    expect(latest).toEqual({ data: undefined, lastEventId: undefined, status: "closed" });
   });
 
   it("survives an unmount race before the connection ever opens", async () => {

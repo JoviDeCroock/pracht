@@ -4,9 +4,18 @@ import {
   collectDevCssUrls,
   createDevCssManifest,
   injectDevCssLinks,
+  isEventStreamContentType,
   isDevNotFoundRequest,
   shouldBypassDevSSR,
 } from "../src/plugin-dev-ssr.ts";
+
+describe("development streaming response detection", () => {
+  it("recognizes the SSE media type case-insensitively", () => {
+    expect(isEventStreamContentType("text/event-stream; charset=utf-8")).toBe(true);
+    expect(isEventStreamContentType("Text/Event-Stream; Charset=UTF-8")).toBe(true);
+    expect(isEventStreamContentType("application/json")).toBe(false);
+  });
+});
 
 function moduleNode(url: string, type: "js" | "css" = "js", importedModules: any[] = []): any {
   return { importedModules: new Set(importedModules), type, url };

@@ -26,6 +26,10 @@ export const DEVTOOLS_PATH = "/_pracht";
 export const DEVTOOLS_JSON_PATH = "/_pracht.json";
 export const LLMS_TXT_PATH = "/llms.txt";
 
+export function isEventStreamContentType(contentType: string): boolean {
+  return contentType.split(";", 1)[0]?.trim().toLowerCase() === "text/event-stream";
+}
+
 export function createDevSSRMiddleware(
   server: ViteDevServer,
   options: { maxBodySize?: number; llmsTxt?: boolean } = {},
@@ -179,7 +183,7 @@ export function createDevSSRMiddleware(
       // through untouched, and cancel the source when the client disconnects
       // so `createEventStream()` cleanup (keep-alive timers, producer loops)
       // runs in dev exactly as it does in production.
-      if (response.body && contentType.includes("text/event-stream")) {
+      if (response.body && isEventStreamContentType(contentType)) {
         res.statusCode = response.status;
         response.headers.forEach((value: string, key: string) => {
           res.setHeader(key, value);

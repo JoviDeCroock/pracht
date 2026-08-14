@@ -108,6 +108,20 @@ describe("createEventStream", () => {
     ).toThrow(/x-evil/);
   });
 
+  it("validates custom headers before starting keep-alive lifecycle side effects", () => {
+    const setInterval = vi.spyOn(globalThis, "setInterval");
+
+    expect(() =>
+      createEventStream(createRequest(), {
+        headers: { "x-evil": "a\r\nset-cookie: b" },
+        keepAlive: 1,
+      }),
+    ).toThrow(/x-evil/);
+
+    expect(setInterval).not.toHaveBeenCalled();
+    setInterval.mockRestore();
+  });
+
   it("streams sent messages and closes the body on close()", async () => {
     const stream = createEventStream(createRequest());
     expect(stream.send({ data: "one" })).toBe(true);

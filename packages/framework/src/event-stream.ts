@@ -135,6 +135,19 @@ export function createEventStream(request: Request, init: EventStreamInit = {}):
     throw new Error(`createEventStream keepAlive must be a positive number of seconds`);
   }
 
+  // Validate every caller-controlled header before allocating the stream or
+  // registering lifecycle side effects. If validation throws after the
+  // heartbeat starts, the caller never receives an EventStream to close and
+  // the unreachable timer would keep enqueueing forever.
+  const headers = new Headers({
+    "cache-control": "no-store, no-transform",
+    "content-type": "text/event-stream; charset=utf-8",
+    "x-accel-buffering": "no",
+  });
+  if (init.headers) {
+    applyHeaders(headers, init.headers);
+  }
+
   const encoder = new TextEncoder();
   let controller: ReadableStreamDefaultController<Uint8Array> | null = null;
   let heartbeat: ReturnType<typeof setInterval> | undefined;
@@ -206,15 +219,6 @@ export function createEventStream(request: Request, init: EventStreamInit = {}):
     close();
   } else {
     request.signal.addEventListener("abort", onAbort, { once: true });
-  }
-
-  const headers = new Headers({
-    "cache-control": "no-store, no-transform",
-    "content-type": "text/event-stream; charset=utf-8",
-    "x-accel-buffering": "no",
-  });
-  if (init.headers) {
-    applyHeaders(headers, init.headers);
   }
 
   return {

@@ -64,7 +64,11 @@ export function useEventSource<T = string>(
   useEffect(() => {
     if (href == null || typeof EventSource === "undefined") {
       setState((previous) =>
-        previous.status === "closed" ? previous : { ...previous, status: "closed" },
+        previous.status === "closed" &&
+        previous.data === undefined &&
+        previous.lastEventId === undefined
+          ? previous
+          : { data: undefined, lastEventId: undefined, status: "closed" },
       );
       return;
     }

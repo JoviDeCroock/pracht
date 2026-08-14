@@ -18,7 +18,9 @@ timeouts. Cleanup is wired to both disconnect paths a runtime can deliver —
 cancelled (Node) — after which `send()` returns `false` (the producer's stop
 condition) and the heartbeat timer is cleared. The heartbeat timer is
 unref'ed on Node so an idle stream never pins the process past
-`server.close()`. `send()` applies no backpressure — `desiredSize` exposes
+`server.close()`. Custom headers are validated before the stream registers its
+heartbeat or abort listener, so rejected header input cannot leave unreachable
+lifecycle work behind. `send()` applies no backpressure — `desiredSize` exposes
 the response stream's remaining queue capacity (zero or negative once a
 stalled consumer is buffering, `null` after close) so high-volume producers
 can throttle or drop. Built on web `ReadableStream`, so it works identically
@@ -31,7 +33,7 @@ unmount, named-event selection, optional JSON parsing, connection status
 (`connecting` / `open` / `closed`), and `lastEventId`. Pass `null` to stay
 disconnected. Changing the URL or options starts the new subscription clean —
 `data` and `lastEventId` reset instead of carrying the previous endpoint's
-payload into the new connection.
+payload into the new connection or retaining it after the URL becomes `null`.
 
 `isUpgradeRequest(request)` (from `@pracht/core` and `@pracht/core/server`)
 detects a WebSocket handshake (token-wise, case-insensitive `Upgrade` header

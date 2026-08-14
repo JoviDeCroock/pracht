@@ -120,8 +120,8 @@ Two more things worth knowing before you ship an SSE endpoint:
 `useEventSource(url, options?)` wraps `EventSource`: it connects on mount,
 disconnects on unmount (which is exactly when the server's `send()` starts
 returning `false`), tracks connection state, and optionally JSON-parses
-payloads. Pass `null` as the URL to stay disconnected — handy for gating the
-subscription on user state.
+payloads. Pass `null` as the URL to stay disconnected and clear the previous
+payload/id — handy for gating the subscription on user state.
 
 ```tsx [src/routes/live.tsx]
 import { useEventSource } from "@pracht/core";
