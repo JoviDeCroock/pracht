@@ -1144,9 +1144,10 @@ client-side fetch to an external API instead.
   The fallback only client-renders matched SPA routes: a dynamic SSG pattern
   that matches a path omitted by `getStaticPaths()` renders the app's
   `notFound` page instead of running without its missing build-time state.
-  The fallback embeds the same build-time `notFound` loader data serialized
-  into `404.html`, so this client render receives the normal data without
-  executing the loader again. An app with no `notFound` page and no
+  The fallback embeds the same build-time `notFound` loader data or handled
+  error state serialized into `404.html`, so this client render receives the
+  normal component or error-boundary state without executing the loader again.
+  An app with no `notFound` page and no
   unshadowed client-routable SPA catch-all (`/*`, `/:rest*`) has nothing to
   render for an unknown URL behind the rewrite — the visitor gets an empty
   document. An SSG catch-all does not help because fallback boot never
@@ -1154,9 +1155,11 @@ client-side fetch to an external API instead.
   SSG route, because route precedence lets that SSG route consume omitted
   paths first. The build warns when a `fallback` is emitted in that shape.
 - Prerendered pages must map to distinct portable filesystem paths. The CLI
-  rejects duplicate and case-folded outputs, file/directory conflicts such as
-  `/` with `/index.html`, and route directories that occupy `404.html` or the
-  configured fallback file path before writing any page.
+  rejects duplicate, case-folded, and Unicode-normalization-equivalent outputs;
+  Windows-invalid components (reserved device names, trailing dots/spaces, or
+  invalid filename characters); file/directory conflicts such as `/` with
+  `/index.html`; and route directories that occupy `404.html` or the configured
+  fallback file path before writing any page.
 - **The rewrite turns unknown URLs into soft 404s**: a host that answers
   `/* → 200.html` with status 200 does so for genuinely unknown URLs too, so
   they are `200` even though the client renders the `notFound` page. Hosts

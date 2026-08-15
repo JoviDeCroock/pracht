@@ -270,11 +270,18 @@ describe("buildStaticFallbackHtml", () => {
         title: "Fallback title",
       },
       notFoundData: { message: "Built custom 404" },
+      notFoundError: {
+        message: "Not-found loader rejected the path",
+        name: "PrachtHttpError",
+        status: 404,
+      },
     });
     expect(html).toContain('<div id="pracht-root"></div>');
     expect(html).toContain('"fallback":true');
     expect(html).toContain('"pending":true');
     expect(html).toContain('"message":"Built custom 404"');
+    expect(html).toContain('"message":"Not-found loader rejected the path"');
+    expect(html).toContain('"status":404');
     expect(html).toContain('src="/assets/client-abc.js"');
     expect(html).toContain("<title>Fallback title</title>");
     expect(html).toContain('content="fallback description"');

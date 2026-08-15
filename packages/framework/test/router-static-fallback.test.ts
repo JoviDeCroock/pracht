@@ -149,4 +149,43 @@ describe("static fallback router readiness", () => {
     expect(root.textContent).toBe("actual path");
     expect(document.querySelector("#__pracht_hydration_mismatch__")).toBeNull();
   });
+
+  it("renders the not-found error boundary from fallback state", async () => {
+    history.replaceState(null, "", "/actually-missing");
+
+    const app = resolveApp(
+      defineApp({
+        notFound: "./routes/not-found.tsx",
+        routes: [],
+      }),
+    );
+
+    await initClientRouter({
+      app,
+      routeModules: {
+        "./routes/not-found.tsx": async () => ({
+          default: () => h("main", null, "ordinary not found"),
+          ErrorBoundary: ({ error }: { error: Error }) =>
+            h("main", null, `handled: ${error.message}`),
+        }),
+      },
+      shellModules: {},
+      initialState: {
+        data: undefined,
+        error: {
+          message: "not-found loader rejected the path",
+          name: "PrachtHttpError",
+          status: 404,
+        },
+        fallback: true,
+        pending: true,
+        routeId: "__pracht_not_found__",
+        url: "/",
+      },
+      root,
+      findModuleKey: (_modules, file) => file,
+    });
+
+    expect(root.textContent).toBe("handled: not-found loader rejected the path");
+  });
 });
