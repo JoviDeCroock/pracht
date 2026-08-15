@@ -179,10 +179,11 @@ wildcards, and `q=0` exclusions are honored, all via `node:zlib`):
   version at higher quality and kept in a byte-bounded in-memory LRU
   (32 MiB) keyed by path + size + mtime, so hashed assets and regenerated ISG
   HTML pay the compression cost once — concurrent first requests to the same
-  file share a single in-flight compression. Larger files stream through zlib
-  per request. This is runtime compression rather than build-time
-  precompression; it also covers ISG documents rewritten on disk after the
-  build.
+  file share a single in-flight compression. Whole-file cold work is bounded
+  by both bytes and concurrency; excess distinct files, and all larger files,
+  stream through zlib instead of queuing another buffered compression. This is
+  runtime compression rather than build-time precompression; it also covers
+  ISG documents rewritten on disk after the build.
 
 What gets compressed: `text/*`, `application/json`, `application/javascript`,
 `application/xml`, `application/wasm`, and any `+json`/`+xml` structured
@@ -208,10 +209,11 @@ Correctness guarantees:
   tag, e.g. `W/"1a2f-18c-br"`), so `If-None-Match` revalidation can never
   answer an identity request with a cached brotli body or vice versa. Strong
   application ETags are weakened because streaming compression bytes can vary
-  with chunk boundaries. The adapter evaluates dynamic `If-None-Match` only
-  after selecting the outgoing representation, including valid quoted opaque
-  tags that contain commas, so application-level identity validation cannot
-  short-circuit an encoded request with a cross-encoding `304`.
+  with chunk boundaries. The adapter evaluates dynamic `If-None-Match` and
+  `If-Modified-Since` only after selecting the outgoing representation
+  (`If-None-Match` takes precedence), including valid quoted opaque tags that
+  contain commas, so application-level identity validation cannot short-circuit
+  an encoded request with a cross-encoding `304`.
 - `HEAD` advertises the same negotiated `Content-Encoding` and variant ETag as
   the corresponding `GET` while omitting the body (and compressed length when
   it is not already known).

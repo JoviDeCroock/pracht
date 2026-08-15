@@ -35,9 +35,9 @@ import {
   createCompressedStream,
   encodeEtagForEncoding,
   isCompressibleContentType,
+  isNotModifiedRequest,
   isTransformableResponse,
   MAX_CACHEABLE_ASSET_SIZE,
-  matchesIfNoneMatch,
   mergeVaryValue,
   negotiateEncoding,
 } from "./node-compress.ts";
@@ -431,12 +431,15 @@ async function writeFileBody(
 
   if (fileStat.size <= MAX_CACHEABLE_ASSET_SIZE) {
     const key = `${filePath}\0${fileStat.size}\0${fileStat.mtimeMs}\0${encoding}`;
-    const compressed = await compression.cache.getOrCompress(key, async () =>
+    const pending = compression.cache.getOrCompress(key, fileStat.size, async () =>
       compressBuffer(await readFile(filePath), encoding),
     );
-    res.setHeader("content-length", compressed.byteLength);
-    res.end(compressed);
-    return;
+    if (pending) {
+      const compressed = await pending;
+      res.setHeader("content-length", compressed.byteLength);
+      res.end(compressed);
+      return;
+    }
   }
 
   await pipeToResponse(
@@ -584,9 +587,9 @@ function isRouteStateRequest(url: URL, headers: Headers): boolean {
 }
 
 /**
- * Dynamic compression owns `If-None-Match` after it has selected the outgoing
- * representation. Do not let an application short-circuit an encoded request
- * against the identity representation's ETag before that selection happens.
+ * Dynamic compression owns conditional validation after it has selected the
+ * outgoing representation. Do not let an application short-circuit an encoded
+ * request against identity metadata before that selection happens.
  */
 function createApplicationRequest(
   request: Request,
@@ -595,7 +598,7 @@ function createApplicationRequest(
   if (
     !compression ||
     (request.method !== "GET" && request.method !== "HEAD") ||
-    !request.headers.has("if-none-match") ||
+    (!request.headers.has("if-none-match") && !request.headers.has("if-modified-since")) ||
     !negotiateEncoding(request.headers.get("accept-encoding"))
   ) {
     return request;
@@ -603,6 +606,7 @@ function createApplicationRequest(
 
   const headers = new Headers(request.headers);
   headers.delete("if-none-match");
+  headers.delete("if-modified-since");
   return new Request(request, { headers });
 }
 
@@ -619,27 +623,5 @@ function createWeakEtag(fileStat: { mtimeMs: number; size: number }): string {
 }
 
 function isNotModified(request: Request, headers: Headers): boolean {
-  const ifNoneMatch = request.headers.get("if-none-match");
-  if (ifNoneMatch) {
-    // RFC 9110 §13.1.3: when If-None-Match is present, If-Modified-Since MUST
-    // be ignored — the ETag decides alone. This matters with per-encoding
-    // ETags: a client revalidating an identity body with its identity ETag
-    // plus a Last-Modified date must get a fresh 200 when brotli is
-    // negotiated, not a 304 that relabels its identity cache entry with the
-    // brotli variant's validator.
-    const etag = headers.get("etag");
-    return matchesIfNoneMatch(ifNoneMatch, etag);
-  }
-
-  const lastModified = headers.get("last-modified");
-  const ifModifiedSince = request.headers.get("if-modified-since");
-  if (lastModified && ifModifiedSince) {
-    const modifiedTime = Date.parse(lastModified);
-    const sinceTime = Date.parse(ifModifiedSince);
-    if (!Number.isNaN(modifiedTime) && !Number.isNaN(sinceTime) && modifiedTime <= sinceTime) {
-      return true;
-    }
-  }
-
-  return false;
+  return isNotModifiedRequest(request, headers.get("etag"), headers.get("last-modified"));
 }

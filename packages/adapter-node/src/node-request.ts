@@ -7,8 +7,8 @@ import {
   createCompressedStream,
   encodeEtagForEncoding,
   isCompressibleContentType,
+  isNotModifiedRequest,
   isTransformableResponse,
-  matchesIfNoneMatch,
   mergeVaryOnNodeResponse,
   negotiateEncoding,
 } from "./node-compress.ts";
@@ -245,20 +245,22 @@ export async function writeWebResponse(
     }
   }
 
-  const responseEtag = res.getHeader("etag");
+  const responseEtag = getNodeHeaderValue(res, "etag");
   if (
     compression &&
     response.status === 200 &&
     (compression.request.method === "GET" || compression.request.method === "HEAD") &&
-    matchesIfNoneMatch(
-      compression.request.headers.get("if-none-match"),
-      typeof responseEtag === "string" ? responseEtag : null,
+    isNotModifiedRequest(
+      compression.request,
+      responseEtag,
+      getNodeHeaderValue(res, "last-modified"),
     )
   ) {
-    // Evaluate the selected representation's validator here. For encoded
-    // requests the application did not receive `If-None-Match`, because it
-    // only knows the identity ETag and could otherwise short-circuit with a
-    // cross-encoding 304 before this adapter derives the variant validator.
+    // Evaluate the selected representation's validators here. For encoded
+    // requests the application did not receive `If-None-Match` or
+    // `If-Modified-Since`, because it only knows identity metadata and could
+    // otherwise short-circuit with a cross-encoding 304 before this adapter
+    // derives the variant validator.
     res.statusCode = 304;
     res.statusMessage = "Not Modified";
     res.removeHeader("content-length");
@@ -282,6 +284,11 @@ export async function writeWebResponse(
     encoding ? createCompressedStream(source, encoding, { incremental: true }) : source,
     res,
   );
+}
+
+function getNodeHeaderValue(res: ServerResponse, name: string): string | null {
+  const value = res.getHeader(name);
+  return Array.isArray(value) ? value.join(", ") : (value?.toString() ?? null);
 }
 
 export function writeNodeResponseHeaders(res: ServerResponse, headers: Headers): void {

@@ -26,6 +26,14 @@ export const COMPRESSION_MIN_SIZE = 1024;
  */
 export const MAX_CACHEABLE_ASSET_SIZE = 1024 * 1024;
 
+/**
+ * Whole-file compression uses the libuv worker pool and retains both source
+ * and encoded buffers until the job completes. Keep a cold burst across many
+ * distinct paths from queuing an unbounded amount of that work; overflow uses
+ * the streaming compression path instead.
+ */
+const MAX_PENDING_ASSET_COMPRESSIONS = 8;
+
 const brotliCompressAsync = promisify(brotliCompress);
 const gzipAsync = promisify(gzip);
 
@@ -184,6 +192,27 @@ export function matchesIfNoneMatch(header: string | null, etag: string | null): 
   return candidates.some((candidate) => weakOpaqueTag(candidate) === expected);
 }
 
+/**
+ * Evaluate conditional GET/HEAD validators against the selected response
+ * representation. `If-None-Match` takes precedence over
+ * `If-Modified-Since`, as required by RFC 9110 section 13.1.3.
+ */
+export function isNotModifiedRequest(
+  request: Request,
+  etag: string | null,
+  lastModified: string | null,
+): boolean {
+  const ifNoneMatch = request.headers.get("if-none-match");
+  if (ifNoneMatch) return matchesIfNoneMatch(ifNoneMatch, etag);
+
+  const ifModifiedSince = request.headers.get("if-modified-since");
+  if (!lastModified || !ifModifiedSince) return false;
+
+  const modifiedTime = Date.parse(lastModified);
+  const sinceTime = Date.parse(ifModifiedSince);
+  return !Number.isNaN(modifiedTime) && !Number.isNaN(sinceTime) && modifiedTime <= sinceTime;
+}
+
 export interface CompressionStreamOptions {
   /** Known total body size, forwarded to brotli as a size hint. */
   sizeHint?: number;
@@ -271,15 +300,19 @@ export function compressBuffer(buffer: Buffer, encoding: ContentEncoding): Promi
  * Byte-bounded LRU of compressed static assets, keyed by file identity
  * (path + size + mtime) and encoding — an ISG regeneration that rewrites the
  * HTML on disk changes the mtime and naturally invalidates its entries.
+ * Whole-buffer work is also byte- and concurrency-bounded while pending.
  */
 export class CompressedAssetCache {
   #entries = new Map<string, Buffer>();
   #pending = new Map<string, Promise<Buffer>>();
+  #pendingBytes = 0;
   #totalBytes = 0;
   readonly #maxBytes: number;
+  readonly #maxPendingEntries: number;
 
-  constructor(maxBytes = 32 * 1024 * 1024) {
+  constructor(maxBytes = 32 * 1024 * 1024, maxPendingEntries = MAX_PENDING_ASSET_COMPRESSIONS) {
     this.#maxBytes = maxBytes;
+    this.#maxPendingEntries = maxPendingEntries;
   }
 
   get totalBytes(): number {
@@ -291,21 +324,36 @@ export class CompressedAssetCache {
    * the same file version share one `produce()` call instead of compressing
    * the same bytes N times (the post-deploy thundering herd). A failed
    * `produce()` rejects every waiter and is not cached, so the next request
-   * retries.
+   * retries. Returns `null` when admitting a new key would exceed the pending
+   * byte or concurrency budget so the caller can stream it instead.
    */
-  getOrCompress(key: string, produce: () => Promise<Buffer>): Promise<Buffer> {
+  getOrCompress(
+    key: string,
+    estimatedBytes: number,
+    produce: () => Promise<Buffer>,
+  ): Promise<Buffer> | null {
     const cached = this.get(key);
     if (cached !== undefined) return Promise.resolve(cached);
 
     let pending = this.#pending.get(key);
     if (!pending) {
-      pending = produce()
+      if (
+        this.#pending.size >= this.#maxPendingEntries ||
+        estimatedBytes > this.#maxBytes - this.#pendingBytes
+      ) {
+        return null;
+      }
+
+      this.#pendingBytes += estimatedBytes;
+      pending = Promise.resolve()
+        .then(produce)
         .then((buffer) => {
           this.set(key, buffer);
           return buffer;
         })
         .finally(() => {
           this.#pending.delete(key);
+          this.#pendingBytes -= estimatedBytes;
         });
       this.#pending.set(key, pending);
     }

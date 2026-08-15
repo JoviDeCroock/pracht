@@ -196,15 +196,65 @@ describe("CompressedAssetCache", () => {
       return Buffer.from("compressed");
     };
 
-    const results = await Promise.all(
-      Array.from({ length: 8 }, () => cache.getOrCompress("asset", produce)),
-    );
+    const requests = Array.from({ length: 8 }, () => cache.getOrCompress("asset", 10, produce));
+    expect(requests.every(Boolean)).toBe(true);
+    const results = await Promise.all(requests as Promise<Buffer>[]);
 
     expect(produced).toBe(1);
     for (const result of results) expect(result.toString()).toBe("compressed");
     // Later requests hit the stored entry, not `produce`.
-    await cache.getOrCompress("asset", produce);
+    await cache.getOrCompress("asset", 10, produce);
     expect(produced).toBe(1);
+  });
+
+  it("bounds the source bytes retained by distinct in-flight compressions", async () => {
+    const cache = new CompressedAssetCache(10, 8);
+    let releaseGate!: () => void;
+    const gate = new Promise<void>((resolveGate) => {
+      releaseGate = resolveGate;
+    });
+    const produce = async (value: string): Promise<Buffer> => {
+      await gate;
+      return Buffer.from(value);
+    };
+
+    const first = cache.getOrCompress("a", 6, () => produce("a"));
+    expect(first).not.toBeNull();
+
+    const second = cache.getOrCompress("b", 4, () => produce("b"));
+    expect(second).not.toBeNull();
+    // The pending byte budget is full even though concurrency remains.
+    expect(cache.getOrCompress("c", 1, () => produce("c"))).toBeNull();
+
+    releaseGate();
+    await Promise.all([first!, second!]);
+
+    // Once pending work drains, a new cold key can use the buffered path.
+    await expect(cache.getOrCompress("c", 1, async () => Buffer.from("c"))).resolves.toEqual(
+      Buffer.from("c"),
+    );
+  });
+
+  it("caps distinct in-flight jobs without blocking same-key waiters", async () => {
+    const cache = new CompressedAssetCache(100, 2);
+    let releaseGate!: () => void;
+    const gate = new Promise<void>((resolveGate) => {
+      releaseGate = resolveGate;
+    });
+    const produce = async (value: string): Promise<Buffer> => {
+      await gate;
+      return Buffer.from(value);
+    };
+
+    const first = cache.getOrCompress("a", 1, () => produce("a"));
+    const second = cache.getOrCompress("b", 1, () => produce("b"));
+    expect(first).not.toBeNull();
+    expect(second).not.toBeNull();
+    expect(cache.getOrCompress("a", 1, () => produce("duplicate"))).toBe(first);
+    expect(cache.getOrCompress("c", 1, () => produce("c"))).toBeNull();
+
+    releaseGate();
+    await Promise.all([first!, second!]);
   });
 
   it("does not cache a failed compression and lets the next request retry", async () => {
@@ -216,8 +266,8 @@ describe("CompressedAssetCache", () => {
       return Buffer.from("ok");
     };
 
-    await expect(cache.getOrCompress("asset", failThenSucceed)).rejects.toThrow("EIO");
-    await expect(cache.getOrCompress("asset", failThenSucceed)).resolves.toBeDefined();
+    await expect(cache.getOrCompress("asset", 2, failThenSucceed)).rejects.toThrow("EIO");
+    await expect(cache.getOrCompress("asset", 2, failThenSucceed)).resolves.toBeDefined();
     expect(calls).toBe(2);
   });
 });
@@ -507,6 +557,60 @@ describe("dynamic response compression", () => {
     expect(revalidated.headers.etag).toBe(first.headers.etag);
     expect(revalidated.headers.vary).toContain("Accept-Encoding");
     expect(revalidated.body.byteLength).toBe(0);
+  });
+
+  it("evaluates If-Modified-Since after selecting the dynamic encoding", async () => {
+    const identityEtag = '"modified-v1"';
+    const lastModified = "Fri, 15 Aug 2025 00:00:00 GMT";
+    const receivedConditionalHeaders: Array<{ etag: boolean; modified: boolean }> = [];
+    const base = await listen(
+      createNodeRequestHandler({
+        apiRoutes: resolveApiRoutes(["/src/api/modified.ts"]),
+        app: defineApp({ routes: [] }),
+        registry: {
+          apiModules: {
+            "/src/api/modified.ts": async () => ({
+              GET: async ({ request }) => {
+                const conditional = {
+                  etag: request.headers.has("if-none-match"),
+                  modified: request.headers.has("if-modified-since"),
+                };
+                receivedConditionalHeaders.push(conditional);
+                if (conditional.modified) {
+                  return new Response(null, {
+                    status: 304,
+                    headers: { etag: identityEtag, "last-modified": lastModified },
+                  });
+                }
+                return new Response("modified payload ".repeat(300), {
+                  headers: {
+                    etag: identityEtag,
+                    "last-modified": lastModified,
+                    "content-type": "text/plain",
+                  },
+                });
+              },
+            }),
+          },
+        },
+      }),
+    );
+
+    const first = await rawRequest(`${base}/api/modified`, { "accept-encoding": "gzip" });
+    const revalidated = await rawRequest(`${base}/api/modified`, {
+      "accept-encoding": "gzip",
+      "if-modified-since": lastModified,
+    });
+
+    expect(first.headers.etag).toBe('W/"modified-v1-gzip"');
+    expect(revalidated.status).toBe(304);
+    expect(revalidated.headers.etag).toBe(first.headers.etag);
+    expect(revalidated.headers.vary).toContain("Accept-Encoding");
+    expect(revalidated.body.byteLength).toBe(0);
+    expect(receivedConditionalHeaders).toEqual([
+      { etag: false, modified: false },
+      { etag: false, modified: false },
+    ]);
   });
 
   it("revalidates encoded ETags whose opaque tag contains a comma", async () => {

@@ -40,11 +40,13 @@ Responses are compressed by default: the adapter negotiates `Accept-Encoding`
 with brotli preferred on ties) and streams dynamic HTML, route-state JSON, and
 other compressible text types through `node:zlib`, while static assets and ISG
 snapshots are compressed once per file version and served from an in-memory
-LRU. Static WebAssembly is served as `application/wasm` and follows the same
-compression path. Compressible responses carry `Vary: Accept-Encoding`;
-encoded variants get their own weak ETag, with dynamic conditional validation
-performed after representation selection so identity and encoded validators
-cannot cross. `HEAD` advertises the same negotiated metadata as `GET`, and
+LRU; buffered cold work is byte- and concurrency-bounded, with overflow
+falling back to streaming compression. Static WebAssembly is served as
+`application/wasm` and follows the same compression path. Compressible
+responses carry `Vary: Accept-Encoding`; encoded variants get their own weak
+ETag, with dynamic `If-None-Match` / `If-Modified-Since` validation performed
+after representation selection so identity and encoded validators cannot
+cross. `HEAD` advertises the same negotiated metadata as `GET`, and
 already-encoded, `no-transform`, Range, integrity-protected (`Content-Digest`,
 `Repr-Digest`, legacy
 `Digest`/`Content-MD5`), and sub-1 KiB responses are left alone. If a reverse
