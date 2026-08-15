@@ -115,13 +115,28 @@ async function attachFontHeadToRouteStateResponse<TContext>(options: {
   const body = payload as Record<string, unknown>;
   if (Object.hasOwn(body, "fontHead") || typeof body.redirect === "string") return response;
 
-  const [routeModule, shellModule] = await Promise.all([options.routeModule, options.shellModule]);
-  const data = body.data;
-  const head =
-    response.ok && !Object.hasOwn(body, "error")
-      ? await mergeHeadMetadata(shellModule, routeModule, routeArgs, data)
-      : await mergeErrorHeadMetadata(shellModule, routeModule, routeArgs);
-  const fontHead = collectFontHeadFragments(head.fonts ?? []);
+  // This response already completed the middleware/loader contract. Font-head
+  // enrichment must not replace it with a 500 if an eagerly-started route or
+  // shell import fails, or if head metadata itself cannot be evaluated. Use
+  // whichever modules resolved and fall back to authoritative empty fragments
+  // so client navigation also clears fonts left by the previous route.
+  const [routeModuleResult, shellModuleResult] = await Promise.allSettled([
+    options.routeModule,
+    options.shellModule,
+  ]);
+  const routeModule =
+    routeModuleResult.status === "fulfilled" ? routeModuleResult.value : undefined;
+  const shellModule =
+    shellModuleResult.status === "fulfilled" ? shellModuleResult.value : undefined;
+  let fontHead = collectFontHeadFragments([]);
+  try {
+    const data = body.data;
+    const head =
+      response.ok && !Object.hasOwn(body, "error")
+        ? await mergeHeadMetadata(shellModule, routeModule, routeArgs, data)
+        : await mergeErrorHeadMetadata(shellModule, routeModule, routeArgs);
+    fontHead = collectFontHeadFragments(head.fonts ?? []);
+  } catch {}
   return Response.json(
     {
       ...body,
@@ -802,6 +817,7 @@ export async function handlePrachtRequest<TContext>(
           // Route head exports are stripped from the client bundle. Return the
           // generated font fragments with loader data so client navigation can
           // keep route-scoped font registrations in sync with full documents.
+          currentPhase = "render";
           shellModule = await shellModulePromise;
           const head = await mergeHeadMetadata(shellModule, routeModule, routeArgs, data);
           const fontHead = collectFontHeadFragments(head.fonts ?? []);

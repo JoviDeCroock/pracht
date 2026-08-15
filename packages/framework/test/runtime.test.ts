@@ -1210,6 +1210,65 @@ describe("handlePrachtRequest cache variance", () => {
       expect(payload.fontHead.css).toContain('font-family:"Route Gate"');
     },
   );
+
+  it.each(["route", "shell"] as const)(
+    "preserves a middleware route-state response when the %s module fails to load",
+    async (failingModule) => {
+      const routeFont = defineFont({
+        family: "Route Fallback",
+        src: "/fonts/route-fallback.woff2",
+      });
+      const shellFont = defineFont({
+        family: "Shell Fallback",
+        src: "/fonts/shell-fallback.woff2",
+      });
+      const app = defineApp({
+        middleware: { gate: "./middleware/gate.ts" },
+        shells: { app: "./shells/app.tsx" },
+        routes: [route("/gate", "./routes/gate.tsx", { middleware: ["gate"], shell: "app" })],
+      });
+
+      const response = await handlePrachtRequest({
+        app,
+        registry: {
+          middlewareModules: {
+            "./middleware/gate.ts": async () => ({
+              middleware: async () =>
+                Response.json(
+                  { error: { message: "denied", name: "AuthError", status: 401 } },
+                  { status: 401 },
+                ),
+            }),
+          },
+          routeModules: {
+            "./routes/gate.tsx": async () => {
+              if (failingModule === "route") throw new Error("route import failed");
+              return { Component: () => null, head: () => ({ fonts: [routeFont] }) };
+            },
+          },
+          shellModules: {
+            "./shells/app.tsx": async () => {
+              if (failingModule === "shell") throw new Error("shell import failed");
+              return {
+                Shell: ({ children }) => h("main", null, children),
+                head: () => ({ fonts: [shellFont] }),
+              };
+            },
+          },
+        },
+        request: new Request("http://localhost/gate", {
+          headers: { "x-pracht-route-state-request": "1" },
+        }),
+      });
+
+      expect(response.status).toBe(401);
+      const payload = (await response.json()) as Record<string, any>;
+      expect(payload.error).toEqual({ message: "denied", name: "AuthError", status: 401 });
+      expect(payload.fontHead.css).toContain(
+        failingModule === "route" ? 'font-family:"Shell Fallback"' : 'font-family:"Route Fallback"',
+      );
+    },
+  );
 });
 
 describe("handlePrachtRequest head metadata", () => {
@@ -2359,6 +2418,46 @@ describe("handlePrachtRequest ErrorBoundary", () => {
         message: "loader exploded",
         name: "Error",
         status: 500,
+      },
+      fontHead: { preloadLinks: [], css: "" },
+    });
+  });
+
+  it("attributes route-state head failures to the render phase", async () => {
+    const app = defineApp({
+      routes: [route("/posts/:slug", "./routes/post.tsx", { id: "post-show" })],
+    });
+
+    const response = await handlePrachtRequest({
+      app,
+      debugErrors: true,
+      registry: {
+        routeModules: {
+          "./routes/post.tsx": async () => ({
+            Component: () => h("main", null, "post"),
+            head: () => {
+              throw new Error("head exploded");
+            },
+            loader: async () => ({ title: "Post" }),
+          }),
+        },
+      },
+      request: new Request("http://localhost/posts/example", {
+        headers: { "x-pracht-route-state-request": "1" },
+      }),
+    });
+
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        diagnostics: {
+          phase: "render",
+          routeFile: "./routes/post.tsx",
+          routeId: "post-show",
+          routePath: "/posts/:slug",
+          status: 500,
+        },
+        message: "head exploded",
       },
       fontHead: { preloadLinks: [], css: "" },
     });

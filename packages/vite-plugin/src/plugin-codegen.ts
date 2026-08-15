@@ -491,7 +491,11 @@ function createRouteHeadHintsForVirtualModules(
   return Object.assign(
     {},
     ...directories.map(([prefix, directory]) =>
-      createRouteHeadHints(directory, { appFileDir, rootRelativePrefix: prefix }),
+      createRouteHeadHints(directory, {
+        additionalExtensions: options.additionalExtensions,
+        appFileDir,
+        rootRelativePrefix: prefix,
+      }),
     ),
   );
 }
