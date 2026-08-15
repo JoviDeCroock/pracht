@@ -515,11 +515,17 @@ export function defineI18n<const L extends string>(config: I18nConfig<L>): I18n<
     }
     const response = await next();
 
+    const render = (args.route as { render?: string } | undefined)?.render;
+    const prerenderable = render === "ssg" || render === "isg";
+
     // `Vary` bookkeeping: every source consulted before detection settled —
     // up to and including the winner, or all of them when nothing matched —
     // is request state the response depends on, so shared caches must key
-    // on the matching header. The path source contributes nothing (the URL
-    // is already the cache key). Note this intentionally makes an ISG route
+    // on the matching header. A path-resolved SSR/SPA response also varies on
+    // Cookie because the presence of its persistence Set-Cookie depends on
+    // whether the request already carried that locale. Prerenderable routes
+    // never persist, so their path-only output still varies on nothing beyond
+    // the URL. Note this intentionally makes an ISG route
     // that relies on cookie/header detection uncacheable (`Vary: Cookie`
     // fails `isCacheableISGResponse`): a per-request locale can never be
     // served from a shared cache — keep ISG/SSG routes inside locale
@@ -532,6 +538,14 @@ export function defineI18n<const L extends string>(config: I18nConfig<L>): I18n<
     for (const source of consulted) {
       if (source === "cookie" && cookie !== false) vary.push("Cookie");
       else if (source === "header") vary.push("Accept-Language");
+      else if (
+        source === "path" &&
+        !prerenderable &&
+        cookie !== false &&
+        detection.source === "path"
+      ) {
+        vary.push("Cookie");
+      }
     }
 
     // Persist only an *explicit* choice — the URL prefix the user navigated
@@ -542,8 +556,6 @@ export function defineI18n<const L extends string>(config: I18nConfig<L>): I18n<
     // regeneration uncacheable. Prerendered locale routes that want
     // unprefixed detector pages to remember the choice call
     // `setLocaleCookie()` after hydration instead.
-    const render = (args.route as { render?: string } | undefined)?.render;
-    const prerenderable = render === "ssg" || render === "isg";
     const setCookie =
       !prerenderable &&
       cookie !== false &&

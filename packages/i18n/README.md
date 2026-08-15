@@ -94,9 +94,10 @@ question is whether the locale is part of the URL.
 **A. Locale-prefixed URLs** (`/en/about`) — one `pathPrefix` group per
 locale, switching means navigating, `hreflang()` gives every language its
 own indexable URL, and routes can be `ssg`/`isg`. The better default for
-public content. On SSG/ISG pages, persist the explicit prefix after hydration
-with `setLocaleCookie()` because a stored response cannot safely carry a
-visitor-specific cookie.
+public content. Path-resolved SSR/SPA responses vary on `Cookie` because
+whether they emit the persistence cookie depends on the incoming cookie;
+SSG/ISG output needs only the URL cache key and persists the explicit prefix
+after hydration with `setLocaleCookie()`.
 
 **B. One URL per page** (`/about`) — nothing about your routes changes. The
 cookie decides, `Accept-Language` seeds the first visit, and the middleware
@@ -125,7 +126,9 @@ setMessages(messages);
 
 When several locale choices can be made before their lazy chunks finish,
 guard the async work so only the latest successful selection updates both the
-cookie and component state; the full recipe below shows that pattern.
+cookie and component state. Because `head()` ran on the server, an in-place
+switch must also update `document.documentElement.lang` and the localized
+`document.title`; the full recipe below shows that pattern.
 
 The trade-off is SEO: a single URL cannot carry `hreflang` alternates, so
 crawlers index whichever locale their `Accept-Language` resolves to. The
@@ -144,8 +147,10 @@ Creates the app's i18n instance:
   prerenderable (SSG/ISG) routes — their output is stored and replayed to
   every visitor, so it must never carry `Set-Cookie` — and header-derived
   locales are never persisted. The middleware also appends
-  `Vary: Cookie` / `Accept-Language` when those sources were consulted, so
-  shared caches key correctly. Note: a **thrown** `Response`
+  `Vary: Cookie` / `Accept-Language` when those sources were consulted. A
+  path-resolved SSR/SPA response also varies on `Cookie`, because the presence
+  of its persistence `Set-Cookie` depends on the incoming cookie; path-only
+  SSG/ISG output does not. Note: a **thrown** `Response`
   (`throw redirect(...)`) short-circuits past the middleware chain and gets
   neither the cookie nor `Vary` — `return` redirects from loaders on
   localized routes instead. SSG/ISG requests cannot persist a visitor-specific
@@ -178,8 +183,9 @@ Creates the app's i18n instance:
 Only registered locales can ever win detection: URL prefixes, cookie values,
 and `Accept-Language` tags are validated against the registry, malformed or
 duplicate q-values (`;q=`, `;q=abc`, repeated `;q=`) are dropped rather than
-promoted, and oversized headers are truncated. A q-value must be a complete
-decimal token, so a numeric prefix such as `q=0.5junk` is rejected too.
+promoted, and oversized headers are bounded without parsing the final entry
+when the length limit cuts it in half. A q-value must be a complete decimal
+token, so a numeric prefix such as `q=0.5junk` is rejected too.
 Wildcards can only resolve to a registered locale and never revive a locale
 explicitly rejected with `q=0`; neither lookup truncation nor best-fit fallback
 can bypass that rejection.

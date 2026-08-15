@@ -48,15 +48,17 @@ export function Component({ data }: RouteComponentProps<typeof loader>) {
 
   const messages = clientMessages ?? data.messages;
   const locale = messages.$locale as AppLocale;
+  const title = t(messages, "greeting.title");
   const otherLocales = i18n.locales.filter((candidate) => candidate !== locale);
   const { pathname, search } = useLocation();
 
   // `head()` runs on the server only, so any locale change that does not
-  // reload the document has to keep <html lang> in sync itself. This covers
-  // both switches below.
+  // reload the document has to keep <html lang> and <title> in sync itself.
+  // This covers both switches below.
   useEffect(() => {
     document.documentElement.lang = locale;
-  }, [locale]);
+    document.title = title;
+  }, [locale, title]);
 
   async function switchOnTheClient(next: AppLocale) {
     const switchId = ++clientSwitch.current;
@@ -76,7 +78,7 @@ export function Component({ data }: RouteComponentProps<typeof loader>) {
 
   return (
     <section>
-      <h1 data-testid="greeting-title">{t(messages, "greeting.title")}</h1>
+      <h1 data-testid="greeting-title">{title}</h1>
       <p>{t(messages, "greeting.lead", { language: t(messages, `language.${locale}`) })}</p>
       <p>{t(messages, "greeting.detection")}</p>
 

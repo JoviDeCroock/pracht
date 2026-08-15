@@ -67,6 +67,11 @@ describe("parseAcceptLanguage", () => {
     expect(parseAcceptLanguage(header)).toEqual([{ tag: "en", quality: 0.9 }]);
   });
 
+  it("drops the final entry when the length limit cuts it before its q-value", () => {
+    const header = `en;q=0.5,nl;${" ".repeat(2_000)}q=0`;
+    expect(parseAcceptLanguage(header)).toEqual([{ tag: "en", quality: 0.5 }]);
+  });
+
   it("ignores q parameters with extra whitespace and case", () => {
     expect(parseAcceptLanguage("en ; Q=0.4")).toEqual([{ tag: "en", quality: 0.4 }]);
   });

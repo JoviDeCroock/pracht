@@ -33,7 +33,7 @@ Steps 1, 2 and 5 are the same either way. What differs is whether the locale is 
 | Locale comes from | the path (cookie/header only on unprefixed entry points) | the cookie, falling back to `Accept-Language` |
 | Switching | navigate to the other prefix | write the cookie (form post, or client-side) |
 | SEO | each language is its own indexable URL; `hreflang` alternates work | one indexable URL — crawlers see whatever their `Accept-Language` resolves to |
-| Caching | `render: "ssg"`/`"isg"` per locale; shared caches key on the URL | SSR only: responses carry `Vary: Cookie, Accept-Language` |
+| Caching | `render: "ssg"`/`"isg"` per locale; shared output keys on the URL, while SSR also varies on `Cookie` | SSR only: responses carry `Vary: Cookie, Accept-Language` |
 | Cost of adopting | every URL changes | nothing changes |
 
 Strategy A is the better default for public, indexable content — if you are starting fresh, take it. Strategy B is the answer when the URLs already exist and cannot move (or when the app is behind a login, where indexing does not matter): it keeps one URL per page and switches with no navigation at all.
@@ -100,9 +100,9 @@ import { i18n } from "../i18n/index.ts";
 export const middleware = i18n.middleware;
 ```
 
-The middleware resolves the locale via the configured detection order, sets `context.locale` for loaders, and — when the URL prefix chose the locale — persists it in a cookie (`pracht_locale`, `Path=/`, `SameSite=Lax`, one year, `Secure` on https). Persistence only happens on per-request (SSR/SPA) routes: SSG/ISG output is stored and replayed to every visitor, so the middleware never attaches `Set-Cookie` there. It also appends `Vary: Cookie` / `Vary: Accept-Language` when those detection sources were consulted, so a shared cache in front of the app keys on them.
+The middleware resolves the locale via the configured detection order, sets `context.locale` for loaders, and — when the URL prefix chose the locale — persists it in a cookie (`pracht_locale`, `Path=/`, `SameSite=Lax`, one year, `Secure` on https). Persistence only happens on per-request (SSR/SPA) routes: SSG/ISG output is stored and replayed to every visitor, so the middleware never attaches `Set-Cookie` there. It appends `Vary: Cookie` / `Vary: Accept-Language` when those detection sources were consulted. Path-resolved SSR/SPA responses also vary on `Cookie` because the presence of their persistence `Set-Cookie` depends on the incoming cookie; path-only SSG/ISG output remains keyed solely by URL.
 
-Only registered locales can ever win: unregistered URL prefixes and cookie values are ignored, malformed `Accept-Language` entries (`;q=`, `q=0.5junk`, duplicate `q` parameters, garbage tags) are dropped, and wildcard fallbacks are checked against the locale registry without reviving a locale explicitly rejected by `q=0`. Matching follows RFC 4647 lookup (`fr-CA` → `fr`, `zh-Hant-TW` → `zh-Hant`) with a script-compatible same-language best fit (`en-GB` → a registered `en-US`, but `zh-Hans` never best-fits `zh-Hant`) before falling through to lower-preference entries. Locale tags accepted by `defineI18n()` remain detectable at their full configured length.
+Only registered locales can ever win: unregistered URL prefixes and cookie values are ignored, malformed `Accept-Language` entries (`;q=`, `q=0.5junk`, duplicate `q` parameters, garbage tags) are dropped, and an oversized header's final entry is discarded if the length limit cuts it in half. Wildcard fallbacks are checked against the locale registry without reviving a locale explicitly rejected by `q=0`. Matching follows RFC 4647 lookup (`fr-CA` → `fr`, `zh-Hant-TW` → `zh-Hant`) with a script-compatible same-language best fit (`en-GB` → a registered `en-US`, but `zh-Hans` never best-fits `zh-Hant`) before falling through to lower-preference entries. Locale tags accepted by `defineI18n()` remain detectable at their full configured length.
 
 Lookup truncation and best-fit fallback also preserve `q=0` exclusions, and a
 requested range directly matches a longer registered variant (`en-GB` →
@@ -304,13 +304,16 @@ export function Component({ data }: RouteComponentProps<typeof loader>) {
     }
   }
 
+  const title = t(messages, "home.title");
+
   // `head()` runs on the server only: any locale change that does not reload
-  // the document has to keep <html lang> in sync itself.
+  // the document has to keep <html lang> and <title> in sync itself.
   useEffect(() => {
     document.documentElement.lang = messages.$locale;
-  }, [messages.$locale]);
+    document.title = title;
+  }, [messages.$locale, title]);
 
-  return <h1 onDblClick={() => void switchTo("fr")}>{t(messages, "home.title")}</h1>;
+  return <h1 onDblClick={() => void switchTo("fr")}>{title}</h1>;
 }
 ```
 
@@ -369,7 +372,7 @@ Because `messages` is plain JSON, it serializes into route data and the exact sa
 - **SSG/ISG**: locale-prefixed routes can be `render: "ssg"` or `"isg"` — every prefixed URL is a real route, so each locale prerenders, and the middleware skips cookie persistence on prerenderable routes so no `Set-Cookie` ever lands in stored output. Persist `data.locale` with `setLocaleCookie()` after hydration (as above) if the SSR detector should remember an explicit prefixed visit; without JavaScript, use SSR or platform edge middleware. Keep the *detector* route SSR: its answer depends on the visitor's cookie/headers, and cookie/header detection cannot run against a stored document (prerender and ISG-revalidation requests carry no cookies or `Accept-Language`). For prerendered routes, keep `"path"` first in the detect order — a prerendered route that *depends* on cookie/header detection gets `Vary: Cookie` and is refused by the ISG cache rather than serving one visitor's locale to everyone.
 - On SSG/ISG routes, pass your canonical origin to `hreflang()` (`{ origin: "https://example.com" }`) — `url.origin` at prerender time is a placeholder (`http://localhost`) and would be baked into the static document.
 - When passing a path with a query or hash to `hreflang()`, every alternate — including the default `x-default` detector target — preserves that suffix.
-- Set `lang` from the resolved locale in `head()` (as above) so browsers and screen readers know the language. `head()` runs on the server, so a locale change that never reloads the document — the client switch in strategy B — must set `document.documentElement.lang` itself.
+- Set `lang` and the localized title from the resolved locale in `head()` (as above). `head()` runs on the server, so a locale change that never reloads the document — the client switch in strategy B — must update `document.documentElement.lang` and `document.title` itself.
 - Use `Intl.DateTimeFormat` / `Intl.NumberFormat` with `data.locale` for dates and numbers — no library needed.
 - A working end-to-end setup lives in [`examples/basic`](https://github.com/JoviDeCroock/pracht/tree/main/examples/basic): strategy A under `/welcome` (two locales, detector redirect, hreflang, cookie override, plural rendering) and strategy B under `/greeting` (one URL, form-post switch via `/api/locale`, client-side switch) — both against a single i18n instance.
 

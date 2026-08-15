@@ -74,6 +74,7 @@ test("greeting client switch swaps the dictionary without navigating", async ({ 
   await expect(page.getByTestId("greeting-title")).toContainText("Eén URL, elke taal");
   await expect(page).toHaveURL("/greeting");
   await expect(page.locator("html")).toHaveAttribute("lang", "nl");
+  await expect(page).toHaveTitle("Eén URL, elke taal");
 
   const cookies = await page.context().cookies();
   expect(cookies.find((cookie) => cookie.name === "pracht_locale")?.value).toBe("nl");

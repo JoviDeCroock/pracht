@@ -1,10 +1,11 @@
 /**
  * `Accept-Language` parsing with q-value ordering.
  *
- * The parser fails closed on hostile input: oversized headers are truncated,
- * the entry count is capped, malformed language tags are skipped, and an
- * entry with an unparsable q parameter (`;q=`, `;q=abc`) is dropped rather
- * than promoted to top preference.
+ * The parser fails closed on hostile input: oversized headers are bounded and
+ * any entry cut by the limit is discarded, the entry count is capped,
+ * malformed language tags are skipped, and an entry with an unparsable q
+ * parameter (`;q=`, `;q=abc`) is dropped rather than promoted to top
+ * preference.
  */
 
 const MAX_HEADER_LENGTH = 1024;
@@ -29,7 +30,20 @@ function parseAcceptLanguageEntries(
   includeRejected: boolean,
 ): AcceptLanguageEntry[] {
   if (!header) return [];
-  const source = header.length > MAX_HEADER_LENGTH ? header.slice(0, MAX_HEADER_LENGTH) : header;
+  let source = header;
+  if (header.length > MAX_HEADER_LENGTH) {
+    const truncated = header.slice(0, MAX_HEADER_LENGTH);
+    // Never parse an entry cut in half by the defensive length limit. A
+    // missing tail can hide a later `q=0` and accidentally promote the partial
+    // range to the default quality of 1. Preserve the last entry only when the
+    // cutoff itself lands exactly on its comma boundary.
+    if (header[MAX_HEADER_LENGTH] === ",") {
+      source = truncated;
+    } else {
+      const lastComma = truncated.lastIndexOf(",");
+      source = lastComma === -1 ? "" : truncated.slice(0, lastComma);
+    }
+  }
   const entries: Array<{ entry: AcceptLanguageEntry; index: number }> = [];
   let index = 0;
   for (const part of source.split(",")) {

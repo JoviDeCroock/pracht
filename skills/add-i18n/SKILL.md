@@ -122,8 +122,10 @@ The middleware sets `context.locale` and persists URL-prefix choices in a
 output is stored and replayed to every visitor, so the middleware never
 attaches `Set-Cookie` there (a baked-in cookie would fail the prerender
 build and block ISG revalidation). It also appends `Vary: Cookie` /
-`Accept-Language` when those sources were consulted, so shared caches key
-correctly. Type the context once via the Register pattern:
+`Accept-Language` when those sources were consulted. Path-resolved SSR/SPA
+responses vary on `Cookie` too, because the presence of their persistence
+`Set-Cookie` depends on the incoming cookie; path-only SSG/ISG output stays
+keyed solely by URL. Type the context once via the Register pattern:
 
 Cookie configuration stays browser-valid: `SameSite=None` always forces
 `Secure`, even if an explicit option attempts to disable it.
@@ -247,8 +249,9 @@ follows the 303 normally.
 For an instant switch with no request at all, `i18n.setLocaleCookie(locale)`
 writes the same cookie from the browser and
 `await dictionaries.load(locale)` swaps the dictionary in place — hold the
-result in state, reset it when loader data changes, and set
-`document.documentElement.lang` by hand (`head()` already ran server-side).
+result in state, reset it when loader data changes, and set both
+`document.documentElement.lang` and a localized `document.title` by hand
+(`head()` already ran server-side).
 Load the dictionary before writing the cookie, and guard concurrent lazy
 loads with a monotonically increasing request id so only the latest successful
 selection commits both the cookie and component state. Catch import failures
@@ -328,8 +331,9 @@ would be a lie.
   (expect a 302 to `/fr/...`), with a `pracht_locale` cookie (cookie beats
   header), and with garbage (`;q=`, unknown tags — expect the default
   locale). Visit a locale-prefixed page; confirm translated content and the
-  hreflang links in the head. On SSR, confirm `Set-Cookie` on first visit. On
-  SSG/ISG, confirm the stored response has no `Set-Cookie`, hydration writes
+  hreflang links in the head. On SSR, confirm `Set-Cookie` on first visit and
+  `Vary: Cookie` whether or not the request cookie already matches. On SSG/ISG,
+  confirm the stored response has neither `Set-Cookie` nor a path-only `Vary`, hydration writes
   the locale cookie, and then the unprefixed detector returns to that locale.
   Visit an unsupported prefix (e.g. `/zz/about`); confirm it 404s.
 - Strategy B: `curl -i` the page with `Accept-Language: fr` (expect French
@@ -354,7 +358,9 @@ would be a lie.
    through the registered locale list, respect explicit `q=0` exclusions, and
    neither lookup truncation nor best-fit fallback can bypass those exclusions.
    Directly matched longer variants win before same-language best fit, which
-   never crosses conflicting script subtags.
+   never crosses conflicting script subtags. If the defensive header-length
+   limit cuts an entry in half, discard that entry rather than parsing it with
+   an implied quality of 1.
 3. For SSG, only prerender URL combinations that exist; provide
    `getStaticPaths` returning the locale × dynamic-param product when a
    localized route has dynamic segments.

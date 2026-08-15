@@ -273,14 +273,22 @@ describe("middleware", () => {
       );
       expect(context.locale).toBe("nl");
       expect(response.headers.get("set-cookie")).toBeNull();
+      expect(response.headers.get("vary")).toBeNull();
     }
   });
 });
 
 describe("middleware Vary", () => {
-  it("adds no Vary when the URL prefix decided first", async () => {
-    const { response } = await runMiddleware(makeRequest("http://app.test/nl/shop"));
-    expect(response.headers.get("vary")).toBeNull();
+  it("varies path-resolved SSR responses on the cookie that controls persistence", async () => {
+    const firstVisit = await runMiddleware(makeRequest("http://app.test/nl/shop"));
+    expect(firstVisit.response.headers.get("vary")).toBe("Cookie");
+    expect(firstVisit.response.headers.get("set-cookie")).toContain("pracht_locale=nl");
+
+    const returningVisit = await runMiddleware(
+      makeRequest("http://app.test/nl/shop", { cookie: "pracht_locale=nl" }),
+    );
+    expect(returningVisit.response.headers.get("vary")).toBe("Cookie");
+    expect(returningVisit.response.headers.get("set-cookie")).toBeNull();
   });
 
   it("varies on Cookie and Accept-Language for unprefixed routes", async () => {
