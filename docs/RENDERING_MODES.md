@@ -62,8 +62,9 @@ Dynamic params are percent-encoded before output paths are written, and exact
 `.` / `..` dynamic param segments are rejected. Static route patterns cannot
 contain raw dot segments or backslashes. The CLI also verifies every
 prerendered file resolves inside `dist/client/` before writing. The complete
-page set must map to distinct portable filesystem paths: duplicate and
-case-folded outputs are rejected, as are file/directory conflicts such as `/`
+page set must map to distinct portable filesystem paths: duplicate,
+case-folded, and Unicode-normalization-equivalent outputs are rejected, as are
+Windows-invalid filename components and file/directory conflicts such as `/`
 with `/index.html` or `/guide` with `/guide/index.html`.
 
 Prerendering runs concurrently (default: 10 parallel renders). Tune it with `pracht({ prerenderConcurrency })` in your Vite config when CI needs more or less parallelism.

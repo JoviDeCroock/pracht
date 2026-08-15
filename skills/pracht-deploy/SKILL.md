@@ -359,15 +359,16 @@ for live data. See docs/ADAPTERS.md § Static Adapter for host header
 configuration and limitations (markdown negotiation, percent-encoded params,
 base paths). The SPA fallback only client-renders matched SPA routes; dynamic
 SSG paths omitted by `getStaticPaths()` render the app's not-found page with
-the build-time loader data carried over from `404.html`. The host rewrite that
-serves the fallback answers unknown URLs with status 200 (soft 404), and an app
+the build-time loader data or handled error state carried over from `404.html`.
+The host rewrite that serves the fallback answers unknown URLs with status 200 (soft 404), and an app
 with no `notFound` page and no unshadowed client-routable SPA catch-all renders them blank — the build
 warns about that shape. A dynamic SPA route, its shell, or the not-found page
 with `head()` requires an explicit `fallbackHead`, because the shared static
 document cannot evaluate URL-specific server metadata. Prerendered pages must
-map to distinct portable filesystem paths; duplicate/case-folded outputs and
-file/directory conflicts such as `/` with `/index.html` fail before any page is
-written.
+map to distinct portable filesystem paths; duplicate/case-folded or
+Unicode-normalization-equivalent outputs, Windows-invalid filename components,
+and file/directory conflicts such as `/` with `/index.html` fail before any
+page is written.
 
 ---
 

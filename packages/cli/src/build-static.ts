@@ -39,7 +39,12 @@ interface StaticServerModuleView {
   };
   staticExportConfig?: { fallback?: string | null; fallbackHead?: unknown };
   renderStaticNotFoundHtml?: () => Promise<string | null>;
-  renderStaticFallbackHtml?: (notFoundData?: unknown) => string | Promise<string>;
+  renderStaticFallbackHtml?: (notFoundState?: StaticNotFoundState) => string | Promise<string>;
+}
+
+interface StaticNotFoundState {
+  data?: unknown;
+  error?: unknown;
 }
 
 export function isStaticExportBuild(serverMod: { staticTarget?: unknown }): boolean {
@@ -361,7 +366,7 @@ export interface StaticArtifactsResult {
   fallbackFile: string | null;
 }
 
-function readStaticNotFoundData(html: string): unknown {
+function readStaticNotFoundState(html: string): StaticNotFoundState {
   const match = /<script id="pracht-state" type="application\/json">([\s\S]*?)<\/script>/.exec(
     html,
   );
@@ -371,8 +376,11 @@ function readStaticNotFoundData(html: string): unknown {
     );
   }
 
-  const state = JSON.parse(match[1]) as { data?: unknown };
-  return state.data;
+  const state = JSON.parse(match[1]) as StaticNotFoundState;
+  if (state === null || typeof state !== "object" || Array.isArray(state)) {
+    throw new Error("Static export expected the notFound route state to be a JSON object.");
+  }
+  return { data: state.data, error: state.error };
 }
 
 /**
@@ -445,7 +453,9 @@ function assertNoPrerenderedPageOutputCollisions(pages: Array<{ path: string }>)
     return {
       pagePath: page.path,
       relativeOutputPath,
-      normalizedParts: relativeOutputPath.split(sep).map((part) => part.toLowerCase()),
+      normalizedParts: relativeOutputPath
+        .split(sep)
+        .map((part) => normalizePortableOutputPart(part, page.path)),
     };
   });
   const collisions: string[] = [];
@@ -493,6 +503,30 @@ function assertNoPrerenderedPageOutputCollisions(pages: Array<{ path: string }>)
         "\nChange the route paths or getStaticPaths() output so every page has a distinct, portable filesystem path.",
     );
   }
+}
+
+const WINDOWS_RESERVED_OUTPUT_NAME_RE = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/i;
+const WINDOWS_INVALID_OUTPUT_CHARACTERS = '<>:"\\|?*';
+
+function normalizePortableOutputPart(part: string, pagePath: string): string {
+  const normalized = part.normalize("NFC");
+  const hasInvalidWindowsCharacter = [...normalized].some(
+    (character) =>
+      WINDOWS_INVALID_OUTPUT_CHARACTERS.includes(character) || character.charCodeAt(0) < 32,
+  );
+  if (
+    hasInvalidWindowsCharacter ||
+    /[ .]$/.test(normalized) ||
+    WINDOWS_RESERVED_OUTPUT_NAME_RE.test(normalized)
+  ) {
+    throw new Error(
+      `Static export cannot write prerendered page ${JSON.stringify(pagePath)} because output component ` +
+        `${JSON.stringify(part)} is not a portable Windows filename. ` +
+        "Avoid reserved device names, trailing dots/spaces, and Windows-invalid filename characters.",
+    );
+  }
+
+  return normalized.toLowerCase();
 }
 
 /**
@@ -572,12 +606,12 @@ export async function writeStaticExportArtifacts(options: {
   }
 
   let wrote404 = false;
-  let notFoundData: unknown;
+  let notFoundState: StaticNotFoundState | undefined;
   if (typeof serverMod.renderStaticNotFoundHtml === "function") {
     const notFoundHtml = await serverMod.renderStaticNotFoundHtml();
     if (notFoundHtml !== null) {
       if (configuredFallback) {
-        notFoundData = readStaticNotFoundData(notFoundHtml);
+        notFoundState = readStaticNotFoundState(notFoundHtml);
       }
       writeFileSync(resolve(clientDir, "404.html"), notFoundHtml, "utf-8");
       wrote404 = true;
@@ -594,7 +628,7 @@ export async function writeStaticExportArtifacts(options: {
   if (configuredFallback && typeof serverMod.renderStaticFallbackHtml === "function") {
     writeFileSync(
       resolve(clientDir, configuredFallback),
-      await serverMod.renderStaticFallbackHtml(notFoundData),
+      await serverMod.renderStaticFallbackHtml(notFoundState),
       "utf-8",
     );
     fallbackFile = configuredFallback;

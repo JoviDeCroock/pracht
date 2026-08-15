@@ -4,6 +4,7 @@ import { isDangerousPrerenderHeader, normalizeRouteRevalidate } from "./revalida
 import { hasMarkdownRepresentation } from "./runtime-negotiation.ts";
 import { NOT_FOUND_ROUTE_ID, ROUTE_STATE_REQUEST_HEADER } from "./runtime-constants.ts";
 import { routeNeedsServerFetch } from "./runtime-client-fetch.ts";
+import type { SerializedRouteError } from "./runtime-errors.ts";
 import { buildHtmlDocument } from "./runtime-html.ts";
 import { resolveRegistryModule } from "./runtime-manifest.ts";
 import { handlePrachtRequest } from "./runtime.ts";
@@ -316,13 +317,18 @@ async function collectSSGPaths(
  * `head` is likewise explicit metadata shared by every rewritten URL. The
  * build cannot run a route-specific `head()` function for an arbitrary path.
  *
- * `notFoundData` is copied from the already-rendered `404.html` hydration
- * state. If the fallback resolves an unknown URL instead of a dynamic SPA
- * route, the not-found component therefore sees its normal build-time loader
- * data without executing the loader a second time.
+ * `notFoundData` and `notFoundError` are copied from the already-rendered
+ * `404.html` hydration state. If the fallback resolves an unknown URL instead
+ * of a dynamic SPA route, the not-found component or error boundary therefore
+ * sees its normal build-time state without executing the loader a second time.
  */
 export function buildStaticFallbackHtml(
-  options: { clientEntryUrl?: string; head?: HeadMetadata; notFoundData?: unknown } = {},
+  options: {
+    clientEntryUrl?: string;
+    head?: HeadMetadata;
+    notFoundData?: unknown;
+    notFoundError?: SerializedRouteError | null;
+  } = {},
 ): string {
   return buildHtmlDocument({
     head: options.head ?? {},
@@ -331,7 +337,7 @@ export function buildStaticFallbackHtml(
       url: "/",
       routeId: NOT_FOUND_ROUTE_ID,
       data: options.notFoundData,
-      error: null,
+      error: options.notFoundError ?? null,
       pending: true,
       fallback: true,
     },

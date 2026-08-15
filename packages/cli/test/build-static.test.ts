@@ -418,6 +418,24 @@ describe("validateStaticExportOutputPaths", () => {
     );
   });
 
+  it("rejects Windows-incompatible output components", () => {
+    for (const path of ["/docs.", "/docs ", "/CON", "/aux.txt", "/bad<name"]) {
+      expect(() =>
+        validateStaticExportOutputPaths([{ path }], {
+          resolvedApp: { routes: [] },
+        }),
+      ).toThrow(/not a portable Windows filename/);
+    }
+  });
+
+  it("rejects Unicode-normalization-equivalent output paths", () => {
+    expect(() =>
+      validateStaticExportOutputPaths([{ path: "/caf\u00e9" }, { path: "/cafe\u0301" }], {
+        resolvedApp: { routes: [] },
+      }),
+    ).toThrow(/map to the same case-insensitive output path/);
+  });
+
   it("rejects page output file and directory conflicts", () => {
     for (const pages of [
       [{ path: "/" }, { path: "/index.html" }],
@@ -499,7 +517,7 @@ describe("writeStaticExportArtifacts", () => {
   it("writes state files, 404.html, and the configured fallback", async () => {
     const clientDir = createTempDir();
     const logs: string[] = [];
-    let fallbackNotFoundData: unknown;
+    let fallbackNotFoundState: unknown;
 
     const result = await writeStaticExportArtifacts({
       clientDir,
@@ -511,9 +529,9 @@ describe("writeStaticExportArtifacts", () => {
       serverMod: {
         staticExportConfig: { fallback: "200.html" },
         renderStaticNotFoundHtml: async () =>
-          '<!DOCTYPE html><html><body>404<script id="pracht-state" type="application/json">{"data":{"message":"Built custom 404"}}</script></body></html>',
-        renderStaticFallbackHtml: (notFoundData) => {
-          fallbackNotFoundData = notFoundData;
+          '<!DOCTYPE html><html><body>404<script id="pracht-state" type="application/json">{"data":{"message":"Built custom 404"},"error":{"message":"Missing","name":"PrachtHttpError","status":404}}</script></body></html>',
+        renderStaticFallbackHtml: (notFoundState) => {
+          fallbackNotFoundState = notFoundState;
           return "<!DOCTYPE html><html><body>fallback</body></html>";
         },
       },
@@ -530,7 +548,10 @@ describe("writeStaticExportArtifacts", () => {
     expect(existsSync(resolveRouteStateOutputPath(clientDir, "/plain"))).toBe(false);
     expect(readFileSync(resolve(clientDir, "404.html"), "utf-8")).toContain("404");
     expect(readFileSync(resolve(clientDir, "200.html"), "utf-8")).toContain("fallback");
-    expect(fallbackNotFoundData).toEqual({ message: "Built custom 404" });
+    expect(fallbackNotFoundState).toEqual({
+      data: { message: "Built custom 404" },
+      error: { message: "Missing", name: "PrachtHttpError", status: 404 },
+    });
   });
 
   it("skips 404.html when the app has no notFound page, and the fallback when unconfigured", async () => {

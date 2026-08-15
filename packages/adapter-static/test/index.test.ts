@@ -33,9 +33,10 @@ describe("staticAdapter", () => {
     expect(source).toContain("app: staticNotFoundApp");
     expect(source).toContain("if (!resolvedApp.notFound) return null;");
     expect(source).toContain("Static export failed to render the notFound page");
-    expect(source).toContain("export function renderStaticFallbackHtml(notFoundData)");
+    expect(source).toContain("export function renderStaticFallbackHtml(notFoundState)");
     expect(source).toContain("head: staticExportConfig.fallbackHead ?? undefined,");
-    expect(source).toContain("notFoundData,");
+    expect(source).toContain("notFoundData: notFoundState?.data,");
+    expect(source).toContain("notFoundError: notFoundState?.error ?? null,");
     expect(source).toContain("createStaticPreviewHandler");
   });
 
