@@ -6,8 +6,8 @@ prev:
   href: /docs/recipes/testing
   title: Testing
 next:
-  href: /docs/recipes/fullstack-cloudflare
-  title: Full-Stack Cloudflare
+  href: /docs/recipes/streaming
+  title: Streaming
 ---
 
 ## Recommended Shape

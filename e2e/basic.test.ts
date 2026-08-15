@@ -462,6 +462,21 @@ test("GET /api/nonexistent falls through to 404", async ({ request }) => {
 });
 
 // ---------------------------------------------------------------------------
+// Server-Sent Events: /api/live (createEventStream) + /live (useEventSource)
+// ---------------------------------------------------------------------------
+
+test("live page opens an SSE connection and renders streamed events", async ({ page }) => {
+  await page.goto("/live");
+
+  // The hook reports the EventSource lifecycle...
+  await expect(page.getByTestId("live-status")).toHaveText("open", { timeout: 10_000 });
+  // ...and streamed `tick` events reach the DOM. Asserting on tick content
+  // proves the whole chain: createEventStream wire format → dev-server
+  // streaming (not buffering) → EventSource parse → JSON option → render.
+  await expect(page.getByTestId("live-tick")).toContainText("tick", { timeout: 10_000 });
+});
+
+// ---------------------------------------------------------------------------
 // Hydration
 // ---------------------------------------------------------------------------
 

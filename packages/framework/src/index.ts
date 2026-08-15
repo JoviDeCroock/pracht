@@ -132,6 +132,20 @@ export {
   setCapabilityApprovalPrincipalResolver,
 } from "./runtime-approval.ts";
 export type { MemoryApprovalStoreOptions } from "./runtime-approval.ts";
+export {
+  createEventStream,
+  serializeEventStreamMessage,
+  type EventStream,
+  type EventStreamInit,
+  type EventStreamMessage,
+} from "./event-stream.ts";
+export { isUpgradeRequest } from "./upgrade.ts";
+export {
+  useEventSource,
+  type EventSourceState,
+  type EventSourceStatus,
+  type UseEventSourceOptions,
+} from "./event-source-hook.ts";
 export { forwardRef } from "./forwardRef.ts";
 export { useIsHydrated } from "./hydration.ts";
 export { Script } from "./script.ts";

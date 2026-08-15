@@ -41,6 +41,12 @@ declare module "@pracht/core" {
         search: SearchParamsInput;
         data: RouteLoaderData<typeof import("./routes/gallery")>;
       };
+      "live": {
+        path: "/live";
+        params: Record<never, never>;
+        search: SearchParamsInput;
+        data: RouteLoaderData<typeof import("./routes/live")>;
+      };
       "dashboard": {
         path: "/dashboard";
         params: Record<never, never>;
@@ -74,6 +80,11 @@ declare module "@pracht/core" {
         path: "/api/health";
         params: Record<never, never>;
         methods: ApiRouteMethodMap<typeof import("./api/health")>;
+      };
+      "/api/live": {
+        path: "/api/live";
+        params: Record<never, never>;
+        methods: ApiRouteMethodMap<typeof import("./api/live")>;
       };
     };
   }

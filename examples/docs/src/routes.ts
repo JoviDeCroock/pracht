@@ -152,6 +152,10 @@ export const app = defineApp({
         id: "recipes-logging",
         render: "ssg",
       }),
+      route("/docs/recipes/streaming", () => import("./routes/docs/recipes-streaming.md"), {
+        id: "recipes-streaming",
+        render: "ssg",
+      }),
       route("/docs/recipes/fullstack-cloudflare", "./routes/docs/recipes-fullstack-cloudflare.md", {
         id: "recipes-fullstack-cloudflare",
         render: "ssg",

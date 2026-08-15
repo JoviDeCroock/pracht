@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { Readable } from "node:stream";
 import { join, resolve } from "node:path";
 import type { Connect, EnvironmentModuleNode, ViteDevServer } from "vite";
 import type {
@@ -24,6 +25,10 @@ const CSS_MODULE_URL_RE = /\.(?:css|less|sass|scss|styl|stylus|pcss|postcss|sss)
 export const DEVTOOLS_PATH = "/_pracht";
 export const DEVTOOLS_JSON_PATH = "/_pracht.json";
 export const LLMS_TXT_PATH = "/llms.txt";
+
+export function isEventStreamContentType(contentType: string): boolean {
+  return contentType.split(";", 1)[0]?.trim().toLowerCase() === "text/event-stream";
+}
 
 export function createDevSSRMiddleware(
   server: ViteDevServer,
@@ -171,6 +176,36 @@ export function createDevSSRMiddleware(
       // `<script type="module" src="/@vite/client">` as its body, and so did
       // redirects.
       const contentType = response.headers.get("content-type") ?? "";
+
+      // A Server-Sent Events response never ends, so buffering it through
+      // `response.text()` below would hang the request forever — dev would
+      // diverge from every production adapter, all of which stream. Pipe it
+      // through untouched, and cancel the source when the client disconnects
+      // so `createEventStream()` cleanup (keep-alive timers, producer loops)
+      // runs in dev exactly as it does in production.
+      if (response.body && isEventStreamContentType(contentType)) {
+        res.statusCode = response.status;
+        response.headers.forEach((value: string, key: string) => {
+          res.setHeader(key, value);
+        });
+        const source = Readable.fromWeb(response.body as Parameters<typeof Readable.fromWeb>[0]);
+        // The client may already have hung up while the handler ran; `close`
+        // has then already fired and the listener below would never run,
+        // leaving the stream (and its keep-alive timer) alive forever.
+        if (res.destroyed || res.writableEnded) {
+          source.destroy();
+          return;
+        }
+        res.on("close", () => {
+          if (!res.writableFinished) source.destroy();
+        });
+        source.on("error", () => {
+          res.destroy();
+        });
+        source.pipe(res);
+        return;
+      }
+
       let body = await response.text();
 
       if (contentType.includes("text/html")) {
