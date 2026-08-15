@@ -132,6 +132,9 @@ describe("exportsMiddleware", () => {
     ["export const [mw] = createAuth();", false],
     ['export * from "./shared.ts";', true],
     ["export { a, mw as middleware, b };", true],
+    ["const type = 1;\nexport { type as middleware };", true],
+    ['export { type middleware } from "./types.ts";', false],
+    ['export { type Middleware as middleware } from "./types.ts";', false],
     // `middleware as default` exports `default`, not `middleware` — the exact
     // mistake this check exists to catch.
     ["const middleware = 1;\nexport { middleware as default };", false],
