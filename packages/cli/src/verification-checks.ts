@@ -292,7 +292,13 @@ export function exportsMiddleware(source: string): boolean {
 
   for (const clause of code.matchAll(/export\s*\{([^}]*)\}/g)) {
     for (const specifier of clause[1].split(",")) {
-      const parts = specifier.trim().split(/\s+as\s+/);
+      const trimmed = specifier.trim();
+      // `export { type Middleware as middleware }` exposes no runtime value.
+      // Keep `export { type as middleware }` valid: there `type` is the local
+      // value binding, not TypeScript's type-only specifier modifier.
+      if (/^type\s+(?!as\b)/.test(trimmed)) continue;
+
+      const parts = trimmed.split(/\s+as\s+/);
       if (parts.length === 0 || parts[0] === "") continue;
       // `a as b` exports `b`; a bare `a` exports `a`.
       const exported = (parts.length > 1 ? parts[parts.length - 1] : parts[0]).trim();

@@ -41,7 +41,8 @@ export function scanPagesDirectory(
 ): PagesFile[] {
   return listFilesRecursively(pagesDir)
     .filter(
-      (file) => isPageSource(file, additionalExtensions) || isInsideMiddlewareDirectory(pagesDir, file),
+      (file) =>
+        isPageSource(file, additionalExtensions) || isInsideMiddlewareDirectory(pagesDir, file),
     )
     .map((file) => describePagesFile(pagesDir, file, additionalExtensions));
 }
