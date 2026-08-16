@@ -291,26 +291,63 @@ export function exportsMiddleware(source: string): boolean {
   if (/export\s*\*\s*from/.test(code)) return true;
 
   for (const clause of code.matchAll(/export\s*\{([^}]*)\}/g)) {
-    for (const specifier of clause[1].split(",")) {
+    const clauseStart = (clause.index ?? 0) + clause[0].indexOf("{") + 1;
+    const sourceClause = source.slice(clauseStart, clauseStart + clause[1].length);
+    for (const [specifier, sourceSpecifier] of splitTopLevelPairs(clause[1], sourceClause)) {
       const trimmed = specifier.trim();
       // `export { type Middleware as middleware }` exposes no runtime value.
       // Keep `export { type as middleware }` valid: there `type` is the local
       // value binding, not TypeScript's type-only specifier modifier.
       if (/^type\s+(?!as\b)/.test(trimmed)) continue;
 
-      const parts = trimmed.split(/\s+as\s+/);
-      if (parts.length === 0 || parts[0] === "") continue;
+      // Do not consume trailing whitespace: a quoted export name is entirely
+      // masked, so a greedy `\s+` would swallow the name's source span too.
+      const separator = [...specifier.matchAll(/\s+as\b/g)].at(-1);
+      const local = (separator ? specifier.slice(0, separator.index) : specifier).trim();
+      if (local === "" && !separator) continue;
       // `a as b` exports `b`; a bare `a` exports `a`.
-      const exported = (parts.length > 1 ? parts[parts.length - 1] : parts[0]).trim();
+      const exportedStart = separator ? (separator.index ?? 0) + separator[0].length : 0;
+      const exported = readExportedName(
+        specifier.slice(exportedStart),
+        sourceSpecifier.slice(exportedStart),
+      );
       if (exported !== "middleware") continue;
 
-      const local = parts[0].trim();
       if (isProvablyTypeOnlyLocalBinding(code, local)) continue;
       return true;
     }
   }
 
   return false;
+}
+
+/** Pair top-level comma-separated masked text with the same slices of source. */
+function splitTopLevelPairs(masked: string, source: string): Array<[string, string]> {
+  const pairs: Array<[string, string]> = [];
+  let depth = 0;
+  let start = 0;
+  for (let index = 0; index < masked.length; index += 1) {
+    const char = masked[index];
+    if (char === "{" || char === "[" || char === "(") depth += 1;
+    else if (char === "}" || char === "]" || char === ")") depth -= 1;
+    else if (char === "," && depth === 0) {
+      pairs.push([masked.slice(start, index), source.slice(start, index)]);
+      start = index + 1;
+    }
+  }
+  pairs.push([masked.slice(start), source.slice(start)]);
+  return pairs;
+}
+
+function readExportedName(masked: string, source: string): string {
+  const identifier = masked.trim();
+  if (identifier) return identifier;
+
+  // Arbitrary module identifiers are valid export names. In particular,
+  // `export { fn as "middleware" }` creates the same runtime namespace entry
+  // as the unquoted spelling, even though masking correctly hides the string.
+  const quoted = /^(?:"middleware"|'middleware')$/.exec(source.trim());
+  return quoted ? "middleware" : "";
 }
 
 function isProvablyTypeOnlyLocalBinding(code: string, name: string): boolean {
