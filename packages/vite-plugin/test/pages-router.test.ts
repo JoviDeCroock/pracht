@@ -614,6 +614,24 @@ describe("generatePagesManifestSource", () => {
     );
   });
 
+  it("rejects _middleware files using a configured custom page extension", () => {
+    const pagesDir = makeTempPagesDir();
+
+    writeFileSync(join(pagesDir, "index.vue"), "<template><main>Home</main></template>\n");
+    writeFileSync(
+      join(pagesDir, "_middleware.vue"),
+      "<script>export const middleware = async (_args, next) => next();</script>\n",
+    );
+
+    const additionalExtensions = [".vue"];
+    expect(() =>
+      generatePagesManifestSource(scanPagesDirectory(pagesDir, additionalExtensions), {
+        additionalExtensions,
+        pagesDir,
+      }),
+    ).toThrow(/cannot use the "\.vue" extension/);
+  });
+
   it("emits ejected route and notFound refs relative to the manifest directory", () => {
     const pagesDir = makeTempPagesDir();
     mkdirSync(join(pagesDir, "blog"), { recursive: true });
@@ -675,6 +693,22 @@ describe("generatePagesManifestSource", () => {
   it.each([
     ["type-only star re-export", 'export type * from "./middleware-types";\n'],
     ["namespace re-export", 'export * as middleware from "./middleware";\n'],
+    [
+      "local type alias exported as a value",
+      "type Contract = (_args: unknown, next: () => unknown) => unknown;\nexport { Contract as middleware };\n",
+    ],
+    [
+      "local interface exported as a value",
+      "interface Contract { (_args: unknown, next: () => unknown): unknown }\nexport { Contract as middleware };\n",
+    ],
+    [
+      "type-only import exported as a value",
+      'import type { MiddlewareFn as Contract } from "@pracht/core";\nexport { Contract as middleware };\n',
+    ],
+    [
+      "ambient declaration exported as a value",
+      "declare const Contract: unknown;\nexport { Contract as middleware };\n",
+    ],
   ])("rejects a %s as pages middleware", (_description, source) => {
     const pagesDir = makeTempPagesDir();
 

@@ -903,10 +903,11 @@ Scope and limits:
   handlers in plain higher-order functions instead
   (`export const GET = withAuth(handler)`).
 - **Root level only, single file.** A `_middleware.ts` inside a
-  subdirectory, a `_middleware/` directory, and a `_middleware.tsrx` file
-  are hard errors at build, `doctor`, and `verify` time — never silently
-  ignored files that look like an auth gate. Per-group middleware requires
-  ejecting to an explicit manifest.
+  subdirectory, a `_middleware/` directory, and middleware-shaped files using
+  unsupported page extensions (including `.tsrx` and configured custom formats)
+  are hard errors at build, `doctor`, and `verify` time — never silently ignored
+  files that look like an auth gate. Per-group middleware requires ejecting to
+  an explicit manifest.
 - **Runs for page rendering and route state.** For `ssr` (the default) and
   `spa` routes that is every document and client-side route-state request.
   `ssg` and `isg` documents render at build/revalidation time on a sanitized
