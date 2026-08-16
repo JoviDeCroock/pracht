@@ -36,10 +36,14 @@ describe("buildStaticRouteStateUrl", () => {
     );
   });
 
-  it("preserves percent-encoded segments exactly as the build wrote them", () => {
-    expect(buildStaticRouteStateUrl("/posts/caf%C3%A9")).toBe(
+  it("canonicalizes equivalent URL segment spellings to the same state file", () => {
+    const encoded = buildStaticRouteStateUrl("/posts/caf%C3%A9");
+    expect(encoded).toBe(
       "/_pracht/state/s-0070006f007300740073/s-006300610066002500430033002500410039/_state.json",
     );
+    expect(buildStaticRouteStateUrl("/posts/caf%c3%a9")).toBe(encoded);
+    expect(buildStaticRouteStateUrl("/posts/café")).toBe(encoded);
+    expect(buildStaticRouteStateUrl("/posts/caf%65")).toBe(buildStaticRouteStateUrl("/posts/cafe"));
   });
 
   it("splits long segments below filesystem component limits without losing identity", () => {

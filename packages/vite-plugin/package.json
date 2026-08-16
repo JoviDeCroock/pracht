@@ -46,6 +46,7 @@
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
+    "@babel/parser": "^7.29.2",
     "@pracht/adapter-node": "workspace:*",
     "@pracht/capabilities": "workspace:*",
     "@pracht/core": "workspace:*",

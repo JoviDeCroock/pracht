@@ -1297,8 +1297,10 @@ client-side fetch to an external API instead.
   The build prints the decoded target next to each route path. Escapes that
   would decode into a path separator (`%2F`), a relative segment (`%2E%2E`),
   or the reserved `_pracht` namespace (`%5Fpracht`) are build errors, as is
-  malformed percent-encoding. Route-state files are unaffected: they key off
-  the raw encoded pathname and their component names are pure ASCII hex.
+  malformed percent-encoding. Route-state files canonicalize each segment
+  before deriving their pure-ASCII hex components, so raw Unicode, lowercase
+  percent escapes, and escaped unreserved characters resolve to the same state
+  file as the build output.
 - **Base paths** (deploying under a sub-path such as GitHub Pages project
   sites) are not wired through: prerendered asset and state URLs are
   root-relative. A static build with Vite `base` set to anything but `/` is a
@@ -1312,7 +1314,8 @@ tooling — nothing in it is deployed. Running it (or `pracht preview`) serves
 `dist/client/` with a tiny static file server (`createStaticPreviewHandler`)
 that mirrors a plain host: files, clean URLs, `404.html` for misses, and the
 configured `200.html` rewrite. It reuses `@pracht/adapter-node`'s hardened
-static file resolution (NUL/backslash/symlink/traversal guards).
+static file resolution (NUL/backslash/symlink/traversal guards) and decodes URL
+segments to the same filesystem spelling used by static-export page output.
 
 ---
 

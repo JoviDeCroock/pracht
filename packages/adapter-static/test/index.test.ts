@@ -92,6 +92,8 @@ describe("createStaticPreviewHandler", () => {
     writeFileSync(resolve(staticDir, "index.html"), "<h1>home</h1>", "utf-8");
     mkdirSync(resolve(staticDir, "about"), { recursive: true });
     writeFileSync(resolve(staticDir, "about/index.html"), "<h1>about</h1>", "utf-8");
+    mkdirSync(resolve(staticDir, "café"), { recursive: true });
+    writeFileSync(resolve(staticDir, "café/index.html"), "<h1>café</h1>", "utf-8");
     mkdirSync(resolve(staticDir, "assets"), { recursive: true });
     writeFileSync(resolve(staticDir, "assets/app-abc.js"), "console.log(1)", "utf-8");
     mkdirSync(resolve(staticDir, "_pracht/state/s-00610062006f00750074"), { recursive: true });
@@ -126,6 +128,14 @@ describe("createStaticPreviewHandler", () => {
     expect(about.status).toBe(200);
     expect(about.headers.get("content-type")).toContain("text/html");
     expect(await about.text()).toContain("about");
+
+    const unicode = await fetch(`${origin}/caf%C3%A9`);
+    expect(unicode.status).toBe(200);
+    expect(await unicode.text()).toContain("café");
+
+    const escapedAscii = await fetch(`${origin}/%61bout`);
+    expect(escapedAscii.status).toBe(200);
+    expect(await escapedAscii.text()).toContain("about");
 
     const state = await fetch(`${origin}/_pracht/state/s-00610062006f00750074/_state.json`);
     expect(state.status).toBe(200);
@@ -168,6 +178,13 @@ describe("createStaticPreviewHandler", () => {
     // Falls through to the 404 document rather than serving anything outside.
     expect(attempt.status).toBe(404);
     expect(await attempt.text()).toContain("not found page");
+  });
+
+  it("rejects encoded path separators", async () => {
+    const { origin } = await startPreview();
+    const attempt = await fetch(`${origin}/about%2Findex.html`);
+    expect(attempt.status).toBe(400);
+    expect(await attempt.text()).toBe("Bad request");
   });
 
   it("supports HEAD and rejects other methods", async () => {
