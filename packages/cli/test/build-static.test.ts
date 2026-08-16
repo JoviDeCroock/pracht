@@ -370,6 +370,21 @@ describe("validateStaticExport", () => {
     ).resolves.toBeUndefined();
   });
 
+  it("fails fast when a custom static target omits required artifact renderers", async () => {
+    const error = await validateStaticExport({
+      staticTarget: true,
+      resolvedApp: {
+        notFound: { path: "/__pracht-not-found__" },
+        routes: [{ path: "/", render: "ssg" }],
+      },
+      staticExportConfig: { fallback: "200.html", fallbackHead: {} },
+    }).catch((thrown: Error) => thrown);
+
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toContain("renderStaticNotFoundHtml");
+    expect((error as Error).message).toContain("renderStaticFallbackHtml");
+  });
+
   it("aggregates every problem into one error", async () => {
     const error = await validateStaticExport({
       resolvedApp: { routes: [{ path: "/x", render: "ssr" }] },
@@ -425,6 +440,16 @@ describe("validateStaticExportOutputPaths", () => {
           resolvedApp: { routes: [] },
         }),
       ).toThrow(/not a portable Windows filename/);
+    }
+  });
+
+  it("rejects output components that exceed portable filesystem limits", () => {
+    for (const path of [`/${"a".repeat(256)}`, `/${"é".repeat(128)}`]) {
+      expect(() =>
+        validateStaticExportOutputPaths([{ path }], {
+          resolvedApp: { routes: [] },
+        }),
+      ).toThrow(/portable 255-byte\/code-unit filename limit/);
     }
   });
 
@@ -514,6 +539,41 @@ describe("resolveRouteStateOutputPath", () => {
 });
 
 describe("writeStaticExportArtifacts", () => {
+  it("fails before writing when a custom static target omits the not-found renderer", async () => {
+    const clientDir = createTempDir();
+
+    await expect(
+      writeStaticExportArtifacts({
+        clientDir,
+        pages: [{ path: "/", routeState: "{}" }],
+        serverMod: {
+          resolvedApp: { routes: [], notFound: { path: "/*" } },
+          staticExportConfig: { fallback: null },
+        },
+        log: () => {},
+      }),
+    ).rejects.toThrow(/does not export renderStaticNotFoundHtml/);
+    expect(existsSync(resolveRouteStateOutputPath(clientDir, "/"))).toBe(false);
+  });
+
+  it("fails before writing when a custom static target omits the fallback renderer", async () => {
+    const clientDir = createTempDir();
+
+    await expect(
+      writeStaticExportArtifacts({
+        clientDir,
+        pages: [{ path: "/", routeState: "{}" }],
+        serverMod: {
+          resolvedApp: { routes: [] },
+          staticExportConfig: { fallback: "200.html" },
+          renderStaticNotFoundHtml: async () => null,
+        },
+        log: () => {},
+      }),
+    ).rejects.toThrow(/does not export renderStaticFallbackHtml/);
+    expect(existsSync(resolveRouteStateOutputPath(clientDir, "/"))).toBe(false);
+  });
+
   it("writes state files, 404.html, and the configured fallback", async () => {
     const clientDir = createTempDir();
     const logs: string[] = [];

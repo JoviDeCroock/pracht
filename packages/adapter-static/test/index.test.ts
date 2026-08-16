@@ -64,6 +64,15 @@ describe("staticAdapter", () => {
     expect(() => staticAdapter({ fallback: "404.html" })).toThrow(/reserved/);
     expect(() => staticAdapter({ fallback: "404.HTML" })).toThrow(/reserved/);
   });
+
+  it("rejects fallback names that are not portable", () => {
+    for (const fallback of ["CON.html", "aux.html", "com9.html", "LPT1.html"]) {
+      expect(() => staticAdapter({ fallback })).toThrow(/not a portable file name/);
+    }
+    expect(() => staticAdapter({ fallback: `${"a".repeat(251)}.html` })).toThrow(
+      /not a portable file name/,
+    );
+  });
 });
 
 describe("createStaticPreviewHandler", () => {

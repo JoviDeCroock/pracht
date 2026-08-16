@@ -173,6 +173,29 @@ export async function validateStaticExport(serverMod: StaticServerModuleView): P
     );
   }
 
+  if (
+    serverMod.staticTarget === true &&
+    notFound &&
+    typeof serverMod.renderStaticNotFoundHtml !== "function"
+  ) {
+    problems.push(
+      "the generated server entry cannot render 404.html because it does not export " +
+        "renderStaticNotFoundHtml(). Reuse staticAdapter() or createStaticServerEntryModule() " +
+        "when building a custom static target.",
+    );
+  }
+  if (
+    serverMod.staticTarget === true &&
+    serverMod.staticExportConfig?.fallback &&
+    typeof serverMod.renderStaticFallbackHtml !== "function"
+  ) {
+    problems.push(
+      `the generated server entry cannot render ${serverMod.staticExportConfig.fallback} because it does not export ` +
+        "renderStaticFallbackHtml(). Reuse staticAdapter() or createStaticServerEntryModule() " +
+        "when building a custom static target.",
+    );
+  }
+
   // Reserved output namespace: the build writes framework metadata and the
   // serialized route-state tree under dist/client/_pracht/.
   const reservedRoutes = routes.filter((route) => isReservedStaticOutputPath(route.path));
@@ -507,9 +530,20 @@ function assertNoPrerenderedPageOutputCollisions(pages: Array<{ path: string }>)
 
 const WINDOWS_RESERVED_OUTPUT_NAME_RE = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/i;
 const WINDOWS_INVALID_OUTPUT_CHARACTERS = '<>:"\\|?*';
+const PORTABLE_OUTPUT_COMPONENT_MAX_LENGTH = 255;
 
 function normalizePortableOutputPart(part: string, pagePath: string): string {
   const normalized = part.normalize("NFC");
+  if (
+    normalized.length > PORTABLE_OUTPUT_COMPONENT_MAX_LENGTH ||
+    Buffer.byteLength(normalized, "utf-8") > PORTABLE_OUTPUT_COMPONENT_MAX_LENGTH
+  ) {
+    throw new Error(
+      `Static export cannot write prerendered page ${JSON.stringify(pagePath)} because output component ` +
+        `${JSON.stringify(part)} exceeds the portable 255-byte/code-unit filename limit. ` +
+        "Use shorter route segments or getStaticPaths() params.",
+    );
+  }
   const hasInvalidWindowsCharacter = [...normalized].some(
     (character) =>
       WINDOWS_INVALID_OUTPUT_CHARACTERS.includes(character) || character.charCodeAt(0) < 32,
@@ -581,6 +615,20 @@ export async function writeStaticExportArtifacts(options: {
   const { clientDir, pages, serverMod, log } = options;
   const configuredFallback = serverMod.staticExportConfig?.fallback ?? null;
   validateStaticExportOutputPaths(pages, serverMod);
+  if (serverMod.resolvedApp?.notFound && typeof serverMod.renderStaticNotFoundHtml !== "function") {
+    throw new Error(
+      "Static export cannot emit 404.html because the static adapter's generated server entry " +
+        "does not export renderStaticNotFoundHtml(). Reuse staticAdapter() or " +
+        "createStaticServerEntryModule() when building a custom static target.",
+    );
+  }
+  if (configuredFallback && typeof serverMod.renderStaticFallbackHtml !== "function") {
+    throw new Error(
+      `Static export cannot emit ${configuredFallback} because the static adapter's generated server entry ` +
+        "does not export renderStaticFallbackHtml(). Reuse staticAdapter() or " +
+        "createStaticServerEntryModule() when building a custom static target.",
+    );
+  }
 
   let stateFileCount = 0;
   for (const page of pages) {
