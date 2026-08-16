@@ -49,7 +49,11 @@ app's router mode, then read each middleware file and classify it:
 - **Pages router:** when the Vite config sets `pagesDir`, the generated name
   `"pages"` resolves to the root `<pagesDir>/_middleware.ts` (or `.tsx`, `.js`,
   or `.jsx`). It applies to every page route and never wraps API routes. There
-  is no `src/routes.ts` manifest to inspect unless the app has ejected.
+  is no `src/routes.ts` manifest to inspect unless the app has ejected. Follow
+  imports and re-exports into underscore-reserved helpers such as
+  `<pagesDir>/_server/auth.ts`; Pracht excludes those helpers from client
+  route/shell registries, but a direct import from client code still bundles
+  them and should be treated as a server-code leak.
 
 Then classify each resolved middleware module:
 

@@ -21,12 +21,14 @@ unsupported page extensions such as `.tsrx` or a configured custom format
 root-level files, and a module without a runtime `middleware` export all fail
 the build, `pracht doctor`, and `pracht verify` (the runtime already refused to
 serve routes whose middleware lacks the export). The client bundle excludes
-`_middleware` files from the pages route and shell globs in both auto-discovered
-and ejected layouts, and the client transform strips `middleware` exports as a
-second boundary, so server-only middleware code and imports are never emitted
-as browser-loadable chunks. That transform is scoped to the dedicated root
-middleware module, so an unrelated route or shell export named `middleware`
-keeps its normal client-module semantics.
+`_middleware` and its underscore-reserved helper files/directories from the
+pages route and shell globs in both auto-discovered and ejected layouts, and the
+client transform strips `middleware` exports as a second boundary, so
+server-only middleware code and imports are never emitted as browser-loadable
+chunks even when the root module re-exports an implementation from a reserved
+helper. That transform is scoped to the dedicated root middleware module, so an
+unrelated route or shell export named `middleware` keeps its normal
+client-module semantics.
 
 The pages scanner now applies the documented underscore reservation to whole
 directory trees as well as files, so helpers such as

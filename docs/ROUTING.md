@@ -908,6 +908,11 @@ Scope and limits:
   are hard errors at build, `doctor`, and `verify` time — never silently ignored
   files that look like an auth gate. Per-group middleware requires ejecting to
   an explicit manifest.
+- **Server-only helpers stay server-only.** Middleware implementations can live
+  in an underscore-reserved helper such as `pages/_server/auth.ts` and be
+  imported or re-exported by `_middleware.ts`. Reserved files and directory
+  trees are excluded from the client route/shell registries, so they enter a
+  browser bundle only if client code imports them directly.
 - **Runs for page rendering and route state.** For `ssr` (the default) and
   `spa` routes that is every document and client-side route-state request.
   `ssg` and `isg` documents render at build/revalidation time on a sanitized

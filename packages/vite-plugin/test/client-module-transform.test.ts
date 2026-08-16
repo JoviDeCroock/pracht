@@ -669,7 +669,7 @@ describe("client route module build", () => {
 
   it("keeps ejected pages middleware out of the client bundle", async () => {
     const root = makeTempProject();
-    mkdirSync(join(root, "src", "pages"), { recursive: true });
+    mkdirSync(join(root, "src", "pages", "_server"), { recursive: true });
 
     writeFileSync(
       join(root, "src", "routes.ts"),
@@ -693,12 +693,20 @@ export const app = defineApp({
     );
     writeFileSync(
       join(root, "src", "pages", "_app.tsx"),
-      "export function Shell({ children }) { return <div>{children}</div>; }\n",
+      [
+        'export function head() { return { title: "EJECTED_SERVER_HEAD" }; }',
+        "export function Shell({ children }) { return <div>{children}</div>; }",
+        "",
+      ].join("\n"),
     );
     writeFileSync(
       join(root, "src", "pages", "_middleware.ts"),
+      'export { middleware } from "./_server/auth.ts";\n',
+    );
+    writeFileSync(
+      join(root, "src", "pages", "_server", "auth.ts"),
       [
-        'import { serverSecret } from "../server-secret";',
+        'const serverSecret = "EJECTED_MIDDLEWARE_SERVER_SECRET";',
         "export const middleware = async (_args, next) => {",
         "  const response = await next();",
         '  response.headers.set("x-secret", serverSecret);',
@@ -706,10 +714,6 @@ export const app = defineApp({
         "};",
         "",
       ].join("\n"),
-    );
-    writeFileSync(
-      join(root, "src", "server-secret.ts"),
-      'export const serverSecret = "EJECTED_MIDDLEWARE_SERVER_SECRET";\n',
     );
 
     await buildTempProject(root, {
@@ -722,9 +726,46 @@ export const app = defineApp({
     const output = readBuiltJs(root);
     expect(output).toContain("EJECTED_PAGE_COMPONENT");
     expect(output).not.toContain("EJECTED_MIDDLEWARE_SERVER_SECRET");
+    expect(output).not.toContain("EJECTED_SERVER_HEAD");
     expect(output).not.toContain("x-secret");
     expect(readdirSync(join(root, "dist", "assets"))).not.toContainEqual(
-      expect.stringMatching(/^_middleware-/),
+      expect.stringMatching(/^(?:_middleware|auth)-/),
+    );
+  });
+
+  it("keeps pages middleware helpers out of the client bundle", async () => {
+    const root = makeTempProject();
+    mkdirSync(join(root, "src", "pages", "_server"), { recursive: true });
+
+    writeFileSync(
+      join(root, "src", "pages", "index.tsx"),
+      "export function Component() { return <main>PAGES_COMPONENT</main>; }\n",
+    );
+    writeFileSync(
+      join(root, "src", "pages", "_middleware.ts"),
+      'export { middleware } from "./_server/auth.ts";\n',
+    );
+    writeFileSync(
+      join(root, "src", "pages", "_server", "auth.ts"),
+      [
+        'const SERVER_SECRET = "PAGES_MIDDLEWARE_SERVER_SECRET";',
+        "export const middleware = async (_args, next) => {",
+        "  const response = await next();",
+        '  response.headers.set("x-secret", SERVER_SECRET);',
+        "  return response;",
+        "};",
+        "",
+      ].join("\n"),
+    );
+
+    await buildTempProject(root);
+
+    const output = readBuiltJs(root);
+    expect(output).toContain("PAGES_COMPONENT");
+    expect(output).not.toContain("PAGES_MIDDLEWARE_SERVER_SECRET");
+    expect(output).not.toContain("x-secret");
+    expect(readdirSync(join(root, "dist", "assets"))).not.toContainEqual(
+      expect.stringMatching(/^(?:_middleware|auth)-/),
     );
   });
 
