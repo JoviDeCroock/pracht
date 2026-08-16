@@ -47,16 +47,19 @@ describe("scanPagesDirectory", () => {
     writeFileSync(join(pagesDir, "_app.custom"), "export function Shell() { return null; }\n");
 
     expect(scanPagesDirectory(pagesDir)).toEqual([]);
-    expect(
-      scanPagesDirectory(pagesDir, [".custom"]).map((page) => [page.routePath, page.relativePath]),
-    ).toEqual([["/", "index.custom"]]);
+    const customPages = scanPagesDirectory(pagesDir, [".custom"]);
+    expect(customPages.map((page) => [page.routePath, page.relativePath])).toEqual([
+      ["/", "index.custom"],
+    ]);
+    expect(customPages[0]?.hasHead).toBe(true);
 
-    const source = generatePagesManifestSource(scanPagesDirectory(pagesDir, [".custom"]), {
+    const source = generatePagesManifestSource(customPages, {
       additionalExtensions: [".custom"],
       pagesDir,
     });
     expect(source).toContain("shells: {");
     expect(source).toContain("_app.custom");
+    expect(source).toContain("hasHead: true");
   });
 
   it("includes markdown and mdx pages in the generated route list", () => {

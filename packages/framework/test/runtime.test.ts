@@ -987,6 +987,41 @@ describe("handlePrachtRequest cache variance", () => {
     expect(payload.fontHead.preloadLinks).toEqual(routeFont.preloadLinks);
   });
 
+  it.each([
+    { body: null, label: "empty", status: 204 },
+    { body: "{not-json", label: "malformed", status: 200 },
+  ])("preserves $label JSON-labelled middleware responses", async ({ body, status }) => {
+    const app = defineApp({
+      middleware: { gate: "./middleware/gate.ts" },
+      routes: [route("/gate", "./routes/gate.tsx", { middleware: ["gate"] })],
+    });
+
+    const response = await handlePrachtRequest({
+      app,
+      registry: {
+        middlewareModules: {
+          "./middleware/gate.ts": async () => ({
+            middleware: async () =>
+              new Response(body, {
+                headers: { "content-type": "application/json" },
+                status,
+              }),
+          }),
+        },
+        routeModules: {
+          "./routes/gate.tsx": async () => ({ Component: () => null }),
+        },
+      },
+      request: new Request("http://localhost/gate", {
+        headers: { "x-pracht-route-state-request": "1" },
+      }),
+    });
+
+    expect(response.status).toBe(status);
+    expect(response.headers.get("content-type")).toBe("application/json");
+    await expect(response.text()).resolves.toBe(body ?? "");
+  });
+
   it.each(["return", "throw"] as const)(
     "includes empty font fragments when loaders %s JSON without a head",
     async (delivery) => {

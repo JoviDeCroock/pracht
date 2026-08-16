@@ -1,4 +1,7 @@
-import { describe, expect, it, vi } from "vitest";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   isServerOnlyModuleFile,
   sendServerOnlyFullReload,
@@ -11,6 +14,15 @@ interface GraphEntry {
   file: string;
   type?: "js" | "css" | "asset";
 }
+
+const tempDirs: string[] = [];
+
+afterEach(() => {
+  while (tempDirs.length > 0) {
+    const dir = tempDirs.pop();
+    if (dir) rmSync(dir, { force: true, recursive: true });
+  }
+});
 
 // Vite never resolves or transforms the file-only entries it creates for plugin
 // watch dependencies, so they carry an `/@fs/`-prefixed url and a null id. Real
@@ -112,37 +124,64 @@ describe("sendServerOnlyFullReload", () => {
 });
 
 describe("pracht handleHotUpdate", () => {
-  it("invalidates generated client head hints when a shell changes", () => {
-    const shell = "/app/src/shells/public.tsx";
-    const clientModule = { id: PRACHT_CLIENT_MODULE_ID };
-    const invalidateModule = vi.fn();
-    const plugin = pracht().find((candidate) => candidate.name === "pracht");
-    const handleHotUpdate = plugin?.handleHotUpdate;
-    if (typeof handleHotUpdate !== "function") throw new Error("missing Pracht hot-update hook");
+  it.each(["add", "remove"] as const)(
+    "reloads generated client head state when a shell %ss head()",
+    async (operation) => {
+      const root = mkdtempSync(join(tmpdir(), "pracht-head-hmr-"));
+      tempDirs.push(root);
+      mkdirSync(join(root, "src", "routes"), { recursive: true });
+      mkdirSync(join(root, "src", "shells"), { recursive: true });
+      writeFileSync(join(root, "src", "routes.ts"), "export const app = {};\n");
+      const shell = join(root, "src", "shells", "public.tsx");
+      const headSource =
+        "export function head() { return { fonts: [] }; }\nexport function Shell() { return null; }\n";
+      const headlessSource = "export function Shell() { return null; }\n";
+      writeFileSync(shell, operation === "add" ? headlessSource : headSource);
 
-    handleHotUpdate.call(
-      {} as never,
-      {
-        file: shell,
-        server: {
-          config: { root: "/app" },
-          moduleGraph: {
-            getModuleById: (id: string) =>
-              id === PRACHT_CLIENT_MODULE_ID ? clientModule : undefined,
-            invalidateModule,
-          },
-          environments: {
-            client: {
-              moduleGraph: {
-                getModulesByFile: () => new Set([createModuleNode(shell)]),
+      const plugin = pracht().find((candidate) => candidate.name === "pracht");
+      const configResolved = plugin?.configResolved;
+      const load = plugin?.load;
+      const handleHotUpdate = plugin?.handleHotUpdate;
+      if (
+        typeof configResolved !== "function" ||
+        typeof load !== "function" ||
+        typeof handleHotUpdate !== "function"
+      ) {
+        throw new Error("missing Pracht development hooks");
+      }
+      configResolved.call({} as never, { command: "serve", root } as never);
+      await load.call({} as never, PRACHT_CLIENT_MODULE_ID);
+      writeFileSync(shell, operation === "add" ? headSource : headlessSource);
+
+      const shellModule = createModuleNode(shell);
+      const clientModule = { id: PRACHT_CLIENT_MODULE_ID };
+      const invalidateModule = vi.fn();
+      const result = await handleHotUpdate.call(
+        {} as never,
+        {
+          file: shell,
+          modules: [shellModule],
+          server: {
+            config: { root },
+            moduleGraph: {
+              getModuleById: (id: string) =>
+                id === PRACHT_CLIENT_MODULE_ID ? clientModule : undefined,
+              invalidateModule,
+            },
+            environments: {
+              client: {
+                moduleGraph: {
+                  getModulesByFile: () => new Set([shellModule]),
+                },
+                hot: { send: vi.fn() },
               },
-              hot: { send: vi.fn() },
             },
           },
-        },
-      } as never,
-    );
+        } as never,
+      );
 
-    expect(invalidateModule).toHaveBeenCalledWith(clientModule);
-  });
+      expect(invalidateModule).toHaveBeenCalledWith(clientModule);
+      expect(result).toEqual([shellModule, clientModule]);
+    },
+  );
 });

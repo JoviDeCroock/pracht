@@ -599,7 +599,7 @@ describe("client route module build", () => {
     expect(source).toContain('"/src/pages/index.tsx":false');
   });
 
-  it("embeds head hints for configured route and shell extensions", () => {
+  it("keeps configured route and shell extensions conservative for transformed heads", () => {
     const root = makeTempProject();
     mkdirSync(join(root, "src", "routes"), { recursive: true });
     mkdirSync(join(root, "src", "shells"), { recursive: true });
@@ -624,8 +624,10 @@ describe("client route module build", () => {
       { root },
     );
 
-    expect(source).toContain('"./routes/index.custom":false');
-    expect(source).toContain('"/src/routes/index.custom":false');
+    // The companion transform can synthesize head() from syntax that does not
+    // exist in the raw custom-format source, so false would be unsound here.
+    expect(source).toContain('"./routes/index.custom":true');
+    expect(source).toContain('"/src/routes/index.custom":true');
     expect(source).toContain('"./shells/app.custom":true');
     expect(source).toContain('"/src/shells/app.custom":true');
   });

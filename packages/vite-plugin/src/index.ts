@@ -39,6 +39,7 @@ import {
   createPrachtClientModuleSource,
   createPrachtDevModuleSource,
   createPrachtIslandsClientModuleSource,
+  createRouteHeadHintsForVirtualModules,
   createPrachtServerModuleSource,
 } from "./plugin-codegen.ts";
 import {
@@ -97,6 +98,7 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
   const isPagesMode = !!resolved.pagesDir;
   let root = process.cwd();
   let routeFileDirs: string[] = [];
+  let clientRouteHeadHints: Record<string, boolean> = {};
   const routeFileExtensions = withAdditionalExtensions(
     DEFAULT_ROUTE_EXTENSIONS,
     resolved.additionalExtensions,
@@ -276,6 +278,7 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
         return createPrachtIslandsClientModuleSource(resolved, { root });
       }
       if (isClientModule(id)) {
+        clientRouteHeadHints = createRouteHeadHintsForVirtualModules(resolved, root);
         return createPrachtClientModuleSource(resolved, { root });
       }
       if (isDevModule(id)) {
@@ -342,17 +345,42 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
       }
     },
 
-    handleHotUpdate({ file, server }) {
+    handleHotUpdate({ file, modules = [], server }) {
       const serverRoot = toPosixPath(server.config.root);
       const normalizedFile = toPosixPath(file);
       const relative = normalizedFile.startsWith(serverRoot)
         ? normalizedFile.slice(serverRoot.length)
         : normalizedFile;
+      const changesRouteHeadSource = isPagesMode
+        ? relative.startsWith(resolved.pagesDir)
+        : relative.startsWith(resolved.routesDir) || relative.startsWith(resolved.shellsDir);
+      let shouldReloadClientHead = false;
+      let clientHeadModule: ReturnType<typeof server.moduleGraph.getModuleById>;
+      if (changesRouteHeadSource) {
+        const previousHint = clientRouteHeadHints[relative];
+        try {
+          const nextHints = createRouteHeadHintsForVirtualModules(resolved, root);
+          shouldReloadClientHead = previousHint === true || nextHints[relative] === true;
+          clientRouteHeadHints = nextHints;
+        } catch {
+          // A file can be observed while its editor is replacing it. Reloading
+          // is the safe fallback because the previous or next module may own
+          // server-generated head state that cannot be patched in the browser.
+          shouldReloadClientHead = true;
+        }
+        clientHeadModule = server.moduleGraph.getModuleById(PRACHT_CLIENT_MODULE_ID);
+      }
 
       if (isPagesMode && relative.startsWith(resolved.pagesDir)) {
         clearPagesAppSourceCache();
         invalidateVirtualModules(server);
-        sendServerOnlyFullReload(server, file);
+        const sentFullReload = sendServerOnlyFullReload(server, file);
+        if (!sentFullReload && shouldReloadClientHead && clientHeadModule) {
+          // Invalidating a virtual module only clears Vite's transform cache;
+          // it does not add that module to this HMR update. Returning the root
+          // client module makes Vite reload the document and regenerate fonts.
+          return [...new Set([...modules, clientHeadModule])];
+        }
         return;
       }
 
@@ -403,7 +431,10 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
         }
       }
 
-      sendServerOnlyFullReload(server, file);
+      const sentFullReload = sendServerOnlyFullReload(server, file);
+      if (!sentFullReload && shouldReloadClientHead && clientHeadModule) {
+        return [...new Set([...modules, clientHeadModule])];
+      }
     },
   };
 

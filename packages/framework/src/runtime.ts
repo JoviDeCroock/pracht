@@ -111,7 +111,15 @@ async function attachFontHeadToRouteStateResponse<TContext>(options: {
   const contentType = response.headers.get("content-type") ?? "";
   if (!isJsonMediaType(contentType)) return response;
 
-  const payload = (await response.clone().json()) as unknown;
+  let payload: unknown;
+  try {
+    payload = await response.clone().json();
+  } catch {
+    // A middleware/loader Response is authoritative even when its declared
+    // JSON representation is empty, malformed, or otherwise unreadable. Font
+    // enrichment is optional and must not turn that response into a 500.
+    return response;
+  }
   if (payload === null || typeof payload !== "object" || Array.isArray(payload)) return response;
 
   const body = payload as Record<string, unknown>;

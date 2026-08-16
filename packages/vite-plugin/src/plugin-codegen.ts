@@ -476,7 +476,7 @@ function createApplyRouteLoaderHintsSource(): string[] {
   ];
 }
 
-function createRouteHeadHintsForVirtualModules(
+export function createRouteHeadHintsForVirtualModules(
   options: ResolvedPrachtPluginOptions,
   root = process.cwd(),
 ): Record<string, boolean> {

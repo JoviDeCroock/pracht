@@ -182,16 +182,20 @@ export function createRouteHeadHints(
 ): Record<string, boolean> {
   const files: string[] = [];
   const hints: Record<string, boolean> = {};
-  const extensions = withAdditionalExtensions(
-    DEFAULT_ROUTE_EXTENSIONS,
-    normalizeAdditionalExtensions(options.additionalExtensions),
-  );
+  const additionalExtensions = normalizeAdditionalExtensions(options.additionalExtensions);
+  const extensions = withAdditionalExtensions(DEFAULT_ROUTE_EXTENSIONS, additionalExtensions);
   scanRouteFiles(routesDir, files, extensions);
 
   for (const file of files) {
     const extension = extname(file);
     const hasHead =
-      extension === ".md" || extension === ".mdx" || detectHeadExport(readFileSync(file, "utf-8"));
+      extension === ".md" ||
+      extension === ".mdx" ||
+      // A companion Vite plugin may synthesize `head` while compiling a
+      // configured format (for example, from frontmatter). Raw-source scanning
+      // cannot prove such a module is headless, so keep navigation conservative.
+      additionalExtensions.includes(extension) ||
+      detectHeadExport(readFileSync(file, "utf-8"));
     const relativeToRoutesDir = toPosixPath(relative(routesDir, file));
     const routeRootPrefix = options.rootRelativePrefix?.replace(/\/$/, "");
     const keys = new Set<string>();

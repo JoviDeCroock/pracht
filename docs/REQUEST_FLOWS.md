@@ -33,6 +33,10 @@ If the target route and shell have no `head()` export and the route has neither
 a loader nor middleware, client navigation can skip the route-state request
 entirely and only load the route/shell modules.
 
+Configured custom route formats stay conservative: their Vite transform may
+synthesize `head()` from syntax such as frontmatter, so Pracht keeps the
+route-state request unless it can prove the transformed module is headless.
+
 ---
 
 ## SSR — Server-Side Rendering
