@@ -34,6 +34,9 @@ export interface PagesRouterOptions {
   additionalExtensions?: readonly string[];
 }
 
+export const GENERATED_PAGES_MANIFEST_MARKER =
+  "Auto-generated from pages/ directory by @pracht/vite-plugin.";
+
 // Mirrors the `middlewareDir` registry glob (`**/*.{ts,tsx,js,jsx}`): a pages
 // middleware file must be resolvable through the same runtime registry.
 const MIDDLEWARE_EXTENSIONS = new Set([".ts", ".tsx", ".js", ".jsx"]);
@@ -711,7 +714,7 @@ export function generateRoutesFile(
     useImportSyntax: true,
   }).replace("const app = defineApp(", "export const app = defineApp(");
   const source = [
-    "// Auto-generated from pages/ directory by @pracht/vite-plugin.",
+    `// ${GENERATED_PAGES_MANIFEST_MARKER}`,
     "// To use it directly: remove `pagesDir` from the pracht config, set `appFile` to this",
     "// file, and point `routesDir`/`shellsDir`/`middlewareDir` at the pages directory (or",
     "// move the referenced files into the conventional directories). The runtime resolves",

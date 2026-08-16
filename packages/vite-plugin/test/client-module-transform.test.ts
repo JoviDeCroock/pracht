@@ -20,6 +20,7 @@ import {
   pracht,
 } from "../src/index.ts";
 import { stripServerOnlyExportsForClient } from "../src/client-module-transform.ts";
+import { GENERATED_PAGES_MANIFEST_MARKER } from "../src/pages-router.ts";
 
 const tempDirs: string[] = [];
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
@@ -673,7 +674,7 @@ describe("client route module build", () => {
 
     writeFileSync(
       join(root, "src", "routes.ts"),
-      `
+      `// ${GENERATED_PAGES_MANIFEST_MARKER}
 import { defineApp, group, route } from "@pracht/core";
 
 export const app = defineApp({
@@ -731,6 +732,34 @@ export const app = defineApp({
     expect(readdirSync(join(root, "dist", "assets"))).not.toContainEqual(
       expect.stringMatching(/^(?:_middleware|auth)-/),
     );
+  });
+
+  it("keeps underscore routes in ordinary co-located manifest directories", async () => {
+    const root = makeTempProject();
+    mkdirSync(join(root, "src", "modules"), { recursive: true });
+
+    writeFileSync(
+      join(root, "src", "routes.ts"),
+      `import { defineApp, route } from "@pracht/core";
+
+export const app = defineApp({
+  routes: [route("/", () => import("./modules/_home.tsx"))],
+});
+`,
+    );
+    writeFileSync(
+      join(root, "src", "modules", "_home.tsx"),
+      "export function Component() { return <main>COLOCATED_UNDERSCORE_ROUTE</main>; }\n",
+    );
+
+    await buildTempProject(root, {
+      appFile: "/src/routes.ts",
+      routesDir: "/src/modules",
+      shellsDir: "/src/modules",
+      middlewareDir: "/src/modules",
+    });
+
+    expect(readBuiltJs(root)).toContain("COLOCATED_UNDERSCORE_ROUTE");
   });
 
   it("keeps pages middleware helpers out of the client bundle", async () => {

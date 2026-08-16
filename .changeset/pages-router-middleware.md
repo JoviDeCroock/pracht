@@ -57,3 +57,9 @@ verification accepts quoted runtime aliases such as
 `export { fn as "middleware" }`, matching build-time module discovery, and
 continues to reject nested `_middleware` files even when another reserved
 underscore-prefixed directory contains them.
+
+Ejected pages manifests are now identified by the marker emitted by
+`generateRoutesFile` rather than directory equality alone. Ordinary manifest
+apps may therefore co-locate route, shell, and middleware modules without
+having valid underscore-prefixed route or shell modules removed from the
+client registry.

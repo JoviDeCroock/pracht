@@ -11,6 +11,7 @@ import {
 } from "../src/index.ts";
 import { createPrachtDevModuleSource } from "../src/plugin-codegen.ts";
 import {
+  GENERATED_PAGES_MANIFEST_MARKER,
   generatePagesManifestSource,
   generateRoutesFile,
   scanPagesDirectory,
@@ -874,19 +875,48 @@ describe("createPrachtRegistryModuleSource", () => {
     expect(source).not.toContain("/src/pages/**/_app");
   });
 
-  it("keeps reserved pages helpers out of ejected route and shell globs", () => {
-    const source = createPrachtClientModuleSource({
-      appFile: "/src/routes.ts",
-      routesDir: "/src/pages",
-      shellsDir: "/src/pages",
-      middlewareDir: "/src/pages",
-    });
+  it("keeps reserved pages helpers out of generated ejected route and shell globs", () => {
+    const root = makeTempPagesDir();
+    mkdirSync(join(root, "src"), { recursive: true });
+    writeFileSync(
+      join(root, "src", "routes.ts"),
+      `// ${GENERATED_PAGES_MANIFEST_MARKER}\nexport const app = {};\n`,
+    );
+
+    const source = createPrachtClientModuleSource(
+      {
+        appFile: "/src/routes.ts",
+        routesDir: "/src/pages",
+        shellsDir: "/src/pages",
+        middlewareDir: "/src/pages",
+      },
+      { root },
+    );
 
     expect(source.match(/"!\/src\/pages\/\*\*\/_\*"/g)).toHaveLength(4);
     expect(source.match(/"!\/src\/pages\/\*\*\/_\*\/\*\*"/g)).toHaveLength(4);
     expect(source).toContain(
       'import.meta.glob("/src/pages/_app.{ts,tsx,js,jsx}", { query: "?pracht-client" })',
     );
+  });
+
+  it("preserves underscore modules in ordinary co-located manifest directories", () => {
+    const root = makeTempPagesDir();
+    mkdirSync(join(root, "src"), { recursive: true });
+    writeFileSync(join(root, "src", "routes.ts"), "export const app = {};\n");
+
+    const source = createPrachtClientModuleSource(
+      {
+        appFile: "/src/routes.ts",
+        routesDir: "/src/modules",
+        shellsDir: "/src/modules",
+        middlewareDir: "/src/modules",
+      },
+      { root },
+    );
+
+    expect(source).not.toContain("!/src/modules/**/_*");
+    expect(source).not.toContain('import.meta.glob("/src/modules/_app.');
   });
 
   it("creates adapter-neutral development metadata", () => {
