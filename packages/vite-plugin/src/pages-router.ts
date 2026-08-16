@@ -39,21 +39,32 @@ export interface PagesRouterOptions {
 const MIDDLEWARE_EXTENSIONS = new Set([".ts", ".tsx", ".js", ".jsx"]);
 // Page source extensions that look like they could hold middleware but that
 // the runtime registry glob cannot load. `.md`/`.mdx` stay ordinary ignored
-// `_`-files — Markdown cannot export a function — but `.tsrx` is a first-class
-// authoring format for pages, so silently ignoring `_middleware.tsrx` would
-// fail open exactly like a nested file.
+// `_`-files — Markdown cannot export a function — but `.tsrx` and configured
+// custom formats are first-class page authoring extensions, so silently
+// ignoring a middleware-shaped file in either format would fail open exactly
+// like a nested file.
 const MIDDLEWARE_UNSUPPORTED_EXTENSIONS = new Set([".tsrx"]);
 
 /**
  * The root-level `_middleware.{ts,tsx,js,jsx}` file of a pages directory, or
  * null when the app has none. Fails loudly on every shape that would
  * otherwise fail open: a nested `_middleware` file, a `_middleware/`
- * directory, a `_middleware.tsrx` file the runtime registry cannot load
- * (all unsupported — they would be silently ignored while looking like an
- * auth gate), and multiple root files competing for the same registration.
+ * directory, a middleware-shaped file using a page extension the runtime
+ * registry cannot load (all unsupported — they would be silently ignored while
+ * looking like an auth gate), and multiple root files competing for the same
+ * registration.
  */
-export function findPagesMiddlewareFile(pagesDir: string): string | null {
+export function findPagesMiddlewareFile(
+  pagesDir: string,
+  additionalExtensions: readonly string[] = [],
+): string | null {
   const allFiles = scanAllFiles(pagesDir);
+  const unsupportedExtensions = new Set([
+    ...MIDDLEWARE_UNSUPPORTED_EXTENSIONS,
+    ...normalizeAdditionalExtensions(additionalExtensions).filter(
+      (extension) => !MIDDLEWARE_EXTENSIONS.has(extension),
+    ),
+  ]);
 
   const inMiddlewareDirectory = allFiles.filter((file) =>
     relative(pagesDir, file).replace(/\\/g, "/").split("/").slice(0, -1).includes("_middleware"),
@@ -70,8 +81,7 @@ export function findPagesMiddlewareFile(pagesDir: string): string | null {
 
   const unsupported = allFiles.filter(
     (file) =>
-      basename(file, extname(file)) === "_middleware" &&
-      MIDDLEWARE_UNSUPPORTED_EXTENSIONS.has(extname(file)),
+      basename(file, extname(file)) === "_middleware" && unsupportedExtensions.has(extname(file)),
   );
   if (unsupported.length > 0) {
     const shown = unsupported.map((file) => relative(pagesDir, file).replace(/\\/g, "/"));
@@ -125,6 +135,7 @@ export function findPagesMiddlewareFile(pagesDir: string): string | null {
 /** Whether a middleware module statically exposes a binding named `middleware`. */
 function exportsMiddleware(source: string, file: string): boolean {
   const program = parseAst(source, { lang: getRolldownLang(file) }) as OxcNode;
+  const { runtimeBindings, typeOnlyBindings } = collectTopLevelBindingKinds(program);
 
   for (const statement of program.body as OxcNode[]) {
     if (statement.type === "ExportAllDeclaration") {
@@ -142,7 +153,7 @@ function exportsMiddleware(source: string, file: string): boolean {
     const declaration = statement.declaration as OxcNode | null;
     if (declaration?.type === "FunctionDeclaration") {
       if (getIdentifierName(declaration.id as OxcNode | null) === "middleware") return true;
-    } else if (declaration?.type === "VariableDeclaration") {
+    } else if (declaration?.type === "VariableDeclaration" && declaration.declare !== true) {
       for (const declarator of declaration.declarations as OxcNode[]) {
         if (collectBindingNamesFromPattern(declarator.id as OxcNode).includes("middleware")) {
           return true;
@@ -152,11 +163,94 @@ function exportsMiddleware(source: string, file: string): boolean {
 
     for (const specifier of statement.specifiers as OxcNode[]) {
       if (specifier.type !== "ExportSpecifier" || specifier.exportKind === "type") continue;
-      if (getIdentifierName(specifier.exported as OxcNode | null) === "middleware") return true;
+      if (getIdentifierName(specifier.exported as OxcNode | null) !== "middleware") continue;
+
+      // A re-export from another module cannot be resolved without loading it;
+      // preserve working value barrels and let runtime validation fail closed.
+      if (statement.source) return true;
+
+      const localName = getIdentifierName(specifier.local as OxcNode | null);
+      if (localName && typeOnlyBindings.has(localName) && !runtimeBindings.has(localName)) {
+        continue;
+      }
+      return true;
     }
   }
 
   return false;
+}
+
+function collectTopLevelBindingKinds(program: OxcNode): {
+  runtimeBindings: Set<string>;
+  typeOnlyBindings: Set<string>;
+} {
+  const runtimeBindings = new Set<string>();
+  const typeOnlyBindings = new Set<string>();
+
+  for (const rawStatement of program.body as OxcNode[]) {
+    if (rawStatement.type === "ImportDeclaration") {
+      for (const specifier of rawStatement.specifiers as OxcNode[]) {
+        const name = getIdentifierName(specifier.local as OxcNode | null);
+        if (!name) continue;
+        if (rawStatement.importKind === "type" || specifier.importKind === "type") {
+          typeOnlyBindings.add(name);
+        } else {
+          runtimeBindings.add(name);
+        }
+      }
+      continue;
+    }
+
+    const statement =
+      rawStatement.type === "ExportNamedDeclaration"
+        ? (rawStatement.declaration as OxcNode | null)
+        : rawStatement;
+    if (!statement) continue;
+
+    if (
+      statement.type === "TSTypeAliasDeclaration" ||
+      statement.type === "TSInterfaceDeclaration"
+    ) {
+      const name = getIdentifierName(statement.id as OxcNode | null);
+      if (name) typeOnlyBindings.add(name);
+      continue;
+    }
+
+    if (statement.type === "TSDeclareFunction" || statement.declare === true) {
+      if (statement.type === "VariableDeclaration") {
+        for (const declarator of statement.declarations as OxcNode[]) {
+          for (const name of collectBindingNamesFromPattern(declarator.id as OxcNode)) {
+            typeOnlyBindings.add(name);
+          }
+        }
+      } else {
+        const name = getIdentifierName(statement.id as OxcNode | null);
+        if (name) typeOnlyBindings.add(name);
+      }
+      continue;
+    }
+
+    if (statement.type === "VariableDeclaration") {
+      for (const declarator of statement.declarations as OxcNode[]) {
+        for (const name of collectBindingNamesFromPattern(declarator.id as OxcNode)) {
+          runtimeBindings.add(name);
+        }
+      }
+      continue;
+    }
+
+    if (
+      statement.type === "FunctionDeclaration" ||
+      statement.type === "ClassDeclaration" ||
+      statement.type === "TSEnumDeclaration" ||
+      statement.type === "TSModuleDeclaration"
+    ) {
+      const name = getIdentifierName(statement.id as OxcNode | null);
+      if (name) runtimeBindings.add(name);
+    }
+  }
+
+  return { runtimeBindings, typeOnlyBindings };
 }
 
 export function scanPagesDirectory(
@@ -458,7 +552,7 @@ export function generatePagesManifestSource(
       basename(f, extname(f)) === "_app" &&
       shellExtensions.has(extname(f)),
   );
-  const middlewareFile = findPagesMiddlewareFile(pagesDir);
+  const middlewareFile = findPagesMiddlewareFile(pagesDir, options.additionalExtensions);
 
   const coreImports = pages.some((page) => page.revalidateSeconds !== undefined)
     ? "defineApp, group, route, timeRevalidate"

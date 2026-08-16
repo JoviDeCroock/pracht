@@ -135,6 +135,21 @@ describe("exportsMiddleware", () => {
     ["const type = 1;\nexport { type as middleware };", true],
     ['export { type middleware } from "./types.ts";', false],
     ['export { type Middleware as middleware } from "./types.ts";', false],
+    ["type Contract = () => void;\nexport { Contract as middleware };", false],
+    ["interface Contract { (): void }\nexport { Contract as middleware };", false],
+    [
+      'import type { MiddlewareFn as Contract } from "@pracht/core";\nexport { Contract as middleware };',
+      false,
+    ],
+    [
+      'import type {\n  MiddlewareFn as Contract,\n} from "@pracht/core";\nexport { Contract as middleware };',
+      false,
+    ],
+    ["declare const Contract: unknown;\nexport { Contract as middleware };", false],
+    [
+      "interface Contract { (): void }\nconst Contract = () => {};\nexport { Contract as middleware };",
+      true,
+    ],
     // `middleware as default` exports `default`, not `middleware` — the exact
     // mistake this check exists to catch.
     ["const middleware = 1;\nexport { middleware as default };", false],

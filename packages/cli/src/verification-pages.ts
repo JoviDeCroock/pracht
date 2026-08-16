@@ -19,8 +19,9 @@ export type PagesFile =
 
 // Mirrors the vite plugin's pages middleware extensions (and the
 // `middlewareDir` registry glob). `_middleware.md` stays an ignored file
-// (Markdown cannot export a function), but `_middleware.tsrx` is a
-// middleware-shaped file the registry cannot load — an error, not a route.
+// (Markdown cannot export a function), but `_middleware.tsrx` and configured
+// custom page formats are middleware-shaped files the registry cannot load —
+// errors, not routes.
 const PAGES_MIDDLEWARE_SOURCE_RE = /\.(ts|tsx|js|jsx)$/;
 const PAGES_MIDDLEWARE_UNSUPPORTED_RE = /\.tsrx$/;
 
@@ -88,7 +89,11 @@ export function describePagesFile(
     return { file, kind: "middleware", nested: relativePath.includes("/"), shape: "file" };
   }
 
-  if (name === "_middleware" && PAGES_MIDDLEWARE_UNSUPPORTED_RE.test(file)) {
+  if (
+    name === "_middleware" &&
+    (PAGES_MIDDLEWARE_UNSUPPORTED_RE.test(file) ||
+      additionalExtensions.some((extension) => file.endsWith(extension)))
+  ) {
     return {
       file,
       kind: "middleware",

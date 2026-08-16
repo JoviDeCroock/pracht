@@ -15,10 +15,11 @@ not wrapped — the same independent-by-default behavior an explicit manifest
 has — and the file never becomes a route.
 
 Fail-open shapes are hard errors instead of silently ignored files: a nested
-`_middleware` file, a `_middleware/` directory, a `_middleware.tsrx` file
+`_middleware` file, a `_middleware/` directory, middleware-shaped files using
+unsupported page extensions such as `.tsrx` or a configured custom format
 (the middleware registry loads `.ts`/`.tsx`/`.js`/`.jsx` only), multiple
-root-level files, and a module without a `middleware` export all fail the
-build, `pracht doctor`, and `pracht verify` (the runtime already refused to
+root-level files, and a module without a runtime `middleware` export all fail
+the build, `pracht doctor`, and `pracht verify` (the runtime already refused to
 serve routes whose middleware lacks the export). The client bundle excludes
 `_middleware` files from the pages route and shell globs in both auto-discovered
 and ejected layouts, and the client transform strips `middleware` exports as a
@@ -47,6 +48,6 @@ server. `doctor` and `verify` also reject `_middleware/` directories whose only
 contents are non-source placeholders, matching the build-time check.
 
 Build-time and CLI export validation also reject type-only star re-exports,
-type-only named aliases, and namespace re-exports such as
-`export * as middleware`: none exposes the runtime `middleware` function
-required by the generated registration.
+explicit or locally resolved type-only named aliases, ambient declarations,
+and namespace re-exports such as `export * as middleware`: none exposes the
+runtime `middleware` function required by the generated registration.

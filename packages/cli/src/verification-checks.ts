@@ -1,4 +1,4 @@
-import { dirname, resolve } from "node:path";
+import { dirname, extname, resolve } from "node:path";
 import { existsSync, readFileSync, statSync } from "node:fs";
 
 import { formatBytes } from "./bundle-report.js";
@@ -302,11 +302,74 @@ export function exportsMiddleware(source: string): boolean {
       if (parts.length === 0 || parts[0] === "") continue;
       // `a as b` exports `b`; a bare `a` exports `a`.
       const exported = (parts.length > 1 ? parts[parts.length - 1] : parts[0]).trim();
-      if (exported === "middleware") return true;
+      if (exported !== "middleware") continue;
+
+      const local = parts[0].trim();
+      if (isProvablyTypeOnlyLocalBinding(code, local)) continue;
+      return true;
     }
   }
 
   return false;
+}
+
+function isProvablyTypeOnlyLocalBinding(code: string, name: string): boolean {
+  const escapedName = escapeRegExp(name);
+
+  // Declaration merging can give an interface/type name a runtime value. A
+  // concrete value declaration wins even when a type declaration also exists.
+  const runtimeDeclaration = new RegExp(
+    `(?:^|[;}]|\\n)\\s*(?:export\\s+)?(?!declare\\s)(?:async\\s+)?(?:const|let|var|function|class|enum|namespace)\\s+${escapedName}\\b`,
+    "m",
+  );
+  if (runtimeDeclaration.test(code)) return false;
+
+  const erasedDeclaration = new RegExp(
+    `(?:^|[;}]|\\n)\\s*(?:export\\s+)?(?:declare\\s+)?(?:type|interface)\\s+${escapedName}\\b`,
+    "m",
+  );
+  if (erasedDeclaration.test(code)) return true;
+
+  const ambientDeclaration = new RegExp(
+    `(?:^|[;}]|\\n)\\s*(?:export\\s+)?declare\\s+(?:const|let|var|function|class|enum|namespace)\\s+${escapedName}\\b`,
+    "m",
+  );
+  if (ambientDeclaration.test(code)) return true;
+
+  for (const match of code.matchAll(/\bimport\s+([^;]+?)\s+from\b/g)) {
+    const clause = match[1].trim();
+    if (clause.startsWith("type ")) {
+      if (importClauseBindsName(clause.slice("type ".length), name)) return true;
+      continue;
+    }
+
+    const namedStart = clause.indexOf("{");
+    const namedEnd = clause.lastIndexOf("}");
+    if (namedStart === -1 || namedEnd <= namedStart) continue;
+    for (const specifier of splitTopLevel(clause.slice(namedStart + 1, namedEnd))) {
+      const trimmed = specifier.trim();
+      if (!trimmed.startsWith("type ")) continue;
+      if (importClauseBindsName(trimmed.slice("type ".length), name)) return true;
+    }
+  }
+
+  return false;
+}
+
+function importClauseBindsName(clause: string, name: string): boolean {
+  const namespace = /^\*\s+as\s+([A-Za-z_$][\w$]*)$/.exec(clause.trim());
+  if (namespace) return namespace[1] === name;
+
+  for (const specifier of splitTopLevel(clause.replace(/^\{/, "").replace(/\}$/, ""))) {
+    const parts = specifier.trim().split(/\s+as\s+/);
+    const local = (parts.length > 1 ? parts[parts.length - 1] : parts[0]).trim();
+    if (local === name) return true;
+  }
+  return false;
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 /**
@@ -638,12 +701,13 @@ function collectPagesMiddlewareChecks(
   }
 
   for (const page of unsupportedExtension) {
+    const extension = extname(page.file);
     checks.push(
       createCheck(
         "error",
         `Pages middleware ${JSON.stringify(displayPath(project.root, page.file))} cannot use the ` +
-          "`.tsrx` extension. The middleware registry loads `.ts`, `.tsx`, `.js`, and `.jsx` " +
-          "modules only — rename the file to `_middleware.ts`.",
+          `\`${extension}\` extension. The middleware registry loads ` +
+          "`.ts`, `.tsx`, `.js`, and `.jsx` modules only — rename the file to `_middleware.ts`.",
       ),
     );
   }

@@ -338,6 +338,37 @@ export const middleware: MiddlewareFn = async (_args, next) => next();
     ).toBe(true);
   });
 
+  it.each(["doctor", "verify"])(
+    "fails %s for _middleware using a configured custom page extension",
+    (command) => {
+      const appDir = createTempDir(`pracht-cli-${command}-pages-middleware-custom-`);
+      writePagesApp(appDir);
+      writeProjectFile(
+        appDir,
+        "vite.config.ts",
+        'import { pracht } from "@pracht/vite-plugin";\npracht({ pagesDir: "/src/pages", additionalExtensions: [".vue"] });',
+      );
+      writeProjectFile(
+        appDir,
+        "src/pages/index.tsx",
+        "export function Component() { return null; }",
+      );
+      writeProjectFile(
+        appDir,
+        "src/pages/_middleware.vue",
+        "<script>export const middleware = async (_args, next) => next();</script>",
+      );
+
+      const result = runCliStatus([command, "--json"], { cwd: appDir });
+      expect(result.status).toBe(1);
+      const report = JSON.parse(result.stdout);
+      expect(report.ok).toBe(false);
+      expect(
+        report.checks.some((check) => check.message.includes("cannot use the `.vue` extension")),
+      ).toBe(true);
+    },
+  );
+
   it("reads an inline pagesDefaultRender as a render mode rather than a path", () => {
     const appDir = createTempDir("pracht-cli-doctor-pages-default-isg-");
     writePagesApp(appDir);
