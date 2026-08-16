@@ -66,6 +66,26 @@ export function describePagesFile(
     return { file, kind: "middleware", nested: true, shape: "directory" };
   }
 
+  // Check middleware-shaped files before ignoring reserved parent directories.
+  // Build-time discovery scans every file for this basename, so a file such as
+  // `_components/_middleware.ts` must remain a nested-middleware error here too.
+  if (name === "_middleware" && PAGES_MIDDLEWARE_SOURCE_RE.test(file)) {
+    return { file, kind: "middleware", nested: relativePath.includes("/"), shape: "file" };
+  }
+
+  if (
+    name === "_middleware" &&
+    (PAGES_MIDDLEWARE_UNSUPPORTED_RE.test(file) ||
+      additionalExtensions.some((extension) => file.endsWith(extension)))
+  ) {
+    return {
+      file,
+      kind: "middleware",
+      nested: relativePath.includes("/"),
+      shape: "unsupported-extension",
+    };
+  }
+
   // The underscore prefix reserves whole directories as well as individual
   // files. Keep implementation helpers such as `_components/button.tsx` out
   // of the route graph, while the `_middleware/` case above remains a hard
@@ -82,23 +102,6 @@ export function describePagesFile(
       file,
       kind: "shell",
       hasRevalidateExport: extractRevalidate(analysisSource).kind !== "missing",
-    };
-  }
-
-  if (name === "_middleware" && PAGES_MIDDLEWARE_SOURCE_RE.test(file)) {
-    return { file, kind: "middleware", nested: relativePath.includes("/"), shape: "file" };
-  }
-
-  if (
-    name === "_middleware" &&
-    (PAGES_MIDDLEWARE_UNSUPPORTED_RE.test(file) ||
-      additionalExtensions.some((extension) => file.endsWith(extension)))
-  ) {
-    return {
-      file,
-      kind: "middleware",
-      nested: relativePath.includes("/"),
-      shape: "unsupported-extension",
     };
   }
 

@@ -224,6 +224,20 @@ export const middleware: MiddlewareFn = async (_args, next) => next();
     );
   });
 
+  it.each(["doctor", "verify"])("accepts a quoted pages middleware export in %s", (command) => {
+    const appDir = createTempDir(`pracht-cli-${command}-pages-middleware-quoted-`);
+    writePagesApp(appDir);
+    writeProjectFile(appDir, "src/pages/index.tsx", "export function Component() { return null; }");
+    writeProjectFile(
+      appDir,
+      "src/pages/_middleware.js",
+      'const fn = async (_args, next) => next();\nexport { fn as "middleware" };',
+    );
+
+    const result = runCli([command, "--json"], { cwd: appDir });
+    expect(JSON.parse(result.stdout).ok).toBe(true);
+  });
+
   it.each(["doctor", "verify"])(
     "ignores underscore-prefixed pages directories in %s",
     (command) => {
@@ -279,24 +293,31 @@ export const middleware: MiddlewareFn = async (_args, next) => next();
     },
   );
 
-  it("fails doctor for nested pages _middleware files", () => {
-    const appDir = createTempDir("pracht-cli-doctor-pages-middleware-nested-");
-    writePagesApp(appDir);
-    writeProjectFile(appDir, "src/pages/index.tsx", "export function Component() { return null; }");
-    writeProjectFile(
-      appDir,
-      "src/pages/admin/_middleware.ts",
-      "export const middleware = async (_args, next) => next();",
-    );
+  it.each(["admin", "_components"])(
+    "fails doctor for nested pages _middleware files under %s",
+    (directory) => {
+      const appDir = createTempDir("pracht-cli-doctor-pages-middleware-nested-");
+      writePagesApp(appDir);
+      writeProjectFile(
+        appDir,
+        "src/pages/index.tsx",
+        "export function Component() { return null; }",
+      );
+      writeProjectFile(
+        appDir,
+        `src/pages/${directory}/_middleware.ts`,
+        "export const middleware = async (_args, next) => next();",
+      );
 
-    const result = runCliStatus(["doctor", "--json"], { cwd: appDir });
-    expect(result.status).toBe(1);
-    const report = JSON.parse(result.stdout);
-    expect(report.ok).toBe(false);
-    expect(report.checks.some((check) => check.message.includes("Nested pages middleware"))).toBe(
-      true,
-    );
-  });
+      const result = runCliStatus(["doctor", "--json"], { cwd: appDir });
+      expect(result.status).toBe(1);
+      const report = JSON.parse(result.stdout);
+      expect(report.ok).toBe(false);
+      expect(report.checks.some((check) => check.message.includes("Nested pages middleware"))).toBe(
+        true,
+      );
+    },
+  );
 
   it("fails doctor for a _middleware directory instead of treating it as a route", () => {
     const appDir = createTempDir("pracht-cli-doctor-pages-middleware-dir-");
