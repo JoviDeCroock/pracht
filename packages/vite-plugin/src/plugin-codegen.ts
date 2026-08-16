@@ -1,7 +1,11 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, extname, join, resolve } from "node:path";
 import { PRACHT_CLIENT_MODULE_QUERY } from "./client-module-query.ts";
-import { generatePagesManifestSource, scanPagesDirectory } from "./pages-router.ts";
+import {
+  GENERATED_PAGES_MANIFEST_MARKER,
+  generatePagesManifestSource,
+  scanPagesDirectory,
+} from "./pages-router.ts";
 import {
   CLIENT_BROWSER_PATH,
   ISLANDS_CLIENT_BROWSER_PATH,
@@ -170,10 +174,10 @@ export function createPrachtClientModuleSource(
   const additionalRouteGlob = `${dirPrefix}/**/*.${extensionGlob(bareRouteExtensions)}`;
   const routeExcludes = createNonFullHydrationExcludes(resolved, buildOptions.root);
   const pagesMiddlewareDir = isPagesMode ? resolved.pagesDir : resolved.middlewareDir;
-  const usesEjectedPagesLayout =
-    !isPagesMode &&
-    sameConfigDirectory(resolved.routesDir, resolved.middlewareDir) &&
-    sameConfigDirectory(resolved.shellsDir, resolved.middlewareDir);
+  const usesEjectedPagesLayout = isGeneratedPagesManifest(
+    resolved,
+    buildOptions.root ?? process.cwd(),
+  );
   if (isPagesMode || usesEjectedPagesLayout) {
     // Pages middleware is server-only. Keep it out of the client registry in
     // both auto-discovered pages mode and the documented ejected layout where
@@ -182,10 +186,6 @@ export function createPrachtClientModuleSource(
     // implementation imported by `_middleware.ts` would still be emitted as
     // an independent route/shell chunk through these broad registries.
     routeExcludes.push(...createUnderscoreReservedExcludes(pagesMiddlewareDir));
-  } else if (sameConfigDirectory(resolved.routesDir, resolved.middlewareDir)) {
-    // A shared manifest directory has no general underscore reservation, but
-    // its dedicated root middleware module is still server-only.
-    routeExcludes.push(`!${pagesMiddlewareDir}/**/_middleware.*`);
   }
   const routeGlobPattern = routeExcludes.length > 0 ? [routeGlob, ...routeExcludes] : routeGlob;
   const additionalRouteGlobPattern =
@@ -201,9 +201,7 @@ export function createPrachtClientModuleSource(
     : `${resolved.shellsDir}/**/*.${extensionGlob(bareRouteExtensions)}`;
   const shellExcludes = usesEjectedPagesLayout
     ? createUnderscoreReservedExcludes(resolved.middlewareDir)
-    : !isPagesMode && sameConfigDirectory(resolved.shellsDir, resolved.middlewareDir)
-      ? [`!${resolved.middlewareDir}/**/_middleware.*`]
-      : [];
+    : [];
   const shellGlobPattern = shellExcludes.length > 0 ? [shellGlob, ...shellExcludes] : shellGlob;
   const additionalShellGlobPattern =
     shellExcludes.length > 0 ? [additionalShellGlob, ...shellExcludes] : additionalShellGlob;
@@ -319,6 +317,23 @@ function sameConfigDirectory(left: string, right: string): boolean {
       .replace(/^\.?\//, "")
       .replace(/\/$/, "");
   return normalize(left) === normalize(right);
+}
+
+function isGeneratedPagesManifest(resolved: ResolvedPrachtPluginOptions, root: string): boolean {
+  if (
+    resolved.pagesDir ||
+    !sameConfigDirectory(resolved.routesDir, resolved.middlewareDir) ||
+    !sameConfigDirectory(resolved.shellsDir, resolved.middlewareDir)
+  ) {
+    return false;
+  }
+
+  try {
+    const appFile = resolve(root, resolved.appFile.replace(/^\//, ""));
+    return readFileSync(appFile, "utf-8").includes(GENERATED_PAGES_MANIFEST_MARKER);
+  } catch {
+    return false;
+  }
 }
 
 function createUnderscoreReservedExcludes(directory: string): string[] {
