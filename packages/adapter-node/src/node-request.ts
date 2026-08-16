@@ -11,6 +11,7 @@ import {
   isTransformableResponse,
   mergeVaryOnNodeResponse,
   negotiateEncoding,
+  protectIdentityEtag,
 } from "./node-compress.ts";
 
 const BODYLESS_METHODS = new Set(["GET", "HEAD"]);
@@ -219,6 +220,15 @@ export async function writeWebResponse(
   writeNodeResponseHeaders(res, response.headers);
 
   let encoding: ContentEncoding | null = null;
+  const sourceEtag = getNodeHeaderValue(res, "etag");
+  const sourceEncoding = response.headers.get("content-encoding");
+  if (
+    compression &&
+    sourceEtag &&
+    (!sourceEncoding || sourceEncoding.toLowerCase() === "identity")
+  ) {
+    res.setHeader("etag", protectIdentityEtag(sourceEtag));
+  }
   if (
     compression &&
     isCompressibleContentType(response.headers.get("content-type")) &&
@@ -238,10 +248,7 @@ export async function writeWebResponse(
     if (encoding) {
       res.removeHeader("content-length");
       res.setHeader("content-encoding", encoding);
-      const etag = res.getHeader("etag");
-      if (typeof etag === "string") {
-        res.setHeader("etag", encodeEtagForEncoding(etag, encoding));
-      }
+      if (sourceEtag) res.setHeader("etag", encodeEtagForEncoding(sourceEtag, encoding));
     }
   }
 
@@ -264,7 +271,13 @@ export async function writeWebResponse(
     res.statusCode = 304;
     res.statusMessage = "Not Modified";
     res.removeHeader("content-length");
-    if (response.body) await response.body.cancel();
+    if (response.body) {
+      // Cancellation is cleanup, not part of the conditional response. A
+      // proxied/custom stream is allowed to reject cancellation; do not let
+      // that replace an otherwise valid 304 with the outer 500 fallback (or
+      // hold the response open while asynchronous cleanup settles).
+      void response.body.cancel().catch(() => undefined);
+    }
     res.end();
     return;
   }

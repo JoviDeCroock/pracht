@@ -45,8 +45,9 @@ and validator, even when coarse filesystem timestamps do not change. Buffered
 cold work is byte- and concurrency-bounded, with overflow falling
 back to streaming compression. Static WebAssembly is served as
 `application/wasm` and follows the same compression path. Compressible
-responses carry `Vary: Accept-Encoding`; encoded variants get their own weak
-ETag, with dynamic `If-None-Match` / `If-Modified-Since` validation performed
+responses carry `Vary: Accept-Encoding`; encoded variants get their own
+collision-resistant weak ETag, with dynamic `If-None-Match` /
+`If-Modified-Since` validation performed
 after representation selection so identity and encoded validators cannot
 cross. `HEAD` advertises the same negotiated metadata as `GET`, including
 buffered compressed lengths, and

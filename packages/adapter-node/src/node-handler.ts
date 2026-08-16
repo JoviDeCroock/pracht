@@ -29,6 +29,7 @@ import {
 import {
   COMPRESSION_MIN_SIZE,
   CompressedAssetCache,
+  containsEncodedEtag,
   type CompressionState,
   compressBuffer,
   type ContentEncoding,
@@ -40,6 +41,7 @@ import {
   MAX_CACHEABLE_ASSET_SIZE,
   mergeVaryValue,
   negotiateEncoding,
+  protectIdentityEtag,
 } from "./node-compress.ts";
 import { regenerateISGPage } from "./node-isg.ts";
 import {
@@ -405,8 +407,11 @@ function negotiateFileEncoding(
   fileSize: number,
   compression: CompressionState | undefined,
 ): ContentEncoding | null {
+  if (!compression) return null;
+
+  const identityEtag = headers.get("etag");
+  if (identityEtag) headers.set("etag", protectIdentityEtag(identityEtag));
   if (
-    !compression ||
     !isCompressibleContentType(headers.get("content-type")) ||
     !isTransformableResponse(200, headers)
   ) {
@@ -429,8 +434,7 @@ function negotiateFileEncoding(
   // buffered path below replaces it with the exact encoded length; the
   // streaming path must use chunked transfer instead.
   headers.delete("content-length");
-  const etag = headers.get("etag");
-  if (etag) headers.set("etag", encodeEtagForEncoding(etag, encoding));
+  if (identityEtag) headers.set("etag", encodeEtagForEncoding(identityEtag, encoding));
   return encoding;
 }
 
@@ -677,18 +681,21 @@ function isRouteStateRequest(url: URL, headers: Headers): boolean {
 
 /**
  * Dynamic compression owns conditional validation after it has selected the
- * outgoing representation. Do not let an application short-circuit an encoded
- * request against identity metadata before that selection happens.
+ * outgoing representation and escaped its reserved validator namespace. Do
+ * not let an application short-circuit against the source identity metadata
+ * before either step happens.
  */
 function createApplicationRequest(
   request: Request,
   compression: CompressionState | undefined,
 ): Request {
+  const ifNoneMatch = request.headers.get("if-none-match");
   if (
     !compression ||
     (request.method !== "GET" && request.method !== "HEAD") ||
-    (!request.headers.has("if-none-match") && !request.headers.has("if-modified-since")) ||
-    !negotiateEncoding(request.headers.get("accept-encoding"))
+    (!ifNoneMatch && !request.headers.has("if-modified-since")) ||
+    (!negotiateEncoding(request.headers.get("accept-encoding")) &&
+      !containsEncodedEtag(ifNoneMatch))
   ) {
     return request;
   }

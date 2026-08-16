@@ -210,9 +210,12 @@ Correctness guarantees:
 - Compressible responses always carry `Vary: Accept-Encoding`, merged with any
   existing `Vary` members (e.g. `x-pracht-route-state-request`), even when the
   response goes out identity-encoded — so shared caches key on the encoding.
-- Encoded variants get their own weak ETag (the encoding is folded into the
-  tag, e.g. `W/"1a2f-18c-br"`), so `If-None-Match` revalidation can never
-  answer an identity request with a cached brotli body or vice versa. Strong
+- Encoded variants get their own collision-resistant weak ETag (a SHA-256
+  digest of the identity tag and encoding, e.g. `W/"pracht-br-..."`), so
+  an encoded validator cannot alias an application-provided identity tag; an
+  identity tag that enters the adapter's reserved namespace is escaped. Thus
+  `If-None-Match` revalidation can never answer an identity request with a
+  cached brotli body or vice versa. Strong
   application ETags are weakened because streaming compression bytes can vary
   with chunk boundaries. The adapter evaluates dynamic `If-None-Match` and
   `If-Modified-Since` only after selecting the outgoing representation

@@ -20,6 +20,7 @@ import {
   isCompressibleContentType,
   mergeVaryValue,
   negotiateEncoding,
+  protectIdentityEtag,
 } from "../src/node-compress.ts";
 
 const tempDirs: string[] = [];
@@ -130,8 +131,15 @@ describe("negotiateEncoding", () => {
   });
 
   it("weakens derived ETags for encoded variants", () => {
-    expect(encodeEtagForEncoding('"strong-v1"', "gzip")).toBe('W/"strong-v1-gzip"');
-    expect(encodeEtagForEncoding('W/"weak-v1"', "br")).toBe('W/"weak-v1-br"');
+    const gzip = encodeEtagForEncoding('"strong-v1"', "gzip");
+    const brotli = encodeEtagForEncoding('W/"weak-v1"', "br");
+
+    expect(gzip).toMatch(/^W\/"pracht-gzip-[A-Za-z0-9_-]{43}"$/);
+    expect(brotli).toMatch(/^W\/"pracht-br-[A-Za-z0-9_-]{43}"$/);
+    expect(encodeEtagForEncoding('W/"strong-v1"', "gzip")).toBe(gzip);
+    expect(encodeEtagForEncoding('"release"', "br")).not.toBe('W/"release-br"');
+    expect(protectIdentityEtag(gzip)).toMatch(/^W\/"pracht-identity-[A-Za-z0-9_-]{43}"$/);
+    expect(protectIdentityEtag('"ordinary"')).toBe('"ordinary"');
   });
 });
 
@@ -550,9 +558,9 @@ describe("dynamic response compression", () => {
     expect(identity.headers.etag).toBe(identityEtag);
     expect(crossEncoding.status).toBe(200);
     expect(crossEncoding.headers["content-encoding"]).toBe("gzip");
-    expect(crossEncoding.headers.etag).toBe('W/"dynamic-v1-gzip"');
+    expect(crossEncoding.headers.etag).toBe(encodeEtagForEncoding(identityEtag, "gzip"));
     expect(first.status).toBe(200);
-    expect(first.headers.etag).toBe('W/"dynamic-v1-gzip"');
+    expect(first.headers.etag).toBe(encodeEtagForEncoding(identityEtag, "gzip"));
     expect(revalidated.status).toBe(304);
     expect(revalidated.headers.etag).toBe(first.headers.etag);
     expect(revalidated.headers.vary).toContain("Accept-Encoding");
@@ -602,7 +610,7 @@ describe("dynamic response compression", () => {
       "if-modified-since": lastModified,
     });
 
-    expect(first.headers.etag).toBe('W/"modified-v1-gzip"');
+    expect(first.headers.etag).toBe(encodeEtagForEncoding(identityEtag, "gzip"));
     expect(revalidated.status).toBe(304);
     expect(revalidated.headers.etag).toBe(first.headers.etag);
     expect(revalidated.headers.vary).toContain("Accept-Encoding");
@@ -637,7 +645,7 @@ describe("dynamic response compression", () => {
       "if-none-match": first.headers.etag!,
     });
 
-    expect(first.headers.etag).toBe('W/"release,1-gzip"');
+    expect(first.headers.etag).toBe(encodeEtagForEncoding('"release,1"', "gzip"));
     expect(revalidated.status).toBe(304);
     expect(revalidated.headers.etag).toBe(first.headers.etag);
   });
@@ -667,6 +675,78 @@ describe("dynamic response compression", () => {
     expect(head.headers["content-length"]).toBe(get.headers["content-length"]);
     expect(head.headers.etag).toBe(get.headers.etag);
     expect(head.body.byteLength).toBe(0);
+  });
+
+  it("does not alias an encoded validator with a later identity ETag", async () => {
+    let identityEtag = '"release"';
+    let body = "first ".repeat(800);
+    const base = await listen(
+      createNodeRequestHandler({
+        apiRoutes: resolveApiRoutes(["/src/api/collision.ts"]),
+        app: defineApp({ routes: [] }),
+        registry: {
+          apiModules: {
+            "/src/api/collision.ts": async () => ({
+              GET: async ({ request }) =>
+                request.headers.get("if-none-match") === identityEtag
+                  ? new Response(null, { status: 304, headers: { etag: identityEtag } })
+                  : new Response(body, {
+                      headers: { etag: identityEtag, "content-type": "text/plain" },
+                    }),
+            }),
+          },
+        },
+      }),
+    );
+
+    const encoded = await rawRequest(`${base}/api/collision`, { "accept-encoding": "br" });
+    identityEtag = encoded.headers.etag!;
+    body = "second ".repeat(800);
+    const identity = await rawRequest(`${base}/api/collision`, {
+      "accept-encoding": "identity",
+      "if-none-match": encoded.headers.etag!,
+    });
+
+    expect(identity.status).toBe(200);
+    expect(identity.headers.etag).toBe(protectIdentityEtag(identityEtag));
+    expect(identity.headers.etag).not.toBe(encoded.headers.etag);
+    expect(identity.body.toString("utf-8")).toBe(body);
+  });
+
+  it("keeps a matching 304 when response-body cancellation rejects", async () => {
+    const identityEtag = '"cancel-v1"';
+    const base = await listen(
+      createNodeRequestHandler({
+        apiRoutes: resolveApiRoutes(["/src/api/cancel.ts"]),
+        app: defineApp({ routes: [] }),
+        registry: {
+          apiModules: {
+            "/src/api/cancel.ts": async () => ({
+              GET: async () =>
+                new Response(
+                  new ReadableStream({
+                    cancel() {
+                      throw new Error("cancel failed");
+                    },
+                    start(controller) {
+                      controller.enqueue(new TextEncoder().encode("payload ".repeat(400)));
+                    },
+                  }),
+                  { headers: { etag: identityEtag, "content-type": "text/plain" } },
+                ),
+            }),
+          },
+        },
+      }),
+    );
+
+    const response = await rawRequest(`${base}/api/cancel`, {
+      "accept-encoding": "gzip",
+      "if-none-match": encodeEtagForEncoding(identityEtag, "gzip"),
+    });
+
+    expect(response.status).toBe(304);
+    expect(response.body.byteLength).toBe(0);
   });
 
   it("keeps a streamed multi-chunk body intact through the compressor", async () => {
@@ -844,7 +924,7 @@ describe("static asset compression", () => {
 
     // Encoded variants must not share a validator with identity.
     expect(identity.headers.etag).toBeDefined();
-    expect(compressed.headers.etag).toBe(`${identity.headers.etag!.slice(0, -1)}-br"`);
+    expect(compressed.headers.etag).toBe(encodeEtagForEncoding(identity.headers.etag!, "br"));
   });
 
   it("answers 304 against the encoded variant's ETag", async () => {

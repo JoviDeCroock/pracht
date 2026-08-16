@@ -1,4 +1,5 @@
 import type { ServerResponse } from "node:http";
+import { createHash } from "node:crypto";
 import type { Transform } from "node:stream";
 import { promisify } from "node:util";
 import {
@@ -47,6 +48,7 @@ const COMPRESSIBLE_MIME_TYPES = new Set([
 ]);
 
 const INTEGRITY_HEADER_NAMES = ["content-digest", "repr-digest", "digest", "content-md5"];
+const ENCODED_ETAG_PATTERN = /^(?:W\/)?"pracht-(?:br|gzip)-[A-Za-z0-9_-]{43}"$/;
 
 /**
  * Whether a `Content-Type` names a representation that compresses well.
@@ -156,10 +158,33 @@ export function mergeVaryOnNodeResponse(res: ServerResponse): void {
  */
 export function encodeEtagForEncoding(etag: string, encoding: ContentEncoding): string {
   const opaqueTag = etag.startsWith("W/") ? etag.slice(2) : etag;
-  if (opaqueTag.endsWith('"')) {
-    return `W/${opaqueTag.slice(0, -1)}-${encoding}"`;
-  }
-  return `W/${opaqueTag}-${encoding}`;
+  const digest = createHash("sha256")
+    .update(opaqueTag)
+    .update("\0")
+    .update(encoding)
+    .digest("base64url");
+  return `W/"pracht-${encoding}-${digest}"`;
+}
+
+/**
+ * Keep an application identity tag out of the namespace used for encoded
+ * variants. Without this escape, an application that later adopts a tag equal
+ * to an older encoded validator could still make a cross-representation
+ * `If-None-Match` request look current despite collision-resistant derivation.
+ */
+export function protectIdentityEtag(etag: string): string {
+  if (!ENCODED_ETAG_PATTERN.test(etag)) return etag;
+
+  const opaqueTag = etag.startsWith("W/") ? etag.slice(2) : etag;
+  const digest = createHash("sha256").update(opaqueTag).update("\0identity").digest("base64url");
+  return `W/"pracht-identity-${digest}"`;
+}
+
+/** Whether an `If-None-Match` list contains one of this adapter's encoded tags. */
+export function containsEncodedEtag(header: string | null): boolean {
+  return (
+    header?.split(",").some((candidate) => ENCODED_ETAG_PATTERN.test(candidate.trim())) ?? false
+  );
 }
 
 /**
