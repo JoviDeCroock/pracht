@@ -322,8 +322,15 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
         headersManifestJson,
         "utf-8",
       );
-      mkdirSync(resolve(clientDir, "_pracht"), { recursive: true });
-      writeFileSync(resolve(clientDir, "_pracht/headers.json"), headersManifestJson, "utf-8");
+      // Only the Cloudflare worker reads this from the client output (it
+      // fetches /_pracht/headers.json through the assets binding); every other
+      // target reads dist/server. A static export has no runtime at all, so
+      // publishing it would ship the full route list and header policy as
+      // permanently dead bytes in the deployable directory.
+      if (!isStaticExport) {
+        mkdirSync(resolve(clientDir, "_pracht"), { recursive: true });
+        writeFileSync(resolve(clientDir, "_pracht/headers.json"), headersManifestJson, "utf-8");
+      }
     }
 
     // Always emit this manifest, including for SSR-only apps with no
@@ -336,8 +343,12 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
       markdownManifestJson,
       "utf-8",
     );
-    mkdirSync(resolve(clientDir, "_pracht"), { recursive: true });
-    writeFileSync(resolve(clientDir, "_pracht/markdown.json"), markdownManifestJson, "utf-8");
+    // Same as headers.json above: Cloudflare's worker is the only reader of
+    // the client copy, and a static export has no worker.
+    if (!isStaticExport) {
+      mkdirSync(resolve(clientDir, "_pracht"), { recursive: true });
+      writeFileSync(resolve(clientDir, "_pracht/markdown.json"), markdownManifestJson, "utf-8");
+    }
 
     if (Object.keys(isgManifest).length > 0) {
       const isgManifestPath = resolve(root, "dist/server/isg-manifest.json");

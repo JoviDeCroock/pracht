@@ -1184,11 +1184,14 @@ client-side fetch to an external API instead.
   serve `index.html` for directory URLs; most hosts redirect `/about` →
   `/about/` first (GitHub Pages answers `301`), which the client router and
   prerendered links tolerate.
-- **Headers**: no server means no dynamic headers. `dist/client/_pracht/headers.json`
+- **Headers**: no server means no dynamic headers. `dist/server/headers-manifest.json`
   records the document headers each prerendered route would have carried
   (route/shell `headers()` exports plus pracht's defaults) — mirror the ones
   you care about in the host's header configuration (`_headers` on Netlify,
-  CloudFront response header policies, nginx `add_header`).
+  CloudFront response header policies, nginx `add_header`). It is written to
+  `dist/server/` rather than the deployable `dist/client/`: no static host can
+  act on it, so publishing it would ship the full route list and header policy
+  as dead bytes.
 - **Markdown negotiation**: routes exporting `markdown` rely on server-side
   `Accept` negotiation; a static host always answers with the HTML file. The
   build prints a note when this applies — publish `.md` files under `public/`
