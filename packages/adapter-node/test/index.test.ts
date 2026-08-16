@@ -335,6 +335,9 @@ describe("createNodeRequestHandler", () => {
           revalidate: [timeRevalidate(3600), webhookRevalidate()],
         },
       },
+      headersManifest: {
+        "/pricing": { etag: '"pricing-document"' },
+      },
       registry: {
         routeModules: {
           "./routes/pricing.tsx": async () => ({
@@ -414,6 +417,8 @@ describe("createNodeRequestHandler", () => {
         headers: { "accept-encoding": "gzip" },
       });
       expect(staleCompressed.headers.get("content-encoding")).toBe("gzip");
+      const staleEtag = staleCompressed.headers.get("etag");
+      const staleLastModified = staleCompressed.headers.get("last-modified");
       await expect(staleCompressed.text()).resolves.toContain("expired");
 
       const refreshed = await fetch(endpoint, {
@@ -431,7 +436,24 @@ describe("createNodeRequestHandler", () => {
         headers: { "accept-encoding": "gzip" },
       });
       expect(freshCompressed.headers.get("content-encoding")).toBe("gzip");
+      expect(freshCompressed.headers.get("etag")).not.toBe(staleEtag);
+      expect(freshCompressed.headers.get("last-modified")).toBe(staleLastModified);
       await expect(freshCompressed.text()).resolves.toContain("missing");
+
+      const staleEtagRevalidation = await fetch(`http://127.0.0.1:${address.port}/pricing`, {
+        headers: { "accept-encoding": "gzip", "if-none-match": staleEtag! },
+      });
+      expect(staleEtagRevalidation.status).toBe(200);
+      await expect(staleEtagRevalidation.text()).resolves.toContain("missing");
+
+      const staleDateRevalidation = await fetch(`http://127.0.0.1:${address.port}/pricing`, {
+        headers: {
+          "accept-encoding": "gzip",
+          "if-modified-since": staleLastModified!,
+        },
+      });
+      expect(staleDateRevalidation.status).toBe(200);
+      await expect(staleDateRevalidation.text()).resolves.toContain("missing");
       expect(await refreshed.json()).toMatchObject({ revalidated: ["/pricing"] });
     } finally {
       if (previousToken === undefined) {

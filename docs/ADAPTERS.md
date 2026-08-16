@@ -181,9 +181,11 @@ wildcards, and `q=0` exclusions are honored, all via `node:zlib`):
   and regenerated ISG HTML pay the compression cost once — concurrent first
   requests to the same file share a single in-flight compression. Successful
   ISG writes advance that generation explicitly, so even same-size rewrites on
-  coarse-timestamp filesystems cannot reuse stale compressed bytes. Whole-file
-  cold work is bounded by both bytes and concurrency; excess distinct files,
-  and all larger files, stream through zlib instead of queuing another buffered
+  coarse-timestamp filesystems cannot reuse stale compressed bytes or
+  validators; date-only revalidation is bypassed after such a write when the
+  filesystem timestamp cannot distinguish the generations. Whole-file cold
+  work is bounded by both bytes and concurrency; excess distinct files, and
+  all larger files, stream through zlib instead of queuing another buffered
   compression. This is runtime compression rather than build-time
   precompression; it also covers ISG documents rewritten on disk after the
   build.
@@ -217,9 +219,9 @@ Correctness guarantees:
   (`If-None-Match` takes precedence), including valid quoted opaque tags that
   contain commas, so application-level identity validation cannot short-circuit
   an encoded request with a cross-encoding `304`.
-- `HEAD` advertises the same negotiated `Content-Encoding` and variant ETag as
-  the corresponding `GET` while omitting the body (and compressed length when
-  it is not already known).
+- `HEAD` advertises the same negotiated `Content-Encoding`, variant ETag, and
+  buffered compressed `Content-Length` as the corresponding `GET` while
+  omitting the body (streamed compressed lengths remain unknown).
 - If a dynamic body fails before any bytes are written, the adapter discards
   its staged compression metadata and returns an unencoded, non-cacheable 500.
 

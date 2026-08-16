@@ -664,6 +664,7 @@ describe("dynamic response compression", () => {
 
     expect(head.status).toBe(200);
     expect(head.headers["content-encoding"]).toBe(get.headers["content-encoding"]);
+    expect(head.headers["content-length"]).toBe(get.headers["content-length"]);
     expect(head.headers.etag).toBe(get.headers.etag);
     expect(head.body.byteLength).toBe(0);
   });
@@ -1013,6 +1014,7 @@ describe("static asset compression", () => {
 
     expect(head.status).toBe(200);
     expect(head.headers["content-encoding"]).toBe(get.headers["content-encoding"]);
+    expect(head.headers["content-length"]).toBe(get.headers["content-length"]);
     expect(head.headers.etag).toBe(get.headers.etag);
     expect(head.headers.vary).toContain("Accept-Encoding");
     expect(head.body.byteLength).toBe(0);

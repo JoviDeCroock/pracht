@@ -346,6 +346,7 @@ async function serveStaticFile(
   compression: CompressionState | undefined,
 ): Promise<void> {
   const fileStat = await stat(staticResult.filePath);
+  const compressionGeneration = compression?.cache.getPathGeneration(staticResult.filePath) ?? 0;
   const headers = applyDefaultSecurityHeaders(
     new Headers({
       "content-type": staticResult.contentType,
@@ -357,10 +358,11 @@ async function serveStaticFile(
   if (staticResult.contentType.includes("text/html")) {
     applyHeadersManifest(headers, headersManifest, pathname);
   }
+  applyCompressionGenerationValidator(headers, compressionGeneration);
 
   const encoding = negotiateFileEncoding(request, headers, fileStat.size, compression);
 
-  if (isNotModified(request, headers)) {
+  if (isNotModified(request, headers, compressionGeneration === 0)) {
     res.statusCode = 304;
     writeNodeHeaders(res, headers);
     res.end();
@@ -370,10 +372,24 @@ async function serveStaticFile(
   res.statusCode = 200;
   writeNodeHeaders(res, headers);
   if (request.method === "HEAD") {
-    res.end();
+    await writeFileHead(
+      res,
+      staticResult.filePath,
+      fileStat,
+      encoding,
+      compression,
+      compressionGeneration,
+    );
     return;
   }
-  await writeFileBody(res, staticResult.filePath, fileStat, encoding, compression);
+  await writeFileBody(
+    res,
+    staticResult.filePath,
+    fileStat,
+    encoding,
+    compression,
+    compressionGeneration,
+  );
 }
 
 /**
@@ -421,9 +437,9 @@ function negotiateFileEncoding(
 /**
  * Stream a file body, compressed when an encoding was negotiated. Files up to
  * `MAX_CACHEABLE_ASSET_SIZE` are compressed once at high quality and served
- * from an in-memory LRU keyed by path + size + mtime, so hashed assets and
- * (re)generated ISG documents pay the compression cost once per version.
- * Larger files stream through zlib per request.
+ * from an in-memory LRU keyed by path + write generation + size + mtime, so
+ * hashed assets and (re)generated ISG documents pay the compression cost once
+ * per version. Larger files stream through zlib per request.
  */
 async function writeFileBody(
   res: ServerResponse,
@@ -431,30 +447,65 @@ async function writeFileBody(
   fileStat: { mtimeMs: number; size: number },
   encoding: ContentEncoding | null,
   compression: CompressionState | undefined,
+  compressionGeneration: number,
 ): Promise<void> {
   if (!encoding || !compression) {
     await pipeToResponse(createReadStream(filePath), res);
     return;
   }
 
-  if (fileStat.size <= MAX_CACHEABLE_ASSET_SIZE) {
-    const generation = compression.cache.getPathGeneration(filePath);
-    const key = `${filePath}\0${generation}\0${fileStat.size}\0${fileStat.mtimeMs}\0${encoding}`;
-    const pending = compression.cache.getOrCompress(key, fileStat.size, async () =>
-      compressBuffer(await readFile(filePath), encoding),
-    );
-    if (pending) {
-      const compressed = await pending;
-      res.setHeader("content-length", compressed.byteLength);
-      res.end(compressed);
-      return;
-    }
+  const pending = getBufferedCompressedFile(
+    filePath,
+    fileStat,
+    encoding,
+    compression,
+    compressionGeneration,
+  );
+  if (pending) {
+    const compressed = await pending;
+    res.setHeader("content-length", compressed.byteLength);
+    res.end(compressed);
+    return;
   }
 
   await pipeToResponse(
     createCompressedStream(createReadStream(filePath), encoding, { sizeHint: fileStat.size }),
     res,
   );
+}
+
+function getBufferedCompressedFile(
+  filePath: string,
+  fileStat: { mtimeMs: number; size: number },
+  encoding: ContentEncoding,
+  compression: CompressionState,
+  compressionGeneration: number,
+): Promise<Buffer> | null {
+  if (fileStat.size > MAX_CACHEABLE_ASSET_SIZE) return null;
+
+  const key = `${filePath}\0${compressionGeneration}\0${fileStat.size}\0${fileStat.mtimeMs}\0${encoding}`;
+  return compression.cache.getOrCompress(key, fileStat.size, async () =>
+    compressBuffer(await readFile(filePath), encoding),
+  );
+}
+
+async function writeFileHead(
+  res: ServerResponse,
+  filePath: string,
+  fileStat: { mtimeMs: number; size: number },
+  encoding: ContentEncoding | null,
+  compression: CompressionState | undefined,
+  compressionGeneration: number,
+): Promise<void> {
+  const pending =
+    encoding && compression
+      ? getBufferedCompressedFile(filePath, fileStat, encoding, compression, compressionGeneration)
+      : null;
+  if (pending) {
+    const compressed = await pending;
+    res.setHeader("content-length", compressed.byteLength);
+  }
+  res.end();
 }
 
 async function serveISGEntry<TContext>(
@@ -473,6 +524,7 @@ async function serveISGEntry<TContext>(
 
   const fileStat = await stat(htmlPath).catch(() => null);
   if (!fileStat?.isFile()) return false;
+  const compressionGeneration = compression?.cache.getPathGeneration(htmlPath) ?? 0;
 
   const ageMs = Date.now() - fileStat.mtimeMs;
   const revalidateSeconds = getTimeRevalidateSeconds(entry.revalidate);
@@ -488,11 +540,12 @@ async function serveISGEntry<TContext>(
     }),
   );
   applyHeadersManifest(headers, headersManifest, pathname);
+  applyCompressionGenerationValidator(headers, compressionGeneration);
   headers.set("x-pracht-isg", isStale ? "stale" : "fresh");
 
   const encoding = negotiateFileEncoding(request, headers, fileStat.size, compression);
 
-  if (isNotModified(request, headers)) {
+  if (isNotModified(request, headers, compressionGeneration === 0)) {
     res.statusCode = 304;
     writeNodeHeaders(res, headers);
     res.end();
@@ -500,9 +553,9 @@ async function serveISGEntry<TContext>(
     res.statusCode = 200;
     writeNodeHeaders(res, headers);
     if (request.method === "HEAD") {
-      res.end();
+      await writeFileHead(res, htmlPath, fileStat, encoding, compression, compressionGeneration);
     } else {
-      await writeFileBody(res, htmlPath, fileStat, encoding, compression);
+      await writeFileBody(res, htmlPath, fileStat, encoding, compression, compressionGeneration);
     }
   }
 
@@ -658,6 +711,26 @@ function createWeakEtag(fileStat: { mtimeMs: number; size: number }): string {
   return `W/"${fileStat.size.toString(16)}-${Math.floor(fileStat.mtimeMs).toString(16)}"`;
 }
 
-function isNotModified(request: Request, headers: Headers): boolean {
-  return isNotModifiedRequest(request, headers.get("etag"), headers.get("last-modified"));
+function applyCompressionGenerationValidator(headers: Headers, generation: number): void {
+  if (generation <= 0) return;
+  const etag = headers.get("etag");
+  if (!etag) return;
+
+  const opaqueTag = etag.startsWith("W/") ? etag.slice(2) : etag;
+  const suffix = `-g${generation.toString(16)}`;
+  headers.set(
+    "etag",
+    opaqueTag.endsWith('"') ? `W/${opaqueTag.slice(0, -1)}${suffix}"` : `W/${opaqueTag}${suffix}`,
+  );
+}
+
+function isNotModified(request: Request, headers: Headers, allowLastModified = true): boolean {
+  // A sub-second/coarse-filesystem rewrite can retain its HTTP-date while its
+  // in-memory generation and ETag advance. In that case only the ETag can
+  // safely validate the selected representation.
+  return isNotModifiedRequest(
+    request,
+    headers.get("etag"),
+    allowLastModified ? headers.get("last-modified") : null,
+  );
 }
