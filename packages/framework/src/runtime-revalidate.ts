@@ -28,9 +28,28 @@ export async function revalidateRouteData(
     throw deserializeRouteError(result.error);
   }
 
-  if (result.fontHead) applyFontHeadFragments(result.fontHead);
+  // The provider stamps setData() with the route state that started this
+  // request, so a result that settles after navigation cannot overwrite the
+  // new route's data. Font state lives outside that provider in document.head;
+  // apply the same ownership check before mutating it.
+  if (result.fontHead && runtimeOwnsCurrentLocation(runtime)) {
+    applyFontHeadFragments(result.fontHead);
+  }
   runtime?.setData(result.data);
   return result.data;
+}
+
+function runtimeOwnsCurrentLocation(runtime: PrachtRuntimeValue | undefined): boolean {
+  if (!runtime) return true;
+  if (runtime.isCurrent) return runtime.isCurrent();
+  try {
+    const runtimeUrl = new URL(runtime.url, window.location.href);
+    return (
+      runtimeUrl.pathname + runtimeUrl.search === window.location.pathname + window.location.search
+    );
+  } catch {
+    return false;
+  }
 }
 
 /**

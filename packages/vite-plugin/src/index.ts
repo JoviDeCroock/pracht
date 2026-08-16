@@ -93,6 +93,38 @@ export {
   PRACHT_WEBMCP_MODULE_ID,
 };
 
+interface HotUpdateModuleLike {
+  file?: string | null;
+  id?: string | null;
+  importers?: Set<HotUpdateModuleLike>;
+}
+
+function reachesHeadBearingModule(
+  modules: readonly HotUpdateModuleLike[],
+  serverRoot: string,
+  headHints: Record<string, boolean>,
+): boolean {
+  const pending = [...modules];
+  const seen = new Set<HotUpdateModuleLike>();
+  while (pending.length > 0) {
+    const module = pending.pop();
+    if (!module || seen.has(module)) continue;
+    seen.add(module);
+
+    const modulePath = module.file ?? module.id?.split("?", 1)[0];
+    if (modulePath) {
+      const normalizedPath = toPosixPath(modulePath);
+      const relative = normalizedPath.startsWith(serverRoot)
+        ? normalizedPath.slice(serverRoot.length)
+        : normalizedPath;
+      if (headHints[relative] === true) return true;
+    }
+
+    if (module.importers) pending.push(...module.importers);
+  }
+  return false;
+}
+
 export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
   const resolved = resolveOptions(options);
   const isPagesMode = !!resolved.pagesDir;
@@ -354,13 +386,21 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
       const changesRouteHeadSource = isPagesMode
         ? relative.startsWith(resolved.pagesDir)
         : relative.startsWith(resolved.routesDir) || relative.startsWith(resolved.shellsDir);
-      let shouldReloadClientHead = false;
+      const changesRouteHeadDependency = reachesHeadBearingModule(
+        modules,
+        serverRoot,
+        clientRouteHeadHints,
+      );
+      let shouldReloadClientHead = changesRouteHeadDependency;
       let clientHeadModule: ReturnType<typeof server.moduleGraph.getModuleById>;
+      if (changesRouteHeadSource || changesRouteHeadDependency) {
+        clientHeadModule = server.moduleGraph.getModuleById(PRACHT_CLIENT_MODULE_ID);
+      }
       if (changesRouteHeadSource) {
         const previousHint = clientRouteHeadHints[relative];
         try {
           const nextHints = createRouteHeadHintsForVirtualModules(resolved, root);
-          shouldReloadClientHead = previousHint === true || nextHints[relative] === true;
+          shouldReloadClientHead ||= previousHint === true || nextHints[relative] === true;
           clientRouteHeadHints = nextHints;
         } catch {
           // A file can be observed while its editor is replacing it. Reloading
@@ -368,7 +408,10 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
           // server-generated head state that cannot be patched in the browser.
           shouldReloadClientHead = true;
         }
-        clientHeadModule = server.moduleGraph.getModuleById(PRACHT_CLIENT_MODULE_ID);
+      } else if (changesRouteHeadDependency && clientHeadModule) {
+        // A dependency such as src/fonts.ts is part of normal client HMR, but
+        // its generated style/preload state only exists in the virtual entry.
+        server.moduleGraph.invalidateModule(clientHeadModule);
       }
 
       if (isPagesMode && relative.startsWith(resolved.pagesDir)) {

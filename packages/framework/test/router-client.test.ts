@@ -196,7 +196,13 @@ describe("initClientRouter", () => {
 
     root.innerHTML =
       '<main><span id="count">1</span><span id="lang">none</span><button id="refresh">Refresh</button><div>ready</div></main>';
-    fetchSpy.mockResolvedValue(createJsonResponse({ data: { count: 2 } }));
+    document.head.innerHTML = '<style data-pracht-fonts>@font-face{font-family:"Initial"}</style>';
+    fetchSpy.mockResolvedValue(
+      createJsonResponse({
+        data: { count: 2 },
+        fontHead: { preloadLinks: [], css: '@font-face{font-family:"Revalidated"}' },
+      }),
+    );
 
     await initClientRouter({
       app,
@@ -216,6 +222,9 @@ describe("initClientRouter", () => {
     root.querySelector<HTMLButtonElement>("#refresh")!.click();
     await flush();
     expect(root.querySelector("#count")?.textContent).toBe("2");
+    expect(document.head.querySelector("style[data-pracht-fonts]")?.textContent).toBe(
+      '@font-face{font-family:"Revalidated"}',
+    );
 
     resolveSuspense();
     await flush();
@@ -528,6 +537,81 @@ describe("initClientRouter", () => {
     expect(document.head.querySelector('link[href="/fresh.woff2"]')).not.toBeNull();
     expect(document.head.querySelector("style[data-pracht-fonts]")?.textContent).toBe(
       '@font-face{font-family:"Fresh"}',
+    );
+  });
+
+  it("does not let a stale revalidation overwrite fonts after navigation", async () => {
+    function Dashboard() {
+      const revalidate = useRevalidate();
+      return h(
+        "main",
+        null,
+        h("button", { id: "refresh", onClick: () => void revalidate() }, "Refresh"),
+      );
+    }
+
+    const app = resolveApp(
+      defineApp({
+        routes: [
+          route("/dashboard", "./routes/dashboard.tsx", {
+            id: "dashboard",
+            render: "ssr",
+            hasHead: true,
+          }),
+          route("/next", "./routes/next.tsx", {
+            id: "next",
+            render: "ssr",
+            hasHead: true,
+          }),
+        ],
+      }),
+    );
+
+    let resolveRevalidation!: (response: Response) => void;
+    const revalidationResponse = new Promise<Response>((resolve) => {
+      resolveRevalidation = resolve;
+    });
+    fetchSpy.mockReturnValueOnce(revalidationResponse).mockResolvedValueOnce(
+      createJsonResponse({
+        data: null,
+        fontHead: { preloadLinks: [], css: '@font-face{font-family:"Next"}' },
+      }),
+    );
+
+    history.replaceState(null, "", "/dashboard");
+    root.innerHTML = '<main><button id="refresh">Refresh</button></main>';
+    document.head.innerHTML =
+      '<style data-pracht-fonts>@font-face{font-family:"Dashboard"}</style>';
+
+    await initClientRouter({
+      app,
+      routeModules: {
+        "./routes/dashboard.tsx": async () => ({ default: Dashboard }),
+        "./routes/next.tsx": async () => ({ default: () => h("main", null, "Next") }),
+      },
+      shellModules: {},
+      initialState: { data: null, routeId: "dashboard", url: "/dashboard" },
+      root,
+      findModuleKey: (_modules, file) => file,
+    });
+
+    root.querySelector<HTMLButtonElement>("#refresh")?.click();
+    await window.__PRACHT_NAVIGATE__!("/next");
+    expect(document.head.querySelector("style[data-pracht-fonts]")?.textContent).toBe(
+      '@font-face{font-family:"Next"}',
+    );
+
+    resolveRevalidation(
+      createJsonResponse({
+        data: null,
+        fontHead: { preloadLinks: [], css: '@font-face{font-family:"Stale Dashboard"}' },
+      }),
+    );
+    await flush();
+    await flush();
+
+    expect(document.head.querySelector("style[data-pracht-fonts]")?.textContent).toBe(
+      '@font-face{font-family:"Next"}',
     );
   });
 

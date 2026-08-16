@@ -151,6 +151,7 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
 
   let updateRouteState: ((state: StateUpdater<RouteRenderState>) => void) | null = null;
   let routeStateVersion = 0;
+  let activeRouteStateVersion = 0;
   let latestNavigationId = 0;
   let activeNavigationAbort: AbortController | null = null;
 
@@ -322,6 +323,7 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
     const navigateValue = useMemo(() => navigate, []);
 
     const { Shell, Component, componentProps, data, params, routeId, url, version } = routeState;
+    activeRouteStateVersion = version;
 
     useLayoutEffect(() => {
       if (!afterCommitCallback) return;
@@ -339,13 +341,22 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
       { value: navigateValue },
       h(
         PrachtRuntimeProvider as FunctionComponent<Record<string, unknown>>,
-        { data, params, routeId, routes: app.routes, stateVersion: version, url },
+        {
+          data,
+          params,
+          routeId,
+          routes: app.routes,
+          stateVersion: version,
+          url,
+          isCurrent: () => activeRouteStateVersion === version,
+        },
         componentTree,
       ),
     );
   }
 
   function applyRouteState(routeState: RouteRenderState): void {
+    activeRouteStateVersion = routeState.version;
     if (updateRouteState) {
       updateRouteState(routeState);
       return;
