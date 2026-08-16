@@ -23,6 +23,17 @@ describe("detectLoaderExport", () => {
     expect(detectLoaderExport("export const route = { loader: source };\n")).toBe(false);
   });
 
+  it("only treats exported variable bindings as loaders", () => {
+    expect(detectLoaderExport("export const Component = () => <Widget loader={value} />;\n")).toBe(
+      false,
+    );
+    expect(
+      detectLoaderExport(
+        "export const Component = () => <Widget loader={value} />, loader = () => ({});\n",
+      ),
+    ).toBe(true);
+  });
+
   it("ignores loader-shaped text in comments and strings", () => {
     expect(
       detectLoaderExport(

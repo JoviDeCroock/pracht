@@ -144,6 +144,17 @@ describe("createStaticPreviewHandler", () => {
     expect(await miss.text()).toContain("not found page");
   });
 
+  it("does not use a clean-URL /404.html route as the error document", async () => {
+    const { origin, staticDir } = await startPreview();
+    rmSync(resolve(staticDir, "404.html"));
+    mkdirSync(resolve(staticDir, "404.html"), { recursive: true });
+    writeFileSync(resolve(staticDir, "404.html/index.html"), "<h1>ordinary route</h1>", "utf-8");
+
+    const miss = await fetch(`${origin}/nope`);
+    expect(miss.status).toBe(404);
+    expect(await miss.text()).toBe("Not found");
+  });
+
   it("serves the configured SPA fallback with status 200 for misses", async () => {
     const { origin } = await startPreview({ fallback: "200.html" });
     const miss = await fetch(`${origin}/items/42`);

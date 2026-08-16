@@ -15,23 +15,69 @@ function isExportAllStatement(source: string): boolean {
   return /^\s*export\s*\*/.test(withoutComments);
 }
 
+function exportedVariableDeclarationIncludesLoader(source: string): boolean {
+  for (const declaration of source.matchAll(/\bexport\s+(?:const|let|var)\b/g)) {
+    let index = (declaration.index ?? 0) + declaration[0].length;
+
+    while (index < source.length) {
+      while (/\s/.test(source[index] ?? "")) index += 1;
+
+      const bindingStart = index;
+      const opening = source[index];
+      if (opening === "{" || opening === "[") {
+        const closing = opening === "{" ? "}" : "]";
+        let depth = 0;
+        do {
+          const char = source[index++];
+          if (char === opening) depth += 1;
+          if (char === closing) depth -= 1;
+        } while (index < source.length && depth > 0);
+
+        // Keep destructuring fail-closed. The lexer reports property keys
+        // instead of local bindings for shapes such as `{ value: loader }`.
+        if (/\bloader\b/.test(source.slice(bindingStart, index))) return true;
+      } else {
+        const binding = /^[A-Za-z_$][\w$]*/.exec(source.slice(index));
+        if (!binding) break;
+        if (binding[0] === "loader") return true;
+        index += binding[0].length;
+      }
+
+      // Skip the type and initializer without treating identifiers inside
+      // JSX props, objects, calls, or other nested expressions as bindings.
+      // A top-level comma begins the next exported declarator.
+      let parentheses = 0;
+      let brackets = 0;
+      let braces = 0;
+      for (; index < source.length; index += 1) {
+        const char = source[index];
+        if (char === "(") parentheses += 1;
+        else if (char === ")") parentheses = Math.max(0, parentheses - 1);
+        else if (char === "[") brackets += 1;
+        else if (char === "]") brackets = Math.max(0, brackets - 1);
+        else if (char === "{") braces += 1;
+        else if (char === "}") braces = Math.max(0, braces - 1);
+
+        if (parentheses === 0 && brackets === 0 && braces === 0) {
+          if (char === ";") break;
+          if (char === ",") {
+            index += 1;
+            break;
+          }
+        }
+      }
+
+      if (source[index] === ";" || index >= source.length) break;
+    }
+  }
+
+  return false;
+}
+
 function detectLoaderExportFallback(source: string): boolean {
   const masked = maskCommentsAndStrings(source);
   if (/\bexport\s+(?:async\s+)?function\s+loader\b/.test(masked)) return true;
-  if (/\bexport\s+(?:const|let|var)\s+[^;]*\bloader\s*(?::[^=,;]+)?=/.test(masked)) {
-    return true;
-  }
-  // es-module-lexer reports object destructuring property keys rather than
-  // their local bindings (`{ value: loader }` is reported as `value`). Keep
-  // the loader hint fail-closed for exported binding patterns so static
-  // builds never omit route state for a loader that really exists.
-  if (
-    /\bexport\s+(?:const|let|var)\s+(?:\{[^;]*\bloader\b[^;]*\}|\[[^;]*\bloader\b[^;]*\])\s*(?::[^=;]+)?=/.test(
-      masked,
-    )
-  ) {
-    return true;
-  }
+  if (exportedVariableDeclarationIncludesLoader(masked)) return true;
   if (/\bexport\s*\*/.test(masked)) return true;
 
   for (const match of masked.matchAll(/\bexport\s*\{([^}]*)\}/g)) {
