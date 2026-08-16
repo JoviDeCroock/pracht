@@ -13,13 +13,35 @@ next:
 ## Install
 
 `@pracht/content` is an opt-in companion package. It owns content data; it does
-not choose your renderer, route structure, or public agent surface.
+not choose your route structure or public agent surface. Add
+`@pracht/markdown` when you want Pracht's official Markdown route compiler.
 
 ```sh
-pnpm add @pracht/content
+pnpm add @pracht/content @pracht/markdown @pracht/image
+pnpm add -D sharp
 ```
 
 ## Define one collection
+
+For Markdown documentation, start with `defineMarkdownCollection()`. It wraps
+the lower-level collection primitive, preserves raw Markdown for content
+negotiation, and compiles normal relative Markdown images into intrinsic,
+responsive markup through `prachtImage()`.
+
+```ts [content.ts]
+import { defineMarkdownCollection } from "@pracht/markdown";
+
+export const docs = defineMarkdownCollection({
+  name: "docs",
+  root: new URL("./src/routes/docs", import.meta.url),
+  routeBase: "/docs",
+  images: { sizes: "(max-width: 960px) 100vw, 960px" },
+});
+```
+
+Use the lower-level `defineCollection()` API when the compiled representation
+is not Markdown HTML or when the application needs a completely custom module
+shape:
 
 Define the collection next to the Vite config so every server/build consumer
 imports the same registry. Sources can be listed explicitly, or discovered
@@ -70,17 +92,19 @@ entry on add, change, or unlink.
 
 ## Add the Vite integration
 
-Place `prachtContent()` before `pracht()`. It transforms registered source
-modules in both client and server graphs, serves generated artifacts live in
-development, and emits the same files in the client build.
+Place `prachtContent()` and `prachtImage()` before `pracht()`. They transform
+registered source modules in both client and server graphs, serve generated
+artifacts and image variants live in development, and emit the same files for
+production.
 
 ```ts [vite.config.ts]
 import { prachtContent } from "@pracht/content/vite";
+import { prachtImage } from "@pracht/image/vite";
 import { pracht } from "@pracht/vite-plugin";
 import { docs } from "./content";
 
 export default defineConfig({
-  plugins: [prachtContent({ collections: [docs] }), pracht()],
+  plugins: [prachtContent({ collections: [docs] }), prachtImage(), pracht()],
 });
 ```
 

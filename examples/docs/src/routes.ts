@@ -75,6 +75,7 @@ export const app = defineApp({
       route("/docs/images", () => import("./routes/docs/images.md"), {
         id: "images",
         render: "ssg",
+        hydration: "none",
       }),
       route("/docs/env", () => import("./routes/docs/env.md"), {
         id: "env",

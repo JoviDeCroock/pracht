@@ -5,6 +5,10 @@ It replaces parallel runtime/build filesystem readers with one registry that
 owns route-to-source mapping, locales and fallback, source representations,
 compilation memoization, iteration, and static artifacts.
 
+For an official Markdown route-module compiler on top of this primitive, use
+[`@pracht/markdown`](../markdown/README.md). It also integrates relative
+Markdown images with `@pracht/image` build-time responsive variants.
+
 ```sh
 pnpm add @pracht/content
 ```

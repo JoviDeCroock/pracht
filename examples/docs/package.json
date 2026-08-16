@@ -11,6 +11,8 @@
     "@pracht/adapter-cloudflare": "workspace:*",
     "@pracht/content": "workspace:*",
     "@pracht/core": "workspace:*",
+    "@pracht/image": "workspace:*",
+    "@pracht/markdown": "workspace:*",
     "@tabler/icons-preact": "^3.41.1",
     "wrangler": "^4.80.0"
   },
@@ -20,6 +22,7 @@
     "marked": "^18.0.0",
     "preact": "^10.26.9",
     "preact-render-to-string": "^6.5.13",
+    "sharp": "^0.34.0",
     "vite": "^8.0.0"
   }
 }

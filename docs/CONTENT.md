@@ -36,7 +36,7 @@ The package owns:
 
 The package does not own:
 
-- Preact page structure or a Markdown/MDX renderer;
+- Preact page structure or an application-specific Markdown/MDX renderer;
 - route authorization or loader response caching;
 - which collection is public;
 - core app-graph `llms.txt` policy;
@@ -44,6 +44,39 @@ The package does not own:
 
 This boundary keeps the package useful for blogs, help centers, changelogs, and
 product catalogs without turning those conventions into framework defaults.
+
+## Official Markdown integration
+
+`@pracht/markdown` is the opt-in, opinionated integration for applications
+that do want a supported Markdown route-module compiler. It wraps
+`defineCollection()`, uses `marked` by default, exposes hooks for renderer,
+page markup, head, and artifacts, and keeps raw Markdown available to Pracht's
+content negotiation.
+
+```ts
+import { prachtContent } from "@pracht/content/vite";
+import { prachtImage } from "@pracht/image/vite";
+import { defineMarkdownCollection } from "@pracht/markdown";
+import { pracht } from "@pracht/vite-plugin";
+import { defineConfig } from "vite";
+
+export const docs = defineMarkdownCollection({
+  name: "docs",
+  root: new URL("./src/routes/docs", import.meta.url),
+  routeBase: "/docs",
+});
+
+export default defineConfig({
+  plugins: [prachtContent({ collections: [docs] }), prachtImage(), pracht()],
+});
+```
+
+Relative Markdown images are compiled to source imports using
+`?pracht&pracht-static`. With `prachtImage()` registered, the generated route
+module receives intrinsic dimensions and cached, content-hashed WebP variants.
+The final output is plain `<img>` markup with `srcset` and `sizes`, so it works
+for SSR, SSG, and `hydration: "none"` without a client Markdown or image
+runtime. Root-relative `public/`, remote, and data URLs remain unchanged.
 
 ## Registry and paths
 

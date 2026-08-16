@@ -76,6 +76,14 @@ For background-style images, use `fill` inside a positioned parent:
 
 ## Build-Time Imports
 
+Markdown routes use the same pipeline automatically for relative source images:
+
+![A sunset optimized by the Pracht Markdown pipeline.](./markdown-image.jpg "Pracht Markdown image dogfood")
+
+The source file lives beside this Markdown page. The build emits cached,
+content-hashed WebP candidates, adds intrinsic dimensions and responsive
+`srcset` markup, and leaves root-relative `public/` images untouched.
+
 Add `prachtImage()` from `@pracht/image/vite` to your Vite config to import images with the `?pracht` query. It is opt-in — the main `pracht()` plugin does not include it:
 
 ```ts [vite.config.ts]
@@ -84,7 +92,7 @@ import { prachtImage } from "@pracht/image/vite";
 import { pracht } from "@pracht/vite-plugin";
 
 export default defineConfig({
-  plugins: [pracht({ /* … */ }), prachtImage()],
+  plugins: [prachtImage(), pracht({ /* … */ })],
 });
 ```
 
@@ -100,11 +108,21 @@ export function Component() {
 }
 ```
 
+Add `&pracht-static` to emit responsive WebP files at build time instead of
+using a runtime image service:
+
+```tsx
+import hero from "../assets/hero.jpg?pracht&pracht-static";
+
+<Image src={hero} alt="Sunset over water" sizes="100vw" />;
+```
+
 Passing the metadata object as `src` gives the image intrinsic `width`/`height` automatically — no layout shift, no hand-maintained dimensions. The pieces:
 
 - `src` goes through Vite's regular asset pipeline: source-directory imports get hashed file names in production, root-relative imports from `publicDir` keep their stable public names, and both get `base`-aware URLs plus normal dev serving.
 - `width` and `height` come from `sharp` metadata with EXIF orientation applied, so rotated photos report their display dimensions.
 - `blurDataURL` is a tiny (8px wide) inline WebP generated at build time, used by `placeholder="blur"`.
+- `variants` is present on static imports and supplies content-hashed WebP candidates directly to the rendered `srcset`.
 
 `sharp` must be installed at build time (`pnpm add -D sharp`); it never ships to a runtime bundle, so this works for Cloudflare and Vercel targets too. SVG imports provide dimensions but skip the blur (vectors scale cleanly), animated GIFs blur their first frame, and editing the source image invalidates the transform in dev.
 

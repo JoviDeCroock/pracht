@@ -11,7 +11,8 @@
  *   - `prev`/`next` frontmatter → bottom navigation
  */
 
-import { defineCollection, llmsTxtArtifacts, type ContentCompileInput } from "@pracht/content";
+import { llmsTxtArtifacts } from "@pracht/content";
+import { defineMarkdownCollection } from "@pracht/markdown";
 import { Marked, Renderer } from "marked";
 
 // ── Inline highlight (same tokenizer as utils/highlight.ts) ──────────────────
@@ -258,14 +259,7 @@ function buildDocPage(fm: Frontmatter, contentHtml: string): string {
 
 // ── Collection ───────────────────────────────────────────────────────────────
 
-interface CompiledDoc {
-  headTitle: string;
-  pageHtml: string;
-}
-
-const marked = new Marked({ renderer: createRenderer() });
-
-export const docsContent = defineCollection<Frontmatter, CompiledDoc>({
+export const docsContent = defineMarkdownCollection<Frontmatter>({
   name: "docs",
   root: new URL("./src/routes/docs", import.meta.url),
   routeBase: "/docs",
@@ -274,31 +268,21 @@ export const docsContent = defineCollection<Frontmatter, CompiledDoc>({
     if (id.startsWith("migrate-")) return `/docs/migrate/${id.slice("migrate-".length)}`;
     return `/docs/${id}`;
   },
-  compile({ body, frontmatter }: ContentCompileInput<Frontmatter>) {
-    let contentHtml = marked.parse(body) as string;
-    contentHtml = contentHtml
+  createMarked: () => new Marked({ renderer: createRenderer() }),
+  render({ html, input }) {
+    const contentHtml = html
       .replace(/<table>/g, '<div class="doc-table-wrap"><table class="doc-table">')
       .replace(/<\/table>/g, "</table></div>");
+    return `<div class="doc-page">${buildDocPage(input.frontmatter, contentHtml)}</div>`;
+  },
+  head({ input }) {
     return {
-      headTitle: frontmatter.title ? `${frontmatter.title} \u2014 pracht docs` : "pracht docs",
-      pageHtml: buildDocPage(frontmatter, contentHtml),
+      title: input.frontmatter.title
+        ? `${input.frontmatter.title} \u2014 pracht docs`
+        : "pracht docs",
     };
   },
-  module(document) {
-    return [
-      `import { h } from "preact";`,
-      ``,
-      `export const markdown = ${JSON.stringify(document.raw)};`,
-      ``,
-      `export function head() {`,
-      `  return { title: ${JSON.stringify(document.compiled.headTitle)} };`,
-      `}`,
-      ``,
-      `export function Component() {`,
-      `  return h("div", { class: "doc-page", dangerouslySetInnerHTML: { __html: ${JSON.stringify(document.compiled.pageHtml)} } });`,
-      `}`,
-    ].join("\n");
-  },
+  images: { sizes: "(max-width: 960px) 100vw, 960px" },
   artifacts: [
     llmsTxtArtifacts({
       origin: "https://pracht.resynapse.dev",

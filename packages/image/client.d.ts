@@ -17,3 +17,13 @@ declare module "*?pracht" {
   export const blurDataURL: string | undefined;
   export default metadata;
 }
+
+declare module "*?pracht&pracht-static" {
+  const metadata: import("@pracht/image").PrachtImageMetadata;
+  export const src: string;
+  export const width: number;
+  export const height: number;
+  export const blurDataURL: string | undefined;
+  export const variants: readonly import("@pracht/image").PrachtImageVariant[];
+  export default metadata;
+}

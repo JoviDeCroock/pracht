@@ -201,6 +201,16 @@ function planSrcSet(
  * loader (see `configureImage()` and the `loader` prop).
  */
 export function Image(props: ImageProps): VNode {
+  return h("img", getImageProps(props));
+}
+
+/**
+ * Resolve the plain `<img>` attributes used by {@link Image}. This is useful
+ * for HTML compilers such as `@pracht/markdown`, which need the exact same
+ * sizing, loader, placeholder, and priority semantics without mounting a
+ * second Preact renderer.
+ */
+export function getImageProps(props: ImageProps): JSX.IntrinsicElements["img"] {
   const {
     src,
     alt,
@@ -270,13 +280,25 @@ export function Image(props: ImageProps): VNode {
     }
   }
 
-  const effectiveSizes = sizes ?? (fill ? "100vw" : undefined);
+  const staticVariants = loader == null ? metadata?.variants : undefined;
+  const effectiveSizes =
+    sizes ??
+    (fill
+      ? "100vw"
+      : staticVariants?.length && numericWidth != null
+        ? `(max-width: ${numericWidth}px) 100vw, ${numericWidth}px`
+        : undefined);
   const plan = planSrcSet(config.deviceSizes, config.imageSizes, numericWidth, effectiveSizes);
 
-  const candidates = plan.widths.map((candidateWidth) =>
-    resolvedLoader({ src: srcString, width: candidateWidth, quality: resolvedQuality }),
-  );
-  const largestSrc = candidates[candidates.length - 1];
+  const candidates = staticVariants?.length
+    ? staticVariants.map((variant) => variant.src)
+    : plan.widths.map((candidateWidth) =>
+        resolvedLoader({ src: srcString, width: candidateWidth, quality: resolvedQuality }),
+      );
+  const candidateWidths = staticVariants?.length
+    ? staticVariants.map((variant) => variant.width)
+    : plan.widths;
+  const largestSrc = candidates[candidates.length - 1] ?? srcString;
 
   // A loader that ignores width (e.g. passthroughLoader) produces identical
   // candidates; a srcset would be meaningless, so omit it.
@@ -284,7 +306,9 @@ export function Image(props: ImageProps): VNode {
   const srcset = optimized
     ? candidates
         .map((url, index) =>
-          plan.descriptor === "w" ? `${url} ${plan.widths[index]}w` : `${url} ${index + 1}x`,
+          staticVariants?.length || plan.descriptor === "w"
+            ? `${url} ${candidateWidths[index]}w`
+            : `${url} ${index + 1}x`,
         )
         .join(", ")
     : undefined;
@@ -324,5 +348,5 @@ export function Image(props: ImageProps): VNode {
   if (priority) imgProps.fetchpriority = "high";
   if (mergedStyle != null) imgProps.style = mergedStyle;
 
-  return h("img", imgProps);
+  return imgProps as JSX.IntrinsicElements["img"];
 }

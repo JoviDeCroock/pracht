@@ -23,4 +23,19 @@ export interface PrachtImageMetadata {
    * so a raster blur adds bytes without adding information.
    */
   blurDataURL?: string;
+  /**
+   * Build-generated responsive variants. Present for `?pracht&pracht-static`
+   * imports; ordinary `?pracht` imports continue to expose the hashed original
+   * and rely on the configured runtime/platform loader.
+   */
+  variants?: readonly PrachtImageVariant[];
+}
+
+export interface PrachtImageVariant {
+  /** Final, base-aware URL of the generated asset. */
+  src: string;
+  /** Raster width represented by this candidate. */
+  width: number;
+  /** MIME type of the generated asset. */
+  type: `image/${string}`;
 }

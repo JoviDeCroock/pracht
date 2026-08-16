@@ -1,6 +1,7 @@
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
 import { prachtContent } from "@pracht/content/vite";
+import { prachtImage } from "@pracht/image/vite";
 import { pracht } from "@pracht/vite-plugin";
 import { cloudflareAdapter } from "@pracht/adapter-cloudflare";
 import { docsContent } from "./content";
@@ -14,6 +15,7 @@ const skillsDir = fileURLToPath(new URL("../../skills", import.meta.url));
 export default defineConfig({
   plugins: [
     prachtContent({ collections: [docsContent] }),
+    prachtImage(),
     sitemap({ origin: SITE_ORIGIN, routesFile }),
     agentSkills({ origin: SITE_ORIGIN, skillsDir }),
     pracht({ adapter: cloudflareAdapter() }),

@@ -1,0 +1,36 @@
+{
+  "name": "@pracht/markdown",
+  "version": "0.0.0",
+  "description": "Markdown content collections for Pracht with automatic responsive image imports.",
+  "keywords": ["pracht", "markdown", "content", "images", "ssg"],
+  "license": "MIT",
+  "homepage": "https://github.com/JoviDeCroock/pracht/tree/main/packages/markdown",
+  "bugs": { "url": "https://github.com/JoviDeCroock/pracht/issues" },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/JoviDeCroock/pracht",
+    "directory": "packages/markdown"
+  },
+  "files": ["dist"],
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.mts",
+      "default": "./dist/index.mjs"
+    },
+    "./runtime": {
+      "types": "./dist/runtime.d.mts",
+      "default": "./dist/runtime.mjs"
+    }
+  },
+  "publishConfig": { "provenance": true },
+  "scripts": {
+    "build": "tsdown",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "@pracht/content": "workspace:*",
+    "@pracht/image": "workspace:*",
+    "marked": "^18.0.0"
+  }
+}

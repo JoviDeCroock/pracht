@@ -31,6 +31,7 @@ npm create pracht@latest my-app
 - **Deploy anywhere** — one codebase, one build, five production-ready adapters (Node, Cloudflare Workers, Netlify, Vercel, and pure static export).
 - **Env safety built in** — typed `serverEnv`/`publicEnv` helpers with a `PRACHT_PUBLIC_` prefix rule, and builds fail when client bundles reference non-public env vars.
 - **Optional content collections** — `@pracht/content` gives loaders and build plugins one server-only registry for routes, locales, source/compiled representations, caching, and emitted assets.
+- **Markdown images without runtime JavaScript** — `@pracht/markdown` compiles ordinary relative Markdown images through `@pracht/image` into cached responsive WebP variants for SSR, SSG, and hydration-disabled routes.
 
 ## At a glance
 
@@ -142,6 +143,7 @@ The skills are distributed three ways (see the [catalog](skills/README.md)):
 - [docs/RENDERING_MODES.md](docs/RENDERING_MODES.md) — SSR, SSG, ISG, SPA behavior
 - [docs/PERFORMANCE.md](docs/PERFORMANCE.md) — bundle analysis and per-route client JS budgets
 - [docs/DATA_LOADING.md](docs/DATA_LOADING.md) — loaders, forms, client hooks
+- [docs/CONTENT.md](docs/CONTENT.md) — server-only collections and official Markdown integration
 - [docs/API_VALIDATION.md](docs/API_VALIDATION.md) — Standard Schema validation for API routes, typed `apiFetch()`
 - [docs/OPENAPI.md](docs/OPENAPI.md) — optional OpenAPI 3.1 JSON/UI endpoints and build output
 - [docs/CAPABILITIES.md](docs/CAPABILITIES.md) — typed capabilities, HTTP projection, WebMCP page tools
@@ -151,7 +153,7 @@ The skills are distributed three ways (see the [catalog](skills/README.md)):
 - [docs/LLMS_TXT.md](docs/LLMS_TXT.md) — generated llms.txt: pages, API endpoints, capabilities
 - [docs/STYLING.md](docs/STYLING.md) — CSS Modules, Tailwind, CSS-in-JS limitations
 - [docs/ADAPTERS.md](docs/ADAPTERS.md) — Node, Cloudflare, Netlify, Vercel, and static-export deployment paths
-- [docs/IMAGES.md](docs/IMAGES.md) — responsive `<Image>` component, loaders, optimization endpoint
+- [docs/IMAGES.md](docs/IMAGES.md) — responsive `<Image>`, runtime loaders, and static variants
 - [packages/i18n/README.md](packages/i18n/README.md) — `@pracht/i18n`: locale-detection middleware, typed dictionaries, hreflang helpers
 - [docs/MCP.md](docs/MCP.md) — built-in MCP server for coding agents (development time)
 - [docs/AGENT_WORKFLOW.md](docs/AGENT_WORKFLOW.md) — constraints, app-graph snapshots, `pracht plan`/`report`
