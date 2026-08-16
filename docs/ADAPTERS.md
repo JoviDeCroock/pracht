@@ -1067,6 +1067,13 @@ One shape is a warning rather than an error, because it is only wrong for some
 deploys: a `fallback` document in an app with no `notFound` page and no
 client-routable SPA catch-all (unknown URLs would render blank).
 
+`pracht doctor` and `pracht verify` check most of the same preconditions from
+the resolved app graph, so you do not have to run a full build to find out.
+They cover server-rendered routes, SPA loaders and hydration, route
+middleware, API routes, and network-exposed capabilities. The remaining rules
+— the `notFound` page's hydration and middleware, the Vite `base`, and
+everything about concrete `getStaticPaths()` output — are build-time-only.
+
 ### Client-side navigation without a server
 
 On every other adapter, client navigation fetches route-state JSON from the
