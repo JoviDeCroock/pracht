@@ -614,7 +614,7 @@ pracht build      # dist/client/ is the deployable site
 pracht preview    # serves dist/client/ with a tiny static file server
 ```
 
-Pages are emitted as `<path>/index.html`, so the host must serve `index.html` for directory URLs (clean URLs). Response headers each prerendered route would have carried are recorded in `dist/client/_pracht/headers.json` — mirror the ones you need in the host's header config. See `docs/ADAPTERS.md` in the repository for host-configuration details and limitations (markdown negotiation, percent-encoded params, base paths).
+Pages are emitted as `<path>/index.html` at the percent-decoded path (`/posts/caf%C3%A9` → `posts/café/index.html`), so the host must serve `index.html` for directory URLs (clean URLs). Response headers each prerendered route would have carried are recorded in `dist/client/_pracht/headers.json` — mirror the ones you need in the host's header config. See `docs/ADAPTERS.md` in the repository for host-configuration details and limitations (markdown negotiation, base paths).
 
 ---
 

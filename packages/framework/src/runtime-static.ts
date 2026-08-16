@@ -43,10 +43,16 @@ export const STATIC_STATE_PREFIX = "/_pracht/state";
  *
  * The query string is dropped deliberately: static loader data was produced
  * at build time from the bare pathname, so every query variant of a URL maps
- * to the same payload (exactly what the build generated). Percent-encoding is
- * preserved as-is because the build writes state files from the same encoded
- * route paths it writes HTML for — whatever host resolution works for the
- * page works for its state file.
+ * to the same payload (exactly what the build generated).
+ *
+ * Percent-encoding is preserved as-is, and deliberately differs from how the
+ * page itself is written. HTML goes to the *decoded* path (`/posts/caf%C3%A9`
+ * → `posts/café/index.html`) because hosts decode before the filesystem
+ * lookup. State files instead hex-encode the raw pathname, so the only thing
+ * that has to agree is the build and the client — and both start from the
+ * encoded form, the build from the prerendered route path and the client from
+ * `location.pathname`. The resulting component names are pure ASCII hex, so
+ * host decoding cannot affect them either way.
  */
 export function buildStaticRouteStateUrl(url: string): string {
   const queryIndex = url.indexOf("?");

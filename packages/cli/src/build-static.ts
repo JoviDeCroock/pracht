@@ -1,4 +1,4 @@
-import { writeFileSync, mkdirSync } from "node:fs";
+import { existsSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { buildStaticRouteStateUrl } from "@pracht/core/server";
 
@@ -359,6 +359,80 @@ export function resolveRouteStateOutputPath(clientDir: string, routePath: string
   return filePath;
 }
 
+/**
+ * Percent-decode a route path into the filesystem path a static host looks up.
+ *
+ * A browser asked for `/posts/café` sends `/posts/caf%C3%A9`, and essentially
+ * every static host (nginx, Apache, S3, GitHub Pages, Netlify, Caddy) decodes
+ * the request before the filesystem lookup. Writing the encoded form would
+ * therefore produce a directory literally named `caf%C3%A9` that no ordinary
+ * link can reach — a page that builds green and 404s in production.
+ *
+ * Decoding happens per segment and is re-validated, because a decoded `%2F`
+ * would smuggle in a path separator and a decoded `%5Fpracht` would slip past
+ * the reserved-namespace check. Malformed escapes fail the build rather than
+ * silently falling back to the unreachable literal form.
+ */
+export function decodeStaticOutputPath(routePath: string): string {
+  if (!routePath.includes("%")) return routePath;
+
+  return routePath
+    .split("/")
+    .map((segment) => {
+      let decoded: string;
+      try {
+        decoded = decodeURIComponent(segment);
+      } catch {
+        throw new Error(
+          `Static export cannot write prerendered page ${JSON.stringify(routePath)} because segment ` +
+            `${JSON.stringify(segment)} is not valid percent-encoding. ` +
+            "Fix the route path or getStaticPaths() param.",
+        );
+      }
+      if (decoded.includes("/") || decoded.includes("\\") || decoded.includes("\0")) {
+        throw new Error(
+          `Static export cannot write prerendered page ${JSON.stringify(routePath)} because segment ` +
+            `${JSON.stringify(segment)} decodes to a path separator. ` +
+            "Fix the route path or getStaticPaths() param.",
+        );
+      }
+      if (decoded === "." || decoded === "..") {
+        throw new Error(
+          `Static export cannot write prerendered page ${JSON.stringify(routePath)} because segment ` +
+            `${JSON.stringify(segment)} decodes to a relative path segment. ` +
+            "Fix the route path or getStaticPaths() param.",
+        );
+      }
+      return decoded;
+    })
+    .join("/");
+}
+
+/**
+ * Best-effort decode used by the guards that must catch both the encoded and
+ * decoded spelling of a reserved name. It never throws: `decodeStaticOutputPath`
+ * owns rejecting malformed escapes, and these guards only widen their match.
+ */
+function decodeOutputSegmentLenient(segment: string): string {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return segment;
+  }
+}
+
+/**
+ * Static-export variant of `resolvePrerenderOutputPath`.
+ *
+ * Only static exports decode: a static host resolves the request itself, so
+ * the file has to sit at the decoded path. The serverful adapters keep the
+ * encoded form because their own static lookup (`resolveStaticFile`) matches
+ * against the raw `url.pathname` — decoding here would 404 their SSG pages.
+ */
+export function resolveStaticExportOutputPath(clientDir: string, routePath: string): string {
+  return resolvePrerenderOutputPath(clientDir, decodeStaticOutputPath(routePath));
+}
+
 export function resolvePrerenderOutputPath(clientDir: string, routePath: string): string {
   if (routePath.includes("\0")) {
     throw new Error(`Refusing to write prerendered route "${routePath}" with a NUL byte.`);
@@ -424,7 +498,14 @@ function isClientRoutableSpaRoute(route: StaticRouteView): boolean {
 }
 
 function isReservedStaticOutputPath(path: string): boolean {
-  return path.split("/").filter(Boolean)[0]?.toLowerCase() === "_pracht";
+  const firstSegment = path.split("/").filter(Boolean)[0];
+  if (firstSegment === undefined) return false;
+  // Pages are written to the decoded path, so `/%5Fpracht/…` lands in the
+  // reserved namespace just as `/_pracht/…` does. Check both spellings.
+  return (
+    firstSegment.toLowerCase() === "_pracht" ||
+    decodeOutputSegmentLenient(firstSegment).toLowerCase() === "_pracht"
+  );
 }
 
 /**
@@ -450,10 +531,14 @@ function assertNoFixedArtifactRouteCollisions(
 ): void {
   const collisions: string[] = [];
   for (const page of pages) {
-    const firstSegment = page.path.split("/").filter(Boolean)[0]?.toLowerCase();
-    if (!firstSegment) continue;
+    const rawSegment = page.path.split("/").filter(Boolean)[0];
+    if (!rawSegment) continue;
+    // Pages are written to the decoded path, so `/404%2Ehtml` occupies the
+    // same file as `/404.html` — compare both spellings.
+    const firstSegment = rawSegment.toLowerCase();
+    const decodedSegment = decodeOutputSegmentLenient(rawSegment).toLowerCase();
     for (const fixedFile of fixedFiles) {
-      if (firstSegment === fixedFile.toLowerCase()) {
+      if (firstSegment === fixedFile.toLowerCase() || decodedSegment === fixedFile.toLowerCase()) {
         collisions.push(`    - ${page.path} conflicts with dist/client/${fixedFile}`);
       }
     }
@@ -471,7 +556,7 @@ function assertNoFixedArtifactRouteCollisions(
 function assertNoPrerenderedPageOutputCollisions(pages: Array<{ path: string }>): void {
   const virtualClientDir = resolve(sep, "__pracht_static_output__");
   const outputs = pages.map((page) => {
-    const outputPath = resolvePrerenderOutputPath(virtualClientDir, page.path);
+    const outputPath = resolveStaticExportOutputPath(virtualClientDir, page.path);
     const relativeOutputPath = relative(virtualClientDir, outputPath);
     return {
       pagePath: page.path,
@@ -592,16 +677,6 @@ export function validateStaticExportOutputPaths(
 }
 
 /**
- * Prerender output keeps the percent-encoded form of dynamic params
- * (`/posts/café` → a directory literally named `caf%C3%A9`). Hosts that
- * decode the URL before the filesystem lookup — most of them — never find
- * those files, and the failure only shows up after deploying.
- */
-function findPercentEncodedPaths(pages: Array<{ path: string }>): string[] {
-  return pages.map((page) => page.path).filter((path) => /%[0-9A-Fa-f]{2}/.test(path));
-}
-
-/**
  * Write the static-deploy artifacts next to the prerendered pages:
  * per-route state JSON, `404.html` from the app's notFound page, and the
  * optional SPA fallback document.
@@ -630,27 +705,39 @@ export async function writeStaticExportArtifacts(options: {
     );
   }
 
+  const stateOutputs = pages.flatMap((page) =>
+    typeof page.routeState === "string"
+      ? [
+          {
+            filePath: resolveRouteStateOutputPath(clientDir, page.path),
+            routePath: page.path,
+            routeState: page.routeState,
+          },
+        ]
+      : [],
+  );
+  const existingStateOutputs = stateOutputs.filter(({ filePath }) => existsSync(filePath));
+  if (existingStateOutputs.length > 0) {
+    throw new Error(
+      "Static export route-state output conflicts with existing files copied from public/ or emitted by Vite:\n" +
+        existingStateOutputs
+          .map(
+            ({ filePath, routePath }) =>
+              `    - ${routePath} would overwrite ${relative(clientDir, filePath)}`,
+          )
+          .join("\n") +
+        "\nRemove the conflicting files from the reserved public/_pracht/state/ namespace.",
+    );
+  }
+
   let stateFileCount = 0;
-  for (const page of pages) {
-    if (typeof page.routeState !== "string") continue;
-    const filePath = resolveRouteStateOutputPath(clientDir, page.path);
+  for (const { filePath, routeState } of stateOutputs) {
     mkdirSync(dirname(filePath), { recursive: true });
-    writeFileSync(filePath, page.routeState, "utf-8");
+    writeFileSync(filePath, routeState, "utf-8");
     stateFileCount += 1;
   }
   if (stateFileCount > 0) {
     log(`\n  Route state → dist/client/_pracht/state (${stateFileCount} file(s))\n`);
-  }
-
-  const percentEncodedPaths = findPercentEncodedPaths(pages);
-  if (percentEncodedPaths.length > 0) {
-    log(
-      "\n  Warning: these prerendered paths contain percent-encoded characters, so their\n" +
-        "  output directories are named literally (for example caf%C3%A9):\n" +
-        percentEncodedPaths.map((path) => `    - ${path}`).join("\n") +
-        "\n  Hosts that decode URLs before the filesystem lookup (most do) will answer 404\n" +
-        "  for them. Prefer ASCII-safe getStaticPaths() params on static exports.\n",
-    );
   }
 
   let wrote404 = false;

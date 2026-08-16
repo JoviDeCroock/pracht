@@ -5,7 +5,9 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import {
   isStaticExportBuild,
+  resolvePrerenderOutputPath,
   resolveRouteStateOutputPath,
+  resolveStaticExportOutputPath,
   validateStaticExport,
   validateStaticExportOutputPaths,
   writeStaticExportArtifacts,
@@ -483,6 +485,82 @@ describe("validateStaticExportOutputPaths", () => {
   });
 });
 
+describe("resolveStaticExportOutputPath", () => {
+  const clientDir = `${sep}tmp${sep}client`;
+
+  it("writes pages to the decoded path a host actually looks up", () => {
+    expect(resolveStaticExportOutputPath(clientDir, "/posts/caf%C3%A9")).toBe(
+      resolve(clientDir, "posts/café/index.html"),
+    );
+    expect(resolveStaticExportOutputPath(clientDir, "/posts/a%20b")).toBe(
+      resolve(clientDir, "posts/a b/index.html"),
+    );
+    expect(resolveStaticExportOutputPath(clientDir, "/posts/100%25off")).toBe(
+      resolve(clientDir, "posts/100%off/index.html"),
+    );
+  });
+
+  it("leaves unencoded paths untouched", () => {
+    expect(resolveStaticExportOutputPath(clientDir, "/")).toBe(resolve(clientDir, "index.html"));
+    expect(resolveStaticExportOutputPath(clientDir, "/blog/hello")).toBe(
+      resolve(clientDir, "blog/hello/index.html"),
+    );
+  });
+
+  it("does not change the serverful adapters, whose static lookup matches the raw pathname", () => {
+    expect(resolvePrerenderOutputPath(clientDir, "/posts/caf%C3%A9")).toBe(
+      resolve(clientDir, "posts/caf%C3%A9/index.html"),
+    );
+  });
+
+  it("rejects escapes that would decode into a path separator", () => {
+    expect(() => resolveStaticExportOutputPath(clientDir, "/posts/a%2Fb")).toThrow(
+      /decodes to a path separator/,
+    );
+    expect(() => resolveStaticExportOutputPath(clientDir, "/posts/a%5Cb")).toThrow(
+      /decodes to a path separator/,
+    );
+  });
+
+  it("rejects escapes that would decode into a relative segment", () => {
+    expect(() => resolveStaticExportOutputPath(clientDir, "/posts/%2E%2E")).toThrow(
+      /decodes to a relative path segment/,
+    );
+  });
+
+  it("rejects malformed percent-encoding instead of writing the literal form", () => {
+    expect(() => resolveStaticExportOutputPath(clientDir, "/posts/50%")).toThrow(
+      /is not valid percent-encoding/,
+    );
+  });
+});
+
+describe("decodeStaticOutputPath", () => {
+  it("is applied by the reserved-namespace guard in both spellings", () => {
+    for (const path of ["/_pracht/state/x", "/%5Fpracht/state/x"]) {
+      expect(() => validateStaticExportOutputPaths([{ path }], {})).toThrow(
+        /reserved \/_pracht\/ output namespace/,
+      );
+    }
+  });
+
+  it("is applied by the fixed-artifact guard in both spellings", () => {
+    for (const path of ["/404.html", "/404%2Ehtml"]) {
+      expect(() =>
+        validateStaticExportOutputPaths([{ path }], {
+          resolvedApp: { notFound: { path: "/__pracht-not-found__" } },
+        }),
+      ).toThrow(/conflicts with dist\/client\/404\.html/);
+    }
+  });
+
+  it("makes the encoded and decoded spelling of a page collide", () => {
+    expect(() =>
+      validateStaticExportOutputPaths([{ path: "/posts/café" }, { path: "/posts/caf%C3%A9" }], {}),
+    ).toThrow(/map to the same case-insensitive output path/);
+  });
+});
+
 describe("resolveRouteStateOutputPath", () => {
   it("mirrors the client URL scheme", () => {
     const clientDir = `${sep}tmp${sep}client`;
@@ -572,6 +650,23 @@ describe("writeStaticExportArtifacts", () => {
       }),
     ).rejects.toThrow(/does not export renderStaticFallbackHtml/);
     expect(existsSync(resolveRouteStateOutputPath(clientDir, "/"))).toBe(false);
+  });
+
+  it("refuses to overwrite a public file at a generated route-state path", async () => {
+    const clientDir = createTempDir();
+    const statePath = resolveRouteStateOutputPath(clientDir, "/about");
+    mkdirSync(dirname(statePath), { recursive: true });
+    writeFileSync(statePath, "public-owned", "utf-8");
+
+    await expect(
+      writeStaticExportArtifacts({
+        clientDir,
+        pages: [{ path: "/about", routeState: '{"data":"framework"}' }],
+        serverMod: { staticExportConfig: { fallback: null } },
+        log: () => {},
+      }),
+    ).rejects.toThrow(/would overwrite _pracht\/state/);
+    expect(readFileSync(statePath, "utf-8")).toBe("public-owned");
   });
 
   it("writes state files, 404.html, and the configured fallback", async () => {
@@ -774,7 +869,7 @@ describe("writeStaticExportArtifacts", () => {
     }
   });
 
-  it("warns about percent-encoded prerender paths", async () => {
+  it("writes percent-encoded prerender paths to their decoded output path", async () => {
     const clientDir = createTempDir();
     const logs: string[] = [];
 
@@ -788,9 +883,9 @@ describe("writeStaticExportArtifacts", () => {
       log: (message) => logs.push(message),
     });
 
-    const output = logs.join("\n");
-    expect(output).toContain("/posts/caf%C3%A9");
-    expect(output).not.toContain("- /posts/hello");
-    expect(output).toContain("decode URLs before the filesystem lookup");
+    // The state tree still keys off the raw (encoded) pathname, because that
+    // is what the client derives from location.pathname.
+    expect(existsSync(resolveRouteStateOutputPath(clientDir, "/posts/caf%C3%A9"))).toBe(true);
+    expect(logs.join("\n")).not.toContain("decode URLs before the filesystem lookup");
   });
 });

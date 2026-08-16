@@ -59,7 +59,10 @@ from the route pattern, then runs the loader and renderer for each.
 Output: `dist/client/blog/hello-world/index.html`, etc.
 
 Dynamic params are percent-encoded before output paths are written, and exact
-`.` / `..` dynamic param segments are rejected. Static route patterns cannot
+`.` / `..` dynamic param segments are rejected. (Static exports are the one
+exception: `@pracht/adapter-static` writes pages to the *decoded* path, because
+a static host resolves the request itself. See [ADAPTERS.md](ADAPTERS.md).)
+Static route patterns cannot
 contain raw dot segments or backslashes. The CLI also verifies every
 prerendered file resolves inside `dist/client/` before writing. The complete
 page set must map to distinct portable filesystem paths: duplicate,

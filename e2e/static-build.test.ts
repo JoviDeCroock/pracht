@@ -551,9 +551,10 @@ test("static export build rejects a sub-path Vite base", () => {
   }
 });
 
-test("static export warns about percent-encoded prerender paths", () => {
+test("static export serves non-ASCII prerender paths on a URL-decoding host", async () => {
   test.setTimeout(180_000);
   const { exampleDir, tempDir } = createTempExampleDir(staticFixtureDir, "pracht-static-encoded-");
+  let server: Server | undefined;
 
   try {
     const postPath = resolve(exampleDir, "src/routes/post.tsx");
@@ -568,11 +569,28 @@ test("static export warns about percent-encoded prerender paths", () => {
 
     const output = buildExampleOutput(exampleDir);
     expect(output).toContain("/posts/caf%C3%A9");
-    expect(output).toContain("decode URLs before the filesystem lookup");
-    // The build still succeeds — the directory is only unreachable on hosts
-    // that decode before the filesystem lookup.
-    expect(existsSync(resolve(exampleDir, "dist/client/posts/caf%C3%A9/index.html"))).toBe(true);
+    // Pages are written to the decoded path, because every mainstream static
+    // host decodes the request before looking at the filesystem. The encoded
+    // spelling would build fine and 404 for every ordinary link.
+    expect(existsSync(resolve(exampleDir, "dist/client/posts/café/index.html"))).toBe(true);
+    expect(existsSync(resolve(exampleDir, "dist/client/posts/caf%C3%A9/index.html"))).toBe(false);
+
+    const host = await startDumbStaticHost(resolve(exampleDir, "dist/client"));
+    server = host.server;
+
+    // What a browser actually sends for a link to /posts/café.
+    const response = await fetch(`${host.origin}/posts/${encodeURIComponent("café")}/`);
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain("Café");
+
+    // The route-state file still keys off the raw encoded pathname, which is
+    // what the client derives from location.pathname.
+    const stateResponse = await fetch(
+      `${host.origin}${buildStaticRouteStateUrl("/posts/caf%C3%A9")}`,
+    );
+    expect(stateResponse.status).toBe(200);
   } finally {
+    await stopServer(server);
     rmSync(tempDir, { force: true, recursive: true });
   }
 });

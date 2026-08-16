@@ -39,7 +39,9 @@ A static export has no server, so the build fails closed on anything that needs 
 - Route patterns and concrete paths returned by `getStaticPaths()` may not write under the reserved `/_pracht/` namespace. Concrete output is preflighted before any page is written.
 - A Vite `base` other than `/` is a build error: prerendered documents reference `/assets/…` and `/_pracht/state/…` from the origin root, so a sub-path deploy (GitHub Pages project site, S3 key prefix) would build cleanly and serve a site whose every asset 404s.
 
-The build also warns — without failing — on percent-encoded prerender paths (hosts that decode URLs before the filesystem lookup will miss those directories) and on a `fallback` document in an app with no `notFound` page and no unshadowed client-routable SPA catch-all (unknown URLs would render blank).
+The build also warns — without failing — on a `fallback` document in an app with no `notFound` page and no unshadowed client-routable SPA catch-all (unknown URLs would render blank).
+
+Non-ASCII `getStaticPaths()` params are written to their decoded output path (`/posts/caf%C3%A9` → `posts/café/index.html`), matching how static hosts resolve requests. Escapes that would decode into a path separator, a relative segment, or the reserved `_pracht/` namespace fail the build.
 
 ## Client-side navigation
 
@@ -47,8 +49,8 @@ SSG loaders run at build time. For each loader-backed SSG route, the build seria
 
 ## Output conventions
 
-- Pages: `<path>/index.html` (clean URLs — hosts must serve `index.html` for directory URLs).
-- Route state: bounded, collision-safe opaque `.json` files under `_pracht/state/` (`/` uses `_pracht/state/index.json`).
+- Pages: `<path>/index.html` at the percent-decoded path (clean URLs — hosts must serve `index.html` for directory URLs).
+- Route state: bounded, collision-safe opaque `.json` files under `_pracht/state/` (`/` uses `_pracht/state/index.json`). Files copied from `public/` may not occupy a generated state path; the build rejects them instead of overwriting them.
 - `404.html`: the app's `notFound` page, rendered independently of ordinary route matching at build time (GitHub Pages / S3 error-document convention).
 - `200.html` (opt-in via `staticAdapter({ fallback: "200.html" })`): SPA fallback document for hosts that can rewrite unmatched URLs; required for deep links into dynamic `render: "spa"` routes.
 
