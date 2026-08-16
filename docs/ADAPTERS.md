@@ -1063,10 +1063,9 @@ aggregated error — before any prerendering — when the app needs one:
   cleanly and then 404 every script and state file.
 - Webhook/time revalidation is N/A by construction (no ISG routes exist).
 
-Two shapes are warnings rather than errors, because they are only wrong for
-some deploys: percent-encoded prerender paths (the build lists them), and a
-`fallback` document in an app with no `notFound` page and no client-routable
-SPA catch-all (unknown URLs would render blank).
+One shape is a warning rather than an error, because it is only wrong for some
+deploys: a `fallback` document in an app with no `notFound` page and no
+client-routable SPA catch-all (unknown URLs would render blank).
 
 ### Client-side navigation without a server
 
@@ -1082,7 +1081,8 @@ static host. The static adapter solves this at build time:
   are split below common filesystem name limits, and a reserved leaf receives
   `.json`, so pairs such as `/docs` and `/docs/index.json` cannot contend for
   one file/directory path. `_pracht/` is already reserved, so state files
-  cannot collide with a prerendered route or a `public/` file.
+  cannot collide with a prerendered route; a file copied from `public/` onto a
+  generated state path is rejected before any state file is written.
 - **SSG loaders therefore run twice per page** during a static build: once for
   the HTML document, once for the state file. Like
   `getStaticPaths()`, they must be deterministic and side-effect free at build
@@ -1193,11 +1193,14 @@ client-side fetch to an external API instead.
   `Accept` negotiation; a static host always answers with the HTML file. The
   build prints a note when this applies — publish `.md` files under `public/`
   when a raw-markdown corpus matters.
-- **Percent-encoded dynamic params**: prerender output directories keep the
-  percent-encoded form (`/posts/caf%C3%A9` → a directory literally named
-  `caf%C3%A9`). Hosts that decode URLs before filesystem lookup (most do)
-  will miss those files — prefer ASCII-safe param values for static exports.
-  The build warns and lists the affected paths.
+- **Non-ASCII dynamic params**: prerender output directories use the *decoded*
+  form (`/posts/caf%C3%A9` → `posts/café/index.html`), because every
+  mainstream static host decodes the request before the filesystem lookup.
+  The build prints the decoded target next to each route path. Escapes that
+  would decode into a path separator (`%2F`), a relative segment (`%2E%2E`),
+  or the reserved `_pracht` namespace (`%5Fpracht`) are build errors, as is
+  malformed percent-encoding. Route-state files are unaffected: they key off
+  the raw encoded pathname and their component names are pure ASCII hex.
 - **Base paths** (deploying under a sub-path such as GitHub Pages project
   sites) are not wired through: prerendered asset and state URLs are
   root-relative. A static build with Vite `base` set to anything but `/` is a

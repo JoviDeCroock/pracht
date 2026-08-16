@@ -11,6 +11,7 @@ import { writeVercelBuildOutput } from "../build-shared.js";
 import {
   isStaticExportBuild,
   resolvePrerenderOutputPath,
+  resolveStaticExportOutputPath,
   validateStaticExport,
   validateStaticExportOutputPaths,
   writeStaticExportArtifacts,
@@ -233,7 +234,12 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
     if (staticPages.length > 0) {
       log(`\n  Prerendering ${staticPages.length} SSG/ISG route(s)...\n`);
       for (const page of staticPages) {
-        const filePath = resolvePrerenderOutputPath(clientDir, page.path);
+        // Static exports write to the decoded path (the host resolves the URL
+        // itself); serverful adapters keep the encoded form their own static
+        // lookup matches against.
+        const filePath = isStaticExport
+          ? resolveStaticExportOutputPath(clientDir, page.path)
+          : resolvePrerenderOutputPath(clientDir, page.path);
 
         mkdirSync(dirname(filePath), { recursive: true });
         writeFileSync(filePath, page.html, "utf-8");

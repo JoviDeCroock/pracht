@@ -74,6 +74,9 @@ const BUILD_OUTPUT_PATTERNS: RegExp[] = [
   /^dist\/client\/_pracht\/?$/,
   /^dist\/client\/_pracht\/(?:headers\.json|isg\.json)$/,
   /^dist\/client\/\.vite\/manifest\.json$/,
+  // Static export fixed artifacts: the notFound document and the opt-in SPA
+  // fallback (`staticAdapter({ fallback })`, conventionally 200.html).
+  /^dist\/client\/(?:404|200)\.html$/,
   /^dist\/client(?:\/[^/.]+)+\/index\.html$/,
   /^\.vercel\/output\/?$/,
   /^\.vercel\/output\/config\.json$/,
