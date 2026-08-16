@@ -617,6 +617,37 @@ test("static export warns when the SPA fallback has no notFound page to render",
   }
 });
 
+test("static export does not publish framework metadata into the deploy directory", () => {
+  test.setTimeout(180_000);
+  const { exampleDir, tempDir } = createTempExampleDir(staticFixtureDir, "pracht-static-meta-");
+
+  try {
+    buildExampleOutput(exampleDir);
+    const clientDir = resolve(exampleDir, "dist/client");
+
+    // Only the Cloudflare worker reads these from the client output. A static
+    // export has no runtime, so publishing them would ship the route list and
+    // header policy as dead bytes in the directory users upload.
+    expect(existsSync(resolve(clientDir, "_pracht/headers.json"))).toBe(false);
+    expect(existsSync(resolve(clientDir, "_pracht/markdown.json"))).toBe(false);
+    expect(existsSync(resolve(clientDir, "_pracht/isg.json"))).toBe(false);
+
+    // Still written for build tooling and deploy reference.
+    expect(existsSync(resolve(exampleDir, "dist/server/headers-manifest.json"))).toBe(true);
+    expect(existsSync(resolve(exampleDir, "dist/server/markdown-manifest.json"))).toBe(true);
+
+    // `pracht verify` reads this from the client output, and on a successful
+    // build it is always an empty findings report.
+    expect(existsSync(resolve(clientDir, "_pracht/env-safety.json"))).toBe(true);
+
+    // The route-state tree is the one thing under _pracht/ a static deploy
+    // genuinely serves.
+    expect(existsSync(resolve(clientDir, "_pracht/state"))).toBe(true);
+  } finally {
+    rmSync(tempDir, { force: true, recursive: true });
+  }
+});
+
 test("static export emits 404.html when a broad dynamic SSG route exists", () => {
   test.setTimeout(180_000);
   const { exampleDir, tempDir } = createTempExampleDir(

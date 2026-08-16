@@ -179,7 +179,7 @@ checklist is about what the *host* must do and what the build cannot enforce.
   page — flag it as a `warn`.
 - **Security headers are not applied.** Every other adapter sets the four
   default security headers at request time; a static host has no request
-  runtime. `dist/client/_pracht/headers.json` records the headers each route
+  runtime. `dist/server/headers-manifest.json` records the headers each route
   *would* have carried — mirror the ones you need in the host's own header
   config (`_headers` on Netlify, CloudFront response header policies, nginx
   `add_header`). This is an `error` for any app handling user input, and
