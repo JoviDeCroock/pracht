@@ -58,7 +58,7 @@ export function createStaticPreviewHandler(
 
     if (fallback) {
       const fallbackFile = await resolveStaticFile(staticDir, `/${fallback}`);
-      if (fallbackFile) {
+      if (fallbackFile?.filePath === resolve(staticDir, fallback)) {
         // Mirrors a host rewrite: the SPA fallback document answers any URL
         // with status 200 so the client router can resolve the real route.
         await sendFile(
@@ -74,7 +74,7 @@ export function createStaticPreviewHandler(
     }
 
     const notFoundFile = await resolveStaticFile(staticDir, "/404.html");
-    if (notFoundFile) {
+    if (notFoundFile?.filePath === resolve(staticDir, "404.html")) {
       await sendFile(
         res,
         method,
