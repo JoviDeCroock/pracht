@@ -16,6 +16,7 @@ const FALLBACK_VERSION_RANGES = {
   "@pracht/adapter-cloudflare": "^0.5.8",
   "@pracht/adapter-netlify": "^0.1.0",
   "@pracht/adapter-node": "^0.3.8",
+  "@pracht/adapter-static": "^0.1.0",
   "@pracht/adapter-vercel": "^0.2.8",
   "@pracht/cli": "^1.9.0",
   "@pracht/core": "^0.12.0",
@@ -86,6 +87,13 @@ const ADAPTERS = {
     label: "Vercel",
     packageName: "@pracht/adapter-vercel",
     short: "vercel",
+  },
+  static: {
+    description: "Pure static export — deploy dist/client to any static host",
+    id: "static",
+    label: "Static export",
+    packageName: "@pracht/adapter-static",
+    short: "static",
   },
 };
 
@@ -407,7 +415,7 @@ export function parseArgs(argv) {
       const value = normalizeAdapter(arg.slice("--adapter=".length));
       if (!value) {
         throw new ValidationError(
-          `Invalid adapter: ${arg.slice("--adapter=".length)}. Use node, cf, netlify, or vercel.`,
+          `Invalid adapter: ${arg.slice("--adapter=".length)}. Use node, cf, netlify, vercel, or static.`,
         );
       }
       options.adapter = value;
@@ -462,6 +470,7 @@ async function promptForAdapter(readline) {
   console.log("  2. Cloudflare Workers");
   console.log("  3. Vercel");
   console.log("  4. Netlify");
+  console.log("  5. Static export (no server)");
 
   while (true) {
     const answer = await readline.question("Adapter (1): ");
@@ -471,7 +480,7 @@ async function promptForAdapter(readline) {
       return normalized;
     }
 
-    console.log("Choose 1/2/3/4 or node/cf/vercel/netlify.");
+    console.log("Choose 1/2/3/4/5 or node/cf/vercel/netlify/static.");
   }
 }
 
@@ -614,6 +623,10 @@ function normalizeAdapter(value) {
     return "netlify";
   }
 
+  if (normalized === "5" || normalized === "static" || normalized === "export") {
+    return "static";
+  }
+
   return null;
 }
 
@@ -690,10 +703,15 @@ async function buildProjectFiles({
       tailwind,
       versions,
     }),
-    "src/api/health.ts": createHealthRoute(adapter),
     "vite.config.ts": createViteConfig(adapter, router, tailwind),
     "tsconfig.json": createBaseTSConfig(adapter),
   };
+
+  // A static export has no server, so an API route would be a hard build
+  // error — the starter must not scaffold one it cannot build.
+  if (adapter.id !== "static") {
+    files["src/api/health.ts"] = createHealthRoute(adapter);
+  }
 
   if (agentTools) {
     files["AGENTS.md"] = createAgentInstructions({
@@ -803,6 +821,10 @@ function createPackageJson({ adapter, projectName, tailwind, versions }) {
     scripts.start = "node dist/server/server.js";
   }
 
+  if (adapter.id === "static") {
+    scripts.preview = "pracht preview";
+  }
+
   const devDependencies = {
     "@pracht/cli": versions["@pracht/cli"],
     "@pracht/vite-plugin": versions["@pracht/vite-plugin"],
@@ -858,6 +880,7 @@ function createViteConfig(adapter, router, tailwind) {
     cloudflare: { fn: "cloudflareAdapter", pkg: "@pracht/adapter-cloudflare" },
     netlify: { fn: "netlifyAdapter", pkg: "@pracht/adapter-netlify" },
     vercel: { fn: "vercelAdapter", pkg: "@pracht/adapter-vercel" },
+    static: { fn: "staticAdapter", pkg: "@pracht/adapter-static" },
   };
 
   const info = ADAPTER_IMPORTS[adapter.id] ?? ADAPTER_IMPORTS.node;
@@ -955,7 +978,9 @@ function createHomeRoute(adapter) {
     "    steps: [",
     '      "Edit src/routes/home.tsx to change this page.",',
     '      "Add more routes in src/routes.ts.",',
-    '      "Add API handlers in src/api/*.ts.",',
+    adapter.id === "static"
+      ? '      "Fetch live data from the browser — a static export runs no server.",'
+      : '      "Add API handlers in src/api/*.ts.",',
     "    ],",
     "  };",
     "}",
@@ -974,7 +999,9 @@ function createHomeRoute(adapter) {
     "        ))}",
     "      </ul>",
     '      <p style={{ marginTop: "24px" }}>',
-    "        Check <code>/api/health</code> for a simple API route.",
+    adapter.id === "static"
+      ? "        Run <code>pracht build</code>, then deploy <code>dist/client</code> anywhere."
+      : "        Check <code>/api/health</code> for a simple API route.",
     "      </p>",
     "    </section>",
     "  );",
@@ -1022,7 +1049,9 @@ function createPagesHomeRoute(adapter) {
     "    steps: [",
     '      "Edit src/pages/index.tsx to change this page.",',
     '      "Add more pages in src/pages/.",',
-    '      "Add API handlers in src/api/*.ts.",',
+    adapter.id === "static"
+      ? '      "Fetch live data from the browser — a static export runs no server.",'
+      : '      "Add API handlers in src/api/*.ts.",',
     "    ],",
     "  };",
     "}",
@@ -1041,7 +1070,9 @@ function createPagesHomeRoute(adapter) {
     "        ))}",
     "      </ul>",
     '      <p style={{ marginTop: "24px" }}>',
-    "        Check <code>/api/health</code> for a simple API route.",
+    adapter.id === "static"
+      ? "        Run <code>pracht build</code>, then deploy <code>dist/client</code> anywhere."
+      : "        Check <code>/api/health</code> for a simple API route.",
     "      </p>",
     "    </section>",
     "  );",
@@ -1410,7 +1441,12 @@ function createAgentInstructions({ adapter, agentTools, packageManager, router, 
     `- \`${runCmd} build\` — production build`,
   ];
 
-  if (adapter.id === "node" || adapter.id === "cloudflare" || adapter.id === "netlify") {
+  if (
+    adapter.id === "node" ||
+    adapter.id === "cloudflare" ||
+    adapter.id === "netlify" ||
+    adapter.id === "static"
+  ) {
     lines.push(`- \`${runCmd} preview\` — build and serve the production build locally`);
   }
 
@@ -1574,6 +1610,21 @@ function createReadme({
     lines.push(`- \`${deployCommand}\``);
     lines.push("");
     lines.push("Run the deploy command after linking or logging into your Vercel account.");
+  }
+
+  if (adapter.id === "static") {
+    lines.push(`- \`${previewCommand}\``);
+    lines.push("");
+    lines.push(
+      "`pracht build` writes the whole site to `dist/client`. Upload that directory to any " +
+        "static host — there is no server to run. Configure the host to serve `index.html` " +
+        "for directory URLs and to use `404.html` as its error document.",
+    );
+    lines.push("");
+    lines.push(
+      "A static export runs no server, so API routes, middleware, and `ssr`/`isg` routes are " +
+        "build errors. Fetch live data from the browser instead, or switch to a serverful adapter.",
+    );
   }
 
   lines.push("");
@@ -1791,7 +1842,7 @@ Usage:
   create-pracht [directory] [options]
 
 Options:
-  --adapter=node|cf|netlify|vercel
+  --adapter=node|cf|netlify|vercel|static
                                Choose hosting adapter (default: node)
   --router=manifest|pages      Choose routing system (default: manifest)
   --template=minimal|tailwind  Choose starter template (minimal, or minimal + Tailwind CSS)

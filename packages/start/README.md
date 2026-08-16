@@ -42,7 +42,9 @@ node ./packages/start/bin/create-pracht.js my-app --adapter=node --no-tailwind -
 
 ## Options
 
-- `--adapter=node|cf|netlify|vercel` — choose the hosting adapter (default: node).
+- `--adapter=node|cf|netlify|vercel|static` — choose the hosting adapter (default: node).
+  `static` scaffolds a pure static export (`@pracht/adapter-static`): no API route is
+  generated, because a static export has no server to answer one.
 - `--router=manifest|pages` — choose the routing system (default: manifest).
 - `--template=minimal|tailwind` — non-interactive template selection; `minimal` is the default output, `tailwind` is minimal plus Tailwind CSS wiring.
 - `--tailwind` / `--no-tailwind` — enable or disable Tailwind CSS without going through the prompt.
