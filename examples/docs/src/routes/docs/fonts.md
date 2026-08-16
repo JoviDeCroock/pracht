@@ -103,7 +103,9 @@ defineFont({
 `format` is given. Pracht emits WOFF2 variants before fallback formats and
 preloads the first WOFF2 source (or the first source when no WOFF2 variant is
 present), so the preload and browser-selected source stay aligned without
-downloading every fallback:
+downloading every fallback. Legacy variable-font hints such as
+`woff2-variations` stay intact in the generated `format()` descriptor while
+their preload uses the underlying container MIME type (`font/woff2`):
 
 ```ts
 defineFont({

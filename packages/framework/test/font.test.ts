@@ -219,6 +219,32 @@ describe("defineFont", () => {
     ]);
   });
 
+  it("orders legacy woff2 variation hints first and preloads them with the container MIME type", () => {
+    const font = defineFont({
+      family: "Variable",
+      src: [
+        { url: "/fonts/variable.woff", format: "woff" },
+        { url: "/fonts/variable.woff2", format: "woff2-variations" },
+      ],
+    });
+    expect(font.sources).toEqual([
+      { url: "/fonts/variable.woff2", format: "woff2-variations" },
+      { url: "/fonts/variable.woff", format: "woff" },
+    ]);
+    expect(font.faceCss).toContain(
+      'src:url("/fonts/variable.woff2") format("woff2-variations"), url("/fonts/variable.woff") format("woff")',
+    );
+    expect(font.preloadLinks).toEqual([
+      {
+        rel: "preload",
+        as: "font",
+        type: "font/woff2",
+        href: "/fonts/variable.woff2",
+        crossorigin: "anonymous",
+      },
+    ]);
+  });
+
   it("falls back to preloading the first variant when no woff2 source exists", () => {
     const font = defineFont({
       family: "Legacy",

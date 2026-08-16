@@ -4,6 +4,8 @@ import {
   sendServerOnlyFullReload,
   type HotUpdateServerLike,
 } from "../src/hot-update-reload.ts";
+import { pracht } from "../src/index.ts";
+import { PRACHT_CLIENT_MODULE_ID } from "../src/plugin-assets.ts";
 
 interface GraphEntry {
   file: string;
@@ -106,5 +108,41 @@ describe("sendServerOnlyFullReload", () => {
     const { server, send } = createServer({ client: [ROUTE], ssr: [ROUTE] });
     expect(sendServerOnlyFullReload(server, ROUTE)).toBe(false);
     expect(send).not.toHaveBeenCalled();
+  });
+});
+
+describe("pracht handleHotUpdate", () => {
+  it("invalidates generated client head hints when a shell changes", () => {
+    const shell = "/app/src/shells/public.tsx";
+    const clientModule = { id: PRACHT_CLIENT_MODULE_ID };
+    const invalidateModule = vi.fn();
+    const plugin = pracht().find((candidate) => candidate.name === "pracht");
+    const handleHotUpdate = plugin?.handleHotUpdate;
+    if (typeof handleHotUpdate !== "function") throw new Error("missing Pracht hot-update hook");
+
+    handleHotUpdate.call(
+      {} as never,
+      {
+        file: shell,
+        server: {
+          config: { root: "/app" },
+          moduleGraph: {
+            getModuleById: (id: string) =>
+              id === PRACHT_CLIENT_MODULE_ID ? clientModule : undefined,
+            invalidateModule,
+          },
+          environments: {
+            client: {
+              moduleGraph: {
+                getModulesByFile: () => new Set([createModuleNode(shell)]),
+              },
+              hot: { send: vi.fn() },
+            },
+          },
+        },
+      } as never,
+    );
+
+    expect(invalidateModule).toHaveBeenCalledWith(clientModule);
   });
 });

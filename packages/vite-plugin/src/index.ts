@@ -375,7 +375,9 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
         if (serverMod) server.moduleGraph.invalidateModule(serverMod);
         const devMod = server.moduleGraph.getModuleById(PRACHT_DEV_MODULE_ID);
         if (devMod) server.moduleGraph.invalidateModule(devMod);
-        if (relative.startsWith(resolved.routesDir)) {
+        // Route loader hints and route/shell head hints are baked into the
+        // generated client module. Regenerate it when either source changes.
+        if (relative.startsWith(resolved.routesDir) || relative.startsWith(resolved.shellsDir)) {
           const clientMod = server.moduleGraph.getModuleById(PRACHT_CLIENT_MODULE_ID);
           if (clientMod) server.moduleGraph.invalidateModule(clientMod);
         }

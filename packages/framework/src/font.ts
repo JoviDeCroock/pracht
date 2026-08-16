@@ -117,14 +117,22 @@ const FONT_STYLE_RE =
 const METRIC_OVERRIDE_RE = /^(normal|\d{1,4}(\.\d+)?%)$/;
 const SRC_FORMAT_RE = /^[a-z0-9-]{1,32}$/i;
 
-const FORMAT_MIME_TYPES: Record<string, string> = {
+const PRELOAD_MIME_TYPES: Record<string, string> = {
   otf: "font/otf",
   opentype: "font/otf",
+  "opentype-variations": "font/otf",
   truetype: "font/ttf",
+  "truetype-variations": "font/ttf",
   ttf: "font/ttf",
   woff: "font/woff",
+  "woff-variations": "font/woff",
   woff2: "font/woff2",
+  "woff2-variations": "font/woff2",
 };
+
+function isWoff2Format(format: string): boolean {
+  return format === "woff2" || format === "woff2-variations";
+}
 
 /**
  * Escape a value for interpolation inside a double-quoted CSS string. Escapes
@@ -283,12 +291,13 @@ function resolveSources(family: string, src: DefineFontOptions["src"]): FontSour
   });
 
   // Modern browsers support both WOFF and WOFF2 and select the first usable
-  // src entry. Keep WOFF2 first so the source chosen by @font-face is also the
-  // one the head renderer preloads; otherwise a WOFF-first input downloads the
-  // WOFF file while an unused WOFF2 preload runs in parallel.
+  // src entry. Keep WOFF2 (including its legacy variable-font hint) first so
+  // the source chosen by @font-face is also the one the head renderer preloads;
+  // otherwise a WOFF-first input downloads the WOFF file while an unused WOFF2
+  // preload runs in parallel.
   return [
-    ...sources.filter((source) => source.format === "woff2"),
-    ...sources.filter((source) => source.format !== "woff2"),
+    ...sources.filter((source) => isWoff2Format(source.format)),
+    ...sources.filter((source) => !isWoff2Format(source.format)),
   ];
 }
 
@@ -463,7 +472,10 @@ export function defineFont(options: DefineFontOptions): PrachtFont {
   const preloadLinks: HeadAttributes[] = preloadSources.map((source) => ({
     rel: "preload",
     as: "font",
-    type: FORMAT_MIME_TYPES[source.format] ?? `font/${source.format}`,
+    // CSS format() hints and media types are different namespaces. Legacy
+    // variation hints keep their CSS spelling but preload as the underlying
+    // font container type so browsers do not discard the preload.
+    type: PRELOAD_MIME_TYPES[source.format] ?? `font/${source.format}`,
     href: source.url,
     // Font preloads must be sent in anonymous CORS mode even for same-origin
     // files, or the browser fetches the font twice.
