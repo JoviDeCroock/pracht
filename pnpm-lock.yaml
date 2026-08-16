@@ -457,6 +457,9 @@ importers:
 
   packages/vite-plugin:
     dependencies:
+      '@babel/parser':
+        specifier: ^7.29.2
+        version: 7.29.2
       '@pracht/adapter-node':
         specifier: workspace:*
         version: link:../adapter-node

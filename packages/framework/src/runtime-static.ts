@@ -45,14 +45,13 @@ export const STATIC_STATE_PREFIX = "/_pracht/state";
  * at build time from the bare pathname, so every query variant of a URL maps
  * to the same payload (exactly what the build generated).
  *
- * Percent-encoding is preserved as-is, and deliberately differs from how the
- * page itself is written. HTML goes to the *decoded* path (`/posts/caf%C3%A9`
- * → `posts/café/index.html`) because hosts decode before the filesystem
- * lookup. State files instead hex-encode the raw pathname, so the only thing
- * that has to agree is the build and the client — and both start from the
- * encoded form, the build from the prerendered route path and the client from
- * `location.pathname`. The resulting component names are pure ASCII hex, so
- * host decoding cannot affect them either way.
+ * HTML goes to the *decoded* path (`/posts/caf%C3%A9` →
+ * `posts/café/index.html`) because hosts decode before the filesystem lookup.
+ * State files canonicalize each segment to the encoding produced by
+ * `encodeURIComponent()` before hex-encoding it. The build and client therefore
+ * agree for raw Unicode, lowercase percent escapes, and escaped unreserved
+ * characters that identify the same URL path. The resulting component names
+ * are pure ASCII hex, so host decoding cannot affect them either way.
  */
 export function buildStaticRouteStateUrl(url: string): string {
   const queryIndex = url.indexOf("?");
@@ -62,9 +61,23 @@ export function buildStaticRouteStateUrl(url: string): string {
   pathname = pathname.replace(/\/+$/, "");
   if (pathname === "") return `${STATIC_STATE_PREFIX}/index.json`;
 
-  const components = pathname.split("/").filter(Boolean).flatMap(encodeStaticStateSegment);
+  const components = pathname
+    .split("/")
+    .filter(Boolean)
+    .map(canonicalizeStaticStateSegment)
+    .flatMap(encodeStaticStateSegment);
   if (components.length === 0) return `${STATIC_STATE_PREFIX}/index.json`;
   return `${STATIC_STATE_PREFIX}/${components.join("/")}/_state.json`;
+}
+
+function canonicalizeStaticStateSegment(segment: string): string {
+  try {
+    return encodeURIComponent(decodeURIComponent(segment));
+  } catch {
+    // Route matching rejects malformed escapes. Keep this helper total for
+    // direct callers and let the eventual state fetch miss normally.
+    return segment;
+  }
 }
 
 // Keep plenty of room below the common 255-byte filesystem component limit.

@@ -45,11 +45,11 @@ Non-ASCII `getStaticPaths()` params are written to their decoded output path (`/
 
 ## Client-side navigation
 
-SSG loaders run at build time. For each loader-backed SSG route, the build serializes route-state JSON under `dist/client/_pracht/state/` using bounded, collision-safe opaque path components, and the client router (compiled with `__PRACHT_STATIC_TARGET__`) fetches that file instead of the live route-state endpoint. Loaderless SPA routes fetch no Pracht state and run entirely in the browser. Navigation therefore stays client-side on a dumb static host.
+SSG loaders run at build time. For each loader-backed SSG route, the build serializes route-state JSON under `dist/client/_pracht/state/` using bounded, collision-safe opaque path components, and the client router (compiled with `__PRACHT_STATIC_TARGET__`) fetches that file instead of the live route-state endpoint. Equivalent URL segment spellings (raw Unicode, lowercase percent escapes, and escaped unreserved characters) resolve to the same state file. Loaderless SPA routes fetch no Pracht state and run entirely in the browser. Navigation therefore stays client-side on a dumb static host.
 
 ## Output conventions
 
-- Pages: `<path>/index.html` at the percent-decoded path (clean URLs — hosts must serve `index.html` for directory URLs).
+- Pages: `<path>/index.html` at the percent-decoded path (clean URLs — hosts must serve `index.html` for directory URLs). `pracht preview` decodes request segments to the same filesystem spelling.
 - Route state: bounded, collision-safe opaque `.json` files under `_pracht/state/` (`/` uses `_pracht/state/index.json`). Files copied from `public/` may not occupy a generated state path; the build rejects them instead of overwriting them.
 - `404.html`: the app's `notFound` page, rendered independently of ordinary route matching at build time (GitHub Pages / S3 error-document convention).
 - `200.html` (opt-in via `staticAdapter({ fallback: "200.html" })`): SPA fallback document for hosts that can rewrite unmatched URLs; required for deep links into dynamic `render: "spa"` routes.

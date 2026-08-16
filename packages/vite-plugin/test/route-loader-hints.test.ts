@@ -34,12 +34,34 @@ describe("detectLoaderExport", () => {
     ).toBe(true);
   });
 
+  it("does not treat identifiers in TypeScript generic types as variable bindings", () => {
+    expect(detectLoaderExport("export const Component: Pair<View, loader> = view;\n")).toBe(false);
+    expect(
+      detectLoaderExport("export const Component = view satisfies Pair<View, loader>;\n"),
+    ).toBe(false);
+    expect(detectLoaderExport("export const Component = async <T, loader>() => null;\n")).toBe(
+      false,
+    );
+    expect(
+      detectLoaderExport(
+        "export const Component: Pair<View, loader> = view, loader = () => ({});\n",
+      ),
+    ).toBe(true);
+  });
+
   it("ignores loader-shaped text in comments and strings", () => {
     expect(
       detectLoaderExport(
         'const text = "export function loader() {}";\n// export { loader }\nexport { text };\n',
       ),
     ).toBe(false);
+  });
+
+  it("ignores type-only loader exports", () => {
+    expect(detectLoaderExport("export interface loader { value: string }\n")).toBe(false);
+    expect(detectLoaderExport("export type loader = () => unknown;\n")).toBe(false);
+    expect(detectLoaderExport("export declare const loader: () => unknown;\n")).toBe(false);
+    expect(detectLoaderExport('export { type loader } from "./types.ts";\n')).toBe(false);
   });
 
   it("falls back safely for JSX and TSRX component syntax", () => {

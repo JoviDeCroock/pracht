@@ -43,7 +43,8 @@ export function createStaticPreviewHandler(
 
     let pathname: string;
     try {
-      pathname = new URL(req.url ?? "/", "http://localhost").pathname;
+      const encodedPathname = new URL(req.url ?? "/", "http://localhost").pathname;
+      pathname = decodeStaticPreviewPathname(encodedPathname);
     } catch {
       res.writeHead(400, { "content-type": "text/plain; charset=utf-8" });
       res.end("Bad request");
@@ -89,6 +90,29 @@ export function createStaticPreviewHandler(
     res.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
     res.end("Not found");
   };
+}
+
+/**
+ * Decode each URL segment into the filesystem spelling emitted by the static
+ * exporter without allowing an escape to introduce path structure.
+ */
+function decodeStaticPreviewPathname(pathname: string): string {
+  return pathname
+    .split("/")
+    .map((segment) => {
+      const decoded = decodeURIComponent(segment);
+      if (
+        decoded === "." ||
+        decoded === ".." ||
+        decoded.includes("/") ||
+        decoded.includes("\\") ||
+        decoded.includes("\0")
+      ) {
+        throw new Error("Unsafe encoded static path segment.");
+      }
+      return decoded;
+    })
+    .join("/");
 }
 
 async function sendFile(

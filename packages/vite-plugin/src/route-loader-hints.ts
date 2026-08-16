@@ -1,5 +1,6 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { extname, join, relative } from "node:path";
+import { parse as parseModule } from "@babel/parser";
 import { maskCommentsAndStrings } from "@pracht/capabilities/static";
 import { initSync, parse } from "es-module-lexer";
 import {
@@ -98,11 +99,106 @@ function detectLoaderExportFallback(source: string): boolean {
   return false;
 }
 
+interface SyntaxNode {
+  [key: string]: unknown;
+  type: string;
+}
+
+function isSyntaxNode(value: unknown): value is SyntaxNode {
+  return (
+    typeof value === "object" && value !== null && typeof (value as SyntaxNode).type === "string"
+  );
+}
+
+function bindingIncludesLoader(node: unknown): boolean {
+  if (!isSyntaxNode(node)) return false;
+  if (node.type === "Identifier") return node.name === "loader";
+  if (node.type === "AssignmentPattern") return bindingIncludesLoader(node.left);
+  if (node.type === "RestElement") return bindingIncludesLoader(node.argument);
+  if (node.type === "ArrayPattern") {
+    return Array.isArray(node.elements) && node.elements.some(bindingIncludesLoader);
+  }
+  if (node.type === "ObjectPattern") {
+    return (
+      Array.isArray(node.properties) &&
+      node.properties.some((property) => {
+        if (!isSyntaxNode(property)) return false;
+        return property.type === "RestElement"
+          ? bindingIncludesLoader(property.argument)
+          : bindingIncludesLoader(property.value);
+      })
+    );
+  }
+  return false;
+}
+
+function exportedNameIsLoader(node: unknown): boolean {
+  if (!isSyntaxNode(node)) return false;
+  if (node.type === "Identifier") return node.name === "loader";
+  if (node.type === "StringLiteral") return node.value === "loader";
+  return false;
+}
+
+function inspectParsedModule(source: string): boolean | undefined {
+  for (const plugins of [["typescript", "jsx"], ["typescript"]] as const) {
+    let body: SyntaxNode[];
+    try {
+      const parsed = parseModule(source, {
+        plugins: [...plugins],
+        sourceType: "module",
+      }) as unknown as { program: { body: SyntaxNode[] } };
+      body = parsed.program.body;
+    } catch {
+      continue;
+    }
+
+    for (const statement of body) {
+      if (statement.type === "ExportAllDeclaration") {
+        if (statement.exportKind !== "type") return true;
+        continue;
+      }
+      if (statement.type !== "ExportNamedDeclaration" || statement.exportKind === "type") continue;
+
+      if (
+        Array.isArray(statement.specifiers) &&
+        statement.specifiers.some(
+          (specifier) =>
+            isSyntaxNode(specifier) &&
+            specifier.exportKind !== "type" &&
+            exportedNameIsLoader(specifier.exported),
+        )
+      ) {
+        return true;
+      }
+
+      const declaration = statement.declaration;
+      if (!isSyntaxNode(declaration)) continue;
+      if (declaration.declare === true || declaration.type.startsWith("TS")) continue;
+      if (declaration.type === "VariableDeclaration") {
+        if (
+          Array.isArray(declaration.declarations) &&
+          declaration.declarations.some(
+            (declarator) => isSyntaxNode(declarator) && bindingIncludesLoader(declarator.id),
+          )
+        ) {
+          return true;
+        }
+      } else if (bindingIncludesLoader(declaration.id)) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  return undefined;
+}
+
 export function detectLoaderExport(source: string): boolean {
-  // Run the syntax-aware scan even when es-module-lexer accepts the file. The
-  // lexer intentionally does not model binding patterns deeply enough to
-  // identify aliased destructuring exports.
-  if (detectLoaderExportFallback(source)) return true;
+  // Parse ordinary TS/TSX exactly so type-only exports and identifiers in
+  // generic types are not mistaken for runtime loader bindings.
+  const parsedResult = inspectParsedModule(source);
+  if (parsedResult !== undefined) return parsedResult;
 
   try {
     const [imports, exports] = parse(source);
@@ -117,15 +213,12 @@ export function detectLoaderExport(source: string): boolean {
         return true;
       }
     }
-  } catch {
-    // es-module-lexer intentionally parses JavaScript rather than every JSX or
-    // TSRX construct. The syntax-aware scan above already handled declarations
-    // and re-exports without letting comments, strings, or regex contents forge
-    // an export.
-    return false;
-  }
+  } catch {}
 
-  return false;
+  // Custom route syntaxes such as TSRX may not be accepted by a standard
+  // parser. Give es-module-lexer a chance first, then keep their conservative,
+  // lexical fallback fail-closed.
+  return detectLoaderExportFallback(source);
 }
 
 function scanRouteFiles(dir: string, files: string[], extensions: Set<string>): void {
