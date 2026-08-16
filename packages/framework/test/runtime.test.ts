@@ -814,6 +814,7 @@ describe("handlePrachtRequest cache variance", () => {
 
   it("includes merged font head fragments in route-state responses", async () => {
     const font = defineFont({ family: "Route Font", src: "/fonts/route.woff2" });
+    let headCalls = 0;
     const app = defineApp({
       routes: [route("/font", "./routes/font.tsx", { render: "ssr" })],
     });
@@ -823,7 +824,10 @@ describe("handlePrachtRequest cache variance", () => {
         routeModules: {
           "./routes/font.tsx": async () => ({
             Component: () => null,
-            head: () => ({ fonts: [font] }),
+            head: () => {
+              headCalls += 1;
+              return { fonts: [font] };
+            },
           }),
         },
       },
@@ -835,6 +839,7 @@ describe("handlePrachtRequest cache variance", () => {
     const json = (await response.json()) as Record<string, any>;
     expect(json.fontHead.css).toContain('font-family:"Route Font"');
     expect(json.fontHead.preloadLinks).toEqual(font.preloadLinks);
+    expect(headCalls).toBe(1);
   });
 
   it("uses a route loaderCache duration for successful route-state data", async () => {
@@ -940,6 +945,47 @@ describe("handlePrachtRequest cache variance", () => {
       });
     },
   );
+
+  it("replaces middleware-provided font fragments with framework-generated fragments", async () => {
+    const routeFont = defineFont({ family: "Trusted Route", src: "/fonts/trusted.woff2" });
+    const app = defineApp({
+      middleware: { gate: "./middleware/gate.ts" },
+      routes: [route("/gate", "./routes/gate.tsx", { middleware: ["gate"] })],
+    });
+
+    const response = await handlePrachtRequest({
+      app,
+      registry: {
+        middlewareModules: {
+          "./middleware/gate.ts": async () => ({
+            middleware: async () =>
+              Response.json({
+                data: { gated: true },
+                fontHead: {
+                  css: "body{display:none}",
+                  preloadLinks: [{ rel: "stylesheet", href: "https://attacker.invalid/font.css" }],
+                },
+              }),
+          }),
+        },
+        routeModules: {
+          "./routes/gate.tsx": async () => ({
+            Component: () => null,
+            head: () => ({ fonts: [routeFont] }),
+          }),
+        },
+      },
+      request: new Request("http://localhost/gate", {
+        headers: { "x-pracht-route-state-request": "1" },
+      }),
+    });
+
+    const payload = (await response.json()) as Record<string, any>;
+    expect(payload.data).toEqual({ gated: true });
+    expect(payload.fontHead.css).toContain('font-family:"Trusted Route"');
+    expect(payload.fontHead.css).not.toContain("body{display:none}");
+    expect(payload.fontHead.preloadLinks).toEqual(routeFont.preloadLinks);
+  });
 
   it.each(["return", "throw"] as const)(
     "includes empty font fragments when loaders %s JSON without a head",
@@ -2462,6 +2508,49 @@ describe("handlePrachtRequest ErrorBoundary", () => {
       fontHead: { preloadLinks: [], css: "" },
     });
   });
+
+  it.each(["import", "head"] as const)(
+    "serializes route-state shell %s failures without rejecting error rendering",
+    async (failure) => {
+      const app = defineApp({
+        shells: { app: "./shells/app.tsx" },
+        routes: [route("/shell-error", "./routes/page.tsx", { shell: "app" })],
+      });
+
+      const response = await handlePrachtRequest({
+        app,
+        debugErrors: true,
+        registry: {
+          routeModules: {
+            "./routes/page.tsx": async () => ({ Component: () => null }),
+          },
+          shellModules: {
+            "./shells/app.tsx": async () => {
+              if (failure === "import") throw new Error("shell import failed");
+              return {
+                Shell: ({ children }) => h("main", null, children),
+                head: () => {
+                  throw new Error("shell head failed");
+                },
+              };
+            },
+          },
+        },
+        request: new Request("http://localhost/shell-error", {
+          headers: { "x-pracht-route-state-request": "1" },
+        }),
+      });
+
+      expect(response.status).toBe(500);
+      await expect(response.json()).resolves.toMatchObject({
+        error: {
+          diagnostics: { phase: "render" },
+          message: failure === "import" ? "shell import failed" : "shell head failed",
+        },
+        fontHead: { preloadLinks: [], css: "" },
+      });
+    },
+  );
 
   it("catches middleware failures and serializes middleware diagnostics", async () => {
     const app = defineApp({

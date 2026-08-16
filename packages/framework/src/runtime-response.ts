@@ -43,6 +43,17 @@ import type {
 import { collectFontHeadFragments, type FontHeadFragments } from "./font.ts";
 
 let _renderToStringAsync: typeof import("preact-render-to-string").renderToStringAsync | undefined;
+const frameworkFontHeadResponses = new WeakSet<Response>();
+
+export function markFrameworkFontHeadResponse(response: Response): Response {
+  frameworkFontHeadResponses.add(response);
+  return response;
+}
+
+export function isFrameworkFontHeadResponse(response: Response): boolean {
+  return frameworkFontHeadResponses.has(response);
+}
+
 export async function getRenderToStringAsync() {
   if (_renderToStringAsync) return _renderToStringAsync;
   const mod = await import("preact-render-to-string");
@@ -97,6 +108,7 @@ export function normalizePageResponse(
   response: Response,
   options: { isRouteStateRequest: boolean; loaderCache?: LoaderCache; markdown?: boolean },
 ): Response {
+  const hasFrameworkFontHead = isFrameworkFontHeadResponse(response);
   if (options.isRouteStateRequest && response.status >= 300 && response.status < 400) {
     const location = response.headers.get("location");
     if (location) {
@@ -114,7 +126,7 @@ export function normalizePageResponse(
   if (options.markdown === true && !options.isRouteStateRequest) {
     appendVaryHeader(normalized.headers, "Accept");
   }
-  return normalized;
+  return hasFrameworkFontHead ? markFrameworkFontHeadResponse(normalized) : normalized;
 }
 
 export function renderApiErrorResponse<TContext>(options: {
@@ -194,13 +206,24 @@ export async function renderRouteErrorResponse<TContext>(options: {
       ? await resolveRegistryModule<ShellModule>(
           options.options.registry?.shellModules,
           options.shellFile,
-        )
+        ).catch(() => undefined)
       : undefined);
 
   if (options.isRouteStateRequest) {
-    const head = await mergeErrorHeadMetadata(shellModule, options.routeModule, options.routeArgs);
+    let fontHead = collectFontHeadFragments([]);
+    try {
+      const head = await mergeErrorHeadMetadata(
+        shellModule,
+        options.routeModule,
+        options.routeArgs,
+      );
+      fontHead = collectFontHeadFragments(head.fonts ?? []);
+    } catch {
+      // Error rendering must preserve the original route failure even if
+      // optional head enrichment cannot be evaluated.
+    }
     return jsonErrorResponse(routeErrorWithDiagnostics, {
-      fontHead: collectFontHeadFragments(head.fonts ?? []),
+      fontHead,
       isRouteStateRequest: true,
     });
   }

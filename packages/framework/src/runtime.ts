@@ -44,7 +44,9 @@ import type { ResolvedCapability } from "./runtime-capabilities.ts";
 import { buildRouteStateUrl } from "./runtime-client-fetch.ts";
 import {
   getRenderToStringAsync,
+  isFrameworkFontHeadResponse,
   jsonErrorResponse,
+  markFrameworkFontHeadResponse,
   normalizePageResponse,
   renderApiErrorResponse,
   renderRouteErrorResponse,
@@ -113,7 +115,7 @@ async function attachFontHeadToRouteStateResponse<TContext>(options: {
   if (payload === null || typeof payload !== "object" || Array.isArray(payload)) return response;
 
   const body = payload as Record<string, unknown>;
-  if (Object.hasOwn(body, "fontHead") || typeof body.redirect === "string") return response;
+  if (isFrameworkFontHeadResponse(response) || typeof body.redirect === "string") return response;
 
   // This response already completed the middleware/loader contract. Font-head
   // enrichment must not replace it with a 500 if an eagerly-started route or
@@ -822,10 +824,12 @@ export async function handlePrachtRequest<TContext>(
           const head = await mergeHeadMetadata(shellModule, routeModule, routeArgs, data);
           const fontHead = collectFontHeadFragments(head.fonts ?? []);
           const body = { data, fontHead };
-          return withRouteResponseHeaders(Response.json(body), {
-            isRouteStateRequest: true,
-            loaderCache: match.route.loaderCache,
-          });
+          return markFrameworkFontHeadResponse(
+            withRouteResponseHeaders(Response.json(body), {
+              isRouteStateRequest: true,
+              loaderCache: match.route.loaderCache,
+            }),
+          );
         }
 
         // Shell import was kicked off up front; this await is usually already

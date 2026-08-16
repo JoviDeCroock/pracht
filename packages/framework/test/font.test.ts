@@ -16,8 +16,8 @@ const inter = defineFont({
   lineGapOverride: "0%",
 });
 
-// The fallback family name carries a metrics hash so that different metric
-// overrides for the same family can never clobber each other's face.
+// The fallback family name is stable for a local fallback. Face descriptors
+// select per-weight metrics without changing the stack or generated class.
 const interFallbackName = /"Inter Fallback ([a-z0-9]+)"/.exec(inter.fontFamily)?.[1] ?? "";
 
 describe("defineFont", () => {
@@ -38,14 +38,11 @@ describe("defineFont", () => {
 
   it("generates an adjusted local fallback face from the first non-generic fallback", () => {
     expect(inter.fallbackFaceCss).toBe(
-      `@font-face{font-family:"Inter Fallback ${interFallbackName}";src:local("Arial");size-adjust:107%;ascent-override:90%;descent-override:22.5%;line-gap-override:0%}`,
+      `@font-face{font-family:"Inter Fallback ${interFallbackName}";src:local("Arial");font-weight:100 900;size-adjust:107%;ascent-override:90%;descent-override:22.5%;line-gap-override:0%}`,
     );
   });
 
-  it("keeps fallback faces with different metrics for the same family distinct", () => {
-    // Per-weight metrics (e.g. fontpie output per file) legitimately differ;
-    // with a shared "<family> Fallback" name the last face would clobber the
-    // other's metrics for every user of the stack.
+  it("selects per-weight fallback metrics under one shared family and class", () => {
     const regular = defineFont({
       family: "Inter",
       src: "/fonts/inter-400.woff2",
@@ -60,15 +57,17 @@ describe("defineFont", () => {
       fallbacks: ["Arial"],
       sizeAdjust: "112%",
     });
-    expect(regular.fontFamily).not.toBe(bold.fontFamily);
+    expect(regular.fontFamily).toBe(bold.fontFamily);
+    expect(regular.className).toBe(bold.className);
     const nameOf = (font: typeof regular) =>
       /"(Inter Fallback [a-z0-9]+)"/.exec(font.fallbackFaceCss ?? "")?.[1];
     expect(nameOf(regular)).toBeDefined();
-    expect(nameOf(regular)).not.toBe(nameOf(bold));
-    // Each stack references its own fallback face.
+    expect(nameOf(regular)).toBe(nameOf(bold));
     expect(regular.fontFamily).toContain(`"${nameOf(regular)}"`);
     expect(bold.fontFamily).toContain(`"${nameOf(bold)}"`);
     const fragments = collectFontHeadFragments([regular, bold]);
+    expect(fragments.css).toContain("font-weight:400");
+    expect(fragments.css).toContain("font-weight:700");
     expect(fragments.css).toContain("size-adjust:107%");
     expect(fragments.css).toContain("size-adjust:112%");
   });
@@ -409,8 +408,8 @@ describe("collectFontHeadFragments", () => {
       "/fonts/inter-regular.woff2",
       "/fonts/inter-bold.woff2",
     ]);
-    // Two web-font faces, one shared fallback face, one shared class rule.
-    expect(fragments.css.match(/@font-face/g)).toHaveLength(3);
+    // Two web-font faces, two weight-qualified fallback faces, one shared class rule.
+    expect(fragments.css.match(/@font-face/g)).toHaveLength(4);
     expect(fragments.css.match(/\.pracht-font-inter/g)).toHaveLength(1);
     expect(regular.className).toBe(bold.className);
   });

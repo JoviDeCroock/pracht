@@ -117,7 +117,7 @@ defineFont({
 });
 ```
 
-One `defineFont()` call describes one face. For multiple weights of a static font, define one font per weight file — pracht dedupes the shared fallback and class rules automatically:
+One `defineFont()` call describes one face. For multiple weights of a static font, define one font per weight file. Faces using the same local metrics fallback share one font stack and class; weight/style descriptors keep their adjusted fallback metrics separate:
 
 ```ts
 export const interRegular = defineFont({ family: "Inter", src: "/fonts/inter-400.woff2", weight: 400 });
@@ -158,6 +158,7 @@ The generated face:
 @font-face {
   font-family: "Inter Fallback 1a2b3c";
   src: local("Arial");
+  font-weight: 400;
   size-adjust: 107.64%;
   ascent-override: 90.44%;
   descent-override: 22.52%;
@@ -165,7 +166,7 @@ The generated face:
 }
 ```
 
-and the stack becomes `"Inter", "Inter Fallback 1a2b3c", "Arial", sans-serif`. The name carries a short hash of the local font and metric values, so two faces of the same family with different per-weight metrics can never clobber each other — identical metrics still share one fallback face.
+and the stack becomes `"Inter", "Inter Fallback 1a2b3c", "Arial", sans-serif`. The name carries a short hash of the local font. Faces that use that same local font share the stack and generated class, while their weight, style, and unicode-range descriptors select the correct per-face metric values.
 
 **Computing the values:** the overrides are ratios of the web font's metrics (`ascent`, `descent`, `lineGap`, per-glyph advance widths) to the fallback font's, expressed as percentages. You can:
 

@@ -243,14 +243,22 @@ export async function mergeErrorHeadMetadata(
   routeModule: RouteModule | undefined,
   routeArgs: BaseRouteArgs<unknown>,
 ): Promise<HeadMetadata> {
-  const shellHead = shellModule?.head ? await shellModule.head(routeArgs) : {};
+  let shellHead: HeadMetadata = {};
+  if (shellModule?.head) {
+    try {
+      shellHead = await shellModule.head(routeArgs);
+    } catch {
+      // Preserve the original route failure when shell metadata cannot be
+      // evaluated. Route metadata may still provide useful static entries.
+    }
+  }
   let routeHead: HeadMetadata = {};
   if (routeModule?.head) {
     try {
       routeHead = await routeModule.head({ ...routeArgs, data: undefined } as any);
     } catch {
-      // Preserve the original loader/render failure. The shell head remains a
-      // safe fallback when route metadata requires unavailable loader data.
+      // Preserve the original loader/render failure. Any successfully resolved
+      // shell metadata remains available as a fallback.
     }
   }
 

@@ -420,16 +420,11 @@ export function defineFont(options: DefineFontOptions): PrachtFont {
       (name) => !GENERIC_FAMILIES.has(name.toLowerCase()) && !VENDOR_FONT_KEYWORD_RE.test(name),
     );
   const hasFallbackFace = metricEntries.length > 0 && localFallback !== undefined;
-  // The fallback family name carries a hash of the local font + metrics.
-  // Without it, two faces of the same family with different metric overrides
-  // (e.g. per-weight sizeAdjust values from fontpie) would both register
-  // "<family> Fallback" and the last face would clobber the other's metrics.
-  // Identical metrics still hash identically, so the shared-face dedupe and
-  // shared class name across weights are preserved.
+  // Faces that use the same local fallback share a family and stack. Weight,
+  // style, and range descriptors below select the matching metric overrides
+  // without forcing every web-font face to use a different class name.
   const fallbackFamilyName = hasFallbackFace
-    ? `${family} Fallback ${hashString(
-        `${localFallback}|${metricEntries.map(([descriptor, value]) => `${descriptor}:${value}`).join(";")}`,
-      )}`
+    ? `${family} Fallback ${hashString(localFallback)}`
     : `${family} Fallback`;
 
   const stack = [
@@ -457,14 +452,19 @@ export function defineFont(options: DefineFontOptions): PrachtFont {
   const faceCss = `@font-face{${faceDescriptors.join(";")}}`;
 
   const fallbackFaceCss = hasFallbackFace
-    ? `@font-face{font-family:"${escapeCssString(fallbackFamilyName)}";src:local("${escapeCssString(localFallback)}");${metricEntries.map(([descriptor, value]) => `${descriptor}:${value}`).join(";")}}`
+    ? `@font-face{font-family:"${escapeCssString(fallbackFamilyName)}";src:local("${escapeCssString(localFallback)}");${[
+        ...(weight !== undefined ? [`font-weight:${weight}`] : []),
+        ...(style !== undefined ? [`font-style:${style}`] : []),
+        ...(unicodeRange !== undefined ? [`unicode-range:${unicodeRange}`] : []),
+        ...metricEntries.map(([descriptor, value]) => `${descriptor}:${value}`),
+      ].join(";")}}`
     : undefined;
 
   const slug = family
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
-  const className = `pracht-font-${slug || "custom"}-${hashString(`${fontFamily}|${fallbackFaceCss ?? ""}`)}`;
+  const className = `pracht-font-${slug || "custom"}-${hashString(fontFamily)}`;
   const classCss = `.${className}{font-family:${fontFamily}}`;
 
   const preload = options.preload ?? true;
