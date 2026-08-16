@@ -3,7 +3,7 @@
 A small manifest app built with `@pracht/adapter-static`: SSG routes with build-time loaders, a dynamic SSG route (`getStaticPaths`), loaderless SPA routes (including a dynamic one that relies on the `200.html` fallback), and a loader-backed `notFound` page emitted as `404.html` whose data also survives fallback rendering.
 
 ```bash
-pnpm build      # in this directory: node ../../packages/cli/bin/pracht.js build
+pnpm exec pracht build
 pnpm exec pracht preview
 ```
 

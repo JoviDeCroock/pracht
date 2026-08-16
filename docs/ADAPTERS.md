@@ -1191,10 +1191,13 @@ static host. The static adapter solves this at build time:
   (driven by the adapter's `staticTarget: true` flag), which switches
   `fetchPrachtRouteState()` — navigation, prefetch, SPA boot, revalidation —
   to those files. The generated server metadata carries the same flag so the
-  CLI emits the state/404/fallback artifacts even when a custom static adapter
-  uses an id other than `"static"`. Every other adapter compiles the flag to
-  `false` and dead-code-eliminates the static branch; dev servers always use
-  the live endpoint.
+  CLI enters the static artifact pipeline even when a custom static adapter
+  uses an id other than `"static"`. Such adapters must reuse `staticAdapter()`
+  or `createStaticServerEntryModule()` so the generated server entry exposes
+  the 404/fallback render hooks; the build fails instead of silently omitting
+  a configured artifact when a hook is missing. Every other adapter compiles
+  the flag to `false` and dead-code-eliminates the static branch; dev servers
+  always use the live endpoint.
 - Loaderless routes fetch nothing. Loaderless SPA routes boot and navigate
   entirely in the browser without Pracht route state. Islands/`none`-hydration
   routes keep their MPA full-document navigation and get no state files.
@@ -1255,9 +1258,11 @@ client-side fetch to an external API instead.
 - Prerendered pages must map to distinct portable filesystem paths. The CLI
   rejects duplicate, case-folded, and Unicode-normalization-equivalent outputs;
   Windows-invalid components (reserved device names, trailing dots/spaces, or
-  invalid filename characters); file/directory conflicts such as `/` with
-  `/index.html`; and route directories that occupy `404.html` or the configured
-  fallback file path before writing any page.
+  invalid filename characters); components longer than the portable 255-byte
+  or code-unit limit; file/directory conflicts such as `/` with `/index.html`;
+  and route directories that occupy `404.html` or the configured fallback file
+  path before writing any page. Configured fallback filenames follow the same
+  reserved-name and component-length rules.
 - **The rewrite turns unknown URLs into soft 404s**: a host that answers
   `/* → 200.html` with status 200 does so for genuinely unknown URLs too, so
   they are `200` even though the client renders the `notFound` page. Hosts
@@ -1533,8 +1538,10 @@ export default async function handle(request) {
     // Optional: set to true when the adapter produces a pure static export
     // with no runtime server. Production builds then compile the client with
     // __PRACHT_STATIC_TARGET__ = true and tell the CLI to emit serialized
-    // /_pracht/state/… files plus static-only artifacts. The adapter id can
-    // remain platform-specific (see the Static Adapter section).
+    // /_pracht/state/… files plus static-only artifacts. Reuse staticAdapter()
+    // or createStaticServerEntryModule() so required artifact render hooks are
+    // present. The adapter id can remain platform-specific (see the Static
+    // Adapter section).
     staticTarget: true,
   };
 }

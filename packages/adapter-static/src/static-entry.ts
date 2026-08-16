@@ -21,6 +21,8 @@ export interface StaticAdapterOptions {
 }
 
 const FALLBACK_FILENAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*\.html$/;
+const WINDOWS_RESERVED_FALLBACK_NAME_RE = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/i;
+const PORTABLE_FALLBACK_NAME_MAX_LENGTH = 255;
 
 function assertValidStaticAdapterOptions(options: StaticAdapterOptions): void {
   const fallback = options.fallback;
@@ -40,6 +42,16 @@ function assertValidStaticAdapterOptions(options: StaticAdapterOptions): void {
   if (!FALLBACK_FILENAME_RE.test(fallback)) {
     throw new Error(
       `staticAdapter({ fallback }) expects a plain HTML file name such as "200.html", got ${JSON.stringify(fallback)}.`,
+    );
+  }
+  if (
+    WINDOWS_RESERVED_FALLBACK_NAME_RE.test(fallback) ||
+    fallback.length > PORTABLE_FALLBACK_NAME_MAX_LENGTH ||
+    Buffer.byteLength(fallback, "utf-8") > PORTABLE_FALLBACK_NAME_MAX_LENGTH
+  ) {
+    throw new Error(
+      `staticAdapter({ fallback: ${JSON.stringify(fallback)} }) is not a portable file name. ` +
+        "Avoid Windows reserved device names and names longer than 255 bytes/code units.",
     );
   }
 }

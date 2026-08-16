@@ -366,9 +366,10 @@ warns about that shape. A dynamic SPA route, its shell, or the not-found page
 with `head()` requires an explicit `fallbackHead`, because the shared static
 document cannot evaluate URL-specific server metadata. Prerendered pages must
 map to distinct portable filesystem paths; duplicate/case-folded or
-Unicode-normalization-equivalent outputs, Windows-invalid filename components,
-and file/directory conflicts such as `/` with `/index.html` fail before any
-page is written.
+Unicode-normalization-equivalent outputs, Windows-invalid or overlong filename
+components, and file/directory conflicts such as `/` with `/index.html` fail
+before any page is written. Fallback names likewise reject Windows reserved
+device names and the portable 255-byte/code-unit component limit.
 
 ---
 
