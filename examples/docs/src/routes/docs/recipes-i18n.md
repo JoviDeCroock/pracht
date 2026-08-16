@@ -231,14 +231,26 @@ There is no URL prefix to persist, so the switch is what writes the cookie. Two 
 import { redirect, type BaseRouteArgs } from "@pracht/core";
 import { i18n } from "../i18n/index.ts";
 
+function sameOriginPath(value: FormDataEntryValue | null, base: URL, fallback: string): string {
+  if (typeof value !== "string" || !value.startsWith("/")) return fallback;
+  try {
+    const target = new URL(value, base);
+    return target.origin === base.origin
+      ? `${target.pathname}${target.search}${target.hash}`
+      : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 export async function POST({ request, url }: BaseRouteArgs) {
   const form = await request.formData();
   const locale = form.get("locale");
   if (!i18n.isLocale(locale)) return new Response("Unknown locale", { status: 400 });
 
-  // Only bounce back to one of your own paths — `next` is user input.
+  // Parse `next` before trusting it: URL normalization can expose an origin.
   const next = form.get("next");
-  const target = typeof next === "string" && /^\/(?![/\\])/.test(next) ? next : "/";
+  const target = sameOriginPath(next, url, "/");
 
   const response = redirect(target, { request, status: 303 });
   response.headers.append("set-cookie", i18n.localeCookie(locale, { url }));

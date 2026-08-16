@@ -18,6 +18,16 @@ test("greeting resolves the locale from Accept-Language and varies on it", async
   expect(response.headers()["set-cookie"]).toBeUndefined();
 });
 
+test("locale switching rejects URL-normalized cross-origin return targets", async ({ request }) => {
+  const response = await request.post("/api/locale", {
+    form: { locale: "nl", next: "/\t/evil.example/phish" },
+    maxRedirects: 0,
+  });
+
+  expect(response.status()).toBe(303);
+  expect(response.headers()["location"]).toBe("/greeting");
+});
+
 test("a prerendered locale prefix is remembered by the unprefixed detector", async ({ page }) => {
   await page.context().clearCookies();
   const response = await page.goto("/nl/welcome");

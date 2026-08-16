@@ -2,6 +2,18 @@ import { redirect, type BaseRouteArgs } from "@pracht/core";
 
 import { i18n } from "../i18n/index.ts";
 
+function sameOriginPath(value: FormDataEntryValue | null, base: URL, fallback: string): string {
+  if (typeof value !== "string" || !value.startsWith("/")) return fallback;
+  try {
+    const target = new URL(value, base);
+    return target.origin === base.origin
+      ? `${target.pathname}${target.search}${target.hash}`
+      : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 /**
  * Locale switch for the prefix-free strategy (`/greeting`): the page keeps one
  * URL, so the choice is persisted in the locale cookie instead of the path.
@@ -21,11 +33,10 @@ export async function POST({ request, url }: BaseRouteArgs) {
   }
 
   // Only ever bounce back to one of our own paths: a submitted `next` is
-  // attacker-controllable, and `/\evil.com` or `//evil.com` would leave the
-  // origin. `redirect()` also rejects unsafe schemes and CRLF.
+  // attacker-controllable, and URL parsing can normalize slashes, backslashes,
+  // dot segments, or ASCII whitespace before navigation.
   const next = form.get("next");
-  const target =
-    typeof next === "string" && /^\/(?![/\\])/.test(next) ? next : ("/greeting" as const);
+  const target = sameOriginPath(next, url, "/greeting");
 
   const response = redirect(target, { request, status: 303 });
   // Same name and attributes the i18n middleware reads on the next request

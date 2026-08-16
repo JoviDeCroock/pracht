@@ -70,3 +70,8 @@ switches also keep the localized document title aligned with the rendered
 messages and `<html lang>` value. The positive-entry cap continues scanning
 for later `q=0` exclusions, so a bounded header cannot hide an explicit locale
 rejection behind lower-value preferences.
+
+The reference prefix-free switch handler parses user-controlled return targets
+against the request URL and compares origins after normalization, so ASCII
+whitespace cannot turn an apparently root-relative path into an external
+redirect. The public recipe and `/add-i18n` skill use the same guarded pattern.
