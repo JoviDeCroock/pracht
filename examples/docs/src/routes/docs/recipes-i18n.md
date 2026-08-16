@@ -270,7 +270,7 @@ export function LanguageSwitcher() {
 **Client switch (no request at all).** Write the cookie from the browser and swap the dictionary in place — the URL never changes and nothing is re-fetched:
 
 ```tsx
-import { useEffect, useRef, useState } from "preact/hooks";
+import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import { t } from "@pracht/i18n";
 import { dictionaries, i18n, type AppLocale } from "../i18n/index.ts";
 
@@ -278,14 +278,14 @@ export function Component({ data }: RouteComponentProps<typeof loader>) {
   const [override, setOverride] = useState<typeof data.messages | null>(null);
   const switchRequest = useRef(0);
   // Loader data wins again whenever it changes.
-  useEffect(() => {
+  useLayoutEffect(() => {
     setOverride(null);
     return () => {
-      // Invalidate a pending client switch when loader data changes or this
-      // component unmounts, without discarding a click on initial mount.
+      // Cleanup runs during the loader-data commit, before a pending import can
+      // resume and write a stale cookie, and synchronously on unmount.
       switchRequest.current += 1;
     };
-  }, [data.locale]);
+  }, [data.messages]);
   const messages = override ?? data.messages;
 
   async function switchTo(locale: AppLocale) {
@@ -319,6 +319,8 @@ export function Component({ data }: RouteComponentProps<typeof loader>) {
 
 `dictionaries.load()` works in the browser exactly as it does on the server (each locale is its own lazily imported chunk), and `i18n.detectClient()` is the browser-side counterpart of `detect()` — it reads `location.pathname`, `document.cookie`, and `navigator.languages` in the same configured order, which is handy if a client-only surface needs to resolve the locale on its own.
 
+Use a layout-effect cleanup for loader-data invalidation as shown above. A passive effect runs after paint, leaving a window where an older import can resume and write its stale locale cookie before cleanup runs.
+
 > [!NOTE]
 > One URL per page cannot express `hreflang` — there is no alternate URL to point at — so skip `i18n.hreflang()` here and accept that search engines index a single language version. If indexable multilingual content matters more than the URLs, that is the argument for strategy A.
 
@@ -350,7 +352,9 @@ export function head({ data, url }: HeadArgs<typeof loader>) {
 
 export function Component({ data }: RouteComponentProps<typeof loader>) {
   // Needed when this localized page is SSG/ISG; harmless on SSR.
-  useEffect(() => i18n.setLocaleCookie(data.locale), [data.locale]);
+  useEffect(() => {
+    i18n.setLocaleCookie(data.locale);
+  }, [data.locale]);
   return (
     <div>
       <h1>{t(data.messages, "home.title")}</h1>

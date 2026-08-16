@@ -6,7 +6,7 @@ import {
   type RouteComponentProps,
 } from "@pracht/core";
 import { t, type I18nRequestContext } from "@pracht/i18n";
-import { useEffect, useRef, useState } from "preact/hooks";
+import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 
 import { dictionaries, i18n, type AppLocale, type AppMessages } from "../i18n/index.ts";
 
@@ -37,14 +37,15 @@ export function Component({ data }: RouteComponentProps<typeof loader>) {
   // as soon as it changes (the <Form> switch re-runs the loader).
   const [clientMessages, setClientMessages] = useState<AppMessages | null>(null);
   const clientSwitch = useRef(0);
-  useEffect(() => {
+  useLayoutEffect(() => {
     setClientMessages(null);
     return () => {
-      // A server switch or unmount invalidates any lazy client switch that is
-      // still in flight, without discarding a click before this effect mounts.
+      // Layout-effect cleanup runs during the loader-data commit, before a
+      // pending import can resume in a microtask and write a stale cookie. It
+      // also invalidates pending work synchronously on unmount.
       clientSwitch.current += 1;
     };
-  }, [data.locale]);
+  }, [data.messages]);
 
   const messages = clientMessages ?? data.messages;
   const locale = messages.$locale as AppLocale;

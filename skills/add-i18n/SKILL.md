@@ -204,7 +204,7 @@ export function Component() {
 - If localized routes are SSG/ISG, their stored response cannot safely carry
   a visitor-specific `Set-Cookie`. In a hydrated component shared by those
   routes, persist the explicit prefix with
-  `useEffect(() => i18n.setLocaleCookie(data.locale), [data.locale])` so the
+  `useEffect(() => { i18n.setLocaleCookie(data.locale); }, [data.locale])` so the
   SSR detector remembers it later. This is harmless on SSR pages. Without
   JavaScript, remembering a prerendered visit requires SSR or platform edge
   middleware before static asset serving.
@@ -256,7 +256,9 @@ Load the dictionary before writing the cookie, and guard concurrent lazy
 loads with a monotonically increasing request id so only the latest successful
 selection commits both the cookie and component state. Catch import failures
 instead of leaving an unhandled event-handler rejection or a partially applied
-locale choice.
+locale choice. Invalidate that request id from a `useLayoutEffect` cleanup
+keyed by loader messages so a loader-data change or unmount wins during commit;
+a passive `useEffect` cleanup leaves time for a stale import to write its cookie.
 `i18n.detectClient()` is the browser-side `detect()` if a client-only
 surface needs to resolve the locale itself.
 
@@ -284,7 +286,9 @@ export function head({ data, url }: HeadArgs<typeof loader>) {
 export function Component({ data }: RouteComponentProps<typeof loader>) {
   // Required for SSG/ISG locale routes; harmless when SSR middleware already
   // persisted the matching path locale.
-  useEffect(() => i18n.setLocaleCookie(data.locale), [data.locale]);
+  useEffect(() => {
+    i18n.setLocaleCookie(data.locale);
+  }, [data.locale]);
   return <h1>{t(data.messages, "home.title", { name: "Jovi" })}</h1>;
 }
 ```

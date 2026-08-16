@@ -56,7 +56,8 @@ Locale-stripped paths stay root-relative through duplicate-slash and URL
 normalization edge cases. Generated hreflang entries preserve query/hash
 suffixes on the default `x-default` target. The documented asynchronous
 prefix-free client switch commits only the latest successfully loaded
-dictionary to the cookie and rendered locale state.
+dictionary to the cookie and rendered locale state, and a loader-data change
+invalidates pending switches during commit before stale imports can resume.
 
 Path-resolved SSR/SPA responses now vary on `Cookie` while conditional locale
 persistence can change `Set-Cookie`, preventing a shared cache from replaying

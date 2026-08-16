@@ -75,7 +75,9 @@ export function head({ data, url }: HeadArgs<typeof loader>) {
 export function Component({ data }: RouteComponentProps<typeof loader>) {
   // Required on SSG/ISG pages: their stored response cannot set a
   // visitor-specific cookie. It is harmless when middleware already did so.
-  useEffect(() => i18n.setLocaleCookie(data.locale), [data.locale]);
+  useEffect(() => {
+    i18n.setLocaleCookie(data.locale);
+  }, [data.locale]);
   return <h1>{t(data.messages, "welcome.title", { name: "Jovi" })}</h1>;
 }
 ```
@@ -126,9 +128,11 @@ setMessages(messages);
 
 When several locale choices can be made before their lazy chunks finish,
 guard the async work so only the latest successful selection updates both the
-cookie and component state. Because `head()` ran on the server, an in-place
-switch must also update `document.documentElement.lang` and the localized
-`document.title`; the full recipe below shows that pattern.
+cookie and component state. Invalidate pending work from a layout-effect
+cleanup when loader data changes or the component unmounts, before a stale
+import can resume and write its cookie. Because `head()` ran on the server, an
+in-place switch must also update `document.documentElement.lang` and the
+localized `document.title`; the full recipe below shows that pattern.
 
 The trade-off is SEO: a single URL cannot carry `hreflang` alternates, so
 crawlers index whichever locale their `Accept-Language` resolves to. The
