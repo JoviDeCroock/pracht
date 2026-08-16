@@ -45,7 +45,10 @@ function localImageSource(href: string, source: string): string | undefined {
       `[pracht/markdown] Local image paths cannot contain query strings or fragments: ${JSON.stringify(href)} in ${JSON.stringify(source)}.`,
     );
   }
-  return decoded;
+  // `![Alt](photo.jpg)` is ordinary Markdown, but `import "photo.jpg?…"` is a
+  // bare specifier that Vite resolves through node_modules. Anchor every
+  // relative source so the generated module imports the sibling file.
+  return decoded.startsWith(".") ? decoded : `./${decoded}`;
 }
 
 async function compileMarkdown<TFrontmatter extends Record<string, unknown>>(
@@ -119,9 +122,15 @@ function moduleCode<TFrontmatter extends Record<string, unknown>>(
   const html = imports.length
     ? `renderMarkdownImages(${JSON.stringify(document.compiled.html)}, ${JSON.stringify(document.compiled.images)}, [${metadata.join(", ")}], ${JSON.stringify(options.images ?? {})})`
     : JSON.stringify(document.compiled.html);
+  // Resolve the markup once at module evaluation: the compiled HTML and the
+  // image metadata are constants, so re-running the marker substitution on
+  // every SSR render would repeat the work and defer its validation errors
+  // into the middle of a response.
   lines.push(
+    `const __prachtHtml = ${html};`,
+    ``,
     `export function Component() {`,
-    `  return h("div", { class: "pracht-markdown", dangerouslySetInnerHTML: { __html: ${html} } });`,
+    `  return h("div", { class: "pracht-markdown", dangerouslySetInnerHTML: { __html: __prachtHtml } });`,
     `}`,
   );
   return lines.join("\n");

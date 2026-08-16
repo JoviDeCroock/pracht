@@ -44,6 +44,22 @@ describe("defineMarkdownCollection", () => {
     expect(module).toContain("renderMarkdownImages");
   });
 
+  it("anchors bare relative image paths so Vite does not resolve them as packages", async () => {
+    const { collection, source } = await fixture("![Alt](photo.jpg)\n![Nested](sub/photo.jpg)\n");
+
+    const module = await collection.renderModule(source);
+    expect(module).toContain('from "./photo.jpg?pracht&pracht-static"');
+    expect(module).toContain('from "./sub/photo.jpg?pracht&pracht-static"');
+  });
+
+  it("resolves image markers once at module scope instead of on every render", async () => {
+    const { collection, source } = await fixture("![Alt](./photo.jpg)");
+
+    const module = await collection.renderModule(source);
+    expect(module).toContain("const __prachtHtml = renderMarkdownImages(");
+    expect(module).toContain("__html: __prachtHtml");
+  });
+
   it("rejects local query strings instead of ambiguously merging Vite queries", async () => {
     const { collection, source } = await fixture("![Bad](./photo.jpg?width=10)");
     await expect(collection.loadSource(source)).rejects.toThrow(/cannot contain query strings/);
@@ -76,6 +92,17 @@ describe("renderMarkdownImage", () => {
     expect(html).toContain('height="400"');
     expect(html).toContain('alt="A &lt;photo&gt; &amp; &quot;caption&quot;"');
     expect(html).toContain('title="Title &quot;quoted&quot;"');
+  });
+
+  it("keeps dollar patterns in alt text out of the replacement grammar", () => {
+    const html = renderMarkdownImages(
+      "<p>marker</p>",
+      [{ source: "./photo.jpg", alt: "Save $& win $` now $'", marker: "marker" }],
+      [{ src: "/photo.jpg", width: 10, height: 10 }],
+    );
+
+    expect(html).toContain(`alt="Save $&amp; win $\` now $'"`);
+    expect(html).not.toContain("marker");
   });
 
   it("fails closed when compiled image markers are missing or duplicated", () => {

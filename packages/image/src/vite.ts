@@ -1,6 +1,16 @@
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, stat, unlink, writeFile } from "node:fs/promises";
-import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import {
+  basename,
+  dirname,
+  extname,
+  isAbsolute,
+  join,
+  posix,
+  relative,
+  resolve,
+  sep,
+} from "node:path";
 import type { Plugin } from "vite";
 
 import type { PrachtImageMetadata } from "./metadata.ts";
@@ -323,7 +333,7 @@ export function prachtImage(options: PrachtImageOptions = {}): Plugin {
         )
         .digest("hex")
         .slice(0, 12);
-      const fileName = `${assetsDir}/${stem}.${width}.${hash}.webp`;
+      const fileName = posix.join(assetsDir, `${stem}.${width}.${hash}.webp`);
       const cachedPath = join(cacheDir, "pracht-image", `${hash}.webp`);
       let output = await readFile(cachedPath).catch(() => undefined);
       if (!output) {

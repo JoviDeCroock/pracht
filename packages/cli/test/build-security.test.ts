@@ -1,9 +1,12 @@
-import { resolve } from "node:path";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
 import {
   assertNoContentArtifactPathCollision,
+  assertNoPublicContentArtifactCollisions,
   resolveGeneratedArtifactOutputPath,
   resolvePrerenderOutputPath,
 } from "../src/commands/build.ts";
@@ -77,5 +80,40 @@ describe("assertNoContentArtifactPathCollision", () => {
         "the core generator",
       ),
     ).not.toThrow();
+  });
+});
+
+describe("assertNoPublicContentArtifactCollisions", () => {
+  it("rejects public files that would overwrite generated content artifacts", () => {
+    const publicDir = mkdtempSync(join(tmpdir(), "pracht-content-public-"));
+    try {
+      mkdirSync(resolve(publicDir, "feeds"));
+      writeFileSync(resolve(publicDir, "feeds/search.json"), "public");
+
+      expect(() =>
+        assertNoPublicContentArtifactCollisions(
+          { "/feeds/search.json": { "content-type": "application/json" } },
+          publicDir,
+        ),
+      ).toThrow(/collides with.*public\/feeds\/search\.json/);
+    } finally {
+      rmSync(publicDir, { force: true, recursive: true });
+    }
+  });
+
+  it("allows public files at unrelated paths", () => {
+    const publicDir = mkdtempSync(join(tmpdir(), "pracht-content-public-"));
+    try {
+      writeFileSync(resolve(publicDir, "robots.txt"), "User-agent: *");
+
+      expect(() =>
+        assertNoPublicContentArtifactCollisions(
+          { "/feeds/search.json": { "content-type": "application/json" } },
+          publicDir,
+        ),
+      ).not.toThrow();
+    } finally {
+      rmSync(publicDir, { force: true, recursive: true });
+    }
   });
 });

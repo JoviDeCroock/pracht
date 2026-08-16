@@ -2,6 +2,7 @@
 "@pracht/content": minor
 "@pracht/cli": patch
 "@pracht/adapter-cloudflare": patch
+"@pracht/adapter-netlify": patch
 "@pracht/adapter-node": patch
 ---
 
@@ -33,6 +34,7 @@ capabilities now use `virtual:pracht/content/<name>`, a JSON-validated,
 filesystem-free snapshot that runs across Node, Vercel, and Cloudflare.
 
 Final review fixes apply generated content types to non-HTML assets on every
-adapter, reject core/collection `llms.txt` collisions, fail closed on symbolic
-links escaping the collection root, return missing page-capability results for
-malformed routes or unsupported locales, and accept empty YAML frontmatter.
+adapter — Node, Cloudflare, Netlify, and Vercel — reject core/collection
+`llms.txt` collisions, fail closed on symbolic links escaping the collection
+root, return missing page-capability results for malformed routes or
+unsupported locales, and accept empty YAML frontmatter.

@@ -116,11 +116,12 @@ directly. These static variants take precedence over the global loader; an
 explicit `loader` prop still opts that individual image back into loader URL
 generation. Output is cached in Vite's `cacheDir` by source bytes and transform
 options, served directly by `pracht dev`, and emitted as ordinary client
-assets for production. The source original is not copied when variants are
-available. Images that exist only in an SSR or hydration-disabled route graph
-are written to `dist/client` so adapters and prerendered HTML share the same
-public files; set `staticOutDir` when an integration serves a different client
-directory.
+assets for production, including when `build.assetsDir` is empty and assets
+are placed directly at the output root. The source original is not copied when
+variants are available. Images that exist only in an SSR or hydration-disabled
+route graph are written to `dist/client` so adapters and prerendered HTML share
+the same public files; set `staticOutDir` when an integration serves a different
+client directory.
 
 ```ts
 prachtImage({

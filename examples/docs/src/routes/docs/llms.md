@@ -110,13 +110,14 @@ curl https://pracht.resynapse.dev/llms-full.txt
 
 The same registry compiles Markdown route modules and generates both files. No second plugin scans the route manifest or reparses frontmatter:
 
-```ts [examples/docs/vite.config.ts]
-export const docsContent = defineCollection({
+```ts [examples/docs/content.ts]
+import { llmsTxtArtifacts } from "@pracht/content";
+import { defineMarkdownCollection } from "@pracht/markdown";
+
+export const docsContent = defineMarkdownCollection({
   name: "docs",
   root: new URL("./src/routes/docs", import.meta.url),
   routeBase: "/docs",
-  compile: compileMarkdown,
-  module: createMarkdownRouteModule,
   artifacts: [
     llmsTxtArtifacts({
       origin: "https://pracht.resynapse.dev",
@@ -126,6 +127,8 @@ export const docsContent = defineCollection({
   ],
 });
 ```
+
+`vite.config.ts` registers that collection with `prachtContent({ collections: [docsContent] })`.
 
 Agents can start at `/llms.txt`, follow the canonical route URLs, and request any page with `Accept: text/markdown` when they need exact source.
 

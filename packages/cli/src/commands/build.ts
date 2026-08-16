@@ -136,6 +136,19 @@ export function assertNoContentArtifactPathCollision(
   );
 }
 
+export function assertNoPublicContentArtifactCollisions(
+  contentArtifactHeaders: Record<string, Record<string, string>>,
+  publicDir: string,
+): void {
+  for (const path of Object.keys(contentArtifactHeaders)) {
+    const publicPath = resolveGeneratedArtifactOutputPath(publicDir, path.slice(1));
+    if (!existsSync(publicPath)) continue;
+    throw new Error(
+      `Content artifact ${JSON.stringify(path)} collides with ${JSON.stringify(`public${path}`)}. Remove or rename one of the files so generated artifact bytes and headers cannot diverge.`,
+    );
+  }
+}
+
 export interface BuildResult {
   buildTarget: string | null;
 }
@@ -202,6 +215,11 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
     }
   }
   const contentArtifactHeaders = readContentArtifactHeaders(clientDir);
+
+  const publicDir = resolve(root, "public");
+  if (existsSync(publicDir)) {
+    assertNoPublicContentArtifactCollisions(contentArtifactHeaders, publicDir);
+  }
 
   // `public/` is deliberately not re-copied here: the client build already
   // emitted it (Vite honours a custom `publicDir` and `build.copyPublicDir`

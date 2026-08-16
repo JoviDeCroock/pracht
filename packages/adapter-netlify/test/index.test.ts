@@ -308,6 +308,21 @@ describe("createNetlifyHandler", () => {
     );
   });
 
+  it("applies generated headers to non-HTML static assets", async () => {
+    const staticDir = await createStaticBuild();
+    const handler = createNetlifyHandler({
+      app,
+      headersManifest: {
+        "/robots.txt": { "content-type": "text/markdown; charset=utf-8" },
+      },
+      registry,
+      staticDir,
+    });
+
+    const response = await handler(new Request("https://example.com/robots.txt"), {});
+    expect(response.headers.get("content-type")).toBe("text/markdown; charset=utf-8");
+  });
+
   it("does not fragment non-Markdown documents on Accept", async () => {
     const staticDir = await createStaticBuild();
     const handler = createNetlifyHandler({

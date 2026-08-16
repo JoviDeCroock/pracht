@@ -744,7 +744,7 @@ async function serveStaticFile(
       "content-type": file.contentType,
     }),
   );
-  if (file.document) applyHeadersManifest(headers, headersManifest, pathname);
+  applyHeadersManifest(headers, headersManifest, pathname);
   if (!hasExplicitCachePolicy(headers)) {
     headers.set(
       "cache-control",

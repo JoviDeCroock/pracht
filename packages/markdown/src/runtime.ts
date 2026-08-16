@@ -85,8 +85,10 @@ export function renderMarkdownImages(
         `[pracht/markdown] Expected exactly one compiled image marker for ${JSON.stringify(descriptor.source)}, found ${occurrences}.`,
       );
     }
-    rendered = rendered.replace(
-      descriptor.marker,
+    // A replacer function keeps `$&`, `$'`, `` $` `` and `$$` in the generated
+    // markup literal: author-controlled alt/title text reaches this string and
+    // string replacements would otherwise substitute the marker into it.
+    rendered = rendered.replace(descriptor.marker, () =>
       renderMarkdownImage(descriptor, metadata[index], options),
     );
   });

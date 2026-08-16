@@ -132,8 +132,8 @@ emits the same bytes during the client build. `rawContentArtifacts()` and
 `llmsTxtArtifacts()` cover common cases; a custom generator can emit JSON,
 XML, Markdown, or binary `Uint8Array` content.
 Explicit artifact content types are preserved in the production headers
-manifest and applied to static assets by the Node, Cloudflare, and Vercel
-adapters as well as development responses. If Pracht's core `llmsTxt` option is
+manifest and applied to static assets by the Node, Cloudflare, Netlify, and
+Vercel adapters as well as development responses. If Pracht's core `llmsTxt` option is
 also enabled, a collection using the default `/llms.txt` path fails the build
 instead of being silently overwritten; configure a distinct `summaryPath` or
 use only one generator.

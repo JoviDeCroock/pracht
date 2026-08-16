@@ -74,6 +74,39 @@ describe("prachtImage in a real Vite build", () => {
   );
 
   it(
+    "emits static variants at the output root when assetsDir is empty",
+    { timeout: 60_000 },
+    async () => {
+      const { build } = await import("vite");
+      const root = await makeRoot();
+      await copyFile(fixture("landscape.jpg"), join(root, "photo.jpg"));
+      await writeFile(
+        join(root, "entry.js"),
+        'import meta from "./photo.jpg?pracht&pracht-static"; console.log(meta);',
+      );
+
+      await build({
+        root,
+        logLevel: "error",
+        plugins: [prachtImage({ staticWidths: [16] })],
+        build: {
+          assetsDir: "",
+          outDir: join(root, "dist"),
+          rollupOptions: { input: join(root, "entry.js") },
+        },
+      });
+
+      const output = await readdir(join(root, "dist"));
+      const variants = output.filter((file) => file.endsWith(".webp"));
+      expect(variants).toHaveLength(2);
+      const chunkName = output.find((file) => file.endsWith(".js"));
+      const chunk = await readFile(join(root, "dist", chunkName!), "utf8");
+      expect(chunk).toContain(`/photo.16.`);
+      expect(chunk).not.toContain(`//photo.16.`);
+    },
+  );
+
+  it(
     "emits a hashed URL (never a data: URI), respects base, and dedupes plain imports",
     { timeout: 60_000 },
     async () => {
