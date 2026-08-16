@@ -12,6 +12,8 @@ written), while static assets and (re)generated ISG documents are compressed
 once per file version at higher quality and served from an in-memory LRU.
 Concurrent first requests share one in-flight compression, while
 byte/concurrency limits send excess cold paths through streaming compression.
+Successful ISG writes explicitly invalidate their prior compressed cache
+generation, including same-size rewrites on coarse-timestamp filesystems.
 Compressible responses always carry
 `Vary: Accept-Encoding` (merged with existing `Vary` members), encoded
 variants get their own weak ETag so conditional revalidation never crosses

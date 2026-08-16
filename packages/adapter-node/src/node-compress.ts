@@ -297,13 +297,14 @@ export function compressBuffer(buffer: Buffer, encoding: ContentEncoding): Promi
 }
 
 /**
- * Byte-bounded LRU of compressed static assets, keyed by file identity
- * (path + size + mtime) and encoding — an ISG regeneration that rewrites the
- * HTML on disk changes the mtime and naturally invalidates its entries.
+ * Byte-bounded LRU of compressed static assets. Callers include a per-path
+ * write generation in each key so an ISG rewrite invalidates cached bytes even
+ * when the replacement has the same size and filesystem timestamp.
  * Whole-buffer work is also byte- and concurrency-bounded while pending.
  */
 export class CompressedAssetCache {
   #entries = new Map<string, Buffer>();
+  #pathGenerations = new Map<string, number>();
   #pending = new Map<string, Promise<Buffer>>();
   #pendingBytes = 0;
   #totalBytes = 0;
@@ -317,6 +318,25 @@ export class CompressedAssetCache {
 
   get totalBytes(): number {
     return this.#totalBytes;
+  }
+
+  getPathGeneration(path: string): number {
+    return this.#pathGenerations.get(path) ?? 0;
+  }
+
+  /**
+   * Advance the generation for a mutable file and discard its completed cache
+   * entries. In-flight work may still finish for the old generation, but a
+   * later request cannot select it because its key includes the new value.
+   */
+  invalidatePath(path: string): void {
+    this.#pathGenerations.set(path, this.getPathGeneration(path) + 1);
+    const prefix = `${path}\0`;
+    for (const [key, value] of this.#entries) {
+      if (!key.startsWith(prefix)) continue;
+      this.#entries.delete(key);
+      this.#totalBytes -= value.byteLength;
+    }
   }
 
   /**

@@ -167,11 +167,18 @@ export function createNodeRequestHandler<TContext = unknown>(
         routeSupportsMarkdown(options.markdownManifest, url.pathname));
 
     if (url.pathname === PRACHT_REVALIDATE_ENDPOINT) {
-      const response = await handleRevalidationEndpoint(request, options, staticDir, isgManifest, {
+      const response = await handleRevalidationEndpoint(
         request,
-        req,
-        res,
-      });
+        options,
+        staticDir,
+        isgManifest,
+        {
+          request,
+          req,
+          res,
+        },
+        compression,
+      );
       await writeWebResponse(res, response, compression);
       return;
     }
@@ -250,6 +257,7 @@ export function createNodeRequestHandler<TContext = unknown>(
       if (htmlPath) {
         await mkdir(dirname(htmlPath), { recursive: true });
         await writeFile(htmlPath, html, "utf-8");
+        compressedAssetCache.invalidatePath(htmlPath);
       }
     }
 
@@ -430,7 +438,8 @@ async function writeFileBody(
   }
 
   if (fileStat.size <= MAX_CACHEABLE_ASSET_SIZE) {
-    const key = `${filePath}\0${fileStat.size}\0${fileStat.mtimeMs}\0${encoding}`;
+    const generation = compression.cache.getPathGeneration(filePath);
+    const key = `${filePath}\0${generation}\0${fileStat.size}\0${fileStat.mtimeMs}\0${encoding}`;
     const pending = compression.cache.getOrCompress(key, fileStat.size, async () =>
       compressBuffer(await readFile(filePath), encoding),
     );
@@ -498,7 +507,13 @@ async function serveISGEntry<TContext>(
   }
 
   if (isStale) {
-    regenerateISGPage(options, pathname, htmlPath, contextArgs).catch((err) => {
+    regenerateISGPageAndInvalidateCache(
+      options,
+      pathname,
+      htmlPath,
+      contextArgs,
+      compression,
+    ).catch((err) => {
       console.error(`ISG regeneration failed for ${pathname}:`, err);
     });
   }
@@ -512,6 +527,7 @@ async function handleRevalidationEndpoint<TContext>(
   staticDir: string | undefined,
   isgManifest: Record<string, ISGManifestEntry>,
   contextArgs: NodeAdapterContextArgs,
+  compression: CompressionState | undefined,
 ): Promise<Response> {
   const parsed = await readRevalidationRequest(request, resolveRevalidationToken());
   if (!parsed.ok) return parsed.response;
@@ -545,7 +561,15 @@ async function handleRevalidationEndpoint<TContext>(
 
       // A failed regeneration keeps the existing on-disk HTML and is reported
       // in `failed` instead of aborting the whole batch with a 500.
-      if (await regenerateISGPage(options, pathname, htmlPath!, contextArgs)) {
+      if (
+        await regenerateISGPageAndInvalidateCache(
+          options,
+          pathname,
+          htmlPath!,
+          contextArgs,
+          compression,
+        )
+      ) {
         report.revalidated(pathname);
       } else {
         report.failed(pathname, "regeneration_failed");
@@ -557,6 +581,18 @@ async function handleRevalidationEndpoint<TContext>(
   }
 
   return jsonResponse(report.toJSON());
+}
+
+async function regenerateISGPageAndInvalidateCache<TContext>(
+  options: NodeAdapterOptions<TContext>,
+  pathname: string,
+  htmlPath: string,
+  contextArgs: NodeAdapterContextArgs,
+  compression: CompressionState | undefined,
+): Promise<boolean> {
+  const regenerated = await regenerateISGPage(options, pathname, htmlPath, contextArgs);
+  if (regenerated) compression?.cache.invalidatePath(htmlPath);
+  return regenerated;
 }
 
 /**

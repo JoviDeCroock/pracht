@@ -177,13 +177,16 @@ wildcards, and `q=0` exclusions are honored, all via `node:zlib`):
   of sitting in the compressor's buffer until the stream ends.
 - **Static assets and ISG snapshots** up to 1 MiB are compressed once per file
   version at higher quality and kept in a byte-bounded in-memory LRU
-  (32 MiB) keyed by path + size + mtime, so hashed assets and regenerated ISG
-  HTML pay the compression cost once — concurrent first requests to the same
-  file share a single in-flight compression. Whole-file cold work is bounded
-  by both bytes and concurrency; excess distinct files, and all larger files,
-  stream through zlib instead of queuing another buffered compression. This is
-  runtime compression rather than build-time precompression; it also covers
-  ISG documents rewritten on disk after the build.
+  (32 MiB) keyed by path + write generation + size + mtime, so hashed assets
+  and regenerated ISG HTML pay the compression cost once — concurrent first
+  requests to the same file share a single in-flight compression. Successful
+  ISG writes advance that generation explicitly, so even same-size rewrites on
+  coarse-timestamp filesystems cannot reuse stale compressed bytes. Whole-file
+  cold work is bounded by both bytes and concurrency; excess distinct files,
+  and all larger files, stream through zlib instead of queuing another buffered
+  compression. This is runtime compression rather than build-time
+  precompression; it also covers ISG documents rewritten on disk after the
+  build.
 
 What gets compressed: `text/*`, `application/json`, `application/javascript`,
 `application/xml`, `application/wasm`, and any `+json`/`+xml` structured

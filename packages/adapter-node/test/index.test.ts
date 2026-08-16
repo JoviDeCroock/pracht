@@ -338,7 +338,8 @@ describe("createNodeRequestHandler", () => {
       registry: {
         routeModules: {
           "./routes/pricing.tsx": async () => ({
-            Component: ({ data }) => `<main>${(data as { cookie: string }).cookie}</main>`,
+            Component: ({ data }) =>
+              `<main>${(data as { cookie: string }).cookie}${" cacheable".repeat(300)}</main>`,
             loader: async ({ context }) => ({
               cookie: (context as { cookie?: string }).cookie ?? "missing",
             }),
@@ -396,6 +397,42 @@ describe("createNodeRequestHandler", () => {
       });
       expect(readFileSync(htmlPath, "utf-8")).toContain("missing");
       expect(readFileSync(htmlPath, "utf-8")).not.toContain("should-not-leak");
+
+      // Prime the compressed-file LRU with a stale page, then regenerate a
+      // same-size replacement while preserving its timestamp. Filesystem
+      // metadata alone cannot distinguish these versions, so the successful
+      // regeneration must explicitly invalidate the cached bytes.
+      const freshHtml = readFileSync(htmlPath, "utf-8");
+      const staleHtml = freshHtml.replace("missing", "expired");
+      expect(staleHtml).not.toBe(freshHtml);
+      expect(Buffer.byteLength(staleHtml)).toBe(Buffer.byteLength(freshHtml));
+      const fixedTimestamp = new Date();
+      writeFileSync(htmlPath, staleHtml, "utf-8");
+      utimesSync(htmlPath, fixedTimestamp, fixedTimestamp);
+
+      const staleCompressed = await fetch(`http://127.0.0.1:${address.port}/pricing`, {
+        headers: { "accept-encoding": "gzip" },
+      });
+      expect(staleCompressed.headers.get("content-encoding")).toBe("gzip");
+      await expect(staleCompressed.text()).resolves.toContain("expired");
+
+      const refreshed = await fetch(endpoint, {
+        body,
+        headers: { authorization: "Bearer secret", "content-type": "application/json" },
+        method: "POST",
+      });
+      expect(refreshed.status).toBe(200);
+      const regeneratedHtml = readFileSync(htmlPath, "utf-8");
+      expect(Buffer.byteLength(regeneratedHtml)).toBe(Buffer.byteLength(staleHtml));
+      expect(regeneratedHtml).toContain("missing");
+      utimesSync(htmlPath, fixedTimestamp, fixedTimestamp);
+
+      const freshCompressed = await fetch(`http://127.0.0.1:${address.port}/pricing`, {
+        headers: { "accept-encoding": "gzip" },
+      });
+      expect(freshCompressed.headers.get("content-encoding")).toBe("gzip");
+      await expect(freshCompressed.text()).resolves.toContain("missing");
+      expect(await refreshed.json()).toMatchObject({ revalidated: ["/pricing"] });
     } finally {
       if (previousToken === undefined) {
         delete process.env.PRACHT_REVALIDATE_TOKEN;
