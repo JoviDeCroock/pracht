@@ -868,10 +868,13 @@ describe("createPrachtRegistryModuleSource", () => {
 
     const source = createPrachtClientModuleSource({ pagesDir: "/src/pages" }, { root });
 
-    expect(source).toContain('"!/src/pages/**/_middleware.*"');
+    expect(source).toContain('"!/src/pages/**/_*"');
+    expect(source).toContain('"!/src/pages/**/_*/**"');
+    expect(source).toContain('import.meta.glob("/src/pages/_app.{ts,tsx,js,jsx}"');
+    expect(source).not.toContain("/src/pages/**/_app");
   });
 
-  it("keeps _middleware out of ejected pages route and shell globs", () => {
+  it("keeps reserved pages helpers out of ejected route and shell globs", () => {
     const source = createPrachtClientModuleSource({
       appFile: "/src/routes.ts",
       routesDir: "/src/pages",
@@ -879,7 +882,11 @@ describe("createPrachtRegistryModuleSource", () => {
       middlewareDir: "/src/pages",
     });
 
-    expect(source.match(/!\/src\/pages\/\*\*\/_middleware\.\*/g)).toHaveLength(4);
+    expect(source.match(/"!\/src\/pages\/\*\*\/_\*"/g)).toHaveLength(4);
+    expect(source.match(/"!\/src\/pages\/\*\*\/_\*\/\*\*"/g)).toHaveLength(4);
+    expect(source).toContain(
+      'import.meta.glob("/src/pages/_app.{ts,tsx,js,jsx}", { query: "?pracht-client" })',
+    );
   });
 
   it("creates adapter-neutral development metadata", () => {

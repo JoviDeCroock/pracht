@@ -170,13 +170,21 @@ export function createPrachtClientModuleSource(
   const additionalRouteGlob = `${dirPrefix}/**/*.${extensionGlob(bareRouteExtensions)}`;
   const routeExcludes = createNonFullHydrationExcludes(resolved, buildOptions.root);
   const pagesMiddlewareDir = isPagesMode ? resolved.pagesDir : resolved.middlewareDir;
-  if (isPagesMode || sameConfigDirectory(resolved.routesDir, resolved.middlewareDir)) {
+  const usesEjectedPagesLayout =
+    !isPagesMode &&
+    sameConfigDirectory(resolved.routesDir, resolved.middlewareDir) &&
+    sameConfigDirectory(resolved.shellsDir, resolved.middlewareDir);
+  if (isPagesMode || usesEjectedPagesLayout) {
     // Pages middleware is server-only. Keep it out of the client registry in
     // both auto-discovered pages mode and the documented ejected layout where
-    // routesDir and middlewareDir point at the same pages directory. The
-    // client transform also strips a `middleware` export as defense in depth,
-    // but excluding the module is what prevents side-effect imports and an
-    // otherwise empty browser chunk from being emitted at all.
+    // routesDir, shellsDir, and middlewareDir point at the same pages
+    // directory. Reserve every underscore-prefixed helper too: otherwise an
+    // implementation imported by `_middleware.ts` would still be emitted as
+    // an independent route/shell chunk through these broad registries.
+    routeExcludes.push(...createUnderscoreReservedExcludes(pagesMiddlewareDir));
+  } else if (sameConfigDirectory(resolved.routesDir, resolved.middlewareDir)) {
+    // A shared manifest directory has no general underscore reservation, but
+    // its dedicated root middleware module is still server-only.
     routeExcludes.push(`!${pagesMiddlewareDir}/**/_middleware.*`);
   }
   const routeGlobPattern = routeExcludes.length > 0 ? [routeGlob, ...routeExcludes] : routeGlob;
@@ -186,18 +194,25 @@ export function createPrachtClientModuleSource(
       : additionalRouteGlob;
 
   const shellGlob = isPagesMode
-    ? `${resolved.pagesDir}/**/_app.{ts,tsx,js,jsx}`
+    ? `${resolved.pagesDir}/_app.{ts,tsx,js,jsx}`
     : `${resolved.shellsDir}/**/*.{ts,tsx,js,jsx,md,mdx}`;
   const additionalShellGlob = isPagesMode
-    ? `${resolved.pagesDir}/**/_app.${extensionGlob(bareRouteExtensions)}`
+    ? `${resolved.pagesDir}/_app.${extensionGlob(bareRouteExtensions)}`
     : `${resolved.shellsDir}/**/*.${extensionGlob(bareRouteExtensions)}`;
-  const shellExcludes =
-    !isPagesMode && sameConfigDirectory(resolved.shellsDir, resolved.middlewareDir)
+  const shellExcludes = usesEjectedPagesLayout
+    ? createUnderscoreReservedExcludes(resolved.middlewareDir)
+    : !isPagesMode && sameConfigDirectory(resolved.shellsDir, resolved.middlewareDir)
       ? [`!${resolved.middlewareDir}/**/_middleware.*`]
       : [];
   const shellGlobPattern = shellExcludes.length > 0 ? [shellGlob, ...shellExcludes] : shellGlob;
   const additionalShellGlobPattern =
     shellExcludes.length > 0 ? [additionalShellGlob, ...shellExcludes] : additionalShellGlob;
+  const ejectedPagesAppShellSources = usesEjectedPagesLayout
+    ? [
+        `  ...import.meta.glob(${JSON.stringify(`${resolved.shellsDir}/_app.{ts,tsx,js,jsx}`)}, { query: ${JSON.stringify(PRACHT_CLIENT_MODULE_QUERY)} }),`,
+        `  ...import.meta.glob(${JSON.stringify(`${resolved.shellsDir}/_app.${extensionGlob(bareRouteExtensions)}`)}),`,
+      ]
+    : [];
   // Base directory for relative manifest refs: the app manifest file's
   // directory (refs like "./routes/home.tsx" are written relative to it).
   const appFilePosix = resolved.appFile.replace(/\\/g, "/").replace(/^\.\//, "");
@@ -218,6 +233,7 @@ export function createPrachtClientModuleSource(
     `const shellModules = {`,
     `  ...import.meta.glob(${JSON.stringify(shellGlobPattern)}, { query: ${JSON.stringify(PRACHT_CLIENT_MODULE_QUERY)} }),`,
     `  ...import.meta.glob(${JSON.stringify(additionalShellGlobPattern)}),`,
+    ...ejectedPagesAppShellSources,
     `};`,
     "",
     "const resolvedApp = resolveApp(app);",
@@ -303,6 +319,10 @@ function sameConfigDirectory(left: string, right: string): boolean {
       .replace(/^\.?\//, "")
       .replace(/\/$/, "");
   return normalize(left) === normalize(right);
+}
+
+function createUnderscoreReservedExcludes(directory: string): string[] {
+  return [`!${directory}/**/_*`, `!${directory}/**/_*/**`];
 }
 
 /**
