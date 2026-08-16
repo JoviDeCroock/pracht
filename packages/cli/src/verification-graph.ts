@@ -13,7 +13,9 @@ import {
   type GraphSnapshot,
 } from "./graph-snapshot.js";
 import { listFilesRecursively, resolveProjectPath, type ProjectConfig } from "./project.js";
+import { detectAdapterTarget } from "./commands/preview.js";
 import { createCheck, MODULE_SOURCE_RE, type Check } from "./verification-helpers.js";
+import { collectStaticExportChecks } from "./verification-static.js";
 
 const HEAD_EXPORT_RE =
   /export\s+(?:async\s+)?(?:function|const|let|var)\s+head\b|export\s*\{[^}]*\bhead\b[^}]*\}/;
@@ -29,7 +31,19 @@ export async function collectGraphChecks(project: ProjectConfig, checks: Check[]
   const wantsCapabilityLoad = manifestDeclaresCapabilities(project);
   const wantsApiLoad = projectDeclaresApiRoutes(project);
   const snapshotExists = existsSync(resolve(project.root, GRAPH_SNAPSHOT_PATH));
-  if (!wantsConstraints && !wantsCapabilityLoad && !wantsApiLoad && !snapshotExists) return;
+  // A static export always needs the graph: its preconditions are exactly the
+  // request-runtime features the graph records, and reporting "no blocking
+  // issues" for an app whose static build cannot succeed is the worst outcome.
+  const wantsStaticExport = detectAdapterTarget(project) === "static";
+  if (
+    !wantsConstraints &&
+    !wantsCapabilityLoad &&
+    !wantsApiLoad &&
+    !snapshotExists &&
+    !wantsStaticExport
+  ) {
+    return;
+  }
 
   let live: GraphSnapshot;
   try {
@@ -61,6 +75,7 @@ export async function collectGraphChecks(project: ProjectConfig, checks: Check[]
       ),
     );
   }
+  collectStaticExportChecks(project, live, checks);
   collectConstraintChecks(project, live, checks);
   collectSnapshotChecks(project, live, checks, snapshotExists);
 }
