@@ -250,10 +250,15 @@ export async function POST({ request, url }: BaseRouteArgs) {
 import { Form, useLocation } from "@pracht/core";
 import { i18n } from "../i18n/index.ts";
 
-export function LanguageSwitcher() {
+export function LanguageSwitcher({ onSwitchStart }: { onSwitchStart?: () => void }) {
   const { pathname, search } = useLocation();
   return (
-    <Form method="post" action="/api/locale" aria-label="Language switcher">
+    <Form
+      method="post"
+      action="/api/locale"
+      aria-label="Language switcher"
+      onSubmit={onSwitchStart}
+    >
       <input type="hidden" name="next" value={`${pathname}${search}`} />
       {i18n.locales.map((locale) => (
         <button key={locale} type="submit" name="locale" value={locale}>
@@ -272,6 +277,7 @@ export function LanguageSwitcher() {
 ```tsx
 import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import { t } from "@pracht/i18n";
+import { LanguageSwitcher } from "../components/LanguageSwitcher.tsx";
 import { dictionaries, i18n, type AppLocale } from "../i18n/index.ts";
 
 export function Component({ data }: RouteComponentProps<typeof loader>) {
@@ -313,13 +319,23 @@ export function Component({ data }: RouteComponentProps<typeof loader>) {
     document.title = title;
   }, [messages.$locale, title]);
 
-  return <h1 onDblClick={() => void switchTo("fr")}>{title}</h1>;
+  return (
+    <>
+      <LanguageSwitcher
+        onSwitchStart={() => {
+          // A server-backed choice supersedes every pending client import.
+          switchRequest.current += 1;
+        }}
+      />
+      <h1 onDblClick={() => void switchTo("fr")}>{title}</h1>
+    </>
+  );
 }
 ```
 
 `dictionaries.load()` works in the browser exactly as it does on the server (each locale is its own lazily imported chunk), and `i18n.detectClient()` is the browser-side counterpart of `detect()` — it reads `location.pathname`, `document.cookie`, and `navigator.languages` in the same configured order, which is handy if a client-only surface needs to resolve the locale on its own.
 
-Use a layout-effect cleanup for loader-data invalidation as shown above. A passive effect runs after paint, leaving a window where an older import can resume and write its stale locale cookie before cleanup runs.
+Invalidate pending client loads synchronously when any server-backed switch or navigation starts, as the form callback above does. The layout-effect cleanup remains necessary for loader-data commits and unmounts; a passive effect runs after paint, leaving a window where an older import can resume and write its stale locale cookie before cleanup runs.
 
 > [!NOTE]
 > One URL per page cannot express `hreflang` — there is no alternate URL to point at — so skip `i18n.hreflang()` here and accept that search engines index a single language version. If indexable multilingual content matters more than the URLs, that is the argument for strategy A.

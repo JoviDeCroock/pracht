@@ -47,7 +47,6 @@ function parseAcceptLanguageEntries(
   const entries: Array<{ entry: AcceptLanguageEntry; index: number }> = [];
   let index = 0;
   for (const part of source.split(",")) {
-    if (index >= MAX_ENTRIES) break;
     const entryIndex = index++;
     const [rawTag = "", ...params] = part.split(";");
     const tag = rawTag.trim();
@@ -75,6 +74,11 @@ function parseAcceptLanguageEntries(
       quality = Math.min(Math.max(parsed, 0), 1);
     }
     if (invalidQuality || (!includeRejected && quality <= 0)) continue;
+    // Positive preferences after the cap are ignored, but keep scanning for
+    // q=0 entries. Matching must not revive a locale whose explicit rejection
+    // appears after many lower-value preferences in an otherwise bounded
+    // header.
+    if (entryIndex >= MAX_ENTRIES && quality > 0) continue;
     entries.push({ entry: { tag: tag.toLowerCase(), quality }, index: entryIndex });
   }
   return entries

@@ -149,6 +149,17 @@ describe("matchAcceptLanguage", () => {
     expect(matchAcceptLanguage("en;q=0, *;q=1", ["en"], { wildcard: "en" })).toBeNull();
   });
 
+  it("keeps q=0 exclusions after the positive-entry cap", () => {
+    const filler = Array.from({ length: 23 }, (_, index) => `zz-x${index};q=0.5`);
+
+    expect(matchAcceptLanguage(["en-US;q=1", ...filler, "en;q=0"].join(","), locales)).toBeNull();
+    expect(
+      matchAcceptLanguage(["*;q=1", ...filler, "en;q=0"].join(","), locales, {
+        wildcard: "en",
+      }),
+    ).toBe("nl");
+  });
+
   it("ignores wildcard targets outside the registered locale set", () => {
     expect(matchAcceptLanguage("*", locales, { wildcard: "../admin" })).toBeNull();
     expect(matchAcceptLanguage("*;q=0.9, nl;q=0.4", locales, { wildcard: "fr" })).toBe("nl");

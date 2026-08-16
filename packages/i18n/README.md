@@ -128,11 +128,13 @@ setMessages(messages);
 
 When several locale choices can be made before their lazy chunks finish,
 guard the async work so only the latest successful selection updates both the
-cookie and component state. Invalidate pending work from a layout-effect
-cleanup when loader data changes or the component unmounts, before a stale
-import can resume and write its cookie. Because `head()` ran on the server, an
-in-place switch must also update `document.documentElement.lang` and the
-localized `document.title`; the full recipe below shows that pattern.
+cookie and component state. Synchronously invalidate pending work when a
+server-backed switch or navigation starts, then use a layout-effect cleanup
+when loader data changes or the component unmounts. The first guard closes the
+window before a new loader result commits; the cleanup prevents stale work
+during the commit itself. Because `head()` ran on the server, an in-place
+switch must also update `document.documentElement.lang` and the localized
+`document.title`; the full recipe below shows that pattern.
 
 The trade-off is SEO: a single URL cannot carry `hreflang` alternates, so
 crawlers index whichever locale their `Accept-Language` resolves to. The

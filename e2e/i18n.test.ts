@@ -82,3 +82,68 @@ test("greeting client switch swaps the dictionary without navigating", async ({ 
   // load (a dev-mode module fetch), never a document or route-state request.
   expect(requests.filter((url) => new URL(url).pathname === "/greeting")).toHaveLength(0);
 });
+
+test("a server switch invalidates a pending client dictionary", async ({ page }) => {
+  await page.context().clearCookies();
+  await page.goto("/greeting");
+  await page.waitForFunction(() => (window as any).__PRACHT_ROUTER_READY__);
+
+  let releaseDictionary!: () => void;
+  const dictionaryGate = new Promise<void>((resolve) => {
+    releaseDictionary = resolve;
+  });
+  let dictionaryRequested!: () => void;
+  const sawDictionaryRequest = new Promise<void>((resolve) => {
+    dictionaryRequested = resolve;
+  });
+  await page.route("**/src/i18n/locales/nl.ts*", async (route) => {
+    dictionaryRequested();
+    await dictionaryGate;
+    await route.continue();
+  });
+
+  let releaseRouteState!: () => void;
+  const routeStateGate = new Promise<void>((resolve) => {
+    releaseRouteState = resolve;
+  });
+  let routeStateRequested!: () => void;
+  const sawRouteStateRequest = new Promise<void>((resolve) => {
+    routeStateRequested = resolve;
+  });
+  await page.route("**/greeting", async (route) => {
+    if (route.request().headers()["x-pracht-route-state-request"] === "1") {
+      routeStateRequested();
+      await routeStateGate;
+    }
+    await route.continue();
+  });
+
+  await page.getByTestId("greeting-switch-client-nl").click();
+  await sawDictionaryRequest;
+
+  const serverSwitch = page.getByTestId("greeting-switch-server-nl");
+  await serverSwitch.evaluate((button: HTMLButtonElement) => {
+    // Exercise different choices with the example's two-locale registry: the
+    // pending client switch chose nl, while this server switch chooses en.
+    button.value = "en";
+  });
+  const serverSubmission = serverSwitch.click();
+  await sawRouteStateRequest;
+
+  const dictionaryResponse = page.waitForResponse("**/src/i18n/locales/nl.ts*");
+  releaseDictionary();
+  await dictionaryResponse;
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+      ),
+  );
+
+  const cookiesBeforeCommit = await page.context().cookies();
+  expect(cookiesBeforeCommit.find((cookie) => cookie.name === "pracht_locale")?.value).toBe("en");
+
+  releaseRouteState();
+  await serverSubmission;
+  await expect(page.getByTestId("greeting-title")).toContainText("One URL, every language");
+});

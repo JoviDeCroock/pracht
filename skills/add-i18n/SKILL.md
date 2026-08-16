@@ -259,6 +259,10 @@ instead of leaving an unhandled event-handler rejection or a partially applied
 locale choice. Invalidate that request id from a `useLayoutEffect` cleanup
 keyed by loader messages so a loader-data change or unmount wins during commit;
 a passive `useEffect` cleanup leaves time for a stale import to write its cookie.
+Also increment the shared request id synchronously in the server switcher's
+`<Form onSubmit>` and before any other navigation that can replace loader data.
+Cleanup at commit cannot undo a stale cookie written while that transition was
+still in flight.
 `i18n.detectClient()` is the browser-side `detect()` if a client-only
 surface needs to resolve the locale itself.
 

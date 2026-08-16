@@ -87,7 +87,16 @@ export function Component({ data }: RouteComponentProps<typeof loader>) {
         Server switch: works with JavaScript disabled — a native POST to the
         API route that sets the cookie and 303s back to this same URL.
       */}
-      <Form method="post" action="/api/locale" aria-label="Language switcher">
+      <Form
+        method="post"
+        action="/api/locale"
+        aria-label="Language switcher"
+        onSubmit={() => {
+          // The server choice is newer than any pending client-side import.
+          // Invalidate it before the POST can set a different locale cookie.
+          clientSwitch.current += 1;
+        }}
+      >
         <input type="hidden" name="next" value={`${pathname}${search}`} />
         <span>{t(messages, "greeting.switch.server")}</span>{" "}
         {otherLocales.map((candidate) => (

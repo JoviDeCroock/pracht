@@ -56,8 +56,10 @@ Locale-stripped paths stay root-relative through duplicate-slash and URL
 normalization edge cases. Generated hreflang entries preserve query/hash
 suffixes on the default `x-default` target. The documented asynchronous
 prefix-free client switch commits only the latest successfully loaded
-dictionary to the cookie and rendered locale state, and a loader-data change
-invalidates pending switches during commit before stale imports can resume.
+dictionary to the cookie and rendered locale state. Server-backed switches
+invalidate pending client imports before their POST begins, while loader-data
+changes invalidate them again during commit, so stale imports cannot overwrite
+the newer locale cookie on either side of the transition.
 
 Path-resolved SSR/SPA responses now vary on `Cookie` while conditional locale
 persistence can change `Set-Cookie`, preventing a shared cache from replaying
@@ -65,4 +67,6 @@ a returning visitor's cookie-less response to a first-time visitor. Oversized
 `Accept-Language` headers discard a final entry cut by the defensive length
 limit instead of accidentally promoting it to quality 1. Prefix-free client
 switches also keep the localized document title aligned with the rendered
-messages and `<html lang>` value.
+messages and `<html lang>` value. The positive-entry cap continues scanning
+for later `q=0` exclusions, so a bounded header cannot hide an explicit locale
+rejection behind lower-value preferences.
