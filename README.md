@@ -97,7 +97,7 @@ auth or the agent surface. See [docs/ROUTING.md](docs/ROUTING.md#what-the-pages-
 npm create pracht@latest my-app
 ```
 
-The prompts cover the target directory, hosting adapter (Node.js, Cloudflare Workers, Vercel), router (manifest or pages), and optional Tailwind CSS. For non-interactive runs pass flags instead — e.g. `--template=tailwind` (or `--template=minimal`), `--adapter=node`, `--no-git`, `--yes`. See [packages/start/README.md](packages/start/README.md) for the full list.
+The prompts cover the target directory, hosting adapter (Node.js, Cloudflare Workers, Vercel, Netlify, or a pure static export), router (manifest or pages), and optional Tailwind CSS. For non-interactive runs pass flags instead — e.g. `--template=tailwind` (or `--template=minimal`), `--adapter=node`, `--no-git`, `--yes`. See [packages/start/README.md](packages/start/README.md) for the full list.
 
 The starter gives you:
 
