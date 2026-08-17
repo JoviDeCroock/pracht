@@ -226,7 +226,7 @@ export function Link<TRoute extends RouteId>(props: LinkProps<TRoute>) {
   }
 
   const { route, params, search, hash, prefetch, preserveScroll, viewTransition, ...anchorProps } =
-    props as unknown as Omit<JSX.HTMLAttributes<HTMLAnchorElement>, "href"> &
+    props as unknown as Omit<JSX.IntrinsicElements["a"], "href"> &
       UntypedRouteTarget & {
         prefetch?: LinkPrefetchStrategy;
         preserveScroll?: boolean;

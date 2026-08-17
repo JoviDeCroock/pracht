@@ -90,7 +90,7 @@ const BLUR_DATA_URL_PATTERN = /^data:image\/[a-z0-9.+-]+(?:;[a-z0-9=+-]+)*,[a-z0
 
 function blurBackground(blurDataURL: string): {
   styleString: string;
-  styleObject: JSX.CSSProperties;
+  styleObject: ImageCssProperties;
 } {
   const image = `url("${blurDataURL}")`;
   return {
