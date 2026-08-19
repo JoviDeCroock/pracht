@@ -577,6 +577,135 @@ test("static doctor resolves an imported custom static adapter", () => {
   }
 });
 
+test("static doctor resolves an inline custom static adapter", () => {
+  test.setTimeout(180_000);
+  const { exampleDir, tempDir } = createTempExampleDir(
+    staticFixtureDir,
+    "pracht-static-doctor-inline-target-",
+  );
+
+  try {
+    const packagePath = resolve(exampleDir, "package.json");
+    const packageJson = JSON.parse(readFileSync(packagePath, "utf-8")) as {
+      dependencies: Record<string, string>;
+    };
+    delete packageJson.dependencies["@pracht/adapter-static"];
+    writeFileSync(packagePath, `${JSON.stringify(packageJson, null, 2)}\n`, "utf-8");
+
+    writeFileSync(
+      resolve(exampleDir, "vite.config.ts"),
+      [
+        'import { defineConfig } from "vite";',
+        'import { pracht } from "@pracht/vite-plugin";',
+        "",
+        "const adapter = {",
+        '  id: "custom-static",',
+        '  serverImports: "",',
+        "  staticTarget: true,",
+        '  createServerEntryModule: () => "",',
+        "};",
+        "",
+        "export default defineConfig({",
+        "  plugins: [pracht({ adapter })],",
+        "});",
+        "",
+      ].join("\n"),
+      "utf-8",
+    );
+
+    const routesPath = resolve(exampleDir, "src/routes.ts");
+    writeFileSync(
+      routesPath,
+      readFileSync(routesPath, "utf-8").replace(
+        'route("/about", () => import("./routes/about.tsx"), { id: "about", render: "ssg" }),',
+        'route("/about", () => import("./routes/about.tsx"), { id: "about", render: "ssr" }),',
+      ),
+      "utf-8",
+    );
+
+    const report = doctorExample(exampleDir);
+    const messages = report.checks.map((check) => check.message).join("\n");
+    expect(report.ok, JSON.stringify(report, null, 2)).toBe(false);
+    expect(messages).toContain("Static export:");
+    expect(messages).toContain('/about (render: "ssr")');
+  } finally {
+    rmSync(tempDir, { force: true, recursive: true });
+  }
+});
+
+test("static doctor resolves a custom adapter from an unrecognized package", () => {
+  test.setTimeout(180_000);
+  const { exampleDir, tempDir } = createTempExampleDir(
+    staticFixtureDir,
+    "pracht-static-doctor-package-target-",
+  );
+
+  try {
+    const packagePath = resolve(exampleDir, "package.json");
+    const packageJson = JSON.parse(readFileSync(packagePath, "utf-8")) as {
+      dependencies: Record<string, string>;
+    };
+    delete packageJson.dependencies["@pracht/adapter-static"];
+    writeFileSync(packagePath, `${JSON.stringify(packageJson, null, 2)}\n`, "utf-8");
+
+    const adapterPackageDir = resolve(exampleDir, "node_modules/custom-static-adapter");
+    mkdirSync(adapterPackageDir, { recursive: true });
+    writeFileSync(
+      resolve(adapterPackageDir, "package.json"),
+      `${JSON.stringify({ name: "custom-static-adapter", type: "module", version: "1.0.0" })}\n`,
+      "utf-8",
+    );
+    writeFileSync(
+      resolve(adapterPackageDir, "index.js"),
+      [
+        "export function customStaticAdapter() {",
+        "  return {",
+        '    id: "custom-static",',
+        '    serverImports: "",',
+        "    staticTarget: true,",
+        '    createServerEntryModule: () => "",',
+        "  };",
+        "}",
+        "",
+      ].join("\n"),
+      "utf-8",
+    );
+    writeFileSync(
+      resolve(exampleDir, "vite.config.ts"),
+      [
+        'import { defineConfig } from "vite";',
+        'import { pracht } from "@pracht/vite-plugin";',
+        'import { customStaticAdapter } from "custom-static-adapter";',
+        "// This custom target is not @pracht/adapter-node.",
+        "",
+        "export default defineConfig({",
+        "  plugins: [pracht({ adapter: customStaticAdapter() })],",
+        "});",
+        "",
+      ].join("\n"),
+      "utf-8",
+    );
+
+    const routesPath = resolve(exampleDir, "src/routes.ts");
+    writeFileSync(
+      routesPath,
+      readFileSync(routesPath, "utf-8").replace(
+        'route("/about", () => import("./routes/about.tsx"), { id: "about", render: "ssg" }),',
+        'route("/about", () => import("./routes/about.tsx"), { id: "about", render: "ssr" }),',
+      ),
+      "utf-8",
+    );
+
+    const report = doctorExample(exampleDir);
+    const messages = report.checks.map((check) => check.message).join("\n");
+    expect(report.ok, JSON.stringify(report, null, 2)).toBe(false);
+    expect(messages).toContain("Static export:");
+    expect(messages).toContain('/about (render: "ssr")');
+  } finally {
+    rmSync(tempDir, { force: true, recursive: true });
+  }
+});
+
 for (const scenario of [
   {
     name: "redirecting SSG loader",

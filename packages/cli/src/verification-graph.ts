@@ -101,12 +101,18 @@ export async function collectGraphChecks(project: ProjectConfig, checks: Check[]
 }
 
 function projectMightUseStaticExport(project: ProjectConfig): boolean {
-  if (detectAdapterTarget(project) === "static") return true;
+  const detectedTarget = detectAdapterTarget(project);
+  if (detectedTarget === "static") return true;
+
+  const maskedConfig = maskCommentsAndStrings(project.rawConfig);
+  // A custom adapter can be declared inline rather than imported. Source is
+  // only a candidate gate; the resolved `staticTarget` below remains the
+  // authoritative answer when this literal belongs to inactive config.
+  if (/\bstaticTarget\s*:\s*true\b/.test(maskedConfig)) return true;
+
   // A local custom adapter can carry `staticTarget: true` outside the Vite
   // config. Inspect direct local imports as a cheap candidate gate; the
-  // resolved metadata above remains authoritative. Treating every explicit
-  // adapter as a candidate would make ordinary server-adapter projects boot
-  // Vite during doctor even when they have no graph-aware checks to run.
+  // resolved metadata above remains authoritative.
   if (localConfigImportMightBeStatic(project)) return true;
 
   try {
@@ -116,13 +122,23 @@ function projectMightUseStaticExport(project: ProjectConfig): boolean {
       dependencies?: Record<string, unknown>;
       devDependencies?: Record<string, unknown>;
     };
-    return (
+    if (
       "@pracht/adapter-static" in (packageJson.dependencies ?? {}) ||
       "@pracht/adapter-static" in (packageJson.devDependencies ?? {})
-    );
-  } catch {
-    return false;
-  }
+    ) {
+      return true;
+    }
+  } catch {}
+
+  // An explicit adapter that source inspection cannot classify may come from
+  // a third-party package or a local wrapper. Resolve it instead of silently
+  // treating the default `node` classification as authoritative. Keep the
+  // common built-in Node adapter on the cheap path.
+  const configuresAdapter = /\badapter\s*(?::|(?=\s*[,}]))/.test(maskedConfig);
+  const isKnownNodeAdapter =
+    /\bnodeAdapter\s*\(/.test(maskedConfig) ||
+    /^\s*import\s+(?:[^"']+?\s+from\s+)?["']@pracht\/adapter-node["']/m.test(project.rawConfig);
+  return detectedTarget === "node" && configuresAdapter && !isKnownNodeAdapter;
 }
 
 function localConfigImportMightBeStatic(project: ProjectConfig): boolean {
