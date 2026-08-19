@@ -1,5 +1,6 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, extname, join, resolve } from "node:path";
+import { extractManifestModuleRegistrations } from "@pracht/capabilities/static";
 import { PRACHT_CLIENT_MODULE_QUERY } from "./client-module-query.ts";
 import {
   GENERATED_PAGES_MANIFEST_MARKER,
@@ -174,10 +175,7 @@ export function createPrachtClientModuleSource(
   const additionalRouteGlob = `${dirPrefix}/**/*.${extensionGlob(bareRouteExtensions)}`;
   const routeExcludes = createNonFullHydrationExcludes(resolved, buildOptions.root);
   const pagesMiddlewareDir = isPagesMode ? resolved.pagesDir : resolved.middlewareDir;
-  const usesEjectedPagesLayout = isGeneratedPagesManifest(
-    resolved,
-    buildOptions.root ?? process.cwd(),
-  );
+  const usesEjectedPagesLayout = isEjectedPagesLayout(resolved, buildOptions.root ?? process.cwd());
   if (isPagesMode || usesEjectedPagesLayout) {
     // Pages middleware is server-only. Keep it out of the client registry in
     // both auto-discovered pages mode and the documented ejected layout where
@@ -319,10 +317,7 @@ function sameConfigDirectory(left: string, right: string): boolean {
   return normalize(left) === normalize(right);
 }
 
-export function isGeneratedPagesManifest(
-  resolved: ResolvedPrachtPluginOptions,
-  root: string,
-): boolean {
+export function isEjectedPagesLayout(resolved: ResolvedPrachtPluginOptions, root: string): boolean {
   if (
     resolved.pagesDir ||
     !sameConfigDirectory(resolved.routesDir, resolved.middlewareDir) ||
@@ -333,7 +328,26 @@ export function isGeneratedPagesManifest(
 
   try {
     const appFile = resolve(root, resolved.appFile.replace(/^\//, ""));
-    return readFileSync(appFile, "utf-8").includes(GENERATED_PAGES_MANIFEST_MARKER);
+    const manifestSource = readFileSync(appFile, "utf-8");
+    if (manifestSource.includes(GENERATED_PAGES_MANIFEST_MARKER)) return true;
+
+    // The generated header is documentation, not a security boundary. An
+    // ejected manifest may be customized or have that comment removed while
+    // keeping its root pages middleware registration. Classify that durable
+    // module reference as the pages layout too, so `_middleware` and its
+    // underscore-reserved helpers stay out of browser registries.
+    const appDir = dirname(appFile);
+    const middlewareDir = resolve(root, resolved.middlewareDir.replace(/^\//, ""));
+    return extractManifestModuleRegistrations(manifestSource, "middleware").some(({ file }) => {
+      const modulePath = file.startsWith("/")
+        ? resolve(root, file.replace(/^\//, ""))
+        : resolve(appDir, file);
+      const extension = extname(modulePath);
+      return (
+        new Set([".ts", ".tsx", ".js", ".jsx"]).has(extension) &&
+        modulePath === resolve(middlewareDir, `_middleware${extension}`)
+      );
+    });
   } catch {
     return false;
   }

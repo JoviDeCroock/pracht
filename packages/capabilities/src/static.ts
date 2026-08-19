@@ -607,19 +607,20 @@ export function scanTopLevelPropertyEntries(objectBody: string): TopLevelPropert
   return { properties, truncated };
 }
 
-/** Parse the `capabilities: { ... }` block of an app manifest source. */
-export function extractCapabilityRegistrations(
+/** Parse a module registry block from an app manifest source. */
+export function extractManifestModuleRegistrations(
   manifestSource: string,
+  key: string,
 ): { name: string; file: string }[] {
   const appBody = extractDefineAppObjectBody(manifestSource);
   if (!appBody) return [];
-  const capabilitiesValue = scanTopLevelProperties(appBody).get("capabilities");
-  if (!capabilitiesValue) return [];
-  const braceStart = skipInsignificant(capabilitiesValue, 0);
-  if (capabilitiesValue[braceStart] !== "{") return [];
-  const braceEnd = findMatchingBrace(capabilitiesValue, braceStart, "{", "}");
+  const registryValue = scanTopLevelProperties(appBody).get(key);
+  if (!registryValue) return [];
+  const braceStart = skipInsignificant(registryValue, 0);
+  if (registryValue[braceStart] !== "{") return [];
+  const braceEnd = findMatchingBrace(registryValue, braceStart, "{", "}");
   if (braceEnd === -1) return [];
-  const block = capabilitiesValue.slice(braceStart + 1, braceEnd);
+  const block = registryValue.slice(braceStart + 1, braceEnd);
   const searchableBlock = maskComments(block);
 
   const entries: { name: string; file: string }[] = [];
@@ -631,6 +632,13 @@ export function extractCapabilityRegistrations(
     entries.push({ name: match[2] ?? match[3], file: match[5] ?? match[7] });
   }
   return entries;
+}
+
+/** Parse the `capabilities: { ... }` block of an app manifest source. */
+export function extractCapabilityRegistrations(
+  manifestSource: string,
+): { name: string; file: string }[] {
+  return extractManifestModuleRegistrations(manifestSource, "capabilities");
 }
 
 /** Extract the inline object body passed to the exported app's `defineApp()`. */

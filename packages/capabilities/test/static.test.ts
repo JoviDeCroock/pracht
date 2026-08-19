@@ -6,6 +6,7 @@ import {
   extractCapabilityProjection,
   extractCapabilityRegistrations,
   extractDefineCapabilityArgs,
+  extractManifestModuleRegistrations,
   hasNamedMiddlewareExport,
   scanTopLevelProperties,
 } from "../src/static.ts";
@@ -21,6 +22,24 @@ describe("middleware export classification", () => {
 });
 
 describe("capability static extraction", () => {
+  it("extracts non-capability manifest module registries", () => {
+    const source = `
+      export const app = defineApp({
+        middleware: {
+          // ignored: () => import("./middleware/ignored.ts"),
+          pages: () => import("./pages/_middleware.ts"),
+          auth: "./middleware/auth.ts",
+        },
+        routes: [],
+      });
+    `;
+
+    expect(extractManifestModuleRegistrations(source, "middleware")).toEqual([
+      { name: "pages", file: "./pages/_middleware.ts" },
+      { name: "auth", file: "./middleware/auth.ts" },
+    ]);
+  });
+
   it("ignores defineCapability examples in comments and strings", () => {
     const source = `
       // defineCapability({ title: "commented out" })
