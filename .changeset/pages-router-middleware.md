@@ -65,7 +65,10 @@ Ejected pages manifests are identified by either the marker emitted by
 the informational generated header while customizing the manifest therefore
 cannot put middleware or its underscore-reserved helpers into the client
 registry, including when the middleware module reference is stored in a
-top-level variable. Dedicated pages middleware modules also strip value
+top-level variable, a shorthand registry entry, or a shorthand registry
+object. The generated marker continues to protect the configured pages route
+directory when `_app` or `_middleware` is moved separately to a conventional
+directory. Dedicated pages middleware modules also strip value
 `export *` declarations on the client boundary, so a star re-export cannot pull
 its server-only implementation into a browser bundle through a direct import.
 Ordinary manifest apps may still co-locate route, shell, and
