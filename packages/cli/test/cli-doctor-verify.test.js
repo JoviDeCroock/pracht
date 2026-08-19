@@ -340,24 +340,33 @@ export const middleware: MiddlewareFn = async (_args, next) => next();
     );
   });
 
-  it("fails doctor for _middleware.tsrx instead of silently ignoring it", () => {
-    const appDir = createTempDir("pracht-cli-doctor-pages-middleware-tsrx-");
-    writePagesApp(appDir);
-    writeProjectFile(appDir, "src/pages/index.tsx", "export function Component() { return null; }");
-    writeProjectFile(
-      appDir,
-      "src/pages/_middleware.tsrx",
-      "export const middleware = async (_args, next) => next();",
-    );
+  it.each([".md", ".mdx", ".tsrx"])(
+    "fails doctor for _middleware%s instead of silently ignoring it",
+    (extension) => {
+      const appDir = createTempDir(`pracht-cli-doctor-pages-middleware-${extension.slice(1)}-`);
+      writePagesApp(appDir);
+      writeProjectFile(
+        appDir,
+        "src/pages/index.tsx",
+        "export function Component() { return null; }",
+      );
+      writeProjectFile(
+        appDir,
+        `src/pages/_middleware${extension}`,
+        "export const middleware = async (_args, next) => next();",
+      );
 
-    const result = runCliStatus(["doctor", "--json"], { cwd: appDir });
-    expect(result.status).toBe(1);
-    const report = JSON.parse(result.stdout);
-    expect(report.ok).toBe(false);
-    expect(
-      report.checks.some((check) => check.message.includes("cannot use the `.tsrx` extension")),
-    ).toBe(true);
-  });
+      const result = runCliStatus(["doctor", "--json"], { cwd: appDir });
+      expect(result.status).toBe(1);
+      const report = JSON.parse(result.stdout);
+      expect(report.ok).toBe(false);
+      expect(
+        report.checks.some((check) =>
+          check.message.includes(`cannot use the \`${extension}\` extension`),
+        ),
+      ).toBe(true);
+    },
+  );
 
   it.each(["doctor", "verify"])(
     "fails %s for _middleware using a configured custom page extension",

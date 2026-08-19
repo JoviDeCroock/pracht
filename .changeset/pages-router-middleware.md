@@ -16,7 +16,7 @@ has — and the file never becomes a route.
 
 Fail-open shapes are hard errors instead of silently ignored files: a nested
 `_middleware` file, a `_middleware/` directory, middleware-shaped files using
-unsupported page extensions such as `.tsrx` or a configured custom format
+unsupported page extensions such as Markdown/MDX, `.tsrx`, or a configured custom format
 (the middleware registry loads `.ts`/`.tsx`/`.js`/`.jsx` only), multiple
 root-level files, and a module without a runtime `middleware` export all fail
 the build, `pracht doctor`, and `pracht verify` (the runtime already refused to

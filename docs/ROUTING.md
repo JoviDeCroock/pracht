@@ -898,10 +898,10 @@ Scope and limits:
   (`export const GET = withAuth(handler)`).
 - **Root level only, single file.** A `_middleware.ts` inside a
   subdirectory, a `_middleware/` directory, and middleware-shaped files using
-  unsupported page extensions (including `.tsrx` and configured custom formats)
-  are hard errors at build, `doctor`, and `verify` time — never silently ignored
-  files that look like an auth gate. Per-group middleware requires ejecting to
-  an explicit manifest.
+  unsupported page extensions (including Markdown/MDX, `.tsrx`, and configured
+  custom formats) are hard errors at build, `doctor`, and `verify` time — never
+  silently ignored files that look like an auth gate. Per-group middleware
+  requires ejecting to an explicit manifest.
 - **Server-only helpers stay server-only.** Middleware implementations can live
   in an underscore-reserved helper such as `pages/_server/auth.ts` and be
   imported or re-exported by `_middleware.ts`. Reserved files and directory

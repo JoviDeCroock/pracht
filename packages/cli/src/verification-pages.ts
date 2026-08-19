@@ -18,12 +18,12 @@ export type PagesFile =
   | PagesRoute;
 
 // Mirrors the vite plugin's pages middleware extensions (and the
-// `middlewareDir` registry glob). `_middleware.md` stays an ignored file
-// (Markdown cannot export a function), but `_middleware.tsrx` and configured
-// custom page formats are middleware-shaped files the registry cannot load —
-// errors, not routes.
+// `middlewareDir` registry glob). Markdown/MDX, TSRX, and configured custom
+// page formats are middleware-shaped files the registry cannot load — errors,
+// not silently ignored routes. In particular, MDX may expose runtime ESM after
+// its Vite transform even though the middleware registry glob stays script-only.
 const PAGES_MIDDLEWARE_SOURCE_RE = /\.(ts|tsx|js|jsx)$/;
-const PAGES_MIDDLEWARE_UNSUPPORTED_RE = /\.tsrx$/;
+const PAGES_MIDDLEWARE_UNSUPPORTED_RE = /\.(md|mdx|tsrx)$/;
 
 export interface PagesRoute {
   file: string;
