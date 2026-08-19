@@ -41,12 +41,12 @@ export const GENERATED_PAGES_MANIFEST_MARKER =
 // middleware file must be resolvable through the same runtime registry.
 const MIDDLEWARE_EXTENSIONS = new Set([".ts", ".tsx", ".js", ".jsx"]);
 // Page source extensions that look like they could hold middleware but that
-// the runtime registry glob cannot load. `.md`/`.mdx` stay ordinary ignored
-// `_`-files — Markdown cannot export a function — but `.tsrx` and configured
-// custom formats are first-class page authoring extensions, so silently
-// ignoring a middleware-shaped file in either format would fail open exactly
-// like a nested file.
-const MIDDLEWARE_UNSUPPORTED_EXTENSIONS = new Set([".tsrx"]);
+// the runtime registry glob cannot load. Markdown, TSRX, and configured custom
+// formats are first-class page authoring extensions, so silently ignoring a
+// middleware-shaped file would fail open exactly like a nested file. MDX can
+// expose runtime ESM exports after its Vite transform, but the middleware
+// registry still cannot load the source module because its glob is script-only.
+const MIDDLEWARE_UNSUPPORTED_EXTENSIONS = new Set([".md", ".mdx", ".tsrx"]);
 
 /**
  * The root-level `_middleware.{ts,tsx,js,jsx}` file of a pages directory, or

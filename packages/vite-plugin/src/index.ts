@@ -41,6 +41,7 @@ import {
   createPrachtIslandsClientModuleSource,
   createRouteHeadHintsForVirtualModules,
   createPrachtServerModuleSource,
+  isGeneratedPagesManifest,
 } from "./plugin-codegen.ts";
 import {
   createDevCssInjectionMiddleware,
@@ -137,6 +138,7 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
     resolved.additionalExtensions,
   );
   let capabilityModulePaths = new Set<string>();
+  let usesEjectedPagesLayout = false;
 
   if (isPagesMode && options.appFile) {
     console.warn(
@@ -296,6 +298,7 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
       capabilityModulePaths = new Set(
         resolveCapabilityModulePaths(resolved, root).map(canonicalFilePath),
       );
+      usesEjectedPagesLayout = isGeneratedPagesManifest(resolved, root);
     },
 
     resolveId(id, importer, resolveIdOptions) {
@@ -544,7 +547,8 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
       if (!shouldStrip) return null;
 
       const transformed = stripServerOnlyExportsForClient(code, id, {
-        middleware: isRootMiddlewareModule(id, root, resolved),
+        middleware:
+          (isPagesMode || usesEjectedPagesLayout) && isRootMiddlewareModule(id, root, resolved),
       });
       if (transformed === code) return null;
       return { code: transformed, map: null };

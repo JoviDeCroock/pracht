@@ -734,7 +734,7 @@ export const app = defineApp({
     );
   });
 
-  it("keeps underscore routes in ordinary co-located manifest directories", async () => {
+  it("keeps _middleware routes in ordinary co-located manifest directories", async () => {
     const root = makeTempProject();
     mkdirSync(join(root, "src", "modules"), { recursive: true });
 
@@ -743,13 +743,17 @@ export const app = defineApp({
       `import { defineApp, route } from "@pracht/core";
 
 export const app = defineApp({
-  routes: [route("/", () => import("./modules/_home.tsx"))],
+  routes: [route("/", () => import("./modules/_middleware.tsx"))],
 });
 `,
     );
     writeFileSync(
-      join(root, "src", "modules", "_home.tsx"),
-      "export function Component() { return <main>COLOCATED_UNDERSCORE_ROUTE</main>; }\n",
+      join(root, "src", "modules", "_middleware.tsx"),
+      [
+        'export const middleware = () => "COLOCATED_MIDDLEWARE_EXPORT";',
+        "export function Component() { return <main>{middleware()}</main>; }",
+        "",
+      ].join("\n"),
     );
 
     await buildTempProject(root, {
@@ -759,7 +763,7 @@ export const app = defineApp({
       middlewareDir: "/src/modules",
     });
 
-    expect(readBuiltJs(root)).toContain("COLOCATED_UNDERSCORE_ROUTE");
+    expect(readBuiltJs(root)).toContain("COLOCATED_MIDDLEWARE_EXPORT");
   });
 
   it("keeps pages middleware helpers out of the client bundle", async () => {

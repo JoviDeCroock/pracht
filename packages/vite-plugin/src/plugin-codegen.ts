@@ -319,7 +319,10 @@ function sameConfigDirectory(left: string, right: string): boolean {
   return normalize(left) === normalize(right);
 }
 
-function isGeneratedPagesManifest(resolved: ResolvedPrachtPluginOptions, root: string): boolean {
+export function isGeneratedPagesManifest(
+  resolved: ResolvedPrachtPluginOptions,
+  root: string,
+): boolean {
   if (
     resolved.pagesDir ||
     !sameConfigDirectory(resolved.routesDir, resolved.middlewareDir) ||

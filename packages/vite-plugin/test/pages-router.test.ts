@@ -601,19 +601,22 @@ describe("generatePagesManifestSource", () => {
     );
   });
 
-  it("rejects _middleware.tsrx instead of silently ignoring it", () => {
-    const pagesDir = makeTempPagesDir();
+  it.each([".md", ".mdx", ".tsrx"])(
+    "rejects _middleware%s instead of silently ignoring it",
+    (extension) => {
+      const pagesDir = makeTempPagesDir();
 
-    writeFileSync(join(pagesDir, "index.tsx"), "export function Component() { return null; }\n");
-    writeFileSync(
-      join(pagesDir, "_middleware.tsrx"),
-      "export const middleware = async (_args, next) => next();\n",
-    );
+      writeFileSync(join(pagesDir, "index.tsx"), "export function Component() { return null; }\n");
+      writeFileSync(
+        join(pagesDir, `_middleware${extension}`),
+        "export const middleware = async (_args, next) => next();\n",
+      );
 
-    expect(() => generatePagesManifestSource(scanPagesDirectory(pagesDir), { pagesDir })).toThrow(
-      /cannot use the "\.tsrx" extension/,
-    );
-  });
+      expect(() => generatePagesManifestSource(scanPagesDirectory(pagesDir), { pagesDir })).toThrow(
+        `cannot use the ${JSON.stringify(extension)} extension`,
+      );
+    },
+  );
 
   it("rejects _middleware files using a configured custom page extension", () => {
     const pagesDir = makeTempPagesDir();
