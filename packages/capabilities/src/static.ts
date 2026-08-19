@@ -621,17 +621,72 @@ export function extractManifestModuleRegistrations(
   const braceEnd = findMatchingBrace(registryValue, braceStart, "{", "}");
   if (braceEnd === -1) return [];
   const block = registryValue.slice(braceStart + 1, braceEnd);
-  const searchableBlock = maskComments(block);
-
   const entries: { name: string; file: string }[] = [];
-  // Keys are usually quoted ("notes.search"); values are either lazy import
-  // functions or plain string paths (post-transform form).
-  const pattern =
-    /(?:(["'])((?:\\.|(?!\1).)+)\1|([A-Za-z0-9_$]+))\s*:\s*(?:\(\)\s*=>\s*import\(\s*(["'])([^"']+)\4\s*\)|(["'])([^"']+)\6)/g;
-  for (const match of searchableBlock.matchAll(pattern)) {
-    entries.push({ name: match[2] ?? match[3], file: match[5] ?? match[7] });
+  for (const [name, expression] of scanModuleRegistryProperties(block)) {
+    let file = extractModuleRefPath(expression);
+    if (!file) {
+      const identifier = /^\s*([A-Za-z_$][A-Za-z0-9_$]*)\s*$/.exec(expression)?.[1];
+      const initializer = identifier
+        ? findTopLevelVariableInitializer(manifestSource, identifier)
+        : null;
+      if (initializer) file = extractModuleRefPath(initializer);
+    }
+    if (file) entries.push({ name, file });
   }
   return entries;
+}
+
+function scanModuleRegistryProperties(block: string): Map<string, string> {
+  const properties = new Map<string, string>();
+  let index = 0;
+
+  while (index < block.length) {
+    const start = skipInsignificant(block, index);
+    if (start >= block.length) break;
+    const end = skipToTopLevelComma(block, start);
+    for (const [name, expression] of scanTopLevelPropertyEntries(block.slice(start, end))
+      .properties) {
+      properties.set(name, expression);
+    }
+    if (end >= block.length) break;
+    index = end + 1;
+  }
+
+  return properties;
+}
+
+function extractModuleRefPath(expression: string): string | null {
+  const start = skipInsignificant(expression, 0);
+  const quote = expression[start];
+  if (quote === '"' || quote === "'") {
+    const end = findStringEnd(expression, start);
+    if (end === -1) return null;
+    const value = evaluateLiteral(expression.slice(start, end + 1));
+    return typeof value === "string" ? value : null;
+  }
+
+  const importMatch = /^\s*\(\s*\)\s*=>\s*import\(\s*(["'])((?:\\.|(?!\1).)*)\1\s*\)/s.exec(
+    expression,
+  );
+  if (!importMatch) return null;
+  const value = evaluateLiteral(`${importMatch[1]}${importMatch[2]}${importMatch[1]}`);
+  return typeof value === "string" ? value : null;
+}
+
+function findTopLevelVariableInitializer(source: string, name: string): string | null {
+  const searchable = maskCommentsAndStrings(source);
+  const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const declaration = new RegExp(`\\b(?:const|let|var)\\s+${escapedName}\\b`, "g");
+
+  for (const match of searchable.matchAll(declaration)) {
+    if (match.index == null || braceDepthAt(searchable, match.index) !== 0) continue;
+    const afterName = match.index + match[0].length;
+    const assignment = /^(?:\s*:[^=;,\n]+)?\s*=\s*/.exec(searchable.slice(afterName));
+    if (!assignment) continue;
+    return source.slice(afterName + assignment[0].length);
+  }
+
+  return null;
 }
 
 /** Parse the `capabilities: { ... }` block of an app manifest source. */

@@ -222,6 +222,16 @@ export const middleware = async (_args, next) => {
     expect(transformed).not.toContain("x-secret");
   });
 
+  it("removes pages middleware star re-exports", () => {
+    const source = 'export * from "./_server/auth.ts";\n';
+
+    expect(
+      stripServerOnlyExportsForClient(source, "/src/pages/_middleware.ts", {
+        middleware: true,
+      }),
+    ).toBe("\n");
+  });
+
   it("preserves an ordinary client export named middleware in route modules", () => {
     const source = `
 export const middleware = "CLIENT_MIDDLEWARE_LABEL";
@@ -675,9 +685,11 @@ describe("client route module build", () => {
       join(root, "src", "routes.ts"),
       `import { defineApp, group, route } from "@pracht/core";
 
+const pagesMiddleware = () => import("./pages/_middleware.ts");
+
 export const app = defineApp({
   shells: { pages: () => import("./pages/_app.tsx") },
-  middleware: { pages: () => import("./pages/_middleware.ts") },
+  middleware: { pages: pagesMiddleware },
   routes: [
     group({ shell: "pages", middleware: ["pages"] }, [
       route("/", () => import("./pages/index.tsx")),

@@ -47,6 +47,7 @@ export function stripServerOnlyExportsForClient(
     states,
     initialBindingNames,
     serverOnlyExports,
+    options.middleware === true,
   );
 
   if (!changed) return code;
@@ -59,12 +60,22 @@ function removeServerOnlyExports(
   states: StatementState[],
   initialBindingNames: Set<string>,
   serverOnlyExports: ReadonlySet<string>,
+  stripExportAll: boolean,
 ): { candidates: Set<string>; changed: boolean } {
   let changed = false;
   const candidates = new Set<string>();
 
   for (const state of states) {
     const statement = state.node;
+    if (
+      stripExportAll &&
+      statement.type === "ExportAllDeclaration" &&
+      statement.exportKind !== "type"
+    ) {
+      changed = true;
+      state.removed = true;
+      continue;
+    }
     if (statement.type !== "ExportNamedDeclaration" || statement.exportKind === "type") {
       continue;
     }
