@@ -406,9 +406,20 @@ export function Form<TName extends HttpCapabilityName = HttpCapabilityName>(
         return;
       }
 
-      event.preventDefault();
       const submitterAction = nativeSubmitter?.getAttribute("formaction");
       const actionUrl = submitterAction ?? action ?? form.action;
+      const actionTarget = parseSafeNavigationUrl(actionUrl, window.location.href);
+      const isCrossOriginAction =
+        actionTarget !== null && actionTarget.origin !== window.location.origin;
+      // Cross-origin targets cannot participate in Pracht's custom redirect
+      // handshake: its request header would force a CORS preflight that a
+      // normal form post does not need. Preserve native form semantics, while
+      // still intercepting first when a shared client schema must run.
+      if (isCrossOriginAction && !schema) {
+        return;
+      }
+
+      event.preventDefault();
       const formData = new FormData(form, nativeSubmitter);
 
       if (schema) {
@@ -419,7 +430,7 @@ export function Form<TName extends HttpCapabilityName = HttpCapabilityName>(
         }
       }
 
-      if (isSafeMethod) {
+      if (isSafeMethod || isCrossOriginAction) {
         validatedNativeSubmissions.add(form);
         try {
           form.requestSubmit(nativeSubmitter);
@@ -436,17 +447,26 @@ export function Form<TName extends HttpCapabilityName = HttpCapabilityName>(
         formData,
       );
       try {
+        // Opt into the same redirect handshake capability forms use. Pracht
+        // API dispatch turns a 3xx into a readable 204 response carrying the
+        // target, so fetch neither loads the destination before the router
+        // does nor tries to CORS-fetch an external login/SSO page.
         const response = await fetch(actionUrl, {
           method: formMethod,
           body: formData,
-          redirect: "manual",
+          credentials: "same-origin",
+          headers: { [CAPABILITY_FORM_REQUEST_HEADER]: "1" },
         });
 
+        const enhancedRedirect = response.headers.get(CAPABILITY_FORM_REDIRECT_HEADER);
         if (
-          response.type === "opaqueredirect" ||
+          enhancedRedirect ||
+          response.redirected ||
           (response.status >= 300 && response.status < 400)
         ) {
-          const location = response.headers.get("location");
+          const location =
+            enhancedRedirect ??
+            (response.redirected ? response.url : response.headers.get("location"));
           await navigateToClientLocation(location ?? actionUrl, { reloadRouteState: true });
         } else {
           if ((response.status === 400 || response.status === 422) && onValidationIssues) {

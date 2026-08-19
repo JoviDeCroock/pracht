@@ -15,9 +15,12 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const PORT_BLOCK_START = 20_000;
+export const E2E_PORT_BLOCK_START = 20_000;
 export const E2E_PORT_BLOCK_WIDTH = 32;
-const PORT_BLOCK_COUNT = 1_400;
+// Keep automatic listeners below Linux's usual ephemeral source-port range
+// (32768-60999). On shared CI runners, background outbound traffic can claim
+// an ephemeral port after our availability probe but before Playwright binds.
+export const E2E_PORT_BLOCK_COUNT = 384;
 const E2E_WORKER_PORT_OFFSET = 8;
 const INCOMPLETE_LEASE_GRACE_MS = 10_000;
 const DEFAULT_LEASE_ROOT = resolve(tmpdir(), "pracht-e2e-port-leases-v1");
@@ -103,8 +106,8 @@ function validatePortBase(override: string): number {
 /** Resolve the preferred block for a checkout. Acquisition may probe past it. */
 export function hashedWorkspaceE2EPortBase(workspaceRoot: string = repoRoot): number {
   const digest = createHash("sha256").update(canonicalWorkspaceRoot(workspaceRoot)).digest();
-  const block = digest.readUInt32BE(0) % PORT_BLOCK_COUNT;
-  return PORT_BLOCK_START + block * E2E_PORT_BLOCK_WIDTH;
+  const block = digest.readUInt32BE(0) % E2E_PORT_BLOCK_COUNT;
+  return E2E_PORT_BLOCK_START + block * E2E_PORT_BLOCK_WIDTH;
 }
 
 export function workspaceE2EPortBase(
@@ -291,12 +294,14 @@ export function acquireE2EPortLease(options: AcquireE2EPortLeaseOptions = {}): E
   const explicit = override !== undefined;
   const preferredBlock = explicit
     ? 0
-    : (preferredPortBase - PORT_BLOCK_START) / E2E_PORT_BLOCK_WIDTH;
+    : (preferredPortBase - E2E_PORT_BLOCK_START) / E2E_PORT_BLOCK_WIDTH;
   mkdirSync(leaseRoot, { recursive: true });
 
-  for (let offset = 0; offset < (explicit ? 1 : PORT_BLOCK_COUNT); offset += 1) {
-    const block = (preferredBlock + offset) % PORT_BLOCK_COUNT;
-    const portBase = explicit ? preferredPortBase : PORT_BLOCK_START + block * E2E_PORT_BLOCK_WIDTH;
+  for (let offset = 0; offset < (explicit ? 1 : E2E_PORT_BLOCK_COUNT); offset += 1) {
+    const block = (preferredBlock + offset) % E2E_PORT_BLOCK_COUNT;
+    const portBase = explicit
+      ? preferredPortBase
+      : E2E_PORT_BLOCK_START + block * E2E_PORT_BLOCK_WIDTH;
     const leasePath = leaseDirectory(leaseRoot, portBase);
     const token = randomUUID();
 
@@ -358,7 +363,7 @@ export function acquireE2EPortLease(options: AcquireE2EPortLeaseOptions = {}): E
   }
 
   throw new Error(
-    `No Pracht E2E port block is available between ${PORT_BLOCK_START} and ${PORT_BLOCK_START + PORT_BLOCK_COUNT * E2E_PORT_BLOCK_WIDTH - 1}.`,
+    `No Pracht E2E port block is available between ${E2E_PORT_BLOCK_START} and ${E2E_PORT_BLOCK_START + E2E_PORT_BLOCK_COUNT * E2E_PORT_BLOCK_WIDTH - 1}.`,
   );
 }
 

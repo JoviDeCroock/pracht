@@ -426,6 +426,45 @@ describe("<Form> validation", () => {
     );
   });
 
+  it("leaves cross-origin action targets to native form navigation", async () => {
+    render(
+      h(
+        Form,
+        { action: "https://auth.example/login", method: "post" },
+        h("input", { name: "returnTo", value: "/dashboard" }),
+      ),
+      root,
+    );
+
+    const form = root.querySelector("form")!;
+    const event = new Event("submit", { bubbles: true, cancelable: true });
+    form.dispatchEvent(event);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(event.defaultPrevented).toBe(false);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("validates cross-origin action targets before native form navigation", async () => {
+    const requestSubmit = vi
+      .spyOn(HTMLFormElement.prototype, "requestSubmit")
+      .mockImplementation(() => undefined);
+
+    render(
+      h(
+        Form,
+        { action: "https://auth.example/login", method: "post", schema: nameSchema },
+        h("input", { name: "name", value: "pracht" }),
+      ),
+      root,
+    );
+
+    await submit();
+
+    expect(requestSubmit).toHaveBeenCalledTimes(1);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
   it("lets a clicked button's safe formmethod use native submission", async () => {
     fetchSpy.mockResolvedValue(new Response(null, { status: 200 }));
 
@@ -536,6 +575,67 @@ describe("<Form> validation", () => {
     expect(responses).toHaveLength(1);
     expect(responses[0].status).toBe(201);
     await expect(responses[0].json()).resolves.toEqual({ created: "pracht" });
+  });
+
+  it("navigates to an API redirect without fetching the destination first", async () => {
+    fetchSpy.mockResolvedValue(
+      new Response(null, {
+        status: 204,
+        headers: { [CAPABILITY_FORM_REDIRECT_HEADER]: "/greeting" },
+      }),
+    );
+    const navigate = vi.fn(async () => undefined);
+    window.__PRACHT_NAVIGATE__ = navigate;
+    const responses: Response[] = [];
+
+    render(
+      h(
+        Form,
+        { action: "/api/locale", method: "post", onResponse: (found) => responses.push(found) },
+        h("input", { name: "locale", value: "nl" }),
+      ),
+      root,
+    );
+
+    await submit();
+
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "/api/locale",
+      expect.objectContaining({
+        method: "POST",
+        headers: { [CAPABILITY_FORM_REQUEST_HEADER]: "1" },
+      }),
+    );
+    // Same-origin targets are normalized to a path before navigating.
+    expect(navigate).toHaveBeenCalledWith("/greeting", {
+      _reloadRouteState: true,
+      replace: undefined,
+    });
+    expect(responses).toHaveLength(0);
+  });
+
+  it("still reads the Location header from an unfollowed redirect", async () => {
+    fetchSpy.mockResolvedValue(
+      new Response(null, { status: 303, headers: { location: "/greeting" } }),
+    );
+    const navigate = vi.fn(async () => undefined);
+    window.__PRACHT_NAVIGATE__ = navigate;
+
+    render(
+      h(
+        Form,
+        { action: "/api/locale", method: "post" },
+        h("input", { name: "locale", value: "nl" }),
+      ),
+      root,
+    );
+
+    await submit();
+
+    expect(navigate).toHaveBeenCalledWith("/greeting", {
+      _reloadRouteState: true,
+      replace: undefined,
+    });
   });
 
   it("keeps the response body readable in onResponse after issues are parsed", async () => {

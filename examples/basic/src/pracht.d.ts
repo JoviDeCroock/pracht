@@ -47,6 +47,30 @@ declare module "@pracht/core" {
         search: SearchParamsInput;
         data: RouteLoaderData<typeof import("./routes/live")>;
       };
+      "greeting": {
+        path: "/greeting";
+        params: Record<never, never>;
+        search: SearchParamsInput;
+        data: RouteLoaderData<typeof import("./routes/greeting")>;
+      };
+      "welcome": {
+        path: "/welcome";
+        params: Record<never, never>;
+        search: SearchParamsInput;
+        data: RouteLoaderData<typeof import("./routes/welcome-redirect")>;
+      };
+      "welcome-en": {
+        path: "/en/welcome";
+        params: Record<never, never>;
+        search: SearchParamsInput;
+        data: RouteLoaderData<typeof import("./routes/welcome")>;
+      };
+      "welcome-nl": {
+        path: "/nl/welcome";
+        params: Record<never, never>;
+        search: SearchParamsInput;
+        data: RouteLoaderData<typeof import("./routes/welcome")>;
+      };
       "dashboard": {
         path: "/dashboard";
         params: Record<never, never>;
@@ -85,6 +109,11 @@ declare module "@pracht/core" {
         path: "/api/live";
         params: Record<never, never>;
         methods: ApiRouteMethodMap<typeof import("./api/live")>;
+      };
+      "/api/locale": {
+        path: "/api/locale";
+        params: Record<never, never>;
+        methods: ApiRouteMethodMap<typeof import("./api/locale")>;
       };
     };
   }

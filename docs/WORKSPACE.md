@@ -17,6 +17,7 @@ described in `VISION_MVP.md`.
 | `packages/adapter-vercel`     | `@pracht/adapter-vercel`     | Vercel Edge handler, Build Output API entry source, and native ISR artifacts                                 |
 | `packages/preact-worker-facets` | `@pracht/preact-worker-facets` | Experimental Cloudflare Dynamic Worker + Durable Object facets runtime for inert, stateful Preact components |
 | `packages/image`              | `@pracht/image`              | Responsive, CLS-safe `<Image>` component, pluggable optimization loaders, sharp-backed Node endpoint (see `docs/IMAGES.md`) |
+| `packages/i18n`               | `@pracht/i18n`               | i18n primitives: locale-detection middleware, lazy typed dictionaries, `t()`/`tPlural()`, `localePath()`/`hreflang()` helpers (see `packages/i18n/README.md`) |
 | `packages/test`               | `@pracht/test`               | Testing utilities for app developers: typed loader/API/middleware args factories, a middleware chain runner, form submission helpers, and minimal response readers |
 | `packages/cli`                | `@pracht/cli`                | `pracht dev`, `build`, `verify`, the `generate` subcommands, and `doctor`                                    |
 | `examples/cloudflare`         | `@pracht/example-cloudflare` | Cloudflare-targeted example app with SSG, ISG, SSR, SPA routes, auth middleware, and API routes              |
@@ -89,7 +90,8 @@ described in `VISION_MVP.md`.
 - **Package builds** — `tsdown` compiles `pracht`, `@pracht/openapi`, `@pracht/vite-plugin`,
   `@pracht/preact-ssr-precompile`, `@pracht/adapter-node`,
   `@pracht/adapter-cloudflare`, `@pracht/adapter-netlify`,
-  `@pracht/adapter-vercel`, `@pracht/image`, and `@pracht/test` from TypeScript to
+  `@pracht/adapter-vercel`, `@pracht/image`, `@pracht/i18n`, and `@pracht/test`
+  from TypeScript to
   ESM (`dist/index.mjs` + `.d.mts`). `@pracht/core` preserves its source-module
   boundaries in the published ESM so downstream builds can tree-shake named
   public imports. Its prerender module remains explicitly side-effectful because

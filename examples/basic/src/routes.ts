@@ -18,6 +18,7 @@ export const app = defineApp({
   },
   middleware: {
     auth: () => import("./middleware/auth.ts"),
+    i18n: () => import("./middleware/i18n.ts"),
     productMarkdown: () => import("./middleware/product-markdown.ts"),
   },
   notFound: {
@@ -89,6 +90,41 @@ export const app = defineApp({
         id: "live",
         render: "ssr",
       }),
+    ]),
+    // @pracht/i18n dogfood, both URL strategies against one i18n instance.
+    //
+    // Locale-prefixed (/welcome): one pathPrefix group per registered locale
+    // (so only registered locales ever match — /zz/welcome 404s), sharing one
+    // route file, plus an unprefixed detector route that redirects to the
+    // cookie/Accept-Language locale. The localized pages are SSG; their
+    // hydrated component remembers the explicit prefix because a static
+    // response cannot safely carry a visitor-specific Set-Cookie header. The
+    // unprefixed detector stays SSR because detection is per-request.
+    //
+    // Prefix-free (/greeting): one URL for every locale, chosen by cookie and
+    // switched via POST /api/locale or client-side — for sites that cannot
+    // change their URLs.
+    group({ shell: "public", middleware: ["i18n"] }, [
+      route("/greeting", () => import("./routes/greeting.tsx"), {
+        id: "greeting",
+        render: "ssr",
+      }),
+      route("/welcome", () => import("./routes/welcome-redirect.tsx"), {
+        id: "welcome",
+        render: "ssr",
+      }),
+      group({ pathPrefix: "/en" }, [
+        route("/welcome", () => import("./routes/welcome.tsx"), {
+          id: "welcome-en",
+          render: "ssg",
+        }),
+      ]),
+      group({ pathPrefix: "/nl" }, [
+        route("/welcome", () => import("./routes/welcome.tsx"), {
+          id: "welcome-nl",
+          render: "ssg",
+        }),
+      ]),
     ]),
     group({ shell: "app", middleware: ["auth"] }, [
       route("/dashboard", () => import("./routes/dashboard.tsx"), {

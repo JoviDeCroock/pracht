@@ -71,6 +71,9 @@ importers:
       '@pracht/core':
         specifier: workspace:*
         version: link:../../packages/framework
+      '@pracht/i18n':
+        specifier: workspace:*
+        version: link:../../packages/i18n
       '@pracht/image':
         specifier: workspace:*
         version: link:../../packages/image
@@ -359,6 +362,12 @@ importers:
       preact-suspense:
         specifier: ^0.3.0
         version: 0.3.0(preact@10.29.1)
+
+  packages/i18n:
+    dependencies:
+      '@pracht/core':
+        specifier: workspace:*
+        version: link:../framework
 
   packages/image:
     dependencies:

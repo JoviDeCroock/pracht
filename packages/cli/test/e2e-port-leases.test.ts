@@ -16,6 +16,8 @@ import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
+  E2E_PORT_BLOCK_COUNT,
+  E2E_PORT_BLOCK_START,
   E2E_PORT_BLOCK_WIDTH,
   acquireE2EPortLease,
   acquireE2EWorkerPort,
@@ -149,6 +151,13 @@ afterEach(() => {
 });
 
 describe("Pracht E2E port leases", () => {
+  it("keeps automatic blocks below the Linux ephemeral port range", () => {
+    expect(E2E_PORT_BLOCK_START).toBeGreaterThanOrEqual(1_024);
+    expect(E2E_PORT_BLOCK_START + E2E_PORT_BLOCK_COUNT * E2E_PORT_BLOCK_WIDTH).toBeLessThanOrEqual(
+      32_768,
+    );
+  });
+
   it("skips an automatically preferred block when any candidate port is occupied", async () => {
     const root = makeTestRoot();
     const leaseRoot = resolve(root, "leases");
