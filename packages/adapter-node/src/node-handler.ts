@@ -1,5 +1,4 @@
-import { createReadStream } from "node:fs";
-import { readFile, stat } from "node:fs/promises";
+import { open, type FileHandle } from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { join, resolve, sep } from "node:path";
 
@@ -348,54 +347,61 @@ async function serveStaticFile(
   pathname: string,
   compression: CompressionState | undefined,
 ): Promise<void> {
-  const fileStat = await stat(staticResult.filePath);
-  const compressionGeneration = compression?.cache.getPathGeneration(staticResult.filePath) ?? 0;
-  const compressionFileVersion = compression
-    ? createCompressionFileVersion(fileStat, compressionGeneration)
-    : undefined;
-  const headers = applyDefaultSecurityHeaders(
-    new Headers({
-      "content-type": staticResult.contentType,
-      "cache-control": staticResult.cacheControl,
-      etag: createWeakEtag(fileStat),
-      "last-modified": fileStat.mtime.toUTCString(),
-    }),
-  );
-  if (staticResult.contentType.includes("text/html")) {
-    applyHeadersManifest(headers, headersManifest, pathname);
-  }
-  applyCompressionFileValidator(headers, compressionFileVersion);
+  const file = await open(staticResult.filePath, "r");
+  try {
+    const fileStat = await file.stat();
+    const compressionGeneration = compression?.cache.getPathGeneration(staticResult.filePath) ?? 0;
+    const compressionFileVersion = compression ? createCompressionFileVersion(fileStat) : undefined;
+    const headers = applyDefaultSecurityHeaders(
+      new Headers({
+        "content-type": staticResult.contentType,
+        "cache-control": staticResult.cacheControl,
+        etag: createWeakEtag(fileStat),
+        "last-modified": fileStat.mtime.toUTCString(),
+      }),
+    );
+    if (staticResult.contentType.includes("text/html")) {
+      applyHeadersManifest(headers, headersManifest, pathname);
+    }
+    applyCompressionFileValidator(headers, compressionFileVersion);
 
-  const encoding = negotiateFileEncoding(request, headers, fileStat.size, compression);
+    const encoding = negotiateFileEncoding(request, headers, fileStat.size, compression);
 
-  if (isNotModified(request, headers, compressionGeneration === 0)) {
-    res.statusCode = 304;
+    if (isNotModified(request, headers, compressionGeneration === 0)) {
+      res.statusCode = 304;
+      writeNodeHeaders(res, headers);
+      res.end();
+      return;
+    }
+
+    res.statusCode = 200;
     writeNodeHeaders(res, headers);
-    res.end();
-    return;
-  }
-
-  res.statusCode = 200;
-  writeNodeHeaders(res, headers);
-  if (request.method === "HEAD") {
-    await writeFileHead(
+    if (request.method === "HEAD") {
+      await writeFileHead(
+        res,
+        staticResult.filePath,
+        file,
+        fileStat,
+        encoding,
+        compression,
+        compressionFileVersion,
+        compressionGeneration,
+      );
+      return;
+    }
+    await writeFileBody(
       res,
       staticResult.filePath,
+      file,
       fileStat,
       encoding,
       compression,
       compressionFileVersion,
+      compressionGeneration,
     );
-    return;
+  } finally {
+    await file.close();
   }
-  await writeFileBody(
-    res,
-    staticResult.filePath,
-    fileStat,
-    encoding,
-    compression,
-    compressionFileVersion,
-  );
 }
 
 /**
@@ -445,29 +451,35 @@ function negotiateFileEncoding(
 /**
  * Stream a file body, compressed when an encoding was negotiated. Files up to
  * `MAX_CACHEABLE_ASSET_SIZE` are compressed once at high quality and served
- * from an in-memory LRU keyed by path + write generation + size + mtime, so
- * hashed assets and (re)generated ISG documents pay the compression cost once
- * per version. Larger files stream through zlib per request.
+ * from an in-memory LRU keyed by path + durable file identity + local write
+ * generation, so hashed assets and (re)generated ISG documents pay the
+ * compression cost once per version. The open handle binds the bytes to the
+ * metadata and validator selected by the caller even if the path is replaced
+ * concurrently. Larger files stream through zlib per request.
  */
 async function writeFileBody(
   res: ServerResponse,
   filePath: string,
+  file: FileHandle,
   fileStat: { mtimeMs: number; size: number },
   encoding: ContentEncoding | null,
   compression: CompressionState | undefined,
   compressionFileVersion: string | undefined,
+  compressionGeneration: number,
 ): Promise<void> {
   if (!encoding || !compression || !compressionFileVersion) {
-    await pipeToResponse(createReadStream(filePath), res);
+    await pipeToResponse(file.createReadStream({ autoClose: false }), res);
     return;
   }
 
   const pending = getBufferedCompressedFile(
     filePath,
+    file,
     fileStat,
     encoding,
     compression,
     compressionFileVersion,
+    compressionGeneration,
   );
   if (pending) {
     const compressed = await pending;
@@ -477,37 +489,51 @@ async function writeFileBody(
   }
 
   await pipeToResponse(
-    createCompressedStream(createReadStream(filePath), encoding, { sizeHint: fileStat.size }),
+    createCompressedStream(file.createReadStream({ autoClose: false }), encoding, {
+      sizeHint: fileStat.size,
+    }),
     res,
   );
 }
 
 function getBufferedCompressedFile(
   filePath: string,
+  file: FileHandle,
   fileStat: { mtimeMs: number; size: number },
   encoding: ContentEncoding,
   compression: CompressionState,
   compressionFileVersion: string,
+  compressionGeneration: number,
 ): Promise<Buffer> | null {
   if (fileStat.size > MAX_CACHEABLE_ASSET_SIZE) return null;
 
-  const key = `${filePath}\0${compressionFileVersion}\0${encoding}`;
+  const key = `${filePath}\0${compressionFileVersion}\0${compressionGeneration}\0${encoding}`;
   return compression.cache.getOrCompress(key, fileStat.size, async () =>
-    compressBuffer(await readFile(filePath), encoding),
+    compressBuffer(await file.readFile(), encoding),
   );
 }
 
 async function writeFileHead(
   res: ServerResponse,
   filePath: string,
+  file: FileHandle,
   fileStat: { mtimeMs: number; size: number },
   encoding: ContentEncoding | null,
   compression: CompressionState | undefined,
   compressionFileVersion: string | undefined,
+  compressionGeneration: number,
 ): Promise<void> {
   const pending =
     encoding && compression && compressionFileVersion
-      ? getBufferedCompressedFile(filePath, fileStat, encoding, compression, compressionFileVersion)
+      ? getBufferedCompressedFile(
+          filePath,
+          file,
+          fileStat,
+          encoding,
+          compression,
+          compressionFileVersion,
+          compressionGeneration,
+        )
       : null;
   if (pending) {
     const compressed = await pending;
@@ -530,59 +556,82 @@ async function serveISGEntry<TContext>(
   const htmlPath = resolveContainedPath(staticDir, pathname);
   if (!htmlPath) return false;
 
-  const fileStat = await stat(htmlPath).catch(() => null);
-  if (!fileStat?.isFile()) return false;
-  const compressionGeneration = compression?.cache.getPathGeneration(htmlPath) ?? 0;
-  const compressionFileVersion = compression
-    ? createCompressionFileVersion(fileStat, compressionGeneration)
-    : undefined;
+  const file = await open(htmlPath, "r").catch(() => null);
+  if (!file) return false;
 
-  const ageMs = Date.now() - fileStat.mtimeMs;
-  const revalidateSeconds = getTimeRevalidateSeconds(entry.revalidate);
-  const isStale = revalidateSeconds !== null && ageMs > revalidateSeconds * 1000;
+  try {
+    const fileStat = await file.stat();
+    if (!fileStat.isFile()) return false;
+    const compressionGeneration = compression?.cache.getPathGeneration(htmlPath) ?? 0;
+    const compressionFileVersion = compression ? createCompressionFileVersion(fileStat) : undefined;
 
-  const headers = applyDefaultSecurityHeaders(
-    new Headers({
-      "content-type": "text/html; charset=utf-8",
-      "cache-control": "public, max-age=0, must-revalidate",
-      etag: createWeakEtag(fileStat),
-      "last-modified": fileStat.mtime.toUTCString(),
-      vary: ROUTE_STATE_REQUEST_HEADER,
-    }),
-  );
-  applyHeadersManifest(headers, headersManifest, pathname);
-  applyCompressionFileValidator(headers, compressionFileVersion);
-  headers.set("x-pracht-isg", isStale ? "stale" : "fresh");
+    const ageMs = Date.now() - fileStat.mtimeMs;
+    const revalidateSeconds = getTimeRevalidateSeconds(entry.revalidate);
+    const isStale = revalidateSeconds !== null && ageMs > revalidateSeconds * 1000;
 
-  const encoding = negotiateFileEncoding(request, headers, fileStat.size, compression);
+    const headers = applyDefaultSecurityHeaders(
+      new Headers({
+        "content-type": "text/html; charset=utf-8",
+        "cache-control": "public, max-age=0, must-revalidate",
+        etag: createWeakEtag(fileStat),
+        "last-modified": fileStat.mtime.toUTCString(),
+        vary: ROUTE_STATE_REQUEST_HEADER,
+      }),
+    );
+    applyHeadersManifest(headers, headersManifest, pathname);
+    applyCompressionFileValidator(headers, compressionFileVersion);
+    headers.set("x-pracht-isg", isStale ? "stale" : "fresh");
 
-  if (isNotModified(request, headers, compression === undefined)) {
-    res.statusCode = 304;
-    writeNodeHeaders(res, headers);
-    res.end();
-  } else {
-    res.statusCode = 200;
-    writeNodeHeaders(res, headers);
-    if (request.method === "HEAD") {
-      await writeFileHead(res, htmlPath, fileStat, encoding, compression, compressionFileVersion);
+    const encoding = negotiateFileEncoding(request, headers, fileStat.size, compression);
+
+    if (isNotModified(request, headers, compression === undefined)) {
+      res.statusCode = 304;
+      writeNodeHeaders(res, headers);
+      res.end();
     } else {
-      await writeFileBody(res, htmlPath, fileStat, encoding, compression, compressionFileVersion);
+      res.statusCode = 200;
+      writeNodeHeaders(res, headers);
+      if (request.method === "HEAD") {
+        await writeFileHead(
+          res,
+          htmlPath,
+          file,
+          fileStat,
+          encoding,
+          compression,
+          compressionFileVersion,
+          compressionGeneration,
+        );
+      } else {
+        await writeFileBody(
+          res,
+          htmlPath,
+          file,
+          fileStat,
+          encoding,
+          compression,
+          compressionFileVersion,
+          compressionGeneration,
+        );
+      }
     }
-  }
 
-  if (isStale) {
-    regenerateISGPageAndInvalidateCache(
-      options,
-      pathname,
-      htmlPath,
-      contextArgs,
-      compression,
-    ).catch((err) => {
-      console.error(`ISG regeneration failed for ${pathname}:`, err);
-    });
-  }
+    if (isStale) {
+      regenerateISGPageAndInvalidateCache(
+        options,
+        pathname,
+        htmlPath,
+        contextArgs,
+        compression,
+      ).catch((err) => {
+        console.error(`ISG regeneration failed for ${pathname}:`, err);
+      });
+    }
 
-  return true;
+    return true;
+  } finally {
+    await file.close();
+  }
 }
 
 async function handleRevalidationEndpoint<TContext>(

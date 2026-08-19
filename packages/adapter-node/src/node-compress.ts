@@ -179,21 +179,12 @@ export interface CompressionFileStats {
  * ISG writes replace the file atomically, so the inode changes even when a
  * same-size rewrite lands on a filesystem whose timestamps are too coarse to
  * move. `ctimeMs` is included as a fallback for filesystems that do not expose
- * useful inode numbers, and the in-process generation still distinguishes any
- * write observed by the current handler.
+ * useful inode numbers. This version is also used in public validators, so it
+ * deliberately contains only filesystem identity shared by sibling handlers;
+ * process-local cache generations belong in cache keys instead.
  */
-export function createCompressionFileVersion(
-  fileStat: CompressionFileStats,
-  generation: number,
-): string {
-  return [
-    fileStat.dev,
-    fileStat.ino,
-    fileStat.size,
-    fileStat.mtimeMs,
-    fileStat.ctimeMs,
-    generation,
-  ].join(":");
+export function createCompressionFileVersion(fileStat: CompressionFileStats): string {
+  return [fileStat.dev, fileStat.ino, fileStat.size, fileStat.mtimeMs, fileStat.ctimeMs].join(":");
 }
 
 /** Fold a durable file version into an identity ETag before content negotiation. */

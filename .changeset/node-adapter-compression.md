@@ -13,10 +13,14 @@ once per file version at higher quality and served from an in-memory LRU.
 Concurrent first requests share one in-flight compression, while
 byte/concurrency limits send excess cold paths through streaming compression.
 Successful ISG writes are published as an atomic file replacement and
-explicitly invalidate their prior compressed cache generation and validators,
-including same-size rewrites on coarse-timestamp filesystems after a handler
-restart or in a sibling worker. Date-only validation is conservatively
-bypassed for mutable compressed ISG snapshots.
+explicitly invalidate their prior local compressed cache generation. Public
+validators derive only from the replacement's durable file identity so sibling
+handlers agree on the ETag, including for same-size rewrites on
+coarse-timestamp filesystems and after a handler restart. Static response reads
+stay bound to the same open file version that supplied their size and validator,
+so a concurrent replacement cannot bypass the cold-work budget or mix new
+bytes with old metadata. Date-only validation is conservatively bypassed for
+mutable compressed ISG snapshots.
 Compressible responses always carry
 `Vary: Accept-Encoding` (merged with existing `Vary` members), including on
 application-generated `304` responses, encoded

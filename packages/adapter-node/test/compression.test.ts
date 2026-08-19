@@ -1,4 +1,5 @@
 import { mkdtempSync, mkdirSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { open } from "node:fs/promises";
 import {
   createServer,
   request as httpRequest,
@@ -9,7 +10,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { once } from "node:events";
 import { brotliDecompressSync, createBrotliDecompress, createGunzip, gunzipSync } from "node:zlib";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { defineApp, resolveApiRoutes, route, timeRevalidate } from "@pracht/core";
 
@@ -1066,6 +1067,91 @@ describe("static asset compression", () => {
     expect(gunzipSync(etagRevalidation.body).toString("utf-8")).toBe(freshHtml);
     expect(dateRevalidation.status).toBe(200);
     expect(gunzipSync(dateRevalidation.body).toString("utf-8")).toBe(freshHtml);
+  });
+
+  it("keeps regenerated ISG validators stable across sibling handlers", async () => {
+    const staticDir = makeTempDir();
+    const app = defineApp({
+      routes: [
+        route("/page", "./routes/page.tsx", {
+          render: "isg",
+          revalidate: timeRevalidate(3600),
+        }),
+      ],
+    });
+    const options = {
+      app,
+      headersManifest: { "/page": { etag: '"page-document"' } },
+      isgManifest: { "/page": { revalidate: timeRevalidate(3600) } },
+      registry: {
+        routeModules: {
+          "./routes/page.tsx": async () => ({
+            Component: () => `<main>${"sibling-safe".repeat(400)}</main>`,
+          }),
+        },
+      },
+      staticDir,
+    };
+    const primaryBase = await listen(createNodeRequestHandler(options));
+    const siblingBase = await listen(createNodeRequestHandler(options));
+
+    // The cold render writes the snapshot and advances only the primary
+    // handler's process-local cache generation.
+    const cold = await rawRequest(`${primaryBase}/page`);
+    expect(cold.status).toBe(200);
+
+    const primary = await rawRequest(`${primaryBase}/page`, { "accept-encoding": "gzip" });
+    const sibling = await rawRequest(`${siblingBase}/page`, { "accept-encoding": "gzip" });
+
+    expect(primary.headers.etag).toBe(sibling.headers.etag);
+    expect(gunzipSync(primary.body)).toEqual(gunzipSync(sibling.body));
+  });
+
+  it("reads the same file version that supplied compression metadata", async () => {
+    const staticDir = makeTempDir();
+    const assetDir = join(staticDir, "assets");
+    const assetPath = join(assetDir, "app.js");
+    mkdirSync(assetDir, { recursive: true });
+    const oldSource = `// old\n${"oldPayload();\n".repeat(400)}`;
+    const newSource = `// new\n${"newPayload();\n".repeat(80_000)}`;
+    writeFileSync(assetPath, oldSource, "utf-8");
+
+    const replacementHandler = createNodeRequestHandler({
+      app: defineApp({ routes: [] }),
+      staticDir,
+    });
+    const probe = await open(assetPath, "r");
+    const fileHandlePrototype = Object.getPrototypeOf(probe) as {
+      readFile(): Promise<Buffer>;
+    };
+    await probe.close();
+    const originalReadFile = fileHandlePrototype.readFile;
+    let replaced = false;
+    const readFileSpy = vi
+      .spyOn(fileHandlePrototype, "readFile")
+      .mockImplementation(async function (this: { readFile(): Promise<Buffer> }) {
+        if (!replaced) {
+          replaced = true;
+          await writeISGFile(assetPath, newSource);
+        }
+        return originalReadFile.call(this);
+      });
+    const base = await listen(replacementHandler);
+    let raced: RawResponse;
+
+    try {
+      raced = await rawRequest(`${base}/assets/app.js`, { "accept-encoding": "gzip" });
+      expect(replaced).toBe(true);
+      expect(gunzipSync(raced.body).toString("utf-8")).toBe(oldSource);
+    } finally {
+      readFileSpy.mockRestore();
+    }
+
+    const replacement = await rawRequest(`${base}/assets/app.js`, {
+      "accept-encoding": "gzip",
+    });
+    expect(gunzipSync(replacement.body).toString("utf-8")).toBe(newSource);
+    expect(replacement.headers.etag).not.toBe(raced.headers.etag);
   });
 
   it("ignores If-Modified-Since when If-None-Match is present (RFC 9110 §13.1.3)", async () => {

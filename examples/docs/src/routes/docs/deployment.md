@@ -40,13 +40,16 @@ Responses are compressed by default: the adapter negotiates `Accept-Encoding`
 with brotli preferred on ties) and streams dynamic HTML, route-state JSON, and
 other compressible text types through `node:zlib`, while static assets and ISG
 snapshots are compressed once per file version and served from an in-memory
-LRU; successful ISG writes use an atomic file replacement and explicitly
-invalidate the old compressed version and validator, even when coarse
-filesystem timestamps do not change and a request reaches a restarted or
-sibling worker. Date-only validation is conservatively bypassed for mutable
-ISG snapshots while compression is enabled. Buffered cold work is byte- and
-concurrency-bounded, with overflow falling back to streaming compression.
-Static WebAssembly is served as
+LRU; successful ISG writes use an atomic file replacement whose durable
+identity gives sibling handlers one shared updated validator, while local cache
+generations discard old compressed bytes. Response reads stay bound to the
+same open file version that supplied their size and validator, so concurrent
+replacement cannot mix bytes with stale metadata or bypass the cold-work byte
+budget. This remains correct when coarse filesystem timestamps do not change
+and a request reaches a restarted or sibling worker. Date-only validation is
+conservatively bypassed for mutable ISG snapshots while compression is enabled.
+Buffered cold work is byte- and concurrency-bounded, with overflow falling back
+to streaming compression. Static WebAssembly is served as
 `application/wasm` and follows the same compression path. Compressible
 responses carry `Vary: Accept-Encoding`, including on application-generated
 `304` responses; encoded variants get their own collision-resistant weak ETag,

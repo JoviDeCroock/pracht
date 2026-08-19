@@ -24,7 +24,7 @@ node dist/server/server.js
 - Supports ISG time-window revalidation with background regeneration that reuses `createContext()`
 - Supports generated-entry context factories via `nodeAdapter({ createContextFrom })`
 - Supports configurable request body limits via `nodeAdapter({ maxBodySize })`
-- Compresses responses (brotli/gzip via `Accept-Encoding` negotiation) with streaming compression for dynamic bodies, a bounded in-memory LRU/cold-work queue for static assets, and restart-safe atomic ISG validator updates; disable with `nodeAdapter({ compression: false })` behind a compressing reverse proxy
+- Compresses responses (brotli/gzip via `Accept-Encoding` negotiation) with streaming compression for dynamic bodies, a bounded in-memory LRU/cold-work queue for static assets, version-bound file reads, and sibling-stable atomic ISG validator updates; disable with `nodeAdapter({ compression: false })` behind a compressing reverse proxy
 
 ## Context factory
 

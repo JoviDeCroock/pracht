@@ -181,9 +181,14 @@ wildcards, and `q=0` exclusions are honored, all via `node:zlib`):
   assets and regenerated ISG HTML pay the compression cost once — concurrent
   first requests to the same file share a single in-flight compression.
   Successful ISG writes are published as an atomic file replacement and
-  advance the in-process generation explicitly, so even same-size rewrites on
-  coarse-timestamp filesystems cannot reuse stale compressed bytes or
-  validators after a handler restart or in a sibling worker. Date-only
+  therefore receive a new durable file identity; public validators use only
+  that shared identity so sibling handlers advertise the same ETag, while each
+  handler advances its own cache generation to discard prior compressed bytes.
+  The response reads through the same open file handle that supplied its size
+  and validator, so a concurrent replacement cannot be admitted under stale
+  metadata or bypass the cold-work byte budget. Even same-size rewrites on
+  coarse-timestamp filesystems therefore remain distinct after a handler
+  restart or in a sibling worker. Date-only
   revalidation is conservatively bypassed for mutable ISG snapshots while
   compression is enabled because an HTTP date cannot identify such a
   generation. Whole-file cold work is bounded by both bytes and concurrency;
