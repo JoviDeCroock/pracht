@@ -115,6 +115,10 @@ describe("scanPagesDirectory", () => {
       join(pagesDir, "metadata.tsx"),
       'export const metadata = { head: "not an export" };\nexport default function Page() { return null; }\n',
     );
+    writeFileSync(
+      join(pagesDir, "type-only.tsx"),
+      "type Head = () => Record<string, unknown>;\nexport { type Head as head };\nexport default function Page() { return null; }\n",
+    );
 
     const pages = scanPagesDirectory(pagesDir);
     expect(pages.find((page) => page.routePath === "/")?.hasHead).toBe(true);
@@ -124,6 +128,7 @@ describe("scanPagesDirectory", () => {
     expect(pages.find((page) => page.routePath === "/annotated")?.hasHead).toBe(true);
     expect(pages.find((page) => page.routePath === "/combined")?.hasHead).toBe(true);
     expect(pages.find((page) => page.routePath === "/metadata")?.hasHead).toBe(false);
+    expect(pages.find((page) => page.routePath === "/type-only")?.hasHead).toBe(false);
   });
 
   it("extracts the HYDRATION export and emits it in the generated manifest", () => {

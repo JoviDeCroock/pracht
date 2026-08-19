@@ -68,9 +68,7 @@ function exportSpecifiersInclude(specifiers: string, exportName: string): boolea
     .map((specifier) => specifier.trim())
     .filter(Boolean)
     .some((specifier) => {
-      const match = /^(?:type\s+)?([A-Za-z_$][\w$]*)(?:\s+as\s+([A-Za-z_$][\w$]*))?$/.exec(
-        specifier,
-      );
+      const match = /^([A-Za-z_$][\w$]*)(?:\s+as\s+([A-Za-z_$][\w$]*))?$/.exec(specifier);
       if (!match) return false;
       const [, localName, exportedName] = match;
       return (exportedName ?? localName) === exportName;
