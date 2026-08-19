@@ -1,11 +1,12 @@
 import { ROUTE_STATE_REQUEST_HEADER } from "./runtime-constants.ts";
 import type { SerializedRouteError } from "./runtime-errors.ts";
+import type { FontHeadFragments } from "./font.ts";
 import type { ResolvedRoute } from "./types.ts";
 
 export type RouteStateResult =
-  | { type: "data"; data: unknown }
+  | { type: "data"; data: unknown; fontHead?: FontHeadFragments }
   | { type: "redirect"; location: string }
-  | { type: "error"; error: SerializedRouteError };
+  | { type: "error"; error: SerializedRouteError; fontHead?: FontHeadFragments };
 
 const SAFE_NAVIGATION_PROTOCOLS = new Set(["http:", "https:"]);
 
@@ -33,7 +34,9 @@ export function parseSafeNavigationUrl(location: string, base: string | URL): UR
 }
 
 export function routeNeedsServerFetch(route: ResolvedRoute): boolean {
-  if (route.hasLoader === false && route.middlewareFiles.length === 0) return false;
+  if (route.hasLoader === false && route.hasHead === false && route.middlewareFiles.length === 0) {
+    return false;
+  }
   return true;
 }
 
@@ -64,6 +67,7 @@ export async function fetchPrachtRouteState(
 
   const json = (await response.json()) as {
     data?: unknown;
+    fontHead?: FontHeadFragments;
     error?: SerializedRouteError;
     redirect?: string;
   };
@@ -78,6 +82,7 @@ export async function fetchPrachtRouteState(
     if (json.error) {
       return {
         error: json.error,
+        fontHead: json.fontHead,
         type: "error",
       };
     }
@@ -87,6 +92,7 @@ export async function fetchPrachtRouteState(
 
   return {
     data: json.data,
+    fontHead: json.fontHead,
     type: "data",
   };
 }

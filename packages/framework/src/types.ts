@@ -8,6 +8,7 @@ import type {
 import type { ComponentChildren, FunctionComponent } from "preact";
 
 import type { RouteConstraint } from "./constraints.ts";
+import type { PrachtFont } from "./font.ts";
 
 /**
  * Augment this interface to register your app's context type globally.
@@ -510,6 +511,8 @@ export interface RouteMeta {
   prefetch?: PrefetchStrategy;
   speculation?: SpeculationOption;
   hasLoader?: boolean;
+  /** @internal Build-time hint used to preserve loaderless navigation optimization. */
+  hasHead?: boolean;
 }
 
 export interface GroupMeta {
@@ -946,6 +949,17 @@ export interface HeadMetadata {
   meta?: HeadAttributes[];
   link?: HeadAttributes[];
   script?: HeadScriptDescriptor[];
+  /**
+   * Fonts created with `defineFont()`. The head renderer expands each entry
+   * into preload links plus one inline `<style>` with the `@font-face`
+   * rules, deduped across shell and route contributions.
+   */
+  fonts?: PrachtFont[];
+  /**
+   * CSP nonce for the generated font `<style>`. Put a request-specific nonce
+   * on a shared shell head when using `style-src 'nonce-…'`.
+   */
+  fontNonce?: string;
 }
 
 export type MaybePromise<T> = T | Promise<T>;

@@ -29,8 +29,13 @@ the HTML and JSON variants separate. JSON responses default to
 `Cache-Control: no-store`; a positive route `loaderCache` value changes
 successful loader-data responses to `private, max-age=<seconds>`.
 
-If the target route has neither a loader nor middleware, client navigation can
-skip the route-state request entirely and only load the route/shell modules.
+If the target route and shell have no `head()` export and the route has neither
+a loader nor middleware, client navigation can skip the route-state request
+entirely and only load the route/shell modules.
+
+Configured custom route formats stay conservative: their Vite transform may
+synthesize `head()` from syntax such as frontmatter, so Pracht keeps the
+route-state request unless it can prove the transformed module is headless.
 
 ---
 
@@ -116,7 +121,7 @@ navigation — including navigating _to_ SSR routes.
 
 | Request | Response | Notes |
 |---------|----------|-------|
-| `GET /dashboard` (route-state) | JSON `{ data }` | ~no HTML rendering |
+| `GET /dashboard` (route-state) | JSON `{ data, fontHead }` | ~no HTML rendering; empty fragments clear fonts from the previous route |
 | `import(route.js)` | JS chunk | Cached after first visit |
 
 **Loader runs:** On the server, same as a full request — but only JSON is returned.
@@ -391,7 +396,7 @@ x-pracht-route-state-request: 1
                                  match route
                                  run middleware
                                  run loader
-                                 return JSON { data }
+                                 return JSON { data, fontHead }
 ◄───────────────────────────────────────────────────────────
 200 application/json
 Vary: x-pracht-route-state-request

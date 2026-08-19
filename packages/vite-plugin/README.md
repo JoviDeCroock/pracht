@@ -83,6 +83,11 @@ ambient TypeScript module declaration that format requires. Keep the array
 inline or in a directly referenced `const` for complete CLI verification;
 dynamic expressions still build but produce a verification warning.
 
+Configured formats are treated as potentially head-bearing even when their raw
+source has no JavaScript `head()` export. The companion transform may synthesize
+that export from frontmatter or other custom syntax, so loaderless client
+navigation conservatively keeps its route-state request.
+
 Existing `.tsrx` routes and shells remain discovered without
 `additionalExtensions`, and Pracht keeps its ambient `.tsrx` declaration so a
 compatible CLI patch cannot strand applications on the previous plugin minor.

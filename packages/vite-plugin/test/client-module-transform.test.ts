@@ -580,6 +580,58 @@ describe("client route module build", () => {
     expect(serverSource).toContain('"./routes/about.tsx":false');
   });
 
+  it("embeds head hints for implicit TSRX page shells", () => {
+    const root = makeTempProject();
+    mkdirSync(join(root, "src", "pages"), { recursive: true });
+
+    writeFileSync(
+      join(root, "src", "pages", "_app.tsrx"),
+      "export function head() { return { title: 'Shell' }; }\nexport default function App() {}\n",
+    );
+    writeFileSync(
+      join(root, "src", "pages", "index.tsx"),
+      "export default function Home() { return null; }\n",
+    );
+
+    const source = createPrachtClientModuleSource({ pagesDir: "/src/pages" }, { root });
+
+    expect(source).toContain('"/src/pages/_app.tsrx":true');
+    expect(source).toContain('"/src/pages/index.tsx":false');
+  });
+
+  it("keeps configured route and shell extensions conservative for transformed heads", () => {
+    const root = makeTempProject();
+    mkdirSync(join(root, "src", "routes"), { recursive: true });
+    mkdirSync(join(root, "src", "shells"), { recursive: true });
+
+    writeFileSync(join(root, "src", "routes.ts"), "export const app = {};\n");
+    writeFileSync(
+      join(root, "src", "routes", "index.custom"),
+      "export default function Home() {}\n",
+    );
+    writeFileSync(
+      join(root, "src", "shells", "app.custom"),
+      "export function head() { return { title: 'Shell' }; }\nexport default function App() {}\n",
+    );
+
+    const source = createPrachtClientModuleSource(
+      {
+        additionalExtensions: [".custom"],
+        appFile: "/src/routes.ts",
+        routesDir: "/src/routes",
+        shellsDir: "/src/shells",
+      },
+      { root },
+    );
+
+    // The companion transform can synthesize head() from syntax that does not
+    // exist in the raw custom-format source, so false would be unsound here.
+    expect(source).toContain('"./routes/index.custom":true');
+    expect(source).toContain('"/src/routes/index.custom":true');
+    expect(source).toContain('"./shells/app.custom":true');
+    expect(source).toContain('"/src/shells/app.custom":true');
+  });
+
   it("fails the build when client code imports a capability module directly", async () => {
     // Nothing strips a capability module the way a route loader is stripped, so
     // importing one from a component would bundle run() and everything it

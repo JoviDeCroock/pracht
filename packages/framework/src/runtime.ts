@@ -1,6 +1,7 @@
 import { h } from "preact";
 import type { FunctionComponent } from "preact";
 import { matchApiRoute, matchAppRoute, resolveApp } from "./app.ts";
+import { collectFontHeadFragments } from "./font.ts";
 import { ROUTE_STATE_REQUEST_HEADER, SAFE_METHODS } from "./runtime-constants.ts";
 import {
   buildRuntimeDiagnostics,
@@ -35,6 +36,7 @@ import {
 } from "./runtime-manifest.ts";
 import {
   mergeDocumentHeaders,
+  mergeErrorHeadMetadata,
   mergeHeadMetadata,
   runMiddlewareChain,
 } from "./runtime-middleware.ts";
@@ -42,7 +44,9 @@ import type { ResolvedCapability } from "./runtime-capabilities.ts";
 import { buildRouteStateUrl } from "./runtime-client-fetch.ts";
 import {
   getRenderToStringAsync,
+  isFrameworkFontHeadResponse,
   jsonErrorResponse,
+  markFrameworkFontHeadResponse,
   normalizePageResponse,
   renderApiErrorResponse,
   renderRouteErrorResponse,
@@ -69,6 +73,92 @@ import type {
 } from "./types.ts";
 
 const SAME_ORIGIN_FETCH_SITE = "same-origin";
+
+const BODY_REPRESENTATION_HEADERS = [
+  "content-digest",
+  "content-encoding",
+  "content-length",
+  "content-md5",
+  "content-range",
+  "digest",
+  "etag",
+  "last-modified",
+  "repr-digest",
+  "transfer-encoding",
+] as const;
+
+function headersForReserializedBody(headers: Headers): Headers {
+  const nextHeaders = new Headers(headers);
+  for (const name of BODY_REPRESENTATION_HEADERS) nextHeaders.delete(name);
+  return nextHeaders;
+}
+
+function isJsonMediaType(contentType: string): boolean {
+  const mediaType = contentType.split(";", 1)[0]?.trim().toLowerCase();
+  return mediaType === "application/json" || mediaType?.endsWith("+json") === true;
+}
+
+async function attachFontHeadToRouteStateResponse<TContext>(options: {
+  response: Response;
+  isRouteStateRequest: boolean;
+  routeArgs: BaseRouteArgs<TContext>;
+  routeModule: RouteModule | undefined | Promise<RouteModule | undefined>;
+  shellModule: ShellModule | undefined | Promise<ShellModule | undefined>;
+}): Promise<Response> {
+  const { response, isRouteStateRequest, routeArgs } = options;
+  if (!isRouteStateRequest) return response;
+
+  const contentType = response.headers.get("content-type") ?? "";
+  if (!isJsonMediaType(contentType)) return response;
+
+  let payload: unknown;
+  try {
+    payload = await response.clone().json();
+  } catch {
+    // A middleware/loader Response is authoritative even when its declared
+    // JSON representation is empty, malformed, or otherwise unreadable. Font
+    // enrichment is optional and must not turn that response into a 500.
+    return response;
+  }
+  if (payload === null || typeof payload !== "object" || Array.isArray(payload)) return response;
+
+  const body = payload as Record<string, unknown>;
+  if (isFrameworkFontHeadResponse(response) || typeof body.redirect === "string") return response;
+
+  // This response already completed the middleware/loader contract. Font-head
+  // enrichment must not replace it with a 500 if an eagerly-started route or
+  // shell import fails, or if head metadata itself cannot be evaluated. Use
+  // whichever modules resolved and fall back to authoritative empty fragments
+  // so client navigation also clears fonts left by the previous route.
+  const [routeModuleResult, shellModuleResult] = await Promise.allSettled([
+    options.routeModule,
+    options.shellModule,
+  ]);
+  const routeModule =
+    routeModuleResult.status === "fulfilled" ? routeModuleResult.value : undefined;
+  const shellModule =
+    shellModuleResult.status === "fulfilled" ? shellModuleResult.value : undefined;
+  let fontHead = collectFontHeadFragments([]);
+  try {
+    const data = body.data;
+    const head =
+      response.ok && !Object.hasOwn(body, "error")
+        ? await mergeHeadMetadata(shellModule, routeModule, routeArgs, data)
+        : await mergeErrorHeadMetadata(shellModule, routeModule, routeArgs);
+    fontHead = collectFontHeadFragments(head.fonts ?? []);
+  } catch {}
+  return Response.json(
+    {
+      ...body,
+      fontHead,
+    },
+    {
+      status: response.status,
+      statusText: response.statusText,
+      headers: headersForReserializedBody(response.headers),
+    },
+  );
+}
 
 /**
  * Build-time proof that the app has no agent surface at all — no registered
@@ -656,6 +746,7 @@ export async function handlePrachtRequest<TContext>(
     let routeModulePromise: Promise<RouteModule | undefined> | undefined;
     let routeModule: RouteModule | undefined;
     let shellModule: ShellModule | undefined;
+    let shellModulePromise: Promise<ShellModule | undefined> = Promise.resolve(undefined);
     let loaderFile: string | undefined;
     let currentPhase: PrachtRuntimeDiagnosticPhase = "middleware";
     const timings = options.timings;
@@ -676,7 +767,7 @@ export async function handlePrachtRequest<TContext>(
         match.route.file,
       );
 
-      const shellModulePromise: Promise<ShellModule | undefined> = match.route.shellFile
+      shellModulePromise = match.route.shellFile
         ? resolveRegistryModule<ShellModule>(registry.shellModules, match.route.shellFile)
         : Promise.resolve(undefined);
 
@@ -711,7 +802,15 @@ export async function handlePrachtRequest<TContext>(
         let loaderResult: unknown;
         if (loader) {
           const loaderStart = timings ? performance.now() : 0;
-          loaderResult = await loader(routeArgs);
+          try {
+            loaderResult = await loader(routeArgs);
+          } catch (error: unknown) {
+            // A thrown Response is the loader's answer, just like a returned
+            // Response. Normalize both through the same route-state path so
+            // redirects, cache headers, and font metadata cannot diverge.
+            if (!(error instanceof Response)) throw error;
+            loaderResult = error;
+          }
           if (timings) {
             timings.loader = performance.now() - loaderStart;
           }
@@ -725,10 +824,20 @@ export async function handlePrachtRequest<TContext>(
         const data = loaderResult;
 
         if (isRouteStateRequest) {
-          return withRouteResponseHeaders(Response.json({ data }), {
-            isRouteStateRequest: true,
-            loaderCache: match.route.loaderCache,
-          });
+          // Route head exports are stripped from the client bundle. Return the
+          // generated font fragments with loader data so client navigation can
+          // keep route-scoped font registrations in sync with full documents.
+          currentPhase = "render";
+          shellModule = await shellModulePromise;
+          const head = await mergeHeadMetadata(shellModule, routeModule, routeArgs, data);
+          const fontHead = collectFontHeadFragments(head.fonts ?? []);
+          const body = { data, fontHead };
+          return markFrameworkFontHeadResponse(
+            withRouteResponseHeaders(Response.json(body), {
+              isRouteStateRequest: true,
+              loaderCache: match.route.loaderCache,
+            }),
+          );
         }
 
         // Shell import was kicked off up front; this await is usually already
@@ -1001,10 +1110,17 @@ export async function handlePrachtRequest<TContext>(
       if (timings) {
         timings.mw = performance.now() - chainStart - (timings.render ?? 0) - (timings.loader ?? 0);
       }
-      return normalizePageResponse(response, {
+      const normalizedResponse = normalizePageResponse(response, {
         isRouteStateRequest,
         loaderCache: match.route.loaderCache,
         markdown: match.route.markdown,
+      });
+      return await attachFontHeadToRouteStateResponse({
+        response: normalizedResponse,
+        isRouteStateRequest,
+        routeArgs,
+        routeModule: routeModulePromise,
+        shellModule: shellModulePromise,
       });
     } catch (error: unknown) {
       // A thrown `Response` is a deliberate short-circuit, not a failure: it is
@@ -1022,10 +1138,17 @@ export async function handlePrachtRequest<TContext>(
       let thrownResponseFailure: unknown;
       if (error instanceof Response) {
         try {
-          return normalizePageResponse(error, {
+          const normalizedResponse = normalizePageResponse(error, {
             isRouteStateRequest,
             loaderCache: match.route.loaderCache,
             markdown: match.route.markdown,
+          });
+          return await attachFontHeadToRouteStateResponse({
+            response: normalizedResponse,
+            isRouteStateRequest,
+            routeArgs,
+            routeModule: routeModulePromise,
+            shellModule: shellModulePromise,
           });
         } catch (normalizeError: unknown) {
           thrownResponseFailure = normalizeError;
@@ -1046,6 +1169,11 @@ export async function handlePrachtRequest<TContext>(
           }
         }
       }
+
+      // Middleware can fail before pageTerminal assigns routeModule. The import
+      // was still started in parallel, so retain route-scoped error metadata
+      // (notably fonts used by the route ErrorBoundary) when it resolves.
+      routeModule ??= await routeModulePromise?.catch(() => undefined);
 
       return renderRouteErrorResponse({
         error: thrownResponseFailure ?? error,

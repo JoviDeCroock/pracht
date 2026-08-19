@@ -12,6 +12,7 @@ import {
   IconPlug,
 } from "@tabler/icons-preact";
 import { CodeBlock } from "../components/CodeBlock";
+import { inter } from "../fonts";
 
 export async function loader() {
   return { version: "0.1.0" };
@@ -142,7 +143,9 @@ export const markdown = [
 ].join("\n");
 
 export function head() {
-  return { title: "pracht — Preact-first. Vite-native. Explicit routing." };
+  // The shell registers `inter` too — the head renderer collapses the
+  // duplicate to a single preload and @font-face block.
+  return { title: "pracht — Preact-first. Vite-native. Explicit routing.", fonts: [inter] };
 }
 
 export function headers() {

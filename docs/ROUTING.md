@@ -751,6 +751,12 @@ verification warning. Vite-scannable component formats participate in initial
 dependency scanning automatically. Other format plugins must opt their extension
 into Vite's dependency optimizer themselves.
 
+Pracht treats configured formats as potentially head-bearing even when their
+raw source has no JavaScript `head()` export, because the companion transform
+may synthesize one from frontmatter or other format-specific metadata. This
+keeps client navigation correct at the cost of a conservative route-state
+request for otherwise headless custom modules.
+
 `.tsrx` remains discovered without this option for backward compatibility and
 keeps its bundled ambient module declaration. It may also be listed explicitly
 when adopting the format-agnostic configuration.

@@ -1,3 +1,4 @@
+import { collectFontHeadFragments } from "./font.ts";
 import { HYDRATION_STATE_ELEMENT_ID } from "./runtime-constants.ts";
 import { applyHeaders, applySecurityAndRouteHeaders } from "./runtime-headers.ts";
 import type { PrachtHydrationState } from "./runtime-hooks.ts";
@@ -140,6 +141,23 @@ export function buildHtmlDocument(options: {
     .map((attrs) => `<link ${attrs}>`)
     .join("\n    ");
 
+  // Fonts registered via `defineFont()` expand into preload links plus one
+  // inline style element. Dedupe (same font from shell and route) happens in
+  // collectFontHeadFragments; the CSS it returns is already fully escaped and
+  // can never contain an unescaped `<`, so it is safe inside <style>.
+  const fontFragments = head.fonts?.length ? collectFontHeadFragments(head.fonts) : undefined;
+  const fontLinkTags = fontFragments
+    ? fontFragments.preloadLinks
+        .map((link) => renderAttributes(link, LINK_ATTRIBUTES))
+        .filter(Boolean)
+        .map((attrs) => `<link data-pracht-font-preload ${attrs}>`)
+        .join("\n    ")
+    : "";
+  const fontStyleTag =
+    fontFragments?.css || head.fontNonce
+      ? `<style data-pracht-fonts${head.fontNonce ? ` nonce="${escapeHtml(head.fontNonce)}"` : ""}>${fontFragments?.css ?? ""}</style>`
+      : "";
+
   const scriptTags = (head.script ?? [])
     .map((script) => {
       const attrs = renderAttributes(script, SCRIPT_ATTRIBUTES);
@@ -180,6 +198,8 @@ export function buildHtmlDocument(options: {
       titleTag,
       metaTags,
       linkTags,
+      fontLinkTags,
+      fontStyleTag,
       scriptTags,
       cssTags,
       modulePreloadTags,

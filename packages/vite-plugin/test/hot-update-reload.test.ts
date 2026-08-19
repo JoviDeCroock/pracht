@@ -1,24 +1,46 @@
-import { describe, expect, it, vi } from "vitest";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   isServerOnlyModuleFile,
   sendServerOnlyFullReload,
   type HotUpdateServerLike,
 } from "../src/hot-update-reload.ts";
+import { pracht } from "../src/index.ts";
+import { PRACHT_CLIENT_MODULE_ID } from "../src/plugin-assets.ts";
 
 interface GraphEntry {
   file: string;
   type?: "js" | "css" | "asset";
 }
 
+interface TestModuleNode {
+  file: string;
+  id: string | null;
+  importers: Set<TestModuleNode>;
+  type: "js" | "css" | "asset";
+  url: string;
+}
+
+const tempDirs: string[] = [];
+
+afterEach(() => {
+  while (tempDirs.length > 0) {
+    const dir = tempDirs.pop();
+    if (dir) rmSync(dir, { force: true, recursive: true });
+  }
+});
+
 // Vite never resolves or transforms the file-only entries it creates for plugin
 // watch dependencies, so they carry an `/@fs/`-prefixed url and a null id. Real
 // modules always carry a resolved id. Mirror both shapes so the fixture matches
 // what the dev server actually hands `handleHotUpdate`.
-function createModuleNode(entry: string | GraphEntry) {
+function createModuleNode(entry: string | GraphEntry): TestModuleNode {
   const { file, type = "js" } = typeof entry === "string" ? { file: entry } : entry;
   return type === "asset"
-    ? { file, id: null, type, url: `/@fs/${file}` }
-    : { file, id: file, type, url: file };
+    ? { file, id: null, importers: new Set(), type, url: `/@fs/${file}` }
+    : { file, id: file, importers: new Set(), type, url: file };
 }
 
 function createServer(graphs: Record<string, Array<string | GraphEntry>>): {
@@ -106,5 +128,129 @@ describe("sendServerOnlyFullReload", () => {
     const { server, send } = createServer({ client: [ROUTE], ssr: [ROUTE] });
     expect(sendServerOnlyFullReload(server, ROUTE)).toBe(false);
     expect(send).not.toHaveBeenCalled();
+  });
+});
+
+describe("pracht handleHotUpdate", () => {
+  it.each(["add", "remove"] as const)(
+    "reloads generated client head state when a shell %ss head()",
+    async (operation) => {
+      const root = mkdtempSync(join(tmpdir(), "pracht-head-hmr-"));
+      tempDirs.push(root);
+      mkdirSync(join(root, "src", "routes"), { recursive: true });
+      mkdirSync(join(root, "src", "shells"), { recursive: true });
+      writeFileSync(join(root, "src", "routes.ts"), "export const app = {};\n");
+      const shell = join(root, "src", "shells", "public.tsx");
+      const headSource =
+        "export function head() { return { fonts: [] }; }\nexport function Shell() { return null; }\n";
+      const headlessSource = "export function Shell() { return null; }\n";
+      writeFileSync(shell, operation === "add" ? headlessSource : headSource);
+
+      const plugin = pracht().find((candidate) => candidate.name === "pracht");
+      const configResolved = plugin?.configResolved;
+      const load = plugin?.load;
+      const handleHotUpdate = plugin?.handleHotUpdate;
+      if (
+        typeof configResolved !== "function" ||
+        typeof load !== "function" ||
+        typeof handleHotUpdate !== "function"
+      ) {
+        throw new Error("missing Pracht development hooks");
+      }
+      configResolved.call({} as never, { command: "serve", root } as never);
+      await load.call({} as never, PRACHT_CLIENT_MODULE_ID);
+      writeFileSync(shell, operation === "add" ? headSource : headlessSource);
+
+      const shellModule = createModuleNode(shell);
+      const clientModule = { id: PRACHT_CLIENT_MODULE_ID };
+      const invalidateModule = vi.fn();
+      const result = await handleHotUpdate.call(
+        {} as never,
+        {
+          file: shell,
+          modules: [shellModule],
+          server: {
+            config: { root },
+            moduleGraph: {
+              getModuleById: (id: string) =>
+                id === PRACHT_CLIENT_MODULE_ID ? clientModule : undefined,
+              invalidateModule,
+            },
+            environments: {
+              client: {
+                moduleGraph: {
+                  getModulesByFile: () => new Set([shellModule]),
+                },
+                hot: { send: vi.fn() },
+              },
+            },
+          },
+        } as never,
+      );
+
+      expect(invalidateModule).toHaveBeenCalledWith(clientModule);
+      expect(result).toEqual([shellModule, clientModule]);
+    },
+  );
+
+  it("reloads generated head state when a shared font dependency changes", async () => {
+    const root = mkdtempSync(join(tmpdir(), "pracht-head-dependency-hmr-"));
+    tempDirs.push(root);
+    mkdirSync(join(root, "src", "routes"), { recursive: true });
+    mkdirSync(join(root, "src", "shells"), { recursive: true });
+    writeFileSync(join(root, "src", "routes.ts"), "export const app = {};\n");
+    const fontFile = join(root, "src", "fonts.ts");
+    const shell = join(root, "src", "shells", "public.tsx");
+    writeFileSync(fontFile, "export const inter = {};\n");
+    writeFileSync(
+      shell,
+      'import { inter } from "../fonts";\nexport function head() { return { fonts: [inter] }; }\nexport function Shell() { return null; }\n',
+    );
+
+    const plugin = pracht().find((candidate) => candidate.name === "pracht");
+    const configResolved = plugin?.configResolved;
+    const load = plugin?.load;
+    const handleHotUpdate = plugin?.handleHotUpdate;
+    if (
+      typeof configResolved !== "function" ||
+      typeof load !== "function" ||
+      typeof handleHotUpdate !== "function"
+    ) {
+      throw new Error("missing Pracht development hooks");
+    }
+    configResolved.call({} as never, { command: "serve", root } as never);
+    await load.call({} as never, PRACHT_CLIENT_MODULE_ID);
+
+    const fontModule = createModuleNode(fontFile);
+    const shellModule = createModuleNode(shell);
+    fontModule.importers.add(shellModule);
+    const clientModule = { id: PRACHT_CLIENT_MODULE_ID };
+    const invalidateModule = vi.fn();
+    const result = await handleHotUpdate.call(
+      {} as never,
+      {
+        file: fontFile,
+        modules: [fontModule],
+        server: {
+          config: { root },
+          moduleGraph: {
+            getModuleById: (id: string) =>
+              id === PRACHT_CLIENT_MODULE_ID ? clientModule : undefined,
+            invalidateModule,
+          },
+          environments: {
+            client: {
+              moduleGraph: {
+                getModulesByFile: () => new Set([fontModule]),
+              },
+              hot: { send: vi.fn() },
+            },
+          },
+        },
+      } as never,
+    );
+
+    expect(invalidateModule).toHaveBeenCalledWith(clientModule);
+    expect(result).toEqual([fontModule, clientModule]);
   });
 });

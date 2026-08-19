@@ -47,16 +47,19 @@ describe("scanPagesDirectory", () => {
     writeFileSync(join(pagesDir, "_app.custom"), "export function Shell() { return null; }\n");
 
     expect(scanPagesDirectory(pagesDir)).toEqual([]);
-    expect(
-      scanPagesDirectory(pagesDir, [".custom"]).map((page) => [page.routePath, page.relativePath]),
-    ).toEqual([["/", "index.custom"]]);
+    const customPages = scanPagesDirectory(pagesDir, [".custom"]);
+    expect(customPages.map((page) => [page.routePath, page.relativePath])).toEqual([
+      ["/", "index.custom"],
+    ]);
+    expect(customPages[0]?.hasHead).toBe(true);
 
-    const source = generatePagesManifestSource(scanPagesDirectory(pagesDir, [".custom"]), {
+    const source = generatePagesManifestSource(customPages, {
       additionalExtensions: [".custom"],
       pagesDir,
     });
     expect(source).toContain("shells: {");
     expect(source).toContain("_app.custom");
+    expect(source).toContain("hasHead: true");
   });
 
   it("includes markdown and mdx pages in the generated route list", () => {
@@ -78,6 +81,54 @@ describe("scanPagesDirectory", () => {
       "/:slug",
     ]);
     expect(pages.find((page) => page.routePath === "/guide")?.renderMode).toBe("ssg");
+    expect(pages.find((page) => page.routePath === "/guide")?.hasHead).toBe(true);
+    expect(pages.find((page) => page.routePath === "/")?.hasHead).toBe(false);
+  });
+
+  it("detects named and re-exported head exports for navigation hints", () => {
+    const pagesDir = makeTempPagesDir();
+    writeFileSync(
+      join(pagesDir, "index.tsx"),
+      "export function head() { return {}; }\nexport default function Page() { return null; }\n",
+    );
+    writeFileSync(
+      join(pagesDir, "about.tsx"),
+      'export { metadata as head } from "./shared";\nexport default function Page() { return null; }\n',
+    );
+    writeFileSync(
+      join(pagesDir, "comment.tsx"),
+      "// export function head() { return {}; }\nexport default function Page() { return null; }\n",
+    );
+    writeFileSync(
+      join(pagesDir, "example.tsx"),
+      "const example = `export const head = () => ({})`;\nexport default function Page() { return null; }\n",
+    );
+    writeFileSync(
+      join(pagesDir, "annotated.tsx"),
+      "export function /* navigation metadata */ head() { return {}; }\nexport default function Page() { return null; }\n",
+    );
+    writeFileSync(
+      join(pagesDir, "combined.tsx"),
+      'export const title = "Combined", head = () => ({ title });\nexport default function Page() { return null; }\n',
+    );
+    writeFileSync(
+      join(pagesDir, "metadata.tsx"),
+      'export const metadata = { head: "not an export" };\nexport default function Page() { return null; }\n',
+    );
+    writeFileSync(
+      join(pagesDir, "type-only.tsx"),
+      "type Head = () => Record<string, unknown>;\nexport { type Head as head };\nexport default function Page() { return null; }\n",
+    );
+
+    const pages = scanPagesDirectory(pagesDir);
+    expect(pages.find((page) => page.routePath === "/")?.hasHead).toBe(true);
+    expect(pages.find((page) => page.routePath === "/about")?.hasHead).toBe(true);
+    expect(pages.find((page) => page.routePath === "/comment")?.hasHead).toBe(false);
+    expect(pages.find((page) => page.routePath === "/example")?.hasHead).toBe(false);
+    expect(pages.find((page) => page.routePath === "/annotated")?.hasHead).toBe(true);
+    expect(pages.find((page) => page.routePath === "/combined")?.hasHead).toBe(true);
+    expect(pages.find((page) => page.routePath === "/metadata")?.hasHead).toBe(false);
+    expect(pages.find((page) => page.routePath === "/type-only")?.hasHead).toBe(false);
   });
 
   it("extracts the HYDRATION export and emits it in the generated manifest", () => {
@@ -422,7 +473,9 @@ describe("generatePagesManifestSource", () => {
     });
 
     expect(source).not.toContain("shells:");
-    expect(source).toContain('route("/", "./index.mdx", { render: "ssr", hasLoader: false })');
+    expect(source).toContain(
+      'route("/", "./index.mdx", { render: "ssr", hasLoader: false, hasHead: true })',
+    );
   });
 });
 

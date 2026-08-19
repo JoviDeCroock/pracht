@@ -329,6 +329,11 @@ verification warning. Vite-scannable component formats participate in initial
 dependency scanning automatically; other format plugins must configure Vite's
 dependency optimizer themselves.
 
+Configured formats remain conservatively head-bearing because their transform
+may synthesize `head()` from frontmatter or other format-specific metadata.
+Client navigation therefore keeps the route-state request for custom modules
+even when their raw source appears headless.
+
 Existing `.tsrx` routes remain discovered without this option for backward
 compatibility and retain Pracht's ambient module declaration.
 

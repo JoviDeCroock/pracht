@@ -286,6 +286,7 @@ describe("imperative prefetch()", () => {
             id: "static",
             render: "ssg",
             hasLoader: false,
+            hasHead: false,
           }),
         ],
       }),

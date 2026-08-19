@@ -29,8 +29,10 @@ import {
   IconShieldCheck,
   IconWorldBolt,
   IconPhoto,
+  IconTypography,
 } from "@tabler/icons-preact";
 import "../styles/global.css";
+import { inter } from "../fonts";
 
 const NAV = [
   {
@@ -54,6 +56,7 @@ const NAV = [
       { href: "/docs/middleware", Icon: IconShield, title: "Middleware" },
       { href: "/docs/shells", Icon: IconLayout, title: "Shells" },
       { href: "/docs/styling", Icon: IconPalette, title: "Styling" },
+      { href: "/docs/fonts", Icon: IconTypography, title: "Fonts" },
       { href: "/docs/images", Icon: IconPhoto, title: "Images" },
       { href: "/docs/env", Icon: IconKey, title: "Environment" },
     ],
@@ -140,7 +143,9 @@ export function Shell({ children }: ShellProps) {
   const docsActive = currentPath.startsWith("/docs");
 
   return (
-    <div class="docs-layout">
+    // Apply the generated stack to the shell root, including its adjusted
+    // fallback face, so every descendant inherits it.
+    <div class="docs-layout" style={inter.style}>
       <header class="site-header">
         <div class="inner">
           <a href="/" class="logo">
@@ -195,20 +200,6 @@ export function head() {
           "pracht documentation — routing, rendering modes, data loading, and deployment adapters.",
       },
     ],
-    link: [
-      {
-        rel: "preconnect",
-        href: "https://fonts.googleapis.com",
-      },
-      {
-        rel: "preconnect",
-        href: "https://fonts.gstatic.com",
-        crossorigin: "",
-      },
-      {
-        rel: "stylesheet",
-        href: "https://fonts.googleapis.com/css2?family=Inter:wght@400;450;500;550;600;650;700&display=swap",
-      },
-    ],
+    fonts: [inter],
   };
 }

@@ -229,12 +229,54 @@ export async function mergeHeadMetadata(
       : Promise.resolve({} as HeadMetadata),
   ]);
 
+  return mergeHeadValues(shellHead, routeHead);
+}
+
+/**
+ * Resolve head metadata while rendering an error boundary. Route heads receive
+ * no loader data on this path, so a data-dependent head may fail; keep the
+ * shell head in that case while still retaining static route registrations
+ * such as fonts.
+ */
+export async function mergeErrorHeadMetadata(
+  shellModule: ShellModule | undefined,
+  routeModule: RouteModule | undefined,
+  routeArgs: BaseRouteArgs<unknown>,
+): Promise<HeadMetadata> {
+  let shellHead: HeadMetadata = {};
+  if (shellModule?.head) {
+    try {
+      shellHead = await shellModule.head(routeArgs);
+    } catch {
+      // Preserve the original route failure when shell metadata cannot be
+      // evaluated. Route metadata may still provide useful static entries.
+    }
+  }
+  let routeHead: HeadMetadata = {};
+  if (routeModule?.head) {
+    try {
+      routeHead = await routeModule.head({ ...routeArgs, data: undefined } as any);
+    } catch {
+      // Preserve the original loader/render failure. Any successfully resolved
+      // shell metadata remains available as a fallback.
+    }
+  }
+
+  return mergeHeadValues(shellHead, routeHead);
+}
+
+function mergeHeadValues(shellHead: HeadMetadata, routeHead: HeadMetadata): HeadMetadata {
   return {
     title: routeHead.title ?? shellHead.title,
     lang: routeHead.lang ?? shellHead.lang,
     meta: [...(shellHead.meta ?? []), ...(routeHead.meta ?? [])],
     link: [...(shellHead.link ?? []), ...(routeHead.link ?? [])],
     script: [...(shellHead.script ?? []), ...(routeHead.script ?? [])],
+    fontNonce: routeHead.fontNonce ?? shellHead.fontNonce,
+    // Duplicate registrations (e.g. shell and route both list the same font)
+    // are collapsed by the head renderer, not here, so the merge stays a
+    // plain concatenation like the other arrays.
+    fonts: [...(shellHead.fonts ?? []), ...(routeHead.fonts ?? [])],
   };
 }
 

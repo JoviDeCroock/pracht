@@ -12,7 +12,7 @@ import {
   type PrachtPluginOptions,
   type ResolvedPrachtPluginOptions,
 } from "./plugin-options.ts";
-import { createRouteLoaderHints } from "./route-loader-hints.ts";
+import { createRouteHeadHints, createRouteLoaderHints } from "./route-loader-hints.ts";
 import { createWebmcpBootstrapSource, hasWebmcpCapabilities } from "./plugin-capabilities.ts";
 import {
   DEFAULT_ROUTE_EXTENSIONS,
@@ -145,6 +145,7 @@ export function createPrachtClientModuleSource(
   const resolved = resolveOptions(options);
   const isPagesMode = !!resolved.pagesDir;
   const routeLoaderHints = createRouteLoaderHintsForVirtualModules(resolved, buildOptions.root);
+  const routeHeadHints = createRouteHeadHintsForVirtualModules(resolved, buildOptions.root);
 
   const appImport = isPagesMode
     ? generatePagesAppInlineSource(resolved, buildOptions.root)
@@ -183,6 +184,7 @@ export function createPrachtClientModuleSource(
     appImport,
     "",
     `const routeLoaderHints = ${JSON.stringify(routeLoaderHints)};`,
+    `const routeHeadHints = ${JSON.stringify(routeHeadHints)};`,
     `const routeModules = {`,
     `  ...import.meta.glob(${JSON.stringify(routeGlobPattern)}, { query: ${JSON.stringify(PRACHT_CLIENT_MODULE_QUERY)} }),`,
     `  ...import.meta.glob(${JSON.stringify(additionalRouteGlobPattern)}),`,
@@ -193,7 +195,7 @@ export function createPrachtClientModuleSource(
     `};`,
     "",
     "const resolvedApp = resolveApp(app);",
-    "applyRouteLoaderHints(resolvedApp, routeLoaderHints);",
+    "applyRouteHints(resolvedApp, routeLoaderHints, routeHeadHints);",
     "",
     ...createApplyRouteLoaderHintsSource(),
     `const APP_DIR = ${JSON.stringify(appDir)};`,
@@ -305,6 +307,7 @@ export function createPrachtServerModuleSource(
   const isPagesMode = !!resolved.pagesDir;
   const registrySource = createPrachtRegistryModuleSource(resolved);
   const routeLoaderHints = createRouteLoaderHintsForVirtualModules(resolved, buildOptions.root);
+  const routeHeadHints = createRouteHeadHintsForVirtualModules(resolved, buildOptions.root);
   const clientBuild = buildOptions.isBuild
     ? readClientBuildAssets(buildOptions.root)
     : { clientEntryUrl: null, islandsEntryUrl: null, cssManifest: {}, jsManifest: {} };
@@ -341,6 +344,7 @@ export function createPrachtServerModuleSource(
     appImport,
     "",
     `const routeLoaderHints = ${JSON.stringify(routeLoaderHints)};`,
+    `const routeHeadHints = ${JSON.stringify(routeHeadHints)};`,
     ...createApplyRouteLoaderHintsSource(),
     registrySource,
     "",
@@ -352,7 +356,7 @@ export function createPrachtServerModuleSource(
     "export const islandFiles = Object.keys(islandModules);",
     "",
     "export const resolvedApp = resolveApp(app);",
-    "applyRouteLoaderHints(resolvedApp, routeLoaderHints);",
+    "applyRouteHints(resolvedApp, routeLoaderHints, routeHeadHints);",
     `export const apiRoutes = resolveApiRoutes(Object.keys(apiModules), ${JSON.stringify(resolved.apiDir)});`,
     `export const buildTarget = ${JSON.stringify(adapter?.id ?? "node")};`,
     `export const clientEntryUrl = ${JSON.stringify(clientBuild.clientEntryUrl ?? CLIENT_BROWSER_PATH)};`,
@@ -449,7 +453,7 @@ function resolveLlmsTxtConfig(
 
 function createApplyRouteLoaderHintsSource(): string[] {
   return [
-    "function applyRouteLoaderHints(resolvedApp, routeLoaderHints) {",
+    "function applyRouteHints(resolvedApp, routeLoaderHints, routeHeadHints) {",
     "  for (const route of resolvedApp.routes) {",
     "    const hint = routeLoaderHints[route.file];",
     "    if (hint === true) {",
@@ -457,10 +461,43 @@ function createApplyRouteLoaderHintsSource(): string[] {
     "    } else if (typeof route.hasLoader === 'undefined' && typeof hint === 'boolean') {",
     "      route.hasLoader = hint;",
     "    }",
+    "    const routeHeadHint = routeHeadHints[route.file];",
+    "    const shellHeadHint = route.shellFile ? routeHeadHints[route.shellFile] : undefined;",
+    "    const hasCompleteHeadHints = typeof routeHeadHint === 'boolean' &&",
+    "      (!route.shellFile || typeof shellHeadHint === 'boolean');",
+    "    if (routeHeadHint === true || shellHeadHint === true) {",
+    "      route.hasHead = true;",
+    "    } else if (typeof route.hasHead === 'undefined' && hasCompleteHeadHints) {",
+    "      route.hasHead = routeHeadHint === true || shellHeadHint === true;",
+    "    }",
     "  }",
     "}",
     "",
   ];
+}
+
+export function createRouteHeadHintsForVirtualModules(
+  options: ResolvedPrachtPluginOptions,
+  root = process.cwd(),
+): Record<string, boolean> {
+  const appFileAbs = resolve(root, options.appFile.slice(1));
+  const appFileDir = dirname(appFileAbs);
+  const directories = options.pagesDir
+    ? [[options.pagesDir, resolve(root, options.pagesDir.slice(1))] as const]
+    : [
+        [options.routesDir, resolve(root, options.routesDir.slice(1))] as const,
+        [options.shellsDir, resolve(root, options.shellsDir.slice(1))] as const,
+      ];
+  return Object.assign(
+    {},
+    ...directories.map(([prefix, directory]) =>
+      createRouteHeadHints(directory, {
+        additionalExtensions: options.additionalExtensions,
+        appFileDir,
+        rootRelativePrefix: prefix,
+      }),
+    ),
+  );
 }
 
 function createRouteLoaderHintsForVirtualModules(

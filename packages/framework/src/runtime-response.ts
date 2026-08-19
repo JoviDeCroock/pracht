@@ -25,7 +25,7 @@ import {
   resolvePageJsUrls,
   resolveRegistryModule,
 } from "./runtime-manifest.ts";
-import { mergeDocumentHeaders } from "./runtime-middleware.ts";
+import { mergeDocumentHeaders, mergeErrorHeadMetadata } from "./runtime-middleware.ts";
 import { PrachtRuntimeProvider } from "./runtime-hooks.ts";
 import {
   getIslandsClientEntryUrl,
@@ -40,8 +40,20 @@ import type {
   RouteModule,
   ShellModule,
 } from "./types.ts";
+import { collectFontHeadFragments, type FontHeadFragments } from "./font.ts";
 
 let _renderToStringAsync: typeof import("preact-render-to-string").renderToStringAsync | undefined;
+const frameworkFontHeadResponses = new WeakSet<Response>();
+
+export function markFrameworkFontHeadResponse(response: Response): Response {
+  frameworkFontHeadResponses.add(response);
+  return response;
+}
+
+export function isFrameworkFontHeadResponse(response: Response): boolean {
+  return frameworkFontHeadResponses.has(response);
+}
+
 export async function getRenderToStringAsync() {
   if (_renderToStringAsync) return _renderToStringAsync;
   const mod = await import("preact-render-to-string");
@@ -61,16 +73,22 @@ interface HandleRequestOptionsLike {
 
 export function jsonErrorResponse(
   routeError: SerializedRouteError,
-  options: { isRouteStateRequest: boolean },
+  options: { fontHead?: FontHeadFragments; isRouteStateRequest: boolean },
 ): Response {
   const headers = applySecurityAndRouteHeaders(
     new Headers({ "content-type": "application/json; charset=utf-8" }),
     options.isRouteStateRequest ? { isRouteStateRequest: true } : undefined,
   );
-  return new Response(JSON.stringify({ error: routeError }), {
-    status: routeError.status,
-    headers,
-  });
+  return new Response(
+    JSON.stringify({
+      error: routeError,
+      ...(options.fontHead ? { fontHead: options.fontHead } : {}),
+    }),
+    {
+      status: routeError.status,
+      headers,
+    },
+  );
 }
 
 export function jsonRedirectResponse(
@@ -90,6 +108,7 @@ export function normalizePageResponse(
   response: Response,
   options: { isRouteStateRequest: boolean; loaderCache?: LoaderCache; markdown?: boolean },
 ): Response {
+  const hasFrameworkFontHead = isFrameworkFontHeadResponse(response);
   if (options.isRouteStateRequest && response.status >= 300 && response.status < 400) {
     const location = response.headers.get("location");
     if (location) {
@@ -107,7 +126,7 @@ export function normalizePageResponse(
   if (options.markdown === true && !options.isRouteStateRequest) {
     appendVaryHeader(normalized.headers, "Accept");
   }
-  return normalized;
+  return hasFrameworkFontHead ? markFrameworkFontHeadResponse(normalized) : normalized;
 }
 
 export function renderApiErrorResponse<TContext>(options: {
@@ -181,18 +200,34 @@ export async function renderRouteErrorResponse<TContext>(options: {
       }
     : routeError;
 
-  if (options.isRouteStateRequest) {
-    return jsonErrorResponse(routeErrorWithDiagnostics, { isRouteStateRequest: true });
-  }
-
   const shellModule =
     options.shellModule ??
     (options.shellFile
       ? await resolveRegistryModule<ShellModule>(
           options.options.registry?.shellModules,
           options.shellFile,
-        )
+        ).catch(() => undefined)
       : undefined);
+
+  if (options.isRouteStateRequest) {
+    let fontHead = collectFontHeadFragments([]);
+    try {
+      const head = await mergeErrorHeadMetadata(
+        shellModule,
+        options.routeModule,
+        options.routeArgs,
+      );
+      fontHead = collectFontHeadFragments(head.fonts ?? []);
+    } catch {
+      // Error rendering must preserve the original route failure even if
+      // optional head enrichment cannot be evaluated.
+    }
+    return jsonErrorResponse(routeErrorWithDiagnostics, {
+      fontHead,
+      isRouteStateRequest: true,
+    });
+  }
+
   const ErrorBoundary = options.routeModule?.ErrorBoundary ?? shellModule?.ErrorBoundary;
 
   if (!ErrorBoundary) {
@@ -211,7 +246,7 @@ export async function renderRouteErrorResponse<TContext>(options: {
       }),
     );
   }
-  const head = shellModule?.head ? await shellModule.head(options.routeArgs) : {};
+  const head = await mergeErrorHeadMetadata(shellModule, options.routeModule, options.routeArgs);
   const documentHeaders = await mergeDocumentHeaders(
     shellModule,
     undefined,

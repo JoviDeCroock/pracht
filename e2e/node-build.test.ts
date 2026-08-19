@@ -282,6 +282,7 @@ test("pracht build emits a deployable Node server entry", async () => {
         plan: "MVP",
         refreshedAt: "Build time",
       },
+      fontHead: { preloadLinks: [], css: "" },
     });
 
     const homeHeaderRouteStateResponse = await fetch(`http://127.0.0.1:${port}/`, {
@@ -297,6 +298,7 @@ test("pracht build emits a deployable Node server entry", async () => {
           "Thin deployment adapters",
         ],
       },
+      fontHead: { preloadLinks: [], css: "" },
     });
 
     const homeQueryRouteStateResponse = await fetch(`http://127.0.0.1:${port}/?_data=1`);
@@ -310,6 +312,7 @@ test("pracht build emits a deployable Node server entry", async () => {
           "Thin deployment adapters",
         ],
       },
+      fontHead: { preloadLinks: [], css: "" },
     });
 
     // Hashed assets should have immutable cache headers

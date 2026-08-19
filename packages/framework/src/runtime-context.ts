@@ -33,6 +33,8 @@ export interface PrachtRuntimeValue {
   routeId: string;
   routes?: readonly HrefRouteDefinition[];
   url: string;
+  /** True while this provider still owns the router's active route state. */
+  isCurrent?: () => boolean;
   setData: (data: unknown) => void;
 }
 
@@ -46,6 +48,7 @@ export function PrachtRuntimeProvider<TData>({
   routes,
   stateVersion = 0,
   url,
+  isCurrent,
 }: {
   children: ComponentChildren;
   data: TData;
@@ -54,6 +57,7 @@ export function PrachtRuntimeProvider<TData>({
   routes?: readonly HrefRouteDefinition[];
   stateVersion?: number;
   url: string;
+  isCurrent?: () => boolean;
 }) {
   registerRuntimeRoutes(routes);
 
@@ -82,6 +86,7 @@ export function PrachtRuntimeProvider<TData>({
       params,
       routeId,
       routes,
+      isCurrent,
       // Stamped with the route state this context belongs to, never with
       // whatever the provider rendered last: a revalidation started on one
       // route can settle after a navigation, and the commit has to be
@@ -99,7 +104,7 @@ export function PrachtRuntimeProvider<TData>({
     // `data` is deliberately not a dependency: it is read only as the `source`
     // stamp, and adding it would fan out a new context value on every
     // re-render above the provider (see runtime-context.test.ts).
-    [routeData, params, routeId, routes, stateVersion, url],
+    [routeData, params, routeId, routes, stateVersion, url, isCurrent],
   );
 
   // A fresh `data` prop for the same route state (a re-render above the

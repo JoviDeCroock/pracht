@@ -196,7 +196,13 @@ describe("initClientRouter", () => {
 
     root.innerHTML =
       '<main><span id="count">1</span><span id="lang">none</span><button id="refresh">Refresh</button><div>ready</div></main>';
-    fetchSpy.mockResolvedValue(createJsonResponse({ data: { count: 2 } }));
+    document.head.innerHTML = '<style data-pracht-fonts>@font-face{font-family:"Initial"}</style>';
+    fetchSpy.mockResolvedValue(
+      createJsonResponse({
+        data: { count: 2 },
+        fontHead: { preloadLinks: [], css: '@font-face{font-family:"Revalidated"}' },
+      }),
+    );
 
     await initClientRouter({
       app,
@@ -216,6 +222,9 @@ describe("initClientRouter", () => {
     root.querySelector<HTMLButtonElement>("#refresh")!.click();
     await flush();
     expect(root.querySelector("#count")?.textContent).toBe("2");
+    expect(document.head.querySelector("style[data-pracht-fonts]")?.textContent).toBe(
+      '@font-face{font-family:"Revalidated"}',
+    );
 
     resolveSuspense();
     await flush();
@@ -367,6 +376,89 @@ describe("initClientRouter", () => {
     expect(root.textContent).toContain("Product 2");
   });
 
+  it("updates generated font CSS and preloads after client navigation", async () => {
+    const app = resolveApp(
+      defineApp({
+        routes: [
+          route("/", "./routes/home.tsx", { id: "home", render: "ssr", hasHead: true }),
+          route("/next", "./routes/next.tsx", { id: "next", render: "ssr", hasHead: true }),
+          route("/unknown", "./routes/unknown.tsx", {
+            id: "unknown",
+            render: "ssr",
+            hasHead: true,
+          }),
+          route("/plain", "./routes/plain.tsx", {
+            id: "plain",
+            render: "ssr",
+            hasLoader: false,
+            hasHead: false,
+          }),
+        ],
+      }),
+    );
+    document.head.innerHTML =
+      '<link data-pracht-font-preload rel="preload" as="font" href="/old.woff2"><style data-pracht-fonts nonce="request-nonce">@font-face{font-family:"Old";src:url("/old.woff2")}</style>';
+    fetchSpy.mockResolvedValueOnce(
+      createJsonResponse({
+        data: null,
+        fontHead: {
+          preloadLinks: [
+            {
+              rel: "preload",
+              as: "font",
+              href: "/new.woff2",
+              type: "font/woff2",
+              crossorigin: "anonymous",
+            },
+          ],
+          css: '@font-face{font-family:"New";src:url("/new.woff2")}',
+        },
+      }),
+    );
+    fetchSpy.mockResolvedValueOnce(
+      createJsonResponse({
+        data: null,
+        fontHead: { preloadLinks: [], css: "" },
+      }),
+    );
+
+    await initClientRouter({
+      app,
+      routeModules: {
+        "./routes/home.tsx": async () => ({ default: () => h("main", null, "Home") }),
+        "./routes/next.tsx": async () => ({ default: () => h("main", null, "Next") }),
+        "./routes/unknown.tsx": async () => ({ default: () => h("main", null, "Unknown") }),
+        "./routes/plain.tsx": async () => ({ default: () => h("main", null, "Plain") }),
+      },
+      shellModules: {},
+      initialState: { data: null, routeId: "home", url: "/" },
+      root,
+      findModuleKey: (_modules, file) => file,
+    });
+
+    await window.__PRACHT_NAVIGATE__!("/next");
+
+    expect(document.head.querySelector('link[href="/old.woff2"]')).toBeNull();
+    expect(document.head.querySelector('link[href="/new.woff2"]')).not.toBeNull();
+    const style = document.head.querySelector<HTMLStyleElement>("style[data-pracht-fonts]");
+    expect(style?.textContent).toBe('@font-face{font-family:"New";src:url("/new.woff2")}');
+    expect(style?.nonce).toBe("request-nonce");
+
+    // A conservative build hint can require a fetch even though the loaded
+    // route has no head export. The server's authoritative empty fragments
+    // must clear the font-bearing route we are leaving.
+    await window.__PRACHT_NAVIGATE__!("/unknown");
+    expect(document.head.querySelector("link[data-pracht-font-preload]")).toBeNull();
+    expect(style?.textContent).toBe("");
+    expect(style?.nonce).toBe("request-nonce");
+
+    await window.__PRACHT_NAVIGATE__!("/plain");
+    expect(document.head.querySelector("link[data-pracht-font-preload]")).toBeNull();
+    expect(style?.textContent).toBe("");
+    expect(style?.nonce).toBe("request-nonce");
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+  });
+
   it("bypasses the HTTP cache when revalidating route data", async () => {
     function Dashboard() {
       const data = useRouteData<{ count: number }>();
@@ -393,7 +485,25 @@ describe("initClientRouter", () => {
 
     root.innerHTML = '<main><span id="count">1</span><button id="refresh">Refresh</button></main>';
     history.replaceState(null, "", "/dashboard");
-    fetchSpy.mockResolvedValue(createJsonResponse({ data: { count: 2 } }));
+    document.head.innerHTML =
+      '<link data-pracht-font-preload rel="preload" as="font" href="/old.woff2"><style data-pracht-fonts>@font-face{font-family:"Old"}</style>';
+    fetchSpy.mockResolvedValue(
+      createJsonResponse({
+        data: { count: 2 },
+        fontHead: {
+          preloadLinks: [
+            {
+              rel: "preload",
+              as: "font",
+              href: "/fresh.woff2",
+              type: "font/woff2",
+              crossorigin: "anonymous",
+            },
+          ],
+          css: '@font-face{font-family:"Fresh"}',
+        },
+      }),
+    );
 
     await initClientRouter({
       app,
@@ -423,6 +533,134 @@ describe("initClientRouter", () => {
       }),
     );
     expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(document.head.querySelector('link[href="/old.woff2"]')).toBeNull();
+    expect(document.head.querySelector('link[href="/fresh.woff2"]')).not.toBeNull();
+    expect(document.head.querySelector("style[data-pracht-fonts]")?.textContent).toBe(
+      '@font-face{font-family:"Fresh"}',
+    );
+  });
+
+  it("does not let a stale revalidation overwrite fonts after navigation", async () => {
+    function Dashboard() {
+      const revalidate = useRevalidate();
+      return h(
+        "main",
+        null,
+        h("button", { id: "refresh", onClick: () => void revalidate() }, "Refresh"),
+      );
+    }
+
+    const app = resolveApp(
+      defineApp({
+        routes: [
+          route("/dashboard", "./routes/dashboard.tsx", {
+            id: "dashboard",
+            render: "ssr",
+            hasHead: true,
+          }),
+          route("/next", "./routes/next.tsx", {
+            id: "next",
+            render: "ssr",
+            hasHead: true,
+          }),
+        ],
+      }),
+    );
+
+    let resolveRevalidation!: (response: Response) => void;
+    const revalidationResponse = new Promise<Response>((resolve) => {
+      resolveRevalidation = resolve;
+    });
+    fetchSpy.mockReturnValueOnce(revalidationResponse).mockResolvedValueOnce(
+      createJsonResponse({
+        data: null,
+        fontHead: { preloadLinks: [], css: '@font-face{font-family:"Next"}' },
+      }),
+    );
+
+    history.replaceState(null, "", "/dashboard");
+    root.innerHTML = '<main><button id="refresh">Refresh</button></main>';
+    document.head.innerHTML =
+      '<style data-pracht-fonts>@font-face{font-family:"Dashboard"}</style>';
+
+    await initClientRouter({
+      app,
+      routeModules: {
+        "./routes/dashboard.tsx": async () => ({ default: Dashboard }),
+        "./routes/next.tsx": async () => ({ default: () => h("main", null, "Next") }),
+      },
+      shellModules: {},
+      initialState: { data: null, routeId: "dashboard", url: "/dashboard" },
+      root,
+      findModuleKey: (_modules, file) => file,
+    });
+
+    root.querySelector<HTMLButtonElement>("#refresh")?.click();
+    await window.__PRACHT_NAVIGATE__!("/next");
+    expect(document.head.querySelector("style[data-pracht-fonts]")?.textContent).toBe(
+      '@font-face{font-family:"Next"}',
+    );
+
+    resolveRevalidation(
+      createJsonResponse({
+        data: null,
+        fontHead: { preloadLinks: [], css: '@font-face{font-family:"Stale Dashboard"}' },
+      }),
+    );
+    await flush();
+    await flush();
+
+    expect(document.head.querySelector("style[data-pracht-fonts]")?.textContent).toBe(
+      '@font-face{font-family:"Next"}',
+    );
+  });
+
+  it("updates generated font CSS when client navigation renders an error boundary", async () => {
+    const app = resolveApp(
+      defineApp({
+        routes: [
+          route("/", "./routes/home.tsx", { id: "home", render: "ssr", hasHead: true }),
+          route("/boom", "./routes/boom.tsx", { id: "boom", render: "ssr", hasHead: true }),
+        ],
+      }),
+    );
+    document.head.innerHTML =
+      '<link data-pracht-font-preload rel="preload" as="font" href="/old.woff2"><style data-pracht-fonts>@font-face{font-family:"Old"}</style>';
+    fetchSpy.mockResolvedValue(
+      createJsonResponse(
+        {
+          error: { message: "loader exploded", name: "Error", status: 500 },
+          fontHead: {
+            preloadLinks: [],
+            css: '@font-face{font-family:"Error Shell"}',
+          },
+        },
+        { status: 500 },
+      ),
+    );
+
+    await initClientRouter({
+      app,
+      routeModules: {
+        "./routes/home.tsx": async () => ({ default: () => h("main", null, "Home") }),
+        "./routes/boom.tsx": async () => ({
+          default: () => null,
+          ErrorBoundary: ({ error }: { error: Error }) => h("main", null, error.message),
+        }),
+      },
+      shellModules: {},
+      initialState: { data: null, routeId: "home", url: "/" },
+      root,
+      findModuleKey: (_modules, file) => file,
+    });
+
+    await window.__PRACHT_NAVIGATE__!("/boom");
+
+    expect(root.textContent).toBe("loader exploded");
+    expect(document.head.querySelector('link[href="/old.woff2"]')).toBeNull();
+    expect(document.head.querySelector("style[data-pracht-fonts]")?.textContent).toBe(
+      '@font-face{font-family:"Error Shell"}',
+    );
   });
 
   it("refreshes the route component's data prop when route data revalidates", async () => {

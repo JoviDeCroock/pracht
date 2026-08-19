@@ -32,6 +32,14 @@ export type {
   RouteConstraint,
 } from "./constraints.ts";
 export { createHref } from "./href.ts";
+export { defineFont } from "./font.ts";
+export type {
+  DefineFontOptions,
+  FontDisplay,
+  FontSource,
+  FontSourceInput,
+  PrachtFont,
+} from "./font.ts";
 export {
   apiValidationErrorResponse,
   defineApi,

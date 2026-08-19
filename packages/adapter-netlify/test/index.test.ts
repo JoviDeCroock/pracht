@@ -346,7 +346,10 @@ describe("createNetlifyHandler", () => {
       }),
       {},
     );
-    await expect(state.json()).resolves.toEqual({ data: { page: "guide" } });
+    await expect(state.json()).resolves.toEqual({
+      data: { page: "guide" },
+      fontHead: { preloadLinks: [], css: "" },
+    });
   });
 
   it("uses one Netlify-Vary policy for cached HTML and Markdown representations", async () => {

@@ -5,6 +5,7 @@ import {
   Link,
   PrachtHttpError,
   defineApp,
+  defineFont,
   handlePrachtRequest,
   prerenderApp,
   redirect,
@@ -834,7 +835,40 @@ describe("handlePrachtRequest cache variance", () => {
     expect(response.headers.get("content-type")).toContain("application/json");
     expect(response.headers.get("vary")).toContain("x-pracht-route-state-request");
     expect(response.headers.get("cache-control")).toBe("no-store");
-    await expect(response.json()).resolves.toEqual({ data: { plan: "MVP" } });
+    await expect(response.json()).resolves.toEqual({
+      data: { plan: "MVP" },
+      fontHead: { preloadLinks: [], css: "" },
+    });
+  });
+
+  it("includes merged font head fragments in route-state responses", async () => {
+    const font = defineFont({ family: "Route Font", src: "/fonts/route.woff2" });
+    let headCalls = 0;
+    const app = defineApp({
+      routes: [route("/font", "./routes/font.tsx", { render: "ssr" })],
+    });
+    const response = await handlePrachtRequest({
+      app,
+      registry: {
+        routeModules: {
+          "./routes/font.tsx": async () => ({
+            Component: () => null,
+            head: () => {
+              headCalls += 1;
+              return { fonts: [font] };
+            },
+          }),
+        },
+      },
+      request: new Request("http://localhost/font", {
+        headers: { "x-pracht-route-state-request": "1" },
+      }),
+    });
+
+    const json = (await response.json()) as Record<string, any>;
+    expect(json.fontHead.css).toContain('font-family:"Route Font"');
+    expect(json.fontHead.preloadLinks).toEqual(font.preloadLinks);
+    expect(headCalls).toBe(1);
   });
 
   it("uses a route loaderCache duration for successful route-state data", async () => {
@@ -858,7 +892,10 @@ describe("handlePrachtRequest cache variance", () => {
     });
 
     expect(response.headers.get("cache-control")).toBe("private, max-age=3600");
-    await expect(response.json()).resolves.toEqual({ data: { plan: "MVP" } });
+    await expect(response.json()).resolves.toEqual({
+      data: { plan: "MVP" },
+      fontHead: { preloadLinks: [], css: "" },
+    });
   });
 
   it.each([false, 0] as const)("treats loaderCache %s as no-store", async (loaderCache) => {
@@ -884,32 +921,168 @@ describe("handlePrachtRequest cache variance", () => {
     expect(response.headers.get("cache-control")).toBe("no-store");
   });
 
-  it("preserves an explicit loader Response cache policy", async () => {
+  it.each(["return", "throw"] as const)(
+    "preserves an explicit loader Response cache policy when loaders %s it",
+    async (delivery) => {
+      const app = defineApp({
+        routes: [route("/pricing", "./routes/pricing.tsx", { render: "ssr", loaderCache: 3600 })],
+      });
+
+      const response = await handlePrachtRequest({
+        app,
+        registry: {
+          routeModules: {
+            "./routes/pricing.tsx": async () => ({
+              Component: () => h("main", null, "MVP"),
+              head: () => ({
+                fonts: [defineFont({ family: "Pricing", src: "/fonts/pricing.woff2" })],
+              }),
+              loader: async () => {
+                const response = Response.json(
+                  { data: { plan: "MVP" } },
+                  {
+                    headers: {
+                      "cache-control": "private, max-age=5",
+                      "content-encoding": "br",
+                      "content-length": "1",
+                      etag: '"loader-payload"',
+                      "last-modified": "Thu, 13 Aug 2026 12:00:00 GMT",
+                      "x-loader-header": "preserved",
+                    },
+                  },
+                );
+                if (delivery === "throw") throw response;
+                return response;
+              },
+            }),
+          },
+        },
+        request: new Request("http://localhost/pricing", {
+          headers: { "x-pracht-route-state-request": "1" },
+        }),
+      });
+
+      expect(response.headers.get("cache-control")).toBe("private, max-age=5");
+      expect(response.headers.get("x-loader-header")).toBe("preserved");
+      expect(response.headers.get("content-length")).toBeNull();
+      expect(response.headers.get("content-encoding")).toBeNull();
+      expect(response.headers.get("etag")).toBeNull();
+      expect(response.headers.get("last-modified")).toBeNull();
+      await expect(response.json()).resolves.toMatchObject({
+        data: { plan: "MVP" },
+        fontHead: { css: expect.stringContaining('font-family:"Pricing"') },
+      });
+    },
+  );
+
+  it("replaces middleware-provided font fragments with framework-generated fragments", async () => {
+    const routeFont = defineFont({ family: "Trusted Route", src: "/fonts/trusted.woff2" });
     const app = defineApp({
-      routes: [route("/pricing", "./routes/pricing.tsx", { render: "ssr", loaderCache: 3600 })],
+      middleware: { gate: "./middleware/gate.ts" },
+      routes: [route("/gate", "./routes/gate.tsx", { middleware: ["gate"] })],
     });
 
     const response = await handlePrachtRequest({
       app,
       registry: {
+        middlewareModules: {
+          "./middleware/gate.ts": async () => ({
+            middleware: async () =>
+              Response.json({
+                data: { gated: true },
+                fontHead: {
+                  css: "body{display:none}",
+                  preloadLinks: [{ rel: "stylesheet", href: "https://attacker.invalid/font.css" }],
+                },
+              }),
+          }),
+        },
         routeModules: {
-          "./routes/pricing.tsx": async () => ({
-            Component: () => h("main", null, "MVP"),
-            loader: async () =>
-              Response.json(
-                { data: { plan: "MVP" } },
-                { headers: { "cache-control": "private, max-age=5" } },
-              ),
+          "./routes/gate.tsx": async () => ({
+            Component: () => null,
+            head: () => ({ fonts: [routeFont] }),
           }),
         },
       },
-      request: new Request("http://localhost/pricing", {
+      request: new Request("http://localhost/gate", {
         headers: { "x-pracht-route-state-request": "1" },
       }),
     });
 
-    expect(response.headers.get("cache-control")).toBe("private, max-age=5");
+    const payload = (await response.json()) as Record<string, any>;
+    expect(payload.data).toEqual({ gated: true });
+    expect(payload.fontHead.css).toContain('font-family:"Trusted Route"');
+    expect(payload.fontHead.css).not.toContain("body{display:none}");
+    expect(payload.fontHead.preloadLinks).toEqual(routeFont.preloadLinks);
   });
+
+  it.each([
+    { body: null, label: "empty", status: 204 },
+    { body: "{not-json", label: "malformed", status: 200 },
+  ])("preserves $label JSON-labelled middleware responses", async ({ body, status }) => {
+    const app = defineApp({
+      middleware: { gate: "./middleware/gate.ts" },
+      routes: [route("/gate", "./routes/gate.tsx", { middleware: ["gate"] })],
+    });
+
+    const response = await handlePrachtRequest({
+      app,
+      registry: {
+        middlewareModules: {
+          "./middleware/gate.ts": async () => ({
+            middleware: async () =>
+              new Response(body, {
+                headers: { "content-type": "application/json" },
+                status,
+              }),
+          }),
+        },
+        routeModules: {
+          "./routes/gate.tsx": async () => ({ Component: () => null }),
+        },
+      },
+      request: new Request("http://localhost/gate", {
+        headers: { "x-pracht-route-state-request": "1" },
+      }),
+    });
+
+    expect(response.status).toBe(status);
+    expect(response.headers.get("content-type")).toBe("application/json");
+    await expect(response.text()).resolves.toBe(body ?? "");
+  });
+
+  it.each(["return", "throw"] as const)(
+    "includes empty font fragments when loaders %s JSON without a head",
+    async (delivery) => {
+      const app = defineApp({
+        routes: [route("/plain", "./routes/plain.tsx", { render: "ssr" })],
+      });
+
+      const response = await handlePrachtRequest({
+        app,
+        registry: {
+          routeModules: {
+            "./routes/plain.tsx": async () => ({
+              Component: () => h("main", null, "Plain"),
+              loader: async () => {
+                const response = Response.json({ data: { page: "plain" } });
+                if (delivery === "throw") throw response;
+                return response;
+              },
+            }),
+          },
+        },
+        request: new Request("http://localhost/plain", {
+          headers: { "x-pracht-route-state-request": "1" },
+        }),
+      });
+
+      await expect(response.json()).resolves.toEqual({
+        data: { page: "plain" },
+        fontHead: { preloadLinks: [], css: "" },
+      });
+    },
+  );
 
   it("applies a route loaderCache duration to loader Response data", async () => {
     const app = defineApp({
@@ -932,10 +1105,14 @@ describe("handlePrachtRequest cache variance", () => {
     });
 
     expect(response.headers.get("cache-control")).toBe("private, max-age=3600");
-    await expect(response.json()).resolves.toEqual({ data: { plan: "MVP" } });
+    await expect(response.json()).resolves.toEqual({
+      data: { plan: "MVP" },
+      fontHead: { preloadLinks: [], css: "" },
+    });
   });
 
   it("keeps loader Response errors out of the route loaderCache policy", async () => {
+    const errorFont = defineFont({ family: "Pricing Error", src: "/fonts/pricing-error.woff2" });
     const app = defineApp({
       routes: [route("/pricing", "./routes/pricing.tsx", { render: "ssr", loaderCache: 3600 })],
     });
@@ -946,7 +1123,15 @@ describe("handlePrachtRequest cache variance", () => {
         routeModules: {
           "./routes/pricing.tsx": async () => ({
             Component: () => h("main", null, "MVP"),
-            loader: async () => Response.json({ error: { message: "nope" } }, { status: 500 }),
+            head: () => ({ fonts: [errorFont] }),
+            loader: async () =>
+              Response.json(
+                { error: { message: "nope" } },
+                {
+                  headers: { "content-length": "1", etag: '"stale-error"' },
+                  status: 500,
+                },
+              ),
           }),
         },
       },
@@ -956,6 +1141,49 @@ describe("handlePrachtRequest cache variance", () => {
     });
 
     expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(response.headers.get("content-length")).toBeNull();
+    expect(response.headers.get("etag")).toBeNull();
+    const payload = (await response.json()) as Record<string, any>;
+    expect(payload.fontHead.css).toContain('font-family:"Pricing Error"');
+    expect(payload.fontHead.preloadLinks).toEqual(errorFont.preloadLinks);
+  });
+
+  it("adds error font fragments to structured-suffix JSON responses", async () => {
+    const errorFont = defineFont({ family: "Problem", src: "/fonts/problem.woff2" });
+    const app = defineApp({
+      routes: [route("/problem", "./routes/problem.tsx", { render: "ssr" })],
+    });
+
+    const response = await handlePrachtRequest({
+      app,
+      registry: {
+        routeModules: {
+          "./routes/problem.tsx": async () => ({
+            Component: () => h("main", null, "Problem"),
+            head: () => ({ fonts: [errorFont] }),
+            loader: async () =>
+              new Response(
+                JSON.stringify({
+                  error: { message: "Unprocessable", name: "Error", status: 422 },
+                }),
+                {
+                  headers: { "content-type": "application/problem+json" },
+                  status: 422,
+                },
+              ),
+          }),
+        },
+      },
+      request: new Request("http://localhost/problem", {
+        headers: { "x-pracht-route-state-request": "1" },
+      }),
+    });
+
+    expect(response.status).toBe(422);
+    expect(response.headers.get("content-type")).toBe("application/problem+json");
+    const payload = (await response.json()) as Record<string, any>;
+    expect(payload.fontHead.css).toContain('font-family:"Problem"');
+    expect(payload.fontHead.preloadLinks).toEqual(errorFont.preloadLinks);
   });
 
   it("treats _data=1 query parameter as a route-state request", async () => {
@@ -978,7 +1206,10 @@ describe("handlePrachtRequest cache variance", () => {
 
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toContain("application/json");
-    await expect(response.json()).resolves.toEqual({ data: { plan: "MVP" } });
+    await expect(response.json()).resolves.toEqual({
+      data: { plan: "MVP" },
+      fontHead: { preloadLinks: [], css: "" },
+    });
   });
 
   it("strips _data param from the URL passed to loaders", async () => {
@@ -1041,6 +1272,113 @@ describe("handlePrachtRequest cache variance", () => {
     expect(response.headers.get("cache-control")).toBe("no-store");
     await expect(response.json()).resolves.toEqual({ redirect: "/" });
   });
+
+  it.each(["return", "throw"] as const)(
+    "adds merged font fragments when middleware %s route-state short-circuits",
+    async (delivery) => {
+      const shellFont = defineFont({ family: "Shell Gate", src: "/fonts/shell-gate.woff2" });
+      const routeFont = defineFont({ family: "Route Gate", src: "/fonts/route-gate.woff2" });
+      const app = defineApp({
+        middleware: { gate: "./middleware/gate.ts" },
+        shells: { app: "./shells/app.tsx" },
+        routes: [route("/gate", "./routes/gate.tsx", { middleware: ["gate"], shell: "app" })],
+      });
+
+      const response = await handlePrachtRequest({
+        app,
+        registry: {
+          middlewareModules: {
+            "./middleware/gate.ts": async () => ({
+              middleware: async () => {
+                const response = Response.json({ data: { gated: true } });
+                if (delivery === "throw") throw response;
+                return response;
+              },
+            }),
+          },
+          routeModules: {
+            "./routes/gate.tsx": async () => ({
+              Component: () => null,
+              head: () => ({ fonts: [routeFont] }),
+            }),
+          },
+          shellModules: {
+            "./shells/app.tsx": async () => ({
+              Shell: ({ children }) => h("main", null, children),
+              head: () => ({ fonts: [shellFont] }),
+            }),
+          },
+        },
+        request: new Request("http://localhost/gate", {
+          headers: { "x-pracht-route-state-request": "1" },
+        }),
+      });
+
+      const payload = (await response.json()) as Record<string, any>;
+      expect(payload.data).toEqual({ gated: true });
+      expect(payload.fontHead.css).toContain('font-family:"Shell Gate"');
+      expect(payload.fontHead.css).toContain('font-family:"Route Gate"');
+    },
+  );
+
+  it.each(["route", "shell"] as const)(
+    "preserves a middleware route-state response when the %s module fails to load",
+    async (failingModule) => {
+      const routeFont = defineFont({
+        family: "Route Fallback",
+        src: "/fonts/route-fallback.woff2",
+      });
+      const shellFont = defineFont({
+        family: "Shell Fallback",
+        src: "/fonts/shell-fallback.woff2",
+      });
+      const app = defineApp({
+        middleware: { gate: "./middleware/gate.ts" },
+        shells: { app: "./shells/app.tsx" },
+        routes: [route("/gate", "./routes/gate.tsx", { middleware: ["gate"], shell: "app" })],
+      });
+
+      const response = await handlePrachtRequest({
+        app,
+        registry: {
+          middlewareModules: {
+            "./middleware/gate.ts": async () => ({
+              middleware: async () =>
+                Response.json(
+                  { error: { message: "denied", name: "AuthError", status: 401 } },
+                  { status: 401 },
+                ),
+            }),
+          },
+          routeModules: {
+            "./routes/gate.tsx": async () => {
+              if (failingModule === "route") throw new Error("route import failed");
+              return { Component: () => null, head: () => ({ fonts: [routeFont] }) };
+            },
+          },
+          shellModules: {
+            "./shells/app.tsx": async () => {
+              if (failingModule === "shell") throw new Error("shell import failed");
+              return {
+                Shell: ({ children }) => h("main", null, children),
+                head: () => ({ fonts: [shellFont] }),
+              };
+            },
+          },
+        },
+        request: new Request("http://localhost/gate", {
+          headers: { "x-pracht-route-state-request": "1" },
+        }),
+      });
+
+      expect(response.status).toBe(401);
+      const payload = (await response.json()) as Record<string, any>;
+      expect(payload.error).toEqual({ message: "denied", name: "AuthError", status: 401 });
+      expect(payload.fontHead.css).toContain(
+        failingModule === "route" ? 'font-family:"Shell Fallback"' : 'font-family:"Route Fallback"',
+      );
+    },
+  );
 });
 
 describe("handlePrachtRequest head metadata", () => {
@@ -1275,7 +1613,10 @@ describe("handlePrachtRequest document headers", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("x-route")).toBeNull();
     expect(response.headers.get("x-shell")).toBeNull();
-    await expect(response.json()).resolves.toEqual({ data: { plan: "MVP" } });
+    await expect(response.json()).resolves.toEqual({
+      data: { plan: "MVP" },
+      fontHead: { preloadLinks: [], css: "" },
+    });
   });
 });
 
@@ -1972,6 +2313,36 @@ describe("handlePrachtRequest ErrorBoundary", () => {
     expect(html).not.toContain("Database credentials invalid");
   });
 
+  it("includes route-scoped fonts in error-boundary documents", async () => {
+    const routeFont = defineFont({ family: "Boundary Font", src: "/fonts/boundary.woff2" });
+    const app = defineApp({
+      routes: [route("/boom", "./routes/boom.tsx")],
+    });
+
+    const response = await handlePrachtRequest({
+      app,
+      registry: {
+        routeModules: {
+          "./routes/boom.tsx": async () => ({
+            Component: () => null,
+            ErrorBoundary: () => h("p", { class: routeFont.className }, "Failed"),
+            head: () => ({ fonts: [routeFont] }),
+            loader: async () => {
+              throw new PrachtHttpError(500, "Failed");
+            },
+          }),
+        },
+      },
+      request: new Request("http://localhost/boom"),
+    });
+
+    expect(response.status).toBe(500);
+    const html = await response.text();
+    expect(html).toContain(`class="${routeFont.className}"`);
+    expect(html).toContain('font-family:"Boundary Font"');
+    expect(html).toContain('href="/fonts/boundary.woff2"');
+  });
+
   it("returns a route-state error payload for loader failures", async () => {
     const app = defineApp({
       routes: [route("/posts/:slug", "./routes/post.tsx")],
@@ -2004,7 +2375,89 @@ describe("handlePrachtRequest ErrorBoundary", () => {
         name: "PrachtHttpError",
         status: 404,
       },
+      fontHead: { preloadLinks: [], css: "" },
     });
+  });
+
+  it("includes shell and route font fragments in route-state error payloads", async () => {
+    const shellFont = defineFont({ family: "Error Shell", src: "/fonts/error.woff2" });
+    const routeFont = defineFont({ family: "Error Route", src: "/fonts/route-error.woff2" });
+    const app = defineApp({
+      shells: { app: "./shells/app.tsx" },
+      routes: [route("/boom", "./routes/boom.tsx", { shell: "app" })],
+    });
+
+    const response = await handlePrachtRequest({
+      app,
+      registry: {
+        routeModules: {
+          "./routes/boom.tsx": async () => ({
+            Component: () => null,
+            ErrorBoundary: () => h("p", null, "Failed"),
+            head: () => ({ fonts: [routeFont] }),
+            loader: async () => {
+              throw new PrachtHttpError(500, "Failed");
+            },
+          }),
+        },
+        shellModules: {
+          "./shells/app.tsx": async () => ({
+            Shell: ({ children }) => h("main", null, children),
+            head: () => ({ fonts: [shellFont] }),
+          }),
+        },
+      },
+      request: new Request("http://localhost/boom", {
+        headers: { "x-pracht-route-state-request": "1" },
+      }),
+    });
+
+    expect(response.status).toBe(500);
+    const payload = (await response.json()) as Record<string, any>;
+    expect(payload.fontHead.css).toContain('font-family:"Error Shell"');
+    expect(payload.fontHead.css).toContain('font-family:"Error Route"');
+    expect(payload.fontHead.preloadLinks).toEqual([
+      ...shellFont.preloadLinks,
+      ...routeFont.preloadLinks,
+    ]);
+  });
+
+  it("falls back to shell fonts when an error route head requires loader data", async () => {
+    const shellFont = defineFont({ family: "Safe Shell", src: "/fonts/safe-shell.woff2" });
+    const app = defineApp({
+      shells: { app: "./shells/app.tsx" },
+      routes: [route("/boom", "./routes/boom.tsx", { shell: "app" })],
+    });
+
+    const response = await handlePrachtRequest({
+      app,
+      registry: {
+        routeModules: {
+          "./routes/boom.tsx": async () => ({
+            Component: () => null,
+            ErrorBoundary: () => h("p", null, "Failed"),
+            head: ({ data }: any) => ({ title: data.title }),
+            loader: async () => {
+              throw new PrachtHttpError(500, "Original failure");
+            },
+          }),
+        },
+        shellModules: {
+          "./shells/app.tsx": async () => ({
+            Shell: ({ children }) => h("main", null, children),
+            head: () => ({ fonts: [shellFont] }),
+          }),
+        },
+      },
+      request: new Request("http://localhost/boom", {
+        headers: { "x-pracht-route-state-request": "1" },
+      }),
+    });
+
+    expect(response.status).toBe(500);
+    const payload = (await response.json()) as Record<string, any>;
+    expect(payload.error.message).toBe("Internal Server Error");
+    expect(payload.fontHead.css).toContain('font-family:"Safe Shell"');
   });
 
   it("includes structured loader diagnostics in debug route-state responses", async () => {
@@ -2076,8 +2529,92 @@ describe("handlePrachtRequest ErrorBoundary", () => {
         name: "Error",
         status: 500,
       },
+      fontHead: { preloadLinks: [], css: "" },
     });
   });
+
+  it("attributes route-state head failures to the render phase", async () => {
+    const app = defineApp({
+      routes: [route("/posts/:slug", "./routes/post.tsx", { id: "post-show" })],
+    });
+
+    const response = await handlePrachtRequest({
+      app,
+      debugErrors: true,
+      registry: {
+        routeModules: {
+          "./routes/post.tsx": async () => ({
+            Component: () => h("main", null, "post"),
+            head: () => {
+              throw new Error("head exploded");
+            },
+            loader: async () => ({ title: "Post" }),
+          }),
+        },
+      },
+      request: new Request("http://localhost/posts/example", {
+        headers: { "x-pracht-route-state-request": "1" },
+      }),
+    });
+
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        diagnostics: {
+          phase: "render",
+          routeFile: "./routes/post.tsx",
+          routeId: "post-show",
+          routePath: "/posts/:slug",
+          status: 500,
+        },
+        message: "head exploded",
+      },
+      fontHead: { preloadLinks: [], css: "" },
+    });
+  });
+
+  it.each(["import", "head"] as const)(
+    "serializes route-state shell %s failures without rejecting error rendering",
+    async (failure) => {
+      const app = defineApp({
+        shells: { app: "./shells/app.tsx" },
+        routes: [route("/shell-error", "./routes/page.tsx", { shell: "app" })],
+      });
+
+      const response = await handlePrachtRequest({
+        app,
+        debugErrors: true,
+        registry: {
+          routeModules: {
+            "./routes/page.tsx": async () => ({ Component: () => null }),
+          },
+          shellModules: {
+            "./shells/app.tsx": async () => {
+              if (failure === "import") throw new Error("shell import failed");
+              return {
+                Shell: ({ children }) => h("main", null, children),
+                head: () => {
+                  throw new Error("shell head failed");
+                },
+              };
+            },
+          },
+        },
+        request: new Request("http://localhost/shell-error", {
+          headers: { "x-pracht-route-state-request": "1" },
+        }),
+      });
+
+      expect(response.status).toBe(500);
+      await expect(response.json()).resolves.toMatchObject({
+        error: {
+          diagnostics: { phase: "render" },
+          message: failure === "import" ? "shell import failed" : "shell head failed",
+        },
+        fontHead: { preloadLinks: [], css: "" },
+      });
+    },
+  );
 
   it("catches middleware failures and serializes middleware diagnostics", async () => {
     const app = defineApp({
@@ -2127,7 +2664,44 @@ describe("handlePrachtRequest ErrorBoundary", () => {
         name: "Error",
         status: 500,
       },
+      fontHead: { preloadLinks: [], css: "" },
     });
+  });
+
+  it("includes route fonts when middleware fails before the route terminal", async () => {
+    const routeFont = defineFont({ family: "Gate Error", src: "/fonts/gate-error.woff2" });
+    const app = defineApp({
+      middleware: { gate: "./middleware/gate.ts" },
+      routes: [route("/gate", "./routes/gate.tsx", { middleware: ["gate"] })],
+    });
+
+    const response = await handlePrachtRequest({
+      app,
+      registry: {
+        middlewareModules: {
+          "./middleware/gate.ts": async () => ({
+            middleware: async () => {
+              throw new Error("gate failed");
+            },
+          }),
+        },
+        routeModules: {
+          "./routes/gate.tsx": async () => ({
+            Component: () => null,
+            ErrorBoundary: () => h("p", { class: routeFont.className }, "Failed"),
+            head: () => ({ fonts: [routeFont] }),
+          }),
+        },
+      },
+      request: new Request("http://localhost/gate", {
+        headers: { "x-pracht-route-state-request": "1" },
+      }),
+    });
+
+    expect(response.status).toBe(500);
+    const payload = (await response.json()) as Record<string, any>;
+    expect(payload.fontHead.css).toContain('font-family:"Gate Error"');
+    expect(payload.fontHead.preloadLinks).toEqual(routeFont.preloadLinks);
   });
 
   it("sanitizes unexpected 5xx loader failures in route-state responses", async () => {
@@ -2162,6 +2736,7 @@ describe("handlePrachtRequest ErrorBoundary", () => {
         name: "Error",
         status: 500,
       },
+      fontHead: { preloadLinks: [], css: "" },
     });
   });
 
@@ -2197,6 +2772,7 @@ describe("handlePrachtRequest ErrorBoundary", () => {
         name: "Error",
         status: 503,
       },
+      fontHead: { preloadLinks: [], css: "" },
     });
   });
 
@@ -2242,6 +2818,7 @@ describe("handlePrachtRequest ErrorBoundary", () => {
         name: "Error",
         status: 500,
       },
+      fontHead: { preloadLinks: [], css: "" },
     });
   });
 
@@ -2281,6 +2858,7 @@ describe("handlePrachtRequest ErrorBoundary", () => {
           name: "Error",
           status: 500,
         },
+        fontHead: { preloadLinks: [], css: "" },
       });
     } finally {
       if (previousNodeEnv === undefined) {
