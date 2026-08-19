@@ -136,7 +136,8 @@ manifest and applied to static assets by the Node, Cloudflare, Netlify, and
 Vercel adapters as well as development responses. If Pracht's core `llmsTxt` option is
 also enabled, a collection using the default `/llms.txt` path fails the build
 instead of being silently overwritten; configure a distinct `summaryPath` or
-use only one generator. Artifact output is preflighted before publication:
+use only one generator. OpenAPI companion output is checked the same way rather
+than replacing a collection artifact. Artifact output is preflighted before publication:
 case-folded and file/directory collisions fail across collections, Pracht's
 internal content-header path is reserved, and artifacts cannot overlap files
 in `public/` or prerendered page output.

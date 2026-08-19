@@ -104,6 +104,22 @@ describe("defineCollection", () => {
     expect((await frenchOnly.getByRoute("/fr/docs/guide"))?.locale).toBe("fr");
   });
 
+  it("only infers source locales from directory segments", async () => {
+    const root = await fixture({ "en.md": "A page named after a locale" });
+    const collection = defineCollection({
+      name: "localized",
+      root,
+      routeBase: "/docs",
+      locales: { default: "en", supported: ["en", "fr"] },
+    });
+
+    await expect(collection.getById("en")).resolves.toMatchObject({
+      id: "en",
+      locale: "en",
+      path: "/docs/en",
+    });
+  });
+
   it("supports an explicit route registry and rejects ambiguous mappings", async () => {
     const root = await fixture({ "a.md": "A", "b.md": "B" });
     const collection = defineCollection({

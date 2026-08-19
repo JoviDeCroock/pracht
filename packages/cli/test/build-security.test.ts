@@ -5,6 +5,7 @@ import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
+  assertNoContentArtifactOutputCollision,
   assertNoContentArtifactPathCollision,
   assertNoPrerenderedContentArtifactCollisions,
   assertNoPublicContentArtifactCollisions,
@@ -71,6 +72,14 @@ describe("assertNoContentArtifactPathCollision", () => {
         "the core generator",
       ),
     ).toThrow(/collides with the core generator/);
+
+    expect(() =>
+      assertNoContentArtifactPathCollision(
+        { "/LLMS.TXT": { "content-type": "text/markdown" } },
+        "/llms.txt",
+        "the core generator",
+      ),
+    ).toThrow(/collides with the core generator/);
   });
 
   it("allows distinct generated paths", () => {
@@ -79,6 +88,36 @@ describe("assertNoContentArtifactPathCollision", () => {
         { "/llms-full.txt": { "content-type": "text/markdown" } },
         "/llms.txt",
         "the core generator",
+      ),
+    ).not.toThrow();
+  });
+});
+
+describe("assertNoContentArtifactOutputCollision", () => {
+  it("rejects portable OpenAPI output collisions", () => {
+    expect(() =>
+      assertNoContentArtifactOutputCollision(
+        { "/OpenAPI.json": { "content-type": "application/json" } },
+        "openapi.json",
+        "OpenAPI artifact",
+      ),
+    ).toThrow(/collides with OpenAPI artifact/);
+
+    expect(() =>
+      assertNoContentArtifactOutputCollision(
+        { "/reference": { "content-type": "text/html" } },
+        "reference/index.html",
+        "OpenAPI artifact",
+      ),
+    ).toThrow(/collides with OpenAPI artifact/);
+  });
+
+  it("allows unrelated companion output paths", () => {
+    expect(() =>
+      assertNoContentArtifactOutputCollision(
+        { "/search.json": { "content-type": "application/json" } },
+        "openapi.json",
+        "OpenAPI artifact",
       ),
     ).not.toThrow();
   });

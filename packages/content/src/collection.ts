@@ -306,7 +306,7 @@ export function defineCollection<
     if (locales) {
       if (!locale && locales.sourceDirectories) {
         const [candidate, ...rest] = relativePath.split("/");
-        if (locales.supported.includes(candidate)) {
+        if (rest.length > 0 && locales.supported.includes(candidate)) {
           locale = candidate;
           relativePath = rest.join("/");
         }

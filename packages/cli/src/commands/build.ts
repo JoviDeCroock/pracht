@@ -130,9 +130,31 @@ export function assertNoContentArtifactPathCollision(
   path: string,
   generator: string,
 ): void {
-  if (!Object.hasOwn(contentArtifactHeaders, path)) return;
+  const collision = findContentArtifactOutputCollision(contentArtifactHeaders, path.slice(1));
+  if (!collision) return;
   throw new Error(
-    `Content artifact ${JSON.stringify(path)} collides with ${generator}. Configure a different content artifact path or disable one generator.`,
+    `Content artifact ${JSON.stringify(collision)} collides with ${generator}. Configure a different content artifact path or disable one generator.`,
+  );
+}
+
+export function assertNoContentArtifactOutputCollision(
+  contentArtifactHeaders: Record<string, Record<string, string>>,
+  outputPath: string,
+  generator: string,
+): void {
+  const collision = findContentArtifactOutputCollision(contentArtifactHeaders, outputPath);
+  if (!collision) return;
+  throw new Error(
+    `Content artifact ${JSON.stringify(collision)} collides with ${generator}. Configure a different output path or disable one generator.`,
+  );
+}
+
+function findContentArtifactOutputCollision(
+  contentArtifactHeaders: Record<string, Record<string, string>>,
+  outputPath: string,
+): string | undefined {
+  return Object.keys(contentArtifactHeaders).find((path) =>
+    portableOutputPathsCollide(path.slice(1), outputPath),
   );
 }
 
@@ -402,6 +424,11 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
         ) {
           throw new Error("OpenAPI generator returned an invalid build artifact.");
         }
+        assertNoContentArtifactOutputCollision(
+          contentArtifactHeaders,
+          artifact.outputPath,
+          `OpenAPI artifact ${JSON.stringify(artifact.outputPath)}`,
+        );
         const filePath = resolveGeneratedArtifactOutputPath(clientDir, artifact.outputPath);
         if (seenOutputPaths.has(filePath)) {
           throw new Error(
