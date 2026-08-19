@@ -482,8 +482,9 @@ compressible text types (`text/*`, JSON, JavaScript, SVG, and other
 `+json`/`+xml` types) stream through `node:zlib` with per-chunk flushing, so
 streamed bodies such as SSE are delivered incrementally; static assets and ISG
 snapshots are compressed once per file version and served from an in-memory
-LRU. Successful ISG writes use an atomic file replacement whose durable
-identity gives every sibling handler the same updated validator, while local
+LRU. Successful ISG writes use an atomic file replacement whose filesystem
+identity stays private to local cache keys; content-derived public validators
+remain stable across sibling handlers and deployment replicas, while local
 cache generations discard old compressed bytes. Each response reads through
 the same open file handle that supplied its size and validator, so a concurrent
 replacement cannot mix bytes with stale metadata or bypass the cold-work byte

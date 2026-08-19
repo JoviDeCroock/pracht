@@ -181,9 +181,11 @@ wildcards, and `q=0` exclusions are honored, all via `node:zlib`):
   assets and regenerated ISG HTML pay the compression cost once — concurrent
   first requests to the same file share a single in-flight compression.
   Successful ISG writes are published as an atomic file replacement and
-  therefore receive a new durable file identity; public validators use only
-  that shared identity so sibling handlers advertise the same ETag, while each
-  handler advances its own cache generation to discard prior compressed bytes.
+  therefore receive a new durable file identity. That identity remains private
+  to local compression-cache keys; public ISG validators are content-derived,
+  so sibling handlers and deployment replicas advertise the same ETag for the
+  same snapshot while each handler advances its own cache generation to
+  discard prior compressed bytes.
   The response reads through the same open file handle that supplied its size
   and validator, so a concurrent replacement cannot be admitted under stale
   metadata or bypass the cold-work byte budget. Even same-size rewrites on

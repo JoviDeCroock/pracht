@@ -1,4 +1,4 @@
-import { mkdtempSync, mkdirSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { open } from "node:fs/promises";
 import {
   createServer,
@@ -1025,6 +1025,34 @@ describe("static asset compression", () => {
     expect(crossEncoding.headers["content-encoding"]).toBe("br");
   });
 
+  it("keeps static validators stable across replica-local file copies", async () => {
+    const source = `// replica\n${'console.log("stable");\n'.repeat(300)}`;
+    const fixedTimestamp = new Date(Math.floor(Date.now() / 1000) * 1000);
+    const createReplica = (): string => {
+      const staticDir = makeTempDir();
+      const assetDir = join(staticDir, "assets");
+      const assetPath = join(assetDir, "app.js");
+      mkdirSync(assetDir, { recursive: true });
+      writeFileSync(assetPath, source, "utf-8");
+      utimesSync(assetPath, fixedTimestamp, fixedTimestamp);
+      return staticDir;
+    };
+
+    const firstBase = await listen(
+      createNodeRequestHandler({ app: defineApp({ routes: [] }), staticDir: createReplica() }),
+    );
+    const secondBase = await listen(
+      createNodeRequestHandler({ app: defineApp({ routes: [] }), staticDir: createReplica() }),
+    );
+    const first = await rawRequest(`${firstBase}/assets/app.js`, { "accept-encoding": "gzip" });
+    const second = await rawRequest(`${secondBase}/assets/app.js`, {
+      "accept-encoding": "gzip",
+    });
+
+    expect(first.headers.etag).toBe(second.headers.etag);
+    expect(gunzipSync(first.body)).toEqual(gunzipSync(second.body));
+  });
+
   it("does not reuse same-metadata ISG validators after a handler restart", async () => {
     const staticDir = makeTempDir();
     const htmlDir = join(staticDir, "page");
@@ -1069,8 +1097,9 @@ describe("static asset compression", () => {
     expect(gunzipSync(dateRevalidation.body).toString("utf-8")).toBe(freshHtml);
   });
 
-  it("keeps regenerated ISG validators stable across sibling handlers", async () => {
-    const staticDir = makeTempDir();
+  it("keeps regenerated ISG validators stable across deployment replicas", async () => {
+    const primaryStaticDir = makeTempDir();
+    const siblingStaticDir = makeTempDir();
     const app = defineApp({
       routes: [
         route("/page", "./routes/page.tsx", {
@@ -1090,15 +1119,28 @@ describe("static asset compression", () => {
           }),
         },
       },
-      staticDir,
     };
-    const primaryBase = await listen(createNodeRequestHandler(options));
-    const siblingBase = await listen(createNodeRequestHandler(options));
+    const primaryBase = await listen(
+      createNodeRequestHandler({ ...options, staticDir: primaryStaticDir }),
+    );
 
     // The cold render writes the snapshot and advances only the primary
     // handler's process-local cache generation.
     const cold = await rawRequest(`${primaryBase}/page`);
     expect(cold.status).toBe(200);
+
+    // Model another deployment replica: the bytes and build metadata match,
+    // but its local device/inode/ctime identity necessarily differs.
+    const primaryHtmlPath = join(primaryStaticDir, "page", "index.html");
+    const siblingHtmlPath = join(siblingStaticDir, "page", "index.html");
+    const fixedTimestamp = new Date(Math.floor(Date.now() / 1000) * 1000);
+    mkdirSync(join(siblingStaticDir, "page"), { recursive: true });
+    writeFileSync(siblingHtmlPath, readFileSync(primaryHtmlPath));
+    utimesSync(primaryHtmlPath, fixedTimestamp, fixedTimestamp);
+    utimesSync(siblingHtmlPath, fixedTimestamp, fixedTimestamp);
+    const siblingBase = await listen(
+      createNodeRequestHandler({ ...options, staticDir: siblingStaticDir }),
+    );
 
     const primary = await rawRequest(`${primaryBase}/page`, { "accept-encoding": "gzip" });
     const sibling = await rawRequest(`${siblingBase}/page`, { "accept-encoding": "gzip" });

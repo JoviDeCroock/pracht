@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { open, type FileHandle } from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { join, resolve, sep } from "node:path";
@@ -35,7 +36,6 @@ import {
   createCompressionFileVersion,
   createCompressedStream,
   encodeEtagForEncoding,
-  encodeEtagForFileVersion,
   isCompressibleContentType,
   isNotModifiedRequest,
   isTransformableResponse,
@@ -363,8 +363,6 @@ async function serveStaticFile(
     if (staticResult.contentType.includes("text/html")) {
       applyHeadersManifest(headers, headersManifest, pathname);
     }
-    applyCompressionFileValidator(headers, compressionFileVersion);
-
     const encoding = negotiateFileEncoding(request, headers, fileStat.size, compression);
 
     if (isNotModified(request, headers, compressionGeneration === 0)) {
@@ -579,7 +577,14 @@ async function serveISGEntry<TContext>(
       }),
     );
     applyHeadersManifest(headers, headersManifest, pathname);
-    applyCompressionFileValidator(headers, compressionFileVersion);
+    await applyCompressionContentValidator(
+      headers,
+      htmlPath,
+      file,
+      compressionFileVersion,
+      compressionGeneration,
+      compression,
+    );
     headers.set("x-pracht-isg", isStale ? "stale" : "fresh");
 
     const encoding = negotiateFileEncoding(request, headers, fileStat.size, compression);
@@ -775,14 +780,33 @@ function createWeakEtag(fileStat: { mtimeMs: number; size: number }): string {
   return `W/"${fileStat.size.toString(16)}-${Math.floor(fileStat.mtimeMs).toString(16)}"`;
 }
 
-function applyCompressionFileValidator(
+async function applyCompressionContentValidator(
   headers: Headers,
+  filePath: string,
+  file: FileHandle,
   compressionFileVersion: string | undefined,
-): void {
-  if (!compressionFileVersion) return;
-  const etag = headers.get("etag");
-  if (!etag) return;
-  headers.set("etag", encodeEtagForFileVersion(etag, compressionFileVersion));
+  compressionGeneration: number,
+  compression: CompressionState | undefined,
+): Promise<void> {
+  if (!compressionFileVersion || !compression) return;
+  const key = `${filePath}\0${compressionFileVersion}\0${compressionGeneration}`;
+  const etag = await compression.cache.getOrCreateFileEtag(key, () => createFileContentEtag(file));
+  headers.set("etag", etag);
+}
+
+async function createFileContentEtag(file: FileHandle): Promise<string> {
+  const hash = createHash("sha256");
+  const buffer = Buffer.allocUnsafe(64 * 1024);
+  let position = 0;
+
+  while (true) {
+    const { bytesRead } = await file.read(buffer, 0, buffer.byteLength, position);
+    if (bytesRead === 0) break;
+    hash.update(buffer.subarray(0, bytesRead));
+    position += bytesRead;
+  }
+
+  return `W/"pracht-file-${hash.digest("base64url")}"`;
 }
 
 function isNotModified(request: Request, headers: Headers, allowLastModified = true): boolean {

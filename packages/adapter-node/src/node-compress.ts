@@ -175,26 +175,16 @@ export interface CompressionFileStats {
 }
 
 /**
- * Build a process-independent file version for static compression metadata.
- * ISG writes replace the file atomically, so the inode changes even when a
- * same-size rewrite lands on a filesystem whose timestamps are too coarse to
- * move. `ctimeMs` is included as a fallback for filesystems that do not expose
- * useful inode numbers. This version is also used in public validators, so it
- * deliberately contains only filesystem identity shared by sibling handlers;
- * process-local cache generations belong in cache keys instead.
+ * Build a handler-local file version for compression caches. ISG writes
+ * replace the file atomically, so the inode changes even when a same-size
+ * rewrite lands on a filesystem whose timestamps are too coarse to move.
+ * `ctimeMs` is included as a fallback for filesystems that do not expose useful
+ * inode numbers. This version must never enter a public validator: device,
+ * inode, and ctime values differ across replica-local copies of identical
+ * files.
  */
 export function createCompressionFileVersion(fileStat: CompressionFileStats): string {
   return [fileStat.dev, fileStat.ino, fileStat.size, fileStat.mtimeMs, fileStat.ctimeMs].join(":");
-}
-
-/** Fold a durable file version into an identity ETag before content negotiation. */
-export function encodeEtagForFileVersion(etag: string, fileVersion: string): string {
-  const digest = createHash("sha256")
-    .update(etag)
-    .update("\0")
-    .update(fileVersion)
-    .digest("base64url");
-  return `W/"pracht-file-${digest}"`;
 }
 
 /**
@@ -360,8 +350,10 @@ export function compressBuffer(buffer: Buffer, encoding: ContentEncoding): Promi
  */
 export class CompressedAssetCache {
   #entries = new Map<string, Buffer>();
+  #fileEtags = new Map<string, string>();
   #pathGenerations = new Map<string, number>();
   #pending = new Map<string, Promise<Buffer>>();
+  #pendingFileEtags = new Map<string, Promise<string>>();
   #pendingBytes = 0;
   #totalBytes = 0;
   readonly #maxBytes: number;
@@ -393,6 +385,46 @@ export class CompressedAssetCache {
       this.#entries.delete(key);
       this.#totalBytes -= value.byteLength;
     }
+    for (const key of this.#fileEtags.keys()) {
+      if (key.startsWith(prefix)) this.#fileEtags.delete(key);
+    }
+  }
+
+  /**
+   * Cache a content-derived public validator by path + local file version.
+   * The key may contain replica-local metadata because it never leaves this
+   * process; `produce()` must return a validator derived only from public,
+   * replica-stable representation data.
+   */
+  getOrCreateFileEtag(key: string, produce: () => Promise<string>): Promise<string> {
+    const cached = this.#fileEtags.get(key);
+    if (cached !== undefined) {
+      this.#fileEtags.delete(key);
+      this.#fileEtags.set(key, cached);
+      return Promise.resolve(cached);
+    }
+
+    let pending = this.#pendingFileEtags.get(key);
+    if (!pending) {
+      pending = Promise.resolve()
+        .then(produce)
+        .then((etag) => {
+          this.#fileEtags.set(key, etag);
+          // ISG invalidation removes old path entries eagerly. Keep a final
+          // bound for externally replaced files and long-lived custom servers.
+          while (this.#fileEtags.size > 1024) {
+            const oldest = this.#fileEtags.keys().next().value;
+            if (oldest === undefined) break;
+            this.#fileEtags.delete(oldest);
+          }
+          return etag;
+        })
+        .finally(() => {
+          this.#pendingFileEtags.delete(key);
+        });
+      this.#pendingFileEtags.set(key, pending);
+    }
+    return pending;
   }
 
   /**

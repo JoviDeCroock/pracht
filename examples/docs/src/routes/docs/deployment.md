@@ -40,9 +40,10 @@ Responses are compressed by default: the adapter negotiates `Accept-Encoding`
 with brotli preferred on ties) and streams dynamic HTML, route-state JSON, and
 other compressible text types through `node:zlib`, while static assets and ISG
 snapshots are compressed once per file version and served from an in-memory
-LRU; successful ISG writes use an atomic file replacement whose durable
-identity gives sibling handlers one shared updated validator, while local cache
-generations discard old compressed bytes. Response reads stay bound to the
+LRU; successful ISG writes use an atomic file replacement whose filesystem
+identity stays private to local cache keys, while content-derived public
+validators remain stable across sibling handlers and deployment replicas and
+local cache generations discard old compressed bytes. Response reads stay bound to the
 same open file version that supplied their size and validator, so concurrent
 replacement cannot mix bytes with stale metadata or bypass the cold-work byte
 budget. This remains correct when coarse filesystem timestamps do not change
