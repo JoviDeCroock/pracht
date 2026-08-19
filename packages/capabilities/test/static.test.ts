@@ -1,12 +1,24 @@
 import { describe, expect, it } from "vitest";
+import { parseAst } from "vite";
 
 import {
   evaluateLiteral,
   extractCapabilityProjection,
   extractCapabilityRegistrations,
   extractDefineCapabilityArgs,
+  hasNamedMiddlewareExport,
   scanTopLevelProperties,
 } from "../src/static.ts";
+
+describe("middleware export classification", () => {
+  it.each([
+    ["export const helper = 1, middleware = () => {};", true],
+    ["namespace Helpers { export const middleware = () => {}; }\nexport { Helpers };", false],
+    ["type Contract = () => void;\nexport { Contract as middleware };", false],
+  ])("classifies %j as %s", (source, expected) => {
+    expect(hasNamedMiddlewareExport(parseAst(source, { lang: "ts" }))).toBe(expected);
+  });
+});
 
 describe("capability static extraction", () => {
   it("ignores defineCapability examples in comments and strings", () => {

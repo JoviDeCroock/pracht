@@ -1,6 +1,6 @@
 import { readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, extname, join, relative } from "node:path";
-import { maskCommentsAndStrings } from "@pracht/capabilities/static";
+import { hasNamedMiddlewareExport, maskCommentsAndStrings } from "@pracht/capabilities/static";
 import { parseAst } from "vite";
 import { getRolldownLang } from "./client-module-query.ts";
 import { detectHeadExport, detectLoaderExport } from "./route-loader-hints.ts";
@@ -10,8 +10,6 @@ import {
   normalizeAdditionalExtensions,
   withAdditionalExtensions,
 } from "./route-extensions.ts";
-import { collectBindingNamesFromPattern, getIdentifierName } from "./scope-analysis-helpers.ts";
-import type { OxcNode } from "./scope-analysis-types.ts";
 
 export interface ScannedPage {
   absolutePath: string;
@@ -137,123 +135,7 @@ export function findPagesMiddlewareFile(
 
 /** Whether a middleware module statically exposes a binding named `middleware`. */
 function exportsMiddleware(source: string, file: string): boolean {
-  const program = parseAst(source, { lang: getRolldownLang(file) }) as OxcNode;
-  const { runtimeBindings, typeOnlyBindings } = collectTopLevelBindingKinds(program);
-
-  for (const statement of program.body as OxcNode[]) {
-    if (statement.type === "ExportAllDeclaration") {
-      // `export type *` has no runtime bindings, while
-      // `export * as middleware` exposes a namespace object rather than the
-      // required function. Only an ordinary value `export * from` can
-      // conservatively re-export a working middleware binding.
-      if (statement.exportKind === "type" || statement.exported) continue;
-      // The exported names cannot be known without loading the target module.
-      // Preserve working re-export barrels; runtime validation still fails closed.
-      return true;
-    }
-    if (statement.type !== "ExportNamedDeclaration" || statement.exportKind === "type") continue;
-
-    const declaration = statement.declaration as OxcNode | null;
-    if (declaration?.type === "FunctionDeclaration") {
-      if (getIdentifierName(declaration.id as OxcNode | null) === "middleware") return true;
-    } else if (declaration?.type === "VariableDeclaration" && declaration.declare !== true) {
-      for (const declarator of declaration.declarations as OxcNode[]) {
-        if (collectBindingNamesFromPattern(declarator.id as OxcNode).includes("middleware")) {
-          return true;
-        }
-      }
-    }
-
-    for (const specifier of statement.specifiers as OxcNode[]) {
-      if (specifier.type !== "ExportSpecifier" || specifier.exportKind === "type") continue;
-      if (getIdentifierName(specifier.exported as OxcNode | null) !== "middleware") continue;
-
-      // A re-export from another module cannot be resolved without loading it;
-      // preserve working value barrels and let runtime validation fail closed.
-      if (statement.source) return true;
-
-      const localName = getIdentifierName(specifier.local as OxcNode | null);
-      if (localName && typeOnlyBindings.has(localName) && !runtimeBindings.has(localName)) {
-        continue;
-      }
-      return true;
-    }
-  }
-
-  return false;
-}
-
-function collectTopLevelBindingKinds(program: OxcNode): {
-  runtimeBindings: Set<string>;
-  typeOnlyBindings: Set<string>;
-} {
-  const runtimeBindings = new Set<string>();
-  const typeOnlyBindings = new Set<string>();
-
-  for (const rawStatement of program.body as OxcNode[]) {
-    if (rawStatement.type === "ImportDeclaration") {
-      for (const specifier of rawStatement.specifiers as OxcNode[]) {
-        const name = getIdentifierName(specifier.local as OxcNode | null);
-        if (!name) continue;
-        if (rawStatement.importKind === "type" || specifier.importKind === "type") {
-          typeOnlyBindings.add(name);
-        } else {
-          runtimeBindings.add(name);
-        }
-      }
-      continue;
-    }
-
-    const statement =
-      rawStatement.type === "ExportNamedDeclaration"
-        ? (rawStatement.declaration as OxcNode | null)
-        : rawStatement;
-    if (!statement) continue;
-
-    if (
-      statement.type === "TSTypeAliasDeclaration" ||
-      statement.type === "TSInterfaceDeclaration"
-    ) {
-      const name = getIdentifierName(statement.id as OxcNode | null);
-      if (name) typeOnlyBindings.add(name);
-      continue;
-    }
-
-    if (statement.type === "TSDeclareFunction" || statement.declare === true) {
-      if (statement.type === "VariableDeclaration") {
-        for (const declarator of statement.declarations as OxcNode[]) {
-          for (const name of collectBindingNamesFromPattern(declarator.id as OxcNode)) {
-            typeOnlyBindings.add(name);
-          }
-        }
-      } else {
-        const name = getIdentifierName(statement.id as OxcNode | null);
-        if (name) typeOnlyBindings.add(name);
-      }
-      continue;
-    }
-
-    if (statement.type === "VariableDeclaration") {
-      for (const declarator of statement.declarations as OxcNode[]) {
-        for (const name of collectBindingNamesFromPattern(declarator.id as OxcNode)) {
-          runtimeBindings.add(name);
-        }
-      }
-      continue;
-    }
-
-    if (
-      statement.type === "FunctionDeclaration" ||
-      statement.type === "ClassDeclaration" ||
-      statement.type === "TSEnumDeclaration" ||
-      statement.type === "TSModuleDeclaration"
-    ) {
-      const name = getIdentifierName(statement.id as OxcNode | null);
-      if (name) runtimeBindings.add(name);
-    }
-  }
-
-  return { runtimeBindings, typeOnlyBindings };
+  return hasNamedMiddlewareExport(parseAst(source, { lang: getRolldownLang(file) }));
 }
 
 export function scanPagesDirectory(

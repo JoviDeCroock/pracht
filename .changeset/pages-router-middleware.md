@@ -1,6 +1,7 @@
 ---
 "@pracht/vite-plugin": minor
 "@pracht/cli": minor
+"@pracht/capabilities": patch
 "create-pracht": patch
 ---
 
@@ -16,8 +17,8 @@ has — and the file never becomes a route.
 
 Fail-open shapes are hard errors instead of silently ignored files: a nested
 `_middleware` file, a `_middleware/` directory, middleware-shaped files using
-unsupported page extensions such as Markdown/MDX, `.tsrx`, or a configured custom format
-(the middleware registry loads `.ts`/`.tsx`/`.js`/`.jsx` only), multiple
+unsupported page extensions such as Markdown/MDX, `.tsrx`, or a configured
+custom format (the middleware registry loads `.ts`/`.tsx`/`.js`/`.jsx` only), multiple
 root-level files, and a module without a runtime `middleware` export all fail
 the build, `pracht doctor`, and `pracht verify` (the runtime already refused to
 serve routes whose middleware lacks the export). The client bundle excludes
@@ -55,8 +56,9 @@ and namespace re-exports such as `export * as middleware`: none exposes the
 runtime `middleware` function required by the generated registration. CLI
 verification accepts quoted runtime aliases such as
 `export { fn as "middleware" }`, matching build-time module discovery, and
-continues to reject nested `_middleware` files even when another reserved
-underscore-prefixed directory contains them.
+accepts `middleware` in a multi-declarator export. Both paths now use the same
+AST classifier, and continue to reject nested `_middleware` files even when
+another reserved underscore-prefixed directory contains them.
 
 Ejected pages manifests are now identified by the marker emitted by
 `generateRoutesFile` rather than directory equality alone. Ordinary manifest

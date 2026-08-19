@@ -46,6 +46,185 @@ export interface CapabilityProjection {
   middleware: string[] | undefined;
 }
 
+type StaticAnalysisNode = {
+  type: string;
+  [key: string]: unknown;
+};
+
+/**
+ * Whether a parsed JavaScript/TypeScript module statically exposes a runtime
+ * binding named `middleware`.
+ *
+ * Consumers parse with their own Vite/Oxc language mode and pass the resulting
+ * ESTree-like program here. Keeping the classification shared prevents build
+ * and CLI verification from accepting different middleware module shapes.
+ */
+export function hasNamedMiddlewareExport(program: unknown): boolean {
+  const root = asStaticAnalysisNode(program);
+  if (!root) return false;
+
+  const { runtimeBindings, typeOnlyBindings } = collectTopLevelBindingKinds(root);
+
+  for (const statement of nodeArray(root.body)) {
+    if (statement.type === "ExportAllDeclaration") {
+      // `export type *` has no runtime bindings, while
+      // `export * as middleware` exposes a namespace object rather than the
+      // required function. Only an ordinary value `export * from` can
+      // conservatively re-export a working middleware binding.
+      if (statement.exportKind === "type" || statement.exported) continue;
+      return true;
+    }
+    if (statement.type !== "ExportNamedDeclaration" || statement.exportKind === "type") continue;
+
+    const declaration = asStaticAnalysisNode(statement.declaration);
+    if (declaration?.type === "FunctionDeclaration") {
+      if (getStaticIdentifierName(declaration.id) === "middleware") return true;
+    } else if (declaration?.type === "VariableDeclaration" && declaration.declare !== true) {
+      for (const declarator of nodeArray(declaration.declarations)) {
+        if (collectStaticBindingNames(declarator.id).includes("middleware")) return true;
+      }
+    }
+
+    for (const specifier of nodeArray(statement.specifiers)) {
+      if (specifier.type !== "ExportSpecifier" || specifier.exportKind === "type") continue;
+      if (getStaticIdentifierName(specifier.exported) !== "middleware") continue;
+
+      // A re-export from another module cannot be resolved without loading it;
+      // preserve working value barrels and let runtime validation fail closed.
+      if (statement.source) return true;
+
+      const localName = getStaticIdentifierName(specifier.local);
+      if (localName && typeOnlyBindings.has(localName) && !runtimeBindings.has(localName)) continue;
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function collectTopLevelBindingKinds(program: StaticAnalysisNode): {
+  runtimeBindings: Set<string>;
+  typeOnlyBindings: Set<string>;
+} {
+  const runtimeBindings = new Set<string>();
+  const typeOnlyBindings = new Set<string>();
+
+  for (const rawStatement of nodeArray(program.body)) {
+    if (rawStatement.type === "ImportDeclaration") {
+      for (const specifier of nodeArray(rawStatement.specifiers)) {
+        const name = getStaticIdentifierName(specifier.local);
+        if (!name) continue;
+        if (rawStatement.importKind === "type" || specifier.importKind === "type") {
+          typeOnlyBindings.add(name);
+        } else {
+          runtimeBindings.add(name);
+        }
+      }
+      continue;
+    }
+
+    const statement =
+      rawStatement.type === "ExportNamedDeclaration"
+        ? asStaticAnalysisNode(rawStatement.declaration)
+        : rawStatement;
+    if (!statement) continue;
+
+    if (
+      statement.type === "TSTypeAliasDeclaration" ||
+      statement.type === "TSInterfaceDeclaration"
+    ) {
+      const name = getStaticIdentifierName(statement.id);
+      if (name) typeOnlyBindings.add(name);
+      continue;
+    }
+
+    if (statement.type === "TSDeclareFunction" || statement.declare === true) {
+      if (statement.type === "VariableDeclaration") {
+        for (const declarator of nodeArray(statement.declarations)) {
+          for (const name of collectStaticBindingNames(declarator.id)) {
+            typeOnlyBindings.add(name);
+          }
+        }
+      } else {
+        const name = getStaticIdentifierName(statement.id);
+        if (name) typeOnlyBindings.add(name);
+      }
+      continue;
+    }
+
+    if (statement.type === "VariableDeclaration") {
+      for (const declarator of nodeArray(statement.declarations)) {
+        for (const name of collectStaticBindingNames(declarator.id)) runtimeBindings.add(name);
+      }
+      continue;
+    }
+
+    if (
+      statement.type === "FunctionDeclaration" ||
+      statement.type === "ClassDeclaration" ||
+      statement.type === "TSEnumDeclaration" ||
+      statement.type === "TSModuleDeclaration"
+    ) {
+      const name = getStaticIdentifierName(statement.id);
+      if (name) runtimeBindings.add(name);
+    }
+  }
+
+  return { runtimeBindings, typeOnlyBindings };
+}
+
+function collectStaticBindingNames(pattern: unknown): string[] {
+  const node = asStaticAnalysisNode(pattern);
+  if (!node) return [];
+
+  if (node.type === "Identifier") {
+    const name = getStaticIdentifierName(node);
+    return name ? [name] : [];
+  }
+  if (node.type === "RestElement" || node.type === "AssignmentPattern") {
+    return collectStaticBindingNames(node.argument ?? node.left);
+  }
+  if (node.type === "ArrayPattern") {
+    return unknownArray(node.elements).flatMap(collectStaticBindingNames);
+  }
+  if (node.type === "ObjectPattern") {
+    return nodeArray(node.properties).flatMap((property) => {
+      if (property.type === "RestElement") return collectStaticBindingNames(property.argument);
+      return collectStaticBindingNames(property.value);
+    });
+  }
+  return [];
+}
+
+function getStaticIdentifierName(value: unknown): string | null {
+  const node = asStaticAnalysisNode(value);
+  if (!node) return null;
+  if (node.type === "Identifier" || node.type === "JSXIdentifier") {
+    return typeof node.name === "string" ? node.name : null;
+  }
+  if (node.type === "Literal" || node.type === "StringLiteral") {
+    return typeof node.value === "string" ? node.value : null;
+  }
+  return null;
+}
+
+function asStaticAnalysisNode(value: unknown): StaticAnalysisNode | null {
+  if (!value || typeof value !== "object" || !("type" in value)) return null;
+  const type = (value as { type?: unknown }).type;
+  return typeof type === "string" ? (value as StaticAnalysisNode) : null;
+}
+
+function unknownArray(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : [];
+}
+
+function nodeArray(value: unknown): StaticAnalysisNode[] {
+  return unknownArray(value).flatMap((entry) => {
+    const node = asStaticAnalysisNode(entry);
+    return node ? [node] : [];
+  });
+}
+
 /**
  * Derive a capability's projection from its source, without executing it.
  *
