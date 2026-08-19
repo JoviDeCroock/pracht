@@ -57,11 +57,12 @@ served as `application/wasm` and follows the same compression path.
 Compressible responses carry `Vary: Accept-Encoding`, including on
 application-generated `304` responses; encoded variants get their own
 collision-resistant weak ETag,
-with dynamic `If-None-Match` / `If-Modified-Since` validation performed after
-representation selection so identity and encoded validators cannot cross.
-Range requests retain their original validators because `206` responses are
-never transformed. `HEAD` advertises the same negotiated metadata as `GET`,
-including buffered compressed lengths, and
+with dynamic `If-None-Match` / `If-Modified-Since` validation performed for
+every successful response after representation selection so identity and encoded
+validators cannot cross. Requests carrying `Range` retain their original
+validators and remain identity-encoded even when the application returns a full
+`200`; `206` responses are likewise never transformed. `HEAD` advertises the
+same negotiated metadata as `GET`, including buffered compressed lengths, and
 already-encoded, `no-transform`, Range, integrity-protected (`Content-Digest`,
 `Repr-Digest`, legacy
 `Digest`/`Content-MD5`), and sub-1 KiB responses whose size is known are left

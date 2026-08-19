@@ -499,11 +499,13 @@ streaming compression. Static WebAssembly is served as `application/wasm`
 and follows that static compression path. Compressible responses carry
 `Vary: Accept-Encoding` (merged with existing `Vary` values), including on an
 application-generated `304`; encoded variants use their own collision-resistant
-weak ETag, and dynamic `If-None-Match` / `If-Modified-Since` validation runs
-after the adapter selects the representation so identity and encoded validators
-cannot cross. Range requests retain their original validators because their
-`206` responses are never transformed. `HEAD` advertises the same negotiated
-metadata as `GET`, including buffered compressed lengths.
+weak ETag, and dynamic `If-None-Match` / `If-Modified-Since` validation runs for
+every successful response after the adapter selects the representation so
+identity and encoded validators cannot cross. Requests carrying `Range` retain
+their original validators and remain identity-encoded even when the application
+returns a full `200`; `206` responses are likewise never transformed. `HEAD`
+advertises the same negotiated metadata as `GET`, including buffered compressed
+lengths.
 Already-encoded responses, `Cache-Control: no-transform`, Range/`204`/`304`
 responses, integrity-protected responses (`Content-Digest`, `Repr-Digest`,
 legacy `Digest`/`Content-MD5`), binary media, and bodies under 1 KiB when their

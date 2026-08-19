@@ -237,6 +237,7 @@ export async function writeWebResponse(
   }
   if (
     compression &&
+    !compression.request.headers.has("range") &&
     compressibleContentType &&
     isTransformableResponse(response.status, response.headers)
   ) {
@@ -257,7 +258,8 @@ export async function writeWebResponse(
   const responseEtag = getNodeHeaderValue(res, "etag");
   if (
     compression &&
-    response.status === 200 &&
+    response.status >= 200 &&
+    response.status < 300 &&
     (compression.request.method === "GET" || compression.request.method === "HEAD") &&
     isNotModifiedRequest(
       compression.request,
@@ -273,6 +275,7 @@ export async function writeWebResponse(
     res.statusCode = 304;
     res.statusMessage = "Not Modified";
     res.removeHeader("content-length");
+    res.removeHeader("content-range");
     if (response.body) {
       // Cancellation is cleanup, not part of the conditional response. A
       // proxied/custom stream is allowed to reject cancellation; do not let

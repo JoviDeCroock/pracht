@@ -230,12 +230,14 @@ Correctness guarantees:
   `If-None-Match` revalidation can never answer an identity request with a
   cached brotli body or vice versa. Strong
   application ETags are weakened because streaming compression bytes can vary
-  with chunk boundaries. The adapter evaluates dynamic `If-None-Match` and
-  `If-Modified-Since` only after selecting the outgoing representation
-  (`If-None-Match` takes precedence), including valid quoted opaque tags that
-  contain commas, so application-level identity validation cannot short-circuit
-  an encoded request with a cross-encoding `304`. Range requests retain their
-  original validators because their `206` responses are never transformed.
+  with chunk boundaries. For every successful dynamic response, the adapter
+  evaluates `If-None-Match` and `If-Modified-Since` only after selecting the
+  outgoing representation (`If-None-Match` takes precedence), including valid
+  quoted opaque tags that contain commas, so application-level identity
+  validation cannot short-circuit an encoded request with a cross-encoding
+  `304`. Requests carrying `Range` retain their original validators and remain
+  identity-encoded even when the application ignores the range and returns a
+  full `200`; `206` responses are likewise never transformed.
 - `HEAD` advertises the same negotiated `Content-Encoding`, variant ETag, and
   buffered compressed `Content-Length` as the corresponding `GET` while
   omitting the body (streamed compressed lengths remain unknown).

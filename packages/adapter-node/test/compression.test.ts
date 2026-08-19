@@ -526,6 +526,61 @@ describe("dynamic response compression", () => {
     expect(response.headers["content-range"]).toBeUndefined();
   });
 
+  it("keeps ignored Range requests identity-encoded before application validation", async () => {
+    const identityEtag = '"ignored-range-v1"';
+    const received: Array<{ etag: string | null; range: string | null }> = [];
+    const base = await listen(
+      createNodeRequestHandler({
+        apiRoutes: resolveApiRoutes(["/src/api/ignored-range.ts"]),
+        app: defineApp({ routes: [] }),
+        registry: {
+          apiModules: {
+            "/src/api/ignored-range.ts": async () => ({
+              GET: async ({ request }) => {
+                received.push({
+                  etag: request.headers.get("if-none-match"),
+                  range: request.headers.get("range"),
+                });
+                if (request.headers.get("if-none-match") === identityEtag) {
+                  return new Response(null, { status: 304, headers: { etag: identityEtag } });
+                }
+                return new Response("ignored range payload ".repeat(300), {
+                  headers: { etag: identityEtag, "content-type": "text/plain" },
+                });
+              },
+            }),
+          },
+        },
+      }),
+    );
+
+    const ranged = await rawRequest(`${base}/api/ignored-range`, {
+      "accept-encoding": "gzip",
+      range: "not-a-valid-range",
+    });
+    const revalidated = await rawRequest(`${base}/api/ignored-range`, {
+      "accept-encoding": "gzip",
+      "if-none-match": identityEtag,
+      range: "not-a-valid-range",
+    });
+    const ordinary = await rawRequest(`${base}/api/ignored-range`, {
+      "accept-encoding": "gzip",
+    });
+
+    expect(ranged.status).toBe(200);
+    expect(ranged.headers["content-encoding"]).toBeUndefined();
+    expect(ranged.headers.etag).toBe(identityEtag);
+    expect(revalidated.status).toBe(304);
+    expect(revalidated.headers.etag).toBe(identityEtag);
+    expect(ordinary.headers["content-encoding"]).toBe("gzip");
+    expect(ordinary.headers.etag).toBe(encodeEtagForEncoding(identityEtag, "gzip"));
+    expect(received).toEqual([
+      { etag: null, range: "not-a-valid-range" },
+      { etag: identityEtag, range: "not-a-valid-range" },
+      { etag: null, range: null },
+    ]);
+  });
+
   it.each(["content-digest", "repr-digest", "digest", "content-md5"])(
     "preserves identity encoding when a response carries %s",
     async (integrityHeader) => {
@@ -652,6 +707,81 @@ describe("dynamic response compression", () => {
     expect(revalidated.status).toBe(304);
     expect(revalidated.headers.etag).toBe(first.headers.etag);
     expect(revalidated.headers.vary).toContain("Accept-Encoding");
+    expect(revalidated.body.byteLength).toBe(0);
+  });
+
+  it("revalidates encoded ETags for successful non-200 responses", async () => {
+    const identityEtag = '"non-authoritative-v1"';
+    const base = await listen(
+      createNodeRequestHandler({
+        apiRoutes: resolveApiRoutes(["/src/api/non-authoritative.ts"]),
+        app: defineApp({ routes: [] }),
+        registry: {
+          apiModules: {
+            "/src/api/non-authoritative.ts": async () => ({
+              GET: async () =>
+                new Response("non-authoritative payload ".repeat(300), {
+                  status: 203,
+                  headers: { etag: identityEtag, "content-type": "text/plain" },
+                }),
+            }),
+          },
+        },
+      }),
+    );
+
+    const first = await rawRequest(`${base}/api/non-authoritative`, {
+      "accept-encoding": "gzip",
+    });
+    const revalidated = await rawRequest(`${base}/api/non-authoritative`, {
+      "accept-encoding": "gzip",
+      "if-none-match": first.headers.etag!,
+    });
+
+    expect(first.status).toBe(203);
+    expect(first.headers["content-encoding"]).toBe("gzip");
+    expect(first.headers.etag).toBe(encodeEtagForEncoding(identityEtag, "gzip"));
+    expect(revalidated.status).toBe(304);
+    expect(revalidated.headers.etag).toBe(first.headers.etag);
+    expect(revalidated.body.byteLength).toBe(0);
+  });
+
+  it("drops partial-response metadata when revalidating a successful 206", async () => {
+    const identityEtag = '"partial-v1"';
+    const base = await listen(
+      createNodeRequestHandler({
+        apiRoutes: resolveApiRoutes(["/src/api/partial.ts"]),
+        app: defineApp({ routes: [] }),
+        registry: {
+          apiModules: {
+            "/src/api/partial.ts": async () => ({
+              GET: async () =>
+                new Response("part", {
+                  status: 206,
+                  headers: {
+                    "content-range": "bytes 0-3/10",
+                    "content-type": "text/plain",
+                    etag: identityEtag,
+                  },
+                }),
+            }),
+          },
+        },
+      }),
+    );
+
+    const first = await rawRequest(`${base}/api/partial`, {
+      "accept-encoding": "gzip",
+    });
+    const revalidated = await rawRequest(`${base}/api/partial`, {
+      "accept-encoding": "gzip",
+      "if-none-match": first.headers.etag!,
+    });
+
+    expect(first.status).toBe(206);
+    expect(first.headers["content-range"]).toBe("bytes 0-3/10");
+    expect(revalidated.status).toBe(304);
+    expect(revalidated.headers["content-range"]).toBeUndefined();
     expect(revalidated.body.byteLength).toBe(0);
   });
 
@@ -1297,6 +1427,20 @@ describe("static asset compression", () => {
       "if-none-match": crossEncoding.headers.etag!,
     });
     expect(conditional.status).toBe(304);
+  });
+
+  it("keeps static Range requests identity-encoded when returning a full response", async () => {
+    const { handler } = createStaticHandler();
+    const base = await listen(handler);
+
+    const response = await rawRequest(`${base}/assets/app.js`, {
+      "accept-encoding": "br",
+      range: "bytes=0-3",
+    });
+
+    expect(response.status).toBe(200);
+    expect(response.headers["content-encoding"]).toBeUndefined();
+    expect(response.body.toString("utf-8")).toContain("payload");
   });
 
   it("serves identical bytes to concurrent first requests for the same asset", async () => {

@@ -430,6 +430,12 @@ function negotiateFileEncoding(
   // out as identity (small file today, larger after the next deploy).
   headers.set("vary", mergeVaryValue(headers.get("vary")));
 
+  // The application needs the original validators to decide whether and which
+  // byte range to serve. Keep the entire request identity-encoded even when it
+  // ignores an invalid/unsupported Range and answers with a full 200, otherwise
+  // that identity decision could be relabeled as a compressed representation.
+  if (request.headers.has("range")) return null;
+
   if (fileSize < COMPRESSION_MIN_SIZE) {
     return null;
   }

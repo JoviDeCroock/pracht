@@ -32,16 +32,17 @@ variants get their own collision-resistant weak ETag so conditional
 revalidation never crosses encodings or aliases a later application-provided
 identity validator (including when applications provide strong identity
 validators or use the adapter's reserved ETag namespace),
-dynamic `If-None-Match` and `If-Modified-Since` validation runs after
-representation selection (with ETag precedence) and supports commas inside
-quoted opaque tags, static `.wasm` files are served as compressible
-`application/wasm`, `HEAD` uses the same negotiated representation metadata
-as `GET` (including buffered compressed lengths), and already-encoded
+dynamic `If-None-Match` and `If-Modified-Since` validation runs for every
+successful response after representation selection (with ETag precedence) and
+supports commas inside quoted opaque tags, static `.wasm` files are served as
+compressible `application/wasm`, `HEAD` uses the same negotiated representation
+metadata as `GET` (including buffered compressed lengths), and already-encoded
 responses, `Cache-Control: no-transform`, Range/204/304 responses, binary
 media, integrity-protected responses, and bodies under 1 KiB (when the size is
 known) are left untouched. Identity `Content-Length` values are removed before
-streaming an encoded static response, Range requests retain their conditional
-headers, cancellation failures cannot replace a valid conditional `304` with
+streaming an encoded static response, requests carrying `Range` retain their
+conditional headers and remain identity-encoded even when answered with a full
+`200`, cancellation failures cannot replace a valid conditional `304` with
 a `500`, and a body failure before the first byte clears staged compression
 metadata before the adapter returns its unencoded 500 fallback.
 Disable with `nodeAdapter({ compression: false })` — recommended when a reverse
