@@ -113,6 +113,7 @@ describe("ensureCoreNamedImport", () => {
 describe("exportsMiddleware", () => {
   it.each([
     ["export const middleware: MiddlewareFn = async (a, n) => n();", true],
+    ["export const helper = 1, middleware = async (a, n) => n();", true],
     ["export function middleware(a, n) { return n(); }", true],
     ["export async function middleware(a, n) { return n(); }", true],
     ["const mw = 1;\nexport { mw as middleware };", true],
@@ -155,6 +156,7 @@ describe("exportsMiddleware", () => {
     ["const middleware = 1;\nexport { middleware as default };", false],
     ["export default async (a, n) => n();", false],
     ["export const authMiddleware = 1;", false],
+    ["namespace Helpers { export const middleware = () => {}; }\nexport { Helpers };", false],
     ["export { a, middleware as thing, b };", false],
     // Comments and strings are masked, so neither can fake an export.
     ["// export const middleware = 1;\nexport default 1;", false],

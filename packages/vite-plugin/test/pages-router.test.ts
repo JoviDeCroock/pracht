@@ -546,6 +546,19 @@ describe("generatePagesManifestSource", () => {
     expect(source).toContain('group({ middleware: ["pages"] }, [');
   });
 
+  it("accepts middleware in a multi-declarator export", () => {
+    const pagesDir = makeTempPagesDir();
+
+    writeFileSync(join(pagesDir, "index.tsx"), "export function Component() { return null; }\n");
+    writeFileSync(
+      join(pagesDir, "_middleware.ts"),
+      "export const helper = 1, middleware = async (_args, next) => next();\n",
+    );
+
+    const source = generatePagesManifestSource(scanPagesDirectory(pagesDir), { pagesDir });
+    expect(source).toContain(`pages: "./${basename(pagesDir)}/_middleware.ts",`);
+  });
+
   it("emits prefix and import-syntax refs for _middleware", () => {
     const pagesDir = makeTempPagesDir();
 

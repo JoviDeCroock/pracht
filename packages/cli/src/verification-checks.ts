@@ -2,7 +2,8 @@ import { dirname, extname, resolve } from "node:path";
 import { existsSync, readFileSync, statSync } from "node:fs";
 
 import { formatBytes } from "./bundle-report.js";
-import { maskCommentsAndStrings } from "@pracht/capabilities/static";
+import { hasNamedMiddlewareExport } from "@pracht/capabilities/static";
+import { parseAst } from "vite";
 
 import { extractRegistryEntries, extractRelativeModulePaths } from "./manifest.js";
 import {
@@ -160,253 +161,28 @@ export function collectManifestVerification(
   );
 }
 
-/**
- * Whether `source` exports a binding *named* `middleware`.
- *
- * Comments and string literals are masked first, and the `export { … }` clause
- * is read for the exported name rather than pattern-matched: `export
- * { middleware as default }` mentions the word but exports nothing called
- * `middleware`, and that is exactly the mistake this check exists to catch.
- * A re-export (`export * from`) is treated as a match because its names cannot
- * be known without resolving the other module — better to miss one than to
- * fail a working app.
- */
-/**
- * Whether a destructuring pattern binds a variable named `middleware`.
- *
- * `{ middleware }` and `[middleware]` do; `{ middleware: mw }` binds `mw`, and
- * `{ mw: middleware }` binds `middleware`. Renames are the whole point, so the
- * check reads which side of the `:` each name sits on.
- */
-function bindsMiddleware(pattern: string): boolean {
-  const parts = splitTopLevel(pattern.slice(1, -1));
+type MiddlewareParserLanguage = "js" | "jsx" | "ts" | "tsx";
 
-  if (pattern.startsWith("[")) {
-    return parts.some((element) => bindsName(element));
+/** Whether `source` statically exposes a runtime binding named `middleware`. */
+export function exportsMiddleware(source: string, file = "middleware.ts"): boolean {
+  try {
+    return hasNamedMiddlewareExport(parseAst(source, { lang: middlewareParserLanguage(file) }));
+  } catch {
+    return false;
   }
-
-  return parts.some((property) => {
-    const separator = topLevelIndexOf(property, ":");
-    // `{ auth: { middleware } }` binds `middleware`; `{ middleware: { inner } }`
-    // does not. Only the value side can bind, so only it is inspected.
-    return bindsName(separator === -1 ? property : property.slice(separator + 1));
-  });
 }
 
-function bindsName(text: string): boolean {
-  const bound = text
-    .trim()
-    .replace(/^\.\.\./, "")
-    .replace(/\s*=.*$/, "")
-    .trim();
-  if (bound.startsWith("{") || bound.startsWith("[")) return bindsMiddleware(bound);
-  return bound === "middleware";
-}
-
-/** Split on commas that are not inside a nested `{}` / `[]` / `()`. */
-function splitTopLevel(text: string): string[] {
-  const parts: string[] = [];
-  let depth = 0;
-  let start = 0;
-  for (let index = 0; index < text.length; index += 1) {
-    const char = text[index];
-    if (char === "{" || char === "[" || char === "(") depth += 1;
-    else if (char === "}" || char === "]" || char === ")") depth -= 1;
-    else if (char === "," && depth === 0) {
-      parts.push(text.slice(start, index));
-      start = index + 1;
-    }
+function middlewareParserLanguage(file: string): MiddlewareParserLanguage {
+  switch (extname(file).toLowerCase()) {
+    case ".js":
+      return "js";
+    case ".jsx":
+      return "jsx";
+    case ".tsx":
+      return "tsx";
+    default:
+      return "ts";
   }
-  parts.push(text.slice(start));
-  return parts;
-}
-
-/** Index of the first `needle` at nesting depth 0, or -1. */
-function topLevelIndexOf(text: string, needle: string): number {
-  let depth = 0;
-  for (let index = 0; index < text.length; index += 1) {
-    const char = text[index];
-    if (char === "{" || char === "[" || char === "(") depth += 1;
-    else if (char === "}" || char === "]" || char === ")") depth -= 1;
-    else if (char === needle && depth === 0) return index;
-  }
-  return -1;
-}
-
-/**
- * Every destructuring pattern in an `export const|let|var` declaration.
- *
- * Scanned with a delimiter counter rather than a regex: a non-greedy match
- * stops at the first `}`, truncating a nested pattern
- * (`{ auth: { middleware } }`), and the optional type annotation between the
- * pattern and `=` is easier to skip explicitly than to express.
- */
-function destructuredExportPatterns(code: string): string[] {
-  const patterns: string[] = [];
-
-  for (const match of code.matchAll(/export\s+(?:const|let|var)\s*(?=[{[])/g)) {
-    const open = (match.index ?? 0) + match[0].length;
-    const close = matchingDelimiter(code, open);
-    if (close === -1) continue;
-
-    // Skip an optional `: Type` annotation, then require the `=` that makes
-    // this a declaration.
-    if (!/^\s*(?::[^=]*)?=/.test(code.slice(close + 1))) continue;
-
-    patterns.push(code.slice(open, close + 1));
-  }
-
-  return patterns;
-}
-
-/** Index of the delimiter closing the one at `open`, or -1. */
-function matchingDelimiter(code: string, open: number): number {
-  let depth = 0;
-  for (let index = open; index < code.length; index += 1) {
-    const char = code[index];
-    if (char === "{" || char === "[" || char === "(") depth += 1;
-    else if (char === "}" || char === "]" || char === ")") {
-      depth -= 1;
-      if (depth === 0) return index;
-    }
-  }
-  return -1;
-}
-
-export function exportsMiddleware(source: string): boolean {
-  const code = maskCommentsAndStrings(source);
-
-  // export const/let/var/function/async function middleware
-  if (/export\s+(?:async\s+)?(?:function|const|let|var)\s+middleware\b/.test(code)) return true;
-
-  // export const { middleware } = …  /  export const [middleware] = …
-  // The *bound* name has to be `middleware`: `{ middleware: mw }` binds `mw`
-  // and exports nothing called `middleware`, the same trap as
-  // `export { middleware as default }`.
-  for (const pattern of destructuredExportPatterns(code)) {
-    if (bindsMiddleware(pattern)) return true;
-  }
-
-  // Names cannot be resolved without the other module; assume the best.
-  if (/export\s*\*\s*from/.test(code)) return true;
-
-  for (const clause of code.matchAll(/export\s*\{([^}]*)\}/g)) {
-    const clauseStart = (clause.index ?? 0) + clause[0].indexOf("{") + 1;
-    const sourceClause = source.slice(clauseStart, clauseStart + clause[1].length);
-    for (const [specifier, sourceSpecifier] of splitTopLevelPairs(clause[1], sourceClause)) {
-      const trimmed = specifier.trim();
-      // `export { type Middleware as middleware }` exposes no runtime value.
-      // Keep `export { type as middleware }` valid: there `type` is the local
-      // value binding, not TypeScript's type-only specifier modifier.
-      if (/^type\s+(?!as\b)/.test(trimmed)) continue;
-
-      // Do not consume trailing whitespace: a quoted export name is entirely
-      // masked, so a greedy `\s+` would swallow the name's source span too.
-      const separator = [...specifier.matchAll(/\s+as\b/g)].at(-1);
-      const local = (separator ? specifier.slice(0, separator.index) : specifier).trim();
-      if (local === "" && !separator) continue;
-      // `a as b` exports `b`; a bare `a` exports `a`.
-      const exportedStart = separator ? (separator.index ?? 0) + separator[0].length : 0;
-      const exported = readExportedName(
-        specifier.slice(exportedStart),
-        sourceSpecifier.slice(exportedStart),
-      );
-      if (exported !== "middleware") continue;
-
-      if (isProvablyTypeOnlyLocalBinding(code, local)) continue;
-      return true;
-    }
-  }
-
-  return false;
-}
-
-/** Pair top-level comma-separated masked text with the same slices of source. */
-function splitTopLevelPairs(masked: string, source: string): Array<[string, string]> {
-  const pairs: Array<[string, string]> = [];
-  let depth = 0;
-  let start = 0;
-  for (let index = 0; index < masked.length; index += 1) {
-    const char = masked[index];
-    if (char === "{" || char === "[" || char === "(") depth += 1;
-    else if (char === "}" || char === "]" || char === ")") depth -= 1;
-    else if (char === "," && depth === 0) {
-      pairs.push([masked.slice(start, index), source.slice(start, index)]);
-      start = index + 1;
-    }
-  }
-  pairs.push([masked.slice(start), source.slice(start)]);
-  return pairs;
-}
-
-function readExportedName(masked: string, source: string): string {
-  const identifier = masked.trim();
-  if (identifier) return identifier;
-
-  // Arbitrary module identifiers are valid export names. In particular,
-  // `export { fn as "middleware" }` creates the same runtime namespace entry
-  // as the unquoted spelling, even though masking correctly hides the string.
-  const quoted = /^(?:"middleware"|'middleware')$/.exec(source.trim());
-  return quoted ? "middleware" : "";
-}
-
-function isProvablyTypeOnlyLocalBinding(code: string, name: string): boolean {
-  const escapedName = escapeRegExp(name);
-
-  // Declaration merging can give an interface/type name a runtime value. A
-  // concrete value declaration wins even when a type declaration also exists.
-  const runtimeDeclaration = new RegExp(
-    `(?:^|[;}]|\\n)\\s*(?:export\\s+)?(?!declare\\s)(?:async\\s+)?(?:const|let|var|function|class|enum|namespace)\\s+${escapedName}\\b`,
-    "m",
-  );
-  if (runtimeDeclaration.test(code)) return false;
-
-  const erasedDeclaration = new RegExp(
-    `(?:^|[;}]|\\n)\\s*(?:export\\s+)?(?:declare\\s+)?(?:type|interface)\\s+${escapedName}\\b`,
-    "m",
-  );
-  if (erasedDeclaration.test(code)) return true;
-
-  const ambientDeclaration = new RegExp(
-    `(?:^|[;}]|\\n)\\s*(?:export\\s+)?declare\\s+(?:const|let|var|function|class|enum|namespace)\\s+${escapedName}\\b`,
-    "m",
-  );
-  if (ambientDeclaration.test(code)) return true;
-
-  for (const match of code.matchAll(/\bimport\s+([^;]+?)\s+from\b/g)) {
-    const clause = match[1].trim();
-    if (clause.startsWith("type ")) {
-      if (importClauseBindsName(clause.slice("type ".length), name)) return true;
-      continue;
-    }
-
-    const namedStart = clause.indexOf("{");
-    const namedEnd = clause.lastIndexOf("}");
-    if (namedStart === -1 || namedEnd <= namedStart) continue;
-    for (const specifier of splitTopLevel(clause.slice(namedStart + 1, namedEnd))) {
-      const trimmed = specifier.trim();
-      if (!trimmed.startsWith("type ")) continue;
-      if (importClauseBindsName(trimmed.slice("type ".length), name)) return true;
-    }
-  }
-
-  return false;
-}
-
-function importClauseBindsName(clause: string, name: string): boolean {
-  const namespace = /^\*\s+as\s+([A-Za-z_$][\w$]*)$/.exec(clause.trim());
-  if (namespace) return namespace[1] === name;
-
-  for (const specifier of splitTopLevel(clause.replace(/^\{/, "").replace(/\}$/, ""))) {
-    const parts = specifier.trim().split(/\s+as\s+/);
-    const local = (parts.length > 1 ? parts[parts.length - 1] : parts[0]).trim();
-    if (local === name) return true;
-  }
-  return false;
-}
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 /**
@@ -427,7 +203,7 @@ function collectMiddlewareExportChecks(
   for (const entry of entries) {
     const file = resolve(manifestDir, entry.path);
     if (!existsSync(file)) continue; // already reported by the module-path check
-    if (!exportsMiddleware(readFileSync(file, "utf-8"))) {
+    if (!exportsMiddleware(readFileSync(file, "utf-8"), file)) {
       missing.push(`${entry.name} (${entry.path})`);
     }
   }
@@ -776,7 +552,7 @@ function collectPagesMiddlewareChecks(
   const middleware = rootFiles[0];
   if (!middleware) return;
 
-  if (!exportsMiddleware(readFileSync(middleware.file, "utf-8"))) {
+  if (!exportsMiddleware(readFileSync(middleware.file, "utf-8"), middleware.file)) {
     checks.push(
       createCheck(
         "error",
