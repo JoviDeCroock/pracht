@@ -46,6 +46,7 @@ describe("prachtContent", () => {
       await transform.call({} as never, "text", join(temporaryDirectory, "page.txt")),
     ).toBeNull();
     expect(await transform.call({} as never, "# Draft", unregistered)).toBeNull();
+    expect(await transform.call({} as never, 'export default "# Raw"', `${source}?raw`)).toBeNull();
   });
 
   it("generates a filesystem-free production module for each collection", async () => {

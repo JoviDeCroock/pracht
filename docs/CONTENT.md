@@ -77,6 +77,8 @@ module receives intrinsic dimensions and cached, content-hashed WebP variants.
 The final output is plain `<img>` markup with `srcset` and `sizes`, so it works
 for SSR, SSG, and `hydration: "none"` without a client Markdown or image
 runtime. Root-relative `public/`, remote, and data URLs remain unchanged.
+Vite resource queries such as `?raw` and `?url` also retain their normal Vite
+semantics instead of being claimed by the collection route-module transform.
 
 ## Registry and paths
 
@@ -144,9 +146,10 @@ than replacing a collection artifact. Artifact output is preflighted before publ
 case-folded and file/directory collisions fail across collections, Pracht's
 entire `/_pracht` build-output namespace is reserved, and artifacts cannot
 overlap files in `public/` or prerendered page output. Artifact paths must use
-canonical ASCII URL segments without percent encoding; spaces and non-ASCII
-segments are rejected because deployment adapters otherwise resolve them to
-different on-disk names.
+canonical, portable ASCII URL segments without percent encoding. Spaces,
+non-ASCII segments, Windows-reserved names, trailing dots, and
+filesystem-invalid characters are rejected because deployment adapters
+otherwise resolve them to different on-disk names.
 
 Artifacts are opt-in. In particular, adding a collection does not publish raw
 source or create an agent surface.

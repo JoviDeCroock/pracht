@@ -62,10 +62,24 @@ export function artifactFileName(path: string): string {
     );
   }
   const fileName = normalized.slice(1);
-  if (fileName.split("/").some((segment) => segment === "")) {
+  const segments = fileName.split("/");
+  if (segments.some((segment) => segment === "")) {
     throw new TypeError("content artifact path must not contain empty segments.");
   }
+  if (segments.some(pathSegmentIsNotPortableFileName)) {
+    throw new TypeError(
+      "content artifact path must use portable filesystem-safe segments without Windows-reserved names, trailing dots, or invalid filename characters.",
+    );
+  }
   return fileName;
+}
+
+function pathSegmentIsNotPortableFileName(segment: string): boolean {
+  return (
+    /[<>:"|?*]/.test(segment) ||
+    segment.endsWith(".") ||
+    /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(segment)
+  );
 }
 
 function hasControlCharacter(value: string): boolean {

@@ -302,14 +302,23 @@ describe("collection integration helpers", () => {
   it("rejects encoded artifact paths that adapters would map to different files", async () => {
     const root = await fixture({ "guide.md": "Guide" });
 
-    for (const path of ["/%66oo.txt", "/legal terms.txt", "/café.txt"]) {
+    for (const path of [
+      "/%66oo.txt",
+      "/legal terms.txt",
+      "/café.txt",
+      "/con.txt",
+      "/feed.",
+      "/search:latest.json",
+    ]) {
       const collection = defineCollection({
         name: "docs",
         root,
         artifacts: [() => ({ path, source: "content" })],
       });
 
-      await expect(collection.emitArtifacts()).rejects.toThrow(/without percent encoding/);
+      await expect(collection.emitArtifacts()).rejects.toThrow(
+        /without percent encoding|portable filesystem-safe/,
+      );
     }
   });
 

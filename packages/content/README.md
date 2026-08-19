@@ -118,8 +118,9 @@ export default defineConfig({
 });
 ```
 
-The first plugin transforms collection sources through the collection's
-`module` hook in every Vite environment. The second serves generated artifacts
+The first plugin transforms plain collection source imports through the
+collection's `module` hook in every Vite environment; resource queries such as
+`?raw` and `?url` retain Vite's built-in semantics. The second serves generated artifacts
 with GET/HEAD in development and emits identical static files in client builds.
 File watcher events invalidate only the affected memoized document and the
 shared route/source index. Artifact `contentType` values are carried into
@@ -133,9 +134,10 @@ a collection artifact. Generated artifact paths also cannot overlap files in
 retain their headers, or prerendered page files. Portable case-folded and
 file/directory collisions fail across collections, and Pracht's entire
 `/_pracht` build-output namespace is reserved. Artifact paths must use
-canonical ASCII URL segments without percent encoding; spaces and non-ASCII
-segments are rejected because deployment adapters otherwise resolve them to
-different on-disk names.
+canonical, portable ASCII URL segments without percent encoding. Spaces,
+non-ASCII segments, Windows-reserved names, trailing dots, and
+filesystem-invalid characters are rejected because deployment adapters
+otherwise resolve them to different on-disk names.
 
 For request-time loaders and capabilities, import the generated snapshot rather
 than the filesystem-backed authoring collection:

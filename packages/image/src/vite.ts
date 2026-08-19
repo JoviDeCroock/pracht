@@ -181,6 +181,7 @@ export function createImageModuleCode(
   assetId: string,
   analyzed: Omit<PrachtImageMetadata, "src">,
   variants: PrachtImageMetadata["variants"] = undefined,
+  staticQuery = false,
 ): string {
   if (variants?.length) {
     return [
@@ -200,8 +201,11 @@ export function createImageModuleCode(
     `export const width = ${JSON.stringify(analyzed.width)};`,
     `export const height = ${JSON.stringify(analyzed.height)};`,
     `export const blurDataURL = ${JSON.stringify(analyzed.blurDataURL)};`,
+    ...(staticQuery ? ["export const variants = undefined;"] : []),
     "export { src };",
-    "export default { src, width, height, blurDataURL };",
+    staticQuery
+      ? "export default { src, width, height, blurDataURL, variants };"
+      : "export default { src, width, height, blurDataURL };",
   ].join("\n");
 }
 
@@ -236,6 +240,13 @@ async function resolvePublicFile(publicDir: string, source: string): Promise<str
 
   const stats = await stat(candidate).catch(() => undefined);
   return stats?.isFile() ? candidate : undefined;
+}
+
+function contentTypeForOriginal(format: string | undefined, extension: string): `image/${string}` {
+  if (format === "svg" || extension === ".svg") return "image/svg+xml";
+  if (format) return `image/${format}`;
+  const subtype = extension.replace(/^\./, "") || "octet-stream";
+  return `image/${subtype}`;
 }
 
 /**
@@ -312,7 +323,26 @@ export function prachtImage(options: PrachtImageOptions = {}): Plugin {
     intrinsicWidth: number,
   ): Promise<PrachtImageMetadata["variants"]> {
     const metadata = await sharp(source).metadata();
-    if (metadata.format === "svg" || (metadata.pages ?? 1) > 1) return undefined;
+    if (metadata.format === "svg" || (metadata.pages ?? 1) > 1) {
+      const extension = extname(filePath).toLowerCase();
+      const stem =
+        basename(filePath, extname(filePath)).replace(/[^a-zA-Z0-9_-]+/g, "-") || "image";
+      const hash = createHash("sha256")
+        .update(STATIC_CACHE_VERSION)
+        .update("original")
+        .update(source)
+        .digest("hex")
+        .slice(0, 12);
+      const fileName = posix.join(assetsDir, `${stem}.${hash}${extension}`);
+      staticAssets.set(fileName, source);
+      return [
+        {
+          src: staticAssetUrl(fileName),
+          width: intrinsicWidth,
+          type: contentTypeForOriginal(metadata.format, extension),
+        },
+      ];
+    }
 
     const widths = [
       ...new Set([...staticWidths.filter((width) => width < intrinsicWidth), intrinsicWidth]),
@@ -370,12 +400,15 @@ export function prachtImage(options: PrachtImageOptions = {}): Plugin {
     filePath: string,
     assetId: string,
     staticImport: boolean,
+    staticQuery: boolean,
   ): Promise<string> {
     const stats = await stat(filePath).catch(() => {
       throw new Error(`[pracht/image] Could not read "${filePath}" for a "?pracht" import.`);
     });
 
-    const cacheKey = `${filePath}\0${assetId}\0${staticImport ? "static" : "metadata"}`;
+    const cacheKey = `${filePath}\0${assetId}\0${
+      staticImport ? "static" : staticQuery ? "static-fallback" : "metadata"
+    }`;
     const cached = cache.get(cacheKey);
     if (cached && cached.mtimeMs === stats.mtimeMs && cached.size === stats.size) {
       return cached.code;
@@ -395,7 +428,7 @@ export function prachtImage(options: PrachtImageOptions = {}): Plugin {
       const variants = staticImport
         ? await createStaticVariants(sharp, source, filePath, analyzed.width)
         : undefined;
-      return createImageModuleCode(assetId, analyzed, variants);
+      return createImageModuleCode(assetId, analyzed, variants, staticQuery);
     })();
     // Drop failed transforms so a fixed image (or a later sharp install) is
     // retried instead of replaying a cached rejection.
@@ -453,14 +486,15 @@ export function prachtImage(options: PrachtImageOptions = {}): Plugin {
       };
       // Watch the source file so dev rebuilds when the image itself changes.
       this.addWatchFile(resolved.filePath);
-      const staticImport = isStaticPrachtImageId(id) && !resolved.publicAsset;
+      const staticQuery = isStaticPrachtImageId(id);
+      const staticImport = staticQuery && !resolved.publicAsset;
       if (staticImport && (base === "" || base === "./")) {
         throw new Error(
           '[pracht/image] "?pracht&pracht-static" imports require an absolute Vite base ' +
             '(for example "/" or "/docs/"); a relative base cannot produce route-safe image URLs.',
         );
       }
-      return transform(resolved.filePath, resolved.assetId, staticImport);
+      return transform(resolved.filePath, resolved.assetId, staticImport, staticQuery);
     },
     configureServer(server) {
       server.middlewares.use((request, response, next) => {

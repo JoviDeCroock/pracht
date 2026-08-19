@@ -57,7 +57,12 @@ export function prachtContent(options: PrachtContentOptions): Plugin[] {
     },
 
     async transform(code, id) {
-      const clean = id.split("?")[0];
+      // Preserve Vite's resource-query contracts. By the time transform hooks
+      // run, built-ins such as ?raw and ?url have already turned the source
+      // into JavaScript; compiling that JavaScript as Markdown would replace
+      // the requested representation with a Pracht route module.
+      if (id.includes("?")) return null;
+      const clean = id;
       const transformed: Array<{ code: string; collection: string }> = [];
       for (const collection of collections) {
         if (!collection.ownsSource(clean)) continue;

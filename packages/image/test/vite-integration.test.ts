@@ -167,9 +167,9 @@ describe("prachtImage in a real Vite build", () => {
       await writeFile(
         join(root, "entry.js"),
         [
-          'import publicMeta from "/photo.jpg?pracht&pracht-static";',
+          'import publicMeta, { variants as publicVariants } from "/photo.jpg?pracht&pracht-static";',
           'import sourceMeta from "./public/photo.jpg?pracht";',
-          "console.log(publicMeta, sourceMeta);",
+          "console.log(publicMeta, publicVariants, sourceMeta);",
         ].join("\n"),
       );
 
@@ -290,6 +290,44 @@ describe("prachtImage in a real Vite build", () => {
       await expect(readdir(join(root, "dist", "server", "assets"))).rejects.toMatchObject({
         code: "ENOENT",
       });
+    },
+  );
+
+  it(
+    "publishes original SVG and animated assets discovered only by an SSR graph",
+    { timeout: 60_000 },
+    async () => {
+      const { build } = await import("vite");
+      const root = await makeRoot();
+      await copyFile(fixture("icon.svg"), join(root, "icon.svg"));
+      await copyFile(fixture("animated.gif"), join(root, "animated.gif"));
+      await writeFile(
+        join(root, "entry.js"),
+        [
+          'import icon, { variants as iconVariants } from "./icon.svg?pracht&pracht-static";',
+          'import animation from "./animated.gif?pracht&pracht-static";',
+          "console.log(icon, iconVariants, animation);",
+          "export default [icon, animation];",
+        ].join("\n"),
+      );
+
+      await build({
+        root,
+        logLevel: "error",
+        plugins: [prachtImage()],
+        build: {
+          ssr: true,
+          outDir: join(root, "dist", "server"),
+          rollupOptions: { input: join(root, "entry.js") },
+        },
+      });
+
+      const assets = await readdir(join(root, "dist", "client", "assets"));
+      expect(assets.some((file) => file.endsWith(".svg"))).toBe(true);
+      expect(assets.some((file) => file.endsWith(".gif"))).toBe(true);
+      const serverEntry = await readFile(join(root, "dist", "server", "entry.mjs"), "utf8");
+      expect(serverEntry).toMatch(/["']\/assets\/icon\.[a-f0-9]+\.svg/);
+      expect(serverEntry).toMatch(/["']\/assets\/animated\.[a-f0-9]+\.gif/);
     },
   );
 });

@@ -141,6 +141,30 @@ describe("assertNoPublicContentArtifactCollisions", () => {
     }
   });
 
+  it("rejects portable and file-directory collisions with public files", () => {
+    const publicDir = mkdtempSync(join(tmpdir(), "pracht-content-public-"));
+    try {
+      mkdirSync(resolve(publicDir, "feeds"));
+      writeFileSync(resolve(publicDir, "Feed.json"), "case collision");
+      writeFileSync(resolve(publicDir, "feeds/blocker"), "ancestor collision");
+
+      expect(() =>
+        assertNoPublicContentArtifactCollisions(
+          { "/feed.json": { "content-type": "application/json" } },
+          publicDir,
+        ),
+      ).toThrow(/collides with.*public\/Feed\.json/);
+      expect(() =>
+        assertNoPublicContentArtifactCollisions(
+          { "/feeds/blocker/items.json": { "content-type": "application/json" } },
+          publicDir,
+        ),
+      ).toThrow(/collides with.*public\/feeds\/blocker/);
+    } finally {
+      rmSync(publicDir, { force: true, recursive: true });
+    }
+  });
+
   it("allows public files at unrelated paths", () => {
     const publicDir = mkdtempSync(join(tmpdir(), "pracht-content-public-"));
     try {

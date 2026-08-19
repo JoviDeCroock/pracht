@@ -162,11 +162,27 @@ export function assertNoPublicContentArtifactCollisions(
   contentArtifactHeaders: Record<string, Record<string, string>>,
   publicDir: string,
 ): void {
+  const publicFiles: string[] = [];
+  const collectPublicFiles = (directory: string): void => {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const absolutePath = resolve(directory, entry.name);
+      if (entry.isDirectory()) {
+        collectPublicFiles(absolutePath);
+        continue;
+      }
+      publicFiles.push(relative(publicDir, absolutePath).split(sep).join("/"));
+    }
+  };
+  collectPublicFiles(publicDir);
+
   for (const path of Object.keys(contentArtifactHeaders)) {
-    const publicPath = resolveGeneratedArtifactOutputPath(publicDir, path.slice(1));
-    if (!existsSync(publicPath)) continue;
+    const artifactOutput = path.slice(1);
+    const collision = publicFiles.find((publicFile) =>
+      portableOutputPathsCollide(artifactOutput, publicFile),
+    );
+    if (!collision) continue;
     throw new Error(
-      `Content artifact ${JSON.stringify(path)} collides with ${JSON.stringify(`public${path}`)}. Remove or rename one of the files so generated artifact bytes and headers cannot diverge.`,
+      `Content artifact ${JSON.stringify(path)} collides with ${JSON.stringify(`public/${collision}`)}. Remove or rename one of the files so generated artifact bytes and headers cannot diverge.`,
     );
   }
 }

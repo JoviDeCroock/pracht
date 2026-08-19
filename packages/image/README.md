@@ -48,8 +48,10 @@ For prebuilt responsive files, import
 with `prachtImage({ staticWidths, staticQuality })`. Static metadata bypasses
 the global runtime loader unless the component supplies an explicit `loader`.
 Server-only route variants are published to `dist/client` by default; use
-`staticOutDir` for a different adapter-served directory. SVG, animated, and
-root-relative `publicDir` sources stay unprocessed.
+`staticOutDir` for a different adapter-served directory. SVG and animated
+sources keep their original encoded bytes but are still published when only a
+server graph discovers them. Root-relative `publicDir` sources stay
+unprocessed at their stable public URLs.
 
 ```ts
 // src/api/_pracht/image.ts — mounts the optimization endpoint
