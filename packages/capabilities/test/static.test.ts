@@ -54,6 +54,21 @@ describe("capability static extraction", () => {
     ]);
   });
 
+  it("resolves shorthand manifest registries and module refs", () => {
+    const source = `
+      const pages = () => import("./pages/_middleware.ts");
+      const middleware = { pages };
+      export const app = defineApp({
+        middleware,
+        routes: [],
+      });
+    `;
+
+    expect(extractManifestModuleRegistrations(source, "middleware")).toEqual([
+      { name: "pages", file: "./pages/_middleware.ts" },
+    ]);
+  });
+
   it("ignores defineCapability examples in comments and strings", () => {
     const source = `
       // defineCapability({ title: "commented out" })

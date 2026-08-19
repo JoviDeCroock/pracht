@@ -685,11 +685,11 @@ describe("client route module build", () => {
       join(root, "src", "routes.ts"),
       `import { defineApp, group, route } from "@pracht/core";
 
-const pagesMiddleware = () => import("./pages/_middleware.ts");
+const pages = () => import("./pages/_middleware.ts");
 
 export const app = defineApp({
   shells: { pages: () => import("./pages/_app.tsx") },
-  middleware: { pages: pagesMiddleware },
+  middleware: { pages },
   routes: [
     group({ shell: "pages", middleware: ["pages"] }, [
       route("/", () => import("./pages/index.tsx")),

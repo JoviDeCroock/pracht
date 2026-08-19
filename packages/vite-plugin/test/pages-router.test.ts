@@ -916,6 +916,30 @@ describe("createPrachtRegistryModuleSource", () => {
     );
   });
 
+  it("keeps the pages route registry protected when an ejected shell moves out", () => {
+    const root = makeTempPagesDir();
+    mkdirSync(join(root, "src"), { recursive: true });
+    writeFileSync(
+      join(root, "src", "routes.ts"),
+      `// ${GENERATED_PAGES_MANIFEST_MARKER}\nexport const app = {};\n`,
+    );
+
+    const source = createPrachtClientModuleSource(
+      {
+        appFile: "/src/routes.ts",
+        routesDir: "/src/pages",
+        shellsDir: "/src/shells",
+        middlewareDir: "/src/pages",
+      },
+      { root },
+    );
+
+    expect(source).toContain('"!/src/pages/**/_*"');
+    expect(source).not.toContain('"!/src/shells/**/_*"');
+    expect(source).toContain('import.meta.glob("/src/shells/**/*.{ts,tsx,js,jsx,md,mdx}"');
+    expect(source).not.toContain('import.meta.glob("/src/shells/_app.');
+  });
+
   it("preserves underscore modules in ordinary co-located manifest directories", () => {
     const root = makeTempPagesDir();
     mkdirSync(join(root, "src"), { recursive: true });

@@ -614,8 +614,13 @@ export function extractManifestModuleRegistrations(
 ): { name: string; file: string }[] {
   const appBody = extractDefineAppObjectBody(manifestSource);
   if (!appBody) return [];
-  const registryValue = scanTopLevelProperties(appBody).get(key);
+  let registryValue = scanModuleRegistryProperties(appBody).get(key);
   if (!registryValue) return [];
+  const registryIdentifier = /^\s*([A-Za-z_$][A-Za-z0-9_$]*)\s*$/.exec(registryValue)?.[1];
+  if (registryIdentifier) {
+    const initializer = findTopLevelVariableInitializer(manifestSource, registryIdentifier);
+    if (initializer) registryValue = initializer;
+  }
   const braceStart = skipInsignificant(registryValue, 0);
   if (registryValue[braceStart] !== "{") return [];
   const braceEnd = findMatchingBrace(registryValue, braceStart, "{", "}");
@@ -644,9 +649,21 @@ function scanModuleRegistryProperties(block: string): Map<string, string> {
     const start = skipInsignificant(block, index);
     if (start >= block.length) break;
     const end = skipToTopLevelComma(block, start);
-    for (const [name, expression] of scanTopLevelPropertyEntries(block.slice(start, end))
-      .properties) {
+    const propertySource = block.slice(start, end);
+    const parsedProperties = scanTopLevelPropertyEntries(propertySource).properties;
+    for (const [name, expression] of parsedProperties) {
       properties.set(name, expression);
+    }
+    if (parsedProperties.size === 0) {
+      // Object shorthand is a normal way to keep module refs readable:
+      // `const pages = () => import("./pages/_middleware.ts");`
+      // `middleware: { pages }`. Preserve the property name as its expression
+      // so the same top-level binding resolver used for explicit values can
+      // recover the module path.
+      const shorthand = /^\s*([A-Za-z_$][A-Za-z0-9_$]*)\s*$/.exec(
+        maskComments(propertySource),
+      )?.[1];
+      if (shorthand) properties.set(shorthand, shorthand);
     }
     if (end >= block.length) break;
     index = end + 1;

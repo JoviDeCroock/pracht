@@ -174,16 +174,17 @@ export function createPrachtClientModuleSource(
   const routeGlob = `${dirPrefix}/**/*.{ts,tsx,js,jsx,md,mdx}`;
   const additionalRouteGlob = `${dirPrefix}/**/*.${extensionGlob(bareRouteExtensions)}`;
   const routeExcludes = createNonFullHydrationExcludes(resolved, buildOptions.root);
-  const pagesMiddlewareDir = isPagesMode ? resolved.pagesDir : resolved.middlewareDir;
   const usesEjectedPagesLayout = isEjectedPagesLayout(resolved, buildOptions.root ?? process.cwd());
   if (isPagesMode || usesEjectedPagesLayout) {
     // Pages middleware is server-only. Keep it out of the client registry in
-    // both auto-discovered pages mode and the documented ejected layout where
-    // routesDir, shellsDir, and middlewareDir point at the same pages
-    // directory. Reserve every underscore-prefixed helper too: otherwise an
+    // both auto-discovered pages mode and documented ejected layouts, including
+    // layouts that move `_app` or `_middleware` to a separate directory.
+    // Reserve every underscore-prefixed helper too: otherwise an
     // implementation imported by `_middleware.ts` would still be emitted as
     // an independent route/shell chunk through these broad registries.
-    routeExcludes.push(...createUnderscoreReservedExcludes(pagesMiddlewareDir));
+    routeExcludes.push(
+      ...createUnderscoreReservedExcludes(isPagesMode ? resolved.pagesDir : resolved.routesDir),
+    );
   }
   const routeGlobPattern = routeExcludes.length > 0 ? [routeGlob, ...routeExcludes] : routeGlob;
   const additionalRouteGlobPattern =
@@ -197,13 +198,15 @@ export function createPrachtClientModuleSource(
   const additionalShellGlob = isPagesMode
     ? `${resolved.pagesDir}/_app.${extensionGlob(bareRouteExtensions)}`
     : `${resolved.shellsDir}/**/*.${extensionGlob(bareRouteExtensions)}`;
-  const shellExcludes = usesEjectedPagesLayout
-    ? createUnderscoreReservedExcludes(resolved.middlewareDir)
+  const usesEjectedPagesShellLayout =
+    usesEjectedPagesLayout && sameConfigDirectory(resolved.shellsDir, resolved.routesDir);
+  const shellExcludes = usesEjectedPagesShellLayout
+    ? createUnderscoreReservedExcludes(resolved.shellsDir)
     : [];
   const shellGlobPattern = shellExcludes.length > 0 ? [shellGlob, ...shellExcludes] : shellGlob;
   const additionalShellGlobPattern =
     shellExcludes.length > 0 ? [additionalShellGlob, ...shellExcludes] : additionalShellGlob;
-  const ejectedPagesAppShellSources = usesEjectedPagesLayout
+  const ejectedPagesAppShellSources = usesEjectedPagesShellLayout
     ? [
         `  ...import.meta.glob(${JSON.stringify(`${resolved.shellsDir}/_app.{ts,tsx,js,jsx}`)}, { query: ${JSON.stringify(PRACHT_CLIENT_MODULE_QUERY)} }),`,
         `  ...import.meta.glob(${JSON.stringify(`${resolved.shellsDir}/_app.${extensionGlob(bareRouteExtensions)}`)}),`,
@@ -318,18 +321,23 @@ function sameConfigDirectory(left: string, right: string): boolean {
 }
 
 export function isEjectedPagesLayout(resolved: ResolvedPrachtPluginOptions, root: string): boolean {
-  if (
-    resolved.pagesDir ||
-    !sameConfigDirectory(resolved.routesDir, resolved.middlewareDir) ||
-    !sameConfigDirectory(resolved.shellsDir, resolved.middlewareDir)
-  ) {
-    return false;
-  }
+  if (resolved.pagesDir) return false;
 
   try {
     const appFile = resolve(root, resolved.appFile.replace(/^\//, ""));
     const manifestSource = readFileSync(appFile, "utf-8");
     if (manifestSource.includes(GENERATED_PAGES_MANIFEST_MARKER)) return true;
+
+    // Once every registry points at a different directory, the broad client
+    // route/shell globs no longer share a pages directory with the root
+    // middleware. Without the generated marker there is no durable pages
+    // layout left to classify. Keep ordinary split manifest apps untouched.
+    if (
+      !sameConfigDirectory(resolved.routesDir, resolved.middlewareDir) &&
+      !sameConfigDirectory(resolved.routesDir, resolved.shellsDir)
+    ) {
+      return false;
+    }
 
     // The generated header is documentation, not a security boundary. An
     // ejected manifest may be customized or have that comment removed while

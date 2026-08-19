@@ -1028,8 +1028,11 @@ Alternatively, move the files into the conventional `src/routes`,
 The generated file includes a header comment explaining how to use it
 directly. That comment is informational: when the root `_middleware` module
 remains registered, Pracht derives the ejected pages layout from its module
-reference, so editing or removing the header cannot put middleware or its
-underscore-reserved helpers into the client registries.
+reference (including shorthand registry objects/entries), so editing or
+removing the header cannot put middleware or its underscore-reserved helpers
+into the client registries. If `_app` or `_middleware` moves separately to a
+conventional directory, the generated marker keeps the configured pages route
+directory protected while each registry follows its new directory.
 
 ---
 
