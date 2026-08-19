@@ -430,4 +430,4 @@ pracht({
 });
 ```
 
-Alternatively, move the files into the conventional `src/routes`, `src/shells`, and `src/middleware` directories and update the manifest refs. The generated `src/routes.ts` is a standard manifest you can customize freely.
+Alternatively, move the files into the conventional `src/routes`, `src/shells`, and `src/middleware` directories and update the manifest refs. The generated `src/routes.ts` is a standard manifest you can customize freely. Its header comment is informational: while the root `_middleware` module remains registered, Pracht derives the ejected pages layout from that module reference, so editing or removing the header cannot put middleware or its underscore-reserved helpers into the client registries.

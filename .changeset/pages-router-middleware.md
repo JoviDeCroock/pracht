@@ -60,8 +60,14 @@ accepts `middleware` in a multi-declarator export. Both paths now use the same
 AST classifier, and continue to reject nested `_middleware` files even when
 another reserved underscore-prefixed directory contains them.
 
-Ejected pages manifests are now identified by the marker emitted by
-`generateRoutesFile` rather than directory equality alone. Ordinary manifest
-apps may therefore co-locate route, shell, and middleware modules without
-having valid underscore-prefixed route or shell modules removed from the
-client registry.
+Ejected pages manifests are identified by either the marker emitted by
+`generateRoutesFile` or the durable root `_middleware` registration. Removing
+the informational generated header while customizing the manifest therefore
+cannot put middleware or its underscore-reserved helpers into the client
+registry. Ordinary manifest apps may still co-locate route, shell, and
+middleware modules without having valid underscore-prefixed route or shell
+modules removed when they do not register the pages-style root middleware.
+
+Changed-only verification now emits the pages-middleware success check only
+after uniqueness and runtime-export validation succeeds, avoiding a
+contradictory `ok` entry beside the blocking error.

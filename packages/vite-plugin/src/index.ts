@@ -41,7 +41,7 @@ import {
   createPrachtIslandsClientModuleSource,
   createRouteHeadHintsForVirtualModules,
   createPrachtServerModuleSource,
-  isGeneratedPagesManifest,
+  isEjectedPagesLayout,
 } from "./plugin-codegen.ts";
 import {
   createDevCssInjectionMiddleware,
@@ -298,7 +298,7 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
       capabilityModulePaths = new Set(
         resolveCapabilityModulePaths(resolved, root).map(canonicalFilePath),
       );
-      usesEjectedPagesLayout = isGeneratedPagesManifest(resolved, root);
+      usesEjectedPagesLayout = isEjectedPagesLayout(resolved, root);
     },
 
     resolveId(id, importer, resolveIdOptions) {

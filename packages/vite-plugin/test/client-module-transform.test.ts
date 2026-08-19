@@ -20,7 +20,6 @@ import {
   pracht,
 } from "../src/index.ts";
 import { stripServerOnlyExportsForClient } from "../src/client-module-transform.ts";
-import { GENERATED_PAGES_MANIFEST_MARKER } from "../src/pages-router.ts";
 
 const tempDirs: string[] = [];
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
@@ -674,8 +673,7 @@ describe("client route module build", () => {
 
     writeFileSync(
       join(root, "src", "routes.ts"),
-      `// ${GENERATED_PAGES_MANIFEST_MARKER}
-import { defineApp, group, route } from "@pracht/core";
+      `import { defineApp, group, route } from "@pracht/core";
 
 export const app = defineApp({
   shells: { pages: () => import("./pages/_app.tsx") },

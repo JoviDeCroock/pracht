@@ -409,7 +409,7 @@ export function collectPagesVerification(
     }
   }
 
-  collectPagesMiddlewareChecks(project, checks, pages, scope);
+  const validMiddlewareFiles = collectPagesMiddlewareChecks(project, checks, pages, scope);
 
   if (scope === "full") {
     checks.push(createCheck("ok", `Found pages directory at ${project.pagesDir}.`));
@@ -433,7 +433,7 @@ export function collectPagesVerification(
       checks.push(createCheck("ok", "Found a pages-router not-found page."));
     }
   } else {
-    collectChangedPagesChecks(project, checks, pagesDir, changedFiles);
+    collectChangedPagesChecks(project, checks, pagesDir, changedFiles, validMiddlewareFiles);
   }
 
   // Both scopes: adding a Markdown page and running `verify --changed` is the
@@ -492,7 +492,8 @@ function collectPagesMiddlewareChecks(
   checks: Check[],
   pages: PagesFile[],
   scope: string,
-): void {
+): Set<string> {
+  const validMiddlewareFiles = new Set<string>();
   const middlewareFiles = pages.filter((page) => page.kind === "middleware");
   const directoryShaped = middlewareFiles.filter((page) => page.shape === "directory");
   const unsupportedExtension = middlewareFiles.filter(
@@ -546,11 +547,11 @@ function collectPagesMiddlewareChecks(
           .join(", ")}. Keep exactly one root-level \`_middleware\` file.`,
       ),
     );
-    return;
+    return validMiddlewareFiles;
   }
 
   const middleware = rootFiles[0];
-  if (!middleware) return;
+  if (!middleware) return validMiddlewareFiles;
 
   if (!exportsMiddleware(readFileSync(middleware.file, "utf-8"), middleware.file)) {
     checks.push(
@@ -561,8 +562,10 @@ function collectPagesMiddlewareChecks(
           "=> …` (a default export is not used); page routes fail at request time.",
       ),
     );
-    return;
+    return validMiddlewareFiles;
   }
+
+  validMiddlewareFiles.add(middleware.file);
 
   if (scope === "full") {
     checks.push(
@@ -573,6 +576,8 @@ function collectPagesMiddlewareChecks(
       ),
     );
   }
+
+  return validMiddlewareFiles;
 }
 
 const MARKDOWN_PAGE_RE = /\.(?:mdx?|markdown)$/;
@@ -636,6 +641,7 @@ function collectChangedPagesChecks(
   checks: Check[],
   pagesDir: string,
   changedFiles: string[],
+  validMiddlewareFiles: ReadonlySet<string>,
 ): void {
   for (const file of changedFiles) {
     if (!isWithinDirectory(file, pagesDir)) continue;
@@ -667,7 +673,7 @@ function collectChangedPagesChecks(
       // Broken shapes (nested files, `_middleware/` directories, `.tsrx`) are
       // reported as errors by the middleware checks that run in every scope;
       // only the working shape gets an ok here.
-      if (page.shape === "file" && !page.nested) {
+      if (page.shape === "file" && !page.nested && validMiddlewareFiles.has(page.file)) {
         checks.push(
           createCheck(
             "ok",

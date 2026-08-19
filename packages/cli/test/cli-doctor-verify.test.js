@@ -293,6 +293,40 @@ export const middleware: MiddlewareFn = async (_args, next) => next();
     },
   );
 
+  it("does not report invalid changed pages middleware as successful", () => {
+    const appDir = createTempDir("pracht-cli-verify-pages-middleware-changed-invalid-");
+    writePagesApp(appDir);
+    writeProjectFile(appDir, "src/pages/index.tsx", "export function Component() { return null; }");
+    writeProjectFile(
+      appDir,
+      "src/pages/_middleware.ts",
+      "export const middleware = async (_args, next) => next();",
+    );
+    initializeGitRepo(appDir);
+    writeProjectFile(
+      appDir,
+      "src/pages/_middleware.ts",
+      "export default async (_args, next) => next();",
+    );
+
+    const result = runCliStatus(["verify", "--changed", "--json"], { cwd: appDir });
+    expect(result.status).toBe(1);
+
+    const report = JSON.parse(result.stdout);
+    expect(report.scope).toBe("changed");
+    expect(
+      report.checks.some(
+        (check) =>
+          check.status === "error" && check.message.includes("does not export `middleware`"),
+      ),
+    ).toBe(true);
+    expect(
+      report.checks.some(
+        (check) => check.status === "ok" && check.message.includes("Changed pages middleware"),
+      ),
+    ).toBe(false);
+  });
+
   it.each(["admin", "_components"])(
     "fails doctor for nested pages _middleware files under %s",
     (directory) => {

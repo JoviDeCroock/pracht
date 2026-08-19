@@ -1032,7 +1032,10 @@ pracht({
 Alternatively, move the files into the conventional `src/routes`,
 `src/shells`, and `src/middleware` directories and update the manifest refs.
 The generated file includes a header comment explaining how to use it
-directly.
+directly. That comment is informational: when the root `_middleware` module
+remains registered, Pracht derives the ejected pages layout from its module
+reference, so editing or removing the header cannot put middleware or its
+underscore-reserved helpers into the client registries.
 
 ---
 
