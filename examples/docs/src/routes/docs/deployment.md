@@ -40,17 +40,21 @@ Responses are compressed by default: the adapter negotiates `Accept-Encoding`
 with brotli preferred on ties) and streams dynamic HTML, route-state JSON, and
 other compressible text types through `node:zlib`, while static assets and ISG
 snapshots are compressed once per file version and served from an in-memory
-LRU; successful ISG writes explicitly invalidate the old compressed version
-and validator, even when coarse filesystem timestamps do not change. Buffered
-cold work is byte- and concurrency-bounded, with overflow falling
-back to streaming compression. Static WebAssembly is served as
+LRU; successful ISG writes use an atomic file replacement and explicitly
+invalidate the old compressed version and validator, even when coarse
+filesystem timestamps do not change and a request reaches a restarted or
+sibling worker. Date-only validation is conservatively bypassed for mutable
+ISG snapshots while compression is enabled. Buffered cold work is byte- and
+concurrency-bounded, with overflow falling back to streaming compression.
+Static WebAssembly is served as
 `application/wasm` and follows the same compression path. Compressible
-responses carry `Vary: Accept-Encoding`; encoded variants get their own
-collision-resistant weak ETag, with dynamic `If-None-Match` /
-`If-Modified-Since` validation performed
-after representation selection so identity and encoded validators cannot
-cross. `HEAD` advertises the same negotiated metadata as `GET`, including
-buffered compressed lengths, and
+responses carry `Vary: Accept-Encoding`, including on application-generated
+`304` responses; encoded variants get their own collision-resistant weak ETag,
+with dynamic `If-None-Match` / `If-Modified-Since` validation performed after
+representation selection so identity and encoded validators cannot cross.
+Range requests retain their original validators because `206` responses are
+never transformed. `HEAD` advertises the same negotiated metadata as `GET`,
+including buffered compressed lengths, and
 already-encoded, `no-transform`, Range, integrity-protected (`Content-Digest`,
 `Repr-Digest`, legacy
 `Digest`/`Content-MD5`), and sub-1 KiB responses whose size is known are left

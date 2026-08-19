@@ -1,4 +1,4 @@
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import {
   createServer,
   request as httpRequest,
@@ -11,9 +11,10 @@ import { once } from "node:events";
 import { brotliDecompressSync, createBrotliDecompress, createGunzip, gunzipSync } from "node:zlib";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { defineApp, resolveApiRoutes, route } from "@pracht/core";
+import { defineApp, resolveApiRoutes, route, timeRevalidate } from "@pracht/core";
 
 import { createNodeRequestHandler } from "../src/index.ts";
+import { writeISGFile } from "../src/node-isg.ts";
 import {
   CompressedAssetCache,
   encodeEtagForEncoding,
@@ -438,6 +439,47 @@ describe("dynamic response compression", () => {
     expect(response.body.byteLength).toBe(4096);
   });
 
+  it("preserves conditional headers for Range responses that are never compressed", async () => {
+    let receivedIfNoneMatch: string | null = null;
+    const identityEtag = '"range-v1"';
+    const base = await listen(
+      createNodeRequestHandler({
+        apiRoutes: resolveApiRoutes(["/src/api/range.ts"]),
+        app: defineApp({ routes: [] }),
+        registry: {
+          apiModules: {
+            "/src/api/range.ts": async () => ({
+              GET: async ({ request }) => {
+                receivedIfNoneMatch = request.headers.get("if-none-match");
+                if (receivedIfNoneMatch === identityEtag) {
+                  return new Response(null, { status: 304, headers: { etag: identityEtag } });
+                }
+                return new Response("part", {
+                  status: 206,
+                  headers: {
+                    "content-range": "bytes 0-3/10",
+                    "content-type": "text/plain",
+                    etag: identityEtag,
+                  },
+                });
+              },
+            }),
+          },
+        },
+      }),
+    );
+
+    const response = await rawRequest(`${base}/api/range`, {
+      "accept-encoding": "gzip",
+      "if-none-match": identityEtag,
+      range: "bytes=0-3",
+    });
+
+    expect(receivedIfNoneMatch).toBe(identityEtag);
+    expect(response.status).toBe(304);
+    expect(response.headers["content-range"]).toBeUndefined();
+  });
+
   it.each(["content-digest", "repr-digest", "digest", "content-md5"])(
     "preserves identity encoding when a response carries %s",
     async (integrityHeader) => {
@@ -565,6 +607,37 @@ describe("dynamic response compression", () => {
     expect(revalidated.headers.etag).toBe(first.headers.etag);
     expect(revalidated.headers.vary).toContain("Accept-Encoding");
     expect(revalidated.body.byteLength).toBe(0);
+  });
+
+  it("keeps Accept-Encoding in Vary on an application-generated identity 304", async () => {
+    const identityEtag = '"identity-v1"';
+    const base = await listen(
+      createNodeRequestHandler({
+        apiRoutes: resolveApiRoutes(["/src/api/identity-304.ts"]),
+        app: defineApp({ routes: [] }),
+        registry: {
+          apiModules: {
+            "/src/api/identity-304.ts": async () => ({
+              GET: async ({ request }) =>
+                request.headers.get("if-none-match") === identityEtag
+                  ? new Response(null, { status: 304, headers: { etag: identityEtag } })
+                  : new Response("identity payload ".repeat(300), {
+                      headers: { etag: identityEtag, "content-type": "text/plain" },
+                    }),
+            }),
+          },
+        },
+      }),
+    );
+
+    const first = await rawRequest(`${base}/api/identity-304`);
+    const revalidated = await rawRequest(`${base}/api/identity-304`, {
+      "if-none-match": identityEtag,
+    });
+
+    expect(first.headers.vary).toContain("Accept-Encoding");
+    expect(revalidated.status).toBe(304);
+    expect(revalidated.headers.vary).toContain("Accept-Encoding");
   });
 
   it("evaluates If-Modified-Since after selecting the dynamic encoding", async () => {
@@ -949,6 +1022,50 @@ describe("static asset compression", () => {
     });
     expect(crossEncoding.status).toBe(200);
     expect(crossEncoding.headers["content-encoding"]).toBe("br");
+  });
+
+  it("does not reuse same-metadata ISG validators after a handler restart", async () => {
+    const staticDir = makeTempDir();
+    const htmlDir = join(staticDir, "page");
+    const htmlPath = join(htmlDir, "index.html");
+    mkdirSync(htmlDir, { recursive: true });
+    const staleHtml = `<main>${"a".repeat(4096)}</main>`;
+    const freshHtml = `<main>${"b".repeat(4096)}</main>`;
+    const fixedTimestamp = new Date(1_700_000_000_000);
+    writeFileSync(htmlPath, staleHtml, "utf-8");
+    utimesSync(htmlPath, fixedTimestamp, fixedTimestamp);
+
+    const createHandler = () =>
+      createNodeRequestHandler({
+        app: defineApp({ routes: [] }),
+        headersManifest: { "/page": { etag: '"page-document"' } },
+        isgManifest: { "/page": { revalidate: timeRevalidate(3600) } },
+        staticDir,
+      });
+
+    const firstBase = await listen(createHandler());
+    const stale = await rawRequest(`${firstBase}/page`, { "accept-encoding": "gzip" });
+    expect(gunzipSync(stale.body).toString("utf-8")).toBe(staleHtml);
+
+    await writeISGFile(htmlPath, freshHtml);
+    // Model a coarse filesystem whose externally visible mtime does not move.
+    utimesSync(htmlPath, fixedTimestamp, fixedTimestamp);
+
+    const restartedBase = await listen(createHandler());
+    const etagRevalidation = await rawRequest(`${restartedBase}/page`, {
+      "accept-encoding": "gzip",
+      "if-none-match": stale.headers.etag!,
+    });
+    const dateRevalidation = await rawRequest(`${restartedBase}/page`, {
+      "accept-encoding": "gzip",
+      "if-modified-since": stale.headers["last-modified"]!,
+    });
+
+    expect(etagRevalidation.status).toBe(200);
+    expect(etagRevalidation.headers.etag).not.toBe(stale.headers.etag);
+    expect(gunzipSync(etagRevalidation.body).toString("utf-8")).toBe(freshHtml);
+    expect(dateRevalidation.status).toBe(200);
+    expect(gunzipSync(dateRevalidation.body).toString("utf-8")).toBe(freshHtml);
   });
 
   it("ignores If-Modified-Since when If-None-Match is present (RFC 9110 §13.1.3)", async () => {

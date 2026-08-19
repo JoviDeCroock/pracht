@@ -482,17 +482,21 @@ compressible text types (`text/*`, JSON, JavaScript, SVG, and other
 `+json`/`+xml` types) stream through `node:zlib` with per-chunk flushing, so
 streamed bodies such as SSE are delivered incrementally; static assets and ISG
 snapshots are compressed once per file version and served from an in-memory
-LRU. Successful ISG writes explicitly invalidate the old compressed version
-and validator, including same-size rewrites on coarse-timestamp filesystems;
-date-only validation is bypassed when the timestamp cannot distinguish those
-generations. Buffered cold work is byte- and concurrency-bounded, with excess
-distinct files falling back to streaming compression. Static WebAssembly is served as `application/wasm`
-and follows that static compression path. Compressible
-responses carry `Vary: Accept-Encoding` (merged with existing `Vary` values),
-encoded variants use their own collision-resistant weak ETag, and dynamic `If-None-Match` /
-`If-Modified-Since` validation runs after the adapter selects the representation
-so identity and encoded validators cannot cross. `HEAD` advertises the same
-negotiated metadata as `GET`, including buffered compressed lengths.
+LRU. Successful ISG writes use an atomic file replacement and explicitly
+invalidate the old compressed version and validator, including same-size
+rewrites on coarse-timestamp filesystems and revalidation after a handler
+restart or in a sibling worker. Date-only validation is conservatively
+bypassed for mutable ISG snapshots while compression is enabled. Buffered cold
+work is byte- and concurrency-bounded, with excess distinct files falling back
+to streaming compression. Static WebAssembly is served as `application/wasm`
+and follows that static compression path. Compressible responses carry
+`Vary: Accept-Encoding` (merged with existing `Vary` values), including on an
+application-generated `304`; encoded variants use their own collision-resistant
+weak ETag, and dynamic `If-None-Match` / `If-Modified-Since` validation runs
+after the adapter selects the representation so identity and encoded validators
+cannot cross. Range requests retain their original validators because their
+`206` responses are never transformed. `HEAD` advertises the same negotiated
+metadata as `GET`, including buffered compressed lengths.
 Already-encoded responses, `Cache-Control: no-transform`, Range/`204`/`304`
 responses, integrity-protected responses (`Content-Digest`, `Repr-Digest`,
 legacy `Digest`/`Content-MD5`), binary media, and bodies under 1 KiB when their

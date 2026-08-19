@@ -177,18 +177,20 @@ wildcards, and `q=0` exclusions are honored, all via `node:zlib`):
   of sitting in the compressor's buffer until the stream ends.
 - **Static assets and ISG snapshots** up to 1 MiB are compressed once per file
   version at higher quality and kept in a byte-bounded in-memory LRU
-  (32 MiB) keyed by path + write generation + size + mtime, so hashed assets
-  and regenerated ISG HTML pay the compression cost once — concurrent first
-  requests to the same file share a single in-flight compression. Successful
-  ISG writes advance that generation explicitly, so even same-size rewrites on
+  (32 MiB) keyed by path + durable file identity + write generation, so hashed
+  assets and regenerated ISG HTML pay the compression cost once — concurrent
+  first requests to the same file share a single in-flight compression.
+  Successful ISG writes are published as an atomic file replacement and
+  advance the in-process generation explicitly, so even same-size rewrites on
   coarse-timestamp filesystems cannot reuse stale compressed bytes or
-  validators; date-only revalidation is bypassed after such a write when the
-  filesystem timestamp cannot distinguish the generations. Whole-file cold
-  work is bounded by both bytes and concurrency; excess distinct files, and
-  all larger files, stream through zlib instead of queuing another buffered
-  compression. This is runtime compression rather than build-time
-  precompression; it also covers ISG documents rewritten on disk after the
-  build.
+  validators after a handler restart or in a sibling worker. Date-only
+  revalidation is conservatively bypassed for mutable ISG snapshots while
+  compression is enabled because an HTTP date cannot identify such a
+  generation. Whole-file cold work is bounded by both bytes and concurrency;
+  excess distinct files, and all larger files, stream through zlib instead of
+  queuing another buffered compression. This is runtime compression rather
+  than build-time precompression; it also covers ISG documents rewritten on
+  disk after the build.
 
 What gets compressed: `text/*`, `application/json`, `application/javascript`,
 `application/xml`, `application/wasm`, and any `+json`/`+xml` structured
@@ -209,7 +211,8 @@ Correctness guarantees:
 
 - Compressible responses always carry `Vary: Accept-Encoding`, merged with any
   existing `Vary` members (e.g. `x-pracht-route-state-request`), even when the
-  response goes out identity-encoded — so shared caches key on the encoding.
+  response goes out identity-encoded or the application answers a conditional
+  request with `304` — so shared caches keep keying on the encoding.
 - Encoded variants get their own collision-resistant weak ETag (a SHA-256
   digest of the identity tag and encoding, e.g. `W/"pracht-br-..."`), so
   an encoded validator cannot alias an application-provided identity tag; an
@@ -221,7 +224,8 @@ Correctness guarantees:
   `If-Modified-Since` only after selecting the outgoing representation
   (`If-None-Match` takes precedence), including valid quoted opaque tags that
   contain commas, so application-level identity validation cannot short-circuit
-  an encoded request with a cross-encoding `304`.
+  an encoded request with a cross-encoding `304`. Range requests retain their
+  original validators because their `206` responses are never transformed.
 - `HEAD` advertises the same negotiated `Content-Encoding`, variant ETag, and
   buffered compressed `Content-Length` as the corresponding `GET` while
   omitting the body (streamed compressed lengths remain unknown).

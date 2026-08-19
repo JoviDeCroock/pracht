@@ -229,15 +229,17 @@ export async function writeWebResponse(
   ) {
     res.setHeader("etag", protectIdentityEtag(sourceEtag));
   }
+  const compressibleContentType = isCompressibleContentType(response.headers.get("content-type"));
+  if (compression && (compressibleContentType || response.status === 304)) {
+    // An application-generated 304 may omit Content-Type, but it still needs
+    // the Vary field the adapter adds to the corresponding 200 response.
+    mergeVaryOnNodeResponse(res);
+  }
   if (
     compression &&
-    isCompressibleContentType(response.headers.get("content-type")) &&
+    compressibleContentType &&
     isTransformableResponse(response.status, response.headers)
   ) {
-    // Compressible whatever this client accepts, so caches must key on the
-    // encoding even when this particular response goes out as identity.
-    mergeVaryOnNodeResponse(res);
-
     const contentLength = Number.parseInt(response.headers.get("content-length") ?? "", 10);
     const belowThreshold = !Number.isNaN(contentLength) && contentLength < COMPRESSION_MIN_SIZE;
 

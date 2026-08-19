@@ -1,7 +1,7 @@
 import { createReadStream } from "node:fs";
-import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { dirname, join, resolve, sep } from "node:path";
+import { join, resolve, sep } from "node:path";
 
 import {
   applyDefaultSecurityHeaders,
@@ -33,8 +33,10 @@ import {
   type CompressionState,
   compressBuffer,
   type ContentEncoding,
+  createCompressionFileVersion,
   createCompressedStream,
   encodeEtagForEncoding,
+  encodeEtagForFileVersion,
   isCompressibleContentType,
   isNotModifiedRequest,
   isTransformableResponse,
@@ -43,7 +45,7 @@ import {
   negotiateEncoding,
   protectIdentityEtag,
 } from "./node-compress.ts";
-import { regenerateISGPage } from "./node-isg.ts";
+import { regenerateISGPage, writeISGFile } from "./node-isg.ts";
 import {
   createWebRequest,
   isClientDisconnectError,
@@ -257,8 +259,7 @@ export function createNodeRequestHandler<TContext = unknown>(
       const html = await response.clone().text();
       const htmlPath = resolveContainedPath(staticDir, url.pathname);
       if (htmlPath) {
-        await mkdir(dirname(htmlPath), { recursive: true });
-        await writeFile(htmlPath, html, "utf-8");
+        await writeISGFile(htmlPath, html);
         compressedAssetCache.invalidatePath(htmlPath);
       }
     }
@@ -349,6 +350,9 @@ async function serveStaticFile(
 ): Promise<void> {
   const fileStat = await stat(staticResult.filePath);
   const compressionGeneration = compression?.cache.getPathGeneration(staticResult.filePath) ?? 0;
+  const compressionFileVersion = compression
+    ? createCompressionFileVersion(fileStat, compressionGeneration)
+    : undefined;
   const headers = applyDefaultSecurityHeaders(
     new Headers({
       "content-type": staticResult.contentType,
@@ -360,7 +364,7 @@ async function serveStaticFile(
   if (staticResult.contentType.includes("text/html")) {
     applyHeadersManifest(headers, headersManifest, pathname);
   }
-  applyCompressionGenerationValidator(headers, compressionGeneration);
+  applyCompressionFileValidator(headers, compressionFileVersion);
 
   const encoding = negotiateFileEncoding(request, headers, fileStat.size, compression);
 
@@ -380,7 +384,7 @@ async function serveStaticFile(
       fileStat,
       encoding,
       compression,
-      compressionGeneration,
+      compressionFileVersion,
     );
     return;
   }
@@ -390,7 +394,7 @@ async function serveStaticFile(
     fileStat,
     encoding,
     compression,
-    compressionGeneration,
+    compressionFileVersion,
   );
 }
 
@@ -451,9 +455,9 @@ async function writeFileBody(
   fileStat: { mtimeMs: number; size: number },
   encoding: ContentEncoding | null,
   compression: CompressionState | undefined,
-  compressionGeneration: number,
+  compressionFileVersion: string | undefined,
 ): Promise<void> {
-  if (!encoding || !compression) {
+  if (!encoding || !compression || !compressionFileVersion) {
     await pipeToResponse(createReadStream(filePath), res);
     return;
   }
@@ -463,7 +467,7 @@ async function writeFileBody(
     fileStat,
     encoding,
     compression,
-    compressionGeneration,
+    compressionFileVersion,
   );
   if (pending) {
     const compressed = await pending;
@@ -483,11 +487,11 @@ function getBufferedCompressedFile(
   fileStat: { mtimeMs: number; size: number },
   encoding: ContentEncoding,
   compression: CompressionState,
-  compressionGeneration: number,
+  compressionFileVersion: string,
 ): Promise<Buffer> | null {
   if (fileStat.size > MAX_CACHEABLE_ASSET_SIZE) return null;
 
-  const key = `${filePath}\0${compressionGeneration}\0${fileStat.size}\0${fileStat.mtimeMs}\0${encoding}`;
+  const key = `${filePath}\0${compressionFileVersion}\0${encoding}`;
   return compression.cache.getOrCompress(key, fileStat.size, async () =>
     compressBuffer(await readFile(filePath), encoding),
   );
@@ -499,11 +503,11 @@ async function writeFileHead(
   fileStat: { mtimeMs: number; size: number },
   encoding: ContentEncoding | null,
   compression: CompressionState | undefined,
-  compressionGeneration: number,
+  compressionFileVersion: string | undefined,
 ): Promise<void> {
   const pending =
-    encoding && compression
-      ? getBufferedCompressedFile(filePath, fileStat, encoding, compression, compressionGeneration)
+    encoding && compression && compressionFileVersion
+      ? getBufferedCompressedFile(filePath, fileStat, encoding, compression, compressionFileVersion)
       : null;
   if (pending) {
     const compressed = await pending;
@@ -529,6 +533,9 @@ async function serveISGEntry<TContext>(
   const fileStat = await stat(htmlPath).catch(() => null);
   if (!fileStat?.isFile()) return false;
   const compressionGeneration = compression?.cache.getPathGeneration(htmlPath) ?? 0;
+  const compressionFileVersion = compression
+    ? createCompressionFileVersion(fileStat, compressionGeneration)
+    : undefined;
 
   const ageMs = Date.now() - fileStat.mtimeMs;
   const revalidateSeconds = getTimeRevalidateSeconds(entry.revalidate);
@@ -544,12 +551,12 @@ async function serveISGEntry<TContext>(
     }),
   );
   applyHeadersManifest(headers, headersManifest, pathname);
-  applyCompressionGenerationValidator(headers, compressionGeneration);
+  applyCompressionFileValidator(headers, compressionFileVersion);
   headers.set("x-pracht-isg", isStale ? "stale" : "fresh");
 
   const encoding = negotiateFileEncoding(request, headers, fileStat.size, compression);
 
-  if (isNotModified(request, headers, compressionGeneration === 0)) {
+  if (isNotModified(request, headers, compression === undefined)) {
     res.statusCode = 304;
     writeNodeHeaders(res, headers);
     res.end();
@@ -557,9 +564,9 @@ async function serveISGEntry<TContext>(
     res.statusCode = 200;
     writeNodeHeaders(res, headers);
     if (request.method === "HEAD") {
-      await writeFileHead(res, htmlPath, fileStat, encoding, compression, compressionGeneration);
+      await writeFileHead(res, htmlPath, fileStat, encoding, compression, compressionFileVersion);
     } else {
-      await writeFileBody(res, htmlPath, fileStat, encoding, compression, compressionGeneration);
+      await writeFileBody(res, htmlPath, fileStat, encoding, compression, compressionFileVersion);
     }
   }
 
@@ -693,6 +700,7 @@ function createApplicationRequest(
   if (
     !compression ||
     (request.method !== "GET" && request.method !== "HEAD") ||
+    request.headers.has("range") ||
     (!ifNoneMatch && !request.headers.has("if-modified-since")) ||
     (!negotiateEncoding(request.headers.get("accept-encoding")) &&
       !containsEncodedEtag(ifNoneMatch))
@@ -718,17 +726,14 @@ function createWeakEtag(fileStat: { mtimeMs: number; size: number }): string {
   return `W/"${fileStat.size.toString(16)}-${Math.floor(fileStat.mtimeMs).toString(16)}"`;
 }
 
-function applyCompressionGenerationValidator(headers: Headers, generation: number): void {
-  if (generation <= 0) return;
+function applyCompressionFileValidator(
+  headers: Headers,
+  compressionFileVersion: string | undefined,
+): void {
+  if (!compressionFileVersion) return;
   const etag = headers.get("etag");
   if (!etag) return;
-
-  const opaqueTag = etag.startsWith("W/") ? etag.slice(2) : etag;
-  const suffix = `-g${generation.toString(16)}`;
-  headers.set(
-    "etag",
-    opaqueTag.endsWith('"') ? `W/${opaqueTag.slice(0, -1)}${suffix}"` : `W/${opaqueTag}${suffix}`,
-  );
+  headers.set("etag", encodeEtagForFileVersion(etag, compressionFileVersion));
 }
 
 function isNotModified(request: Request, headers: Headers, allowLastModified = true): boolean {

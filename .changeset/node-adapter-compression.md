@@ -12,11 +12,14 @@ written), while static assets and (re)generated ISG documents are compressed
 once per file version at higher quality and served from an in-memory LRU.
 Concurrent first requests share one in-flight compression, while
 byte/concurrency limits send excess cold paths through streaming compression.
-Successful ISG writes explicitly invalidate their prior compressed cache
-generation and validators, including same-size rewrites on
-coarse-timestamp filesystems.
+Successful ISG writes are published as an atomic file replacement and
+explicitly invalidate their prior compressed cache generation and validators,
+including same-size rewrites on coarse-timestamp filesystems after a handler
+restart or in a sibling worker. Date-only validation is conservatively
+bypassed for mutable compressed ISG snapshots.
 Compressible responses always carry
-`Vary: Accept-Encoding` (merged with existing `Vary` members), encoded
+`Vary: Accept-Encoding` (merged with existing `Vary` members), including on
+application-generated `304` responses, encoded
 variants get their own collision-resistant weak ETag so conditional
 revalidation never crosses encodings or aliases a later application-provided
 identity validator (including when applications provide strong identity
@@ -29,9 +32,9 @@ as `GET` (including buffered compressed lengths), and already-encoded
 responses, `Cache-Control: no-transform`, Range/204/304 responses, binary
 media, integrity-protected responses, and bodies under 1 KiB (when the size is
 known) are left untouched. Identity `Content-Length` values are removed before
-streaming an encoded static response, cancellation failures cannot replace a
-valid conditional `304` with a `500`, and a body failure before the first byte
-clears staged compression metadata before the adapter returns its unencoded
-500 fallback.
+streaming an encoded static response, Range requests retain their conditional
+headers, cancellation failures cannot replace a valid conditional `304` with
+a `500`, and a body failure before the first byte clears staged compression
+metadata before the adapter returns its unencoded 500 fallback.
 Disable with `nodeAdapter({ compression: false })` — recommended when a reverse
 proxy or CDN in front of the server already compresses responses.
