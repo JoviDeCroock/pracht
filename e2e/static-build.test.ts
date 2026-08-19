@@ -215,17 +215,19 @@ test("static export serves a full app from a dumb static host with zero server",
       expect(existsSync(resolve(clientDir, path)), `${path} should exist`).toBe(true);
     }
 
-    // Route-state files exist exactly for loader-backed SSG routes. Loaderless
-    // SSG and SPA routes fetch nothing from the static host.
-    for (const path of ["/", "/about", "/posts/hello-world", "/posts/second-post"].map(
-      (routePath) => buildStaticRouteStateUrl(routePath).slice(1),
-    )) {
+    // Route-state files exist for routes whose loader or server-only head
+    // metadata participates in client navigation. The shared shell has a head
+    // export, so even loaderless pages carry font-head state.
+    for (const path of [
+      "/",
+      "/about",
+      "/plain",
+      "/posts/hello-world",
+      "/posts/second-post",
+      "/dashboard",
+    ].map((routePath) => buildStaticRouteStateUrl(routePath).slice(1))) {
       expect(existsSync(resolve(clientDir, path)), `${path} should exist`).toBe(true);
     }
-    expect(existsSync(resolve(clientDir, `.${buildStaticRouteStateUrl("/plain")}`))).toBe(false);
-    expect(existsSync(resolve(clientDir, `.${buildStaticRouteStateUrl("/dashboard")}`))).toBe(
-      false,
-    );
     expect(existsSync(resolve(clientDir, `.${buildStaticRouteStateUrl("/items/42")}`))).toBe(false);
 
     // State files carry the same payload the live endpoint would, as plain
@@ -285,12 +287,14 @@ test("static export serves a full app from a dumb static host with zero server",
     await page.click('#post a[href="/posts/second-post"]');
     await expect(page.locator("#post h1")).toHaveText("Second post");
 
-    // Loaderless SPA route: shell prerendered, component rendered client-side,
-    // and no route-state request is made.
+    // Loaderless SPA route: shell prerendered and component rendered
+    // client-side. Its shared shell head still comes from static route state.
     await page.click('nav a[href="/dashboard"]');
     await expect(page.locator("#dashboard li").first()).toHaveText("Deploys");
     expect(await page.evaluate(() => (window as any).__NO_RELOAD__)).toBe(true);
-    expect(stateFileRequests.some((url) => url.includes("/_pracht/state/dashboard/"))).toBe(false);
+    expect(
+      stateFileRequests.some((url) => url.endsWith(buildStaticRouteStateUrl("/dashboard"))),
+    ).toBe(true);
 
     // In-app navigation to a dynamic SPA route (no prerendered document, no
     // state file) stays client-side — it must
@@ -307,9 +311,14 @@ test("static export serves a full app from a dumb static host with zero server",
     expect(await page.evaluate(() => (window as any).__NO_RELOAD__)).toBe(true);
 
     // The entire session was static-host-shaped: no route-state header
-    // requests and no failed static-file requests.
+    // requests. Visits to an unenumerated dynamic SPA route probe its absent
+    // state file and then render client-side, clearing stale font state (the
+    // browser may reuse the first 404 for the second visit).
     expect(routeStateHeaderRequests).toEqual([]);
-    expect(failedRequests).toEqual([]);
+    expect(failedRequests.length).toBeGreaterThanOrEqual(1);
+    expect(failedRequests.every((url) => url.endsWith(buildStaticRouteStateUrl("/items/42")))).toBe(
+      true,
+    );
 
     // Direct load of an unknown URL: the host serves 404.html with a 404
     // status, and the hydrated page shows the *real* requested path.

@@ -79,6 +79,7 @@ describe("prerenderApp staticExport", () => {
           render: "spa",
           shell: "shell",
           hasLoader: false,
+          hasHead: false,
         }),
       ],
       shells: {
@@ -118,6 +119,7 @@ describe("prerenderApp staticExport", () => {
     expect(home?.routeState).toBeDefined();
     expect(JSON.parse(home!.routeState!)).toEqual({
       data: { greeting: "hi", markup: "<script>alert(1)</script>" },
+      fontHead: { css: "", preloadLinks: [] },
     });
     // Plain JSON, not HTML-escaped — the file is parsed with response.json(),
     // exactly like the live route-state endpoint's body.
@@ -125,19 +127,27 @@ describe("prerenderApp staticExport", () => {
   });
 
   it("captures an empty payload when loader presence is unknown (no build hints)", async () => {
-    // Hand-rolled registries carry no route-loader hints, so `hasLoader` is
-    // undefined and the capture stays conservative: whatever a hintless
-    // client would fetch must exist. Real builds apply hints on both sides,
-    // so loaderless routes get no state file there (covered by the e2e).
+    // Hand-rolled registries carry no route hints, so `hasLoader` and `hasHead`
+    // are undefined and the capture stays conservative: whatever a hintless
+    // client would fetch must exist. Real builds apply both hints, so routes
+    // with neither loader nor head get no state file there (covered by e2e).
     const pages = await prerenderApp({ app: createStaticApp(), registry, staticExport: true });
     const plain = pages.find((page) => page.path === "/plain");
     expect(plain).toBeDefined();
-    expect(JSON.parse(plain!.routeState!)).toEqual({});
+    expect(JSON.parse(plain!.routeState!)).toEqual({
+      fontHead: { css: "", preloadLinks: [] },
+    });
   });
 
-  it("emits no route state when the route is marked loaderless", async () => {
+  it("emits no route state when the route is marked loaderless and headless", async () => {
     const app = defineApp({
-      routes: [route("/plain", "./routes/plain.tsx", { render: "ssg", hasLoader: false })],
+      routes: [
+        route("/plain", "./routes/plain.tsx", {
+          render: "ssg",
+          hasLoader: false,
+          hasHead: false,
+        }),
+      ],
     });
     const pages = await prerenderApp({ app, registry, staticExport: true });
     const plain = pages.find((page) => page.path === "/plain");

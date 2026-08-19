@@ -121,7 +121,7 @@ describe("createPrachtDevModuleSource API graph", () => {
     );
   });
 
-  it("applies loader hints and exports the authoritative static target", () => {
+  it("applies route hints and exports the authoritative static target", () => {
     const source = createPrachtDevModuleSource({
       adapter: {
         id: "custom-static",
@@ -132,7 +132,8 @@ describe("createPrachtDevModuleSource API graph", () => {
     });
 
     expect(source).toContain("const routeLoaderHints = ");
-    expect(source).toContain("applyRouteLoaderHints(resolvedApp, routeLoaderHints);");
+    expect(source).toContain("const routeHeadHints = ");
+    expect(source).toContain("applyRouteHints(resolvedApp, routeLoaderHints, routeHeadHints);");
     expect(source).toContain('export const buildTarget = "custom-static";');
     expect(source).toContain("export const staticTarget = true;");
   });
