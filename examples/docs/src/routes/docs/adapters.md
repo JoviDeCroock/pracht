@@ -492,8 +492,10 @@ budget. This covers same-size rewrites on coarse-timestamp filesystems and
 revalidation after a handler restart or in a sibling worker. Date-only
 validation is conservatively bypassed for mutable ISG snapshots while
 compression is enabled. Buffered cold work is byte- and concurrency-bounded,
-with excess distinct files falling back to streaming compression. Static
-WebAssembly is served as `application/wasm`
+including content-derived validator hashing; same-snapshot requests share one
+hash, and an overloaded response safely omits its ETag instead of queuing an
+unbounded whole-file read. Excess distinct compression jobs fall back to
+streaming compression. Static WebAssembly is served as `application/wasm`
 and follows that static compression path. Compressible responses carry
 `Vary: Accept-Encoding` (merged with existing `Vary` values), including on an
 application-generated `304`; encoded variants use their own collision-resistant

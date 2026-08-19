@@ -581,6 +581,7 @@ async function serveISGEntry<TContext>(
       headers,
       htmlPath,
       file,
+      fileStat.size,
       compressionFileVersion,
       compressionGeneration,
       compression,
@@ -784,14 +785,24 @@ async function applyCompressionContentValidator(
   headers: Headers,
   filePath: string,
   file: FileHandle,
+  fileSize: number,
   compressionFileVersion: string | undefined,
   compressionGeneration: number,
   compression: CompressionState | undefined,
 ): Promise<void> {
   if (!compressionFileVersion || !compression) return;
   const key = `${filePath}\0${compressionFileVersion}\0${compressionGeneration}`;
-  const etag = await compression.cache.getOrCreateFileEtag(key, () => createFileContentEtag(file));
-  headers.set("etag", etag);
+  const pending = compression.cache.getOrCreateFileEtag(key, fileSize, () =>
+    createFileContentEtag(file),
+  );
+  if (!pending) {
+    // The stat-derived fallback can alias a same-size rewrite on a coarse
+    // filesystem. Omit the validator under load instead of advertising one we
+    // cannot prove names these bytes.
+    headers.delete("etag");
+    return;
+  }
+  headers.set("etag", await pending);
 }
 
 async function createFileContentEtag(file: FileHandle): Promise<string> {

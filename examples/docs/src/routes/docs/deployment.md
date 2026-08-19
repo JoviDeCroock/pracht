@@ -49,11 +49,14 @@ replacement cannot mix bytes with stale metadata or bypass the cold-work byte
 budget. This remains correct when coarse filesystem timestamps do not change
 and a request reaches a restarted or sibling worker. Date-only validation is
 conservatively bypassed for mutable ISG snapshots while compression is enabled.
-Buffered cold work is byte- and concurrency-bounded, with overflow falling back
-to streaming compression. Static WebAssembly is served as
-`application/wasm` and follows the same compression path. Compressible
-responses carry `Vary: Accept-Encoding`, including on application-generated
-`304` responses; encoded variants get their own collision-resistant weak ETag,
+Buffered cold work is byte- and concurrency-bounded, including content-derived
+validator hashing; same-snapshot requests share one hash, and an overloaded
+response omits its ETag rather than queuing an unbounded whole-file read.
+Overflowed compression jobs fall back to streaming. Static WebAssembly is
+served as `application/wasm` and follows the same compression path.
+Compressible responses carry `Vary: Accept-Encoding`, including on
+application-generated `304` responses; encoded variants get their own
+collision-resistant weak ETag,
 with dynamic `If-None-Match` / `If-Modified-Since` validation performed after
 representation selection so identity and encoded validators cannot cross.
 Range requests retain their original validators because `206` responses are

@@ -193,9 +193,12 @@ wildcards, and `q=0` exclusions are honored, all via `node:zlib`):
   restart or in a sibling worker. Date-only
   revalidation is conservatively bypassed for mutable ISG snapshots while
   compression is enabled because an HTTP date cannot identify such a
-  generation. Whole-file cold work is bounded by both bytes and concurrency;
-  excess distinct files, and all larger files, stream through zlib instead of
-  queuing another buffered compression. This is runtime compression rather
+  generation. Whole-file cold work is bounded by both bytes and concurrency,
+  including content-derived validator hashing. Concurrent requests for the
+  same snapshot share one hash; when the validator budget is full, the response
+  safely omits its ETag instead of queuing another whole-file read. Excess
+  distinct compression jobs, and all larger files, stream through zlib instead
+  of queuing another buffered compression. This is runtime compression rather
   than build-time precompression; it also covers ISG documents rewritten on
   disk after the build.
 

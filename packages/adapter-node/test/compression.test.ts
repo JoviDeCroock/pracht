@@ -280,6 +280,51 @@ describe("CompressedAssetCache", () => {
     await expect(cache.getOrCompress("asset", 2, failThenSucceed)).resolves.toBeDefined();
     expect(calls).toBe(2);
   });
+
+  it("bounds source bytes read by distinct in-flight validator hashes", async () => {
+    const cache = new CompressedAssetCache(10, 8);
+    let releaseGate!: () => void;
+    const gate = new Promise<void>((resolveGate) => {
+      releaseGate = resolveGate;
+    });
+    const produce = async (value: string): Promise<string> => {
+      await gate;
+      return value;
+    };
+
+    const first = cache.getOrCreateFileEtag("a", 6, () => produce('W/"a"'));
+    const second = cache.getOrCreateFileEtag("b", 4, () => produce('W/"b"'));
+    expect(first).not.toBeNull();
+    expect(second).not.toBeNull();
+    expect(cache.getOrCreateFileEtag("c", 1, () => produce('W/"c"'))).toBeNull();
+
+    releaseGate();
+    await Promise.all([first!, second!]);
+
+    await expect(cache.getOrCreateFileEtag("c", 1, async () => 'W/"c"')).resolves.toBe('W/"c"');
+  });
+
+  it("caps distinct validator hashes without blocking same-key waiters", async () => {
+    const cache = new CompressedAssetCache(100, 2);
+    let releaseGate!: () => void;
+    const gate = new Promise<void>((resolveGate) => {
+      releaseGate = resolveGate;
+    });
+    const produce = async (value: string): Promise<string> => {
+      await gate;
+      return value;
+    };
+
+    const first = cache.getOrCreateFileEtag("a", 1, () => produce('W/"a"'));
+    const second = cache.getOrCreateFileEtag("b", 1, () => produce('W/"b"'));
+    expect(first).not.toBeNull();
+    expect(second).not.toBeNull();
+    expect(cache.getOrCreateFileEtag("a", 1, () => produce('W/"duplicate"'))).toBe(first);
+    expect(cache.getOrCreateFileEtag("c", 1, () => produce('W/"c"'))).toBeNull();
+
+    releaseGate();
+    await Promise.all([first!, second!]);
+  });
 });
 
 describe("dynamic response compression", () => {
@@ -1147,6 +1192,36 @@ describe("static asset compression", () => {
 
     expect(primary.headers.etag).toBe(sibling.headers.etag);
     expect(gunzipSync(primary.body)).toEqual(gunzipSync(sibling.body));
+  });
+
+  it("omits the ISG ETag when content-validator work cannot be admitted", async () => {
+    const staticDir = makeTempDir();
+    const htmlDir = join(staticDir, "page");
+    const html = `<main>${"bounded validator work ".repeat(300)}</main>`;
+    mkdirSync(htmlDir, { recursive: true });
+    writeFileSync(join(htmlDir, "index.html"), html, "utf-8");
+    const etagSpy = vi
+      .spyOn(CompressedAssetCache.prototype, "getOrCreateFileEtag")
+      .mockReturnValue(null);
+
+    try {
+      const base = await listen(
+        createNodeRequestHandler({
+          app: defineApp({ routes: [] }),
+          canonicalOrigin: "http://localhost",
+          isgManifest: { "/page": { revalidate: timeRevalidate(3600) } },
+          staticDir,
+        }),
+      );
+      const response = await rawRequest(`${base}/page`, { "accept-encoding": "gzip" });
+
+      expect(response.status).toBe(200);
+      expect(response.headers.etag).toBeUndefined();
+      expect(response.headers["content-encoding"]).toBe("gzip");
+      expect(gunzipSync(response.body).toString("utf-8")).toBe(html);
+    } finally {
+      etagSpy.mockRestore();
+    }
   });
 
   it("reads the same file version that supplied compression metadata", async () => {

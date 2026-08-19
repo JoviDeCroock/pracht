@@ -12,6 +12,9 @@ written), while static assets and (re)generated ISG documents are compressed
 once per file version at higher quality and served from an in-memory LRU.
 Concurrent first requests share one in-flight compression, while
 byte/concurrency limits send excess cold paths through streaming compression.
+Content-derived ISG validator hashing has matching admission limits; an
+overloaded response omits its ETag instead of queuing unbounded whole-file
+reads, while concurrent requests for the same snapshot share one hash.
 Successful ISG writes are published as an atomic file replacement and
 explicitly invalidate their prior local compressed cache generation. Public
 ISG validators are content-derived so handlers and deployment replicas agree

@@ -346,7 +346,8 @@ export function compressBuffer(buffer: Buffer, encoding: ContentEncoding): Promi
  * Byte-bounded LRU of compressed static assets. Callers include a per-path
  * write generation in each key so an ISG rewrite invalidates cached bytes even
  * when the replacement has the same size and filesystem timestamp.
- * Whole-buffer work is also byte- and concurrency-bounded while pending.
+ * Whole-buffer compression and content-derived validator work are also byte-
+ * and concurrency-bounded while pending.
  */
 export class CompressedAssetCache {
   #entries = new Map<string, Buffer>();
@@ -355,6 +356,7 @@ export class CompressedAssetCache {
   #pending = new Map<string, Promise<Buffer>>();
   #pendingFileEtags = new Map<string, Promise<string>>();
   #pendingBytes = 0;
+  #pendingFileEtagBytes = 0;
   #totalBytes = 0;
   readonly #maxBytes: number;
   readonly #maxPendingEntries: number;
@@ -394,9 +396,16 @@ export class CompressedAssetCache {
    * Cache a content-derived public validator by path + local file version.
    * The key may contain replica-local metadata because it never leaves this
    * process; `produce()` must return a validator derived only from public,
-   * replica-stable representation data.
+   * replica-stable representation data. Returns `null` when admitting a new
+   * key would exceed the pending byte or concurrency budget; callers must omit
+   * the validator for that response rather than fall back to mutable filesystem
+   * metadata.
    */
-  getOrCreateFileEtag(key: string, produce: () => Promise<string>): Promise<string> {
+  getOrCreateFileEtag(
+    key: string,
+    estimatedBytes: number,
+    produce: () => Promise<string>,
+  ): Promise<string> | null {
     const cached = this.#fileEtags.get(key);
     if (cached !== undefined) {
       this.#fileEtags.delete(key);
@@ -406,6 +415,14 @@ export class CompressedAssetCache {
 
     let pending = this.#pendingFileEtags.get(key);
     if (!pending) {
+      if (
+        this.#pendingFileEtags.size >= this.#maxPendingEntries ||
+        estimatedBytes > this.#maxBytes - this.#pendingFileEtagBytes
+      ) {
+        return null;
+      }
+
+      this.#pendingFileEtagBytes += estimatedBytes;
       pending = Promise.resolve()
         .then(produce)
         .then((etag) => {
@@ -421,6 +438,7 @@ export class CompressedAssetCache {
         })
         .finally(() => {
           this.#pendingFileEtags.delete(key);
+          this.#pendingFileEtagBytes -= estimatedBytes;
         });
       this.#pendingFileEtags.set(key, pending);
     }
