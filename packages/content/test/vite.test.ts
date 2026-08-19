@@ -180,6 +180,30 @@ describe("prachtContent", () => {
     }
   });
 
+  it("rejects artifacts in Pracht's reserved build output namespace", async () => {
+    temporaryDirectory = await mkdtemp(join(tmpdir(), "pracht-content-vite-"));
+    await writeFile(join(temporaryDirectory, "page.md"), "Page");
+
+    for (const path of [
+      "/_pracht/headers.json",
+      "/_pracht/markdown.json",
+      "/_pracht/isg.json",
+      "/_PRACHT/custom.json",
+    ]) {
+      const collection = defineCollection({
+        name: "docs",
+        root: temporaryDirectory,
+        artifacts: [() => ({ path, source: "shadow" })],
+      });
+      const [, plugin] = prachtContent({ collections: [collection] });
+      const generateBundle = hookHandler(plugin.generateBundle);
+
+      await expect(
+        generateBundle.call({ emitFile: vi.fn() } as never, {} as never, {} as never, false),
+      ).rejects.toThrow(/reserved \/_pracht build output namespace/);
+    }
+  });
+
   it("rejects case-folded and file-directory artifact output collisions", async () => {
     temporaryDirectory = await mkdtemp(join(tmpdir(), "pracht-content-vite-"));
     await writeFile(join(temporaryDirectory, "page.md"), "Page");

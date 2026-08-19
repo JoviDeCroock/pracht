@@ -109,7 +109,10 @@ for another URL policy.
 `getById()`/`getByRoute()` fall back to the default locale by default.
 `fallback: false` requests an exact locale. The `resolve*` variants report
 fallback explicitly and keep the returned document's real locale intact; code
-must not pretend fallback source is translated content.
+must not pretend fallback source is translated content. String and array
+`fallback` configuration applies only to non-default requested locales. Use an
+explicit record entry when the default locale should fall back to another
+locale.
 
 ## Representations and memoization
 
@@ -139,8 +142,11 @@ instead of being silently overwritten; configure a distinct `summaryPath` or
 use only one generator. OpenAPI companion output is checked the same way rather
 than replacing a collection artifact. Artifact output is preflighted before publication:
 case-folded and file/directory collisions fail across collections, Pracht's
-internal content-header path is reserved, and artifacts cannot overlap files
-in `public/` or prerendered page output.
+entire `/_pracht` build-output namespace is reserved, and artifacts cannot
+overlap files in `public/` or prerendered page output. Artifact paths must use
+canonical ASCII URL segments without percent encoding; spaces and non-ASCII
+segments are rejected because deployment adapters otherwise resolve them to
+different on-disk names.
 
 Artifacts are opt-in. In particular, adding a collection does not publish raw
 source or create an agent surface.

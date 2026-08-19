@@ -104,6 +104,30 @@ describe("defineCollection", () => {
     expect((await frenchOnly.getByRoute("/fr/docs/guide"))?.locale).toBe("fr");
   });
 
+  it("does not apply global fallback lists to the default locale", async () => {
+    const root = await fixture({ "fr/guide.md": "Français" });
+
+    for (const fallback of ["fr", ["fr"]] as const) {
+      const collection = defineCollection({
+        name: "french-only",
+        root,
+        sources: [{ id: "guide", source: "fr/guide.md", locale: "fr" }],
+        locales: { default: "en", supported: ["en", "fr"], fallback },
+      });
+
+      await expect(collection.getById("guide")).resolves.toBeUndefined();
+      await expect(collection.getById("guide", { locale: "fr" })).resolves.toMatchObject({
+        locale: "fr",
+      });
+
+      const runtime = defineSnapshotCollection(await collection.snapshot());
+      await expect(runtime.getById("guide")).resolves.toBeUndefined();
+      await expect(runtime.getById("guide", { locale: "fr" })).resolves.toMatchObject({
+        locale: "fr",
+      });
+    }
+  });
+
   it("only infers source locales from directory segments", async () => {
     const root = await fixture({ "en.md": "A page named after a locale" });
     const collection = defineCollection({
@@ -273,6 +297,20 @@ describe("collection integration helpers", () => {
     });
 
     expect(String((await collection.emitArtifacts())[0].source)).toContain("[Guide](/docs/guide)");
+  });
+
+  it("rejects encoded artifact paths that adapters would map to different files", async () => {
+    const root = await fixture({ "guide.md": "Guide" });
+
+    for (const path of ["/%66oo.txt", "/legal terms.txt", "/café.txt"]) {
+      const collection = defineCollection({
+        name: "docs",
+        root,
+        artifacts: [() => ({ path, source: "content" })],
+      });
+
+      await expect(collection.emitArtifacts()).rejects.toThrow(/without percent encoding/);
+    }
   });
 
   it("adapts route lookup to loaders and markdown negotiation", async () => {

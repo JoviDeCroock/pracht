@@ -251,6 +251,11 @@ async function collectArtifacts(
           `Content artifact ${JSON.stringify(artifact.path)} collides with Pracht's internal content headers manifest. Configure a different artifact path.`,
         );
       }
+      if (portableOutputKey(fileName).startsWith("_pracht/")) {
+        throw new Error(
+          `Content artifact ${JSON.stringify(artifact.path)} uses Pracht's reserved /_pracht build output namespace. Configure a different artifact path.`,
+        );
+      }
 
       const existing = outputs.find((output) => outputPathsCollide(output.fileName, fileName));
       if (existing) {

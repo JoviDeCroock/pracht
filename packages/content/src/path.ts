@@ -56,6 +56,11 @@ export function artifactFileName(path: string): string {
   if (normalized === "/") {
     throw new TypeError("content artifact path must name a file below the site root.");
   }
+  if (normalized.includes("%")) {
+    throw new TypeError(
+      "content artifact path must use canonical ASCII URL segments without percent encoding.",
+    );
+  }
   const fileName = normalized.slice(1);
   if (fileName.split("/").some((segment) => segment === "")) {
     throw new TypeError("content artifact path must not contain empty segments.");

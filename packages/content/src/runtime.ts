@@ -190,9 +190,9 @@ function resolveLocaleOrder(
   const configured = locales.fallback;
   let fallbacks: readonly string[];
   if (typeof configured === "string") {
-    fallbacks = [configured];
+    fallbacks = requested === locales.default ? [] : [configured];
   } else if (Array.isArray(configured)) {
-    fallbacks = configured;
+    fallbacks = requested === locales.default ? [] : configured;
   } else if (configured) {
     const value = (configured as Readonly<Record<string, string | readonly string[]>>)[requested];
     fallbacks = typeof value === "string" ? [value] : (value ?? []);
