@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   assertNoContentArtifactPathCollision,
+  assertNoPrerenderedContentArtifactCollisions,
   assertNoPublicContentArtifactCollisions,
   resolveGeneratedArtifactOutputPath,
   resolvePrerenderOutputPath,
@@ -115,5 +116,43 @@ describe("assertNoPublicContentArtifactCollisions", () => {
     } finally {
       rmSync(publicDir, { force: true, recursive: true });
     }
+  });
+});
+
+describe("assertNoPrerenderedContentArtifactCollisions", () => {
+  it("rejects exact and ancestor collisions with prerendered page files", () => {
+    expect(() =>
+      assertNoPrerenderedContentArtifactCollisions(
+        { "/guide/index.html": { "content-type": "application/json" } },
+        clientDir,
+        ["/guide"],
+      ),
+    ).toThrow(/collides with the prerendered output for route "\/guide"/);
+
+    expect(() =>
+      assertNoPrerenderedContentArtifactCollisions(
+        { "/guide": { "content-type": "application/json" } },
+        clientDir,
+        ["/guide"],
+      ),
+    ).toThrow(/collides with the prerendered output for route "\/guide"/);
+  });
+
+  it("rejects case-folded collisions and allows unrelated artifact files", () => {
+    expect(() =>
+      assertNoPrerenderedContentArtifactCollisions(
+        { "/GUIDE/INDEX.HTML": { "content-type": "text/html" } },
+        clientDir,
+        ["/guide"],
+      ),
+    ).toThrow(/collides with the prerendered output/);
+
+    expect(() =>
+      assertNoPrerenderedContentArtifactCollisions(
+        { "/guide.md": { "content-type": "text/markdown" } },
+        clientDir,
+        ["/guide"],
+      ),
+    ).not.toThrow();
   });
 });

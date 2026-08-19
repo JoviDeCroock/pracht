@@ -242,20 +242,42 @@ async function collectArtifacts(
   collections: readonly ViteContentCollection[],
 ): Promise<readonly ContentArtifact[]> {
   const artifacts: ContentArtifact[] = [];
-  const owners = new Map<string, string>();
+  const outputs: Array<{ fileName: string; owner: string; path: string }> = [];
   for (const collection of collections) {
     for (const artifact of await collection.emitArtifacts()) {
-      const owner = owners.get(artifact.path);
-      if (owner) {
+      const fileName = artifactFileName(artifact.path);
+      if (outputPathsCollide(fileName, CONTENT_HEADERS_FILE)) {
         throw new Error(
-          `Content collections ${JSON.stringify(owner)} and ${JSON.stringify(collection.name)} both emit ${JSON.stringify(artifact.path)}.`,
+          `Content artifact ${JSON.stringify(artifact.path)} collides with Pracht's internal content headers manifest. Configure a different artifact path.`,
         );
       }
-      owners.set(artifact.path, collection.name);
+
+      const existing = outputs.find((output) => outputPathsCollide(output.fileName, fileName));
+      if (existing) {
+        throw new Error(
+          `Content artifact ${JSON.stringify(artifact.path)} from collection ${JSON.stringify(collection.name)} has a portable output-path collision with ${JSON.stringify(existing.path)} from collection ${JSON.stringify(existing.owner)}.`,
+        );
+      }
+      outputs.push({ fileName, owner: collection.name, path: artifact.path });
       artifacts.push(artifact);
     }
   }
   return artifacts;
+}
+
+function outputPathsCollide(left: string, right: string): boolean {
+  const leftKey = portableOutputKey(left);
+  const rightKey = portableOutputKey(right);
+  return (
+    leftKey === rightKey || leftKey.startsWith(`${rightKey}/`) || rightKey.startsWith(`${leftKey}/`)
+  );
+}
+
+function portableOutputKey(fileName: string): string {
+  return fileName
+    .split("/")
+    .map((segment) => segment.normalize("NFC").toLowerCase())
+    .join("/");
 }
 
 function inferContentType(path: string): string {

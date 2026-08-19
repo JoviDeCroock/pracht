@@ -149,6 +149,45 @@ export function assertNoPublicContentArtifactCollisions(
   }
 }
 
+export function assertNoPrerenderedContentArtifactCollisions(
+  contentArtifactHeaders: Record<string, Record<string, string>>,
+  clientDir: string,
+  routePaths: readonly string[],
+): void {
+  const artifactOutputs = Object.keys(contentArtifactHeaders).map((path) => ({
+    outputPath: path.slice(1),
+    path,
+  }));
+  for (const routePath of routePaths) {
+    const pageOutputPath = relative(
+      resolve(clientDir),
+      resolvePrerenderOutputPath(clientDir, routePath),
+    )
+      .split(sep)
+      .join("/");
+    const collision = artifactOutputs.find(({ outputPath }) =>
+      portableOutputPathsCollide(outputPath, pageOutputPath),
+    );
+    if (!collision) continue;
+    throw new Error(
+      `Content artifact ${JSON.stringify(collision.path)} collides with the prerendered output for route ${JSON.stringify(routePath)}. Configure a different artifact path or route.`,
+    );
+  }
+}
+
+function portableOutputPathsCollide(left: string, right: string): boolean {
+  const key = (value: string) =>
+    value
+      .split("/")
+      .map((segment) => segment.normalize("NFC").toLowerCase())
+      .join("/");
+  const leftKey = key(left);
+  const rightKey = key(right);
+  return (
+    leftKey === rightKey || leftKey.startsWith(`${rightKey}/`) || rightKey.startsWith(`${leftKey}/`)
+  );
+}
+
 export interface BuildResult {
   buildTarget: string | null;
 }
@@ -301,6 +340,12 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
       skippedSnapshotPaths.size > 0
         ? pages.filter((page: { path: string }) => !skippedSnapshotPaths.has(page.path))
         : pages;
+
+    assertNoPrerenderedContentArtifactCollisions(
+      contentArtifactHeaders,
+      clientDir,
+      staticPages.map((page: { path: string }) => page.path),
+    );
 
     if (staticPages.length > 0) {
       log(`\n  Prerendering ${staticPages.length} SSG/ISG route(s)...\n`);

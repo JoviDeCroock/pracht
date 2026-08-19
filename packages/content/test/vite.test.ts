@@ -162,6 +162,46 @@ describe("prachtContent", () => {
     );
   });
 
+  it("rejects artifacts that collide with the internal content headers manifest", async () => {
+    temporaryDirectory = await mkdtemp(join(tmpdir(), "pracht-content-vite-"));
+    await writeFile(join(temporaryDirectory, "page.md"), "Page");
+    for (const path of ["/_PRACHT/content-headers.json", "/_pracht"]) {
+      const collection = defineCollection({
+        name: "docs",
+        root: temporaryDirectory,
+        artifacts: [() => ({ path, source: "shadow" })],
+      });
+      const [, plugin] = prachtContent({ collections: [collection] });
+      const generateBundle = hookHandler(plugin.generateBundle);
+
+      await expect(
+        generateBundle.call({ emitFile: vi.fn() } as never, {} as never, {} as never, false),
+      ).rejects.toThrow(/internal content headers manifest/);
+    }
+  });
+
+  it("rejects case-folded and file-directory artifact output collisions", async () => {
+    temporaryDirectory = await mkdtemp(join(tmpdir(), "pracht-content-vite-"));
+    await writeFile(join(temporaryDirectory, "page.md"), "Page");
+
+    for (const paths of [
+      ["/Feed.json", "/feed.json"],
+      ["/feed", "/feed/items.json"],
+    ]) {
+      const collection = defineCollection({
+        name: "docs",
+        root: temporaryDirectory,
+        artifacts: [() => paths.map((path) => ({ path, source: path }))],
+      });
+      const [, plugin] = prachtContent({ collections: [collection] });
+      const generateBundle = hookHandler(plugin.generateBundle);
+
+      await expect(
+        generateBundle.call({ emitFile: vi.fn() } as never, {} as never, {} as never, false),
+      ).rejects.toThrow(/portable output-path collision/);
+    }
+  });
+
   it("serves generated artifacts in development with HEAD and method handling", async () => {
     temporaryDirectory = await mkdtemp(join(tmpdir(), "pracht-content-vite-"));
     await writeFile(join(temporaryDirectory, "page.md"), "Page");
