@@ -18,9 +18,9 @@ const FALLBACK_VERSION_RANGES = {
   "@pracht/adapter-node": "^0.3.8",
   "@pracht/adapter-static": "^0.1.0",
   "@pracht/adapter-vercel": "^0.2.8",
-  "@pracht/cli": "^1.9.0",
-  "@pracht/core": "^0.12.0",
-  "@pracht/vite-plugin": "^0.7.6",
+  "@pracht/cli": "^1.11.0",
+  "@pracht/core": "^0.14.0",
+  "@pracht/vite-plugin": "^0.9.0",
   "@tailwindcss/vite": "^4.1.0",
   "netlify-cli": "^21.6.0",
   tailwindcss: "^4.1.0",
@@ -1466,10 +1466,14 @@ function createAgentInstructions({ adapter, agentTools, packageManager, router, 
   lines.push("- `pracht generate route --path /about` — add a route");
   if (router !== "pages") {
     lines.push("- `pracht generate shell --name app` — add a shell");
-    lines.push("- `pracht generate middleware --name auth` — add middleware");
+    if (adapter.id !== "static") {
+      lines.push("- `pracht generate middleware --name auth` — add middleware");
+    }
   }
-  lines.push("- `pracht generate api --path /health --methods GET` — add an API route");
-  if (router !== "pages") {
+  if (adapter.id !== "static") {
+    lines.push("- `pracht generate api --path /health --methods GET` — add an API route");
+  }
+  if (router !== "pages" && adapter.id !== "static") {
     lines.push(
       "- `pracht generate capability --name notes.search --effect read --expose http` — add a capability (agent-callable operation)",
     );
@@ -1509,7 +1513,9 @@ function createAgentInstructions({ adapter, agentTools, packageManager, router, 
     lines.push("- `src/shells/` — shell components (layouts)");
   }
 
-  lines.push("- `src/api/` — API route handlers");
+  if (adapter.id !== "static") {
+    lines.push("- `src/api/` — API route handlers");
+  }
   lines.push(`- \`vite.config.ts\` — Vite config with the ${adapter.label} adapter`);
 
   if (tailwind) {
@@ -1648,7 +1654,9 @@ function createReadme({
     lines.push("- `src/routes/not-found.tsx` is the not-found page, wired via `notFound`.");
   }
 
-  lines.push("- `src/api/health.ts` is a sample API route.");
+  if (adapter.id !== "static") {
+    lines.push("- `src/api/health.ts` is a sample API route.");
+  }
 
   if (packageManager === "pnpm") {
     lines.push(

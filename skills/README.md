@@ -75,8 +75,9 @@ collide with other skill packs installed in the same app.
 - State prerequisites: `pracht inspect` needs a vite config that registers the
   pracht plugin; `inspect build`, the analyze report, the headers manifest,
   and the env-safety report all need a prior `pracht build`. The canonical
-  headers manifest is `dist/server/headers-manifest.json`; only targets with a
-  runtime reader publish a client copy.
+  headers manifest is `dist/server/headers-manifest.json`. Every serverful
+  target currently publishes a client copy; only Cloudflare reads it there.
+  Pure static exports omit that public copy.
 - Use `pracht typegen` to refresh `src/pracht.d.ts` and
   `src/pracht-routes.ts` after route ids or paths change — and
   `src/pracht-capabilities.d.ts` after capability schemas change; use

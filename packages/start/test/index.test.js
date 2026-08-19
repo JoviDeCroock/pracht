@@ -64,11 +64,11 @@ describe("create-pracht", () => {
     expect(packageJson).toMatch(/"@pracht\/adapter-node": "\^\d+\.\d+\.\d+"/);
     expect(parsedPackageJson.dependencies).toMatchObject({
       "@pracht/adapter-node": "^0.3.8",
-      "@pracht/core": "^0.12.0",
+      "@pracht/core": "^0.14.0",
     });
     expect(parsedPackageJson.devDependencies).toMatchObject({
-      "@pracht/cli": "^1.9.0",
-      "@pracht/vite-plugin": "^0.7.6",
+      "@pracht/cli": "^1.11.0",
+      "@pracht/vite-plugin": "^0.9.0",
     });
     expect(parsedPackageJson.pnpm).toBeUndefined();
     expect(packageJson).toContain('"preview": "pracht preview"');
@@ -301,10 +301,15 @@ describe("create-pracht", () => {
     const viteConfig = await readFile(join(targetDir, "vite.config.ts"), "utf-8");
     const homeRoute = await readFile(join(targetDir, "src/routes/home.tsx"), "utf-8");
     const readme = await readFile(join(targetDir, "README.md"), "utf-8");
+    const agentInstructions = await readFile(join(targetDir, "AGENTS.md"), "utf-8");
 
     expect(packageJson.dependencies).toMatchObject({
       "@pracht/adapter-static": "^0.1.0",
-      "@pracht/core": "^0.12.0",
+      "@pracht/core": "^0.14.0",
+    });
+    expect(packageJson.devDependencies).toMatchObject({
+      "@pracht/cli": "^1.11.0",
+      "@pracht/vite-plugin": "^0.9.0",
     });
     expect(packageJson.scripts).toMatchObject({ build: "pracht build", preview: "pracht preview" });
     expect(packageJson.scripts.start).toBeUndefined();
@@ -317,6 +322,11 @@ describe("create-pracht", () => {
     expect(homeRoute).not.toContain("/api/health");
     expect(homeRoute).not.toContain("src/api/*.ts");
     expect(readme).toContain("dist/client");
+    expect(readme).not.toContain("src/api/health.ts");
+    expect(agentInstructions).not.toContain("generate middleware");
+    expect(agentInstructions).not.toContain("generate api");
+    expect(agentInstructions).not.toContain("--expose http");
+    expect(agentInstructions).not.toContain("src/api/");
 
     // Both starter routes must be statically renderable.
     const routes = await readFile(join(targetDir, "src/routes.ts"), "utf-8");
@@ -376,7 +386,7 @@ describe("create-pracht", () => {
 
     expect(packageJson.dependencies).toMatchObject({
       "@pracht/adapter-netlify": "^0.1.0",
-      "@pracht/core": "^0.12.0",
+      "@pracht/core": "^0.14.0",
     });
     expect(packageJson.devDependencies["netlify-cli"]).toBe("^21.6.0");
     expect(packageJson.scripts).toMatchObject({

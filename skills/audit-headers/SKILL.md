@@ -50,9 +50,10 @@ The audit surface is therefore:
 
 Prerequisites: `pracht inspect` requires a vite config that registers the
 pracht plugin; `pracht inspect build` and
-`dist/server/headers-manifest.json` require a prior `pracht build`. Cloudflare
-also publishes a runtime-read client copy at
-`dist/client/_pracht/headers.json`; pure static exports deliberately do not.
+`dist/server/headers-manifest.json` require a prior `pracht build`. Every
+serverful target currently publishes a client copy at
+`dist/client/_pracht/headers.json`; only Cloudflare reads it there. Pure static
+exports deliberately do not publish that copy.
 
 ## Step 1: Inventory header sources
 
@@ -138,12 +139,13 @@ and report each as `error` with the prerender failure it would cause.
 The real target is the `warn` class the framework cannot catch: innocuously
 named headers carrying user-specific values in
 `dist/server/headers-manifest.json`, which serverful adapters may replay across
-users on static responses. Cloudflare copies that manifest into public client
-output because its worker reads it through the assets binding. A pure static
-export omits the client copy and has no runtime to replay the server manifest;
-instead, verify that the deployment's host-header configuration mirrors only
-safe, non-user-specific entries. Missing host configuration means route
-`headers()` values are not applied at all.
+users on static responses. Every serverful build currently also copies that
+manifest into public client output; Cloudflare reads it through the assets
+binding, while the other adapters retain the public copy for compatibility. A
+pure static export omits the client copy and has no runtime to replay the server
+manifest; instead, verify that the deployment's host-header configuration
+mirrors only safe, non-user-specific entries. Missing host configuration means
+route `headers()` values are not applied at all.
 
 Secret VALUES in headers are owned by `audit-secrets`; this skill owns policy
 headers. Cross-reference `audit-secrets` for value-level findings.

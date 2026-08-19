@@ -503,6 +503,71 @@ test("static doctor trusts the resolved adapter when staticAdapter is only impor
   }
 });
 
+test("static doctor resolves an imported custom static adapter", () => {
+  test.setTimeout(180_000);
+  const { exampleDir, tempDir } = createTempExampleDir(
+    staticFixtureDir,
+    "pracht-static-doctor-custom-target-",
+  );
+
+  try {
+    const packagePath = resolve(exampleDir, "package.json");
+    const packageJson = JSON.parse(readFileSync(packagePath, "utf-8")) as {
+      dependencies: Record<string, string>;
+    };
+    delete packageJson.dependencies["@pracht/adapter-static"];
+    writeFileSync(packagePath, `${JSON.stringify(packageJson, null, 2)}\n`, "utf-8");
+
+    writeFileSync(
+      resolve(exampleDir, "custom-static-adapter.ts"),
+      [
+        "export function customStaticAdapter() {",
+        "  return {",
+        '    id: "custom-static",',
+        '    serverImports: "",',
+        "    staticTarget: true,",
+        '    createServerEntryModule: () => "",',
+        "  };",
+        "}",
+        "",
+      ].join("\n"),
+      "utf-8",
+    );
+    writeFileSync(
+      resolve(exampleDir, "vite.config.ts"),
+      [
+        'import { defineConfig } from "vite";',
+        'import { pracht } from "@pracht/vite-plugin";',
+        'import { customStaticAdapter } from "./custom-static-adapter";',
+        "",
+        "export default defineConfig({",
+        "  plugins: [pracht({ adapter: customStaticAdapter() })],",
+        "});",
+        "",
+      ].join("\n"),
+      "utf-8",
+    );
+
+    const routesPath = resolve(exampleDir, "src/routes.ts");
+    writeFileSync(
+      routesPath,
+      readFileSync(routesPath, "utf-8").replace(
+        'route("/about", () => import("./routes/about.tsx"), { id: "about", render: "ssg" }),',
+        'route("/about", () => import("./routes/about.tsx"), { id: "about", render: "ssr" }),',
+      ),
+      "utf-8",
+    );
+
+    const report = doctorExample(exampleDir);
+    const messages = report.checks.map((check) => check.message).join("\n");
+    expect(report.ok, JSON.stringify(report, null, 2)).toBe(false);
+    expect(messages).toContain("Static export:");
+    expect(messages).toContain('/about (render: "ssr")');
+  } finally {
+    rmSync(tempDir, { force: true, recursive: true });
+  }
+});
+
 for (const scenario of [
   {
     name: "redirecting SSG loader",

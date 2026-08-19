@@ -1,7 +1,10 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 
-import { extractCapabilityRegistrations } from "@pracht/capabilities/static";
+import {
+  extractCapabilityRegistrations,
+  maskCommentsAndStrings,
+} from "@pracht/capabilities/static";
 import { evaluateConstraints } from "@pracht/core";
 import type { AppGraphRoute } from "@pracht/core";
 
@@ -99,7 +102,12 @@ export async function collectGraphChecks(project: ProjectConfig, checks: Check[]
 
 function projectMightUseStaticExport(project: ProjectConfig): boolean {
   if (detectAdapterTarget(project) === "static") return true;
-  if (/\bstaticTarget\s*:/.test(project.rawConfig)) return true;
+  // A local custom adapter can carry `staticTarget: true` outside the Vite
+  // config. Inspect direct local imports as a cheap candidate gate; the
+  // resolved metadata above remains authoritative. Treating every explicit
+  // adapter as a candidate would make ordinary server-adapter projects boot
+  // Vite during doctor even when they have no graph-aware checks to run.
+  if (localConfigImportMightBeStatic(project)) return true;
 
   try {
     const packageJson = JSON.parse(
@@ -115,6 +123,44 @@ function projectMightUseStaticExport(project: ProjectConfig): boolean {
   } catch {
     return false;
   }
+}
+
+function localConfigImportMightBeStatic(project: ProjectConfig): boolean {
+  if (!project.configFile) return false;
+
+  const importSpecifiers = [
+    ...project.rawConfig.matchAll(/^\s*import\s+(?:[^"']+?\s+from\s+)?["'](\.[^"']+)["']/gm),
+  ].map((match) => match[1]);
+
+  for (const specifier of importSpecifiers) {
+    const unresolvedPath = resolve(dirname(project.configFile), specifier);
+    const candidates = [
+      unresolvedPath,
+      ...[".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs"].map(
+        (extension) => `${unresolvedPath}${extension}`,
+      ),
+      ...[".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs"].map((extension) =>
+        resolve(unresolvedPath, `index${extension}`),
+      ),
+    ];
+    const importedFile = candidates.find((candidate) => existsSync(candidate));
+    if (!importedFile) continue;
+
+    try {
+      if (
+        /\bstaticTarget\s*:\s*true\b/.test(
+          maskCommentsAndStrings(readFileSync(importedFile, "utf-8")),
+        )
+      ) {
+        return true;
+      }
+    } catch {
+      // A candidate import that cannot be read should not make cheap doctor
+      // checks depend on a live Vite boot.
+    }
+  }
+
+  return false;
 }
 
 function projectDeclaresApiRoutes(project: ProjectConfig): boolean {
