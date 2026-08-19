@@ -120,6 +120,22 @@ describe("createPrachtDevModuleSource API graph", () => {
       'export const apiRoutes = resolveApiRoutes(Object.keys(apiModules), "/src/http");',
     );
   });
+
+  it("applies loader hints and exports the authoritative static target", () => {
+    const source = createPrachtDevModuleSource({
+      adapter: {
+        id: "custom-static",
+        serverImports: "",
+        staticTarget: true,
+        createServerEntryModule: () => "",
+      },
+    });
+
+    expect(source).toContain("const routeLoaderHints = ");
+    expect(source).toContain("applyRouteLoaderHints(resolvedApp, routeLoaderHints);");
+    expect(source).toContain('export const buildTarget = "custom-static";');
+    expect(source).toContain("export const staticTarget = true;");
+  });
 });
 
 describe("createPrachtServerModuleSource budgets export", () => {

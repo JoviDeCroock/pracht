@@ -95,10 +95,12 @@ Check for accidental exposure outside loaders:
 
 - `head()` returns: rare, but a `meta` value containing a token leaks into HTML.
 - `headers()` returns: flag values that look like secrets. For SSG/ISG pages,
-  document headers can be copied into `dist/client/_pracht/headers.json`, which
-  is public client output and may be replayed on static responses. This skill
-  owns secret VALUES in headers; header policy (CSP, HSTS, weakened defaults)
-  is owned by `audit-headers` — cross-reference it.
+  document headers enter `dist/server/headers-manifest.json`; Cloudflare also
+  copies that manifest to public `dist/client/_pracht/headers.json`, while a
+  pure static export omits the client copy but may mirror the server manifest
+  into host configuration. This skill owns secret VALUES in headers; header
+  policy (CSP, HSTS, weakened defaults) is owned by `audit-headers` —
+  cross-reference it.
 - `<Form>` `action` URLs containing tokens in the query string.
 - `prefetchRouteState(url)` calls with sensitive query params.
 - Inline `<script>` content emitted from custom shells.

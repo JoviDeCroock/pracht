@@ -159,6 +159,25 @@ function buildFailureOutput(exampleDir: string): string {
   throw new Error("Expected the static build to fail.");
 }
 
+function doctorExample(exampleDir: string): {
+  checks: Array<{ message: string; status: string }>;
+  ok: boolean;
+} {
+  let output: string;
+  try {
+    output = String(
+      execFileSync(process.execPath, [cliEntry, "doctor", "--json"], {
+        cwd: exampleDir,
+        env: { ...process.env, NODE_OPTIONS: "--experimental-strip-types" },
+        stdio: "pipe",
+      }),
+    );
+  } catch (error) {
+    output = String((error as Error & { stdout?: Buffer }).stdout ?? "");
+  }
+  return JSON.parse(output);
+}
+
 async function waitForRouter(page: Page): Promise<void> {
   await page.waitForFunction(() => (window as any).__PRACHT_ROUTER_READY__);
 }
@@ -418,6 +437,67 @@ test("static export build fails closed on request-runtime features", async () =>
     expect(output).toContain("static host has no request runtime");
     expect(output).toContain("/api/health");
     expect(output).toContain("@pracht/adapter-node");
+  } finally {
+    rmSync(tempDir, { force: true, recursive: true });
+  }
+});
+
+test("static doctor catches inline SPA loaders from live route metadata", () => {
+  test.setTimeout(180_000);
+  const { exampleDir, tempDir } = createTempExampleDir(
+    staticFixtureDir,
+    "pracht-static-doctor-loader-",
+  );
+
+  try {
+    const dashboardPath = resolve(exampleDir, "src/routes/dashboard.tsx");
+    writeFileSync(
+      dashboardPath,
+      `export function loader() { return { widgets: [] }; }\n${readFileSync(dashboardPath, "utf-8")}`,
+      "utf-8",
+    );
+
+    const report = doctorExample(exampleDir);
+    expect(report.ok).toBe(false);
+    expect(report.checks.map((check) => check.message).join("\n")).toContain("/dashboard");
+    expect(report.checks.map((check) => check.message).join("\n")).toContain(
+      "Static SPA routes must be loaderless",
+    );
+  } finally {
+    rmSync(tempDir, { force: true, recursive: true });
+  }
+});
+
+test("static doctor trusts the resolved adapter when staticAdapter is only imported", () => {
+  test.setTimeout(180_000);
+  const { exampleDir, tempDir } = createTempExampleDir(
+    staticFixtureDir,
+    "pracht-static-doctor-resolved-target-",
+  );
+
+  try {
+    const viteConfigPath = resolve(exampleDir, "vite.config.ts");
+    writeFileSync(
+      viteConfigPath,
+      readFileSync(viteConfigPath, "utf-8").replace(
+        /adapter: staticAdapter\([\s\S]*?\n      \),/,
+        'adapter: { id: "node", serverImports: "", createServerEntryModule: () => "" },',
+      ),
+      "utf-8",
+    );
+    const routesPath = resolve(exampleDir, "src/routes.ts");
+    writeFileSync(
+      routesPath,
+      readFileSync(routesPath, "utf-8").replace(
+        'route("/about", () => import("./routes/about.tsx"), { id: "about", render: "ssg" }),',
+        'route("/about", () => import("./routes/about.tsx"), { id: "about", render: "ssr" }),',
+      ),
+      "utf-8",
+    );
+
+    const report = doctorExample(exampleDir);
+    expect(report.ok, JSON.stringify(report, null, 2)).toBe(true);
+    expect(report.checks.map((check) => check.message).join("\n")).not.toContain("Static export:");
   } finally {
     rmSync(tempDir, { force: true, recursive: true });
   }

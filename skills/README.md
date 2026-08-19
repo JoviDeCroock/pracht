@@ -73,8 +73,10 @@ collide with other skill packs installed in the same app.
   Prefer the MCP tools when the client has the server registered; every skill
   carries a reminder near its first CLI invocation.
 - State prerequisites: `pracht inspect` needs a vite config that registers the
-  pracht plugin; `inspect build`, the analyze report, `headers.json`, and the
-  env-safety report all need a prior `pracht build`.
+  pracht plugin; `inspect build`, the analyze report, the headers manifest,
+  and the env-safety report all need a prior `pracht build`. The canonical
+  headers manifest is `dist/server/headers-manifest.json`; only targets with a
+  runtime reader publish a client copy.
 - Use `pracht typegen` to refresh `src/pracht.d.ts` and
   `src/pracht-routes.ts` after route ids or paths change — and
   `src/pracht-capabilities.d.ts` after capability schemas change; use

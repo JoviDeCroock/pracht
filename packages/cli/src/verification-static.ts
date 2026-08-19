@@ -1,6 +1,4 @@
 import type { GraphSnapshot } from "./graph-snapshot.js";
-import type { ProjectConfig } from "./project.js";
-import { detectAdapterTarget } from "./commands/preview.js";
 import { createCheck, type Check } from "./verification-helpers.js";
 
 /**
@@ -26,11 +24,14 @@ function list(paths: string[]): string {
 }
 
 export function collectStaticExportChecks(
-  project: ProjectConfig,
   graph: GraphSnapshot,
   checks: Check[],
+  options: {
+    loaderRoutePaths?: ReadonlySet<string>;
+    staticTarget: boolean;
+  },
 ): void {
-  if (detectAdapterTarget(project) !== "static") return;
+  if (!options.staticTarget) return;
 
   // The graph snapshot carries routes, API routes, and capabilities, but not
   // the app-level notFound page. Its two static-export rules (full hydration,
@@ -53,9 +54,12 @@ export function collectStaticExportChecks(
     );
   }
 
-  const spaWithLoaders = routes.filter(
-    (route) => route.render === "spa" && route.loaderFile !== null,
-  );
+  const spaWithLoaders = routes.filter((route) => {
+    if (route.render !== "spa") return false;
+    return options.loaderRoutePaths
+      ? options.loaderRoutePaths.has(route.path)
+      : route.loaderFile !== null;
+  });
   if (spaWithLoaders.length > 0) {
     problems += 1;
     checks.push(

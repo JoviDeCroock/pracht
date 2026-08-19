@@ -403,6 +403,7 @@ export function createPrachtDevModuleSource(
   buildOptions: { root?: string } = {},
 ): string {
   const resolved = resolveOptions(options);
+  const routeLoaderHints = createRouteLoaderHintsForVirtualModules(resolved, buildOptions.root);
   const appImport = resolved.pagesDir
     ? generatePagesAppInlineSource(resolved, buildOptions.root)
     : `import { app } from ${JSON.stringify(resolved.appFile)};`;
@@ -411,9 +412,12 @@ export function createPrachtDevModuleSource(
     'import { resolveApp, resolveApiRoutes } from "@pracht/core/server";',
     appImport,
     "",
+    `const routeLoaderHints = ${JSON.stringify(routeLoaderHints)};`,
+    ...createApplyRouteLoaderHintsSource(),
     createPrachtRegistryModuleSource(resolved),
     "",
     "export const resolvedApp = resolveApp(app);",
+    "applyRouteLoaderHints(resolvedApp, routeLoaderHints);",
     `export const apiRoutes = resolveApiRoutes(Object.keys(apiModules), ${JSON.stringify(resolved.apiDir)});`,
     `export const buildTarget = ${JSON.stringify(resolved.adapter?.id ?? "node")};`,
     `export const staticTarget = ${JSON.stringify(resolved.adapter?.staticTarget === true)};`,

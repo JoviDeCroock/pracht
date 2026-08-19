@@ -8,7 +8,7 @@ import type { AppGraphRoute } from "@pracht/core";
 import {
   GRAPH_SNAPSHOT_PATH,
   readGraphSnapshotFromDisk,
-  resolveLiveGraph,
+  resolveLiveGraphMetadata,
   serializeGraphSnapshot,
   type GraphSnapshot,
 } from "./graph-snapshot.js";
@@ -31,23 +31,28 @@ export async function collectGraphChecks(project: ProjectConfig, checks: Check[]
   const wantsCapabilityLoad = manifestDeclaresCapabilities(project);
   const wantsApiLoad = projectDeclaresApiRoutes(project);
   const snapshotExists = existsSync(resolve(project.root, GRAPH_SNAPSHOT_PATH));
-  // A static export always needs the graph: its preconditions are exactly the
-  // request-runtime features the graph records, and reporting "no blocking
-  // issues" for an app whose static build cannot succeed is the worst outcome.
-  const wantsStaticExport = detectAdapterTarget(project) === "static";
+  // Raw config inspection is only a gate for the comparatively expensive Vite
+  // boot. The resolved metadata below is authoritative: conditional configs,
+  // aliases, and custom adapter ids cannot be classified safely from source.
+  const mightUseStaticExport = projectMightUseStaticExport(project);
   if (
     !wantsConstraints &&
     !wantsCapabilityLoad &&
     !wantsApiLoad &&
     !snapshotExists &&
-    !wantsStaticExport
+    !mightUseStaticExport
   ) {
     return;
   }
 
   let live: GraphSnapshot;
+  let staticTarget = false;
+  let loaderRoutePaths: ReadonlySet<string> = new Set();
   try {
-    live = await resolveLiveGraph(project.root);
+    const metadata = await resolveLiveGraphMetadata(project.root);
+    live = metadata.graph;
+    staticTarget = metadata.staticTarget;
+    loaderRoutePaths = metadata.loaderRoutePaths;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     checks.push(
@@ -56,6 +61,18 @@ export async function collectGraphChecks(project: ProjectConfig, checks: Check[]
         `Could not resolve the app graph for live verification checks: ${message}`,
       ),
     );
+    return;
+  }
+
+  // A source-level candidate can resolve to a serverful adapter (for example
+  // an environment-conditional config that merely imports staticAdapter).
+  if (
+    !wantsConstraints &&
+    !wantsCapabilityLoad &&
+    !wantsApiLoad &&
+    !snapshotExists &&
+    !staticTarget
+  ) {
     return;
   }
 
@@ -75,9 +92,29 @@ export async function collectGraphChecks(project: ProjectConfig, checks: Check[]
       ),
     );
   }
-  collectStaticExportChecks(project, live, checks);
+  collectStaticExportChecks(live, checks, { loaderRoutePaths, staticTarget });
   collectConstraintChecks(project, live, checks);
   collectSnapshotChecks(project, live, checks, snapshotExists);
+}
+
+function projectMightUseStaticExport(project: ProjectConfig): boolean {
+  if (detectAdapterTarget(project) === "static") return true;
+  if (/\bstaticTarget\s*:/.test(project.rawConfig)) return true;
+
+  try {
+    const packageJson = JSON.parse(
+      readFileSync(resolve(project.root, "package.json"), "utf-8"),
+    ) as {
+      dependencies?: Record<string, unknown>;
+      devDependencies?: Record<string, unknown>;
+    };
+    return (
+      "@pracht/adapter-static" in (packageJson.dependencies ?? {}) ||
+      "@pracht/adapter-static" in (packageJson.devDependencies ?? {})
+    );
+  } catch {
+    return false;
+  }
 }
 
 function projectDeclaresApiRoutes(project: ProjectConfig): boolean {
