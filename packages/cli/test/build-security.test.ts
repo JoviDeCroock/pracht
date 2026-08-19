@@ -11,6 +11,7 @@ import {
   assertNoPublicContentArtifactCollisions,
   resolveGeneratedArtifactOutputPath,
   resolvePrerenderOutputPath,
+  runBuild,
 } from "../src/commands/build.ts";
 
 const clientDir = resolve("/tmp/pracht-app/dist/client");
@@ -178,6 +179,56 @@ describe("assertNoPublicContentArtifactCollisions", () => {
       ).not.toThrow();
     } finally {
       rmSync(publicDir, { force: true, recursive: true });
+    }
+  });
+
+  it("uses Vite's configured publicDir during a build", async () => {
+    const root = mkdtempSync(join(tmpdir(), "pracht-content-custom-public-"));
+    try {
+      mkdirSync(resolve(root, "static"));
+      writeFileSync(resolve(root, "static/content.txt"), "public");
+      writeFileSync(
+        resolve(root, "vite.config.mjs"),
+        `const CLIENT = "\\0virtual:pracht/client";
+const SERVER = "\\0virtual:pracht/server";
+let isSsrBuild = false;
+
+export default {
+  publicDir: "static",
+  plugins: [{
+    name: "content-collision-fixture",
+    configResolved(config) {
+      isSsrBuild = Boolean(config.build.ssr);
+    },
+    resolveId(id) {
+      if (id === "virtual:pracht/client") return CLIENT;
+      if (id === "virtual:pracht/server") return SERVER;
+    },
+    load(id) {
+      if (id === CLIENT) return "console.log('client')";
+      if (id === SERVER) {
+        return "export const resolvedApp = { routes: [] }; export async function prerenderApp() { return { pages: [], isgManifest: {} }; }";
+      }
+    },
+    generateBundle() {
+      if (isSsrBuild) return;
+      this.emitFile({ type: "asset", fileName: "content.txt", source: "generated" });
+      this.emitFile({
+        type: "asset",
+        fileName: "_pracht/content-headers.json",
+        source: JSON.stringify({ "/content.txt": { "content-type": "text/plain" } }),
+      });
+    },
+  }],
+};
+`,
+      );
+
+      await expect(runBuild(root, { analyzeJson: true })).rejects.toThrow(
+        /collides with.*static\/content\.txt/,
+      );
+    } finally {
+      rmSync(root, { force: true, recursive: true });
     }
   });
 });

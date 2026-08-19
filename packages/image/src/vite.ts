@@ -224,6 +224,11 @@ interface ResolvedImage {
   publicAsset?: boolean;
 }
 
+interface StaticAsset {
+  contentType: `image/${string}`;
+  source: Uint8Array;
+}
+
 async function resolvePublicFile(publicDir: string, source: string): Promise<string | undefined> {
   if (!publicDir || !source.startsWith("/")) return undefined;
 
@@ -302,7 +307,7 @@ export function prachtImage(options: PrachtImageOptions = {}): Plugin {
   // builds/environments reuse the sharp work for matching URL semantics.
   const cache = new Map<string, CacheEntry>();
   const resolvedImages = new Map<string, ResolvedImage>();
-  const staticAssets = new Map<string, Uint8Array>();
+  const staticAssets = new Map<string, StaticAsset>();
   let publicDir = "";
   let root = process.cwd();
   let base = "/";
@@ -334,12 +339,13 @@ export function prachtImage(options: PrachtImageOptions = {}): Plugin {
         .digest("hex")
         .slice(0, 12);
       const fileName = posix.join(assetsDir, `${stem}.${hash}${extension}`);
-      staticAssets.set(fileName, source);
+      const contentType = contentTypeForOriginal(metadata.format, extension);
+      staticAssets.set(fileName, { contentType, source });
       return [
         {
           src: staticAssetUrl(fileName),
           width: intrinsicWidth,
-          type: contentTypeForOriginal(metadata.format, extension),
+          type: contentType,
         },
       ];
     }
@@ -390,7 +396,7 @@ export function prachtImage(options: PrachtImageOptions = {}): Plugin {
           await unlink(temporaryPath).catch(() => undefined);
         }
       }
-      staticAssets.set(fileName, output);
+      staticAssets.set(fileName, { contentType: "image/webp", source: output });
       variants.push({ src: staticAssetUrl(fileName), width, type: "image/webp" as const });
     }
     return variants;
@@ -508,17 +514,17 @@ export function prachtImage(options: PrachtImageOptions = {}): Plugin {
         if (method !== "GET" && method !== "HEAD") return next();
         response.statusCode = 200;
         response.setHeader("cache-control", "no-store");
-        response.setHeader("content-type", "image/webp");
+        response.setHeader("content-type", entry[1].contentType);
         response.setHeader("x-content-type-options", "nosniff");
-        response.end(method === "HEAD" ? undefined : entry[1]);
+        response.end(method === "HEAD" ? undefined : entry[1].source);
       });
     },
     generateBundle() {
       const consumer = this.environment?.config?.consumer;
       const isServerBundle = consumer ? consumer === "server" : isSsrBuild;
       if (isServerBundle) return;
-      for (const [fileName, source] of staticAssets) {
-        this.emitFile({ type: "asset", fileName, source });
+      for (const [fileName, asset] of staticAssets) {
+        this.emitFile({ type: "asset", fileName, source: asset.source });
       }
     },
     async writeBundle() {
@@ -530,7 +536,7 @@ export function prachtImage(options: PrachtImageOptions = {}): Plugin {
       // graph. Their image imports are first discovered during the server
       // build, so publish those generated files into the adapter-served client
       // directory instead of leaving prerendered HTML with dangling URLs.
-      for (const [fileName, source] of staticAssets) {
+      for (const [fileName, asset] of staticAssets) {
         const outputPath = resolve(staticOutDir, fileName);
         const relativePath = relative(staticOutDir, outputPath);
         if (
@@ -544,7 +550,7 @@ export function prachtImage(options: PrachtImageOptions = {}): Plugin {
           );
         }
         await mkdir(dirname(outputPath), { recursive: true });
-        await writeFile(outputPath, source);
+        await writeFile(outputPath, asset.source);
       }
     },
     watchChange(filePath) {

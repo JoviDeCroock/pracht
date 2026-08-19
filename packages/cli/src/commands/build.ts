@@ -12,7 +12,7 @@ import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import { defineCommand } from "citty";
-import { build as viteBuild } from "vite";
+import { build as viteBuild, type Plugin } from "vite";
 
 import { readClientBuildAssets } from "../build-metadata.js";
 import { writeVercelBuildOutput } from "../build-shared.js";
@@ -161,6 +161,7 @@ function findContentArtifactOutputCollision(
 export function assertNoPublicContentArtifactCollisions(
   contentArtifactHeaders: Record<string, Record<string, string>>,
   publicDir: string,
+  publicDirLabel = "public",
 ): void {
   const publicFiles: string[] = [];
   const collectPublicFiles = (directory: string): void => {
@@ -182,7 +183,7 @@ export function assertNoPublicContentArtifactCollisions(
     );
     if (!collision) continue;
     throw new Error(
-      `Content artifact ${JSON.stringify(path)} collides with ${JSON.stringify(`public/${collision}`)}. Remove or rename one of the files so generated artifact bytes and headers cannot diverge.`,
+      `Content artifact ${JSON.stringify(path)} collides with ${JSON.stringify(`${publicDirLabel}/${collision}`)}. Remove or rename one of the files so generated artifact bytes and headers cannot diverge.`,
     );
   }
 }
@@ -245,10 +246,19 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
     if (!analyzeJson) console.log(message);
   };
 
+  let publicDir = resolve(root, "public");
+  const capturePublicDir: Plugin = {
+    name: "pracht:capture-public-dir",
+    configResolved(config) {
+      publicDir = config.publicDir;
+    },
+  };
+
   log("\n  Building client...\n");
   await viteBuild({
     root,
     logLevel,
+    plugins: [capturePublicDir],
     build: {
       outDir: "dist",
       manifest: true,
@@ -293,9 +303,12 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
   }
   const contentArtifactHeaders = readContentArtifactHeaders(clientDir);
 
-  const publicDir = resolve(root, "public");
-  if (existsSync(publicDir)) {
-    assertNoPublicContentArtifactCollisions(contentArtifactHeaders, publicDir);
+  if (publicDir && existsSync(publicDir)) {
+    assertNoPublicContentArtifactCollisions(
+      contentArtifactHeaders,
+      publicDir,
+      relative(root, publicDir).split(sep).join("/") || ".",
+    );
   }
 
   // `public/` is deliberately not re-copied here: the client build already

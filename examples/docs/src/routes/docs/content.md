@@ -101,6 +101,7 @@ production.
 import { prachtContent } from "@pracht/content/vite";
 import { prachtImage } from "@pracht/image/vite";
 import { pracht } from "@pracht/vite-plugin";
+import { defineConfig } from "vite";
 import { docs } from "./content";
 
 export default defineConfig({

@@ -372,6 +372,46 @@ describe("prachtImage in the Vite dev server", () => {
   });
 
   it(
+    "serves original-format static assets with their actual content types",
+    { timeout: 60_000 },
+    async () => {
+      const { createServer } = await import("vite");
+      const root = await makeRoot();
+      await copyFile(fixture("icon.svg"), join(root, "icon.svg"));
+      await copyFile(fixture("animated.gif"), join(root, "animated.gif"));
+      const server = await createServer({
+        root,
+        logLevel: "error",
+        plugins: [prachtImage()],
+        server: { host: "127.0.0.1", port: 0, hmr: false },
+      });
+
+      try {
+        await server.listen();
+        const icon = await server.transformRequest("/icon.svg?pracht&pracht-static");
+        const animation = await server.transformRequest("/animated.gif?pracht&pracht-static");
+        const iconPath = icon?.code.match(/\/assets\/icon\.[a-f0-9]+\.svg/)?.[0];
+        const animationPath = animation?.code.match(/\/assets\/animated\.[a-f0-9]+\.gif/)?.[0];
+        expect(iconPath).toBeDefined();
+        expect(animationPath).toBeDefined();
+
+        const address = server.httpServer?.address();
+        if (!address || typeof address !== "object") throw new Error("Vite did not expose a port");
+        const origin = `http://127.0.0.1:${address.port}`;
+        const [iconResponse, animationResponse] = await Promise.all([
+          fetch(`${origin}${iconPath}`),
+          fetch(`${origin}${animationPath}`),
+        ]);
+
+        expect(iconResponse.headers.get("content-type")).toBe("image/svg+xml");
+        expect(animationResponse.headers.get("content-type")).toBe("image/gif");
+      } finally {
+        await server.close();
+      }
+    },
+  );
+
+  it(
     "invalidates Vite's transform cache when the image changes on disk",
     { timeout: 60_000 },
     async () => {

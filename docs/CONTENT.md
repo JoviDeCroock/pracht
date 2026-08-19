@@ -145,9 +145,9 @@ use only one generator. OpenAPI companion output is checked the same way rather
 than replacing a collection artifact. Artifact output is preflighted before publication:
 case-folded and file/directory collisions fail across collections, Pracht's
 entire `/_pracht` build-output namespace is reserved, and artifacts cannot
-overlap files in `public/` or prerendered page output. Artifact paths must use
-canonical, portable ASCII URL segments without percent encoding. Spaces,
-non-ASCII segments, Windows-reserved names, trailing dots, and
+overlap files in Vite's configured `publicDir` or prerendered page output.
+Artifact paths must use canonical, portable ASCII URL segments without percent
+encoding. Spaces, non-ASCII segments, Windows-reserved names, trailing dots, and
 filesystem-invalid characters are rejected because deployment adapters
 otherwise resolve them to different on-disk names.
 
