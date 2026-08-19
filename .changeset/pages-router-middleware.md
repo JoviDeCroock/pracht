@@ -64,7 +64,11 @@ Ejected pages manifests are identified by either the marker emitted by
 `generateRoutesFile` or the durable root `_middleware` registration. Removing
 the informational generated header while customizing the manifest therefore
 cannot put middleware or its underscore-reserved helpers into the client
-registry. Ordinary manifest apps may still co-locate route, shell, and
+registry, including when the middleware module reference is stored in a
+top-level variable. Dedicated pages middleware modules also strip value
+`export *` declarations on the client boundary, so a star re-export cannot pull
+its server-only implementation into a browser bundle through a direct import.
+Ordinary manifest apps may still co-locate route, shell, and
 middleware modules without having valid underscore-prefixed route or shell
 modules removed when they do not register the pages-style root middleware.
 

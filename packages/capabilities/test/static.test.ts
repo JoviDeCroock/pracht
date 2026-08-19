@@ -40,6 +40,20 @@ describe("capability static extraction", () => {
     ]);
   });
 
+  it("resolves manifest module refs stored in top-level bindings", () => {
+    const source = `
+      const pagesMiddleware: ModuleRef = () => import("./pages/_middleware.ts");
+      export const app = defineApp({
+        middleware: { ...sharedMiddleware, pages: pagesMiddleware },
+        routes: [],
+      });
+    `;
+
+    expect(extractManifestModuleRegistrations(source, "middleware")).toEqual([
+      { name: "pages", file: "./pages/_middleware.ts" },
+    ]);
+  });
+
   it("ignores defineCapability examples in comments and strings", () => {
     const source = `
       // defineCapability({ title: "commented out" })
