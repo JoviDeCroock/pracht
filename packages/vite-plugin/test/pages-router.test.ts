@@ -959,6 +959,59 @@ describe("createPrachtRegistryModuleSource", () => {
     expect(source).not.toContain('import.meta.glob("/src/modules/_app.');
   });
 
+  it("does not infer pages from a separate conventional root middleware", () => {
+    const root = makeTempPagesDir();
+    mkdirSync(join(root, "src", "modules"), { recursive: true });
+    mkdirSync(join(root, "src", "middleware"), { recursive: true });
+    writeFileSync(
+      join(root, "src", "routes.ts"),
+      `export const app = defineApp({
+        middleware: { auth: () => import("./middleware/_middleware.ts") },
+        routes: [],
+      });\n`,
+    );
+
+    const source = createPrachtClientModuleSource(
+      {
+        appFile: "/src/routes.ts",
+        routesDir: "/src/modules",
+        shellsDir: "/src/modules",
+        middlewareDir: "/src/middleware",
+      },
+      { root },
+    );
+
+    expect(source).not.toContain("!/src/modules/**/_*");
+    expect(source).not.toContain('import.meta.glob("/src/modules/_app.');
+  });
+
+  it("recognizes a typed marker-free pages middleware registry", () => {
+    const root = makeTempPagesDir();
+    mkdirSync(join(root, "src", "pages"), { recursive: true });
+    writeFileSync(
+      join(root, "src", "routes.ts"),
+      `const pages: (() => Promise<unknown>) = () => import("./pages/_middleware.ts");
+const middleware: Record<string, () => Promise<unknown>> = { pages };
+export const app = defineApp({ middleware, routes: [] });
+`,
+    );
+
+    const source = createPrachtClientModuleSource(
+      {
+        appFile: "/src/routes.ts",
+        routesDir: "/src/pages",
+        shellsDir: "/src/pages",
+        middlewareDir: "/src/pages",
+      },
+      { root },
+    );
+
+    expect(source).toContain('"!/src/pages/**/_*"');
+    expect(source).toContain(
+      'import.meta.glob("/src/pages/_app.{ts,tsx,js,jsx}", { query: "?pracht-client" })',
+    );
+  });
+
   it("creates adapter-neutral development metadata", () => {
     const source = createPrachtDevModuleSource({ appFile: "/src/routes.ts" });
 

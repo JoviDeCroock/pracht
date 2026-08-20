@@ -541,14 +541,18 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
         );
       }
 
+      const isPagesMiddlewareModule =
+        !transformOptions?.ssr &&
+        (isPagesMode || usesEjectedPagesLayout) &&
+        isRootMiddlewareModule(id, root, resolved);
       const shouldStrip =
         isPrachtClientModuleId(id) ||
-        (!transformOptions?.ssr && isRouteOrShellFile(id, routeFileDirs, routeFileExtensions));
+        (!transformOptions?.ssr && isRouteOrShellFile(id, routeFileDirs, routeFileExtensions)) ||
+        isPagesMiddlewareModule;
       if (!shouldStrip) return null;
 
       const transformed = stripServerOnlyExportsForClient(code, id, {
-        middleware:
-          (isPagesMode || usesEjectedPagesLayout) && isRootMiddlewareModule(id, root, resolved),
+        middleware: isPagesMiddlewareModule,
       });
       if (transformed === code) return null;
       return { code: transformed, map: null };

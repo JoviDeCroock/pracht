@@ -744,6 +744,57 @@ export const app = defineApp({
     );
   });
 
+  it("strips moved ejected pages middleware from direct client imports", async () => {
+    const root = makeTempProject();
+    mkdirSync(join(root, "src", "pages"), { recursive: true });
+    mkdirSync(join(root, "src", "middleware", "_server"), { recursive: true });
+
+    writeFileSync(
+      join(root, "src", "routes.ts"),
+      `// Auto-generated from pages/ directory by @pracht/vite-plugin.
+import { defineApp, route } from "@pracht/core";
+
+export const app = defineApp({
+  middleware: { pages: () => import("./middleware/_middleware.ts") },
+  routes: [
+    route("/", () => import("./pages/index.tsx"), { middleware: ["pages"] }),
+  ],
+});
+`,
+    );
+    writeFileSync(
+      join(root, "src", "pages", "index.tsx"),
+      `import "../middleware/_middleware.ts";
+
+export function Component() {
+  return <main>MOVED_EJECTED_PAGE_COMPONENT</main>;
+}
+`,
+    );
+    writeFileSync(
+      join(root, "src", "middleware", "_middleware.ts"),
+      'export * from "./_server/auth.ts";\n',
+    );
+    writeFileSync(
+      join(root, "src", "middleware", "_server", "auth.ts"),
+      `globalThis.__MOVED_MIDDLEWARE_LEAK__ = "MOVED_EJECTED_MIDDLEWARE_SECRET";
+export const middleware = async (_args, next) => next();
+`,
+    );
+
+    await buildTempProject(root, {
+      appFile: "/src/routes.ts",
+      routesDir: "/src/pages",
+      shellsDir: "/src/shells",
+      middlewareDir: "/src/middleware",
+    });
+
+    const output = readBuiltJs(root);
+    expect(output).toContain("MOVED_EJECTED_PAGE_COMPONENT");
+    expect(output).not.toContain("MOVED_EJECTED_MIDDLEWARE_SECRET");
+    expect(output).not.toContain("__MOVED_MIDDLEWARE_LEAK__");
+  });
+
   it("keeps _middleware routes in ordinary co-located manifest directories", async () => {
     const root = makeTempProject();
     mkdirSync(join(root, "src", "modules"), { recursive: true });
@@ -774,6 +825,42 @@ export const app = defineApp({
     });
 
     expect(readBuiltJs(root)).toContain("COLOCATED_MIDDLEWARE_EXPORT");
+  });
+
+  it("keeps underscore routes when conventional middleware lives separately", async () => {
+    const root = makeTempProject();
+    mkdirSync(join(root, "src", "modules"), { recursive: true });
+    mkdirSync(join(root, "src", "middleware"), { recursive: true });
+
+    writeFileSync(
+      join(root, "src", "routes.ts"),
+      `import { defineApp, route } from "@pracht/core";
+
+export const app = defineApp({
+  middleware: { auth: () => import("./middleware/_middleware.ts") },
+  routes: [
+    route("/", () => import("./modules/_home.tsx"), { middleware: ["auth"] }),
+  ],
+});
+`,
+    );
+    writeFileSync(
+      join(root, "src", "modules", "_home.tsx"),
+      "export function Component() { return <main>SEPARATE_MIDDLEWARE_ROUTE</main>; }\n",
+    );
+    writeFileSync(
+      join(root, "src", "middleware", "_middleware.ts"),
+      "export const middleware = async (_args, next) => next();\n",
+    );
+
+    await buildTempProject(root, {
+      appFile: "/src/routes.ts",
+      routesDir: "/src/modules",
+      shellsDir: "/src/modules",
+      middlewareDir: "/src/middleware",
+    });
+
+    expect(readBuiltJs(root)).toContain("SEPARATE_MIDDLEWARE_ROUTE");
   });
 
   it("keeps pages middleware helpers out of the client bundle", async () => {

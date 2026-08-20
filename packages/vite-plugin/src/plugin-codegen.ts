@@ -328,14 +328,14 @@ export function isEjectedPagesLayout(resolved: ResolvedPrachtPluginOptions, root
     const manifestSource = readFileSync(appFile, "utf-8");
     if (manifestSource.includes(GENERATED_PAGES_MANIFEST_MARKER)) return true;
 
-    // Once every registry points at a different directory, the broad client
-    // route/shell globs no longer share a pages directory with the root
-    // middleware. Without the generated marker there is no durable pages
-    // layout left to classify. Keep ordinary split manifest apps untouched.
-    if (
-      !sameConfigDirectory(resolved.routesDir, resolved.middlewareDir) &&
-      !sameConfigDirectory(resolved.routesDir, resolved.shellsDir)
-    ) {
+    // Without the marker, only the generated `pages` registration inside the
+    // route directory is a durable pages-layout signature. A conventional
+    // manifest may co-locate routes and shells while independently naming a
+    // middleware module `_middleware.ts`; classifying that as pages would strip
+    // valid underscore-prefixed route and shell modules from its client graph.
+    // Ejected layouts that move middleware elsewhere retain the generated
+    // marker above.
+    if (!sameConfigDirectory(resolved.routesDir, resolved.middlewareDir)) {
       return false;
     }
 
@@ -346,16 +346,19 @@ export function isEjectedPagesLayout(resolved: ResolvedPrachtPluginOptions, root
     // underscore-reserved helpers stay out of browser registries.
     const appDir = dirname(appFile);
     const middlewareDir = resolve(root, resolved.middlewareDir.replace(/^\//, ""));
-    return extractManifestModuleRegistrations(manifestSource, "middleware").some(({ file }) => {
-      const modulePath = file.startsWith("/")
-        ? resolve(root, file.replace(/^\//, ""))
-        : resolve(appDir, file);
-      const extension = extname(modulePath);
-      return (
-        new Set([".ts", ".tsx", ".js", ".jsx"]).has(extension) &&
-        modulePath === resolve(middlewareDir, `_middleware${extension}`)
-      );
-    });
+    return extractManifestModuleRegistrations(manifestSource, "middleware").some(
+      ({ file, name }) => {
+        if (name !== "pages") return false;
+        const modulePath = file.startsWith("/")
+          ? resolve(root, file.replace(/^\//, ""))
+          : resolve(appDir, file);
+        const extension = extname(modulePath);
+        return (
+          new Set([".ts", ".tsx", ".js", ".jsx"]).has(extension) &&
+          modulePath === resolve(middlewareDir, `_middleware${extension}`)
+        );
+      },
+    );
   } catch {
     return false;
   }

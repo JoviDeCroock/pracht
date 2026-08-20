@@ -1032,13 +1032,13 @@ pracht({
 Alternatively, move the files into the conventional `src/routes`,
 `src/shells`, and `src/middleware` directories and update the manifest refs.
 The generated file includes a header comment explaining how to use it
-directly. That comment is informational: when the root `_middleware` module
-remains registered, Pracht derives the ejected pages layout from its module
-reference (including shorthand registry objects/entries), so editing or
-removing the header cannot put middleware or its underscore-reserved helpers
-into the client registries. If `_app` or `_middleware` moves separately to a
-conventional directory, the generated marker keeps the configured pages route
-directory protected while each registry follows its new directory.
+directly. You may remove that comment while the generated `pages` middleware
+registration still points at the root `_middleware` inside `routesDir`; Pracht
+recognizes that fallback through inline, shorthand, and typed top-level module
+references. Retain the generated marker if `_app` or `_middleware` moves to a
+conventional directory so Pracht can distinguish the remaining pages route
+directory from an ordinary manifest that happens to use a separately configured
+`_middleware.ts`.
 
 ---
 
