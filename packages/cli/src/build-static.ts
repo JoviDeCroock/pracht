@@ -146,16 +146,16 @@ export async function validateStaticExport(serverMod: StaticServerModuleView): P
   const notFound = serverMod.resolvedApp?.notFound;
   const pageRoutes = notFound ? [...routes, notFound] : routes;
 
-  // Sub-path deploys (GitHub Pages project sites, an S3 key prefix) would
-  // build cleanly and then serve a dead site: prerendered documents reference
-  // `/assets/…` and `/_pracht/state/…` from the origin root, so every script
-  // and state file 404s under the base. Fail here instead.
+  // A sub-path deploy (GitHub Pages project site, an S3 key prefix) is
+  // supported: asset, route-state, href, and preview URLs all carry the base.
+  // A CDN base is not, because it only relocates assets while the documents
+  // stay at the origin root — the state tree would split across two origins.
   const buildBase = serverMod.buildBase ?? "/";
-  if (buildBase !== "/") {
+  if (/^[a-z][a-z0-9+.-]*:/i.test(buildBase) || buildBase.startsWith("//")) {
     problems.push(
-      `Vite \`base\` is set to ${JSON.stringify(buildBase)}, but static exports emit root-relative asset and route-state URLs:\n` +
-        `    - every prerendered page would request /assets/… and /_pracht/state/… from the origin root\n` +
-        '  Base paths are not wired through yet. Deploy at an origin root (base: "/"), or use a serverful adapter.',
+      `Vite \`base\` is set to ${JSON.stringify(buildBase)}, which points assets at another origin:\n` +
+        `    - a static export serves its documents, assets, and /_pracht/state/… from one deploy root\n` +
+        '  Use a path base for a sub-path deploy (base: "/my-project/"), or the origin root (base: "/").',
     );
   }
   const serverRendered = routes.filter((route) => route.render !== "ssg" && route.render !== "spa");

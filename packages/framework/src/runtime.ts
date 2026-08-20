@@ -1,6 +1,7 @@
 import { h } from "preact";
 import type { FunctionComponent } from "preact";
 import { matchApiRoute, matchAppRoute, resolveApp } from "./app.ts";
+import { stripBaseLenient } from "./base.ts";
 import { collectFontHeadFragments } from "./font.ts";
 import { ROUTE_STATE_REQUEST_HEADER, SAFE_METHODS } from "./runtime-constants.ts";
 import {
@@ -329,6 +330,12 @@ export async function handlePrachtRequest<TContext>(
     url.searchParams.delete("_data");
   }
   const requestPath = getRequestPath(url);
+  // Everything the app declares — routes, API routes, capability endpoints —
+  // is addressed without the deploy base, while the request carries it.
+  // `requestPath` stays the URL the visitor is at: it drives `useLocation()`
+  // and the serialized hydration state, which the client compares against
+  // `window.location`.
+  const routePathname = stripBaseLenient(url.pathname);
   const registry = options.registry ?? {};
   const resolvedApp = getResolvedApp(options.app as PrachtApp);
   // What `<Link route=…>` and `href()` resolve against. Normally the route
@@ -437,7 +444,7 @@ export async function handlePrachtRequest<TContext>(
   }
 
   if (options.apiRoutes?.length) {
-    const apiMatch = matchApiRoute(options.apiRoutes, url.pathname);
+    const apiMatch = matchApiRoute(options.apiRoutes, routePathname);
     if (apiMatch) {
       const apiMiddlewareFiles = (options.app.api.middleware ?? []).flatMap((name) => {
         const middlewareFile = options.app.middleware[name];
@@ -543,7 +550,7 @@ export async function handlePrachtRequest<TContext>(
   const isMcpRequest =
     !!mcpConfig &&
     !!mcpRuntime &&
-    mcpRuntime.normalizeMcpRequestPath(url.pathname) ===
+    mcpRuntime.normalizeMcpRequestPath(routePathname) ===
       mcpRuntime.resolveMcpEndpoint(options.app.agents);
   if (capabilityRuntime && (hasCapabilities || isMcpRequest)) {
     if (isMcpRequest) {
@@ -580,8 +587,8 @@ export async function handlePrachtRequest<TContext>(
       // requests to capability paths still fail closed below.
       if (
         !isMcpRequest &&
-        (url.pathname.startsWith(CAPABILITY_HTTP_PREFIX) ||
-          (await isRegisteredCapabilityHttpPath(options.app, registry, url.pathname)))
+        (routePathname.startsWith(CAPABILITY_HTTP_PREFIX) ||
+          (await isRegisteredCapabilityHttpPath(options.app, registry, routePathname)))
       ) {
         return withDefaultSecurityHeaders(
           envelopeResponse(500, {
@@ -620,7 +627,7 @@ export async function handlePrachtRequest<TContext>(
     }
 
     if (capabilities) {
-      const capabilityMatch = matchCapabilityRoute(capabilities, url.pathname);
+      const capabilityMatch = matchCapabilityRoute(capabilities, routePathname);
       if (capabilityMatch) {
         // Same CSRF stance as state-changing API requests: capability calls
         // are session-authenticated POSTs, so cross-origin browser requests
@@ -661,7 +668,7 @@ export async function handlePrachtRequest<TContext>(
 
       // Unmatched requests under the capability prefix get the typed 404
       // instead of falling through to the HTML not-found page.
-      if (url.pathname.startsWith(CAPABILITY_HTTP_PREFIX)) {
+      if (routePathname.startsWith(CAPABILITY_HTTP_PREFIX)) {
         return withDefaultSecurityHeaders(
           envelopeResponse(404, {
             ok: false,
@@ -675,7 +682,7 @@ export async function handlePrachtRequest<TContext>(
     }
   }
 
-  const match = matchAppRoute(resolvedApp, url.pathname);
+  const match = matchAppRoute(resolvedApp, routePathname);
 
   if (!match) {
     if (isRouteStateRequest) {

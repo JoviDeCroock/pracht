@@ -6,6 +6,7 @@ import type { FunctionComponent } from "preact";
 import type { FontHeadFragments } from "./font.ts";
 import { applyFontHeadFragments } from "./runtime-fonts.ts";
 
+import { stripBase } from "./base.ts";
 import { buildHrefUntyped, matchResolvedRoute } from "./route-matching.ts";
 import {
   decodeFragmentId,
@@ -881,7 +882,7 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
     // the browser perform a normal navigation so it can activate the
     // prerendered document. Intercepting here would cancel the activation
     // and force a redundant SPA fetch of the route-state JSON.
-    const targetMatch = matchResolvedRoute(app, url.pathname);
+    const targetMatch = matchResolvedRoute(app, stripBase(url.pathname) ?? url.pathname);
     if (targetMatch && supportsSpeculationRules()) {
       const spec = normalizeSpeculation(targetMatch.route.speculation);
       if (spec?.mode === "prerender") return;
@@ -955,7 +956,9 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
 
   if (isStaticFallbackBoot) {
     const bootPath = window.location.pathname + window.location.search + window.location.hash;
-    const bootMatch = matchResolvedRoute(app, window.location.pathname);
+    // Route matching is base-free; `stripBase` returns null only for a URL
+    // outside the deploy base, which the fallback document cannot be serving.
+    const bootMatch = matchResolvedRoute(app, stripBase(window.location.pathname) ?? "/");
     const isClientRoutableSpaMatch =
       bootMatch != null &&
       bootMatch.route.render === "spa" &&
@@ -1085,9 +1088,17 @@ function resolveBrowserRouteTarget(to: string): BrowserRouteTarget | null {
       return null;
     }
 
+    // Same origin but outside the deploy base is somebody else's app on this
+    // host. Returning null hands the link back to the browser.
+    const routePathname = stripBase(url.pathname);
+    if (routePathname === null) {
+      return null;
+    }
+
     return {
       browserUrl: url.pathname + url.search + url.hash,
-      pathname: url.pathname,
+      // Route paths carry no base; the browser and request URLs do.
+      pathname: routePathname,
       requestUrl: url.pathname + url.search,
       search: url.search,
     };

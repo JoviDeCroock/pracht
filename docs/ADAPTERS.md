@@ -1159,10 +1159,11 @@ aggregated error — before any prerendering — when the app needs one:
   build metadata and the route-state tree below. The concrete paths returned
   by `getStaticPaths()` are revalidated before any page is written, so a
   dynamic route cannot generate into that namespace either.
-- A **Vite `base` other than `/`** is a hard error. Prerendered documents
-  reference `/assets/…` and `/_pracht/state/…` from the origin root, so a
-  sub-path deploy (a GitHub Pages project site, an S3 key prefix) would build
-  cleanly and then 404 every script and state file.
+- A **Vite `base` pointing at another origin** (`https://cdn.example.com/`, or
+  a protocol-relative `//cdn…`) is a hard error. That form only relocates
+  assets, while the documents and the `/_pracht/state/…` tree stay at the
+  origin root — a static export serves all three from one deploy root. A
+  *path* base is supported; see [Sub-path deploys](#sub-path-deploys).
 - Webhook/time revalidation is N/A by construction (no ISG routes exist).
 
 One shape is a warning rather than an error, because it is only wrong for some
@@ -1332,11 +1333,45 @@ client-side fetch to an external API instead.
   before deriving their pure-ASCII hex components, so raw Unicode, lowercase
   percent escapes, and escaped unreserved characters resolve to the same state
   file as the build output.
-- **Base paths** (deploying under a sub-path such as GitHub Pages project
-  sites) are not wired through: prerendered asset and state URLs are
-  root-relative. A static build with Vite `base` set to anything but `/` is a
-  build error rather than a deploy whose every asset 404s. Deploy static
-  exports at an origin root.
+### Sub-path deploys
+
+Set Vite's `base` to deploy under a path rather than an origin root — a GitHub
+Pages *project* site (`https://user.github.io/my-project/`), an S3 key prefix,
+a reverse-proxy mount point:
+
+```ts
+// vite.config.ts
+export default defineConfig({
+  base: "/my-project/",
+  plugins: [pracht({ adapter: staticAdapter() })],
+});
+```
+
+The base is where the deploy is *served*, not part of the output tree:
+`dist/client/` still contains `about/index.html`, and the whole directory is
+uploaded to the sub-path. What changes is every URL the build emits —
+`<script src>`, CSS and modulepreload links, `/_pracht/state/…` fetches,
+`llms.txt` links, and hrefs produced by `<Link route>`, `href()`,
+`useNavigate()`, and `prefetch()`. The client router strips the base before
+matching, so route paths in the manifest stay base-free; `useLocation()`
+reports the URL as the visitor sees it, base included.
+
+`pracht preview` serves the export under the same base (redirecting the bare
+`/my-project` to `/my-project/` and answering anything outside it with a 404),
+so the local check exercises the deployed shape.
+
+Two things to know:
+
+- **Hand-written root-absolute links do not get the base.** `<a href="/about">`
+  means the origin root in HTML, and pracht does not rewrite it — the same
+  rule as Next's `basePath` and SvelteKit's `base`. Use `<Link route="about">`
+  or `href("about")` for internal navigation, which resolve route ids to URLs
+  and pick the base up automatically. A same-origin link outside the base is
+  handed to the browser rather than matched as a route.
+- **A CDN base is a build error.** `base: "https://cdn.example.com/"` (or a
+  protocol-relative `//cdn…`) only relocates assets, leaving documents and the
+  route-state tree at the origin root. A static export serves all three from
+  one deploy root, so that split is rejected instead of half-applied.
 
 ### `pracht preview`
 

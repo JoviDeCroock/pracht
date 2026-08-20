@@ -1,3 +1,4 @@
+import { stripBase } from "./base.ts";
 import { matchResolvedRoute } from "./route-matching.ts";
 import { clearPrefetchCache, getCachedRouteState, trimMapToSize } from "./prefetch-cache.ts";
 import { prefetchRouteState } from "./prefetch-api.ts";
@@ -36,9 +37,10 @@ export function setupPrefetching(app: ResolvedPrachtApp, warmModules?: ModuleWar
   const matchCache = new Map<string, MatchCacheEntry>();
   const browserSupportsSpeculationRules = supportsSpeculationRules();
 
+  /** Route path for an href, or null when it is unparseable or outside the base. */
   function getRoutePathname(url: string): string | null {
     try {
-      return new URL(url, window.location.origin).pathname;
+      return stripBase(new URL(url, window.location.origin).pathname);
     } catch {
       return null;
     }

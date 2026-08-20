@@ -167,7 +167,7 @@ checklist is about what the *host* must do and what the build cannot enforce.
   only — it must not be uploaded (it contains the prerender bundle).
 - The build itself is the gate: it fails closed on `ssr`/`isg` routes, SPA
   loaders, non-full SPA hydration, API routes, route/not-found middleware,
-  network-exposed capabilities, and a Vite `base` other than `/`. If
+  network-exposed capabilities, and a CDN (cross-origin) Vite `base`. If
   `pracht build` succeeded, those contracts already hold — do not re-derive
   them by hand. Report a failing build verbatim; the message names the routes.
 - Host must serve `index.html` for directory URLs (clean URLs). Confirm the
@@ -197,10 +197,13 @@ checklist is about what the *host* must do and what the build cannot enforce.
   a static host cannot do — agents asking for `text/markdown` get HTML. The
   build prints a note when this applies; publish `.md` files under `public/`
   if a raw-markdown corpus matters.
-- Deploying to a sub-path (GitHub Pages *project* site, S3 key prefix) is not
-  supported — asset and state URLs are root-relative and the build rejects a
-  non-`/` `base`. Confirm the target is an origin root (a GitHub Pages *user*
-  or custom-domain site is fine).
+- Deploying to a sub-path (GitHub Pages *project* site, S3 key prefix) needs
+  Vite `base` set to that path (`base: "/my-project/"`). Check it matches the
+  deploy path exactly — a mismatch 404s every asset. Then check the app has no
+  hand-written root-absolute internal links (`<a href="/about">`): those are
+  not base-prefixed and will leave the deploy. `grep -rn 'href="/' src/` and
+  confirm each hit is external, an asset under `public/`, or a `<Link route>`.
+  A CDN base (`https://cdn…`) is a build error, not a sub-path deploy.
 
 ## Step 4: Cross-cutting checks
 

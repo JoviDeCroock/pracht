@@ -22,7 +22,16 @@ export interface ClientBuildAssets {
   jsManifest: Record<string, string[]>;
 }
 
-export function readClientBuildAssets(root: string = process.cwd()): ClientBuildAssets {
+/**
+ * `base` prefixes every emitted asset URL, so prerendered documents reference
+ * their scripts and styles where the deploy actually serves them. Vite
+ * normalizes it to leading and trailing slashes.
+ */
+function assetUrl(file: string, base: string): string {
+  return `${base}${file}`;
+}
+
+export function readClientBuildAssets(root: string = process.cwd(), base = "/"): ClientBuildAssets {
   const manifestPath = MANIFEST_PATHS.map((candidate) => resolve(root, candidate)).find((path) =>
     existsSync(path),
   );
@@ -82,31 +91,31 @@ export function readClientBuildAssets(root: string = process.cwd()): ClientBuild
     const deps = collectTransitiveDeps(key);
     const manifestKey = stripPrachtClientModuleQuery(entry.src);
     if (deps.css.length > 0) {
-      cssManifest[manifestKey] = deps.css.map((file) => `/${file}`);
+      cssManifest[manifestKey] = deps.css.map((file) => assetUrl(file, base));
     }
     if (deps.js.length > 0) {
-      jsManifest[manifestKey] = deps.js.map((file) => `/${file}`);
+      jsManifest[manifestKey] = deps.js.map((file) => assetUrl(file, base));
     }
   }
 
   const clientEntryJs = clientEntry
-    ? collectTransitiveDeps("virtual:pracht/client").js.map((file) => `/${file}`)
+    ? collectTransitiveDeps("virtual:pracht/client").js.map((file) => assetUrl(file, base))
     : [];
   const islandsEntryJs = islandsEntry
-    ? collectTransitiveDeps("virtual:pracht/islands-client").js.map((file) => `/${file}`)
+    ? collectTransitiveDeps("virtual:pracht/islands-client").js.map((file) => assetUrl(file, base))
     : [];
 
   // Mirror @pracht/vite-plugin's readClientBuildAssets: expose each entry's
   // static import closure (minus the entry file itself) under its virtual
   // module id so prerendered pages get the same modulepreload links as
   // server-rendered ones.
-  addEntryDeps(jsManifest, "virtual:pracht/client", clientEntry, clientEntryJs);
-  addEntryDeps(jsManifest, "virtual:pracht/islands-client", islandsEntry, islandsEntryJs);
+  addEntryDeps(jsManifest, "virtual:pracht/client", clientEntry, clientEntryJs, base);
+  addEntryDeps(jsManifest, "virtual:pracht/islands-client", islandsEntry, islandsEntryJs, base);
 
   return {
-    clientEntryUrl: clientEntry ? `/${clientEntry.file}` : null,
+    clientEntryUrl: clientEntry ? assetUrl(clientEntry.file, base) : null,
     clientEntryJs,
-    islandsEntryUrl: islandsEntry ? `/${islandsEntry.file}` : null,
+    islandsEntryUrl: islandsEntry ? assetUrl(islandsEntry.file, base) : null,
     islandsEntryJs,
     cssManifest,
     jsManifest,
@@ -118,9 +127,10 @@ function addEntryDeps(
   entryKey: string,
   entry: ViteManifestEntry | undefined,
   entryJs: string[],
+  base: string,
 ): void {
   if (!entry) return;
-  const deps = entryJs.filter((url) => url !== `/${entry.file}`);
+  const deps = entryJs.filter((url) => url !== assetUrl(entry.file, base));
   if (deps.length > 0) {
     jsManifest[entryKey] = deps;
   }

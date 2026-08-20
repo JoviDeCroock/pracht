@@ -351,15 +351,26 @@ describe("validateStaticExport", () => {
     ).rejects.toThrow(/not-found\.tsx/);
   });
 
-  it("fails closed on a sub-path Vite base", async () => {
-    const error = await validateStaticExport({
-      buildBase: "/app/",
-      resolvedApp: { routes: [{ path: "/", render: "ssg" }] },
-    }).catch((thrown: Error) => thrown);
+  it("accepts a sub-path Vite base", async () => {
+    await expect(
+      validateStaticExport({
+        buildBase: "/app/",
+        resolvedApp: { routes: [{ path: "/", render: "ssg" }] },
+      }),
+    ).resolves.toBeUndefined();
+  });
 
-    expect(error).toBeInstanceOf(Error);
-    expect((error as Error).message).toContain('"/app/"');
-    expect((error as Error).message).toContain("root-relative");
+  it("fails closed on a CDN base, which only relocates assets", async () => {
+    for (const buildBase of ["https://cdn.example.com/", "//cdn.example.com/"]) {
+      const error = await validateStaticExport({
+        buildBase,
+        resolvedApp: { routes: [{ path: "/", render: "ssg" }] },
+      }).catch((thrown: Error) => thrown);
+
+      expect(error).toBeInstanceOf(Error);
+      expect((error as Error).message).toContain(JSON.stringify(buildBase));
+      expect((error as Error).message).toContain("another origin");
+    }
   });
 
   it("accepts the default base, however it is spelled by the bundle", async () => {

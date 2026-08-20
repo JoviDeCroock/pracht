@@ -310,7 +310,7 @@ export function createPrachtServerModuleSource(
   const routeLoaderHints = createRouteLoaderHintsForVirtualModules(resolved, buildOptions.root);
   const routeHeadHints = createRouteHeadHintsForVirtualModules(resolved, buildOptions.root);
   const clientBuild = buildOptions.isBuild
-    ? readClientBuildAssets(buildOptions.root)
+    ? readClientBuildAssets(buildOptions.root, buildOptions.base ?? "/")
     : { clientEntryUrl: null, islandsEntryUrl: null, cssManifest: {}, jsManifest: {} };
   const adapter = resolved.adapter;
   const llmsTxtConfig = resolveLlmsTxtConfig(resolved, buildOptions.root);

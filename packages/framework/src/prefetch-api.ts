@@ -7,6 +7,7 @@
  * the core client bundle.
  */
 
+import { stripBase } from "./base.ts";
 import { buildHrefUntyped, matchResolvedRoute } from "./route-matching.ts";
 import {
   cacheRouteState,
@@ -97,7 +98,10 @@ export const prefetch: PrefetchFn = async (to: string | UntypedRouteTarget): Pro
   }
   if (url.origin !== window.location.origin) return;
 
-  const match = matchResolvedRoute(target.app, url.pathname);
+  const routePathname = stripBase(url.pathname);
+  if (routePathname === null) return;
+
+  const match = matchResolvedRoute(target.app, routePathname);
   if (!match) return;
 
   target.warmModules?.(match);

@@ -29,7 +29,16 @@ export interface ClientBuildAssets {
   jsManifest: Record<string, string[]>;
 }
 
-export function readClientBuildAssets(root = process.cwd()): ClientBuildAssets {
+/**
+ * `base` prefixes every emitted asset URL. Vite normalizes it to leading and
+ * trailing slashes; a CDN base (absolute or protocol-relative) is used as-is,
+ * so the manifest paths still resolve.
+ */
+function assetUrl(file: string, base: string): string {
+  return `${base}${file}`;
+}
+
+export function readClientBuildAssets(root = process.cwd(), base = "/"): ClientBuildAssets {
   const manifestPath = ["dist/client/.vite/manifest.json", "dist/.vite/manifest.json"]
     .map((candidate) => resolve(root, candidate))
     .find((candidate) => existsSync(candidate));
@@ -49,10 +58,10 @@ export function readClientBuildAssets(root = process.cwd()): ClientBuildAssets {
     const deps = collectTransitiveDeps(manifest, key);
     const manifestKey = stripPrachtClientModuleQuery(entry.src);
     if (deps.css.length > 0) {
-      cssManifest[manifestKey] = deps.css.map((f) => `/${f}`);
+      cssManifest[manifestKey] = deps.css.map((f) => assetUrl(f, base));
     }
     if (deps.js.length > 0) {
-      jsManifest[manifestKey] = deps.js.map((f) => `/${f}`);
+      jsManifest[manifestKey] = deps.js.map((f) => assetUrl(f, base));
     }
   }
 
@@ -61,12 +70,12 @@ export function readClientBuildAssets(root = process.cwd()): ClientBuildAssets {
   // otherwise only discover after parsing the entry (@pracht/core reads these
   // via CLIENT_ENTRY_MANIFEST_KEY / ISLANDS_ENTRY_MANIFEST_KEY). The entry
   // file itself is excluded — it is already the page's <script src>.
-  addEntryDeps(manifest, jsManifest, PRACHT_CLIENT_MODULE_ID, clientEntry);
-  addEntryDeps(manifest, jsManifest, PRACHT_ISLANDS_CLIENT_MODULE_ID, islandsEntry);
+  addEntryDeps(manifest, jsManifest, PRACHT_CLIENT_MODULE_ID, clientEntry, base);
+  addEntryDeps(manifest, jsManifest, PRACHT_ISLANDS_CLIENT_MODULE_ID, islandsEntry, base);
 
   return {
-    clientEntryUrl: clientEntry ? `/${clientEntry.file}` : null,
-    islandsEntryUrl: islandsEntry ? `/${islandsEntry.file}` : null,
+    clientEntryUrl: clientEntry ? assetUrl(clientEntry.file, base) : null,
+    islandsEntryUrl: islandsEntry ? assetUrl(islandsEntry.file, base) : null,
     cssManifest,
     jsManifest,
   };
@@ -77,11 +86,12 @@ function addEntryDeps(
   jsManifest: Record<string, string[]>,
   entryKey: string,
   entry: ViteManifestEntry | undefined,
+  base: string,
 ): void {
   if (!entry) return;
   const deps = collectTransitiveDeps(manifest, entryKey).js.filter((file) => file !== entry.file);
   if (deps.length > 0) {
-    jsManifest[entryKey] = deps.map((file) => `/${file}`);
+    jsManifest[entryKey] = deps.map((file) => assetUrl(file, base));
   }
 }
 

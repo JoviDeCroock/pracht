@@ -1,16 +1,21 @@
-import type { ShellProps } from "@pracht/core";
+import { Link, type ShellProps } from "@pracht/core";
 
 export function Shell({ children }: ShellProps) {
   return (
     <div class="site-shell">
       <header>
         <strong>Pracht Static</strong>
+        {/* Typed links resolve route ids to URLs, so they pick up a Vite
+            `base` automatically. A hand-written <a href="/about"> would keep
+            pointing at the origin root under a sub-path deploy. */}
         <nav>
-          <a href="/">Home</a>
-          <a href="/about">About</a>
-          <a href="/plain">Plain</a>
-          <a href="/posts/hello-world">First post</a>
-          <a href="/dashboard">Dashboard</a>
+          <Link route="home">Home</Link>
+          <Link route="about">About</Link>
+          <Link route="plain">Plain</Link>
+          <Link route="post" params={{ slug: "hello-world" }}>
+            First post
+          </Link>
+          <Link route="dashboard">Dashboard</Link>
         </nav>
       </header>
       <main>{children}</main>

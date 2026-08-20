@@ -1,9 +1,13 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { defineCapability } from "../../capabilities/src/index.ts";
 import { defineApp, resolveApiRoutes, resolveApp, route } from "../src/app.ts";
 import { buildLlmsTxt } from "../src/llms-txt.ts";
 import type { ModuleRegistry } from "../src/types.ts";
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
 
 function createResolvedApp() {
   return resolveApp(
@@ -84,6 +88,23 @@ describe("buildLlmsTxt", () => {
     expect(output).toContain("- [/about](https://example.com/about)");
     expect(output).toContain("- [/api/health](https://example.com/api/health): GET");
     expect(output).not.toContain("example.com//");
+  });
+
+  it("serves links under the deploy base", async () => {
+    vi.stubEnv("BASE_URL", "/my-project/");
+    vi.resetModules();
+    const { buildLlmsTxt: build } = await import("../src/llms-txt.ts");
+
+    const output = await build({
+      app: createResolvedApp(),
+      apiRoutes,
+      registry: createRegistry(),
+      title: "Pracht Test App",
+      origin: "https://example.com",
+    });
+
+    // The label stays the route path; the link is the URL as served.
+    expect(output).toContain("- [/about](https://example.com/my-project/about)");
   });
 
   it("omits the description blockquote and excluded sections", async () => {

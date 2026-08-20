@@ -37,11 +37,26 @@ A static export has no server, so the build fails closed on anything that needs 
 - API routes are build errors.
 - Manifest-registered capabilities exposed over HTTP/MCP/WebMCP are build errors (server-only capabilities invoked from build-time loaders are fine). Registered capability modules must load successfully so validation can fail closed; unused files in the capabilities directory are ignored.
 - Route patterns and concrete paths returned by `getStaticPaths()` may not write under the reserved `/_pracht/` namespace. Concrete output is preflighted before any page is written.
-- A Vite `base` other than `/` is a build error: prerendered documents reference `/assets/…` and `/_pracht/state/…` from the origin root, so a sub-path deploy (GitHub Pages project site, S3 key prefix) would build cleanly and serve a site whose every asset 404s.
+- A Vite `base` pointing at another origin (`https://cdn.example.com/`, or a protocol-relative `//cdn…`) is a build error: it relocates only assets, while documents and `/_pracht/state/…` stay at the origin root. A *path* base is supported — see "Sub-path deploys" below.
 
 The build also warns — without failing — on a `fallback` document in an app with no `notFound` page and no unshadowed client-routable SPA catch-all (unknown URLs would render blank).
 
 Non-ASCII `getStaticPaths()` params are written to their decoded output path (`/posts/caf%C3%A9` → `posts/café/index.html`), matching how static hosts resolve requests. Escapes that would decode into a path separator, a relative segment, or the reserved `_pracht/` namespace fail the build.
+
+## Sub-path deploys
+
+Set Vite's `base` to deploy under a path instead of an origin root — a GitHub Pages *project* site, an S3 key prefix, a reverse-proxy mount:
+
+```ts
+export default defineConfig({
+  base: "/my-project/",
+  plugins: [pracht({ adapter: staticAdapter() })],
+});
+```
+
+The output tree is unchanged (`dist/client/about/index.html`); the base is where that directory is served. Every emitted URL carries it: scripts, styles, modulepreloads, `/_pracht/state/…` fetches, `llms.txt` links, and hrefs from `<Link route>`, `href()`, `useNavigate()`, and `prefetch()`. `pracht preview` serves the export under the same base.
+
+Hand-written root-absolute links are not rewritten — `<a href="/about">` means the origin root, as in Next's `basePath` and SvelteKit's `base`. Use `<Link route="about">` or `href("about")` for internal navigation.
 
 ## Client-side navigation
 

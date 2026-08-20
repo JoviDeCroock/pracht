@@ -128,6 +128,7 @@ export function createStaticServerEntryModule(options: StaticAdapterOptions = {}
     "  const handler = createStaticPreviewHandler({",
     '    staticDir: resolve(serverDir, "../client"),',
     "    fallback: staticExportConfig.fallback,",
+    "    base: buildBase,",
     "  });",
     "  const server = createServer(handler);",
     `  const port = Number(process.env.PORT ?? ${port});`,

@@ -324,9 +324,12 @@ offenders — that is the signal to pick a serverful adapter instead. Only
 manifest-registered capabilities participate; every registered capability
 module must load successfully so exposure validation can fail closed. The
 `notFound` page must use full hydration (the default), because the shared
-`404.html` needs the client router to adopt the visitor's actual URL. Static
-exports must deploy at an origin root: a Vite `base` other than `/` is a build
-error, because prerendered asset and route-state URLs are root-relative.
+`404.html` needs the client router to adopt the visitor's actual URL. Sub-path
+deploys (GitHub Pages *project* sites, S3 key prefixes) set Vite `base` to that
+path; a CDN base (`https://cdn…`) is a build error, because it would relocate
+assets while documents and route state stay at the origin root. Under a base,
+internal navigation must go through `<Link route>` / `href()` — a hand-written
+`<a href="/about">` still means the origin root.
 
 ### Setup
 

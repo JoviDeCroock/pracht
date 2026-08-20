@@ -14,6 +14,7 @@
 
 import { buildPathFromSegments } from "./app.ts";
 import { API_METHOD_ORDER } from "./app-graph.ts";
+import { withBase } from "./base.ts";
 import { matchRoutePattern } from "./constraints.ts";
 import { resolveRegistryModule } from "./runtime-manifest.ts";
 import { hasMarkdownRepresentation } from "./runtime-negotiation.ts";
@@ -99,6 +100,9 @@ function isReservedPath(path: string): boolean {
 export async function buildLlmsTxt(options: BuildLlmsTxtOptions): Promise<string> {
   const include = options.include ?? ["pages", "api", "capabilities"];
   const origin = options.origin?.replace(/\/$/, "") ?? "";
+  // Paths come from the route table, so they carry no deploy base. The links
+  // are for crawlers and agents, which need the URL as served.
+  const link = (path: string): string => `${origin}${withBase(path)}`;
   const excludesPattern = createExcludeMatcher(options.exclude);
   const isExcluded = (path: string): boolean => isReservedPath(path) || excludesPattern(path);
 
@@ -115,7 +119,7 @@ export async function buildLlmsTxt(options: BuildLlmsTxtOptions): Promise<string
       lines.push("", "## Pages", "");
       for (const page of pages) {
         const note = page.markdown ? ": supports `Accept: text/markdown`" : "";
-        lines.push(`- [${page.path}](${origin}${page.path})${note}`);
+        lines.push(`- [${page.path}](${link(page.path)})${note}`);
       }
     }
   }
@@ -128,7 +132,7 @@ export async function buildLlmsTxt(options: BuildLlmsTxtOptions): Promise<string
       lines.push("", "## API", "");
       for (const entry of apiEntries) {
         const note = entry.methods.length > 0 ? `: ${entry.methods.join(", ")}` : "";
-        lines.push(`- [${entry.path}](${origin}${entry.path})${note}`);
+        lines.push(`- [${entry.path}](${link(entry.path)})${note}`);
       }
     }
   }
@@ -143,7 +147,7 @@ export async function buildLlmsTxt(options: BuildLlmsTxtOptions): Promise<string
         const confirmation = entry.effect === "destructive" ? ", requires confirmation" : "";
         const description = entry.description ? ` — ${entry.description}` : "";
         lines.push(
-          `- [${entry.name}](${origin}${entry.path}): POST (${entry.effect}${confirmation})${description}`,
+          `- [${entry.name}](${link(entry.path)}): POST (${entry.effect}${confirmation})${description}`,
         );
       }
     }
