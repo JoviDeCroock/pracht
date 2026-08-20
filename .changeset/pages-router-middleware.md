@@ -79,3 +79,7 @@ separate conventional middleware module is named `_middleware.ts`.
 Changed-only verification now emits the pages-middleware success check only
 after uniqueness and runtime-export validation succeeds, avoiding a
 contradictory `ok` entry beside the blocking error.
+
+The shared manifest registry extractor also preserves unquoted numeric property
+keys, keeping numeric capability names visible to browser projection,
+verification, and the server-only capability-module import boundary.

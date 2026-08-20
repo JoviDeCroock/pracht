@@ -564,7 +564,9 @@ export function scanTopLevelPropertyEntries(objectBody: string): TopLevelPropert
     index = skipInsignificant(objectBody, index);
     if (index >= objectBody.length) break;
 
-    // Property key: identifier or quoted string.
+    // Property key: identifier, quoted string, or numeric literal. Registry
+    // names use JavaScript's runtime property-key coercion, so an entry such as
+    // `123: () => import(...)` has the string name `"123"`.
     let key: string | null = null;
     const char = objectBody[index];
     if (char === '"' || char === "'") {
@@ -580,6 +582,14 @@ export function scanTopLevelPropertyEntries(objectBody: string): TopLevelPropert
       }
       key = decoded;
       index = end + 1;
+    } else if (/[0-9]/.test(char)) {
+      const parsed = parseNumberLiteral(objectBody, index);
+      if (!parsed || typeof parsed.value !== "number") {
+        truncated = true;
+        break;
+      }
+      key = String(parsed.value);
+      index = parsed.index;
     } else {
       const match = /^[A-Za-z_$][A-Za-z0-9_$]*/.exec(objectBody.slice(index));
       if (!match) {
