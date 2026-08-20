@@ -89,7 +89,10 @@ export function hasNamedMiddlewareExport(program: unknown): boolean {
           declarator.init,
           "middleware",
         );
-        if (initializer !== UNRESOLVED_STATIC_BINDING && isStaticallyNonCallable(initializer)) {
+        if (
+          knownNonCallableBindings.has("middleware") ||
+          (initializer !== UNRESOLVED_STATIC_BINDING && isStaticallyNonCallable(initializer))
+        ) {
           continue;
         }
         return true;
@@ -127,6 +130,7 @@ function collectTopLevelBindingKinds(program: StaticAnalysisNode): {
   const knownNonCallableBindings = new Set<string>();
   const runtimeBindings = new Set<string>();
   const typeOnlyBindings = new Set<string>();
+  const bindingInitializers = new Map<string, unknown>();
 
   for (const rawStatement of nodeArray(program.body)) {
     if (rawStatement.type === "ImportDeclaration") {
@@ -182,8 +186,11 @@ function collectTopLevelBindingKinds(program: StaticAnalysisNode): {
         for (const name of names) runtimeBindings.add(name);
         for (const name of names) {
           const initializer = resolveStaticBindingInitializer(declarator.id, declarator.init, name);
-          if (initializer !== UNRESOLVED_STATIC_BINDING && isStaticallyNonCallable(initializer)) {
-            knownNonCallableBindings.add(name);
+          if (initializer !== UNRESOLVED_STATIC_BINDING) {
+            bindingInitializers.set(name, initializer);
+            if (isStaticallyNonCallable(initializer)) {
+              knownNonCallableBindings.add(name);
+            }
           }
         }
       }
@@ -204,7 +211,42 @@ function collectTopLevelBindingKinds(program: StaticAnalysisNode): {
     }
   }
 
+  // Propagate through local aliases after collecting the whole module so
+  // declaration order and multi-hop chains do not matter. Dynamic values stay
+  // unresolved, while aliases of literals, classes, enums, namespaces, and
+  // other values already proven non-callable remain just as provable.
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const [name, initializer] of bindingInitializers) {
+      if (knownNonCallableBindings.has(name)) continue;
+      const referencedName = getStaticReferencedBindingName(initializer);
+      if (!referencedName || !knownNonCallableBindings.has(referencedName)) continue;
+      knownNonCallableBindings.add(name);
+      changed = true;
+    }
+  }
+
   return { knownNonCallableBindings, runtimeBindings, typeOnlyBindings };
+}
+
+function getStaticReferencedBindingName(value: unknown): string | null {
+  let node = asStaticAnalysisNode(value);
+  if (!node) return null;
+
+  while (
+    node.type === "ParenthesizedExpression" ||
+    node.type === "TSAsExpression" ||
+    node.type === "TSNonNullExpression" ||
+    node.type === "TSSatisfiesExpression" ||
+    node.type === "TypeCastExpression"
+  ) {
+    const expression = asStaticAnalysisNode(node.expression);
+    if (!expression) return null;
+    node = expression;
+  }
+
+  return node.type === "Identifier" ? getStaticIdentifierName(node) : null;
 }
 
 /**

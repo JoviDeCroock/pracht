@@ -60,7 +60,8 @@ verification accepts quoted runtime aliases such as
 accepts callable `middleware` bindings in a multi-declarator export. Statically
 non-callable bindings such as `export const middleware = 1`, uninitialized
 declarations, object literals, and local aliases of those values are rejected
-before deployment instead of taking down every wrapped route at request time.
+before deployment instead of taking down every wrapped route at request time;
+this includes direct and transitive aliases in exported declarations.
 Both paths use the same AST classifier, and continue to reject nested
 `_middleware` files even when another reserved underscore-prefixed directory
 contains them.
