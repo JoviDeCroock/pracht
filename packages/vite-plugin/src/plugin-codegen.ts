@@ -1,9 +1,9 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, extname, join, resolve } from "node:path";
-import { extractManifestModuleRegistrations } from "@pracht/capabilities/static";
+import { maskCommentsAndStrings } from "@pracht/capabilities/static";
 import { PRACHT_CLIENT_MODULE_QUERY } from "./client-module-query.ts";
 import {
-  GENERATED_PAGES_MANIFEST_MARKER,
+  GENERATED_PAGES_LAYOUT_EXPORT,
   generatePagesManifestSource,
   scanPagesDirectory,
 } from "./pages-router.ts";
@@ -326,39 +326,10 @@ export function isEjectedPagesLayout(resolved: ResolvedPrachtPluginOptions, root
   try {
     const appFile = resolve(root, resolved.appFile.replace(/^\//, ""));
     const manifestSource = readFileSync(appFile, "utf-8");
-    if (manifestSource.includes(GENERATED_PAGES_MANIFEST_MARKER)) return true;
-
-    // Without the marker, only the generated `pages` registration inside the
-    // route directory is a durable pages-layout signature. A conventional
-    // manifest may co-locate routes and shells while independently naming a
-    // middleware module `_middleware.ts`; classifying that as pages would strip
-    // valid underscore-prefixed route and shell modules from its client graph.
-    // Ejected layouts that move middleware elsewhere retain the generated
-    // marker above.
-    if (!sameConfigDirectory(resolved.routesDir, resolved.middlewareDir)) {
-      return false;
-    }
-
-    // The generated header is documentation, not a security boundary. An
-    // ejected manifest may be customized or have that comment removed while
-    // keeping its root pages middleware registration. Classify that durable
-    // module reference as the pages layout too, so `_middleware` and its
-    // underscore-reserved helpers stay out of browser registries.
-    const appDir = dirname(appFile);
-    const middlewareDir = resolve(root, resolved.middlewareDir.replace(/^\//, ""));
-    return extractManifestModuleRegistrations(manifestSource, "middleware").some(
-      ({ file, name }) => {
-        if (name !== "pages") return false;
-        const modulePath = file.startsWith("/")
-          ? resolve(root, file.replace(/^\//, ""))
-          : resolve(appDir, file);
-        const extension = extname(modulePath);
-        return (
-          new Set([".ts", ".tsx", ".js", ".jsx"]).has(extension) &&
-          modulePath === resolve(middlewareDir, `_middleware${extension}`)
-        );
-      },
-    );
+    const searchable = maskCommentsAndStrings(manifestSource);
+    return new RegExp(
+      `\\bexport\\s+const\\s+${GENERATED_PAGES_LAYOUT_EXPORT}\\s*=\\s*true\\b`,
+    ).test(searchable);
   } catch {
     return false;
   }

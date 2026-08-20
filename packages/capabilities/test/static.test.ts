@@ -14,6 +14,11 @@ import {
 describe("middleware export classification", () => {
   it.each([
     ["export const helper = 1, middleware = () => {};", true],
+    ["export const middleware = 1;", false],
+    ["export let middleware;", false],
+    ["export const middleware = (() => {}) as MiddlewareFn;", true],
+    ["const candidate = {};\nexport { candidate as middleware };", false],
+    ["const candidate = createMiddleware();\nexport { candidate as middleware };", true],
     ["namespace Helpers { export const middleware = () => {}; }\nexport { Helpers };", false],
     ["type Contract = () => void;\nexport { Contract as middleware };", false],
     ["export { missing as middleware };", false],

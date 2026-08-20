@@ -20,6 +20,7 @@ import {
   pracht,
 } from "../src/index.ts";
 import { stripServerOnlyExportsForClient } from "../src/client-module-transform.ts";
+import { GENERATED_PAGES_LAYOUT_EXPORT } from "../src/pages-router.ts";
 
 const tempDirs: string[] = [];
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
@@ -685,11 +686,14 @@ describe("client route module build", () => {
       join(root, "src", "routes.ts"),
       `import { defineApp, group, route } from "@pracht/core";
 
+export const ${GENERATED_PAGES_LAYOUT_EXPORT} = true;
+
 const pages = () => import("./pages/_middleware.ts");
+const pagesRegistry = { ["pages"]: pages };
 
 export const app = defineApp({
   shells: { pages: () => import("./pages/_app.tsx") },
-  middleware: { pages },
+  middleware: { ...pagesRegistry },
   routes: [
     group({ shell: "pages", middleware: ["pages"] }, [
       route("/", () => import("./pages/index.tsx")),
@@ -752,6 +756,7 @@ export const app = defineApp({
     writeFileSync(
       join(root, "src", "routes.ts"),
       `// Auto-generated from pages/ directory by @pracht/vite-plugin.
+export const ${GENERATED_PAGES_LAYOUT_EXPORT} = true;
 import { defineApp, route } from "@pracht/core";
 
 export const app = defineApp({
@@ -804,7 +809,10 @@ export const middleware = async (_args, next) => next();
       `import { defineApp, route } from "@pracht/core";
 
 export const app = defineApp({
-  routes: [route("/", () => import("./modules/_middleware.tsx"))],
+  middleware: { pages: () => import("./modules/_middleware.tsx") },
+  routes: [
+    route("/", () => import("./modules/_middleware.tsx"), { middleware: ["pages"] }),
+  ],
 });
 `,
     );

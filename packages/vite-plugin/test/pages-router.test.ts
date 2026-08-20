@@ -11,6 +11,7 @@ import {
 } from "../src/index.ts";
 import { createPrachtDevModuleSource } from "../src/plugin-codegen.ts";
 import {
+  GENERATED_PAGES_LAYOUT_EXPORT,
   GENERATED_PAGES_MANIFEST_MARKER,
   generatePagesManifestSource,
   generateRoutesFile,
@@ -708,6 +709,8 @@ describe("generatePagesManifestSource", () => {
   });
 
   it.each([
+    ["numeric middleware export", "export const middleware = 1;\n"],
+    ["uninitialized middleware export", "export let middleware;\n"],
     ["type-only star re-export", 'export type * from "./middleware-types";\n'],
     ["namespace re-export", 'export * as middleware from "./middleware";\n'],
     ["unresolved local alias", "export { missing as middleware };\n"],
@@ -757,6 +760,7 @@ describe("generatePagesManifestSource", () => {
     expect(source).toContain('route("/", () => import("../index.tsx")');
     expect(source).toContain('pages: () => import("../_app.tsx")');
     expect(source).toContain('pages: () => import("../_middleware.ts")');
+    expect(source).toContain(`export const ${GENERATED_PAGES_LAYOUT_EXPORT} = true;`);
   });
 });
 
@@ -897,7 +901,7 @@ describe("createPrachtRegistryModuleSource", () => {
     mkdirSync(join(root, "src"), { recursive: true });
     writeFileSync(
       join(root, "src", "routes.ts"),
-      `// ${GENERATED_PAGES_MANIFEST_MARKER}\nexport const app = {};\n`,
+      `// ${GENERATED_PAGES_MANIFEST_MARKER}\nexport const ${GENERATED_PAGES_LAYOUT_EXPORT} = true;\nexport const app = {};\n`,
     );
 
     const source = createPrachtClientModuleSource(
@@ -922,7 +926,7 @@ describe("createPrachtRegistryModuleSource", () => {
     mkdirSync(join(root, "src"), { recursive: true });
     writeFileSync(
       join(root, "src", "routes.ts"),
-      `// ${GENERATED_PAGES_MANIFEST_MARKER}\nexport const app = {};\n`,
+      `// ${GENERATED_PAGES_MANIFEST_MARKER}\nexport const ${GENERATED_PAGES_LAYOUT_EXPORT} = true;\nexport const app = {};\n`,
     );
 
     const source = createPrachtClientModuleSource(
@@ -986,7 +990,7 @@ describe("createPrachtRegistryModuleSource", () => {
     expect(source).not.toContain('import.meta.glob("/src/modules/_app.');
   });
 
-  it("recognizes a typed marker-free pages middleware registry", () => {
+  it("does not infer ejected pages ownership from a co-located pages middleware registry", () => {
     const root = makeTempPagesDir();
     mkdirSync(join(root, "src", "pages"), { recursive: true });
     writeFileSync(
@@ -1007,21 +1011,18 @@ export const app = defineApp({ middleware, routes: [] });
       { root },
     );
 
-    expect(source).toContain('"!/src/pages/**/_*"');
-    expect(source).toContain(
-      'import.meta.glob("/src/pages/_app.{ts,tsx,js,jsx}", { query: "?pracht-client" })',
-    );
+    expect(source).not.toContain('"!/src/pages/**/_*"');
+    expect(source).not.toContain('import.meta.glob("/src/pages/_app.');
   });
 
-  it("recognizes marker-free pages refs in later variable declarators", () => {
+  it("ignores generated marker text in comments and strings", () => {
     const root = makeTempPagesDir();
     mkdirSync(join(root, "src", "pages"), { recursive: true });
     writeFileSync(
       join(root, "src", "routes.ts"),
-      `const unusedRef = () => import("./middleware/unused.ts"),
-  pages = () => import("./pages/_middleware.ts");
-const unusedRegistry = {}, middleware = { pages };
-export const app = defineApp({ middleware, routes: [] });
+      `// export const ${GENERATED_PAGES_LAYOUT_EXPORT} = true;
+const docs = "export const ${GENERATED_PAGES_LAYOUT_EXPORT} = true;";
+export const app = defineApp({ routes: [] });
 `,
     );
 
@@ -1035,8 +1036,8 @@ export const app = defineApp({ middleware, routes: [] });
       { root },
     );
 
-    expect(source).toContain('"!/src/pages/**/_*"');
-    expect(source).toContain('"!/src/pages/**/_*/**"');
+    expect(source).not.toContain('"!/src/pages/**/_*"');
+    expect(source).not.toContain('"!/src/pages/**/_*/**"');
   });
 
   it("creates adapter-neutral development metadata", () => {

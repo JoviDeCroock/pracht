@@ -1,6 +1,6 @@
 ---
 name: audit-auth
-version: 1.2.3
+version: 1.2.4
 description: |
   Find pracht routes that look protected but aren't — missing auth middleware,
   middleware that augments context but never gates, client-side auth checks
@@ -91,6 +91,13 @@ For each expected-protected route:
 3. Confirm the gate runs **before** any other middleware that depends on
    identity (order matters).
 4. If only an Augmenter is present, mark as `augmented-only`.
+5. For pages-router routes, inspect `render` too. A root pages Gate on an
+   `ssg` or `isg` route does not protect the static document per visitor:
+   document middleware runs during build/revalidation with a sanitized request,
+   while later route-state requests are separate live requests. Unless an
+   independently verified platform/CDN edge gate protects the document, report
+   the route as `error` / `unprotected-static` and recommend `ssr`/`spa` for
+   session-gated pages.
 
 ## Step 4: Check the API surface
 
@@ -158,6 +165,8 @@ Severity is the primary scale; the verdict is a secondary domain label:
 - `error` / `unprotected` — no auth middleware on a route the user expects
   protected.
 - `error` / `inconsistent` — UI route is gated; sibling API is not.
+- `error` / `unprotected-static` — a pages-router SSG/ISG document relies on
+  request/session middleware without an independent per-request edge gate.
 - `warn` / `augmented-only` — middleware reads session but never blocks;
   loader must handle null user.
 - `warn` / `client-only` — server allows; client hides UI.
