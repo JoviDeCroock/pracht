@@ -160,6 +160,20 @@ describe("netlifyAdapter", () => {
     await expect(finalizeNetlifyBuild(root)).rejects.toThrow(/Invalid header/);
   });
 
+  it.each(["/docs/*", "/docs/:slug"])(
+    "rejects exact build headers that Netlify would broaden for %s",
+    async (pathname) => {
+      const root = await tempDir();
+      await mkdir(join(root, "dist/server"), { recursive: true });
+      await writeFile(
+        join(root, "dist/server/headers-manifest.json"),
+        JSON.stringify({ [pathname]: { "cache-control": "public, max-age=60" } }),
+      );
+
+      await expect(finalizeNetlifyBuild(root)).rejects.toThrow(/Invalid static header rule/);
+    },
+  );
+
   it("leaves a hand-authored public/_headers alone", async () => {
     const root = await tempDir();
     await mkdir(join(root, "public"), { recursive: true });

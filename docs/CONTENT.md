@@ -90,7 +90,9 @@ directory, and can be replaced with a `route(context)` callback.
 All route and artifact paths are canonical, safe root-relative URL paths.
 Source paths are resolved under `root`; traversal outside it is rejected.
 Explicit sources are checked again after symbolic links are resolved, so a
-link inside the collection cannot read or publish a file outside the root.
+link inside the collection cannot read or publish a file outside the root. A
+symbolic collection root is supported: canonical module IDs still resolve to
+the registered source.
 Ambiguous source, route/locale, id/locale, and artifact registrations throw
 instead of letting ordering select a winner.
 

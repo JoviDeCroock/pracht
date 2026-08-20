@@ -953,6 +953,8 @@ resolution.
   gives Netlify's static layer the immutable asset policy and the same default
   security headers the function applies everywhere else. A hand-authored
   `public/_headers` wins — pracht then skips generating one and warns.
+  Manifest entries must name exact paths; wildcard and `:placeholder` syntax is
+  rejected before it can broaden a generated header rule.
   Default and prefix-shaped exclusions are also omitted from the function's
   `includedFiles`, keeping large bypassed asset trees outside its bundle. The
   generated config lists each remaining client file explicitly because the

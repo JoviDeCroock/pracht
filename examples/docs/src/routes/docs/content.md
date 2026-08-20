@@ -47,6 +47,9 @@ Define the collection next to the Vite config so every server/build consumer
 imports the same registry. Sources can be listed explicitly, or discovered
 recursively from `root`.
 
+The root can be a symbolic link; Vite's canonical module IDs still map back to
+the collection registry. Symbolic links inside it cannot escape the root.
+
 ```ts [content.ts]
 import { defineCollection, llmsTxtArtifacts } from "@pracht/content";
 

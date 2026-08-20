@@ -1,3 +1,4 @@
+import { realpathSync } from "node:fs";
 import { readFile, readdir, realpath, stat } from "node:fs/promises";
 import { extname, isAbsolute, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -56,6 +57,7 @@ export function defineCollection<
   assertOptions(options);
 
   const root = normalizeRoot(options.root);
+  const canonicalRoot = canonicalFilePath(root);
   const extensions = Object.freeze(
     [...new Set(options.extensions ?? [".md", ".mdx"])].map((extension) =>
       extension.startsWith(".") ? extension : `.${extension}`,
@@ -107,13 +109,14 @@ export function defineCollection<
       const clean = resolveCollectionSource(source);
       if (!collection.ownsSource(clean)) return undefined;
       const registry = await buildRegistry();
-      const descriptor = registry.bySource.get(clean);
+      const descriptor = findSourceDescriptor(registry, clean);
       return descriptor ? loadDescriptor(descriptor) : undefined;
     },
 
     ownsSource(source) {
       const clean = resolveCollectionSource(source);
-      return isInsideRoot(root, clean) && extensions.includes(extname(clean));
+      const canonical = canonicalFilePath(clean);
+      return isInsideRoot(canonicalRoot, canonical) && extensions.includes(extname(canonical));
     },
 
     async loadSource(source, raw) {
@@ -124,7 +127,7 @@ export function defineCollection<
         );
       }
       const registry = await buildRegistry();
-      const descriptor = registry.bySource.get(clean);
+      const descriptor = findSourceDescriptor(registry, clean);
       if (!descriptor) {
         throw new Error(
           `Source ${JSON.stringify(source)} is not registered in content collection ${JSON.stringify(options.name)}.`,
@@ -138,7 +141,7 @@ export function defineCollection<
       const clean = resolveCollectionSource(source);
       if (!collection.ownsSource(clean)) return undefined;
       const registry = await buildRegistry();
-      const descriptor = registry.bySource.get(clean);
+      const descriptor = findSourceDescriptor(registry, clean);
       if (!descriptor) return undefined;
       return options.module(await loadDescriptor(descriptor, raw));
     },
@@ -220,7 +223,13 @@ export function defineCollection<
         cache.clear();
         return;
       }
-      cache.delete(resolveCollectionSource(source));
+      const clean = resolveCollectionSource(source);
+      const canonical = canonicalFilePath(clean);
+      for (const cachedSource of cache.keys()) {
+        if (cachedSource === clean || canonicalFilePath(cachedSource) === canonical) {
+          cache.delete(cachedSource);
+        }
+      }
     },
   };
 
@@ -254,12 +263,13 @@ export function defineCollection<
     for (const descriptor of descriptors) {
       addLookup(byId, descriptor.id, descriptor);
       addLookup(byRoute, descriptor.path, descriptor);
-      if (bySource.has(descriptor.source)) {
+      const sourceKeys = new Set([descriptor.source, canonicalFilePath(descriptor.source)]);
+      if ([...sourceKeys].some((source) => bySource.has(source))) {
         throw new Error(
           `Content collection ${JSON.stringify(options.name)} registers source ${JSON.stringify(descriptor.relativeSource)} more than once.`,
         );
       }
-      bySource.set(descriptor.source, descriptor);
+      for (const source of sourceKeys) bySource.set(source, descriptor);
       if (locales && descriptor.inferredRoute) {
         for (const locale of locales.supported) {
           const configured = options.route?.({
@@ -477,11 +487,26 @@ export function defineCollection<
     return isAbsolute(clean) ? resolve(clean) : resolve(root, clean);
   }
 
+  function findSourceDescriptor(
+    registry: RegistryIndex,
+    source: string,
+  ): SourceDescriptor | undefined {
+    return registry.bySource.get(source) ?? registry.bySource.get(canonicalFilePath(source));
+  }
+
   async function resolveRealRoot(): Promise<string> {
     return realRoot ?? (realRoot = await realpath(root));
   }
 
   return Object.freeze(collection);
+}
+
+function canonicalFilePath(path: string): string {
+  try {
+    return realpathSync.native(path);
+  } catch {
+    return resolve(path);
+  }
 }
 
 function cloneFallback(

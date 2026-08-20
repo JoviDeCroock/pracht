@@ -66,7 +66,8 @@ defineCollection({
 Duplicate `(id, locale)`, `(path, locale)`, source, and artifact registrations
 fail before output is emitted. Routes and output paths must be safe,
 root-relative URL paths; source paths cannot escape the collection root,
-including through an explicitly registered symbolic link.
+including through an explicitly registered symbolic link. Symbolic collection
+roots remain addressable through the canonical module IDs emitted by Vite.
 
 ## Documents and lookup
 

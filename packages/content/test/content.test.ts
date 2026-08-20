@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -181,6 +181,31 @@ describe("defineCollection", () => {
     });
 
     await expect(collection.all()).rejects.toThrow(/after resolving symbolic links/);
+  });
+
+  it("matches Vite-canonicalized sources when the collection root is symbolic", async () => {
+    const root = await fixture({ "page.md": "Same" });
+    const parent = await fixture({});
+    const linkedRoot = join(parent, "docs");
+    await symlink(root, linkedRoot, "dir");
+    const canonicalSource = await realpath(join(linkedRoot, "page.md"));
+    let revision = 1;
+    const collection = defineCollection({
+      name: "linked-root",
+      root: linkedRoot,
+      compile: () => revision,
+      module: ({ compiled }) => `export default ${compiled};`,
+    });
+
+    expect(collection.ownsSource(canonicalSource)).toBe(true);
+    expect(await collection.getBySource(canonicalSource)).toMatchObject({
+      source: join(linkedRoot, "page.md"),
+    });
+    expect(await collection.renderModule(canonicalSource, "Same")).toBe("export default 1;");
+
+    revision = 2;
+    collection.invalidate(canonicalSource);
+    expect(await collection.renderModule(canonicalSource, "Same")).toBe("export default 2;");
   });
 
   it("invalidates transformed source memoization deliberately", async () => {

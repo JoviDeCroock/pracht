@@ -593,6 +593,7 @@ function parseNetlifyHeadersManifest(source: string): HeadersManifest {
     if (
       !pathname.startsWith("/") ||
       hasNetlifyRuleWhitespaceOrControl(pathname) ||
+      isNetlifyPathPattern(pathname) ||
       !rawHeaders ||
       typeof rawHeaders !== "object" ||
       Array.isArray(rawHeaders)
@@ -618,6 +619,10 @@ function parseNetlifyHeadersManifest(source: string): HeadersManifest {
     manifest[pathname] = headers;
   }
   return manifest;
+}
+
+function isNetlifyPathPattern(pathname: string): boolean {
+  return pathname.includes("*") || pathname.split("/").some((segment) => segment.startsWith(":"));
 }
 
 function hasNetlifyRuleWhitespaceOrControl(value: string): boolean {

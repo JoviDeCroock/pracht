@@ -28,6 +28,9 @@ claims page URLs, excludes Pracht's asset directories, and bundles the exact
 `dist/client` files the function can serve plus the generated headers,
 Markdown, and ISG manifests.
 
+Generated header manifest entries must be exact paths. The build rejects
+Netlify wildcard and `:placeholder` syntax instead of broadening a route rule.
+
 Set Netlify's publish directory to `dist/client`:
 
 ```toml
