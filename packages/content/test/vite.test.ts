@@ -47,6 +47,17 @@ describe("prachtContent", () => {
     ).toBeNull();
     expect(await transform.call({} as never, "# Draft", unregistered)).toBeNull();
     expect(await transform.call({} as never, 'export default "# Raw"', `${source}?raw`)).toBeNull();
+    expect(
+      await transform.call({} as never, 'export default "/page.md"', `${source}?url`),
+    ).toBeNull();
+    const clientResult = await transform.call({} as never, "# Client", `${source}?pracht-client`);
+    expect(typeof clientResult === "string" ? clientResult : clientResult?.code).toContain(
+      'export const markdown = "# Client"',
+    );
+    const hmrResult = await transform.call({} as never, "# HMR", `${source}?t=123`);
+    expect(typeof hmrResult === "string" ? hmrResult : hmrResult?.code).toContain(
+      'export const markdown = "# HMR"',
+    );
   });
 
   it("generates a filesystem-free production module for each collection", async () => {

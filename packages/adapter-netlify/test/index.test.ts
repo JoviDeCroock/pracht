@@ -67,6 +67,7 @@ describe("netlifyAdapter", () => {
     await mkdir(join(root, "dist/client/content"), { recursive: true });
     await mkdir(join(root, "dist/client/docs"), { recursive: true });
     await mkdir(join(root, "dist/client/exact/child"), { recursive: true });
+    await mkdir(join(root, "dist/server"), { recursive: true });
     await writeFile(join(root, "dist/client/assets/app.js"), "asset");
     await writeFile(join(root, "dist/client/_pracht/headers.json"), "{}");
     await writeFile(join(root, "dist/client/content/manual.pdf"), "content");
@@ -74,6 +75,15 @@ describe("netlifyAdapter", () => {
     await writeFile(join(root, "dist/client/exact/index.html"), "exact");
     await writeFile(join(root, "dist/client/exact/child/index.html"), "child");
     await writeFile(join(root, "dist/client/robots.txt"), "User-agent: *");
+    await writeFile(
+      join(root, "dist/server/headers-manifest.json"),
+      JSON.stringify({
+        "/assets/search.data": {
+          "content-type": "application/json; charset=utf-8",
+          "x-content-type-options": "nosniff",
+        },
+      }),
+    );
     const options = {
       excludedPath: ["/content/*", "/exact"],
       functionName: "site",
@@ -134,6 +144,20 @@ describe("netlifyAdapter", () => {
     expect(headersFile).toContain("/content/*");
     expect(headersFile).toContain("  X-Content-Type-Options: nosniff");
     expect(headersFile).toContain("  X-Frame-Options: SAMEORIGIN");
+    expect(headersFile).toContain(
+      "/assets/search.data\n  content-type: application/json; charset=utf-8\n  x-content-type-options: nosniff",
+    );
+  });
+
+  it("rejects build header rules that could inject _headers entries", async () => {
+    const root = await tempDir();
+    await mkdir(join(root, "dist/server"), { recursive: true });
+    await writeFile(
+      join(root, "dist/server/headers-manifest.json"),
+      JSON.stringify({ "/assets/search.data": { "x-safe\n/evil": "injected" } }),
+    );
+
+    await expect(finalizeNetlifyBuild(root)).rejects.toThrow(/Invalid header/);
   });
 
   it("leaves a hand-authored public/_headers alone", async () => {
