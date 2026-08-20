@@ -55,8 +55,9 @@ SSG loaders run at build time. For each loader-backed SSG route, the build seria
 - `200.html` (opt-in via `staticAdapter({ fallback: "200.html" })`): SPA fallback document for hosts that can rewrite unmatched URLs; required for deep links into dynamic `render: "spa"` routes.
 
 Files copied from `public/` or emitted by Vite may not occupy the generated
-`404.html` or configured fallback path; the build rejects those collisions
-instead of overwriting existing output.
+`404.html` or configured fallback path, including a case- or
+Unicode-normalization-equivalent spelling; the build rejects those portable
+collisions instead of overwriting existing output.
 
 One fallback file is shared by every rewritten URL, so it cannot evaluate a
 dynamic route or shell `head()` export. When those exports exist, provide
@@ -71,6 +72,9 @@ staticAdapter({
 
 The build fails closed if a dynamic SPA route, its shell, or the not-found page
 exports `head()` and `fallbackHead` is omitted.
+
+Fonts in `fallbackHead` remain registered while the fallback commits a
+loaderless dynamic SPA route.
 
 The fallback only boots matched SPA routes. Paths matching a dynamic SSG route but omitted by `getStaticPaths()` render the app's `notFound` page rather than running without build-time loader state. When the fallback renders `notFound`, it reuses the loader data or handled error state serialized into `404.html`; the loader does not run again.
 

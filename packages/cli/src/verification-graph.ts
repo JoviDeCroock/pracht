@@ -133,11 +133,13 @@ function projectMightUseStaticExport(project: ProjectConfig): boolean {
   // An explicit adapter that source inspection cannot classify may come from
   // a third-party package or a local wrapper. Resolve it instead of silently
   // treating the default `node` classification as authoritative. Keep the
-  // common built-in Node adapter on the cheap path.
-  const configuresAdapter = /\badapter\s*(?::|(?=\s*[,}]))/.test(maskedConfig);
-  const isKnownNodeAdapter =
-    /\bnodeAdapter\s*\(/.test(maskedConfig) ||
-    /^\s*import\s+(?:[^"']+?\s+from\s+)?["']@pracht\/adapter-node["']/m.test(project.rawConfig);
+  // common direct built-in Node adapter call on the cheap path. Quoted keys
+  // are checked in raw source because string masking necessarily erases them;
+  // a false-positive candidate only causes the authoritative Vite resolution.
+  const configuresAdapter =
+    /\badapter\s*(?::|(?=\s*[,}]))/.test(maskedConfig) ||
+    /["']adapter["']\s*:/.test(project.rawConfig);
+  const isKnownNodeAdapter = /\badapter\s*:\s*nodeAdapter\s*\(/.test(maskedConfig);
   return detectedTarget === "node" && configuresAdapter && !isKnownNodeAdapter;
 }
 

@@ -679,7 +679,7 @@ test("static doctor resolves a custom adapter from an unrecognized package", () 
         "// This custom target is not @pracht/adapter-node.",
         "",
         "export default defineConfig({",
-        "  plugins: [pracht({ adapter: customStaticAdapter() })],",
+        '  plugins: [pracht({ "adapter": customStaticAdapter() })],',
         "});",
         "",
       ].join("\n"),

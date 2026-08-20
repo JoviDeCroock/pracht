@@ -672,24 +672,47 @@ describe("writeStaticExportArtifacts", () => {
   it.each([
     {
       fileName: "404.html",
+      existingFileName: "404.html",
       serverMod: {
         staticExportConfig: { fallback: null },
-        renderStaticNotFoundHtml: async () => "<!DOCTYPE html><html><body>404</body></html>",
+        renderStaticNotFoundHtml: async (): Promise<string> =>
+          "<!DOCTYPE html><html><body>404</body></html>",
+      },
+    },
+    {
+      fileName: "404.html",
+      existingFileName: "404.HTML",
+      serverMod: {
+        staticExportConfig: { fallback: null },
+        renderStaticNotFoundHtml: async (): Promise<string> =>
+          "<!DOCTYPE html><html><body>404</body></html>",
       },
     },
     {
       fileName: "200.html",
+      existingFileName: "200.html",
       serverMod: {
         staticExportConfig: { fallback: "200.html" },
-        renderStaticNotFoundHtml: async () => null,
-        renderStaticFallbackHtml: async () => "<!DOCTYPE html><html><body>fallback</body></html>",
+        renderStaticNotFoundHtml: async (): Promise<null> => null,
+        renderStaticFallbackHtml: async (): Promise<string> =>
+          "<!DOCTYPE html><html><body>fallback</body></html>",
+      },
+    },
+    {
+      fileName: "200.html",
+      existingFileName: "200.HTML",
+      serverMod: {
+        staticExportConfig: { fallback: "200.html" },
+        renderStaticNotFoundHtml: async (): Promise<null> => null,
+        renderStaticFallbackHtml: async (): Promise<string> =>
+          "<!DOCTYPE html><html><body>fallback</body></html>",
       },
     },
   ])(
-    "refuses to overwrite a public file at generated $fileName",
-    async ({ fileName, serverMod }) => {
+    "refuses to overwrite a public file at generated $fileName when the existing spelling is $existingFileName",
+    async ({ existingFileName, serverMod }) => {
       const clientDir = createTempDir();
-      const conflictPath = resolve(clientDir, fileName);
+      const conflictPath = resolve(clientDir, existingFileName);
       writeFileSync(conflictPath, "public-owned", "utf-8");
 
       await expect(
@@ -704,6 +727,44 @@ describe("writeStaticExportArtifacts", () => {
       expect(existsSync(resolveRouteStateOutputPath(clientDir, "/about"))).toBe(false);
     },
   );
+
+  it("rejects a custom not-found render hook that does not return HTML or null", async () => {
+    const clientDir = createTempDir();
+
+    await expect(
+      writeStaticExportArtifacts({
+        clientDir,
+        pages: [{ path: "/about", routeState: '{"data":"framework"}' }],
+        serverMod: {
+          resolvedApp: { notFound: { path: "/404" } },
+          staticExportConfig: { fallback: null },
+          renderStaticNotFoundHtml: async () => undefined,
+        },
+        log: () => {},
+      }),
+    ).rejects.toThrow(/renderStaticNotFoundHtml.*HTML string or null/);
+    expect(existsSync(resolveRouteStateOutputPath(clientDir, "/about"))).toBe(false);
+    expect(existsSync(resolve(clientDir, "404.html"))).toBe(false);
+  });
+
+  it("rejects a custom fallback render hook that does not return HTML", async () => {
+    const clientDir = createTempDir();
+
+    await expect(
+      writeStaticExportArtifacts({
+        clientDir,
+        pages: [{ path: "/about", routeState: '{"data":"framework"}' }],
+        serverMod: {
+          staticExportConfig: { fallback: "200.html" },
+          renderStaticNotFoundHtml: async () => null,
+          renderStaticFallbackHtml: async () => undefined,
+        },
+        log: () => {},
+      }),
+    ).rejects.toThrow(/renderStaticFallbackHtml.*HTML string/);
+    expect(existsSync(resolveRouteStateOutputPath(clientDir, "/about"))).toBe(false);
+    expect(existsSync(resolve(clientDir, "200.html"))).toBe(false);
+  });
 
   it("writes state files, 404.html, and the configured fallback", async () => {
     const clientDir = createTempDir();

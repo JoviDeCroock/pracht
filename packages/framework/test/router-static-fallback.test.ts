@@ -41,6 +41,8 @@ describe("static fallback router readiness", () => {
   });
 
   it("publishes readiness only after the fallback route commits", async () => {
+    document.head.innerHTML =
+      '<link data-pracht-font-preload rel="preload" as="font" href="/fallback.woff2"><style data-pracht-fonts>@font-face{font-family:"Fallback"}</style>';
     let releaseImport!: () => void;
     const importGate = new Promise<void>((resolve) => {
       releaseImport = resolve;
@@ -54,6 +56,7 @@ describe("static fallback router readiness", () => {
       defineApp({
         routes: [
           route("/items/:id", "./routes/item.tsx", {
+            hasHead: false,
             hasLoader: false,
             id: "item",
             render: "spa",
@@ -95,6 +98,12 @@ describe("static fallback router readiness", () => {
     expect(root.textContent).toBe("Item 42");
     expect(window.__PRACHT_ROUTER_READY__).toBe(true);
     expect(document.documentElement.getAttribute("data-pracht-hydrated")).toBe("true");
+    expect(
+      document.head.querySelector("link[data-pracht-font-preload]")?.getAttribute("href"),
+    ).toBe("/fallback.woff2");
+    expect(document.head.querySelector("style[data-pracht-fonts]")?.textContent).toContain(
+      'font-family:"Fallback"',
+    );
 
     // Let the router's lazy prefetch setup and Preact's scheduled effects
     // settle before Vitest tears down the jsdom globals.

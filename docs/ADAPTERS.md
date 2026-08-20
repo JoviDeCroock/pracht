@@ -1251,7 +1251,9 @@ client-side fetch to an external API instead.
   One fallback file is shared by every rewritten URL and therefore cannot run
   URL-specific route, shell, or not-found `head()` exports. If a fallback-rendered
   route declares one, configure explicit generic `fallbackHead` metadata shared
-  by every fallback URL; the build fails closed when it is omitted.
+  by every fallback URL; the build fails closed when it is omitted. Fonts in
+  that generic head remain registered while the fallback commits a loaderless
+  dynamic SPA route.
   The fallback only client-renders matched SPA routes: a dynamic SSG pattern
   that matches a path omitted by `getStaticPaths()` renders the app's
   `notFound` page instead of running without its missing build-time state.
@@ -1274,8 +1276,9 @@ client-side fetch to an external API instead.
   path before writing any page. Configured fallback filenames follow the same
   reserved-name and component-length rules.
 - Files copied from `public/` or emitted by Vite may not occupy the generated
-  `404.html` or configured fallback path; the build rejects those collisions
-  instead of overwriting existing output.
+  `404.html` or configured fallback path, including a case- or
+  Unicode-normalization-equivalent spelling; the build rejects those portable
+  collisions instead of overwriting existing output.
 - **The rewrite turns unknown URLs into soft 404s**: a host that answers
   `/* → 200.html` with status 200 does so for genuinely unknown URLs too, so
   they are `200` even though the client renders the `notFound` page. Hosts

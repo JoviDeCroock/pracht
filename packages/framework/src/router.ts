@@ -622,6 +622,11 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
         }
       }
 
+      // The fallback document owns generic head metadata shared by every URL
+      // it rewrites. A loaderless/headless SPA route takes the no-fetch branch
+      // above, so preserve those document fonts outside the catch path too.
+      if (opts?._staticFallback) fontHead = undefined;
+
       if (navigationId !== latestNavigationId) return;
 
       if (!opts?._popstate) {

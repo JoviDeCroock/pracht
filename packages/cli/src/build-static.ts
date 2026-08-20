@@ -1,4 +1,4 @@
-import { existsSync, writeFileSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { buildStaticRouteStateUrl } from "@pracht/core/server";
 
@@ -38,8 +38,8 @@ interface StaticServerModuleView {
     shellModules?: Record<string, () => Promise<unknown>>;
   };
   staticExportConfig?: { fallback?: string | null; fallbackHead?: unknown };
-  renderStaticNotFoundHtml?: () => Promise<string | null>;
-  renderStaticFallbackHtml?: (notFoundState?: StaticNotFoundState) => string | Promise<string>;
+  renderStaticNotFoundHtml?: () => Promise<unknown>;
+  renderStaticFallbackHtml?: (notFoundState?: StaticNotFoundState) => unknown | Promise<unknown>;
 }
 
 interface StaticNotFoundState {
@@ -708,7 +708,14 @@ export async function writeStaticExportArtifacts(options: {
   let notFoundHtml: string | null | undefined;
   let notFoundState: StaticNotFoundState | undefined;
   if (typeof serverMod.renderStaticNotFoundHtml === "function") {
-    notFoundHtml = await serverMod.renderStaticNotFoundHtml();
+    const renderedNotFoundHtml = await serverMod.renderStaticNotFoundHtml();
+    if (renderedNotFoundHtml !== null && typeof renderedNotFoundHtml !== "string") {
+      throw new Error(
+        "Static export renderStaticNotFoundHtml() must return an HTML string or null, " +
+          `received ${typeof renderedNotFoundHtml}.`,
+      );
+    }
+    notFoundHtml = renderedNotFoundHtml;
     if (typeof notFoundHtml === "string" && configuredFallback) {
       notFoundState = readStaticNotFoundState(notFoundHtml);
     }
@@ -716,28 +723,35 @@ export async function writeStaticExportArtifacts(options: {
 
   let fallbackHtml: string | undefined;
   if (configuredFallback && typeof serverMod.renderStaticFallbackHtml === "function") {
-    fallbackHtml = await serverMod.renderStaticFallbackHtml(notFoundState);
+    const renderedFallbackHtml = await serverMod.renderStaticFallbackHtml(notFoundState);
+    if (typeof renderedFallbackHtml !== "string") {
+      throw new Error(
+        `Static export renderStaticFallbackHtml() must return an HTML string for ${configuredFallback}, ` +
+          `received ${typeof renderedFallbackHtml}.`,
+      );
+    }
+    fallbackHtml = renderedFallbackHtml;
   }
 
   const fixedOutputs = [
-    ...(typeof notFoundHtml === "string"
-      ? [{ filePath: resolve(clientDir, "404.html"), fileName: "404.html" }]
-      : []),
-    ...(configuredFallback && typeof fallbackHtml === "string"
-      ? [
-          {
-            filePath: resolve(clientDir, configuredFallback),
-            fileName: configuredFallback,
-          },
-        ]
-      : []),
+    ...(typeof notFoundHtml === "string" ? ["404.html"] : []),
+    ...(configuredFallback && typeof fallbackHtml === "string" ? [configuredFallback] : []),
   ];
-  const existingFixedOutputs = fixedOutputs.filter(({ filePath }) => existsSync(filePath));
+  const existingClientEntries = new Map(
+    readdirSync(clientDir).map((entry) => [entry.normalize("NFC").toLowerCase(), entry]),
+  );
+  const existingFixedOutputs = fixedOutputs.flatMap((fileName) => {
+    const existingFileName = existingClientEntries.get(fileName.normalize("NFC").toLowerCase());
+    return existingFileName ? [{ existingFileName, fileName }] : [];
+  });
   if (existingFixedOutputs.length > 0) {
     throw new Error(
       "Static export fixed artifact output conflicts with existing files copied from public/ or emitted by Vite:\n" +
         existingFixedOutputs
-          .map(({ fileName }) => `    - generated ${fileName} would overwrite ${fileName}`)
+          .map(
+            ({ existingFileName, fileName }) =>
+              `    - generated ${fileName} conflicts with existing ${existingFileName}`,
+          )
           .join("\n") +
         "\nRemove or rename the conflicting files before building the static export.",
     );
@@ -779,7 +793,7 @@ export async function writeStaticExportArtifacts(options: {
   }
 
   const wrote404 = typeof notFoundHtml === "string";
-  if (wrote404) {
+  if (typeof notFoundHtml === "string") {
     writeFileSync(resolve(clientDir, "404.html"), notFoundHtml, "utf-8");
     log("  404.html → dist/client/404.html\n");
   } else if (notFoundHtml === null) {
