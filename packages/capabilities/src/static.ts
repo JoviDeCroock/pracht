@@ -582,13 +582,13 @@ export function scanTopLevelPropertyEntries(objectBody: string): TopLevelPropert
       }
       key = decoded;
       index = end + 1;
-    } else if (/[0-9]/.test(char)) {
-      const parsed = parseNumberLiteral(objectBody, index);
-      if (!parsed || typeof parsed.value !== "number") {
+    } else if (/[0-9]/.test(char) || (char === "." && /[0-9]/.test(objectBody[index + 1]))) {
+      const parsed = parseNumericPropertyKey(objectBody, index);
+      if (!parsed) {
         truncated = true;
         break;
       }
-      key = String(parsed.value);
+      key = parsed.key;
       index = parsed.index;
     } else {
       const match = /^[A-Za-z_$][A-Za-z0-9_$]*/.exec(objectBody.slice(index));
@@ -703,10 +703,11 @@ function extractModuleRefPath(expression: string): string | null {
 function findTopLevelVariableInitializer(source: string, name: string): string | null {
   const searchable = maskCommentsAndStrings(source);
   const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const declaration = new RegExp(`\\b(?:const|let|var)\\s+${escapedName}\\b`, "g");
+  const declaration = new RegExp(`(\\b(?:const|let|var)\\s+|,)\\s*${escapedName}\\b`, "g");
 
   for (const match of searchable.matchAll(declaration)) {
-    if (match.index == null || braceDepthAt(searchable, match.index) !== 0) continue;
+    if (match.index == null || !isAtModuleTopLevel(searchable, match.index)) continue;
+    if (match[1] === "," && !followsTopLevelVariableDeclaration(searchable, match.index)) continue;
     const afterName = match.index + match[0].length;
     const assignment = findVariableAssignment(searchable, afterName);
     if (assignment === -1) continue;
@@ -714,6 +715,48 @@ function findTopLevelVariableInitializer(source: string, name: string): string |
   }
 
   return null;
+}
+
+function followsTopLevelVariableDeclaration(source: string, end: number): boolean {
+  let declarationKind: "import" | "variable" | null = null;
+  const keywords = /\b(?:const|import|let|var)\b/g;
+
+  for (const match of source.slice(0, end).matchAll(keywords)) {
+    if (match.index == null || !isAtModuleTopLevel(source, match.index)) continue;
+
+    const before = source.slice(0, match.index).trimEnd().at(-1);
+    if (before === ".") continue;
+
+    if (match[0] === "import") {
+      const after = source.slice(match.index + match[0].length).trimStart()[0];
+      // Dynamic `import()` and `import.meta` can appear inside a variable
+      // initializer; neither starts a new module declaration.
+      if (after === "(" || after === ".") continue;
+      declarationKind = "import";
+    } else {
+      declarationKind = "variable";
+    }
+  }
+
+  return declarationKind === "variable";
+}
+
+function isAtModuleTopLevel(source: string, end: number): boolean {
+  let braces = 0;
+  let brackets = 0;
+  let parentheses = 0;
+
+  for (let index = 0; index < end; index += 1) {
+    const char = source[index];
+    if (char === "{") braces += 1;
+    else if (char === "}") braces = Math.max(0, braces - 1);
+    else if (char === "[") brackets += 1;
+    else if (char === "]") brackets = Math.max(0, brackets - 1);
+    else if (char === "(") parentheses += 1;
+    else if (char === ")") parentheses = Math.max(0, parentheses - 1);
+  }
+
+  return braces === 0 && brackets === 0 && parentheses === 0;
 }
 
 /**
@@ -1401,4 +1444,26 @@ function parseNumberLiteral(source: string, start: number): ParsedLiteral | null
   const end = start + match[0].length;
   if (/[A-Za-z0-9_$]/.test(source[end] ?? "")) return null;
   return { value: Number(match[0]), index: end };
+}
+
+function parseNumericPropertyKey(
+  source: string,
+  start: number,
+): { key: string; index: number } | null {
+  const match =
+    /^(?:0[xX][0-9a-fA-F](?:_?[0-9a-fA-F])*(?:n)?|0[bB][01](?:_?[01])*(?:n)?|0[oO][0-7](?:_?[0-7])*(?:n)?|(?:0|[1-9](?:_?\d)*)n|\d(?:_?\d)*\.(?:\d(?:_?\d)*)?(?:[eE][+-]?\d(?:_?\d)*)?|\.\d(?:_?\d)*(?:[eE][+-]?\d(?:_?\d)*)?|\d(?:_?\d)*(?:[eE][+-]?\d(?:_?\d)*)?)/.exec(
+      source.slice(start),
+    );
+  if (!match) return null;
+
+  const end = start + match[0].length;
+  if (/[A-Za-z0-9_$]/.test(source[end] ?? "")) return null;
+
+  const normalized = match[0].replaceAll("_", "");
+  try {
+    const value = normalized.endsWith("n") ? BigInt(normalized.slice(0, -1)) : Number(normalized);
+    return { key: String(value), index: end };
+  } catch {
+    return null;
+  }
 }
