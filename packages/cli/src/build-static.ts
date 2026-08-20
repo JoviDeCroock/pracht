@@ -705,6 +705,44 @@ export async function writeStaticExportArtifacts(options: {
     );
   }
 
+  let notFoundHtml: string | null | undefined;
+  let notFoundState: StaticNotFoundState | undefined;
+  if (typeof serverMod.renderStaticNotFoundHtml === "function") {
+    notFoundHtml = await serverMod.renderStaticNotFoundHtml();
+    if (typeof notFoundHtml === "string" && configuredFallback) {
+      notFoundState = readStaticNotFoundState(notFoundHtml);
+    }
+  }
+
+  let fallbackHtml: string | undefined;
+  if (configuredFallback && typeof serverMod.renderStaticFallbackHtml === "function") {
+    fallbackHtml = await serverMod.renderStaticFallbackHtml(notFoundState);
+  }
+
+  const fixedOutputs = [
+    ...(typeof notFoundHtml === "string"
+      ? [{ filePath: resolve(clientDir, "404.html"), fileName: "404.html" }]
+      : []),
+    ...(configuredFallback && typeof fallbackHtml === "string"
+      ? [
+          {
+            filePath: resolve(clientDir, configuredFallback),
+            fileName: configuredFallback,
+          },
+        ]
+      : []),
+  ];
+  const existingFixedOutputs = fixedOutputs.filter(({ filePath }) => existsSync(filePath));
+  if (existingFixedOutputs.length > 0) {
+    throw new Error(
+      "Static export fixed artifact output conflicts with existing files copied from public/ or emitted by Vite:\n" +
+        existingFixedOutputs
+          .map(({ fileName }) => `    - generated ${fileName} would overwrite ${fileName}`)
+          .join("\n") +
+        "\nRemove or rename the conflicting files before building the static export.",
+    );
+  }
+
   const stateOutputs = pages.flatMap((page) =>
     typeof page.routeState === "string"
       ? [
@@ -740,32 +778,20 @@ export async function writeStaticExportArtifacts(options: {
     log(`\n  Route state → dist/client/_pracht/state (${stateFileCount} file(s))\n`);
   }
 
-  let wrote404 = false;
-  let notFoundState: StaticNotFoundState | undefined;
-  if (typeof serverMod.renderStaticNotFoundHtml === "function") {
-    const notFoundHtml = await serverMod.renderStaticNotFoundHtml();
-    if (notFoundHtml !== null) {
-      if (configuredFallback) {
-        notFoundState = readStaticNotFoundState(notFoundHtml);
-      }
-      writeFileSync(resolve(clientDir, "404.html"), notFoundHtml, "utf-8");
-      wrote404 = true;
-      log("  404.html → dist/client/404.html\n");
-    } else {
-      log(
-        "  No 404.html emitted: the app declares no notFound page. " +
-          "Static hosts will serve their own error page for unknown URLs.\n",
-      );
-    }
+  const wrote404 = typeof notFoundHtml === "string";
+  if (wrote404) {
+    writeFileSync(resolve(clientDir, "404.html"), notFoundHtml, "utf-8");
+    log("  404.html → dist/client/404.html\n");
+  } else if (notFoundHtml === null) {
+    log(
+      "  No 404.html emitted: the app declares no notFound page. " +
+        "Static hosts will serve their own error page for unknown URLs.\n",
+    );
   }
 
   let fallbackFile: string | null = null;
-  if (configuredFallback && typeof serverMod.renderStaticFallbackHtml === "function") {
-    writeFileSync(
-      resolve(clientDir, configuredFallback),
-      await serverMod.renderStaticFallbackHtml(notFoundState),
-      "utf-8",
-    );
+  if (configuredFallback && typeof fallbackHtml === "string") {
+    writeFileSync(resolve(clientDir, configuredFallback), fallbackHtml, "utf-8");
     fallbackFile = configuredFallback;
     log(
       `  SPA fallback → dist/client/${configuredFallback} ` +

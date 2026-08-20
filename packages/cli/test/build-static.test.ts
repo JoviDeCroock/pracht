@@ -669,6 +669,42 @@ describe("writeStaticExportArtifacts", () => {
     expect(readFileSync(statePath, "utf-8")).toBe("public-owned");
   });
 
+  it.each([
+    {
+      fileName: "404.html",
+      serverMod: {
+        staticExportConfig: { fallback: null },
+        renderStaticNotFoundHtml: async () => "<!DOCTYPE html><html><body>404</body></html>",
+      },
+    },
+    {
+      fileName: "200.html",
+      serverMod: {
+        staticExportConfig: { fallback: "200.html" },
+        renderStaticNotFoundHtml: async () => null,
+        renderStaticFallbackHtml: async () => "<!DOCTYPE html><html><body>fallback</body></html>",
+      },
+    },
+  ])(
+    "refuses to overwrite a public file at generated $fileName",
+    async ({ fileName, serverMod }) => {
+      const clientDir = createTempDir();
+      const conflictPath = resolve(clientDir, fileName);
+      writeFileSync(conflictPath, "public-owned", "utf-8");
+
+      await expect(
+        writeStaticExportArtifacts({
+          clientDir,
+          pages: [{ path: "/about", routeState: '{"data":"framework"}' }],
+          serverMod,
+          log: () => {},
+        }),
+      ).rejects.toThrow(/fixed artifact output conflicts/);
+      expect(readFileSync(conflictPath, "utf-8")).toBe("public-owned");
+      expect(existsSync(resolveRouteStateOutputPath(clientDir, "/about"))).toBe(false);
+    },
+  );
+
   it("writes state files, 404.html, and the configured fallback", async () => {
     const clientDir = createTempDir();
     const logs: string[] = [];

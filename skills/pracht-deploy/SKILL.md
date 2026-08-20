@@ -359,7 +359,10 @@ same state file. Loaderless
 SPA routes fetch no Pracht state; use browser-side requests to an external API
 for live data. Files under `public/_pracht/state/` may not occupy a generated
 route-state path; the build rejects the collision instead of overwriting the
-public file. See docs/ADAPTERS.md § Static Adapter for host header
+public file. Files copied from `public/` or emitted by Vite also may not occupy
+the generated `404.html` or configured fallback path; the build rejects the
+collision instead of overwriting existing output. See docs/ADAPTERS.md § Static
+Adapter for host header
 configuration and limitations (markdown negotiation, base paths). Pages are
 written to the percent-decoded output path, matching how static hosts resolve
 requests; `pracht preview` decodes request segments the same way. The SPA fallback only client-renders matched SPA routes; dynamic

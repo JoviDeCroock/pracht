@@ -617,6 +617,9 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
           window.location.href = target.browserUrl;
           return;
         }
+        if (!opts?._staticFallback) {
+          fontHead = { preloadLinks: [], css: "" };
+        }
       }
 
       if (navigationId !== latestNavigationId) return;

@@ -1273,6 +1273,9 @@ client-side fetch to an external API instead.
   and route directories that occupy `404.html` or the configured fallback file
   path before writing any page. Configured fallback filenames follow the same
   reserved-name and component-length rules.
+- Files copied from `public/` or emitted by Vite may not occupy the generated
+  `404.html` or configured fallback path; the build rejects those collisions
+  instead of overwriting existing output.
 - **The rewrite turns unknown URLs into soft 404s**: a host that answers
   `/* → 200.html` with status 200 does so for genuinely unknown URLs too, so
   they are `200` even though the client renders the `notFound` page. Hosts

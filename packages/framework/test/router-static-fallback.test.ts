@@ -20,6 +20,7 @@ describe("static fallback router readiness", () => {
 
   beforeEach(() => {
     document.body.innerHTML = "";
+    document.head.innerHTML = "";
     document.documentElement.removeAttribute("data-pracht-hydrated");
     root = document.createElement("div");
     document.body.appendChild(root);
@@ -99,6 +100,46 @@ describe("static fallback router readiness", () => {
     // settle before Vitest tears down the jsdom globals.
     await Promise.resolve();
     await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+  });
+
+  it("clears stale route fonts when a dynamic SPA state file is absent", async () => {
+    history.replaceState(null, "", "/");
+    root.innerHTML = "<main>Home</main>";
+    document.head.innerHTML =
+      '<link data-pracht-font-preload rel="preload" as="font" href="/old.woff2"><style data-pracht-fonts>@font-face{font-family:"Old"}</style>';
+    vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("missing route state"));
+
+    const app = resolveApp(
+      defineApp({
+        routes: [
+          route("/", "./routes/home.tsx", { id: "home", render: "ssg", hasHead: true }),
+          route("/items/:id", "./routes/item.tsx", {
+            hasLoader: false,
+            hasHead: true,
+            id: "item",
+            render: "spa",
+          }),
+        ],
+      }),
+    );
+
+    await initClientRouter({
+      app,
+      routeModules: {
+        "./routes/home.tsx": async () => ({ default: () => h("main", null, "Home") }),
+        "./routes/item.tsx": async () => ({ default: () => h("main", null, "Item 42") }),
+      },
+      shellModules: {},
+      initialState: { data: undefined, error: null, routeId: "home", url: "/" },
+      root,
+      findModuleKey: (_modules, file) => file,
+    });
+
+    await window.__PRACHT_NAVIGATE__!("/items/42");
+
+    expect(root.textContent).toBe("Item 42");
+    expect(document.head.querySelector("link[data-pracht-font-preload]")).toBeNull();
+    expect(document.head.querySelector("style[data-pracht-fonts]")).toBeNull();
   });
 
   it("hydrates static not-found HTML before adopting the requested URL", async () => {
