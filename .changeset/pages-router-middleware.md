@@ -107,3 +107,14 @@ The bundled auth-audit and Next.js-migration skills now treat pages-router
 `ssg`/`isg` documents as public unless an independent per-request edge gate is
 verified; build-time middleware and live route-state gating are not presented
 as protection for already-emitted static HTML.
+
+Ejected-pages ownership detection now parses the exported marker rather than
+matching one exact source spelling, so TypeScript annotations and `as const`
+wrappers cannot accidentally disable the client-side middleware boundary.
+Manifest registry extraction follows transitive local aliases with cycle
+protection, keeping composed string module refs visible to capability browser
+projection, CLI verification, and the registered-module client import guard.
+
+Middleware export validation also rejects binary and update expressions whose
+runtime result is necessarily non-callable, while preserving callable
+TypeScript function/namespace declaration merges exported under an alias.

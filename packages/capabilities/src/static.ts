@@ -131,6 +131,8 @@ function collectTopLevelBindingKinds(program: StaticAnalysisNode): {
   const runtimeBindings = new Set<string>();
   const typeOnlyBindings = new Set<string>();
   const bindingInitializers = new Map<string, unknown>();
+  const callableFunctionBindings = new Set<string>();
+  const namespaceBindings = new Set<string>();
 
   for (const rawStatement of nodeArray(program.body)) {
     if (rawStatement.type === "ImportDeclaration") {
@@ -206,9 +208,22 @@ function collectTopLevelBindingKinds(program: StaticAnalysisNode): {
       const name = getStaticIdentifierName(statement.id);
       if (name) {
         runtimeBindings.add(name);
-        if (statement.type !== "FunctionDeclaration") knownNonCallableBindings.add(name);
+        if (statement.type === "FunctionDeclaration") {
+          callableFunctionBindings.add(name);
+        } else if (statement.type === "TSModuleDeclaration") {
+          // A namespace can declaration-merge with a function. The emitted
+          // binding remains callable in that case, with the namespace values
+          // attached as properties.
+          namespaceBindings.add(name);
+        } else {
+          knownNonCallableBindings.add(name);
+        }
       }
     }
+  }
+
+  for (const name of namespaceBindings) {
+    if (!callableFunctionBindings.has(name)) knownNonCallableBindings.add(name);
   }
 
   // Propagate through local aliases after collecting the whole module so
@@ -360,11 +375,14 @@ function isStaticallyNonCallable(value: unknown): boolean {
   return new Set([
     "ArrayExpression",
     "BigIntLiteral",
+    "BinaryExpression",
     "BooleanLiteral",
     "ClassExpression",
+    "ImportExpression",
     "JSXElement",
     "JSXFragment",
     "Literal",
+    "MetaProperty",
     "NullLiteral",
     "NumericLiteral",
     "ObjectExpression",
@@ -372,6 +390,7 @@ function isStaticallyNonCallable(value: unknown): boolean {
     "StringLiteral",
     "TemplateLiteral",
     "UnaryExpression",
+    "UpdateExpression",
   ]).has(node.type);
 }
 
@@ -828,11 +847,7 @@ export function extractManifestModuleRegistrations(
   if (!appBody) return [];
   let registryValue = scanModuleRegistryProperties(appBody).get(key);
   if (!registryValue) return [];
-  const registryIdentifier = /^\s*([A-Za-z_$][A-Za-z0-9_$]*)\s*$/.exec(registryValue)?.[1];
-  if (registryIdentifier) {
-    const initializer = findTopLevelVariableInitializer(manifestSource, registryIdentifier);
-    if (initializer) registryValue = initializer;
-  }
+  registryValue = resolveTopLevelBindingAliases(manifestSource, registryValue);
   const braceStart = skipInsignificant(registryValue, 0);
   if (registryValue[braceStart] !== "{") return [];
   const braceEnd = findMatchingBrace(registryValue, braceStart, "{", "}");
@@ -840,17 +855,36 @@ export function extractManifestModuleRegistrations(
   const block = registryValue.slice(braceStart + 1, braceEnd);
   const entries: { name: string; file: string }[] = [];
   for (const [name, expression] of scanModuleRegistryProperties(block)) {
-    let file = extractModuleRefPath(expression);
-    if (!file) {
-      const identifier = /^\s*([A-Za-z_$][A-Za-z0-9_$]*)\s*$/.exec(expression)?.[1];
-      const initializer = identifier
-        ? findTopLevelVariableInitializer(manifestSource, identifier)
-        : null;
-      if (initializer) file = extractModuleRefPath(initializer);
-    }
+    const resolvedExpression = resolveTopLevelBindingAliases(manifestSource, expression);
+    const file = extractModuleRefPath(resolvedExpression);
     if (file) entries.push({ name, file });
   }
   return entries;
+}
+
+/** Resolve local identifier aliases until they reach a concrete initializer. */
+function resolveTopLevelBindingAliases(source: string, expression: string): string {
+  const seen = new Set<string>();
+  let resolved = expression;
+
+  while (true) {
+    const identifier = extractStandaloneBindingIdentifier(resolved);
+    if (!identifier || seen.has(identifier)) return resolved;
+    seen.add(identifier);
+
+    const initializer = findTopLevelVariableInitializer(source, identifier);
+    if (!initializer) return resolved;
+    resolved = initializer;
+  }
+}
+
+/**
+ * Read an identifier expression from either an extracted property value or the
+ * leading initializer text returned by findTopLevelVariableInitializer().
+ */
+function extractStandaloneBindingIdentifier(expression: string): string | null {
+  const searchable = maskCommentsAndStrings(expression);
+  return /^\s*([A-Za-z_$][A-Za-z0-9_$]*)[ \t]*(?=;|,|\r?\n|$)/.exec(searchable)?.[1] ?? null;
 }
 
 function scanModuleRegistryProperties(block: string): Map<string, string> {

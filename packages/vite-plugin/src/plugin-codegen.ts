@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, extname, join, resolve } from "node:path";
-import { maskCommentsAndStrings } from "@pracht/capabilities/static";
-import { PRACHT_CLIENT_MODULE_QUERY } from "./client-module-query.ts";
+import { parseAst } from "vite";
+import { getRolldownLang, PRACHT_CLIENT_MODULE_QUERY } from "./client-module-query.ts";
 import {
   GENERATED_PAGES_LAYOUT_EXPORT,
   generatePagesManifestSource,
@@ -326,13 +326,68 @@ export function isEjectedPagesLayout(resolved: ResolvedPrachtPluginOptions, root
   try {
     const appFile = resolve(root, resolved.appFile.replace(/^\//, ""));
     const manifestSource = readFileSync(appFile, "utf-8");
-    const searchable = maskCommentsAndStrings(manifestSource);
-    return new RegExp(
-      `\\bexport\\s+const\\s+${GENERATED_PAGES_LAYOUT_EXPORT}\\s*=\\s*true\\b`,
-    ).test(searchable);
+    return hasTrueConstExport(manifestSource, appFile, GENERATED_PAGES_LAYOUT_EXPORT);
   } catch {
     return false;
   }
+}
+
+type StaticProgramNode = {
+  type: string;
+  [key: string]: unknown;
+};
+
+function hasTrueConstExport(source: string, file: string, name: string): boolean {
+  const program = parseAst(source, { lang: getRolldownLang(file) }) as unknown as StaticProgramNode;
+  const statements = Array.isArray(program.body) ? program.body : [];
+
+  for (const value of statements) {
+    const statement = asStaticProgramNode(value);
+    if (statement?.type !== "ExportNamedDeclaration") continue;
+    const declaration = asStaticProgramNode(statement.declaration);
+    if (declaration?.type !== "VariableDeclaration" || declaration.kind !== "const") continue;
+
+    const declarators = Array.isArray(declaration.declarations) ? declaration.declarations : [];
+    for (const declaratorValue of declarators) {
+      const declarator = asStaticProgramNode(declaratorValue);
+      if (declarator?.type !== "VariableDeclarator") continue;
+      const identifier = asStaticProgramNode(declarator.id);
+      if (identifier?.type !== "Identifier" || identifier.name !== name) continue;
+      const initializer = unwrapStaticExpression(declarator.init);
+      if (
+        (initializer?.type === "BooleanLiteral" || initializer?.type === "Literal") &&
+        initializer.value === true
+      ) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+function unwrapStaticExpression(value: unknown): StaticProgramNode | null {
+  let node = asStaticProgramNode(value);
+  while (
+    node &&
+    new Set([
+      "ParenthesizedExpression",
+      "TSAsExpression",
+      "TSNonNullExpression",
+      "TSSatisfiesExpression",
+      "TypeCastExpression",
+    ]).has(node.type)
+  ) {
+    node = asStaticProgramNode(node.expression);
+  }
+  return node;
+}
+
+function asStaticProgramNode(value: unknown): StaticProgramNode | null {
+  if (!value || typeof value !== "object" || !("type" in value)) return null;
+  return typeof (value as { type?: unknown }).type === "string"
+    ? (value as StaticProgramNode)
+    : null;
 }
 
 function createUnderscoreReservedExcludes(directory: string): string[] {
