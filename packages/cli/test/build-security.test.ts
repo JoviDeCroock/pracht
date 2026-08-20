@@ -9,6 +9,7 @@ import {
   assertNoContentArtifactPathCollision,
   assertNoPrerenderedContentArtifactCollisions,
   assertNoPublicContentArtifactCollisions,
+  assertNoRequestRouteContentArtifactCollisions,
   resolveGeneratedArtifactOutputPath,
   resolvePrerenderOutputPath,
   runBuild,
@@ -266,6 +267,59 @@ describe("assertNoPrerenderedContentArtifactCollisions", () => {
         { "/guide.md": { "content-type": "text/markdown" } },
         clientDir,
         ["/guide"],
+      ),
+    ).not.toThrow();
+  });
+});
+
+describe("assertNoRequestRouteContentArtifactCollisions", () => {
+  it("rejects exact request-time page and API route collisions", () => {
+    expect(() =>
+      assertNoRequestRouteContentArtifactCollisions(
+        { "/dashboard": { "content-type": "text/html" } },
+        [{ path: "/dashboard", render: "ssr" }],
+        [],
+        [],
+      ),
+    ).toThrow(/collides with ssr page route "\/dashboard"/);
+
+    expect(() =>
+      assertNoRequestRouteContentArtifactCollisions(
+        { "/API/FEED": { "content-type": "application/json" } },
+        [],
+        [{ path: "/api/feed" }],
+        [],
+      ),
+    ).toThrow(/collides with API route "\/api\/feed"/);
+  });
+
+  it("rejects clean-URL aliases and concrete ISG paths without snapshots", () => {
+    expect(() =>
+      assertNoRequestRouteContentArtifactCollisions(
+        { "/account/index.html": { "content-type": "text/html" } },
+        [{ path: "/account", render: "spa" }],
+        [],
+        [],
+      ),
+    ).toThrow(/collides with spa page route "\/account"/);
+
+    expect(() =>
+      assertNoRequestRouteContentArtifactCollisions(
+        { "/posts/first": { "content-type": "text/html" } },
+        [{ path: "/posts/:slug", render: "isg" }],
+        [],
+        ["/posts/first"],
+      ),
+    ).toThrow(/collides with generated page route "\/posts\/first"/);
+  });
+
+  it("allows artifacts beneath a dynamic route namespace without a concrete collision", () => {
+    expect(() =>
+      assertNoRequestRouteContentArtifactCollisions(
+        { "/docs/getting-started.md": { "content-type": "text/markdown" } },
+        [{ path: "/docs/*", render: "spa" }],
+        [],
+        [],
       ),
     ).not.toThrow();
   });

@@ -138,11 +138,13 @@ Vite's configured `publicDir`, where one output would otherwise replace the
 other, or prerendered page files. Portable case-folded and
 file/directory collisions fail across collections, and Pracht's entire
 `/_pracht` build-output namespace and Netlify's root `/_headers` and
-`/_redirects` control files are reserved. Vercel header rules escape literal
-artifact path characters before applying generated content types. Artifact
-paths must use canonical, portable ASCII URL segments without percent encoding.
-Spaces, non-ASCII segments, Windows-reserved names, trailing dots, and
-filesystem-invalid characters are rejected because deployment adapters
+`/_redirects` control files are reserved. Artifacts also cannot occupy exact
+request-time page or API paths, including clean-URL `index.html` aliases and
+concrete ISG paths served by an adapter function. Vercel header rules escape
+literal artifact path characters before applying generated content types.
+Artifact paths must use canonical, portable ASCII URL segments without percent
+encoding. Spaces, non-ASCII segments, Windows-reserved names, trailing dots,
+and filesystem-invalid characters are rejected because deployment adapters
 otherwise resolve them to different on-disk names.
 
 For request-time loaders and capabilities, import the generated snapshot rather

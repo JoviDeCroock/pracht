@@ -47,8 +47,9 @@ frontmatter is accepted.
 Generated artifacts now carry content types across Node, Cloudflare, Netlify,
 and Vercel through adapter-native routing; preserve Vite resource-query imports;
 and reject collisions with public files, generated bundle output, prerendered
-pages, core `llms.txt`, OpenAPI output, other
-case-folded or parent/child artifacts, Pracht's `/_pracht` namespace, and
+pages, exact request-time page or API paths, clean-URL `index.html` aliases,
+concrete ISG paths served by adapter functions, core `llms.txt`, OpenAPI output,
+other case-folded or parent/child artifacts, Pracht's `/_pracht` namespace, and
 Netlify's root `/_headers` and `/_redirects` control files. Artifact filenames
 must be portable and canonical, while Vercel header routes escape literal
 artifact path syntax. Netlify also applies exact generated headers to bypassed

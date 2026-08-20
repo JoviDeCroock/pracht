@@ -214,14 +214,56 @@ export function assertNoPrerenderedContentArtifactCollisions(
   }
 }
 
+interface ContentArtifactPageRoute {
+  path: string;
+  render?: string;
+}
+
+interface ContentArtifactApiRoute {
+  path: string;
+}
+
+export function assertNoRequestRouteContentArtifactCollisions(
+  contentArtifactHeaders: Record<string, Record<string, string>>,
+  pageRoutes: readonly ContentArtifactPageRoute[],
+  apiRoutes: readonly ContentArtifactApiRoute[],
+  concretePagePaths: readonly string[],
+): void {
+  const routeOwners = [
+    ...pageRoutes
+      .filter((route) => route.render !== "ssg")
+      .map((route) => ({
+        description: `${route.render ?? "request-time"} page route`,
+        path: route.path,
+      })),
+    ...apiRoutes.map((route) => ({ description: "API route", path: route.path })),
+    ...concretePagePaths.map((path) => ({ description: "generated page route", path })),
+  ];
+
+  for (const artifactPath of Object.keys(contentArtifactHeaders)) {
+    const artifactKey = portablePathKey(artifactPath);
+    const collision = routeOwners.find(({ path }) => {
+      const routeKey = portablePathKey(path);
+      const indexKey = portablePathKey(`${path === "/" ? "" : path}/index.html`);
+      return artifactKey === routeKey || artifactKey === indexKey;
+    });
+    if (!collision) continue;
+    throw new Error(
+      `Content artifact ${JSON.stringify(artifactPath)} collides with ${collision.description} ${JSON.stringify(collision.path)}. Configure a different artifact path or route.`,
+    );
+  }
+}
+
+function portablePathKey(value: string): string {
+  return value
+    .split("/")
+    .map((segment) => segment.normalize("NFC").toLowerCase())
+    .join("/");
+}
+
 function portableOutputPathsCollide(left: string, right: string): boolean {
-  const key = (value: string) =>
-    value
-      .split("/")
-      .map((segment) => segment.normalize("NFC").toLowerCase())
-      .join("/");
-  const leftKey = key(left);
-  const rightKey = key(right);
+  const leftKey = portablePathKey(left);
+  const rightKey = portablePathKey(right);
   return (
     leftKey === rightKey || leftKey.startsWith(`${rightKey}/`) || rightKey.startsWith(`${leftKey}/`)
   );
@@ -355,6 +397,12 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
       // Validate the concrete set before writing even the first page.
       validateStaticExportOutputPaths(pages, serverMod);
     }
+    assertNoRequestRouteContentArtifactCollisions(
+      contentArtifactHeaders,
+      serverMod.resolvedApp?.routes ?? [],
+      serverMod.apiRoutes ?? [],
+      pages.map((page: { path: string }) => page.path),
+    );
     const headersManifest: Record<string, Record<string, string>> = {
       ...Object.fromEntries(
         pages.map((page: { path: string; headers?: Record<string, string> }) => [

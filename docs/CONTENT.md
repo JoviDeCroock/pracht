@@ -149,7 +149,9 @@ than replacing a collection artifact. Artifact output is preflighted before publ
 case-folded and file/directory collisions fail across collections, Pracht's
 entire `/_pracht` build-output namespace and Netlify's root `/_headers` and
 `/_redirects` control files are reserved, and artifacts cannot overlap files in
-Vite's configured `publicDir`, generated bundle output, or prerendered page output. Vercel header rules
+Vite's configured `publicDir`, generated bundle output, prerendered page output,
+exact request-time page or API paths, or concrete ISG paths whose snapshots are
+served by an adapter function. Vercel header rules
 escape literal artifact path characters before applying generated content
 types.
 Artifact paths must use canonical, portable ASCII URL segments without percent
