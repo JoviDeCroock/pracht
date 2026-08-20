@@ -116,7 +116,8 @@ fallback explicitly and keep the returned document's real locale intact; code
 must not pretend fallback source is translated content. String and array
 `fallback` configuration applies only to non-default requested locales. Use an
 explicit record entry when the default locale should fall back to another
-locale.
+locale. Every configured fallback target must also appear in `supported`;
+invalid fallback configuration is rejected when the collection is defined.
 
 ## Representations and memoization
 
@@ -196,9 +197,11 @@ malformed routes or unsupported locales as a missing result rather than an
 execution failure.
 
 The basic search helper scores title matches above body matches and requires
-every query term. It is an integration example and a useful small-site default,
-not a mandatory search architecture. Larger sites should build an index by
-iterating the same collection registry.
+every query term. Localized collections advertise their supported locales in
+the input schema, while locale hints do not filter unlocalized collections. It
+is an integration example and a useful small-site default, not a mandatory
+search architecture. Larger sites should build an index by iterating the same
+collection registry.
 
 See [packages/content/README.md](../packages/content/README.md) for the API and
 [the public guide](../examples/docs/src/routes/docs/content.md) for an app-level

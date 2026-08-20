@@ -1082,8 +1082,8 @@ cache.
   uncacheable (`Cache-Control: private`/`no-store`, `Vary: Cookie`/
   `Authorization`) is logged as a warning, because Vercel's prerender cache
   stores it regardless. Render such routes as `ssr` instead.
-- **Static security headers**: the generated `config.json` includes a `headers`
-  section that applies the same baseline security headers to all responses,
+- **Static security headers**: the generated `config.json` includes continuing
+  `routes` entries with the baseline security headers for all responses,
   including static assets served by Vercel's CDN. Static prerendered routes also
   get route and shell document headers from the prerender header manifest.
   SSG/ISG prerendering rejects dangerous document headers such as `Set-Cookie`,

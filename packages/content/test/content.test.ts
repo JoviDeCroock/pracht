@@ -128,6 +128,20 @@ describe("defineCollection", () => {
     }
   });
 
+  it("rejects unsupported locale fallback targets during collection definition", async () => {
+    const root = await fixture({ "en/guide.md": "English" });
+
+    for (const fallback of ["de", ["fr", "de"], { fr: "de" }] as const) {
+      expect(() =>
+        defineCollection({
+          name: "localized",
+          root,
+          locales: { default: "en", supported: ["en", "fr"], fallback },
+        }),
+      ).toThrow(/fallback uses unsupported content locale "de"/);
+    }
+  });
+
   it("ignores inherited properties in locale fallback records", async () => {
     const root = await fixture({ "en/guide.md": "English" });
     const collection = defineCollection({

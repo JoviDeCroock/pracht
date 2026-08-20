@@ -128,7 +128,11 @@ export function createContentSearchCapability<
       type: "object",
       properties: {
         query: { type: "string", minLength: 1, maxLength: 200 },
-        locale: { type: "string", minLength: 1 },
+        locale: {
+          type: "string",
+          minLength: 1,
+          ...(collection.locales ? { enum: [...collection.locales.supported] } : {}),
+        },
         limit: { type: "integer", minimum: 1, maximum: 20, default: 5 },
       },
       required: ["query"],
@@ -160,7 +164,9 @@ export function createContentSearchCapability<
       if (!terms.length) return { results: [] };
       const documents = await collection.all();
       const ranked = documents
-        .filter((document) => !input.locale || document.locale === input.locale)
+        .filter(
+          (document) => !collection.locales || !input.locale || document.locale === input.locale,
+        )
         .map((document) => rankDocument(document, terms, options.titleField))
         .filter((result): result is ContentSearchResult => result !== undefined)
         .sort((left, right) => right.score - left.score || compare(left.path, right.path));

@@ -53,7 +53,12 @@ describe("content capabilities", () => {
       title: "Deployment Guide",
     });
     await expect(
-      search.run({ context: {}, input: { query: "deploy adapter" }, request, signal }),
+      search.run({
+        context: {},
+        input: { locale: "en", query: "deploy adapter" },
+        request,
+        signal,
+      }),
     ).resolves.toEqual({
       results: [
         expect.objectContaining({ path: "/docs/guide", score: 12, title: "Deployment Guide" }),
@@ -84,13 +89,13 @@ describe("content capabilities", () => {
   it("returns a missing result for invalid paths and unsupported locales", async () => {
     temporaryDirectory = await mkdtemp(join(tmpdir(), "pracht-content-capabilities-"));
     await writeFile(join(temporaryDirectory, "guide.md"), "Guide");
-    const page = createContentPageCapability(
-      defineCollection({
-        name: "docs",
-        root: temporaryDirectory,
-        locales: { default: "en", supported: ["en", "fr"] },
-      }),
-    );
+    const collection = defineCollection({
+      name: "docs",
+      root: temporaryDirectory,
+      locales: { default: "en", supported: ["en", "fr"] },
+    });
+    const page = createContentPageCapability(collection);
+    const search = createContentSearchCapability(collection);
     const args = {
       context: {},
       request: new Request("https://example.com"),
@@ -106,5 +111,7 @@ describe("content capabilities", () => {
     ).resolves.toMatchObject({ found: false, locale: "de", path: "/guide" });
     const properties = page.input.properties as Record<string, Record<string, unknown>>;
     expect(properties.locale).toMatchObject({ enum: ["en", "fr"] });
+    const searchProperties = search.input.properties as Record<string, Record<string, unknown>>;
+    expect(searchProperties.locale).toMatchObject({ enum: ["en", "fr"] });
   });
 });

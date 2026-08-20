@@ -141,7 +141,9 @@ and frontmatter types.
 Locale lookup falls back to the default locale unless `fallback: false` is
 requested. `resolveById()` and `resolveByRoute()` additionally report whether
 the returned document is a fallback, so applications can make that visible or
-redirect to the canonical locale URL.
+redirect to the canonical locale URL. Every configured fallback target must be
+included in `supported`; invalid fallback configuration is rejected when the
+collection is defined.
 
 ## Agent-facing surfaces stay opt-in
 
@@ -164,7 +166,9 @@ literal `defineCapability({ ... })` call. That keeps the effect, middleware,
 exposure, and `agentPolicy` visible to `pracht verify`; omitting `expose` keeps
 the capability private. The page helper returns a missing result for malformed
 routes and unsupported locales instead of turning agent input into an execution
-failure.
+failure. Both helpers advertise supported locales for localized collections,
+while the search helper leaves unlocalized results intact when a locale hint is
+supplied.
 
 The complete API and extension points live in
 [`packages/content/README.md`](https://github.com/JoviDeCroock/pracht/tree/main/packages/content).

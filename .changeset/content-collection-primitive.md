@@ -55,4 +55,6 @@ artifact path syntax. Netlify also applies exact generated headers to bypassed
 static paths and rejects manifest entries that would become wildcard rules.
 Locale fallback records ignore prototype-inherited keys, and Markdown image
 markers remain stable when identical projects are built from different checkout
-paths.
+paths. Locale fallback targets are validated before collection snapshots are
+emitted, and content search ignores locale hints for unlocalized collections
+while advertising supported locales for localized ones.

@@ -97,7 +97,9 @@ interface ContentDocument<Frontmatter, Compiled> {
 
 String and array locale fallback configuration applies only to non-default
 requested locales. Use an explicit fallback record entry when the default
-locale should fall back to another locale.
+locale should fall back to another locale. Every fallback target must be listed
+in `supported`; invalid fallback configuration is rejected when the collection
+is defined.
 
 The filesystem registry is memoized and rebuilt only after `invalidate()`.
 Relative invalidation paths, like source lookup paths, resolve from the
@@ -201,6 +203,8 @@ Keeping the literal `defineCapability({ ... })` in the application lets
 basic and dependency-free; applications needing stemming, ranking, or a
 persistent index should consume `collection.iterate()` from their search
 backend instead. The page helper advertises configured locales in its schema
-and returns `found: false` for malformed routes or unsupported locales.
+and returns `found: false` for malformed routes or unsupported locales. The
+search helper advertises the same locale constraint for localized collections
+and does not filter an unlocalized collection when a locale hint is supplied.
 
 See the full framework guide at [docs/CONTENT.md](../../docs/CONTENT.md).

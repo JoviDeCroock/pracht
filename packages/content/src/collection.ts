@@ -588,11 +588,36 @@ function normalizeLocales(
       throw new TypeError(`Invalid content locale ${JSON.stringify(locale)}.`);
     }
   }
+  validateLocaleFallbacks(locales.fallback, supported);
   return Object.freeze({
     ...locales,
     sourceDirectories: locales.sourceDirectories ?? true,
     supported: Object.freeze(supported),
   });
+}
+
+function validateLocaleFallbacks(
+  fallback: ContentLocaleOptions["fallback"],
+  supported: readonly string[],
+): void {
+  function validate(locale: string): void {
+    if (!supported.includes(locale)) {
+      throw new TypeError(
+        `Content locale fallback uses unsupported content locale ${JSON.stringify(locale)}.`,
+      );
+    }
+  }
+
+  if (typeof fallback === "string") {
+    validate(fallback);
+  } else if (Array.isArray(fallback)) {
+    for (const locale of fallback) validate(locale);
+  } else if (fallback) {
+    for (const value of Object.values(fallback)) {
+      if (typeof value === "string") validate(value);
+      else for (const locale of value) validate(locale);
+    }
+  }
 }
 
 async function scanSources(root: string, extensions: readonly string[]): Promise<ContentSource[]> {
