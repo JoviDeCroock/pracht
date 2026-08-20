@@ -128,3 +128,10 @@ static registration through transparent parentheses and TypeScript `as` or
 `satisfies` assertions. Capability browser projection, CLI verification, and
 the registered-module client import guard therefore stay aligned with the live
 manifest when authors use those type-safe declaration forms.
+
+Unparenthesized function types in those assertions are recognized without
+mistaking the `>` in `=>` for a runtime operator. Alias resolution also stops
+at real statement boundaries rather than every line break, and only follows
+immutable `const` bindings, so multiline expressions and reassigned `let`/`var`
+registrations remain opaque instead of projecting or protecting the wrong
+module.

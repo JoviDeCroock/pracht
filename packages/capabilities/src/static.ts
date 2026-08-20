@@ -950,7 +950,7 @@ function hasStandaloneTypeAssertionTail(expression: string, start: number): bool
         (char === "&" && expression[index + 1] === "&") ||
         (char === "=" && expression[index + 1] !== ">") ||
         (char === "/" && expression[index + 1] !== "/" && expression[index + 1] !== "*") ||
-        (char === ">" && angles === 0)
+        (char === ">" && expression[index - 1] !== "=" && angles === 0)
       ) {
         return false;
       }
@@ -980,11 +980,16 @@ function extractStandaloneBindingIdentifier(expression: string): string | null {
 
   const end = start + match[0].length;
   const tail = skipInsignificant(expression, end);
+  const lineBreakStartsStatement =
+    /\r?\n/.test(expression.slice(end, tail)) &&
+    /^(?:(?:export|import)\b|(?:abstract|class|const|declare|enum|function|interface|let|module|namespace|type|var)\b)/.test(
+      expression.slice(tail),
+    );
   if (
     tail >= expression.length ||
     expression[tail] === ";" ||
     expression[tail] === "," ||
-    /\r?\n/.test(expression.slice(end, tail)) ||
+    lineBreakStartsStatement ||
     hasStandaloneTypeAssertionTail(expression, tail)
   ) {
     return match[0];
@@ -1044,11 +1049,11 @@ function extractModuleRefPath(expression: string): string | null {
 function findTopLevelVariableInitializer(source: string, name: string): string | null {
   const searchable = maskCommentsAndStrings(source);
   const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const declaration = new RegExp(`(\\b(?:const|let|var)\\s+|,)\\s*${escapedName}\\b`, "g");
+  const declaration = new RegExp(`(\\bconst\\s+|,)\\s*${escapedName}\\b`, "g");
 
   for (const match of searchable.matchAll(declaration)) {
     if (match.index == null || !isAtModuleTopLevel(searchable, match.index)) continue;
-    if (match[1] === "," && !followsTopLevelVariableDeclaration(searchable, match.index)) continue;
+    if (match[1] === "," && !followsTopLevelConstDeclaration(searchable, match.index)) continue;
     const afterName = match.index + match[0].length;
     const assignment = findVariableAssignment(searchable, afterName);
     if (assignment === -1) continue;
@@ -1058,8 +1063,8 @@ function findTopLevelVariableInitializer(source: string, name: string): string |
   return null;
 }
 
-function followsTopLevelVariableDeclaration(source: string, end: number): boolean {
-  let declarationKind: "import" | "variable" | null = null;
+function followsTopLevelConstDeclaration(source: string, end: number): boolean {
+  let declarationKind: "const" | "other" | null = null;
   const keywords = /\b(?:const|import|let|var)\b/g;
 
   for (const match of source.slice(0, end).matchAll(keywords)) {
@@ -1073,13 +1078,13 @@ function followsTopLevelVariableDeclaration(source: string, end: number): boolea
       // Dynamic `import()` and `import.meta` can appear inside a variable
       // initializer; neither starts a new module declaration.
       if (after === "(" || after === ".") continue;
-      declarationKind = "import";
+      declarationKind = "other";
     } else {
-      declarationKind = "variable";
+      declarationKind = match[0] === "const" ? "const" : "other";
     }
   }
 
-  return declarationKind === "variable";
+  return declarationKind === "const";
 }
 
 function isAtModuleTopLevel(source: string, end: number): boolean {

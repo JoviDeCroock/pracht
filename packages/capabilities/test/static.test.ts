@@ -152,6 +152,21 @@ describe("capability static extraction", () => {
     ]);
   });
 
+  it.each(["as", "satisfies"])(
+    "resolves aliases with unparenthesized function types using %s",
+    (operator) => {
+      const source = `
+        const direct = () => import("./capabilities/notes.ts");
+        const notes = direct ${operator} () => Promise<unknown>;
+        export const app = defineApp({ capabilities: { notes }, routes: [] });
+      `;
+
+      expect(extractCapabilityRegistrations(source)).toEqual([
+        { name: "notes", file: "./capabilities/notes.ts" },
+      ]);
+    },
+  );
+
   it("resolves TypeScript-asserted transitive registry aliases", () => {
     const source = `
       const middlewareSource = "./pages/_middleware.ts";
@@ -192,6 +207,43 @@ describe("capability static extraction", () => {
       const first = () => import("./capabilities/first.ts");
       const second = () => import("./capabilities/second.ts");
       const notes = (first, second);
+      export const app = defineApp({ capabilities: { notes }, routes: [] });
+    `;
+
+    expect(extractCapabilityRegistrations(source)).toEqual([]);
+  });
+
+  it("does not truncate a continued alias expression at a line break", () => {
+    const source = `
+      const first = () => import("./capabilities/first.ts");
+      const second = () => import("./capabilities/second.ts");
+      const notes = first
+        ? second
+        : first;
+      export const app = defineApp({ capabilities: { notes }, routes: [] });
+    `;
+
+    expect(extractCapabilityRegistrations(source)).toEqual([]);
+  });
+
+  it("resolves semicolonless aliases before the next declaration", () => {
+    const source = `
+      const sourcePath = "./capabilities/notes.ts"
+      const notes = sourcePath
+      export const app = defineApp({ capabilities: { notes }, routes: [] });
+    `;
+
+    expect(extractCapabilityRegistrations(source)).toEqual([
+      { name: "notes", file: "./capabilities/notes.ts" },
+    ]);
+  });
+
+  it.each(["let", "var"])("does not resolve mutable %s aliases", (declaration) => {
+    const source = `
+      const first = () => import("./capabilities/first.ts");
+      const second = () => import("./capabilities/second.ts");
+      ${declaration} notes = first;
+      notes = second;
       export const app = defineApp({ capabilities: { notes }, routes: [] });
     `;
 
