@@ -16,6 +16,8 @@ describe("middleware export classification", () => {
     ["export const helper = 1, middleware = () => {};", true],
     ["namespace Helpers { export const middleware = () => {}; }\nexport { Helpers };", false],
     ["type Contract = () => void;\nexport { Contract as middleware };", false],
+    ["export { missing as middleware };", false],
+    ['export { middleware } from "./middleware.ts";', true],
   ])("classifies %j as %s", (source, expected) => {
     expect(hasNamedMiddlewareExport(parseAst(source, { lang: "ts" }))).toBe(expected);
   });

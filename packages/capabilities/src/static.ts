@@ -63,7 +63,7 @@ export function hasNamedMiddlewareExport(program: unknown): boolean {
   const root = asStaticAnalysisNode(program);
   if (!root) return false;
 
-  const { runtimeBindings, typeOnlyBindings } = collectTopLevelBindingKinds(root);
+  const { runtimeBindings } = collectTopLevelBindingKinds(root);
 
   for (const statement of nodeArray(root.body)) {
     if (statement.type === "ExportAllDeclaration") {
@@ -94,7 +94,7 @@ export function hasNamedMiddlewareExport(program: unknown): boolean {
       if (statement.source) return true;
 
       const localName = getStaticIdentifierName(specifier.local);
-      if (localName && typeOnlyBindings.has(localName) && !runtimeBindings.has(localName)) continue;
+      if (!localName || !runtimeBindings.has(localName)) continue;
       return true;
     }
   }

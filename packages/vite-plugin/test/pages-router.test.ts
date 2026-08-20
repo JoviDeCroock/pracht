@@ -710,6 +710,7 @@ describe("generatePagesManifestSource", () => {
   it.each([
     ["type-only star re-export", 'export type * from "./middleware-types";\n'],
     ["namespace re-export", 'export * as middleware from "./middleware";\n'],
+    ["unresolved local alias", "export { missing as middleware };\n"],
     [
       "local type alias exported as a value",
       "type Contract = (_args: unknown, next: () => unknown) => unknown;\nexport { Contract as middleware };\n",
