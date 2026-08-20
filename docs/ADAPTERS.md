@@ -1159,11 +1159,12 @@ aggregated error — before any prerendering — when the app needs one:
   build metadata and the route-state tree below. The concrete paths returned
   by `getStaticPaths()` are revalidated before any page is written, so a
   dynamic route cannot generate into that namespace either.
-- A **Vite `base` pointing at another origin** (`https://cdn.example.com/`, or
-  a protocol-relative `//cdn…`) is a hard error. That form only relocates
-  assets, while the documents and the `/_pracht/state/…` tree stay at the
-  origin root — a static export serves all three from one deploy root. A
-  *path* base is supported; see [Sub-path deploys](#sub-path-deploys).
+- A **Vite `base` that is not a root-absolute path** is a hard error. A CDN
+  base (`https://cdn.example.com/`, or protocol-relative `//cdn…`) relocates
+  assets while documents and the `/_pracht/state/…` tree stay at the origin
+  root. A document-relative base (`""` or `"./"`) resolves asset URLs beneath
+  each nested prerendered page directory. Use `/` or a root-absolute path base;
+  see [Sub-path deploys](#sub-path-deploys).
 - Webhook/time revalidation is N/A by construction (no ISG routes exist).
 
 One shape is a warning rather than an error, because it is only wrong for some
@@ -1368,10 +1369,12 @@ Two things to know:
   or `href("about")` for internal navigation, which resolve route ids to URLs
   and pick the base up automatically. A same-origin link outside the base is
   handed to the browser rather than matched as a route.
-- **A CDN base is a build error.** `base: "https://cdn.example.com/"` (or a
-  protocol-relative `//cdn…`) only relocates assets, leaving documents and the
-  route-state tree at the origin root. A static export serves all three from
-  one deploy root, so that split is rejected instead of half-applied.
+- **CDN and document-relative bases are build errors.** A CDN base such as
+  `base: "https://cdn.example.com/"` (or protocol-relative `//cdn…`) only
+  relocates assets, leaving documents and the route-state tree at the origin
+  root. `base: "./"` and `base: ""` make nested pages resolve assets beneath
+  their own directories. Static exports therefore require `/` or a
+  root-absolute path such as `/my-project/`.
 
 ### `pracht preview`
 

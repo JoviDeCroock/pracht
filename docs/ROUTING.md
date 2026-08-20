@@ -502,6 +502,73 @@ Runtime matching is a linear scan over this flat array. For typical app sizes
 
 ---
 
+## Deploy Base
+
+Vite's `base` deploys an app under a sub-path
+(`https://user.github.io/my-project/`, an S3 key prefix, a reverse-proxy mount)
+instead of an origin root:
+
+```ts
+// vite.config.ts
+export default defineConfig({
+  base: "/my-project/",
+  plugins: [pracht()],
+});
+```
+
+The framework keeps two kinds of path apart:
+
+- **Route paths** (`/about`, `/blog/:slug`) — what the manifest declares, what
+  route matching runs against, and what prerender output is keyed by. They
+  never contain the base.
+- **URL paths** (`/my-project/about`) — what the browser shows and requests,
+  and what `useLocation()` reports. They always contain the base.
+
+Everything the framework hands to the browser converts the first into the
+second, and everything it matches converts back. These carry the base
+automatically:
+
+- `<Link route>`, `href()`, `useNavigate()`, and `prefetch()` — route ids
+  resolve to URL paths
+- `apiFetch()`, unless an explicit `baseUrl` already names where the API lives
+- Capability calls — `useCapability()`, the generated client, and the
+  `<Form capability>` action attribute that keeps the no-JS fallback working
+- Script, style, and modulepreload URLs; `/_pracht/state/…` fetches;
+  `llms.txt` links
+- Speculation rules `href_matches` patterns, which the browser matches against
+  real document hrefs
+- `pracht dev` and `pracht preview`, which both serve the app under the
+  configured base
+
+Hand-written root-absolute URLs are **not** rewritten: `<a href="/about">` and
+`fetch("/api/items")` mean the origin root, the same rule as Next's `basePath`
+and SvelteKit's `base`. Use `<Link route>` / `href()` / `apiFetch()` for
+internal targets, or `withBase()` when you need the URL yourself:
+
+```tsx
+import { withBase } from "@pracht/core";
+
+<img src={withBase("/logo.svg")} />; // "/my-project/logo.svg"
+```
+
+A same-origin link *outside* the base is not this app: the client router hands
+it back to the browser instead of matching it as a route.
+
+With the default base of `/`, every conversion above is the identity.
+
+### Serverful adapters
+
+A sub-path base is wired end to end for static exports
+([Sub-path deploys](./ADAPTERS.md#sub-path-deploys)). Serverful adapters
+(`node`, `cloudflare`, …) emit the same base-carrying URLs, and
+`handlePrachtRequest()` strips the base before matching — but their
+static-file and ISG-manifest lookups are still keyed by origin-root paths.
+Mount those behind a proxy that strips the base before forwarding (the usual
+nginx `location /my-project/ { proxy_pass http://app/; }` shape), which both
+halves already handle.
+
+---
+
 ## Shells
 
 Shells are Preact components that wrap route content. They are **decoupled from

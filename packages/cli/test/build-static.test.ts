@@ -360,8 +360,8 @@ describe("validateStaticExport", () => {
     ).resolves.toBeUndefined();
   });
 
-  it("fails closed on a CDN base, which only relocates assets", async () => {
-    for (const buildBase of ["https://cdn.example.com/", "//cdn.example.com/"]) {
+  it("fails closed on bases that are not root-absolute paths", async () => {
+    for (const buildBase of ["https://cdn.example.com/", "//cdn.example.com/", "./", ".", ""]) {
       const error = await validateStaticExport({
         buildBase,
         resolvedApp: { routes: [{ path: "/", render: "ssg" }] },
@@ -369,7 +369,7 @@ describe("validateStaticExport", () => {
 
       expect(error).toBeInstanceOf(Error);
       expect((error as Error).message).toContain(JSON.stringify(buildBase));
-      expect((error as Error).message).toContain("another origin");
+      expect((error as Error).message).toContain("root-absolute path base");
     }
   });
 

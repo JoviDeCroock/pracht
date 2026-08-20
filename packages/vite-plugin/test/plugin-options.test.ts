@@ -113,6 +113,12 @@ describe("createPrachtServerModuleSource llmsTxt export", () => {
 });
 
 describe("createPrachtDevModuleSource API graph", () => {
+  it("exposes the configured base to graph-only CLI consumers", () => {
+    expect(createPrachtDevModuleSource({}, { base: "/app/" })).toContain(
+      'export const buildBase = "/app/";',
+    );
+  });
+
   it("exports adapter-neutral resolved API routes for companion tooling", () => {
     const source = createPrachtDevModuleSource({ apiDir: "/src/http" });
     expect(source).toContain('import { resolveApp, resolveApiRoutes } from "@pracht/core/server";');

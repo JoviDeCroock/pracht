@@ -37,7 +37,7 @@ A static export has no server, so the build fails closed on anything that needs 
 - API routes are build errors.
 - Manifest-registered capabilities exposed over HTTP/MCP/WebMCP are build errors (server-only capabilities invoked from build-time loaders are fine). Registered capability modules must load successfully so validation can fail closed; unused files in the capabilities directory are ignored.
 - Route patterns and concrete paths returned by `getStaticPaths()` may not write under the reserved `/_pracht/` namespace. Concrete output is preflighted before any page is written.
-- A Vite `base` pointing at another origin (`https://cdn.example.com/`, or a protocol-relative `//cdn…`) is a build error: it relocates only assets, while documents and `/_pracht/state/…` stay at the origin root. A *path* base is supported — see "Sub-path deploys" below.
+- A Vite `base` that is not a root-absolute path is a build error. CDN bases (`https://cdn.example.com/`, or protocol-relative `//cdn…`) relocate only assets while documents and `/_pracht/state/…` stay at the origin root. Document-relative bases (`""` and `"./"`) resolve assets beneath each nested prerendered page directory. Use `/` or a root-absolute path base — see "Sub-path deploys" below.
 
 The build also warns — without failing — on a `fallback` document in an app with no `notFound` page and no unshadowed client-routable SPA catch-all (unknown URLs would render blank).
 
@@ -57,6 +57,8 @@ export default defineConfig({
 The output tree is unchanged (`dist/client/about/index.html`); the base is where that directory is served. Every emitted URL carries it: scripts, styles, modulepreloads, `/_pracht/state/…` fetches, `llms.txt` links, and hrefs from `<Link route>`, `href()`, `useNavigate()`, and `prefetch()`. `pracht preview` serves the export under the same base.
 
 Hand-written root-absolute links are not rewritten — `<a href="/about">` means the origin root, as in Next's `basePath` and SvelteKit's `base`. Use `<Link route="about">` or `href("about")` for internal navigation.
+
+CDN bases and document-relative bases (`""` or `"./"`) are not supported by static exports; use `/` or a root-absolute path such as `/my-project/`.
 
 ## Client-side navigation
 

@@ -167,7 +167,8 @@ checklist is about what the *host* must do and what the build cannot enforce.
   only — it must not be uploaded (it contains the prerender bundle).
 - The build itself is the gate: it fails closed on `ssr`/`isg` routes, SPA
   loaders, non-full SPA hydration, API routes, route/not-found middleware,
-  network-exposed capabilities, and a CDN (cross-origin) Vite `base`. If
+  network-exposed capabilities, and any Vite `base` that is not `/` or a
+  root-absolute path (CDN and document-relative bases are rejected). If
   `pracht build` succeeded, those contracts already hold — do not re-derive
   them by hand. Report a failing build verbatim; the message names the routes.
 - Host must serve `index.html` for directory URLs (clean URLs). Confirm the
@@ -203,7 +204,8 @@ checklist is about what the *host* must do and what the build cannot enforce.
   hand-written root-absolute internal links (`<a href="/about">`): those are
   not base-prefixed and will leave the deploy. `grep -rn 'href="/' src/` and
   confirm each hit is external, an asset under `public/`, or a `<Link route>`.
-  A CDN base (`https://cdn…`) is a build error, not a sub-path deploy.
+  CDN bases (`https://cdn…`) and document-relative bases (`""` / `"./"`) are
+  build errors, not sub-path deploys.
 
 ## Step 4: Cross-cutting checks
 

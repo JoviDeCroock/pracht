@@ -148,13 +148,15 @@ export async function validateStaticExport(serverMod: StaticServerModuleView): P
 
   // A sub-path deploy (GitHub Pages project site, an S3 key prefix) is
   // supported: asset, route-state, href, and preview URLs all carry the base.
-  // A CDN base is not, because it only relocates assets while the documents
-  // stay at the origin root — the state tree would split across two origins.
+  // CDN and document-relative bases are not: the former splits assets from
+  // the document/state origin, while the latter resolves differently for
+  // every nested prerendered page.
   const buildBase = serverMod.buildBase ?? "/";
-  if (/^[a-z][a-z0-9+.-]*:/i.test(buildBase) || buildBase.startsWith("//")) {
+  if (!buildBase.startsWith("/") || buildBase.startsWith("//")) {
     problems.push(
-      `Vite \`base\` is set to ${JSON.stringify(buildBase)}, which points assets at another origin:\n` +
-        `    - a static export serves its documents, assets, and /_pracht/state/… from one deploy root\n` +
+      `Vite \`base\` is set to ${JSON.stringify(buildBase)}, but static exports require an origin-root or root-absolute path base:\n` +
+        `    - CDN bases split assets from documents and /_pracht/state/…\n` +
+        `    - relative bases resolve assets beneath each nested page directory\n` +
         '  Use a path base for a sub-path deploy (base: "/my-project/"), or the origin root (base: "/").',
     );
   }

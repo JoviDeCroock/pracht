@@ -35,6 +35,13 @@ export function createDevSSRMiddleware(
   options: { maxBodySize?: number; llmsTxt?: boolean } = {},
 ): Connect.NextHandleFunction {
   const maxBodySize = options.maxBodySize ?? DEFAULT_MAX_BODY_SIZE;
+  // Vite's own base middleware strips the base from `req.url` before this
+  // handler runs, so routing here is base-free — but everything the document
+  // hands back to the browser (client entry, request URL in the hydration
+  // state) must carry it again, exactly as a production build does.
+  const devBase = server.config.base || "/";
+  const withDevBase = (path: string): string =>
+    devBase === "/" || !path.startsWith("/") ? path : `${devBase}${path.slice(1)}`;
   let warnedDevtoolsCollision = false;
   let warnedLlmsTxtCollision = false;
 
@@ -131,7 +138,7 @@ export function createDevSSRMiddleware(
 
       let webRequest: Request;
       try {
-        webRequest = await nodeToWebRequest(req, maxBodySize);
+        webRequest = await nodeToWebRequest(req, maxBodySize, devBase);
       } catch (err) {
         if (err instanceof Error && err.message === "Request body too large") {
           res.statusCode = 413;
@@ -148,8 +155,8 @@ export function createDevSSRMiddleware(
         registry: serverMod.registry,
         request: webRequest,
         debugErrors: true,
-        clientEntryUrl: CLIENT_BROWSER_PATH,
-        islandsEntryUrl: ISLANDS_CLIENT_BROWSER_PATH,
+        clientEntryUrl: withDevBase(CLIENT_BROWSER_PATH),
+        islandsEntryUrl: withDevBase(ISLANDS_CLIENT_BROWSER_PATH),
         islandsBootstrapRequired: serverMod.islandsBootstrapRequired === true,
         apiRoutes: serverMod.apiRoutes,
         timings,
@@ -809,13 +816,24 @@ const DEV_ASSET_EXTENSIONS = new Set([
   ".xml",
 ]);
 
-async function nodeToWebRequest(req: IncomingMessage, maxBodySize: number): Promise<Request> {
+async function nodeToWebRequest(
+  req: IncomingMessage,
+  maxBodySize: number,
+  base = "/",
+): Promise<Request> {
   // Dev server is always a direct connection — never trust forwarded headers.
   // Protocol is always plain HTTP (Vite's dev server does not use TLS), and
   // host comes from the standard Host header which is safe for direct clients.
   const protocol = "http";
   const host = req.headers.host ?? "localhost";
-  const url = new URL(req.url ?? "/", `${protocol}://${host}`);
+  // Vite stripped the base off `req.url`; put it back so the request the app
+  // sees — and the URL it serializes for the client — is the one the visitor
+  // typed. `handlePrachtRequest` strips it again for route matching.
+  const path = req.url ?? "/";
+  const url = new URL(
+    base === "/" || !path.startsWith("/") ? path : `${base}${path.slice(1)}`,
+    `${protocol}://${host}`,
+  );
   const method = req.method ?? "GET";
 
   const headers = new Headers();

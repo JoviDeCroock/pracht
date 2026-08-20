@@ -87,3 +87,23 @@ describe("buildStaticRouteStateUrl with a base", () => {
     expect(buildStaticRouteStateUrl("/blog")).toBe("/_pracht/state/s-0062006c006f0067/_state.json");
   });
 });
+
+describe("base-aware speculation rules", () => {
+  it("matches the browser URLs emitted under the deploy base", async () => {
+    vi.resetModules();
+    vi.stubEnv("BASE_URL", "/my-project/");
+    const [{ defineApp, resolveApp, route }, { buildSpeculationRules }] = await Promise.all([
+      import("../src/app.ts"),
+      import("../src/runtime-speculation.ts"),
+    ]);
+    const app = resolveApp(
+      defineApp({
+        routes: [route("/article/:slug", "./routes/article.tsx", { speculation: "prerender" })],
+      }),
+    );
+
+    expect(buildSpeculationRules(app.routes)?.prerender?.[0].where.href_matches).toEqual([
+      "/my-project/article/:slug",
+    ]);
+  });
+});

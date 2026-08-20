@@ -11,6 +11,13 @@ export {
   timeRevalidate,
   webhookRevalidate,
 } from "./app.ts";
+/**
+ * The deploy base (Vite `base`) and the helpers that move a path across it.
+ * `<Link route>`, `href()`, and `apiFetch()` apply the base already; these are
+ * for hand-written URLs — a root-absolute `<a href>`, a `fetch()` to your own
+ * endpoint, an asset path built at runtime.
+ */
+export { PRACHT_BASE, stripBase, withBase } from "./base.ts";
 export {
   evaluateConstraints,
   forbidRenderMode,

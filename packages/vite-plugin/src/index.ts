@@ -325,7 +325,7 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
         return createPrachtClientModuleSource(resolved, { root });
       }
       if (isDevModule(id)) {
-        return createPrachtDevModuleSource(resolved, { root });
+        return createPrachtDevModuleSource(resolved, { root, base });
       }
       if (isServerModule(id)) {
         return createPrachtServerModuleSource(resolved, { root, isBuild, base });

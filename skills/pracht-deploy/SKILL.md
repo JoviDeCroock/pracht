@@ -326,8 +326,9 @@ module must load successfully so exposure validation can fail closed. The
 `notFound` page must use full hydration (the default), because the shared
 `404.html` needs the client router to adopt the visitor's actual URL. Sub-path
 deploys (GitHub Pages *project* sites, S3 key prefixes) set Vite `base` to that
-path; a CDN base (`https://cdn…`) is a build error, because it would relocate
-assets while documents and route state stay at the origin root. Under a base,
+path; CDN and document-relative bases (`""` / `"./"`) are build errors,
+because they split assets from the deploy root or resolve them beneath nested
+page directories. Under a base,
 internal navigation must go through `<Link route>` / `href()` — a hand-written
 `<a href="/about">` still means the origin root.
 

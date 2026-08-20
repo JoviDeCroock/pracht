@@ -850,13 +850,22 @@ test("static export deploys under a sub-path Vite base", async ({ page }) => {
       ),
       "utf-8",
     );
+    // A route may legitimately begin with the same segment as the deploy
+    // base. Prerender requests must still treat this as a base-free route path
+    // and produce the browser URL /app/app/about.
+    const routesPath = resolve(exampleDir, "src/routes.ts");
+    writeFileSync(
+      routesPath,
+      readFileSync(routesPath, "utf-8").replace('route("/about",', 'route("/app/about",'),
+      "utf-8",
+    );
     buildExample(exampleDir, { PRACHT_STATIC_FALLBACK: "200.html" });
 
     const clientDir = resolve(exampleDir, "dist/client");
     // Output paths are unchanged: the base is where the deploy is *served*,
     // not part of the tree.
-    expect(existsSync(resolve(clientDir, "about/index.html"))).toBe(true);
-    expect(existsSync(resolve(clientDir, "app"))).toBe(false);
+    expect(existsSync(resolve(clientDir, "app/about/index.html"))).toBe(true);
+    expect(existsSync(resolve(clientDir, "app/app"))).toBe(false);
 
     // Documents reference their assets and state under the base.
     const homeHtml = readFileSync(resolve(clientDir, "index.html"), "utf-8");
@@ -876,16 +885,17 @@ test("static export deploys under a sub-path Vite base", async ({ page }) => {
     await page.evaluate(() => ((window as any).__NO_RELOAD__ = true));
 
     // Client-side navigation, with its route-state fetch, under the base.
-    await page.click('nav a[href="/app/about"]');
+    await page.click('nav a[href="/app/app/about"]');
     await expect(page.locator("#about h1")).toBeVisible();
-    await page.waitForURL(`${origin}/app/about`);
+    await expect(page.locator("#about-path")).toHaveText("Served from: /app/app/about");
+    await page.waitForURL(`${origin}/app/app/about`);
     expect(await page.evaluate(() => (window as any).__NO_RELOAD__)).toBe(true);
 
     // Dynamic SSG route, then back through history.
     await page.click('nav a[href="/app/posts/hello-world"]');
     await expect(page.locator("#post h1")).toHaveText("Hello world");
     await page.goBack();
-    await page.waitForURL(`${origin}/app/about`);
+    await page.waitForURL(`${origin}/app/app/about`);
     expect(await page.evaluate(() => (window as any).__NO_RELOAD__)).toBe(true);
 
     // A deep link into a dynamic SPA route resolves through the fallback.
@@ -925,7 +935,7 @@ test("static export build rejects a CDN base", () => {
     // The CLI colorizes the backticked `base`, so match around it.
     const output = buildFailureOutput(exampleDir);
     expect(output).toContain('is set to "https://cdn.example.com/"');
-    expect(output).toContain("another origin");
+    expect(output).toContain("root-absolute path base");
   } finally {
     rmSync(tempDir, { force: true, recursive: true });
   }

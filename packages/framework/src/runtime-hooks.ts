@@ -9,6 +9,7 @@ import {
   validateStandardSchema,
   type ApiValidationIssue,
 } from "./api-validation.ts";
+import { withBase } from "./base.ts";
 import { buildHrefUntyped } from "./route-matching.ts";
 import {
   beginSubmittingNavigation,
@@ -274,7 +275,11 @@ export function Form<TName extends HttpCapabilityName = HttpCapabilityName>(
   // Capability forms post to the capability's HTTP projection; the action
   // attribute keeps the no-JS fallback working (the endpoint accepts
   // form-encoded bodies and redirects document posts back on success).
-  const actionAttribute = capability ? (action ?? capabilityHttpPath(capability)) : action;
+  // Capability endpoints are declared without the deploy base, so the URL the
+  // browser posts to gets it back.
+  const actionAttribute = capability
+    ? (action ?? withBase(capabilityHttpPath(capability)))
+    : action;
 
   return h("form", {
     ...rest,

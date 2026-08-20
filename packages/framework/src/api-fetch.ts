@@ -1,3 +1,4 @@
+import { withBase } from "./base.ts";
 import {
   buildPathFromSegments,
   normalizeHrefParams,
@@ -82,7 +83,11 @@ export async function apiFetch<
   const pathname = isDynamic
     ? buildPathFromSegments(segments, normalizeHrefParams(segments, options.params ?? {}))
     : path;
-  const url = `${options.baseUrl ?? ""}${pathname}${serializeSearch(options.query)}`;
+  // API paths are declared without the deploy base; the request carries it —
+  // except when an explicit `baseUrl` already names where the API lives.
+  const url = options.baseUrl
+    ? `${options.baseUrl}${pathname}${serializeSearch(options.query)}`
+    : `${withBase(pathname)}${serializeSearch(options.query)}`;
 
   const headers = new Headers(options.headers);
   let body: BodyInit | undefined;

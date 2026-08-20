@@ -251,7 +251,7 @@ describe("extractCapabilities", () => {
 async function importGeneratedModule<T>(source: string): Promise<T> {
   const standalone = source.replace(
     'from "@pracht/core"',
-    'from "data:text/javascript,export const createUseCapability = () => () => {};"',
+    'from "data:text/javascript,export const createUseCapability = () => () => {};export const withBase = (p) => p;"',
   );
   const url = `data:text/javascript;base64,${Buffer.from(standalone).toString("base64")}#${Date.now()}`;
   return (await import(url)) as T;
@@ -288,6 +288,15 @@ describe("createPrachtCapabilitiesClientModuleSource", () => {
     expect(source).toContain("export async function callCapability");
   });
 
+  it("dispatches to the capability endpoint under the deploy base", () => {
+    // Endpoints are declared without the base; `withBase` is the runtime's
+    // single source of truth for it, so the generated module must call it
+    // rather than bake a path the browser would resolve at the origin root.
+    const root = createFixture({ capabilities: { "notes-search.ts": SEARCH_CAPABILITY } });
+    const source = createPrachtCapabilitiesClientModuleSource({}, { root });
+    expect(source).toContain("await fetch(withBase(endpoint.path), {");
+  });
+
   it("emits an empty endpoint map for apps without capabilities", () => {
     const root = createFixture({});
     const source = createPrachtCapabilitiesClientModuleSource({}, { root });
@@ -300,7 +309,7 @@ describe("createPrachtCapabilitiesClientModuleSource", () => {
     // would otherwise only surface in e2e, at build time, in an example app.
     const root = createFixture({ capabilities: { "notes-search.ts": SEARCH_CAPABILITY } });
     const source = createPrachtCapabilitiesClientModuleSource({}, { root });
-    expect(source).toContain('import { createUseCapability } from "@pracht/core";');
+    expect(source).toContain('import { createUseCapability, withBase } from "@pracht/core";');
     expect(source).toContain("export const useCapability = /*@__PURE__*/ createUseCapability(");
     expect(source).toContain("createUseCapability(callCapability)");
   });

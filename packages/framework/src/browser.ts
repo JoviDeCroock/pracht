@@ -9,6 +9,10 @@ export {
   timeRevalidate,
   webhookRevalidate,
 } from "./app.ts";
+// The package's browser condition resolves to this entry. Keep the deploy-base
+// helpers here as well as in index.ts so generated and hand-written client
+// modules can import them from "@pracht/core".
+export { PRACHT_BASE, stripBase, withBase } from "./base.ts";
 /**
  * Constraint factories are plain data builders with no server dependency, and
  * they are called *inside* `defineApp({ constraints })` — which means they run

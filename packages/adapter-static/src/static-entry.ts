@@ -87,7 +87,7 @@ export function createStaticServerEntryModule(options: StaticAdapterOptions = {}
     "  const response = await handlePrachtRequest({",
     "    app: staticNotFoundApp,",
     "    registry,",
-    '    request: new Request("http://localhost/404.html", { method: "GET" }),',
+    '    request: new Request(new URL("404.html", new URL(buildBase, "http://localhost")), { method: "GET" }),',
     "    clientEntryUrl: clientEntryUrl ?? undefined,",
     "    islandsEntryUrl: islandsEntryUrl ?? undefined,",
     "    islandsBootstrapRequired,",

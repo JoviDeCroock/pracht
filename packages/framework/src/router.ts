@@ -109,6 +109,8 @@ interface BrowserRouteTarget {
   pathname: string;
   requestUrl: string;
   search: string;
+  /** `pathname` as the browser shows it — the deploy base included. */
+  urlPathname: string;
 }
 
 const NavigateContext = createContext<NavigateFn>(async () => {});
@@ -810,11 +812,15 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
             if (!hydrationBrowserTarget || !updateRouteState) return;
 
             updateRouteState((currentState) => {
-              const hydratedTarget = resolveBrowserRouteTarget(currentState.url);
+              // Serialized route-state URLs are browser URLs (base included),
+              // matching what a client-side navigation commits. `404.html`
+              // renders at a synthetic path, so it adopts the visitor's URL
+              // wholesale rather than keeping its own path.
+              const hydratedTarget = isStaticNotFoundDocument
+                ? hydrationBrowserTarget
+                : resolveBrowserRouteTarget(currentState.url);
               if (!hydratedTarget) return currentState;
-              const nextRequestUrl = isStaticNotFoundDocument
-                ? hydrationBrowserTarget.pathname + hydrationBrowserTarget.search
-                : hydratedTarget.pathname + hydrationBrowserTarget.search;
+              const nextRequestUrl = hydratedTarget.urlPathname + hydrationBrowserTarget.search;
               // A navigation that committed while a Suspense boundary was
               // hydrating owns the newer state. Revalidated data lives in the
               // runtime provider and survives this URL-only update.
@@ -1101,6 +1107,7 @@ function resolveBrowserRouteTarget(to: string): BrowserRouteTarget | null {
       pathname: routePathname,
       requestUrl: url.pathname + url.search,
       search: url.search,
+      urlPathname: url.pathname,
     };
   } catch {
     return null;

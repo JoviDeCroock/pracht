@@ -50,9 +50,11 @@ export function createStaticPreviewHandler(
     }
 
     let pathname: string;
+    let search: string;
     try {
-      const encodedPathname = new URL(req.url ?? "/", "http://localhost").pathname;
-      pathname = decodeStaticPreviewPathname(encodedPathname);
+      const requestUrl = new URL(req.url ?? "/", "http://localhost");
+      pathname = decodeStaticPreviewPathname(requestUrl.pathname);
+      search = requestUrl.search;
     } catch {
       res.writeHead(400, { "content-type": "text/plain; charset=utf-8" });
       res.end("Bad request");
@@ -64,7 +66,7 @@ export function createStaticPreviewHandler(
       // trailing-slash form; mirror that so relative links resolve the same
       // way locally as they will in production.
       if (pathname === base.slice(0, -1)) {
-        res.writeHead(301, { location: base });
+        res.writeHead(301, { location: `${base}${search}` });
         res.end();
         return;
       }

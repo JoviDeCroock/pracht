@@ -38,6 +38,9 @@ describe("staticAdapter", () => {
     expect(source).toContain("if (!resolvedApp.notFound) return null;");
     expect(source).toContain("Static export failed to render the notFound page");
     expect(source).toContain("describeRenderError(renderError)");
+    expect(source).toContain(
+      'new Request(new URL("404.html", new URL(buildBase, "http://localhost"))',
+    );
     expect(source).toContain("export function renderStaticFallbackHtml(notFoundState)");
     expect(source).toContain("head: staticExportConfig.fallbackHead ?? undefined,");
     expect(source).toContain("notFoundData: notFoundState?.data,");
@@ -87,7 +90,10 @@ describe("createStaticPreviewHandler", () => {
     for (const cleanup of cleanups.splice(0)) cleanup();
   });
 
-  async function startPreview(options?: { fallback?: string | null }): Promise<{
+  async function startPreview(options?: {
+    base?: string | null;
+    fallback?: string | null;
+  }): Promise<{
     origin: string;
     staticDir: string;
   }> {
@@ -112,7 +118,11 @@ describe("createStaticPreviewHandler", () => {
       writeFileSync(resolve(staticDir, options.fallback), "<h1>spa fallback</h1>", "utf-8");
     }
 
-    const handler = createStaticPreviewHandler({ staticDir, fallback: options?.fallback ?? null });
+    const handler = createStaticPreviewHandler({
+      staticDir,
+      base: options?.base ?? null,
+      fallback: options?.fallback ?? null,
+    });
     const server: Server = createServer((req, res) => {
       void handler(req, res);
     });
@@ -150,6 +160,21 @@ describe("createStaticPreviewHandler", () => {
     const asset = await fetch(`${origin}/assets/app-abc.js`);
     expect(asset.status).toBe(200);
     expect(asset.headers.get("cache-control")).toBe("public, max-age=31536000, immutable");
+  });
+
+  it("serves a sub-path base and preserves the query in its slash redirect", async () => {
+    const { origin } = await startPreview({ base: "/app/" });
+
+    const redirect = await fetch(`${origin}/app?ref=campaign`, { redirect: "manual" });
+    expect(redirect.status).toBe(301);
+    expect(redirect.headers.get("location")).toBe("/app/?ref=campaign");
+
+    const about = await fetch(`${origin}/app/about`);
+    expect(about.status).toBe(200);
+    expect(await about.text()).toContain("about");
+
+    const outside = await fetch(`${origin}/about`);
+    expect(outside.status).toBe(404);
   });
 
   it("answers misses with 404.html and status 404", async () => {

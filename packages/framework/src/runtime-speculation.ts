@@ -1,3 +1,4 @@
+import { PRACHT_BASE } from "./base.ts";
 import type {
   ResolvedPrachtApp,
   ResolvedRoute,
@@ -100,15 +101,21 @@ export function buildSpeculationRules(
  * Convert pracht route segments to a URLPattern string suitable for
  * `href_matches`. URLPattern supports `:name` and `*` natively, so this is
  * mostly a 1:1 translation.
+ *
+ * The rules are matched by the browser against real document hrefs, so the
+ * pattern carries the deploy base — route segments do not.
  */
 function segmentsToHrefMatch(segments: readonly RouteSegment[]): string | null {
-  if (segments.length === 0) return "/";
+  // `PRACHT_BASE` always ends in a slash ("/" at the origin root), so it is
+  // the pattern prefix as-is. It is user-configured text, not a pattern.
+  const base = escapeStaticSegmentForUrlPattern(PRACHT_BASE);
+  if (segments.length === 0) return base;
   const parts = segments.map((segment) => {
     if (segment.type === "static") return escapeStaticSegmentForUrlPattern(segment.value);
     if (segment.type === "param") return `:${segment.name}`;
     return "*";
   });
-  return "/" + parts.join("/");
+  return base + parts.join("/");
 }
 
 function escapeStaticSegmentForUrlPattern(segment: string): string {
