@@ -62,6 +62,11 @@ export function artifactFileName(path: string): string {
     );
   }
   const fileName = normalized.slice(1);
+  if (fileName.toLowerCase() === "_headers") {
+    throw new TypeError(
+      "content artifact path must not replace Netlify's reserved root /_headers control file.",
+    );
+  }
   const segments = fileName.split("/");
   if (segments.some((segment) => segment === "")) {
     throw new TypeError("content artifact path must not contain empty segments.");

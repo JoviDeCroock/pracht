@@ -48,9 +48,10 @@ export function prachtContent(options: PrachtContentOptions): Plugin[] {
       const collection = collections.find((candidate) => candidate.name === name);
       if (!collection) return null;
       const snapshot = await collection.snapshot();
+      const serializedSnapshot = serializeSnapshot(snapshot);
       return [
         `import { defineSnapshotCollection } from "@pracht/content/runtime";`,
-        `const snapshot = ${serializeSnapshot(snapshot)};`,
+        `const snapshot = JSON.parse(${JSON.stringify(serializedSnapshot)});`,
         `export const collection = defineSnapshotCollection(snapshot);`,
         `export default collection;`,
       ].join("\n");

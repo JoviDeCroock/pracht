@@ -144,8 +144,9 @@ instead of being silently overwritten; configure a distinct `summaryPath` or
 use only one generator. OpenAPI companion output is checked the same way rather
 than replacing a collection artifact. Artifact output is preflighted before publication:
 case-folded and file/directory collisions fail across collections, Pracht's
-entire `/_pracht` build-output namespace is reserved, and artifacts cannot
-overlap files in Vite's configured `publicDir` or prerendered page output.
+entire `/_pracht` build-output namespace and Netlify's root `/_headers` control
+file are reserved, and artifacts cannot overlap files in Vite's configured
+`publicDir` or prerendered page output.
 Artifact paths must use canonical, portable ASCII URL segments without percent
 encoding. Spaces, non-ASCII segments, Windows-reserved names, trailing dots, and
 filesystem-invalid characters are rejected because deployment adapters
@@ -168,7 +169,9 @@ import docs from "virtual:pracht/content/docs";
 route aliases into that module. The deployed server therefore performs lookup
 without `node:fs` or a copied source tree on Cloudflare, Vercel, and Node.
 Compiled and frontmatter values included in a runtime snapshot must be
-JSON-serializable; a build fails with the offending value path otherwise.
+JSON-serializable; a build fails with the offending value path otherwise. JSON
+object keys retain their data semantics in the generated module, including
+prototype-named keys such as `__proto__`.
 
 Applications can add `@pracht/content/virtual` to `compilerOptions.types` for a
 generic declaration and optionally augment their named virtual module with

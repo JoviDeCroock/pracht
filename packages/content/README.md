@@ -134,11 +134,11 @@ a collection artifact. Generated artifact paths also cannot overlap files in
 Vite's configured `publicDir`, where one output would otherwise replace the
 other, or prerendered page files. Portable case-folded and
 file/directory collisions fail across collections, and Pracht's entire
-`/_pracht` build-output namespace is reserved. Artifact paths must use
-canonical, portable ASCII URL segments without percent encoding. Spaces,
-non-ASCII segments, Windows-reserved names, trailing dots, and
-filesystem-invalid characters are rejected because deployment adapters
-otherwise resolve them to different on-disk names.
+`/_pracht` build-output namespace and Netlify's root `/_headers` control file
+are reserved. Artifact paths must use canonical, portable ASCII URL segments
+without percent encoding. Spaces, non-ASCII segments, Windows-reserved names,
+trailing dots, and filesystem-invalid characters are rejected because
+deployment adapters otherwise resolve them to different on-disk names.
 
 For request-time loaders and capabilities, import the generated snapshot rather
 than the filesystem-backed authoring collection:
@@ -150,10 +150,11 @@ import docs from "virtual:pracht/content/docs";
 The suffix is the collection `name`. This module embeds the documents and
 locale/fallback indexes into the server bundle, so it works in Cloudflare,
 Vercel, and dist-only Node deployments without source files or `node:fs`.
-Frontmatter and compiled values used this way must be JSON-serializable. Add
-`@pracht/content/virtual` to `compilerOptions.types` for the generic ambient
-module declaration, or augment the module locally with application-specific
-frontmatter and compiled types.
+Frontmatter and compiled values used this way must be JSON-serializable. JSON
+object keys retain their data semantics in the generated module, including
+prototype-named keys such as `__proto__`. Add `@pracht/content/virtual` to
+`compilerOptions.types` for the generic ambient module declaration, or augment
+the module locally with application-specific frontmatter and compiled types.
 
 ## Loaders and Markdown negotiation
 

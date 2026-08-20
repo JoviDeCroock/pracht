@@ -322,6 +322,20 @@ describe("collection integration helpers", () => {
     }
   });
 
+  it("rejects Netlify's reserved root headers control file", async () => {
+    const root = await fixture({ "guide.md": "Guide" });
+
+    for (const path of ["/_headers", "/_HEADERS"]) {
+      const collection = defineCollection({
+        name: "docs",
+        root,
+        artifacts: [() => ({ path, source: "content" })],
+      });
+
+      await expect(collection.emitArtifacts()).rejects.toThrow(/reserved root \/_headers/);
+    }
+  });
+
   it("adapts route lookup to loaders and markdown negotiation", async () => {
     const root = await fixture({ "page.md": "---\ntitle: Page\n---\nBody" });
     const collection = defineCollection({ name: "docs", root, routeBase: "/docs" });

@@ -78,7 +78,8 @@ describe("prachtContent", () => {
     const result = await load.call({} as never, String(resolved));
     const code = typeof result === "string" ? result : result?.code;
     expect(code).toContain('from "@pracht/content/runtime"');
-    expect(code).toContain('"body":"Page"');
+    expect(code).toContain("const snapshot = JSON.parse(");
+    expect(code).toContain('\\"body\\":\\"Page\\"');
     expect(code).not.toContain(temporaryDirectory);
     expect(code).not.toContain("node:fs");
   });
@@ -87,7 +88,7 @@ describe("prachtContent", () => {
     temporaryDirectory = await mkdtemp(join(tmpdir(), "pracht-content-vite-"));
     const source = join(temporaryDirectory, "page.md");
     const output = join(temporaryDirectory, "dist");
-    await writeFile(source, "Portable");
+    await writeFile(source, "---\n__proto__:\n  published: true\n---\nPortable");
     const collection = defineCollection({
       name: "docs",
       root: temporaryDirectory,
@@ -113,7 +114,10 @@ describe("prachtContent", () => {
     const [entry] = (await readdir(output)).filter((file) => /\.m?js$/.test(file));
     const runtime = (await import(pathToFileURL(join(output, entry)).href)).default;
 
-    await expect(runtime.getByRoute("/docs/page")).resolves.toMatchObject({ body: "Portable" });
+    const document = await runtime.getByRoute("/docs/page");
+    expect(document).toMatchObject({ body: "Portable" });
+    expect(Object.hasOwn(document.frontmatter, "__proto__")).toBe(true);
+    expect(document.frontmatter.__proto__).toEqual({ published: true });
   });
 
   it("invalidates generated runtime modules when a collection source changes", async () => {
@@ -145,7 +149,7 @@ describe("prachtContent", () => {
     const result = await load.call({} as never, "\0virtual:pracht/content/docs");
     const code = typeof result === "string" ? result : result?.code;
 
-    expect(code).toContain('"body":"Second"');
+    expect(code).toContain('\\"body\\":\\"Second\\"');
     expect(invalidateModule).toHaveBeenCalledWith(runtimeModule);
   });
 
