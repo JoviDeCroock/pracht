@@ -173,6 +173,7 @@ export function defineCollection<
                 `Content artifact ${JSON.stringify(path)} has an invalid source.`,
               );
             }
+            assertValidArtifactContentType(artifact.contentType, path);
             artifacts.push(Object.freeze({ ...artifact, path }));
           }
         }
@@ -714,6 +715,26 @@ function assertSupportedLocale(locale: string, locales: ContentLocaleOptions, la
   if (!locales.supported.includes(locale)) {
     throw new TypeError(`${label} uses unsupported content locale ${JSON.stringify(locale)}.`);
   }
+}
+
+function assertValidArtifactContentType(contentType: unknown, path: string): void {
+  if (contentType === undefined) return;
+  if (
+    typeof contentType !== "string" ||
+    contentType.trim() === "" ||
+    hasControlCharacter(contentType)
+  ) {
+    throw new TypeError(
+      `Content artifact ${JSON.stringify(path)} contentType must be a non-empty HTTP header value without control characters.`,
+    );
+  }
+}
+
+function hasControlCharacter(value: string): boolean {
+  return [...value].some((character) => {
+    const point = character.codePointAt(0);
+    return point !== undefined && (point <= 0x1f || point === 0x7f);
+  });
 }
 
 function compare(left: string, right: string): number {

@@ -208,6 +208,36 @@ describe("writeVercelBuildOutput", () => {
     });
   });
 
+  it("preserves generated headers on clean content artifact index aliases", () => {
+    const root = createBuildRoot();
+
+    writeVercelBuildOutput({
+      root,
+      isgManifest: {},
+      headersManifest: {
+        "/feed": { "content-type": "application/json" },
+        "/feed/index.html": { "content-type": "application/json" },
+      },
+      staticAssetRoutes: ["/feed/index.html"],
+      staticRoutes: ["/feed"],
+    });
+
+    const config = JSON.parse(readFileSync(join(root, ".vercel/output/config.json"), "utf-8")) as {
+      routes: {
+        continue?: boolean;
+        dest?: string;
+        headers?: Record<string, string>;
+        src?: string;
+      }[];
+    };
+    expect(config.routes).toContainEqual({
+      continue: true,
+      headers: { "content-type": "application/json" },
+      src: "^/feed/?$",
+    });
+    expect(config.routes).toContainEqual({ dest: "/feed/index.html", src: "^/feed/?$" });
+  });
+
   it("routes ISG markdown routes to the render function, not the prerender function", () => {
     const root = createBuildRoot();
 

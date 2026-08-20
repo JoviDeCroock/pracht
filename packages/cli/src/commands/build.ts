@@ -254,6 +254,18 @@ export function assertNoRequestRouteContentArtifactCollisions(
   }
 }
 
+export function expandContentArtifactHeaders(
+  contentArtifactHeaders: Record<string, Record<string, string>>,
+): Record<string, Record<string, string>> {
+  const expanded = { ...contentArtifactHeaders };
+  for (const [path, headers] of Object.entries(contentArtifactHeaders)) {
+    if (!path.endsWith("/index.html")) continue;
+    const cleanPath = path.slice(0, -"/index.html".length) || "/";
+    expanded[cleanPath] ??= headers;
+  }
+  return expanded;
+}
+
 function portablePathKey(value: string): string {
   return value
     .split("/")
@@ -403,6 +415,10 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
       serverMod.apiRoutes ?? [],
       pages.map((page: { path: string }) => page.path),
     );
+    const expandedContentArtifactHeaders = expandContentArtifactHeaders(contentArtifactHeaders);
+    const contentArtifactCleanRoutes = Object.keys(expandedContentArtifactHeaders).filter(
+      (path) => !(path in contentArtifactHeaders),
+    );
     const headersManifest: Record<string, Record<string, string>> = {
       ...Object.fromEntries(
         pages.map((page: { path: string; headers?: Record<string, string> }) => [
@@ -410,7 +426,7 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
           page.headers ?? {},
         ]),
       ),
-      ...contentArtifactHeaders,
+      ...expandedContentArtifactHeaders,
     };
     const markdownManifest: Record<string, true> = Object.fromEntries(
       pages
@@ -669,6 +685,7 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
             .map((page: { path: string }) => page.path)
             .filter((path: string) => !(path in isgManifest)),
           ...generatedStaticRoutes,
+          ...contentArtifactCleanRoutes,
         ],
       });
 

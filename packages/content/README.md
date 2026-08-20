@@ -129,7 +129,9 @@ with GET/HEAD in development and emits identical static files in client builds.
 File watcher events invalidate only the affected memoized document and the
 shared route/source index. Artifact `contentType` values are carried into
 Pracht's production headers manifest and applied by the Node, Cloudflare,
-Netlify, and Vercel adapters as well as the development response. A collection
+Netlify, and Vercel adapters as well as the development response. Invalid or
+control-character values fail before publication, and an artifact named
+`index.html` keeps its generated headers on its clean URL alias. A collection
 artifact at `/llms.txt` cannot be combined with Pracht's core `llmsTxt`
 generator; the build rejects that collision instead of overwriting the curated
 collection output. OpenAPI companion output is rejected when it would replace

@@ -58,6 +58,7 @@ export interface ContentArtifact {
   /** Public URL and static output path, for example `/llms.txt`. */
   path: string;
   source: string | Uint8Array;
+  /** Portable HTTP Content-Type value; empty values and control characters are rejected. */
   contentType?: string;
 }
 

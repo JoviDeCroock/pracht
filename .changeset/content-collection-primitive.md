@@ -58,4 +58,6 @@ Locale fallback records ignore prototype-inherited keys, and Markdown image
 markers remain stable when identical projects are built from different checkout
 paths. Locale fallback targets are validated before collection snapshots are
 emitted, and content search ignores locale hints for unlocalized collections
-while advertising supported locales for localized ones.
+while advertising supported locales for localized ones. Artifact content types
+are validated before entering response or deployment headers, and generated
+headers remain intact on clean URL aliases for artifact `index.html` files.

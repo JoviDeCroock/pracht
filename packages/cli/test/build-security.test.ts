@@ -10,6 +10,7 @@ import {
   assertNoPrerenderedContentArtifactCollisions,
   assertNoPublicContentArtifactCollisions,
   assertNoRequestRouteContentArtifactCollisions,
+  expandContentArtifactHeaders,
   resolveGeneratedArtifactOutputPath,
   resolvePrerenderOutputPath,
   runBuild,
@@ -322,5 +323,22 @@ describe("assertNoRequestRouteContentArtifactCollisions", () => {
         [],
       ),
     ).not.toThrow();
+  });
+});
+
+describe("expandContentArtifactHeaders", () => {
+  it("adds clean URL aliases for generated index files without mutating the artifact registry", () => {
+    const headers = {
+      "/feed/index.html": { "content-type": "application/json" },
+      "/index.html": { "content-type": "text/html" },
+      "/llms.txt": { "content-type": "text/markdown" },
+    };
+
+    expect(expandContentArtifactHeaders(headers)).toEqual({
+      ...headers,
+      "/feed": headers["/feed/index.html"],
+      "/": headers["/index.html"],
+    });
+    expect(Object.keys(headers)).toEqual(["/feed/index.html", "/index.html", "/llms.txt"]);
   });
 });

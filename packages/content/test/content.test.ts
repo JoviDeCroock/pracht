@@ -397,6 +397,22 @@ describe("collection integration helpers", () => {
     }
   });
 
+  it("rejects artifact content types that cannot be emitted as portable headers", async () => {
+    const root = await fixture({ "guide.md": "Guide" });
+
+    for (const contentType of ["", "   ", "text/plain\r\nx-injected: yes", "text/plain\0"]) {
+      const collection = defineCollection({
+        name: "docs",
+        root,
+        artifacts: [() => ({ path: "/content.txt", source: "content", contentType })],
+      });
+
+      await expect(collection.emitArtifacts()).rejects.toThrow(
+        /contentType must be a non-empty HTTP header value without control characters/,
+      );
+    }
+  });
+
   it("adapts route lookup to loaders and markdown negotiation", async () => {
     const root = await fixture({ "page.md": "---\ntitle: Page\n---\nBody" });
     const collection = defineCollection({ name: "docs", root, routeBase: "/docs" });
