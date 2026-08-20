@@ -1223,7 +1223,9 @@ endpoint. Loader data containing HTML stays inert data. A state fetch that
 misses (a stale navigation after a redeploy that removed a route, a host that
 answers the miss with an HTML error document) rejects; for `ssg` routes the
 router then falls back to a full-document navigation, which the host answers
-with the real page or its 404 document. Static SPA routes never request state.
+with the real page or its 404 document. A static SPA route with route or shell
+head metadata instead renders client-side without loader data when its state
+file misses; explicitly loaderless and headless SPA routes never request state.
 
 **Revalidation of SSG loader data is a no-op with fresh-looking plumbing**:
 `useRevalidate()` (and the automatic refresh after a settled capability call)
