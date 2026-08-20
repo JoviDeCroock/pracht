@@ -233,6 +233,24 @@ export const middleware = async (_args, next) => {
     ).toBe("\n");
   });
 
+  it("removes every runtime effect from a dedicated pages middleware module", () => {
+    const source = `import "./_server/bootstrap.ts";
+const secret = "TOP_LEVEL_MIDDLEWARE_SECRET";
+globalThis.__middlewareLeak = secret;
+export default secret;
+export const middleware = async (_args, next) => next();
+`;
+
+    const transformed = stripServerOnlyExportsForClient(source, "/src/pages/_middleware.ts", {
+      middleware: true,
+    });
+
+    expect(transformed).not.toContain("bootstrap");
+    expect(transformed).not.toContain("TOP_LEVEL_MIDDLEWARE_SECRET");
+    expect(transformed).not.toContain("__middlewareLeak");
+    expect(transformed).not.toContain("export default");
+  });
+
   it("preserves an ordinary client export named middleware in route modules", () => {
     const source = `
 export const middleware = "CLIENT_MIDDLEWARE_LABEL";
@@ -778,7 +796,16 @@ export function Component() {
     );
     writeFileSync(
       join(root, "src", "middleware", "_middleware.ts"),
-      'export * from "./_server/auth.ts";\n',
+      `import "./_server/bootstrap.ts";
+const rootSecret = "MOVED_EJECTED_ROOT_SECRET";
+globalThis.__MOVED_ROOT_MIDDLEWARE_LEAK__ = rootSecret;
+export default rootSecret;
+export * from "./_server/auth.ts";
+`,
+    );
+    writeFileSync(
+      join(root, "src", "middleware", "_server", "bootstrap.ts"),
+      `globalThis.__MOVED_BOOTSTRAP_LEAK__ = "MOVED_EJECTED_BOOTSTRAP_SECRET";\n`,
     );
     writeFileSync(
       join(root, "src", "middleware", "_server", "auth.ts"),
@@ -798,6 +825,10 @@ export const middleware = async (_args, next) => next();
     expect(output).toContain("MOVED_EJECTED_PAGE_COMPONENT");
     expect(output).not.toContain("MOVED_EJECTED_MIDDLEWARE_SECRET");
     expect(output).not.toContain("__MOVED_MIDDLEWARE_LEAK__");
+    expect(output).not.toContain("MOVED_EJECTED_ROOT_SECRET");
+    expect(output).not.toContain("__MOVED_ROOT_MIDDLEWARE_LEAK__");
+    expect(output).not.toContain("MOVED_EJECTED_BOOTSTRAP_SECRET");
+    expect(output).not.toContain("__MOVED_BOOTSTRAP_LEAK__");
   });
 
   it("keeps _middleware routes in ordinary co-located manifest directories", async () => {

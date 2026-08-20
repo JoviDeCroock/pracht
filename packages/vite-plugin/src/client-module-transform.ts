@@ -28,7 +28,7 @@ export {
 const SERVER_ONLY_EXPORTS = new Set(["loader", "head", "headers", "getStaticPaths", "markdown"]);
 
 export interface StripServerOnlyExportsOptions {
-  /** Strip the pages-router middleware contract from its dedicated module. */
+  /** Strip the dedicated pages-router middleware module from the client graph. */
   middleware?: boolean;
 }
 
@@ -39,15 +39,21 @@ export function stripServerOnlyExportsForClient(
 ): string {
   const program = parseAst(code, { lang: getRolldownLang(id) }) as OxcNode;
   const states = createStatementStates(program);
+
+  if (options.middleware === true) {
+    // `_middleware` is a dedicated server-only module. Removing only its named
+    // export still leaves module initialization, side-effect imports, or an
+    // unrelated default export in a direct browser import. Erase the complete
+    // module so none of those server-only effects can enter the client graph.
+    for (const state of states) state.removed = true;
+    return renderProgram(code, states);
+  }
+
   const initialBindingNames = collectCurrentTopLevelBindingNames(states);
-  const serverOnlyExports = options.middleware
-    ? new Set([...SERVER_ONLY_EXPORTS, "middleware"])
-    : SERVER_ONLY_EXPORTS;
   const { changed, candidates } = removeServerOnlyExports(
     states,
     initialBindingNames,
-    serverOnlyExports,
-    options.middleware === true,
+    SERVER_ONLY_EXPORTS,
   );
 
   if (!changed) return code;
@@ -60,22 +66,12 @@ function removeServerOnlyExports(
   states: StatementState[],
   initialBindingNames: Set<string>,
   serverOnlyExports: ReadonlySet<string>,
-  stripExportAll: boolean,
 ): { candidates: Set<string>; changed: boolean } {
   let changed = false;
   const candidates = new Set<string>();
 
   for (const state of states) {
     const statement = state.node;
-    if (
-      stripExportAll &&
-      statement.type === "ExportAllDeclaration" &&
-      statement.exportKind !== "type"
-    ) {
-      changed = true;
-      state.removed = true;
-      continue;
-    }
     if (statement.type !== "ExportNamedDeclaration" || statement.exportKind === "type") {
       continue;
     }

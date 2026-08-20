@@ -911,8 +911,10 @@ Scope and limits:
 - **Server-only helpers stay server-only.** Middleware implementations can live
   in an underscore-reserved helper such as `pages/_server/auth.ts` and be
   imported or re-exported by `_middleware.ts`. Reserved files and directory
-  trees are excluded from the client route/shell registries, so they enter a
-  browser bundle only if client code imports them directly.
+  trees are excluded from the client route/shell registries, and the dedicated
+  `_middleware.ts` module becomes empty if client code imports it directly.
+  Helper files still enter a browser bundle if client code imports those files
+  directly.
 - **Runs for page rendering and route state.** For `ssr` (the default) and
   `spa` routes that is every document and client-side route-state request.
   `ssg` and `isg` documents render at build/revalidation time on a sanitized
