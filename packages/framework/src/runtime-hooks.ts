@@ -236,6 +236,17 @@ export function Link<TRoute extends RouteId>(props: LinkProps<TRoute>) {
         viewTransition?: boolean;
       };
 
+  // `<Link href="/blog">` is a TypeScript error, but untyped JSX and JS
+  // callers reach here with no `route`. Without this the missing id runs the
+  // "did you mean" search and fails with an unrelated TypeError. Dev-only,
+  // like the rest of pracht's authoring diagnostics.
+  if (import.meta.env?.DEV !== false && typeof route !== "string") {
+    throw new Error(
+      '<Link> navigates by route id, not href: use <Link route="home"> (with `params` for ' +
+        "dynamic segments), or a plain <a href> for external and user-provided URLs.",
+    );
+  }
+
   return h("a", {
     ...anchorProps,
     href: buildHrefUntyped(routes, route, { params, search, hash }),

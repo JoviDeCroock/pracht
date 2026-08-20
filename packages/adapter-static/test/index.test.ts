@@ -28,11 +28,16 @@ describe("staticAdapter", () => {
     expect(source).toContain(
       'export const staticExportConfig = { fallback: "200.html", fallbackHead: {"meta":[{"content":"shared","name":"description"}],"title":"Fallback"} };',
     );
-    expect(source).toContain("const staticNotFoundApp = { ...resolvedApp, routes: [] };");
+    // `routes: []` keeps a dynamic pattern from consuming the synthetic
+    // request; `hrefRoutes` keeps <Link route=…> in the shell resolvable.
+    expect(source).toContain(
+      "const staticNotFoundApp = { ...resolvedApp, routes: [], hrefRoutes: resolvedApp.routes };",
+    );
     expect(source).toContain("export async function renderStaticNotFoundHtml()");
     expect(source).toContain("app: staticNotFoundApp");
     expect(source).toContain("if (!resolvedApp.notFound) return null;");
     expect(source).toContain("Static export failed to render the notFound page");
+    expect(source).toContain("describeRenderError(renderError)");
     expect(source).toContain("export function renderStaticFallbackHtml(notFoundState)");
     expect(source).toContain("head: staticExportConfig.fallbackHead ?? undefined,");
     expect(source).toContain("notFoundData: notFoundState?.data,");

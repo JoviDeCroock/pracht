@@ -190,6 +190,9 @@ describe("validateStaticExport", () => {
     expect(error).toBeInstanceOf(Error);
     expect((error as Error).message).toContain("/api/health");
     expect((error as Error).message).toContain("/api/users/:id");
+    // API routes have no render mode, so the per-route escape hatch does not
+    // apply to them.
+    expect((error as Error).message).not.toContain('change the route to render: "ssg"');
   });
 
   it("fails closed on capabilities exposed over http/mcp/webmcp", async () => {

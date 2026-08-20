@@ -904,6 +904,14 @@ export interface ResolvedPrachtApp extends Omit<PrachtApp, "notFound" | "routes"
    * never matches a URL.
    */
   notFound?: ResolvedRoute;
+  /**
+   * Route definitions `<Link route=…>` and `href()` resolve against, when they
+   * differ from the matchable `routes`. Static exports render `404.html` and
+   * the SPA fallback through an app whose `routes` are emptied so no dynamic
+   * pattern can consume the synthetic request; the shell and not-found page
+   * still build hrefs, so they keep the real table here.
+   */
+  hrefRoutes?: readonly HrefRouteDefinition[];
 }
 
 export interface RouteMatch {

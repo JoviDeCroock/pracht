@@ -114,6 +114,10 @@ export async function prerenderApp(
         const url = new URL(item.pathname, "http://localhost");
         const request = new Request(url, { method: "GET" });
 
+        // The rendered response hides server error details (that is the right
+        // default for a served page), so capture the raw throw for the build
+        // error below.
+        let renderError: unknown;
         const [response, routeModule] = await Promise.all([
           handlePrachtRequest({
             app: options.app,
@@ -124,6 +128,9 @@ export async function prerenderApp(
             islandsBootstrapRequired: options.islandsBootstrapRequired,
             cssManifest: options.cssManifest,
             jsManifest: options.jsManifest,
+            onRouteError: (error) => {
+              renderError = error;
+            },
           }),
           resolveRegistryModule<RouteModule>(options.registry?.routeModules, item.route.file),
         ]);
@@ -135,7 +142,9 @@ export async function prerenderApp(
             throw new Error(
               `Static export failed to render ${item.render.toUpperCase()} route "${item.pathname}": ` +
                 `document request returned status ${response.status}${redirectDetail}. ` +
-                "A static build cannot preserve request-time redirects or failures; make the loader succeed at build time or use a serverful adapter.",
+                "A static build cannot preserve request-time redirects or failures; make the loader succeed at build time or use a serverful adapter." +
+                describeRenderError(renderError),
+              renderError === undefined ? undefined : { cause: renderError },
             );
           }
           console.warn(
@@ -171,6 +180,7 @@ export async function prerenderApp(
           item.route.hydration !== "none" &&
           routeNeedsServerFetch(item.route)
         ) {
+          let stateError: unknown;
           const stateResponse = await handlePrachtRequest({
             app: options.app,
             request: new Request(url, {
@@ -178,6 +188,9 @@ export async function prerenderApp(
               headers: { [ROUTE_STATE_REQUEST_HEADER]: "1" },
             }),
             registry: options.registry,
+            onRouteError: (error) => {
+              stateError = error;
+            },
           });
           if (stateResponse.status === 200) {
             routeState = await stateResponse.text();
@@ -200,7 +213,9 @@ export async function prerenderApp(
               throw new Error(
                 `Static export failed to serialize route state for "${item.pathname}": ` +
                   `route-state request returned status ${stateResponse.status}${redirectDetail}. ` +
-                  "Make the loader succeed at build time or use a serverful adapter.",
+                  "Make the loader succeed at build time or use a serverful adapter." +
+                  describeRenderError(stateError),
+                stateError === undefined ? undefined : { cause: stateError },
               );
             }
             console.warn(
@@ -243,6 +258,18 @@ export async function prerenderApp(
   }
 
   return results;
+}
+
+/**
+ * Render errors are deliberately opaque in the response body, which leaves a
+ * failing static build with a bare status and nothing to act on. Append the
+ * real message so `pracht build` names the cause instead of only the symptom.
+ */
+export function describeRenderError(error: unknown): string {
+  if (error === undefined || error === null) return "";
+  const message = error instanceof Error ? error.message : String(error);
+  const trimmed = message.trim();
+  return trimmed === "" ? "" : `\n\n  Underlying error: ${trimmed}`;
 }
 
 function assertSafePrerenderHeaders(

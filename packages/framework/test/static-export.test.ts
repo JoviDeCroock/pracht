@@ -216,6 +216,28 @@ describe("prerenderApp staticExport", () => {
     ).rejects.toThrow(/document request returned status 500/);
   });
 
+  it("names the underlying error when a build-time loader throws", async () => {
+    const app = defineApp({
+      routes: [route("/broken", "./routes/broken.tsx", { render: "ssg", hasLoader: true })],
+    });
+    const brokenRegistry = {
+      routeModules: {
+        "/src/routes/broken.tsx": async () => ({
+          Component: () => h("main", null, "broken"),
+          loader: () => {
+            throw new Error("upstream CMS returned 503");
+          },
+        }),
+      },
+    };
+
+    // The rendered 500 body deliberately hides server error details, which
+    // would otherwise leave the build reporting a bare status.
+    await expect(
+      prerenderApp({ app, registry: brokenRegistry, staticExport: true }),
+    ).rejects.toThrow(/Underlying error: upstream CMS returned 503/);
+  });
+
   it("fails a static export when a successful document response is not HTML", async () => {
     const app = defineApp({
       routes: [route("/raw", "./routes/raw.tsx", { render: "ssg", hasLoader: true })],

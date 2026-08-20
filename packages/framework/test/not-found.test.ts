@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
   defineApp,
   handlePrachtRequest,
+  Link,
   matchAppRoute,
   notFound,
   PrachtHttpError,
@@ -65,6 +66,70 @@ describe("app-level notFound page", () => {
     expect(html).toContain("<h1>Page not found</h1>");
     // Rendered inside its configured shell.
     expect(html).toContain('<div id="shell">');
+  });
+
+  it("resolves shell links against hrefRoutes when routes are emptied", async () => {
+    // How a static export renders 404.html: `routes` is emptied so no dynamic
+    // pattern can consume the synthetic request, while the shell still builds
+    // hrefs with <Link route=…>.
+    const resolved = resolveApp(
+      defineApp({
+        shells: { public: "./shells/public.tsx" },
+        routes: [route("/", "./routes/home.tsx", { id: "home", shell: "public" })],
+        notFound: { component: "./routes/not-found.tsx", shell: "public" },
+      }),
+    );
+    const linkingRegistry = {
+      ...registry,
+      shellModules: {
+        "./shells/public.tsx": async () => ({
+          Shell: ({ children }: { children?: ComponentChildren }) =>
+            h("div", { id: "shell" }, h(Link, { route: "home" }, "Home"), children),
+        }),
+      },
+    };
+
+    const response = await handlePrachtRequest({
+      app: { ...resolved, routes: [], hrefRoutes: resolved.routes },
+      registry: linkingRegistry,
+      request: new Request("http://localhost/404.html"),
+    });
+
+    expect(response.status).toBe(404);
+    const html = await response.text();
+    expect(html).toContain('<a href="/">Home</a>');
+  });
+
+  it("names the missing route id when <Link> is used with href instead", async () => {
+    const resolved = resolveApp(
+      defineApp({
+        shells: { public: "./shells/public.tsx" },
+        routes: [route("/", "./routes/home.tsx", { id: "home", shell: "public" })],
+        notFound: { component: "./routes/not-found.tsx", shell: "public" },
+      }),
+    );
+    let thrown: unknown;
+    const hrefRegistry = {
+      ...registry,
+      shellModules: {
+        "./shells/public.tsx": async () => ({
+          Shell: ({ children }: { children?: ComponentChildren }) =>
+            // A TypeScript error, but untyped JSX and JS callers reach it.
+            h("div", null, h(Link, { href: "/" } as never, "Home"), children),
+        }),
+      },
+    };
+
+    await handlePrachtRequest({
+      app: { ...resolved, routes: [], hrefRoutes: resolved.routes },
+      registry: hrefRegistry,
+      request: new Request("http://localhost/404.html"),
+      onRouteError: (error) => {
+        thrown = error;
+      },
+    });
+
+    expect((thrown as Error).message).toMatch(/navigates by route id, not href/);
   });
 
   it("keeps the plain-text 404 when the app declares no notFound page", async () => {

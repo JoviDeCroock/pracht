@@ -1138,6 +1138,10 @@ aggregated error — before any prerendering — when the app needs one:
   export `getStaticPaths()`. SPA loaders, non-full SPA hydration, `ssr`, and
   `isg` are hard errors naming each route and pointing at the serverful
   adapters. Fetch live SPA data in the browser from an external API instead.
+  A build-time render failure reports the underlying error alongside the
+  status (`Underlying error: …`, also set as the thrown error's `cause`) —
+  rendered 500 responses hide server error details, so the build surfaces them
+  from the render itself.
 - **Route and not-found middleware** are hard errors: a static host has no
   request runtime in which to enforce redirects, authentication, or headers.
 - The **`notFound` page must use full hydration** (the default). Every unknown
@@ -1241,7 +1245,10 @@ client-side fetch to an external API instead.
   such as `/:slug` or `/*` cannot suppress it. The full-hydration page adopts
   `window.location`, so it displays and navigates from the URL actually
   visited, not `/404.html`. Apps without a `notFound` page emit no `404.html`
-  (the host serves its own error page).
+  (the host serves its own error page). The render removes ordinary routes from
+  the app so no dynamic pattern can consume the synthetic request, but keeps
+  them resolvable through `ResolvedPrachtApp.hrefRoutes`, so `<Link route="…">`
+  and `href()` in the shell and the not-found page still build their URLs.
 - `200.html` — opt-in via `staticAdapter({ fallback: "200.html" })`: an
   empty-shell document that boots the client router and resolves the real
   route from `window.location`. Configure the host to rewrite unmatched URLs

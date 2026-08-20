@@ -58,8 +58,15 @@ interface CapabilityModuleView {
   };
 }
 
-const SERVERFUL_ADAPTER_HINT =
-  "use @pracht/adapter-node, @pracht/adapter-cloudflare, or @pracht/adapter-vercel instead, " +
+const SERVERFUL_ADAPTERS =
+  "use @pracht/adapter-node, @pracht/adapter-cloudflare, or @pracht/adapter-vercel instead";
+
+/** For problems about API routes and capabilities, where render modes do not apply. */
+const SERVERFUL_ADAPTER_HINT = `${SERVERFUL_ADAPTERS}.`;
+
+/** For problems about routes, which have the additional per-route escape hatch. */
+const SERVERFUL_ROUTE_HINT =
+  `${SERVERFUL_ADAPTERS}, ` +
   'or change the route to render: "ssg" (or loaderless "spa" for client-only pages).';
 
 function normalizeModulePath(path: string): string {
@@ -158,7 +165,7 @@ export async function validateStaticExport(serverMod: StaticServerModuleView): P
       .join("\n");
     problems.push(
       `these routes render on a server at request time, but a static export has no server:\n${listed}\n` +
-        `  For SSR/ISG ${SERVERFUL_ADAPTER_HINT}`,
+        `  For SSR/ISG ${SERVERFUL_ROUTE_HINT}`,
     );
   }
 
