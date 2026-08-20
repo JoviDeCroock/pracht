@@ -58,8 +58,10 @@ const GLOBAL_CLI_FLAGS = new Set(["help", "version"]);
 // - ISG manifest: build.ts writes "dist/server/isg-manifest.json"
 // - Headers manifest: build.ts writes "dist/server/headers-manifest.json"
 // - Budget report: build.ts writes "dist/server/budget-report.json"
-// - Client copies of manifests: build.ts writes "_pracht/headers.json" and
-//   "_pracht/isg.json" under the client dir ("dist/client")
+// - Runtime-read client copies of manifests: build.ts writes
+//   "_pracht/headers.json" and "_pracht/isg.json" under the client dir
+//   ("dist/client") only for targets that consume them there; static exports
+//   keep the canonical server manifests private to build tooling
 // - Vite client manifest: build.ts / build-metadata.ts read
 //   "dist/client/.vite/manifest.json"
 // - Prerendered route HTML: build.ts writes "<route>/index.html" under
@@ -74,6 +76,9 @@ const BUILD_OUTPUT_PATTERNS: RegExp[] = [
   /^dist\/client\/_pracht\/?$/,
   /^dist\/client\/_pracht\/(?:headers\.json|isg\.json)$/,
   /^dist\/client\/\.vite\/manifest\.json$/,
+  // Static export fixed artifacts: the notFound document and the opt-in SPA
+  // fallback (`staticAdapter({ fallback })`, conventionally 200.html).
+  /^dist\/client\/(?:404|200)\.html$/,
   /^dist\/client(?:\/[^/.]+)+\/index\.html$/,
   /^\.vercel\/output\/?$/,
   /^\.vercel\/output\/config\.json$/,

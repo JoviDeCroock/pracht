@@ -1,4 +1,5 @@
 import { ROUTE_STATE_REQUEST_HEADER } from "./runtime-constants.ts";
+import { buildStaticRouteStateUrl, IS_STATIC_TARGET } from "./runtime-static.ts";
 import type { SerializedRouteError } from "./runtime-errors.ts";
 import type { FontHeadFragments } from "./font.ts";
 import type { ResolvedRoute } from "./types.ts";
@@ -49,10 +50,19 @@ export async function fetchPrachtRouteState(
   url: string,
   options?: { cache?: RequestCache; signal?: AbortSignal; useDataParam?: boolean },
 ): Promise<RouteStateResult> {
-  const fetchUrl = options?.useDataParam ? buildRouteStateUrl(url) : url;
+  // Static-export builds have no server to answer the route-state header (or
+  // the `_data=1` query form): the loader payload was serialized to a static
+  // JSON file at build time instead. Same-origin fetch of `application/json`
+  // keeps the exact escaping posture of the live endpoint — the payload is
+  // parsed as JSON, never interpreted as HTML.
+  const fetchUrl = IS_STATIC_TARGET
+    ? buildStaticRouteStateUrl(url)
+    : options?.useDataParam
+      ? buildRouteStateUrl(url)
+      : url;
   const response = await fetch(fetchUrl, {
     cache: options?.cache,
-    headers: options?.useDataParam ? {} : { [ROUTE_STATE_REQUEST_HEADER]: "1" },
+    headers: IS_STATIC_TARGET || options?.useDataParam ? {} : { [ROUTE_STATE_REQUEST_HEADER]: "1" },
     redirect: "manual",
     signal: options?.signal,
   });

@@ -1,12 +1,13 @@
 ---
 name: pracht-deploy
-version: 1.1.0
+version: 1.2.0
 description: |
   Pracht deployment guide. Walks through adapter configuration, building, and
-  deploying to Node.js, Cloudflare Workers, Netlify, or Vercel. Handles platform
-  config, Docker and production checklist.
+  deploying to Node.js, Cloudflare Workers, Netlify, Vercel, or a pure static
+  host. Handles platform config, Docker and production checklist.
   Use when asked to "deploy", "set up deployment", "configure adapter",
-  "deploy to cloudflare", "deploy to netlify", "deploy to vercel", or
+  "deploy to cloudflare", "deploy to netlify", "deploy to vercel", "static
+  export", or
   "production build".
 allowed-tools:
   - Bash
@@ -37,6 +38,7 @@ If the pracht MCP server is registered (docs/MCP.md), prefer the `inspect_build`
 | Cloudflare Workers | `@pracht/adapter-cloudflare` | Stable |
 | Netlify            | `@pracht/adapter-netlify`    | Stable |
 | Vercel             | `@pracht/adapter-vercel`     | Stable |
+| Static export      | `@pracht/adapter-static`     | Stable |
 
 ---
 
@@ -308,6 +310,78 @@ Edge Function with `vercelAdapter({ functionName })` if its default `render`
 name would collide with an ISG route. Custom entries must export the
 `nodeListener` created by `createVercelNodeListener(handle)` for Node ISR
 functions.
+
+---
+
+## Static Export Deployment
+
+For apps where every route is `render: "ssg"` (or loaderless, full-hydration
+`"spa"`), with no
+request middleware, API routes, or HTTP/MCP/WebMCP-exposed capabilities. SSG
+loaders run only at build time and must produce HTML plus valid JSON route
+state; dynamic SSG routes must export `getStaticPaths()`. Anything else fails the build with an error naming the
+offenders — that is the signal to pick a serverful adapter instead. Only
+manifest-registered capabilities participate; every registered capability
+module must load successfully so exposure validation can fail closed. The
+`notFound` page must use full hydration (the default), because the shared
+`404.html` needs the client router to adopt the visitor's actual URL. Static
+exports must deploy at an origin root: a Vite `base` other than `/` is a build
+error, because prerendered asset and route-state URLs are root-relative.
+
+### Setup
+
+1. Ensure `@pracht/adapter-static` is installed.
+2. In `vite.config.ts`:
+   ```ts
+   import { pracht } from "@pracht/vite-plugin";
+   import { staticAdapter } from "@pracht/adapter-static";
+   export default { plugins: [pracht({ adapter: staticAdapter() })] };
+   // With dynamic SPA routes, add { fallback: "200.html" } and configure the
+   // host to rewrite unmatched URLs to it. If the route or shell exports
+   // head(), also set generic fallbackHead metadata shared by every rewrite.
+   ```
+
+### Build & Deploy
+
+```bash
+pracht build      # dist/client/ is the whole deployment
+pracht preview    # local static file server over dist/client/
+```
+
+Upload `dist/client/` to any static host (GitHub Pages, S3, nginx, Netlify).
+`dist/server/` is build tooling only — never deploy it. The host must serve
+`<dir>/index.html` for clean URLs and should use `404.html` as its error
+document. A static `notFound` page must use full hydration so that shared
+document can adopt the visitor's real URL. Client navigation fetches collision-safe
+bounded opaque `.json` files under `_pracht/state/` for full-hydration SSG
+routes whose loader or route/shell `head()` metadata participates in navigation;
+equivalent raw-Unicode and percent-encoded URL segment spellings resolve to the
+same state file. Explicitly loaderless and headless routes fetch no Pracht
+state; loaderless routes with head metadata fetch static state for font-head
+fragments but still use browser-side requests to an external API for live
+data. Files under `public/_pracht/state/` may not occupy a generated
+route-state path; the build rejects the collision instead of overwriting the
+public file. Files copied from `public/` or emitted by Vite also may not occupy
+the generated `404.html` or configured fallback path, including a case- or
+Unicode-normalization-equivalent spelling; the build rejects the portable
+collision instead of overwriting existing output. Generic `fallbackHead` fonts
+remain registered while the fallback commits a loaderless dynamic SPA route.
+See docs/ADAPTERS.md § Static Adapter for host header
+configuration and limitations (markdown negotiation, base paths). Pages are
+written to the percent-decoded output path, matching how static hosts resolve
+requests; `pracht preview` decodes request segments the same way. The SPA fallback only client-renders matched SPA routes; dynamic
+SSG paths omitted by `getStaticPaths()` render the app's not-found page with
+the build-time loader data or handled error state carried over from `404.html`.
+The host rewrite that serves the fallback answers unknown URLs with status 200 (soft 404), and an app
+with no `notFound` page and no unshadowed client-routable SPA catch-all renders them blank — the build
+warns about that shape. A dynamic SPA route, its shell, or the not-found page
+with `head()` requires an explicit `fallbackHead`, because the shared static
+document cannot evaluate URL-specific server metadata. Prerendered pages must
+map to distinct portable filesystem paths; duplicate/case-folded or
+Unicode-normalization-equivalent outputs, Windows-invalid or overlong filename
+components, and file/directory conflicts such as `/` with `/index.html` fail
+before any page is written. Fallback names likewise reject Windows reserved
+device names and the portable 255-byte/code-unit component limit.
 
 ---
 

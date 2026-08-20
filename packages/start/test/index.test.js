@@ -64,11 +64,11 @@ describe("create-pracht", () => {
     expect(packageJson).toMatch(/"@pracht\/adapter-node": "\^\d+\.\d+\.\d+"/);
     expect(parsedPackageJson.dependencies).toMatchObject({
       "@pracht/adapter-node": "^0.3.8",
-      "@pracht/core": "^0.12.0",
+      "@pracht/core": "^0.14.0",
     });
     expect(parsedPackageJson.devDependencies).toMatchObject({
-      "@pracht/cli": "^1.9.0",
-      "@pracht/vite-plugin": "^0.7.6",
+      "@pracht/cli": "^1.11.0",
+      "@pracht/vite-plugin": "^0.9.0",
     });
     expect(parsedPackageJson.pnpm).toBeUndefined();
     expect(packageJson).toContain('"preview": "pracht preview"');
@@ -280,6 +280,88 @@ describe("create-pracht", () => {
     expect(ageDays).toBeLessThan(365);
   });
 
+  it("scaffolds a static-export starter with no API route", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pracht-start-static-"));
+    const targetDir = join(root, "my-static-app");
+
+    await scaffoldProject({
+      adapter: {
+        description: "Pure static export — deploy dist/client to any static host",
+        id: "static",
+        label: "Static export",
+        packageName: "@pracht/adapter-static",
+        short: "static",
+      },
+      packageManager: "pnpm",
+      resolveRemoteVersions: false,
+      targetDir,
+    });
+
+    const packageJson = JSON.parse(await readFile(join(targetDir, "package.json"), "utf-8"));
+    const viteConfig = await readFile(join(targetDir, "vite.config.ts"), "utf-8");
+    const homeRoute = await readFile(join(targetDir, "src/routes/home.tsx"), "utf-8");
+    const readme = await readFile(join(targetDir, "README.md"), "utf-8");
+    const agentInstructions = await readFile(join(targetDir, "AGENTS.md"), "utf-8");
+
+    expect(packageJson.dependencies).toMatchObject({
+      "@pracht/adapter-static": "^0.1.0",
+      "@pracht/core": "^0.14.0",
+    });
+    expect(packageJson.devDependencies).toMatchObject({
+      "@pracht/cli": "^1.11.0",
+      "@pracht/vite-plugin": "^0.9.0",
+    });
+    expect(packageJson.scripts).toMatchObject({ build: "pracht build", preview: "pracht preview" });
+    expect(packageJson.scripts.start).toBeUndefined();
+    expect(viteConfig).toContain('import { staticAdapter } from "@pracht/adapter-static";');
+    expect(viteConfig).toContain("adapter: staticAdapter()");
+
+    // A static export has no server, so a scaffolded API route would make the
+    // very first `pracht build` fail.
+    expect(existsSync(join(targetDir, "src/api/health.ts"))).toBe(false);
+    expect(homeRoute).not.toContain("/api/health");
+    expect(homeRoute).not.toContain("src/api/*.ts");
+    expect(readme).toContain("dist/client");
+    expect(readme).not.toContain("src/api/health.ts");
+    expect(agentInstructions).not.toContain("generate middleware");
+    expect(agentInstructions).not.toContain("generate api");
+    expect(agentInstructions).not.toContain("--expose http");
+    expect(agentInstructions).not.toContain("src/api/");
+
+    // Both starter routes must be statically renderable.
+    const routes = await readFile(join(targetDir, "src/routes.ts"), "utf-8");
+    expect(routes).toContain('render: "ssg"');
+
+    expect(existsSync(join(targetDir, "Dockerfile"))).toBe(false);
+    expect(existsSync(join(targetDir, "wrangler.jsonc"))).toBe(false);
+    expect(existsSync(join(targetDir, "netlify.toml"))).toBe(false);
+  });
+
+  it("scaffolds a static-export pages-router starter with no API route", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pracht-start-static-pages-"));
+    const targetDir = join(root, "my-static-pages-app");
+
+    await scaffoldProject({
+      adapter: {
+        description: "Pure static export — deploy dist/client to any static host",
+        id: "static",
+        label: "Static export",
+        packageName: "@pracht/adapter-static",
+        short: "static",
+      },
+      packageManager: "pnpm",
+      resolveRemoteVersions: false,
+      router: "pages",
+      targetDir,
+    });
+
+    const home = await readFile(join(targetDir, "src/pages/index.tsx"), "utf-8");
+    expect(existsSync(join(targetDir, "src/api/health.ts"))).toBe(false);
+    expect(home).toContain('export const RENDER_MODE = "ssg";');
+    expect(home).not.toContain("/api/health");
+    expect(home).not.toContain("src/api/*.ts");
+  });
+
   it("scaffolds a Netlify starter", async () => {
     const root = await mkdtemp(join(tmpdir(), "pracht-start-netlify-"));
     const targetDir = join(root, "my-netlify-app");
@@ -304,7 +386,7 @@ describe("create-pracht", () => {
 
     expect(packageJson.dependencies).toMatchObject({
       "@pracht/adapter-netlify": "^0.1.0",
-      "@pracht/core": "^0.12.0",
+      "@pracht/core": "^0.14.0",
     });
     expect(packageJson.devDependencies["netlify-cli"]).toBe("^21.6.0");
     expect(packageJson.scripts).toMatchObject({

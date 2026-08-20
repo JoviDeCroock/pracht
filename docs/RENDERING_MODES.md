@@ -25,8 +25,15 @@ route("/about", () => import("./routes/about.tsx"), { render: "ssg" });
 HTML is generated at build time. The loader runs once during the build, and the
 output is written to `dist/client/about/index.html`. No server is needed for the
 initial document request — it's served as a static file. Client-side navigation
-uses the route-state JSON endpoint when an adapter runtime is available, and
-falls back to full document navigation on purely static hosts.
+uses the route-state JSON endpoint when an adapter runtime is available. On a
+pure static export (`@pracht/adapter-static`), the build additionally
+serializes each SSG route's loader payload to a bounded, collision-safe opaque `.json`
+file under `dist/client/_pracht/state/` and the client router fetches that file
+instead, so navigation stays client-side with zero server — see
+[ADAPTERS.md](ADAPTERS.md#static-adapter). An app where every route is
+`ssg` or loaderless `spa`, with no request middleware, API routes, or
+network-exposed capabilities, can
+therefore deploy `dist/client/` to any static host.
 
 ### Dynamic SSG paths
 
@@ -52,9 +59,16 @@ from the route pattern, then runs the loader and renderer for each.
 Output: `dist/client/blog/hello-world/index.html`, etc.
 
 Dynamic params are percent-encoded before output paths are written, and exact
-`.` / `..` dynamic param segments are rejected. Static route patterns cannot
+`.` / `..` dynamic param segments are rejected. (Static exports are the one
+exception: `@pracht/adapter-static` writes pages to the *decoded* path, because
+a static host resolves the request itself. See [ADAPTERS.md](ADAPTERS.md).)
+Static route patterns cannot
 contain raw dot segments or backslashes. The CLI also verifies every
-prerendered file resolves inside `dist/client/` before writing.
+prerendered file resolves inside `dist/client/` before writing. The complete
+page set must map to distinct portable filesystem paths: duplicate,
+case-folded, and Unicode-normalization-equivalent outputs are rejected, as are
+Windows-invalid filename components and file/directory conflicts such as `/`
+with `/index.html` or `/guide` with `/guide/index.html`.
 
 Prerendering runs concurrently (default: 10 parallel renders). Tune it with `pracht({ prerenderConcurrency })` in your Vite config when CI needs more or less parallelism.
 
@@ -241,6 +255,15 @@ into the initial document by default.
 - Auth-gated pages where SEO doesn't matter, but shell chrome should paint fast
 - Complex interactive UIs (editors, dashboards)
 - Pages where server rendering adds no value
+
+On a static export (`@pracht/adapter-static`), SPA routes must be loaderless.
+Their shell HTML is prerendered and their components run entirely in the
+browser; fetch live data client-side from an external API. Dynamic SPA routes
+have no prerendered file: in-app client navigation renders them directly, and
+deep links additionally need the adapter's `fallback: "200.html"` option plus
+a host rewrite. A static `notFound` page must keep full hydration (the default),
+because the shared `404.html` needs the client router to adopt the visitor's
+actual URL.
 
 ---
 

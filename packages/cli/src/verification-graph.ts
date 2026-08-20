@@ -1,19 +1,24 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 
-import { extractCapabilityRegistrations } from "@pracht/capabilities/static";
+import {
+  extractCapabilityRegistrations,
+  maskCommentsAndStrings,
+} from "@pracht/capabilities/static";
 import { evaluateConstraints } from "@pracht/core";
 import type { AppGraphRoute } from "@pracht/core";
 
 import {
   GRAPH_SNAPSHOT_PATH,
   readGraphSnapshotFromDisk,
-  resolveLiveGraph,
+  resolveLiveGraphMetadata,
   serializeGraphSnapshot,
   type GraphSnapshot,
 } from "./graph-snapshot.js";
 import { listFilesRecursively, resolveProjectPath, type ProjectConfig } from "./project.js";
+import { detectAdapterTarget } from "./commands/preview.js";
 import { createCheck, MODULE_SOURCE_RE, type Check } from "./verification-helpers.js";
+import { collectStaticExportChecks } from "./verification-static.js";
 
 const HEAD_EXPORT_RE =
   /export\s+(?:async\s+)?(?:function|const|let|var)\s+head\b|export\s*\{[^}]*\bhead\b[^}]*\}/;
@@ -29,11 +34,28 @@ export async function collectGraphChecks(project: ProjectConfig, checks: Check[]
   const wantsCapabilityLoad = manifestDeclaresCapabilities(project);
   const wantsApiLoad = projectDeclaresApiRoutes(project);
   const snapshotExists = existsSync(resolve(project.root, GRAPH_SNAPSHOT_PATH));
-  if (!wantsConstraints && !wantsCapabilityLoad && !wantsApiLoad && !snapshotExists) return;
+  // Raw config inspection is only a gate for the comparatively expensive Vite
+  // boot. The resolved metadata below is authoritative: conditional configs,
+  // aliases, and custom adapter ids cannot be classified safely from source.
+  const mightUseStaticExport = projectMightUseStaticExport(project);
+  if (
+    !wantsConstraints &&
+    !wantsCapabilityLoad &&
+    !wantsApiLoad &&
+    !snapshotExists &&
+    !mightUseStaticExport
+  ) {
+    return;
+  }
 
   let live: GraphSnapshot;
+  let staticTarget = false;
+  let loaderRoutePaths: ReadonlySet<string> = new Set();
   try {
-    live = await resolveLiveGraph(project.root);
+    const metadata = await resolveLiveGraphMetadata(project.root);
+    live = metadata.graph;
+    staticTarget = metadata.staticTarget;
+    loaderRoutePaths = metadata.loaderRoutePaths;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     checks.push(
@@ -42,6 +64,18 @@ export async function collectGraphChecks(project: ProjectConfig, checks: Check[]
         `Could not resolve the app graph for live verification checks: ${message}`,
       ),
     );
+    return;
+  }
+
+  // A source-level candidate can resolve to a serverful adapter (for example
+  // an environment-conditional config that merely imports staticAdapter).
+  if (
+    !wantsConstraints &&
+    !wantsCapabilityLoad &&
+    !wantsApiLoad &&
+    !snapshotExists &&
+    !staticTarget
+  ) {
     return;
   }
 
@@ -61,8 +95,90 @@ export async function collectGraphChecks(project: ProjectConfig, checks: Check[]
       ),
     );
   }
+  collectStaticExportChecks(live, checks, { loaderRoutePaths, staticTarget });
   collectConstraintChecks(project, live, checks);
   collectSnapshotChecks(project, live, checks, snapshotExists);
+}
+
+function projectMightUseStaticExport(project: ProjectConfig): boolean {
+  const detectedTarget = detectAdapterTarget(project);
+  if (detectedTarget === "static") return true;
+
+  const maskedConfig = maskCommentsAndStrings(project.rawConfig);
+  // A custom adapter can be declared inline rather than imported. Source is
+  // only a candidate gate; the resolved `staticTarget` below remains the
+  // authoritative answer when this literal belongs to inactive config.
+  if (/\bstaticTarget\s*:\s*true\b/.test(maskedConfig)) return true;
+
+  // A local custom adapter can carry `staticTarget: true` outside the Vite
+  // config. Inspect direct local imports as a cheap candidate gate; the
+  // resolved metadata above remains authoritative.
+  if (localConfigImportMightBeStatic(project)) return true;
+
+  try {
+    const packageJson = JSON.parse(
+      readFileSync(resolve(project.root, "package.json"), "utf-8"),
+    ) as {
+      dependencies?: Record<string, unknown>;
+      devDependencies?: Record<string, unknown>;
+    };
+    if (
+      "@pracht/adapter-static" in (packageJson.dependencies ?? {}) ||
+      "@pracht/adapter-static" in (packageJson.devDependencies ?? {})
+    ) {
+      return true;
+    }
+  } catch {}
+
+  // An explicit adapter that source inspection cannot classify may come from
+  // a third-party package or a local wrapper. Resolve it instead of silently
+  // treating the default `node` classification as authoritative. Keep the
+  // common direct built-in Node adapter call on the cheap path. Quoted keys
+  // are checked in raw source because string masking necessarily erases them;
+  // a false-positive candidate only causes the authoritative Vite resolution.
+  const configuresAdapter =
+    /\badapter\s*(?::|(?=\s*[,}]))/.test(maskedConfig) ||
+    /["']adapter["']\s*:/.test(project.rawConfig);
+  const isKnownNodeAdapter = /\badapter\s*:\s*nodeAdapter\s*\(/.test(maskedConfig);
+  return detectedTarget === "node" && configuresAdapter && !isKnownNodeAdapter;
+}
+
+function localConfigImportMightBeStatic(project: ProjectConfig): boolean {
+  if (!project.configFile) return false;
+
+  const importSpecifiers = [
+    ...project.rawConfig.matchAll(/^\s*import\s+(?:[^"']+?\s+from\s+)?["'](\.[^"']+)["']/gm),
+  ].map((match) => match[1]);
+
+  for (const specifier of importSpecifiers) {
+    const unresolvedPath = resolve(dirname(project.configFile), specifier);
+    const candidates = [
+      unresolvedPath,
+      ...[".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs"].map(
+        (extension) => `${unresolvedPath}${extension}`,
+      ),
+      ...[".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs"].map((extension) =>
+        resolve(unresolvedPath, `index${extension}`),
+      ),
+    ];
+    const importedFile = candidates.find((candidate) => existsSync(candidate));
+    if (!importedFile) continue;
+
+    try {
+      if (
+        /\bstaticTarget\s*:\s*true\b/.test(
+          maskCommentsAndStrings(readFileSync(importedFile, "utf-8")),
+        )
+      ) {
+        return true;
+      }
+    } catch {
+      // A candidate import that cannot be read should not make cheap doctor
+      // checks depend on a live Vite boot.
+    }
+  }
+
+  return false;
 }
 
 function projectDeclaresApiRoutes(project: ProjectConfig): boolean {

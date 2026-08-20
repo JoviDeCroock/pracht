@@ -15,9 +15,9 @@ npm run dev
 
 - Prompts for the target folder.
 - Detects the active package manager from the current environment.
-- Lets the user choose between the Node.js, Cloudflare, and Vercel adapters.
+- Lets the user choose between the Node.js, Cloudflare, Vercel, Netlify, and static adapters.
 - Optionally wires up Tailwind CSS (`tailwindcss` + `@tailwindcss/vite`, a global stylesheet, and the shell import).
-- Scaffolds a minimal app with a route manifest or pages router, shell, home route, not-found page, sample API route, runnable project README, TypeScript typecheck script, and (with agent tooling enabled) agent instructions.
+- Scaffolds a minimal app with a route manifest or pages router, shell, home route, not-found page, a sample API route for serverful adapters, runnable project README, TypeScript typecheck script, and (with agent tooling enabled) agent instructions.
 - Manifest scaffolds include a commented-out `constraints` example in `src/routes.ts`, ready for `pracht verify`.
 - The generated `.gitignore` keeps `.pracht/app-graph.json` committable, and the README and agent instructions cover the `pracht verify` / `pracht plan` / `pracht report` loop.
 - Every standalone pnpm scaffold includes a narrow lifecycle-script policy for
@@ -36,13 +36,16 @@ node ./packages/start/bin/create-pracht.js
 node ./packages/start/bin/create-pracht.js my-app --adapter=node --skip-install
 node ./packages/start/bin/create-pracht.js my-app --adapter=vercel --skip-install
 node ./packages/start/bin/create-pracht.js my-app --adapter=netlify --skip-install
+node ./packages/start/bin/create-pracht.js my-app --adapter=static --skip-install
 node ./packages/start/bin/create-pracht.js my-app --template=tailwind --yes
 node ./packages/start/bin/create-pracht.js my-app --adapter=node --no-tailwind --no-git --yes
 ```
 
 ## Options
 
-- `--adapter=node|cf|netlify|vercel` — choose the hosting adapter (default: node).
+- `--adapter=node|cf|netlify|vercel|static` — choose the hosting adapter (default: node).
+  `static` scaffolds a pure static export (`@pracht/adapter-static`): no API route is
+  generated, because a static export has no server to answer one.
 - `--router=manifest|pages` — choose the routing system (default: manifest).
 - `--template=minimal|tailwind` — non-interactive template selection; `minimal` is the default output, `tailwind` is minimal plus Tailwind CSS wiring.
 - `--tailwind` / `--no-tailwind` — enable or disable Tailwind CSS without going through the prompt.
@@ -61,7 +64,7 @@ node ./packages/start/bin/create-pracht.js my-app --adapter=node --no-tailwind -
 - `src/routes/home.tsx`
 - `src/routes/not-found.tsx` — the app's 404 page, wired via `notFound` in the manifest (pages scaffolds get `src/pages/404.tsx`, which pracht wires automatically)
 - `src/shells/public.tsx`
-- `src/api/health.ts`
+- `src/api/health.ts` — serverful adapters only
 - `.gitignore`
 - `.claude/skills/<name>/SKILL.md` — the pracht agent skills (unless `--no-agent-tools`)
 - `.mcp.json` — registers the `pracht mcp` server for MCP clients (unless `--no-agent-tools`)

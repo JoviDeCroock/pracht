@@ -1,11 +1,13 @@
 ---
 name: pre-deploy
-version: 1.2.0
+version: 1.3.0
 description: |
   Adapter-aware pre-deployment checklist for pracht apps targeting Node,
-  Cloudflare Workers, or Vercel. Catches the issues that only surface in the
-  production runtime: missing env vars, Node-only APIs in edge bundles,
-  ISG manifest absence, oversized edge bundles, missing wrangler/vercel config.
+  Cloudflare Workers, Vercel, or a pure static export. Catches the issues that
+  only surface in the production runtime: missing env vars, Node-only APIs in
+  edge bundles, ISG manifest absence, oversized edge bundles, missing
+  wrangler/vercel config, and static hosts missing clean-URL, 404, or security
+  header configuration.
   Use when asked to "pre-deploy check", "ready to ship?", "deployment
   checklist", "is my build production-safe", or before running `wrangler
   deploy` / `vercel deploy`.
@@ -27,8 +29,8 @@ If the pracht MCP server is registered (see docs/MCP.md), prefer its tools
 (`inspect_routes`, `inspect_api`, `inspect_build`, `doctor`, `verify`) over
 shelling out.
 
-Read `vite.config.ts` and look for `nodeAdapter()`, `cloudflareAdapter()`, or
-`vercelAdapter()`. Confirm with:
+Read `vite.config.ts` and look for `nodeAdapter()`, `cloudflareAdapter()`,
+`vercelAdapter()`, or `staticAdapter()`. Confirm with:
 
 ```bash
 pracht inspect build --json
@@ -156,12 +158,58 @@ a markdown summary (graph diff + verify + budgets) worth attaching to it.
   `passthroughLoader` instead.
 - Build Output API v3 sanity: `config.json` has `version: 3`.
 
+### Static export (`@pracht/adapter-static`)
+
+`adapterTarget` is `"static"`. There is no server to get wrong, so the
+checklist is about what the *host* must do and what the build cannot enforce.
+
+- `dist/client/` exists and is the deploy root. `dist/server/` is build tooling
+  only — it must not be uploaded (it contains the prerender bundle).
+- The build itself is the gate: it fails closed on `ssr`/`isg` routes, SPA
+  loaders, non-full SPA hydration, API routes, route/not-found middleware,
+  network-exposed capabilities, and a Vite `base` other than `/`. If
+  `pracht build` succeeded, those contracts already hold — do not re-derive
+  them by hand. Report a failing build verbatim; the message names the routes.
+- Host must serve `index.html` for directory URLs (clean URLs). Confirm the
+  host's setting: S3 website endpoints need an index document, nginx needs
+  `try_files $uri $uri/index.html`, GitHub Pages and Netlify do it by default.
+- Host must map `404.html` as the error document, otherwise unknown URLs get
+  the host's generic error page instead of the app's `notFound` route. Verify
+  `dist/client/404.html` exists; if it does not, the app declares no `notFound`
+  page — flag it as a `warn`.
+- **Security headers are not applied.** Every other adapter sets the four
+  default security headers at request time; a static host has no request
+  runtime. `dist/server/headers-manifest.json` records the headers each route
+  *would* have carried — mirror the ones you need in the host's own header
+  config (`_headers` on Netlify, CloudFront response header policies, nginx
+  `add_header`). This is an `error` for any app handling user input, and
+  `warn` otherwise. HSTS and CSP are host-side decisions either way.
+- If `staticAdapter({ fallback })` is configured, the host needs a rewrite of
+  unmatched URLs to that file, and the rewrite must not shadow real files.
+  Note that it makes unknown URLs answer `200` (soft 404s). Without the
+  rewrite the fallback file is inert — deep links into dynamic `render: "spa"`
+  routes will 404.
+- Smoke test the real output, not the dev server:
+  `pracht preview --skip-build` serves `dist/client/` the way a dumb host
+  would. Check `/`, one dynamic SSG path, one deep link into a SPA route, and
+  one unknown URL.
+- Routes exporting `markdown` rely on server-side `Accept` negotiation, which
+  a static host cannot do — agents asking for `text/markdown` get HTML. The
+  build prints a note when this applies; publish `.md` files under `public/`
+  if a raw-markdown corpus matters.
+- Deploying to a sub-path (GitHub Pages *project* site, S3 key prefix) is not
+  supported — asset and state URLs are root-relative and the build rejects a
+  non-`/` `base`. Confirm the target is an origin root (a GitHub Pages *user*
+  or custom-domain site is fine).
+
 ## Step 4: Cross-cutting checks
 
 - Run `audit-secrets` to confirm no `process.env.*` or `context.env.*` values
   flow into loader return values.
 - Run `audit-headers` to confirm `applyDefaultSecurityHeaders` is in use on
   user-facing responses (or that `headers()` exports cover the same ground).
+  On a static export this check moves entirely to the host's header config —
+  see the static section above.
 - Confirm `git status` is clean (deploying uncommitted work is a footgun).
 
 ## Step 5: Report
@@ -179,9 +227,13 @@ status. End with a one-line verdict: `READY` / `BLOCKED (N errors)` /
 3. For Cloudflare/Vercel-edge, the Node-only API check is non-negotiable; an
    API not covered by the active compatibility flags will crash the worker on
    a code path that may never hit in dev.
-4. If the app does not use generated typed route files yet, note that `pracht typegen --check` is optional; if it does, stale generated files block deployment.
-5. Do not deploy on the user's behalf. End the skill at the verdict.
-6. If `pracht doctor` reports errors, do not run any other checks until those
+4. For a static export, never report `READY` without naming the host settings
+   the deploy depends on (clean URLs, `404.html`, security headers, and the
+   fallback rewrite if configured). The build cannot verify any of them, so an
+   unqualified `READY` is the one way this skill can mislead.
+5. If the app does not use generated typed route files yet, note that `pracht typegen --check` is optional; if it does, stale generated files block deployment.
+6. Do not deploy on the user's behalf. End the skill at the verdict.
+7. If `pracht doctor` reports errors, do not run any other checks until those
    are resolved — they will produce noisy false positives.
 
 $ARGUMENTS

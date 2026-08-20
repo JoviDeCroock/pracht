@@ -275,7 +275,7 @@ describe("Pracht E2E port leases", () => {
     const leaseRoot = resolve(root, "leases");
     mkdirSync(workspaceRoot);
     mkdirSync(otherWorkspaceRoot);
-    const explicitPort = "61200";
+    const explicitPort = "15000";
     const lease = acquireE2EPortLease({
       env: {},
       leaseRoot,
@@ -299,7 +299,7 @@ describe("Pracht E2E port leases", () => {
     const workspaceRoot = resolve(root, "workspace");
     const leaseRoot = resolve(root, "leases");
     mkdirSync(workspaceRoot);
-    const crashed = spawnAllocator(workspaceRoot, leaseRoot, "61300");
+    const crashed = spawnAllocator(workspaceRoot, leaseRoot, "15100");
     await crashed.acquired;
     crashed.child.kill("SIGKILL");
     await expect(crashed.exited).resolves.toEqual({ code: null, signal: "SIGKILL" });
@@ -307,10 +307,10 @@ describe("Pracht E2E port leases", () => {
     const replacement = acquireE2EPortLease({
       env: {},
       leaseRoot,
-      override: "61300",
+      override: "15100",
       workspaceRoot,
     });
-    expect(replacement.portBase).toBe(61_300);
+    expect(replacement.portBase).toBe(15_100);
     expect(replacement.release()).toBe(true);
   });
 
@@ -319,15 +319,15 @@ describe("Pracht E2E port leases", () => {
     const workspaceRoot = resolve(root, "workspace");
     const leaseRoot = resolve(root, "leases");
     mkdirSync(workspaceRoot);
-    writeOwner(leaseRoot, 61_320, 0);
+    writeOwner(leaseRoot, 15_120, 0);
 
     const replacement = acquireE2EPortLease({
       env: {},
       leaseRoot,
-      override: "61320",
+      override: "15120",
       workspaceRoot,
     });
-    expect(replacement.portBase).toBe(61_320);
+    expect(replacement.portBase).toBe(15_120);
     expect(replacement.release()).toBe(true);
   });
 
@@ -336,15 +336,15 @@ describe("Pracht E2E port leases", () => {
     const workspaceRoot = resolve(root, "workspace");
     const leaseRoot = resolve(root, "leases");
     mkdirSync(workspaceRoot);
-    writeOwner(leaseRoot, 61_340, -1);
+    writeOwner(leaseRoot, 15_140, -1);
 
     const replacement = acquireE2EPortLease({
       env: {},
       leaseRoot,
-      override: "61340",
+      override: "15140",
       workspaceRoot,
     });
-    expect(replacement.portBase).toBe(61_340);
+    expect(replacement.portBase).toBe(15_140);
     expect(replacement.release()).toBe(true);
   });
 
@@ -356,15 +356,15 @@ describe("Pracht E2E port leases", () => {
     const workspaceRoot = resolve(root, "workspace");
     const leaseRoot = resolve(root, "leases");
     mkdirSync(workspaceRoot);
-    writeOwner(leaseRoot, 61_360, pid);
+    writeOwner(leaseRoot, 15_160, pid);
 
     const replacement = acquireE2EPortLease({
       env: {},
       leaseRoot,
-      override: "61360",
+      override: "15160",
       workspaceRoot,
     });
-    expect(replacement.portBase).toBe(61_360);
+    expect(replacement.portBase).toBe(15_160);
     expect(replacement.release()).toBe(true);
   });
 
@@ -376,7 +376,7 @@ describe("Pracht E2E port leases", () => {
 
     const lifecycleChild = spawn(
       process.execPath,
-      [fixture, workspaceRoot, leaseRoot, "61380", "process-exit"],
+      [fixture, workspaceRoot, leaseRoot, "15180", "process-exit"],
       { env: { PATH: process.env.PATH }, stdio: "pipe" },
     );
     lifecycleChild.stdout.setEncoding("utf8");
@@ -421,7 +421,7 @@ describe("Pracht E2E port leases", () => {
     const first = acquireE2EPortLease({
       env: {},
       leaseRoot,
-      override: "61400",
+      override: "15200",
       workspaceRoot,
     });
     const displacedPath = `${first.leasePath}.displaced`;
@@ -429,7 +429,7 @@ describe("Pracht E2E port leases", () => {
     const replacement = acquireE2EPortLease({
       env: {},
       leaseRoot,
-      override: "61400",
+      override: "15200",
       workspaceRoot,
     });
 
@@ -446,7 +446,7 @@ describe("Pracht E2E port leases", () => {
     const suiteLease = acquireE2EPortLease({
       env: {},
       leaseRoot,
-      override: "61440",
+      override: "15240",
       workspaceRoot,
     });
     const workerLeases = await Promise.all(

@@ -1,0 +1,172 @@
+import type { HeadMetadata } from "@pracht/core";
+import type { PrachtAdapter } from "@pracht/vite-plugin";
+
+export interface StaticAdapterOptions {
+  /**
+   * Additionally emit a SPA fallback document at `dist/client/<fallback>`
+   * (conventionally `"200.html"`). Configure your static host to rewrite
+   * unmatched URLs to it so deep links into non-prerendered paths (dynamic
+   * `render: "spa"` routes) boot the client router. Without a host rewrite
+   * the file is inert.
+   */
+  fallback?: string;
+  /**
+   * Metadata for the shared SPA fallback document. Every rewritten URL gets
+   * this same head because route, shell, and not-found `head()` exports run on
+   * the server and cannot be resolved for an arbitrary URL in a static document.
+   */
+  fallbackHead?: HeadMetadata;
+  /** Port used by `pracht preview` / running the generated entry directly. Defaults to 3000. */
+  port?: number;
+}
+
+const FALLBACK_FILENAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*\.html$/;
+const WINDOWS_RESERVED_FALLBACK_NAME_RE = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/i;
+const PORTABLE_FALLBACK_NAME_MAX_LENGTH = 255;
+
+function assertValidStaticAdapterOptions(options: StaticAdapterOptions): void {
+  const fallback = options.fallback;
+  if (fallback === undefined) {
+    if (options.fallbackHead !== undefined) {
+      throw new Error("staticAdapter({ fallbackHead }) requires a fallback file.");
+    }
+    return;
+  }
+  const normalizedFallback = fallback.toLowerCase();
+  if (normalizedFallback === "index.html" || normalizedFallback === "404.html") {
+    throw new Error(
+      `staticAdapter({ fallback: ${JSON.stringify(fallback)} }) collides with a reserved output file — ` +
+        '"index.html" is the root route and "404.html" is the rendered not-found page. Use "200.html".',
+    );
+  }
+  if (!FALLBACK_FILENAME_RE.test(fallback)) {
+    throw new Error(
+      `staticAdapter({ fallback }) expects a plain HTML file name such as "200.html", got ${JSON.stringify(fallback)}.`,
+    );
+  }
+  if (
+    WINDOWS_RESERVED_FALLBACK_NAME_RE.test(fallback) ||
+    fallback.length > PORTABLE_FALLBACK_NAME_MAX_LENGTH ||
+    Buffer.byteLength(fallback, "utf-8") > PORTABLE_FALLBACK_NAME_MAX_LENGTH
+  ) {
+    throw new Error(
+      `staticAdapter({ fallback: ${JSON.stringify(fallback)} }) is not a portable file name. ` +
+        "Avoid Windows reserved device names and names longer than 255 bytes/code units.",
+    );
+  }
+}
+
+export function createStaticServerEntryModule(options: StaticAdapterOptions = {}): string {
+  assertValidStaticAdapterOptions(options);
+  const fallback = options.fallback ?? null;
+  const fallbackHead = options.fallbackHead ?? null;
+  const port = options.port ?? 3000;
+
+  return [
+    "",
+    "// ---- @pracht/adapter-static ------------------------------------------",
+    "// A static export has no runtime server: dist/client is the deployable",
+    "// artifact. Everything below exists for `pracht build` (which imports",
+    "// this bundle to prerender) and `pracht preview` (which runs this file",
+    "// directly to serve dist/client locally).",
+    "",
+    `export const staticExportConfig = { fallback: ${JSON.stringify(fallback)}, fallbackHead: ${JSON.stringify(fallbackHead)} };`,
+    "",
+    "// Remove ordinary routes from the build-only not-found app so a broad",
+    "// dynamic pattern (`/:slug`, `/*`) cannot consume the synthetic request",
+    "// before the app-level notFound page runs. `hrefRoutes` keeps the real",
+    "// table available to `<Link route=…>`/`href()` in the shell and the",
+    "// not-found page — they are not matched, only resolved.",
+    "const staticNotFoundApp = { ...resolvedApp, routes: [], hrefRoutes: resolvedApp.routes };",
+    "",
+    "// Rendered to dist/client/404.html (the GitHub Pages / S3 error-document",
+    "// convention). Returns null when the app declares none.",
+    "export async function renderStaticNotFoundHtml() {",
+    "  if (!resolvedApp.notFound) return null;",
+    "  let renderError;",
+    "  const response = await handlePrachtRequest({",
+    "    app: staticNotFoundApp,",
+    "    registry,",
+    '    request: new Request("http://localhost/404.html", { method: "GET" }),',
+    "    clientEntryUrl: clientEntryUrl ?? undefined,",
+    "    islandsEntryUrl: islandsEntryUrl ?? undefined,",
+    "    islandsBootstrapRequired,",
+    "    cssManifest,",
+    "    jsManifest,",
+    "    onRouteError: (error) => {",
+    "      renderError = error;",
+    "    },",
+    "  });",
+    '  const contentType = response.headers.get("content-type") ?? "";',
+    "  if (response.status !== 404) {",
+    '    const location = response.headers.get("location");',
+    '    const detail = location ? ` (redirect: ${location})` : "";',
+    "    throw new Error(",
+    "      `Static export failed to render the notFound page: status ${response.status}${detail}. Make its loader succeed at build time or use a serverful adapter.` +",
+    "        describeRenderError(renderError),",
+    "      renderError === undefined ? undefined : { cause: renderError },",
+    "    );",
+    "  }",
+    '  if (!contentType.includes("text/html")) {',
+    '    throw new Error(`Static export failed to render the notFound page as HTML (content-type: ${contentType || "missing"}).`);',
+    "  }",
+    "  return await response.text();",
+    "}",
+    "",
+    "export function renderStaticFallbackHtml(notFoundState) {",
+    "  return buildStaticFallbackHtml({",
+    "    clientEntryUrl: clientEntryUrl ?? undefined,",
+    "    head: staticExportConfig.fallbackHead ?? undefined,",
+    "    notFoundData: notFoundState?.data,",
+    "    notFoundError: notFoundState?.error ?? null,",
+    "  });",
+    "}",
+    "",
+    "const entryHref = process.argv[1] ? pathToFileURL(process.argv[1]).href : null;",
+    "if (entryHref && import.meta.url === entryHref) {",
+    "  const serverDir = dirname(fileURLToPath(import.meta.url));",
+    "  const handler = createStaticPreviewHandler({",
+    '    staticDir: resolve(serverDir, "../client"),',
+    "    fallback: staticExportConfig.fallback,",
+    "  });",
+    "  const server = createServer(handler);",
+    `  const port = Number(process.env.PORT ?? ${port});`,
+    "  server.listen(port, () => {",
+    "    console.log(`pracht static preview listening on http://localhost:${port}`);",
+    "  });",
+    "}",
+    "",
+  ].join("\n");
+}
+
+/**
+ * Create a pracht adapter for pure static export.
+ *
+ * ```ts
+ * import { staticAdapter } from "@pracht/adapter-static";
+ * pracht({ adapter: staticAdapter() })
+ * ```
+ *
+ * `pracht build` prerenders every route into `dist/client/` — deploy that
+ * directory to any static host. Build-time validation fails closed on
+ * anything that needs a server: `render: "ssr"` / `"isg"` routes, SPA
+ * loaders, request middleware, API routes, and network-exposed capabilities.
+ * SSG loaders run at build time; static SPA routes are loaderless.
+ */
+export function staticAdapter(options: StaticAdapterOptions = {}): PrachtAdapter {
+  assertValidStaticAdapterOptions(options);
+  return {
+    id: "static",
+    staticTarget: true,
+    serverImports: [
+      'import { createServer } from "node:http";',
+      'import { dirname, resolve } from "node:path";',
+      'import { fileURLToPath, pathToFileURL } from "node:url";',
+      'import { resolveApp, resolveApiRoutes, handlePrachtRequest, buildStaticFallbackHtml, describeRenderError } from "@pracht/core/server";',
+      'import { createStaticPreviewHandler } from "@pracht/adapter-static";',
+    ].join("\n"),
+    createServerEntryModule() {
+      return createStaticServerEntryModule(options);
+    },
+  };
+}

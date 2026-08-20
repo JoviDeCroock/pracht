@@ -9,6 +9,14 @@ import { build as viteBuild } from "vite";
 import { readClientBuildAssets } from "../build-metadata.js";
 import { writeVercelBuildOutput } from "../build-shared.js";
 import {
+  isStaticExportBuild,
+  resolvePrerenderOutputPath,
+  resolveStaticExportOutputPath,
+  validateStaticExport,
+  validateStaticExportOutputPaths,
+  writeStaticExportArtifacts,
+} from "../build-static.js";
+import {
   collectBundleReport,
   evaluateBudgets,
   formatBudgetResults,
@@ -17,6 +25,8 @@ import {
   shouldUseColor,
   type BundleReportRoute,
 } from "../bundle-report.js";
+
+export { resolvePrerenderOutputPath } from "../build-static.js";
 
 let prerenderHooksRegistered = false;
 
@@ -159,11 +169,19 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
     registerPrerenderModuleHooks();
     const serverMod = await import(pathToFileURL(serverEntry).href);
     buildTarget = typeof serverMod.buildTarget === "string" ? serverMod.buildTarget : null;
+    const isStaticExport = isStaticExportBuild(serverMod);
+    if (isStaticExport) {
+      // Fail closed before prerendering: a static export has no server, so
+      // Request-runtime routes/features and network-exposed capabilities are
+      // build errors (with every offender listed at once).
+      await validateStaticExport(serverMod);
+    }
     const { prerenderApp } = serverMod;
     const { clientEntryUrl, clientEntryJs, islandsEntryJs, cssManifest, jsManifest } =
       readClientBuildAssets(root);
 
     const { pages, isgManifest } = await prerenderApp({
+      staticExport: isStaticExport,
       app: serverMod.resolvedApp,
       clientEntryUrl: clientEntryUrl ?? undefined,
       islandsEntryUrl: serverMod.islandsEntryUrl ?? undefined,
@@ -174,6 +192,11 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
       withISGManifest: true,
       concurrency: serverMod.prerenderConcurrency,
     });
+    if (isStaticExport) {
+      // getStaticPaths() can produce paths that are absent from the manifest.
+      // Validate the concrete set before writing even the first page.
+      validateStaticExportOutputPaths(pages, serverMod);
+    }
     const headersManifest: Record<string, Record<string, string>> = Object.fromEntries(
       pages.map((page: { path: string; headers?: Record<string, string> }) => [
         page.path,
@@ -211,7 +234,12 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
     if (staticPages.length > 0) {
       log(`\n  Prerendering ${staticPages.length} SSG/ISG route(s)...\n`);
       for (const page of staticPages) {
-        const filePath = resolvePrerenderOutputPath(clientDir, page.path);
+        // Static exports write to the decoded path (the host resolves the URL
+        // itself); serverful adapters keep the encoded form their own static
+        // lookup matches against.
+        const filePath = isStaticExport
+          ? resolveStaticExportOutputPath(clientDir, page.path)
+          : resolvePrerenderOutputPath(clientDir, page.path);
 
         mkdirSync(dirname(filePath), { recursive: true });
         writeFileSync(filePath, page.html, "utf-8");
@@ -294,8 +322,15 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
         headersManifestJson,
         "utf-8",
       );
-      mkdirSync(resolve(clientDir, "_pracht"), { recursive: true });
-      writeFileSync(resolve(clientDir, "_pracht/headers.json"), headersManifestJson, "utf-8");
+      // Only the Cloudflare worker reads this from the client output (it
+      // fetches /_pracht/headers.json through the assets binding); every other
+      // target reads dist/server. A static export has no runtime at all, so
+      // publishing it would ship the full route list and header policy as
+      // permanently dead bytes in the deployable directory.
+      if (!isStaticExport) {
+        mkdirSync(resolve(clientDir, "_pracht"), { recursive: true });
+        writeFileSync(resolve(clientDir, "_pracht/headers.json"), headersManifestJson, "utf-8");
+      }
     }
 
     // Always emit this manifest, including for SSR-only apps with no
@@ -308,8 +343,12 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
       markdownManifestJson,
       "utf-8",
     );
-    mkdirSync(resolve(clientDir, "_pracht"), { recursive: true });
-    writeFileSync(resolve(clientDir, "_pracht/markdown.json"), markdownManifestJson, "utf-8");
+    // Same as headers.json above: Cloudflare's worker is the only reader of
+    // the client copy, and a static export has no worker.
+    if (!isStaticExport) {
+      mkdirSync(resolve(clientDir, "_pracht"), { recursive: true });
+      writeFileSync(resolve(clientDir, "_pracht/markdown.json"), markdownManifestJson, "utf-8");
+    }
 
     if (Object.keys(isgManifest).length > 0) {
       const isgManifestPath = resolve(root, "dist/server/isg-manifest.json");
@@ -325,6 +364,29 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
       }
       log(
         `\n  ISG manifest → dist/server/isg-manifest.json (${Object.keys(isgManifest).length} route(s))\n`,
+      );
+    }
+
+    if (isStaticExport) {
+      await writeStaticExportArtifacts({
+        clientDir,
+        pages,
+        serverMod,
+        log,
+      });
+
+      if (Object.keys(markdownManifest).length > 0) {
+        log(
+          "  Note: routes exporting `markdown` rely on server-side content negotiation. " +
+            "A static host always answers with the HTML file; agents requesting " +
+            "`Accept: text/markdown` get HTML. Publish .md files under public/ instead " +
+            "when a raw-markdown corpus matters.\n",
+        );
+      }
+
+      log(
+        "\n  Static export complete → deploy dist/client/ to any static host " +
+          "(dist/server/ is build tooling only).\n",
       );
     }
 
@@ -468,30 +530,6 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
 
   log("\n  Build complete.\n");
   return { buildTarget };
-}
-
-export function resolvePrerenderOutputPath(clientDir: string, routePath: string): string {
-  if (routePath.includes("\0")) {
-    throw new Error(`Refusing to write prerendered route "${routePath}" with a NUL byte.`);
-  }
-
-  const root = resolve(clientDir);
-  const filePath =
-    routePath === "/" ? resolve(root, "index.html") : resolve(root, `.${routePath}`, "index.html");
-  const relativePath = relative(root, filePath);
-
-  if (
-    relativePath === "" ||
-    relativePath === ".." ||
-    relativePath.startsWith(`..${sep}`) ||
-    isAbsolute(relativePath)
-  ) {
-    throw new Error(
-      `Refusing to write prerendered route "${routePath}" outside dist/client (${filePath}).`,
-    );
-  }
-
-  return filePath;
 }
 
 export function resolveGeneratedArtifactOutputPath(clientDir: string, outputPath: string): string {

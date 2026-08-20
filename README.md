@@ -28,7 +28,7 @@ npm create pracht@latest my-app
 - **Explicit over magic** — a typed `defineApp()` manifest wires routes, shells, and middleware. What runs where is never a mystery. Prefer file-based routing? Opt in to the pages router and skip the manifest entirely.
 - **Vite-native** — instant HMR, fast builds, multi-environment output out of the box.
 - **Performance budgets built in** — `pracht build --analyze` reports per-route client JS (gzip + raw), and per-route `budgets` fail the build when a route ships too much.
-- **Deploy anywhere** — one codebase, one build, four production-ready adapters (Node, Cloudflare Workers, Netlify, Vercel).
+- **Deploy anywhere** — one codebase, one build, five production-ready adapters (Node, Cloudflare Workers, Netlify, Vercel, and pure static export).
 - **Env safety built in** — typed `serverEnv`/`publicEnv` helpers with a `PRACHT_PUBLIC_` prefix rule, and builds fail when client bundles reference non-public env vars.
 
 ## At a glance
@@ -97,7 +97,7 @@ auth or the agent surface. See [docs/ROUTING.md](docs/ROUTING.md#what-the-pages-
 npm create pracht@latest my-app
 ```
 
-The prompts cover the target directory, hosting adapter (Node.js, Cloudflare Workers, Vercel), router (manifest or pages), and optional Tailwind CSS. For non-interactive runs pass flags instead — e.g. `--template=tailwind` (or `--template=minimal`), `--adapter=node`, `--no-git`, `--yes`. See [packages/start/README.md](packages/start/README.md) for the full list.
+The prompts cover the target directory, hosting adapter (Node.js, Cloudflare Workers, Vercel, Netlify, or a pure static export), router (manifest or pages), and optional Tailwind CSS. For non-interactive runs pass flags instead — e.g. `--template=tailwind` (or `--template=minimal`), `--adapter=node`, `--no-git`, `--yes`. See [packages/start/README.md](packages/start/README.md) for the full list.
 
 The starter gives you:
 
@@ -149,7 +149,7 @@ The skills are distributed three ways (see the [catalog](skills/README.md)):
 - [docs/CAPABILITY_GRAPH.md](docs/CAPABILITY_GRAPH.md) — the capability graph product bet: proposal, decision log, staged plan
 - [docs/LLMS_TXT.md](docs/LLMS_TXT.md) — generated llms.txt: pages, API endpoints, capabilities
 - [docs/STYLING.md](docs/STYLING.md) — CSS Modules, Tailwind, CSS-in-JS limitations
-- [docs/ADAPTERS.md](docs/ADAPTERS.md) — Node, Cloudflare, Netlify, Vercel deployment paths
+- [docs/ADAPTERS.md](docs/ADAPTERS.md) — Node, Cloudflare, Netlify, Vercel, and static-export deployment paths
 - [docs/IMAGES.md](docs/IMAGES.md) — responsive `<Image>` component, loaders, optimization endpoint
 - [packages/i18n/README.md](packages/i18n/README.md) — `@pracht/i18n`: locale-detection middleware, typed dictionaries, hreflang helpers
 - [docs/MCP.md](docs/MCP.md) — built-in MCP server for coding agents (development time)

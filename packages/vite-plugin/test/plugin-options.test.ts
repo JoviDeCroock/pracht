@@ -120,6 +120,23 @@ describe("createPrachtDevModuleSource API graph", () => {
       'export const apiRoutes = resolveApiRoutes(Object.keys(apiModules), "/src/http");',
     );
   });
+
+  it("applies route hints and exports the authoritative static target", () => {
+    const source = createPrachtDevModuleSource({
+      adapter: {
+        id: "custom-static",
+        serverImports: "",
+        staticTarget: true,
+        createServerEntryModule: () => "",
+      },
+    });
+
+    expect(source).toContain("const routeLoaderHints = ");
+    expect(source).toContain("const routeHeadHints = ");
+    expect(source).toContain("applyRouteHints(resolvedApp, routeLoaderHints, routeHeadHints);");
+    expect(source).toContain('export const buildTarget = "custom-static";');
+    expect(source).toContain("export const staticTarget = true;");
+  });
 });
 
 describe("createPrachtServerModuleSource budgets export", () => {
@@ -133,5 +150,32 @@ describe("createPrachtServerModuleSource budgets export", () => {
   it("embeds an empty budgets object by default", () => {
     const source = createPrachtServerModuleSource();
     expect(source).toContain("export const budgets = {};");
+  });
+});
+
+describe("createPrachtServerModuleSource static target export", () => {
+  it("exports staticTarget independently from a custom adapter id", () => {
+    const source = createPrachtServerModuleSource({
+      adapter: {
+        id: "custom-static",
+        serverImports: 'import { resolveApp, resolveApiRoutes } from "@pracht/core/server";',
+        staticTarget: true,
+        createServerEntryModule: () => "",
+      },
+    });
+
+    expect(source).toContain('export const buildTarget = "custom-static";');
+    expect(source).toContain("export const staticTarget = true;");
+  });
+
+  it("exports staticTarget false for serverful adapters", () => {
+    expect(createPrachtServerModuleSource()).toContain("export const staticTarget = false;");
+  });
+
+  it("exports the resolved Vite base so the CLI can reject sub-path static deploys", () => {
+    expect(createPrachtServerModuleSource({}, { base: "/app/" })).toContain(
+      'export const buildBase = "/app/";',
+    );
+    expect(createPrachtServerModuleSource()).toContain('export const buildBase = "/";');
   });
 });

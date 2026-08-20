@@ -18,7 +18,7 @@ collide with other skill packs installed in the same app.
 | ------------------ | ------------------------------------------------------------ |
 | `/pracht-scaffold` | Generate routes, shells, middleware, or API handlers.        |
 | `/pracht-debug`    | Investigate route matching, loader, rendering, or HMR bugs.  |
-| `/pracht-deploy`   | Configure an adapter and deploy to Node, Cloudflare, Vercel. |
+| `/pracht-deploy`   | Configure an adapter and deploy to Node, Cloudflare, Vercel, or a static host. |
 | `/migrate-nextjs`  | Convert a Next.js app (App or Pages Router) to pracht.       |
 | `/upgrade-pracht`  | Upgrade `@pracht/*` packages safely, mapping breaking changes. |
 
@@ -73,8 +73,11 @@ collide with other skill packs installed in the same app.
   Prefer the MCP tools when the client has the server registered; every skill
   carries a reminder near its first CLI invocation.
 - State prerequisites: `pracht inspect` needs a vite config that registers the
-  pracht plugin; `inspect build`, the analyze report, `headers.json`, and the
-  env-safety report all need a prior `pracht build`.
+  pracht plugin; `inspect build`, the analyze report, the headers manifest,
+  and the env-safety report all need a prior `pracht build`. The canonical
+  headers manifest is `dist/server/headers-manifest.json`. Every serverful
+  target currently publishes a client copy; only Cloudflare reads it there.
+  Pure static exports omit that public copy.
 - Use `pracht typegen` to refresh `src/pracht.d.ts` and
   `src/pracht-routes.ts` after route ids or paths change — and
   `src/pracht-capabilities.d.ts` after capability schemas change; use

@@ -203,6 +203,46 @@ platform-shaped local runtime.
 
 ---
 
+## Static hosts
+
+Apps whose routes are all `ssg` (or loaderless, full-hydration `spa`), with no request
+middleware, API routes, or network-exposed capabilities, can skip servers
+entirely with `@pracht/adapter-static` — GitHub Pages, S3, nginx, Netlify, any
+file host.
+
+```ts [vite.config.ts]
+import { defineConfig } from "vite";
+import { pracht } from "@pracht/vite-plugin";
+import { staticAdapter } from "@pracht/adapter-static";
+
+export default defineConfig({
+  plugins: [pracht({ adapter: staticAdapter() })],
+});
+```
+
+```sh
+# Build and preview
+pracht build      # dist/client/ is the whole deployment
+pracht preview
+```
+
+The build serializes each full-hydration SSG route whose loader or route/shell
+`head()` metadata participates in navigation to collision-safe bounded opaque
+`.json` files under `_pracht/state/` so client-side navigation works without a
+server, emits the `notFound` page as `404.html`, and — with
+`staticAdapter({ fallback: "200.html" })` — an SPA fallback document for hosts
+that can rewrite unmatched URLs. Explicitly loaderless and headless routes
+fetch no Pracht state; loaderless routes with head metadata fetch static state
+for font-head fragments and can still call external APIs directly from the
+browser. Static `notFound` pages
+must use full hydration so they can adopt the requested URL; the SPA fallback
+reuses their build-time loader data when it renders an unknown URL. Anything that needs a
+runtime server (`ssr` or `isg` routes, SPA loaders, middleware, API routes,
+exposed capabilities) fails the build with an error naming the offenders. See
+the [Adapters Reference](/docs/adapters) for host configuration details.
+
+---
+
 ## Custom Context
 
 Generated adapter entries can import a context factory that enriches the context passed to loaders, API routes, and middleware:

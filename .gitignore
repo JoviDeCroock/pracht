@@ -10,3 +10,4 @@ test-results
 !.env.example
 .dev.vars
 packages/start/skills
+.gstack

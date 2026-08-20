@@ -12,6 +12,7 @@ import type {
   AppGraphApiRoute,
   AppGraphCapability,
   AppGraphRoute,
+  ResolvedRoute,
   RouteConstraint,
 } from "@pracht/core";
 
@@ -47,9 +48,18 @@ export interface GraphSnapshot {
   constraints: RouteConstraint[];
 }
 
-export async function resolveLiveGraph(root: string): Promise<GraphSnapshot> {
+export interface LiveGraphMetadata {
+  graph: GraphSnapshot;
+  /** Authoritative adapter capability from the resolved Vite configuration. */
+  staticTarget: boolean;
+  /** Routes whose generated loader hint says a server fetch may be required. */
+  loaderRoutePaths: ReadonlySet<string>;
+}
+
+export async function resolveLiveGraphMetadata(root: string): Promise<LiveGraphMetadata> {
   return withAppServer(root, async ({ project, server, serverModule }) => {
-    const routes = serializeAppRoutes(serverModule.resolvedApp.routes);
+    const resolvedRoutes = serverModule.resolvedApp.routes as ResolvedRoute[];
+    const routes = serializeAppRoutes(resolvedRoutes);
     const api = await serializeApiRoutes(
       serverModule.apiRoutes,
       {
@@ -67,16 +77,28 @@ export async function resolveLiveGraph(root: string): Promise<GraphSnapshot> {
       { strict: true },
     );
 
-    return normalizeGraphSnapshot({
-      prachtGraphVersion: GRAPH_SNAPSHOT_VERSION,
-      mode: project.mode,
-      routes,
-      api,
-      capabilities,
-      mcpEndpoint: resolveMcpEndpoint(serverModule.resolvedApp.agents),
-      constraints: serverModule.resolvedApp.constraints ?? [],
-    });
+    return {
+      graph: normalizeGraphSnapshot({
+        prachtGraphVersion: GRAPH_SNAPSHOT_VERSION,
+        mode: project.mode,
+        routes,
+        api,
+        capabilities,
+        mcpEndpoint: resolveMcpEndpoint(serverModule.resolvedApp.agents),
+        constraints: serverModule.resolvedApp.constraints ?? [],
+      }),
+      loaderRoutePaths: new Set(
+        resolvedRoutes
+          .filter((route) => route.loaderFile !== undefined || route.hasLoader !== false)
+          .map((route) => route.path),
+      ),
+      staticTarget: serverModule.staticTarget === true,
+    };
   });
+}
+
+export async function resolveLiveGraph(root: string): Promise<GraphSnapshot> {
+  return (await resolveLiveGraphMetadata(root)).graph;
 }
 
 /**

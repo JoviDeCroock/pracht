@@ -8,6 +8,7 @@
     "@pracht/core": "workspace:*"
   },
   "devDependencies": {
+    "@pracht/adapter-static": "workspace:*",
     "@pracht/cli": "workspace:*",
     "@pracht/vite-plugin": "workspace:*",
     "preact": "^10.26.9",

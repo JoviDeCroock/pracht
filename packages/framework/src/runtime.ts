@@ -42,6 +42,7 @@ import {
 } from "./runtime-middleware.ts";
 import type { ResolvedCapability } from "./runtime-capabilities.ts";
 import { buildRouteStateUrl } from "./runtime-client-fetch.ts";
+import { buildStaticRouteStateUrl, IS_STATIC_TARGET } from "./runtime-static.ts";
 import {
   getRenderToStringAsync,
   isFrameworkFontHeadResponse,
@@ -267,7 +268,12 @@ export function isFirstPartyFetch(request: Request): boolean {
 }
 
 export interface HandlePrachtRequestOptions<TContext = unknown> {
-  app: PrachtApp;
+  /**
+   * Authoring-shaped or already-resolved app. Generated server entries pass
+   * the resolved one, which is also the only shape that can carry
+   * `hrefRoutes`.
+   */
+  app: PrachtApp | ResolvedPrachtApp;
   request: Request;
   context?: TContext;
   registry?: ModuleRegistry;
@@ -304,6 +310,14 @@ export interface HandlePrachtRequestOptions<TContext = unknown> {
    * hook via `setCapabilityAuditHook()` from any server-only module.
    */
   onCapabilityAudit?: CapabilityAuditHook;
+  /**
+   * Called with the raw error whenever a page render fails, before it is
+   * normalized into a response. The response body deliberately hides server
+   * error details outside `debugErrors`, which leaves a build-time caller
+   * (prerendering, static export) with a bare status and no cause. Prerender
+   * passes this so a failing SSG page can name what actually threw.
+   */
+  onRouteError?: (error: unknown, requestPath: string) => void;
 }
 
 export async function handlePrachtRequest<TContext>(
@@ -316,7 +330,12 @@ export async function handlePrachtRequest<TContext>(
   }
   const requestPath = getRequestPath(url);
   const registry = options.registry ?? {};
-  const resolvedApp = getResolvedApp(options.app);
+  const resolvedApp = getResolvedApp(options.app as PrachtApp);
+  // What `<Link route=…>` and `href()` resolve against. Normally the route
+  // table itself; a static export's 404/fallback render empties `routes` so
+  // no dynamic pattern can consume the synthetic request, and passes the real
+  // table separately so the shell's links still build.
+  const hrefRoutes = resolvedApp.hrefRoutes ?? resolvedApp.routes;
   // The route-state endpoint returns loader output as JSON. Two entry
   // points into it: the explicit header (only settable via fetch, so the
   // browser forces CORS preflight cross-origin) and the `_data=1` query
@@ -884,6 +903,10 @@ export async function handlePrachtRequest<TContext>(
         );
 
         if (match.route.render === "spa") {
+          // The generated hasLoader hint can be absent for direct runtime
+          // callers, but the resolved loader is authoritative here. Route
+          // middleware also participates in the route-state request.
+          const needsRouteState = loader != null || match.route.middlewareFiles.length > 0;
           let body = "";
           const Shell = shellModule?.Shell as FunctionComponent | undefined;
           const Loading = shellModule?.Loading as FunctionComponent | undefined;
@@ -908,7 +931,7 @@ export async function handlePrachtRequest<TContext>(
                   data: null,
                   params: match.params,
                   routeId: match.route.id ?? "",
-                  routes: resolvedApp.routes,
+                  routes: hrefRoutes,
                   url: requestPath,
                 },
                 loadingTree,
@@ -927,12 +950,18 @@ export async function handlePrachtRequest<TContext>(
                 routeId: match.route.id ?? "",
                 data: null,
                 error: null,
-                pending: true,
+                pending: needsRouteState,
               },
               clientEntryUrl: options.clientEntryUrl,
               cssUrls,
               modulePreloadUrls,
-              routeStatePreloadUrl: loader ? buildRouteStateUrl(requestPath) : undefined,
+              // Routes with loader/middleware state preload it. Static exports
+              // point this at a serialized file; other adapters use `_data=1`.
+              routeStatePreloadUrl: needsRouteState
+                ? IS_STATIC_TARGET
+                  ? buildStaticRouteStateUrl(requestPath)
+                  : buildRouteStateUrl(requestPath)
+                : undefined,
               speculationRules: getAppSpeculationRules(resolvedApp),
             }),
             pageOptions.status,
@@ -963,7 +992,7 @@ export async function handlePrachtRequest<TContext>(
             data,
             params: match.params,
             routeId: match.route.id ?? "",
-            routes: resolvedApp.routes,
+            routes: hrefRoutes,
             url: requestPath,
           },
           componentTree,
@@ -1175,6 +1204,8 @@ export async function handlePrachtRequest<TContext>(
       // (notably fonts used by the route ErrorBoundary) when it resolves.
       routeModule ??= await routeModulePromise?.catch(() => undefined);
 
+      options.onRouteError?.(thrownResponseFailure ?? error, requestPath);
+
       return renderRouteErrorResponse({
         error: thrownResponseFailure ?? error,
         isRouteStateRequest,
@@ -1184,7 +1215,7 @@ export async function handlePrachtRequest<TContext>(
         routeArgs,
         routeId: match.route.id ?? "",
         routeModule,
-        routes: resolvedApp.routes,
+        routes: hrefRoutes,
         shellFile: match.route.shellFile,
         shellModule,
         requestPath,

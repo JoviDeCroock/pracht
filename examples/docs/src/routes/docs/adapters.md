@@ -1,6 +1,6 @@
 ---
 title: Adapters
-lead: Adapters are thin layers that translate between a platform's native request handling and pracht's Web Request/Response interface. pracht ships adapters for Cloudflare Workers, Vercel Edge Functions, and Node.js.
+lead: Adapters are thin layers that translate between a platform's native request handling and pracht's Web Request/Response interface. pracht ships adapters for Cloudflare Workers, Vercel Edge Functions, Node.js, and pure static export.
 breadcrumb: Adapters
 prev:
   href: /docs/deployment
@@ -554,6 +554,67 @@ server.on("upgrade", (req, socket, head) => {
 
 server.listen(3000);
 ```
+
+---
+
+## Static export
+
+`@pracht/adapter-static` prerenders every route into `dist/client/` and stops there: no server bundle is deployed, and the directory works on any static host — GitHub Pages, S3, nginx, Netlify.
+
+### Setup
+
+```ts
+// vite.config.ts
+import { staticAdapter } from "@pracht/adapter-static";
+pracht({ adapter: staticAdapter() })
+// optional SPA fallback for host rewrites:
+pracht({
+  adapter: staticAdapter({
+    fallback: "200.html",
+    fallbackHead: { title: "My app" }, // shared by every rewritten URL
+  }),
+})
+
+// package.json
+"@pracht/adapter-static": "*"
+```
+
+### What must hold
+
+The build fails closed — before prerendering, with every offender listed — when the app needs a server:
+
+- every route must be `render: "ssg"` or loaderless, full-hydration `"spa"`; SSG loaders must produce HTML plus valid JSON route state at build time, and dynamic SSG routes must export `getStaticPaths()`;
+- no route or not-found middleware;
+- the `notFound` page must use full hydration (the default) so `404.html` can adopt the visitor's real URL;
+- no API routes;
+- no manifest-registered capabilities exposed over HTTP/MCP/WebMCP (unexposed capabilities invoked from build-time loaders are fine); registered capability modules must load successfully so the build can establish that exposure safely;
+- neither route patterns nor concrete paths returned by `getStaticPaths()` may write under the reserved `/_pracht/` namespace; concrete output is checked before any page is written;
+- Vite `base` must stay `/`: prerendered asset and route-state URLs are root-relative, so a sub-path deploy would 404 everything.
+
+`ssr` and `isg` routes belong on the Node, Cloudflare, or Vercel adapters.
+
+### Client navigation from static files
+
+Client-side navigation normally fetches route-state JSON from the server. A static export has none, so the build serializes each full-hydration SSG route whose loader or route/shell `head()` metadata participates in navigation to a bounded, collision-safe opaque `.json` file under `dist/client/_pracht/state/`, and the client bundle — compiled with the adapter's `staticTarget` flag — fetches those files instead. Equivalent URL segment spellings (raw Unicode, lowercase percent escapes, and escaped unreserved characters) are canonicalized to the same state file. The CLI reads that same flag independently of the adapter id, so custom static adapters enter the same artifact pipeline; they must reuse `staticAdapter()` or `createStaticServerEntryModule()` so the generated server entry exposes the 404/fallback render hooks, and the build fails when a required hook is missing. Explicitly loaderless and headless routes fetch no Pracht state; loaderless routes with head metadata fetch static state for font-head fragments while their components and data remain browser-only. Islands pages keep their MPA navigation.
+
+### 404 and SPA fallback
+
+The app's `notFound` page is rendered to `404.html` independently of ordinary route matching (the GitHub Pages / S3 convention); the full-hydration page adopts the URL actually visited. With `fallback: "200.html"` plus a host rewrite for unmatched URLs, deep links into dynamic `render: "spa"` routes boot the client router and resolve the route from `window.location`.
+
+The fallback is one document shared by every rewritten URL, so it cannot run a route-, shell-, or not-found-specific `head()` export. If a fallback-rendered route declares one, configure explicit generic `fallbackHead` metadata shared by every fallback URL; the build fails closed when it is omitted. Fonts in that generic head remain registered while the fallback commits a loaderless dynamic SPA route.
+
+The fallback only client-renders matched SPA routes. A path that matches a dynamic SSG pattern but was not emitted by `getStaticPaths()` renders the app's `notFound` page instead of running without its missing build-time state. That client render reuses the build-time `notFound` loader data or handled error state serialized into `404.html`.
+
+The rewrite answers unknown URLs with status 200, so they become soft 404s; and with no `notFound` page and no unshadowed client-routable SPA catch-all, they render blank (the build warns). Prerendered pages must map to distinct portable filesystem paths: the build rejects duplicate, case-folded, and Unicode-normalization-equivalent outputs; Windows-invalid or overlong filename components; file/directory conflicts such as `/` with `/index.html`; and route directories that occupy `404.html` or the configured fallback file path before writing any page. Files copied from `public/` or emitted by Vite also may not occupy the generated `404.html` or configured fallback path, including a case- or Unicode-normalization-equivalent spelling; the build rejects those portable collisions instead of overwriting existing output. Fallback filenames also reject Windows reserved device names and the portable 255-byte/code-unit component limit.
+
+### Build, preview, deploy
+
+```sh
+pracht build      # dist/client/ is the deployable site
+pracht preview    # serves dist/client/ with a tiny static file server
+```
+
+Pages are emitted as `<path>/index.html` at the percent-decoded path (`/posts/caf%C3%A9` → `posts/café/index.html`), so the host must serve `index.html` for directory URLs (clean URLs). `pracht preview` decodes request segments to that same filesystem spelling. Response headers each prerendered route would have carried are recorded in `dist/server/headers-manifest.json` (build tooling, not published) — mirror the ones you need in the host's header config. See `docs/ADAPTERS.md` in the repository for host-configuration details and limitations (markdown negotiation, base paths).
 
 ---
 

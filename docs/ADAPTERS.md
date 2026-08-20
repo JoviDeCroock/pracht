@@ -1105,6 +1105,251 @@ export const nodeListener = createVercelNodeListener(handle);
 
 ---
 
+## Static Adapter
+
+`@pracht/adapter-static` produces a **pure static export**: `pracht build`
+prerenders every route into `dist/client/`, and that directory deploys to any
+static host — GitHub Pages, S3, nginx, Netlify — with zero server. It is the
+analogue of SvelteKit's `adapter-static` and Next's `output: "export"`.
+
+```ts
+// vite.config.ts
+import { staticAdapter } from "@pracht/adapter-static";
+pracht({ adapter: staticAdapter() });
+
+// optional SPA fallback document:
+pracht({
+  adapter: staticAdapter({
+    fallback: "200.html",
+    fallbackHead: { title: "My app" }, // shared by every rewritten URL
+  }),
+});
+```
+
+### Build-time validation (fail closed)
+
+A static export has no runtime server, so `pracht build` fails with an
+aggregated error — before any prerendering — when the app needs one:
+
+- **Routes** must be `render: "ssg"` or loaderless, full-hydration `"spa"`.
+  SSG loaders run only during the build and must produce an HTML document plus
+  valid JSON route state; redirects, errors, successful non-HTML responses,
+  and malformed route-state responses fail the build. Dynamic SSG routes must
+  export `getStaticPaths()`. SPA loaders, non-full SPA hydration, `ssr`, and
+  `isg` are hard errors naming each route and pointing at the serverful
+  adapters. Fetch live SPA data in the browser from an external API instead.
+  A build-time render failure reports the underlying error alongside the
+  status (`Underlying error: …`, also set as the thrown error's `cause`) —
+  rendered 500 responses hide server error details, so the build surfaces them
+  from the render itself.
+- **Route and not-found middleware** are hard errors: a static host has no
+  request runtime in which to enforce redirects, authentication, or headers.
+- The **`notFound` page must use full hydration** (the default). Every unknown
+  URL receives the same prebuilt `404.html`, so the full client router is what
+  replaces the build URL with the visitor's actual location. `"islands"` and
+  `"none"` are hard errors for a static not-found page.
+- **API routes** are hard errors (nothing can answer them).
+- **Capabilities exposed over HTTP/MCP/WebMCP** are hard errors. Unexposed
+  capabilities are fine — `invokeCapability()` from build-time loaders runs
+  during prerender. Validation follows the manifest's registered capability
+  graph rather than every file in `src/capabilities/`; a registered module that
+  is missing or fails to load is also a hard error because its exposure cannot
+  be established safely.
+- **Routes under `/_pracht/`** are hard errors: that namespace is reserved for
+  build metadata and the route-state tree below. The concrete paths returned
+  by `getStaticPaths()` are revalidated before any page is written, so a
+  dynamic route cannot generate into that namespace either.
+- A **Vite `base` other than `/`** is a hard error. Prerendered documents
+  reference `/assets/…` and `/_pracht/state/…` from the origin root, so a
+  sub-path deploy (a GitHub Pages project site, an S3 key prefix) would build
+  cleanly and then 404 every script and state file.
+- Webhook/time revalidation is N/A by construction (no ISG routes exist).
+
+One shape is a warning rather than an error, because it is only wrong for some
+deploys: a `fallback` document in an app with no `notFound` page and no
+client-routable SPA catch-all (unknown URLs would render blank).
+
+`pracht doctor` and `pracht verify` check most of the same preconditions from
+the resolved app graph, so you do not have to run a full build to find out.
+They use the resolved adapter's `staticTarget` flag (including conditional,
+aliased, and custom static adapters) and generated loader hints (including
+inline route-module loaders). They cover server-rendered routes, SPA loaders
+and hydration, route middleware, API routes, and network-exposed capabilities.
+The remaining rules — the `notFound` page's hydration and middleware, the Vite
+`base`, and everything about concrete `getStaticPaths()` output — are
+build-time-only.
+
+### Client-side navigation without a server
+
+On every other adapter, client navigation fetches route-state JSON from the
+page URL with the `x-pracht-route-state-request` header — impossible on a
+static host. The static adapter solves this at build time:
+
+- For each full-hydration SSG route whose loader or route/shell `head()`
+  metadata participates in client navigation, the build renders the
+  route-state request and writes the JSON body to a collision-safe opaque
+  `.json` file under
+  `dist/client/_pracht/state/` (`/` → `_pracht/state/index.json`). Each URL
+  segment is encoded before it becomes a filesystem component, long encodings
+  are split below common filesystem name limits, and a reserved leaf receives
+  `.json`, so pairs such as `/docs` and `/docs/index.json` cannot contend for
+  one file/directory path. `_pracht/` is already reserved, so state files
+  cannot collide with a prerendered route; a file copied from `public/` onto a
+  generated state path is rejected before any state file is written.
+- **SSG loaders run twice per page** during a static build: once for
+  the HTML document, once for the state file. Like
+  `getStaticPaths()`, they must be deterministic and side-effect free at build
+  time — a loader that reads `Date.now()`, randomness, or mutable external
+  state produces an HTML document and a state file with *different* data, so
+  the hydrated page and the first client navigation back to it disagree.
+- The client bundle is compiled with the `__PRACHT_STATIC_TARGET__` define
+  (driven by the adapter's `staticTarget: true` flag), which switches
+  `fetchPrachtRouteState()` — navigation, prefetch, SPA boot, revalidation —
+  to those files. The generated server metadata carries the same flag so the
+  CLI enters the static artifact pipeline even when a custom static adapter
+  uses an id other than `"static"`. Such adapters must reuse `staticAdapter()`
+  or `createStaticServerEntryModule()` so the generated server entry exposes
+  the 404/fallback render hooks; the build fails instead of silently omitting
+  a configured artifact when a hook is missing. Every other adapter compiles
+  the flag to `false` and dead-code-eliminates the static branch; dev servers
+  always use the live endpoint.
+- Explicitly loaderless and headless routes fetch nothing. Loaderless routes
+  with route or shell `head()` metadata still fetch static state so font-head
+  fragments follow client navigation; their components and data remain
+  browser-only. Islands/`none`-hydration routes keep their MPA full-document
+  navigation and get no state files.
+- Query strings are dropped when resolving the state URL: build-time loader
+  data has no query variants, matching what the build generated.
+
+State files are plain JSON served as `application/json` and parsed with
+`response.json()` — the same escaping posture as the live route-state
+endpoint. Loader data containing HTML stays inert data. A state fetch that
+misses (a stale navigation after a redeploy that removed a route, a host that
+answers the miss with an HTML error document) rejects; for `ssg` routes the
+router then falls back to a full-document navigation, which the host answers
+with the real page or its 404 document. A static SPA route with route or shell
+head metadata instead renders client-side without loader data when its state
+file misses; explicitly loaderless and headless SPA routes never request state.
+
+**Revalidation of SSG loader data is a no-op with fresh-looking plumbing**:
+`useRevalidate()` (and the automatic refresh after a settled capability call)
+refetches the static state file with `cache: "reload"` — it always returns the
+build-time payload again. Data on a static export only changes by redeploying.
+Static SPA routes have no Pracht loader state; put truly live data behind a
+client-side fetch to an external API instead.
+
+### 404 and the SPA fallback
+
+- `404.html` — the app's `defineApp({ notFound })` page, rendered at build
+  time independently of ordinary route matching, so a broad dynamic route
+  such as `/:slug` or `/*` cannot suppress it. The full-hydration page adopts
+  `window.location`, so it displays and navigates from the URL actually
+  visited, not `/404.html`. Apps without a `notFound` page emit no `404.html`
+  (the host serves its own error page). The render removes ordinary routes from
+  the app so no dynamic pattern can consume the synthetic request, but keeps
+  them resolvable through `ResolvedPrachtApp.hrefRoutes`, so `<Link route="…">`
+  and `href()` in the shell and the not-found page still build their URLs.
+- `200.html` — opt-in via `staticAdapter({ fallback: "200.html" })`: an
+  empty-shell document that boots the client router and resolves the real
+  route from `window.location`. Configure the host to rewrite unmatched URLs
+  to it (Netlify `/* /200.html 200`, nginx `try_files`, S3/CloudFront error
+  document with code 200). This is **required** for deep links into dynamic
+  `render: "spa"` routes, which have no prerendered file; without a rewrite
+  those URLs land on `404.html`. (In-app client navigation to dynamic SPA
+  routes works without the fallback — the router renders them client-side,
+  without Pracht route state. The rewrite only governs full-document loads: deep
+  links, reloads, opening in a new tab.) GitHub Pages cannot rewrite — deep
+  links to and reloads of dynamic SPA paths land on the 404 page there.
+  One fallback file is shared by every rewritten URL and therefore cannot run
+  URL-specific route, shell, or not-found `head()` exports. If a fallback-rendered
+  route declares one, configure explicit generic `fallbackHead` metadata shared
+  by every fallback URL; the build fails closed when it is omitted. Fonts in
+  that generic head remain registered while the fallback commits a loaderless
+  dynamic SPA route.
+  The fallback only client-renders matched SPA routes: a dynamic SSG pattern
+  that matches a path omitted by `getStaticPaths()` renders the app's
+  `notFound` page instead of running without its missing build-time state.
+  The fallback embeds the same build-time `notFound` loader data or handled
+  error state serialized into `404.html`, so this client render receives the
+  normal component or error-boundary state without executing the loader again.
+  An app with no `notFound` page and no
+  unshadowed client-routable SPA catch-all (`/*`, `/:rest*`) has nothing to
+  render for an unknown URL behind the rewrite — the visitor gets an empty
+  document. An SSG catch-all does not help because fallback boot never
+  client-renders SSG routes; nor does a SPA catch-all placed after a dynamic
+  SSG route, because route precedence lets that SSG route consume omitted
+  paths first. The build warns when a `fallback` is emitted in that shape.
+- Prerendered pages must map to distinct portable filesystem paths. The CLI
+  rejects duplicate, case-folded, and Unicode-normalization-equivalent outputs;
+  Windows-invalid components (reserved device names, trailing dots/spaces, or
+  invalid filename characters); components longer than the portable 255-byte
+  or code-unit limit; file/directory conflicts such as `/` with `/index.html`;
+  and route directories that occupy `404.html` or the configured fallback file
+  path before writing any page. Configured fallback filenames follow the same
+  reserved-name and component-length rules.
+- Files copied from `public/` or emitted by Vite may not occupy the generated
+  `404.html` or configured fallback path, including a case- or
+  Unicode-normalization-equivalent spelling; the build rejects those portable
+  collisions instead of overwriting existing output.
+- **The rewrite turns unknown URLs into soft 404s**: a host that answers
+  `/* → 200.html` with status 200 does so for genuinely unknown URLs too, so
+  they are `200` even though the client renders the `notFound` page. Hosts
+  that check for a matching file first (Netlify, nginx `try_files`) keep the
+  status of files that exist; nothing restores the `404` status for the
+  rewritten ones. Skip `fallback` when correct 404 statuses matter more than
+  deep links into dynamic SPA routes.
+- A host that serves `404.html` with status **200** (S3 without an error-
+  document configuration, some CDN defaults) changes nothing for the client —
+  hydration adopts `window.location` either way — but crawlers will index
+  unknown URLs as real pages. Configure the host's error document so the
+  status stays 404.
+
+### Host configuration
+
+- **Clean URLs**: pages are emitted as `<path>/index.html`. The host must
+  serve `index.html` for directory URLs; most hosts redirect `/about` →
+  `/about/` first (GitHub Pages answers `301`), which the client router and
+  prerendered links tolerate.
+- **Headers**: no server means no dynamic headers. `dist/server/headers-manifest.json`
+  records the document headers each prerendered route would have carried
+  (route/shell `headers()` exports plus pracht's defaults) — mirror the ones
+  you care about in the host's header configuration (`_headers` on Netlify,
+  CloudFront response header policies, nginx `add_header`). It is written to
+  `dist/server/` rather than the deployable `dist/client/`: no static host can
+  act on it, so publishing it would ship the full route list and header policy
+  as dead bytes.
+- **Markdown negotiation**: routes exporting `markdown` rely on server-side
+  `Accept` negotiation; a static host always answers with the HTML file. The
+  build prints a note when this applies — publish `.md` files under `public/`
+  when a raw-markdown corpus matters.
+- **Non-ASCII dynamic params**: prerender output directories use the *decoded*
+  form (`/posts/caf%C3%A9` → `posts/café/index.html`), because every
+  mainstream static host decodes the request before the filesystem lookup.
+  The build prints the decoded target next to each route path. Escapes that
+  would decode into a path separator (`%2F`), a relative segment (`%2E%2E`),
+  or the reserved `_pracht` namespace (`%5Fpracht`) are build errors, as is
+  malformed percent-encoding. Route-state files canonicalize each segment
+  before deriving their pure-ASCII hex components, so raw Unicode, lowercase
+  percent escapes, and escaped unreserved characters resolve to the same state
+  file as the build output.
+- **Base paths** (deploying under a sub-path such as GitHub Pages project
+  sites) are not wired through: prerendered asset and state URLs are
+  root-relative. A static build with Vite `base` set to anything but `/` is a
+  build error rather than a deploy whose every asset 404s. Deploy static
+  exports at an origin root.
+
+### `pracht preview`
+
+`pracht build` still writes `dist/server/server.js`, but only as build/preview
+tooling — nothing in it is deployed. Running it (or `pracht preview`) serves
+`dist/client/` with a tiny static file server (`createStaticPreviewHandler`)
+that mirrors a plain host: files, clean URLs, `404.html` for misses, and the
+configured `200.html` rewrite. It reuses `@pracht/adapter-node`'s hardened
+static file resolution (NUL/backslash/symlink/traversal guards) and decodes URL
+segments to the same filesystem spelling used by static-export page output.
+
+---
+
 ## Default `Cache-Control`
 
 Every adapter stamps `Cache-Control: private, no-cache` on `GET`/`HEAD`
@@ -1327,6 +1572,14 @@ export default async function handle(request) {
     // dependencies from node_modules at runtime. Forces Vite to bundle all
     // dependencies into the SSR output (ssr.noExternal = true).
     edge: true,
+    // Optional: set to true when the adapter produces a pure static export
+    // with no runtime server. Production builds then compile the client with
+    // __PRACHT_STATIC_TARGET__ = true and tell the CLI to emit serialized
+    // /_pracht/state/… files plus static-only artifacts. Reuse staticAdapter()
+    // or createStaticServerEntryModule() so required artifact render hooks are
+    // present. The adapter id can remain platform-specific (see the Static
+    // Adapter section).
+    staticTarget: true,
   };
 }
 ```

@@ -50,6 +50,7 @@ import {
   parseSafeNavigationUrl,
   routeNeedsServerFetch,
 } from "./runtime-client-fetch.ts";
+import { IS_STATIC_TARGET } from "./runtime-static.ts";
 import { deserializeRouteError, type SerializedRouteError } from "./runtime-errors.ts";
 import {
   type PrachtHydrationState,
@@ -86,6 +87,12 @@ export interface NavigateFn {
 interface InternalNavigateOptions extends NavigateOptions {
   _popstate?: boolean;
   _reloadRouteState?: boolean;
+  /**
+   * Static-export fallback boot (`200.html`): a failed route-state fetch must
+   * render without loader data instead of reloading the document — the host
+   * would answer the reload with this same fallback document and loop.
+   */
+  _staticFallback?: boolean;
 }
 
 interface InternalNavigateFn {
@@ -596,10 +603,29 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
         }
       } catch {
         if (abortController.signal.aborted || navigationId !== latestNavigationId) return;
-        // Network error — full page load as fallback
-        window.location.href = target.browserUrl;
-        return;
+        if (!(IS_STATIC_TARGET && (opts?._staticFallback || match.route.render === "spa"))) {
+          // Network error — full page load as fallback. On a static host that
+          // reload lands on the real prerendered document (or the host's 404
+          // page), so it is safe there too — with two exceptions that fall
+          // through and render without loader data instead:
+          // - a 200.html fallback boot, where the reload would re-serve the
+          //   fallback document itself and loop;
+          // - a matched `render: "spa"` route, whose dynamic paths have no
+          //   prerendered document or state file at all — a reload would land
+          //   in-app navigation on the host's 404 page (or bounce through the
+          //   fallback document) even though the client can render the route.
+          window.location.href = target.browserUrl;
+          return;
+        }
+        if (!opts?._staticFallback) {
+          fontHead = { preloadLinks: [], css: "" };
+        }
       }
+
+      // The fallback document owns generic head metadata shared by every URL
+      // it rewrites. A loaderless/headless SPA route takes the no-fetch branch
+      // above, so preserve those document fonts outside the catch path too.
+      if (opts?._staticFallback) fontHead = undefined;
 
       if (navigationId !== latestNavigationId) return;
 
@@ -654,23 +680,47 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
     }
   }
 
+  // Static-export SPA fallback document (200.html): the host serves it for
+  // URLs with no prerendered file, so its serialized hydration state does not
+  // describe the real location. Skip hydration and boot from window.location
+  // once the router is registered below.
+  const isStaticFallbackBoot = IS_STATIC_TARGET && options.initialState.fallback === true;
+
+  // Static exports render 404.html once, at a synthetic path — the host then
+  // serves that one file for every unknown URL. Adopt the real location so
+  // useLocation() and subsequent navigation see the URL actually visited,
+  // and keep the not-found page (matching the served DOM) even when the real
+  // path would pattern-match a non-prerendered dynamic route.
+  const isStaticNotFoundDocument =
+    IS_STATIC_TARGET &&
+    !isStaticFallbackBoot &&
+    options.initialState.routeId === NOT_FOUND_ROUTE_ID;
+  // Hydrate against the URL that produced the serialized HTML. Static
+  // `404.html` adopts the visitor's real path only after hydration completes;
+  // doing it before hydrate would make any location-dependent not-found tree
+  // differ from its build-time DOM.
+  const initialStateUrl = options.initialState.url;
+
+  const initialTarget = resolveBrowserRouteTarget(initialStateUrl);
+  const initialRequestUrl = initialTarget?.requestUrl ?? initialStateUrl;
+  const initialBrowserUrl = initialTarget?.browserUrl ?? initialStateUrl;
+  const initialPathname = initialTarget?.pathname ?? initialStateUrl;
   // The serialized URL produced the server/static HTML, so it must also drive
   // the first client render. Visitor-specific query parameters are published
   // after the complete hydration tree settles to keep that render identical.
-  const initialTarget = resolveBrowserRouteTarget(options.initialState.url);
-  const initialRequestUrl = initialTarget?.requestUrl ?? options.initialState.url;
-  const initialBrowserUrl = initialTarget?.browserUrl ?? options.initialState.url;
-  const initialPathname = initialTarget?.pathname ?? options.initialState.url;
   const hydrationBrowserTarget = resolveBrowserRouteTarget(
     window.location.pathname + window.location.search + window.location.hash,
   );
   // The not-found page is served at a URL that matches no route, so matching
   // cannot find it — the hydration state's reserved route id does.
-  const initialMatch =
-    matchResolvedRoute(app, initialPathname) ??
-    (options.initialState.routeId === NOT_FOUND_ROUTE_ID && app.notFound
+  const initialMatch = isStaticFallbackBoot
+    ? undefined
+    : isStaticNotFoundDocument && app.notFound
       ? { route: app.notFound, params: {}, pathname: initialPathname }
-      : undefined);
+      : (matchResolvedRoute(app, initialPathname) ??
+        (options.initialState.routeId === NOT_FOUND_ROUTE_ID && app.notFound
+          ? { route: app.notFound, params: {}, pathname: initialPathname }
+          : undefined));
   if (initialMatch) {
     const initialShellPromise =
       initialMatch.route.render === "spa" && options.initialState.pending
@@ -720,8 +770,15 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
           if (result.fontHead) applyFontHeadFragments(result.fontHead);
         }
       } catch {
-        window.location.href = initialBrowserUrl;
-        return;
+        if (!IS_STATIC_TARGET) {
+          window.location.href = initialBrowserUrl;
+          return;
+        }
+        // Static export: the route-state file is missing (for example a
+        // stale deploy). Reloading would re-serve this same shell document
+        // and fetch the same missing file again — render without loader data
+        // instead of looping.
+        state = { data: undefined, error: null };
       }
 
       const resolvedState = await resolveRouteState(
@@ -754,7 +811,9 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
             updateRouteState((currentState) => {
               const hydratedTarget = resolveBrowserRouteTarget(currentState.url);
               if (!hydratedTarget) return currentState;
-              const nextRequestUrl = hydratedTarget.pathname + hydrationBrowserTarget.search;
+              const nextRequestUrl = isStaticNotFoundDocument
+                ? hydrationBrowserTarget.pathname + hydrationBrowserTarget.search
+                : hydratedTarget.pathname + hydrationBrowserTarget.search;
               // A navigation that committed while a Suspense boundary was
               // hydrating owns the newer state. Revalidated data lives in the
               // runtime provider and survives this URL-only update.
@@ -893,6 +952,35 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
   });
 
   window.__PRACHT_NAVIGATE__ = navigate;
+
+  if (isStaticFallbackBoot) {
+    const bootPath = window.location.pathname + window.location.search + window.location.hash;
+    const bootMatch = matchResolvedRoute(app, window.location.pathname);
+    const isClientRoutableSpaMatch =
+      bootMatch != null &&
+      bootMatch.route.render === "spa" &&
+      bootMatch.route.hydration !== "islands" &&
+      bootMatch.route.hydration !== "none";
+    if (isClientRoutableSpaMatch) {
+      await navigate(bootPath, { replace: true, _staticFallback: true });
+    } else if (app.notFound) {
+      // No client-routable SPA match. In particular, a dynamic SSG pattern can
+      // match a path that getStaticPaths() did not emit; rendering that route
+      // without its missing build-time state would show invalid content or
+      // crash. Render the app's not-found page client-side instead.
+      const notFoundState = await resolveRouteState(
+        { route: app.notFound, params: {}, pathname: window.location.pathname },
+        { data: options.initialState.data, error: options.initialState.error ?? null },
+        window.location.pathname + window.location.search,
+      );
+      if (notFoundState) applyRouteState(notFoundState);
+    }
+  }
+
+  // Publish readiness only after a static fallback has resolved and committed
+  // its real route. The fallback document starts with an empty body, so
+  // marking it ready before the async route import finishes would violate the
+  // public test/tooling contract below.
   window.__PRACHT_ROUTER_READY__ = true;
   // Public hydration marker for test tooling: server-rendered pages look
   // interactive before the client router takes over, so tests (Playwright,

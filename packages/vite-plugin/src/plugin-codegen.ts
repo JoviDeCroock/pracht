@@ -301,6 +301,7 @@ export function createPrachtServerModuleSource(
   buildOptions: {
     root?: string;
     isBuild?: boolean;
+    base?: string;
   } = {},
 ): string {
   const resolved = resolveOptions(options);
@@ -359,6 +360,11 @@ export function createPrachtServerModuleSource(
     "applyRouteHints(resolvedApp, routeLoaderHints, routeHeadHints);",
     `export const apiRoutes = resolveApiRoutes(Object.keys(apiModules), ${JSON.stringify(resolved.apiDir)});`,
     `export const buildTarget = ${JSON.stringify(adapter?.id ?? "node")};`,
+    `export const staticTarget = ${JSON.stringify(adapter?.staticTarget === true)};`,
+    // Vite's `base`. Prerendered documents and the serialized route-state URLs
+    // are root-relative, so the CLI rejects a static export configured with a
+    // sub-path base instead of emitting a deploy whose assets all 404.
+    `export const buildBase = ${JSON.stringify(buildOptions.base ?? "/")};`,
     `export const clientEntryUrl = ${JSON.stringify(clientBuild.clientEntryUrl ?? CLIENT_BROWSER_PATH)};`,
     `export const islandsEntryUrl = ${JSON.stringify(islandsEntryUrl ?? null)};`,
     `export const islandsBootstrapRequired = ${JSON.stringify(islandsBootstrapRequired)};`,
@@ -397,6 +403,8 @@ export function createPrachtDevModuleSource(
   buildOptions: { root?: string } = {},
 ): string {
   const resolved = resolveOptions(options);
+  const routeLoaderHints = createRouteLoaderHintsForVirtualModules(resolved, buildOptions.root);
+  const routeHeadHints = createRouteHeadHintsForVirtualModules(resolved, buildOptions.root);
   const appImport = resolved.pagesDir
     ? generatePagesAppInlineSource(resolved, buildOptions.root)
     : `import { app } from ${JSON.stringify(resolved.appFile)};`;
@@ -405,11 +413,16 @@ export function createPrachtDevModuleSource(
     'import { resolveApp, resolveApiRoutes } from "@pracht/core/server";',
     appImport,
     "",
+    `const routeLoaderHints = ${JSON.stringify(routeLoaderHints)};`,
+    `const routeHeadHints = ${JSON.stringify(routeHeadHints)};`,
+    ...createApplyRouteLoaderHintsSource(),
     createPrachtRegistryModuleSource(resolved),
     "",
     "export const resolvedApp = resolveApp(app);",
+    "applyRouteHints(resolvedApp, routeLoaderHints, routeHeadHints);",
     `export const apiRoutes = resolveApiRoutes(Object.keys(apiModules), ${JSON.stringify(resolved.apiDir)});`,
     `export const buildTarget = ${JSON.stringify(resolved.adapter?.id ?? "node")};`,
+    `export const staticTarget = ${JSON.stringify(resolved.adapter?.staticTarget === true)};`,
     "",
   ].join("\n");
 }
