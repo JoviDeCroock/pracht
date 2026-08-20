@@ -135,7 +135,9 @@ control-character values fail before publication, and an artifact named
 artifact at `/llms.txt` cannot be combined with Pracht's core `llmsTxt`
 generator; the build rejects that collision instead of overwriting the curated
 collection output. OpenAPI companion output is rejected when it would replace
-a collection artifact. Generated artifact paths also cannot overlap files in
+a collection artifact. Artifacts emitted inside an `/assets/` path use a
+revalidation cache policy because their filenames are not required to contain a
+content hash. Generated artifact paths also cannot overlap files in
 Vite's configured `publicDir`, where one output would otherwise replace the
 other, or prerendered page files. Portable case-folded and
 file/directory collisions fail across collections, and Pracht's entire

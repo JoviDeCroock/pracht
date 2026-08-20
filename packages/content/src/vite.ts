@@ -121,6 +121,9 @@ export function prachtContent(options: PrachtContentOptions): Plugin[] {
           });
           outputFileNames.push(fileName);
           headers[artifact.path] = {
+            ...(artifact.path.includes("/assets/")
+              ? { "cache-control": "public, max-age=0, must-revalidate" }
+              : {}),
             "content-type": artifact.contentType ?? inferContentType(artifact.path),
             "x-content-type-options": "nosniff",
           };

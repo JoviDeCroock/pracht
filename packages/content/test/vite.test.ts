@@ -153,13 +153,15 @@ describe("prachtContent", () => {
     expect(invalidateModule).toHaveBeenCalledWith(runtimeModule);
   });
 
-  it("emits artifact content types for the production headers manifest", async () => {
+  it("emits deploy-safe headers for production artifacts in the asset namespace", async () => {
     temporaryDirectory = await mkdtemp(join(tmpdir(), "pracht-content-vite-"));
     await writeFile(join(temporaryDirectory, "page.md"), "Page");
     const collection = defineCollection({
       name: "docs",
       root: temporaryDirectory,
-      artifacts: [() => ({ path: "/search.data", source: "{}", contentType: "application/json" })],
+      artifacts: [
+        () => ({ path: "/assets/search.data", source: "{}", contentType: "application/json" }),
+      ],
     });
     const [, plugin] = prachtContent({ collections: [collection] });
     const generateBundle = hookHandler(plugin.generateBundle);
@@ -168,7 +170,13 @@ describe("prachtContent", () => {
     await generateBundle.call({ emitFile } as never, {} as never, {} as never, false);
 
     expect(emitFile).toHaveBeenCalledWith(
-      expect.objectContaining({ fileName: "search.data", source: "{}" }),
+      expect.objectContaining({ fileName: "assets/search.data", source: "{}" }),
+    );
+    expect(emitFile).toHaveBeenCalledWith(
+      expect.objectContaining({
+        fileName: "_pracht/content-headers.json",
+        source: expect.stringContaining('"cache-control": "public, max-age=0, must-revalidate"'),
+      }),
     );
     expect(emitFile).toHaveBeenCalledWith(
       expect.objectContaining({

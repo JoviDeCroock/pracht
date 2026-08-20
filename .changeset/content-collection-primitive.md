@@ -61,3 +61,6 @@ emitted, and content search ignores locale hints for unlocalized collections
 while advertising supported locales for localized ones. Artifact content types
 are validated before entering response or deployment headers, and generated
 headers remain intact on clean URL aliases for artifact `index.html` files.
+Artifacts inside an `/assets/` path override adapter-wide immutable caching with
+a revalidation policy because their filenames are not required to contain a
+content hash.

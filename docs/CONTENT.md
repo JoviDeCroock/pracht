@@ -143,7 +143,9 @@ Explicit artifact content types are preserved in the production headers
 manifest and applied to static assets by the Node, Cloudflare, Netlify, and
 Vercel adapters as well as development responses. Invalid or control-character
 content types fail before they can enter a response or deployment manifest, and
-an artifact named `index.html` keeps those headers on its clean URL alias. If Pracht's core `llmsTxt` option is
+an artifact named `index.html` keeps those headers on its clean URL alias.
+Artifacts emitted inside an `/assets/` path receive a revalidation cache policy
+because their filenames are not required to contain a content hash. If Pracht's core `llmsTxt` option is
 also enabled, a collection using the default `/llms.txt` path fails the build
 instead of being silently overwritten; configure a distinct `summaryPath` or
 use only one generator. OpenAPI companion output is checked the same way rather

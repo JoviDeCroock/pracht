@@ -160,7 +160,9 @@ or API paths, clean-URL `index.html` aliases, concrete ISG paths served by an
 adapter function, Pracht's internal content-header path, and portable
 case-folded or file/directory collisions.
 Custom artifact content types are also applied to non-HTML static assets by the
-Node, Cloudflare, Netlify, and Vercel adapters.
+Node, Cloudflare, Netlify, and Vercel adapters. Artifacts inside an `/assets/`
+path use revalidation caching because their filenames are not required to
+contain a content hash.
 
 `@pracht/content/capabilities` also exports page and basic full-text-search
 field factories. Wrap their `input`, `output`, and `run` fields in an app-owned
