@@ -1070,6 +1070,30 @@ export const app = defineApp({ routes: [] });
     expect(source).toContain('"!/src/pages/**/_*/**"');
   });
 
+  it("recognizes an angle-bracket asserted ejected-pages ownership marker", () => {
+    const root = makeTempPagesDir();
+    mkdirSync(join(root, "src", "pages"), { recursive: true });
+    writeFileSync(
+      join(root, "src", "routes.ts"),
+      `export const ${GENERATED_PAGES_LAYOUT_EXPORT} = <const>true;
+export const app = defineApp({ routes: [] });
+`,
+    );
+
+    const source = createPrachtClientModuleSource(
+      {
+        appFile: "/src/routes.ts",
+        routesDir: "/src/pages",
+        shellsDir: "/src/pages",
+        middlewareDir: "/src/pages",
+      },
+      { root },
+    );
+
+    expect(source).toContain('"!/src/pages/**/_*"');
+    expect(source).toContain('"!/src/pages/**/_*/**"');
+  });
+
   it("creates adapter-neutral development metadata", () => {
     const source = createPrachtDevModuleSource({ appFile: "/src/routes.ts" });
 

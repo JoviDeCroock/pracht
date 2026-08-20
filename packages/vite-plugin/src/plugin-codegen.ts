@@ -375,6 +375,7 @@ function unwrapStaticExpression(value: unknown): StaticProgramNode | null {
       "TSAsExpression",
       "TSNonNullExpression",
       "TSSatisfiesExpression",
+      "TSTypeAssertion",
       "TypeCastExpression",
     ]).has(node.type)
   ) {

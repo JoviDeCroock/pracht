@@ -254,6 +254,7 @@ function getStaticReferencedBindingName(value: unknown): string | null {
     node.type === "TSAsExpression" ||
     node.type === "TSNonNullExpression" ||
     node.type === "TSSatisfiesExpression" ||
+    node.type === "TSTypeAssertion" ||
     node.type === "TypeCastExpression"
   ) {
     const expression = asStaticAnalysisNode(node.expression);
@@ -363,6 +364,7 @@ function isStaticallyNonCallable(value: unknown): boolean {
     node.type === "TSAsExpression" ||
     node.type === "TSNonNullExpression" ||
     node.type === "TSSatisfiesExpression" ||
+    node.type === "TSTypeAssertion" ||
     node.type === "TypeCastExpression"
   ) {
     const expression = asStaticAnalysisNode(node.expression);
