@@ -1012,6 +1012,32 @@ export const app = defineApp({ middleware, routes: [] });
     );
   });
 
+  it("recognizes marker-free pages refs in later variable declarators", () => {
+    const root = makeTempPagesDir();
+    mkdirSync(join(root, "src", "pages"), { recursive: true });
+    writeFileSync(
+      join(root, "src", "routes.ts"),
+      `const unusedRef = () => import("./middleware/unused.ts"),
+  pages = () => import("./pages/_middleware.ts");
+const unusedRegistry = {}, middleware = { pages };
+export const app = defineApp({ middleware, routes: [] });
+`,
+    );
+
+    const source = createPrachtClientModuleSource(
+      {
+        appFile: "/src/routes.ts",
+        routesDir: "/src/pages",
+        shellsDir: "/src/pages",
+        middlewareDir: "/src/pages",
+      },
+      { root },
+    );
+
+    expect(source).toContain('"!/src/pages/**/_*"');
+    expect(source).toContain('"!/src/pages/**/_*/**"');
+  });
+
   it("creates adapter-neutral development metadata", () => {
     const source = createPrachtDevModuleSource({ appFile: "/src/routes.ts" });
 

@@ -40,18 +40,26 @@ describe("capability static extraction", () => {
     ]);
   });
 
-  it("preserves numeric manifest registry keys", () => {
+  it.each([
+    ["123", "123"],
+    ["0x10", "16"],
+    ["0b10", "2"],
+    ["0o10", "8"],
+    ["1_000", "1000"],
+    [".5", "0.5"],
+    ["1n", "1"],
+  ])("preserves the numeric manifest registry key %s", (sourceKey, runtimeKey) => {
     const source = `
       export const app = defineApp({
         capabilities: {
-          123: () => import("./capabilities/numeric.ts"),
+          ${sourceKey}: () => import("./capabilities/numeric.ts"),
         },
         routes: [],
       });
     `;
 
     expect(extractCapabilityRegistrations(source)).toEqual([
-      { name: "123", file: "./capabilities/numeric.ts" },
+      { name: runtimeKey, file: "./capabilities/numeric.ts" },
     ]);
   });
 
@@ -97,6 +105,30 @@ describe("capability static extraction", () => {
     expect(extractManifestModuleRegistrations(source, "middleware")).toEqual([
       { name: "pages", file: "./pages/_middleware.ts" },
     ]);
+  });
+
+  it("resolves registry objects and module refs in later variable declarators", () => {
+    const source = `
+      const unusedRef = () => import("./middleware/unused.ts"),
+        pages: (() => Promise<unknown>) = () => import("./pages/_middleware.ts");
+      const unusedRegistry = {},
+        middleware: Record<string, () => Promise<unknown>> = { pages };
+      export const app = defineApp({ middleware, routes: [] });
+    `;
+
+    expect(extractManifestModuleRegistrations(source, "middleware")).toEqual([
+      { name: "pages", file: "./pages/_middleware.ts" },
+    ]);
+  });
+
+  it("does not treat a default-import comma as a variable declarator", () => {
+    const source = `
+      import unused, pages from "./middleware-refs.ts"
+      const fallback = () => import("./pages/_middleware.ts")
+      export const app = defineApp({ middleware: { pages }, routes: [] });
+    `;
+
+    expect(extractManifestModuleRegistrations(source, "middleware")).toEqual([]);
   });
 
   it("ignores defineCapability examples in comments and strings", () => {

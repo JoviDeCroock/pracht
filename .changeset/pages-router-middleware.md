@@ -80,6 +80,10 @@ Changed-only verification now emits the pages-middleware success check only
 after uniqueness and runtime-export validation succeeds, avoiding a
 contradictory `ok` entry beside the blocking error.
 
-The shared manifest registry extractor also preserves unquoted numeric property
-keys, keeping numeric capability names visible to browser projection,
-verification, and the server-only capability-module import boundary.
+The shared manifest registry extractor also preserves every JavaScript numeric
+property-key form (including radix literals, separators, fractional literals,
+and bigint keys), keeping numeric capability names visible to browser
+projection, verification, and the server-only capability-module import
+boundary. Identifier-backed registries and module refs are resolved from every
+declarator in a top-level variable statement, so compact multi-declarator
+manifests retain the same ejected-pages client isolation as dedicated bindings.
