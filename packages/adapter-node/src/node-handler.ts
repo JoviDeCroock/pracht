@@ -757,19 +757,28 @@ function createApplicationRequest(
   request: Request,
   compression: CompressionState | undefined,
 ): Request {
+  const ifMatch = request.headers.get("if-match");
   const ifNoneMatch = request.headers.get("if-none-match");
   if (
     !compression ||
     (request.method !== "GET" && request.method !== "HEAD") ||
     request.headers.has("range") ||
-    (!ifNoneMatch && !request.headers.has("if-modified-since")) ||
+    (!ifMatch && !ifNoneMatch && !request.headers.has("if-modified-since")) ||
     (!negotiateEncoding(request.headers.get("accept-encoding")) &&
+      !containsEncodedEtag(ifMatch) &&
       !containsEncodedEtag(ifNoneMatch))
   ) {
     return request;
   }
 
   const headers = new Headers(request.headers);
+  if (ifMatch) {
+    compression.ownsIfMatch = true;
+    headers.delete("if-match");
+    // If-Match takes precedence, so the recipient must ignore
+    // If-Unmodified-Since rather than exposing it alone to the application.
+    headers.delete("if-unmodified-since");
+  }
   headers.delete("if-none-match");
   headers.delete("if-modified-since");
   return new Request(request, { headers });

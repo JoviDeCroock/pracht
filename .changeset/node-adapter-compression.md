@@ -32,9 +32,10 @@ variants get their own collision-resistant weak ETag so conditional
 revalidation never crosses encodings or aliases a later application-provided
 identity validator (including when applications provide strong identity
 validators or use the adapter's reserved ETag namespace),
-dynamic `If-None-Match` and `If-Modified-Since` validation runs for every
-successful response after representation selection (with ETag precedence) and
-supports commas inside quoted opaque tags, static `.wasm` files are served as
+encoded dynamic requests run `If-Match`, `If-None-Match`, and
+`If-Modified-Since` validation after representation selection, with strong
+`If-Match` comparison and RFC precondition precedence, and support commas
+inside quoted opaque tags, static `.wasm` files are served as
 compressible `application/wasm`, `HEAD` uses the same negotiated representation
 metadata as `GET` (including buffered compressed lengths), and already-encoded
 responses, `Cache-Control: no-transform`, Range/204/304 responses, binary

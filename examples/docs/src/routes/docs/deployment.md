@@ -56,10 +56,11 @@ Overflowed compression jobs fall back to streaming. Static WebAssembly is
 served as `application/wasm` and follows the same compression path.
 Compressible responses carry `Vary: Accept-Encoding`, including on
 application-generated `304` responses; encoded variants get their own
-collision-resistant weak ETag,
-with dynamic `If-None-Match` / `If-Modified-Since` validation performed for
-every successful response after representation selection so identity and encoded
-validators cannot cross. Requests carrying `Range` retain their original
+collision-resistant weak ETag, with encoded dynamic requests performing
+`If-Match` / `If-None-Match` / `If-Modified-Since` validation after
+representation selection so identity and encoded validators cannot cross.
+`If-Match` uses strong comparison and preserves its precedence over
+`If-Unmodified-Since`. Requests carrying `Range` retain their original
 validators and remain identity-encoded even when the application returns a full
 `200`; `206` responses are likewise never transformed. `HEAD` advertises the
 same negotiated metadata as `GET`, including buffered compressed lengths, and

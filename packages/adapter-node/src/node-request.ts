@@ -9,9 +9,11 @@ import {
   isCompressibleContentType,
   isNotModifiedRequest,
   isTransformableResponse,
+  matchesIfMatch,
   mergeVaryOnNodeResponse,
   negotiateEncoding,
   protectIdentityEtag,
+  type CompressionState,
 } from "./node-compress.ts";
 
 const BODYLESS_METHODS = new Set(["GET", "HEAD"]);
@@ -212,7 +214,7 @@ function normalizeRequestTarget(
 export async function writeWebResponse(
   res: ServerResponse,
   response: Response,
-  compression?: { request: Request },
+  compression?: CompressionState,
 ): Promise<void> {
   res.statusCode = response.status;
   res.statusMessage = response.statusText;
@@ -256,11 +258,37 @@ export async function writeWebResponse(
   }
 
   const responseEtag = getNodeHeaderValue(res, "etag");
-  if (
+  const isSuccessfulRetrieval =
     compression &&
     response.status >= 200 &&
     response.status < 300 &&
-    (compression.request.method === "GET" || compression.request.method === "HEAD") &&
+    (compression.request.method === "GET" || compression.request.method === "HEAD");
+  if (
+    isSuccessfulRetrieval &&
+    compression.ownsIfMatch &&
+    !matchesIfMatch(compression.request.headers.get("if-match"), responseEtag)
+  ) {
+    res.statusCode = 412;
+    res.statusMessage = "Precondition Failed";
+    for (const name of [
+      "content-digest",
+      "content-encoding",
+      "content-length",
+      "content-md5",
+      "content-range",
+      "content-type",
+      "digest",
+      "repr-digest",
+    ]) {
+      res.removeHeader(name);
+    }
+    res.setHeader("cache-control", "no-store");
+    cancelResponseBody(response);
+    res.end();
+    return;
+  }
+  if (
+    isSuccessfulRetrieval &&
     isNotModifiedRequest(
       compression.request,
       responseEtag,
@@ -276,13 +304,7 @@ export async function writeWebResponse(
     res.statusMessage = "Not Modified";
     res.removeHeader("content-length");
     res.removeHeader("content-range");
-    if (response.body) {
-      // Cancellation is cleanup, not part of the conditional response. A
-      // proxied/custom stream is allowed to reject cancellation; do not let
-      // that replace an otherwise valid 304 with the outer 500 fallback (or
-      // hold the response open while asynchronous cleanup settles).
-      void response.body.cancel().catch(() => undefined);
-    }
+    cancelResponseBody(response);
     res.end();
     return;
   }
@@ -302,6 +324,15 @@ export async function writeWebResponse(
     encoding ? createCompressedStream(source, encoding, { incremental: true }) : source,
     res,
   );
+}
+
+function cancelResponseBody(response: Response): void {
+  if (!response.body) return;
+  // Cancellation is cleanup, not part of the conditional response. A
+  // proxied/custom stream is allowed to reject cancellation; do not let that
+  // replace a valid 304/412 with the outer 500 fallback (or hold the response
+  // open while asynchronous cleanup settles).
+  void response.body.cancel().catch(() => undefined);
 }
 
 function getNodeHeaderValue(res: ServerResponse, name: string): string | null {

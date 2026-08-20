@@ -215,6 +215,27 @@ export function containsEncodedEtag(header: string | null): boolean {
 export function matchesIfNoneMatch(header: string | null, etag: string | null): boolean {
   if (!header) return false;
 
+  const candidates = parseEntityTagList(header);
+  if (candidates.includes("*")) return true;
+  if (!etag) return false;
+
+  const weakOpaqueTag = (value: string): string =>
+    value.startsWith("W/") ? value.slice(2) : value;
+  const expected = weakOpaqueTag(etag);
+  return candidates.some((candidate) => weakOpaqueTag(candidate) === expected);
+}
+
+/** Strongly compare an `If-Match` list with the selected representation's ETag. */
+export function matchesIfMatch(header: string | null, etag: string | null): boolean {
+  if (!header) return true;
+
+  const candidates = parseEntityTagList(header);
+  if (candidates.includes("*")) return true;
+  if (!etag || etag.startsWith("W/")) return false;
+  return candidates.some((candidate) => !candidate.startsWith("W/") && candidate === etag);
+}
+
+function parseEntityTagList(header: string): string[] {
   const candidates: string[] = [];
   let start = 0;
   let quoted = false;
@@ -228,14 +249,7 @@ export function matchesIfNoneMatch(header: string | null, etag: string | null): 
     }
   }
   candidates.push(header.slice(start).trim());
-
-  if (candidates.includes("*")) return true;
-  if (!etag) return false;
-
-  const weakOpaqueTag = (value: string): string =>
-    value.startsWith("W/") ? value.slice(2) : value;
-  const expected = weakOpaqueTag(etag);
-  return candidates.some((candidate) => weakOpaqueTag(candidate) === expected);
+  return candidates;
 }
 
 /**
@@ -519,4 +533,6 @@ export class CompressedAssetCache {
 export interface CompressionState {
   request: Request;
   cache: CompressedAssetCache;
+  /** Whether the adapter removed `If-Match` to evaluate it after representation selection. */
+  ownsIfMatch?: boolean;
 }

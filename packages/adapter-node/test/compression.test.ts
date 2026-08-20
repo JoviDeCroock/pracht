@@ -710,6 +710,86 @@ describe("dynamic response compression", () => {
     expect(revalidated.body.byteLength).toBe(0);
   });
 
+  it("evaluates If-Match against the selected dynamic representation", async () => {
+    const identityEtag = '"match-v1"';
+    const receivedPreconditions: Array<{ match: string | null; unmodified: string | null }> = [];
+    const base = await listen(
+      createNodeRequestHandler({
+        apiRoutes: resolveApiRoutes(["/src/api/match.ts"]),
+        app: defineApp({ routes: [] }),
+        registry: {
+          apiModules: {
+            "/src/api/match.ts": async () => ({
+              GET: async ({ request }) => {
+                const match = request.headers.get("if-match");
+                receivedPreconditions.push({
+                  match,
+                  unmodified: request.headers.get("if-unmodified-since"),
+                });
+                if (match && match !== identityEtag && match !== "*") {
+                  return new Response("precondition failed", { status: 412 });
+                }
+                return new Response("match payload ".repeat(300), {
+                  headers: {
+                    ...(new URL(request.url).searchParams.has("identity")
+                      ? { "cache-control": "no-transform" }
+                      : {}),
+                    etag: identityEtag,
+                    "last-modified": "Fri, 15 Aug 2025 00:00:00 GMT",
+                    "content-type": "text/plain",
+                  },
+                });
+              },
+            }),
+          },
+        },
+      }),
+    );
+
+    const crossEncoding = await rawRequest(`${base}/api/match`, {
+      "accept-encoding": "gzip",
+      "if-match": identityEtag,
+    });
+    const wildcard = await rawRequest(`${base}/api/match`, {
+      "accept-encoding": "gzip",
+      "if-match": "*",
+      "if-unmodified-since": "Thu, 01 Jan 1970 00:00:00 GMT",
+    });
+    const selectedIdentity = await rawRequest(`${base}/api/match?identity=1`, {
+      "accept-encoding": "gzip",
+      "if-match": identityEtag,
+    });
+    const weakIdentityMatch = await rawRequest(`${base}/api/match?identity=1`, {
+      "accept-encoding": "gzip",
+      "if-match": `W/${identityEtag}`,
+    });
+
+    expect(crossEncoding.status).toBe(412);
+    expect(crossEncoding.headers.etag).toBe(encodeEtagForEncoding(identityEtag, "gzip"));
+    expect(crossEncoding.headers["content-encoding"]).toBeUndefined();
+    expect(crossEncoding.headers["cache-control"]).toBe("no-store");
+    expect(crossEncoding.body.byteLength).toBe(0);
+
+    expect(wildcard.status).toBe(200);
+    expect(wildcard.headers["content-encoding"]).toBe("gzip");
+    expect(gunzipSync(wildcard.body).toString("utf-8")).toContain("match payload");
+
+    expect(selectedIdentity.status).toBe(200);
+    expect(selectedIdentity.headers["content-encoding"]).toBeUndefined();
+    expect(selectedIdentity.headers.etag).toBe(identityEtag);
+    expect(selectedIdentity.body.toString("utf-8")).toContain("match payload");
+
+    expect(weakIdentityMatch.status).toBe(412);
+    expect(weakIdentityMatch.headers["content-encoding"]).toBeUndefined();
+    expect(weakIdentityMatch.body.byteLength).toBe(0);
+    expect(receivedPreconditions).toEqual([
+      { match: null, unmodified: null },
+      { match: null, unmodified: null },
+      { match: null, unmodified: null },
+      { match: null, unmodified: null },
+    ]);
+  });
+
   it("revalidates encoded ETags for successful non-200 responses", async () => {
     const identityEtag = '"non-authoritative-v1"';
     const base = await listen(
