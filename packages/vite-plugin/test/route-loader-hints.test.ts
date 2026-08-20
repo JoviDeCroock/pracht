@@ -4,7 +4,12 @@ import { join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { createRouteLoaderHints, detectLoaderExport } from "../src/route-loader-hints.ts";
+import {
+  createRouteLoaderHints,
+  createRouteStaticPathsHints,
+  detectLoaderExport,
+  detectStaticPathsExport,
+} from "../src/route-loader-hints.ts";
 
 describe("detectLoaderExport", () => {
   it("recognizes commented declarations and export lists", () => {
@@ -112,5 +117,75 @@ describe("createRouteLoaderHints", () => {
       "./dashboard.tsrx": false,
       "/src/routes/dashboard.tsrx": false,
     });
+  });
+});
+
+describe("detectStaticPathsExport", () => {
+  it("recognizes declarations, export lists, and re-exports", () => {
+    expect(detectStaticPathsExport("export function getStaticPaths() { return []; }\n")).toBe(true);
+    expect(detectStaticPathsExport("export async function getStaticPaths() {}\n")).toBe(true);
+    expect(detectStaticPathsExport("export const getStaticPaths = () => [];\n")).toBe(true);
+    expect(
+      detectStaticPathsExport("const paths = () => []; export { paths as getStaticPaths };\n"),
+    ).toBe(true);
+    expect(detectStaticPathsExport('export { getStaticPaths } from "./paths.ts";\n')).toBe(true);
+    // `export *` could expose one, so it stays conservative.
+    expect(detectStaticPathsExport('export * from "./paths.ts";\n')).toBe(true);
+  });
+
+  it("does not mistake comments, strings, or local bindings for an export", () => {
+    expect(
+      detectStaticPathsExport("// TODO: add getStaticPaths\nexport function Component() {}\n"),
+    ).toBe(false);
+    expect(detectStaticPathsExport('const hint = "getStaticPaths";\n')).toBe(false);
+    expect(
+      detectStaticPathsExport("function getStaticPaths() {}\nexport function Component() {}\n"),
+    ).toBe(false);
+    expect(detectStaticPathsExport("export function Component() {}\n")).toBe(false);
+  });
+});
+
+describe("createRouteStaticPathsHints", () => {
+  const tempDirs: string[] = [];
+
+  afterEach(() => {
+    for (const dir of tempDirs.splice(0)) {
+      rmSync(dir, { force: true, recursive: true });
+    }
+  });
+
+  it("reports getStaticPaths presence per route file", () => {
+    const routesDir = mkdtempSync(join(tmpdir(), "pracht-static-paths-hints-"));
+    tempDirs.push(routesDir);
+    writeFileSync(join(routesDir, "tag.tsx"), "export function Component() {}\n");
+    writeFileSync(
+      join(routesDir, "post.tsx"),
+      "export function getStaticPaths() { return []; }\nexport function Component() {}\n",
+    );
+
+    expect(
+      createRouteStaticPathsHints(routesDir, {
+        appFileDir: routesDir,
+        rootRelativePrefix: "/src/routes",
+      }),
+    ).toEqual({
+      "./post.tsx": true,
+      "./tag.tsx": false,
+      "/src/routes/post.tsx": true,
+      "/src/routes/tag.tsx": false,
+    });
+  });
+
+  it("stays conservative for formats a companion plugin compiles", () => {
+    const routesDir = mkdtempSync(join(tmpdir(), "pracht-static-paths-hints-ext-"));
+    tempDirs.push(routesDir);
+    writeFileSync(join(routesDir, "item.tsrx"), "export function Component() {}\n");
+
+    expect(
+      createRouteStaticPathsHints(routesDir, {
+        additionalExtensions: [".tsrx"],
+        rootRelativePrefix: "/src/routes",
+      }),
+    ).toEqual({ "/src/routes/item.tsrx": true });
   });
 });

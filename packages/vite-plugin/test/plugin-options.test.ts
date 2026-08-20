@@ -133,7 +133,10 @@ describe("createPrachtDevModuleSource API graph", () => {
 
     expect(source).toContain("const routeLoaderHints = ");
     expect(source).toContain("const routeHeadHints = ");
-    expect(source).toContain("applyRouteHints(resolvedApp, routeLoaderHints, routeHeadHints);");
+    expect(source).toContain("const routeStaticPathsHints = ");
+    expect(source).toContain(
+      "applyRouteHints(resolvedApp, routeLoaderHints, routeHeadHints, routeStaticPathsHints);",
+    );
     expect(source).toContain('export const buildTarget = "custom-static";');
     expect(source).toContain("export const staticTarget = true;");
   });

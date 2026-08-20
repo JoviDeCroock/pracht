@@ -38,7 +38,24 @@ export function routeNeedsServerFetch(route: ResolvedRoute): boolean {
   if (route.hasLoader === false && route.hasHead === false && route.middlewareFiles.length === 0) {
     return false;
   }
+  // A static export writes one route-state file per prerendered path. A route
+  // with dynamic segments is prerendered only for the paths `getStaticPaths()`
+  // enumerates, so a route module that exports none has no state file for
+  // *any* URL that matches it — the request is a guaranteed miss. That is the
+  // ordinary shape of a dynamic `render: "spa"` route (a dynamic `ssg` route
+  // without `getStaticPaths()` fails the build), and without this the client
+  // asks for a file that can never exist on every navigation to one.
+  //
+  // Narrow only on a proven `false`: an unscanned route module leaves the hint
+  // undefined and keeps fetching.
+  if (IS_STATIC_TARGET && route.hasStaticPaths === false && routeHasDynamicSegments(route)) {
+    return false;
+  }
   return true;
+}
+
+function routeHasDynamicSegments(route: ResolvedRoute): boolean {
+  return route.segments.some((segment) => segment.type === "param" || segment.type === "catchall");
 }
 
 export function buildRouteStateUrl(url: string): string {

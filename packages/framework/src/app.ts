@@ -357,6 +357,7 @@ function flattenRouteNode(
     loaderFile: node.loaderFile,
     hasLoader: node.loaderFile ? true : node.hasLoader,
     hasHead: node.hasHead,
+    hasStaticPaths: node.hasStaticPaths,
     shell,
     shellFile: shell !== undefined ? app.shells[shell] : undefined,
     render,
@@ -405,6 +406,7 @@ function hasOwnEntry(record: Record<string, string>, name: string): boolean {
 const ROUTE_META_KEYS = [
   "hasHead",
   "hasLoader",
+  "hasStaticPaths",
   "hydration",
   "id",
   "loaderCache",

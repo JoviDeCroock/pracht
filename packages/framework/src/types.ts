@@ -513,6 +513,14 @@ export interface RouteMeta {
   hasLoader?: boolean;
   /** @internal Build-time hint used to preserve loaderless navigation optimization. */
   hasHead?: boolean;
+  /**
+   * @internal Build-time hint: does the route module export `getStaticPaths()`?
+   *
+   * Only static exports read it. A dynamic route without `getStaticPaths()` is
+   * prerendered for no path at all, so no route-state file exists for any URL
+   * that matches it.
+   */
+  hasStaticPaths?: boolean;
 }
 
 export interface GroupMeta {
