@@ -293,6 +293,21 @@ export const middleware: MiddlewareFn = async (_args, next) => next();
     },
   );
 
+  it("fails verify when a pages middleware alias has no runtime binding", () => {
+    const appDir = createTempDir("pracht-cli-verify-pages-middleware-unresolved-alias-");
+    writePagesApp(appDir);
+    writeProjectFile(appDir, "src/pages/index.tsx", "export function Component() { return null; }");
+    writeProjectFile(appDir, "src/pages/_middleware.ts", "export { missing as middleware };");
+
+    const result = runCliStatus(["verify", "--json"], { cwd: appDir });
+    expect(result.status).toBe(1);
+    const report = JSON.parse(result.stdout);
+    expect(report.ok).toBe(false);
+    expect(
+      report.checks.some((check) => check.message.includes("does not export `middleware`")),
+    ).toBe(true);
+  });
+
   it("does not report invalid changed pages middleware as successful", () => {
     const appDir = createTempDir("pracht-cli-verify-pages-middleware-changed-invalid-");
     writePagesApp(appDir);

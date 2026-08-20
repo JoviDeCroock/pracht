@@ -52,8 +52,9 @@ contents are non-source placeholders, matching the build-time check.
 
 Build-time and CLI export validation also reject type-only star re-exports,
 explicit or locally resolved type-only named aliases, ambient declarations,
-and namespace re-exports such as `export * as middleware`: none exposes the
-runtime `middleware` function required by the generated registration. CLI
+unresolved local aliases, and namespace re-exports such as
+`export * as middleware`: none exposes the runtime `middleware` function
+required by the generated registration. CLI
 verification accepts quoted runtime aliases such as
 `export { fn as "middleware" }`, matching build-time module discovery, and
 accepts `middleware` in a multi-declarator export. Both paths now use the same

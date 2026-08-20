@@ -132,7 +132,8 @@ describe("exportsMiddleware", () => {
     ["export const { middleware: mw } = createAuth();", false],
     ["export const [mw] = createAuth();", false],
     ['export * from "./shared.ts";', true],
-    ["export { a, mw as middleware, b };", true],
+    // A local alias only exports a runtime value when its binding exists.
+    ["export { a, mw as middleware, b };", false],
     ["const type = 1;\nexport { type as middleware };", true],
     ['export { type middleware } from "./types.ts";', false],
     ['export { type Middleware as middleware } from "./types.ts";', false],
