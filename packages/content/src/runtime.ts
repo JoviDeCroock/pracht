@@ -194,7 +194,8 @@ function resolveLocaleOrder(
   } else if (Array.isArray(configured)) {
     fallbacks = requested === locales.default ? [] : configured;
   } else if (configured) {
-    const value = (configured as Readonly<Record<string, string | readonly string[]>>)[requested];
+    const record = configured as Readonly<Record<string, string | readonly string[]>>;
+    const value = Object.hasOwn(record, requested) ? record[requested] : undefined;
     fallbacks = typeof value === "string" ? [value] : (value ?? []);
   } else {
     fallbacks = requested === locales.default ? [] : [locales.default];

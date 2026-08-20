@@ -100,27 +100,47 @@ export function prachtContent(options: PrachtContentOptions): Plugin[] {
       server.middlewares.use(createArtifactMiddleware(collections, server));
     },
 
-    async generateBundle() {
-      const artifacts = await collectArtifacts(collections);
-      const headers: Record<string, Record<string, string>> = {};
-      for (const artifact of artifacts) {
-        this.emitFile({
-          type: "asset",
-          fileName: artifactFileName(artifact.path),
-          source: artifact.source,
-        });
-        headers[artifact.path] = {
-          "content-type": artifact.contentType ?? inferContentType(artifact.path),
-          "x-content-type-options": "nosniff",
-        };
-      }
-      if (artifacts.length > 0) {
-        this.emitFile({
-          type: "asset",
-          fileName: CONTENT_HEADERS_FILE,
-          source: `${JSON.stringify(headers, null, 2)}\n`,
-        });
-      }
+    generateBundle: {
+      order: "post",
+      async handler(_outputOptions, bundle) {
+        const artifacts = await collectArtifacts(collections);
+        const outputFileNames = Object.keys(bundle);
+        const headers: Record<string, Record<string, string>> = {};
+        for (const artifact of artifacts) {
+          const fileName = artifactFileName(artifact.path);
+          const existing = outputFileNames.find((output) => outputPathsCollide(output, fileName));
+          if (existing) {
+            throw new Error(
+              `Content artifact ${JSON.stringify(artifact.path)} collides with existing Vite build output ${JSON.stringify(existing)}. Configure a different artifact path.`,
+            );
+          }
+          this.emitFile({
+            type: "asset",
+            fileName,
+            source: artifact.source,
+          });
+          outputFileNames.push(fileName);
+          headers[artifact.path] = {
+            "content-type": artifact.contentType ?? inferContentType(artifact.path),
+            "x-content-type-options": "nosniff",
+          };
+        }
+        if (artifacts.length > 0) {
+          const existing = outputFileNames.find((output) =>
+            outputPathsCollide(output, CONTENT_HEADERS_FILE),
+          );
+          if (existing) {
+            throw new Error(
+              `Pracht's internal content headers manifest collides with existing Vite build output ${JSON.stringify(existing)}.`,
+            );
+          }
+          this.emitFile({
+            type: "asset",
+            fileName: CONTENT_HEADERS_FILE,
+            source: `${JSON.stringify(headers, null, 2)}\n`,
+          });
+        }
+      },
     },
   };
 

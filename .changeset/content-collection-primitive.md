@@ -45,10 +45,14 @@ default locale, malformed capability lookups fail closed, and empty YAML
 frontmatter is accepted.
 
 Generated artifacts now carry content types across Node, Cloudflare, Netlify,
-and Vercel; preserve Vite resource-query imports; and reject collisions with
-public files, prerendered pages, core `llms.txt`, OpenAPI output, other
+and Vercel through adapter-native routing; preserve Vite resource-query imports;
+and reject collisions with public files, generated bundle output, prerendered
+pages, core `llms.txt`, OpenAPI output, other
 case-folded or parent/child artifacts, Pracht's `/_pracht` namespace, and
 Netlify's root `/_headers` and `/_redirects` control files. Artifact filenames
-must be portable and canonical, while Vercel header patterns escape literal
+must be portable and canonical, while Vercel header routes escape literal
 artifact path syntax. Netlify also applies exact generated headers to bypassed
 static paths and rejects manifest entries that would become wildcard rules.
+Locale fallback records ignore prototype-inherited keys, and Markdown image
+markers remain stable when identical projects are built from different checkout
+paths.

@@ -64,7 +64,7 @@ async function compileMarkdown<TFrontmatter extends Record<string, unknown>>(
         if (local === undefined) return rawImage(token);
         const index = images.length;
         const digest = createHash("sha256")
-          .update(input.source)
+          .update(input.relativeSource)
           .update("\0")
           .update(local)
           .update("\0")

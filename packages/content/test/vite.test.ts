@@ -242,6 +242,30 @@ describe("prachtContent", () => {
     }
   });
 
+  it("rejects artifacts that collide with existing Vite bundle output", async () => {
+    temporaryDirectory = await mkdtemp(join(tmpdir(), "pracht-content-vite-"));
+    await writeFile(join(temporaryDirectory, "page.md"), "Page");
+
+    for (const path of ["/assets/entry.js", "/assets"]) {
+      const collection = defineCollection({
+        name: "docs",
+        root: temporaryDirectory,
+        artifacts: [() => ({ path, source: "shadow" })],
+      });
+      const [, plugin] = prachtContent({ collections: [collection] });
+      const generateBundle = hookHandler(plugin.generateBundle);
+
+      await expect(
+        generateBundle.call(
+          { emitFile: vi.fn() } as never,
+          {} as never,
+          { "assets/entry.js": {} } as never,
+          false,
+        ),
+      ).rejects.toThrow(/collides with existing Vite build output/);
+    }
+  });
+
   it("serves generated artifacts in development with HEAD and method handling", async () => {
     temporaryDirectory = await mkdtemp(join(tmpdir(), "pracht-content-vite-"));
     await writeFile(join(temporaryDirectory, "page.md"), "Page");

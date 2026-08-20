@@ -128,6 +128,20 @@ describe("defineCollection", () => {
     }
   });
 
+  it("ignores inherited properties in locale fallback records", async () => {
+    const root = await fixture({ "en/guide.md": "English" });
+    const collection = defineCollection({
+      name: "localized",
+      root,
+      locales: { default: "en", supported: ["en", "toString"], fallback: {} },
+    });
+
+    await expect(collection.getById("guide", { locale: "toString" })).resolves.toBeUndefined();
+
+    const runtime = defineSnapshotCollection(await collection.snapshot());
+    await expect(runtime.getById("guide", { locale: "toString" })).resolves.toBeUndefined();
+  });
+
   it("only infers source locales from directory segments", async () => {
     const root = await fixture({ "en.md": "A page named after a locale" });
     const collection = defineCollection({

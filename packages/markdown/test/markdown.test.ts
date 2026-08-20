@@ -52,6 +52,16 @@ describe("defineMarkdownCollection", () => {
     expect(module).toContain('from "./sub/photo.jpg?pracht&pracht-static"');
   });
 
+  it("keeps image markers stable across checkout roots", async () => {
+    const first = await fixture("![Alt](./photo.jpg)");
+    const second = await fixture("![Alt](./photo.jpg)");
+
+    const firstDocument = await first.collection.loadSource(first.source);
+    const secondDocument = await second.collection.loadSource(second.source);
+
+    expect(firstDocument.compiled.images[0].marker).toBe(secondDocument.compiled.images[0].marker);
+  });
+
   it("resolves image markers once at module scope instead of on every render", async () => {
     const { collection, source } = await fixture("![Alt](./photo.jpg)");
 

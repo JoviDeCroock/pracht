@@ -39,3 +39,5 @@ export default defineConfig({
 
 Use `images: { placeholder: "blur" }` to opt into inline blur styles. The
 default is `"empty"`, which avoids changing an application's CSP requirements.
+Generated image markers use collection-relative source paths, keeping route
+module output stable when the same project is built from a different checkout.

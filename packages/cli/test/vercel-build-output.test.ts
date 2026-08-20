@@ -110,12 +110,19 @@ describe("writeVercelBuildOutput", () => {
     });
 
     const config = JSON.parse(readFileSync(join(root, ".vercel/output/config.json"), "utf-8")) as {
-      headers: { headers: { key: string; value: string }[]; source: string }[];
-      routes: { dest?: string; src?: string }[];
+      headers?: unknown;
+      routes: {
+        continue?: boolean;
+        dest?: string;
+        headers?: Record<string, string>;
+        src?: string;
+      }[];
     };
-    expect(config.headers).toContainEqual({
-      headers: [{ key: "content-type", value: "text/markdown; charset=utf-8" }],
-      source: "/llms.txt",
+    expect(config.headers).toBeUndefined();
+    expect(config.routes).toContainEqual({
+      continue: true,
+      headers: { "content-type": "text/markdown; charset=utf-8" },
+      src: "^/llms\\.txt$",
     });
     expect(config.routes.some((entry) => entry.dest === "/llms.txt/index.html")).toBe(false);
   });
@@ -129,8 +136,10 @@ describe("writeVercelBuildOutput", () => {
 
     writeVercelBuildOutput({
       base: "/app/",
+      headersManifest: { "/assets/app.js": { "x-test": "yes" } },
       isgManifest: { "/pricing": { revalidate: timeRevalidate(60) } },
       root,
+      staticAssetRoutes: ["/assets/app.js"],
       staticRoutes: ["/", "/guide"],
     });
 
@@ -141,7 +150,13 @@ describe("writeVercelBuildOutput", () => {
     expect(existsSync(join(outputRoot, "functions/app/pricing.prerender-config.json"))).toBe(true);
 
     const config = JSON.parse(readFileSync(join(outputRoot, "config.json"), "utf-8")) as {
-      routes: Array<{ dest?: string; methods?: string[]; src?: string }>;
+      routes: Array<{
+        continue?: boolean;
+        dest?: string;
+        headers?: Record<string, string>;
+        methods?: string[];
+        src?: string;
+      }>;
     };
     expect(config.routes).toContainEqual({
       dest: "/render",
@@ -150,6 +165,11 @@ describe("writeVercelBuildOutput", () => {
     });
     expect(config.routes).toContainEqual({ dest: "/app/guide/index.html", src: "^/app/guide/?$" });
     expect(config.routes).toContainEqual({ dest: "/app/pricing", src: "^/app/pricing/?$" });
+    expect(config.routes).toContainEqual({
+      continue: true,
+      headers: { "x-test": "yes" },
+      src: "^/app/assets/app\\.js$",
+    });
   });
 
   it("rejects repeated separators instead of changing the public deploy base", () => {
@@ -165,7 +185,7 @@ describe("writeVercelBuildOutput", () => {
     ).toThrow(/repeated path separator/);
   });
 
-  it("escapes literal content artifact paths in Vercel header patterns", () => {
+  it("emits literal PCRE content artifact header routes", () => {
     const root = createBuildRoot();
 
     writeVercelBuildOutput({
@@ -179,9 +199,13 @@ describe("writeVercelBuildOutput", () => {
     });
 
     const config = JSON.parse(readFileSync(join(root, ".vercel/output/config.json"), "utf-8")) as {
-      headers: { source: string }[];
+      routes: { headers?: Record<string, string>; src?: string }[];
     };
-    expect(config.headers.at(-1)?.source).toBe("/feed\\+\\(full\\).data");
+    expect(config.routes).toContainEqual({
+      continue: true,
+      headers: { "content-type": "application/json" },
+      src: "^/feed\\+\\(full\\)\\.data$",
+    });
   });
 
   it("routes ISG markdown routes to the render function, not the prerender function", () => {
