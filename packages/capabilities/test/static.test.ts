@@ -140,6 +140,64 @@ describe("capability static extraction", () => {
     ]);
   });
 
+  it("unwraps parenthesized TypeScript registry and module-ref assertions", () => {
+    const source = `
+      const notes = (() => import("./capabilities/notes.ts")) satisfies (() => Promise<unknown>);
+      const capabilities = ({ notes }) as Record<string, () => Promise<unknown>>;
+      export const app = defineApp({ capabilities, routes: [] });
+    `;
+
+    expect(extractCapabilityRegistrations(source)).toEqual([
+      { name: "notes", file: "./capabilities/notes.ts" },
+    ]);
+  });
+
+  it("resolves TypeScript-asserted transitive registry aliases", () => {
+    const source = `
+      const middlewareSource = "./pages/_middleware.ts";
+      const pages = middlewareSource satisfies string;
+      const directRegistry = { pages };
+      const middleware = directRegistry as Record<string, string>;
+      export const app = defineApp({ middleware, routes: [] });
+    `;
+
+    expect(extractManifestModuleRegistrations(source, "middleware")).toEqual([
+      { name: "pages", file: "./pages/_middleware.ts" },
+    ]);
+  });
+
+  it("does not unwrap calls around module-ref factories", () => {
+    const source = `
+      const factory = () => import("./capabilities/notes.ts");
+      const notes = (factory)();
+      export const app = defineApp({ capabilities: { notes }, routes: [] });
+    `;
+
+    expect(extractCapabilityRegistrations(source)).toEqual([]);
+  });
+
+  it("does not unwrap asserted expressions with runtime continuations", () => {
+    const source = `
+      const first = () => import("./capabilities/first.ts");
+      const second = () => import("./capabilities/second.ts");
+      const notes = (first) satisfies (() => Promise<unknown>) ? first : second;
+      export const app = defineApp({ capabilities: { notes }, routes: [] });
+    `;
+
+    expect(extractCapabilityRegistrations(source)).toEqual([]);
+  });
+
+  it("does not unwrap parenthesized sequence expressions", () => {
+    const source = `
+      const first = () => import("./capabilities/first.ts");
+      const second = () => import("./capabilities/second.ts");
+      const notes = (first, second);
+      export const app = defineApp({ capabilities: { notes }, routes: [] });
+    `;
+
+    expect(extractCapabilityRegistrations(source)).toEqual([]);
+  });
+
   it("resolves registry objects and module refs in later variable declarators", () => {
     const source = `
       const unusedRef = () => import("./middleware/unused.ts"),
