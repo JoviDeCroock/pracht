@@ -97,6 +97,14 @@ describe("buildDevtoolsHtml", () => {
     expect(html).not.toContain('href="/api/users/:id"');
   });
 
+  it("keeps navigable links under the Vite deploy base", () => {
+    const html = buildDevtoolsHtml(graphFixture, { base: "/app/" });
+
+    expect(html).toContain('<a href="/app/">/</a>');
+    expect(html).toContain('<a href="/app/api/health">/api/health</a>');
+    expect(html).toContain(`href="/app${DEVTOOLS_JSON_PATH}"`);
+  });
+
   it("escapes HTML in graph values", () => {
     const html = buildDevtoolsHtml({
       api: [],

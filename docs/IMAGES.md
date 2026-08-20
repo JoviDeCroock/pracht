@@ -133,7 +133,7 @@ A loader is `({ src, width, quality }) => string`.
 
 | Loader | URL shape | Use with |
 | --- | --- | --- |
-| `defaultLoader` | `/api/_pracht/image?url=…&w=…&q=…` | the built-in endpoint below |
+| `defaultLoader` | `[base]/api/_pracht/image?url=…&w=…&q=…` | the built-in endpoint below |
 | `cloudflareLoader` | `/cdn-cgi/image/width=…,quality=…,format=auto/<src>` | Cloudflare Image Resizing (zone feature must be enabled) |
 | `vercelLoader` | `/_vercel/image?url=…&w=…&q=…` | Vercel Image Optimization (`images` config required; Vercel only serves widths in `images.sizes`) |
 | `passthroughLoader` | `<src>` unchanged | static hosts without an image service (srcset is omitted) |
@@ -153,7 +153,10 @@ configureImage({
 ```
 
 `createDefaultLoader("/my/endpoint")` builds a default-style loader for a
-custom endpoint path.
+custom endpoint path. Root-absolute default/custom endpoints automatically
+pick up Vite's deploy `base`; absolute, protocol-relative, and relative
+endpoints are left as written. Provider-owned `cloudflareLoader` and
+`vercelLoader` URLs deliberately remain at the origin root.
 
 ## The optimization endpoint
 
@@ -186,7 +189,9 @@ export const HEAD = imageHandler;
 ```
 
 That file maps to `/api/_pracht/image`, which is exactly what
-`defaultLoader` targets — no further configuration needed.
+`defaultLoader` targets — under a deploy base such as `/app/`, the browser URL
+is `/app/api/_pracht/image` while the API route remains base-free. No further
+configuration is needed.
 
 ### Behavior
 

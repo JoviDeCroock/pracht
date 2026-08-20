@@ -331,6 +331,8 @@ because they split assets from the deploy root or resolve them beneath nested
 page directories. Under a base,
 internal navigation must go through `<Link route>` / `href()` — a hand-written
 `<a href="/about">` still means the origin root.
+Framework-owned browser URLs from the default image loader and OpenAPI
+companion artifacts pick up the same base automatically.
 
 ### Setup
 

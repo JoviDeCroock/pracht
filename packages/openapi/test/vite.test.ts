@@ -2,7 +2,11 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import type { Connect, ViteDevServer } from "vite";
 import { describe, expect, it, vi } from "vitest";
 
-import { prachtOpenApi, resolvePrachtOpenApiOptions } from "../src/vite.ts";
+import {
+  prachtOpenApi,
+  resolvePrachtOpenApiOptions,
+  type PrachtOpenApiArtifacts,
+} from "../src/vite.ts";
 
 function hookHandler<T extends (...args: any[]) => any>(hook: T | { handler: T } | undefined): T {
   if (!hook) throw new Error("Expected Vite hook");
@@ -114,6 +118,45 @@ describe("prachtOpenApi Vite integration", () => {
     const devCode = typeof devResult === "string" ? devResult : devResult?.code;
     expect(devCode).toContain("generatePrachtOpenApiArtifacts");
     expect(await transform.call(context, source, "/src/app.ts")).toBeNull();
+  });
+
+  it("serves the document and default API server under the Vite deploy base", async () => {
+    const plugin = prachtOpenApi({
+      info: { title: "Example", version: "1.0.0" },
+      ui: "scalar",
+    });
+    hookHandler(plugin.configResolved).call({} as never, { base: "/app/" } as never);
+    const transform = hookHandler(plugin.transform);
+    const result = await transform.call(
+      {} as never,
+      "const apiModules = {}; const apiRoutes = [];",
+      "\0virtual:pracht/server",
+    );
+    const transformedCode = typeof result === "string" ? result : result?.code;
+    if (!transformedCode) throw new Error("Expected generated OpenAPI source");
+    const code = String(transformedCode);
+
+    const standalone = code.replace(
+      'import { createOpenApiUiHtml as __prachtCreateOpenApiUiHtml, generateOpenApiDocument as __prachtGenerateOpenApiDocument } from "@pracht/openapi";',
+      `const __prachtCreateOpenApiUiHtml = (options) => JSON.stringify(options);
+const __prachtGenerateOpenApiDocument = async (options) => ({
+  document: { openapi: "3.1.0", ...(options.document.servers ? { servers: options.document.servers } : {}) },
+  warnings: [],
+});`,
+    );
+    const generated = (await import(
+      `data:text/javascript;base64,${Buffer.from(standalone).toString("base64")}#${Date.now()}`
+    )) as { generatePrachtOpenApiArtifacts: () => Promise<PrachtOpenApiArtifacts> };
+    const artifacts = await generated.generatePrachtOpenApiArtifacts();
+    const document = JSON.parse(
+      artifacts.artifacts.find((artifact) => artifact.path === "/openapi.json")!.content,
+    );
+    const ui = JSON.parse(
+      artifacts.artifacts.find((artifact) => artifact.path === "/docs")!.content,
+    );
+
+    expect(document.servers).toEqual([{ url: "/app" }]);
+    expect(ui.documentUrl).toBe("/app/openapi.json");
   });
 
   it("serves generated JSON, UI, HEAD, and method errors in dev", async () => {

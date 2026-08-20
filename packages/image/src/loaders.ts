@@ -12,6 +12,19 @@ export type ImageLoader = (args: ImageLoaderArgs) => string;
 
 export const DEFAULT_QUALITY = 75;
 
+function normalizeDeployBase(raw: unknown): string {
+  if (typeof raw !== "string" || raw === "" || raw === "." || raw === "./") return "/";
+  if (raw.includes("://") || raw.startsWith("//")) return "/";
+  const withLeadingSlash = raw.startsWith("/") ? raw : `/${raw}`;
+  return withLeadingSlash.endsWith("/") ? withLeadingSlash : `${withLeadingSlash}/`;
+}
+
+function withDeployBase(path: string): string {
+  if (!path.startsWith("/") || path.startsWith("//")) return path;
+  const base = normalizeDeployBase(import.meta.env?.BASE_URL);
+  return base === "/" ? path : `${base}${path.slice(1)}`;
+}
+
 /**
  * The default optimization endpoint. It maps onto an API route file at
  * `src/api/_pracht/image.ts` that re-exports the handler from
@@ -25,7 +38,7 @@ export const DEFAULT_IMAGE_ENDPOINT = "/api/_pracht/image";
  */
 export function createDefaultLoader(endpoint: string = DEFAULT_IMAGE_ENDPOINT): ImageLoader {
   return ({ src, width, quality }) =>
-    `${endpoint}?url=${encodeURIComponent(src)}&w=${width}&q=${quality ?? DEFAULT_QUALITY}`;
+    `${withDeployBase(endpoint)}?url=${encodeURIComponent(src)}&w=${width}&q=${quality ?? DEFAULT_QUALITY}`;
 }
 
 /**

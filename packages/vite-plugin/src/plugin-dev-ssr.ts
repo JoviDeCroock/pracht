@@ -91,6 +91,7 @@ export function createDevSSRMiddleware(
         await serveDevtools(server, res, {
           apiRoutes: serverMod.apiRoutes ?? [],
           app: serverMod.resolvedApp,
+          base: devBase,
           url,
           wantsJson: requestUrl.pathname === DEVTOOLS_JSON_PATH,
         });
@@ -133,7 +134,15 @@ export function createDevSSRMiddleware(
       }
 
       if (isDevNotFoundRequest(requestUrl, req, routeMatchers)) {
-        return serveDevNotFound(server, res, next, url, requestUrl.pathname, routeMatchers);
+        return serveDevNotFound(
+          server,
+          res,
+          next,
+          url,
+          requestUrl.pathname,
+          routeMatchers,
+          devBase,
+        );
       }
 
       let webRequest: Request;
@@ -505,6 +514,7 @@ async function serveDevtools(
   options: {
     apiRoutes: ResolvedApiRoute[];
     app: ResolvedPrachtApp;
+    base: string;
     url: string;
     wantsJson: boolean;
   },
@@ -539,7 +549,7 @@ async function serveDevtools(
     return;
   }
 
-  let html = devtools.buildDevtoolsHtml(graph);
+  let html = devtools.buildDevtoolsHtml(graph, { base: options.base });
   html = await server.transformIndexHtml(options.url, html);
   res.statusCode = 200;
   res.setHeader("content-type", "text/html; charset=utf-8");
@@ -639,11 +649,13 @@ async function serveDevNotFound(
   url: string,
   pathname: string,
   options: { app: ResolvedPrachtApp; apiRoutes: ResolvedApiRoute[] },
+  base: string,
 ): Promise<void> {
   try {
     const { buildDevNotFoundHtml } = await server.ssrLoadModule("@pracht/core/dev-404");
     let html = buildDevNotFoundHtml({
       apiRoutes: options.apiRoutes.map((route) => ({ path: route.path })),
+      base,
       requestedPath: pathname,
       routes: options.app.routes.map((route) => ({
         path: route.path,

@@ -204,6 +204,10 @@ checklist is about what the *host* must do and what the build cannot enforce.
   hand-written root-absolute internal links (`<a href="/about">`): those are
   not base-prefixed and will leave the deploy. `grep -rn 'href="/' src/` and
   confirm each hit is external, an asset under `public/`, or a `<Link route>`.
+  Framework-owned URLs from `@pracht/image`'s `defaultLoader` and the OpenAPI
+  companion UI/document already carry the base; do not flag their base-free
+  route declarations. Custom image loaders and OpenAPI provider asset URLs
+  still need to match the intended host.
   CDN bases (`https://cdn…`) and document-relative bases (`""` / `"./"`) are
   build errors, not sub-path deploys.
 

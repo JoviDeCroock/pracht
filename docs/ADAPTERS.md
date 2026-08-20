@@ -1353,7 +1353,9 @@ The base is where the deploy is *served*, not part of the output tree:
 uploaded to the sub-path. What changes is every URL the build emits —
 `<script src>`, CSS and modulepreload links, `/_pracht/state/…` fetches,
 `llms.txt` links, and hrefs produced by `<Link route>`, `href()`,
-`useNavigate()`, and `prefetch()`. The client router strips the base before
+`useNavigate()`, and `prefetch()`. The default `@pracht/image` optimization
+endpoint and generated OpenAPI UI/document URLs also carry the base. The
+client router strips the base before
 matching, so route paths in the manifest stay base-free; `useLocation()`
 reports the URL as the visitor sees it, base included.
 

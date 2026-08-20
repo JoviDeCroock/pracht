@@ -62,9 +62,14 @@ export interface PrachtOpenApiArtifacts {
 export function prachtOpenApi(options: PrachtOpenApiOptions): Plugin {
   const resolved = resolvePrachtOpenApiOptions(options);
   const warned = new Set<string>();
+  let buildBase = "/";
 
   return {
     name: "pracht:openapi",
+
+    configResolved(config) {
+      buildBase = normalizeBuildBase(config.base);
+    },
 
     configureServer(server) {
       warnPublicArtifactCollisions(server, resolved);
@@ -74,11 +79,17 @@ export function prachtOpenApi(options: PrachtOpenApiOptions): Plugin {
     transform(code, id) {
       if (!isPrachtGraphModule(id)) return null;
       return {
-        code: `${code}\n${createOpenApiServerModuleSource(resolved)}`,
+        code: `${code}\n${createOpenApiServerModuleSource(resolved, buildBase)}`,
         map: null,
       };
     },
   };
+}
+
+function normalizeBuildBase(raw: unknown): string {
+  if (typeof raw !== "string" || raw === "" || raw === "." || raw === "./") return "/";
+  if (!raw.startsWith("/") || raw.startsWith("//")) return "/";
+  return raw.endsWith("/") ? raw : `${raw}/`;
 }
 
 export function resolvePrachtOpenApiOptions(
@@ -202,8 +213,12 @@ function isPrachtGraphModule(id: string): boolean {
   return normalized === PRACHT_SERVER_MODULE_ID || normalized === PRACHT_DEV_MODULE_ID;
 }
 
-function createOpenApiServerModuleSource(options: ResolvedPrachtOpenApiOptions): string {
+function createOpenApiServerModuleSource(
+  options: ResolvedPrachtOpenApiOptions,
+  buildBase = "/",
+): string {
   const serializable = {
+    buildBase,
     documentPath: options.documentPath,
     document: options.document,
     failOnWarnings: options.failOnWarnings,
@@ -222,9 +237,13 @@ function createOpenApiServerModuleSource(options: ResolvedPrachtOpenApiOptions):
     "  return load();",
     "}",
     "export async function generatePrachtOpenApiArtifacts() {",
+    "  const documentOptions = { ...__prachtOpenApiConfig.document };",
+    '  if (__prachtOpenApiConfig.buildBase !== "/" && documentOptions.servers === undefined) {',
+    "    documentOptions.servers = [{ url: __prachtOpenApiConfig.buildBase.slice(0, -1) }];",
+    "  }",
     "  const result = await __prachtGenerateOpenApiDocument({",
     "    info: __prachtOpenApiConfig.info,",
-    "    document: __prachtOpenApiConfig.document,",
+    "    document: documentOptions,",
     "    routes: apiRoutes,",
     "    loadModule: __prachtLoadOpenApiRoute,",
     "  });",
@@ -245,7 +264,7 @@ function createOpenApiServerModuleSource(options: ResolvedPrachtOpenApiOptions):
     '      contentType: "text/html; charset=utf-8",',
     "      content: __prachtCreateOpenApiUiHtml({",
     "        ...__prachtOpenApiConfig.ui,",
-    "        documentUrl: __prachtOpenApiConfig.documentPath,",
+    '        documentUrl: __prachtOpenApiConfig.buildBase === "/" ? __prachtOpenApiConfig.documentPath : __prachtOpenApiConfig.buildBase + __prachtOpenApiConfig.documentPath.slice(1),',
     '        title: __prachtOpenApiConfig.ui.title ?? __prachtOpenApiConfig.info.title + " API reference",',
     "      }),",
     "    });",

@@ -533,12 +533,14 @@ automatically:
 - `apiFetch()`, unless an explicit `baseUrl` already names where the API lives
 - Capability calls — `useCapability()`, the generated client, and the
   `<Form capability>` action attribute that keeps the no-JS fallback working
+- `@pracht/image`'s `defaultLoader`, plus generated OpenAPI document/UI URLs
+  and the default OpenAPI server when no explicit `document.servers` is set
 - Script, style, and modulepreload URLs; `/_pracht/state/…` fetches;
   `llms.txt` links
 - Speculation rules `href_matches` patterns, which the browser matches against
   real document hrefs
 - `pracht dev` and `pracht preview`, which both serve the app under the
-  configured base
+  configured base; devtools and dev-404 links remain inside it
 
 Hand-written root-absolute URLs are **not** rewritten: `<a href="/about">` and
 `fetch("/api/items")` mean the origin root, the same rule as Next's `basePath`
@@ -564,8 +566,9 @@ A sub-path base is wired end to end for static exports
 `handlePrachtRequest()` strips the base before matching — but their
 static-file and ISG-manifest lookups are still keyed by origin-root paths.
 Mount those behind a proxy that strips the base before forwarding (the usual
-nginx `location /my-project/ { proxy_pass http://app/; }` shape), which both
-halves already handle.
+nginx `location /my-project/ { proxy_pass http://app/; }` shape). The runtime
+accepts that base-free upstream path for matching and restores the configured
+base in SSR/hydration state, so `useLocation()` still reports the public URL.
 
 ---
 

@@ -1,7 +1,7 @@
 import { h } from "preact";
 import type { FunctionComponent } from "preact";
 import { matchApiRoute, matchAppRoute, resolveApp } from "./app.ts";
-import { stripBaseLenient } from "./base.ts";
+import { stripBase, withBase } from "./base.ts";
 import { collectFontHeadFragments } from "./font.ts";
 import { ROUTE_STATE_REQUEST_HEADER, SAFE_METHODS } from "./runtime-constants.ts";
 import {
@@ -329,13 +329,19 @@ export async function handlePrachtRequest<TContext>(
   if (hasDataParam) {
     url.searchParams.delete("_data");
   }
-  const requestPath = getRequestPath(url);
+  const strippedRoutePathname = stripBase(url.pathname);
+  const routePathname = strippedRoutePathname ?? url.pathname;
+  // A serverful deployment commonly strips the mount prefix in its reverse
+  // proxy (`location /app/ { proxy_pass http://upstream/; }`). Route matching
+  // accepts that base-free upstream path, but the URL serialized into SSR and
+  // hydration state must still be the one the visitor sees in the browser.
+  const requestPath =
+    strippedRoutePathname === null ? withBase(getRequestPath(url)) : getRequestPath(url);
   // Everything the app declares — routes, API routes, capability endpoints —
   // is addressed without the deploy base, while the request carries it.
   // `requestPath` stays the URL the visitor is at: it drives `useLocation()`
   // and the serialized hydration state, which the client compares against
   // `window.location`.
-  const routePathname = stripBaseLenient(url.pathname);
   const registry = options.registry ?? {};
   const resolvedApp = getResolvedApp(options.app as PrachtApp);
   // What `<Link route=…>` and `href()` resolve against. Normally the route
