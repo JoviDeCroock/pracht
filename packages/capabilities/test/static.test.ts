@@ -40,6 +40,21 @@ describe("capability static extraction", () => {
     ]);
   });
 
+  it("preserves numeric manifest registry keys", () => {
+    const source = `
+      export const app = defineApp({
+        capabilities: {
+          123: () => import("./capabilities/numeric.ts"),
+        },
+        routes: [],
+      });
+    `;
+
+    expect(extractCapabilityRegistrations(source)).toEqual([
+      { name: "123", file: "./capabilities/numeric.ts" },
+    ]);
+  });
+
   it("resolves manifest module refs stored in top-level bindings", () => {
     const source = `
       const pagesMiddleware: ModuleRef = () => import("./pages/_middleware.ts");
