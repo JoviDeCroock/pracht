@@ -51,6 +51,8 @@ type StaticAnalysisNode = {
   [key: string]: unknown;
 };
 
+const UNRESOLVED_STATIC_BINDING = Symbol("unresolved-static-binding");
+
 /**
  * Whether a parsed JavaScript/TypeScript module statically exposes a runtime
  * binding named `middleware`.
@@ -82,12 +84,12 @@ export function hasNamedMiddlewareExport(program: unknown): boolean {
     } else if (declaration?.type === "VariableDeclaration" && declaration.declare !== true) {
       for (const declarator of nodeArray(declaration.declarations)) {
         if (!collectStaticBindingNames(declarator.id).includes("middleware")) continue;
-        const id = asStaticAnalysisNode(declarator.id);
-        if (
-          id?.type === "Identifier" &&
-          getStaticIdentifierName(id) === "middleware" &&
-          isStaticallyNonCallable(declarator.init)
-        ) {
+        const initializer = resolveStaticBindingInitializer(
+          declarator.id,
+          declarator.init,
+          "middleware",
+        );
+        if (initializer !== UNRESOLVED_STATIC_BINDING && isStaticallyNonCallable(initializer)) {
           continue;
         }
         return true;
@@ -135,6 +137,11 @@ function collectTopLevelBindingKinds(program: StaticAnalysisNode): {
           typeOnlyBindings.add(name);
         } else {
           runtimeBindings.add(name);
+          // A module namespace is always an object, never the callable
+          // middleware value required by the runtime contract.
+          if (specifier.type === "ImportNamespaceSpecifier") {
+            knownNonCallableBindings.add(name);
+          }
         }
       }
       continue;
@@ -173,13 +180,11 @@ function collectTopLevelBindingKinds(program: StaticAnalysisNode): {
       for (const declarator of nodeArray(statement.declarations)) {
         const names = collectStaticBindingNames(declarator.id);
         for (const name of names) runtimeBindings.add(name);
-        const id = asStaticAnalysisNode(declarator.id);
-        if (
-          id?.type === "Identifier" &&
-          names.length === 1 &&
-          isStaticallyNonCallable(declarator.init)
-        ) {
-          knownNonCallableBindings.add(names[0]);
+        for (const name of names) {
+          const initializer = resolveStaticBindingInitializer(declarator.id, declarator.init, name);
+          if (initializer !== UNRESOLVED_STATIC_BINDING && isStaticallyNonCallable(initializer)) {
+            knownNonCallableBindings.add(name);
+          }
         }
       }
       continue;
@@ -200,6 +205,95 @@ function collectTopLevelBindingKinds(program: StaticAnalysisNode): {
   }
 
   return { knownNonCallableBindings, runtimeBindings, typeOnlyBindings };
+}
+
+/**
+ * Resolve a binding's value when a literal destructuring initializer makes it
+ * unambiguous. Dynamic objects stay unresolved so valid middleware factories
+ * and imported registries are still accepted conservatively.
+ */
+function resolveStaticBindingInitializer(
+  patternValue: unknown,
+  initializerValue: unknown,
+  bindingName: string,
+): unknown | typeof UNRESOLVED_STATIC_BINDING {
+  const pattern = asStaticAnalysisNode(patternValue);
+  if (!pattern) return UNRESOLVED_STATIC_BINDING;
+
+  if (pattern.type === "Identifier") {
+    return getStaticIdentifierName(pattern) === bindingName
+      ? initializerValue
+      : UNRESOLVED_STATIC_BINDING;
+  }
+
+  if (pattern.type === "AssignmentPattern") {
+    const initializer = resolveStaticBindingInitializer(
+      pattern.left,
+      initializerValue,
+      bindingName,
+    );
+    if (initializer === UNRESOLVED_STATIC_BINDING) return initializer;
+    return isStaticallyUndefined(initializer) ? pattern.right : initializer;
+  }
+
+  if (pattern.type === "ArrayPattern") {
+    const initializer = asStaticAnalysisNode(initializerValue);
+    if (initializer?.type !== "ArrayExpression") return UNRESOLVED_STATIC_BINDING;
+    const patternElements = unknownArray(pattern.elements);
+    const initializerElements = unknownArray(initializer.elements);
+    for (const [index, element] of patternElements.entries()) {
+      if (!collectStaticBindingNames(element).includes(bindingName)) continue;
+      const elementNode = asStaticAnalysisNode(element);
+      if (elementNode?.type === "RestElement") return { type: "ArrayExpression" };
+      return resolveStaticBindingInitializer(element, initializerElements[index], bindingName);
+    }
+    return UNRESOLVED_STATIC_BINDING;
+  }
+
+  if (pattern.type === "ObjectPattern") {
+    const initializer = asStaticAnalysisNode(initializerValue);
+    if (initializer?.type !== "ObjectExpression") return UNRESOLVED_STATIC_BINDING;
+    for (const property of nodeArray(pattern.properties)) {
+      const bindingPattern = property.type === "RestElement" ? property.argument : property.value;
+      if (!collectStaticBindingNames(bindingPattern).includes(bindingName)) continue;
+      if (property.type === "RestElement") return { type: "ObjectExpression" };
+      if (property.type !== "Property" || property.computed === true) {
+        return UNRESOLVED_STATIC_BINDING;
+      }
+      const key = getStaticIdentifierName(property.key);
+      if (!key) return UNRESOLVED_STATIC_BINDING;
+      const propertyInitializer = resolveStaticObjectProperty(initializer, key);
+      if (propertyInitializer === UNRESOLVED_STATIC_BINDING) return propertyInitializer;
+      return resolveStaticBindingInitializer(property.value, propertyInitializer, bindingName);
+    }
+  }
+
+  return UNRESOLVED_STATIC_BINDING;
+}
+
+function resolveStaticObjectProperty(
+  object: StaticAnalysisNode,
+  key: string,
+): unknown | typeof UNRESOLVED_STATIC_BINDING {
+  const properties = nodeArray(object.properties);
+  for (let index = properties.length - 1; index >= 0; index -= 1) {
+    const property = properties[index];
+    if (property.type !== "Property" || property.computed === true) {
+      // A later spread or computed key may overwrite the requested property.
+      return UNRESOLVED_STATIC_BINDING;
+    }
+    if (getStaticIdentifierName(property.key) === key) return property.value;
+  }
+  // A literal object with no spreads or computed keys has an `undefined`
+  // value for a missing property.
+  return undefined;
+}
+
+function isStaticallyUndefined(value: unknown): boolean {
+  const node = asStaticAnalysisNode(value);
+  if (!node) return true;
+  if (node.type === "Identifier") return getStaticIdentifierName(node) === "undefined";
+  return node.type === "UnaryExpression" && node.operator === "void";
 }
 
 /** Reject only expressions whose runtime value is unambiguously not callable. */

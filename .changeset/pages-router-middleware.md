@@ -77,9 +77,17 @@ Dedicated pages middleware modules also strip value
 `export *` declarations on the client boundary, so a star re-export cannot pull
 its server-only implementation into a browser bundle through a direct import,
 including when the middleware directory is separate from the route and shell
-directories. Ordinary manifest apps may still co-locate route and shell modules
-without having valid underscore-prefixed modules removed just because a
-separate conventional middleware module is named `_middleware.ts`.
+directories. The dedicated module is now erased completely in client builds,
+so top-level effects, side-effect-only imports, and unrelated exports cannot
+survive a direct browser import either. Ordinary manifest apps may still
+co-locate route and shell modules without having valid underscore-prefixed
+modules removed just because a separate conventional middleware module is
+named `_middleware.ts`.
+
+Build and CLI validation also reject namespace imports re-exported as
+`middleware` and literal object/array destructuring whose `middleware` binding
+is provably non-callable. Callable literal destructuring and dynamic bindings
+remain supported.
 
 Changed-only verification now emits the pages-middleware success check only
 after uniqueness and runtime-export validation succeeds, avoiding a

@@ -159,6 +159,11 @@ describe("exportsMiddleware", () => {
     ["export default async (a, n) => n();", false],
     ["export const authMiddleware = 1;", false],
     ["namespace Helpers { export const middleware = () => {}; }\nexport { Helpers };", false],
+    ['import * as candidate from "./middleware.ts";\nexport { candidate as middleware };', false],
+    ["export const { middleware } = { middleware: 1 };", false],
+    ["export const [middleware] = [null];", false],
+    ["export const { middleware } = { middleware: () => {} };", true],
+    ["const { candidate } = { candidate: 1 };\nexport { candidate as middleware };", false],
     ["export { a, middleware as thing, b };", false],
     // Comments and strings are masked, so neither can fake an export.
     ["// export const middleware = 1;\nexport default 1;", false],

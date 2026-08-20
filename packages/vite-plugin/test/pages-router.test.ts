@@ -713,6 +713,12 @@ describe("generatePagesManifestSource", () => {
     ["uninitialized middleware export", "export let middleware;\n"],
     ["type-only star re-export", 'export type * from "./middleware-types";\n'],
     ["namespace re-export", 'export * as middleware from "./middleware";\n'],
+    [
+      "namespace import alias",
+      'import * as candidate from "./middleware";\nexport { candidate as middleware };\n',
+    ],
+    ["non-callable object destructuring", "export const { middleware } = { middleware: 1 };\n"],
+    ["non-callable array destructuring", "export const [middleware] = [null];\n"],
     ["unresolved local alias", "export { missing as middleware };\n"],
     [
       "local type alias exported as a value",
