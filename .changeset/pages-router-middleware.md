@@ -61,19 +61,20 @@ AST classifier, and continue to reject nested `_middleware` files even when
 another reserved underscore-prefixed directory contains them.
 
 Ejected pages manifests are identified by either the marker emitted by
-`generateRoutesFile` or the durable root `_middleware` registration. Removing
-the informational generated header while customizing the manifest therefore
-cannot put middleware or its underscore-reserved helpers into the client
-registry, including when the middleware module reference is stored in a
-top-level variable, a shorthand registry entry, or a shorthand registry
-object. The generated marker continues to protect the configured pages route
-directory when `_app` or `_middleware` is moved separately to a conventional
-directory. Dedicated pages middleware modules also strip value
+`generateRoutesFile` or the generated `pages` root-middleware registration
+while it remains inside the configured pages route directory. That fallback
+supports typed top-level variables, shorthand registry entries, and shorthand
+registry objects without misclassifying an ordinary manifest that merely uses
+a separately configured `_middleware.ts`. Retain the generated marker when
+`_app` or `_middleware` moves to a conventional directory so the configured
+pages route directory stays protected. Dedicated pages middleware modules also
+strip value
 `export *` declarations on the client boundary, so a star re-export cannot pull
-its server-only implementation into a browser bundle through a direct import.
-Ordinary manifest apps may still co-locate route, shell, and
-middleware modules without having valid underscore-prefixed route or shell
-modules removed when they do not register the pages-style root middleware.
+its server-only implementation into a browser bundle through a direct import,
+including when the middleware directory is separate from the route and shell
+directories. Ordinary manifest apps may still co-locate route and shell modules
+without having valid underscore-prefixed modules removed just because a
+separate conventional middleware module is named `_middleware.ts`.
 
 Changed-only verification now emits the pages-middleware success check only
 after uniqueness and runtime-export validation succeeds, avoiding a

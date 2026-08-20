@@ -698,12 +698,46 @@ function findTopLevelVariableInitializer(source: string, name: string): string |
   for (const match of searchable.matchAll(declaration)) {
     if (match.index == null || braceDepthAt(searchable, match.index) !== 0) continue;
     const afterName = match.index + match[0].length;
-    const assignment = /^(?:\s*:[^=;,\n]+)?\s*=\s*/.exec(searchable.slice(afterName));
-    if (!assignment) continue;
-    return source.slice(afterName + assignment[0].length);
+    const assignment = findVariableAssignment(searchable, afterName);
+    if (assignment === -1) continue;
+    return source.slice(skipInsignificant(source, assignment + 1));
   }
 
   return null;
+}
+
+/**
+ * Find the initializer assignment after a top-level variable name. Type
+ * annotations can contain commas, nested object/tuple/function types, generic
+ * arguments, and `=>`, so a flat regex cannot distinguish their punctuation
+ * from the declaration's assignment.
+ */
+function findVariableAssignment(source: string, start: number): number {
+  let braces = 0;
+  let brackets = 0;
+  let parentheses = 0;
+  let angles = 0;
+
+  for (let index = skipInsignificant(source, start); index < source.length; index += 1) {
+    const char = source[index];
+
+    if (char === "{") braces += 1;
+    else if (char === "}") {
+      if (braces === 0 && brackets === 0 && parentheses === 0 && angles === 0) return -1;
+      braces = Math.max(0, braces - 1);
+    } else if (char === "[") brackets += 1;
+    else if (char === "]") brackets = Math.max(0, brackets - 1);
+    else if (char === "(") parentheses += 1;
+    else if (char === ")") parentheses = Math.max(0, parentheses - 1);
+    else if (char === "<") angles += 1;
+    else if (char === ">" && source[index - 1] !== "=" && angles > 0) angles -= 1;
+
+    const atDeclarationLevel = braces === 0 && brackets === 0 && parentheses === 0 && angles === 0;
+    if (char === "=" && source[index + 1] !== ">" && atDeclarationLevel) return index;
+    if ((char === ";" || char === ",") && atDeclarationLevel) return -1;
+  }
+
+  return -1;
 }
 
 /** Parse the `capabilities: { ... }` block of an app manifest source. */

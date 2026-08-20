@@ -430,5 +430,5 @@ pracht({
 });
 ```
 
-Alternatively, move the files into the conventional `src/routes`, `src/shells`, and `src/middleware` directories and update the manifest refs. The generated `src/routes.ts` is a standard manifest you can customize freely. Its header comment is informational: while the root `_middleware` module remains registered, Pracht derives the ejected pages layout from that module reference, so editing or removing the header cannot put middleware or its underscore-reserved helpers into the client registries.
-Module references may use shorthand registry objects or entries. If `_app` or `_middleware` moves separately to a conventional directory, the generated marker keeps the configured pages route directory protected while each registry follows its new directory.
+Alternatively, move the files into the conventional `src/routes`, `src/shells`, and `src/middleware` directories and update the manifest refs. The generated `src/routes.ts` is a standard manifest you can customize freely. You may remove its header while the generated `pages` middleware registration still points at the root `_middleware` inside `routesDir`; Pracht recognizes inline, shorthand, and typed top-level module references.
+Retain the generated marker if `_app` or `_middleware` moves to a conventional directory so Pracht can distinguish the remaining pages route directory from an ordinary manifest that happens to use a separately configured `_middleware.ts`.
