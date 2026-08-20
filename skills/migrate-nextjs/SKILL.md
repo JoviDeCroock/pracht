@@ -1,6 +1,6 @@
 ---
 name: migrate-nextjs
-version: 1.2.0
+version: 1.2.1
 description: |
   Migrate a Next.js application to Pracht. Converts App Router pages, layouts,
   middleware, API routes, data fetching, and metadata to pracht equivalents.
@@ -54,7 +54,7 @@ If the source Next.js project uses the **pages router** (`pages/` directory), pr
 3. Convert `_app.tsx` to pracht shell format (`Shell` export + `children` prop)
 4. Convert `getServerSideProps`/`getStaticProps` to `loader` exports
 5. Add `export const RENDER_MODE = "ssg"` to static pages, `"ssr"` for dynamic (default is `"ssr"`). For time-revalidated pages, export `RENDER_MODE = "isg"` and a positive integer `REVALIDATE` in seconds. Webhook policies require ejection.
-6. Convert `middleware.ts` to a root-level `src/pages/_middleware.ts` exporting a pracht `MiddlewareFn` (Phase 6 shows the transform). It runs on every page route; move `config.matcher` path checks into the function body (`url.pathname`). API routes are not wrapped — use higher-order functions for those. Nested `_middleware.ts` files are a hard error; per-group middleware requires ejection.
+6. Convert `middleware.ts` to a root-level `src/pages/_middleware.ts` exporting a pracht `MiddlewareFn` (Phase 6 shows the transform). It runs on every page route; move `config.matcher` path checks into the function body (`url.pathname`). API routes are not wrapped — use higher-order functions for those. Nested `_middleware.ts` files are a hard error; per-group middleware requires ejection. Cross-check every source matcher against step 5: unlike Next.js edge middleware, Pracht pages middleware does not provide per-visitor protection for an `ssg`/`isg` document. Keep session-gated pages `ssr`/`spa`, or preserve an independently verified platform/CDN edge gate.
 7. Treat other `_`-prefixed files and directories as reserved implementation details: pracht ignores the entire subtree, so move any intended page route out of it.
 8. Run dev server, iterate on errors
 9. Optionally run `generateRoutesFile` to eject to explicit manifest
@@ -316,7 +316,7 @@ group({ middleware: ["auth"] }, [
 ]);
 ```
 
-In `pagesDir` mode, put the same `MiddlewareFn` in a root-level `src/pages/_middleware.ts` instead — it is registered automatically and runs on every page route (API routes stay unwrapped).
+In `pagesDir` mode, put the same `MiddlewareFn` in a root-level `src/pages/_middleware.ts` instead — it is registered automatically and runs on every page route (API routes stay unwrapped). Do not migrate a Next.js per-request auth matcher onto a Pracht `ssg`/`isg` page and call it protected: the static document runs middleware only at build/revalidation with a sanitized request and is already public before the visitor's live route-state request. Keep those pages `ssr`/`spa`, or retain a separately verified platform/CDN edge gate.
 
 Key transforms:
 

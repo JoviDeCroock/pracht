@@ -116,8 +116,9 @@ describe("exportsMiddleware", () => {
     ["export const helper = 1, middleware = async (a, n) => n();", true],
     ["export function middleware(a, n) { return n(); }", true],
     ["export async function middleware(a, n) { return n(); }", true],
-    ["const mw = 1;\nexport { mw as middleware };", true],
-    ["const middleware = 1;\nexport { middleware };", true],
+    ["const mw = 1;\nexport { mw as middleware };", false],
+    ["const middleware = 1;\nexport { middleware };", false],
+    ["const middleware = createAuth();\nexport { middleware };", true],
     ["export const { middleware } = createAuth();", true],
     ["export const { mw: middleware } = createAuth();", true],
     // A type annotation sits between the pattern and `=` in a .ts module.
@@ -134,7 +135,7 @@ describe("exportsMiddleware", () => {
     ['export * from "./shared.ts";', true],
     // A local alias only exports a runtime value when its binding exists.
     ["export { a, mw as middleware, b };", false],
-    ["const type = 1;\nexport { type as middleware };", true],
+    ["const type = 1;\nexport { type as middleware };", false],
     ['export { type middleware } from "./types.ts";', false],
     ['export { type Middleware as middleware } from "./types.ts";', false],
     ["type Contract = () => void;\nexport { Contract as middleware };", false],

@@ -57,19 +57,23 @@ unresolved local aliases, and namespace re-exports such as
 required by the generated registration. CLI
 verification accepts quoted runtime aliases such as
 `export { fn as "middleware" }`, matching build-time module discovery, and
-accepts `middleware` in a multi-declarator export. Both paths now use the same
-AST classifier, and continue to reject nested `_middleware` files even when
-another reserved underscore-prefixed directory contains them.
+accepts callable `middleware` bindings in a multi-declarator export. Statically
+non-callable bindings such as `export const middleware = 1`, uninitialized
+declarations, object literals, and local aliases of those values are rejected
+before deployment instead of taking down every wrapped route at request time.
+Both paths use the same AST classifier, and continue to reject nested
+`_middleware` files even when another reserved underscore-prefixed directory
+contains them.
 
-Ejected pages manifests are identified by either the marker emitted by
-`generateRoutesFile` or the generated `pages` root-middleware registration
-while it remains inside the configured pages route directory. That fallback
-supports typed top-level variables, shorthand registry entries, and shorthand
-registry objects without misclassifying an ordinary manifest that merely uses
-a separately configured `_middleware.ts`. Retain the generated marker when
-`_app` or `_middleware` moves to a conventional directory so the configured
-pages route directory stays protected. Dedicated pages middleware modules also
-strip value
+Ejected pages manifests export a durable
+`__PRACHT_EJECTED_PAGES_LAYOUT__ = true` marker. Client isolation keys only off
+that explicit ownership signal rather than inferring pages semantics from a
+middleware registry name or file path. Computed keys, spreads, and helper
+variables therefore cannot make an ejected layout leak server-only helpers,
+while ordinary co-located manifest apps may freely use a `pages` middleware or
+underscore-prefixed route modules without being misclassified. Retain the
+exported marker when `_app` or `_middleware` moves to a conventional directory.
+Dedicated pages middleware modules also strip value
 `export *` declarations on the client boundary, so a star re-export cannot pull
 its server-only implementation into a browser bundle through a direct import,
 including when the middleware directory is separate from the route and shell
@@ -87,4 +91,10 @@ and bigint keys), keeping numeric capability names visible to browser
 projection, verification, and the server-only capability-module import
 boundary. Identifier-backed registries and module refs are resolved from every
 declarator in a top-level variable statement, so compact multi-declarator
-manifests retain the same ejected-pages client isolation as dedicated bindings.
+capability registries retain the same projection and server-only boundaries as
+dedicated bindings.
+
+The bundled auth-audit and Next.js-migration skills now treat pages-router
+`ssg`/`isg` documents as public unless an independent per-request edge gate is
+verified; build-time middleware and live route-state gating are not presented
+as protection for already-emitted static HTML.

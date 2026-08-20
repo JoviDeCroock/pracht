@@ -1031,14 +1031,15 @@ pracht({
 
 Alternatively, move the files into the conventional `src/routes`,
 `src/shells`, and `src/middleware` directories and update the manifest refs.
-The generated file includes a header comment explaining how to use it
-directly. You may remove that comment while the generated `pages` middleware
-registration still points at the root `_middleware` inside `routesDir`; Pracht
-recognizes that fallback through inline, shorthand, and typed top-level module
-references. Retain the generated marker if `_app` or `_middleware` moves to a
-conventional directory so Pracht can distinguish the remaining pages route
-directory from an ordinary manifest that happens to use a separately configured
-`_middleware.ts`.
+The generated file includes instructions and exports
+`__PRACHT_EJECTED_PAGES_LAYOUT__ = true`. Keep that exported marker while the
+manifest retains pages-router layout semantics: the client build uses the
+explicit marker to exclude underscore-reserved route helpers and strip the
+dedicated middleware module without guessing from registry syntax. This stays
+correct when registries use computed keys, spreads, or helper variables, and it
+keeps ordinary co-located manifest apps from being misclassified. Header
+comments may be edited or removed; the exported marker is the durable boundary,
+including when `_app` or `_middleware` moves to a conventional directory.
 
 ---
 

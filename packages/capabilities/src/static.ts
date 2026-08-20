@@ -63,7 +63,7 @@ export function hasNamedMiddlewareExport(program: unknown): boolean {
   const root = asStaticAnalysisNode(program);
   if (!root) return false;
 
-  const { runtimeBindings } = collectTopLevelBindingKinds(root);
+  const { knownNonCallableBindings, runtimeBindings } = collectTopLevelBindingKinds(root);
 
   for (const statement of nodeArray(root.body)) {
     if (statement.type === "ExportAllDeclaration") {
@@ -81,7 +81,16 @@ export function hasNamedMiddlewareExport(program: unknown): boolean {
       if (getStaticIdentifierName(declaration.id) === "middleware") return true;
     } else if (declaration?.type === "VariableDeclaration" && declaration.declare !== true) {
       for (const declarator of nodeArray(declaration.declarations)) {
-        if (collectStaticBindingNames(declarator.id).includes("middleware")) return true;
+        if (!collectStaticBindingNames(declarator.id).includes("middleware")) continue;
+        const id = asStaticAnalysisNode(declarator.id);
+        if (
+          id?.type === "Identifier" &&
+          getStaticIdentifierName(id) === "middleware" &&
+          isStaticallyNonCallable(declarator.init)
+        ) {
+          continue;
+        }
+        return true;
       }
     }
 
@@ -94,7 +103,13 @@ export function hasNamedMiddlewareExport(program: unknown): boolean {
       if (statement.source) return true;
 
       const localName = getStaticIdentifierName(specifier.local);
-      if (!localName || !runtimeBindings.has(localName)) continue;
+      if (
+        !localName ||
+        !runtimeBindings.has(localName) ||
+        knownNonCallableBindings.has(localName)
+      ) {
+        continue;
+      }
       return true;
     }
   }
@@ -103,9 +118,11 @@ export function hasNamedMiddlewareExport(program: unknown): boolean {
 }
 
 function collectTopLevelBindingKinds(program: StaticAnalysisNode): {
+  knownNonCallableBindings: Set<string>;
   runtimeBindings: Set<string>;
   typeOnlyBindings: Set<string>;
 } {
+  const knownNonCallableBindings = new Set<string>();
   const runtimeBindings = new Set<string>();
   const typeOnlyBindings = new Set<string>();
 
@@ -154,7 +171,16 @@ function collectTopLevelBindingKinds(program: StaticAnalysisNode): {
 
     if (statement.type === "VariableDeclaration") {
       for (const declarator of nodeArray(statement.declarations)) {
-        for (const name of collectStaticBindingNames(declarator.id)) runtimeBindings.add(name);
+        const names = collectStaticBindingNames(declarator.id);
+        for (const name of names) runtimeBindings.add(name);
+        const id = asStaticAnalysisNode(declarator.id);
+        if (
+          id?.type === "Identifier" &&
+          names.length === 1 &&
+          isStaticallyNonCallable(declarator.init)
+        ) {
+          knownNonCallableBindings.add(names[0]);
+        }
       }
       continue;
     }
@@ -166,11 +192,51 @@ function collectTopLevelBindingKinds(program: StaticAnalysisNode): {
       statement.type === "TSModuleDeclaration"
     ) {
       const name = getStaticIdentifierName(statement.id);
-      if (name) runtimeBindings.add(name);
+      if (name) {
+        runtimeBindings.add(name);
+        if (statement.type !== "FunctionDeclaration") knownNonCallableBindings.add(name);
+      }
     }
   }
 
-  return { runtimeBindings, typeOnlyBindings };
+  return { knownNonCallableBindings, runtimeBindings, typeOnlyBindings };
+}
+
+/** Reject only expressions whose runtime value is unambiguously not callable. */
+function isStaticallyNonCallable(value: unknown): boolean {
+  let node = asStaticAnalysisNode(value);
+  if (!node) return true;
+
+  while (
+    node.type === "ParenthesizedExpression" ||
+    node.type === "TSAsExpression" ||
+    node.type === "TSNonNullExpression" ||
+    node.type === "TSSatisfiesExpression" ||
+    node.type === "TypeCastExpression"
+  ) {
+    const expression = asStaticAnalysisNode(node.expression);
+    if (!expression) return true;
+    node = expression;
+  }
+
+  if (node.type === "Identifier") return getStaticIdentifierName(node) === "undefined";
+
+  return new Set([
+    "ArrayExpression",
+    "BigIntLiteral",
+    "BooleanLiteral",
+    "ClassExpression",
+    "JSXElement",
+    "JSXFragment",
+    "Literal",
+    "NullLiteral",
+    "NumericLiteral",
+    "ObjectExpression",
+    "RegExpLiteral",
+    "StringLiteral",
+    "TemplateLiteral",
+    "UnaryExpression",
+  ]).has(node.type);
 }
 
 function collectStaticBindingNames(pattern: unknown): string[] {
