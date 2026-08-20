@@ -15,6 +15,9 @@ describe("middleware export classification", () => {
   it.each([
     ["export const helper = 1, middleware = () => {};", true],
     ["export const middleware = 1;", false],
+    ["export const middleware = 1 + 2;", false],
+    ["export const middleware = 1 < 2;", false],
+    ["let value = 0; export const middleware = value++;", false],
     ["export let middleware;", false],
     ["export const middleware = (() => {}) as MiddlewareFn;", true],
     ["const candidate = {};\nexport { candidate as middleware };", false],
@@ -32,6 +35,10 @@ describe("middleware export classification", () => {
     ["export const { middleware } = { ...handlers, middleware: 1 };", false],
     ["const { candidate } = { candidate: 1 };\nexport { candidate as middleware };", false],
     ["const candidate = createMiddleware();\nexport { candidate as middleware };", true],
+    [
+      'function candidate() {}\nnamespace candidate { export const id = "pages"; }\nexport { candidate as middleware };',
+      true,
+    ],
     ["namespace Helpers { export const middleware = () => {}; }\nexport { Helpers };", false],
     ["type Contract = () => void;\nexport { Contract as middleware };", false],
     ["export { missing as middleware };", false],
@@ -139,6 +146,32 @@ describe("capability static extraction", () => {
     expect(extractManifestModuleRegistrations(source, "middleware")).toEqual([
       { name: "pages", file: "./pages/_middleware.ts" },
     ]);
+  });
+
+  it("resolves transitive aliases for registries and module refs", () => {
+    const source = `
+      const middlewareSource = "./pages/_middleware.ts";
+      const pages = middlewareSource;
+      const directRegistry = { pages };
+      const middleware = directRegistry;
+      export const app = defineApp({ middleware, routes: [] });
+    `;
+
+    expect(extractManifestModuleRegistrations(source, "middleware")).toEqual([
+      { name: "pages", file: "./pages/_middleware.ts" },
+    ]);
+  });
+
+  it("stops safely when manifest module aliases form a cycle", () => {
+    const source = `
+      const first = second, second = first;
+      export const app = defineApp({
+        capabilities: { "notes.search": first },
+        routes: [],
+      });
+    `;
+
+    expect(extractCapabilityRegistrations(source)).toEqual([]);
   });
 
   it("does not treat a default-import comma as a variable declarator", () => {
