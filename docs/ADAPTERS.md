@@ -82,6 +82,7 @@ The adapter factory calls the entry module generator internally to create a virt
 | `trustProxy`    | `boolean`            | Honor forwarded headers for URL construction (default: `false`) |
 | `canonicalOrigin` | `string`           | Fixed public origin for `request.url`; ignores request Host values |
 | `maxBodySize`   | `number`             | Maximum request body size in bytes (default: 1 MiB)             |
+| `compression`   | `boolean`            | Brotli/gzip response compression via `Accept-Encoding` (default: `true`) |
 
 ### Trusted proxy configuration
 
@@ -158,6 +159,103 @@ that manifest.
   `<link>` tags into server-rendered HTML.
 - **Response headers**: preserves multiple `Set-Cookie` headers from framework
   responses by writing them as an array to Node's `ServerResponse`.
+- **Response compression**: brotli/gzip content negotiation on every response
+  path — see below.
+
+### Response compression
+
+The Node adapter compresses responses by default, negotiated against the
+request's `Accept-Encoding` header (the acceptable coding with the highest
+q-value wins per RFC 9110, brotli preferred on ties and in unweighted lists
+like `gzip, deflate, br`; an explicitly higher `identity` preference, `*`
+wildcards, and `q=0` exclusions are honored, all via `node:zlib`):
+
+- **Dynamic responses** — SSR/ISG documents, route-state JSON, API responses
+  with compressible types — stream through a zlib transform (brotli quality 4)
+  that flushes per written chunk, so incrementally produced bodies such as
+  `text/event-stream` (SSE) reach the client as each event is written instead
+  of sitting in the compressor's buffer until the stream ends.
+- **Static assets and ISG snapshots** up to 1 MiB are compressed once per file
+  version at higher quality and kept in a byte-bounded in-memory LRU
+  (32 MiB) keyed by path + durable file identity + write generation, so hashed
+  assets and regenerated ISG HTML pay the compression cost once — concurrent
+  first requests to the same file share a single in-flight compression.
+  Successful ISG writes are published as an atomic file replacement and
+  therefore receive a new durable file identity. That identity remains private
+  to local compression-cache keys; public ISG validators are content-derived,
+  so sibling handlers and deployment replicas advertise the same ETag for the
+  same snapshot while each handler advances its own cache generation to
+  discard prior compressed bytes.
+  The response reads through the same open file handle that supplied its size
+  and validator, so a concurrent replacement cannot be admitted under stale
+  metadata or bypass the cold-work byte budget. Even same-size rewrites on
+  coarse-timestamp filesystems therefore remain distinct after a handler
+  restart or in a sibling worker. Date-only
+  revalidation is conservatively bypassed for mutable ISG snapshots while
+  compression is enabled because an HTTP date cannot identify such a
+  generation. Whole-file cold work is bounded by both bytes and concurrency,
+  including content-derived validator hashing. Concurrent requests for the
+  same snapshot share one hash; when the validator budget is full, the response
+  safely omits its ETag instead of queuing another whole-file read. Excess
+  distinct compression jobs, and all larger files, stream through zlib instead
+  of queuing another buffered compression. This is runtime compression rather
+  than build-time precompression; it also covers ISG documents rewritten on
+  disk after the build.
+
+What gets compressed: `text/*`, `application/json`, `application/javascript`,
+`application/xml`, `application/wasm`, and any `+json`/`+xml` structured
+syntax type (`image/svg+xml`, `application/manifest+json`, ...). Binary media
+(images, fonts, video) is never re-compressed. Static `.wasm` assets are served
+as `application/wasm`, so they follow the same compression path as dynamic
+WebAssembly responses.
+
+What is never touched: responses that already carry a `Content-Encoding`,
+`Cache-Control: no-transform` responses, 1xx/204/205/206/304 statuses, Range
+responses, integrity-protected responses (`Content-Digest`, `Repr-Digest`,
+legacy `Digest`/`Content-MD5`), and bodies under 1 KiB when the size is known.
+Because those integrity fields depend on the selected content encoding, the
+adapter preserves their identity representation rather than forwarding a
+digest that no longer matches the bytes on the wire.
+
+Correctness guarantees:
+
+- Compressible responses always carry `Vary: Accept-Encoding`, merged with any
+  existing `Vary` members (e.g. `x-pracht-route-state-request`), even when the
+  response goes out identity-encoded or the application answers a conditional
+  request with `304` — so shared caches keep keying on the encoding.
+- Encoded variants get their own collision-resistant weak ETag (a SHA-256
+  digest of the identity tag and encoding, e.g. `W/"pracht-br-..."`), so
+  an encoded validator cannot alias an application-provided identity tag; an
+  identity tag that enters the adapter's reserved namespace is escaped. Thus
+  `If-None-Match` revalidation can never answer an identity request with a
+  cached brotli body or vice versa. Strong
+  application ETags are weakened because streaming compression bytes can vary
+  with chunk boundaries. For encoded dynamic requests, the adapter evaluates
+  `If-Match` with strong comparison, then `If-None-Match` and
+  `If-Modified-Since`, only after selecting the outgoing representation.
+  `If-Match` takes precedence over `If-Unmodified-Since`, and `If-None-Match`
+  takes precedence over `If-Modified-Since`. Valid quoted opaque tags can
+  contain commas. Application-level identity validation therefore cannot
+  short-circuit an encoded request with a cross-encoding `200` or `304`.
+  Requests carrying `Range` retain their original validators and remain
+  identity-encoded even when the application ignores the range and returns a
+  full `200`; `206` responses are likewise never transformed.
+- `HEAD` advertises the same negotiated `Content-Encoding`, variant ETag, and
+  buffered compressed `Content-Length` as the corresponding `GET` while
+  omitting the body (streamed compressed lengths remain unknown).
+- If a dynamic body fails before any bytes are written, the adapter discards
+  its staged compression metadata and returns an unencoded, non-cacheable 500.
+
+**Behind a reverse proxy:** when nginx, Caddy, Cloudflare, or another
+CDN/proxy in front of the Node server already compresses responses, disable
+the adapter's compression so the body is not compressed twice and the proxy
+can apply its own policy:
+
+```typescript
+nodeAdapter({ compression: false });
+// or for custom entries:
+createNodeRequestHandler({ app, registry, staticDir, compression: false });
+```
 
 ### WebSockets
 

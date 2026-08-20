@@ -18,6 +18,12 @@ export interface NodeServerEntryModuleOptions {
    * Origin check.
    */
   configureServerFrom?: string;
+  /**
+   * Compress responses with brotli or gzip based on `Accept-Encoding`
+   * (default: `true`). Set to `false` when a reverse proxy or CDN in front of
+   * the Node server already compresses responses.
+   */
+  compression?: boolean;
 }
 
 export function createNodeServerEntryModule(options: NodeServerEntryModuleOptions = {}): string {
@@ -70,6 +76,7 @@ export function createNodeServerEntryModule(options: NodeServerEntryModuleOption
     `  canonicalOrigin: ${JSON.stringify(canonicalOrigin ?? undefined)},`,
     "  createContext: createPrachtContext,",
     `  maxBodySize: ${JSON.stringify(options.maxBodySize ?? undefined)},`,
+    `  compression: ${JSON.stringify(options.compression ?? undefined)},`,
     "});",
     "",
     "const entryHref = process.argv[1] ? pathToFileURL(process.argv[1]).href : null;",

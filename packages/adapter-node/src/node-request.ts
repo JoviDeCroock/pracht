@@ -1,6 +1,21 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { Readable } from "node:stream";
 
+import {
+  COMPRESSION_MIN_SIZE,
+  type ContentEncoding,
+  createCompressedStream,
+  encodeEtagForEncoding,
+  isCompressibleContentType,
+  isNotModifiedRequest,
+  isTransformableResponse,
+  matchesIfMatch,
+  mergeVaryOnNodeResponse,
+  negotiateEncoding,
+  protectIdentityEtag,
+  type CompressionState,
+} from "./node-compress.ts";
+
 const BODYLESS_METHODS = new Set(["GET", "HEAD"]);
 export const DEFAULT_MAX_BODY_SIZE = 1024 * 1024; // 1 MiB
 
@@ -196,18 +211,133 @@ function normalizeRequestTarget(
   return target;
 }
 
-export async function writeWebResponse(res: ServerResponse, response: Response): Promise<void> {
+export async function writeWebResponse(
+  res: ServerResponse,
+  response: Response,
+  compression?: CompressionState,
+): Promise<void> {
   res.statusCode = response.status;
   res.statusMessage = response.statusText;
 
   writeNodeResponseHeaders(res, response.headers);
+
+  let encoding: ContentEncoding | null = null;
+  const sourceEtag = getNodeHeaderValue(res, "etag");
+  const sourceEncoding = response.headers.get("content-encoding");
+  if (
+    compression &&
+    sourceEtag &&
+    (!sourceEncoding || sourceEncoding.toLowerCase() === "identity")
+  ) {
+    res.setHeader("etag", protectIdentityEtag(sourceEtag));
+  }
+  const compressibleContentType = isCompressibleContentType(response.headers.get("content-type"));
+  if (compression && (compressibleContentType || response.status === 304)) {
+    // An application-generated 304 may omit Content-Type, but it still needs
+    // the Vary field the adapter adds to the corresponding 200 response.
+    mergeVaryOnNodeResponse(res);
+  }
+  if (
+    compression &&
+    !compression.request.headers.has("range") &&
+    compressibleContentType &&
+    isTransformableResponse(response.status, response.headers)
+  ) {
+    const contentLength = Number.parseInt(response.headers.get("content-length") ?? "", 10);
+    const belowThreshold = !Number.isNaN(contentLength) && contentLength < COMPRESSION_MIN_SIZE;
+
+    if ((response.body || compression.request.method === "HEAD") && !belowThreshold) {
+      encoding = negotiateEncoding(compression.request.headers.get("accept-encoding"));
+    }
+
+    if (encoding) {
+      res.removeHeader("content-length");
+      res.setHeader("content-encoding", encoding);
+      if (sourceEtag) res.setHeader("etag", encodeEtagForEncoding(sourceEtag, encoding));
+    }
+  }
+
+  const responseEtag = getNodeHeaderValue(res, "etag");
+  const isSuccessfulRetrieval =
+    compression &&
+    response.status >= 200 &&
+    response.status < 300 &&
+    (compression.request.method === "GET" || compression.request.method === "HEAD");
+  if (
+    isSuccessfulRetrieval &&
+    compression.ownsIfMatch &&
+    !matchesIfMatch(compression.request.headers.get("if-match"), responseEtag)
+  ) {
+    res.statusCode = 412;
+    res.statusMessage = "Precondition Failed";
+    for (const name of [
+      "content-digest",
+      "content-encoding",
+      "content-length",
+      "content-md5",
+      "content-range",
+      "content-type",
+      "digest",
+      "repr-digest",
+    ]) {
+      res.removeHeader(name);
+    }
+    res.setHeader("cache-control", "no-store");
+    cancelResponseBody(response);
+    res.end();
+    return;
+  }
+  if (
+    isSuccessfulRetrieval &&
+    isNotModifiedRequest(
+      compression.request,
+      responseEtag,
+      getNodeHeaderValue(res, "last-modified"),
+    )
+  ) {
+    // Evaluate the selected representation's validators here. For encoded
+    // requests the application did not receive `If-None-Match` or
+    // `If-Modified-Since`, because it only knows identity metadata and could
+    // otherwise short-circuit with a cross-encoding 304 before this adapter
+    // derives the variant validator.
+    res.statusCode = 304;
+    res.statusMessage = "Not Modified";
+    res.removeHeader("content-length");
+    res.removeHeader("content-range");
+    cancelResponseBody(response);
+    res.end();
+    return;
+  }
 
   if (!response.body) {
     res.end();
     return;
   }
 
-  await pipeToResponse(Readable.fromWeb(response.body as never), res);
+  const source: NodeJS.ReadableStream = Readable.fromWeb(response.body as never);
+  // `incremental` flushes the compressor per written chunk: dynamic bodies
+  // may be produced over time (SSE, streamed API responses), and a compressor
+  // that only drains at end-of-stream would hold every event back until the
+  // response closes. For single-chunk bodies (SSR documents, route-state
+  // JSON) the extra flush costs a handful of bytes.
+  await pipeToResponse(
+    encoding ? createCompressedStream(source, encoding, { incremental: true }) : source,
+    res,
+  );
+}
+
+function cancelResponseBody(response: Response): void {
+  if (!response.body) return;
+  // Cancellation is cleanup, not part of the conditional response. A
+  // proxied/custom stream is allowed to reject cancellation; do not let that
+  // replace a valid 304/412 with the outer 500 fallback (or hold the response
+  // open while asynchronous cleanup settles).
+  void response.body.cancel().catch(() => undefined);
+}
+
+function getNodeHeaderValue(res: ServerResponse, name: string): string | null {
+  const value = res.getHeader(name);
+  return Array.isArray(value) ? value.join(", ") : (value?.toString() ?? null);
 }
 
 export function writeNodeResponseHeaders(res: ServerResponse, headers: Headers): void {

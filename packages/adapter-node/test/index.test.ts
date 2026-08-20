@@ -110,6 +110,11 @@ describe("createNodeServerEntryModule", () => {
     const source = createNodeServerEntryModule();
     expect(source).toContain("const configurePrachtServer = undefined;");
   });
+
+  it("passes the compression toggle through to the generated handler", () => {
+    expect(createNodeServerEntryModule()).toContain("compression: undefined");
+    expect(createNodeServerEntryModule({ compression: false })).toContain("compression: false");
+  });
 });
 
 describe("createNodeRequestHandler", () => {
@@ -330,10 +335,14 @@ describe("createNodeRequestHandler", () => {
           revalidate: [timeRevalidate(3600), webhookRevalidate()],
         },
       },
+      headersManifest: {
+        "/pricing": { etag: '"pricing-document"' },
+      },
       registry: {
         routeModules: {
           "./routes/pricing.tsx": async () => ({
-            Component: ({ data }) => `<main>${(data as { cookie: string }).cookie}</main>`,
+            Component: ({ data }) =>
+              `<main>${(data as { cookie: string }).cookie}${" cacheable".repeat(300)}</main>`,
             loader: async ({ context }) => ({
               cookie: (context as { cookie?: string }).cookie ?? "missing",
             }),
@@ -391,6 +400,61 @@ describe("createNodeRequestHandler", () => {
       });
       expect(readFileSync(htmlPath, "utf-8")).toContain("missing");
       expect(readFileSync(htmlPath, "utf-8")).not.toContain("should-not-leak");
+
+      // Prime the compressed-file LRU with a stale page, then regenerate a
+      // same-size replacement while preserving its timestamp. Filesystem
+      // metadata alone cannot distinguish these versions, so the successful
+      // regeneration must explicitly invalidate the cached bytes.
+      const freshHtml = readFileSync(htmlPath, "utf-8");
+      const staleHtml = freshHtml.replace("missing", "expired");
+      expect(staleHtml).not.toBe(freshHtml);
+      expect(Buffer.byteLength(staleHtml)).toBe(Buffer.byteLength(freshHtml));
+      const fixedTimestamp = new Date();
+      writeFileSync(htmlPath, staleHtml, "utf-8");
+      utimesSync(htmlPath, fixedTimestamp, fixedTimestamp);
+
+      const staleCompressed = await fetch(`http://127.0.0.1:${address.port}/pricing`, {
+        headers: { "accept-encoding": "gzip" },
+      });
+      expect(staleCompressed.headers.get("content-encoding")).toBe("gzip");
+      const staleEtag = staleCompressed.headers.get("etag");
+      const staleLastModified = staleCompressed.headers.get("last-modified");
+      await expect(staleCompressed.text()).resolves.toContain("expired");
+
+      const refreshed = await fetch(endpoint, {
+        body,
+        headers: { authorization: "Bearer secret", "content-type": "application/json" },
+        method: "POST",
+      });
+      expect(refreshed.status).toBe(200);
+      const regeneratedHtml = readFileSync(htmlPath, "utf-8");
+      expect(Buffer.byteLength(regeneratedHtml)).toBe(Buffer.byteLength(staleHtml));
+      expect(regeneratedHtml).toContain("missing");
+      utimesSync(htmlPath, fixedTimestamp, fixedTimestamp);
+
+      const freshCompressed = await fetch(`http://127.0.0.1:${address.port}/pricing`, {
+        headers: { "accept-encoding": "gzip" },
+      });
+      expect(freshCompressed.headers.get("content-encoding")).toBe("gzip");
+      expect(freshCompressed.headers.get("etag")).not.toBe(staleEtag);
+      expect(freshCompressed.headers.get("last-modified")).toBe(staleLastModified);
+      await expect(freshCompressed.text()).resolves.toContain("missing");
+
+      const staleEtagRevalidation = await fetch(`http://127.0.0.1:${address.port}/pricing`, {
+        headers: { "accept-encoding": "gzip", "if-none-match": staleEtag! },
+      });
+      expect(staleEtagRevalidation.status).toBe(200);
+      await expect(staleEtagRevalidation.text()).resolves.toContain("missing");
+
+      const staleDateRevalidation = await fetch(`http://127.0.0.1:${address.port}/pricing`, {
+        headers: {
+          "accept-encoding": "gzip",
+          "if-modified-since": staleLastModified!,
+        },
+      });
+      expect(staleDateRevalidation.status).toBe(200);
+      await expect(staleDateRevalidation.text()).resolves.toContain("missing");
+      expect(await refreshed.json()).toMatchObject({ revalidated: ["/pricing"] });
     } finally {
       if (previousToken === undefined) {
         delete process.env.PRACHT_REVALIDATE_TOKEN;
@@ -802,6 +866,7 @@ describe("createNodeRequestHandler", () => {
                       controller.error(failure);
                     },
                   }),
+                  { headers: { "content-type": "text/plain" } },
                 ),
             }),
           },
@@ -821,9 +886,14 @@ describe("createNodeRequestHandler", () => {
 
       // Nothing was written yet, so a real status is still possible — the
       // client must not just see the connection drop.
-      const response = await fetch(`http://127.0.0.1:${address.port}/api/stream`);
+      const response = await fetch(`http://127.0.0.1:${address.port}/api/stream`, {
+        headers: { "accept-encoding": "br" },
+      });
       expect(response.status).toBe(500);
-      await response.text();
+      expect(response.statusText).toBe("Internal Server Error");
+      expect(response.headers.get("content-encoding")).toBeNull();
+      expect(response.headers.get("cache-control")).toBe("no-store");
+      await expect(response.text()).resolves.toBe("Internal Server Error");
 
       await waitFor(() => errors.some((entry) => String(entry).includes("Unhandled error")));
     });

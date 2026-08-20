@@ -473,6 +473,55 @@ trusted reverse proxy that overwrites `Forwarded` or `X-Forwarded-*` headers.
 Never enable it on a directly reachable server; `canonicalOrigin` is safer
 when the public origin is fixed.
 
+### Response compression
+
+Responses are compressed by default via `Accept-Encoding` negotiation — the
+highest q-value wins (including an explicitly higher `identity` preference),
+with brotli preferred on ties. Dynamic documents, route-state JSON, and other
+compressible text types (`text/*`, JSON, JavaScript, SVG, and other
+`+json`/`+xml` types) stream through `node:zlib` with per-chunk flushing, so
+streamed bodies such as SSE are delivered incrementally; static assets and ISG
+snapshots are compressed once per file version and served from an in-memory
+LRU. Successful ISG writes use an atomic file replacement whose filesystem
+identity stays private to local cache keys; content-derived public validators
+remain stable across sibling handlers and deployment replicas, while local
+cache generations discard old compressed bytes. Each response reads through
+the same open file handle that supplied its size and validator, so a concurrent
+replacement cannot mix bytes with stale metadata or bypass the cold-work byte
+budget. This covers same-size rewrites on coarse-timestamp filesystems and
+revalidation after a handler restart or in a sibling worker. Date-only
+validation is conservatively bypassed for mutable ISG snapshots while
+compression is enabled. Buffered cold work is byte- and concurrency-bounded,
+including content-derived validator hashing; same-snapshot requests share one
+hash, and an overloaded response safely omits its ETag instead of queuing an
+unbounded whole-file read. Excess distinct compression jobs fall back to
+streaming compression. Static WebAssembly is served as `application/wasm`
+and follows that static compression path. Compressible responses carry
+`Vary: Accept-Encoding` (merged with existing `Vary` values), including on an
+application-generated `304`; encoded variants use their own collision-resistant
+weak ETag, and encoded dynamic requests run `If-Match` / `If-None-Match` /
+`If-Modified-Since` validation after the adapter selects the representation so
+identity and encoded validators cannot cross. `If-Match`
+uses strong comparison and preserves its precedence over
+`If-Unmodified-Since`. Requests carrying `Range` retain
+their original validators and remain identity-encoded even when the application
+returns a full `200`; `206` responses are likewise never transformed. `HEAD`
+advertises the same negotiated metadata as `GET`, including buffered compressed
+lengths.
+Already-encoded responses, `Cache-Control: no-transform`, Range/`204`/`304`
+responses, integrity-protected responses (`Content-Digest`, `Repr-Digest`,
+legacy `Digest`/`Content-MD5`), binary media, and bodies under 1 KiB when their
+size is known are never compressed. If a dynamic body fails before sending
+bytes, the fallback 500 is sent without the abandoned response's compression
+metadata.
+
+When a reverse proxy or CDN in front of the server already compresses
+responses, disable the adapter's compression and let the proxy own it:
+
+```ts [vite.config.ts]
+nodeAdapter({ compression: false });
+```
+
 ### Deploy
 
 ```sh

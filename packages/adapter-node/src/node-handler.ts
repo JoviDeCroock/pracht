@@ -1,7 +1,7 @@
-import { createReadStream } from "node:fs";
-import { mkdir, stat, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { open, type FileHandle } from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { dirname, join, resolve, sep } from "node:path";
+import { join, resolve, sep } from "node:path";
 
 import {
   applyDefaultSecurityHeaders,
@@ -26,7 +26,25 @@ import {
   routeSupportsMarkdown,
 } from "@pracht/core/server";
 
-import { regenerateISGPage } from "./node-isg.ts";
+import {
+  COMPRESSION_MIN_SIZE,
+  CompressedAssetCache,
+  containsEncodedEtag,
+  type CompressionState,
+  compressBuffer,
+  type ContentEncoding,
+  createCompressionFileVersion,
+  createCompressedStream,
+  encodeEtagForEncoding,
+  isCompressibleContentType,
+  isNotModifiedRequest,
+  isTransformableResponse,
+  MAX_CACHEABLE_ASSET_SIZE,
+  mergeVaryValue,
+  negotiateEncoding,
+  protectIdentityEtag,
+} from "./node-compress.ts";
+import { regenerateISGPage, writeISGFile } from "./node-isg.ts";
 import {
   createWebRequest,
   isClientDisconnectError,
@@ -88,6 +106,14 @@ export interface NodeAdapterOptions<TContext = unknown> {
   trustProxy?: boolean;
   /** Maximum request body size in bytes. Defaults to 1 MiB. */
   maxBodySize?: number;
+  /**
+   * Compress responses with brotli or gzip based on `Accept-Encoding`
+   * (default: `true`). Applies to HTML documents, route-state JSON, and other
+   * compressible text types; static assets are compressed at runtime through
+   * an in-memory LRU of compressed variants. Set to `false` when a reverse
+   * proxy or CDN in front of the server already compresses responses.
+   */
+  compression?: boolean;
 }
 
 let warnedAboutMissingCanonicalOrigin = false;
@@ -101,6 +127,8 @@ export function createNodeRequestHandler<TContext = unknown>(
   const trustProxy = options.trustProxy ?? false;
   const canonicalOrigin = options.canonicalOrigin;
   const maxBodySize = options.maxBodySize;
+  const compressionEnabled = options.compression !== false;
+  const compressedAssetCache = new CompressedAssetCache();
 
   if (maxBodySize !== undefined && (!Number.isInteger(maxBodySize) || maxBodySize <= 0)) {
     throw new Error("nodeAdapter({ maxBodySize }) expects a positive integer number of bytes.");
@@ -126,6 +154,9 @@ export function createNodeRequestHandler<TContext = unknown>(
       throw err;
     }
     const url = new URL(request.url);
+    const compression: CompressionState | undefined = compressionEnabled
+      ? { cache: compressedAssetCache, request }
+      : undefined;
     const isTransportRouteStateRequest = isRouteStateRequest(url, request.headers);
     // Only routes that can actually answer with markdown skip the static and
     // ISG fast paths: the client has to prefer markdown over HTML (a browser's
@@ -139,12 +170,19 @@ export function createNodeRequestHandler<TContext = unknown>(
         routeSupportsMarkdown(options.markdownManifest, url.pathname));
 
     if (url.pathname === PRACHT_REVALIDATE_ENDPOINT) {
-      const response = await handleRevalidationEndpoint(request, options, staticDir, isgManifest, {
+      const response = await handleRevalidationEndpoint(
         request,
-        req,
-        res,
-      });
-      await writeWebResponse(res, response);
+        options,
+        staticDir,
+        isgManifest,
+        {
+          request,
+          req,
+          res,
+        },
+        compression,
+      );
+      await writeWebResponse(res, response, compression);
       return;
     }
 
@@ -156,7 +194,14 @@ export function createNodeRequestHandler<TContext = unknown>(
     ) {
       const staticResult = await resolveStaticFile(staticDir, url.pathname, isgManifest);
       if (staticResult) {
-        await serveStaticFile(request, res, staticResult, headersManifest, url.pathname);
+        await serveStaticFile(
+          request,
+          res,
+          staticResult,
+          headersManifest,
+          url.pathname,
+          compression,
+        );
         return;
       }
     }
@@ -177,19 +222,21 @@ export function createNodeRequestHandler<TContext = unknown>(
         isgManifest[url.pathname],
         headersManifest,
         { request, req, res },
+        compression,
       );
       if (served) return;
     }
 
+    const applicationRequest = createApplicationRequest(request, compression);
     const context = options.createContext
-      ? await options.createContext({ request, req, res })
+      ? await options.createContext({ request: applicationRequest, req, res })
       : undefined;
 
     const response = await handlePrachtRequest({
       app: options.app,
       context,
       registry: options.registry,
-      request,
+      request: applicationRequest,
       apiRoutes: options.apiRoutes,
       clientEntryUrl: options.clientEntryUrl,
       islandsEntryUrl: options.islandsEntryUrl,
@@ -211,8 +258,8 @@ export function createNodeRequestHandler<TContext = unknown>(
       const html = await response.clone().text();
       const htmlPath = resolveContainedPath(staticDir, url.pathname);
       if (htmlPath) {
-        await mkdir(dirname(htmlPath), { recursive: true });
-        await writeFile(htmlPath, html, "utf-8");
+        await writeISGFile(htmlPath, html);
+        compressedAssetCache.invalidatePath(htmlPath);
       }
     }
 
@@ -229,6 +276,7 @@ export function createNodeRequestHandler<TContext = unknown>(
     await writeWebResponse(
       res,
       isIsgDocument ? response : preventHeuristicCaching(request, response),
+      compression,
     );
   };
 
@@ -261,8 +309,22 @@ export function createNodeRequestHandler<TContext = unknown>(
       }
 
       try {
+        // Header selection happens before a streamed body starts. If that body
+        // fails before sending bytes, discard every staged header from the
+        // abandoned response so the plain fallback is not mislabeled as
+        // brotli/gzip (or cached with the abandoned response's metadata).
+        for (const name of res.getHeaderNames()) res.removeHeader(name);
         res.statusCode = 500;
-        res.setHeader("content-type", "text/plain; charset=utf-8");
+        res.statusMessage = "Internal Server Error";
+        writeNodeResponseHeaders(
+          res,
+          applyDefaultSecurityHeaders(
+            new Headers({
+              "cache-control": "no-store",
+              "content-type": "text/plain; charset=utf-8",
+            }),
+          ),
+        );
         res.end("Internal Server Error");
       } catch {
         res.destroy();
@@ -283,34 +345,205 @@ async function serveStaticFile(
   staticResult: { filePath: string; contentType: string; cacheControl: string },
   headersManifest: HeadersManifest,
   pathname: string,
+  compression: CompressionState | undefined,
 ): Promise<void> {
-  const fileStat = await stat(staticResult.filePath);
-  const headers = applyDefaultSecurityHeaders(
-    new Headers({
-      "content-type": staticResult.contentType,
-      "cache-control": staticResult.cacheControl,
-      etag: createWeakEtag(fileStat),
-      "last-modified": fileStat.mtime.toUTCString(),
-    }),
-  );
-  if (staticResult.contentType.includes("text/html")) {
-    applyHeadersManifest(headers, headersManifest, pathname);
-  }
+  const file = await open(staticResult.filePath, "r");
+  try {
+    const fileStat = await file.stat();
+    const compressionGeneration = compression?.cache.getPathGeneration(staticResult.filePath) ?? 0;
+    const compressionFileVersion = compression ? createCompressionFileVersion(fileStat) : undefined;
+    const headers = applyDefaultSecurityHeaders(
+      new Headers({
+        "content-type": staticResult.contentType,
+        "cache-control": staticResult.cacheControl,
+        etag: createWeakEtag(fileStat),
+        "last-modified": fileStat.mtime.toUTCString(),
+      }),
+    );
+    if (staticResult.contentType.includes("text/html")) {
+      applyHeadersManifest(headers, headersManifest, pathname);
+    }
+    const encoding = negotiateFileEncoding(request, headers, fileStat.size, compression);
 
-  if (isNotModified(request, headers)) {
-    res.statusCode = 304;
+    if (isNotModified(request, headers, compressionGeneration === 0)) {
+      res.statusCode = 304;
+      writeNodeHeaders(res, headers);
+      res.end();
+      return;
+    }
+
+    res.statusCode = 200;
     writeNodeHeaders(res, headers);
-    res.end();
+    if (request.method === "HEAD") {
+      await writeFileHead(
+        res,
+        staticResult.filePath,
+        file,
+        fileStat,
+        encoding,
+        compression,
+        compressionFileVersion,
+        compressionGeneration,
+      );
+      return;
+    }
+    await writeFileBody(
+      res,
+      staticResult.filePath,
+      file,
+      fileStat,
+      encoding,
+      compression,
+      compressionFileVersion,
+      compressionGeneration,
+    );
+  } finally {
+    await file.close();
+  }
+}
+
+/**
+ * Decide the on-the-wire encoding for a file response and stamp the
+ * compression headers. Mutates `headers` before the conditional-request check
+ * so the `ETag` the client revalidates against always names the encoded
+ * variant it was served — encoded and identity variants never share a
+ * validator.
+ */
+function negotiateFileEncoding(
+  request: Request,
+  headers: Headers,
+  fileSize: number,
+  compression: CompressionState | undefined,
+): ContentEncoding | null {
+  if (!compression) return null;
+
+  const identityEtag = headers.get("etag");
+  if (identityEtag) headers.set("etag", protectIdentityEtag(identityEtag));
+  if (
+    !isCompressibleContentType(headers.get("content-type")) ||
+    !isTransformableResponse(200, headers)
+  ) {
+    return null;
+  }
+
+  // The representation varies by Accept-Encoding even when this response goes
+  // out as identity (small file today, larger after the next deploy).
+  headers.set("vary", mergeVaryValue(headers.get("vary")));
+
+  // The application needs the original validators to decide whether and which
+  // byte range to serve. Keep the entire request identity-encoded even when it
+  // ignores an invalid/unsupported Range and answers with a full 200, otherwise
+  // that identity decision could be relabeled as a compressed representation.
+  if (request.headers.has("range")) return null;
+
+  if (fileSize < COMPRESSION_MIN_SIZE) {
+    return null;
+  }
+
+  const encoding = negotiateEncoding(compression.request.headers.get("accept-encoding"));
+  if (!encoding) return null;
+
+  headers.set("content-encoding", encoding);
+  // A manifest can carry the identity representation's Content-Length. The
+  // buffered path below replaces it with the exact encoded length; the
+  // streaming path must use chunked transfer instead.
+  headers.delete("content-length");
+  if (identityEtag) headers.set("etag", encodeEtagForEncoding(identityEtag, encoding));
+  return encoding;
+}
+
+/**
+ * Stream a file body, compressed when an encoding was negotiated. Files up to
+ * `MAX_CACHEABLE_ASSET_SIZE` are compressed once at high quality and served
+ * from an in-memory LRU keyed by path + durable file identity + local write
+ * generation, so hashed assets and (re)generated ISG documents pay the
+ * compression cost once per version. The open handle binds the bytes to the
+ * metadata and validator selected by the caller even if the path is replaced
+ * concurrently. Larger files stream through zlib per request.
+ */
+async function writeFileBody(
+  res: ServerResponse,
+  filePath: string,
+  file: FileHandle,
+  fileStat: { mtimeMs: number; size: number },
+  encoding: ContentEncoding | null,
+  compression: CompressionState | undefined,
+  compressionFileVersion: string | undefined,
+  compressionGeneration: number,
+): Promise<void> {
+  if (!encoding || !compression || !compressionFileVersion) {
+    await pipeToResponse(file.createReadStream({ autoClose: false }), res);
     return;
   }
 
-  res.statusCode = 200;
-  writeNodeHeaders(res, headers);
-  if (request.method === "HEAD") {
-    res.end();
+  const pending = getBufferedCompressedFile(
+    filePath,
+    file,
+    fileStat,
+    encoding,
+    compression,
+    compressionFileVersion,
+    compressionGeneration,
+  );
+  if (pending) {
+    const compressed = await pending;
+    res.setHeader("content-length", compressed.byteLength);
+    res.end(compressed);
     return;
   }
-  await pipeToResponse(createReadStream(staticResult.filePath), res);
+
+  await pipeToResponse(
+    createCompressedStream(file.createReadStream({ autoClose: false }), encoding, {
+      sizeHint: fileStat.size,
+    }),
+    res,
+  );
+}
+
+function getBufferedCompressedFile(
+  filePath: string,
+  file: FileHandle,
+  fileStat: { mtimeMs: number; size: number },
+  encoding: ContentEncoding,
+  compression: CompressionState,
+  compressionFileVersion: string,
+  compressionGeneration: number,
+): Promise<Buffer> | null {
+  if (fileStat.size > MAX_CACHEABLE_ASSET_SIZE) return null;
+
+  const key = `${filePath}\0${compressionFileVersion}\0${compressionGeneration}\0${encoding}`;
+  return compression.cache.getOrCompress(key, fileStat.size, async () =>
+    compressBuffer(await file.readFile(), encoding),
+  );
+}
+
+async function writeFileHead(
+  res: ServerResponse,
+  filePath: string,
+  file: FileHandle,
+  fileStat: { mtimeMs: number; size: number },
+  encoding: ContentEncoding | null,
+  compression: CompressionState | undefined,
+  compressionFileVersion: string | undefined,
+  compressionGeneration: number,
+): Promise<void> {
+  const pending =
+    encoding && compression && compressionFileVersion
+      ? getBufferedCompressedFile(
+          filePath,
+          file,
+          fileStat,
+          encoding,
+          compression,
+          compressionFileVersion,
+          compressionGeneration,
+        )
+      : null;
+  if (pending) {
+    const compressed = await pending;
+    res.setHeader("content-length", compressed.byteLength);
+  }
+  res.end();
 }
 
 async function serveISGEntry<TContext>(
@@ -322,50 +555,95 @@ async function serveISGEntry<TContext>(
   entry: ISGManifestEntry,
   headersManifest: HeadersManifest,
   contextArgs: NodeAdapterContextArgs,
+  compression: CompressionState | undefined,
 ): Promise<boolean> {
   const htmlPath = resolveContainedPath(staticDir, pathname);
   if (!htmlPath) return false;
 
-  const fileStat = await stat(htmlPath).catch(() => null);
-  if (!fileStat?.isFile()) return false;
+  const file = await open(htmlPath, "r").catch(() => null);
+  if (!file) return false;
 
-  const ageMs = Date.now() - fileStat.mtimeMs;
-  const revalidateSeconds = getTimeRevalidateSeconds(entry.revalidate);
-  const isStale = revalidateSeconds !== null && ageMs > revalidateSeconds * 1000;
+  try {
+    const fileStat = await file.stat();
+    if (!fileStat.isFile()) return false;
+    const compressionGeneration = compression?.cache.getPathGeneration(htmlPath) ?? 0;
+    const compressionFileVersion = compression ? createCompressionFileVersion(fileStat) : undefined;
 
-  const headers = applyDefaultSecurityHeaders(
-    new Headers({
-      "content-type": "text/html; charset=utf-8",
-      "cache-control": "public, max-age=0, must-revalidate",
-      etag: createWeakEtag(fileStat),
-      "last-modified": fileStat.mtime.toUTCString(),
-      vary: ROUTE_STATE_REQUEST_HEADER,
-    }),
-  );
-  applyHeadersManifest(headers, headersManifest, pathname);
-  headers.set("x-pracht-isg", isStale ? "stale" : "fresh");
+    const ageMs = Date.now() - fileStat.mtimeMs;
+    const revalidateSeconds = getTimeRevalidateSeconds(entry.revalidate);
+    const isStale = revalidateSeconds !== null && ageMs > revalidateSeconds * 1000;
 
-  if (isNotModified(request, headers)) {
-    res.statusCode = 304;
-    writeNodeHeaders(res, headers);
-    res.end();
-  } else {
-    res.statusCode = 200;
-    writeNodeHeaders(res, headers);
-    if (request.method === "HEAD") {
+    const headers = applyDefaultSecurityHeaders(
+      new Headers({
+        "content-type": "text/html; charset=utf-8",
+        "cache-control": "public, max-age=0, must-revalidate",
+        etag: createWeakEtag(fileStat),
+        "last-modified": fileStat.mtime.toUTCString(),
+        vary: ROUTE_STATE_REQUEST_HEADER,
+      }),
+    );
+    applyHeadersManifest(headers, headersManifest, pathname);
+    await applyCompressionContentValidator(
+      headers,
+      htmlPath,
+      file,
+      fileStat.size,
+      compressionFileVersion,
+      compressionGeneration,
+      compression,
+    );
+    headers.set("x-pracht-isg", isStale ? "stale" : "fresh");
+
+    const encoding = negotiateFileEncoding(request, headers, fileStat.size, compression);
+
+    if (isNotModified(request, headers, compression === undefined)) {
+      res.statusCode = 304;
+      writeNodeHeaders(res, headers);
       res.end();
     } else {
-      await pipeToResponse(createReadStream(htmlPath), res);
+      res.statusCode = 200;
+      writeNodeHeaders(res, headers);
+      if (request.method === "HEAD") {
+        await writeFileHead(
+          res,
+          htmlPath,
+          file,
+          fileStat,
+          encoding,
+          compression,
+          compressionFileVersion,
+          compressionGeneration,
+        );
+      } else {
+        await writeFileBody(
+          res,
+          htmlPath,
+          file,
+          fileStat,
+          encoding,
+          compression,
+          compressionFileVersion,
+          compressionGeneration,
+        );
+      }
     }
-  }
 
-  if (isStale) {
-    regenerateISGPage(options, pathname, htmlPath, contextArgs).catch((err) => {
-      console.error(`ISG regeneration failed for ${pathname}:`, err);
-    });
-  }
+    if (isStale) {
+      regenerateISGPageAndInvalidateCache(
+        options,
+        pathname,
+        htmlPath,
+        contextArgs,
+        compression,
+      ).catch((err) => {
+        console.error(`ISG regeneration failed for ${pathname}:`, err);
+      });
+    }
 
-  return true;
+    return true;
+  } finally {
+    await file.close();
+  }
 }
 
 async function handleRevalidationEndpoint<TContext>(
@@ -374,6 +652,7 @@ async function handleRevalidationEndpoint<TContext>(
   staticDir: string | undefined,
   isgManifest: Record<string, ISGManifestEntry>,
   contextArgs: NodeAdapterContextArgs,
+  compression: CompressionState | undefined,
 ): Promise<Response> {
   const parsed = await readRevalidationRequest(request, resolveRevalidationToken());
   if (!parsed.ok) return parsed.response;
@@ -407,7 +686,15 @@ async function handleRevalidationEndpoint<TContext>(
 
       // A failed regeneration keeps the existing on-disk HTML and is reported
       // in `failed` instead of aborting the whole batch with a 500.
-      if (await regenerateISGPage(options, pathname, htmlPath!, contextArgs)) {
+      if (
+        await regenerateISGPageAndInvalidateCache(
+          options,
+          pathname,
+          htmlPath!,
+          contextArgs,
+          compression,
+        )
+      ) {
         report.revalidated(pathname);
       } else {
         report.failed(pathname, "regeneration_failed");
@@ -419,6 +706,18 @@ async function handleRevalidationEndpoint<TContext>(
   }
 
   return jsonResponse(report.toJSON());
+}
+
+async function regenerateISGPageAndInvalidateCache<TContext>(
+  options: NodeAdapterOptions<TContext>,
+  pathname: string,
+  htmlPath: string,
+  contextArgs: NodeAdapterContextArgs,
+  compression: CompressionState | undefined,
+): Promise<boolean> {
+  const regenerated = await regenerateISGPage(options, pathname, htmlPath, contextArgs);
+  if (regenerated) compression?.cache.invalidatePath(htmlPath);
+  return regenerated;
 }
 
 /**
@@ -448,6 +747,43 @@ function isRouteStateRequest(url: URL, headers: Headers): boolean {
   return headers.get(ROUTE_STATE_REQUEST_HEADER) === "1" || url.searchParams.get("_data") === "1";
 }
 
+/**
+ * Dynamic compression owns conditional validation after it has selected the
+ * outgoing representation and escaped its reserved validator namespace. Do
+ * not let an application short-circuit against the source identity metadata
+ * before either step happens.
+ */
+function createApplicationRequest(
+  request: Request,
+  compression: CompressionState | undefined,
+): Request {
+  const ifMatch = request.headers.get("if-match");
+  const ifNoneMatch = request.headers.get("if-none-match");
+  if (
+    !compression ||
+    (request.method !== "GET" && request.method !== "HEAD") ||
+    request.headers.has("range") ||
+    (!ifMatch && !ifNoneMatch && !request.headers.has("if-modified-since")) ||
+    (!negotiateEncoding(request.headers.get("accept-encoding")) &&
+      !containsEncodedEtag(ifMatch) &&
+      !containsEncodedEtag(ifNoneMatch))
+  ) {
+    return request;
+  }
+
+  const headers = new Headers(request.headers);
+  if (ifMatch) {
+    compression.ownsIfMatch = true;
+    headers.delete("if-match");
+    // If-Match takes precedence, so the recipient must ignore
+    // If-Unmodified-Since rather than exposing it alone to the application.
+    headers.delete("if-unmodified-since");
+  }
+  headers.delete("if-none-match");
+  headers.delete("if-modified-since");
+  return new Request(request, { headers });
+}
+
 function isStaticAssetMethod(method: string): boolean {
   return method === "GET" || method === "HEAD";
 }
@@ -460,25 +796,52 @@ function createWeakEtag(fileStat: { mtimeMs: number; size: number }): string {
   return `W/"${fileStat.size.toString(16)}-${Math.floor(fileStat.mtimeMs).toString(16)}"`;
 }
 
-function isNotModified(request: Request, headers: Headers): boolean {
-  const etag = headers.get("etag");
-  const ifNoneMatch = request.headers.get("if-none-match");
-  if (etag && ifNoneMatch) {
-    const candidates = ifNoneMatch.split(",").map((value) => value.trim());
-    if (candidates.includes("*") || candidates.includes(etag)) {
-      return true;
-    }
+async function applyCompressionContentValidator(
+  headers: Headers,
+  filePath: string,
+  file: FileHandle,
+  fileSize: number,
+  compressionFileVersion: string | undefined,
+  compressionGeneration: number,
+  compression: CompressionState | undefined,
+): Promise<void> {
+  if (!compressionFileVersion || !compression) return;
+  const key = `${filePath}\0${compressionFileVersion}\0${compressionGeneration}`;
+  const pending = compression.cache.getOrCreateFileEtag(key, fileSize, () =>
+    createFileContentEtag(file),
+  );
+  if (!pending) {
+    // The stat-derived fallback can alias a same-size rewrite on a coarse
+    // filesystem. Omit the validator under load instead of advertising one we
+    // cannot prove names these bytes.
+    headers.delete("etag");
+    return;
+  }
+  headers.set("etag", await pending);
+}
+
+async function createFileContentEtag(file: FileHandle): Promise<string> {
+  const hash = createHash("sha256");
+  const buffer = Buffer.allocUnsafe(64 * 1024);
+  let position = 0;
+
+  while (true) {
+    const { bytesRead } = await file.read(buffer, 0, buffer.byteLength, position);
+    if (bytesRead === 0) break;
+    hash.update(buffer.subarray(0, bytesRead));
+    position += bytesRead;
   }
 
-  const lastModified = headers.get("last-modified");
-  const ifModifiedSince = request.headers.get("if-modified-since");
-  if (lastModified && ifModifiedSince) {
-    const modifiedTime = Date.parse(lastModified);
-    const sinceTime = Date.parse(ifModifiedSince);
-    if (!Number.isNaN(modifiedTime) && !Number.isNaN(sinceTime) && modifiedTime <= sinceTime) {
-      return true;
-    }
-  }
+  return `W/"pracht-file-${hash.digest("base64url")}"`;
+}
 
-  return false;
+function isNotModified(request: Request, headers: Headers, allowLastModified = true): boolean {
+  // A sub-second/coarse-filesystem rewrite can retain its HTTP-date while its
+  // in-memory generation and ETag advance. In that case only the ETag can
+  // safely validate the selected representation.
+  return isNotModifiedRequest(
+    request,
+    headers.get("etag"),
+    allowLastModified ? headers.get("last-modified") : null,
+  );
 }

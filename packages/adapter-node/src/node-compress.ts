@@ -1,0 +1,538 @@
+import type { ServerResponse } from "node:http";
+import { createHash } from "node:crypto";
+import type { Transform } from "node:stream";
+import { promisify } from "node:util";
+import {
+  brotliCompress,
+  constants as zlibConstants,
+  createBrotliCompress,
+  createGzip,
+  gzip,
+} from "node:zlib";
+
+/** Content encodings the Node adapter can produce, in preference order. */
+export type ContentEncoding = "br" | "gzip";
+
+/**
+ * Bodies below this many bytes are not worth compressing: the encoding
+ * overhead can exceed the savings and every compressed variant costs CPU.
+ * Applied whenever the body size is known (static files, `Content-Length`).
+ */
+export const COMPRESSION_MIN_SIZE = 1024;
+
+/**
+ * Static files up to this size are compressed once as a whole buffer (better
+ * ratio than streaming) and kept in the in-memory LRU. Larger files are
+ * streamed through zlib per request instead of being buffered.
+ */
+export const MAX_CACHEABLE_ASSET_SIZE = 1024 * 1024;
+
+/**
+ * Whole-file compression uses the libuv worker pool and retains both source
+ * and encoded buffers until the job completes. Keep a cold burst across many
+ * distinct paths from queuing an unbounded amount of that work; overflow uses
+ * the streaming compression path instead.
+ */
+const MAX_PENDING_ASSET_COMPRESSIONS = 8;
+
+const brotliCompressAsync = promisify(brotliCompress);
+const gzipAsync = promisify(gzip);
+
+const COMPRESSIBLE_MIME_TYPES = new Set([
+  "application/ecmascript",
+  "application/javascript",
+  "application/json",
+  "application/wasm",
+  "application/x-javascript",
+  "application/xml",
+]);
+
+const INTEGRITY_HEADER_NAMES = ["content-digest", "repr-digest", "digest", "content-md5"];
+const ENCODED_ETAG_PATTERN = /^(?:W\/)?"pracht-(?:br|gzip)-[A-Za-z0-9_-]{43}"$/;
+
+/**
+ * Whether a `Content-Type` names a representation that compresses well.
+ * `text/*`, well-known application types, and any `+json`/`+xml` structured
+ * syntax suffix (`image/svg+xml`, `application/manifest+json`, ...). Binary
+ * media (images, fonts, video, archives) is already compressed and excluded.
+ */
+export function isCompressibleContentType(value: string | null): boolean {
+  if (!value) return false;
+  const mime = value.split(";")[0]!.trim().toLowerCase();
+  if (mime.startsWith("text/")) return true;
+  if (COMPRESSIBLE_MIME_TYPES.has(mime)) return true;
+  return mime.endsWith("+json") || mime.endsWith("+xml");
+}
+
+/**
+ * Pick the response encoding for an `Accept-Encoding` header. Honors
+ * q-values, `*` wildcards, and explicit `q=0` exclusions. Per RFC 9110
+ * §12.5.3 the acceptable coding with the highest non-zero qvalue is
+ * preferred; an explicitly higher `identity` preference wins, while brotli
+ * wins ties (including the common unweighted `gzip, deflate, br`). Returns
+ * `null` (identity) when neither coding is acceptable — including
+ * `identity;q=0` alone, where falling back to an uncompressed 200 is the
+ * robust interpretation of the SHOULD-level 406.
+ */
+export function negotiateEncoding(header: string | null): ContentEncoding | null {
+  if (!header) return null;
+
+  const qualities = new Map<string, number>();
+  for (const part of header.split(",")) {
+    const [token, ...params] = part.trim().split(";");
+    const name = token?.trim().toLowerCase();
+    if (!name) continue;
+
+    let quality = 1;
+    for (const param of params) {
+      const [key, value] = param.trim().split("=");
+      if (key?.trim().toLowerCase() !== "q") continue;
+      const parsed = Number.parseFloat(value ?? "");
+      if (!Number.isNaN(parsed)) quality = parsed;
+    }
+    qualities.set(name === "x-gzip" ? "gzip" : name, quality);
+  }
+
+  const qualityOf = (encoding: string): number =>
+    qualities.get(encoding) ?? qualities.get("*") ?? 0;
+
+  const brQuality = qualityOf("br");
+  const gzipQuality = qualityOf("gzip");
+  const encoding = brQuality >= gzipQuality ? "br" : "gzip";
+  const encodingQuality = Math.max(brQuality, gzipQuality);
+  const identityQuality = qualities.get("identity");
+
+  // `identity` is special: when it is absent, keep the server's freedom to
+  // choose any acceptable coding (including the common `gzip;q=0.5` case).
+  // When the client explicitly assigns it a higher weight, however, that is a
+  // real preference for no content coding and must win the negotiation.
+  if (identityQuality !== undefined && identityQuality > encodingQuality) return null;
+  return encodingQuality > 0 ? encoding : null;
+}
+
+/**
+ * Whether a response may be transformed at all: informational/empty/not-
+ * modified statuses have no body to compress, Range responses would corrupt
+ * byte offsets, an existing `Content-Encoding` means someone already encoded
+ * the body, and `Cache-Control: no-transform` is an explicit opt-out.
+ */
+export function isTransformableResponse(status: number, headers: Headers): boolean {
+  if (status < 200 || status === 204 || status === 205 || status === 206 || status === 304) {
+    return false;
+  }
+  const existingEncoding = headers.get("content-encoding");
+  if (existingEncoding && existingEncoding.toLowerCase() !== "identity") return false;
+  if (headers.has("content-range")) return false;
+  const cacheControl = headers.get("cache-control");
+  if (cacheControl && /(?:^|[\s,])no-transform(?:$|[\s,;=])/i.test(cacheControl)) return false;
+  // Integrity fields are calculated over the selected content/representation,
+  // which includes its Content-Encoding. Streaming compression cannot
+  // recompute them before the headers are sent, so preserve the identity body
+  // instead of forwarding a digest that no longer matches the wire bytes.
+  if (INTEGRITY_HEADER_NAMES.some((name) => headers.has(name))) return false;
+  return true;
+}
+
+/** Append `Accept-Encoding` to a `Vary` header value, preserving existing members. */
+export function mergeVaryValue(existing: string | null | undefined): string {
+  if (!existing) return "Accept-Encoding";
+  const members = existing.split(",").map((member) => member.trim().toLowerCase());
+  if (members.includes("*") || members.includes("accept-encoding")) return existing;
+  return `${existing}, Accept-Encoding`;
+}
+
+/** Merge `Accept-Encoding` into the `Vary` header already written to `res`. */
+export function mergeVaryOnNodeResponse(res: ServerResponse): void {
+  const existing = res.getHeader("vary");
+  const value = Array.isArray(existing) ? existing.join(", ") : (existing?.toString() ?? null);
+  res.setHeader("vary", mergeVaryValue(value));
+}
+
+/**
+ * Derive the ETag of an encoded variant from the identity ETag. Encoded
+ * variants must not share a validator with identity — a shared tag would let
+ * a cache answer an `Accept-Encoding: identity` revalidation with a brotli
+ * body — so the encoding is folded into the opaque tag. The derived tag is
+ * always weak: streaming compression can produce different wire bytes for the
+ * same decoded content when source chunk boundaries differ.
+ */
+export function encodeEtagForEncoding(etag: string, encoding: ContentEncoding): string {
+  const opaqueTag = etag.startsWith("W/") ? etag.slice(2) : etag;
+  const digest = createHash("sha256")
+    .update(opaqueTag)
+    .update("\0")
+    .update(encoding)
+    .digest("base64url");
+  return `W/"pracht-${encoding}-${digest}"`;
+}
+
+export interface CompressionFileStats {
+  ctimeMs: number;
+  dev: number;
+  ino: number;
+  mtimeMs: number;
+  size: number;
+}
+
+/**
+ * Build a handler-local file version for compression caches. ISG writes
+ * replace the file atomically, so the inode changes even when a same-size
+ * rewrite lands on a filesystem whose timestamps are too coarse to move.
+ * `ctimeMs` is included as a fallback for filesystems that do not expose useful
+ * inode numbers. This version must never enter a public validator: device,
+ * inode, and ctime values differ across replica-local copies of identical
+ * files.
+ */
+export function createCompressionFileVersion(fileStat: CompressionFileStats): string {
+  return [fileStat.dev, fileStat.ino, fileStat.size, fileStat.mtimeMs, fileStat.ctimeMs].join(":");
+}
+
+/**
+ * Keep an application identity tag out of the namespace used for encoded
+ * variants. Without this escape, an application that later adopts a tag equal
+ * to an older encoded validator could still make a cross-representation
+ * `If-None-Match` request look current despite collision-resistant derivation.
+ */
+export function protectIdentityEtag(etag: string): string {
+  if (!ENCODED_ETAG_PATTERN.test(etag)) return etag;
+
+  const opaqueTag = etag.startsWith("W/") ? etag.slice(2) : etag;
+  const digest = createHash("sha256").update(opaqueTag).update("\0identity").digest("base64url");
+  return `W/"pracht-identity-${digest}"`;
+}
+
+/** Whether an `If-None-Match` list contains one of this adapter's encoded tags. */
+export function containsEncodedEtag(header: string | null): boolean {
+  return (
+    header?.split(",").some((candidate) => ENCODED_ETAG_PATTERN.test(candidate.trim())) ?? false
+  );
+}
+
+/**
+ * Weakly compare an `If-None-Match` list with the selected representation's
+ * ETag. Commas inside the quoted opaque tag are data, not list separators.
+ */
+export function matchesIfNoneMatch(header: string | null, etag: string | null): boolean {
+  if (!header) return false;
+
+  const candidates = parseEntityTagList(header);
+  if (candidates.includes("*")) return true;
+  if (!etag) return false;
+
+  const weakOpaqueTag = (value: string): string =>
+    value.startsWith("W/") ? value.slice(2) : value;
+  const expected = weakOpaqueTag(etag);
+  return candidates.some((candidate) => weakOpaqueTag(candidate) === expected);
+}
+
+/** Strongly compare an `If-Match` list with the selected representation's ETag. */
+export function matchesIfMatch(header: string | null, etag: string | null): boolean {
+  if (!header) return true;
+
+  const candidates = parseEntityTagList(header);
+  if (candidates.includes("*")) return true;
+  if (!etag || etag.startsWith("W/")) return false;
+  return candidates.some((candidate) => !candidate.startsWith("W/") && candidate === etag);
+}
+
+function parseEntityTagList(header: string): string[] {
+  const candidates: string[] = [];
+  let start = 0;
+  let quoted = false;
+  for (let index = 0; index < header.length; index += 1) {
+    const character = header[index];
+    if (character === '"') {
+      quoted = !quoted;
+    } else if (character === "," && !quoted) {
+      candidates.push(header.slice(start, index).trim());
+      start = index + 1;
+    }
+  }
+  candidates.push(header.slice(start).trim());
+  return candidates;
+}
+
+/**
+ * Evaluate conditional GET/HEAD validators against the selected response
+ * representation. `If-None-Match` takes precedence over
+ * `If-Modified-Since`, as required by RFC 9110 section 13.1.3.
+ */
+export function isNotModifiedRequest(
+  request: Request,
+  etag: string | null,
+  lastModified: string | null,
+): boolean {
+  const ifNoneMatch = request.headers.get("if-none-match");
+  if (ifNoneMatch) return matchesIfNoneMatch(ifNoneMatch, etag);
+
+  const ifModifiedSince = request.headers.get("if-modified-since");
+  if (!lastModified || !ifModifiedSince) return false;
+
+  const modifiedTime = Date.parse(lastModified);
+  const sinceTime = Date.parse(ifModifiedSince);
+  return !Number.isNaN(modifiedTime) && !Number.isNaN(sinceTime) && modifiedTime <= sinceTime;
+}
+
+export interface CompressionStreamOptions {
+  /** Known total body size, forwarded to brotli as a size hint. */
+  sizeHint?: number;
+  /**
+   * Flush the compressor after every written chunk (`Z_SYNC_FLUSH` /
+   * `BROTLI_OPERATION_FLUSH`). Required for incrementally produced bodies —
+   * SSE and other streamed responses — where zlib's default `Z_NO_FLUSH`
+   * would sit on written events until its internal buffer fills or the
+   * stream ends, breaking incremental delivery entirely (brotli emits zero
+   * bytes until end-of-stream; gzip emits only its 10-byte header).
+   */
+  incremental?: boolean;
+}
+
+/**
+ * Create a streaming zlib transform for `encoding`. Brotli runs at quality 4
+ * for streamed (dynamic) bodies — near-gzip speed with a better ratio —
+ * because SSR latency matters more than the last few percent of savings.
+ */
+export function createCompressionTransform(
+  encoding: ContentEncoding,
+  options: CompressionStreamOptions = {},
+): Transform {
+  if (encoding === "br") {
+    const params: Record<number, number> = {
+      [zlibConstants.BROTLI_PARAM_QUALITY]: 4,
+    };
+    if (options.sizeHint !== undefined) {
+      params[zlibConstants.BROTLI_PARAM_SIZE_HINT] = options.sizeHint;
+    }
+    return createBrotliCompress({
+      params,
+      ...(options.incremental ? { flush: zlibConstants.BROTLI_OPERATION_FLUSH } : {}),
+    });
+  }
+  return createGzip(options.incremental ? { flush: zlibConstants.Z_SYNC_FLUSH } : {});
+}
+
+/**
+ * Pipe `source` through a compression transform, keeping the failure
+ * semantics `pipeToResponse()` relies on: a source error destroys the
+ * transform with that error (so the caller can still answer 500), and a
+ * transform torn down mid-stream (client disconnect) releases the source so
+ * file descriptors and pooled sockets do not leak.
+ */
+export function createCompressedStream(
+  source: NodeJS.ReadableStream,
+  encoding: ContentEncoding,
+  options: CompressionStreamOptions = {},
+): Transform {
+  const transform = createCompressionTransform(encoding, options);
+
+  source.on("error", (error: unknown) => {
+    transform.destroy(error instanceof Error ? error : new Error(String(error)));
+  });
+  transform.on("close", () => {
+    if (!transform.writableFinished) {
+      source.unpipe?.(transform);
+      (source as { destroy?: () => void }).destroy?.();
+    }
+  });
+
+  source.pipe(transform);
+  return transform;
+}
+
+/**
+ * Compress a whole buffer at higher quality than the streaming path — used
+ * for static assets whose result lands in the LRU, where the one-time CPU
+ * cost is amortized across every later request.
+ */
+export function compressBuffer(buffer: Buffer, encoding: ContentEncoding): Promise<Buffer> {
+  if (encoding === "br") {
+    return brotliCompressAsync(buffer, {
+      params: {
+        [zlibConstants.BROTLI_PARAM_QUALITY]: 9,
+        [zlibConstants.BROTLI_PARAM_SIZE_HINT]: buffer.byteLength,
+      },
+    });
+  }
+  return gzipAsync(buffer, { level: 9 });
+}
+
+/**
+ * Byte-bounded LRU of compressed static assets. Callers include a per-path
+ * write generation in each key so an ISG rewrite invalidates cached bytes even
+ * when the replacement has the same size and filesystem timestamp.
+ * Whole-buffer compression and content-derived validator work are also byte-
+ * and concurrency-bounded while pending.
+ */
+export class CompressedAssetCache {
+  #entries = new Map<string, Buffer>();
+  #fileEtags = new Map<string, string>();
+  #pathGenerations = new Map<string, number>();
+  #pending = new Map<string, Promise<Buffer>>();
+  #pendingFileEtags = new Map<string, Promise<string>>();
+  #pendingBytes = 0;
+  #pendingFileEtagBytes = 0;
+  #totalBytes = 0;
+  readonly #maxBytes: number;
+  readonly #maxPendingEntries: number;
+
+  constructor(maxBytes = 32 * 1024 * 1024, maxPendingEntries = MAX_PENDING_ASSET_COMPRESSIONS) {
+    this.#maxBytes = maxBytes;
+    this.#maxPendingEntries = maxPendingEntries;
+  }
+
+  get totalBytes(): number {
+    return this.#totalBytes;
+  }
+
+  getPathGeneration(path: string): number {
+    return this.#pathGenerations.get(path) ?? 0;
+  }
+
+  /**
+   * Advance the generation for a mutable file and discard its completed cache
+   * entries. In-flight work may still finish for the old generation, but a
+   * later request cannot select it because its key includes the new value.
+   */
+  invalidatePath(path: string): void {
+    this.#pathGenerations.set(path, this.getPathGeneration(path) + 1);
+    const prefix = `${path}\0`;
+    for (const [key, value] of this.#entries) {
+      if (!key.startsWith(prefix)) continue;
+      this.#entries.delete(key);
+      this.#totalBytes -= value.byteLength;
+    }
+    for (const key of this.#fileEtags.keys()) {
+      if (key.startsWith(prefix)) this.#fileEtags.delete(key);
+    }
+  }
+
+  /**
+   * Cache a content-derived public validator by path + local file version.
+   * The key may contain replica-local metadata because it never leaves this
+   * process; `produce()` must return a validator derived only from public,
+   * replica-stable representation data. Returns `null` when admitting a new
+   * key would exceed the pending byte or concurrency budget; callers must omit
+   * the validator for that response rather than fall back to mutable filesystem
+   * metadata.
+   */
+  getOrCreateFileEtag(
+    key: string,
+    estimatedBytes: number,
+    produce: () => Promise<string>,
+  ): Promise<string> | null {
+    const cached = this.#fileEtags.get(key);
+    if (cached !== undefined) {
+      this.#fileEtags.delete(key);
+      this.#fileEtags.set(key, cached);
+      return Promise.resolve(cached);
+    }
+
+    let pending = this.#pendingFileEtags.get(key);
+    if (!pending) {
+      if (
+        this.#pendingFileEtags.size >= this.#maxPendingEntries ||
+        estimatedBytes > this.#maxBytes - this.#pendingFileEtagBytes
+      ) {
+        return null;
+      }
+
+      this.#pendingFileEtagBytes += estimatedBytes;
+      pending = Promise.resolve()
+        .then(produce)
+        .then((etag) => {
+          this.#fileEtags.set(key, etag);
+          // ISG invalidation removes old path entries eagerly. Keep a final
+          // bound for externally replaced files and long-lived custom servers.
+          while (this.#fileEtags.size > 1024) {
+            const oldest = this.#fileEtags.keys().next().value;
+            if (oldest === undefined) break;
+            this.#fileEtags.delete(oldest);
+          }
+          return etag;
+        })
+        .finally(() => {
+          this.#pendingFileEtags.delete(key);
+          this.#pendingFileEtagBytes -= estimatedBytes;
+        });
+      this.#pendingFileEtags.set(key, pending);
+    }
+    return pending;
+  }
+
+  /**
+   * Cached lookup with in-flight deduplication: concurrent first requests to
+   * the same file version share one `produce()` call instead of compressing
+   * the same bytes N times (the post-deploy thundering herd). A failed
+   * `produce()` rejects every waiter and is not cached, so the next request
+   * retries. Returns `null` when admitting a new key would exceed the pending
+   * byte or concurrency budget so the caller can stream it instead.
+   */
+  getOrCompress(
+    key: string,
+    estimatedBytes: number,
+    produce: () => Promise<Buffer>,
+  ): Promise<Buffer> | null {
+    const cached = this.get(key);
+    if (cached !== undefined) return Promise.resolve(cached);
+
+    let pending = this.#pending.get(key);
+    if (!pending) {
+      if (
+        this.#pending.size >= this.#maxPendingEntries ||
+        estimatedBytes > this.#maxBytes - this.#pendingBytes
+      ) {
+        return null;
+      }
+
+      this.#pendingBytes += estimatedBytes;
+      pending = Promise.resolve()
+        .then(produce)
+        .then((buffer) => {
+          this.set(key, buffer);
+          return buffer;
+        })
+        .finally(() => {
+          this.#pending.delete(key);
+          this.#pendingBytes -= estimatedBytes;
+        });
+      this.#pending.set(key, pending);
+    }
+    return pending;
+  }
+
+  get(key: string): Buffer | undefined {
+    const entry = this.#entries.get(key);
+    if (entry === undefined) return undefined;
+    // Refresh recency.
+    this.#entries.delete(key);
+    this.#entries.set(key, entry);
+    return entry;
+  }
+
+  set(key: string, value: Buffer): void {
+    if (value.byteLength > this.#maxBytes) return;
+
+    const existing = this.#entries.get(key);
+    if (existing !== undefined) {
+      this.#entries.delete(key);
+      this.#totalBytes -= existing.byteLength;
+    }
+
+    this.#entries.set(key, value);
+    this.#totalBytes += value.byteLength;
+
+    for (const [oldestKey, oldestValue] of this.#entries) {
+      if (this.#totalBytes <= this.#maxBytes) break;
+      this.#entries.delete(oldestKey);
+      this.#totalBytes -= oldestValue.byteLength;
+    }
+  }
+}
+
+/** Per-handler compression state threaded through the static/dynamic paths. */
+export interface CompressionState {
+  request: Request;
+  cache: CompressedAssetCache;
+  /** Whether the adapter removed `If-Match` to evaluate it after representation selection. */
+  ownsIfMatch?: boolean;
+}

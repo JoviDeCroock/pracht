@@ -325,6 +325,34 @@ test("pracht build emits a deployable Node server entry", async () => {
 
     // HTML responses should have conservative cache headers
     expect(homeResponse.headers.get("cache-control")).toBe("public, max-age=0, must-revalidate");
+
+    // Responses are compressed by Accept-Encoding negotiation: brotli is
+    // preferred, the compressed variant varies on Accept-Encoding, and its
+    // ETag never collides with the identity variant's. (fetch decompresses
+    // transparently, so the body assertions stay readable.)
+    const compressedHome = await fetch(`http://127.0.0.1:${port}/`, {
+      headers: { "accept-encoding": "gzip, br" },
+    });
+    expect(compressedHome.status).toBe(200);
+    expect(compressedHome.headers.get("content-encoding")).toBe("br");
+    expect(compressedHome.headers.get("vary")).toContain("Accept-Encoding");
+    expect(compressedHome.headers.get("etag")).toContain("-br");
+    await expect(compressedHome.text()).resolves.toContain(
+      "Pracht starts with an explicit app manifest.",
+    );
+
+    const compressedAsset = await fetch(`http://127.0.0.1:${port}${assetMatch![1]}`, {
+      headers: { "accept-encoding": "gzip" },
+    });
+    expect(compressedAsset.status).toBe(200);
+    expect(compressedAsset.headers.get("content-encoding")).toBe("gzip");
+    expect(compressedAsset.headers.get("vary")).toContain("Accept-Encoding");
+
+    const compressedRouteState = await fetch(`http://127.0.0.1:${port}/pricing`, {
+      headers: { "accept-encoding": "br", "x-pracht-route-state-request": "1" },
+    });
+    expect(compressedRouteState.status).toBe(200);
+    expect(compressedRouteState.headers.get("content-encoding")).toBe("br");
   } finally {
     if (server) {
       server.kill("SIGTERM");
