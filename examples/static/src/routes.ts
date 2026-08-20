@@ -12,7 +12,7 @@ export const app = defineApp({
     group({ shell: "site" }, [
       route("/", () => import("./routes/home.tsx"), { id: "home", render: "ssg" }),
       route("/about", () => import("./routes/about.tsx"), { id: "about", render: "ssg" }),
-      // No loader at all: client navigation to this route fetches nothing.
+      // No loader: navigation only fetches the shared shell's head state.
       route("/plain", () => import("./routes/plain.tsx"), { id: "plain", render: "ssg" }),
       // Dynamic SSG: getStaticPaths() enumerates the pages (and their
       // route-state files) at build time.

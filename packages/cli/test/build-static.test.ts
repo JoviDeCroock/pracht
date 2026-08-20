@@ -669,6 +669,25 @@ describe("writeStaticExportArtifacts", () => {
     expect(readFileSync(statePath, "utf-8")).toBe("public-owned");
   });
 
+  it("rejects a portable case alias of a generated route-state path", async () => {
+    const clientDir = createTempDir();
+    const statePath = resolveRouteStateOutputPath(clientDir, "/about");
+    const relativeStatePath = relative(clientDir, statePath).split(sep);
+    const conflictPath = resolve(clientDir, ...relativeStatePath.map((part) => part.toUpperCase()));
+    mkdirSync(dirname(conflictPath), { recursive: true });
+    writeFileSync(conflictPath, "public-owned", "utf-8");
+
+    await expect(
+      writeStaticExportArtifacts({
+        clientDir,
+        pages: [{ path: "/about", routeState: '{"data":"framework"}' }],
+        serverMod: { staticExportConfig: { fallback: null } },
+        log: () => {},
+      }),
+    ).rejects.toThrow(/would overwrite _PRACHT\/STATE/i);
+    expect(readFileSync(conflictPath, "utf-8")).toBe("public-owned");
+  });
+
   it.each([
     {
       fileName: "404.html",
@@ -743,6 +762,25 @@ describe("writeStaticExportArtifacts", () => {
         log: () => {},
       }),
     ).rejects.toThrow(/renderStaticNotFoundHtml.*HTML string or null/);
+    expect(existsSync(resolveRouteStateOutputPath(clientDir, "/about"))).toBe(false);
+    expect(existsSync(resolve(clientDir, "404.html"))).toBe(false);
+  });
+
+  it("rejects a null not-found result when the app declares a notFound page", async () => {
+    const clientDir = createTempDir();
+
+    await expect(
+      writeStaticExportArtifacts({
+        clientDir,
+        pages: [{ path: "/about", routeState: '{"data":"framework"}' }],
+        serverMod: {
+          resolvedApp: { notFound: { path: "/404" } },
+          staticExportConfig: { fallback: null },
+          renderStaticNotFoundHtml: async () => null,
+        },
+        log: () => {},
+      }),
+    ).rejects.toThrow(/must return an HTML string when the app declares a notFound page/);
     expect(existsSync(resolveRouteStateOutputPath(clientDir, "/about"))).toBe(false);
     expect(existsSync(resolve(clientDir, "404.html"))).toBe(false);
   });

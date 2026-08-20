@@ -1181,9 +1181,10 @@ On every other adapter, client navigation fetches route-state JSON from the
 page URL with the `x-pracht-route-state-request` header — impossible on a
 static host. The static adapter solves this at build time:
 
-- For each loader-backed SSG route, the build renders the route-state request
-  **a second time** — the same rendering the live endpoint performs — and writes the JSON
-  body to a collision-safe opaque `.json` file under
+- For each full-hydration SSG route whose loader or route/shell `head()`
+  metadata participates in client navigation, the build renders the
+  route-state request and writes the JSON body to a collision-safe opaque
+  `.json` file under
   `dist/client/_pracht/state/` (`/` → `_pracht/state/index.json`). Each URL
   segment is encoded before it becomes a filesystem component, long encodings
   are split below common filesystem name limits, and a reserved leaf receives
@@ -1191,7 +1192,7 @@ static host. The static adapter solves this at build time:
   one file/directory path. `_pracht/` is already reserved, so state files
   cannot collide with a prerendered route; a file copied from `public/` onto a
   generated state path is rejected before any state file is written.
-- **SSG loaders therefore run twice per page** during a static build: once for
+- **SSG loaders run twice per page** during a static build: once for
   the HTML document, once for the state file. Like
   `getStaticPaths()`, they must be deterministic and side-effect free at build
   time — a loader that reads `Date.now()`, randomness, or mutable external
@@ -1208,9 +1209,11 @@ static host. The static adapter solves this at build time:
   a configured artifact when a hook is missing. Every other adapter compiles
   the flag to `false` and dead-code-eliminates the static branch; dev servers
   always use the live endpoint.
-- Loaderless routes fetch nothing. Loaderless SPA routes boot and navigate
-  entirely in the browser without Pracht route state. Islands/`none`-hydration
-  routes keep their MPA full-document navigation and get no state files.
+- Explicitly loaderless and headless routes fetch nothing. Loaderless routes
+  with route or shell `head()` metadata still fetch static state so font-head
+  fragments follow client navigation; their components and data remain
+  browser-only. Islands/`none`-hydration routes keep their MPA full-document
+  navigation and get no state files.
 - Query strings are dropped when resolving the state URL: build-time loader
   data has no query variants, matching what the build generated.
 

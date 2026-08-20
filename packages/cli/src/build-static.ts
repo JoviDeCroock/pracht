@@ -1,4 +1,5 @@
-import { existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readdirSync, writeFileSync } from "node:fs";
+import type { Dirent } from "node:fs";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { buildStaticRouteStateUrl } from "@pracht/core/server";
 
@@ -87,6 +88,43 @@ function resolveRegistryImporter(
 
 function formatUnknownError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function portableOutputName(name: string): string {
+  return name.normalize("NFC").toLowerCase();
+}
+
+/**
+ * Find an existing output whose path is equivalent on portable,
+ * case-insensitive filesystems. Walk one component at a time so a file that
+ * occupies a generated directory prefix is reported as a conflict too.
+ */
+function findPortableOutputConflict(root: string, filePath: string): string | null {
+  const relativePath = relative(root, filePath);
+  const targetParts = relativePath.split(sep);
+  const existingParts: string[] = [];
+  let currentDir = root;
+
+  for (let index = 0; index < targetParts.length; index += 1) {
+    let entries: Dirent[];
+    try {
+      entries = readdirSync(currentDir, { withFileTypes: true });
+    } catch {
+      return existingParts.length > 0 ? existingParts.join("/") : null;
+    }
+
+    const targetName = portableOutputName(targetParts[index]);
+    const existing = entries.find((entry) => portableOutputName(entry.name) === targetName);
+    if (!existing) return null;
+
+    existingParts.push(existing.name);
+    if (index === targetParts.length - 1 || !existing.isDirectory()) {
+      return existingParts.join("/");
+    }
+    currentDir = resolve(currentDir, existing.name);
+  }
+
+  return null;
 }
 
 /**
@@ -709,6 +747,11 @@ export async function writeStaticExportArtifacts(options: {
   let notFoundState: StaticNotFoundState | undefined;
   if (typeof serverMod.renderStaticNotFoundHtml === "function") {
     const renderedNotFoundHtml = await serverMod.renderStaticNotFoundHtml();
+    if (renderedNotFoundHtml === null && serverMod.resolvedApp?.notFound) {
+      throw new Error(
+        "Static export renderStaticNotFoundHtml() must return an HTML string when the app declares a notFound page, received null.",
+      );
+    }
     if (renderedNotFoundHtml !== null && typeof renderedNotFoundHtml !== "string") {
       throw new Error(
         "Static export renderStaticNotFoundHtml() must return an HTML string or null, " +
@@ -738,10 +781,10 @@ export async function writeStaticExportArtifacts(options: {
     ...(configuredFallback && typeof fallbackHtml === "string" ? [configuredFallback] : []),
   ];
   const existingClientEntries = new Map(
-    readdirSync(clientDir).map((entry) => [entry.normalize("NFC").toLowerCase(), entry]),
+    readdirSync(clientDir).map((entry) => [portableOutputName(entry), entry]),
   );
   const existingFixedOutputs = fixedOutputs.flatMap((fileName) => {
-    const existingFileName = existingClientEntries.get(fileName.normalize("NFC").toLowerCase());
+    const existingFileName = existingClientEntries.get(portableOutputName(fileName));
     return existingFileName ? [{ existingFileName, fileName }] : [];
   });
   if (existingFixedOutputs.length > 0) {
@@ -768,14 +811,16 @@ export async function writeStaticExportArtifacts(options: {
         ]
       : [],
   );
-  const existingStateOutputs = stateOutputs.filter(({ filePath }) => existsSync(filePath));
+  const existingStateOutputs = stateOutputs.flatMap(({ filePath, routePath }) => {
+    const existingPath = findPortableOutputConflict(clientDir, filePath);
+    return existingPath ? [{ existingPath, routePath }] : [];
+  });
   if (existingStateOutputs.length > 0) {
     throw new Error(
       "Static export route-state output conflicts with existing files copied from public/ or emitted by Vite:\n" +
         existingStateOutputs
           .map(
-            ({ filePath, routePath }) =>
-              `    - ${routePath} would overwrite ${relative(clientDir, filePath)}`,
+            ({ existingPath, routePath }) => `    - ${routePath} would overwrite ${existingPath}`,
           )
           .join("\n") +
         "\nRemove the conflicting files from the reserved public/_pracht/state/ namespace.",

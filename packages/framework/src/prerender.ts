@@ -26,8 +26,8 @@ export interface PrerenderResult {
   /**
    * Serialized route-state JSON for the path — the exact body the live
    * `x-pracht-route-state-request` endpoint would answer with. Captured only
-   * for `staticExport` builds, and only for loader-backed SSG routes whose
-   * client navigation needs the build-time payload.
+   * for `staticExport` builds, and only for full-hydration SSG routes whose
+   * loader or head metadata needs a build-time payload during client navigation.
    */
   routeState?: string;
   /** Whether this page is a `render: "spa"` shell (staticExport builds only). */

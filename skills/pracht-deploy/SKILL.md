@@ -353,11 +353,13 @@ Upload `dist/client/` to any static host (GitHub Pages, S3, nginx, Netlify).
 `<dir>/index.html` for clean URLs and should use `404.html` as its error
 document. A static `notFound` page must use full hydration so that shared
 document can adopt the visitor's real URL. Client navigation fetches collision-safe
-bounded opaque `.json` files under `_pracht/state/` for loader-backed SSG routes;
+bounded opaque `.json` files under `_pracht/state/` for full-hydration SSG
+routes whose loader or route/shell `head()` metadata participates in navigation;
 equivalent raw-Unicode and percent-encoded URL segment spellings resolve to the
-same state file. Loaderless
-SPA routes fetch no Pracht state; use browser-side requests to an external API
-for live data. Files under `public/_pracht/state/` may not occupy a generated
+same state file. Explicitly loaderless and headless routes fetch no Pracht
+state; loaderless routes with head metadata fetch static state for font-head
+fragments but still use browser-side requests to an external API for live
+data. Files under `public/_pracht/state/` may not occupy a generated
 route-state path; the build rejects the collision instead of overwriting the
 public file. Files copied from `public/` or emitted by Vite also may not occupy
 the generated `404.html` or configured fallback path, including a case- or

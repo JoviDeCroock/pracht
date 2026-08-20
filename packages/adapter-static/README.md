@@ -45,7 +45,7 @@ Non-ASCII `getStaticPaths()` params are written to their decoded output path (`/
 
 ## Client-side navigation
 
-SSG loaders run at build time. For each loader-backed SSG route, the build serializes route-state JSON under `dist/client/_pracht/state/` using bounded, collision-safe opaque path components, and the client router (compiled with `__PRACHT_STATIC_TARGET__`) fetches that file instead of the live route-state endpoint. Equivalent URL segment spellings (raw Unicode, lowercase percent escapes, and escaped unreserved characters) resolve to the same state file. Loaderless SPA routes fetch no Pracht state and run entirely in the browser. Navigation therefore stays client-side on a dumb static host.
+SSG loaders run at build time. For each full-hydration SSG route whose loader or route/shell `head()` metadata participates in client navigation, the build serializes route-state JSON under `dist/client/_pracht/state/` using bounded, collision-safe opaque path components, and the client router (compiled with `__PRACHT_STATIC_TARGET__`) fetches that file instead of the live route-state endpoint. Equivalent URL segment spellings (raw Unicode, lowercase percent escapes, and escaped unreserved characters) resolve to the same state file. Explicitly loaderless and headless routes fetch no Pracht state; loaderless routes with head metadata fetch static state for font-head fragments while their components and data remain browser-only. Navigation therefore stays client-side on a dumb static host.
 
 ## Output conventions
 
