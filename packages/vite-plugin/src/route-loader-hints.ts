@@ -13,7 +13,12 @@ import {
 
 initSync();
 
-const HEAD_DECLARATION_RE = /export\s+(?:async\s+)?(?:function|const|let|var)\s+head\b/;
+function namedDeclarationRe(exportName: string): RegExp {
+  return new RegExp(`export\\s+(?:async\\s+)?(?:function|const|let|var)\\s+${exportName}\\b`);
+}
+
+const HEAD_DECLARATION_RE = namedDeclarationRe("head");
+const STATIC_PATHS_DECLARATION_RE = namedDeclarationRe("getStaticPaths");
 const EXPORT_BLOCK_RE = /export\s*\{([^}]*)\}\s*(?:from\s*["'][^"']+["'])?/g;
 const EXPORT_ALL_RE = /export\s+\*\s+from\b/;
 const EXPORT_VARIABLE_DECLARATION_RE = /export\s+(?:const|let|var)\b/g;
@@ -168,20 +173,44 @@ function exportSpecifiersInclude(specifiers: string, exportName: string): boolea
     });
 }
 
-export function detectHeadExport(source: string): boolean {
-  // Markdown and MDX transforms can synthesize a head export from frontmatter.
-  // Keep them conservative even when the raw source has no JS declaration.
+/**
+ * Whether `source` exports `exportName`, via a declaration, an export block,
+ * or an `export *` re-export (which could expose anything, so it counts).
+ *
+ * Comments and strings are masked first, so prose or a string literal
+ * mentioning the name cannot produce a false positive.
+ */
+function detectNamedExport(source: string, exportName: string, declarationRe: RegExp): boolean {
   const analysisSource = maskCommentsAndStrings(source);
   if (
-    HEAD_DECLARATION_RE.test(analysisSource) ||
-    variableDeclarationExports(analysisSource, "head")
+    declarationRe.test(analysisSource) ||
+    variableDeclarationExports(analysisSource, exportName)
   ) {
     return true;
   }
   for (const match of analysisSource.matchAll(EXPORT_BLOCK_RE)) {
-    if (exportSpecifiersInclude(match[1], "head")) return true;
+    if (exportSpecifiersInclude(match[1], exportName)) return true;
   }
   return EXPORT_ALL_RE.test(analysisSource);
+}
+
+export function detectHeadExport(source: string): boolean {
+  // Markdown and MDX transforms can synthesize a head export from frontmatter.
+  // Keep them conservative even when the raw source has no JS declaration.
+  return detectNamedExport(source, "head", HEAD_DECLARATION_RE);
+}
+
+/**
+ * Whether the route module exports `getStaticPaths()`.
+ *
+ * Only a static export consumes this: it decides whether a dynamic route has
+ * any prerendered path at all, and therefore whether the client should ever
+ * request a route-state file for it. Unknown answers must stay `true` — the
+ * cost of a wrong `true` is the request the client already makes today, while
+ * a wrong `false` would drop state the build did write.
+ */
+export function detectStaticPathsExport(source: string): boolean {
+  return detectNamedExport(source, "getStaticPaths", STATIC_PATHS_DECLARATION_RE);
 }
 
 interface SyntaxNode {
@@ -404,6 +433,47 @@ export function createRouteHeadHints(
     }
     if (routeRootPrefix) keys.add(`${routeRootPrefix}/${relativeToRoutesDir}`);
     for (const key of keys) hints[key] = hasHead;
+  }
+
+  return hints;
+}
+
+/**
+ * Per-route-file `getStaticPaths()` presence, keyed the same way as the loader
+ * and head hints.
+ *
+ * Formats compiled by a companion Vite plugin are reported as `true`: raw
+ * source scanning cannot prove such a module has no `getStaticPaths`, and the
+ * conservative answer keeps today's behavior.
+ */
+export function createRouteStaticPathsHints(
+  routesDir: string,
+  options: {
+    additionalExtensions?: readonly string[];
+    appFileDir?: string;
+    rootRelativePrefix?: string;
+  } = {},
+): Record<string, boolean> {
+  const files: string[] = [];
+  const hints: Record<string, boolean> = {};
+  const additionalExtensions = normalizeAdditionalExtensions(options.additionalExtensions);
+  const extensions = withAdditionalExtensions(DEFAULT_ROUTE_EXTENSIONS, additionalExtensions);
+  scanRouteFiles(routesDir, files, extensions);
+
+  for (const file of files) {
+    const extension = extname(file);
+    const hasStaticPaths =
+      additionalExtensions.includes(extension) ||
+      detectStaticPathsExport(readFileSync(file, "utf-8"));
+    const relativeToRoutesDir = toPosixPath(relative(routesDir, file));
+    const routeRootPrefix = options.rootRelativePrefix?.replace(/\/$/, "");
+    const keys = new Set<string>();
+    if (options.appFileDir) {
+      const relativeToAppFile = toPosixPath(relative(options.appFileDir, file));
+      keys.add(relativeToAppFile.startsWith(".") ? relativeToAppFile : `./${relativeToAppFile}`);
+    }
+    if (routeRootPrefix) keys.add(`${routeRootPrefix}/${relativeToRoutesDir}`);
+    for (const key of keys) hints[key] = hasStaticPaths;
   }
 
   return hints;

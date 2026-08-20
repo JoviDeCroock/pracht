@@ -1218,6 +1218,15 @@ static host. The static adapter solves this at build time:
   fragments follow client navigation; their components and data remain
   browser-only. Islands/`none`-hydration routes keep their MPA full-document
   navigation and get no state files.
+- A route with dynamic segments whose module exports no `getStaticPaths()` is
+  prerendered for no path at all, so no state file exists for *any* URL that
+  matches it — the usual shape of a dynamic `render: "spa"` route. The build
+  records that (a static source scan for the export, alongside the existing
+  loader and head hints) and the client skips the request instead of asking
+  for a file that can never exist. Navigation renders client-side with no
+  loader data and empty font-head fragments, exactly as the missing-state path
+  did before. Formats compiled by a companion Vite plugin, and route modules
+  outside the scanned routes directory, keep requesting state.
 - Query strings are dropped when resolving the state URL: build-time loader
   data has no query variants, matching what the build generated.
 

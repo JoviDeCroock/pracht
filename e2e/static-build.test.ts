@@ -311,14 +311,14 @@ test("static export serves a full app from a dumb static host with zero server",
     expect(await page.evaluate(() => (window as any).__NO_RELOAD__)).toBe(true);
 
     // The entire session was static-host-shaped: no route-state header
-    // requests. Visits to an unenumerated dynamic SPA route probe its absent
-    // state file and then render client-side, clearing stale font state (the
-    // browser may reuse the first 404 for the second visit).
+    // requests, and nothing 404'd. `/items/:id` exports no getStaticPaths(),
+    // so the build prerendered no path for it and no state file can exist —
+    // the client never asks for one.
     expect(routeStateHeaderRequests).toEqual([]);
-    expect(failedRequests.length).toBeGreaterThanOrEqual(1);
-    expect(failedRequests.every((url) => url.endsWith(buildStaticRouteStateUrl("/items/42")))).toBe(
-      true,
-    );
+    expect(failedRequests).toEqual([]);
+    expect(
+      stateFileRequests.some((url) => url.endsWith(buildStaticRouteStateUrl("/items/42"))),
+    ).toBe(false);
 
     // Direct load of an unknown URL: the host serves 404.html with a 404
     // status, and the hydrated page shows the *real* requested path.
