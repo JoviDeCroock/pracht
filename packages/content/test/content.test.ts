@@ -206,6 +206,12 @@ describe("defineCollection", () => {
     revision = 2;
     collection.invalidate(canonicalSource);
     expect(await collection.renderModule(canonicalSource, "Same")).toBe("export default 2;");
+
+    const linkedSource = join(linkedRoot, "page.md");
+    await rm(linkedSource);
+    expect(collection.ownsSource(linkedSource)).toBe(true);
+    collection.invalidate(linkedSource);
+    await expect(collection.all()).resolves.toEqual([]);
   });
 
   it("invalidates transformed source memoization deliberately", async () => {
@@ -347,17 +353,19 @@ describe("collection integration helpers", () => {
     }
   });
 
-  it("rejects Netlify's reserved root headers control file", async () => {
+  it("rejects Netlify's reserved root control files", async () => {
     const root = await fixture({ "guide.md": "Guide" });
 
-    for (const path of ["/_headers", "/_HEADERS"]) {
+    for (const path of ["/_headers", "/_HEADERS", "/_redirects", "/_REDIRECTS"]) {
       const collection = defineCollection({
         name: "docs",
         root,
         artifacts: [() => ({ path, source: "content" })],
       });
 
-      await expect(collection.emitArtifacts()).rejects.toThrow(/reserved root \/_headers/);
+      await expect(collection.emitArtifacts()).rejects.toThrow(
+        /reserved root \/_(?:headers|redirects)/,
+      );
     }
   });
 

@@ -146,9 +146,11 @@ instead of being silently overwritten; configure a distinct `summaryPath` or
 use only one generator. OpenAPI companion output is checked the same way rather
 than replacing a collection artifact. Artifact output is preflighted before publication:
 case-folded and file/directory collisions fail across collections, Pracht's
-entire `/_pracht` build-output namespace and Netlify's root `/_headers` control
-file are reserved, and artifacts cannot overlap files in Vite's configured
-`publicDir` or prerendered page output.
+entire `/_pracht` build-output namespace and Netlify's root `/_headers` and
+`/_redirects` control files are reserved, and artifacts cannot overlap files in
+Vite's configured `publicDir` or prerendered page output. Vercel header rules
+escape literal artifact path characters before applying generated content
+types.
 Artifact paths must use canonical, portable ASCII URL segments without percent
 encoding. Spaces, non-ASCII segments, Windows-reserved names, trailing dots, and
 filesystem-invalid characters are rejected because deployment adapters

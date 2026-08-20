@@ -515,7 +515,7 @@ function basename(value: string): string {
 }
 
 function routeToHeaderSource(route: string): string {
-  return route === "/" ? "/" : route;
+  return route === "/" ? "/" : route.replace(/[\\+*?{}()[\]:!]/g, "\\$&");
 }
 
 function escapeRegex(value: string): string {

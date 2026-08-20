@@ -4,6 +4,8 @@
 "@pracht/adapter-cloudflare": patch
 "@pracht/adapter-netlify": patch
 "@pracht/adapter-node": patch
+"@pracht/image": minor
+"@pracht/markdown": minor
 ---
 
 Add the opt-in, server-only `@pracht/content` collection primitive. One
@@ -27,14 +29,26 @@ and development artifact failures no longer block unrelated Vite or application
 requests. Verification only treats the `@pracht/content/vite` integration as a
 registered Markdown transform.
 
-Follow-up hardening adds cached registry indexes, root-relative invalidation,
-root-prefix `llms.txt` sections, whitespace-stable search snippets, and
-production artifact content-type metadata. Request-time loaders and
-capabilities now use `virtual:pracht/content/<name>`, a JSON-validated,
-filesystem-free snapshot that runs across Node, Vercel, and Cloudflare.
+Add `@pracht/markdown`, the official collection compiler for Markdown route
+modules, together with cached `?pracht&pracht-static` responsive WebP variants
+and reusable plain image props in `@pracht/image`. Relative Markdown images are
+resolved as sibling Vite imports and rendered as hydration-free `<img>` markup;
+SVG and animated originals retain their encoded format, and server-only graph
+assets are published to the client output, including root-level Vite asset
+directories.
 
-Final review fixes apply generated content types to non-HTML assets on every
-adapter — Node, Cloudflare, Netlify, and Vercel — reject core/collection
-`llms.txt` collisions, fail closed on symbolic links escaping the collection
-root, return missing page-capability results for malformed routes or
-unsupported locales, and accept empty YAML frontmatter.
+Harden the complete authoring and deployment path: cache registry indexes,
+invalidate changed, added, and removed sources through lexical or symbolic
+collection roots, and preserve prototype-named data in JSON-validated,
+filesystem-free runtime snapshots. Locale fallback remains explicit for the
+default locale, malformed capability lookups fail closed, and empty YAML
+frontmatter is accepted.
+
+Generated artifacts now carry content types across Node, Cloudflare, Netlify,
+and Vercel; preserve Vite resource-query imports; and reject collisions with
+public files, prerendered pages, core `llms.txt`, OpenAPI output, other
+case-folded or parent/child artifacts, Pracht's `/_pracht` namespace, and
+Netlify's root `/_headers` and `/_redirects` control files. Artifact filenames
+must be portable and canonical, while Vercel header patterns escape literal
+artifact path syntax. Netlify also applies exact generated headers to bypassed
+static paths and rejects manifest entries that would become wildcard rules.

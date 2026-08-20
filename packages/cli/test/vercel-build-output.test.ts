@@ -165,6 +165,25 @@ describe("writeVercelBuildOutput", () => {
     ).toThrow(/repeated path separator/);
   });
 
+  it("escapes literal content artifact paths in Vercel header patterns", () => {
+    const root = createBuildRoot();
+
+    writeVercelBuildOutput({
+      headersManifest: {
+        "/feed+(full).data": { "content-type": "application/json" },
+      },
+      isgManifest: {},
+      root,
+      staticAssetRoutes: ["/feed+(full).data"],
+      staticRoutes: [],
+    });
+
+    const config = JSON.parse(readFileSync(join(root, ".vercel/output/config.json"), "utf-8")) as {
+      headers: { source: string }[];
+    };
+    expect(config.headers.at(-1)?.source).toBe("/feed\\+\\(full\\).data");
+  });
+
   it("routes ISG markdown routes to the render function, not the prerender function", () => {
     const root = createBuildRoot();
 

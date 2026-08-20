@@ -1,6 +1,6 @@
 import { realpathSync } from "node:fs";
 import { readFile, readdir, realpath, stat } from "node:fs/promises";
-import { extname, isAbsolute, resolve } from "node:path";
+import { extname, isAbsolute, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { parseFrontmatter } from "./frontmatter.ts";
@@ -115,8 +115,7 @@ export function defineCollection<
 
     ownsSource(source) {
       const clean = resolveCollectionSource(source);
-      const canonical = canonicalFilePath(clean);
-      return isInsideRoot(canonicalRoot, canonical) && extensions.includes(extname(canonical));
+      return collectionSourceIdentity(clean) !== undefined && extensions.includes(extname(clean));
     },
 
     async loadSource(source, raw) {
@@ -224,9 +223,12 @@ export function defineCollection<
         return;
       }
       const clean = resolveCollectionSource(source);
-      const canonical = canonicalFilePath(clean);
+      const identity = collectionSourceIdentity(clean);
       for (const cachedSource of cache.keys()) {
-        if (cachedSource === clean || canonicalFilePath(cachedSource) === canonical) {
+        if (
+          cachedSource === clean ||
+          (identity !== undefined && collectionSourceIdentity(cachedSource) === identity)
+        ) {
           cache.delete(cachedSource);
         }
       }
@@ -494,6 +496,18 @@ export function defineCollection<
     return registry.bySource.get(source) ?? registry.bySource.get(canonicalFilePath(source));
   }
 
+  function collectionSourceIdentity(source: string): string | undefined {
+    const canonical = tryCanonicalFilePath(source);
+    if (canonical !== undefined) {
+      return relativeInsideRoot(canonicalRoot, canonical);
+    }
+
+    // Vite's watcher reports unlink events through the configured symlink
+    // path. Once the target is gone it cannot be canonicalized, so retain a
+    // stable collection-relative identity through either spelling of the root.
+    return relativeInsideRoot(root, source) ?? relativeInsideRoot(canonicalRoot, source);
+  }
+
   async function resolveRealRoot(): Promise<string> {
     return realRoot ?? (realRoot = await realpath(root));
   }
@@ -502,11 +516,20 @@ export function defineCollection<
 }
 
 function canonicalFilePath(path: string): string {
+  return tryCanonicalFilePath(path) ?? resolve(path);
+}
+
+function tryCanonicalFilePath(path: string): string | undefined {
   try {
     return realpathSync.native(path);
   } catch {
-    return resolve(path);
+    return undefined;
   }
+}
+
+function relativeInsideRoot(root: string, source: string): string | undefined {
+  if (!isInsideRoot(root, source)) return undefined;
+  return relative(root, resolve(source)).split(sep).join("/");
 }
 
 function cloneFallback(

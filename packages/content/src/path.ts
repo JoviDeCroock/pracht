@@ -62,9 +62,9 @@ export function artifactFileName(path: string): string {
     );
   }
   const fileName = normalized.slice(1);
-  if (fileName.toLowerCase() === "_headers") {
+  if (["_headers", "_redirects"].includes(fileName.toLowerCase())) {
     throw new TypeError(
-      "content artifact path must not replace Netlify's reserved root /_headers control file.",
+      `content artifact path must not replace Netlify's reserved root /${fileName.toLowerCase()} control file.`,
     );
   }
   const segments = fileName.split("/");
