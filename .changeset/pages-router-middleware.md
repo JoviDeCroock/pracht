@@ -122,3 +122,9 @@ TypeScript function/namespace declaration merges exported under an alias.
 TypeScript angle-bracket assertions are treated as transparent during both
 middleware callable validation and ejected-pages ownership detection, so they
 cannot hide a non-callable middleware value or disable the client boundary.
+
+Identifier-backed manifest registries and module refs now also preserve their
+static registration through transparent parentheses and TypeScript `as` or
+`satisfies` assertions. Capability browser projection, CLI verification, and
+the registered-module client import guard therefore stay aligned with the live
+manifest when authors use those type-safe declaration forms.

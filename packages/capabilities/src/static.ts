@@ -867,7 +867,7 @@ export function extractManifestModuleRegistrations(
 /** Resolve local identifier aliases until they reach a concrete initializer. */
 function resolveTopLevelBindingAliases(source: string, expression: string): string {
   const seen = new Set<string>();
-  let resolved = expression;
+  let resolved = unwrapTransparentRegistryExpression(expression);
 
   while (true) {
     const identifier = extractStandaloneBindingIdentifier(resolved);
@@ -876,8 +876,97 @@ function resolveTopLevelBindingAliases(source: string, expression: string): stri
 
     const initializer = findTopLevelVariableInitializer(source, identifier);
     if (!initializer) return resolved;
-    resolved = initializer;
+    resolved = unwrapTransparentRegistryExpression(initializer);
   }
+}
+
+/**
+ * Parentheses and TypeScript `as`/`satisfies` assertions do not change a
+ * registry or module ref's runtime value. Remove only those transparent
+ * wrappers; a following call/member/operator must remain opaque rather than
+ * being mistaken for the wrapped binding.
+ */
+function unwrapTransparentRegistryExpression(expression: string): string {
+  let resolved = expression;
+
+  while (true) {
+    const start = skipInsignificant(resolved, 0);
+    if (resolved[start] !== "(") return resolved;
+    const end = findMatchingBrace(resolved, start, "(", ")");
+    if (end === -1 || !hasTransparentRegistryExpressionTail(resolved, end + 1)) return resolved;
+    const inner = resolved.slice(start + 1, end);
+    const innerStart = skipInsignificant(inner, 0);
+    if (skipToTopLevelComma(inner, innerStart) < inner.length) return resolved;
+    resolved = inner;
+  }
+}
+
+function hasTransparentRegistryExpressionTail(expression: string, start: number): boolean {
+  const tail = skipInsignificant(expression, start);
+  if (tail >= expression.length || expression[tail] === ";" || expression[tail] === ",") {
+    return true;
+  }
+  return hasStandaloneTypeAssertionTail(expression, tail);
+}
+
+function hasStandaloneTypeAssertionTail(expression: string, start: number): boolean {
+  const assertion = /^(?:as|satisfies)\b/.exec(expression.slice(start));
+  if (!assertion) return false;
+
+  let braces = 0;
+  let brackets = 0;
+  let parentheses = 0;
+  let angles = 0;
+  for (
+    let index = skipInsignificant(expression, start + assertion[0].length);
+    index < expression.length;
+    index += 1
+  ) {
+    const char = expression[index];
+    if (char === '"' || char === "'" || char === "`") {
+      const end = findStringEnd(expression, index);
+      if (end === -1) return false;
+      index = end;
+      continue;
+    }
+    if (char === "/" && (expression[index + 1] === "/" || expression[index + 1] === "*")) {
+      index = skipInsignificant(expression, index) - 1;
+      continue;
+    }
+
+    const atTypeTopLevel = braces === 0 && brackets === 0 && parentheses === 0 && angles === 0;
+    if (atTypeTopLevel) {
+      if (char === ";" || char === ",") return true;
+      const word = /^[A-Za-z_$][A-Za-z0-9_$]*/.exec(expression.slice(index))?.[0];
+      if (word === "in" || word === "instanceof") return false;
+      if (
+        char === "?" ||
+        char === "+" ||
+        char === "-" ||
+        char === "%" ||
+        char === "*" ||
+        char === "!" ||
+        (char === "|" && expression[index + 1] === "|") ||
+        (char === "&" && expression[index + 1] === "&") ||
+        (char === "=" && expression[index + 1] !== ">") ||
+        (char === "/" && expression[index + 1] !== "/" && expression[index + 1] !== "*") ||
+        (char === ">" && angles === 0)
+      ) {
+        return false;
+      }
+    }
+
+    if (char === "{") braces += 1;
+    else if (char === "}") braces = Math.max(0, braces - 1);
+    else if (char === "[") brackets += 1;
+    else if (char === "]") brackets = Math.max(0, brackets - 1);
+    else if (char === "(") parentheses += 1;
+    else if (char === ")") parentheses = Math.max(0, parentheses - 1);
+    else if (char === "<") angles += 1;
+    else if (char === ">" && expression[index - 1] !== "=" && angles > 0) angles -= 1;
+  }
+
+  return braces === 0 && brackets === 0 && parentheses === 0 && angles === 0;
 }
 
 /**
@@ -885,8 +974,22 @@ function resolveTopLevelBindingAliases(source: string, expression: string): stri
  * leading initializer text returned by findTopLevelVariableInitializer().
  */
 function extractStandaloneBindingIdentifier(expression: string): string | null {
-  const searchable = maskCommentsAndStrings(expression);
-  return /^\s*([A-Za-z_$][A-Za-z0-9_$]*)[ \t]*(?=;|,|\r?\n|$)/.exec(searchable)?.[1] ?? null;
+  const start = skipInsignificant(expression, 0);
+  const match = /^[A-Za-z_$][A-Za-z0-9_$]*/.exec(expression.slice(start));
+  if (!match) return null;
+
+  const end = start + match[0].length;
+  const tail = skipInsignificant(expression, end);
+  if (
+    tail >= expression.length ||
+    expression[tail] === ";" ||
+    expression[tail] === "," ||
+    /\r?\n/.test(expression.slice(end, tail)) ||
+    hasStandaloneTypeAssertionTail(expression, tail)
+  ) {
+    return match[0];
+  }
+  return null;
 }
 
 function scanModuleRegistryProperties(block: string): Map<string, string> {
