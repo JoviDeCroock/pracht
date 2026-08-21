@@ -358,6 +358,22 @@ describe("<Image> with static build variants", () => {
     expect(html).not.toContain("should-not-run");
   });
 
+  it("keeps unprocessed public imports on their original URL", () => {
+    configureImage({ loader: () => "/should-not-run" });
+    const publicMetadata = {
+      src: "/photo.jpg",
+      width: 640,
+      height: 480,
+      variants: undefined,
+    };
+
+    const html = render(h(Image, { src: publicMetadata, alt: "Public" }));
+
+    expect(html).toContain('src="/photo.jpg"');
+    expect(html).not.toContain("srcset=");
+    expect(html).not.toContain("should-not-run");
+  });
+
   it("exposes the same props used by the component", () => {
     const props = getImageProps({ src: metadata, alt: "Hero", sizes: "100vw" });
     const html = render(h(Image, { src: metadata, alt: "Hero", sizes: "100vw" }));

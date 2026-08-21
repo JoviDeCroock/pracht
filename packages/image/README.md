@@ -51,7 +51,8 @@ Server-only route variants are published to `dist/client` by default; use
 `staticOutDir` for a different adapter-served directory. SVG and animated
 sources keep their original encoded bytes but are still published when only a
 server graph discovers them. Root-relative `publicDir` sources stay
-unprocessed at their stable public URLs.
+unprocessed at their stable public URLs and bypass the global runtime loader
+for static imports.
 
 ```ts
 // src/api/_pracht/image.ts — mounts the optimization endpoint

@@ -136,10 +136,10 @@ is always included. SVG and animated sources retain their original encoded
 bytes instead of being flattened into static WebP variants; those originals
 are still published to the client asset directory when discovered only by an
 SSR or hydration-disabled graph. Root-relative `publicDir` images remain
-stable, unprocessed public URLs. Static variants
-require an absolute Vite `base` (`/` or a pathname such as `/docs/`); a
-relative base cannot produce URLs that are correct at every prerendered route
-depth and therefore fails explicitly.
+stable, unprocessed public URLs and bypass the configured runtime loader when
+statically imported. Static variants require an absolute Vite `base` (`/` or a
+pathname such as `/docs/`); a relative base cannot produce URLs that are
+correct at every prerendered route depth and therefore fails explicitly.
 
 `@pracht/markdown` uses this static query automatically for relative Markdown
 images and turns the metadata into plain `<img>` markup with `getImageProps()`.

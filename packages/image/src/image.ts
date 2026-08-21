@@ -280,7 +280,8 @@ export function getImageProps(props: ImageProps): JSX.IntrinsicElements["img"] {
     }
   }
 
-  const staticVariants = loader == null ? metadata?.variants : undefined;
+  const staticMetadata = loader == null && metadata != null && Object.hasOwn(metadata, "variants");
+  const staticVariants = staticMetadata ? metadata.variants : undefined;
   const effectiveSizes =
     sizes ??
     (fill
@@ -292,9 +293,11 @@ export function getImageProps(props: ImageProps): JSX.IntrinsicElements["img"] {
 
   const candidates = staticVariants?.length
     ? staticVariants.map((variant) => variant.src)
-    : plan.widths.map((candidateWidth) =>
-        resolvedLoader({ src: srcString, width: candidateWidth, quality: resolvedQuality }),
-      );
+    : staticMetadata
+      ? [srcString]
+      : plan.widths.map((candidateWidth) =>
+          resolvedLoader({ src: srcString, width: candidateWidth, quality: resolvedQuality }),
+        );
   const candidateWidths = staticVariants?.length
     ? staticVariants.map((variant) => variant.width)
     : plan.widths;

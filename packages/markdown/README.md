@@ -37,6 +37,10 @@ export default defineConfig({
 ![Remote image left unchanged](https://images.example.com/hero.jpg)
 ```
 
+Only relative source images are claimed by the image pipeline. A custom Marked
+image renderer supplied through `createMarked` remains authoritative for
+root-relative public, remote, and data image URLs.
+
 Use `images: { placeholder: "blur" }` to opt into inline blur styles. The
 default is `"empty"`, which avoids changing an application's CSP requirements.
 Generated image markers use collection-relative source paths, keeping route

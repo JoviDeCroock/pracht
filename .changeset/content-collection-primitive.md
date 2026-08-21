@@ -64,3 +64,7 @@ headers remain intact on clean URL aliases for artifact `index.html` files.
 Artifacts inside an `/assets/` path override adapter-wide immutable caching with
 a revalidation policy because their filenames are not required to contain a
 content hash.
+
+Unprocessed `publicDir` static image imports now bypass configured runtime
+loaders, and Markdown preserves custom Marked image renderers for root-relative,
+remote, and data image sources.

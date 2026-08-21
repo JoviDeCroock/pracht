@@ -1,7 +1,6 @@
 import { createHash } from "node:crypto";
 import { defineCollection, type ContentCompileInput } from "@pracht/content";
 import { Marked } from "marked";
-import type { Tokens } from "marked";
 
 import type {
   CompiledMarkdown,
@@ -16,19 +15,6 @@ export type {
   MarkdownImageOptions,
   MarkdownRenderContext,
 } from "./types.ts";
-
-function escapeAttribute(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/"/g, "&quot;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
-}
-
-function rawImage(token: Tokens.Image): string {
-  const title = token.title == null ? "" : ` title="${escapeAttribute(token.title)}"`;
-  return `<img src="${escapeAttribute(token.href)}" alt="${escapeAttribute(token.text)}"${title}>`;
-}
 
 function localImageSource(href: string, source: string): string | undefined {
   let decoded: string;
@@ -61,7 +47,7 @@ async function compileMarkdown<TFrontmatter extends Record<string, unknown>>(
     renderer: {
       image(token) {
         const local = localImageSource(token.href, input.source);
-        if (local === undefined) return rawImage(token);
+        if (local === undefined) return false;
         const index = images.length;
         const digest = createHash("sha256")
           .update(input.relativeSource)

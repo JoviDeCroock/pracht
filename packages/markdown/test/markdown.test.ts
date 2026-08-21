@@ -1,6 +1,7 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { Marked, Renderer } from "marked";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { defineMarkdownCollection } from "../src/index.ts";
@@ -50,6 +51,28 @@ describe("defineMarkdownCollection", () => {
     const module = await collection.renderModule(source);
     expect(module).toContain('from "./photo.jpg?pracht&pracht-static"');
     expect(module).toContain('from "./sub/photo.jpg?pracht&pracht-static"');
+  });
+
+  it("preserves custom image renderers for unprocessed sources", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pracht-markdown-"));
+    roots.push(root);
+    const source = join(root, "post.md");
+    await writeFile(source, "![Public](/photo.jpg)\n![Remote](https://example.com/photo.jpg)\n");
+    const renderer = new Renderer();
+    renderer.image = (token) => `<figure data-source="${token.href}">${token.text}</figure>`;
+    const collection = defineMarkdownCollection({
+      name: "test",
+      root,
+      createMarked: () => new Marked({ renderer }),
+    });
+
+    const document = await collection.loadSource(source);
+
+    expect(document.compiled.images).toHaveLength(0);
+    expect(document.compiled.html).toContain('<figure data-source="/photo.jpg">Public</figure>');
+    expect(document.compiled.html).toContain(
+      '<figure data-source="https://example.com/photo.jpg">Remote</figure>',
+    );
   });
 
   it("keeps image markers stable across checkout roots", async () => {

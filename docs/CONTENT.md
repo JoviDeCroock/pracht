@@ -77,6 +77,7 @@ module receives intrinsic dimensions and cached, content-hashed WebP variants.
 The final output is plain `<img>` markup with `srcset` and `sizes`, so it works
 for SSR, SSG, and `hydration: "none"` without a client Markdown or image
 runtime. Root-relative `public/`, remote, and data URLs remain unchanged.
+Custom Marked image renderers continue to handle those unprocessed sources.
 Vite resource queries such as `?raw` and `?url` also retain their normal Vite
 semantics instead of being claimed by the collection route-module transform.
 
