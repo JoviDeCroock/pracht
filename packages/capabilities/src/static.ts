@@ -90,7 +90,17 @@ export function hasNamedMiddlewareExport(program: unknown): boolean {
 
     const declaration = asStaticAnalysisNode(statement.declaration);
     if (declaration?.type === "FunctionDeclaration") {
-      if (getStaticIdentifierName(declaration.id) === "middleware") return true;
+      if (
+        getStaticIdentifierName(declaration.id) === "middleware" &&
+        !isBindingKnownNonCallableAt(
+          "middleware",
+          Number.POSITIVE_INFINITY,
+          knownNonCallableBindings,
+          bindingWrites,
+        )
+      ) {
+        return true;
+      }
     } else if (declaration?.type === "VariableDeclaration" && declaration.declare !== true) {
       for (const declarator of nodeArray(declaration.declarations)) {
         if (!collectStaticBindingNames(declarator.id).includes("middleware")) continue;
@@ -1099,6 +1109,7 @@ function isInsideTopLevelTypeAlias(source: string, end: number): boolean {
   const statement =
     /(?:^|[;\r\n}])\s*(?:export\s+)?(?:declare\s+)?(abstract|break|class|const|continue|debugger|do|enum|for|function|if|import|interface|let|module|namespace|return|switch|throw|try|type|var|while)\b/g;
   let latestKind: string | null = null;
+  let latestKindIndex = -1;
 
   for (const match of source.slice(0, end).matchAll(statement)) {
     if (match.index == null) continue;
@@ -1108,9 +1119,20 @@ function isInsideTopLevelTypeAlias(source: string, end: number): boolean {
     const afterKind = skipInsignificant(source, kindIndex + match[1].length);
     if (match[1] === "import" && source[afterKind] === "(") continue;
     latestKind = match[1];
+    latestKindIndex = kindIndex;
   }
 
-  return latestKind === "type";
+  if (latestKind !== "type") return false;
+
+  const typePrefix = source.slice(latestKindIndex, end);
+  const lastLineBreak = Math.max(typePrefix.lastIndexOf("\n"), typePrefix.lastIndexOf("\r"));
+  if (lastLineBreak === -1 || typePrefix.slice(lastLineBreak + 1).trim() !== "") return true;
+
+  const precedingLine = typePrefix.slice(0, lastLineBreak).trimEnd();
+  return (
+    /(?:=|\||&|,|:|<|\(|\[|\{|\?|=>)$/.test(precedingLine) ||
+    /\b(?:as|extends|in|infer|is|keyof|readonly)\s*$/.test(precedingLine)
+  );
 }
 
 function isStaticPropertyName(source: string, start: number, length: number): boolean {

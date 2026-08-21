@@ -582,6 +582,8 @@ function usesStaticAdapter(project: Pick<ProjectConfig, "rawConfig">): boolean {
     const prachtNamespaces = new Set<string>();
     const staticFactories = new Set<string>();
     const staticNamespaces = new Set<string>();
+    const viteConfigFactories = new Set<string>();
+    const viteNamespaces = new Set<string>();
     const bindings = new Map<string, unknown>();
 
     for (const statement of configAstNodes(program.body)) {
@@ -612,6 +614,14 @@ function usesStaticAdapter(project: Pick<ProjectConfig, "rawConfig">): boolean {
             configPropertyName(specifier.imported) === "staticAdapter"
           ) {
             staticFactories.add(localName);
+          } else if (importSource === "vite" && specifier.type === "ImportNamespaceSpecifier") {
+            viteNamespaces.add(localName);
+          } else if (
+            importSource === "vite" &&
+            specifier.type === "ImportSpecifier" &&
+            configPropertyName(specifier.imported) === "defineConfig"
+          ) {
+            viteConfigFactories.add(localName);
           }
         }
       }
@@ -721,9 +731,31 @@ function usesStaticAdapter(project: Pick<ProjectConfig, "rawConfig">): boolean {
     const defaultExport = configAstNodes(program.body).find(
       (statement) => statement.type === "ExportDefaultDeclaration",
     );
-    const exportedConfig = defaultExport
+    let exportedConfig: unknown = defaultExport
       ? (resolveConfigBinding(defaultExport.declaration) ?? defaultExport.declaration)
       : program;
+
+    const exportedConfigNode = asConfigAstNode(exportedConfig);
+    if (defaultExport && exportedConfigNode?.type === "CallExpression") {
+      const callee = unwrapConfigExpression(exportedConfigNode.callee);
+      const namespaceName =
+        callee?.type === "MemberExpression" && callee.computed !== true
+          ? configPropertyName(callee.object)
+          : null;
+      const isDefineConfigCall =
+        (callee?.type === "Identifier" &&
+          typeof callee.name === "string" &&
+          viteConfigFactories.has(callee.name)) ||
+        (callee?.type === "MemberExpression" &&
+          callee.computed !== true &&
+          namespaceName !== null &&
+          viteNamespaces.has(namespaceName) &&
+          configPropertyName(callee.property) === "defineConfig");
+      if (isDefineConfigCall) {
+        const argument = configAstNodes(exportedConfigNode.arguments)[0];
+        if (argument) exportedConfig = resolveConfigBinding(argument) ?? argument;
+      }
+    }
 
     return visitConfigAst(exportedConfig, (node) => {
       if (node.type !== "CallExpression") return false;
