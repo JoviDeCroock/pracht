@@ -49,6 +49,9 @@ when another supported `_middleware` extension already exists. HMR follows the
 existing pages conventions: edits hot-invalidate, add/remove restarts the dev
 server. `doctor` and `verify` also reject `_middleware/` directories whose only
 contents are non-source placeholders, matching the build-time check.
+Static-adapter detection follows the exported Vite configuration, so an unused
+helper that constructs a static Pracht configuration does not block middleware
+generation when the selected adapter is serverful.
 
 Build-time and CLI export validation also reject type-only star re-exports,
 explicit or locally resolved type-only named aliases, ambient declarations,
@@ -61,7 +64,9 @@ accepts callable `middleware` bindings in a multi-declarator export. Statically
 non-callable bindings such as `export const middleware = 1`, uninitialized
 declarations, object literals, and local aliases of those values are rejected
 before deployment instead of taking down every wrapped route at request time;
-this includes direct and transitive aliases in exported declarations.
+this includes direct and transitive aliases in exported declarations. Mutable
+bindings use their last unconditional module-scope write, so assigning a
+literal or applying an update after a callable initializer is rejected too.
 Both paths use the same AST classifier, and continue to reject nested
 `_middleware` files even when another reserved underscore-prefixed directory
 contains them.

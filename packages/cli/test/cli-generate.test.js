@@ -389,6 +389,26 @@ export default { plugins: [pracht({ pagesDir: "/src/pages", adapter: nodeAdapter
     expect(existsSync(join(appDir, "src/pages/_middleware.ts"))).toBe(true);
   });
 
+  it("ignores an unused static pracht configuration", () => {
+    const appDir = createTempDir("pracht-cli-pages-middleware-unused-static-config-");
+    writePagesApp(appDir);
+    writeProjectFile(
+      appDir,
+      "vite.config.ts",
+      `import { pracht } from "@pracht/vite-plugin";
+import { staticAdapter } from "@pracht/adapter-static";
+import { nodeAdapter } from "@pracht/adapter-node";
+export default { plugins: [pracht({ pagesDir: "/src/pages", adapter: nodeAdapter() })] };
+function unusedStaticConfig() {
+  return pracht({ adapter: staticAdapter() });
+}`,
+    );
+
+    runCli(["generate", "middleware", "--name", "_middleware"], { cwd: appDir });
+
+    expect(existsSync(join(appDir, "src/pages/_middleware.ts"))).toBe(true);
+  });
+
   it("refuses to duplicate an existing pages middleware extension", () => {
     const appDir = createTempDir("pracht-cli-pages-middleware-existing-");
     writePagesApp(appDir);
