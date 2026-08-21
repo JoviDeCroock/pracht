@@ -151,9 +151,16 @@ The pages middleware generator now refuses pure static-export projects instead
 of writing a request middleware file that static builds reject. Verification
 also avoids reporting a valid root middleware as successful when another
 nested, directory-shaped, or unsupported middleware file blocks the build.
+Static-target detection follows the adapter selected in the pracht plugin,
+including aliased built-in and literal custom static adapters, without treating
+unused imports, comments, or strings as an active static target.
 
 Manifest registry extraction now recognizes semicolonless aliases before async
 function declarations and no longer mistakes commas inside generic type
 annotations for later `const` declarators. Capability projection, verification,
 and client import protection therefore continue to follow the live manifest in
 both forms.
+
+Middleware export validation treats setter-only properties as `undefined`
+rather than mistaking the setter function itself for the destructured runtime
+value. Getter-backed accessors remain conservatively runtime-defined.

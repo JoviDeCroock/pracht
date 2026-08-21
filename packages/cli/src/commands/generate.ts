@@ -2,6 +2,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { defineCommand } from "citty";
+import { parseAst } from "vite";
 
 import {
   ensureTrailingNewline,
@@ -524,11 +525,146 @@ export function generateMiddleware(name: string, project: ProjectConfig): Genera
   };
 }
 
-function usesStaticAdapter(project: Pick<ProjectConfig, "rawConfig">): boolean {
-  return (
-    /\bstaticAdapter\s*\(/.test(project.rawConfig) ||
-    project.rawConfig.includes("@pracht/adapter-static")
+type ConfigAstNode = {
+  type: string;
+  [key: string]: unknown;
+};
+
+function asConfigAstNode(value: unknown): ConfigAstNode | null {
+  if (!value || typeof value !== "object") return null;
+  const type = (value as { type?: unknown }).type;
+  return typeof type === "string" ? (value as ConfigAstNode) : null;
+}
+
+function configAstNodes(value: unknown): ConfigAstNode[] {
+  if (!Array.isArray(value)) return [];
+  return value.map(asConfigAstNode).filter((node): node is ConfigAstNode => node !== null);
+}
+
+function unwrapConfigExpression(value: unknown): ConfigAstNode | null {
+  let node = asConfigAstNode(value);
+  while (
+    node &&
+    (node.type === "ParenthesizedExpression" ||
+      node.type === "TSAsExpression" ||
+      node.type === "TSNonNullExpression" ||
+      node.type === "TSSatisfiesExpression" ||
+      node.type === "TSTypeAssertion")
+  ) {
+    node = asConfigAstNode(node.expression);
+  }
+  return node;
+}
+
+function configPropertyName(value: unknown): string | null {
+  const node = asConfigAstNode(value);
+  if (node?.type === "Identifier" && typeof node.name === "string") return node.name;
+  if (node?.type === "Literal" && typeof node.value === "string") return node.value;
+  return null;
+}
+
+function configObjectProperty(object: ConfigAstNode, name: string): unknown {
+  for (const property of configAstNodes(object.properties)) {
+    if (
+      property.type === "Property" &&
+      property.computed !== true &&
+      configPropertyName(property.key) === name
+    ) {
+      return property.value;
+    }
+  }
+  return undefined;
+}
+
+function visitConfigAst(value: unknown, visit: (node: ConfigAstNode) => boolean): boolean {
+  if (Array.isArray(value)) return value.some((item) => visitConfigAst(item, visit));
+  const node = asConfigAstNode(value);
+  if (!node) return false;
+  if (visit(node)) return true;
+  return Object.entries(node).some(
+    ([key, child]) => key !== "type" && key !== "loc" && visitConfigAst(child, visit),
   );
+}
+
+function usesStaticAdapter(project: Pick<ProjectConfig, "rawConfig">): boolean {
+  if (!project.rawConfig) return false;
+
+  try {
+    const program = parseAst(project.rawConfig, { lang: "ts" }) as unknown as ConfigAstNode;
+    const staticFactories = new Set<string>();
+    const staticNamespaces = new Set<string>();
+    const bindings = new Map<string, unknown>();
+
+    for (const statement of configAstNodes(program.body)) {
+      if (
+        statement.type === "ImportDeclaration" &&
+        asConfigAstNode(statement.source)?.value === "@pracht/adapter-static"
+      ) {
+        for (const specifier of configAstNodes(statement.specifiers)) {
+          const localName = configPropertyName(specifier.local);
+          if (!localName) continue;
+          if (specifier.type === "ImportNamespaceSpecifier") {
+            staticNamespaces.add(localName);
+          } else if (
+            specifier.type === "ImportSpecifier" &&
+            configPropertyName(specifier.imported) === "staticAdapter"
+          ) {
+            staticFactories.add(localName);
+          }
+        }
+      }
+
+      if (statement.type === "VariableDeclaration" && statement.kind === "const") {
+        for (const declaration of configAstNodes(statement.declarations)) {
+          const name = configPropertyName(declaration.id);
+          if (name) bindings.set(name, declaration.init);
+        }
+      }
+    }
+
+    const isStaticAdapterExpression = (value: unknown, seen = new Set<string>()): boolean => {
+      const node = unwrapConfigExpression(value);
+      if (!node) return false;
+
+      if (node.type === "Identifier" && typeof node.name === "string") {
+        if (seen.has(node.name)) return false;
+        const initializer = bindings.get(node.name);
+        if (initializer === undefined) return false;
+        return isStaticAdapterExpression(initializer, new Set([...seen, node.name]));
+      }
+
+      if (node.type === "ObjectExpression") {
+        const staticTarget = unwrapConfigExpression(configObjectProperty(node, "staticTarget"));
+        return staticTarget?.type === "Literal" && staticTarget.value === true;
+      }
+
+      if (node.type !== "CallExpression") return false;
+      const callee = unwrapConfigExpression(node.callee);
+      if (callee?.type === "Identifier" && typeof callee.name === "string") {
+        return staticFactories.has(callee.name);
+      }
+      if (callee?.type !== "MemberExpression" || callee.computed === true) return false;
+      const objectName = configPropertyName(callee.object);
+      return (
+        objectName !== null &&
+        staticNamespaces.has(objectName) &&
+        configPropertyName(callee.property) === "staticAdapter"
+      );
+    };
+
+    return visitConfigAst(program, (node) => {
+      if (node.type !== "CallExpression") return false;
+      const callee = unwrapConfigExpression(node.callee);
+      if (callee?.type !== "Identifier" || callee.name !== "pracht") return false;
+      const options = unwrapConfigExpression(configAstNodes(node.arguments)[0]);
+      return (
+        options?.type === "ObjectExpression" &&
+        isStaticAdapterExpression(configObjectProperty(options, "adapter"))
+      );
+    });
+  } catch {
+    return false;
+  }
 }
 
 export interface CapabilityArgs {
