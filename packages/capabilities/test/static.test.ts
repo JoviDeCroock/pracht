@@ -27,6 +27,23 @@ describe("middleware export classification", () => {
     ["let middleware = () => {};\nmiddleware = 1, void 0;\nexport { middleware };", false],
     ["let middleware = () => {};\nvoid (middleware = 1);\nexport { middleware };", false],
     ["let middleware = () => {};\n[middleware = 1];\nexport { middleware };", false],
+    [
+      "let middleware = () => {};\nconst observed = (middleware = 1);\nexport { middleware };",
+      false,
+    ],
+    ["let middleware = () => {};\nif ((middleware = 1)) {}\nexport { middleware };", false],
+    [
+      "let middleware = () => {};\nclass Setup { static value = (middleware = 1); }\nexport { middleware };",
+      false,
+    ],
+    [
+      "let middleware = () => {};\nclass Setup { static { middleware = 1; } }\nexport { middleware };",
+      false,
+    ],
+    [
+      "let middleware = () => {};\nclass Setup { value = (middleware = 1); method() { middleware = 1; } }\nexport { middleware };",
+      true,
+    ],
     ["let middleware = () => {}, other;\nother = middleware = 1;\nexport { middleware };", false],
     [
       "let middleware = () => {};\nmiddleware = (middleware = 1, () => {});\nexport { middleware };",
@@ -148,6 +165,28 @@ describe("capability static extraction", () => {
 
     expect(extractManifestModuleRegistrations(source, "middleware")).toEqual([
       { name: "pages", file: "./pages/_middleware.ts" },
+    ]);
+  });
+
+  it.each([
+    ["an unresolved spread", "...runtimeRegistry"],
+    ["an unresolved computed property", '[runtimeName]: "./capabilities/runtime.ts"'],
+  ])("forgets registrations preceding %s", (_description, opaqueProperty) => {
+    const source = `
+      const runtimeRegistry = getRuntimeRegistry();
+      const runtimeName = getRuntimeName();
+      export const app = defineApp({
+        capabilities: {
+          before: "./capabilities/before.ts",
+          ${opaqueProperty},
+          after: "./capabilities/after.ts",
+        },
+        routes: [],
+      });
+    `;
+
+    expect(extractCapabilityRegistrations(source)).toEqual([
+      { name: "after", file: "./capabilities/after.ts" },
     ]);
   });
 
@@ -379,6 +418,44 @@ describe("capability static extraction", () => {
       `,
     ],
   ])("keeps a registry mutated %s opaque", (_description, source) => {
+    expect(extractCapabilityRegistrations(source)).toEqual([]);
+  });
+
+  it.each([
+    [
+      "ordinary function",
+      `function inspect(capabilities) {
+        return capabilities;
+      }`,
+    ],
+    [
+      "object method",
+      `const helper = {
+        capabilities() {},
+        inspect(capabilities) { return capabilities; },
+      };`,
+    ],
+  ])("ignores uses shadowed by an %s when checking a registry", (_description, declaration) => {
+    const source = `
+      const capabilities = { notes: "./capabilities/notes.ts" };
+      ${declaration}
+      export const app = defineApp({ capabilities, routes: [] });
+    `;
+
+    expect(extractCapabilityRegistrations(source)).toEqual([
+      { name: "notes", file: "./capabilities/notes.ts" },
+    ]);
+  });
+
+  it("keeps a registry used from a function body opaque", () => {
+    const source = `
+      const capabilities = { notes: "./capabilities/notes.ts" };
+      function inspect(value) {
+        return value && capabilities;
+      }
+      export const app = defineApp({ capabilities, routes: [] });
+    `;
+
     expect(extractCapabilityRegistrations(source)).toEqual([]);
   });
 

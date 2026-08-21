@@ -298,10 +298,8 @@ function collectTopLevelBindingWrites(
   const writes = new Map<string, StaticBindingWrite[]>();
 
   for (const statement of nodeArray(program.body)) {
-    const expression =
-      statement.type === "ExpressionStatement" ? asStaticAnalysisNode(statement.expression) : null;
     const unconditionalExpressions = new Set<StaticAnalysisNode>();
-    collectUnconditionallyEvaluatedExpressions(expression, unconditionalExpressions);
+    collectUnconditionallyEvaluatedStatement(statement, unconditionalExpressions);
     collectTopLevelBindingWritesFromNode(statement, writes, unconditionalExpressions);
   }
 
@@ -319,10 +317,13 @@ function collectTopLevelBindingWritesFromNode(
   if (
     node.type === "FunctionDeclaration" ||
     node.type === "ArrowFunctionExpression" ||
-    node.type === "FunctionExpression" ||
-    node.type === "ClassDeclaration" ||
-    node.type === "ClassExpression"
+    node.type === "FunctionExpression"
   ) {
+    return;
+  }
+
+  if (node.type === "ClassDeclaration" || node.type === "ClassExpression") {
+    collectTopLevelBindingWritesFromClass(node, writes, unconditionalExpressions);
     return;
   }
 
@@ -355,6 +356,142 @@ function collectTopLevelBindingWritesFromNode(
   }
 }
 
+function collectUnconditionallyEvaluatedStatement(
+  statement: StaticAnalysisNode,
+  expressions: Set<StaticAnalysisNode>,
+): void {
+  if (statement.type === "ExpressionStatement") {
+    collectUnconditionallyEvaluatedExpressions(statement.expression, expressions);
+    return;
+  }
+
+  if (statement.type === "VariableDeclaration") {
+    for (const declarator of nodeArray(statement.declarations)) {
+      collectUnconditionallyEvaluatedExpressions(declarator.init, expressions);
+    }
+    return;
+  }
+
+  if (statement.type === "ExportNamedDeclaration") {
+    const declaration = asStaticAnalysisNode(statement.declaration);
+    if (declaration) collectUnconditionallyEvaluatedStatement(declaration, expressions);
+    return;
+  }
+
+  if (statement.type === "ExportDefaultDeclaration") {
+    const declaration = asStaticAnalysisNode(statement.declaration);
+    if (!declaration) return;
+    if (declaration.type === "ClassDeclaration" || declaration.type === "ClassExpression") {
+      collectClassEvaluationExpressions(declaration, expressions);
+    } else if (declaration.type !== "FunctionDeclaration") {
+      collectUnconditionallyEvaluatedExpressions(declaration, expressions);
+    }
+    return;
+  }
+
+  if (statement.type === "ClassDeclaration") {
+    collectClassEvaluationExpressions(statement, expressions);
+    return;
+  }
+
+  if (statement.type === "BlockStatement" || statement.type === "StaticBlock") {
+    for (const child of nodeArray(statement.body)) {
+      collectUnconditionallyEvaluatedStatement(child, expressions);
+    }
+    return;
+  }
+
+  if (
+    statement.type === "IfStatement" ||
+    statement.type === "WhileStatement" ||
+    statement.type === "SwitchStatement" ||
+    statement.type === "WithStatement"
+  ) {
+    collectUnconditionallyEvaluatedExpressions(
+      statement.test ?? statement.discriminant ?? statement.object,
+      expressions,
+    );
+    return;
+  }
+
+  if (statement.type === "ForStatement") {
+    const initializer = asStaticAnalysisNode(statement.init);
+    if (initializer?.type === "VariableDeclaration") {
+      collectUnconditionallyEvaluatedStatement(initializer, expressions);
+    } else {
+      collectUnconditionallyEvaluatedExpressions(initializer, expressions);
+    }
+    collectUnconditionallyEvaluatedExpressions(statement.test, expressions);
+    return;
+  }
+
+  if (statement.type === "ForInStatement" || statement.type === "ForOfStatement") {
+    collectUnconditionallyEvaluatedExpressions(statement.right, expressions);
+    return;
+  }
+}
+
+function collectClassEvaluationExpressions(
+  classNode: StaticAnalysisNode,
+  expressions: Set<StaticAnalysisNode>,
+): void {
+  for (const decorator of nodeArray(classNode.decorators)) {
+    collectUnconditionallyEvaluatedExpressions(decorator.expression ?? decorator, expressions);
+  }
+  collectUnconditionallyEvaluatedExpressions(classNode.superClass, expressions);
+
+  const body = asStaticAnalysisNode(classNode.body);
+  for (const element of nodeArray(body?.body)) {
+    for (const decorator of nodeArray(element.decorators)) {
+      collectUnconditionallyEvaluatedExpressions(decorator.expression ?? decorator, expressions);
+    }
+    if (element.computed === true) {
+      collectUnconditionallyEvaluatedExpressions(element.key, expressions);
+    }
+    if (element.type === "PropertyDefinition" && element.static === true) {
+      collectUnconditionallyEvaluatedExpressions(element.value, expressions);
+    } else if (element.type === "StaticBlock") {
+      collectUnconditionallyEvaluatedStatement(element, expressions);
+    }
+  }
+}
+
+function collectTopLevelBindingWritesFromClass(
+  classNode: StaticAnalysisNode,
+  writes: Map<string, StaticBindingWrite[]>,
+  unconditionalExpressions: ReadonlySet<StaticAnalysisNode>,
+): void {
+  for (const decorator of nodeArray(classNode.decorators)) {
+    collectTopLevelBindingWritesFromNode(
+      decorator.expression ?? decorator,
+      writes,
+      unconditionalExpressions,
+    );
+  }
+  collectTopLevelBindingWritesFromNode(classNode.superClass, writes, unconditionalExpressions);
+
+  const body = asStaticAnalysisNode(classNode.body);
+  for (const element of nodeArray(body?.body)) {
+    for (const decorator of nodeArray(element.decorators)) {
+      collectTopLevelBindingWritesFromNode(
+        decorator.expression ?? decorator,
+        writes,
+        unconditionalExpressions,
+      );
+    }
+    if (element.computed === true) {
+      collectTopLevelBindingWritesFromNode(element.key, writes, unconditionalExpressions);
+    }
+    if (element.type === "PropertyDefinition" && element.static === true) {
+      collectTopLevelBindingWritesFromNode(element.value, writes, unconditionalExpressions);
+    } else if (element.type === "StaticBlock") {
+      for (const statement of nodeArray(element.body)) {
+        collectTopLevelBindingWritesFromNode(statement, writes, unconditionalExpressions);
+      }
+    }
+  }
+}
+
 function collectUnconditionallyEvaluatedExpressions(
   value: unknown,
   expressions: Set<StaticAnalysisNode>,
@@ -366,10 +503,13 @@ function collectUnconditionallyEvaluatedExpressions(
   if (
     node.type === "FunctionDeclaration" ||
     node.type === "ArrowFunctionExpression" ||
-    node.type === "FunctionExpression" ||
-    node.type === "ClassDeclaration" ||
-    node.type === "ClassExpression"
+    node.type === "FunctionExpression"
   ) {
+    return;
+  }
+
+  if (node.type === "ClassDeclaration" || node.type === "ClassExpression") {
+    collectClassEvaluationExpressions(node, expressions);
     return;
   }
 
@@ -1220,12 +1360,18 @@ function hasSingleStaticBindingUse(
   declarationIndex: number,
 ): boolean {
   const searchable = maskCommentsAndStrings(source);
+  const shadowedFunctionRanges = findSimpleParameterShadowRanges(searchable, name);
   const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const identifier = new RegExp(`(?<![A-Za-z0-9_$])${escapedName}(?![A-Za-z0-9_$])`, "g");
   let uses = 0;
 
   for (const match of searchable.matchAll(identifier)) {
     if (match.index == null || match.index === declarationIndex) continue;
+    if (
+      shadowedFunctionRanges.some(({ start, end }) => match.index! >= start && match.index! < end)
+    ) {
+      continue;
+    }
     if (isStaticPropertyName(searchable, match.index, match[0].length)) continue;
     if (isTypeofOperand(searchable, match.index, match[0].length)) continue;
 
@@ -1234,6 +1380,81 @@ function hasSingleStaticBindingUse(
   }
 
   return uses === 1;
+}
+
+/**
+ * Find ordinary function bodies where a simple parameter shadows the registry
+ * binding. Those identifier occurrences refer to the parameter, not the
+ * top-level object whose use count guards static inlining.
+ */
+function findSimpleParameterShadowRanges(
+  source: string,
+  name: string,
+): { start: number; end: number }[] {
+  const ranges: { start: number; end: number }[] = [];
+  const functions = /\bfunction\s*\*?\s*(?:[A-Za-z_$][A-Za-z0-9_$]*\s*)?\(/g;
+
+  for (const match of source.matchAll(functions)) {
+    if (match.index == null) continue;
+    const parametersStart = match.index + match[0].lastIndexOf("(");
+    const parametersEnd = findMatchingBrace(source, parametersStart, "(", ")");
+    if (parametersEnd === -1) continue;
+    if (!parameterListBindsSimpleName(source.slice(parametersStart + 1, parametersEnd), name)) {
+      continue;
+    }
+
+    const bodyStart = skipInsignificant(source, parametersEnd + 1);
+    if (source[bodyStart] !== "{") continue;
+    const bodyEnd = findMatchingBrace(source, bodyStart, "{", "}");
+    if (bodyEnd === -1) continue;
+    ranges.push({ start: parametersStart, end: bodyEnd + 1 });
+  }
+
+  const methods = /\b[A-Za-z_$][A-Za-z0-9_$]*\s*\(/g;
+  for (const match of source.matchAll(methods)) {
+    if (match.index == null) continue;
+    let before = match.index - 1;
+    while (before >= 0 && /\s/.test(source[before])) before -= 1;
+    if (
+      before >= 0 &&
+      source[before] !== "{" &&
+      source[before] !== "," &&
+      source[before] !== ";" &&
+      source[before] !== "}"
+    ) {
+      continue;
+    }
+
+    const parametersStart = match.index + match[0].lastIndexOf("(");
+    const parametersEnd = findMatchingBrace(source, parametersStart, "(", ")");
+    if (parametersEnd === -1) continue;
+    if (!parameterListBindsSimpleName(source.slice(parametersStart + 1, parametersEnd), name)) {
+      continue;
+    }
+
+    const bodyStart = skipInsignificant(source, parametersEnd + 1);
+    if (source[bodyStart] !== "{") continue;
+    const bodyEnd = findMatchingBrace(source, bodyStart, "{", "}");
+    if (bodyEnd === -1) continue;
+    ranges.push({ start: parametersStart, end: bodyEnd + 1 });
+  }
+
+  return ranges;
+}
+
+function parameterListBindsSimpleName(parameters: string, name: string): boolean {
+  const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const binding = new RegExp(`^(?:\\.\\.\\.\\s*)?${escapedName}(?:\\s*[?!])?(?:\\s*[:=]|\\s*$)`);
+  let cursor = 0;
+
+  while (cursor < parameters.length) {
+    const start = skipInsignificant(parameters, cursor);
+    const end = skipToTopLevelComma(parameters, start);
+    if (binding.test(parameters.slice(start, end).trim())) return true;
+    cursor = end < parameters.length ? end + 1 : parameters.length;
+  }
+
+  return false;
 }
 
 /** A bare runtime `typeof registry` observes neither the object nor its mutable contents. */
@@ -1296,7 +1517,18 @@ function isStaticPropertyName(source: string, start: number, length: number): bo
   if (source[before] === ".") return true;
 
   const after = skipInsignificant(source, start + length);
-  return source[after] === ":" && (source[before] === "{" || source[before] === ",");
+  if (source[after] === ":" && (source[before] === "{" || source[before] === ",")) return true;
+  if (
+    source[after] === "(" &&
+    (source[before] === "{" ||
+      source[before] === "," ||
+      source[before] === ";" ||
+      source[before] === "}")
+  ) {
+    const parametersEnd = findMatchingBrace(source, after, "(", ")");
+    return parametersEnd !== -1 && source[skipInsignificant(source, parametersEnd + 1)] === "{";
+  }
+  return false;
 }
 
 /**
@@ -1449,7 +1681,14 @@ function scanModuleRegistryProperties(block: string): Map<string, string> {
     if (start >= block.length) break;
     const end = skipToTopLevelComma(block, start);
     const propertySource = block.slice(start, end);
-    const parsedProperties = scanTopLevelPropertyEntries(propertySource).properties;
+    const parsed = scanTopLevelPropertyEntries(propertySource);
+    if (parsed.truncated) {
+      // An unresolved spread or computed property can replace any registration
+      // that appeared before it. Forget those entries; explicit properties
+      // after the opaque write can establish their own final values again.
+      properties.clear();
+    }
+    const parsedProperties = parsed.properties;
     for (const [name, expression] of parsedProperties) {
       properties.set(name, expression);
     }

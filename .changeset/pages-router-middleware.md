@@ -220,3 +220,11 @@ and CLI validation accept them.
 Static-target detection now follows immutable config objects passed through
 `defineConfig`, so the pages middleware generator refuses pure static exports
 when the exported Vite configuration is wrapped around a local config alias.
+
+Manifest registry extraction now forgets registrations that precede an
+unresolved spread or computed property, while retaining explicit registrations
+that follow the opaque write. Shadowing ordinary-function parameters no longer
+count as uses of a top-level registry binding. Middleware export validation
+also classifies definitely evaluated writes in variable initializers, control
+tests, static class fields, and static blocks, without treating instance fields
+or method bodies as module-scope writes.
