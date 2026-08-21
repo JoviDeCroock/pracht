@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { dirname, extname, join, resolve } from "node:path";
 import { parseAst } from "vite";
 import { getRolldownLang, PRACHT_CLIENT_MODULE_QUERY } from "./client-module-query.ts";
@@ -199,7 +199,8 @@ export function createPrachtClientModuleSource(
     ? `${resolved.pagesDir}/_app.${extensionGlob(bareRouteExtensions)}`
     : `${resolved.shellsDir}/**/*.${extensionGlob(bareRouteExtensions)}`;
   const usesEjectedPagesShellLayout =
-    usesEjectedPagesLayout && sameConfigDirectory(resolved.shellsDir, resolved.routesDir);
+    usesEjectedPagesLayout &&
+    sameConfigDirectory(resolved.shellsDir, resolved.routesDir, buildOptions.root ?? process.cwd());
   const shellExcludes = usesEjectedPagesShellLayout
     ? createUnderscoreReservedExcludes(resolved.shellsDir)
     : [];
@@ -311,13 +312,20 @@ export function createPrachtClientModuleSource(
   ].join("\n");
 }
 
-function sameConfigDirectory(left: string, right: string): boolean {
-  const normalize = (value: string) =>
-    value
-      .replace(/\\/g, "/")
-      .replace(/^\.?\//, "")
-      .replace(/\/$/, "");
-  return normalize(left) === normalize(right);
+function sameConfigDirectory(left: string, right: string, root: string): boolean {
+  const canonicalize = (value: string): string => {
+    const absolute = resolve(root, value.replace(/^[/\\]+/, ""));
+    try {
+      return realpathSync.native(absolute);
+    } catch {
+      // Preserve correct `.` / `..` semantics before Vite has created or
+      // resolved the configured directory. Existing symlinks take the branch
+      // above so two aliases of the same directory still compare equal.
+      return absolute;
+    }
+  };
+
+  return canonicalize(left) === canonicalize(right);
 }
 
 export function isEjectedPagesLayout(resolved: ResolvedPrachtPluginOptions, root: string): boolean {

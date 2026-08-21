@@ -945,6 +945,32 @@ describe("createPrachtRegistryModuleSource", () => {
     );
   });
 
+  it("keeps ejected shell helpers private when config paths alias the same directory", () => {
+    const root = makeTempPagesDir();
+    mkdirSync(join(root, "src", "other"), { recursive: true });
+    mkdirSync(join(root, "src", "pages"), { recursive: true });
+    writeFileSync(
+      join(root, "src", "routes.ts"),
+      `// ${GENERATED_PAGES_MANIFEST_MARKER}\nexport const ${GENERATED_PAGES_LAYOUT_EXPORT} = true;\nexport const app = {};\n`,
+    );
+
+    const source = createPrachtClientModuleSource(
+      {
+        appFile: "/src/routes.ts",
+        routesDir: "/src/pages",
+        shellsDir: "/src/other/../pages",
+        middlewareDir: "/src/pages",
+      },
+      { root },
+    );
+
+    expect(source).toContain('"!/src/other/../pages/**/_*"');
+    expect(source).toContain('"!/src/other/../pages/**/_*/**"');
+    expect(source).toContain(
+      'import.meta.glob("/src/other/../pages/_app.{ts,tsx,js,jsx}", { query: "?pracht-client" })',
+    );
+  });
+
   it("keeps the pages route registry protected when an ejected shell moves out", () => {
     const root = makeTempPagesDir();
     mkdirSync(join(root, "src"), { recursive: true });

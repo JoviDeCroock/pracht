@@ -563,14 +563,39 @@ function configPropertyName(value: unknown): string | null {
   return null;
 }
 
-function visitConfigAst(value: unknown, visit: (node: ConfigAstNode) => boolean): boolean {
-  if (Array.isArray(value)) return value.some((item) => visitConfigAst(item, visit));
+function visitConfigAst(
+  value: unknown,
+  visit: (node: ConfigAstNode) => boolean,
+  bindings: ReadonlyMap<string, unknown> = new Map(),
+  seenBindings = new Set<string>(),
+): boolean {
+  if (Array.isArray(value)) {
+    return value.some((item) => visitConfigAst(item, visit, bindings, seenBindings));
+  }
   const node = asConfigAstNode(value);
   if (!node) return false;
+
+  if (node.type === "Identifier" && typeof node.name === "string" && bindings.has(node.name)) {
+    if (seenBindings.has(node.name)) return false;
+    return visitConfigAst(
+      bindings.get(node.name),
+      visit,
+      bindings,
+      new Set([...seenBindings, node.name]),
+    );
+  }
+
   if (visit(node)) return true;
-  return Object.entries(node).some(
-    ([key, child]) => key !== "type" && key !== "loc" && visitConfigAst(child, visit),
-  );
+  return Object.entries(node).some(([key, child]) => {
+    if (key === "type" || key === "loc") return false;
+    // A non-computed property/member name is syntax, not a reference to a
+    // top-level config binding with the same spelling.
+    if (node.type === "Property" && key === "key" && node.computed !== true) return false;
+    if (node.type === "MemberExpression" && key === "property" && node.computed !== true) {
+      return false;
+    }
+    return visitConfigAst(child, visit, bindings, seenBindings);
+  });
 }
 
 function usesStaticAdapter(project: Pick<ProjectConfig, "rawConfig">): boolean {
@@ -757,28 +782,32 @@ function usesStaticAdapter(project: Pick<ProjectConfig, "rawConfig">): boolean {
       }
     }
 
-    return visitConfigAst(exportedConfig, (node) => {
-      if (node.type !== "CallExpression") return false;
-      const callee = unwrapConfigExpression(node.callee);
-      const namespaceName =
-        callee?.type === "MemberExpression" && callee.computed !== true
-          ? configPropertyName(callee.object)
-          : null;
-      const isPrachtCall =
-        (callee?.type === "Identifier" &&
-          typeof callee.name === "string" &&
-          (callee.name === "pracht" || prachtFactories.has(callee.name))) ||
-        (callee?.type === "MemberExpression" &&
-          callee.computed !== true &&
-          namespaceName !== null &&
-          prachtNamespaces.has(namespaceName) &&
-          configPropertyName(callee.property) === "pracht");
-      if (!isPrachtCall) return false;
-      const options = resolveConfigBinding(configAstNodes(node.arguments)[0]);
-      if (options?.type !== "ObjectExpression") return false;
-      const adapter = resolveConfigObjectProperty(options, "adapter");
-      return adapter.kind === "value" && isStaticAdapterExpression(adapter.value);
-    });
+    return visitConfigAst(
+      exportedConfig,
+      (node) => {
+        if (node.type !== "CallExpression") return false;
+        const callee = unwrapConfigExpression(node.callee);
+        const namespaceName =
+          callee?.type === "MemberExpression" && callee.computed !== true
+            ? configPropertyName(callee.object)
+            : null;
+        const isPrachtCall =
+          (callee?.type === "Identifier" &&
+            typeof callee.name === "string" &&
+            (callee.name === "pracht" || prachtFactories.has(callee.name))) ||
+          (callee?.type === "MemberExpression" &&
+            callee.computed !== true &&
+            namespaceName !== null &&
+            prachtNamespaces.has(namespaceName) &&
+            configPropertyName(callee.property) === "pracht");
+        if (!isPrachtCall) return false;
+        const options = resolveConfigBinding(configAstNodes(node.arguments)[0]);
+        if (options?.type !== "ObjectExpression") return false;
+        const adapter = resolveConfigObjectProperty(options, "adapter");
+        return adapter.kind === "value" && isStaticAdapterExpression(adapter.value);
+      },
+      bindings,
+    );
   } catch {
     return false;
   }
