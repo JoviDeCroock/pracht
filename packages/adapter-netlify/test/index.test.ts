@@ -54,6 +54,8 @@ describe("createNetlifyServerEntryModule", () => {
     expect(source).toContain('"staleWhileRevalidate":60');
     expect(source).toContain("islandsBootstrapRequired");
     expect(source).toContain("finalizePrachtBuild");
+    expect(source).toContain("finalizeNetlifyBuild(root,");
+    expect(source).toContain("buildBase");
   });
 });
 
@@ -152,6 +154,37 @@ describe("netlifyAdapter", () => {
       code: "ENOENT",
     });
     expect(warn).toHaveBeenCalledWith(expect.stringContaining("public/_headers exists"));
+  });
+
+  it("bundles framework assets when a deploy base prevents static bypasses", async () => {
+    const root = await tempDir();
+    await mkdir(join(root, "dist/client/assets"), { recursive: true });
+    await mkdir(join(root, "dist/client/_pracht"), { recursive: true });
+    await writeFile(join(root, "dist/client/assets/app.js"), "asset");
+    await writeFile(join(root, "dist/client/_pracht/headers.json"), "{}");
+
+    const plugin = netlifyAdapter().vitePlugins?.()[0];
+    const configResolved = plugin?.configResolved;
+    if (typeof configResolved !== "function") throw new Error("missing configResolved hook");
+    await configResolved.call({} as never, { root, base: "/app/", build: { ssr: true } } as never);
+    const closeBundle = plugin?.closeBundle;
+    if (typeof closeBundle !== "function") throw new Error("missing closeBundle hook");
+    await closeBundle.call({} as never);
+
+    let source = await readFile(join(root, "netlify/functions/pracht.mjs"), "utf-8");
+    expect(source).not.toContain('"/assets/*"');
+    expect(source).not.toContain('"/_pracht/*"');
+    expect(source).toContain('"../../dist/client/**"');
+    expect(source).not.toContain('"!../../dist/client/assets/**"');
+    expect(source).not.toContain('"!../../dist/client/_pracht/**"');
+
+    await finalizeNetlifyBuild(root, {}, "/app/");
+    source = await readFile(join(root, "netlify/functions/pracht.mjs"), "utf-8");
+    expect(source).toContain('"../../dist/client/assets/app.js"');
+    expect(source).toContain('"../../dist/client/_pracht/headers.json"');
+    await expect(readFile(join(root, "dist/client/_headers"), "utf-8")).rejects.toMatchObject({
+      code: "ENOENT",
+    });
   });
 
   it("rejects excludedPath patterns that could inject _headers rules", () => {

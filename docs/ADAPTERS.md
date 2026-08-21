@@ -534,7 +534,9 @@ its trailing-slash form: `GET /guide` answers `307 → /guide/` on Cloudflare
 where Node and Vercel answer `200`. That makes the canonical URL of every
 prerendered route differ between adapters, and the generated `llms.txt` emits
 the non-slash form, so an agent following it takes a redirect on Cloudflare
-only.
+only. Under a Vite deploy base, the adapter restores that base on the binding's
+root-absolute redirect (`/app/guide → /app/guide/`) so the redirect cannot
+escape the application mount.
 
 `create-pracht` therefore writes `"html_handling": "drop-trailing-slash"` into
 the Cloudflare scaffold's `wrangler.jsonc`. Existing apps should add it:
@@ -882,10 +884,13 @@ pracht({ adapter: netlifyAdapter() });
 ```
 
 The generated function claims page URLs, while `/assets/*` and `/_pracht/*`
-bypass it. This keeps `Accept: text/markdown` negotiation and route-state
-requests inside Pracht without charging a function invocation for hashed
-assets. Add application-specific static prefixes with
-`netlifyAdapter({ excludedPath: ["/images/*"] })`; do not exclude page URLs.
+bypass it at the origin root. This keeps `Accept: text/markdown` negotiation
+and route-state requests inside Pracht without charging a function invocation
+for hashed assets. Under a Vite deploy base, the publish tree remains
+base-free, so the function bundles those framework asset and state trees and
+serves them after stripping the public base. Add application-specific static
+prefixes with `netlifyAdapter({ excludedPath: ["/images/*"] })`; do not exclude
+page URLs.
 Default and prefix-shaped exclusions are also omitted from the generated
 function bundle, so large static asset trees do not count against Netlify's
 function size limit. The generated config enumerates each remaining client file
@@ -937,10 +942,10 @@ resolution.
   representation cacheable, it reuses the prerendered HTML's `Netlify-Vary`
   instructions so every response from that URL defines the same cache key. A
   custom `Netlify-Vary` header takes precedence.
-- Because `/assets/*` (and other `excludedPath` prefixes) bypass the function,
-  the build also writes a `dist/client/_headers` file that gives Netlify's
-  static layer the immutable asset policy and the same default security
-  headers the function applies everywhere else. A hand-authored
+- At the origin root, `/assets/*` (and other `excludedPath` prefixes) bypass
+  the function, so the build also writes a `dist/client/_headers` file that
+  gives Netlify's static layer the immutable asset policy and the same default
+  security headers the function applies everywhere else. A hand-authored
   `public/_headers` wins — pracht then skips generating one and warns.
   Default and prefix-shaped exclusions are also omitted from the function's
   `includedFiles`, keeping large bypassed asset trees outside its bundle. The

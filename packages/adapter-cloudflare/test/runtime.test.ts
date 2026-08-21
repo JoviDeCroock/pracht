@@ -138,6 +138,30 @@ describe("createCloudflareFetchHandler under a deploy base", () => {
     expect(await response.text()).toBe("export default 1");
     expect(seenAssetPaths).toEqual(["/assets/client.js"]);
   });
+
+  it("restores the deploy base on root-absolute asset redirects", async () => {
+    vi.stubEnv("BASE_URL", "/app/");
+    vi.resetModules();
+    const { createCloudflareFetchHandler: createBaseHandler } = await import("../src/runtime.ts");
+    const handler = createBaseHandler({ app: defineApp({ routes: [] }) });
+    const { executionContext } = createExecutionContext();
+
+    const response = await handler(
+      new Request("https://example.com/app/guide"),
+      {
+        ASSETS: {
+          async fetch(request: Request) {
+            expect(new URL(request.url).pathname).toBe("/guide");
+            return new Response(null, { status: 307, headers: { location: "/guide/" } });
+          },
+        },
+      },
+      executionContext,
+    );
+
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe("/app/guide/");
+  });
 });
 
 describe("createCloudflareFetchHandler ISG", () => {
@@ -663,6 +687,48 @@ describe("createCloudflareFetchHandler webhook revalidation", () => {
       revalidated: [],
       skipped: ["/pricing"],
     });
+  });
+
+  it("purges the public Workers Caching path under a deploy base", async () => {
+    vi.stubEnv("BASE_URL", "/app/");
+    vi.resetModules();
+    const purge = vi.fn().mockResolvedValue(undefined);
+    vi.doMock("../src/cache.ts", async () => ({
+      ...(await vi.importActual<typeof import("../src/cache.ts")>("../src/cache.ts")),
+      purgeCache: purge,
+    }));
+
+    try {
+      const { createCloudflareFetchHandler: createBaseHandler } = await import("../src/runtime.ts");
+      const { cache } = createMockCaches();
+      vi.stubGlobal("caches", { default: cache });
+      const { executionContext } = createExecutionContext();
+      const { app, registry } = createPricingApp();
+      const handler = createBaseHandler({
+        app,
+        registry,
+        cache: true,
+        isgManifest: { "/pricing": { revalidate: isgRevalidate } },
+      });
+
+      const response = await handler(
+        new Request("https://hook.example/app/__pracht/revalidate", {
+          body: JSON.stringify({ paths: ["/pricing"] }),
+          headers: {
+            authorization: "Bearer secret",
+            "content-type": "application/json",
+          },
+          method: "POST",
+        }),
+        { ASSETS: create404Assets(), PRACHT_REVALIDATE_TOKEN: "secret" },
+        executionContext,
+      );
+
+      expect(response.status).toBe(200);
+      expect(purge).toHaveBeenCalledWith({ pathPrefixes: ["/app/pricing"] });
+    } finally {
+      vi.doUnmock("../src/cache.ts");
+    }
   });
 });
 

@@ -38,6 +38,13 @@ function runConfigHook(adapter: PrachtAdapter, isSsrBuild: boolean): BuildConfig
   return hook.call(plugin as never, {}, { command: "build", mode: "production", isSsrBuild });
 }
 
+function runConfigResolvedHook(base: string): void {
+  const plugin = pracht({ adapter: edgeAdapter }).find((candidate) => candidate.name === "pracht");
+  if (!plugin) throw new Error("pracht plugin not found");
+  const hook = getHook<(this: unknown, config: unknown) => void>(plugin, "configResolved");
+  hook.call({}, { base, build: { ssr: true }, command: "build", root: "/project" });
+}
+
 function getHook<T>(plugin: Plugin, name: keyof Plugin): T {
   const hook = plugin[name] as unknown as T | { handler: T };
   return typeof hook === "object" && hook !== null && "handler" in hook ? hook.handler : hook;
@@ -107,6 +114,25 @@ describe("pracht plugin build config", () => {
     const runtimePlugins = pracht({ adapter });
     expect(runtimePlugins).toContain(runtimePlugin);
     expect(runtimePlugins).not.toContain(graphPlugin);
+  });
+
+  it("rejects unsafe root-absolute deploy bases before building", () => {
+    for (const base of [
+      "/app%2Fadmin/",
+      "/app%5Cadmin/",
+      "/app/%2e%2e/",
+      "/app/%00/",
+      "/app%ZZ/",
+      "/app?preview/",
+    ]) {
+      expect(() => runConfigResolvedHook(base)).toThrow(/safe URL segments/);
+    }
+  });
+
+  it("accepts safe path and asset-only CDN bases", () => {
+    for (const base of ["/", "/app/", "/caf%C3%A9/", "https://cdn.example.com/"]) {
+      expect(() => runConfigResolvedHook(base)).not.toThrow();
+    }
   });
 
   it("loads no adapter plugins in graph mode when the safe hook is omitted", () => {

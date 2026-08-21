@@ -140,8 +140,20 @@ describe("buildErrorOverlayHtml", () => {
     });
 
     expect(html).toContain('data-editor-file="/Users/dev/my-app/src/routes/home.tsx:12:9"');
-    expect(html).toContain("/__open-in-editor?file=");
+    expect(html).toContain('fetch("/__open-in-editor" + "?file="');
     expect(html).toContain('class="editor-link"');
+  });
+
+  it("uses the deploy base for Vite's open-in-editor endpoint", () => {
+    const html = buildErrorOverlayHtml({
+      base: "/app/",
+      message: "loader exploded",
+      stack: STACK_FIXTURE,
+      root: "/Users/dev/my-app",
+    });
+
+    expect(html).toContain('fetch("/app/__open-in-editor" + "?file="');
+    expect(html).not.toContain('fetch("/__open-in-editor" + "?file="');
   });
 
   it("de-emphasizes node_modules and internal frames without linking them", () => {

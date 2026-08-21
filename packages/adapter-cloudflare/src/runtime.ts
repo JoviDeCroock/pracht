@@ -24,6 +24,7 @@ import {
   stripBase,
   type PrachtApp,
   preventHeuristicCaching,
+  withBase,
 } from "@pracht/core/server";
 import {
   applyWorkersCacheHeaders,
@@ -292,6 +293,15 @@ async function maybeServeAsset(
   if ((headers.get("content-type") ?? "").includes("text/html")) {
     applyHeadersManifest(headers, headersManifest, url.pathname);
   }
+  const location = headers.get("location");
+  if (
+    response.status >= 300 &&
+    response.status < 400 &&
+    location?.startsWith("/") &&
+    !location.startsWith("//")
+  ) {
+    headers.set("location", withBase(location));
+  }
   return new Response(response.body, {
     status: response.status,
     statusText: response.statusText,
@@ -409,7 +419,7 @@ async function handleCloudflareRevalidationEndpoint(
         // copy is fresh); the edge falls back to its time window.
         if (edgeCacheEnabled && getTimeRevalidateSeconds(entry.revalidate) !== null) {
           try {
-            await purgeCache({ pathPrefixes: [pathname] });
+            await purgeCache({ pathPrefixes: [withBase(pathname)] });
           } catch (err) {
             console.error(`ISG edge cache purge failed for ${pathname}:`, err);
           }

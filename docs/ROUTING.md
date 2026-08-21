@@ -540,7 +540,8 @@ automatically:
 - Speculation rules `href_matches` patterns, which the browser matches against
   real document hrefs
 - `pracht dev` and `pracht preview`, which both serve the app under the
-  configured base; devtools and dev-404 links remain inside it
+  configured base; devtools, dev-404 links, and error-overlay
+  open-in-editor requests remain inside it
 
 Hand-written root-absolute URLs are **not** rewritten: `<a href="/about">` and
 `fetch("/api/items")` mean the origin root, the same rule as Next's `basePath`
@@ -580,7 +581,8 @@ must not be stripped a second time.
 Base matching compares canonical URL segments, so equivalent percent-escape
 spellings match (`/caf%C3%A9/` and `/caf%c3%a9/`). A configured base must not
 contain malformed escapes or a segment that decodes to `/`, `\\`, `.`, `..`,
-NUL, or another control character.
+NUL, or another control character; every adapter rejects those bases during
+Vite config resolution.
 
 ---
 

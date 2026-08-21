@@ -318,7 +318,7 @@ export function createNetlifyServerEntryModule(options: NetlifyAdapterOptions = 
     "export default function handle(request, context) {",
     "  return handler(request, context);",
     "}",
-    `export const finalizePrachtBuild = ({ root }) => finalizeNetlifyBuild(root, ${JSON.stringify(options)});`,
+    `export const finalizePrachtBuild = ({ root }) => finalizeNetlifyBuild(root, ${JSON.stringify(options)}, buildBase);`,
     "",
   ].join("\n");
 }
@@ -347,6 +347,7 @@ export function netlifyAdapter(options: NetlifyAdapterOptions = {}): PrachtAdapt
 function netlifyFunctionPlugin(options: NetlifyAdapterOptions): Plugin {
   let root = process.cwd();
   let isSsrBuild = false;
+  let base = "/";
 
   return {
     name: "pracht:adapter-netlify-function",
@@ -354,10 +355,11 @@ function netlifyFunctionPlugin(options: NetlifyAdapterOptions): Plugin {
     configResolved(config) {
       root = config.root;
       isSsrBuild = Boolean(config.build.ssr);
+      base = config.base || "/";
     },
     async closeBundle() {
       if (!isSsrBuild) return;
-      await writeNetlifyFunctionWrapper(root, options, false);
+      await writeNetlifyFunctionWrapper(root, options, false, base);
     },
   };
 }
@@ -366,22 +368,29 @@ function netlifyFunctionPlugin(options: NetlifyAdapterOptions): Plugin {
 export async function finalizeNetlifyBuild(
   root: string,
   options: NetlifyAdapterOptions = {},
+  base = "/",
 ): Promise<void> {
   for (const pattern of options.excludedPath ?? []) assertSafeExcludedPath(pattern);
-  await writeNetlifyFunctionWrapper(root, options, true);
+  await writeNetlifyFunctionWrapper(root, options, true, base);
 }
 
 async function writeNetlifyFunctionWrapper(
   root: string,
   options: NetlifyAdapterOptions,
   exactIncludedFiles: boolean,
+  base: string,
 ): Promise<void> {
   const { existsSync } = await import("node:fs");
   const { mkdir, writeFile } = await import("node:fs/promises");
   const { join, relative } = await import("node:path");
   const functionName = options.functionName ?? "pracht";
   const functionsDir = options.functionsDir ?? "netlify/functions";
-  const excludedPath = [...DEFAULT_EXCLUDED_PATHS, ...(options.excludedPath ?? [])];
+  // Netlify's static publish tree stays base-free. Under a sub-path deploy,
+  // `/app/assets/*` cannot bypass the function and map onto `/assets/*`, so
+  // keep Pracht's framework assets inside the function bundle and let the
+  // runtime strip the public base before serving them.
+  const defaultExcludedPaths = hasSubpathDeployBase(base) ? [] : DEFAULT_EXCLUDED_PATHS;
+  const excludedPath = [...defaultExcludedPaths, ...(options.excludedPath ?? [])];
   const dir = join(root, functionsDir);
   const wrapper = join(dir, `${functionName}.mjs`);
   const serverDir = join(root, "dist/server");
@@ -399,14 +408,16 @@ async function writeNetlifyFunctionWrapper(
   const includedClientDir = relative(dir, clientDir).replaceAll("\\", "/");
   const includedServerDir = relative(dir, serverDir).replaceAll("\\", "/");
   await mkdir(clientDir, { recursive: true });
-  if (existsSync(join(root, "public/_headers"))) {
-    console.warn(
-      "public/_headers exists, so @pracht/adapter-netlify will not generate one. " +
-        "Make sure it applies `Cache-Control: public, max-age=31536000, immutable` " +
-        "to /assets/* and the default security headers to statically served paths.",
-    );
-  } else {
-    await writeFile(join(clientDir, "_headers"), createNetlifyHeadersFile(excludedPath), "utf-8");
+  if (excludedPath.length > 0) {
+    if (existsSync(join(root, "public/_headers"))) {
+      console.warn(
+        "public/_headers exists, so @pracht/adapter-netlify will not generate one. " +
+          "Make sure it applies `Cache-Control: public, max-age=31536000, immutable` " +
+          "to /assets/* and the default security headers to statically served paths.",
+      );
+    } else {
+      await writeFile(join(clientDir, "_headers"), createNetlifyHeadersFile(excludedPath), "utf-8");
+    }
   }
 
   const includedFiles = exactIncludedFiles
@@ -439,6 +450,10 @@ async function writeNetlifyFunctionWrapper(
 
   await mkdir(dir, { recursive: true });
   await writeFile(wrapper, source, "utf-8");
+}
+
+function hasSubpathDeployBase(base: string): boolean {
+  return base !== "/" && base.startsWith("/") && !base.startsWith("//");
 }
 
 function createFallbackNetlifyIncludedFiles(

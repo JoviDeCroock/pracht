@@ -20,6 +20,8 @@ export interface ErrorOverlayOptions {
    * paths for the open-in-editor links.
    */
   root?: string;
+  /** Vite deploy base used to reach the dev server's editor endpoint. */
+  base?: string;
 }
 
 export interface StackFrame {
@@ -140,6 +142,7 @@ export function normalizeStackFile(rawPath: string, root?: string): string | und
 
 export function buildErrorOverlayHtml(options: ErrorOverlayOptions): string {
   const { message, stack, routeId, file, root } = options;
+  const openInEditorEndpoint = resolveOpenInEditorEndpoint(options.base);
 
   const stackHtml = stack
     ? `<pre class="stack">${renderStackFrames(parseStackFrames(stack, { root }))}</pre>`
@@ -265,7 +268,7 @@ export function buildErrorOverlayHtml(options: ErrorOverlayOptions): string {
       var link = target && target.closest ? target.closest("[data-editor-file]") : null;
       if (!link) return;
       event.preventDefault();
-      fetch("/__open-in-editor?file=" + encodeURIComponent(link.getAttribute("data-editor-file")));
+      fetch(${JSON.stringify(openInEditorEndpoint)} + "?file=" + encodeURIComponent(link.getAttribute("data-editor-file")));
     });
   </script>
   <script>
@@ -278,6 +281,13 @@ export function buildErrorOverlayHtml(options: ErrorOverlayOptions): string {
   </script>
 </body>
 </html>`;
+}
+
+function resolveOpenInEditorEndpoint(base: string | undefined): string {
+  if (!base || base === "/" || !base.startsWith("/") || base.startsWith("//")) {
+    return "/__open-in-editor";
+  }
+  return `${base.endsWith("/") ? base : `${base}/`}__open-in-editor`;
 }
 
 function renderStackFrames(frames: StackFrame[]): string {

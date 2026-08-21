@@ -238,7 +238,7 @@ export function createDevSSRMiddleware(
       }
       res.end(body);
     } catch (error: unknown) {
-      await handleDevError(server, req, res, next, url, error);
+      await handleDevError(server, req, res, next, url, error, devBase);
     }
   };
 }
@@ -640,6 +640,7 @@ async function handleDevError(
   next: Connect.NextFunction,
   url: string,
   error: unknown,
+  base: string,
 ): Promise<void> {
   if (error instanceof Error) {
     server.ssrFixStacktrace(error);
@@ -667,6 +668,7 @@ async function handleDevError(
       message: error instanceof Error ? error.message : String(error),
       stack: error instanceof Error ? error.stack : undefined,
       root: server.config.root,
+      base,
     });
     html = await server.transformIndexHtml(url, html);
     res.statusCode = 500;

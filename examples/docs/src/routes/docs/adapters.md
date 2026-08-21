@@ -116,7 +116,8 @@ SSR routes.
 The assets binding's default HTML handling may redirect a nested prerendered
 route from `/guide` to `/guide/`, while Node serves `/guide` directly. Set
 `assets.html_handling` in `wrangler.jsonc` when the same canonical URL must be
-preserved across adapters.
+preserved across adapters. When Vite uses a deploy base, the adapter keeps the
+redirect inside that base (`/app/guide → /app/guide/`).
 
 ### Exporting bindings and event handlers
 
@@ -369,10 +370,13 @@ export default defineConfig({
 
 The generated catch-all function owns page URLs so Markdown negotiation and
 route-state requests still reach Pracht. `/assets/*` and `/_pracht/*` bypass
-the function by default. Add app-specific static prefixes with
-`excludedPath`, but do not exclude page URLs. Default and prefix-shaped
-exclusions are also omitted from the generated function bundle, so large static
-asset trees do not count against Netlify's function size limit. The generated
+the function by default at the origin root. Under a Vite deploy base those
+base-free publish paths cannot satisfy `/app/...` URLs, so the function bundles
+and serves the framework asset and state trees after stripping the base. Add
+app-specific static prefixes with `excludedPath`, but do not exclude page URLs.
+Default and prefix-shaped exclusions are also omitted from the generated
+function bundle, so large static asset trees do not count against Netlify's
+function size limit. The generated
 config enumerates the remaining client files and roots matching exclusions at
 the function file so the Functions v2 tracer cannot pull bypassed trees back
 into the bundle.
@@ -594,7 +598,8 @@ The build fails closed — before prerendering, with every offender listed — w
 - no API routes;
 - no manifest-registered capabilities exposed over HTTP/MCP/WebMCP (unexposed capabilities invoked from build-time loaders are fine); registered capability modules must load successfully so the build can establish that exposure safely;
 - neither route patterns nor concrete paths returned by `getStaticPaths()` may write under the reserved `/_pracht/` namespace; concrete output is checked before any page is written;
-- Vite `base` must stay `/`: prerendered asset and route-state URLs are root-relative, so a sub-path deploy would 404 everything.
+- Vite `base` must be `/` or a safe root-absolute path such as `/my-project/`;
+  CDN and document-relative bases are rejected.
 
 `ssr` and `isg` routes belong on the Node, Cloudflare, or Vercel adapters.
 

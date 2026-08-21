@@ -288,6 +288,7 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
     },
 
     configResolved(config) {
+      assertSafeRootAbsoluteDeployBase(config.base);
       root = config.root;
       isBuild = config.command === "build";
       base = config.base;
@@ -580,6 +581,41 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
   plugins.push(optimizeDepsEntriesPlugin);
 
   return plugins;
+}
+
+function assertSafeRootAbsoluteDeployBase(base: string | undefined): void {
+  if (typeof base !== "string" || !base.startsWith("/") || base.startsWith("//")) return;
+
+  let safe = !base.includes("?") && !base.includes("#");
+  if (safe) {
+    try {
+      safe = base.split("/").every((segment) => {
+        const decoded = decodeURIComponent(segment);
+        if (decoded === "." || decoded === "..") return false;
+        for (const character of decoded) {
+          const codePoint = character.codePointAt(0);
+          if (
+            character === "/" ||
+            character === "\\" ||
+            codePoint === 0 ||
+            (codePoint !== undefined && (codePoint <= 0x1f || codePoint === 0x7f))
+          ) {
+            return false;
+          }
+        }
+        return true;
+      });
+    } catch {
+      safe = false;
+    }
+  }
+
+  if (!safe) {
+    throw new Error(
+      `[pracht] Vite \`base\` is set to ${JSON.stringify(base)}, but root-absolute deploy bases must contain safe URL segments. ` +
+        "Malformed escapes and segments that decode to a path separator, `.`, `..`, NUL, or another control character are not allowed.",
+    );
+  }
 }
 
 function isGraphOnlyMode(): boolean {
