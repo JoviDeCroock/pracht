@@ -289,8 +289,8 @@ function collectTopLevelBindingKinds(
 
 /**
  * A top-level write can replace a binding before the module is imported. Keep
- * the writes in source order so direct exports use the final value while local
- * aliases use the value that existed when their initializer ran.
+ * the writes in runtime evaluation order so direct exports use the final value
+ * while local aliases use the value that existed when their initializer ran.
  */
 function collectTopLevelBindingWrites(
   program: StaticAnalysisNode,
@@ -316,20 +316,6 @@ function collectTopLevelBindingWritesFromNode(
   const node = asStaticAnalysisNode(value);
   if (!node) return;
 
-  if (node.type === "AssignmentExpression" || node.type === "UpdateExpression") {
-    const start = typeof node.start === "number" ? node.start : Number.NEGATIVE_INFINITY;
-    const target = node.type === "AssignmentExpression" ? node.left : node.argument;
-    for (const name of collectStaticBindingNames(target)) {
-      const bindingWrites = writes.get(name) ?? [];
-      bindingWrites.push({
-        position: start,
-        unconditional: unconditionalExpressions.has(node),
-        value: resolveStaticBindingWriteValue(node, name),
-      });
-      writes.set(name, bindingWrites);
-    }
-  }
-
   if (
     node.type === "FunctionDeclaration" ||
     node.type === "ArrowFunctionExpression" ||
@@ -350,6 +336,23 @@ function collectTopLevelBindingWritesFromNode(
       collectTopLevelBindingWritesFromNode(child, writes, unconditionalExpressions);
     }
   }
+
+  // Assignment targets are written after their right-hand side is evaluated.
+  // Record the write after descending so nested assignments keep that runtime
+  // order instead of the AST's outer-before-inner source order.
+  if (node.type === "AssignmentExpression" || node.type === "UpdateExpression") {
+    const start = typeof node.start === "number" ? node.start : Number.NEGATIVE_INFINITY;
+    const target = node.type === "AssignmentExpression" ? node.left : node.argument;
+    for (const name of collectStaticBindingNames(target)) {
+      const bindingWrites = writes.get(name) ?? [];
+      bindingWrites.push({
+        position: start,
+        unconditional: unconditionalExpressions.has(node),
+        value: resolveStaticBindingWriteValue(node, name),
+      });
+      writes.set(name, bindingWrites);
+    }
+  }
 }
 
 function collectUnconditionallyEvaluatedExpressions(
@@ -360,20 +363,109 @@ function collectUnconditionallyEvaluatedExpressions(
   if (!node) return;
   expressions.add(node);
 
-  if (node.type === "SequenceExpression") {
-    for (const expression of nodeArray(node.expressions)) {
-      collectUnconditionallyEvaluatedExpressions(expression, expressions);
-    }
+  if (
+    node.type === "FunctionDeclaration" ||
+    node.type === "ArrowFunctionExpression" ||
+    node.type === "FunctionExpression" ||
+    node.type === "ClassDeclaration" ||
+    node.type === "ClassExpression"
+  ) {
     return;
   }
 
   if (node.type === "AssignmentExpression") {
+    collectAssignmentTargetEvaluation(node.left, expressions);
     if (node.operator !== "&&=" && node.operator !== "||=" && node.operator !== "??=") {
       collectUnconditionallyEvaluatedExpressions(node.right, expressions);
     }
     return;
   }
 
+  if (node.type === "UpdateExpression") {
+    collectAssignmentTargetEvaluation(node.argument, expressions);
+    return;
+  }
+
+  if (node.type === "LogicalExpression") {
+    collectUnconditionallyEvaluatedExpressions(node.left, expressions);
+    return;
+  }
+
+  if (node.type === "ConditionalExpression") {
+    collectUnconditionallyEvaluatedExpressions(node.test, expressions);
+    return;
+  }
+
+  if (node.type === "ChainExpression") {
+    collectOptionalChainPrefix(node.expression, expressions);
+    return;
+  }
+
+  if (node.type === "CallExpression") {
+    collectUnconditionallyEvaluatedExpressions(node.callee, expressions);
+    if (node.optional !== true) {
+      for (const argument of nodeArray(node.arguments)) {
+        collectUnconditionallyEvaluatedExpressions(argument, expressions);
+      }
+    }
+    return;
+  }
+
+  if (node.type === "MemberExpression") {
+    collectUnconditionallyEvaluatedExpressions(node.object, expressions);
+    if (node.computed === true && node.optional !== true) {
+      collectUnconditionallyEvaluatedExpressions(node.property, expressions);
+    }
+    return;
+  }
+
+  // For every other expression shape (sequences, unary/binary expressions,
+  // arrays, objects, templates, non-optional `new`, JSX containers, and
+  // transparent TypeScript wrappers), child expressions are evaluated when
+  // their parent is. The control-flow shapes above handle their conditional
+  // branches explicitly before this generic traversal.
+  for (const [key, child] of Object.entries(node)) {
+    if (key === "type" || key === "loc" || key === "span") continue;
+    if (Array.isArray(child)) {
+      for (const item of child) {
+        collectUnconditionallyEvaluatedExpressions(item, expressions);
+      }
+    } else {
+      collectUnconditionallyEvaluatedExpressions(child, expressions);
+    }
+  }
+}
+
+function collectOptionalChainPrefix(value: unknown, expressions: Set<StaticAnalysisNode>): void {
+  const node = asStaticAnalysisNode(value);
+  if (!node) return;
+  expressions.add(node);
+
+  if (node.type === "CallExpression") {
+    if (node.optional === true || hasOptionalChainSegment(node.callee)) {
+      collectOptionalChainPrefix(node.callee, expressions);
+      return;
+    }
+  } else if (node.type === "MemberExpression") {
+    if (node.optional === true || hasOptionalChainSegment(node.object)) {
+      collectOptionalChainPrefix(node.object, expressions);
+      return;
+    }
+  }
+
+  collectUnconditionallyEvaluatedExpressions(node, expressions);
+}
+
+function hasOptionalChainSegment(value: unknown): boolean {
+  const node = asStaticAnalysisNode(value);
+  if (!node) return false;
+  if (node.type === "ChainExpression") return hasOptionalChainSegment(node.expression);
+  if (node.type === "CallExpression") {
+    return node.optional === true || hasOptionalChainSegment(node.callee);
+  }
+  if (node.type === "MemberExpression") {
+    return node.optional === true || hasOptionalChainSegment(node.object);
+  }
   if (
     node.type === "ParenthesizedExpression" ||
     node.type === "TSAsExpression" ||
@@ -382,7 +474,34 @@ function collectUnconditionallyEvaluatedExpressions(
     node.type === "TSTypeAssertion" ||
     node.type === "TypeCastExpression"
   ) {
-    collectUnconditionallyEvaluatedExpressions(node.expression, expressions);
+    return hasOptionalChainSegment(node.expression);
+  }
+  return false;
+}
+
+function collectAssignmentTargetEvaluation(
+  value: unknown,
+  expressions: Set<StaticAnalysisNode>,
+): void {
+  let node = asStaticAnalysisNode(value);
+  while (
+    node &&
+    (node.type === "ParenthesizedExpression" ||
+      node.type === "TSAsExpression" ||
+      node.type === "TSNonNullExpression" ||
+      node.type === "TSSatisfiesExpression" ||
+      node.type === "TSTypeAssertion" ||
+      node.type === "TypeCastExpression")
+  ) {
+    expressions.add(node);
+    node = asStaticAnalysisNode(node.expression);
+  }
+
+  // Only member targets have subexpressions that are guaranteed to run while
+  // resolving the reference. Destructuring defaults remain conditional on the
+  // assigned value and therefore must not be marked unconditional here.
+  if (node?.type === "MemberExpression") {
+    collectUnconditionallyEvaluatedExpressions(node, expressions);
   }
 }
 

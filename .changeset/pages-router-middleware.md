@@ -71,6 +71,14 @@ this includes direct and transitive aliases in exported declarations. Mutable
 bindings use their last unconditional module-scope write, so assigning a
 literal or applying an update after a callable initializer is rejected too,
 including writes inside top-level sequence and chained assignment expressions.
+Definitely evaluated writes nested in unary, binary, call, array, object,
+template, and other ordinary expression wrappers are classified the same way,
+while short-circuit, conditional, and optional-chain branches remain
+conservative.
+
+Nested assignments are recorded in runtime evaluation order, so the outer assignment's
+final callable value is not overwritten by an earlier right-hand-side write in
+the static result.
 Both paths use the same AST classifier, and continue to reject nested
 `_middleware` files even when another reserved underscore-prefixed directory
 contains them.
