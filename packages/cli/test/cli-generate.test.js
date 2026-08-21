@@ -248,6 +248,56 @@ export default { plugins: [framework.pracht({ pagesDir: "/src/pages", adapter: s
     },
   );
 
+  it("refuses pages middleware for an immutable pracht factory alias", () => {
+    const appDir = createTempDir("pracht-cli-pages-middleware-static-factory-alias-");
+    writePagesApp(appDir);
+    writeProjectFile(
+      appDir,
+      "vite.config.ts",
+      `import { pracht } from "@pracht/vite-plugin";
+import { staticAdapter } from "@pracht/adapter-static";
+const framework = pracht;
+export default { plugins: [framework({ pagesDir: "/src/pages", adapter: staticAdapter() })] };`,
+    );
+
+    const result = spawnSync(
+      process.execPath,
+      [cliPath, "generate", "middleware", "--name", "_middleware"],
+      { cwd: appDir, encoding: "utf-8" },
+    );
+
+    expect(result.status).not.toBe(0);
+    expect(`${result.stdout}${result.stderr}`).toContain(
+      "Pure static exports cannot use request middleware",
+    );
+    expect(existsSync(join(appDir, "src/pages/_middleware.ts"))).toBe(false);
+  });
+
+  it("refuses pages middleware for an immutable static-adapter factory alias", () => {
+    const appDir = createTempDir("pracht-cli-pages-middleware-static-adapter-factory-alias-");
+    writePagesApp(appDir);
+    writeProjectFile(
+      appDir,
+      "vite.config.ts",
+      `import { pracht } from "@pracht/vite-plugin";
+import { staticAdapter } from "@pracht/adapter-static";
+const makeStatic = staticAdapter;
+export default { plugins: [pracht({ pagesDir: "/src/pages", adapter: makeStatic() })] };`,
+    );
+
+    const result = spawnSync(
+      process.execPath,
+      [cliPath, "generate", "middleware", "--name", "_middleware"],
+      { cwd: appDir, encoding: "utf-8" },
+    );
+
+    expect(result.status).not.toBe(0);
+    expect(`${result.stdout}${result.stderr}`).toContain(
+      "Pure static exports cannot use request middleware",
+    );
+    expect(existsSync(join(appDir, "src/pages/_middleware.ts"))).toBe(false);
+  });
+
   it("refuses pages middleware for an exported static adapter alias", () => {
     const appDir = createTempDir("pracht-cli-pages-middleware-exported-static-alias-");
     writePagesApp(appDir);

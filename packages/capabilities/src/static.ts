@@ -316,7 +316,7 @@ function collectTopLevelBindingWrites(
   for (const statement of nodeArray(program.body)) {
     const unconditionalExpressions = new Set<StaticAnalysisNode>();
     collectUnconditionallyEvaluatedStatement(statement, unconditionalExpressions);
-    collectTopLevelBindingWritesFromNode(statement, writes, unconditionalExpressions);
+    collectTopLevelBindingWritesFromNode(statement, writes, unconditionalExpressions, new Set());
   }
 
   return writes;
@@ -326,6 +326,7 @@ function collectTopLevelBindingWritesFromNode(
   value: unknown,
   writes: Map<string, StaticBindingWrite[]>,
   unconditionalExpressions: ReadonlySet<StaticAnalysisNode>,
+  shadowedBindings: ReadonlySet<string>,
 ): void {
   const node = asStaticAnalysisNode(value);
   if (!node) return;
@@ -339,7 +340,56 @@ function collectTopLevelBindingWritesFromNode(
   }
 
   if (node.type === "ClassDeclaration" || node.type === "ClassExpression") {
-    collectTopLevelBindingWritesFromClass(node, writes, unconditionalExpressions);
+    collectTopLevelBindingWritesFromClass(node, writes, unconditionalExpressions, shadowedBindings);
+    return;
+  }
+
+  if (node.type === "BlockStatement" || node.type === "StaticBlock") {
+    const blockBindings = collectLexicalStatementBindings(nodeArray(node.body));
+    const blockShadowed = new Set([...shadowedBindings, ...blockBindings]);
+    for (const statement of nodeArray(node.body)) {
+      collectTopLevelBindingWritesFromNode(
+        statement,
+        writes,
+        unconditionalExpressions,
+        blockShadowed,
+      );
+    }
+    return;
+  }
+
+  if (node.type === "CatchClause") {
+    const catchShadowed = new Set([...shadowedBindings, ...collectStaticBindingNames(node.param)]);
+    collectTopLevelBindingWritesFromNode(
+      node.body,
+      writes,
+      unconditionalExpressions,
+      catchShadowed,
+    );
+    return;
+  }
+
+  if (
+    node.type === "ForStatement" ||
+    node.type === "ForInStatement" ||
+    node.type === "ForOfStatement"
+  ) {
+    const declaration = asStaticAnalysisNode(node.init ?? node.left);
+    const loopBindings =
+      declaration?.type === "VariableDeclaration" && declaration.kind !== "var"
+        ? nodeArray(declaration.declarations).flatMap((declarator) =>
+            collectStaticBindingNames(declarator.id),
+          )
+        : [];
+    const loopShadowed = new Set([...shadowedBindings, ...loopBindings]);
+    for (const key of ["init", "left", "right", "test", "update", "body"]) {
+      collectTopLevelBindingWritesFromNode(
+        node[key],
+        writes,
+        unconditionalExpressions,
+        loopShadowed,
+      );
+    }
     return;
   }
 
@@ -347,10 +397,20 @@ function collectTopLevelBindingWritesFromNode(
     if (key === "type" || key === "loc" || key === "span") continue;
     if (Array.isArray(child)) {
       for (const item of child) {
-        collectTopLevelBindingWritesFromNode(item, writes, unconditionalExpressions);
+        collectTopLevelBindingWritesFromNode(
+          item,
+          writes,
+          unconditionalExpressions,
+          shadowedBindings,
+        );
       }
     } else {
-      collectTopLevelBindingWritesFromNode(child, writes, unconditionalExpressions);
+      collectTopLevelBindingWritesFromNode(
+        child,
+        writes,
+        unconditionalExpressions,
+        shadowedBindings,
+      );
     }
   }
 
@@ -361,6 +421,7 @@ function collectTopLevelBindingWritesFromNode(
     const start = typeof node.start === "number" ? node.start : Number.NEGATIVE_INFINITY;
     const target = node.type === "AssignmentExpression" ? node.left : node.argument;
     for (const name of collectStaticBindingNames(target)) {
+      if (shadowedBindings.has(name)) continue;
       const bindingWrites = writes.get(name) ?? [];
       bindingWrites.push({
         position: start,
@@ -370,6 +431,29 @@ function collectTopLevelBindingWritesFromNode(
       writes.set(name, bindingWrites);
     }
   }
+}
+
+function collectLexicalStatementBindings(statements: readonly StaticAnalysisNode[]): string[] {
+  const bindings: string[] = [];
+
+  for (const rawStatement of statements) {
+    const statement =
+      rawStatement.type === "ExportNamedDeclaration"
+        ? asStaticAnalysisNode(rawStatement.declaration)
+        : rawStatement;
+    if (!statement) continue;
+
+    if (statement.type === "VariableDeclaration" && statement.kind !== "var") {
+      for (const declarator of nodeArray(statement.declarations)) {
+        bindings.push(...collectStaticBindingNames(declarator.id));
+      }
+    } else if (statement.type === "FunctionDeclaration" || statement.type === "ClassDeclaration") {
+      const name = getStaticIdentifierName(statement.id);
+      if (name) bindings.push(name);
+    }
+  }
+
+  return bindings;
 }
 
 function collectUnconditionallyEvaluatedStatement(
@@ -555,15 +639,24 @@ function collectTopLevelBindingWritesFromClass(
   classNode: StaticAnalysisNode,
   writes: Map<string, StaticBindingWrite[]>,
   unconditionalExpressions: ReadonlySet<StaticAnalysisNode>,
+  shadowedBindings: ReadonlySet<string>,
 ): void {
+  const className = getStaticIdentifierName(classNode.id);
+  const classShadowed = className ? new Set([...shadowedBindings, className]) : shadowedBindings;
   for (const decorator of nodeArray(classNode.decorators)) {
     collectTopLevelBindingWritesFromNode(
       decorator.expression ?? decorator,
       writes,
       unconditionalExpressions,
+      shadowedBindings,
     );
   }
-  collectTopLevelBindingWritesFromNode(classNode.superClass, writes, unconditionalExpressions);
+  collectTopLevelBindingWritesFromNode(
+    classNode.superClass,
+    writes,
+    unconditionalExpressions,
+    shadowedBindings,
+  );
 
   const body = asStaticAnalysisNode(classNode.body);
   for (const element of nodeArray(body?.body)) {
@@ -572,17 +665,31 @@ function collectTopLevelBindingWritesFromClass(
         decorator.expression ?? decorator,
         writes,
         unconditionalExpressions,
+        classShadowed,
       );
     }
     if (element.computed === true) {
-      collectTopLevelBindingWritesFromNode(element.key, writes, unconditionalExpressions);
+      collectTopLevelBindingWritesFromNode(
+        element.key,
+        writes,
+        unconditionalExpressions,
+        classShadowed,
+      );
     }
     if (element.type === "PropertyDefinition" && element.static === true) {
-      collectTopLevelBindingWritesFromNode(element.value, writes, unconditionalExpressions);
+      collectTopLevelBindingWritesFromNode(
+        element.value,
+        writes,
+        unconditionalExpressions,
+        classShadowed,
+      );
     } else if (element.type === "StaticBlock") {
-      for (const statement of nodeArray(element.body)) {
-        collectTopLevelBindingWritesFromNode(statement, writes, unconditionalExpressions);
-      }
+      collectTopLevelBindingWritesFromNode(
+        element,
+        writes,
+        unconditionalExpressions,
+        classShadowed,
+      );
     }
   }
 }
@@ -1475,16 +1582,14 @@ function hasSingleStaticBindingUse(
   declarationIndex: number,
 ): boolean {
   const searchable = maskCommentsAndStrings(source);
-  const shadowedFunctionRanges = findSimpleParameterShadowRanges(searchable, name);
+  const shadowedRanges = findBindingShadowRanges(searchable, name, declarationIndex);
   const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const identifier = new RegExp(`(?<![A-Za-z0-9_$])${escapedName}(?![A-Za-z0-9_$])`, "g");
   let uses = 0;
 
   for (const match of searchable.matchAll(identifier)) {
     if (match.index == null || match.index === declarationIndex) continue;
-    if (
-      shadowedFunctionRanges.some(({ start, end }) => match.index! >= start && match.index! < end)
-    ) {
+    if (shadowedRanges.some(({ start, end }) => match.index! >= start && match.index! < end)) {
       continue;
     }
     if (isStaticPropertyName(searchable, match.index, match[0].length)) continue;
@@ -1498,13 +1603,14 @@ function hasSingleStaticBindingUse(
 }
 
 /**
- * Find function bodies where a simple parameter shadows the registry binding.
- * Those identifier occurrences refer to the parameter, not the top-level
- * object whose use count guards static inlining.
+ * Find nested lexical scopes whose binding shadows the registry binding.
+ * Those identifier occurrences do not observe or mutate the top-level object
+ * whose use count guards static inlining.
  */
-function findSimpleParameterShadowRanges(
+function findBindingShadowRanges(
   source: string,
   name: string,
+  declarationIndex: number,
 ): { start: number; end: number }[] {
   const ranges: { start: number; end: number }[] = [];
   const controlStatementKeywords = new Set(["for", "if", "switch", "while", "with"]);
@@ -1515,7 +1621,7 @@ function findSimpleParameterShadowRanges(
     const parametersStart = match.index + match[0].lastIndexOf("(");
     const parametersEnd = findMatchingBrace(source, parametersStart, "(", ")");
     if (parametersEnd === -1) continue;
-    if (!parameterListBindsSimpleName(source.slice(parametersStart + 1, parametersEnd), name)) {
+    if (!parameterListBindsName(source.slice(parametersStart + 1, parametersEnd), name)) {
       continue;
     }
 
@@ -1546,7 +1652,7 @@ function findSimpleParameterShadowRanges(
     const parametersStart = match.index + match[0].lastIndexOf("(");
     const parametersEnd = findMatchingBrace(source, parametersStart, "(", ")");
     if (parametersEnd === -1) continue;
-    if (!parameterListBindsSimpleName(source.slice(parametersStart + 1, parametersEnd), name)) {
+    if (!parameterListBindsName(source.slice(parametersStart + 1, parametersEnd), name)) {
       continue;
     }
 
@@ -1574,7 +1680,7 @@ function findSimpleParameterShadowRanges(
       parameterStart += 1;
       parameters = source.slice(parameterStart, parameterEnd + 1);
     }
-    if (!parameterListBindsSimpleName(parameters, name)) continue;
+    if (!parameterListBindsName(parameters, name)) continue;
 
     const bodyStart = skipInsignificant(source, arrow + 2);
     const bodyEnd =
@@ -1585,7 +1691,73 @@ function findSimpleParameterShadowRanges(
     ranges.push({ start: parameterStart, end: bodyEnd + 1 });
   }
 
+  const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const directDeclaration = new RegExp(`\\b(?:class|const|function|let)\\s+${escapedName}\\b`, "g");
+  for (const match of source.matchAll(directDeclaration)) {
+    if (match.index == null) continue;
+    const nameIndex = match.index + match[0].lastIndexOf(name);
+    if (nameIndex === declarationIndex || isAtModuleTopLevel(source, match.index)) continue;
+    addEnclosingBlockShadowRange(source, match.index, ranges);
+  }
+
+  for (const match of source.matchAll(/\b(?:const|let)\s*(?=[{[])/g)) {
+    if (match.index == null || isAtModuleTopLevel(source, match.index)) continue;
+    const patternStart = skipInsignificant(source, match.index + match[0].length);
+    const open = source[patternStart];
+    const close = open === "{" ? "}" : "]";
+    const patternEnd = findMatchingBrace(source, patternStart, open, close);
+    if (
+      patternEnd !== -1 &&
+      destructuringPatternBindsName(source.slice(patternStart, patternEnd + 1), name)
+    ) {
+      addEnclosingBlockShadowRange(source, match.index, ranges);
+    }
+  }
+
+  for (const match of source.matchAll(/\bcatch\s*\(/g)) {
+    if (match.index == null) continue;
+    const parametersStart = match.index + match[0].lastIndexOf("(");
+    const parametersEnd = findMatchingBrace(source, parametersStart, "(", ")");
+    if (
+      parametersEnd === -1 ||
+      !parameterListBindsName(source.slice(parametersStart + 1, parametersEnd), name)
+    ) {
+      continue;
+    }
+    const bodyStart = skipInsignificant(source, parametersEnd + 1);
+    if (source[bodyStart] !== "{") continue;
+    const bodyEnd = findMatchingBrace(source, bodyStart, "{", "}");
+    if (bodyEnd !== -1) ranges.push({ start: parametersStart, end: bodyEnd + 1 });
+  }
+
   return ranges;
+}
+
+function addEnclosingBlockShadowRange(
+  source: string,
+  declarationStart: number,
+  ranges: { start: number; end: number }[],
+): void {
+  const blockStart = findEnclosingOpeningBrace(source, declarationStart, "{", "}");
+  if (blockStart === -1) return;
+  const blockEnd = findMatchingBrace(source, blockStart, "{", "}");
+  if (blockEnd !== -1) ranges.push({ start: blockStart, end: blockEnd + 1 });
+}
+
+function findEnclosingOpeningBrace(
+  source: string,
+  start: number,
+  open: string,
+  close: string,
+): number {
+  let depth = 0;
+  for (let index = start; index >= 0; index -= 1) {
+    if (source[index] === close) depth += 1;
+    if (source[index] !== open) continue;
+    if (depth === 0) return index;
+    depth -= 1;
+  }
+  return -1;
 }
 
 function findMatchingOpeningBrace(
@@ -1637,7 +1809,7 @@ function findArrowExpressionEnd(source: string, start: number): number {
   return source.length - 1;
 }
 
-function parameterListBindsSimpleName(parameters: string, name: string): boolean {
+function parameterListBindsName(parameters: string, name: string): boolean {
   const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const binding = new RegExp(`^(?:\\.\\.\\.\\s*)?${escapedName}(?:\\s*[?!])?(?:\\s*[:=]|\\s*$)`);
   let cursor = 0;
@@ -1645,11 +1817,68 @@ function parameterListBindsSimpleName(parameters: string, name: string): boolean
   while (cursor < parameters.length) {
     const start = skipInsignificant(parameters, cursor);
     const end = skipToTopLevelComma(parameters, start);
-    if (binding.test(parameters.slice(start, end).trim())) return true;
+    const parameter = parameters.slice(start, end).trim();
+    if (binding.test(parameter)) return true;
+    if (
+      (parameter.startsWith("{") || parameter.startsWith("[")) &&
+      destructuringPatternBindsName(parameter, name)
+    ) {
+      return true;
+    }
     cursor = end < parameters.length ? end + 1 : parameters.length;
   }
 
   return false;
+}
+
+function destructuringPatternBindsName(pattern: string, name: string): boolean {
+  const start = skipInsignificant(pattern, 0);
+  const open = pattern[start];
+  const close = open === "{" ? "}" : open === "[" ? "]" : null;
+  if (!close) return false;
+  const end = findMatchingBrace(pattern, start, open, close);
+  if (end === -1) return false;
+
+  let cursor = start + 1;
+  while (cursor < end) {
+    const entryStart = skipInsignificant(pattern, cursor);
+    const entryEnd = Math.min(skipToTopLevelComma(pattern, entryStart), end);
+    let entry = pattern.slice(entryStart, entryEnd).trim();
+    if (entry.startsWith("...")) entry = entry.slice(3).trimStart();
+
+    if (open === "{") {
+      const separator = findTopLevelPatternCharacter(entry, ":");
+      if (separator !== -1) entry = entry.slice(separator + 1).trimStart();
+    }
+
+    const defaultValue = findTopLevelPatternCharacter(entry, "=");
+    if (defaultValue !== -1) entry = entry.slice(0, defaultValue).trimEnd();
+    if (entry === name || destructuringPatternBindsName(entry, name)) return true;
+
+    cursor = entryEnd < end ? entryEnd + 1 : end;
+  }
+
+  return false;
+}
+
+function findTopLevelPatternCharacter(source: string, needle: string): number {
+  let braces = 0;
+  let brackets = 0;
+  let parentheses = 0;
+
+  for (let index = 0; index < source.length; index += 1) {
+    const char = source[index];
+    const atTopLevel = braces === 0 && brackets === 0 && parentheses === 0;
+    if (atTopLevel && char === needle && source[index + 1] !== ">") return index;
+    if (char === "{") braces += 1;
+    else if (char === "}") braces = Math.max(0, braces - 1);
+    else if (char === "[") brackets += 1;
+    else if (char === "]") brackets = Math.max(0, brackets - 1);
+    else if (char === "(") parentheses += 1;
+    else if (char === ")") parentheses = Math.max(0, parentheses - 1);
+  }
+
+  return -1;
 }
 
 /** A bare runtime `typeof registry` observes neither the object nor its mutable contents. */

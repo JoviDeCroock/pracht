@@ -724,6 +724,7 @@ function usesStaticAdapter(project: Pick<ProjectConfig, "rawConfig">): boolean {
       if (!node) return false;
 
       if (node.type === "Identifier" && typeof node.name === "string") {
+        if (staticFactories.has(node.name)) return true;
         if (seen.has(node.name)) return false;
         const initializer = bindings.get(node.name);
         if (initializer === undefined) return false;
@@ -740,7 +741,7 @@ function usesStaticAdapter(project: Pick<ProjectConfig, "rawConfig">): boolean {
       }
 
       if (node.type !== "CallExpression") return false;
-      const callee = unwrapConfigExpression(node.callee);
+      const callee = resolveConfigBinding(node.callee);
       if (callee?.type === "Identifier" && typeof callee.name === "string") {
         return staticFactories.has(callee.name);
       }
@@ -762,7 +763,7 @@ function usesStaticAdapter(project: Pick<ProjectConfig, "rawConfig">): boolean {
 
     const exportedConfigNode = asConfigAstNode(exportedConfig);
     if (defaultExport && exportedConfigNode?.type === "CallExpression") {
-      const callee = unwrapConfigExpression(exportedConfigNode.callee);
+      const callee = resolveConfigBinding(exportedConfigNode.callee);
       const namespaceName =
         callee?.type === "MemberExpression" && callee.computed !== true
           ? configPropertyName(callee.object)
@@ -786,7 +787,7 @@ function usesStaticAdapter(project: Pick<ProjectConfig, "rawConfig">): boolean {
       exportedConfig,
       (node) => {
         if (node.type !== "CallExpression") return false;
-        const callee = unwrapConfigExpression(node.callee);
+        const callee = resolveConfigBinding(node.callee);
         const namespaceName =
           callee?.type === "MemberExpression" && callee.computed !== true
             ? configPropertyName(callee.object)
