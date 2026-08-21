@@ -25,9 +25,19 @@ describe("middleware export classification", () => {
     ["export let middleware;\nmiddleware = () => {};", true],
     ["let middleware = () => {};\nmiddleware = 1;\nexport { middleware };", false],
     ["let middleware = () => {};\nmiddleware = 1, void 0;\nexport { middleware };", false],
+    ["let middleware = () => {};\nvoid (middleware = 1);\nexport { middleware };", false],
+    ["let middleware = () => {};\n[middleware = 1];\nexport { middleware };", false],
     ["let middleware = () => {}, other;\nother = middleware = 1;\nexport { middleware };", false],
     [
+      "let middleware = () => {};\nmiddleware = (middleware = 1, () => {});\nexport { middleware };",
+      true,
+    ],
+    [
       "let middleware = () => {}, other = false;\nother &&= middleware = 1;\nexport { middleware };",
+      true,
+    ],
+    [
+      "let middleware = () => {}, service;\nservice?.use(middleware = 1);\nexport { middleware };",
       true,
     ],
     ["let middleware = 1;\nmiddleware = 2;\nexport { middleware };", false],
