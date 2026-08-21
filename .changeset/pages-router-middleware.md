@@ -248,3 +248,9 @@ labeled statement bodies and accepts callable TypeScript `import =` runtime
 aliases. Pages middleware generation also follows immutable aliases for the
 selected Vite plugin array when rejecting request middleware on pure static
 exports.
+
+Static analyzers now respect destructured function parameters and nested
+lexical bindings that shadow manifest registries or exported middleware names.
+Static-target detection also follows immutable aliases of the Pracht and static
+adapter factories, preventing request-middleware scaffolding for aliased pure
+static configurations.

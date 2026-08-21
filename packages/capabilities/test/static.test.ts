@@ -120,6 +120,7 @@ describe("middleware export classification", () => {
     ["export const { middleware } = { ...handlers, middleware: 1 };", false],
     ["const { candidate } = { candidate: 1 };\nexport { candidate as middleware };", false],
     ["const candidate = createMiddleware();\nexport { candidate as middleware };", true],
+    ["export const middleware = () => {};\n{ let middleware; middleware = {}; }", true],
     [
       'function candidate() {}\nnamespace candidate { export const id = "pages"; }\nexport { candidate as middleware };',
       true,
@@ -497,10 +498,33 @@ describe("capability static extraction", () => {
     ["parenthesized arrow function", "const inspect = (capabilities) => capabilities;"],
     ["bare-parameter arrow function", "const inspect = capabilities => capabilities;"],
     ["block-bodied arrow function", "const inspect = (capabilities) => { return capabilities; };"],
+    [
+      "destructured ordinary-function parameter",
+      "function inspect({ capabilities }) { return capabilities; }",
+    ],
+    [
+      "nested destructured arrow-function parameter",
+      "const inspect = ({ registry: { capabilities } }) => capabilities;",
+    ],
   ])("ignores uses shadowed by an %s when checking a registry", (_description, declaration) => {
     const source = `
       const capabilities = { notes: "./capabilities/notes.ts" };
       ${declaration}
+      export const app = defineApp({ capabilities, routes: [] });
+    `;
+
+    expect(extractCapabilityRegistrations(source)).toEqual([
+      { name: "notes", file: "./capabilities/notes.ts" },
+    ]);
+  });
+
+  it("ignores uses shadowed by a nested lexical registry binding", () => {
+    const source = `
+      const capabilities = { notes: "./capabilities/notes.ts" };
+      {
+        const capabilities = { helper: true };
+        inspect(capabilities);
+      }
       export const app = defineApp({ capabilities, routes: [] });
     `;
 
