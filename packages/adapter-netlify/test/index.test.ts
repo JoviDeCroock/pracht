@@ -25,6 +25,8 @@ const tempDirs: string[] = [];
 
 afterEach(async () => {
   vi.restoreAllMocks();
+  vi.unstubAllEnvs();
+  vi.resetModules();
   await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { force: true, recursive: true })));
   delete process.env.PRACHT_REVALIDATE_TOKEN;
 });
@@ -206,6 +208,39 @@ describe("createNetlifyHandler", () => {
     await writeFile(join(dir, "robots.txt"), "User-agent: *");
     return dir;
   }
+
+  it("serves static and regenerated ISG routes beneath the deploy base", async () => {
+    vi.stubEnv("BASE_URL", "/app/");
+    vi.resetModules();
+    const { createNetlifyHandler: createBaseHandler } = await import("../src/index.ts");
+    const staticDir = await createStaticBuild();
+    const contextRequests: string[] = [];
+    seenPricingRequests.length = 0;
+    const handler = createBaseHandler({
+      app,
+      registry,
+      staticDir,
+      isgManifest: { "/pricing": { revalidate: [timeRevalidate(60), webhookRevalidate()] } },
+      createContext({ request }) {
+        contextRequests.push(request.url);
+        return {};
+      },
+    });
+
+    const staticResponse = await handler(new Request("https://example.com/app/guide"), {} as never);
+    expect(staticResponse.status).toBe(200);
+    expect(await staticResponse.text()).toContain("static guide");
+
+    const isgResponse = await handler(
+      new Request("https://example.com/app/pricing?visitor=1"),
+      {} as never,
+    );
+    expect(isgResponse.status).toBe(200);
+    expect(contextRequests).toEqual(["https://example.com/app/pricing"]);
+    expect(seenPricingRequests.map((request) => request.url)).toEqual([
+      "https://example.com/app/pricing",
+    ]);
+  });
 
   it("serves prerendered HTML with route headers and durable caching", async () => {
     const staticDir = await createStaticBuild();

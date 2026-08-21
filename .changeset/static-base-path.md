@@ -3,6 +3,9 @@
 "@pracht/vite-plugin": minor
 "@pracht/adapter-static": minor
 "@pracht/adapter-node": minor
+"@pracht/adapter-cloudflare": minor
+"@pracht/adapter-netlify": minor
+"@pracht/adapter-vercel": minor
 "@pracht/cli": minor
 "@pracht/image": minor
 "@pracht/openapi": minor

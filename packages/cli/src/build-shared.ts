@@ -33,6 +33,8 @@ module.exports = async (req, res) => {
 type VercelRegions = string | string[];
 
 interface VercelBuildOutputOptions {
+  /** Vite deploy base. Root-absolute bases become the public output prefix. */
+  base?: string;
   functionName?: string;
   headersManifest?: Record<string, Record<string, string>>;
   isgManifest: Record<string, ISGManifestEntry>;
@@ -45,6 +47,7 @@ interface VercelBuildOutputOptions {
 }
 
 export function writeVercelBuildOutput({
+  base = "/",
   functionName,
   headersManifest = {},
   isgManifest,
@@ -54,8 +57,10 @@ export function writeVercelBuildOutput({
   root,
   staticRoutes,
 }: VercelBuildOutputOptions): string {
+  const deployBase = resolveVercelDeployBase(base);
   const outputDir = join(root, ".vercel/output");
   const staticDir = join(outputDir, "static");
+  const staticDeployDir = resolveVercelStaticDeployDir(staticDir, deployBase);
   const functionsDir = join(outputDir, "functions");
   const resolvedFunctionName = functionName || "render";
   const functionDir = join(functionsDir, `${resolvedFunctionName}.func`);
@@ -64,12 +69,13 @@ export function writeVercelBuildOutput({
     functionDir,
     functionName: resolvedFunctionName,
     functionsDir,
-    isgRoutes: Object.keys(isgManifest),
+    isgRoutes: Object.keys(isgManifest).map((route) => withVercelDeployBase(route, deployBase)),
   });
 
   rmSync(outputDir, { force: true, recursive: true });
   mkdirSync(outputDir, { recursive: true });
-  cpSync(join(root, "dist/client"), staticDir, { recursive: true });
+  mkdirSync(staticDeployDir, { recursive: true });
+  cpSync(join(root, "dist/client"), staticDeployDir, { recursive: true });
   cpSync(join(root, "dist/server"), functionDir, { recursive: true });
   writeFileSync(
     join(functionDir, ".vc-config.json"),
@@ -83,7 +89,8 @@ export function writeVercelBuildOutput({
     isgManifest,
     regions,
     revalidateToken,
-    staticDir,
+    staticDir: staticDeployDir,
+    deployBase,
   });
 
   writeFileSync(
@@ -95,6 +102,7 @@ export function writeVercelBuildOutput({
         markdownRoutes,
         staticRoutes,
         isgRoutes: Object.keys(isgManifest),
+        deployBase,
       }),
       null,
       2,
@@ -128,6 +136,7 @@ function assertNoVercelPrerenderFunctionCollisions({
 }
 
 function writeVercelPrerenderFunctions({
+  deployBase,
   functionDir,
   functionsDir,
   headersManifest,
@@ -136,6 +145,7 @@ function writeVercelPrerenderFunctions({
   revalidateToken,
   staticDir,
 }: {
+  deployBase: string;
   functionDir: string;
   functionsDir: string;
   headersManifest: Record<string, Record<string, string>>;
@@ -149,7 +159,8 @@ function writeVercelPrerenderFunctions({
   let sharedNodeFunctionDir: string | undefined;
 
   for (const [route, entry] of Object.entries(isgManifest)) {
-    const prerenderName = routeToPrerenderFunctionName(route);
+    const publicRoute = withVercelDeployBase(route, deployBase);
+    const prerenderName = routeToPrerenderFunctionName(publicRoute);
     const routeFunctionDir = join(functionsDir, `${prerenderName}.func`);
     if (sharedNodeFunctionDir) {
       linkVercelPrerenderFunction({ routeFunctionDir, sharedNodeFunctionDir });
@@ -250,12 +261,14 @@ function linkVercelPrerenderFunction({
 const ACCEPT_MARKDOWN_PATTERN = ".*[tT][eE][xX][tT]/[mM][aA][rR][kK][dD][oO][wW][nN].*";
 
 function createVercelOutputConfig({
+  deployBase,
   functionName,
   headersManifest,
   markdownRoutes,
   staticRoutes,
   isgRoutes,
 }: {
+  deployBase: string;
   functionName?: string;
   headersManifest: Record<string, Record<string, string>>;
   markdownRoutes: string[];
@@ -296,14 +309,14 @@ function createVercelOutputConfig({
   const markdownRouteEntry = (route: string) => ({
     dest: target,
     has: [{ type: "header", key: "accept", value: ACCEPT_MARKDOWN_PATTERN }],
-    src: routeToRouteExpression(route),
+    src: routeToRouteExpression(withVercelDeployBase(route, deployBase)),
   });
 
   for (const route of sortStaticRoutes(staticRoutes)) {
     if (markdownRouteSet.has(route)) routes.push(markdownRouteEntry(route));
     routes.push({
-      dest: routeToStaticHtmlPath(route),
-      src: routeToRouteExpression(route),
+      dest: withVercelDeployBase(routeToStaticHtmlPath(route), deployBase),
+      src: routeToRouteExpression(withVercelDeployBase(route, deployBase)),
     });
   }
 
@@ -312,9 +325,10 @@ function createVercelOutputConfig({
     // function: that one re-renders on a sanitized `Accept: text/html` to keep
     // the shared cache entry correct, so it can only ever produce HTML.
     if (markdownRouteSet.has(route)) routes.push(markdownRouteEntry(route));
+    const publicRoute = withVercelDeployBase(route, deployBase);
     routes.push({
-      dest: route,
-      src: routeToRouteExpression(route),
+      dest: publicRoute,
+      src: routeToRouteExpression(publicRoute),
     });
   }
 
@@ -342,7 +356,7 @@ function createVercelOutputConfig({
     if (!routeHeaders) continue;
     headers.push({
       headers: Object.entries(routeHeaders).map(([key, value]) => ({ key, value })),
-      source: routeToHeaderSource(route),
+      source: routeToHeaderSource(withVercelDeployBase(route, deployBase)),
     });
   }
 
@@ -396,6 +410,54 @@ function createVercelNodeFunctionConfig({
 
 function sortStaticRoutes(routes: string[]): string[] {
   return [...new Set(routes)].sort((left, right) => right.length - left.length);
+}
+
+/** Vite path bases address routes; CDN/document-relative bases do not. */
+function resolveVercelDeployBase(base: string): string {
+  if (!base.startsWith("/") || base.startsWith("//")) return "/";
+  return base === "/" ? base : base.replace(/\/+$/, "") + "/";
+}
+
+function withVercelDeployBase(pathname: string, base: string): string {
+  if (base === "/") return pathname;
+  const prefix = base.slice(0, -1);
+  return pathname === "/" ? prefix : `${prefix}${pathname}`;
+}
+
+function resolveVercelStaticDeployDir(staticDir: string, base: string): string {
+  if (base === "/") return staticDir;
+  const segments = base
+    .slice(1, -1)
+    .split("/")
+    .map((segment) => {
+      let decoded: string;
+      try {
+        decoded = decodeURIComponent(segment);
+      } catch {
+        throw new Error(
+          `Vercel deploy base contains invalid percent-encoding: ${JSON.stringify(base)}.`,
+        );
+      }
+      if (
+        decoded === "." ||
+        decoded === ".." ||
+        decoded.includes("/") ||
+        decoded.includes("\\") ||
+        [...decoded].some((character) => {
+          const codePoint = character.codePointAt(0);
+          return (
+            codePoint === 0 ||
+            (codePoint !== undefined && (codePoint <= 0x1f || codePoint === 0x7f))
+          );
+        })
+      ) {
+        throw new Error(
+          `Vercel deploy base contains an unsafe path segment: ${JSON.stringify(base)}.`,
+        );
+      }
+      return decoded;
+    });
+  return join(staticDir, ...segments);
 }
 
 function routeToRouteExpression(route: string): string {

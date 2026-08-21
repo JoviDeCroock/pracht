@@ -96,6 +96,33 @@ describe("writeVercelBuildOutput", () => {
     expect(routesJson(withoutMarkdown)).not.toContain("mM][aA][rR][kK]");
   });
 
+  it("nests static output and prerender routes beneath a deploy base", () => {
+    const root = createBuildRoot();
+    mkdirSync(join(root, "dist/client/assets"), { recursive: true });
+    mkdirSync(join(root, "dist/client/guide"), { recursive: true });
+    writeFileSync(join(root, "dist/client/assets/app.js"), "asset", "utf-8");
+    writeFileSync(join(root, "dist/client/guide/index.html"), "guide", "utf-8");
+
+    writeVercelBuildOutput({
+      base: "/app/",
+      isgManifest: { "/pricing": { revalidate: timeRevalidate(60) } },
+      root,
+      staticRoutes: ["/", "/guide"],
+    });
+
+    const outputRoot = join(root, ".vercel/output");
+    expect(readFileSync(join(outputRoot, "static/app/assets/app.js"), "utf-8")).toBe("asset");
+    expect(readFileSync(join(outputRoot, "static/app/guide/index.html"), "utf-8")).toBe("guide");
+    expect(existsSync(join(outputRoot, "functions/app/pricing.func"))).toBe(true);
+    expect(existsSync(join(outputRoot, "functions/app/pricing.prerender-config.json"))).toBe(true);
+
+    const config = JSON.parse(readFileSync(join(outputRoot, "config.json"), "utf-8")) as {
+      routes: Array<{ dest?: string; src?: string }>;
+    };
+    expect(config.routes).toContainEqual({ dest: "/app/guide/index.html", src: "^/app/guide/?$" });
+    expect(config.routes).toContainEqual({ dest: "/app/pricing", src: "^/app/pricing/?$" });
+  });
+
   it("routes ISG markdown routes to the render function, not the prerender function", () => {
     const root = createBuildRoot();
 

@@ -72,9 +72,14 @@ async function render(base: string, url: string) {
               null,
               h("img", { id: "based", src: withBase("/logo.svg") }),
               h("img", { id: "root", src: "/shared/logo.svg" }),
+              h("img", { id: "spaced-root", src: " /shared/spaced.svg" }),
               h("img", {
                 id: "srcset",
                 srcSet: "/shared/one.svg 1x, /shared/two.svg 2x",
+              }),
+              h("img", {
+                id: "spaced-srcset",
+                srcSet: " /shared/three.svg 1x, /shared/four.svg 2x",
               }),
             ),
           loader: async () => ({ ok: true }),
@@ -126,7 +131,11 @@ describe("dev SSR under a deploy base", () => {
     expect(state.body).toContain('src="/app/@pracht/client.js"');
     expect(state.body).toContain('id="based" src="/app/logo.svg"');
     expect(state.body).toContain('id="root" src="/shared/logo.svg"');
+    expect(state.body).toContain('id="spaced-root" src=" /shared/spaced.svg"');
     expect(state.body).toContain('id="srcset" srcset="/shared/one.svg 1x, /shared/two.svg 2x"');
+    expect(state.body).toContain(
+      'id="spaced-srcset" srcset=" /shared/three.svg 1x, /shared/four.svg 2x"',
+    );
     expect(state.body).not.toContain("/app/shared/");
     expect(state.body).not.toContain("/app/app/");
     expect(state.body).toContain('"url":"/app/about?ref=campaign"');

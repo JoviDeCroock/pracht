@@ -18,8 +18,10 @@ import {
   classifyRevalidationSkip,
   readRevalidationRequest,
   RevalidationReport,
+  restoreBasePathInRequest,
   routeSupportsMarkdown,
   setServerEnv,
+  stripBase,
   type PrachtApp,
   preventHeuristicCaching,
 } from "@pracht/core/server";
@@ -108,8 +110,13 @@ export function createCloudflareFetchHandler<
     // Make `serverEnv` from @pracht/core/env/server resolve to this worker request's bindings.
     setServerEnv(env);
 
+    const publicUrl = new URL(request.url);
+    const routePathname = stripBase(publicUrl.pathname);
+
     const renderISGPage = async (pathname: string, originalRequest: Request): Promise<Response> => {
-      const regenerationRequest = createISGRegenerationRequest(pathname, originalRequest);
+      const regenerationRequest = restoreBasePathInRequest(
+        createISGRegenerationRequest(pathname, originalRequest),
+      );
       const context = options.createContext
         ? await options.createContext({ request: regenerationRequest, env, executionContext })
         : ({ env, executionContext } as TContext);
@@ -128,7 +135,7 @@ export function createCloudflareFetchHandler<
       } satisfies HandlePrachtRequestOptions<TContext>);
     };
 
-    if (new URL(request.url).pathname === PRACHT_REVALIDATE_ENDPOINT) {
+    if (routePathname === PRACHT_REVALIDATE_ENDPOINT) {
       return handleCloudflareRevalidationEndpoint(
         request,
         env,
@@ -138,6 +145,17 @@ export function createCloudflareFetchHandler<
         Boolean(cacheOptions),
       );
     }
+
+    // Platform asset bindings and Pracht manifests are rooted at the deploy
+    // artifact, not at Vite's public base. Keep a base-free transport request
+    // for adapter dispatch while application code retains the public Request.
+    // Construct it only after the POST revalidation path: cloning a request
+    // with a body can otherwise disturb the stream before it reaches an API.
+    const isStaticMethod = request.method === "GET" || request.method === "HEAD";
+    const dispatchRequest =
+      routePathname === null || !isStaticMethod
+        ? null
+        : withRequestPathname(request, routePathname);
 
     // A WebSocket handshake has no static counterpart: it can only be
     // answered by an API route (typically by forwarding the request to a
@@ -152,11 +170,13 @@ export function createCloudflareFetchHandler<
     // re-renders and the edge cache holds the response for the revalidate
     // window.
     const cacheRoute =
-      cacheOptions && !isUpgradeRequest ? findCacheableIsgRoute(options.app, request) : null;
+      cacheOptions && !isUpgradeRequest && dispatchRequest
+        ? findCacheableIsgRoute(options.app, dispatchRequest)
+        : null;
 
-    if (!cacheRoute && !isUpgradeRequest) {
+    if (!cacheRoute && !isUpgradeRequest && dispatchRequest) {
       const isgResponse = await maybeServeISG(
-        request,
+        dispatchRequest,
         env,
         executionContext,
         assetsBinding,
@@ -168,7 +188,7 @@ export function createCloudflareFetchHandler<
       if (isgResponse) return preventHeuristicCaching(request, isgResponse);
 
       const assetResponse = await maybeServeAsset(
-        request,
+        dispatchRequest,
         env,
         assetsBinding,
         options.headersManifest ?? {},
@@ -210,6 +230,12 @@ export function createCloudflareFetchHandler<
     // `"cache": { "enabled": true }` in wrangler config is independent.
     return preventHeuristicCaching(request, finalResponse);
   };
+}
+
+function withRequestPathname(request: Request, pathname: string): Request {
+  const url = new URL(request.url);
+  url.pathname = pathname;
+  return new Request(url, request);
 }
 
 function createWorkersCacheRenderRequest(originalRequest: Request): Request {

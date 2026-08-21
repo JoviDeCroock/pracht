@@ -434,6 +434,7 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
       }
 
       const outputPath = writeVercelBuildOutput({
+        base: buildBase,
         functionName: serverMod.vercelFunctionName,
         isgManifest,
         headersManifest,

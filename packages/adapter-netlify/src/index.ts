@@ -17,8 +17,10 @@ import {
   PRACHT_REVALIDATE_ENDPOINT,
   readRevalidationRequest,
   RevalidationReport,
+  restoreBasePathInRequest,
   resolveRevalidationToken,
   routeSupportsMarkdown,
+  stripBase,
   type HandlePrachtRequestOptions,
   type ISGManifestEntry,
   type MarkdownManifest,
@@ -138,16 +140,19 @@ export function createNetlifyHandler<
 
   return async (request: Request, context: TNetlifyContext): Promise<Response> => {
     const url = new URL(request.url);
+    const routePathname = stripBase(url.pathname);
 
-    if (url.pathname === PRACHT_REVALIDATE_ENDPOINT) {
+    if (routePathname === PRACHT_REVALIDATE_ENDPOINT) {
       return handleNetlifyRevalidation(request, options, isgManifest);
     }
 
-    const pathname = normalizePathname(url.pathname);
+    // Static output and manifests are base-free. A request outside the public
+    // base skips every adapter fast path and lets the core runtime return 404.
+    const pathname = routePathname === null ? null : normalizePathname(routePathname);
     const routeStateRequest = isRouteStateRequest(request, url);
     const markdownCapable =
       options.markdownManifest === undefined ||
-      routeSupportsMarkdown(options.markdownManifest, pathname);
+      (pathname !== null && routeSupportsMarkdown(options.markdownManifest, pathname));
     const wantsMarkdown = prefersMarkdown(request.headers.get("accept")) && markdownCapable;
     const staticMethod = request.method === "GET" || request.method === "HEAD";
 
@@ -159,10 +164,11 @@ export function createNetlifyHandler<
       staticMethod &&
       !routeStateRequest &&
       !wantsMarkdown &&
-      pathname !== url.pathname &&
+      pathname !== null &&
+      pathname !== routePathname &&
       pathname in isgManifest
     ) {
-      url.pathname = pathname;
+      url.pathname = url.pathname.replace(/\/$/, "");
       const headers = applyDefaultSecurityHeaders(
         new Headers({ location: `${url.pathname}${url.search}` }),
       );
@@ -175,6 +181,7 @@ export function createNetlifyHandler<
       staticMethod &&
       !routeStateRequest &&
       !wantsMarkdown &&
+      pathname !== null &&
       !(pathname in isgManifest)
     ) {
       const file = await resolveStaticFile(options.staticDir, pathname);
@@ -184,14 +191,21 @@ export function createNetlifyHandler<
     }
 
     const isgRoute =
-      staticMethod && !routeStateRequest && !wantsMarkdown && pathname in isgManifest
+      pathname !== null &&
+      staticMethod &&
+      !routeStateRequest &&
+      !wantsMarkdown &&
+      pathname in isgManifest
         ? matchAppRoute(options.app, pathname)?.route
         : undefined;
 
     // A Netlify CDN response is shared by every visitor. Render ISG documents
     // from a request stripped of cookies, authorization, query, and body so the
     // visitor who triggers a cache miss cannot personalize the stored result.
-    const renderRequest = isgRoute ? createISGRegenerationRequest(pathname, request) : request;
+    const renderRequest =
+      isgRoute && pathname !== null
+        ? restoreBasePathInRequest(createISGRegenerationRequest(pathname, request))
+        : request;
     const renderContext = isgRoute ? createNetlifyISGContext(context, renderRequest) : context;
     const prachtContext = options.createContext
       ? await options.createContext({ request: renderRequest, context: renderContext })
@@ -210,7 +224,7 @@ export function createNetlifyHandler<
       jsManifest: options.jsManifest,
     } satisfies HandlePrachtRequestOptions<TContext>);
 
-    if (isgRoute) {
+    if (isgRoute && pathname !== null) {
       return applyNetlifyISGCacheHeaders(response, isgRoute, pathname, cache);
     }
 
@@ -218,6 +232,7 @@ export function createNetlifyHandler<
       options.staticDir !== undefined &&
       staticMethod &&
       wantsMarkdown &&
+      pathname !== null &&
       !(pathname in isgManifest) &&
       (await resolveStaticFile(options.staticDir, pathname))?.document === true;
 

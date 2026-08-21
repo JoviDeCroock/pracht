@@ -102,7 +102,42 @@ const isgRevalidate = [timeRevalidate(1), webhookRevalidate()] as const;
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
   vi.restoreAllMocks();
+  vi.resetModules();
+});
+
+describe("createCloudflareFetchHandler under a deploy base", () => {
+  it("serves the base-free asset key while preserving the public request contract", async () => {
+    vi.stubEnv("BASE_URL", "/app/");
+    vi.resetModules();
+    const { createCloudflareFetchHandler: createBaseHandler } = await import("../src/runtime.ts");
+    const seenAssetPaths: string[] = [];
+    const handler = createBaseHandler({ app: defineApp({ routes: [] }) });
+    const { executionContext } = createExecutionContext();
+
+    const response = await handler(
+      new Request("https://example.com/app/assets/client.js"),
+      {
+        ASSETS: {
+          async fetch(request: Request) {
+            const pathname = new URL(request.url).pathname;
+            seenAssetPaths.push(pathname);
+            return pathname === "/assets/client.js"
+              ? new Response("export default 1", {
+                  headers: { "content-type": "application/javascript" },
+                })
+              : new Response("not found", { status: 404 });
+          },
+        },
+      },
+      executionContext,
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe("export default 1");
+    expect(seenAssetPaths).toEqual(["/assets/client.js"]);
+  });
 });
 
 describe("createCloudflareFetchHandler ISG", () => {

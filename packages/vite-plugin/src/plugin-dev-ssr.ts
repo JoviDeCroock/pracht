@@ -296,8 +296,8 @@ function protectRootAbsoluteAssetAttributes(html: string): {
       const value = doubleQuoted ?? singleQuoted ?? unquoted ?? "";
       const isSrcset = /(?:srcset)\s*=\s*$/i.test(prefix);
       const isRootAbsolute = isSrcset
-        ? /(?:^|,\s*)\/(?!\/)/.test(value)
-        : value.startsWith("/") && !value.startsWith("//");
+        ? /(?:^|,)\s*\/(?!\/)/.test(value)
+        : /^\s*\/(?!\/)/.test(value);
       if (!isRootAbsolute) return match;
 
       const marker = `${markerPrefix}${replacements.length}`;
