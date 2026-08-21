@@ -718,7 +718,14 @@ function usesStaticAdapter(project: Pick<ProjectConfig, "rawConfig">): boolean {
       );
     };
 
-    return visitConfigAst(program, (node) => {
+    const defaultExport = configAstNodes(program.body).find(
+      (statement) => statement.type === "ExportDefaultDeclaration",
+    );
+    const exportedConfig = defaultExport
+      ? (resolveConfigBinding(defaultExport.declaration) ?? defaultExport.declaration)
+      : program;
+
+    return visitConfigAst(exportedConfig, (node) => {
       if (node.type !== "CallExpression") return false;
       const callee = unwrapConfigExpression(node.callee);
       const namespaceName =

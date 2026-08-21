@@ -53,6 +53,12 @@ type StaticAnalysisNode = {
 
 const UNRESOLVED_STATIC_BINDING = Symbol("unresolved-static-binding");
 
+interface StaticBindingWrite {
+  position: number;
+  unconditional: boolean;
+  value: unknown | typeof UNRESOLVED_STATIC_BINDING;
+}
+
 /**
  * Whether a parsed JavaScript/TypeScript module statically exposes a runtime
  * binding named `middleware`.
@@ -65,10 +71,10 @@ export function hasNamedMiddlewareExport(program: unknown): boolean {
   const root = asStaticAnalysisNode(program);
   if (!root) return false;
 
-  const reassignedBindings = collectTopLevelReassignedBindings(root);
+  const bindingWrites = collectTopLevelBindingWrites(root);
   const { knownNonCallableBindings, runtimeBindings } = collectTopLevelBindingKinds(
     root,
-    reassignedBindings,
+    bindingWrites,
   );
 
   for (const statement of nodeArray(root.body)) {
@@ -88,16 +94,13 @@ export function hasNamedMiddlewareExport(program: unknown): boolean {
     } else if (declaration?.type === "VariableDeclaration" && declaration.declare !== true) {
       for (const declarator of nodeArray(declaration.declarations)) {
         if (!collectStaticBindingNames(declarator.id).includes("middleware")) continue;
-        const initializer = resolveStaticBindingInitializer(
-          declarator.id,
-          declarator.init,
-          "middleware",
-        );
         if (
-          (knownNonCallableBindings.has("middleware") && !reassignedBindings.has("middleware")) ||
-          (initializer !== UNRESOLVED_STATIC_BINDING &&
-            isStaticallyNonCallable(initializer) &&
-            !reassignedBindings.has("middleware"))
+          isBindingKnownNonCallableAt(
+            "middleware",
+            Number.POSITIVE_INFINITY,
+            knownNonCallableBindings,
+            bindingWrites,
+          )
         ) {
           continue;
         }
@@ -117,7 +120,12 @@ export function hasNamedMiddlewareExport(program: unknown): boolean {
       if (
         !localName ||
         !runtimeBindings.has(localName) ||
-        (knownNonCallableBindings.has(localName) && !reassignedBindings.has(localName))
+        isBindingKnownNonCallableAt(
+          localName,
+          Number.POSITIVE_INFINITY,
+          knownNonCallableBindings,
+          bindingWrites,
+        )
       ) {
         continue;
       }
@@ -130,7 +138,7 @@ export function hasNamedMiddlewareExport(program: unknown): boolean {
 
 function collectTopLevelBindingKinds(
   program: StaticAnalysisNode,
-  reassignedBindings: ReadonlyMap<string, number>,
+  bindingWrites: ReadonlyMap<string, readonly StaticBindingWrite[]>,
 ): {
   knownNonCallableBindings: Set<string>;
   runtimeBindings: Set<string>;
@@ -245,14 +253,22 @@ function collectTopLevelBindingKinds(
     for (const [name, initializer] of bindingInitializers) {
       if (knownNonCallableBindings.has(name)) continue;
       const referencedName = getStaticReferencedBindingName(initializer);
-      if (!referencedName || !knownNonCallableBindings.has(referencedName)) continue;
-      const reassignment = reassignedBindings.get(referencedName);
+      if (!referencedName) continue;
       const initializerNode = asStaticAnalysisNode(initializer);
       const initializerStart =
         initializerNode && typeof initializerNode.start === "number"
           ? initializerNode.start
           : Number.POSITIVE_INFINITY;
-      if (reassignment !== undefined && reassignment < initializerStart) continue;
+      if (
+        !isBindingKnownNonCallableAt(
+          referencedName,
+          initializerStart,
+          knownNonCallableBindings,
+          bindingWrites,
+        )
+      ) {
+        continue;
+      }
       knownNonCallableBindings.add(name);
       changed = true;
     }
@@ -262,30 +278,43 @@ function collectTopLevelBindingKinds(
 }
 
 /**
- * A top-level assignment can replace an initially non-callable `let`/`var`
- * before the module is imported. Track the first assignment position so a
- * direct export can remain unresolved while an alias created before that
- * assignment still retains its known initializer value.
+ * A top-level write can replace a binding before the module is imported. Keep
+ * the writes in source order so direct exports use the final value while local
+ * aliases use the value that existed when their initializer ran.
  */
-function collectTopLevelReassignedBindings(program: StaticAnalysisNode): Map<string, number> {
-  const assignments = new Map<string, number>();
+function collectTopLevelBindingWrites(
+  program: StaticAnalysisNode,
+): Map<string, StaticBindingWrite[]> {
+  const writes = new Map<string, StaticBindingWrite[]>();
 
   for (const statement of nodeArray(program.body)) {
-    collectTopLevelAssignmentNames(statement, assignments);
+    const expression =
+      statement.type === "ExpressionStatement" ? asStaticAnalysisNode(statement.expression) : null;
+    collectTopLevelBindingWritesFromNode(statement, writes, expression);
   }
 
-  return assignments;
+  return writes;
 }
 
-function collectTopLevelAssignmentNames(value: unknown, assignments: Map<string, number>): void {
+function collectTopLevelBindingWritesFromNode(
+  value: unknown,
+  writes: Map<string, StaticBindingWrite[]>,
+  unconditionalExpression: StaticAnalysisNode | null,
+): void {
   const node = asStaticAnalysisNode(value);
   if (!node) return;
 
-  if (node.type === "AssignmentExpression") {
+  if (node.type === "AssignmentExpression" || node.type === "UpdateExpression") {
     const start = typeof node.start === "number" ? node.start : Number.NEGATIVE_INFINITY;
-    for (const name of collectStaticBindingNames(node.left)) {
-      const previous = assignments.get(name);
-      if (previous === undefined || start < previous) assignments.set(name, start);
+    const target = node.type === "AssignmentExpression" ? node.left : node.argument;
+    for (const name of collectStaticBindingNames(target)) {
+      const bindingWrites = writes.get(name) ?? [];
+      bindingWrites.push({
+        position: start,
+        unconditional: node === unconditionalExpression,
+        value: resolveStaticBindingWriteValue(node, name),
+      });
+      writes.set(name, bindingWrites);
     }
   }
 
@@ -302,11 +331,46 @@ function collectTopLevelAssignmentNames(value: unknown, assignments: Map<string,
   for (const [key, child] of Object.entries(node)) {
     if (key === "type" || key === "loc" || key === "span") continue;
     if (Array.isArray(child)) {
-      for (const item of child) collectTopLevelAssignmentNames(item, assignments);
+      for (const item of child) {
+        collectTopLevelBindingWritesFromNode(item, writes, unconditionalExpression);
+      }
     } else {
-      collectTopLevelAssignmentNames(child, assignments);
+      collectTopLevelBindingWritesFromNode(child, writes, unconditionalExpression);
     }
   }
+}
+
+function resolveStaticBindingWriteValue(
+  node: StaticAnalysisNode,
+  bindingName: string,
+): unknown | typeof UNRESOLVED_STATIC_BINDING {
+  if (node.type === "UpdateExpression") return { type: "UpdateExpression" };
+  if (node.type !== "AssignmentExpression") return UNRESOLVED_STATIC_BINDING;
+
+  if (node.operator === "=") {
+    return resolveStaticBindingInitializer(node.left, node.right, bindingName);
+  }
+
+  if (node.operator === "&&=" || node.operator === "||=" || node.operator === "??=") {
+    return UNRESOLVED_STATIC_BINDING;
+  }
+
+  return { type: "BinaryExpression" };
+}
+
+function isBindingKnownNonCallableAt(
+  name: string,
+  position: number,
+  knownNonCallableBindings: ReadonlySet<string>,
+  bindingWrites: ReadonlyMap<string, readonly StaticBindingWrite[]>,
+): boolean {
+  const latestWrite = bindingWrites
+    .get(name)
+    ?.filter((write) => write.position < position)
+    .at(-1);
+  if (!latestWrite) return knownNonCallableBindings.has(name);
+  if (!latestWrite.unconditional || latestWrite.value === UNRESOLVED_STATIC_BINDING) return false;
+  return isStaticallyNonCallable(latestWrite.value);
 }
 
 function getStaticReferencedBindingName(value: unknown): string | null {
