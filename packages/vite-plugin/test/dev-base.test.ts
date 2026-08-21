@@ -26,6 +26,7 @@ async function loadDevServerModules(base: string) {
     import("../src/plugin-dev-ssr.ts"),
   ]);
   return {
+    createOwnedDevEntryMiddleware: devSsr.createOwnedDevEntryMiddleware,
     createDevSSRMiddleware: devSsr.createDevSSRMiddleware,
     defineApp: app.defineApp,
     frameworkServer,
@@ -147,5 +148,74 @@ describe("dev SSR under a deploy base", () => {
     expect(state.statusCode).toBe(200);
     expect(state.body).toContain('src="/@pracht/client.js"');
     expect(state.body).toContain('"url":"/about?ref=campaign"');
+  });
+});
+
+describe("adapter-owned dev entries under a deploy base", () => {
+  it.each(["/@pracht/client.js", "/@pracht/islands.js"])(
+    "serves %s through Vite before the adapter runtime",
+    async (entryPath) => {
+      const { createOwnedDevEntryMiddleware } = await loadDevServerModules("/app/");
+      const transformRequest = vi.fn(async () => ({
+        code: "export const ready = true;",
+        etag: 'W/"1"',
+      }));
+      const server = {
+        config: { base: "/app/", server: { headers: { "x-dev": "pracht" } } },
+        transformRequest,
+      } as unknown as ViteDevServer;
+      const middleware = createOwnedDevEntryMiddleware(server);
+      const headers: Record<string, string> = {};
+      let body = "";
+      const response = {
+        end(value?: unknown) {
+          body = String(value ?? "");
+        },
+        setHeader(name: string, value: unknown) {
+          headers[name.toLowerCase()] = String(value);
+        },
+        statusCode: 0,
+      } as unknown as ServerResponse;
+      const next = vi.fn();
+
+      await middleware(
+        {
+          headers: {},
+          method: "GET",
+          url: `/app${entryPath}?t=1`,
+        } as unknown as IncomingMessage,
+        response,
+        next,
+      );
+
+      expect(next).not.toHaveBeenCalled();
+      expect(transformRequest).toHaveBeenCalledWith(`${entryPath}?t=1`);
+      expect(response.statusCode).toBe(200);
+      expect(headers).toMatchObject({
+        "cache-control": "no-cache",
+        "content-type": "text/javascript",
+        etag: 'W/"1"',
+        "x-dev": "pracht",
+      });
+      expect(body).toBe("export const ready = true;");
+    },
+  );
+
+  it("does not expose base-free client entries", async () => {
+    const { createOwnedDevEntryMiddleware } = await loadDevServerModules("/app/");
+    const server = {
+      config: { base: "/app/", server: { headers: {} } },
+      transformRequest: vi.fn(),
+    } as unknown as ViteDevServer;
+    const next = vi.fn();
+
+    await createOwnedDevEntryMiddleware(server)(
+      { headers: {}, method: "GET", url: "/@pracht/client.js" } as unknown as IncomingMessage,
+      {} as ServerResponse,
+      next,
+    );
+
+    expect(next).toHaveBeenCalledOnce();
+    expect(server.transformRequest).not.toHaveBeenCalled();
   });
 });

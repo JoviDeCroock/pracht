@@ -1387,9 +1387,11 @@ client router strips the base before
 matching, so route paths in the manifest stay base-free; `useLocation()`
 reports the URL as the visitor sees it, base included.
 
-`pracht preview` serves the export under the same base (redirecting the bare
-`/my-project` to `/my-project/` and answering anything outside it with a 404),
-so the local check exercises the deployed shape.
+`pracht dev` serves the app under the same base. Adapter-owned dev servers also
+serve Pracht's virtual client entries and companion endpoints under that base.
+`pracht preview` serves the export there too (redirecting the bare `/my-project`
+to `/my-project/` and answering anything outside it with a 404), so local checks
+exercise the deployed shape.
 
 Two things to know:
 

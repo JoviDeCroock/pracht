@@ -30,6 +30,54 @@ export function isEventStreamContentType(contentType: string): boolean {
   return contentType.split(";", 1)[0]?.trim().toLowerCase() === "text/event-stream";
 }
 
+/**
+ * Adapter-owned dev servers can route every browser request through their
+ * platform runtime before Vite's transform middleware gets a chance to serve
+ * Pracht's stable virtual client entries. Serve those two entries at their
+ * public, base-prefixed URLs while leaving every other request to the adapter.
+ */
+export function createOwnedDevEntryMiddleware(server: ViteDevServer): Connect.NextHandleFunction {
+  const base = server.config.base || "/";
+
+  return async (req: IncomingMessage, res: ServerResponse, next: Connect.NextFunction) => {
+    const method = (req.method ?? "GET").toUpperCase();
+    if (method !== "GET" && method !== "HEAD") return next();
+
+    const requestUrl = new URL(req.url ?? "/", "http://localhost");
+    const pathname =
+      base === "/"
+        ? requestUrl.pathname
+        : requestUrl.pathname.startsWith(base)
+          ? `/${requestUrl.pathname.slice(base.length)}`
+          : null;
+    if (pathname !== CLIENT_BROWSER_PATH && pathname !== ISLANDS_CLIENT_BROWSER_PATH) {
+      return next();
+    }
+
+    try {
+      const result = await server.transformRequest(`${pathname}${requestUrl.search}`);
+      if (!result) return next();
+
+      if (result.etag && req.headers["if-none-match"] === result.etag) {
+        res.statusCode = 304;
+        res.end();
+        return;
+      }
+
+      res.statusCode = 200;
+      res.setHeader("content-type", "text/javascript");
+      res.setHeader("cache-control", "no-cache");
+      if (result.etag) res.setHeader("etag", result.etag);
+      for (const [name, value] of Object.entries(server.config.server.headers ?? {})) {
+        if (value !== undefined) res.setHeader(name, value);
+      }
+      res.end(method === "HEAD" ? undefined : result.code);
+    } catch (error) {
+      next(error);
+    }
+  };
+}
+
 export function createDevSSRMiddleware(
   server: ViteDevServer,
   options: { maxBodySize?: number; llmsTxt?: boolean } = {},

@@ -186,4 +186,11 @@ describe("createPrachtServerModuleSource static target export", () => {
     expect(createPrachtServerModuleSource()).toContain('export const buildBase = "/";');
     expect(source).toContain('export const configuredBase = "./";');
   });
+
+  it("prefixes stable development client entries with the Vite base", () => {
+    const source = createPrachtServerModuleSource({}, { base: "/app/" });
+
+    expect(source).toContain('export const clientEntryUrl = "/app/@pracht/client.js";');
+    expect(source).toContain('export const islandsEntryUrl = "/app/@pracht/islands.js";');
+  });
 });

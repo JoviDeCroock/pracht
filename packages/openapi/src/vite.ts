@@ -71,9 +71,12 @@ export function prachtOpenApi(options: PrachtOpenApiOptions): Plugin {
       buildBase = normalizeBuildBase(config.base);
     },
 
-    configureServer(server) {
-      warnPublicArtifactCollisions(server, resolved);
-      server.middlewares.use(createOpenApiDevMiddleware(server, resolved, warned, buildBase));
+    configureServer: {
+      order: "pre",
+      handler(server) {
+        warnPublicArtifactCollisions(server, resolved);
+        server.middlewares.use(createOpenApiDevMiddleware(server, resolved, warned, buildBase));
+      },
     },
 
     transform(code, id) {

@@ -335,9 +335,15 @@ export function createPrachtServerModuleSource(
   // In dev the islands bootstrap is served from a stable path; in production
   // builds the hashed entry URL comes from the client build manifest (null
   // when the app has no islands directory).
+  const devBase = buildOptions.base ?? "/";
+  const withDevBase = (path: string): string =>
+    devBase === "/" ? path : `${devBase}${path.slice(1)}`;
+  const clientEntryUrl = buildOptions.isBuild
+    ? clientBuild.clientEntryUrl
+    : withDevBase(CLIENT_BROWSER_PATH);
   const islandsEntryUrl = buildOptions.isBuild
     ? clientBuild.islandsEntryUrl
-    : ISLANDS_CLIENT_BROWSER_PATH;
+    : withDevBase(ISLANDS_CLIENT_BROWSER_PATH);
   const islandsGlob = `${resolved.islandsDir}/**/*.{ts,tsx,js,jsx}`;
 
   const source = [
@@ -370,7 +376,7 @@ export function createPrachtServerModuleSource(
     // bases to "/" in SSR builds, but the static-export validator still needs
     // to reject the original value because the client build resolves it relatively.
     `export const configuredBase = ${JSON.stringify(buildOptions.configuredBase)};`,
-    `export const clientEntryUrl = ${JSON.stringify(clientBuild.clientEntryUrl ?? CLIENT_BROWSER_PATH)};`,
+    `export const clientEntryUrl = ${JSON.stringify(clientEntryUrl ?? CLIENT_BROWSER_PATH)};`,
     `export const islandsEntryUrl = ${JSON.stringify(islandsEntryUrl ?? null)};`,
     `export const islandsBootstrapRequired = ${JSON.stringify(islandsBootstrapRequired)};`,
     `export const cssManifest = ${JSON.stringify(clientBuild.cssManifest)};`,

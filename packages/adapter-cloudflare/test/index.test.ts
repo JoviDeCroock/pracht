@@ -39,6 +39,7 @@ describe("createCloudflareServerEntryModule", () => {
     expect(source).toContain("createCloudflareFetchHandler");
     expect(source).toContain("islandsEntryUrl: islandsEntryUrl ?? undefined");
     expect(source).toContain("islandsBootstrapRequired");
+    expect(source).toContain("assetsBindingUsesPublicBase: import.meta.env.DEV");
   });
 
   it("re-exports Cloudflare primitives from a dedicated module", () => {

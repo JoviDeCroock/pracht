@@ -162,6 +162,59 @@ describe("createCloudflareFetchHandler under a deploy base", () => {
     expect(response.status).toBe(307);
     expect(response.headers.get("location")).toBe("/app/guide/");
   });
+
+  it("preserves redirects already based by the development asset binding", async () => {
+    vi.stubEnv("BASE_URL", "/app/");
+    vi.resetModules();
+    const { createCloudflareFetchHandler: createBaseHandler } = await import("../src/runtime.ts");
+    const handler = createBaseHandler({
+      app: defineApp({ routes: [] }),
+      assetsBindingUsesPublicBase: true,
+    });
+    const { executionContext } = createExecutionContext();
+
+    const response = await handler(
+      new Request("https://example.com/app/guide"),
+      {
+        ASSETS: {
+          async fetch(request: Request) {
+            expect(new URL(request.url).pathname).toBe("/guide");
+            return new Response(null, { status: 302, headers: { location: "/app/guide/" } });
+          },
+        },
+      },
+      executionContext,
+    );
+
+    expect(response.status).toBe(302);
+    expect(response.headers.get("location")).toBe("/app/guide/");
+  });
+
+  it("ignores development asset redirects back to the current public URL", async () => {
+    vi.stubEnv("BASE_URL", "/app/");
+    vi.resetModules();
+    const { createCloudflareFetchHandler: createBaseHandler } = await import("../src/runtime.ts");
+    const handler = createBaseHandler({
+      app: defineApp({ routes: [] }),
+      assetsBindingUsesPublicBase: true,
+    });
+    const { executionContext } = createExecutionContext();
+
+    const response = await handler(
+      new Request("https://example.com/app/"),
+      {
+        ASSETS: {
+          async fetch() {
+            return new Response(null, { status: 302, headers: { location: "/app/" } });
+          },
+        },
+      },
+      executionContext,
+    );
+
+    expect(response.status).toBe(404);
+    expect(response.headers.get("location")).toBeNull();
+  });
 });
 
 describe("createCloudflareFetchHandler ISG", () => {

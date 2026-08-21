@@ -44,6 +44,7 @@ import {
 } from "./plugin-codegen.ts";
 import {
   createDevCssInjectionMiddleware,
+  createOwnedDevEntryMiddleware,
   createDevSSRMiddleware,
   injectDevCssForPath,
 } from "./plugin-dev-ssr.ts";
@@ -372,6 +373,7 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
       }
 
       if (resolved.adapter.ownsDevServer) {
+        server.middlewares.use(createOwnedDevEntryMiddleware(server));
         server.middlewares.use(createDevCssInjectionMiddleware(server));
         return;
       }

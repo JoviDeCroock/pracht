@@ -75,6 +75,8 @@ export interface CloudflareAdapterOptions<
   cssManifest?: Record<string, string[]>;
   jsManifest?: Record<string, string[]>;
   assetsBinding?: string;
+  /** @internal Dev asset bindings already return public, base-prefixed redirects. */
+  assetsBindingUsesPublicBase?: boolean;
   headersManifest?: HeadersManifest;
   /** Exact Markdown-capable routes. Omit to preserve negotiation for legacy/custom entries. */
   markdownManifest?: MarkdownManifest;
@@ -184,6 +186,7 @@ export function createCloudflareFetchHandler<
         options.isgManifest ?? {},
         options.headersManifest ?? {},
         options.markdownManifest,
+        options.assetsBindingUsesPublicBase,
         renderISGPage,
       );
       if (isgResponse) return preventHeuristicCaching(request, isgResponse);
@@ -194,6 +197,7 @@ export function createCloudflareFetchHandler<
         assetsBinding,
         options.headersManifest ?? {},
         options.markdownManifest,
+        options.assetsBindingUsesPublicBase,
       );
       if (assetResponse) {
         return assetResponse;
@@ -256,6 +260,7 @@ async function maybeServeAsset(
   assetsBinding: string,
   headersManifest: HeadersManifest = {},
   markdownManifest?: MarkdownManifest,
+  assetsBindingUsesPublicBase = false,
 ): Promise<Response | null> {
   if (request.method !== "GET" && request.method !== "HEAD") {
     return null;
@@ -300,7 +305,15 @@ async function maybeServeAsset(
     location?.startsWith("/") &&
     !location.startsWith("//")
   ) {
-    headers.set("location", withBase(location));
+    // The Cloudflare Vite asset binding receives the base-free dispatch URL,
+    // but evaluates it beneath Vite's public base. At the app root it can
+    // therefore redirect `/` to the browser's current `/app/` URL forever.
+    // Let the Worker render that route instead. A real canonical redirect
+    // such as `/app/guide` -> `/app/guide/` remains distinct and is preserved.
+    if (assetsBindingUsesPublicBase && location === withBase(`${url.pathname}${url.search}`)) {
+      return null;
+    }
+    headers.set("location", assetsBindingUsesPublicBase ? location : withBase(location));
   }
   return new Response(response.body, {
     status: response.status,
@@ -317,6 +330,7 @@ async function maybeServeISG<TEnv extends Record<string, unknown>>(
   isgManifest: ISGManifest,
   headersManifest: HeadersManifest,
   markdownManifest: MarkdownManifest | undefined,
+  assetsBindingUsesPublicBase: boolean | undefined,
   renderISGPage: (pathname: string, originalRequest: Request) => Promise<Response>,
 ): Promise<Response | null> {
   if (!isDocumentAssetRequest(request, markdownManifest)) return null;
@@ -344,6 +358,7 @@ async function maybeServeISG<TEnv extends Record<string, unknown>>(
     assetsBinding,
     headersManifest,
     markdownManifest,
+    assetsBindingUsesPublicBase,
   );
   if (!assetResponse) return null;
 

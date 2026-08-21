@@ -239,6 +239,7 @@ export function createCloudflareServerEntryModule(
     "    cssManifest,",
     "    jsManifest,",
     `    assetsBinding: ${JSON.stringify(assetsBinding)},`,
+    "    assetsBindingUsesPublicBase: import.meta.env.DEV,",
     "    headersManifest,",
     "    markdownManifest,",
     "    isgManifest,",

@@ -248,6 +248,7 @@ const __prachtGenerateOpenApiDocument = async (options) => ({
       ),
     } as unknown as ViteDevServer;
     const plugin = prachtOpenApi({ info: { title: "Example", version: "1.0.0" } });
+    expect(plugin.configureServer).toMatchObject({ order: "pre" });
     hookHandler(plugin.configResolved).call({} as never, { base: "/app/" } as never);
     hookHandler(plugin.configureServer).call({} as never, server);
     if (!middleware) throw new Error("Expected middleware registration");
