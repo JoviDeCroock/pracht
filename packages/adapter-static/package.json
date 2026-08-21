@@ -1,6 +1,6 @@
 {
   "name": "@pracht/adapter-static",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Static-export adapter for Pracht: prerender every route and deploy dist/client to any static host with zero server.",
   "keywords": [
     "pracht",
