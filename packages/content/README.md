@@ -100,7 +100,8 @@ requested locales. Use an explicit fallback record entry when the default
 locale should fall back to another locale. Every fallback target must be listed
 in `supported`, and every fallback record key must name a supported requested
 locale. Invalid fallback configuration is rejected when the collection is
-defined.
+defined. `routePrefix: "never"` keeps translated documents on the same
+locale-neutral route; pass a locale to route lookup to select the translation.
 
 The filesystem registry is memoized and rebuilt only after `invalidate()`.
 Relative invalidation paths, like source lookup paths, resolve from the
@@ -144,7 +145,8 @@ Vite's configured `publicDir`, where one output would otherwise replace the
 other, or prerendered page files. Portable case-folded and
 file/directory collisions fail across collections, and Pracht's entire
 `/_pracht` build-output namespace and Netlify's root `/_headers` and
-`/_redirects` control files are reserved. Artifacts also cannot occupy exact
+`/_redirects` control paths are reserved, including descendants that would
+replace a control file with a directory. Artifacts also cannot occupy exact
 request-time page or API paths, including clean-URL `index.html` aliases and
 concrete ISG paths served by an adapter function. Vercel header rules escape
 literal artifact path characters before applying generated content types.

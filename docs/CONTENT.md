@@ -109,7 +109,9 @@ content/docs/fr/guide.md  -> id guide, locale fr, /fr/docs/guide
 
 The default route prefix strategy omits the default locale and prefixes every
 other locale. Use `routePrefix: "always" | "never"` or explicit source paths
-for another URL policy.
+for another URL policy. With `"never"`, translated documents intentionally
+share one locale-neutral route; pass `locale` to a lookup to select the desired
+translation.
 
 `getById()`/`getByRoute()` fall back to the default locale by default.
 `fallback: false` requests an exact locale. The `resolve*` variants report
@@ -158,7 +160,8 @@ use only one generator. OpenAPI companion output is checked the same way rather
 than replacing a collection artifact. Artifact output is preflighted before publication:
 case-folded and file/directory collisions fail across collections, Pracht's
 entire `/_pracht` build-output namespace and Netlify's root `/_headers` and
-`/_redirects` control files are reserved, and artifacts cannot overlap files in
+`/_redirects` control paths are reserved, including descendants that would turn
+a required control file into a directory, and artifacts cannot overlap files in
 Vite's configured `publicDir`, generated bundle output, prerendered page output,
 exact request-time page or API paths, or concrete ISG paths whose snapshots are
 served by an adapter function. Vercel header rules

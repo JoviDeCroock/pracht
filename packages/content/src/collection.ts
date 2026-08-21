@@ -302,7 +302,9 @@ export function defineCollection<
     }
     for (const [alias, target] of routeAliases) {
       const conflicting = [...(byRoute.get(alias)?.values() ?? [])].find(
-        (descriptor) => descriptor.id !== target.id || descriptor.locale !== target.locale,
+        (descriptor) =>
+          !descriptor.inferredRoute &&
+          (descriptor.id !== target.id || descriptor.locale !== target.locale),
       );
       if (conflicting) {
         throw new Error(

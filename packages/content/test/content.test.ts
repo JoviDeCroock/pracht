@@ -128,6 +128,37 @@ describe("defineCollection", () => {
     }
   });
 
+  it("keeps locale-neutral routes valid for every translated document", async () => {
+    const root = await fixture({
+      "en/guide.md": "English",
+      "fr/guide.md": "Français",
+    });
+    const collection = defineCollection({
+      name: "locale-neutral",
+      root,
+      locales: {
+        default: "en",
+        supported: ["en", "fr"],
+        routePrefix: "never",
+      },
+    });
+
+    await expect(collection.getByRoute("/guide", { locale: "en" })).resolves.toMatchObject({
+      body: "English",
+      locale: "en",
+    });
+    await expect(collection.getByRoute("/guide", { locale: "fr" })).resolves.toMatchObject({
+      body: "Français",
+      locale: "fr",
+    });
+
+    const runtime = defineSnapshotCollection(await collection.snapshot());
+    await expect(runtime.getByRoute("/guide", { locale: "fr" })).resolves.toMatchObject({
+      body: "Français",
+      locale: "fr",
+    });
+  });
+
   it("rejects unsupported locale fallback targets during collection definition", async () => {
     const root = await fixture({ "en/guide.md": "English" });
 
@@ -425,7 +456,16 @@ describe("collection integration helpers", () => {
   it("rejects Netlify's reserved root control files", async () => {
     const root = await fixture({ "guide.md": "Guide" });
 
-    for (const path of ["/_headers", "/_HEADERS", "/_redirects", "/_REDIRECTS"]) {
+    for (const path of [
+      "/_headers",
+      "/_HEADERS",
+      "/_headers/rules.txt",
+      "/_HEADERS/rules.txt",
+      "/_redirects",
+      "/_REDIRECTS",
+      "/_redirects/rules.txt",
+      "/_REDIRECTS/rules.txt",
+    ]) {
       const collection = defineCollection({
         name: "docs",
         root,
