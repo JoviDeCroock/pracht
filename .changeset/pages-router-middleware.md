@@ -18,7 +18,8 @@ has — and the file never becomes a route.
 Fail-open shapes are hard errors instead of silently ignored files: a nested
 `_middleware` file, a `_middleware/` directory, middleware-shaped files using
 unsupported page extensions such as Markdown/MDX, `.tsrx`, or a configured
-custom format (the middleware registry loads `.ts`/`.tsx`/`.js`/`.jsx` only), multiple
+custom format, plus any other exact `_middleware` basename the registry cannot
+load (including extensionless files and alternate Node extensions), multiple
 root-level files, and a module without a runtime `middleware` export all fail
 the build, `pracht doctor`, and `pracht verify` (the runtime already refused to
 serve routes whose middleware lacks the export). The client bundle excludes
@@ -41,7 +42,8 @@ continues to fail closed rather than being silently ignored.
 ejected manifest's directory (`./pages/index.tsx` for `src/routes.ts` beside
 `src/pages/`), matching how `_app`/`_middleware` were already referenced —
 previously the ejected refs pointed at files that do not exist next to the
-manifest and failed `pracht doctor`.
+manifest and failed `pracht doctor`. Re-ejecting to a file inside the pages
+directory also excludes the previous generated output from the route scan.
 
 `pracht generate middleware --name _middleware` (and the `generate_middleware`
 MCP tool) scaffolds the file in pages mode and refuses to create a duplicate
@@ -51,7 +53,8 @@ server. `doctor` and `verify` also reject `_middleware/` directories whose only
 contents are non-source placeholders, matching the build-time check.
 Static-adapter detection follows the exported Vite configuration, so an unused
 helper that constructs a static Pracht configuration does not block middleware
-generation when the selected adapter is serverful.
+generation when the selected adapter is serverful. Generated pages-starter
+agent instructions now list the root middleware scaffolding command too.
 
 Build-time and CLI export validation also reject type-only star re-exports,
 explicit or locally resolved type-only named aliases, ambient declarations,
@@ -66,7 +69,8 @@ declarations, object literals, and local aliases of those values are rejected
 before deployment instead of taking down every wrapped route at request time;
 this includes direct and transitive aliases in exported declarations. Mutable
 bindings use their last unconditional module-scope write, so assigning a
-literal or applying an update after a callable initializer is rejected too.
+literal or applying an update after a callable initializer is rejected too,
+including writes inside top-level sequence and chained assignment expressions.
 Both paths use the same AST classifier, and continue to reject nested
 `_middleware` files even when another reserved underscore-prefixed directory
 contains them.

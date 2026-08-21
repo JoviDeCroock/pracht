@@ -24,6 +24,12 @@ describe("middleware export classification", () => {
     ["let middleware;\nmiddleware = () => {};\nexport { middleware };", true],
     ["export let middleware;\nmiddleware = () => {};", true],
     ["let middleware = () => {};\nmiddleware = 1;\nexport { middleware };", false],
+    ["let middleware = () => {};\nmiddleware = 1, void 0;\nexport { middleware };", false],
+    ["let middleware = () => {}, other;\nother = middleware = 1;\nexport { middleware };", false],
+    [
+      "let middleware = () => {}, other = false;\nother &&= middleware = 1;\nexport { middleware };",
+      true,
+    ],
     ["let middleware = 1;\nmiddleware = 2;\nexport { middleware };", false],
     ["let middleware = () => {};\nmiddleware++;\nexport { middleware };", false],
     [
