@@ -341,6 +341,9 @@ because they split assets from the deploy root or resolve them beneath nested
 page directories. Under a base,
 internal navigation must go through `<Link route>` / `href()` — a hand-written
 `<a href="/about">` still means the origin root.
+Pracht's preview and first-party serverful adapters redirect the bare base
+(`/app`) to its trailing-slash form (`/app/`) before serving the root document;
+custom adapters receive the same behavior through `handlePrachtRequest()`.
 Framework-owned browser URLs from the default image loader and OpenAPI
 companion artifacts pick up the same base automatically.
 

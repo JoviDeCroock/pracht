@@ -179,6 +179,12 @@ describe("createNodeRequestHandler", () => {
     const address = server.address();
     if (!address || typeof address === "string") throw new Error("Expected TCP server address");
 
+    const bareBase = await fetch(`http://127.0.0.1:${address.port}/app?ref=campaign`, {
+      redirect: "manual",
+    });
+    expect(bareBase.status).toBe(308);
+    expect(bareBase.headers.get("location")).toBe("/app/?ref=campaign");
+
     const underBase = await fetch(`http://127.0.0.1:${address.port}/app/assets/app.js`);
     expect(underBase.status).toBe(200);
     expect(await underBase.text()).toBe("console.log('app')");

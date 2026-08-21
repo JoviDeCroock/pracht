@@ -5,6 +5,7 @@ import type { Plugin } from "vite";
 import {
   applyDefaultSecurityHeaders,
   classifyRevalidationSkip,
+  createBaseRedirectResponse,
   createISGRegenerationRequest,
   getTimeRevalidateSeconds,
   handlePrachtRequest,
@@ -139,6 +140,8 @@ export function createNetlifyHandler<
   const cache = resolveCacheOptions(options.cache);
 
   return async (request: Request, context: TNetlifyContext): Promise<Response> => {
+    const baseRedirect = createBaseRedirectResponse(request);
+    if (baseRedirect) return baseRedirect;
     const url = new URL(request.url);
     const routePathname = stripBase(url.pathname);
 

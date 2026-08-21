@@ -264,6 +264,13 @@ describe("createNetlifyHandler", () => {
       },
     });
 
+    const bareBase = await handler(
+      new Request("https://example.com/app?ref=campaign"),
+      {} as never,
+    );
+    expect(bareBase.status).toBe(308);
+    expect(bareBase.headers.get("location")).toBe("/app/?ref=campaign");
+
     const staticResponse = await handler(new Request("https://example.com/app/guide"), {} as never);
     expect(staticResponse.status).toBe(200);
     expect(await staticResponse.text()).toContain("static guide");

@@ -1393,6 +1393,12 @@ serve Pracht's virtual client entries and companion endpoints under that base.
 to `/my-project/` and answering anything outside it with a 404), so local checks
 exercise the deployed shape.
 
+Production Node, Cloudflare, Netlify, and Vercel adapters apply that same
+query-preserving redirect before their static or ISG fast paths. Custom
+serverful adapters get it from `handlePrachtRequest()`. This canonical trailing
+slash is significant for the root document: without it, relative links such as
+`assets/app.js` would resolve at the origin root instead of under the base.
+
 Two things to know:
 
 - **Hand-written root-absolute links do not get the base.** `<a href="/about">`

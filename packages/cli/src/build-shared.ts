@@ -289,6 +289,18 @@ function createVercelOutputConfig({
     },
   ];
 
+  // A bare deploy base must reach the function before the root document's
+  // optional-slash static/ISG rewrite claims it. The runtime answers with a
+  // query-preserving 308 to the trailing-slash URL so document-relative links
+  // resolve beneath the mount.
+  if (deployBase !== "/") {
+    routes.push({
+      dest: target,
+      methods: ["GET", "HEAD"],
+      src: `^${escapeRegex(deployBase.slice(0, -1))}$`,
+    });
+  }
+
   // Routes that export `markdown` answer `Accept: text/markdown` with their
   // source instead of HTML, which only the function can do — so they have to
   // reach it before the static rewrite below claims them. Node and Cloudflare

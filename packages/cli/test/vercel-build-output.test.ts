@@ -117,8 +117,13 @@ describe("writeVercelBuildOutput", () => {
     expect(existsSync(join(outputRoot, "functions/app/pricing.prerender-config.json"))).toBe(true);
 
     const config = JSON.parse(readFileSync(join(outputRoot, "config.json"), "utf-8")) as {
-      routes: Array<{ dest?: string; src?: string }>;
+      routes: Array<{ dest?: string; methods?: string[]; src?: string }>;
     };
+    expect(config.routes).toContainEqual({
+      dest: "/render",
+      methods: ["GET", "HEAD"],
+      src: "^/app$",
+    });
     expect(config.routes).toContainEqual({ dest: "/app/guide/index.html", src: "^/app/guide/?$" });
     expect(config.routes).toContainEqual({ dest: "/app/pricing", src: "^/app/pricing/?$" });
   });

@@ -108,6 +108,25 @@ afterEach(() => {
 });
 
 describe("createCloudflareFetchHandler under a deploy base", () => {
+  it("redirects the bare base before consulting the asset binding", async () => {
+    vi.stubEnv("BASE_URL", "/app/");
+    vi.resetModules();
+    const { createCloudflareFetchHandler: createBaseHandler } = await import("../src/runtime.ts");
+    const fetchAsset = vi.fn(async () => new Response("asset"));
+    const handler = createBaseHandler({ app: defineApp({ routes: [] }) });
+    const { executionContext } = createExecutionContext();
+
+    const response = await handler(
+      new Request("https://example.com/app?ref=campaign"),
+      { ASSETS: { fetch: fetchAsset } },
+      executionContext,
+    );
+
+    expect(response.status).toBe(308);
+    expect(response.headers.get("location")).toBe("/app/?ref=campaign");
+    expect(fetchAsset).not.toHaveBeenCalled();
+  });
+
   it("serves the base-free asset key while preserving the public request contract", async () => {
     vi.stubEnv("BASE_URL", "/app/");
     vi.resetModules();

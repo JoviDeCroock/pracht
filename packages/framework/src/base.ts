@@ -69,6 +69,20 @@ export function stripBase(pathname: string): string | null {
   return remaining.length === 0 ? "/" : `/${remaining.join("/")}`;
 }
 
+/**
+ * Return the canonical trailing-slash URL for a bare deploy base.
+ *
+ * The route matcher intentionally accepts both `/app` and `/app/` as the root
+ * route. Documents must still redirect to the latter so their relative links
+ * and assets resolve inside the deploy base rather than at the origin root.
+ *
+ * @internal
+ */
+export function resolveBaseRedirectLocation(pathname: string, search = ""): string | null {
+  if (!HAS_BASE || pathname.endsWith("/") || stripBase(pathname) !== "/") return null;
+  return `${PRACHT_BASE}${search}`;
+}
+
 function canonicalizeBaseSegment(segment: string): string | null {
   try {
     const decoded = decodeURIComponent(segment);

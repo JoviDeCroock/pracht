@@ -43,6 +43,7 @@ export type { PrachtPublicEnv, PrachtServerEnv, PublicEnvOf } from "./env.ts";
 export { setServerEnv } from "./env-server.ts";
 export {
   applyDefaultSecurityHeaders,
+  createBaseRedirectResponse,
   formatServerTimingHeader,
   handlePrachtRequest,
   isProtocolSwitchResponse,

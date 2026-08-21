@@ -33,6 +33,25 @@ describe("createVercelServerEntryModule", () => {
   });
 });
 
+describe("createVercelEdgeHandler under a deploy base", () => {
+  it("redirects the bare base before creating application context", async () => {
+    vi.stubEnv("BASE_URL", "/app/");
+    vi.resetModules();
+    const { createVercelEdgeHandler: createBaseHandler } = await import("../src/index.ts");
+    const createContext = vi.fn(() => ({}));
+    const handler = createBaseHandler({
+      app: defineApp({ routes: [] }),
+      createContext,
+    });
+
+    const response = await handler(new Request("https://example.com/app?ref=campaign"), {});
+
+    expect(response.status).toBe(308);
+    expect(response.headers.get("location")).toBe("/app/?ref=campaign");
+    expect(createContext).not.toHaveBeenCalled();
+  });
+});
+
 describe("createVercelNodeListener", () => {
   it("provides waitUntil and drains registered work", async () => {
     let releaseTask: (() => void) | undefined;

@@ -1,6 +1,7 @@
 import type { PrachtAdapter } from "@pracht/vite-plugin";
 import {
   createISGRegenerationRequest,
+  createBaseRedirectResponse,
   handlePrachtRequest,
   type HandlePrachtRequestOptions,
   isCacheableISGResponse,
@@ -80,6 +81,8 @@ export function createVercelEdgeHandler<
   TContext = TVercelContext,
 >(options: VercelAdapterOptions<TVercelContext, TContext>) {
   return async (request: Request, context: TVercelContext): Promise<Response> => {
+    const baseRedirect = createBaseRedirectResponse(request);
+    if (baseRedirect) return baseRedirect;
     if (stripBase(new URL(request.url).pathname) === PRACHT_REVALIDATE_ENDPOINT) {
       return handleVercelRevalidationEndpoint(request, options.app);
     }

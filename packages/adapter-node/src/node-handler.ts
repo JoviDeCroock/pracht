@@ -5,6 +5,7 @@ import { join, resolve, sep } from "node:path";
 
 import {
   applyDefaultSecurityHeaders,
+  createBaseRedirectResponse,
   getTimeRevalidateSeconds,
   handlePrachtRequest,
   classifyRevalidationSkip,
@@ -160,6 +161,11 @@ export function createNodeRequestHandler<TContext = unknown>(
         return;
       }
       throw err;
+    }
+    const baseRedirect = createBaseRedirectResponse(request);
+    if (baseRedirect) {
+      await writeWebResponse(res, baseRedirect);
+      return;
     }
     const url = new URL(request.url);
     // Static files and manifests are keyed by base-free route paths. A trusted

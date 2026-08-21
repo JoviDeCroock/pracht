@@ -567,7 +567,11 @@ With the default base of `/`, every conversion above is the identity.
 A sub-path base is wired end to end for static exports
 ([Sub-path deploys](./ADAPTERS.md#sub-path-deploys)). Serverful adapters
 (`node`, `cloudflare`, …) emit the same base-carrying URLs, and
-`handlePrachtRequest()` strips the base before matching. The Node adapter also
+redirect a bare base such as `/my-project` to `/my-project/` before serving or
+rendering the root document. The redirect preserves the query string so
+document-relative links and assets resolve beneath the mount.
+`handlePrachtRequest()` applies the same canonical redirect for custom
+serverful adapters, then strips the base before matching. The Node adapter also
 maps retained-base requests onto its base-free static-file and ISG-manifest
 keys. When a trusted proxy strips the base before forwarding (the usual nginx
 `location /my-project/ { proxy_pass http://app/; }` shape), that rewrite must

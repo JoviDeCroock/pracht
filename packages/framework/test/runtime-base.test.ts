@@ -53,6 +53,27 @@ async function renderUnderBase(
 }
 
 describe("server runtime under a deploy base", () => {
+  it("redirects the bare base before rendering the root document", async () => {
+    vi.resetModules();
+    vi.stubEnv("BASE_URL", "/app/");
+    const core = await import("../src/index.ts");
+    const server = await import("../src/server.ts");
+    const response = await server.handlePrachtRequest({
+      app: core.defineApp({ routes: [core.route("/", "./routes/home.tsx")] }),
+      request: new Request("https://example.com/app?ref=campaign"),
+      registry: {
+        routeModules: {
+          "/src/routes/home.tsx": async () => ({ Component: () => h("main", null, "home") }),
+        },
+      },
+    });
+
+    expect(response.status).toBe(308);
+    expect(response.headers.get("location")).toBe("/app/?ref=campaign");
+    expect(response.headers.get("cache-control")).toBe("public, max-age=0, must-revalidate");
+    expect(await response.text()).toBe("");
+  });
+
   it("keeps root-absolute redirect helper targets inside the deploy base", async () => {
     vi.resetModules();
     vi.stubEnv("BASE_URL", "/app/");

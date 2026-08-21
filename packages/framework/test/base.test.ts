@@ -1,7 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { buildStaticRouteStateUrl } from "../src/runtime-static.ts";
-import { PRACHT_BASE, stripBase, stripBaseLenient, withBase } from "../src/base.ts";
+import {
+  PRACHT_BASE,
+  resolveBaseRedirectLocation,
+  stripBase,
+  stripBaseLenient,
+  withBase,
+} from "../src/base.ts";
 
 /**
  * `PRACHT_BASE` reads `import.meta.env.BASE_URL`, which Vite inlines per
@@ -22,6 +28,7 @@ describe("base helpers at the origin root", () => {
     expect(withBase("/")).toBe("/");
     expect(stripBase("/about")).toBe("/about");
     expect(stripBaseLenient("/about")).toBe("/about");
+    expect(resolveBaseRedirectLocation("/")).toBeNull();
   });
 });
 
@@ -52,11 +59,15 @@ describe("base helpers under a sub-path", () => {
   });
 
   it("matches equivalent percent-encoded base spellings", async () => {
-    const { stripBase: remove } = await loadBase("/caf%C3%A9/");
+    const { resolveBaseRedirectLocation: redirectBase, stripBase: remove } =
+      await loadBase("/caf%C3%A9/");
 
     expect(remove("/caf%c3%a9/about")).toBe("/about");
     expect(remove("/caf%C3%A9")).toBe("/");
     expect(remove("/%63af%C3%A9/posts/%61")).toBe("/posts/%61");
+    expect(redirectBase("/%63af%c3%a9", "?ref=campaign")).toBe("/caf%C3%A9/?ref=campaign");
+    expect(redirectBase("/caf%C3%A9/")).toBeNull();
+    expect(redirectBase("/caf%C3%A9/about")).toBeNull();
   });
 
   it("rejects malformed or separator-decoding base spellings", async () => {

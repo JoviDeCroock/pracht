@@ -1,5 +1,6 @@
 import {
   applyDefaultSecurityHeaders,
+  createBaseRedirectResponse,
   createISGRegenerationRequest,
   createRevalidationSingleFlight,
   getTimeRevalidateSeconds,
@@ -112,6 +113,9 @@ export function createCloudflareFetchHandler<
   ): Promise<Response> => {
     // Make `serverEnv` from @pracht/core/env/server resolve to this worker request's bindings.
     setServerEnv(env);
+
+    const baseRedirect = createBaseRedirectResponse(request);
+    if (baseRedirect) return baseRedirect;
 
     const publicUrl = new URL(request.url);
     const routePathname = stripBase(publicUrl.pathname);

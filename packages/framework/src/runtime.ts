@@ -1,7 +1,7 @@
 import { h } from "preact";
 import type { FunctionComponent } from "preact";
 import { matchApiRoute, matchAppRoute, resolveApp } from "./app.ts";
-import { restoreBasePathInRequest, stripBase } from "./base.ts";
+import { resolveBaseRedirectLocation, restoreBasePathInRequest, stripBase } from "./base.ts";
 import { collectFontHeadFragments } from "./font.ts";
 import { ROUTE_STATE_REQUEST_HEADER, SAFE_METHODS } from "./runtime-constants.ts";
 import {
@@ -338,6 +338,8 @@ export async function handlePrachtRequest<TContext>(
       request: restoreBasePathInRequest(options.request),
     };
   }
+  const baseRedirect = createBaseRedirectResponse(options.request);
+  if (baseRedirect) return baseRedirect;
   const url = new URL(options.request.url);
   const hasDataParam = url.searchParams.get("_data") === "1";
   if (hasDataParam) {
@@ -1255,6 +1257,29 @@ export async function handlePrachtRequest<TContext>(
       });
     }
   }
+}
+
+/**
+ * Canonicalize a document request for a bare deploy base before an adapter's
+ * static-file fast path can serve it as the root route.
+ *
+ * @internal
+ */
+export function createBaseRedirectResponse(request: Request): Response | null {
+  if (request.method !== "GET" && request.method !== "HEAD") return null;
+  const url = new URL(request.url);
+  const location = resolveBaseRedirectLocation(url.pathname, url.search);
+  if (!location) return null;
+
+  return withDefaultSecurityHeaders(
+    new Response(null, {
+      status: 308,
+      headers: {
+        "cache-control": "public, max-age=0, must-revalidate",
+        location,
+      },
+    }),
+  );
 }
 
 /**
