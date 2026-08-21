@@ -214,6 +214,40 @@ export default { plugins: [pracht({ pagesDir: "/src/pages", adapter: adapter() }
     expect(existsSync(join(appDir, "src/pages/_middleware.ts"))).toBe(false);
   });
 
+  it.each([
+    [
+      "aliased",
+      `import { pracht as framework } from "@pracht/vite-plugin";
+import { staticAdapter } from "@pracht/adapter-static";
+export default { plugins: [framework({ pagesDir: "/src/pages", adapter: staticAdapter() })] };`,
+    ],
+    [
+      "namespace",
+      `import * as framework from "@pracht/vite-plugin";
+import { staticAdapter } from "@pracht/adapter-static";
+export default { plugins: [framework.pracht({ pagesDir: "/src/pages", adapter: staticAdapter() })] };`,
+    ],
+  ])(
+    "refuses pages middleware for a static adapter selected through a %s pracht import",
+    (_kind, config) => {
+      const appDir = createTempDir("pracht-cli-pages-middleware-static-pracht-alias-");
+      writePagesApp(appDir);
+      writeProjectFile(appDir, "vite.config.ts", config);
+
+      const result = spawnSync(
+        process.execPath,
+        [cliPath, "generate", "middleware", "--name", "_middleware"],
+        { cwd: appDir, encoding: "utf-8" },
+      );
+
+      expect(result.status).not.toBe(0);
+      expect(`${result.stdout}${result.stderr}`).toContain(
+        "Pure static exports cannot use request middleware",
+      );
+      expect(existsSync(join(appDir, "src/pages/_middleware.ts"))).toBe(false);
+    },
+  );
+
   it("refuses pages middleware for an exported static adapter alias", () => {
     const appDir = createTempDir("pracht-cli-pages-middleware-exported-static-alias-");
     writePagesApp(appDir);

@@ -166,3 +166,13 @@ both forms.
 Middleware export validation treats setter-only properties as `undefined`
 rather than mistaking the setter function itself for the destructured runtime
 value. Getter-backed accessors remain conservatively runtime-defined.
+
+Runtime `typeof registry.member` reads now count as real registry uses because
+they can invoke accessors and mutate the module map; type-only and bare-object
+queries remain harmless. Middleware bindings assigned at module scope after an
+initially undefined declaration stay conservatively runtime-defined instead of
+being rejected from the declaration alone.
+
+Static-target detection follows aliased and namespace imports of the pracht
+plugin as well as aliased adapter imports. The canonical routing guides now
+consistently qualify pages request middleware as a serverful-adapter feature.

@@ -591,21 +591,36 @@ function usesStaticAdapter(project: Pick<ProjectConfig, "rawConfig">): boolean {
 
   try {
     const program = parseAst(project.rawConfig, { lang: "ts" }) as unknown as ConfigAstNode;
+    const prachtFactories = new Set<string>();
+    const prachtNamespaces = new Set<string>();
     const staticFactories = new Set<string>();
     const staticNamespaces = new Set<string>();
     const bindings = new Map<string, unknown>();
 
     for (const statement of configAstNodes(program.body)) {
-      if (
-        statement.type === "ImportDeclaration" &&
-        asConfigAstNode(statement.source)?.value === "@pracht/adapter-static"
-      ) {
+      if (statement.type === "ImportDeclaration") {
+        const importSource = asConfigAstNode(statement.source)?.value;
         for (const specifier of configAstNodes(statement.specifiers)) {
           const localName = configPropertyName(specifier.local);
           if (!localName) continue;
-          if (specifier.type === "ImportNamespaceSpecifier") {
+          if (
+            importSource === "@pracht/vite-plugin" &&
+            specifier.type === "ImportNamespaceSpecifier"
+          ) {
+            prachtNamespaces.add(localName);
+          } else if (
+            importSource === "@pracht/vite-plugin" &&
+            specifier.type === "ImportSpecifier" &&
+            configPropertyName(specifier.imported) === "pracht"
+          ) {
+            prachtFactories.add(localName);
+          } else if (
+            importSource === "@pracht/adapter-static" &&
+            specifier.type === "ImportNamespaceSpecifier"
+          ) {
             staticNamespaces.add(localName);
           } else if (
+            importSource === "@pracht/adapter-static" &&
             specifier.type === "ImportSpecifier" &&
             configPropertyName(specifier.imported) === "staticAdapter"
           ) {
@@ -662,7 +677,20 @@ function usesStaticAdapter(project: Pick<ProjectConfig, "rawConfig">): boolean {
     return visitConfigAst(program, (node) => {
       if (node.type !== "CallExpression") return false;
       const callee = unwrapConfigExpression(node.callee);
-      if (callee?.type !== "Identifier" || callee.name !== "pracht") return false;
+      const namespaceName =
+        callee?.type === "MemberExpression" && callee.computed !== true
+          ? configPropertyName(callee.object)
+          : null;
+      const isPrachtCall =
+        (callee?.type === "Identifier" &&
+          typeof callee.name === "string" &&
+          (callee.name === "pracht" || prachtFactories.has(callee.name))) ||
+        (callee?.type === "MemberExpression" &&
+          callee.computed !== true &&
+          namespaceName !== null &&
+          prachtNamespaces.has(namespaceName) &&
+          configPropertyName(callee.property) === "pracht");
+      if (!isPrachtCall) return false;
       const options = unwrapConfigExpression(configAstNodes(node.arguments)[0]);
       return (
         options?.type === "ObjectExpression" &&

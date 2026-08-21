@@ -25,7 +25,7 @@ yarn create pracht my-app
 bunx create-pracht my-app
 ```
 
-The CLI will ask you to choose an adapter (Node.js, Cloudflare Workers, or Vercel), whether to use the explicit manifest router or the file-system pages router, whether to add Tailwind CSS, and whether to seed the agent tooling. Adapters can be changed later in `vite.config.ts`. Moving from pages routing to manifest routing is an explicit ejection step because named shells, named or per-route middleware (pages apps have one root `_middleware.ts` for every page route), capabilities, constraints, and runtime agent configuration live in the manifest; see [Pages Router](/docs/routing#pages-router-auto-discovery).
+The CLI will ask you to choose an adapter (Node.js, Cloudflare Workers, or Vercel), whether to use the explicit manifest router or the file-system pages router, whether to add Tailwind CSS, and whether to seed the agent tooling. Adapters can be changed later in `vite.config.ts`. Moving from pages routing to manifest routing is an explicit ejection step because named shells, named or per-route middleware (pages apps on serverful adapters have one root `_middleware.ts` for every page route; pure static exports have no request runtime), capabilities, constraints, and runtime agent configuration live in the manifest; see [Pages Router](/docs/routing#pages-router-auto-discovery).
 
 For reproducible setup in CI, demos, or agents, pass the same choices as flags:
 

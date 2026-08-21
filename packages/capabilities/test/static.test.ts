@@ -20,6 +20,8 @@ describe("middleware export classification", () => {
     ["let value = 0; export const middleware = value++;", false],
     ["export const middleware = <unknown>1;", false],
     ["export let middleware;", false],
+    ["let middleware;\nmiddleware = () => {};\nexport { middleware };", true],
+    ["export let middleware;\nmiddleware = () => {};", true],
     ["export const middleware = (() => {}) as MiddlewareFn;", true],
     ["export const middleware = <MiddlewareFn>(() => {});", true],
     ["const candidate = {};\nexport { candidate as middleware };", false],
@@ -359,6 +361,25 @@ describe("capability static extraction", () => {
       { name: "notes", file: "./capabilities/notes.ts" },
     ]);
   });
+
+  it.each(["capabilities.trigger", 'capabilities["trigger"]', "capabilities!.trigger"])(
+    "keeps a registry read through runtime typeof %s opaque",
+    (query) => {
+      const source = `
+        const capabilities = {
+          get trigger() {
+            this.notes = "./capabilities/runtime.ts";
+            return 0;
+          },
+          notes: "./capabilities/original.ts",
+        };
+        typeof ${query};
+        export const app = defineApp({ capabilities, routes: [] });
+      `;
+
+      expect(extractCapabilityRegistrations(source)).toEqual([]);
+    },
+  );
 
   it("stops safely when manifest module aliases form a cycle", () => {
     const source = `
