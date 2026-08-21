@@ -35,6 +35,9 @@ avoids confusing a legitimate route whose first segment matches the base with
 an unstripped public URL. Pracht restores the configured base before
 `createContext()`, loaders, and API handlers receive the request, so
 application code still observes the public URL.
+In this mode the proxy must also redirect the public bare base (`/app` to
+`/app/`), because the stripped origin path could instead be a legitimate
+`/app` application route.
 
 ## Context factory
 

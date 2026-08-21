@@ -149,6 +149,9 @@ ambiguous by inspection: it could be a retained `/my-project/` base followed
 by route `/about`, or the already-stripped route `/my-project/about`. The flag
 selects the latter and lets the runtime restore the public base only for the
 URL exposed to `createContext()`, loaders, API handlers, and hydration state.
+The proxy must also redirect the public bare `/my-project` URL to
+`/my-project/`: after stripping, the origin cannot distinguish that URL from a
+legitimate route whose base-free path is `/my-project`.
 
 ### Features
 
@@ -1393,11 +1396,13 @@ serve Pracht's virtual client entries and companion endpoints under that base.
 to `/my-project/` and answering anything outside it with a 404), so local checks
 exercise the deployed shape.
 
-Production Node, Cloudflare, Netlify, and Vercel adapters apply that same
-query-preserving redirect before their static or ISG fast paths. Custom
-serverful adapters get it from `handlePrachtRequest()`. This canonical trailing
-slash is significant for the root document: without it, relative links such as
-`assets/app.js` would resolve at the origin root instead of under the base.
+Production Node deployments that retain the base, plus Cloudflare, Netlify,
+and Vercel adapters, apply that same query-preserving redirect before their
+static or ISG fast paths. When a trusted proxy strips the Node base, the proxy
+owns the redirect. Custom serverful adapters get it from
+`handlePrachtRequest()`. This canonical trailing slash is significant for the
+root document: without it, relative links such as `assets/app.js` would resolve
+at the origin root instead of under the base.
 
 Two things to know:
 

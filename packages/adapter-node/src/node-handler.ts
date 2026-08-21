@@ -162,7 +162,11 @@ export function createNodeRequestHandler<TContext = unknown>(
       }
       throw err;
     }
-    const baseRedirect = createBaseRedirectResponse(request);
+    // A stripped upstream pathname is a route path, not a public URL. Testing
+    // it for the bare deploy base would make a route equal to that base segment
+    // unreachable (`/app/app` arrives as `/app` behind an `/app/` mount). The
+    // proxy owns the public `/app` -> `/app/` redirect in this mode.
+    const baseRedirect = options.basePathStripped ? null : createBaseRedirectResponse(request);
     if (baseRedirect) {
       await writeWebResponse(res, baseRedirect);
       return;

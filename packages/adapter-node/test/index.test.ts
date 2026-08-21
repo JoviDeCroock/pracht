@@ -247,6 +247,43 @@ describe("createNodeRequestHandler", () => {
     ]);
   });
 
+  it("does not treat a proxy-stripped route equal to the base as the bare public base", async () => {
+    vi.stubEnv("BASE_URL", "/app/");
+    vi.resetModules();
+    const [core, adapter] = await Promise.all([
+      import("../../framework/src/index.ts"),
+      import("../src/node-handler.ts"),
+    ]);
+    const handler = adapter.createNodeRequestHandler({
+      app: core.defineApp({
+        routes: [core.route("/app", "./routes/app.tsx", { render: "ssr" })],
+      }),
+      basePathStripped: true,
+      registry: {
+        routeModules: {
+          "./routes/app.tsx": async () => ({ Component: () => "app route" }),
+        },
+      },
+    });
+    const server = createServer((req: IncomingMessage, res: ServerResponse) => {
+      void handler(req, res);
+    });
+    servers.add(server);
+    server.listen(0, "127.0.0.1");
+    await once(server, "listening");
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("Expected TCP server address");
+
+    // Public /app/app reaches the origin as /app after the proxy removes the
+    // deploy base. It must render the route instead of redirecting to /app/.
+    const response = await fetch(`http://127.0.0.1:${address.port}/app`, {
+      redirect: "manual",
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain("app route");
+  });
+
   it("warns for deployed Node handlers without a canonical origin", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const staticDir = makeTempDir();

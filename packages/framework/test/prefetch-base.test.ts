@@ -40,4 +40,34 @@ describe("prefetching under a deploy base", () => {
     expect(fetchSpy).toHaveBeenCalledTimes(1);
     expect(fetchSpy.mock.calls[0][0]).toBe("/my-project/pricing");
   });
+
+  it("applies the deploy base to root-absolute imperative route paths", async () => {
+    vi.stubEnv("BASE_URL", "/my-project/");
+    vi.resetModules();
+    history.replaceState(null, "", "/my-project/");
+    const [{ defineApp, resolveApp, route }, { prefetch, registerPrefetchTarget }] =
+      await Promise.all([import("../src/app.ts"), import("../src/prefetch-api.ts")]);
+    const fetchSpy = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ data: { ok: true } }), {
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+    const app = resolveApp(
+      defineApp({
+        routes: [
+          route("/products/:id", "./routes/product.tsx", {
+            id: "product",
+            render: "ssr",
+          }),
+        ],
+      }),
+    );
+    registerPrefetchTarget(app);
+
+    await prefetch("/products/42");
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(fetchSpy.mock.calls[0][0]).toBe("/my-project/products/42");
+  });
 });

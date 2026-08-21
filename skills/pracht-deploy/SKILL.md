@@ -70,6 +70,9 @@ If that proxy strips Vite's deploy base from the forwarded path, set
 route may legitimately begin with the same segment as the deploy base. The
 adapter restores the public base before `createContext()`, loaders, and API
 handlers receive the request.
+The proxy must also own the public bare-base redirect (`/app` to `/app/`) in
+this mode because the stripped origin cannot distinguish it from a legitimate
+base-free `/app` route.
 
 The Node adapter compresses responses by default (brotli/gzip negotiated via
 `Accept-Encoding`, streaming for dynamic bodies, an in-memory LRU for static

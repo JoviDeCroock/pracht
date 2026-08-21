@@ -86,7 +86,8 @@ a markdown summary (graph diff + verify + budgets) worth attaching to it.
   flag for confirmation).
 - If the proxy strips Vite's deploy base, confirm
   `nodeAdapter({ basePathStripped: true })`; application code should still
-  observe the public base in `request.url`.
+  observe the public base in `request.url`, and the proxy must own the public
+  bare-base redirect (`/app` to `/app/`).
 
 ### Cloudflare Workers (`@pracht/adapter-cloudflare`)
 

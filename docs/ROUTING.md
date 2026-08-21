@@ -376,6 +376,10 @@ await prefetch("/products/42");
 await prefetch({ route: "product", params: { id: "42" } }); // typed target
 ```
 
+Root-absolute strings passed to `prefetch()` are base-free route paths, so the
+first call also resolves under Vite's deploy base. Absolute and
+protocol-relative URLs keep their own origin/path semantics.
+
 `prefetch()` is a no-op during SSR, before the client router initializes, and
 for URLs that match no route.
 
@@ -584,6 +588,9 @@ API handlers, and `useLocation()` all observe the public URL. The explicit flag
 also keeps a route such as `/my-project/about` distinct: after the proxy removes
 the public base from `/my-project/my-project/about`, the route's first segment
 must not be stripped a second time.
+When the Node proxy strips the base, it also owns the public bare-base redirect
+from `/my-project` to `/my-project/`; the upstream server cannot distinguish
+that public URL from a legitimate base-free route named `/my-project`.
 
 Base matching compares canonical URL segments, so equivalent percent-escape
 spellings match (`/caf%C3%A9/` and `/caf%c3%a9/`). A configured base must not
