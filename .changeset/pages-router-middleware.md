@@ -141,7 +141,8 @@ control-flow statement precedes the exported app. Registry-object alias chains
 are now followed only when each binding has a single runtime consumer; directly
 or transitively mutated `const` registries stay opaque so browser projection,
 verification, and the server-only import guard cannot inspect a stale module
-map that differs from the live app.
+map that differs from the live app. Type-only `typeof` queries do not count as
+runtime consumers and therefore preserve safe static extraction.
 
 Generated pages-router guidance now qualifies root request middleware as a
 serverful-adapter feature, so pure static-export starters are not instructed to
@@ -153,7 +154,8 @@ also avoids reporting a valid root middleware as successful when another
 nested, directory-shaped, or unsupported middleware file blocks the build.
 Static-target detection follows the adapter selected in the pracht plugin,
 including aliased built-in and literal custom static adapters, without treating
-unused imports, comments, or strings as an active static target.
+unused imports, comments, or strings as an active static target. Exported
+`const` adapter aliases are followed as well.
 
 Manifest registry extraction now recognizes semicolonless aliases before async
 function declarations and no longer mistakes commas inside generic type

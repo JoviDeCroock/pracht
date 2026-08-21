@@ -348,6 +348,18 @@ describe("capability static extraction", () => {
     expect(extractCapabilityRegistrations(source)).toEqual([]);
   });
 
+  it("ignores type-only registry queries when checking for mutation", () => {
+    const source = `
+      const capabilities = { notes: "./capabilities/notes.ts" };
+      type CapabilityRegistry = typeof capabilities;
+      export const app = defineApp({ capabilities, routes: [] });
+    `;
+
+    expect(extractCapabilityRegistrations(source)).toEqual([
+      { name: "notes", file: "./capabilities/notes.ts" },
+    ]);
+  });
+
   it("stops safely when manifest module aliases form a cycle", () => {
     const source = `
       const first = second, second = first;

@@ -934,12 +934,24 @@ function hasSingleStaticBindingUse(
   for (const match of searchable.matchAll(identifier)) {
     if (match.index == null || match.index === declarationIndex) continue;
     if (isStaticPropertyName(searchable, match.index, match[0].length)) continue;
+    if (isTypeofOperand(searchable, match.index)) continue;
 
     uses += 1;
     if (uses > 1) return false;
   }
 
   return uses === 1;
+}
+
+/** `typeof` observes neither the registry object nor its mutable contents. */
+function isTypeofOperand(source: string, start: number): boolean {
+  let before = start - 1;
+  while (before >= 0 && /\s/.test(source[before])) before -= 1;
+
+  const keyword = "typeof";
+  const keywordStart = before - keyword.length + 1;
+  if (keywordStart < 0 || source.slice(keywordStart, before + 1) !== keyword) return false;
+  return keywordStart === 0 || !/[A-Za-z0-9_$]/.test(source[keywordStart - 1]);
 }
 
 function isStaticPropertyName(source: string, start: number, length: number): boolean {
