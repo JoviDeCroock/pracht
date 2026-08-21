@@ -429,6 +429,20 @@ function collectUnconditionallyEvaluatedStatement(
     collectUnconditionallyEvaluatedExpressions(statement.right, expressions);
     return;
   }
+
+  if (statement.type === "TryStatement") {
+    // Without a catch, every successful module evaluation entered the try
+    // body. A catch can turn an earlier throw into a successful path that
+    // skips later statements, so keep that body conservative. The finalizer
+    // is evaluated on every path that leaves either branch.
+    if (!statement.handler) {
+      const block = asStaticAnalysisNode(statement.block);
+      if (block) collectUnconditionallyEvaluatedStatement(block, expressions);
+    }
+    const finalizer = asStaticAnalysisNode(statement.finalizer);
+    if (finalizer) collectUnconditionallyEvaluatedStatement(finalizer, expressions);
+    return;
+  }
 }
 
 function collectClassEvaluationExpressions(
@@ -637,11 +651,31 @@ function collectAssignmentTargetEvaluation(
     node = asStaticAnalysisNode(node.expression);
   }
 
-  // Only member targets have subexpressions that are guaranteed to run while
-  // resolving the reference. Destructuring defaults remain conditional on the
-  // assigned value and therefore must not be marked unconditional here.
+  // Member targets and computed destructuring keys have subexpressions that
+  // run while resolving the assignment target. Destructuring defaults remain
+  // conditional on the assigned value and therefore only recurse into their
+  // left-hand target here.
   if (node?.type === "MemberExpression") {
     collectUnconditionallyEvaluatedExpressions(node, expressions);
+  } else if (node?.type === "ObjectPattern") {
+    for (const property of nodeArray(node.properties)) {
+      if (property.type === "RestElement") {
+        collectAssignmentTargetEvaluation(property.argument, expressions);
+        continue;
+      }
+      if (property.computed === true) {
+        collectUnconditionallyEvaluatedExpressions(property.key, expressions);
+      }
+      collectAssignmentTargetEvaluation(property.value, expressions);
+    }
+  } else if (node?.type === "ArrayPattern") {
+    for (const element of nodeArray(node.elements)) {
+      collectAssignmentTargetEvaluation(element, expressions);
+    }
+  } else if (node?.type === "AssignmentPattern") {
+    collectAssignmentTargetEvaluation(node.left, expressions);
+  } else if (node?.type === "RestElement") {
+    collectAssignmentTargetEvaluation(node.argument, expressions);
   }
 }
 
@@ -1383,9 +1417,9 @@ function hasSingleStaticBindingUse(
 }
 
 /**
- * Find ordinary function bodies where a simple parameter shadows the registry
- * binding. Those identifier occurrences refer to the parameter, not the
- * top-level object whose use count guards static inlining.
+ * Find function bodies where a simple parameter shadows the registry binding.
+ * Those identifier occurrences refer to the parameter, not the top-level
+ * object whose use count guards static inlining.
  */
 function findSimpleParameterShadowRanges(
   source: string,
@@ -1439,7 +1473,84 @@ function findSimpleParameterShadowRanges(
     ranges.push({ start: parametersStart, end: bodyEnd + 1 });
   }
 
+  for (let arrow = source.indexOf("=>"); arrow !== -1; arrow = source.indexOf("=>", arrow + 2)) {
+    let parameterEnd = arrow - 1;
+    while (parameterEnd >= 0 && /\s/.test(source[parameterEnd])) parameterEnd -= 1;
+
+    let parameterStart = parameterEnd;
+    let parameters: string;
+    if (source[parameterEnd] === ")") {
+      parameterStart = findMatchingOpeningBrace(source, parameterEnd, "(", ")");
+      if (parameterStart === -1) continue;
+      parameters = source.slice(parameterStart + 1, parameterEnd);
+    } else {
+      while (parameterStart >= 0 && /[A-Za-z0-9_$]/.test(source[parameterStart])) {
+        parameterStart -= 1;
+      }
+      parameterStart += 1;
+      parameters = source.slice(parameterStart, parameterEnd + 1);
+    }
+    if (!parameterListBindsSimpleName(parameters, name)) continue;
+
+    const bodyStart = skipInsignificant(source, arrow + 2);
+    const bodyEnd =
+      source[bodyStart] === "{"
+        ? findMatchingBrace(source, bodyStart, "{", "}")
+        : findArrowExpressionEnd(source, bodyStart);
+    if (bodyEnd === -1) continue;
+    ranges.push({ start: parameterStart, end: bodyEnd + 1 });
+  }
+
   return ranges;
+}
+
+function findMatchingOpeningBrace(
+  source: string,
+  start: number,
+  open: string,
+  close: string,
+): number {
+  let depth = 0;
+  for (let index = start; index >= 0; index -= 1) {
+    if (source[index] === close) depth += 1;
+    if (source[index] === open) {
+      depth -= 1;
+      if (depth === 0) return index;
+    }
+  }
+  return -1;
+}
+
+function findArrowExpressionEnd(source: string, start: number): number {
+  let braces = 0;
+  let brackets = 0;
+  let parentheses = 0;
+
+  for (let index = start; index < source.length; index += 1) {
+    const char = source[index];
+    const atTopLevel = braces === 0 && brackets === 0 && parentheses === 0;
+    if (atTopLevel && (char === "," || char === ";" || char === "}" || char === "]")) {
+      return index - 1;
+    }
+    if (atTopLevel && (char === "\n" || char === "\r")) {
+      const next = skipInsignificant(source, index);
+      if (startsStaticStatement(source.slice(next), { insideTypeAssertion: false })) {
+        return index - 1;
+      }
+    }
+
+    if (char === "{") braces += 1;
+    else if (char === "}") braces -= 1;
+    else if (char === "[") brackets += 1;
+    else if (char === "]") brackets -= 1;
+    else if (char === "(") parentheses += 1;
+    else if (char === ")") {
+      if (parentheses === 0) return index - 1;
+      parentheses -= 1;
+    }
+  }
+
+  return source.length - 1;
 }
 
 function parameterListBindsSimpleName(parameters: string, name: string): boolean {
@@ -1673,7 +1784,15 @@ function startsStaticStatement(source: string, options: { insideTypeAssertion: b
 }
 
 function scanModuleRegistryProperties(block: string): Map<string, string> {
+  return scanModuleRegistryPropertyEntries(block).properties;
+}
+
+function scanModuleRegistryPropertyEntries(block: string): {
+  properties: Map<string, string>;
+  clearsPrior: boolean;
+} {
   const properties = new Map<string, string>();
+  let clearsPrior = false;
   let index = 0;
 
   while (index < block.length) {
@@ -1681,12 +1800,37 @@ function scanModuleRegistryProperties(block: string): Map<string, string> {
     if (start >= block.length) break;
     const end = skipToTopLevelComma(block, start);
     const propertySource = block.slice(start, end);
+    const spreadStart = skipInsignificant(propertySource, 0);
+    if (propertySource.startsWith("...", spreadStart)) {
+      const expression = unwrapTransparentRegistryExpression(propertySource.slice(spreadStart + 3));
+      const objectStart = skipInsignificant(expression, 0);
+      const objectEnd =
+        expression[objectStart] === "{" ? findMatchingBrace(expression, objectStart, "{", "}") : -1;
+      if (objectEnd !== -1 && hasTransparentRegistryExpressionTail(expression, objectEnd + 1)) {
+        const spread = scanModuleRegistryPropertyEntries(
+          expression.slice(objectStart + 1, objectEnd),
+        );
+        if (spread.clearsPrior) {
+          properties.clear();
+          clearsPrior = true;
+        }
+        for (const [name, value] of spread.properties) properties.set(name, value);
+      } else {
+        properties.clear();
+        clearsPrior = true;
+      }
+      if (end >= block.length) break;
+      index = end + 1;
+      continue;
+    }
+
     const parsed = scanTopLevelPropertyEntries(propertySource);
     if (parsed.truncated) {
       // An unresolved spread or computed property can replace any registration
       // that appeared before it. Forget those entries; explicit properties
       // after the opaque write can establish their own final values again.
       properties.clear();
+      clearsPrior = true;
     }
     const parsedProperties = parsed.properties;
     for (const [name, expression] of parsedProperties) {
@@ -1707,7 +1851,7 @@ function scanModuleRegistryProperties(block: string): Map<string, string> {
     index = end + 1;
   }
 
-  return properties;
+  return { properties, clearsPrior };
 }
 
 function extractModuleRefPath(expression: string): string | null {

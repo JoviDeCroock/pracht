@@ -389,6 +389,20 @@ describe("scanPagesDirectory", () => {
     expect(() => scanPagesDirectory(pagesDir)).toThrow(/app shell.*REVALIDATE/s);
   });
 
+  it("ignores nested _app files instead of treating them as shells or routes", () => {
+    const pagesDir = makeTempPagesDir();
+    mkdirSync(join(pagesDir, "blog"), { recursive: true });
+    writeFileSync(join(pagesDir, "index.tsx"), "export function Component() { return null; }\n");
+    writeFileSync(join(pagesDir, "blog", "_app.tsx"), "export const REVALIDATE = 60;\n");
+
+    const pages = scanPagesDirectory(pagesDir);
+    const source = generatePagesManifestSource(pages, { pagesDir });
+
+    expect(pages.map((page) => page.routePath)).toEqual(["/"]);
+    expect(source).not.toContain("blog/_app.tsx");
+    expect(source).not.toContain("shells:");
+  });
+
   it("rejects REVALIDATE on the not-found page", () => {
     const pagesDir = makeTempPagesDir();
     writeFileSync(join(pagesDir, "index.tsx"), "export function Component() { return null; }\n");
@@ -840,7 +854,8 @@ describe("createPrachtRegistryModuleSource", () => {
 
     expect(source).toContain("/src/pages/**/*.{ts,tsx,js,jsx,md,mdx}");
     expect(source).toContain("/src/pages/**/*.tsrx");
-    expect(source).toContain("/src/pages/**/_app.tsrx");
+    expect(source).toContain("/src/pages/_app.tsrx");
+    expect(source).not.toContain("/src/pages/**/_app");
     expect(source).toContain(
       'import.meta.glob(["/src/api/**/*.{ts,js,tsx,jsx}","!/src/api/**/*.d.ts"])',
     );
@@ -855,7 +870,8 @@ describe("createPrachtRegistryModuleSource", () => {
     });
 
     expect(source).toContain("/src/pages/**/*.{tsrx,vue}");
-    expect(source).toContain("/src/pages/**/_app.{tsrx,vue}");
+    expect(source).toContain("/src/pages/_app.{tsrx,vue}");
+    expect(source).not.toContain("/src/pages/**/_app");
   });
 
   it("keeps compatibility TSRX client module ids bare without configuration", () => {

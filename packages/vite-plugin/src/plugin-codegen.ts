@@ -768,10 +768,10 @@ export function createPrachtRegistryModuleSource(options: PrachtPluginOptions = 
   const additionalRouteGlob = `${isPagesMode ? resolved.pagesDir : resolved.routesDir}/**/*.${extensionGlob(bareRouteExtensions)}`;
 
   const shellGlob = isPagesMode
-    ? `${resolved.pagesDir}/**/_app.{ts,tsx,js,jsx}`
+    ? `${resolved.pagesDir}/_app.{ts,tsx,js,jsx}`
     : `${resolved.shellsDir}/**/*.{ts,tsx,js,jsx,md,mdx}`;
   const additionalShellGlob = isPagesMode
-    ? `${resolved.pagesDir}/**/_app.${extensionGlob(bareRouteExtensions)}`
+    ? `${resolved.pagesDir}/_app.${extensionGlob(bareRouteExtensions)}`
     : `${resolved.shellsDir}/**/*.${extensionGlob(bareRouteExtensions)}`;
 
   return [

@@ -41,6 +41,22 @@ describe("middleware export classification", () => {
       false,
     ],
     [
+      "let middleware = () => {};\ntry { middleware = 1; } finally {}\nexport { middleware };",
+      false,
+    ],
+    [
+      "let middleware = () => {};\ntry {} finally { middleware = 1; }\nexport { middleware };",
+      false,
+    ],
+    [
+      "let middleware = () => {}, value;\n({ [middleware = 1]: value } = {});\nexport { middleware };",
+      false,
+    ],
+    [
+      "let middleware = () => {}, target = {};\n[target[middleware = 1]] = [0];\nexport { middleware };",
+      false,
+    ],
+    [
       "let middleware = () => {};\nclass Setup { value = (middleware = 1); method() { middleware = 1; } }\nexport { middleware };",
       true,
     ],
@@ -186,6 +202,24 @@ describe("capability static extraction", () => {
     `;
 
     expect(extractCapabilityRegistrations(source)).toEqual([
+      { name: "after", file: "./capabilities/after.ts" },
+    ]);
+  });
+
+  it("preserves registrations across statically resolvable object spreads", () => {
+    const source = `
+      export const app = defineApp({
+        capabilities: {
+          before: "./capabilities/before.ts",
+          ...{},
+          ...{ before: "./capabilities/replaced.ts", after: "./capabilities/after.ts" },
+        },
+        routes: [],
+      });
+    `;
+
+    expect(extractCapabilityRegistrations(source)).toEqual([
+      { name: "before", file: "./capabilities/replaced.ts" },
       { name: "after", file: "./capabilities/after.ts" },
     ]);
   });
@@ -435,6 +469,9 @@ describe("capability static extraction", () => {
         inspect(capabilities) { return capabilities; },
       };`,
     ],
+    ["parenthesized arrow function", "const inspect = (capabilities) => capabilities;"],
+    ["bare-parameter arrow function", "const inspect = capabilities => capabilities;"],
+    ["block-bodied arrow function", "const inspect = (capabilities) => { return capabilities; };"],
   ])("ignores uses shadowed by an %s when checking a registry", (_description, declaration) => {
     const source = `
       const capabilities = { notes: "./capabilities/notes.ts" };
