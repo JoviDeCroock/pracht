@@ -765,7 +765,7 @@ Auto-discovery replaces the manifest, and several features are registered
 | --- | --- |
 | Render + hydration modes, dynamic and catch-all routes, `getStaticPaths`, API routes | ✅ (`RENDER_MODE` / `HYDRATION` exports) |
 | Shells | one, `_app.tsx` — no named shells or per-route assignment |
-| Middleware | one, `_middleware.ts` at the pages root, applied to every page route — no nested or per-route middleware |
+| Middleware | on serverful adapters, one `_middleware.ts` at the pages root, applied to every page route — no nested or per-route middleware; pure static exports have no request runtime |
 | [Capabilities](CAPABILITIES.md) | ❌ — and therefore no capability HTTP endpoints, no WebMCP, no remote MCP, no `pracht eval` |
 | `defineApp({ constraints })`, `agents` | ❌ |
 
@@ -876,8 +876,9 @@ when adopting the format-agnostic configuration.
 
 ### Middleware via `_middleware.ts`
 
-A root-level `pages/_middleware.ts` exports the same `MiddlewareFn` contract
-as [manifest middleware](#middleware) and runs on every page route:
+With a serverful adapter, a root-level `pages/_middleware.ts` exports the same
+`MiddlewareFn` contract as [manifest middleware](#middleware) and runs on every
+page route. Pure static exports cannot use request middleware:
 
 ```ts
 // src/pages/_middleware.ts

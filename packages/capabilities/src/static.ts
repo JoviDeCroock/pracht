@@ -65,7 +65,11 @@ export function hasNamedMiddlewareExport(program: unknown): boolean {
   const root = asStaticAnalysisNode(program);
   if (!root) return false;
 
-  const { knownNonCallableBindings, runtimeBindings } = collectTopLevelBindingKinds(root);
+  const reassignedBindings = collectTopLevelReassignedBindings(root);
+  const { knownNonCallableBindings, runtimeBindings } = collectTopLevelBindingKinds(
+    root,
+    reassignedBindings,
+  );
 
   for (const statement of nodeArray(root.body)) {
     if (statement.type === "ExportAllDeclaration") {
@@ -91,7 +95,9 @@ export function hasNamedMiddlewareExport(program: unknown): boolean {
         );
         if (
           knownNonCallableBindings.has("middleware") ||
-          (initializer !== UNRESOLVED_STATIC_BINDING && isStaticallyNonCallable(initializer))
+          (initializer !== UNRESOLVED_STATIC_BINDING &&
+            isStaticallyNonCallable(initializer) &&
+            !reassignedBindings.has("middleware"))
         ) {
           continue;
         }
@@ -122,7 +128,10 @@ export function hasNamedMiddlewareExport(program: unknown): boolean {
   return false;
 }
 
-function collectTopLevelBindingKinds(program: StaticAnalysisNode): {
+function collectTopLevelBindingKinds(
+  program: StaticAnalysisNode,
+  reassignedBindings: ReadonlySet<string>,
+): {
   knownNonCallableBindings: Set<string>;
   runtimeBindings: Set<string>;
   typeOnlyBindings: Set<string>;
@@ -190,7 +199,7 @@ function collectTopLevelBindingKinds(program: StaticAnalysisNode): {
           const initializer = resolveStaticBindingInitializer(declarator.id, declarator.init, name);
           if (initializer !== UNRESOLVED_STATIC_BINDING) {
             bindingInitializers.set(name, initializer);
-            if (isStaticallyNonCallable(initializer)) {
+            if (isStaticallyNonCallable(initializer) && !reassignedBindings.has(name)) {
               knownNonCallableBindings.add(name);
             }
           }
@@ -243,6 +252,50 @@ function collectTopLevelBindingKinds(program: StaticAnalysisNode): {
   }
 
   return { knownNonCallableBindings, runtimeBindings, typeOnlyBindings };
+}
+
+/**
+ * A top-level assignment can replace an initially non-callable `let`/`var`
+ * before the module is imported. Keep those bindings unresolved and let the
+ * runtime contract validate the final value instead of rejecting a working
+ * export based only on its declaration initializer.
+ */
+function collectTopLevelReassignedBindings(program: StaticAnalysisNode): Set<string> {
+  const names = new Set<string>();
+
+  for (const statement of nodeArray(program.body)) {
+    collectTopLevelAssignmentNames(statement, names);
+  }
+
+  return names;
+}
+
+function collectTopLevelAssignmentNames(value: unknown, names: Set<string>): void {
+  const node = asStaticAnalysisNode(value);
+  if (!node) return;
+
+  if (node.type === "AssignmentExpression") {
+    for (const name of collectStaticBindingNames(node.left)) names.add(name);
+  }
+
+  if (
+    node.type === "FunctionDeclaration" ||
+    node.type === "ArrowFunctionExpression" ||
+    node.type === "FunctionExpression" ||
+    node.type === "ClassDeclaration" ||
+    node.type === "ClassExpression"
+  ) {
+    return;
+  }
+
+  for (const [key, child] of Object.entries(node)) {
+    if (key === "type" || key === "loc" || key === "span") continue;
+    if (Array.isArray(child)) {
+      for (const item of child) collectTopLevelAssignmentNames(item, names);
+    } else {
+      collectTopLevelAssignmentNames(child, names);
+    }
+  }
 }
 
 function getStaticReferencedBindingName(value: unknown): string | null {
@@ -934,7 +987,7 @@ function hasSingleStaticBindingUse(
   for (const match of searchable.matchAll(identifier)) {
     if (match.index == null || match.index === declarationIndex) continue;
     if (isStaticPropertyName(searchable, match.index, match[0].length)) continue;
-    if (isTypeofOperand(searchable, match.index)) continue;
+    if (isTypeofOperand(searchable, match.index, match[0].length)) continue;
 
     uses += 1;
     if (uses > 1) return false;
@@ -943,15 +996,24 @@ function hasSingleStaticBindingUse(
   return uses === 1;
 }
 
-/** `typeof` observes neither the registry object nor its mutable contents. */
-function isTypeofOperand(source: string, start: number): boolean {
+/** A bare `typeof registry` observes neither the object nor its mutable contents. */
+function isTypeofOperand(source: string, start: number, length: number): boolean {
   let before = start - 1;
   while (before >= 0 && /\s/.test(source[before])) before -= 1;
 
   const keyword = "typeof";
   const keywordStart = before - keyword.length + 1;
   if (keywordStart < 0 || source.slice(keywordStart, before + 1) !== keyword) return false;
-  return keywordStart === 0 || !/[A-Za-z0-9_$]/.test(source[keywordStart - 1]);
+  if (keywordStart > 0 && /[A-Za-z0-9_$]/.test(source[keywordStart - 1])) return false;
+
+  // Runtime member access happens before `typeof` and can invoke an accessor
+  // that mutates the registry. TypeScript non-null assertions are transparent
+  // at runtime, so look through them before deciding this is a harmless query.
+  let after = skipInsignificant(source, start + length);
+  while (source[after] === "!" && source[after + 1] !== "=") {
+    after = skipInsignificant(source, after + 1);
+  }
+  return source[after] !== "." && source[after] !== "[" && !source.startsWith("?.", after);
 }
 
 function isStaticPropertyName(source: string, start: number, length: number): boolean {

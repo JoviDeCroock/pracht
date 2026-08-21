@@ -88,11 +88,13 @@ Same render modes, same adapters — just let the filesystem drive.
 
 The manifest is where shells, middleware, capabilities, constraints, and the
 agent surface are registered, so the pages router keeps only file-shaped
-versions of them: one `_app.tsx` shell, one root `_middleware.ts` applied to
-every page route (no nested or per-route middleware), no capabilities (and
-therefore no capability endpoints, WebMCP, remote MCP, or `pracht eval`), no
-`defineApp({ constraints })`, no `agents`. Pick it for content-shaped sites;
-pick the manifest when you need per-route auth or the agent surface. See
+versions of them: one `_app.tsx` shell and, on serverful adapters, one root
+`_middleware.ts` applied to every page route (no nested or per-route
+middleware). Pure static exports have no request runtime. There are no
+capabilities (and therefore no capability endpoints, WebMCP, remote MCP, or
+`pracht eval`), no `defineApp({ constraints })`, no `agents`. Pick it for
+content-shaped sites; pick the manifest when you need per-route auth or the
+agent surface. See
 [docs/ROUTING.md](docs/ROUTING.md#what-the-pages-router-does-not-have).
 
 ## Create an app

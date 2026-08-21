@@ -253,7 +253,7 @@ Auto-discovery replaces the manifest — and several features are registered *th
 | --- | --- |
 | Render and hydration modes, dynamic/catch-all routes, `getStaticPaths`, API routes | ✅ via `RENDER_MODE` / `HYDRATION` / `REVALIDATE` exports |
 | Shells | one `_app.tsx`; no named shells or per-route assignment |
-| [Route middleware](/docs/middleware) | one root `_middleware.ts`, applied to every page route; no nested or per-route middleware — API handlers use higher-order functions |
+| [Route middleware](/docs/middleware) | on serverful adapters, one root `_middleware.ts`, applied to every page route; no nested or per-route middleware — pure static exports have no request runtime, and API handlers use higher-order functions |
 | [Capabilities](/docs/capabilities) | ❌ no capability HTTP endpoints, [WebMCP](/docs/agents), [remote MCP](/docs/remote-mcp), or `pracht eval` |
 | [`defineApp({ constraints })`](/docs/agent-workflow), [`agents`](/docs/agent-trust) (Web Bot Auth) | ❌ |
 
@@ -343,7 +343,7 @@ compatibility and retain Pracht's ambient module declaration.
 
 ### Middleware via `_middleware.ts`
 
-A root-level `pages/_middleware.ts` exports the same [`MiddlewareFn` contract](/docs/middleware) as manifest middleware and runs on every page route:
+With a serverful adapter, a root-level `pages/_middleware.ts` exports the same [`MiddlewareFn` contract](/docs/middleware) as manifest middleware and runs on every page route. Pure static exports cannot use request middleware:
 
 ```ts [src/pages/_middleware.ts]
 import { redirect, type MiddlewareFn } from "@pracht/core";
