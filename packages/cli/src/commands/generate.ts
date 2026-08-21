@@ -614,8 +614,15 @@ function usesStaticAdapter(project: Pick<ProjectConfig, "rawConfig">): boolean {
         }
       }
 
-      if (statement.type === "VariableDeclaration" && statement.kind === "const") {
-        for (const declaration of configAstNodes(statement.declarations)) {
+      const declarationStatement =
+        statement.type === "ExportNamedDeclaration"
+          ? asConfigAstNode(statement.declaration)
+          : statement;
+      if (
+        declarationStatement?.type === "VariableDeclaration" &&
+        declarationStatement.kind === "const"
+      ) {
+        for (const declaration of configAstNodes(declarationStatement.declarations)) {
           const name = configPropertyName(declaration.id);
           if (name) bindings.set(name, declaration.init);
         }
