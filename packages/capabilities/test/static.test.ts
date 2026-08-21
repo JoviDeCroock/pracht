@@ -137,6 +137,8 @@ describe("middleware export classification", () => {
     ["type Contract = () => void;\nexport { Contract as middleware };", false],
     ["export { missing as middleware };", false],
     ['export { middleware } from "./middleware.ts";', true],
+    ['export * from "./helpers.ts";\nexport const middleware = 1;', false],
+    ['export const middleware = 1;\nexport * from "./helpers.ts";', false],
   ])("classifies %j as %s", (source, expected) => {
     expect(hasNamedMiddlewareExport(parseAst(source, { lang: "ts" }))).toBe(expected);
   });
@@ -481,6 +483,49 @@ describe("capability static extraction", () => {
     expect(extractCapabilityRegistrations(source)).toEqual([]);
   });
 
+  it("keeps a registry used inside a template interpolation opaque", () => {
+    const source = [
+      'const capabilities = { notes: "./capabilities/original.ts" };',
+      "const marker = `${mutate(capabilities)}`;",
+      "export const app = defineApp({ capabilities, routes: [] });",
+    ].join("\n");
+
+    expect(extractCapabilityRegistrations(source)).toEqual([]);
+  });
+
+  it("ignores registry lookalikes in template literal text", () => {
+    const source = [
+      'const capabilities = { notes: "./capabilities/notes.ts" };',
+      "const marker = `capabilities`;",
+      "export const app = defineApp({ capabilities, routes: [] });",
+    ].join("\n");
+
+    expect(extractCapabilityRegistrations(source)).toEqual([
+      { name: "notes", file: "./capabilities/notes.ts" },
+    ]);
+  });
+
+  it("does not treat a TypeScript function-type arrow as a runtime shadowing scope", () => {
+    const source = `
+      const capabilities = { notes: "./capabilities/original.ts" };
+      const result: (value: unknown) => unknown = mutate(capabilities);
+      export const app = defineApp({ capabilities, routes: [] });
+    `;
+
+    expect(extractCapabilityRegistrations(source)).toEqual([]);
+  });
+
+  it("ends a semicolonless expression-bodied arrow at an identifier-led statement", () => {
+    const source = `
+      const capabilities = { notes: "./capabilities/original.ts" };
+      const inspect = (capabilities) => capabilities
+      mutate(capabilities)
+      export const app = defineApp({ capabilities, routes: [] });
+    `;
+
+    expect(extractCapabilityRegistrations(source)).toEqual([]);
+  });
+
   it.each([
     [
       "ordinary function",
@@ -533,12 +578,73 @@ describe("capability static extraction", () => {
     ]);
   });
 
+  it.each([
+    [
+      "ordinary function",
+      `function inspect() {
+        if (enabled) var capabilities = { helper: true };
+        return capabilities;
+      }`,
+    ],
+    [
+      "ordinary function with a nested catch",
+      `function inspect() {
+        try {
+          run();
+        } catch (error) {
+          var capabilities = { helper: true };
+        }
+        return capabilities;
+      }`,
+    ],
+    [
+      "object method",
+      `const helper = {
+        inspect() {
+          if (enabled) var capabilities = { helper: true };
+          return capabilities;
+        },
+      };`,
+    ],
+    [
+      "block-bodied arrow function",
+      `const inspect = () => {
+        if (enabled) var capabilities = { helper: true };
+        return capabilities;
+      };`,
+    ],
+  ])("ignores uses shadowed by a function-scoped var in an %s", (_description, declaration) => {
+    const source = `
+      const capabilities = { notes: "./capabilities/notes.ts" };
+      ${declaration}
+      export const app = defineApp({ capabilities, routes: [] });
+    `;
+
+    expect(extractCapabilityRegistrations(source)).toEqual([
+      { name: "notes", file: "./capabilities/notes.ts" },
+    ]);
+  });
+
   it("keeps a registry used from a function body opaque", () => {
     const source = `
       const capabilities = { notes: "./capabilities/notes.ts" };
       function inspect(value) {
         return value && capabilities;
       }
+      export const app = defineApp({ capabilities, routes: [] });
+    `;
+
+    expect(extractCapabilityRegistrations(source)).toEqual([]);
+  });
+
+  it("keeps a registry used from an object method opaque", () => {
+    const source = `
+      const capabilities = { notes: "./capabilities/notes.ts" };
+      const helper = {
+        inspect() {
+          return capabilities;
+        },
+      };
       export const app = defineApp({ capabilities, routes: [] });
     `;
 

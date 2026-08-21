@@ -254,3 +254,11 @@ lexical bindings that shadow manifest registries or exported middleware names.
 Static-target detection also follows immutable aliases of the Pracht and static
 adapter factories, preventing request-middleware scaffolding for aliased pure
 static configurations.
+
+Middleware export validation now honors explicit-over-star ESM precedence, so
+a known non-callable `middleware` export cannot be rescued by an unrelated star
+re-export. Manifest registry use tracking preserves executable template
+interpolations, distinguishes TypeScript function-type arrows and semicolonless
+statement boundaries from runtime arrow scopes, and respects function-scoped
+`var` shadows. These cases now fail closed without hiding safe static
+registrations.
