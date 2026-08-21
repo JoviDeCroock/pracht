@@ -81,15 +81,19 @@ webhooks naming them are `skipped` on Node/Cloudflare (nothing to refresh).
 
 ## Step 3: The revalidation webhook
 
-All adapters expose `POST /__pracht/revalidate` (`PRACHT_REVALIDATE_ENDPOINT`
-from `@pracht/core`):
+All adapters expose `POST <base>/__pracht/revalidate`
+(`PRACHT_REVALIDATE_ENDPOINT` from `@pracht/core`). For example, an app with
+`base: "/app/"` uses:
 
 ```sh
-curl -X POST https://example.com/__pracht/revalidate \
+curl -X POST https://example.com/app/__pracht/revalidate \
   -H "Authorization: Bearer $PRACHT_REVALIDATE_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"paths":["/pricing"]}'
 ```
+
+At the default `base: "/"`, omit `/app`. Keep request-body paths base-free;
+they identify manifest routes rather than public deployment URLs.
 
 - Auth: `PRACHT_REVALIDATE_TOKEN` env var; fails closed with `401` when unset
   or wrong. Providers that can't send bearer auth may use the

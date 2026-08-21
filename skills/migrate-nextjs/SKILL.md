@@ -452,13 +452,13 @@ async function createPost(formData: FormData) {
 }
 
 // Pracht — API route handler
-import type { ApiRouteArgs } from "@pracht/core";
+import { withBase, type ApiRouteArgs } from "@pracht/core";
 
 export async function POST({ request }: ApiRouteArgs) {
   const form = await request.formData();
   await db.insert({ title: form.get("title") });
   // revalidatePath("/posts") equivalent: regenerate the ISG page on demand
-  await fetch(new URL("/__pracht/revalidate", request.url), {
+  await fetch(new URL(withBase("/__pracht/revalidate"), request.url), {
     method: "POST",
     headers: {
       authorization: `Bearer ${process.env.PRACHT_REVALIDATE_TOKEN}`,
@@ -468,7 +468,7 @@ export async function POST({ request }: ApiRouteArgs) {
   });
   return new Response(null, {
     status: 303,
-    headers: { location: "/posts" },
+    headers: { location: withBase("/posts") },
   });
 }
 ```

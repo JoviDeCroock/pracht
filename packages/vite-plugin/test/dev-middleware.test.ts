@@ -101,6 +101,20 @@ describe("development CSS discovery", () => {
     );
   });
 
+  it("serves discovered styles under the configured deploy base", () => {
+    const html = "<html><head></head><body></body></html>";
+
+    expect(
+      injectDevCssLinks(
+        html,
+        {
+          route: ["/src/routes/about.css"],
+        },
+        "/app/",
+      ),
+    ).toContain('href="/app/src/routes/about.css"');
+  });
+
   it("matches adapter-owned dev requests after stripping the deploy base", async () => {
     const routeEntry = moduleNode("/src/routes/about.tsx", "js", [
       moduleNode("/src/routes/about.css", "css"),
@@ -144,12 +158,12 @@ describe("development CSS discovery", () => {
     const html = "<html><head></head><body></body></html>";
     await expect(
       injectDevCssForPath(server, "/app/about?ref=dev", html, { basePathRetained: true }),
-    ).resolves.toContain('href="/src/routes/about.css"');
+    ).resolves.toContain('href="/app/src/routes/about.css"');
     await expect(
       injectDevCssForPath(server, "/outside", html, { basePathRetained: true }),
     ).resolves.toBe(html);
     await expect(injectDevCssForPath(server, "/about", html)).resolves.toContain(
-      'href="/src/routes/about.css"',
+      'href="/app/src/routes/about.css"',
     );
     expect(matchedPathnames).toEqual(["/about", "/about"]);
   });

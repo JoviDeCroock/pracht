@@ -419,10 +419,20 @@ export function collectDevCssUrls(entry: EnvironmentModuleNode | undefined): str
   return [...urls];
 }
 
-export function injectDevCssLinks(html: string, manifest: Record<string, string[]>): string {
+export function injectDevCssLinks(
+  html: string,
+  manifest: Record<string, string[]>,
+  base = "/",
+): string {
   if (!html.includes("</head>")) return html;
 
-  const urls = [...new Set(Object.values(manifest).flat())];
+  const urls = [
+    ...new Set(
+      Object.values(manifest)
+        .flat()
+        .map((url) => (base === "/" || !url.startsWith("/") ? url : `${base}${url.slice(1)}`)),
+    ),
+  ];
   const tags = urls
     .map((url) => escapeHtmlAttribute(url))
     .filter((escapedUrl) => !html.includes(`href="${escapedUrl}"`))
@@ -440,7 +450,7 @@ export async function injectDevCssForPath(
 ): Promise<string> {
   const context = await resolveDevCssContextForPath(server, path, options);
   const manifest = await createDevCssManifest(server, context);
-  return injectDevCssLinks(html, manifest);
+  return injectDevCssLinks(html, manifest, server.config.base || "/");
 }
 
 async function resolveDevCssContextForPath(
@@ -542,7 +552,7 @@ export function createDevCssInjectionMiddleware(server: ViteDevServer): Connect.
           const context = await contextPromise;
           const manifest = context ? await createDevCssManifest(server, context) : null;
           const html = manifest
-            ? injectDevCssLinks(body.toString("utf-8"), manifest)
+            ? injectDevCssLinks(body.toString("utf-8"), manifest, server.config.base || "/")
             : body.toString("utf-8");
           originalEnd(html, done);
         } catch {

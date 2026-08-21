@@ -166,14 +166,18 @@ import { webhookRevalidate } from "@pracht/core";
 }
 ```
 
-An external system POSTs to the framework endpoint to trigger regeneration:
+An external system POSTs to the framework endpoint under the configured Vite
+`base` to trigger regeneration. For example, an app with `base: "/app/"` uses:
 
 ```sh
-curl -X POST https://example.com/__pracht/revalidate \
+curl -X POST https://example.com/app/__pracht/revalidate \
   -H "Authorization: Bearer $PRACHT_REVALIDATE_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"paths":["/pricing"]}'
 ```
+
+At the default `base: "/"`, omit `/app`. Request-body paths remain base-free
+manifest route paths.
 
 Set `PRACHT_REVALIDATE_TOKEN` in the runtime environment. The endpoint fails
 closed with `401` when the token is unset or incorrect. Pracht also accepts the

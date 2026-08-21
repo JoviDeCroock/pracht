@@ -1525,14 +1525,18 @@ route("/pricing", () => import("./routes/pricing.tsx"), {
 });
 ```
 
-All built-in adapters expose the same endpoint:
+All built-in adapters expose the same endpoint under the configured Vite
+`base`. For example, an app with `base: "/app/"` uses:
 
 ```sh
-curl -X POST https://example.com/__pracht/revalidate \
+curl -X POST https://example.com/app/__pracht/revalidate \
   -H "Authorization: Bearer $PRACHT_REVALIDATE_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"paths":["/pricing"]}'
 ```
+
+At the default `base: "/"`, omit `/app`. The `paths` in the request body are
+always base-free manifest route paths.
 
 The body must include `paths` as an array of at most 64 concrete URL paths;
 larger batches are rejected with `400`. The endpoint returns JSON with
