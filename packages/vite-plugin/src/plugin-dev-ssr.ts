@@ -335,11 +335,14 @@ export async function createDevCssManifest(
       app: ResolvedPrachtApp,
       pathname: string,
     ) => { route: ResolvedRoute } | undefined;
-    pathname: string;
+    pathname: string | null;
     registry: ModuleRegistry;
   },
 ): Promise<Record<string, string[]>> {
-  const route = options.matchAppRoute(options.app, options.pathname)?.route ?? options.app.notFound;
+  const route =
+    options.pathname === null
+      ? undefined
+      : (options.matchAppRoute(options.app, options.pathname)?.route ?? options.app.notFound);
   if (!route) return {};
 
   const manifest: Record<string, string[]> = {};
@@ -433,8 +436,9 @@ export async function injectDevCssForPath(
   server: ViteDevServer,
   path: string,
   html: string,
+  options: { basePathRetained?: boolean } = {},
 ): Promise<string> {
-  const context = await resolveDevCssContextForPath(server, path);
+  const context = await resolveDevCssContextForPath(server, path, options);
   const manifest = await createDevCssManifest(server, context);
   return injectDevCssLinks(html, manifest);
 }
@@ -442,12 +446,19 @@ export async function injectDevCssForPath(
 async function resolveDevCssContextForPath(
   server: ViteDevServer,
   path: string,
+  options: { basePathRetained?: boolean } = {},
 ): Promise<Parameters<typeof createDevCssManifest>[1]> {
   const [framework, serverMod] = await Promise.all([
     server.ssrLoadModule("@pracht/core/server"),
     server.ssrLoadModule(PRACHT_DEV_MODULE_ID),
   ]);
-  const pathname = new URL(path, "http://localhost").pathname;
+  const publicPathname = new URL(path, "http://localhost").pathname;
+  // Vite strips its base before the normal dev SSR middleware runs, but an
+  // adapter-owned server receives the original browser path because this CSS
+  // middleware is registered before Vite's base middleware. Match both paths
+  // against the same base-free route manifest. `null` deliberately suppresses
+  // not-found CSS for adapter HTML responses outside this app's base.
+  const pathname = options.basePathRetained ? framework.stripBase(publicPathname) : publicPathname;
   return {
     app: serverMod.resolvedApp,
     matchAppRoute: framework.matchAppRoute,
@@ -475,7 +486,9 @@ export function createDevCssInjectionMiddleware(server: ViteDevServer): Connect.
     // runtimes can serialize module-runner work while a response is open. CSS
     // traversal itself waits until res.end(), after that runtime has populated
     // its environment graph with the matched route and shell.
-    const contextPromise = resolveDevCssContextForPath(server, req.url ?? "/").catch((error) => {
+    const contextPromise = resolveDevCssContextForPath(server, req.url ?? "/", {
+      basePathRetained: true,
+    }).catch((error) => {
       if (!warned) {
         warned = true;
         server.config.logger.warn(

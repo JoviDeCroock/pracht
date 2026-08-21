@@ -530,6 +530,8 @@ automatically:
 
 - `<Link route>`, `href()`, `useNavigate()`, and `prefetch()` — route ids
   resolve to URL paths
+- `redirect()` when its target is a root-absolute route path; relative,
+  protocol-relative, and absolute URL targets are preserved
 - `apiFetch()`, unless an explicit `baseUrl` already names where the API lives
 - Capability calls — `useCapability()`, the generated client, and the
   `<Form capability>` action attribute that keeps the no-JS fallback working
@@ -543,10 +545,11 @@ automatically:
   configured base; devtools, dev-404 links, and error-overlay
   open-in-editor requests remain inside it
 
-Hand-written root-absolute URLs are **not** rewritten: `<a href="/about">` and
-`fetch("/api/items")` mean the origin root, the same rule as Next's `basePath`
-and SvelteKit's `base`. Use `<Link route>` / `href()` / `apiFetch()` for
-internal targets, or `withBase()` when you need the URL yourself:
+Hand-written root-absolute URLs are **not** rewritten: `<a href="/about">`,
+`fetch("/api/items")`, and a custom `Response` with `Location: /login` mean the
+origin root, the same rule as Next's `basePath` and SvelteKit's `base`. Use
+`<Link route>` / `href()` / `redirect()` / `apiFetch()` for internal targets,
+or `withBase()` when you need the URL yourself:
 
 ```tsx
 import { withBase } from "@pracht/core";

@@ -53,6 +53,19 @@ async function renderUnderBase(
 }
 
 describe("server runtime under a deploy base", () => {
+  it("keeps root-absolute redirect helper targets inside the deploy base", async () => {
+    vi.resetModules();
+    vi.stubEnv("BASE_URL", "/app/");
+    const { redirect } = await import("../src/index.ts");
+
+    expect(redirect("/login").headers.get("location")).toBe("/app/login");
+    expect(redirect("login").headers.get("location")).toBe("login");
+    expect(redirect("//auth.example/login").headers.get("location")).toBe("//auth.example/login");
+    expect(redirect("https://auth.example/login").headers.get("location")).toBe(
+      "https://auth.example/login",
+    );
+  });
+
   it("requires an explicit contract for a proxy-stripped request", async () => {
     const html = await renderUnderBase("/about?ref=campaign", { expectedStatus: 404 });
 
