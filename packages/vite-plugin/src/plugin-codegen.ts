@@ -423,12 +423,11 @@ function hasTrueConstExport(source: string, file: string, name: string): boolean
       if (specifier?.type !== "ExportSpecifier" || specifier.exportKind === "type") continue;
       const local = asStaticProgramNode(specifier.local);
       const exported = asStaticProgramNode(specifier.exported);
+      const localName = getStaticProgramName(local);
       if (
-        local?.type === "Identifier" &&
-        exported?.type === "Identifier" &&
-        exported.name === name &&
-        typeof local.name === "string" &&
-        trueConstBindings.has(local.name)
+        localName !== null &&
+        getStaticProgramName(exported) === name &&
+        trueConstBindings.has(localName)
       ) {
         return true;
       }
@@ -461,6 +460,12 @@ function asStaticProgramNode(value: unknown): StaticProgramNode | null {
   return typeof (value as { type?: unknown }).type === "string"
     ? (value as StaticProgramNode)
     : null;
+}
+
+function getStaticProgramName(value: StaticProgramNode | null): string | null {
+  if (value?.type === "Identifier" && typeof value.name === "string") return value.name;
+  if (value?.type === "Literal" && typeof value.value === "string") return value.value;
+  return null;
 }
 
 function createUnderscoreReservedExcludes(directory: string): string[] {
