@@ -101,6 +101,13 @@ export function hasNamedMiddlewareExport(program: unknown): boolean {
       ) {
         return true;
       }
+    } else if (declaration?.type === "TSImportEqualsDeclaration") {
+      if (
+        declaration.importKind !== "type" &&
+        getStaticIdentifierName(declaration.id) === "middleware"
+      ) {
+        return true;
+      }
     } else if (declaration?.type === "VariableDeclaration" && declaration.declare !== true) {
       for (const declarator of nodeArray(declaration.declarations)) {
         if (!collectStaticBindingNames(declarator.id).includes("middleware")) continue;
@@ -185,6 +192,15 @@ function collectTopLevelBindingKinds(
         ? asStaticAnalysisNode(rawStatement.declaration)
         : rawStatement;
     if (!statement) continue;
+
+    if (statement.type === "TSImportEqualsDeclaration") {
+      const name = getStaticIdentifierName(statement.id);
+      if (name) {
+        if (statement.importKind === "type") typeOnlyBindings.add(name);
+        else runtimeBindings.add(name);
+      }
+      continue;
+    }
 
     if (
       statement.type === "TSTypeAliasDeclaration" ||
@@ -430,6 +446,21 @@ function collectUnconditionallyEvaluatedStatement(
     return;
   }
 
+  if (statement.type === "DoWhileStatement") {
+    const body = asStaticAnalysisNode(statement.body);
+    const completesBody = body ? collectDefinitelyEnteredStatement(body, expressions) : false;
+    if (completesBody) {
+      collectUnconditionallyEvaluatedExpressions(statement.test, expressions);
+    }
+    return;
+  }
+
+  if (statement.type === "LabeledStatement") {
+    const body = asStaticAnalysisNode(statement.body);
+    if (body) collectDefinitelyEnteredStatement(body, expressions);
+    return;
+  }
+
   if (statement.type === "TryStatement") {
     // Without a catch, every successful module evaluation entered the try
     // body. A catch can turn an earlier throw into a successful path that
@@ -443,6 +474,56 @@ function collectUnconditionallyEvaluatedStatement(
     if (finalizer) collectUnconditionallyEvaluatedStatement(finalizer, expressions);
     return;
   }
+}
+
+/**
+ * Collect the straight-line prefix of a statement that is guaranteed to run
+ * after its parent has been entered. Returning false stops callers before a
+ * possible break/continue/branch makes the rest conditional.
+ */
+function collectDefinitelyEnteredStatement(
+  statement: StaticAnalysisNode,
+  expressions: Set<StaticAnalysisNode>,
+): boolean {
+  if (statement.type === "BlockStatement" || statement.type === "StaticBlock") {
+    for (const child of nodeArray(statement.body)) {
+      if (!collectDefinitelyEnteredStatement(child, expressions)) return false;
+    }
+    return true;
+  }
+
+  if (statement.type === "LabeledStatement") {
+    const body = asStaticAnalysisNode(statement.body);
+    return body ? collectDefinitelyEnteredStatement(body, expressions) : false;
+  }
+
+  if (
+    statement.type === "ExpressionStatement" ||
+    statement.type === "VariableDeclaration" ||
+    statement.type === "ClassDeclaration" ||
+    statement.type === "FunctionDeclaration" ||
+    statement.type === "EmptyStatement" ||
+    statement.type === "DebuggerStatement"
+  ) {
+    collectUnconditionallyEvaluatedStatement(statement, expressions);
+    return true;
+  }
+
+  if (
+    statement.type === "IfStatement" ||
+    statement.type === "WhileStatement" ||
+    statement.type === "SwitchStatement" ||
+    statement.type === "WithStatement" ||
+    statement.type === "ForStatement" ||
+    statement.type === "ForInStatement" ||
+    statement.type === "ForOfStatement" ||
+    statement.type === "DoWhileStatement" ||
+    statement.type === "TryStatement"
+  ) {
+    collectUnconditionallyEvaluatedStatement(statement, expressions);
+  }
+
+  return false;
 }
 
 function collectClassEvaluationExpressions(
@@ -1426,6 +1507,7 @@ function findSimpleParameterShadowRanges(
   name: string,
 ): { start: number; end: number }[] {
   const ranges: { start: number; end: number }[] = [];
+  const controlStatementKeywords = new Set(["for", "if", "switch", "while", "with"]);
   const functions = /\bfunction\s*\*?\s*(?:[A-Za-z_$][A-Za-z0-9_$]*\s*)?\(/g;
 
   for (const match of source.matchAll(functions)) {
@@ -1447,6 +1529,8 @@ function findSimpleParameterShadowRanges(
   const methods = /\b[A-Za-z_$][A-Za-z0-9_$]*\s*\(/g;
   for (const match of source.matchAll(methods)) {
     if (match.index == null) continue;
+    const methodName = /^[A-Za-z_$][A-Za-z0-9_$]*/.exec(match[0])?.[0];
+    if (methodName && controlStatementKeywords.has(methodName)) continue;
     let before = match.index - 1;
     while (before >= 0 && /\s/.test(source[before])) before -= 1;
     if (

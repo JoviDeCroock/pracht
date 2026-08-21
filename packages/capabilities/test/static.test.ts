@@ -49,6 +49,11 @@ describe("middleware export classification", () => {
       false,
     ],
     [
+      "let middleware = () => {};\ndo { middleware = 1; } while (false);\nexport { middleware };",
+      false,
+    ],
+    ["let middleware = () => {};\nsetup: middleware = 1;\nexport { middleware };", false],
+    [
       "let middleware = () => {}, value;\n({ [middleware = 1]: value } = {});\nexport { middleware };",
       false,
     ],
@@ -117,6 +122,14 @@ describe("middleware export classification", () => {
     ["const candidate = createMiddleware();\nexport { candidate as middleware };", true],
     [
       'function candidate() {}\nnamespace candidate { export const id = "pages"; }\nexport { candidate as middleware };',
+      true,
+    ],
+    [
+      "namespace Middlewares { export const auth = () => {}; }\nimport middleware = Middlewares.auth;\nexport { middleware };",
+      true,
+    ],
+    [
+      "namespace Middlewares { export const auth = () => {}; }\nexport import middleware = Middlewares.auth;",
       true,
     ],
     ["namespace Helpers { export const middleware = () => {}; }\nexport { Helpers };", false],
@@ -452,6 +465,18 @@ describe("capability static extraction", () => {
       `,
     ],
   ])("keeps a registry mutated %s opaque", (_description, source) => {
+    expect(extractCapabilityRegistrations(source)).toEqual([]);
+  });
+
+  it("keeps a registry used by a braced control statement opaque", () => {
+    const source = `
+      const capabilities = { notes: "./capabilities/original.ts" };
+      if (capabilities) {
+        capabilities.notes = "./capabilities/runtime.ts";
+      }
+      export const app = defineApp({ capabilities, routes: [] });
+    `;
+
     expect(extractCapabilityRegistrations(source)).toEqual([]);
   });
 

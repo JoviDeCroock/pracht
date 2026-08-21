@@ -235,3 +235,16 @@ shadowing no longer makes a safe registry opaque. Pages mode consistently
 reserves `_app` for the root shell and excludes nested lookalikes from both the
 scanner and server registry. Middleware export validation also accounts for
 definitely evaluated `try`/`finally` writes and computed destructuring targets.
+
+Ejected pages client boundaries now compare canonical route and shell
+directories, so `..` segments and symlink aliases cannot put underscore-reserved
+server helpers back into the browser module map. Registry extraction no longer
+mistakes braced control statements for parameter-shadowing methods, preventing a
+runtime-mutated capability registry from bypassing the registered-module client
+guard.
+
+Middleware export validation now covers definitely entered `do`/`while` and
+labeled statement bodies and accepts callable TypeScript `import =` runtime
+aliases. Pages middleware generation also follows immutable aliases for the
+selected Vite plugin array when rejecting request middleware on pure static
+exports.
