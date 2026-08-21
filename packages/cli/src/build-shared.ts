@@ -415,7 +415,19 @@ function sortStaticRoutes(routes: string[]): string[] {
 /** Vite path bases address routes; CDN/document-relative bases do not. */
 function resolveVercelDeployBase(base: string): string {
   if (!base.startsWith("/") || base.startsWith("//")) return "/";
-  return base === "/" ? base : base.replace(/\/+$/, "") + "/";
+  if (base === "/") return base;
+  const normalized = base.endsWith("/") ? base : `${base}/`;
+  if (
+    normalized
+      .slice(1, -1)
+      .split("/")
+      .some((segment) => segment === "")
+  ) {
+    throw new Error(
+      `Vercel deploy base contains a repeated path separator: ${JSON.stringify(base)}.`,
+    );
+  }
+  return normalized;
 }
 
 function withVercelDeployBase(pathname: string, base: string): string {

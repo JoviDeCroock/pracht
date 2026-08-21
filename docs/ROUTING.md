@@ -583,9 +583,9 @@ must not be stripped a second time.
 
 Base matching compares canonical URL segments, so equivalent percent-escape
 spellings match (`/caf%C3%A9/` and `/caf%c3%a9/`). A configured base must not
-contain malformed escapes or a segment that decodes to `/`, `\\`, `.`, `..`,
-NUL, or another control character; every adapter rejects those bases during
-Vite config resolution.
+contain repeated slashes, malformed escapes, or a segment that decodes to `/`,
+`\\`, `.`, `..`, NUL, or another control character; every adapter rejects those
+bases during Vite config resolution.
 
 ---
 

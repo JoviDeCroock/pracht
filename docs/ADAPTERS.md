@@ -1407,10 +1407,10 @@ Two things to know:
   root. `base: "./"` and `base: ""` make nested pages resolve assets beneath
   their own directories. Static exports therefore require `/` or a
   root-absolute path such as `/my-project/`.
-- **The root-absolute base must use safe URL segments.** Malformed percent
-  escapes and segments that decode to `/`, `\\`, `.`, `..`, NUL, or another
-  control character are build errors. Equivalent percent-escape spellings are
-  accepted and matched canonically at runtime.
+- **The root-absolute base must use safe URL segments.** Repeated slashes,
+  malformed percent escapes, and segments that decode to `/`, `\\`, `.`, `..`,
+  NUL, or another control character are build errors. Equivalent percent-escape
+  spellings are accepted and matched canonically at runtime.
 
 ### `pracht preview`
 

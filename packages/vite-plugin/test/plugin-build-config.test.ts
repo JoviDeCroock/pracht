@@ -1,4 +1,4 @@
-import { build, parseAst, type Plugin } from "vite";
+import { build, parseAst, resolveConfig, type Plugin } from "vite";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { pracht, type PrachtAdapter } from "../src/index.ts";
@@ -124,9 +124,40 @@ describe("pracht plugin build config", () => {
       "/app/%00/",
       "/app%ZZ/",
       "/app?preview/",
+      "/app//",
+      "/app//admin/",
     ]) {
       expect(() => runConfigResolvedHook(base)).toThrow(/safe URL segments/);
     }
+  });
+
+  it("captures a relative base contributed by a later config plugin", async () => {
+    const plugins = pracht({ adapter: edgeAdapter });
+    const basePlugin: Plugin = {
+      name: "later-base",
+      config() {
+        return { base: "./" };
+      },
+    };
+
+    const config = await resolveConfig(
+      {
+        build: { ssr: true },
+        configFile: false,
+        logLevel: "silent",
+        plugins: [...plugins, basePlugin],
+      },
+      "build",
+    );
+    expect(config.base).toBe("/");
+
+    const plugin = plugins.find((candidate) => candidate.name === "pracht");
+    if (!plugin) throw new Error("pracht plugin not found");
+    const load = getHook<(this: unknown, id: string) => string | null>(plugin, "load");
+    const source = load.call({}, "virtual:pracht/server");
+
+    expect(source).toContain('export const buildBase = "/";');
+    expect(source).toContain('export const configuredBase = "./";');
   });
 
   it("accepts safe path and asset-only CDN bases", () => {

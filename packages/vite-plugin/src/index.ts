@@ -153,7 +153,6 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
     enforce: "pre",
 
     config(_config, env) {
-      configuredBase = typeof _config.base === "string" ? _config.base : undefined;
       const isEdge = resolved.adapter.edge === true;
       const isSSRBuild = env.isSsrBuild;
 
@@ -504,6 +503,20 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
     },
   };
 
+  // Vite normalizes document-relative bases to `/` for SSR builds. Capture
+  // the fully merged, user-authored value after ordinary config hooks have
+  // run so a plugin-provided `base: "./"` cannot evade static-export
+  // validation.
+  const configuredBasePlugin: Plugin = {
+    name: "pracht:configured-base",
+    config: {
+      order: "post",
+      handler(config) {
+        configuredBase = typeof config.base === "string" ? config.base : undefined;
+      },
+    },
+  };
+
   const clientModuleTransformPlugin: Plugin = {
     name: "pracht:client-module-transform",
     enforce: "post",
@@ -564,6 +577,7 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
     ...(precompilePlugin ? [precompilePlugin] : []),
     ...preact(),
     prachtPlugin,
+    configuredBasePlugin,
     clientModuleTransformPlugin,
     ...(edgeRuntimeSafetyPlugin ? [edgeRuntimeSafetyPlugin] : []),
     createEnvSafetyPlugin(resolved.envSafety),
@@ -591,7 +605,12 @@ function assertSafeRootAbsoluteDeployBase(base: string | undefined): void {
   let safe = !base.includes("?") && !base.includes("#");
   if (safe) {
     try {
-      safe = base.split("/").every((segment) => {
+      const segments = base.split("/");
+      safe = segments.every((segment, index) => {
+        // The leading and trailing slash produce the two expected empty
+        // components. Any other empty component represents a repeated slash,
+        // which filesystem-backed adapters cannot preserve portably.
+        if (segment === "" && index !== 0 && index !== segments.length - 1) return false;
         const decoded = decodeURIComponent(segment);
         if (decoded === "." || decoded === "..") return false;
         for (const character of decoded) {
@@ -615,7 +634,7 @@ function assertSafeRootAbsoluteDeployBase(base: string | undefined): void {
   if (!safe) {
     throw new Error(
       `[pracht] Vite \`base\` is set to ${JSON.stringify(base)}, but root-absolute deploy bases must contain safe URL segments. ` +
-        "Malformed escapes and segments that decode to a path separator, `.`, `..`, NUL, or another control character are not allowed.",
+        "Repeated slashes, malformed escapes, and segments that decode to a path separator, `.`, `..`, NUL, or another control character are not allowed.",
     );
   }
 }

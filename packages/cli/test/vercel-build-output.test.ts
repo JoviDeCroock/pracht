@@ -123,6 +123,19 @@ describe("writeVercelBuildOutput", () => {
     expect(config.routes).toContainEqual({ dest: "/app/pricing", src: "^/app/pricing/?$" });
   });
 
+  it("rejects repeated separators instead of changing the public deploy base", () => {
+    const root = createBuildRoot();
+
+    expect(() =>
+      writeVercelBuildOutput({
+        base: "/app//",
+        isgManifest: {},
+        root,
+        staticRoutes: ["/"],
+      }),
+    ).toThrow(/repeated path separator/);
+  });
+
   it("routes ISG markdown routes to the render function, not the prerender function", () => {
     const root = createBuildRoot();
 

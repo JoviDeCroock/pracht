@@ -58,7 +58,7 @@ The output tree is unchanged (`dist/client/about/index.html`); the base is where
 
 Hand-written root-absolute links are not rewritten — `<a href="/about">` means the origin root, as in Next's `basePath` and SvelteKit's `base`. Use `<Link route="about">` or `href("about")` for internal navigation.
 
-CDN bases and document-relative bases (`""` or `"./"`) are not supported by static exports; use `/` or a safe root-absolute path such as `/my-project/`. Malformed percent escapes and segments that decode to a path separator, `.`, `..`, NUL, or a control character fail the build.
+CDN bases and document-relative bases (`""` or `"./"`) are not supported by static exports; use `/` or a safe root-absolute path such as `/my-project/`. Repeated slashes, malformed percent escapes, and segments that decode to a path separator, `.`, `..`, NUL, or a control character fail the build.
 
 ## Client-side navigation
 

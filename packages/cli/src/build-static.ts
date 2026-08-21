@@ -108,7 +108,9 @@ function isSafeStaticDeployBase(base: string): boolean {
   }
 
   try {
-    return base.split("/").every((segment) => {
+    const segments = base.split("/");
+    return segments.every((segment, index) => {
+      if (segment === "" && index !== 0 && index !== segments.length - 1) return false;
       const decoded = decodeURIComponent(segment);
       if (decoded === "." || decoded === "..") return false;
       for (const character of decoded) {

@@ -382,6 +382,8 @@ describe("validateStaticExport", () => {
       "/app?tenant=admin",
       "/app#admin",
       "/bad%escape/",
+      "/app//",
+      "/app//admin/",
     ]) {
       const error = await validateStaticExport({
         buildBase: "/app/",
