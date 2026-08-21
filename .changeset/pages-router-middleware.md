@@ -176,6 +176,9 @@ being rejected from the declaration alone.
 Static-target detection follows aliased and namespace imports of the pracht
 plugin as well as aliased adapter imports. The canonical routing guides now
 consistently qualify pages request middleware as a serverful-adapter feature.
+Object-property detection also follows JavaScript's last-write-wins semantics
+through statically resolvable option spreads, so the middleware generator uses
+the adapter that the pracht plugin actually receives.
 
 Ejected-pages ownership detection now preserves the client boundary when the
 generated marker is exported through a named export list, including an aliased
@@ -185,3 +188,8 @@ reassignment, while still accepting aliases created after a module-scope
 assignment. The pages middleware generator also follows immutable aliases for
 the complete pracht plugin options object before deciding whether the selected
 adapter is a pure static target.
+
+Top-level type-alias `typeof` queries of registry members are erased along with
+bare registry queries, so they no longer hide otherwise static capability or
+middleware registrations from browser projection, verification, or the
+registered-module client import guard.

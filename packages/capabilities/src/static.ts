@@ -1007,7 +1007,7 @@ function hasSingleStaticBindingUse(
   return uses === 1;
 }
 
-/** A bare `typeof registry` observes neither the object nor its mutable contents. */
+/** A bare runtime `typeof registry` observes neither the object nor its mutable contents. */
 function isTypeofOperand(source: string, start: number, length: number): boolean {
   let before = start - 1;
   while (before >= 0 && /\s/.test(source[before])) before -= 1;
@@ -1018,13 +1018,35 @@ function isTypeofOperand(source: string, start: number, length: number): boolean
   if (keywordStart > 0 && /[A-Za-z0-9_$]/.test(source[keywordStart - 1])) return false;
 
   // Runtime member access happens before `typeof` and can invoke an accessor
-  // that mutates the registry. TypeScript non-null assertions are transparent
-  // at runtime, so look through them before deciding this is a harmless query.
+  // that mutates the registry. A TypeScript type query is erased, however, so
+  // member access in a top-level type alias remains harmless. TypeScript
+  // non-null assertions are transparent at runtime, so look through them
+  // before deciding which form this is.
   let after = skipInsignificant(source, start + length);
   while (source[after] === "!" && source[after + 1] !== "=") {
     after = skipInsignificant(source, after + 1);
   }
-  return source[after] !== "." && source[after] !== "[" && !source.startsWith("?.", after);
+  const readsMember =
+    source[after] === "." || source[after] === "[" || source.startsWith("?.", after);
+  return !readsMember || isInsideTopLevelTypeAlias(source, keywordStart);
+}
+
+function isInsideTopLevelTypeAlias(source: string, end: number): boolean {
+  const statement =
+    /(?:^|[;\r\n}])\s*(?:export\s+)?(?:declare\s+)?(abstract|break|class|const|continue|debugger|do|enum|for|function|if|import|interface|let|module|namespace|return|switch|throw|try|type|var|while)\b/g;
+  let latestKind: string | null = null;
+
+  for (const match of source.slice(0, end).matchAll(statement)) {
+    if (match.index == null) continue;
+    const kindOffset = match[0].lastIndexOf(match[1]);
+    const kindIndex = match.index + kindOffset;
+    if (!isAtModuleTopLevel(source, kindIndex)) continue;
+    const afterKind = skipInsignificant(source, kindIndex + match[1].length);
+    if (match[1] === "import" && source[afterKind] === "(") continue;
+    latestKind = match[1];
+  }
+
+  return latestKind === "type";
 }
 
 function isStaticPropertyName(source: string, start: number, length: number): boolean {
