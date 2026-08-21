@@ -254,6 +254,19 @@ describe("capability static extraction", () => {
     ]);
   });
 
+  it("resolves semicolonless aliases before an async function declaration", () => {
+    const source = `
+      const sourcePath = "./capabilities/notes.ts"
+      const notes = sourcePath
+      async function prepareRegistry() {}
+      export const app = defineApp({ capabilities: { notes }, routes: [] });
+    `;
+
+    expect(extractCapabilityRegistrations(source)).toEqual([
+      { name: "notes", file: "./capabilities/notes.ts" },
+    ]);
+  });
+
   it("resolves semicolonless aliases before the next declaration", () => {
     const source = `
       const sourcePath = "./capabilities/notes.ts"
@@ -348,6 +361,19 @@ describe("capability static extraction", () => {
     `;
 
     expect(extractManifestModuleRegistrations(source, "middleware")).toEqual([]);
+  });
+
+  it("does not treat a generic type comma as a variable declarator", () => {
+    const source = `
+      type notes = unknown;
+      const metadata: Record<string, notes> = {};
+      const notes = "./capabilities/notes.ts";
+      export const app = defineApp({ capabilities: { notes }, routes: [] });
+    `;
+
+    expect(extractCapabilityRegistrations(source)).toEqual([
+      { name: "notes", file: "./capabilities/notes.ts" },
+    ]);
   });
 
   it("ignores defineCapability examples in comments and strings", () => {

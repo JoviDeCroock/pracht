@@ -342,6 +342,36 @@ export const middleware: MiddlewareFn = async (_args, next) => next();
     ).toBe(false);
   });
 
+  it("does not report a valid root middleware as successful beside a nested middleware error", () => {
+    const appDir = createTempDir("pracht-cli-verify-pages-middleware-mixed-invalid-");
+    writePagesApp(appDir);
+    writeProjectFile(appDir, "src/pages/index.tsx", "export function Component() { return null; }");
+    writeProjectFile(
+      appDir,
+      "src/pages/_middleware.ts",
+      "export const middleware = async (_args, next) => next();",
+    );
+    writeProjectFile(
+      appDir,
+      "src/pages/admin/_middleware.ts",
+      "export const middleware = async (_args, next) => next();",
+    );
+
+    const result = runCliStatus(["verify", "--json"], { cwd: appDir });
+    expect(result.status).toBe(1);
+    const report = JSON.parse(result.stdout);
+    expect(
+      report.checks.some(
+        (check) => check.status === "error" && check.message.includes("Nested pages middleware"),
+      ),
+    ).toBe(true);
+    expect(
+      report.checks.some(
+        (check) => check.status === "ok" && check.message.includes("Found pages middleware"),
+      ),
+    ).toBe(false);
+  });
+
   it.each(["admin", "_components"])(
     "fails doctor for nested pages _middleware files under %s",
     (directory) => {

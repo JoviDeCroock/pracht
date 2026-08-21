@@ -471,6 +471,13 @@ export function generateMiddleware(name: string, project: ProjectConfig): Genera
       );
     }
 
+    if (usesStaticAdapter(project)) {
+      throw new Error(
+        "Pure static exports cannot use request middleware. Use a serverful adapter before " +
+          "generating pages `_middleware.ts`.",
+      );
+    }
+
     const existingMiddlewareFiles = [".ts", ".tsx", ".js", ".jsx"]
       .map((extension) =>
         resolveScopedFile(project.root, project.pagesDir, `_middleware${extension}`),
@@ -515,6 +522,13 @@ export function generateMiddleware(name: string, project: ProjectConfig): Genera
     kind: "middleware",
     updated: [displayPath(project.root, manifestPath)],
   };
+}
+
+function usesStaticAdapter(project: Pick<ProjectConfig, "rawConfig">): boolean {
+  return (
+    /\bstaticAdapter\s*\(/.test(project.rawConfig) ||
+    project.rawConfig.includes("@pracht/adapter-static")
+  );
 }
 
 export interface CapabilityArgs {

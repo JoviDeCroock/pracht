@@ -146,3 +146,14 @@ map that differs from the live app.
 Generated pages-router guidance now qualifies root request middleware as a
 serverful-adapter feature, so pure static-export starters are not instructed to
 add unsupported middleware.
+
+The pages middleware generator now refuses pure static-export projects instead
+of writing a request middleware file that static builds reject. Verification
+also avoids reporting a valid root middleware as successful when another
+nested, directory-shaped, or unsupported middleware file blocks the build.
+
+Manifest registry extraction now recognizes semicolonless aliases before async
+function declarations and no longer mistakes commas inside generic type
+annotations for later `const` declarators. Capability projection, verification,
+and client import protection therefore continue to follow the live manifest in
+both forms.
