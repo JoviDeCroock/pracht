@@ -40,6 +40,13 @@ describe("buildDevNotFoundHtml", () => {
     expect(html).toContain('<span class="path dynamic">/products/:id</span>');
   });
 
+  it("keeps static route links under the Vite deploy base", () => {
+    const html = buildDevNotFoundHtml({ base: "/app/", requestedPath: "/nope", routes });
+
+    expect(html).toContain('<a class="path" href="/app/pricing">/pricing</a>');
+    expect(html).toContain('<a class="path" href="/app/">/</a>');
+  });
+
   it("treats an undeclared render mode as ssr", () => {
     const html = buildDevNotFoundHtml({ requestedPath: "/nope", routes });
 

@@ -22,19 +22,21 @@ export interface DevNotFoundOptions {
   requestedPath: string;
   routes: DevNotFoundRoute[];
   apiRoutes?: DevNotFoundApiRoute[];
+  /** Vite deploy base used for navigable links. */
+  base?: string;
 }
 
 const DYNAMIC_SEGMENT = /[:*]/;
 
 export function buildDevNotFoundHtml(options: DevNotFoundOptions): string {
-  const { requestedPath, routes, apiRoutes = [] } = options;
+  const { requestedPath, routes, apiRoutes = [], base = "/" } = options;
 
   const routeRows = routes
     .map((route) => {
       const mode = route.render ?? "ssr";
       const isLinkable = !DYNAMIC_SEGMENT.test(route.path);
       const pathCell = isLinkable
-        ? `<a class="path" href="${escapeHtml(route.path)}">${escapeHtml(route.path)}</a>`
+        ? `<a class="path" href="${escapeHtml(withDevBase(route.path, base))}">${escapeHtml(route.path)}</a>`
         : `<span class="path dynamic">${escapeHtml(route.path)}</span>`;
       return `<tr><td>${pathCell}</td><td><span class="mode mode-${escapeHtml(mode)}">${escapeHtml(mode)}</span></td></tr>`;
     })
@@ -203,6 +205,12 @@ export function buildDevNotFoundHtml(options: DevNotFoundOptions): string {
   </script>
 </body>
 </html>`;
+}
+
+function withDevBase(path: string, base: string): string {
+  if (base === "/" || !path.startsWith("/")) return path;
+  const prefix = base.endsWith("/") ? base : `${base}/`;
+  return `${prefix}${path.slice(1)}`;
 }
 
 function escapeHtml(str: string): string {

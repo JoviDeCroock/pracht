@@ -9,6 +9,7 @@ import {
   validateStandardSchema,
   type ApiValidationIssue,
 } from "./api-validation.ts";
+import { withBase } from "./base.ts";
 import { buildHrefUntyped } from "./route-matching.ts";
 import {
   beginSubmittingNavigation,
@@ -83,7 +84,9 @@ export interface FormProps<TName extends HttpCapabilityName = HttpCapabilityName
    * active route's data revalidates automatically. Works without JavaScript:
    * the endpoint accepts the form-encoded fallback and redirects back to the
    * page. Set `action` explicitly for capabilities with a custom
-   * `expose.http.path`.
+   * `expose.http.path`; root-absolute actions receive the deploy base. A
+   * button-level `formaction` is native child markup, so wrap a local
+   * root-absolute override with `withBase()` when the app uses a deploy base.
    *
    * Only http-exposed capabilities are accepted: a private one has no endpoint
    * to post to, so naming it here is a compile error rather than a 404 at
@@ -274,7 +277,9 @@ export function Form<TName extends HttpCapabilityName = HttpCapabilityName>(
   // Capability forms post to the capability's HTTP projection; the action
   // attribute keeps the no-JS fallback working (the endpoint accepts
   // form-encoded bodies and redirects document posts back on success).
-  const actionAttribute = capability ? (action ?? capabilityHttpPath(capability)) : action;
+  // Capability endpoints are declared without the deploy base, so the URL the
+  // browser posts to gets it back.
+  const actionAttribute = capability ? withBase(action ?? capabilityHttpPath(capability)) : action;
 
   return h("form", {
     ...rest,

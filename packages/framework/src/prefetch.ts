@@ -1,3 +1,4 @@
+import { stripBase } from "./base.ts";
 import { matchResolvedRoute } from "./route-matching.ts";
 import { clearPrefetchCache, getCachedRouteState, trimMapToSize } from "./prefetch-cache.ts";
 import { prefetchRouteState } from "./prefetch-api.ts";
@@ -36,9 +37,10 @@ export function setupPrefetching(app: ResolvedPrachtApp, warmModules?: ModuleWar
   const matchCache = new Map<string, MatchCacheEntry>();
   const browserSupportsSpeculationRules = supportsSpeculationRules();
 
+  /** Route path for an href, or null when it is unparseable or outside the base. */
   function getRoutePathname(url: string): string | null {
     try {
-      return new URL(url, window.location.origin).pathname;
+      return stripBase(new URL(url, window.location.href).pathname);
     } catch {
       return null;
     }
@@ -50,7 +52,9 @@ export function setupPrefetching(app: ResolvedPrachtApp, warmModules?: ModuleWar
 
     let url: URL;
     try {
-      url = new URL(href, window.location.origin);
+      // Match native anchor resolution: relative and query-only hrefs are
+      // based on the current document, including its deploy base.
+      url = new URL(href, window.location.href);
     } catch {
       return null;
     }

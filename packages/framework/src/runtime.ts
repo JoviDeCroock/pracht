@@ -1,6 +1,7 @@
 import { h } from "preact";
 import type { FunctionComponent } from "preact";
 import { matchApiRoute, matchAppRoute, resolveApp } from "./app.ts";
+import { resolveBaseRedirectLocation, restoreBasePathInRequest, stripBase } from "./base.ts";
 import { collectFontHeadFragments } from "./font.ts";
 import { ROUTE_STATE_REQUEST_HEADER, SAFE_METHODS } from "./runtime-constants.ts";
 import {
@@ -275,6 +276,13 @@ export interface HandlePrachtRequestOptions<TContext = unknown> {
    */
   app: PrachtApp | ResolvedPrachtApp;
   request: Request;
+  /**
+   * Set when a trusted upstream removed Vite's deploy base from the request
+   * pathname before forwarding it. This is explicit because a base-free route
+   * may itself begin with the same segments as the base, making prefix-based
+   * inference ambiguous.
+   */
+  basePathStripped?: boolean;
   context?: TContext;
   registry?: ModuleRegistry;
   /** Expose raw server error details in rendered HTML and route-state JSON. */
@@ -323,12 +331,39 @@ export interface HandlePrachtRequestOptions<TContext = unknown> {
 export async function handlePrachtRequest<TContext>(
   options: HandlePrachtRequestOptions<TContext>,
 ): Promise<Response> {
+  if (options.basePathStripped) {
+    options = {
+      ...options,
+      basePathStripped: false,
+      request: restoreBasePathInRequest(options.request),
+    };
+  }
+  const baseRedirect = createBaseRedirectResponse(options.request);
+  if (baseRedirect) return baseRedirect;
   const url = new URL(options.request.url);
   const hasDataParam = url.searchParams.get("_data") === "1";
   if (hasDataParam) {
     url.searchParams.delete("_data");
   }
+  const routePathname = stripBase(url.pathname);
+  // Outside the configured base belongs to another app on the same origin.
+  // A proxy-rewritten request must opt into the base-free interpretation
+  // above; inferring it here would make a legitimate first route segment that
+  // matches the base impossible to distinguish from a retained public base.
+  if (routePathname === null) {
+    return withDefaultSecurityHeaders(
+      new Response("Not found", {
+        status: 404,
+        headers: { "content-type": "text/plain; charset=utf-8" },
+      }),
+    );
+  }
   const requestPath = getRequestPath(url);
+  // Everything the app declares — routes, API routes, capability endpoints —
+  // is addressed without the deploy base, while the request carries it.
+  // `requestPath` stays the URL the visitor is at: it drives `useLocation()`
+  // and the serialized hydration state, which the client compares against
+  // `window.location`.
   const registry = options.registry ?? {};
   const resolvedApp = getResolvedApp(options.app as PrachtApp);
   // What `<Link route=…>` and `href()` resolve against. Normally the route
@@ -437,7 +472,7 @@ export async function handlePrachtRequest<TContext>(
   }
 
   if (options.apiRoutes?.length) {
-    const apiMatch = matchApiRoute(options.apiRoutes, url.pathname);
+    const apiMatch = matchApiRoute(options.apiRoutes, routePathname);
     if (apiMatch) {
       const apiMiddlewareFiles = (options.app.api.middleware ?? []).flatMap((name) => {
         const middlewareFile = options.app.middleware[name];
@@ -543,7 +578,7 @@ export async function handlePrachtRequest<TContext>(
   const isMcpRequest =
     !!mcpConfig &&
     !!mcpRuntime &&
-    mcpRuntime.normalizeMcpRequestPath(url.pathname) ===
+    mcpRuntime.normalizeMcpRequestPath(routePathname) ===
       mcpRuntime.resolveMcpEndpoint(options.app.agents);
   if (capabilityRuntime && (hasCapabilities || isMcpRequest)) {
     if (isMcpRequest) {
@@ -580,8 +615,8 @@ export async function handlePrachtRequest<TContext>(
       // requests to capability paths still fail closed below.
       if (
         !isMcpRequest &&
-        (url.pathname.startsWith(CAPABILITY_HTTP_PREFIX) ||
-          (await isRegisteredCapabilityHttpPath(options.app, registry, url.pathname)))
+        (routePathname.startsWith(CAPABILITY_HTTP_PREFIX) ||
+          (await isRegisteredCapabilityHttpPath(options.app, registry, routePathname)))
       ) {
         return withDefaultSecurityHeaders(
           envelopeResponse(500, {
@@ -620,7 +655,7 @@ export async function handlePrachtRequest<TContext>(
     }
 
     if (capabilities) {
-      const capabilityMatch = matchCapabilityRoute(capabilities, url.pathname);
+      const capabilityMatch = matchCapabilityRoute(capabilities, routePathname);
       if (capabilityMatch) {
         // Same CSRF stance as state-changing API requests: capability calls
         // are session-authenticated POSTs, so cross-origin browser requests
@@ -661,7 +696,7 @@ export async function handlePrachtRequest<TContext>(
 
       // Unmatched requests under the capability prefix get the typed 404
       // instead of falling through to the HTML not-found page.
-      if (url.pathname.startsWith(CAPABILITY_HTTP_PREFIX)) {
+      if (routePathname.startsWith(CAPABILITY_HTTP_PREFIX)) {
         return withDefaultSecurityHeaders(
           envelopeResponse(404, {
             ok: false,
@@ -675,7 +710,7 @@ export async function handlePrachtRequest<TContext>(
     }
   }
 
-  const match = matchAppRoute(resolvedApp, url.pathname);
+  const match = matchAppRoute(resolvedApp, routePathname);
 
   if (!match) {
     if (isRouteStateRequest) {
@@ -1222,6 +1257,29 @@ export async function handlePrachtRequest<TContext>(
       });
     }
   }
+}
+
+/**
+ * Canonicalize a document request for a bare deploy base before an adapter's
+ * static-file fast path can serve it as the root route.
+ *
+ * @internal
+ */
+export function createBaseRedirectResponse(request: Request): Response | null {
+  if (request.method !== "GET" && request.method !== "HEAD") return null;
+  const url = new URL(request.url);
+  const location = resolveBaseRedirectLocation(url.pathname, url.search);
+  if (!location) return null;
+
+  return withDefaultSecurityHeaders(
+    new Response(null, {
+      status: 308,
+      headers: {
+        "cache-control": "public, max-age=0, must-revalidate",
+        location,
+      },
+    }),
+  );
 }
 
 /**

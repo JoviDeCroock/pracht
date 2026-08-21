@@ -1,5 +1,5 @@
 import { h } from "preact";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { defineApp, route } from "../src/index.ts";
 import { buildStaticFallbackHtml, prerenderApp } from "../src/prerender.ts";
@@ -322,5 +322,62 @@ describe("buildStaticFallbackHtml", () => {
     expect(html).toContain("<title>Fallback title</title>");
     expect(html).toContain('content="fallback description"');
     expect(html).toContain('href="/favicon.svg"');
+  });
+});
+
+describe("prerenderApp under a deploy base", () => {
+  /**
+   * Prerender requests are synthesized from route paths, which never carry the
+   * base. They still have to reach `handlePrachtRequest` as the URL a visitor
+   * would ask for: the hydration state it serializes is what the client
+   * compares against `window.location` after hydration.
+   */
+  async function prerenderUnderBase(base: string) {
+    vi.resetModules();
+    vi.stubEnv("BASE_URL", base);
+    const [{ defineApp: define, route: makeRoute }, { prerenderApp: prerender }] =
+      await Promise.all([import("../src/index.ts"), import("../src/prerender.ts")]);
+
+    const app = define({
+      routes: [
+        makeRoute("/about", "./routes/about.tsx", { render: "ssg", hasLoader: true }),
+        // A route may legitimately start with the same segment as the base.
+        makeRoute("/my-project/nested", "./routes/nested.tsx", { render: "ssg", hasLoader: true }),
+      ],
+    });
+    const baseRegistry = {
+      routeModules: {
+        "/src/routes/about.tsx": async () => ({
+          Component: () => h("main", null, "about"),
+          loader: async () => ({ ok: true }),
+        }),
+        "/src/routes/nested.tsx": async () => ({
+          Component: () => h("main", null, "nested"),
+          loader: async () => ({ ok: true }),
+        }),
+      },
+    };
+
+    return await prerender({ app, registry: baseRegistry, staticExport: true });
+  }
+
+  it("serializes the visitor's URL while writing base-free output paths", async () => {
+    const pages = await prerenderUnderBase("/my-project/");
+
+    const about = pages.find((page) => page.path === "/about");
+    expect(about).toBeDefined();
+    expect(about!.html).toContain('"url":"/my-project/about"');
+
+    // The base prefix in a route path is part of the route, not the base.
+    const nested = pages.find((page) => page.path === "/my-project/nested");
+    expect(nested).toBeDefined();
+    expect(nested!.html).toContain('"url":"/my-project/my-project/nested"');
+  });
+
+  it("is unchanged at the origin root", async () => {
+    const pages = await prerenderUnderBase("/");
+
+    const about = pages.find((page) => page.path === "/about");
+    expect(about!.html).toContain('"url":"/about"');
   });
 });

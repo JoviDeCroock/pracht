@@ -102,7 +102,138 @@ const isgRevalidate = [timeRevalidate(1), webhookRevalidate()] as const;
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
   vi.restoreAllMocks();
+  vi.resetModules();
+});
+
+describe("createCloudflareFetchHandler under a deploy base", () => {
+  it("redirects the bare base before consulting the asset binding", async () => {
+    vi.stubEnv("BASE_URL", "/app/");
+    vi.resetModules();
+    const { createCloudflareFetchHandler: createBaseHandler } = await import("../src/runtime.ts");
+    const fetchAsset = vi.fn(async () => new Response("asset"));
+    const handler = createBaseHandler({ app: defineApp({ routes: [] }) });
+    const { executionContext } = createExecutionContext();
+
+    const response = await handler(
+      new Request("https://example.com/app?ref=campaign"),
+      { ASSETS: { fetch: fetchAsset } },
+      executionContext,
+    );
+
+    expect(response.status).toBe(308);
+    expect(response.headers.get("location")).toBe("/app/?ref=campaign");
+    expect(fetchAsset).not.toHaveBeenCalled();
+  });
+
+  it("serves the base-free asset key while preserving the public request contract", async () => {
+    vi.stubEnv("BASE_URL", "/app/");
+    vi.resetModules();
+    const { createCloudflareFetchHandler: createBaseHandler } = await import("../src/runtime.ts");
+    const seenAssetPaths: string[] = [];
+    const handler = createBaseHandler({ app: defineApp({ routes: [] }) });
+    const { executionContext } = createExecutionContext();
+
+    const response = await handler(
+      new Request("https://example.com/app/assets/client.js"),
+      {
+        ASSETS: {
+          async fetch(request: Request) {
+            const pathname = new URL(request.url).pathname;
+            seenAssetPaths.push(pathname);
+            return pathname === "/assets/client.js"
+              ? new Response("export default 1", {
+                  headers: { "content-type": "application/javascript" },
+                })
+              : new Response("not found", { status: 404 });
+          },
+        },
+      },
+      executionContext,
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe("export default 1");
+    expect(seenAssetPaths).toEqual(["/assets/client.js"]);
+  });
+
+  it("restores the deploy base on root-absolute asset redirects", async () => {
+    vi.stubEnv("BASE_URL", "/app/");
+    vi.resetModules();
+    const { createCloudflareFetchHandler: createBaseHandler } = await import("../src/runtime.ts");
+    const handler = createBaseHandler({ app: defineApp({ routes: [] }) });
+    const { executionContext } = createExecutionContext();
+
+    const response = await handler(
+      new Request("https://example.com/app/guide"),
+      {
+        ASSETS: {
+          async fetch(request: Request) {
+            expect(new URL(request.url).pathname).toBe("/guide");
+            return new Response(null, { status: 307, headers: { location: "/guide/" } });
+          },
+        },
+      },
+      executionContext,
+    );
+
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe("/app/guide/");
+  });
+
+  it("preserves redirects already based by the development asset binding", async () => {
+    vi.stubEnv("BASE_URL", "/app/");
+    vi.resetModules();
+    const { createCloudflareFetchHandler: createBaseHandler } = await import("../src/runtime.ts");
+    const handler = createBaseHandler({
+      app: defineApp({ routes: [] }),
+      assetsBindingUsesPublicBase: true,
+    });
+    const { executionContext } = createExecutionContext();
+
+    const response = await handler(
+      new Request("https://example.com/app/guide"),
+      {
+        ASSETS: {
+          async fetch(request: Request) {
+            expect(new URL(request.url).pathname).toBe("/guide");
+            return new Response(null, { status: 302, headers: { location: "/app/guide/" } });
+          },
+        },
+      },
+      executionContext,
+    );
+
+    expect(response.status).toBe(302);
+    expect(response.headers.get("location")).toBe("/app/guide/");
+  });
+
+  it("ignores development asset redirects back to the current public URL", async () => {
+    vi.stubEnv("BASE_URL", "/app/");
+    vi.resetModules();
+    const { createCloudflareFetchHandler: createBaseHandler } = await import("../src/runtime.ts");
+    const handler = createBaseHandler({
+      app: defineApp({ routes: [] }),
+      assetsBindingUsesPublicBase: true,
+    });
+    const { executionContext } = createExecutionContext();
+
+    const response = await handler(
+      new Request("https://example.com/app/"),
+      {
+        ASSETS: {
+          async fetch() {
+            return new Response(null, { status: 302, headers: { location: "/app/" } });
+          },
+        },
+      },
+      executionContext,
+    );
+
+    expect(response.status).toBe(404);
+    expect(response.headers.get("location")).toBeNull();
+  });
 });
 
 describe("createCloudflareFetchHandler ISG", () => {
@@ -628,6 +759,48 @@ describe("createCloudflareFetchHandler webhook revalidation", () => {
       revalidated: [],
       skipped: ["/pricing"],
     });
+  });
+
+  it("purges the public Workers Caching path under a deploy base", async () => {
+    vi.stubEnv("BASE_URL", "/app/");
+    vi.resetModules();
+    const purge = vi.fn().mockResolvedValue(undefined);
+    vi.doMock("../src/cache.ts", async () => ({
+      ...(await vi.importActual<typeof import("../src/cache.ts")>("../src/cache.ts")),
+      purgeCache: purge,
+    }));
+
+    try {
+      const { createCloudflareFetchHandler: createBaseHandler } = await import("../src/runtime.ts");
+      const { cache } = createMockCaches();
+      vi.stubGlobal("caches", { default: cache });
+      const { executionContext } = createExecutionContext();
+      const { app, registry } = createPricingApp();
+      const handler = createBaseHandler({
+        app,
+        registry,
+        cache: true,
+        isgManifest: { "/pricing": { revalidate: isgRevalidate } },
+      });
+
+      const response = await handler(
+        new Request("https://hook.example/app/__pracht/revalidate", {
+          body: JSON.stringify({ paths: ["/pricing"] }),
+          headers: {
+            authorization: "Bearer secret",
+            "content-type": "application/json",
+          },
+          method: "POST",
+        }),
+        { ASSETS: create404Assets(), PRACHT_REVALIDATE_TOKEN: "secret" },
+        executionContext,
+      );
+
+      expect(response.status).toBe(200);
+      expect(purge).toHaveBeenCalledWith({ pathPrefixes: ["/app/pricing"] });
+    } finally {
+      vi.doUnmock("../src/cache.ts");
+    }
   });
 });
 

@@ -49,7 +49,7 @@ async function fileAt(path: string): Promise<string | null> {
 
 async function startDumbStaticHost(
   root: string,
-  options?: { fallback?: string },
+  options?: { fallback?: string; base?: string },
 ): Promise<{ origin: string; server: Server }> {
   const server = createServer(async (req, res) => {
     const url = new URL(req.url ?? "/", "http://localhost");
@@ -59,6 +59,19 @@ async function startDumbStaticHost(
     } catch {
       res.writeHead(400).end("bad request");
       return;
+    }
+    // A sub-path deploy: the host maps `<base>/x` onto `<root>/x` and knows
+    // nothing outside it.
+    if (options?.base) {
+      if (pathname === options.base.slice(0, -1)) {
+        res.writeHead(301, { location: options.base }).end();
+        return;
+      }
+      if (!pathname.startsWith(options.base)) {
+        res.writeHead(404, { "content-type": "text/plain" }).end("outside base");
+        return;
+      }
+      pathname = `/${pathname.slice(options.base.length)}`;
     }
     const safe = normalize(pathname).replace(/^(\.\.[/\\])+/, "");
     const base = join(root, safe);
@@ -800,6 +813,18 @@ test("static export preflights concrete paths before writing reserved output", (
       ),
       "utf-8",
     );
+    // The rewritten route gained a `:section` param, so the shell's typed link
+    // to it needs one too — otherwise the render fails before the preflight
+    // this test is about.
+    const shellPath = resolve(exampleDir, "src/shells/site.tsx");
+    writeFileSync(
+      shellPath,
+      readFileSync(shellPath, "utf-8").replace(
+        'params={{ slug: "hello-world" }}',
+        'params={{ section: "posts", slug: "hello-world" }}',
+      ),
+      "utf-8",
+    );
 
     const output = buildFailureOutput(exampleDir);
     expect(output).toContain("reserved /_pracht/ output namespace");
@@ -810,9 +835,10 @@ test("static export preflights concrete paths before writing reserved output", (
   }
 });
 
-test("static export build rejects a sub-path Vite base", () => {
+test("static export deploys under a sub-path Vite base", async ({ page }) => {
   test.setTimeout(180_000);
   const { exampleDir, tempDir } = createTempExampleDir(staticFixtureDir, "pracht-static-base-");
+  let server: Server | undefined;
 
   try {
     const viteConfigPath = resolve(exampleDir, "vite.config.ts");
@@ -824,11 +850,118 @@ test("static export build rejects a sub-path Vite base", () => {
       ),
       "utf-8",
     );
+    // A route may legitimately begin with the same segment as the deploy
+    // base. Prerender requests must still treat this as a base-free route path
+    // and produce the browser URL /app/app/about.
+    const routesPath = resolve(exampleDir, "src/routes.ts");
+    writeFileSync(
+      routesPath,
+      readFileSync(routesPath, "utf-8").replace('route("/about",', 'route("/app/about",'),
+      "utf-8",
+    );
+    buildExample(exampleDir, { PRACHT_STATIC_FALLBACK: "200.html" });
+
+    const clientDir = resolve(exampleDir, "dist/client");
+    // Output paths are unchanged: the base is where the deploy is *served*,
+    // not part of the tree.
+    expect(existsSync(resolve(clientDir, "app/about/index.html"))).toBe(true);
+    expect(existsSync(resolve(clientDir, "app/app"))).toBe(false);
+
+    // Documents reference their assets and state under the base.
+    const homeHtml = readFileSync(resolve(clientDir, "index.html"), "utf-8");
+    expect(homeHtml).toContain('src="/app/assets/');
+    expect(homeHtml).not.toMatch(/src="\/assets\//);
+
+    server = (await startDumbStaticHost(clientDir, { base: "/app/", fallback: "200.html" })).server;
+    const origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+
+    const failedRequests: string[] = [];
+    page.on("response", (response) => {
+      if (response.status() >= 400) failedRequests.push(response.url());
+    });
+
+    await page.goto(`${origin}/app/`);
+    await waitForRouter(page);
+    await page.evaluate(() => ((window as any).__NO_RELOAD__ = true));
+
+    // Client-side navigation, with its route-state fetch, under the base.
+    await page.click('nav a[href="/app/app/about"]');
+    await expect(page.locator("#about h1")).toBeVisible();
+    await expect(page.locator("#about-path")).toHaveText("Served from: /app/app/about");
+    await page.waitForURL(`${origin}/app/app/about`);
+    expect(await page.evaluate(() => (window as any).__NO_RELOAD__)).toBe(true);
+
+    // Dynamic SSG route, then back through history.
+    await page.click('nav a[href="/app/posts/hello-world"]');
+    await expect(page.locator("#post h1")).toHaveText("Hello world");
+    await page.goBack();
+    await page.waitForURL(`${origin}/app/app/about`);
+    expect(await page.evaluate(() => (window as any).__NO_RELOAD__)).toBe(true);
+
+    // A deep link into a dynamic SPA route resolves through the fallback.
+    await page.goto(`${origin}/app/items/42`);
+    await waitForRouter(page);
+    await expect(page.locator("#item h1")).toHaveText("Item 42");
+
+    // An unknown URL under the base renders the app's not-found page at the
+    // path the visitor actually asked for.
+    await page.goto(`${origin}/app/no/such/page`);
+    await waitForRouter(page);
+    await expect(page.locator("#not-found h1")).toContainText("404");
+    await expect(page.locator("#requested-path")).toHaveText("/app/no/such/page");
+
+    expect(failedRequests).toEqual([]);
+  } finally {
+    await stopServer(server);
+    rmSync(tempDir, { force: true, recursive: true });
+  }
+});
+
+test("static export build rejects a CDN base", () => {
+  test.setTimeout(180_000);
+  const { exampleDir, tempDir } = createTempExampleDir(staticFixtureDir, "pracht-static-cdn-base-");
+
+  try {
+    const viteConfigPath = resolve(exampleDir, "vite.config.ts");
+    writeFileSync(
+      viteConfigPath,
+      readFileSync(viteConfigPath, "utf-8").replace(
+        "export default defineConfig({",
+        'export default defineConfig({\n  base: "https://cdn.example.com/",',
+      ),
+      "utf-8",
+    );
 
     // The CLI colorizes the backticked `base`, so match around it.
     const output = buildFailureOutput(exampleDir);
-    expect(output).toContain('is set to "/app/"');
-    expect(output).toContain("root-relative");
+    expect(output).toContain('is set to "https://cdn.example.com/"');
+    expect(output).toContain("root-absolute path base");
+  } finally {
+    rmSync(tempDir, { force: true, recursive: true });
+  }
+});
+
+test("static export build rejects a document-relative base after SSR normalization", () => {
+  test.setTimeout(180_000);
+  const { exampleDir, tempDir } = createTempExampleDir(
+    staticFixtureDir,
+    "pracht-static-relative-base-",
+  );
+
+  try {
+    const viteConfigPath = resolve(exampleDir, "vite.config.ts");
+    writeFileSync(
+      viteConfigPath,
+      readFileSync(viteConfigPath, "utf-8").replace(
+        "export default defineConfig({",
+        'export default defineConfig({\n  base: "./",',
+      ),
+      "utf-8",
+    );
+
+    const output = buildFailureOutput(exampleDir);
+    expect(output).toContain('is set to "./"');
+    expect(output).toContain("root-absolute path base");
   } finally {
     rmSync(tempDir, { force: true, recursive: true });
   }

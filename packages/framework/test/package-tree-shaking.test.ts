@@ -115,7 +115,8 @@ describe("published package tree shaking", () => {
 
   it.each([
     ["publicEnv", 350],
-    ["createHref", 1_400],
+    // Public deploy-base helpers add one tiny re-export to the browser entry.
+    ["createHref", 1_410],
     ["apiFetch", 2_200],
     ["PrachtHttpError", 350],
     // Standalone cost incl. the useIsHydrated machinery; in a hydrating app

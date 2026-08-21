@@ -49,6 +49,24 @@ describe("apiFetch", () => {
     expect(fetchSpy.mock.calls[0][0]).toBe("https://example.com/api/search?q=hi&tags=a&tags=b");
   });
 
+  it("requests API paths under the deploy base", async () => {
+    vi.resetModules();
+    vi.stubEnv("BASE_URL", "/my-project/");
+    const { apiFetch: apiFetchUnderBase } = await import("../src/index.ts");
+    const fetchSpy = vi.fn().mockImplementation(async () => jsonResponse({ ok: true }));
+
+    await apiFetchUnderBase("/api/items/:id", { params: { id: "42" }, fetch: fetchSpy });
+    // An explicit baseUrl already names where the API lives; the deploy base
+    // must not be spliced in on top of it.
+    await apiFetchUnderBase("/api/items", { baseUrl: "https://example.com", fetch: fetchSpy });
+
+    expect(fetchSpy.mock.calls[0][0]).toBe("/my-project/api/items/42");
+    expect(fetchSpy.mock.calls[1][0]).toBe("https://example.com/api/items");
+
+    vi.unstubAllEnvs();
+    vi.resetModules();
+  });
+
   it("JSON-encodes object bodies and sets the content type", async () => {
     const fetchSpy = vi.fn().mockResolvedValue(jsonResponse({ ok: true }));
 

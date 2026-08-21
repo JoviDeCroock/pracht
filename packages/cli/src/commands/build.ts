@@ -169,6 +169,7 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
     registerPrerenderModuleHooks();
     const serverMod = await import(pathToFileURL(serverEntry).href);
     buildTarget = typeof serverMod.buildTarget === "string" ? serverMod.buildTarget : null;
+    const buildBase = typeof serverMod.buildBase === "string" ? serverMod.buildBase : "/";
     const isStaticExport = isStaticExportBuild(serverMod);
     if (isStaticExport) {
       // Fail closed before prerendering: a static export has no server, so
@@ -177,8 +178,10 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
       await validateStaticExport(serverMod);
     }
     const { prerenderApp } = serverMod;
+    // Asset URLs in prerendered documents must carry the deploy base; the
+    // server bundle reports the one Vite resolved.
     const { clientEntryUrl, clientEntryJs, islandsEntryJs, cssManifest, jsManifest } =
-      readClientBuildAssets(root);
+      readClientBuildAssets(root, buildBase);
 
     const { pages, isgManifest } = await prerenderApp({
       staticExport: isStaticExport,
@@ -431,6 +434,7 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
       }
 
       const outputPath = writeVercelBuildOutput({
+        base: buildBase,
         functionName: serverMod.vercelFunctionName,
         isgManifest,
         headersManifest,

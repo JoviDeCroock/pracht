@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   cloudflareLoader,
@@ -7,6 +7,11 @@ import {
   passthroughLoader,
   vercelLoader,
 } from "../src/index.ts";
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+  vi.resetModules();
+});
 
 describe("defaultLoader", () => {
   it("targets the pracht image API route with encoded url, width, and quality", () => {
@@ -27,6 +32,23 @@ describe("createDefaultLoader", () => {
     const loader = createDefaultLoader("/api/images");
     expect(loader({ src: "/a.png", width: 128, quality: 90 })).toBe(
       "/api/images?url=%2Fa.png&w=128&q=90",
+    );
+  });
+
+  it("targets app endpoints under the Vite deploy base", async () => {
+    vi.resetModules();
+    vi.stubEnv("BASE_URL", "/app/");
+    const { createDefaultLoader: createUnderBase, defaultLoader: defaultUnderBase } =
+      await import("../src/index.ts");
+
+    expect(defaultUnderBase({ src: "/hero.jpg", width: 640 })).toBe(
+      "/app/api/_pracht/image?url=%2Fhero.jpg&w=640&q=75",
+    );
+    expect(createUnderBase("/api/images")({ src: "/a.png", width: 128 })).toBe(
+      "/app/api/images?url=%2Fa.png&w=128&q=75",
+    );
+    expect(createUnderBase("https://images.example/resize")({ src: "/a.png", width: 128 })).toBe(
+      "https://images.example/resize?url=%2Fa.png&w=128&q=75",
     );
   });
 });

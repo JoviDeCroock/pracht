@@ -311,6 +311,7 @@ export function createPrachtServerModuleSource(
     root?: string;
     isBuild?: boolean;
     base?: string;
+    configuredBase?: string;
   } = {},
 ): string {
   const resolved = resolveOptions(options);
@@ -323,7 +324,7 @@ export function createPrachtServerModuleSource(
     buildOptions.root,
   );
   const clientBuild = buildOptions.isBuild
-    ? readClientBuildAssets(buildOptions.root)
+    ? readClientBuildAssets(buildOptions.root, buildOptions.base ?? "/")
     : { clientEntryUrl: null, islandsEntryUrl: null, cssManifest: {}, jsManifest: {} };
   const adapter = resolved.adapter;
   const llmsTxtConfig = resolveLlmsTxtConfig(resolved, buildOptions.root);
@@ -347,9 +348,15 @@ export function createPrachtServerModuleSource(
   // In dev the islands bootstrap is served from a stable path; in production
   // builds the hashed entry URL comes from the client build manifest (null
   // when the app has no islands directory).
+  const devBase = buildOptions.base ?? "/";
+  const withDevBase = (path: string): string =>
+    devBase === "/" ? path : `${devBase}${path.slice(1)}`;
+  const clientEntryUrl = buildOptions.isBuild
+    ? clientBuild.clientEntryUrl
+    : withDevBase(CLIENT_BROWSER_PATH);
   const islandsEntryUrl = buildOptions.isBuild
     ? clientBuild.islandsEntryUrl
-    : ISLANDS_CLIENT_BROWSER_PATH;
+    : withDevBase(ISLANDS_CLIENT_BROWSER_PATH);
   const islandsGlob = `${resolved.islandsDir}/**/*.{ts,tsx,js,jsx}`;
 
   const source = [
@@ -375,11 +382,15 @@ export function createPrachtServerModuleSource(
     `export const apiRoutes = resolveApiRoutes(Object.keys(apiModules), ${JSON.stringify(resolved.apiDir)});`,
     `export const buildTarget = ${JSON.stringify(adapter?.id ?? "node")};`,
     `export const staticTarget = ${JSON.stringify(adapter?.staticTarget === true)};`,
-    // Vite's `base`. Prerendered documents and the serialized route-state URLs
-    // are root-relative, so the CLI rejects a static export configured with a
-    // sub-path base instead of emitting a deploy whose assets all 404.
+    // Vite's `base`. The CLI reads it to prefix the asset URLs it writes into
+    // prerendered documents, to serve `pracht preview` under the same path,
+    // and to reject the base shapes a static export cannot honour.
     `export const buildBase = ${JSON.stringify(buildOptions.base ?? "/")};`,
-    `export const clientEntryUrl = ${JSON.stringify(clientBuild.clientEntryUrl ?? CLIENT_BROWSER_PATH)};`,
+    // Preserve the user-authored value as well. Vite normalizes document-relative
+    // bases to "/" in SSR builds, but the static-export validator still needs
+    // to reject the original value because the client build resolves it relatively.
+    `export const configuredBase = ${JSON.stringify(buildOptions.configuredBase)};`,
+    `export const clientEntryUrl = ${JSON.stringify(clientEntryUrl ?? CLIENT_BROWSER_PATH)};`,
     `export const islandsEntryUrl = ${JSON.stringify(islandsEntryUrl ?? null)};`,
     `export const islandsBootstrapRequired = ${JSON.stringify(islandsBootstrapRequired)};`,
     `export const cssManifest = ${JSON.stringify(clientBuild.cssManifest)};`,
@@ -414,7 +425,7 @@ export function createPrachtServerModuleSource(
  */
 export function createPrachtDevModuleSource(
   options: PrachtPluginOptions = {},
-  buildOptions: { root?: string } = {},
+  buildOptions: { root?: string; base?: string } = {},
 ): string {
   const resolved = resolveOptions(options);
   const routeLoaderHints = createRouteLoaderHintsForVirtualModules(resolved, buildOptions.root);
@@ -442,6 +453,7 @@ export function createPrachtDevModuleSource(
     `export const apiRoutes = resolveApiRoutes(Object.keys(apiModules), ${JSON.stringify(resolved.apiDir)});`,
     `export const buildTarget = ${JSON.stringify(resolved.adapter?.id ?? "node")};`,
     `export const staticTarget = ${JSON.stringify(resolved.adapter?.staticTarget === true)};`,
+    `export const buildBase = ${JSON.stringify(buildOptions.base ?? "/")};`,
     "",
   ].join("\n");
 }

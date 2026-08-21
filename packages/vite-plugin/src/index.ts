@@ -44,6 +44,7 @@ import {
 } from "./plugin-codegen.ts";
 import {
   createDevCssInjectionMiddleware,
+  createOwnedDevEntryMiddleware,
   createDevSSRMiddleware,
   injectDevCssForPath,
 } from "./plugin-dev-ssr.ts";
@@ -145,6 +146,7 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
 
   let isBuild = false;
   let base = "/";
+  let configuredBase: string | undefined;
 
   const prachtPlugin: Plugin = {
     name: "pracht",
@@ -275,10 +277,18 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
               },
             }
           : {}),
+        ...(!isEdge && isSSRBuild
+          ? {
+              ssr: {
+                noExternal: [PRACHT_SSR_NO_EXTERNAL],
+              },
+            }
+          : {}),
       };
     },
 
     configResolved(config) {
+      assertSafeRootAbsoluteDeployBase(config.base);
       root = config.root;
       isBuild = config.command === "build";
       base = config.base;
@@ -325,10 +335,10 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
         return createPrachtClientModuleSource(resolved, { root });
       }
       if (isDevModule(id)) {
-        return createPrachtDevModuleSource(resolved, { root });
+        return createPrachtDevModuleSource(resolved, { root, base });
       }
       if (isServerModule(id)) {
-        return createPrachtServerModuleSource(resolved, { root, isBuild, base });
+        return createPrachtServerModuleSource(resolved, { root, isBuild, base, configuredBase });
       }
       if (isCapabilitiesModule(id)) {
         return createPrachtCapabilitiesClientModuleSource(resolved, { root });
@@ -362,6 +372,7 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
       }
 
       if (resolved.adapter.ownsDevServer) {
+        server.middlewares.use(createOwnedDevEntryMiddleware(server));
         server.middlewares.use(createDevCssInjectionMiddleware(server));
         return;
       }
@@ -492,6 +503,20 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
     },
   };
 
+  // Vite normalizes document-relative bases to `/` for SSR builds. Capture
+  // the fully merged, user-authored value after ordinary config hooks have
+  // run so a plugin-provided `base: "./"` cannot evade static-export
+  // validation.
+  const configuredBasePlugin: Plugin = {
+    name: "pracht:configured-base",
+    config: {
+      order: "post",
+      handler(config) {
+        configuredBase = typeof config.base === "string" ? config.base : undefined;
+      },
+    },
+  };
+
   const clientModuleTransformPlugin: Plugin = {
     name: "pracht:client-module-transform",
     enforce: "post",
@@ -552,6 +577,7 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
     ...(precompilePlugin ? [precompilePlugin] : []),
     ...preact(),
     prachtPlugin,
+    configuredBasePlugin,
     clientModuleTransformPlugin,
     ...(edgeRuntimeSafetyPlugin ? [edgeRuntimeSafetyPlugin] : []),
     createEnvSafetyPlugin(resolved.envSafety),
@@ -571,6 +597,46 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
   plugins.push(optimizeDepsEntriesPlugin);
 
   return plugins;
+}
+
+function assertSafeRootAbsoluteDeployBase(base: string | undefined): void {
+  if (typeof base !== "string" || !base.startsWith("/") || base.startsWith("//")) return;
+
+  let safe = !base.includes("?") && !base.includes("#");
+  if (safe) {
+    try {
+      const segments = base.split("/");
+      safe = segments.every((segment, index) => {
+        // The leading and trailing slash produce the two expected empty
+        // components. Any other empty component represents a repeated slash,
+        // which filesystem-backed adapters cannot preserve portably.
+        if (segment === "" && index !== 0 && index !== segments.length - 1) return false;
+        const decoded = decodeURIComponent(segment);
+        if (decoded === "." || decoded === "..") return false;
+        for (const character of decoded) {
+          const codePoint = character.codePointAt(0);
+          if (
+            character === "/" ||
+            character === "\\" ||
+            codePoint === 0 ||
+            (codePoint !== undefined && (codePoint <= 0x1f || codePoint === 0x7f))
+          ) {
+            return false;
+          }
+        }
+        return true;
+      });
+    } catch {
+      safe = false;
+    }
+  }
+
+  if (!safe) {
+    throw new Error(
+      `[pracht] Vite \`base\` is set to ${JSON.stringify(base)}, but root-absolute deploy bases must contain safe URL segments. ` +
+        "Repeated slashes, malformed escapes, and segments that decode to a path separator, `.`, `..`, NUL, or another control character are not allowed.",
+    );
+  }
 }
 
 function isGraphOnlyMode(): boolean {
@@ -702,6 +768,11 @@ const PRACHT_OPTIMIZE_DEPS_INCLUDE = [
 // and with them the `options` object `preact/hooks` mutates, which is the
 // state a second copy splits in two.
 const PREACT_DEDUPE = ["preact", "preact-render-to-string"];
+// Published Pracht packages live under node_modules, where Vite would
+// externalize them from Node/static SSR builds. Keep them in the bundle so
+// compile-time values such as import.meta.env.BASE_URL are transformed and
+// module-scoped request state is shared with generated app code.
+const PRACHT_SSR_NO_EXTERNAL = /^@pracht\//;
 
 function createPrachtOptimizeDepsInclude(root: string): string[] {
   // Vite deliberately leaves workspace-linked packages un-optimized (they are

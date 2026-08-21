@@ -12,6 +12,7 @@ export {
   webhookRevalidate,
 } from "./app.ts";
 export { createHref } from "./href.ts";
+export { restoreBasePathInRequest, stripBase, withBase } from "./base.ts";
 export {
   apiValidationErrorResponse,
   defineApi,
@@ -42,6 +43,7 @@ export type { PrachtPublicEnv, PrachtServerEnv, PublicEnvOf } from "./env.ts";
 export { setServerEnv } from "./env-server.ts";
 export {
   applyDefaultSecurityHeaders,
+  createBaseRedirectResponse,
   formatServerTimingHeader,
   handlePrachtRequest,
   isProtocolSwitchResponse,

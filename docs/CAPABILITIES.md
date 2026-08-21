@@ -425,8 +425,11 @@ import { Form } from "@pracht/core";
   form-encoded post and answers a successful document submission with a 303
   back to the same-origin referring page. Failed posts keep the JSON envelope.
 - For capabilities with a custom `expose.http.path`, set `action` explicitly.
+  A root-absolute action automatically receives Vite's deploy base.
 - Submit buttons can override that target with `formaction`; enhanced and
-  no-JavaScript submissions resolve the same endpoint.
+  no-JavaScript submissions resolve the same endpoint. Because `formaction`
+  is native child markup, wrap a local root-absolute override with
+  `withBase()` when the app uses a deploy base.
 - Redirects returned by capability middleware (for example, an authentication
   redirect to a login page) navigate normally in enhanced forms, including
   cross-origin OAuth/SSO destinations. Pracht returns the redirect target to

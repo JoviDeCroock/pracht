@@ -64,6 +64,15 @@ Pin `canonicalOrigin` in production so `request.url` does not depend on the
 incoming `Host` header. `maxBodySize` is also available on `nodeAdapter()`.
 Only custom entries behind a trusted proxy that overwrites forwarded headers
 should use `createNodeRequestHandler({ trustProxy: true })`.
+If that proxy strips Vite's deploy base from the forwarded path, set
+`nodeAdapter({ basePathStripped: true })` (or the same option on a custom
+`createNodeRequestHandler`). Do not infer this from the first path segment: a
+route may legitimately begin with the same segment as the deploy base. The
+adapter restores the public base before `createContext()`, loaders, and API
+handlers receive the request.
+The proxy must also own the public bare-base redirect (`/app` to `/app/`) in
+this mode because the stripped origin cannot distinguish it from a legitimate
+base-free `/app` route.
 
 The Node adapter compresses responses by default (brotli/gzip negotiated via
 `Accept-Encoding`, streaming for dynamic bodies, an in-memory LRU for static
@@ -257,10 +266,14 @@ npx netlify deploy --build --prod
 
 The build emits `netlify/functions/pracht.mjs`. Page requests go through that
 function so Markdown negotiation and route-state requests remain correct;
-hashed assets bypass it and stay outside the function bundle. The generated
-config enumerates only client files the function can serve and roots matching
-exclusions at the function file so Netlify's tracer cannot re-add bypassed
-trees. Netlify durable caching
+hashed assets bypass it and stay outside the function bundle at the origin
+root. With a Vite deploy base, the function instead bundles and serves the
+base-free asset and `/_pracht` trees so `/app/...` requests remain inside the
+mount. Custom `excludedPath` entries still bypass their literal origin-root
+URLs, but matching files remain bundled for base-prefixed requests. The
+generated config enumerates only client files the function can serve and roots
+applicable exclusions at the function file so Netlify's tracer cannot re-add
+bypassed trees. Netlify durable caching
 implements time-based ISG and per-path cache tags implement authenticated
 webhook revalidation. A trailing-slash ISG document request permanently
 redirects to the canonical slashless URL before rendering, and webhook
@@ -324,9 +337,18 @@ offenders — that is the signal to pick a serverful adapter instead. Only
 manifest-registered capabilities participate; every registered capability
 module must load successfully so exposure validation can fail closed. The
 `notFound` page must use full hydration (the default), because the shared
-`404.html` needs the client router to adopt the visitor's actual URL. Static
-exports must deploy at an origin root: a Vite `base` other than `/` is a build
-error, because prerendered asset and route-state URLs are root-relative.
+`404.html` needs the client router to adopt the visitor's actual URL. Sub-path
+deploys (GitHub Pages *project* sites, S3 key prefixes) set Vite `base` to that
+path; CDN and document-relative bases (`""` / `"./"`) are build errors,
+because they split assets from the deploy root or resolve them beneath nested
+page directories. Under a base,
+internal navigation must go through `<Link route>` / `href()` — a hand-written
+`<a href="/about">` still means the origin root.
+Pracht's preview and first-party serverful adapters redirect the bare base
+(`/app`) to its trailing-slash form (`/app/`) before serving the root document;
+custom adapters receive the same behavior through `handlePrachtRequest()`.
+Framework-owned browser URLs from the default image loader and OpenAPI
+companion artifacts pick up the same base automatically.
 
 ### Setup
 

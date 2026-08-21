@@ -33,7 +33,9 @@ export default defineConfig({
 `canonicalOrigin` prevents Host-derived request URLs in production. The Node
 adapter also accepts `maxBodySize`; custom entries can pass `trustProxy: true`
 to `createNodeRequestHandler()` only when a trusted reverse proxy overwrites
-forwarded headers.
+forwarded headers. When the proxy strips Vite's deploy base from the forwarded
+path, set `nodeAdapter({ basePathStripped: true })` so a matching first route
+segment is not stripped a second time.
 
 Responses are compressed by default: the adapter negotiates `Accept-Encoding`
 (highest q-value wins, including an explicitly higher `identity` preference,

@@ -170,7 +170,7 @@ import { Form } from "@pracht/core";
 </Form>;
 ```
 
-`capability` accepts only http-exposed names once typegen has run — a private one has no endpoint to post to, so naming it is a compile error rather than a 404 at submit time. Set `action` explicitly for a capability with a custom `expose.http.path`.
+`capability` accepts only http-exposed names once typegen has run — a private one has no endpoint to post to, so naming it is a compile error rather than a 404 at submit time. Set `action` explicitly for a capability with a custom `expose.http.path`; a root-absolute action automatically receives Vite's deploy base. A button-level `formaction` is native child markup, so wrap a local root-absolute override with `withBase()` when the app uses a deploy base.
 
 Mutations keep the page honest automatically: capabilities are effect-classed, so after any successful non-`read` call from the browser (`callCapability`, the `capabilities` client, or `<Form capability>`) the active route's loader data revalidates — no manual `revalidate()` bookkeeping. Opt out per call with `{ revalidate: false }`.
 

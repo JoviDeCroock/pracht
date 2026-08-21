@@ -3,11 +3,13 @@ import { describe, expect, it } from "vitest";
 import {
   collectDevCssUrls,
   createDevCssManifest,
+  injectDevCssForPath,
   injectDevCssLinks,
   isEventStreamContentType,
   isDevNotFoundRequest,
   shouldBypassDevSSR,
 } from "../src/plugin-dev-ssr.ts";
+import { PRACHT_DEV_MODULE_ID } from "../src/plugin-assets.ts";
 
 describe("development streaming response detection", () => {
   it("recognizes the SSE media type case-insensitively", () => {
@@ -97,6 +99,73 @@ describe("development CSS discovery", () => {
         '    <link rel="stylesheet" href="/global.css">\n' +
         "  </head><body></body></html>",
     );
+  });
+
+  it("serves discovered styles under the configured deploy base", () => {
+    const html = "<html><head></head><body></body></html>";
+
+    expect(
+      injectDevCssLinks(
+        html,
+        {
+          route: ["/src/routes/about.css"],
+        },
+        "/app/",
+      ),
+    ).toContain('href="/app/src/routes/about.css"');
+  });
+
+  it("matches adapter-owned dev requests after stripping the deploy base", async () => {
+    const routeEntry = moduleNode("/src/routes/about.tsx", "js", [
+      moduleNode("/src/routes/about.css", "css"),
+    ]);
+    const matchedPathnames: string[] = [];
+    const server = {
+      config: { base: "/app/" },
+      environments: {
+        worker: {
+          moduleGraph: {
+            getModuleByUrl: async (url: string) =>
+              url === "/src/routes/about.tsx" ? routeEntry : undefined,
+          },
+        },
+      },
+      ssrLoadModule: async (id: string) => {
+        if (id === "@pracht/core/server") {
+          return {
+            matchAppRoute: (_app: unknown, pathname: string) => {
+              matchedPathnames.push(pathname);
+              return pathname === "/about" ? { route: { file: "./routes/about.tsx" } } : undefined;
+            },
+            stripBase: (pathname: string) => {
+              if (pathname === "/app") return "/";
+              return pathname.startsWith("/app/") ? pathname.slice(4) : null;
+            },
+          };
+        }
+        if (id === PRACHT_DEV_MODULE_ID) {
+          return {
+            registry: {
+              routeModules: { "/src/routes/about.tsx": async () => ({}) },
+            },
+            resolvedApp: { routes: [] },
+          };
+        }
+        throw new Error(`Unexpected ssrLoadModule id: ${id}`);
+      },
+    } as any;
+
+    const html = "<html><head></head><body></body></html>";
+    await expect(
+      injectDevCssForPath(server, "/app/about?ref=dev", html, { basePathRetained: true }),
+    ).resolves.toContain('href="/app/src/routes/about.css"');
+    await expect(
+      injectDevCssForPath(server, "/outside", html, { basePathRetained: true }),
+    ).resolves.toBe(html);
+    await expect(injectDevCssForPath(server, "/about", html)).resolves.toContain(
+      'href="/app/src/routes/about.css"',
+    );
+    expect(matchedPathnames).toEqual(["/about", "/about"]);
   });
 });
 

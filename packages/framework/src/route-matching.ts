@@ -8,6 +8,7 @@
  * to run in dev and at build time.
  */
 
+import { withBase } from "./base.ts";
 import { formatUnknownNameError } from "./name-suggestions.ts";
 import type {
   BuildHrefOptions,
@@ -205,7 +206,10 @@ export function buildHrefUntyped(
 
   const segments = route.segments ?? parseRouteSegments(route.path);
   const params = normalizeHrefParams(segments, options.params ?? {});
-  const path = buildPathFromSegments(segments, params);
+  // Every caller — <Link>, navigate(), prefetch(), href() — hands this to the
+  // browser, so it is a URL path and carries the deploy base. Prerender output
+  // paths use `buildPathFromSegments` directly and stay base-free.
+  const path = withBase(buildPathFromSegments(segments, params));
   return `${path}${serializeSearch(options.search as SearchParamsInput | undefined)}${serializeHash(options.hash)}`;
 }
 

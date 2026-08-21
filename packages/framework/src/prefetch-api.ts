@@ -7,6 +7,7 @@
  * the core client bundle.
  */
 
+import { stripBase, withBase } from "./base.ts";
 import { buildHrefUntyped, matchResolvedRoute } from "./route-matching.ts";
 import {
   cacheRouteState,
@@ -84,7 +85,11 @@ export const prefetch: PrefetchFn = async (to: string | UntypedRouteTarget): Pro
 
   let href: string;
   try {
-    href = typeof to === "string" ? to : buildHrefUntyped(target.app.routes, to.route, to);
+    // Root-absolute strings are route paths, like the manifest paths callers
+    // passed before deploy-base support. Absolute and protocol-relative URLs
+    // remain transport URLs and are left alone by `withBase()`.
+    href =
+      typeof to === "string" ? withBase(to) : buildHrefUntyped(target.app.routes, to.route, to);
   } catch {
     return;
   }
@@ -97,7 +102,10 @@ export const prefetch: PrefetchFn = async (to: string | UntypedRouteTarget): Pro
   }
   if (url.origin !== window.location.origin) return;
 
-  const match = matchResolvedRoute(target.app, url.pathname);
+  const routePathname = stripBase(url.pathname);
+  if (routePathname === null) return;
+
+  const match = matchResolvedRoute(target.app, routePathname);
   if (!match) return;
 
   target.warmModules?.(match);

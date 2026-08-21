@@ -5,6 +5,7 @@ import { join, resolve, sep } from "node:path";
 
 import {
   applyDefaultSecurityHeaders,
+  createBaseRedirectResponse,
   getTimeRevalidateSeconds,
   handlePrachtRequest,
   classifyRevalidationSkip,
@@ -20,7 +21,9 @@ import {
   preventHeuristicCaching,
   readRevalidationRequest,
   RevalidationReport,
+  restoreBasePathInRequest,
   resolveRevalidationToken,
+  stripBase,
   type ResolvedApiRoute,
   type PrachtApp,
   routeSupportsMarkdown,
@@ -84,6 +87,12 @@ export interface NodeAdapterOptions<TContext = unknown> {
    * `request.url` against this origin.
    */
   canonicalOrigin?: string;
+  /**
+   * Set when a trusted reverse proxy removes Vite's deploy base from the
+   * request pathname before forwarding it. This prevents the framework from
+   * mistaking a base-like first route segment for a retained deploy base.
+   */
+  basePathStripped?: boolean;
   /**
    * Whether to trust proxy headers (`Forwarded`, `X-Forwarded-Proto`,
    * `X-Forwarded-Host`) when constructing the request URL.
@@ -153,7 +162,20 @@ export function createNodeRequestHandler<TContext = unknown>(
       }
       throw err;
     }
+    // A stripped upstream pathname is a route path, not a public URL. Testing
+    // it for the bare deploy base would make a route equal to that base segment
+    // unreachable (`/app/app` arrives as `/app` behind an `/app/` mount). The
+    // proxy owns the public `/app` -> `/app/` redirect in this mode.
+    const baseRedirect = options.basePathStripped ? null : createBaseRedirectResponse(request);
+    if (baseRedirect) {
+      await writeWebResponse(res, baseRedirect);
+      return;
+    }
     const url = new URL(request.url);
+    // Static files and manifests are keyed by base-free route paths. A trusted
+    // proxy may already have removed the base; otherwise strip it here while
+    // preserving the public URL on the Request passed to application code.
+    const routePathname = options.basePathStripped ? url.pathname : stripBase(url.pathname);
     const compression: CompressionState | undefined = compressionEnabled
       ? { cache: compressedAssetCache, request }
       : undefined;
@@ -167,9 +189,9 @@ export function createNodeRequestHandler<TContext = unknown>(
     const wantsMarkdown =
       prefersMarkdown(request.headers.get("accept")) &&
       (options.markdownManifest === undefined ||
-        routeSupportsMarkdown(options.markdownManifest, url.pathname));
+        (routePathname !== null && routeSupportsMarkdown(options.markdownManifest, routePathname)));
 
-    if (url.pathname === PRACHT_REVALIDATE_ENDPOINT) {
+    if (routePathname === PRACHT_REVALIDATE_ENDPOINT) {
       const response = await handleRevalidationEndpoint(
         request,
         options,
@@ -190,16 +212,17 @@ export function createNodeRequestHandler<TContext = unknown>(
       staticDir &&
       isStaticAssetMethod(request.method) &&
       !wantsMarkdown &&
-      !isTransportRouteStateRequest
+      !isTransportRouteStateRequest &&
+      routePathname !== null
     ) {
-      const staticResult = await resolveStaticFile(staticDir, url.pathname, isgManifest);
+      const staticResult = await resolveStaticFile(staticDir, routePathname, isgManifest);
       if (staticResult) {
         await serveStaticFile(
           request,
           res,
           staticResult,
           headersManifest,
-          url.pathname,
+          routePathname,
           compression,
         );
         return;
@@ -211,15 +234,16 @@ export function createNodeRequestHandler<TContext = unknown>(
       isStaticAssetMethod(request.method) &&
       !isTransportRouteStateRequest &&
       !wantsMarkdown &&
-      url.pathname in isgManifest
+      routePathname !== null &&
+      routePathname in isgManifest
     ) {
       const served = await serveISGEntry(
         request,
         res,
         options,
         staticDir,
-        url.pathname,
-        isgManifest[url.pathname],
+        routePathname,
+        isgManifest[routePathname],
         headersManifest,
         { request, req, res },
         compression,
@@ -227,13 +251,19 @@ export function createNodeRequestHandler<TContext = unknown>(
       if (served) return;
     }
 
-    const applicationRequest = createApplicationRequest(request, compression);
+    let applicationRequest = createApplicationRequest(request, compression);
+    if (options.basePathStripped) {
+      applicationRequest = restoreBasePathInRequest(applicationRequest);
+    }
     const context = options.createContext
       ? await options.createContext({ request: applicationRequest, req, res })
       : undefined;
 
     const response = await handlePrachtRequest({
       app: options.app,
+      // The adapter restored the public pathname before exposing this Request
+      // to createContext or the framework runtime.
+      basePathStripped: false,
       context,
       registry: options.registry,
       request: applicationRequest,
@@ -249,14 +279,15 @@ export function createNodeRequestHandler<TContext = unknown>(
       staticDir !== undefined &&
       request.method === "GET" &&
       !isTransportRouteStateRequest &&
-      url.pathname in isgManifest &&
+      routePathname !== null &&
+      routePathname in isgManifest &&
       response.status === 200 &&
       (response.headers.get("content-type")?.includes("text/html") ?? false) &&
       isCacheableISGResponse(response);
 
     if (isIsgDocument) {
       const html = await response.clone().text();
-      const htmlPath = resolveContainedPath(staticDir, url.pathname);
+      const htmlPath = resolveContainedPath(staticDir, routePathname);
       if (htmlPath) {
         await writeISGFile(htmlPath, html);
         compressedAssetCache.invalidatePath(htmlPath);

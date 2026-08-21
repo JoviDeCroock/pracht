@@ -57,6 +57,8 @@ async function waitFor(predicate: () => boolean, timeoutMs = 2_000): Promise<voi
 
 afterEach(async () => {
   vi.restoreAllMocks();
+  vi.unstubAllEnvs();
+  vi.resetModules();
 
   while (onUnhandledCleanups.length > 0) {
     onUnhandledCleanups.pop()?.();
@@ -115,9 +117,173 @@ describe("createNodeServerEntryModule", () => {
     expect(createNodeServerEntryModule()).toContain("compression: undefined");
     expect(createNodeServerEntryModule({ compression: false })).toContain("compression: false");
   });
+
+  it("passes the stripped deploy-base contract through to the generated handler", () => {
+    expect(createNodeServerEntryModule()).toContain("basePathStripped: undefined");
+    expect(createNodeServerEntryModule({ basePathStripped: true })).toContain(
+      "basePathStripped: true",
+    );
+  });
 });
 
 describe("createNodeRequestHandler", () => {
+  it("maps retained-base static and ISG paths without exposing root assets", async () => {
+    vi.stubEnv("BASE_URL", "/app/");
+    vi.resetModules();
+    const [core, adapter] = await Promise.all([
+      import("../../framework/src/index.ts"),
+      import("../src/node-handler.ts"),
+    ]);
+    const staticDir = makeTempDir();
+    mkdirSync(join(staticDir, "assets"), { recursive: true });
+    writeFileSync(join(staticDir, "assets/app.js"), "console.log('app')", "utf-8");
+    const isgDir = join(staticDir, "isg");
+    const isgPath = join(isgDir, "index.html");
+    mkdirSync(isgDir, { recursive: true });
+    writeFileSync(isgPath, "<html><body>stale</body></html>", "utf-8");
+    const staleAt = new Date(Date.now() - 10_000);
+    utimesSync(isgPath, staleAt, staleAt);
+    const observedUrls: string[] = [];
+
+    const handler = adapter.createNodeRequestHandler({
+      app: core.defineApp({
+        routes: [
+          core.route("/isg", "./routes/isg.tsx", {
+            render: "isg",
+            revalidate: core.timeRevalidate(1),
+          }),
+        ],
+      }),
+      canonicalOrigin: "https://example.test",
+      compression: false,
+      isgManifest: { "/isg": { revalidate: core.timeRevalidate(1) } },
+      registry: {
+        routeModules: {
+          "./routes/isg.tsx": async () => ({
+            Component: () => "fresh",
+            loader: ({ request }: { request: Request }) => {
+              observedUrls.push(request.url);
+              return null;
+            },
+          }),
+        },
+      },
+      staticDir,
+    });
+    const server = createServer((req: IncomingMessage, res: ServerResponse) => {
+      void handler(req, res);
+    });
+    servers.add(server);
+    server.listen(0, "127.0.0.1");
+    await once(server, "listening");
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("Expected TCP server address");
+
+    const bareBase = await fetch(`http://127.0.0.1:${address.port}/app?ref=campaign`, {
+      redirect: "manual",
+    });
+    expect(bareBase.status).toBe(308);
+    expect(bareBase.headers.get("location")).toBe("/app/?ref=campaign");
+
+    const underBase = await fetch(`http://127.0.0.1:${address.port}/app/assets/app.js`);
+    expect(underBase.status).toBe(200);
+    expect(await underBase.text()).toBe("console.log('app')");
+
+    const outsideBase = await fetch(`http://127.0.0.1:${address.port}/assets/app.js`);
+    expect(outsideBase.status).toBe(404);
+
+    const staleIsg = await fetch(`http://127.0.0.1:${address.port}/app/isg`);
+    expect(staleIsg.status).toBe(200);
+    expect(staleIsg.headers.get("x-pracht-isg")).toBe("stale");
+    await expect(staleIsg.text()).resolves.toContain("stale");
+    await waitFor(() => readFileSync(isgPath, "utf-8").includes("fresh"));
+    expect(observedUrls).toEqual(["https://example.test/app/isg"]);
+  });
+
+  it("restores a proxy-stripped base before createContext and route loaders", async () => {
+    vi.stubEnv("BASE_URL", "/app/");
+    vi.resetModules();
+    const [core, adapter] = await Promise.all([
+      import("../../framework/src/index.ts"),
+      import("../src/node-handler.ts"),
+    ]);
+    const observedUrls: string[] = [];
+    const handler = adapter.createNodeRequestHandler({
+      app: core.defineApp({
+        routes: [core.route("/about", "./routes/about.tsx", { render: "ssr" })],
+      }),
+      basePathStripped: true,
+      createContext: ({ request }) => {
+        observedUrls.push(request.url);
+        return {};
+      },
+      registry: {
+        routeModules: {
+          "./routes/about.tsx": async () => ({
+            Component: () => "about",
+            loader: ({ request }: { request: Request }) => {
+              observedUrls.push(request.url);
+              return null;
+            },
+          }),
+        },
+      },
+    });
+    const server = createServer((req: IncomingMessage, res: ServerResponse) => {
+      void handler(req, res);
+    });
+    servers.add(server);
+    server.listen(0, "127.0.0.1");
+    await once(server, "listening");
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("Expected TCP server address");
+
+    const response = await fetch(`http://127.0.0.1:${address.port}/about?ref=campaign`);
+
+    expect(response.status).toBe(200);
+    expect(observedUrls).toEqual([
+      `http://127.0.0.1:${address.port}/app/about?ref=campaign`,
+      `http://127.0.0.1:${address.port}/app/about?ref=campaign`,
+    ]);
+  });
+
+  it("does not treat a proxy-stripped route equal to the base as the bare public base", async () => {
+    vi.stubEnv("BASE_URL", "/app/");
+    vi.resetModules();
+    const [core, adapter] = await Promise.all([
+      import("../../framework/src/index.ts"),
+      import("../src/node-handler.ts"),
+    ]);
+    const handler = adapter.createNodeRequestHandler({
+      app: core.defineApp({
+        routes: [core.route("/app", "./routes/app.tsx", { render: "ssr" })],
+      }),
+      basePathStripped: true,
+      registry: {
+        routeModules: {
+          "./routes/app.tsx": async () => ({ Component: () => "app route" }),
+        },
+      },
+    });
+    const server = createServer((req: IncomingMessage, res: ServerResponse) => {
+      void handler(req, res);
+    });
+    servers.add(server);
+    server.listen(0, "127.0.0.1");
+    await once(server, "listening");
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("Expected TCP server address");
+
+    // Public /app/app reaches the origin as /app after the proxy removes the
+    // deploy base. It must render the route instead of redirecting to /app/.
+    const response = await fetch(`http://127.0.0.1:${address.port}/app`, {
+      redirect: "manual",
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain("app route");
+  });
+
   it("warns for deployed Node handlers without a canonical origin", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const staticDir = makeTempDir();

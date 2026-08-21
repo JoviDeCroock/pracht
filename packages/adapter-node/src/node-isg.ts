@@ -6,6 +6,7 @@ import {
   createRevalidationSingleFlight,
   handlePrachtRequest,
   isCacheableISGResponse,
+  restoreBasePathInRequest,
 } from "@pracht/core/server";
 import type { NodeAdapterContextArgs, NodeAdapterOptions } from "./node-handler.ts";
 
@@ -54,7 +55,12 @@ export async function regenerateISGPage<TContext>(
   contextArgs?: NodeAdapterContextArgs,
 ): Promise<boolean> {
   return regenerationSingleFlight(htmlPath, async () => {
-    const request = createISGRegenerationRequest(pathname, contextArgs?.request);
+    // Manifest keys are always base-free, regardless of whether the incoming
+    // proxy request retained the public base. Restore it on the synthetic
+    // regeneration Request before application code observes the URL.
+    const request = restoreBasePathInRequest(
+      createISGRegenerationRequest(pathname, contextArgs?.request),
+    );
     const context =
       options.createContext && contextArgs
         ? await options.createContext({ ...contextArgs, request })
@@ -62,6 +68,7 @@ export async function regenerateISGPage<TContext>(
 
     const response = await handlePrachtRequest({
       app: options.app,
+      basePathStripped: false,
       context,
       registry: options.registry,
       request,

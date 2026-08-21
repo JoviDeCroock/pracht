@@ -5,6 +5,7 @@ import type { Plugin } from "vite";
 import {
   applyDefaultSecurityHeaders,
   classifyRevalidationSkip,
+  createBaseRedirectResponse,
   createISGRegenerationRequest,
   getTimeRevalidateSeconds,
   handlePrachtRequest,
@@ -17,8 +18,10 @@ import {
   PRACHT_REVALIDATE_ENDPOINT,
   readRevalidationRequest,
   RevalidationReport,
+  restoreBasePathInRequest,
   resolveRevalidationToken,
   routeSupportsMarkdown,
+  stripBase,
   type HandlePrachtRequestOptions,
   type ISGManifestEntry,
   type MarkdownManifest,
@@ -137,17 +140,22 @@ export function createNetlifyHandler<
   const cache = resolveCacheOptions(options.cache);
 
   return async (request: Request, context: TNetlifyContext): Promise<Response> => {
+    const baseRedirect = createBaseRedirectResponse(request);
+    if (baseRedirect) return baseRedirect;
     const url = new URL(request.url);
+    const routePathname = stripBase(url.pathname);
 
-    if (url.pathname === PRACHT_REVALIDATE_ENDPOINT) {
+    if (routePathname === PRACHT_REVALIDATE_ENDPOINT) {
       return handleNetlifyRevalidation(request, options, isgManifest);
     }
 
-    const pathname = normalizePathname(url.pathname);
+    // Static output and manifests are base-free. A request outside the public
+    // base skips every adapter fast path and lets the core runtime return 404.
+    const pathname = routePathname === null ? null : normalizePathname(routePathname);
     const routeStateRequest = isRouteStateRequest(request, url);
     const markdownCapable =
       options.markdownManifest === undefined ||
-      routeSupportsMarkdown(options.markdownManifest, pathname);
+      (pathname !== null && routeSupportsMarkdown(options.markdownManifest, pathname));
     const wantsMarkdown = prefersMarkdown(request.headers.get("accept")) && markdownCapable;
     const staticMethod = request.method === "GET" || request.method === "HEAD";
 
@@ -159,10 +167,11 @@ export function createNetlifyHandler<
       staticMethod &&
       !routeStateRequest &&
       !wantsMarkdown &&
-      pathname !== url.pathname &&
+      pathname !== null &&
+      pathname !== routePathname &&
       pathname in isgManifest
     ) {
-      url.pathname = pathname;
+      url.pathname = url.pathname.replace(/\/$/, "");
       const headers = applyDefaultSecurityHeaders(
         new Headers({ location: `${url.pathname}${url.search}` }),
       );
@@ -175,6 +184,7 @@ export function createNetlifyHandler<
       staticMethod &&
       !routeStateRequest &&
       !wantsMarkdown &&
+      pathname !== null &&
       !(pathname in isgManifest)
     ) {
       const file = await resolveStaticFile(options.staticDir, pathname);
@@ -184,14 +194,21 @@ export function createNetlifyHandler<
     }
 
     const isgRoute =
-      staticMethod && !routeStateRequest && !wantsMarkdown && pathname in isgManifest
+      pathname !== null &&
+      staticMethod &&
+      !routeStateRequest &&
+      !wantsMarkdown &&
+      pathname in isgManifest
         ? matchAppRoute(options.app, pathname)?.route
         : undefined;
 
     // A Netlify CDN response is shared by every visitor. Render ISG documents
     // from a request stripped of cookies, authorization, query, and body so the
     // visitor who triggers a cache miss cannot personalize the stored result.
-    const renderRequest = isgRoute ? createISGRegenerationRequest(pathname, request) : request;
+    const renderRequest =
+      isgRoute && pathname !== null
+        ? restoreBasePathInRequest(createISGRegenerationRequest(pathname, request))
+        : request;
     const renderContext = isgRoute ? createNetlifyISGContext(context, renderRequest) : context;
     const prachtContext = options.createContext
       ? await options.createContext({ request: renderRequest, context: renderContext })
@@ -210,7 +227,7 @@ export function createNetlifyHandler<
       jsManifest: options.jsManifest,
     } satisfies HandlePrachtRequestOptions<TContext>);
 
-    if (isgRoute) {
+    if (isgRoute && pathname !== null) {
       return applyNetlifyISGCacheHeaders(response, isgRoute, pathname, cache);
     }
 
@@ -218,6 +235,7 @@ export function createNetlifyHandler<
       options.staticDir !== undefined &&
       staticMethod &&
       wantsMarkdown &&
+      pathname !== null &&
       !(pathname in isgManifest) &&
       (await resolveStaticFile(options.staticDir, pathname))?.document === true;
 
@@ -303,7 +321,7 @@ export function createNetlifyServerEntryModule(options: NetlifyAdapterOptions = 
     "export default function handle(request, context) {",
     "  return handler(request, context);",
     "}",
-    `export const finalizePrachtBuild = ({ root }) => finalizeNetlifyBuild(root, ${JSON.stringify(options)});`,
+    `export const finalizePrachtBuild = ({ root }) => finalizeNetlifyBuild(root, ${JSON.stringify(options)}, buildBase);`,
     "",
   ].join("\n");
 }
@@ -332,6 +350,7 @@ export function netlifyAdapter(options: NetlifyAdapterOptions = {}): PrachtAdapt
 function netlifyFunctionPlugin(options: NetlifyAdapterOptions): Plugin {
   let root = process.cwd();
   let isSsrBuild = false;
+  let base = "/";
 
   return {
     name: "pracht:adapter-netlify-function",
@@ -339,10 +358,11 @@ function netlifyFunctionPlugin(options: NetlifyAdapterOptions): Plugin {
     configResolved(config) {
       root = config.root;
       isSsrBuild = Boolean(config.build.ssr);
+      base = config.base || "/";
     },
     async closeBundle() {
       if (!isSsrBuild) return;
-      await writeNetlifyFunctionWrapper(root, options, false);
+      await writeNetlifyFunctionWrapper(root, options, false, base);
     },
   };
 }
@@ -351,22 +371,31 @@ function netlifyFunctionPlugin(options: NetlifyAdapterOptions): Plugin {
 export async function finalizeNetlifyBuild(
   root: string,
   options: NetlifyAdapterOptions = {},
+  base = "/",
 ): Promise<void> {
   for (const pattern of options.excludedPath ?? []) assertSafeExcludedPath(pattern);
-  await writeNetlifyFunctionWrapper(root, options, true);
+  await writeNetlifyFunctionWrapper(root, options, true, base);
 }
 
 async function writeNetlifyFunctionWrapper(
   root: string,
   options: NetlifyAdapterOptions,
   exactIncludedFiles: boolean,
+  base: string,
 ): Promise<void> {
   const { existsSync } = await import("node:fs");
   const { mkdir, writeFile } = await import("node:fs/promises");
   const { join, relative } = await import("node:path");
   const functionName = options.functionName ?? "pracht";
   const functionsDir = options.functionsDir ?? "netlify/functions";
-  const excludedPath = [...DEFAULT_EXCLUDED_PATHS, ...(options.excludedPath ?? [])];
+  // Netlify's static publish tree stays base-free. Under a sub-path deploy,
+  // `/app/assets/*` cannot bypass the function and map onto `/assets/*`, so
+  // keep every client file inside the function bundle and let the runtime
+  // strip the public base before serving it. Custom exclusions still apply to
+  // their literal origin-root URLs, but must not prune the base-mounted copy.
+  const defaultExcludedPaths = hasSubpathDeployBase(base) ? [] : DEFAULT_EXCLUDED_PATHS;
+  const excludedPath = [...defaultExcludedPaths, ...(options.excludedPath ?? [])];
+  const bundledPathExclusions = hasSubpathDeployBase(base) ? [] : excludedPath;
   const dir = join(root, functionsDir);
   const wrapper = join(dir, `${functionName}.mjs`);
   const serverDir = join(root, "dist/server");
@@ -384,14 +413,16 @@ async function writeNetlifyFunctionWrapper(
   const includedClientDir = relative(dir, clientDir).replaceAll("\\", "/");
   const includedServerDir = relative(dir, serverDir).replaceAll("\\", "/");
   await mkdir(clientDir, { recursive: true });
-  if (existsSync(join(root, "public/_headers"))) {
-    console.warn(
-      "public/_headers exists, so @pracht/adapter-netlify will not generate one. " +
-        "Make sure it applies `Cache-Control: public, max-age=31536000, immutable` " +
-        "to /assets/* and the default security headers to statically served paths.",
-    );
-  } else {
-    await writeFile(join(clientDir, "_headers"), createNetlifyHeadersFile(excludedPath), "utf-8");
+  if (excludedPath.length > 0) {
+    if (existsSync(join(root, "public/_headers"))) {
+      console.warn(
+        "public/_headers exists, so @pracht/adapter-netlify will not generate one. " +
+          "Make sure it applies `Cache-Control: public, max-age=31536000, immutable` " +
+          "to /assets/* and the default security headers to statically served paths.",
+      );
+    } else {
+      await writeFile(join(clientDir, "_headers"), createNetlifyHeadersFile(excludedPath), "utf-8");
+    }
   }
 
   const includedFiles = exactIncludedFiles
@@ -399,9 +430,13 @@ async function writeNetlifyFunctionWrapper(
         clientDir,
         includedClientDir,
         includedServerDir,
-        excludedPath,
+        bundledPathExclusions,
       )
-    : createFallbackNetlifyIncludedFiles(includedClientDir, includedServerDir, excludedPath);
+    : createFallbackNetlifyIncludedFiles(
+        includedClientDir,
+        includedServerDir,
+        bundledPathExclusions,
+      );
   const source = [
     "// Generated by @pracht/adapter-netlify — do not edit.",
     `import handler from ${JSON.stringify(importPath)};`,
@@ -424,6 +459,10 @@ async function writeNetlifyFunctionWrapper(
 
   await mkdir(dir, { recursive: true });
   await writeFile(wrapper, source, "utf-8");
+}
+
+function hasSubpathDeployBase(base: string): boolean {
+  return base !== "/" && base.startsWith("/") && !base.startsWith("//");
 }
 
 function createFallbackNetlifyIncludedFiles(

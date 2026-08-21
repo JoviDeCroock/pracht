@@ -528,7 +528,7 @@ export function Component() { return null; }
   );
 }
 
-export function writeInspectableManifestApp(appDir) {
+export function writeInspectableManifestApp(appDir, options = {}) {
   const vitePluginImport = pathToFileURL(vitePluginImportPath).href;
 
   writeProjectFile(
@@ -551,6 +551,7 @@ export function writeInspectableManifestApp(appDir) {
 import { pracht } from ${JSON.stringify(vitePluginImport)};
 
 export default defineConfig({
+  ${options.base ? `base: ${JSON.stringify(options.base)},` : ""}
   plugins: [pracht()],
   resolve: {
     alias: {

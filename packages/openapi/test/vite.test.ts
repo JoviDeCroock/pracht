@@ -2,7 +2,11 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import type { Connect, ViteDevServer } from "vite";
 import { describe, expect, it, vi } from "vitest";
 
-import { prachtOpenApi, resolvePrachtOpenApiOptions } from "../src/vite.ts";
+import {
+  prachtOpenApi,
+  resolvePrachtOpenApiOptions,
+  type PrachtOpenApiArtifacts,
+} from "../src/vite.ts";
 
 function hookHandler<T extends (...args: any[]) => any>(hook: T | { handler: T } | undefined): T {
   if (!hook) throw new Error("Expected Vite hook");
@@ -116,6 +120,45 @@ describe("prachtOpenApi Vite integration", () => {
     expect(await transform.call(context, source, "/src/app.ts")).toBeNull();
   });
 
+  it("serves the document and default API server under the Vite deploy base", async () => {
+    const plugin = prachtOpenApi({
+      info: { title: "Example", version: "1.0.0" },
+      ui: "scalar",
+    });
+    hookHandler(plugin.configResolved).call({} as never, { base: "/app/" } as never);
+    const transform = hookHandler(plugin.transform);
+    const result = await transform.call(
+      {} as never,
+      "const apiModules = {}; const apiRoutes = [];",
+      "\0virtual:pracht/server",
+    );
+    const transformedCode = typeof result === "string" ? result : result?.code;
+    if (!transformedCode) throw new Error("Expected generated OpenAPI source");
+    const code = String(transformedCode);
+
+    const standalone = code.replace(
+      'import { createOpenApiUiHtml as __prachtCreateOpenApiUiHtml, generateOpenApiDocument as __prachtGenerateOpenApiDocument } from "@pracht/openapi";',
+      `const __prachtCreateOpenApiUiHtml = (options) => JSON.stringify(options);
+const __prachtGenerateOpenApiDocument = async (options) => ({
+  document: { openapi: "3.1.0", ...(options.document.servers ? { servers: options.document.servers } : {}) },
+  warnings: [],
+});`,
+    );
+    const generated = (await import(
+      `data:text/javascript;base64,${Buffer.from(standalone).toString("base64")}#${Date.now()}`
+    )) as { generatePrachtOpenApiArtifacts: () => Promise<PrachtOpenApiArtifacts> };
+    const artifacts = await generated.generatePrachtOpenApiArtifacts();
+    const document = JSON.parse(
+      artifacts.artifacts.find((artifact) => artifact.path === "/openapi.json")!.content,
+    );
+    const ui = JSON.parse(
+      artifacts.artifacts.find((artifact) => artifact.path === "/docs")!.content,
+    );
+
+    expect(document.servers).toEqual([{ url: "/app" }]);
+    expect(ui.documentUrl).toBe("/app/openapi.json");
+  });
+
   it("serves generated JSON, UI, HEAD, and method errors in dev", async () => {
     const artifacts = {
       artifacts: [
@@ -180,12 +223,52 @@ describe("prachtOpenApi Vite integration", () => {
     expect(warn).toHaveBeenCalledTimes(1);
     expect(server.ssrLoadModule).toHaveBeenCalledWith("virtual:pracht/dev-metadata");
   });
+
+  it("serves development artifacts only under the Vite deploy base", async () => {
+    const artifacts = {
+      artifacts: [
+        {
+          content: '{"openapi":"3.1.0"}\n',
+          contentType: "application/json; charset=utf-8",
+          outputPath: "openapi.json",
+          path: "/openapi.json",
+        },
+      ],
+      warnings: [],
+    };
+    let middleware: Connect.NextHandleFunction | undefined;
+    const server = {
+      config: { logger: { error: vi.fn(), warn: vi.fn() } },
+      middlewares: { use: (handler: Connect.NextHandleFunction) => (middleware = handler) },
+      ssrFixStacktrace: vi.fn(),
+      ssrLoadModule: vi.fn(async (id: string) =>
+        id === "@pracht/core/server"
+          ? { matchApiRoute: () => undefined, matchAppRoute: () => undefined }
+          : { generatePrachtOpenApiArtifacts: async () => artifacts },
+      ),
+    } as unknown as ViteDevServer;
+    const plugin = prachtOpenApi({ info: { title: "Example", version: "1.0.0" } });
+    expect(plugin.configureServer).toMatchObject({ order: "pre" });
+    hookHandler(plugin.configResolved).call({} as never, { base: "/app/" } as never);
+    hookHandler(plugin.configureServer).call({} as never, server);
+    if (!middleware) throw new Error("Expected middleware registration");
+
+    const underBase = await runMiddleware(middleware, "/app/openapi.json", "GET");
+    expect(underBase.status).toBe(200);
+    expect(underBase.body).toContain('"openapi"');
+
+    const next = vi.fn();
+    await runMiddleware(middleware, "/openapi.json", "GET", next);
+    expect(next).toHaveBeenCalledOnce();
+    expect(server.ssrLoadModule).toHaveBeenCalledTimes(2);
+  });
 });
 
 async function runMiddleware(
   middleware: Connect.NextHandleFunction,
   url: string,
   method: string,
+  next = vi.fn(),
 ): Promise<{ body: string; headers: Record<string, string>; status: number }> {
   const request = { method, url } as IncomingMessage;
   const headers: Record<string, string> = {};
@@ -199,6 +282,6 @@ async function runMiddleware(
     },
     statusCode: 200,
   } as unknown as ServerResponse;
-  await middleware(request, response, vi.fn());
+  await middleware(request, response, next);
   return { body, headers, status: response.statusCode };
 }

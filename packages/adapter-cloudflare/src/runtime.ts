@@ -1,5 +1,6 @@
 import {
   applyDefaultSecurityHeaders,
+  createBaseRedirectResponse,
   createISGRegenerationRequest,
   createRevalidationSingleFlight,
   getTimeRevalidateSeconds,
@@ -18,10 +19,13 @@ import {
   classifyRevalidationSkip,
   readRevalidationRequest,
   RevalidationReport,
+  restoreBasePathInRequest,
   routeSupportsMarkdown,
   setServerEnv,
+  stripBase,
   type PrachtApp,
   preventHeuristicCaching,
+  withBase,
 } from "@pracht/core/server";
 import {
   applyWorkersCacheHeaders,
@@ -72,6 +76,8 @@ export interface CloudflareAdapterOptions<
   cssManifest?: Record<string, string[]>;
   jsManifest?: Record<string, string[]>;
   assetsBinding?: string;
+  /** @internal Dev asset bindings already return public, base-prefixed redirects. */
+  assetsBindingUsesPublicBase?: boolean;
   headersManifest?: HeadersManifest;
   /** Exact Markdown-capable routes. Omit to preserve negotiation for legacy/custom entries. */
   markdownManifest?: MarkdownManifest;
@@ -108,8 +114,16 @@ export function createCloudflareFetchHandler<
     // Make `serverEnv` from @pracht/core/env/server resolve to this worker request's bindings.
     setServerEnv(env);
 
+    const baseRedirect = createBaseRedirectResponse(request);
+    if (baseRedirect) return baseRedirect;
+
+    const publicUrl = new URL(request.url);
+    const routePathname = stripBase(publicUrl.pathname);
+
     const renderISGPage = async (pathname: string, originalRequest: Request): Promise<Response> => {
-      const regenerationRequest = createISGRegenerationRequest(pathname, originalRequest);
+      const regenerationRequest = restoreBasePathInRequest(
+        createISGRegenerationRequest(pathname, originalRequest),
+      );
       const context = options.createContext
         ? await options.createContext({ request: regenerationRequest, env, executionContext })
         : ({ env, executionContext } as TContext);
@@ -128,7 +142,7 @@ export function createCloudflareFetchHandler<
       } satisfies HandlePrachtRequestOptions<TContext>);
     };
 
-    if (new URL(request.url).pathname === PRACHT_REVALIDATE_ENDPOINT) {
+    if (routePathname === PRACHT_REVALIDATE_ENDPOINT) {
       return handleCloudflareRevalidationEndpoint(
         request,
         env,
@@ -138,6 +152,17 @@ export function createCloudflareFetchHandler<
         Boolean(cacheOptions),
       );
     }
+
+    // Platform asset bindings and Pracht manifests are rooted at the deploy
+    // artifact, not at Vite's public base. Keep a base-free transport request
+    // for adapter dispatch while application code retains the public Request.
+    // Construct it only after the POST revalidation path: cloning a request
+    // with a body can otherwise disturb the stream before it reaches an API.
+    const isStaticMethod = request.method === "GET" || request.method === "HEAD";
+    const dispatchRequest =
+      routePathname === null || !isStaticMethod
+        ? null
+        : withRequestPathname(request, routePathname);
 
     // A WebSocket handshake has no static counterpart: it can only be
     // answered by an API route (typically by forwarding the request to a
@@ -152,27 +177,31 @@ export function createCloudflareFetchHandler<
     // re-renders and the edge cache holds the response for the revalidate
     // window.
     const cacheRoute =
-      cacheOptions && !isUpgradeRequest ? findCacheableIsgRoute(options.app, request) : null;
+      cacheOptions && !isUpgradeRequest && dispatchRequest
+        ? findCacheableIsgRoute(options.app, dispatchRequest)
+        : null;
 
-    if (!cacheRoute && !isUpgradeRequest) {
+    if (!cacheRoute && !isUpgradeRequest && dispatchRequest) {
       const isgResponse = await maybeServeISG(
-        request,
+        dispatchRequest,
         env,
         executionContext,
         assetsBinding,
         options.isgManifest ?? {},
         options.headersManifest ?? {},
         options.markdownManifest,
+        options.assetsBindingUsesPublicBase,
         renderISGPage,
       );
       if (isgResponse) return preventHeuristicCaching(request, isgResponse);
 
       const assetResponse = await maybeServeAsset(
-        request,
+        dispatchRequest,
         env,
         assetsBinding,
         options.headersManifest ?? {},
         options.markdownManifest,
+        options.assetsBindingUsesPublicBase,
       );
       if (assetResponse) {
         return assetResponse;
@@ -212,6 +241,12 @@ export function createCloudflareFetchHandler<
   };
 }
 
+function withRequestPathname(request: Request, pathname: string): Request {
+  const url = new URL(request.url);
+  url.pathname = pathname;
+  return new Request(url, request);
+}
+
 function createWorkersCacheRenderRequest(originalRequest: Request): Request {
   const request = createISGRegenerationRequest(
     new URL(originalRequest.url).pathname,
@@ -229,6 +264,7 @@ async function maybeServeAsset(
   assetsBinding: string,
   headersManifest: HeadersManifest = {},
   markdownManifest?: MarkdownManifest,
+  assetsBindingUsesPublicBase = false,
 ): Promise<Response | null> {
   if (request.method !== "GET" && request.method !== "HEAD") {
     return null;
@@ -266,6 +302,23 @@ async function maybeServeAsset(
   if ((headers.get("content-type") ?? "").includes("text/html")) {
     applyHeadersManifest(headers, headersManifest, url.pathname);
   }
+  const location = headers.get("location");
+  if (
+    response.status >= 300 &&
+    response.status < 400 &&
+    location?.startsWith("/") &&
+    !location.startsWith("//")
+  ) {
+    // The Cloudflare Vite asset binding receives the base-free dispatch URL,
+    // but evaluates it beneath Vite's public base. At the app root it can
+    // therefore redirect `/` to the browser's current `/app/` URL forever.
+    // Let the Worker render that route instead. A real canonical redirect
+    // such as `/app/guide` -> `/app/guide/` remains distinct and is preserved.
+    if (assetsBindingUsesPublicBase && location === withBase(`${url.pathname}${url.search}`)) {
+      return null;
+    }
+    headers.set("location", assetsBindingUsesPublicBase ? location : withBase(location));
+  }
   return new Response(response.body, {
     status: response.status,
     statusText: response.statusText,
@@ -281,6 +334,7 @@ async function maybeServeISG<TEnv extends Record<string, unknown>>(
   isgManifest: ISGManifest,
   headersManifest: HeadersManifest,
   markdownManifest: MarkdownManifest | undefined,
+  assetsBindingUsesPublicBase: boolean | undefined,
   renderISGPage: (pathname: string, originalRequest: Request) => Promise<Response>,
 ): Promise<Response | null> {
   if (!isDocumentAssetRequest(request, markdownManifest)) return null;
@@ -308,6 +362,7 @@ async function maybeServeISG<TEnv extends Record<string, unknown>>(
     assetsBinding,
     headersManifest,
     markdownManifest,
+    assetsBindingUsesPublicBase,
   );
   if (!assetResponse) return null;
 
@@ -383,7 +438,7 @@ async function handleCloudflareRevalidationEndpoint(
         // copy is fresh); the edge falls back to its time window.
         if (edgeCacheEnabled && getTimeRevalidateSeconds(entry.revalidate) !== null) {
           try {
-            await purgeCache({ pathPrefixes: [pathname] });
+            await purgeCache({ pathPrefixes: [withBase(pathname)] });
           } catch (err) {
             console.error(`ISG edge cache purge failed for ${pathname}:`, err);
           }

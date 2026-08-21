@@ -16,6 +16,8 @@
  * direct Node imports).
  */
 
+import { stripBaseLenient, withBase } from "./base.ts";
+
 declare const __PRACHT_STATIC_TARGET__: boolean | undefined;
 
 export const IS_STATIC_TARGET: boolean =
@@ -58,16 +60,18 @@ export function buildStaticRouteStateUrl(url: string): string {
   let pathname = queryIndex === -1 ? url : url.slice(0, queryIndex);
   const hashIndex = pathname.indexOf("#");
   if (hashIndex !== -1) pathname = pathname.slice(0, hashIndex);
-  pathname = pathname.replace(/\/+$/, "");
-  if (pathname === "") return `${STATIC_STATE_PREFIX}/index.json`;
+  // State files are keyed by route path and written under the deploy root, so
+  // the base comes off before the mapping and back on for the fetch URL.
+  pathname = stripBaseLenient(pathname).replace(/\/+$/, "");
+  if (pathname === "") return withBase(`${STATIC_STATE_PREFIX}/index.json`);
 
   const components = pathname
     .split("/")
     .filter(Boolean)
     .map(canonicalizeStaticStateSegment)
     .flatMap(encodeStaticStateSegment);
-  if (components.length === 0) return `${STATIC_STATE_PREFIX}/index.json`;
-  return `${STATIC_STATE_PREFIX}/${components.join("/")}/_state.json`;
+  if (components.length === 0) return withBase(`${STATIC_STATE_PREFIX}/index.json`);
+  return withBase(`${STATIC_STATE_PREFIX}/${components.join("/")}/_state.json`);
 }
 
 function canonicalizeStaticStateSegment(segment: string): string {

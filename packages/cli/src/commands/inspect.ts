@@ -141,7 +141,11 @@ export async function runInspect(
     }
 
     if (wants("build")) {
-      const buildAssets = readClientBuildAssets(root);
+      const buildBase =
+        typeof (serverModule as { buildBase?: unknown }).buildBase === "string"
+          ? (serverModule as { buildBase: string }).buildBase
+          : "/";
+      const buildAssets = readClientBuildAssets(root, buildBase);
       report.build = {
         adapterTarget: serverModule.buildTarget,
         clientEntryUrl: buildAssets.clientEntryUrl,

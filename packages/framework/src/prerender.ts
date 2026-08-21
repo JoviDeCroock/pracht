@@ -1,4 +1,5 @@
 import { resolveApp } from "./app.ts";
+import { withBase } from "./base.ts";
 import { buildPathFromSegments } from "./route-matching.ts";
 import { isDangerousPrerenderHeader, normalizeRouteRevalidate } from "./revalidation.ts";
 import { hasMarkdownRepresentation } from "./runtime-negotiation.ts";
@@ -111,7 +112,11 @@ export async function prerenderApp(
     const batch = work.slice(i, i + concurrency);
     const batchResults = await Promise.all(
       batch.map(async (item) => {
-        const url = new URL(item.pathname, "http://localhost");
+        // Work items are route paths; the request is the URL a visitor would
+        // ask for, base included. `handlePrachtRequest` strips the base back
+        // off for matching, and the serialized hydration state then carries
+        // the same URL shape a client-side navigation produces.
+        const url = new URL(withBase(item.pathname), "http://localhost");
         const request = new Request(url, { method: "GET" });
 
         // The rendered response hides server error details (that is the right

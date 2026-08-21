@@ -27,6 +27,7 @@ interface StaticRouteView {
 interface StaticServerModuleView {
   staticTarget?: boolean;
   buildBase?: string;
+  configuredBase?: string;
   resolvedApp?: {
     routes?: StaticRouteView[];
     notFound?: StaticRouteView;
@@ -101,6 +102,35 @@ function portableOutputName(name: string): string {
   return name.normalize("NFC").toLowerCase();
 }
 
+function isSafeStaticDeployBase(base: string): boolean {
+  if (!base.startsWith("/") || base.startsWith("//") || base.includes("?") || base.includes("#")) {
+    return false;
+  }
+
+  try {
+    const segments = base.split("/");
+    return segments.every((segment, index) => {
+      if (segment === "" && index !== 0 && index !== segments.length - 1) return false;
+      const decoded = decodeURIComponent(segment);
+      if (decoded === "." || decoded === "..") return false;
+      for (const character of decoded) {
+        const codePoint = character.codePointAt(0);
+        if (
+          character === "/" ||
+          character === "\\" ||
+          codePoint === 0 ||
+          (codePoint !== undefined && (codePoint <= 0x1f || codePoint === 0x7f))
+        ) {
+          return false;
+        }
+      }
+      return true;
+    });
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Find an existing output whose path is equivalent on portable,
  * case-insensitive filesystems. Walk one component at a time so a file that
@@ -146,16 +176,23 @@ export async function validateStaticExport(serverMod: StaticServerModuleView): P
   const notFound = serverMod.resolvedApp?.notFound;
   const pageRoutes = notFound ? [...routes, notFound] : routes;
 
-  // Sub-path deploys (GitHub Pages project sites, an S3 key prefix) would
-  // build cleanly and then serve a dead site: prerendered documents reference
-  // `/assets/…` and `/_pracht/state/…` from the origin root, so every script
-  // and state file 404s under the base. Fail here instead.
+  // A sub-path deploy (GitHub Pages project site, an S3 key prefix) is
+  // supported: asset, route-state, href, and preview URLs all carry the base.
+  // CDN and document-relative bases are not: the former splits assets from
+  // the document/state origin, while the latter resolves differently for
+  // every nested prerendered page.
   const buildBase = serverMod.buildBase ?? "/";
-  if (buildBase !== "/") {
+  // Vite normalizes "", ".", and "./" to "/" in an SSR build even though
+  // the client build retains a document-relative base. Validate the original
+  // config value when the generated bundle provides it.
+  const configuredBase = serverMod.configuredBase ?? buildBase;
+  if (!isSafeStaticDeployBase(configuredBase)) {
     problems.push(
-      `Vite \`base\` is set to ${JSON.stringify(buildBase)}, but static exports emit root-relative asset and route-state URLs:\n` +
-        `    - every prerendered page would request /assets/… and /_pracht/state/… from the origin root\n` +
-        '  Base paths are not wired through yet. Deploy at an origin root (base: "/"), or use a serverful adapter.',
+      `Vite \`base\` is set to ${JSON.stringify(configuredBase)}, but static exports require a safe origin-root or root-absolute path base:\n` +
+        `    - CDN bases split assets from documents and /_pracht/state/…\n` +
+        `    - relative bases resolve assets beneath each nested page directory\n` +
+        `    - malformed or separator-decoding path segments are not portable across static hosts\n` +
+        '  Use a path base for a sub-path deploy (base: "/my-project/"), or the origin root (base: "/").',
     );
   }
   const serverRendered = routes.filter((route) => route.render !== "ssg" && route.render !== "spa");

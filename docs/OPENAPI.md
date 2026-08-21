@@ -60,6 +60,16 @@ cache policy belongs to the deployment's static-asset configuration. The
 document path must end in `.json` so every adapter's static host assigns the
 correct media type.
 
+### Deploy base
+
+With Vite `base: "/app/"`, the output tree stays unchanged while the reference
+UI loads its document from `/app/openapi.json`. When `document.servers` is
+omitted, generation also adds `servers: [{ url: "/app" }]`, so Scalar and
+Swagger “Try it out” requests reach the app's base-prefixed API routes. An
+explicit `document.servers` value always wins, including an empty array.
+The same base-prefixed JSON and UI endpoints are reserved in development,
+including when a platform adapter such as Cloudflare owns the dev server.
+
 Generated paths are reserved while the plugin is enabled. Development logs a
 warning when a Pracht route or `public/` file collides; production generation
 replaces a colliding public/build file and reports that replacement.

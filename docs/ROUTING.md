@@ -376,6 +376,10 @@ await prefetch("/products/42");
 await prefetch({ route: "product", params: { id: "42" } }); // typed target
 ```
 
+Root-absolute strings passed to `prefetch()` are base-free route paths, so the
+first call also resolves under Vite's deploy base. Absolute and
+protocol-relative URLs keep their own origin/path semantics.
+
 `prefetch()` is a no-op during SSR, before the client router initializes, and
 for URLs that match no route.
 
@@ -499,6 +503,100 @@ Resolves to:
 
 Runtime matching is a linear scan over this flat array. For typical app sizes
 (tens to low hundreds of routes) this is effectively instant.
+
+---
+
+## Deploy Base
+
+Vite's `base` deploys an app under a sub-path
+(`https://user.github.io/my-project/`, an S3 key prefix, a reverse-proxy mount)
+instead of an origin root:
+
+```ts
+// vite.config.ts
+export default defineConfig({
+  base: "/my-project/",
+  plugins: [pracht()],
+});
+```
+
+The framework keeps two kinds of path apart:
+
+- **Route paths** (`/about`, `/blog/:slug`) — what the manifest declares, what
+  route matching runs against, and what prerender output is keyed by. They
+  never contain the base.
+- **URL paths** (`/my-project/about`) — what the browser shows and requests,
+  and what `useLocation()` reports. They always contain the base.
+
+Everything the framework hands to the browser converts the first into the
+second, and everything it matches converts back. These carry the base
+automatically:
+
+- `<Link route>`, `href()`, `useNavigate()`, and `prefetch()` — route ids
+  resolve to URL paths
+- `redirect()` when its target is a root-absolute route path; relative,
+  protocol-relative, and absolute URL targets are preserved
+- `apiFetch()`, unless an explicit `baseUrl` already names where the API lives
+- Capability calls — `useCapability()`, the generated client, and the
+  `<Form capability>` action attribute that keeps the no-JS fallback working
+- `@pracht/image`'s `defaultLoader`, plus generated OpenAPI document/UI URLs
+  and the default OpenAPI server when no explicit `document.servers` is set
+- Script, style, and modulepreload URLs; `/_pracht/state/…` fetches;
+  `llms.txt` links
+- Speculation rules `href_matches` patterns, which the browser matches against
+  real document hrefs
+- `pracht dev` and `pracht preview`, which both serve the app under the
+  configured base; devtools, dev-404 links, and error-overlay
+  open-in-editor requests remain inside it
+
+Hand-written root-absolute URLs are **not** rewritten: `<a href="/about">`,
+`fetch("/api/items")`, and a custom `Response` with `Location: /login` mean the
+origin root, the same rule as Next's `basePath` and SvelteKit's `base`. Use
+`<Link route>` / `href()` / `redirect()` / `apiFetch()` for internal targets,
+or `withBase()` when you need the URL yourself:
+
+```tsx
+import { withBase } from "@pracht/core";
+
+<img src={withBase("/logo.svg")} />; // "/my-project/logo.svg"
+```
+
+A same-origin link *outside* the base is not this app: the client router hands
+it back to the browser instead of matching it as a route.
+
+With the default base of `/`, every conversion above is the identity.
+
+### Serverful adapters
+
+A sub-path base is wired end to end for static exports
+([Sub-path deploys](./ADAPTERS.md#sub-path-deploys)). Serverful adapters
+(`node`, `cloudflare`, …) emit the same base-carrying URLs, and
+redirect a bare base such as `/my-project` to `/my-project/` before serving or
+rendering the root document. The redirect preserves the query string so
+document-relative links and assets resolve beneath the mount.
+`handlePrachtRequest()` applies the same canonical redirect for custom
+serverful adapters, then strips the base before matching. The Node adapter also
+maps retained-base requests onto its base-free static-file and ISG-manifest
+keys. When a trusted proxy strips the base before forwarding (the usual nginx
+`location /my-project/ { proxy_pass http://app/; }` shape), that rewrite must
+be declared explicitly: generated Node entries use
+`nodeAdapter({ basePathStripped: true })`, while custom runtimes pass
+`basePathStripped: true` to `handlePrachtRequest()`. The runtime then matches
+the base-free upstream path and restores the configured base in the `Request`,
+parsed `url`, and SSR/hydration state. Consequently `createContext()`, loaders,
+API handlers, and `useLocation()` all observe the public URL. The explicit flag
+also keeps a route such as `/my-project/about` distinct: after the proxy removes
+the public base from `/my-project/my-project/about`, the route's first segment
+must not be stripped a second time.
+When the Node proxy strips the base, it also owns the public bare-base redirect
+from `/my-project` to `/my-project/`; the upstream server cannot distinguish
+that public URL from a legitimate base-free route named `/my-project`.
+
+Base matching compares canonical URL segments, so equivalent percent-escape
+spellings match (`/caf%C3%A9/` and `/caf%c3%a9/`). A configured base must not
+contain repeated slashes, malformed escapes, or a segment that decodes to `/`,
+`\\`, `.`, `..`, NUL, or another control character; every adapter rejects those
+bases during Vite config resolution.
 
 ---
 

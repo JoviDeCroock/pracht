@@ -351,15 +351,62 @@ describe("validateStaticExport", () => {
     ).rejects.toThrow(/not-found\.tsx/);
   });
 
-  it("fails closed on a sub-path Vite base", async () => {
+  it("accepts a sub-path Vite base", async () => {
+    await expect(
+      validateStaticExport({
+        buildBase: "/app/",
+        resolvedApp: { routes: [{ path: "/", render: "ssg" }] },
+      }),
+    ).resolves.toBeUndefined();
+  });
+
+  it("fails closed on bases that are not root-absolute paths", async () => {
+    for (const buildBase of ["https://cdn.example.com/", "//cdn.example.com/", "./", ".", ""]) {
+      const error = await validateStaticExport({
+        buildBase,
+        resolvedApp: { routes: [{ path: "/", render: "ssg" }] },
+      }).catch((thrown: Error) => thrown);
+
+      expect(error).toBeInstanceOf(Error);
+      expect((error as Error).message).toContain(JSON.stringify(buildBase));
+      expect((error as Error).message).toContain("root-absolute path base");
+    }
+  });
+
+  it("fails closed on unsafe root-absolute base paths", async () => {
+    for (const configuredBase of [
+      "/app%2Fadmin/",
+      "/app%5Cadmin/",
+      "/app%00admin/",
+      "/%2E%2E/admin/",
+      "/app?tenant=admin",
+      "/app#admin",
+      "/bad%escape/",
+      "/app//",
+      "/app//admin/",
+    ]) {
+      const error = await validateStaticExport({
+        buildBase: "/app/",
+        configuredBase,
+        resolvedApp: { routes: [{ path: "/", render: "ssg" }] },
+      }).catch((thrown: Error) => thrown);
+
+      expect(error).toBeInstanceOf(Error);
+      expect((error as Error).message).toContain(JSON.stringify(configuredBase));
+      expect((error as Error).message).toContain("separator-decoding");
+    }
+  });
+
+  it("fails closed when Vite normalized a configured relative base in the SSR bundle", async () => {
     const error = await validateStaticExport({
-      buildBase: "/app/",
+      buildBase: "/",
+      configuredBase: "./",
       resolvedApp: { routes: [{ path: "/", render: "ssg" }] },
     }).catch((thrown: Error) => thrown);
 
     expect(error).toBeInstanceOf(Error);
-    expect((error as Error).message).toContain('"/app/"');
-    expect((error as Error).message).toContain("root-relative");
+    expect((error as Error).message).toContain('is set to "./"');
+    expect((error as Error).message).toContain("root-absolute path base");
   });
 
   it("accepts the default base, however it is spelled by the bundle", async () => {

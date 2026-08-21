@@ -81,6 +81,7 @@ The adapter factory calls the entry module generator internally to create a virt
 | `createContext` | `(args) => TContext` | App-level context factory                                       |
 | `trustProxy`    | `boolean`            | Honor forwarded headers for URL construction (default: `false`) |
 | `canonicalOrigin` | `string`           | Fixed public origin for `request.url`; ignores request Host values |
+| `basePathStripped` | `boolean`         | Declare that a trusted proxy removes Vite's deploy base before forwarding |
 | `maxBodySize`   | `number`             | Maximum request body size in bytes (default: 1 MiB)             |
 | `compression`   | `boolean`            | Brotli/gzip response compression via `Accept-Encoding` (default: `true`) |
 
@@ -129,6 +130,28 @@ When enabled, header precedence is:
 > **Security note:** `canonicalOrigin` is the safest option when your app uses
 > `request.url` to build absolute URLs. If you rely on `trustProxy`, only
 > enable it behind a proxy that overwrites forwarded headers.
+
+By default, the Node adapter accepts a retained deploy base and maps its
+base-prefixed public asset, document, and ISG URLs onto the base-free paths in
+`dist/client/` and the build manifests. When the proxy instead removes Vite's
+deploy base from the forwarded path, set `basePathStripped: true` independently
+of the origin options:
+
+```typescript
+nodeAdapter({
+  canonicalOrigin: "https://app.example.com",
+  basePathStripped: true,
+});
+```
+
+This is explicit because an upstream path such as `/my-project/about` is
+ambiguous by inspection: it could be a retained `/my-project/` base followed
+by route `/about`, or the already-stripped route `/my-project/about`. The flag
+selects the latter and lets the runtime restore the public base only for the
+URL exposed to `createContext()`, loaders, API handlers, and hydration state.
+The proxy must also redirect the public bare `/my-project` URL to
+`/my-project/`: after stripping, the origin cannot distinguish that URL from a
+legitimate route whose base-free path is `/my-project`.
 
 ### Features
 
@@ -514,7 +537,9 @@ its trailing-slash form: `GET /guide` answers `307 → /guide/` on Cloudflare
 where Node and Vercel answer `200`. That makes the canonical URL of every
 prerendered route differ between adapters, and the generated `llms.txt` emits
 the non-slash form, so an agent following it takes a redirect on Cloudflare
-only.
+only. Under a Vite deploy base, the adapter restores that base on the binding's
+root-absolute redirect (`/app/guide → /app/guide/`) so the redirect cannot
+escape the application mount.
 
 `create-pracht` therefore writes `"html_handling": "drop-trailing-slash"` into
 the Cloudflare scaffold's `wrangler.jsonc`. Existing apps should add it:
@@ -862,15 +887,21 @@ pracht({ adapter: netlifyAdapter() });
 ```
 
 The generated function claims page URLs, while `/assets/*` and `/_pracht/*`
-bypass it. This keeps `Accept: text/markdown` negotiation and route-state
-requests inside Pracht without charging a function invocation for hashed
-assets. Add application-specific static prefixes with
-`netlifyAdapter({ excludedPath: ["/images/*"] })`; do not exclude page URLs.
-Default and prefix-shaped exclusions are also omitted from the generated
-function bundle, so large static asset trees do not count against Netlify's
-function size limit. The generated config enumerates each remaining client file
-and writes exclusions relative to the generated function file, so Netlify's
-Functions v2 file tracer cannot pull bypassed trees back into the bundle.
+bypass it at the origin root. This keeps `Accept: text/markdown` negotiation
+and route-state requests inside Pracht without charging a function invocation
+for hashed assets. Under a Vite deploy base, the publish tree remains
+base-free, so the function bundles those framework asset and state trees and
+serves them after stripping the public base. Add application-specific static
+prefixes with `netlifyAdapter({ excludedPath: ["/images/*"] })`; do not exclude
+page URLs.
+At the origin root, default and prefix-shaped exclusions are also omitted from
+the generated function bundle, so large static asset trees do not count against
+Netlify's function size limit. With a deploy base, custom exclusions still
+bypass their literal origin-root URLs, but the matching files stay bundled so
+base-prefixed requests can resolve through the function. The generated config
+enumerates each required client file and writes applicable bundle exclusions
+relative to the generated function file, so Netlify's Functions v2 file tracer
+cannot pull bypassed trees back into the bundle.
 An exact exclusion such as `/feed.xml` omits only that exact file; unlike a
 prefix exclusion, it does not also exclude `/feed.xml/` or an `index.html`
 representation that those URLs can still invoke the function to read.
@@ -917,10 +948,10 @@ resolution.
   representation cacheable, it reuses the prerendered HTML's `Netlify-Vary`
   instructions so every response from that URL defines the same cache key. A
   custom `Netlify-Vary` header takes precedence.
-- Because `/assets/*` (and other `excludedPath` prefixes) bypass the function,
-  the build also writes a `dist/client/_headers` file that gives Netlify's
-  static layer the immutable asset policy and the same default security
-  headers the function applies everywhere else. A hand-authored
+- At the origin root, `/assets/*` (and other `excludedPath` prefixes) bypass
+  the function, so the build also writes a `dist/client/_headers` file that
+  gives Netlify's static layer the immutable asset policy and the same default
+  security headers the function applies everywhere else. A hand-authored
   `public/_headers` wins — pracht then skips generating one and warns.
   Default and prefix-shaped exclusions are also omitted from the function's
   `includedFiles`, keeping large bypassed asset trees outside its bundle. The
@@ -1159,10 +1190,12 @@ aggregated error — before any prerendering — when the app needs one:
   build metadata and the route-state tree below. The concrete paths returned
   by `getStaticPaths()` are revalidated before any page is written, so a
   dynamic route cannot generate into that namespace either.
-- A **Vite `base` other than `/`** is a hard error. Prerendered documents
-  reference `/assets/…` and `/_pracht/state/…` from the origin root, so a
-  sub-path deploy (a GitHub Pages project site, an S3 key prefix) would build
-  cleanly and then 404 every script and state file.
+- A **Vite `base` that is not a root-absolute path** is a hard error. A CDN
+  base (`https://cdn.example.com/`, or protocol-relative `//cdn…`) relocates
+  assets while documents and the `/_pracht/state/…` tree stay at the origin
+  root. A document-relative base (`""` or `"./"`) resolves asset URLs beneath
+  each nested prerendered page directory. Use `/` or a root-absolute path base;
+  see [Sub-path deploys](#sub-path-deploys).
 - Webhook/time revalidation is N/A by construction (no ISG routes exist).
 
 One shape is a warning rather than an error, because it is only wrong for some
@@ -1341,11 +1374,63 @@ client-side fetch to an external API instead.
   before deriving their pure-ASCII hex components, so raw Unicode, lowercase
   percent escapes, and escaped unreserved characters resolve to the same state
   file as the build output.
-- **Base paths** (deploying under a sub-path such as GitHub Pages project
-  sites) are not wired through: prerendered asset and state URLs are
-  root-relative. A static build with Vite `base` set to anything but `/` is a
-  build error rather than a deploy whose every asset 404s. Deploy static
-  exports at an origin root.
+### Sub-path deploys
+
+Set Vite's `base` to deploy under a path rather than an origin root — a GitHub
+Pages *project* site (`https://user.github.io/my-project/`), an S3 key prefix,
+a reverse-proxy mount point:
+
+```ts
+// vite.config.ts
+export default defineConfig({
+  base: "/my-project/",
+  plugins: [pracht({ adapter: staticAdapter() })],
+});
+```
+
+The base is where the deploy is *served*, not part of the output tree:
+`dist/client/` still contains `about/index.html`, and the whole directory is
+uploaded to the sub-path. What changes is every URL the build emits —
+`<script src>`, CSS and modulepreload links, `/_pracht/state/…` fetches,
+`llms.txt` links, and hrefs produced by `<Link route>`, `href()`,
+`useNavigate()`, and `prefetch()`. The default `@pracht/image` optimization
+endpoint and generated OpenAPI UI/document URLs also carry the base. The
+client router strips the base before
+matching, so route paths in the manifest stay base-free; `useLocation()`
+reports the URL as the visitor sees it, base included.
+
+`pracht dev` serves the app under the same base. Adapter-owned dev servers also
+serve Pracht's virtual client entries and companion endpoints under that base.
+`pracht preview` serves the export there too (redirecting the bare `/my-project`
+to `/my-project/` and answering anything outside it with a 404), so local checks
+exercise the deployed shape.
+
+Production Node deployments that retain the base, plus Cloudflare, Netlify,
+and Vercel adapters, apply that same query-preserving redirect before their
+static or ISG fast paths. When a trusted proxy strips the Node base, the proxy
+owns the redirect. Custom serverful adapters get it from
+`handlePrachtRequest()`. This canonical trailing slash is significant for the
+root document: without it, relative links such as `assets/app.js` would resolve
+at the origin root instead of under the base.
+
+Two things to know:
+
+- **Hand-written root-absolute links do not get the base.** `<a href="/about">`
+  means the origin root in HTML, and pracht does not rewrite it — the same
+  rule as Next's `basePath` and SvelteKit's `base`. Use `<Link route="about">`
+  or `href("about")` for internal navigation, which resolve route ids to URLs
+  and pick the base up automatically. A same-origin link outside the base is
+  handed to the browser rather than matched as a route.
+- **CDN and document-relative bases are build errors.** A CDN base such as
+  `base: "https://cdn.example.com/"` (or protocol-relative `//cdn…`) only
+  relocates assets, leaving documents and the route-state tree at the origin
+  root. `base: "./"` and `base: ""` make nested pages resolve assets beneath
+  their own directories. Static exports therefore require `/` or a
+  root-absolute path such as `/my-project/`.
+- **The root-absolute base must use safe URL segments.** Repeated slashes,
+  malformed percent escapes, and segments that decode to `/`, `\\`, `.`, `..`,
+  NUL, or another control character are build errors. Equivalent percent-escape
+  spellings are accepted and matched canonically at runtime.
 
 ### `pracht preview`
 
@@ -1462,14 +1547,18 @@ route("/pricing", () => import("./routes/pricing.tsx"), {
 });
 ```
 
-All built-in adapters expose the same endpoint:
+All built-in adapters expose the same endpoint under the configured Vite
+`base`. For example, an app with `base: "/app/"` uses:
 
 ```sh
-curl -X POST https://example.com/__pracht/revalidate \
+curl -X POST https://example.com/app/__pracht/revalidate \
   -H "Authorization: Bearer $PRACHT_REVALIDATE_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"paths":["/pricing"]}'
 ```
+
+At the default `base: "/"`, omit `/app`. The `paths` in the request body are
+always base-free manifest route paths.
 
 The body must include `paths` as an array of at most 64 concrete URL paths;
 larger batches are rejected with `400`. The endpoint returns JSON with

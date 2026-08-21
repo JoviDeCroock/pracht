@@ -113,6 +113,12 @@ describe("createPrachtServerModuleSource llmsTxt export", () => {
 });
 
 describe("createPrachtDevModuleSource API graph", () => {
+  it("exposes the configured base to graph-only CLI consumers", () => {
+    expect(createPrachtDevModuleSource({}, { base: "/app/" })).toContain(
+      'export const buildBase = "/app/";',
+    );
+  });
+
   it("exports adapter-neutral resolved API routes for companion tooling", () => {
     const source = createPrachtDevModuleSource({ apiDir: "/src/http" });
     expect(source).toContain('import { resolveApp, resolveApiRoutes } from "@pracht/core/server";');
@@ -176,9 +182,18 @@ describe("createPrachtServerModuleSource static target export", () => {
   });
 
   it("exports the resolved Vite base so the CLI can reject sub-path static deploys", () => {
+    const source = createPrachtServerModuleSource({}, { base: "/", configuredBase: "./" });
     expect(createPrachtServerModuleSource({}, { base: "/app/" })).toContain(
       'export const buildBase = "/app/";',
     );
     expect(createPrachtServerModuleSource()).toContain('export const buildBase = "/";');
+    expect(source).toContain('export const configuredBase = "./";');
+  });
+
+  it("prefixes stable development client entries with the Vite base", () => {
+    const source = createPrachtServerModuleSource({}, { base: "/app/" });
+
+    expect(source).toContain('export const clientEntryUrl = "/app/@pracht/client.js";');
+    expect(source).toContain('export const islandsEntryUrl = "/app/@pracht/islands.js";');
   });
 });

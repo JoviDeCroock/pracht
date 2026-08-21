@@ -33,6 +33,25 @@ describe("createVercelServerEntryModule", () => {
   });
 });
 
+describe("createVercelEdgeHandler under a deploy base", () => {
+  it("redirects the bare base before creating application context", async () => {
+    vi.stubEnv("BASE_URL", "/app/");
+    vi.resetModules();
+    const { createVercelEdgeHandler: createBaseHandler } = await import("../src/index.ts");
+    const createContext = vi.fn(() => ({}));
+    const handler = createBaseHandler({
+      app: defineApp({ routes: [] }),
+      createContext,
+    });
+
+    const response = await handler(new Request("https://example.com/app?ref=campaign"), {});
+
+    expect(response.status).toBe(308);
+    expect(response.headers.get("location")).toBe("/app/?ref=campaign");
+    expect(createContext).not.toHaveBeenCalled();
+  });
+});
+
 describe("createVercelNodeListener", () => {
   it("provides waitUntil and drains registered work", async () => {
     let releaseTask: (() => void) | undefined;
@@ -200,11 +219,49 @@ describe("createVercelEdgeHandler webhook revalidation", () => {
   afterEach(() => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+    vi.resetModules();
     if (previousToken === undefined) {
       delete process.env.PRACHT_REVALIDATE_TOKEN;
     } else {
       process.env.PRACHT_REVALIDATE_TOKEN = previousToken;
     }
+  });
+
+  it("matches and regenerates webhook paths beneath the deploy base", async () => {
+    vi.stubEnv("BASE_URL", "/app/");
+    vi.resetModules();
+    const { createVercelEdgeHandler: createBaseHandler } = await import("../src/index.ts");
+    process.env.PRACHT_REVALIDATE_TOKEN = "secret";
+    const revalidateFetch = vi.fn(
+      async () =>
+        new Response("<html>ok</html>", {
+          headers: { "x-vercel-cache": "MISS" },
+          status: 200,
+        }),
+    );
+    vi.stubGlobal("fetch", revalidateFetch);
+
+    const handler = createBaseHandler({ app });
+    const response = await handler(
+      new Request("https://app.example/app/__pracht/revalidate", {
+        body: JSON.stringify({ paths: ["/pricing"] }),
+        headers: {
+          authorization: "Bearer secret",
+          "content-type": "application/json",
+        },
+        method: "POST",
+      }),
+      {},
+    );
+
+    expect(response.status).toBe(200);
+    expect(revalidateFetch).toHaveBeenCalledWith(
+      new URL("https://app.example/app/pricing"),
+      expect.objectContaining({
+        headers: expect.objectContaining({ "x-prerender-revalidate": "secret" }),
+      }),
+    );
   });
 
   it("fails closed without a configured token and rejects wrong tokens", async () => {

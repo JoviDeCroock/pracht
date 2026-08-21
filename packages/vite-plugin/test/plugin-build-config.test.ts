@@ -1,4 +1,4 @@
-import { build, parseAst, type Plugin } from "vite";
+import { build, parseAst, resolveConfig, type Plugin } from "vite";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { pracht, type PrachtAdapter } from "../src/index.ts";
@@ -12,7 +12,7 @@ const edgeAdapter: PrachtAdapter = {
 
 interface BuildConfig {
   resolve?: { dedupe?: string[] };
-  ssr?: { noExternal?: boolean; target?: string };
+  ssr?: { noExternal?: boolean | Array<string | RegExp>; target?: string };
   define?: Record<string, unknown>;
   environments?: {
     ssr?: {
@@ -36,6 +36,13 @@ function runConfigHook(adapter: PrachtAdapter, isSsrBuild: boolean): BuildConfig
     env: { command: string; mode: string; isSsrBuild: boolean },
   ) => BuildConfig;
   return hook.call(plugin as never, {}, { command: "build", mode: "production", isSsrBuild });
+}
+
+function runConfigResolvedHook(base: string): void {
+  const plugin = pracht({ adapter: edgeAdapter }).find((candidate) => candidate.name === "pracht");
+  if (!plugin) throw new Error("pracht plugin not found");
+  const hook = getHook<(this: unknown, config: unknown) => void>(plugin, "configResolved");
+  hook.call({}, { base, build: { ssr: true }, command: "build", root: "/project" });
 }
 
 function getHook<T>(plugin: Plugin, name: keyof Plugin): T {
@@ -109,6 +116,56 @@ describe("pracht plugin build config", () => {
     expect(runtimePlugins).not.toContain(graphPlugin);
   });
 
+  it("rejects unsafe root-absolute deploy bases before building", () => {
+    for (const base of [
+      "/app%2Fadmin/",
+      "/app%5Cadmin/",
+      "/app/%2e%2e/",
+      "/app/%00/",
+      "/app%ZZ/",
+      "/app?preview/",
+      "/app//",
+      "/app//admin/",
+    ]) {
+      expect(() => runConfigResolvedHook(base)).toThrow(/safe URL segments/);
+    }
+  });
+
+  it("captures a relative base contributed by a later config plugin", async () => {
+    const plugins = pracht({ adapter: edgeAdapter });
+    const basePlugin: Plugin = {
+      name: "later-base",
+      config() {
+        return { base: "./" };
+      },
+    };
+
+    const config = await resolveConfig(
+      {
+        build: { ssr: true },
+        configFile: false,
+        logLevel: "silent",
+        plugins: [...plugins, basePlugin],
+      },
+      "build",
+    );
+    expect(config.base).toBe("/");
+
+    const plugin = plugins.find((candidate) => candidate.name === "pracht");
+    if (!plugin) throw new Error("pracht plugin not found");
+    const load = getHook<(this: unknown, id: string) => string | null>(plugin, "load");
+    const source = load.call({}, "virtual:pracht/server");
+
+    expect(source).toContain('export const buildBase = "/";');
+    expect(source).toContain('export const configuredBase = "./";');
+  });
+
+  it("accepts safe path and asset-only CDN bases", () => {
+    for (const base of ["/", "/app/", "/caf%C3%A9/", "https://cdn.example.com/"]) {
+      expect(() => runConfigResolvedHook(base)).not.toThrow();
+    }
+  });
+
   it("loads no adapter plugins in graph mode when the safe hook is omitted", () => {
     const runtimePlugin: Plugin = { name: "platform-runtime" };
     vi.stubEnv("PRACHT_GRAPH_ONLY", "1");
@@ -126,6 +183,28 @@ describe("pracht plugin build config", () => {
     const external = config.build?.rollupOptions?.external ?? [];
     expect(
       external.some((entry) => entry instanceof RegExp && entry.test("cloudflare:workers")),
+    ).toBe(true);
+  });
+
+  it("bundles Pracht runtime packages in non-edge SSR builds", () => {
+    const nodeAdapter: PrachtAdapter = {
+      id: "node",
+      serverImports: "",
+      createServerEntryModule: () => "export default {};",
+    };
+    const config = runConfigHook(nodeAdapter, true);
+    const noExternal = config.ssr?.noExternal;
+
+    expect(Array.isArray(noExternal)).toBe(true);
+    expect(
+      (noExternal as Array<string | RegExp>).some(
+        (entry) => entry instanceof RegExp && entry.test("@pracht/core"),
+      ),
+    ).toBe(true);
+    expect(
+      (noExternal as Array<string | RegExp>).some(
+        (entry) => entry instanceof RegExp && entry.test("@pracht/image"),
+      ),
     ).toBe(true);
   });
 
@@ -151,11 +230,13 @@ describe("pracht plugin build config", () => {
     expect(ssrConfig.build?.rollupOptions?.output?.manualChunks).toBeUndefined();
   });
 
-  it("does not force edge SSR options on non-edge adapters", () => {
+  it("does not force edge-only SSR options on non-edge adapters", () => {
     const nodeLikeAdapter: PrachtAdapter = { ...edgeAdapter, id: "node", edge: false };
     const config = runConfigHook(nodeLikeAdapter, true);
 
-    expect(config.ssr).toBeUndefined();
+    expect(config.ssr?.target).toBeUndefined();
+    expect(config.environments?.ssr).toBeUndefined();
+    expect(config.ssr?.noExternal).toEqual([expect.any(RegExp)]);
   });
 
   it("allows eliminated interop helpers and platform runtime imports", () => {

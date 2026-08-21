@@ -1,6 +1,7 @@
 import type { PrachtAdapter } from "@pracht/vite-plugin";
 import {
   createISGRegenerationRequest,
+  createBaseRedirectResponse,
   handlePrachtRequest,
   type HandlePrachtRequestOptions,
   isCacheableISGResponse,
@@ -16,7 +17,9 @@ import {
   readRevalidationRequest,
   RevalidationReport,
   resolveRevalidationToken,
+  stripBase,
   type PrachtApp,
+  withBase,
 } from "@pracht/core/server";
 
 export interface VercelExecutionContext {
@@ -78,7 +81,9 @@ export function createVercelEdgeHandler<
   TContext = TVercelContext,
 >(options: VercelAdapterOptions<TVercelContext, TContext>) {
   return async (request: Request, context: TVercelContext): Promise<Response> => {
-    if (new URL(request.url).pathname === PRACHT_REVALIDATE_ENDPOINT) {
+    const baseRedirect = createBaseRedirectResponse(request);
+    if (baseRedirect) return baseRedirect;
+    if (stripBase(new URL(request.url).pathname) === PRACHT_REVALIDATE_ENDPOINT) {
       return handleVercelRevalidationEndpoint(request, options.app);
     }
 
@@ -345,7 +350,7 @@ async function handleVercelRevalidationEndpoint(
     // A failed regeneration keeps Vercel's cached prerender output and is
     // reported in `failed` instead of aborting the whole batch with a 500.
     try {
-      const revalidateUrl = new URL(pathname, request.url);
+      const revalidateUrl = new URL(withBase(pathname), request.url);
       const response = await fetch(revalidateUrl, {
         headers: {
           accept: "text/html",

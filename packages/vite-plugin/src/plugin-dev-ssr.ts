@@ -30,11 +30,66 @@ export function isEventStreamContentType(contentType: string): boolean {
   return contentType.split(";", 1)[0]?.trim().toLowerCase() === "text/event-stream";
 }
 
+/**
+ * Adapter-owned dev servers can route every browser request through their
+ * platform runtime before Vite's transform middleware gets a chance to serve
+ * Pracht's stable virtual client entries. Serve those two entries at their
+ * public, base-prefixed URLs while leaving every other request to the adapter.
+ */
+export function createOwnedDevEntryMiddleware(server: ViteDevServer): Connect.NextHandleFunction {
+  const base = server.config.base || "/";
+
+  return async (req: IncomingMessage, res: ServerResponse, next: Connect.NextFunction) => {
+    const method = (req.method ?? "GET").toUpperCase();
+    if (method !== "GET" && method !== "HEAD") return next();
+
+    const requestUrl = new URL(req.url ?? "/", "http://localhost");
+    const pathname =
+      base === "/"
+        ? requestUrl.pathname
+        : requestUrl.pathname.startsWith(base)
+          ? `/${requestUrl.pathname.slice(base.length)}`
+          : null;
+    if (pathname !== CLIENT_BROWSER_PATH && pathname !== ISLANDS_CLIENT_BROWSER_PATH) {
+      return next();
+    }
+
+    try {
+      const result = await server.transformRequest(`${pathname}${requestUrl.search}`);
+      if (!result) return next();
+
+      if (result.etag && req.headers["if-none-match"] === result.etag) {
+        res.statusCode = 304;
+        res.end();
+        return;
+      }
+
+      res.statusCode = 200;
+      res.setHeader("content-type", "text/javascript");
+      res.setHeader("cache-control", "no-cache");
+      if (result.etag) res.setHeader("etag", result.etag);
+      for (const [name, value] of Object.entries(server.config.server.headers ?? {})) {
+        if (value !== undefined) res.setHeader(name, value);
+      }
+      res.end(method === "HEAD" ? undefined : result.code);
+    } catch (error) {
+      next(error);
+    }
+  };
+}
+
 export function createDevSSRMiddleware(
   server: ViteDevServer,
   options: { maxBodySize?: number; llmsTxt?: boolean } = {},
 ): Connect.NextHandleFunction {
   const maxBodySize = options.maxBodySize ?? DEFAULT_MAX_BODY_SIZE;
+  // Vite's own base middleware strips the base from `req.url` before this
+  // handler runs, so routing here is base-free — but everything the document
+  // hands back to the browser (client entry, request URL in the hydration
+  // state) must carry it again, exactly as a production build does.
+  const devBase = server.config.base || "/";
+  const withDevBase = (path: string): string =>
+    devBase === "/" || !path.startsWith("/") ? path : `${devBase}${path.slice(1)}`;
   let warnedDevtoolsCollision = false;
   let warnedLlmsTxtCollision = false;
 
@@ -84,6 +139,7 @@ export function createDevSSRMiddleware(
         await serveDevtools(server, res, {
           apiRoutes: serverMod.apiRoutes ?? [],
           app: serverMod.resolvedApp,
+          base: devBase,
           url,
           wantsJson: requestUrl.pathname === DEVTOOLS_JSON_PATH,
         });
@@ -126,12 +182,20 @@ export function createDevSSRMiddleware(
       }
 
       if (isDevNotFoundRequest(requestUrl, req, routeMatchers)) {
-        return serveDevNotFound(server, res, next, url, requestUrl.pathname, routeMatchers);
+        return serveDevNotFound(
+          server,
+          res,
+          next,
+          url,
+          requestUrl.pathname,
+          routeMatchers,
+          devBase,
+        );
       }
 
       let webRequest: Request;
       try {
-        webRequest = await nodeToWebRequest(req, maxBodySize);
+        webRequest = await nodeToWebRequest(req, maxBodySize, devBase);
       } catch (err) {
         if (err instanceof Error && err.message === "Request body too large") {
           res.statusCode = 413;
@@ -148,8 +212,8 @@ export function createDevSSRMiddleware(
         registry: serverMod.registry,
         request: webRequest,
         debugErrors: true,
-        clientEntryUrl: CLIENT_BROWSER_PATH,
-        islandsEntryUrl: ISLANDS_CLIENT_BROWSER_PATH,
+        clientEntryUrl: withDevBase(CLIENT_BROWSER_PATH),
+        islandsEntryUrl: withDevBase(ISLANDS_CLIENT_BROWSER_PATH),
         islandsBootstrapRequired: serverMod.islandsBootstrapRequired === true,
         apiRoutes: serverMod.apiRoutes,
         timings,
@@ -209,7 +273,7 @@ export function createDevSSRMiddleware(
       let body = await response.text();
 
       if (contentType.includes("text/html")) {
-        body = await server.transformIndexHtml(url, body);
+        body = await transformDevHtml(server, url, body, devBase);
       }
 
       res.statusCode = response.status;
@@ -222,8 +286,85 @@ export function createDevSSRMiddleware(
       }
       res.end(body);
     } catch (error: unknown) {
-      await handleDevError(server, req, res, next, url, error);
+      await handleDevError(server, req, res, next, url, error, devBase);
     }
+  };
+}
+
+/**
+ * Vite's HTML transform adds `config.base` to root-absolute asset attributes.
+ * Pracht's runtime has already added it to URLs produced by `withBase()` — the
+ * client entry, route-state preloads, image endpoints, and user-authored asset
+ * URLs — while Vite-owned or module-graph URLs still need the transform. Hide
+ * the already-based strings while the hooks run, then restore them afterward,
+ * so each producer applies the deploy base exactly once.
+ */
+async function transformDevHtml(
+  server: ViteDevServer,
+  url: string,
+  html: string,
+  base: string,
+): Promise<string> {
+  if (base === "/") return server.transformIndexHtml(url, html);
+
+  const assetUrls = protectRootAbsoluteAssetAttributes(html);
+
+  // An external URL is inert to Vite's asset rewriting and module pre-transform.
+  // A relative marker would produce a noisy failed pre-transform even though it
+  // is restored before the HTML reaches the browser.
+  let placeholder = "https://pracht.invalid/__PRACHT_DEV_BASE_PLACEHOLDER__/";
+  while (assetUrls.html.includes(placeholder)) placeholder += "_";
+
+  const protectedHtml = assetUrls.html.replaceAll(base, placeholder);
+  const transformedHtml = await server.transformIndexHtml(url, protectedHtml);
+  return assetUrls.restore(transformedHtml.replaceAll(placeholder, base));
+}
+
+const HTML_ASSET_URL_ATTRIBUTE_RE =
+  /(\s(?:src|href|xlink:href|data|srcset|imagesrcset|poster|content)\s*=\s*)(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/gi;
+
+/**
+ * Runtime-rendered root-absolute asset URLs have already reached their final
+ * public meaning: raw `/logo.svg` deliberately stays at the origin root,
+ * while `withBase("/logo.svg")` is already under the deploy base. Vite's dev
+ * HTML pass prefixes both, unlike production SSR, so hide complete attribute
+ * values behind inert external URLs until that pass finishes.
+ */
+function protectRootAbsoluteAssetAttributes(html: string): {
+  html: string;
+  restore: (transformedHtml: string) => string;
+} {
+  let markerPrefix = "https://pracht.invalid/__PRACHT_DEV_ASSET_PLACEHOLDER__/";
+  while (html.includes(markerPrefix)) markerPrefix += "_";
+
+  const replacements: Array<{ marker: string; value: string }> = [];
+  const protectedHtml = html.replace(
+    HTML_ASSET_URL_ATTRIBUTE_RE,
+    (match, prefix: string, doubleQuoted?: string, singleQuoted?: string, unquoted?: string) => {
+      const value = doubleQuoted ?? singleQuoted ?? unquoted ?? "";
+      const isSrcset = /(?:srcset)\s*=\s*$/i.test(prefix);
+      const isRootAbsolute = isSrcset
+        ? /(?:^|,)\s*\/(?!\/)/.test(value)
+        : /^\s*\/(?!\/)/.test(value);
+      if (!isRootAbsolute) return match;
+
+      const marker = `${markerPrefix}${replacements.length}`;
+      replacements.push({ marker, value });
+      if (doubleQuoted !== undefined) return `${prefix}"${marker}"`;
+      if (singleQuoted !== undefined) return `${prefix}'${marker}'`;
+      return `${prefix}${marker}`;
+    },
+  );
+
+  return {
+    html: protectedHtml,
+    restore(transformedHtml) {
+      let restoredHtml = transformedHtml;
+      for (const { marker, value } of replacements) {
+        restoredHtml = restoredHtml.replaceAll(marker, value);
+      }
+      return restoredHtml;
+    },
   };
 }
 
@@ -242,11 +383,14 @@ export async function createDevCssManifest(
       app: ResolvedPrachtApp,
       pathname: string,
     ) => { route: ResolvedRoute } | undefined;
-    pathname: string;
+    pathname: string | null;
     registry: ModuleRegistry;
   },
 ): Promise<Record<string, string[]>> {
-  const route = options.matchAppRoute(options.app, options.pathname)?.route ?? options.app.notFound;
+  const route =
+    options.pathname === null
+      ? undefined
+      : (options.matchAppRoute(options.app, options.pathname)?.route ?? options.app.notFound);
   if (!route) return {};
 
   const manifest: Record<string, string[]> = {};
@@ -323,10 +467,20 @@ export function collectDevCssUrls(entry: EnvironmentModuleNode | undefined): str
   return [...urls];
 }
 
-export function injectDevCssLinks(html: string, manifest: Record<string, string[]>): string {
+export function injectDevCssLinks(
+  html: string,
+  manifest: Record<string, string[]>,
+  base = "/",
+): string {
   if (!html.includes("</head>")) return html;
 
-  const urls = [...new Set(Object.values(manifest).flat())];
+  const urls = [
+    ...new Set(
+      Object.values(manifest)
+        .flat()
+        .map((url) => (base === "/" || !url.startsWith("/") ? url : `${base}${url.slice(1)}`)),
+    ),
+  ];
   const tags = urls
     .map((url) => escapeHtmlAttribute(url))
     .filter((escapedUrl) => !html.includes(`href="${escapedUrl}"`))
@@ -340,21 +494,29 @@ export async function injectDevCssForPath(
   server: ViteDevServer,
   path: string,
   html: string,
+  options: { basePathRetained?: boolean } = {},
 ): Promise<string> {
-  const context = await resolveDevCssContextForPath(server, path);
+  const context = await resolveDevCssContextForPath(server, path, options);
   const manifest = await createDevCssManifest(server, context);
-  return injectDevCssLinks(html, manifest);
+  return injectDevCssLinks(html, manifest, server.config.base || "/");
 }
 
 async function resolveDevCssContextForPath(
   server: ViteDevServer,
   path: string,
+  options: { basePathRetained?: boolean } = {},
 ): Promise<Parameters<typeof createDevCssManifest>[1]> {
   const [framework, serverMod] = await Promise.all([
     server.ssrLoadModule("@pracht/core/server"),
     server.ssrLoadModule(PRACHT_DEV_MODULE_ID),
   ]);
-  const pathname = new URL(path, "http://localhost").pathname;
+  const publicPathname = new URL(path, "http://localhost").pathname;
+  // Vite strips its base before the normal dev SSR middleware runs, but an
+  // adapter-owned server receives the original browser path because this CSS
+  // middleware is registered before Vite's base middleware. Match both paths
+  // against the same base-free route manifest. `null` deliberately suppresses
+  // not-found CSS for adapter HTML responses outside this app's base.
+  const pathname = options.basePathRetained ? framework.stripBase(publicPathname) : publicPathname;
   return {
     app: serverMod.resolvedApp,
     matchAppRoute: framework.matchAppRoute,
@@ -382,7 +544,9 @@ export function createDevCssInjectionMiddleware(server: ViteDevServer): Connect.
     // runtimes can serialize module-runner work while a response is open. CSS
     // traversal itself waits until res.end(), after that runtime has populated
     // its environment graph with the matched route and shell.
-    const contextPromise = resolveDevCssContextForPath(server, req.url ?? "/").catch((error) => {
+    const contextPromise = resolveDevCssContextForPath(server, req.url ?? "/", {
+      basePathRetained: true,
+    }).catch((error) => {
       if (!warned) {
         warned = true;
         server.config.logger.warn(
@@ -436,7 +600,7 @@ export function createDevCssInjectionMiddleware(server: ViteDevServer): Connect.
           const context = await contextPromise;
           const manifest = context ? await createDevCssManifest(server, context) : null;
           const html = manifest
-            ? injectDevCssLinks(body.toString("utf-8"), manifest)
+            ? injectDevCssLinks(body.toString("utf-8"), manifest, server.config.base || "/")
             : body.toString("utf-8");
           originalEnd(html, done);
         } catch {
@@ -498,6 +662,7 @@ async function serveDevtools(
   options: {
     apiRoutes: ResolvedApiRoute[];
     app: ResolvedPrachtApp;
+    base: string;
     url: string;
     wantsJson: boolean;
   },
@@ -532,7 +697,7 @@ async function serveDevtools(
     return;
   }
 
-  let html = devtools.buildDevtoolsHtml(graph);
+  let html = devtools.buildDevtoolsHtml(graph, { base: options.base });
   html = await server.transformIndexHtml(options.url, html);
   res.statusCode = 200;
   res.setHeader("content-type", "text/html; charset=utf-8");
@@ -546,6 +711,7 @@ async function handleDevError(
   next: Connect.NextFunction,
   url: string,
   error: unknown,
+  base: string,
 ): Promise<void> {
   if (error instanceof Error) {
     server.ssrFixStacktrace(error);
@@ -573,6 +739,7 @@ async function handleDevError(
       message: error instanceof Error ? error.message : String(error),
       stack: error instanceof Error ? error.stack : undefined,
       root: server.config.root,
+      base,
     });
     html = await server.transformIndexHtml(url, html);
     res.statusCode = 500;
@@ -632,11 +799,13 @@ async function serveDevNotFound(
   url: string,
   pathname: string,
   options: { app: ResolvedPrachtApp; apiRoutes: ResolvedApiRoute[] },
+  base: string,
 ): Promise<void> {
   try {
     const { buildDevNotFoundHtml } = await server.ssrLoadModule("@pracht/core/dev-404");
     let html = buildDevNotFoundHtml({
       apiRoutes: options.apiRoutes.map((route) => ({ path: route.path })),
+      base,
       requestedPath: pathname,
       routes: options.app.routes.map((route) => ({
         path: route.path,
@@ -809,13 +978,24 @@ const DEV_ASSET_EXTENSIONS = new Set([
   ".xml",
 ]);
 
-async function nodeToWebRequest(req: IncomingMessage, maxBodySize: number): Promise<Request> {
+async function nodeToWebRequest(
+  req: IncomingMessage,
+  maxBodySize: number,
+  base = "/",
+): Promise<Request> {
   // Dev server is always a direct connection — never trust forwarded headers.
   // Protocol is always plain HTTP (Vite's dev server does not use TLS), and
   // host comes from the standard Host header which is safe for direct clients.
   const protocol = "http";
   const host = req.headers.host ?? "localhost";
-  const url = new URL(req.url ?? "/", `${protocol}://${host}`);
+  // Vite stripped the base off `req.url`; put it back so the request the app
+  // sees — and the URL it serializes for the client — is the one the visitor
+  // typed. `handlePrachtRequest` strips it again for route matching.
+  const path = req.url ?? "/";
+  const url = new URL(
+    base === "/" || !path.startsWith("/") ? path : `${base}${path.slice(1)}`,
+    `${protocol}://${host}`,
+  );
   const method = req.method ?? "GET";
 
   const headers = new Headers();

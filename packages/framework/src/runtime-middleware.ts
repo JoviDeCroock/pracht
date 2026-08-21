@@ -1,3 +1,4 @@
+import { withBase } from "./base.ts";
 import { parseSafeNavigationUrl } from "./runtime-client-fetch.ts";
 import { SAFE_METHODS } from "./runtime-constants.ts";
 import { applyHeaders } from "./runtime-headers.ts";
@@ -64,9 +65,11 @@ export function buildRedirectResponse(
 /**
  * Convenience helper for middleware (and loaders/handlers) to short-circuit
  * with a redirect Response. Validates the target's scheme and rejects
- * CR/LF injection. Pass the current request (or method) when the default
- * status should follow HTTP method safety: safe methods default to 302,
- * unsafe methods default to 303.
+ * CR/LF injection. Root-absolute route paths are placed under the configured
+ * deploy base; relative, protocol-relative, and absolute URLs are preserved.
+ * Pass the current request (or method) when the default status should follow
+ * HTTP method safety: safe methods default to 302, unsafe methods default to
+ * 303.
  *
  * ```ts
  * export const middleware: MiddlewareFn = async ({ request }, next) => {
@@ -94,14 +97,15 @@ export function buildRedirectResponse(
  * like any other middleware.
  */
 export function redirect(target: string, options: RedirectOptions = {}): Response {
+  const location = withBase(target);
   if (typeof options === "number") {
-    return buildRedirectResponse(target, {
+    return buildRedirectResponse(location, {
       baseUrl: REDIRECT_VALIDATION_BASE,
       status: options,
     });
   }
 
-  return buildRedirectResponse(target, {
+  return buildRedirectResponse(location, {
     baseUrl: options.baseUrl ?? options.request?.url ?? REDIRECT_VALIDATION_BASE,
     method: options.method ?? options.request?.method,
     status: options.status,

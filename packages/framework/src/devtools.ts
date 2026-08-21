@@ -33,11 +33,12 @@ export type {
 export const DEVTOOLS_PATH = "/_pracht";
 export const DEVTOOLS_JSON_PATH = "/_pracht.json";
 
-export function buildDevtoolsHtml(graph: AppGraph): string {
+export function buildDevtoolsHtml(graph: AppGraph, options: { base?: string } = {}): string {
+  const base = options.base ?? "/";
   const routeRows = graph.routes
     .map(
       (route) => `<tr>
-        <td>${routeLinkHtml(route)}</td>
+        <td>${routeLinkHtml(route, base)}</td>
         <td>${escapeHtml(route.render ?? "ssr")}</td>
         <td>${escapeHtml(route.shell ?? "—")}</td>
         <td>${escapeHtml(route.middleware.length > 0 ? route.middleware.join(" → ") : "—")}</td>
@@ -59,7 +60,7 @@ export function buildDevtoolsHtml(graph: AppGraph): string {
   const apiRows = graph.api
     .map(
       (route) => `<tr>
-        <td>${apiLinkHtml(route)}</td>
+        <td>${apiLinkHtml(route, base)}</td>
         <td>${escapeHtml(route.methods.length > 0 ? route.methods.join(", ") : "—")}</td>
         <td class="file">${escapeHtml(route.file)}</td>
       </tr>`,
@@ -210,7 +211,7 @@ ${notFoundRow}
     ${apiSection}
     ${capabilitiesSection}
     <div class="hint">
-      Raw JSON at <a href="${DEVTOOLS_JSON_PATH}">${DEVTOOLS_JSON_PATH}</a> ·
+      Raw JSON at <a href="${escapeHtml(withDevBase(DEVTOOLS_JSON_PATH, base))}">${DEVTOOLS_JSON_PATH}</a> ·
       same data as <code>pracht inspect --json</code> ·
       per-request middleware/loader/render timings are on the <code>Server-Timing</code>
       response header in the browser Network panel.
@@ -220,22 +221,28 @@ ${notFoundRow}
 </html>`;
 }
 
-function routeLinkHtml(route: AppGraphRoute): string {
+function routeLinkHtml(route: AppGraphRoute, base: string): string {
   const label = escapeHtml(route.path);
   if (!isLinkablePath(route.path)) {
     return label;
   }
 
-  return `<a href="${escapeHtml(route.path)}">${label}</a>`;
+  return `<a href="${escapeHtml(withDevBase(route.path, base))}">${label}</a>`;
 }
 
-function apiLinkHtml(route: AppGraphApiRoute): string {
+function apiLinkHtml(route: AppGraphApiRoute, base: string): string {
   const label = escapeHtml(route.path);
   if (!isLinkablePath(route.path) || !route.methods.includes("GET")) {
     return label;
   }
 
-  return `<a href="${escapeHtml(route.path)}">${label}</a>`;
+  return `<a href="${escapeHtml(withDevBase(route.path, base))}">${label}</a>`;
+}
+
+function withDevBase(path: string, base: string): string {
+  if (base === "/" || !path.startsWith("/")) return path;
+  const prefix = base.endsWith("/") ? base : `${base}/`;
+  return `${prefix}${path.slice(1)}`;
 }
 
 /** Dynamic patterns (`:id`, `*`) are not navigable as-is — render them as text. */

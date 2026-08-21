@@ -92,4 +92,17 @@ describe("@pracht/cli inspect", () => {
       ...build,
     });
   }, 30_000);
+
+  it("reports build asset URLs under the configured Vite base", () => {
+    const appDir = createRepoTempDir("pracht-cli-inspect-base-");
+    writeInspectableManifestApp(appDir, { base: "/app/" });
+
+    const build = JSON.parse(runCli(["inspect", "build", "--json"], { cwd: appDir }).stdout);
+
+    expect(build.build.clientEntryUrl).toBe("/app/assets/client.js");
+    expect(build.build.cssManifest["src/routes/dashboard.tsx"]).toEqual([
+      "/app/assets/dashboard.css",
+    ]);
+    expect(build.build.jsManifest["virtual:pracht/client"]).toEqual(["/app/assets/vendor.js"]);
+  }, 30_000);
 });

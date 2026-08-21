@@ -6,6 +6,7 @@ import type { FunctionComponent } from "preact";
 import type { FontHeadFragments } from "./font.ts";
 import { applyFontHeadFragments } from "./runtime-fonts.ts";
 
+import { stripBase } from "./base.ts";
 import { buildHrefUntyped, matchResolvedRoute } from "./route-matching.ts";
 import {
   decodeFragmentId,
@@ -108,6 +109,8 @@ interface BrowserRouteTarget {
   pathname: string;
   requestUrl: string;
   search: string;
+  /** `pathname` as the browser shows it — the deploy base included. */
+  urlPathname: string;
 }
 
 const NavigateContext = createContext<NavigateFn>(async () => {});
@@ -809,11 +812,15 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
             if (!hydrationBrowserTarget || !updateRouteState) return;
 
             updateRouteState((currentState) => {
-              const hydratedTarget = resolveBrowserRouteTarget(currentState.url);
+              // Serialized route-state URLs are browser URLs (base included),
+              // matching what a client-side navigation commits. `404.html`
+              // renders at a synthetic path, so it adopts the visitor's URL
+              // wholesale rather than keeping its own path.
+              const hydratedTarget = isStaticNotFoundDocument
+                ? hydrationBrowserTarget
+                : resolveBrowserRouteTarget(currentState.url);
               if (!hydratedTarget) return currentState;
-              const nextRequestUrl = isStaticNotFoundDocument
-                ? hydrationBrowserTarget.pathname + hydrationBrowserTarget.search
-                : hydratedTarget.pathname + hydrationBrowserTarget.search;
+              const nextRequestUrl = hydratedTarget.urlPathname + hydrationBrowserTarget.search;
               // A navigation that committed while a Suspense boundary was
               // hydrating owns the newer state. Revalidated data lives in the
               // runtime provider and survives this URL-only update.
@@ -853,12 +860,13 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
     const href = anchor.getAttribute("href");
     if (!href) return;
 
-    // Resolve relative URLs. A bare `#fragment` resolves against the full
-    // current URL — against the origin alone it would lose the path.
+    // Resolve relative URLs against the current document, matching native
+    // anchor behavior. This also keeps `href="about"` and query-only links
+    // inside a sub-path deploy base.
     const isFragmentHref = href.startsWith("#");
     let url: URL;
     try {
-      url = new URL(href, isFragmentHref ? window.location.href : window.location.origin);
+      url = new URL(href, window.location.href);
     } catch {
       return;
     }
@@ -881,7 +889,7 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
     // the browser perform a normal navigation so it can activate the
     // prerendered document. Intercepting here would cancel the activation
     // and force a redundant SPA fetch of the route-state JSON.
-    const targetMatch = matchResolvedRoute(app, url.pathname);
+    const targetMatch = matchResolvedRoute(app, stripBase(url.pathname) ?? url.pathname);
     if (targetMatch && supportsSpeculationRules()) {
       const spec = normalizeSpeculation(targetMatch.route.speculation);
       if (spec?.mode === "prerender") return;
@@ -955,7 +963,9 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
 
   if (isStaticFallbackBoot) {
     const bootPath = window.location.pathname + window.location.search + window.location.hash;
-    const bootMatch = matchResolvedRoute(app, window.location.pathname);
+    // Route matching is base-free; `stripBase` returns null only for a URL
+    // outside the deploy base, which the fallback document cannot be serving.
+    const bootMatch = matchResolvedRoute(app, stripBase(window.location.pathname) ?? "/");
     const isClientRoutableSpaMatch =
       bootMatch != null &&
       bootMatch.route.render === "spa" &&
@@ -1085,11 +1095,20 @@ function resolveBrowserRouteTarget(to: string): BrowserRouteTarget | null {
       return null;
     }
 
+    // Same origin but outside the deploy base is somebody else's app on this
+    // host. Returning null hands the link back to the browser.
+    const routePathname = stripBase(url.pathname);
+    if (routePathname === null) {
+      return null;
+    }
+
     return {
       browserUrl: url.pathname + url.search + url.hash,
-      pathname: url.pathname,
+      // Route paths carry no base; the browser and request URLs do.
+      pathname: routePathname,
       requestUrl: url.pathname + url.search,
       search: url.search,
+      urlPathname: url.pathname,
     };
   } catch {
     return null;
