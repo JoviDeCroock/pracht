@@ -419,10 +419,11 @@ export const middleware: MiddlewareFn = async (_args, next) => next();
     );
   });
 
-  it.each([".md", ".mdx", ".tsrx"])(
+  it.each([".md", ".mdx", ".tsrx", ".mts", ".mjs", ".cts", ".cjs", ".vue", ""])(
     "fails doctor for _middleware%s instead of silently ignoring it",
     (extension) => {
-      const appDir = createTempDir(`pracht-cli-doctor-pages-middleware-${extension.slice(1)}-`);
+      const extensionName = extension.slice(1) || "extensionless";
+      const appDir = createTempDir(`pracht-cli-doctor-pages-middleware-${extensionName}-`);
       writePagesApp(appDir);
       writeProjectFile(
         appDir,

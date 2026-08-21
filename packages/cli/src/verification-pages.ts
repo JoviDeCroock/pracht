@@ -1,6 +1,6 @@
 import { maskCommentsAndStrings } from "@pracht/capabilities/static";
 import { readFileSync } from "node:fs";
-import { basename, relative } from "node:path";
+import { basename, extname, relative } from "node:path";
 
 import { hasPagesAppShell, listFilesRecursively } from "./project.js";
 import { isPageSource, normalizeRoutePath } from "./verification-helpers.js";
@@ -18,12 +18,9 @@ export type PagesFile =
   | PagesRoute;
 
 // Mirrors the vite plugin's pages middleware extensions (and the
-// `middlewareDir` registry glob). Markdown/MDX, TSRX, and configured custom
-// page formats are middleware-shaped files the registry cannot load — errors,
-// not silently ignored routes. In particular, MDX may expose runtime ESM after
-// its Vite transform even though the middleware registry glob stays script-only.
+// `middlewareDir` registry glob). Every exact `_middleware` basename using a
+// different extension is an error rather than a silently ignored auth gate.
 const PAGES_MIDDLEWARE_SOURCE_RE = /\.(ts|tsx|js|jsx)$/;
-const PAGES_MIDDLEWARE_UNSUPPORTED_RE = /\.(md|mdx|tsrx)$/;
 
 export interface PagesRoute {
   file: string;
@@ -43,7 +40,9 @@ export function scanPagesDirectory(
   return listFilesRecursively(pagesDir)
     .filter(
       (file) =>
-        isPageSource(file, additionalExtensions) || isInsideMiddlewareDirectory(pagesDir, file),
+        isPageSource(file, additionalExtensions) ||
+        isInsideMiddlewareDirectory(pagesDir, file) ||
+        basename(file, extname(file)) === "_middleware",
     )
     .map((file) => describePagesFile(pagesDir, file, additionalExtensions));
 }
@@ -73,11 +72,7 @@ export function describePagesFile(
     return { file, kind: "middleware", nested: relativePath.includes("/"), shape: "file" };
   }
 
-  if (
-    name === "_middleware" &&
-    (PAGES_MIDDLEWARE_UNSUPPORTED_RE.test(file) ||
-      additionalExtensions.some((extension) => file.endsWith(extension)))
-  ) {
+  if (name === "_middleware") {
     return {
       file,
       kind: "middleware",

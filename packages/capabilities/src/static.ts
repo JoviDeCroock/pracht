@@ -300,7 +300,9 @@ function collectTopLevelBindingWrites(
   for (const statement of nodeArray(program.body)) {
     const expression =
       statement.type === "ExpressionStatement" ? asStaticAnalysisNode(statement.expression) : null;
-    collectTopLevelBindingWritesFromNode(statement, writes, expression);
+    const unconditionalExpressions = new Set<StaticAnalysisNode>();
+    collectUnconditionallyEvaluatedExpressions(expression, unconditionalExpressions);
+    collectTopLevelBindingWritesFromNode(statement, writes, unconditionalExpressions);
   }
 
   return writes;
@@ -309,7 +311,7 @@ function collectTopLevelBindingWrites(
 function collectTopLevelBindingWritesFromNode(
   value: unknown,
   writes: Map<string, StaticBindingWrite[]>,
-  unconditionalExpression: StaticAnalysisNode | null,
+  unconditionalExpressions: ReadonlySet<StaticAnalysisNode>,
 ): void {
   const node = asStaticAnalysisNode(value);
   if (!node) return;
@@ -321,7 +323,7 @@ function collectTopLevelBindingWritesFromNode(
       const bindingWrites = writes.get(name) ?? [];
       bindingWrites.push({
         position: start,
-        unconditional: node === unconditionalExpression,
+        unconditional: unconditionalExpressions.has(node),
         value: resolveStaticBindingWriteValue(node, name),
       });
       writes.set(name, bindingWrites);
@@ -342,11 +344,45 @@ function collectTopLevelBindingWritesFromNode(
     if (key === "type" || key === "loc" || key === "span") continue;
     if (Array.isArray(child)) {
       for (const item of child) {
-        collectTopLevelBindingWritesFromNode(item, writes, unconditionalExpression);
+        collectTopLevelBindingWritesFromNode(item, writes, unconditionalExpressions);
       }
     } else {
-      collectTopLevelBindingWritesFromNode(child, writes, unconditionalExpression);
+      collectTopLevelBindingWritesFromNode(child, writes, unconditionalExpressions);
     }
+  }
+}
+
+function collectUnconditionallyEvaluatedExpressions(
+  value: unknown,
+  expressions: Set<StaticAnalysisNode>,
+): void {
+  const node = asStaticAnalysisNode(value);
+  if (!node) return;
+  expressions.add(node);
+
+  if (node.type === "SequenceExpression") {
+    for (const expression of nodeArray(node.expressions)) {
+      collectUnconditionallyEvaluatedExpressions(expression, expressions);
+    }
+    return;
+  }
+
+  if (node.type === "AssignmentExpression") {
+    if (node.operator !== "&&=" && node.operator !== "||=" && node.operator !== "??=") {
+      collectUnconditionallyEvaluatedExpressions(node.right, expressions);
+    }
+    return;
+  }
+
+  if (
+    node.type === "ParenthesizedExpression" ||
+    node.type === "TSAsExpression" ||
+    node.type === "TSNonNullExpression" ||
+    node.type === "TSSatisfiesExpression" ||
+    node.type === "TSTypeAssertion" ||
+    node.type === "TypeCastExpression"
+  ) {
+    collectUnconditionallyEvaluatedExpressions(node.expression, expressions);
   }
 }
 

@@ -1,5 +1,5 @@
 import { readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { basename, dirname, extname, join, relative } from "node:path";
+import { basename, dirname, extname, join, relative, resolve } from "node:path";
 import { hasNamedMiddlewareExport, maskCommentsAndStrings } from "@pracht/capabilities/static";
 import { parseAst } from "vite";
 import { getRolldownLang } from "./client-module-query.ts";
@@ -39,34 +39,21 @@ export const GENERATED_PAGES_LAYOUT_EXPORT = "__PRACHT_EJECTED_PAGES_LAYOUT__";
 // Mirrors the `middlewareDir` registry glob (`**/*.{ts,tsx,js,jsx}`): a pages
 // middleware file must be resolvable through the same runtime registry.
 const MIDDLEWARE_EXTENSIONS = new Set([".ts", ".tsx", ".js", ".jsx"]);
-// Page source extensions that look like they could hold middleware but that
-// the runtime registry glob cannot load. Markdown, TSRX, and configured custom
-// formats are first-class page authoring extensions, so silently ignoring a
-// middleware-shaped file would fail open exactly like a nested file. MDX can
-// expose runtime ESM exports after its Vite transform, but the middleware
-// registry still cannot load the source module because its glob is script-only.
-const MIDDLEWARE_UNSUPPORTED_EXTENSIONS = new Set([".md", ".mdx", ".tsrx"]);
 
 /**
  * The root-level `_middleware.{ts,tsx,js,jsx}` file of a pages directory, or
  * null when the app has none. Fails loudly on every shape that would
  * otherwise fail open: a nested `_middleware` file, a `_middleware/`
- * directory, a middleware-shaped file using a page extension the runtime
+ * directory, any exact `_middleware` basename using an extension the runtime
  * registry cannot load (all unsupported — they would be silently ignored while
  * looking like an auth gate), and multiple root files competing for the same
  * registration.
  */
 export function findPagesMiddlewareFile(
   pagesDir: string,
-  additionalExtensions: readonly string[] = [],
+  _additionalExtensions: readonly string[] = [],
 ): string | null {
   const allFiles = scanAllFiles(pagesDir);
-  const unsupportedExtensions = new Set([
-    ...MIDDLEWARE_UNSUPPORTED_EXTENSIONS,
-    ...normalizeAdditionalExtensions(additionalExtensions).filter(
-      (extension) => !MIDDLEWARE_EXTENSIONS.has(extension),
-    ),
-  ]);
 
   const inMiddlewareDirectory = allFiles.filter((file) =>
     relative(pagesDir, file).replace(/\\/g, "/").split("/").slice(0, -1).includes("_middleware"),
@@ -83,7 +70,7 @@ export function findPagesMiddlewareFile(
 
   const unsupported = allFiles.filter(
     (file) =>
-      basename(file, extname(file)) === "_middleware" && unsupportedExtensions.has(extname(file)),
+      basename(file, extname(file)) === "_middleware" && !MIDDLEWARE_EXTENSIONS.has(extname(file)),
   );
   if (unsupported.length > 0) {
     const shown = unsupported.map((file) => relative(pagesDir, file).replace(/\\/g, "/"));
@@ -589,7 +576,10 @@ export function generateRoutesFile(
   outputPath: string,
   options: PagesRouterOptions,
 ): void {
-  const pages = scanPagesDirectory(pagesDir, options.additionalExtensions);
+  const resolvedOutputPath = resolve(outputPath);
+  const pages = scanPagesDirectory(pagesDir, options.additionalExtensions).filter(
+    (page) => resolve(page.absolutePath) !== resolvedOutputPath,
+  );
   // For standalone files, replace `const app` with `export const app`
   const manifestSource = generatePagesManifestSource(pages, {
     ...options,

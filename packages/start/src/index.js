@@ -1469,6 +1469,10 @@ function createAgentInstructions({ adapter, agentTools, packageManager, router, 
     if (adapter.id !== "static") {
       lines.push("- `pracht generate middleware --name auth` — add middleware");
     }
+  } else if (adapter.id !== "static") {
+    lines.push(
+      "- `pracht generate middleware --name _middleware` — add root middleware for every page route",
+    );
   }
   if (adapter.id !== "static") {
     lines.push("- `pracht generate api --path /health --methods GET` — add an API route");

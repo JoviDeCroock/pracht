@@ -510,6 +510,7 @@ describe("create-pracht", () => {
     expect(agents).toContain("The pages router has no manifest");
     expect(agents).toContain("pure static exports cannot use request middleware");
     expect(agents).toContain("export const REVALIDATE = 3600");
+    expect(agents).toContain("pracht generate middleware --name _middleware");
   });
 
   it("seeds pnpm edge build policy for every router and template permutation", async () => {

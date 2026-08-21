@@ -615,7 +615,7 @@ describe("generatePagesManifestSource", () => {
     );
   });
 
-  it.each([".md", ".mdx", ".tsrx"])(
+  it.each([".md", ".mdx", ".tsrx", ".mts", ".mjs", ".cts", ".cjs", ".vue", ""])(
     "rejects _middleware%s instead of silently ignoring it",
     (extension) => {
       const pagesDir = makeTempPagesDir();
@@ -761,11 +761,13 @@ describe("generatePagesManifestSource", () => {
     );
 
     generateRoutesFile(pagesDir, outputPath, { pagesDir });
+    generateRoutesFile(pagesDir, outputPath, { pagesDir });
     const source = readFileSync(outputPath, "utf-8");
 
     expect(source).toContain('route("/", () => import("../index.tsx")');
     expect(source).toContain('pages: () => import("../_app.tsx")');
     expect(source).toContain('pages: () => import("../_middleware.ts")');
+    expect(source).not.toContain('route("/generated/routes"');
     expect(source).toContain(`export const ${GENERATED_PAGES_LAYOUT_EXPORT} = true;`);
   });
 });
