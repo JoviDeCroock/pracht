@@ -36,6 +36,13 @@ describe("middleware export classification", () => {
     ["const candidate = 1;\nexport const { middleware } = { middleware: candidate };", false],
     ["export const [middleware] = [null];", false],
     ["export const { middleware } = { middleware: () => {} };", true],
+    ["export const { middleware } = { set middleware(value) {} };", false],
+    ["export const { middleware } = { get middleware() { return createMiddleware(); } };", true],
+    [
+      "export const { middleware } = { get middleware() { return createMiddleware(); }, set middleware(value) {} };",
+      true,
+    ],
+    ["export const { middleware } = { middleware() {} };", true],
     ["export const { middleware = () => {} } = {};", true],
     ["export const { middleware } = { middleware: 1, ...handlers };", true],
     ["export const { middleware } = { ...handlers, middleware: 1 };", false],

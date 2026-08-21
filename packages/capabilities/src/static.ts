@@ -340,7 +340,22 @@ function resolveStaticObjectProperty(
       // A later spread or computed key may overwrite the requested property.
       return UNRESOLVED_STATIC_BINDING;
     }
-    if (getStaticIdentifierName(property.key) === key) return property.value;
+    if (getStaticIdentifierName(property.key) !== key) continue;
+    if (property.kind === "get") return UNRESOLVED_STATIC_BINDING;
+    if (property.kind !== "set") return property.value;
+
+    // Reading a setter-only property produces `undefined`. A preceding getter
+    // for the same key forms an accessor pair, whose value is runtime-defined.
+    for (let accessorIndex = index - 1; accessorIndex >= 0; accessorIndex -= 1) {
+      const accessor = properties[accessorIndex];
+      if (accessor.type !== "Property" || accessor.computed === true) {
+        return UNRESOLVED_STATIC_BINDING;
+      }
+      if (getStaticIdentifierName(accessor.key) !== key) continue;
+      if (accessor.kind === "get") return UNRESOLVED_STATIC_BINDING;
+      if (accessor.kind !== "set") return undefined;
+    }
+    return undefined;
   }
   // A literal object with no spreads or computed keys has an `undefined`
   // value for a missing property.

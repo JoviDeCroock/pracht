@@ -132,7 +132,7 @@ pracht generate api --path /health --methods GET,POST
 > On Windows Git Bash/MSYS shells, leading `/` arguments may be rewritten as absolute Windows paths before Node sees them. If `--path /dashboard` reports that it would write outside `src/routes`, use PowerShell/CMD or pass `MSYS_NO_PATHCONV=1` when invoking the `pracht` binary directly.
 
 - Manifest apps update `src/routes.ts` automatically for routes, shells, and middleware.
-- Pages-router apps scaffold route files into `src/pages/`; `generate middleware --name _middleware` scaffolds the root `src/pages/_middleware.ts` (the only middleware seam in pages mode).
+- Pages-router apps scaffold route files into `src/pages/`; with a serverful adapter, `generate middleware --name _middleware` scaffolds the root `src/pages/_middleware.ts` (the only middleware seam in pages mode). Pure static exports cannot use request middleware.
 - Add `--json` when another tool or agent needs machine-readable output.
 
 `generate route` also emits a Playwright smoke test at `e2e/<route-id>.spec.ts` whenever the app has a Playwright setup (a `playwright.config.*` file or an `e2e/` directory). The test visits the route with example values for dynamic params (`/blog/:slug` → `/blog/example-slug`), asserts the response status is below 400, and checks the `h1` text. `--test` forces the test, `--no-test` skips it. Generated tests import `@playwright/test`; if it is not installed, the generator prints the required follow-up (`pnpm add -D @playwright/test`).
