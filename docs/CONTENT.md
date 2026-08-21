@@ -149,8 +149,9 @@ build. `rawContentArtifacts()` and
 XML, Markdown, or binary `Uint8Array` content.
 Explicit artifact content types are preserved in the production headers
 manifest and applied to static assets by the Node, Cloudflare, Netlify, and
-Vercel adapters as well as development responses. Malformed, non-portable, or
-control-character content types fail before they can enter a response or deployment manifest, and
+Vercel adapters as well as development responses. Malformed, non-portable,
+non-ByteString, or control-character content types fail before they can enter a
+response or deployment manifest, and
 an artifact named `index.html` keeps those headers on its clean URL alias.
 Artifacts emitted inside an `/assets/` path receive a revalidation cache policy
 because their filenames are not required to contain a content hash. If Pracht's core `llmsTxt` option is

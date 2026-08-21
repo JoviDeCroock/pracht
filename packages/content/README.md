@@ -133,7 +133,8 @@ File watcher events invalidate only the affected memoized document and the
 shared route/source index. Artifact `contentType` values are carried into
 Pracht's production headers manifest and applied by the Node, Cloudflare,
 Netlify, and Vercel adapters as well as the development response. Malformed,
-non-portable, or control-character values fail before publication, and an artifact named
+non-portable, non-ByteString, or control-character values fail before
+publication, and an artifact named
 `index.html` keeps its generated headers on its clean URL alias. A collection
 artifact at `/llms.txt` cannot be combined with Pracht's core `llmsTxt`
 generator; the build rejects that collision instead of overwriting the curated

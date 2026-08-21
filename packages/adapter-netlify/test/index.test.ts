@@ -194,6 +194,23 @@ describe("netlifyAdapter", () => {
     expect(warn).toHaveBeenCalledWith(expect.stringContaining("public/_headers exists"));
   });
 
+  it("preserves hand-authored _headers copied from a custom Vite publicDir", async () => {
+    const root = await tempDir();
+    await mkdir(join(root, "dist/client"), { recursive: true });
+    await mkdir(join(root, "dist/server"), { recursive: true });
+    const customHeaders = "/legal/*\n  X-Custom: 1\n";
+    await writeFile(join(root, "dist/client/_headers"), customHeaders);
+    await writeFile(join(root, "dist/server/headers-manifest.json"), "{}");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await finalizeNetlifyBuild(root, {}, "/app/");
+
+    await expect(readFile(join(root, "dist/client/_headers"), "utf-8")).resolves.toBe(
+      customHeaders,
+    );
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("dist/client/_headers"));
+  });
+
   it("bundles framework assets when a deploy base prevents static bypasses", async () => {
     const root = await tempDir();
     await mkdir(join(root, "dist/client/assets"), { recursive: true });

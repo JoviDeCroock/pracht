@@ -952,7 +952,8 @@ resolution.
   the function, so the build also writes a `dist/client/_headers` file that
   gives Netlify's static layer the immutable asset policy and the same default
   security headers the function applies everywhere else. A hand-authored
-  `public/_headers` wins — pracht then skips generating one and warns.
+  `_headers` copied from Vite's configured `publicDir` wins — including the
+  default `public/_headers` — so pracht skips generating one and warns.
   Manifest entries must name exact paths; wildcard and `:placeholder` syntax is
   rejected before it can broaden a generated header rule.
   Default and prefix-shaped exclusions are also omitted from the function's

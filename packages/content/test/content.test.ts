@@ -487,6 +487,7 @@ describe("collection integration helpers", () => {
       "not a media type",
       "text/plain, text/html",
       "text/plain 💩",
+      'text/plain; title="💩"',
       "text/plain\r\nx-injected: yes",
       "text/plain\0",
     ]) {

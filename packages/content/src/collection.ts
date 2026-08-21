@@ -740,6 +740,11 @@ function assertValidArtifactContentType(contentType: unknown, path: string): voi
   ) {
     try {
       new MIMEType(contentType);
+      // MIMEType silently drops some malformed parameters (for example a
+      // non-ByteString quoted value), while every adapter later passes the
+      // original string to the Web Headers API. Validate that exact value now
+      // so artifact generation fails here instead of at request or deploy time.
+      new Headers({ "content-type": contentType });
       return;
     } catch {
       // Fall through to the portable media type error below.

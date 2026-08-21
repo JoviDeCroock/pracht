@@ -30,6 +30,8 @@ Markdown, and ISG manifests.
 
 Generated header manifest entries must be exact paths. The build rejects
 Netlify wildcard and `:placeholder` syntax instead of broadening a route rule.
+A hand-authored `_headers` copied from Vite's configured `publicDir` is
+preserved; the build warns instead of overwriting its custom Netlify rules.
 
 Set Netlify's publish directory to `dist/client`:
 
