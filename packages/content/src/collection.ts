@@ -299,6 +299,16 @@ export function defineCollection<
         }
       }
     }
+    for (const [alias, target] of routeAliases) {
+      const conflicting = [...(byRoute.get(alias)?.values() ?? [])].find(
+        (descriptor) => descriptor.id !== target.id,
+      );
+      if (conflicting) {
+        throw new Error(
+          `Content collection ${JSON.stringify(options.name)} has ambiguous generated route alias ${JSON.stringify(alias)} for ${JSON.stringify(target.id)} and explicit route ${JSON.stringify(conflicting.id)}.`,
+        );
+      }
+    }
     return { byId, byRoute, bySource, descriptors, routeAliases };
   }
 
@@ -614,7 +624,8 @@ function validateLocaleFallbacks(
   } else if (Array.isArray(fallback)) {
     for (const locale of fallback) validate(locale);
   } else if (fallback) {
-    for (const value of Object.values(fallback)) {
+    for (const [requestedLocale, value] of Object.entries(fallback)) {
+      validate(requestedLocale);
       if (typeof value === "string") validate(value);
       else for (const locale of value) validate(locale);
     }

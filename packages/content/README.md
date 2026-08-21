@@ -98,8 +98,9 @@ interface ContentDocument<Frontmatter, Compiled> {
 String and array locale fallback configuration applies only to non-default
 requested locales. Use an explicit fallback record entry when the default
 locale should fall back to another locale. Every fallback target must be listed
-in `supported`; invalid fallback configuration is rejected when the collection
-is defined.
+in `supported`, and every fallback record key must name a supported requested
+locale. Invalid fallback configuration is rejected when the collection is
+defined.
 
 The filesystem registry is memoized and rebuilt only after `invalidate()`.
 Relative invalidation paths, like source lookup paths, resolve from the

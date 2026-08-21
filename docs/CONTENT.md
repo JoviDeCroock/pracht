@@ -118,7 +118,8 @@ must not pretend fallback source is translated content. String and array
 `fallback` configuration applies only to non-default requested locales. Use an
 explicit record entry when the default locale should fall back to another
 locale. Every configured fallback target must also appear in `supported`;
-invalid fallback configuration is rejected when the collection is defined.
+fallback record keys must name a supported requested locale too. Invalid
+fallback configuration is rejected when the collection is defined.
 
 ## Representations and memoization
 

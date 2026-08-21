@@ -142,6 +142,18 @@ describe("defineCollection", () => {
     }
   });
 
+  it("rejects unsupported locale fallback record keys during collection definition", async () => {
+    const root = await fixture({ "en/guide.md": "English" });
+
+    expect(() =>
+      defineCollection({
+        name: "localized",
+        root,
+        locales: { default: "en", supported: ["en", "fr"], fallback: { fre: "en" } },
+      }),
+    ).toThrow(/fallback uses unsupported content locale "fre"/);
+  });
+
   it("ignores inherited properties in locale fallback records", async () => {
     const root = await fixture({ "en/guide.md": "English" });
     const collection = defineCollection({
@@ -195,6 +207,23 @@ describe("defineCollection", () => {
     await expect(collision.all()).rejects.toThrow(/maps both/);
     expect(() => defineCollection({ name: "unsafe", root, routeBase: "/%2e%2e/private" })).toThrow(
       /safe root-relative/,
+    );
+  });
+
+  it("rejects explicit routes that shadow generated locale aliases", async () => {
+    const root = await fixture({ "a.md": "A", "b.md": "B" });
+    const collision = defineCollection({
+      name: "localized-collision",
+      root,
+      sources: [
+        { id: "a", source: "a.md", locale: "en" },
+        { id: "b", path: "/fr/a", source: "b.md", locale: "fr" },
+      ],
+      locales: { default: "en", supported: ["en", "fr"] },
+    });
+
+    await expect(collision.all()).rejects.toThrow(
+      /ambiguous generated route alias "\/fr\/a" for "a" and explicit route "b"/,
     );
   });
 

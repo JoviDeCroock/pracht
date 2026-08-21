@@ -57,10 +57,12 @@ static paths and rejects manifest entries that would become wildcard rules.
 Locale fallback records ignore prototype-inherited keys, and Markdown image
 markers remain stable when identical projects are built from different checkout
 paths. Locale fallback targets are validated before collection snapshots are
-emitted, and content search ignores locale hints for unlocalized collections
-while advertising supported locales for localized ones. Artifact content types
-are validated before entering response or deployment headers, and generated
-headers remain intact on clean URL aliases for artifact `index.html` files.
+emitted; record keys must also name supported requested locales. Explicit routes
+cannot silently shadow generated locale aliases. Content search ignores locale
+hints for unlocalized collections while advertising supported locales for
+localized ones. Artifact content types are validated before entering response or
+deployment headers, and generated headers remain intact on clean URL aliases for
+artifact `index.html` files.
 Artifacts inside an `/assets/` path override adapter-wide immutable caching with
 a revalidation policy because their filenames are not required to contain a
 content hash.
