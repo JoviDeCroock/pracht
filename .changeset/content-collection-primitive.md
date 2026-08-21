@@ -21,14 +21,13 @@ Curated `llms.txt`/`llms-full.txt`, raw-source assets, and app-owned
 page/basic-search capability fields are opt-in helpers rather than core
 framework policy. The docs application now proves the integration by compiling its
 Markdown routes and generating both LLM artifacts from the collection; the old
-second filesystem/manifest reader has been removed. `pracht verify` recognizes
-`@pracht/content` as a Markdown transform integration.
+second filesystem/manifest reader has been removed.
 
 Explicit registries now leave unregistered Markdown sources available to other
 Vite plugins, locale-neutral id lookups retain the configured default locale,
-and development artifact failures no longer block unrelated Vite or application
-requests. Verification only treats the `@pracht/content/vite` integration as a
-registered Markdown transform.
+`routePrefix: "never"` collections allow translations to share one route, and
+development artifact failures no longer block unrelated Vite or application
+requests.
 
 Add `@pracht/markdown`, the official collection compiler for Markdown route
 modules, together with cached `?pracht&pracht-static` responsive WebP variants
@@ -51,10 +50,11 @@ and reject collisions with public files, generated bundle output, prerendered
 pages, exact request-time page or API paths, clean-URL `index.html` aliases,
 concrete ISG paths served by adapter functions, core `llms.txt`, OpenAPI output,
 other case-folded or parent/child artifacts, Pracht's `/_pracht` namespace, and
-Netlify's root `/_headers` and `/_redirects` control files. Artifact filenames
-must be portable and canonical, while Vercel header routes escape literal
-artifact path syntax. Netlify also applies exact generated headers to bypassed
-static paths and rejects manifest entries that would become wildcard rules.
+Netlify's root `/_headers` and `/_redirects` control files, including descendants
+that would turn those required files into directories. Artifact filenames must
+be portable and canonical, while Vercel header routes escape literal artifact
+path syntax. Netlify also applies exact generated headers to bypassed static
+paths and rejects manifest entries that would become wildcard rules.
 Locale fallback records ignore prototype-inherited keys, and Markdown image
 markers remain stable when identical projects are built from different checkout
 paths. Locale fallback targets are validated before collection snapshots are
@@ -66,11 +66,13 @@ deployment headers, and generated headers remain intact on clean URL aliases for
 artifact `index.html` files.
 Loader lookups use Pracht's matched base-free pathname, development artifacts
 honor Vite's configured deployment base, locale alias collisions include the
-target locale, and artifact content types must parse as portable HTTP media types.
+target locale, and artifact content types must parse as portable HTTP media types
+that can be represented by Web response headers.
 Artifacts inside an `/assets/` path override adapter-wide immutable caching with
 a revalidation policy because their filenames are not required to contain a
 content hash.
 
 Unprocessed `publicDir` static image imports now bypass configured runtime
 loaders, and Markdown preserves custom Marked image renderers for root-relative,
-remote, and data image sources.
+remote, and data image sources. Netlify builds preserve hand-authored `_headers`
+files copied from a custom Vite public directory.
