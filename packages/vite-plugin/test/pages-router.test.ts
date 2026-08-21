@@ -1094,6 +1094,55 @@ export const app = defineApp({ routes: [] });
     expect(source).toContain('"!/src/pages/**/_*/**"');
   });
 
+  it("recognizes an ejected-pages ownership marker exported through a specifier", () => {
+    const root = makeTempPagesDir();
+    mkdirSync(join(root, "src", "pages"), { recursive: true });
+    writeFileSync(
+      join(root, "src", "routes.ts"),
+      `const ejectedPagesLayout = true as const;
+export { ejectedPagesLayout as ${GENERATED_PAGES_LAYOUT_EXPORT} };
+export const app = defineApp({ routes: [] });
+`,
+    );
+
+    const source = createPrachtClientModuleSource(
+      {
+        appFile: "/src/routes.ts",
+        routesDir: "/src/pages",
+        shellsDir: "/src/pages",
+        middlewareDir: "/src/pages",
+      },
+      { root },
+    );
+
+    expect(source).toContain('"!/src/pages/**/_*"');
+    expect(source).toContain('"!/src/pages/**/_*/**"');
+  });
+
+  it("does not recognize an ejected-pages ownership marker that is not exported", () => {
+    const root = makeTempPagesDir();
+    mkdirSync(join(root, "src", "pages"), { recursive: true });
+    writeFileSync(
+      join(root, "src", "routes.ts"),
+      `const ${GENERATED_PAGES_LAYOUT_EXPORT} = true;
+export const app = defineApp({ routes: [] });
+`,
+    );
+
+    const source = createPrachtClientModuleSource(
+      {
+        appFile: "/src/routes.ts",
+        routesDir: "/src/pages",
+        shellsDir: "/src/pages",
+        middlewareDir: "/src/pages",
+      },
+      { root },
+    );
+
+    expect(source).not.toContain('"!/src/pages/**/_*"');
+    expect(source).not.toContain('"!/src/pages/**/_*/**"');
+  });
+
   it("creates adapter-neutral development metadata", () => {
     const source = createPrachtDevModuleSource({ appFile: "/src/routes.ts" });
 

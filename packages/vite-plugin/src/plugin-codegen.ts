@@ -339,12 +339,16 @@ type StaticProgramNode = {
 
 function hasTrueConstExport(source: string, file: string, name: string): boolean {
   const program = parseAst(source, { lang: getRolldownLang(file) }) as unknown as StaticProgramNode;
-  const statements = Array.isArray(program.body) ? program.body : [];
+  const statements = (Array.isArray(program.body) ? program.body : [])
+    .map(asStaticProgramNode)
+    .filter((statement): statement is StaticProgramNode => statement !== null);
+  const trueConstBindings = new Set<string>();
 
-  for (const value of statements) {
-    const statement = asStaticProgramNode(value);
-    if (statement?.type !== "ExportNamedDeclaration") continue;
-    const declaration = asStaticProgramNode(statement.declaration);
+  for (const statement of statements) {
+    const declaration =
+      statement.type === "ExportNamedDeclaration"
+        ? asStaticProgramNode(statement.declaration)
+        : statement;
     if (declaration?.type !== "VariableDeclaration" || declaration.kind !== "const") continue;
 
     const declarators = Array.isArray(declaration.declarations) ? declaration.declarations : [];
@@ -352,11 +356,48 @@ function hasTrueConstExport(source: string, file: string, name: string): boolean
       const declarator = asStaticProgramNode(declaratorValue);
       if (declarator?.type !== "VariableDeclarator") continue;
       const identifier = asStaticProgramNode(declarator.id);
-      if (identifier?.type !== "Identifier" || identifier.name !== name) continue;
+      if (identifier?.type !== "Identifier" || typeof identifier.name !== "string") continue;
       const initializer = unwrapStaticExpression(declarator.init);
       if (
         (initializer?.type === "BooleanLiteral" || initializer?.type === "Literal") &&
         initializer.value === true
+      ) {
+        trueConstBindings.add(identifier.name);
+      }
+    }
+  }
+
+  for (const statement of statements) {
+    if (statement.type !== "ExportNamedDeclaration") continue;
+    const declaration = asStaticProgramNode(statement.declaration);
+    if (declaration?.type === "VariableDeclaration") {
+      const declarators = Array.isArray(declaration.declarations) ? declaration.declarations : [];
+      if (
+        declarators.some((declaratorValue) => {
+          const declarator = asStaticProgramNode(declaratorValue);
+          const identifier = asStaticProgramNode(declarator?.id);
+          return identifier?.type === "Identifier" && identifier.name === name;
+        }) &&
+        trueConstBindings.has(name)
+      ) {
+        return true;
+      }
+      continue;
+    }
+    if (statement.source) continue;
+
+    const specifiers = Array.isArray(statement.specifiers) ? statement.specifiers : [];
+    for (const specifierValue of specifiers) {
+      const specifier = asStaticProgramNode(specifierValue);
+      if (specifier?.type !== "ExportSpecifier" || specifier.exportKind === "type") continue;
+      const local = asStaticProgramNode(specifier.local);
+      const exported = asStaticProgramNode(specifier.exported);
+      if (
+        local?.type === "Identifier" &&
+        exported?.type === "Identifier" &&
+        exported.name === name &&
+        typeof local.name === "string" &&
+        trueConstBindings.has(local.name)
       ) {
         return true;
       }

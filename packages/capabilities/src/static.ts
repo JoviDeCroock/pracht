@@ -94,7 +94,7 @@ export function hasNamedMiddlewareExport(program: unknown): boolean {
           "middleware",
         );
         if (
-          knownNonCallableBindings.has("middleware") ||
+          (knownNonCallableBindings.has("middleware") && !reassignedBindings.has("middleware")) ||
           (initializer !== UNRESOLVED_STATIC_BINDING &&
             isStaticallyNonCallable(initializer) &&
             !reassignedBindings.has("middleware"))
@@ -117,7 +117,7 @@ export function hasNamedMiddlewareExport(program: unknown): boolean {
       if (
         !localName ||
         !runtimeBindings.has(localName) ||
-        knownNonCallableBindings.has(localName)
+        (knownNonCallableBindings.has(localName) && !reassignedBindings.has(localName))
       ) {
         continue;
       }
@@ -130,7 +130,7 @@ export function hasNamedMiddlewareExport(program: unknown): boolean {
 
 function collectTopLevelBindingKinds(
   program: StaticAnalysisNode,
-  reassignedBindings: ReadonlySet<string>,
+  reassignedBindings: ReadonlyMap<string, number>,
 ): {
   knownNonCallableBindings: Set<string>;
   runtimeBindings: Set<string>;
@@ -199,7 +199,7 @@ function collectTopLevelBindingKinds(
           const initializer = resolveStaticBindingInitializer(declarator.id, declarator.init, name);
           if (initializer !== UNRESOLVED_STATIC_BINDING) {
             bindingInitializers.set(name, initializer);
-            if (isStaticallyNonCallable(initializer) && !reassignedBindings.has(name)) {
+            if (isStaticallyNonCallable(initializer)) {
               knownNonCallableBindings.add(name);
             }
           }
@@ -246,6 +246,13 @@ function collectTopLevelBindingKinds(
       if (knownNonCallableBindings.has(name)) continue;
       const referencedName = getStaticReferencedBindingName(initializer);
       if (!referencedName || !knownNonCallableBindings.has(referencedName)) continue;
+      const reassignment = reassignedBindings.get(referencedName);
+      const initializerNode = asStaticAnalysisNode(initializer);
+      const initializerStart =
+        initializerNode && typeof initializerNode.start === "number"
+          ? initializerNode.start
+          : Number.POSITIVE_INFINITY;
+      if (reassignment !== undefined && reassignment < initializerStart) continue;
       knownNonCallableBindings.add(name);
       changed = true;
     }
@@ -256,26 +263,30 @@ function collectTopLevelBindingKinds(
 
 /**
  * A top-level assignment can replace an initially non-callable `let`/`var`
- * before the module is imported. Keep those bindings unresolved and let the
- * runtime contract validate the final value instead of rejecting a working
- * export based only on its declaration initializer.
+ * before the module is imported. Track the first assignment position so a
+ * direct export can remain unresolved while an alias created before that
+ * assignment still retains its known initializer value.
  */
-function collectTopLevelReassignedBindings(program: StaticAnalysisNode): Set<string> {
-  const names = new Set<string>();
+function collectTopLevelReassignedBindings(program: StaticAnalysisNode): Map<string, number> {
+  const assignments = new Map<string, number>();
 
   for (const statement of nodeArray(program.body)) {
-    collectTopLevelAssignmentNames(statement, names);
+    collectTopLevelAssignmentNames(statement, assignments);
   }
 
-  return names;
+  return assignments;
 }
 
-function collectTopLevelAssignmentNames(value: unknown, names: Set<string>): void {
+function collectTopLevelAssignmentNames(value: unknown, assignments: Map<string, number>): void {
   const node = asStaticAnalysisNode(value);
   if (!node) return;
 
   if (node.type === "AssignmentExpression") {
-    for (const name of collectStaticBindingNames(node.left)) names.add(name);
+    const start = typeof node.start === "number" ? node.start : Number.NEGATIVE_INFINITY;
+    for (const name of collectStaticBindingNames(node.left)) {
+      const previous = assignments.get(name);
+      if (previous === undefined || start < previous) assignments.set(name, start);
+    }
   }
 
   if (
@@ -291,9 +302,9 @@ function collectTopLevelAssignmentNames(value: unknown, names: Set<string>): voi
   for (const [key, child] of Object.entries(node)) {
     if (key === "type" || key === "loc" || key === "span") continue;
     if (Array.isArray(child)) {
-      for (const item of child) collectTopLevelAssignmentNames(item, names);
+      for (const item of child) collectTopLevelAssignmentNames(item, assignments);
     } else {
-      collectTopLevelAssignmentNames(child, names);
+      collectTopLevelAssignmentNames(child, assignments);
     }
   }
 }

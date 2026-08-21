@@ -644,6 +644,18 @@ function usesStaticAdapter(project: Pick<ProjectConfig, "rawConfig">): boolean {
       }
     }
 
+    const resolveConfigBinding = (
+      value: unknown,
+      seen = new Set<string>(),
+    ): ConfigAstNode | null => {
+      const node = unwrapConfigExpression(value);
+      if (node?.type !== "Identifier" || typeof node.name !== "string") return node;
+      if (seen.has(node.name)) return node;
+      const initializer = bindings.get(node.name);
+      if (initializer === undefined) return node;
+      return resolveConfigBinding(initializer, new Set([...seen, node.name]));
+    };
+
     const isStaticAdapterExpression = (value: unknown, seen = new Set<string>()): boolean => {
       const node = unwrapConfigExpression(value);
       if (!node) return false;
@@ -691,7 +703,7 @@ function usesStaticAdapter(project: Pick<ProjectConfig, "rawConfig">): boolean {
           prachtNamespaces.has(namespaceName) &&
           configPropertyName(callee.property) === "pracht");
       if (!isPrachtCall) return false;
-      const options = unwrapConfigExpression(configAstNodes(node.arguments)[0]);
+      const options = resolveConfigBinding(configAstNodes(node.arguments)[0]);
       return (
         options?.type === "ObjectExpression" &&
         isStaticAdapterExpression(configObjectProperty(options, "adapter"))
