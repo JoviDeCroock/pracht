@@ -22,6 +22,7 @@ import {
   RevalidationReport,
   restoreBasePathInRequest,
   resolveRevalidationToken,
+  stripBase,
   type ResolvedApiRoute,
   type PrachtApp,
   routeSupportsMarkdown,
@@ -161,6 +162,10 @@ export function createNodeRequestHandler<TContext = unknown>(
       throw err;
     }
     const url = new URL(request.url);
+    // Static files and manifests are keyed by base-free route paths. A trusted
+    // proxy may already have removed the base; otherwise strip it here while
+    // preserving the public URL on the Request passed to application code.
+    const routePathname = options.basePathStripped ? url.pathname : stripBase(url.pathname);
     const compression: CompressionState | undefined = compressionEnabled
       ? { cache: compressedAssetCache, request }
       : undefined;
@@ -174,9 +179,9 @@ export function createNodeRequestHandler<TContext = unknown>(
     const wantsMarkdown =
       prefersMarkdown(request.headers.get("accept")) &&
       (options.markdownManifest === undefined ||
-        routeSupportsMarkdown(options.markdownManifest, url.pathname));
+        (routePathname !== null && routeSupportsMarkdown(options.markdownManifest, routePathname)));
 
-    if (url.pathname === PRACHT_REVALIDATE_ENDPOINT) {
+    if (routePathname === PRACHT_REVALIDATE_ENDPOINT) {
       const response = await handleRevalidationEndpoint(
         request,
         options,
@@ -197,16 +202,17 @@ export function createNodeRequestHandler<TContext = unknown>(
       staticDir &&
       isStaticAssetMethod(request.method) &&
       !wantsMarkdown &&
-      !isTransportRouteStateRequest
+      !isTransportRouteStateRequest &&
+      routePathname !== null
     ) {
-      const staticResult = await resolveStaticFile(staticDir, url.pathname, isgManifest);
+      const staticResult = await resolveStaticFile(staticDir, routePathname, isgManifest);
       if (staticResult) {
         await serveStaticFile(
           request,
           res,
           staticResult,
           headersManifest,
-          url.pathname,
+          routePathname,
           compression,
         );
         return;
@@ -218,15 +224,16 @@ export function createNodeRequestHandler<TContext = unknown>(
       isStaticAssetMethod(request.method) &&
       !isTransportRouteStateRequest &&
       !wantsMarkdown &&
-      url.pathname in isgManifest
+      routePathname !== null &&
+      routePathname in isgManifest
     ) {
       const served = await serveISGEntry(
         request,
         res,
         options,
         staticDir,
-        url.pathname,
-        isgManifest[url.pathname],
+        routePathname,
+        isgManifest[routePathname],
         headersManifest,
         { request, req, res },
         compression,
@@ -262,14 +269,15 @@ export function createNodeRequestHandler<TContext = unknown>(
       staticDir !== undefined &&
       request.method === "GET" &&
       !isTransportRouteStateRequest &&
-      url.pathname in isgManifest &&
+      routePathname !== null &&
+      routePathname in isgManifest &&
       response.status === 200 &&
       (response.headers.get("content-type")?.includes("text/html") ?? false) &&
       isCacheableISGResponse(response);
 
     if (isIsgDocument) {
       const html = await response.clone().text();
-      const htmlPath = resolveContainedPath(staticDir, url.pathname);
+      const htmlPath = resolveContainedPath(staticDir, routePathname);
       if (htmlPath) {
         await writeISGFile(htmlPath, html);
         compressedAssetCache.invalidatePath(htmlPath);

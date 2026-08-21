@@ -55,10 +55,12 @@ export async function regenerateISGPage<TContext>(
   contextArgs?: NodeAdapterContextArgs,
 ): Promise<boolean> {
   return regenerationSingleFlight(htmlPath, async () => {
-    let request = createISGRegenerationRequest(pathname, contextArgs?.request);
-    if (options.basePathStripped) {
-      request = restoreBasePathInRequest(request);
-    }
+    // Manifest keys are always base-free, regardless of whether the incoming
+    // proxy request retained the public base. Restore it on the synthetic
+    // regeneration Request before application code observes the URL.
+    const request = restoreBasePathInRequest(
+      createISGRegenerationRequest(pathname, contextArgs?.request),
+    );
     const context =
       options.createContext && contextArgs
         ? await options.createContext({ ...contextArgs, request })

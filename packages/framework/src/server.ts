@@ -12,7 +12,7 @@ export {
   webhookRevalidate,
 } from "./app.ts";
 export { createHref } from "./href.ts";
-export { restoreBasePathInRequest } from "./base.ts";
+export { restoreBasePathInRequest, stripBase } from "./base.ts";
 export {
   apiValidationErrorResponse,
   defineApi,

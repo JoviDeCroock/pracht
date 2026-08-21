@@ -259,15 +259,65 @@ async function transformDevHtml(
 ): Promise<string> {
   if (base === "/") return server.transformIndexHtml(url, html);
 
+  const assetUrls = protectRootAbsoluteAssetAttributes(html);
+
   // An external URL is inert to Vite's asset rewriting and module pre-transform.
   // A relative marker would produce a noisy failed pre-transform even though it
   // is restored before the HTML reaches the browser.
   let placeholder = "https://pracht.invalid/__PRACHT_DEV_BASE_PLACEHOLDER__/";
-  while (html.includes(placeholder)) placeholder += "_";
+  while (assetUrls.html.includes(placeholder)) placeholder += "_";
 
-  const protectedHtml = html.replaceAll(base, placeholder);
+  const protectedHtml = assetUrls.html.replaceAll(base, placeholder);
   const transformedHtml = await server.transformIndexHtml(url, protectedHtml);
-  return transformedHtml.replaceAll(placeholder, base);
+  return assetUrls.restore(transformedHtml.replaceAll(placeholder, base));
+}
+
+const HTML_ASSET_URL_ATTRIBUTE_RE =
+  /(\s(?:src|href|xlink:href|data|srcset|imagesrcset|poster|content)\s*=\s*)(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/gi;
+
+/**
+ * Runtime-rendered root-absolute asset URLs have already reached their final
+ * public meaning: raw `/logo.svg` deliberately stays at the origin root,
+ * while `withBase("/logo.svg")` is already under the deploy base. Vite's dev
+ * HTML pass prefixes both, unlike production SSR, so hide complete attribute
+ * values behind inert external URLs until that pass finishes.
+ */
+function protectRootAbsoluteAssetAttributes(html: string): {
+  html: string;
+  restore: (transformedHtml: string) => string;
+} {
+  let markerPrefix = "https://pracht.invalid/__PRACHT_DEV_ASSET_PLACEHOLDER__/";
+  while (html.includes(markerPrefix)) markerPrefix += "_";
+
+  const replacements: Array<{ marker: string; value: string }> = [];
+  const protectedHtml = html.replace(
+    HTML_ASSET_URL_ATTRIBUTE_RE,
+    (match, prefix: string, doubleQuoted?: string, singleQuoted?: string, unquoted?: string) => {
+      const value = doubleQuoted ?? singleQuoted ?? unquoted ?? "";
+      const isSrcset = /(?:srcset)\s*=\s*$/i.test(prefix);
+      const isRootAbsolute = isSrcset
+        ? /(?:^|,\s*)\/(?!\/)/.test(value)
+        : value.startsWith("/") && !value.startsWith("//");
+      if (!isRootAbsolute) return match;
+
+      const marker = `${markerPrefix}${replacements.length}`;
+      replacements.push({ marker, value });
+      if (doubleQuoted !== undefined) return `${prefix}"${marker}"`;
+      if (singleQuoted !== undefined) return `${prefix}'${marker}'`;
+      return `${prefix}${marker}`;
+    },
+  );
+
+  return {
+    html: protectedHtml,
+    restore(transformedHtml) {
+      let restoredHtml = transformedHtml;
+      for (const { marker, value } of replacements) {
+        restoredHtml = restoredHtml.replaceAll(marker, value);
+      }
+      return restoredHtml;
+    },
+  };
 }
 
 /**

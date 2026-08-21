@@ -27,12 +27,14 @@ node dist/server/server.js
 - Supports reverse-proxy sub-path rewrites via `nodeAdapter({ basePathStripped: true })`
 - Compresses responses (brotli/gzip via `Accept-Encoding` negotiation) with streaming compression for dynamic bodies, a bounded in-memory LRU/cold-work queue for static assets and validator hashing, version-bound file reads, and content-derived ISG validators stable across deployment replicas; disable with `nodeAdapter({ compression: false })` behind a compressing reverse proxy
 
-When Vite uses a deploy base and a trusted reverse proxy removes that base
-before forwarding, set `basePathStripped: true`. The explicit setting avoids
-confusing a legitimate route whose first segment matches the base with an
-unstripped public URL. Pracht restores the configured base before
+With a Vite deploy base, the default handler accepts the retained public path:
+`/app/assets/main.js` maps to `dist/client/assets/main.js`, while application
+code continues to observe `/app/...`. When a trusted reverse proxy removes
+that base before forwarding, set `basePathStripped: true`. The explicit setting
+avoids confusing a legitimate route whose first segment matches the base with
+an unstripped public URL. Pracht restores the configured base before
 `createContext()`, loaders, and API handlers receive the request, so
-application code continues to observe the public URL.
+application code still observes the public URL.
 
 ## Context factory
 

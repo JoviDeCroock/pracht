@@ -131,8 +131,11 @@ When enabled, header precedence is:
 > `request.url` to build absolute URLs. If you rely on `trustProxy`, only
 > enable it behind a proxy that overwrites forwarded headers.
 
-When the proxy also removes Vite's deploy base from the forwarded path, set
-`basePathStripped: true` independently of the origin options:
+By default, the Node adapter accepts a retained deploy base and maps its
+base-prefixed public asset, document, and ISG URLs onto the base-free paths in
+`dist/client/` and the build manifests. When the proxy instead removes Vite's
+deploy base from the forwarded path, set `basePathStripped: true` independently
+of the origin options:
 
 ```typescript
 nodeAdapter({

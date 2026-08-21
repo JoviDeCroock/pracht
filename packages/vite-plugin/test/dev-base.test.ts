@@ -66,7 +66,17 @@ async function render(base: string, url: string) {
     registry: {
       routeModules: {
         "./routes/about.tsx": async () => ({
-          Component: () => h("img", { src: withBase("/logo.svg") }),
+          Component: () =>
+            h(
+              "main",
+              null,
+              h("img", { id: "based", src: withBase("/logo.svg") }),
+              h("img", { id: "root", src: "/shared/logo.svg" }),
+              h("img", {
+                id: "srcset",
+                srcSet: "/shared/one.svg 1x, /shared/two.svg 2x",
+              }),
+            ),
           loader: async () => ({ ok: true }),
         }),
       },
@@ -114,10 +124,13 @@ describe("dev SSR under a deploy base", () => {
 
     expect(state.statusCode).toBe(200);
     expect(state.body).toContain('src="/app/@pracht/client.js"');
-    expect(state.body).toContain('src="/app/logo.svg"');
+    expect(state.body).toContain('id="based" src="/app/logo.svg"');
+    expect(state.body).toContain('id="root" src="/shared/logo.svg"');
+    expect(state.body).toContain('id="srcset" srcset="/shared/one.svg 1x, /shared/two.svg 2x"');
+    expect(state.body).not.toContain("/app/shared/");
     expect(state.body).not.toContain("/app/app/");
     expect(state.body).toContain('"url":"/app/about?ref=campaign"');
-  });
+  }, 15_000);
 
   it("is unchanged at the origin root", async () => {
     const state = await render("/", "/about?ref=campaign");

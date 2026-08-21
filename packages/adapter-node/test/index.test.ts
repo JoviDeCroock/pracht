@@ -127,6 +127,73 @@ describe("createNodeServerEntryModule", () => {
 });
 
 describe("createNodeRequestHandler", () => {
+  it("maps retained-base static and ISG paths without exposing root assets", async () => {
+    vi.stubEnv("BASE_URL", "/app/");
+    vi.resetModules();
+    const [core, adapter] = await Promise.all([
+      import("../../framework/src/index.ts"),
+      import("../src/node-handler.ts"),
+    ]);
+    const staticDir = makeTempDir();
+    mkdirSync(join(staticDir, "assets"), { recursive: true });
+    writeFileSync(join(staticDir, "assets/app.js"), "console.log('app')", "utf-8");
+    const isgDir = join(staticDir, "isg");
+    const isgPath = join(isgDir, "index.html");
+    mkdirSync(isgDir, { recursive: true });
+    writeFileSync(isgPath, "<html><body>stale</body></html>", "utf-8");
+    const staleAt = new Date(Date.now() - 10_000);
+    utimesSync(isgPath, staleAt, staleAt);
+    const observedUrls: string[] = [];
+
+    const handler = adapter.createNodeRequestHandler({
+      app: core.defineApp({
+        routes: [
+          core.route("/isg", "./routes/isg.tsx", {
+            render: "isg",
+            revalidate: core.timeRevalidate(1),
+          }),
+        ],
+      }),
+      canonicalOrigin: "https://example.test",
+      compression: false,
+      isgManifest: { "/isg": { revalidate: core.timeRevalidate(1) } },
+      registry: {
+        routeModules: {
+          "./routes/isg.tsx": async () => ({
+            Component: () => "fresh",
+            loader: ({ request }: { request: Request }) => {
+              observedUrls.push(request.url);
+              return null;
+            },
+          }),
+        },
+      },
+      staticDir,
+    });
+    const server = createServer((req: IncomingMessage, res: ServerResponse) => {
+      void handler(req, res);
+    });
+    servers.add(server);
+    server.listen(0, "127.0.0.1");
+    await once(server, "listening");
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("Expected TCP server address");
+
+    const underBase = await fetch(`http://127.0.0.1:${address.port}/app/assets/app.js`);
+    expect(underBase.status).toBe(200);
+    expect(await underBase.text()).toBe("console.log('app')");
+
+    const outsideBase = await fetch(`http://127.0.0.1:${address.port}/assets/app.js`);
+    expect(outsideBase.status).toBe(404);
+
+    const staleIsg = await fetch(`http://127.0.0.1:${address.port}/app/isg`);
+    expect(staleIsg.status).toBe(200);
+    expect(staleIsg.headers.get("x-pracht-isg")).toBe("stale");
+    await expect(staleIsg.text()).resolves.toContain("stale");
+    await waitFor(() => readFileSync(isgPath, "utf-8").includes("fresh"));
+    expect(observedUrls).toEqual(["https://example.test/app/isg"]);
+  });
+
   it("restores a proxy-stripped base before createContext and route loaders", async () => {
     vi.stubEnv("BASE_URL", "/app/");
     vi.resetModules();
