@@ -198,3 +198,13 @@ Top-level type-alias `typeof` queries of registry members are erased along with
 bare registry queries, so they no longer hide otherwise static capability or
 middleware registrations from browser projection, verification, or the
 registered-module client import guard.
+
+Runtime `typeof` expressions after a semicolonless type alias are still treated
+as real registry reads, closing the accessor side-effect gap without regressing
+erased multiline type queries. Directly exported middleware function
+declarations are also checked for later non-callable assignments before build
+and CLI validation accept them.
+
+Static-target detection now follows immutable config objects passed through
+`defineConfig`, so the pages middleware generator refuses pure static exports
+when the exported Vite configuration is wrapped around a local config alias.

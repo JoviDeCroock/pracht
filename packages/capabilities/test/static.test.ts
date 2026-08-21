@@ -14,6 +14,7 @@ import {
 describe("middleware export classification", () => {
   it.each([
     ["export const helper = 1, middleware = () => {};", true],
+    ["export function middleware() {}\nmiddleware = 1;", false],
     ["export const middleware = 1;", false],
     ["export const middleware = 1 + 2;", false],
     ["export const middleware = 1 < 2;", false],
@@ -396,6 +397,26 @@ describe("capability static extraction", () => {
         typeof ${query};
         export const app = defineApp({ capabilities, routes: [] });
       `;
+
+      expect(extractCapabilityRegistrations(source)).toEqual([]);
+    },
+  );
+
+  it.each(["string", "(() => void)", "Promise<string>"])(
+    "keeps a runtime typeof read after the closed semicolonless type alias %s opaque",
+    (type) => {
+      const source = `
+      const capabilities = {
+        notes: "./capabilities/original.ts",
+        get trigger() {
+          this.notes = "./capabilities/runtime.ts";
+          return 0;
+        },
+      };
+      type Marker = ${type}
+      typeof capabilities.trigger;
+      export const app = defineApp({ capabilities, routes: [] });
+    `;
 
       expect(extractCapabilityRegistrations(source)).toEqual([]);
     },
