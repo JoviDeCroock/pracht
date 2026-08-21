@@ -490,8 +490,9 @@ async function promptForRouter(readline) {
   console.log("Router:");
   console.log("  1. Manifest (explicit routes.ts) — supports middleware, capabilities,");
   console.log("     MCP, Web Bot Auth, and constraints");
-  console.log("  2. Pages (file-system routing) — pages and API routes only; no");
-  console.log("     middleware, capabilities, MCP, or agent trust (eject later to add them)");
+  console.log("  2. Pages (file-system routing) — pages and API routes, plus one root");
+  console.log("     _middleware.ts on server adapters; no per-route middleware, capabilities,");
+  console.log("     MCP, or agent trust");
 
   while (true) {
     const answer = await readline.question("Router (1): ");

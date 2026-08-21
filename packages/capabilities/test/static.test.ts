@@ -186,6 +186,27 @@ describe("capability static extraction", () => {
     ]);
   });
 
+  it.each([
+    ['["notes.search"]', "notes.search"],
+    ["[`notes.search`]", "notes.search"],
+    ["[true]", "true"],
+    ["[0x10]", "16"],
+    ["[1n]", "1"],
+  ])("preserves the computed literal manifest registry key %s", (sourceKey, runtimeKey) => {
+    const source = `
+      export const app = defineApp({
+        capabilities: {
+          ${sourceKey}: () => import("./capabilities/computed.ts"),
+        },
+        routes: [],
+      });
+    `;
+
+    expect(extractCapabilityRegistrations(source)).toEqual([
+      { name: runtimeKey, file: "./capabilities/computed.ts" },
+    ]);
+  });
+
   it("resolves manifest module refs stored in top-level bindings", () => {
     const source = `
       const pagesMiddleware: ModuleRef = () => import("./pages/_middleware.ts");
