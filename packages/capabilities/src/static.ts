@@ -1693,7 +1693,9 @@ function findBindingShadowRanges(
   }
 
   for (let arrow = source.indexOf("=>"); arrow !== -1; arrow = source.indexOf("=>", arrow + 2)) {
-    if (isVariableTypeAnnotationArrow(source, arrow)) continue;
+    if (isVariableTypeAnnotationArrow(source, arrow) || isInsideTopLevelTypeAlias(source, arrow)) {
+      continue;
+    }
     let parameterEnd = arrow - 1;
     while (parameterEnd >= 0 && /\s/.test(source[parameterEnd])) parameterEnd -= 1;
 

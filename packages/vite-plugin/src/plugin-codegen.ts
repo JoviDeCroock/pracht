@@ -24,6 +24,7 @@ import {
 } from "./route-loader-hints.ts";
 import { createWebmcpBootstrapSource, hasWebmcpCapabilities } from "./plugin-capabilities.ts";
 import {
+  DEFAULT_SHELL_EXTENSIONS,
   DEFAULT_ROUTE_EXTENSIONS,
   LEGACY_BARE_ROUTE_EXTENSIONS,
   extensionGlob,
@@ -198,9 +199,11 @@ export function createPrachtClientModuleSource(
   const additionalShellGlob = isPagesMode
     ? `${resolved.pagesDir}/_app.${extensionGlob(bareRouteExtensions)}`
     : `${resolved.shellsDir}/**/*.${extensionGlob(bareRouteExtensions)}`;
+  const root = buildOptions.root ?? process.cwd();
   const usesEjectedPagesShellLayout =
     usesEjectedPagesLayout &&
-    sameConfigDirectory(resolved.shellsDir, resolved.routesDir, buildOptions.root ?? process.cwd());
+    (sameConfigDirectory(resolved.shellsDir, resolved.routesDir, root) ||
+      hasRootPagesAppShell(resolved.shellsDir, root, resolved.additionalExtensions));
   const shellExcludes = usesEjectedPagesShellLayout
     ? createUnderscoreReservedExcludes(resolved.shellsDir)
     : [];
@@ -326,6 +329,26 @@ function sameConfigDirectory(left: string, right: string, root: string): boolean
   };
 
   return canonicalize(left) === canonicalize(right);
+}
+
+function hasRootPagesAppShell(
+  directory: string,
+  root: string,
+  additionalExtensions: readonly string[],
+): boolean {
+  const absoluteDirectory = resolve(root, directory.replace(/^[/\\]+/, ""));
+  const extensions = withAdditionalExtensions(DEFAULT_SHELL_EXTENSIONS, additionalExtensions);
+
+  for (const extension of extensions) {
+    try {
+      if (statSync(join(absoluteDirectory, `_app${extension}`)).isFile()) return true;
+    } catch {
+      // Missing candidates are expected while an ejected layout is being
+      // migrated between its pages and conventional directories.
+    }
+  }
+
+  return false;
 }
 
 export function isEjectedPagesLayout(resolved: ResolvedPrachtPluginOptions, root: string): boolean {
