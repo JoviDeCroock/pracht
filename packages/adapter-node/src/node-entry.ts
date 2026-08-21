@@ -2,6 +2,8 @@ import type { PrachtAdapter } from "@pracht/vite-plugin";
 
 export interface NodeServerEntryModuleOptions {
   canonicalOrigin?: string;
+  /** Set when a trusted reverse proxy strips Vite's deploy base before forwarding. */
+  basePathStripped?: boolean;
   port?: number;
   /** Vite-resolvable module path exporting `createContext(args)`. */
   createContextFrom?: string;
@@ -74,6 +76,7 @@ export function createNodeServerEntryModule(options: NodeServerEntryModuleOption
     "  cssManifest,",
     "  jsManifest,",
     `  canonicalOrigin: ${JSON.stringify(canonicalOrigin ?? undefined)},`,
+    `  basePathStripped: ${JSON.stringify(options.basePathStripped ?? undefined)},`,
     "  createContext: createPrachtContext,",
     `  maxBodySize: ${JSON.stringify(options.maxBodySize ?? undefined)},`,
     `  compression: ${JSON.stringify(options.compression ?? undefined)},`,

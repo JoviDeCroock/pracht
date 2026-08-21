@@ -24,7 +24,13 @@ node dist/server/server.js
 - Supports ISG time-window revalidation with background regeneration that reuses `createContext()`
 - Supports generated-entry context factories via `nodeAdapter({ createContextFrom })`
 - Supports configurable request body limits via `nodeAdapter({ maxBodySize })`
+- Supports reverse-proxy sub-path rewrites via `nodeAdapter({ basePathStripped: true })`
 - Compresses responses (brotli/gzip via `Accept-Encoding` negotiation) with streaming compression for dynamic bodies, a bounded in-memory LRU/cold-work queue for static assets and validator hashing, version-bound file reads, and content-derived ISG validators stable across deployment replicas; disable with `nodeAdapter({ compression: false })` behind a compressing reverse proxy
+
+When Vite uses a deploy base and a trusted reverse proxy removes that base
+before forwarding, set `basePathStripped: true`. The explicit setting avoids
+confusing a legitimate route whose first segment matches the base with an
+unstripped public URL.
 
 ## Context factory
 

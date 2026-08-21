@@ -81,6 +81,7 @@ The adapter factory calls the entry module generator internally to create a virt
 | `createContext` | `(args) => TContext` | App-level context factory                                       |
 | `trustProxy`    | `boolean`            | Honor forwarded headers for URL construction (default: `false`) |
 | `canonicalOrigin` | `string`           | Fixed public origin for `request.url`; ignores request Host values |
+| `basePathStripped` | `boolean`         | Declare that a trusted proxy removes Vite's deploy base before forwarding |
 | `maxBodySize`   | `number`             | Maximum request body size in bytes (default: 1 MiB)             |
 | `compression`   | `boolean`            | Brotli/gzip response compression via `Accept-Encoding` (default: `true`) |
 
@@ -129,6 +130,22 @@ When enabled, header precedence is:
 > **Security note:** `canonicalOrigin` is the safest option when your app uses
 > `request.url` to build absolute URLs. If you rely on `trustProxy`, only
 > enable it behind a proxy that overwrites forwarded headers.
+
+When the proxy also removes Vite's deploy base from the forwarded path, set
+`basePathStripped: true` independently of the origin options:
+
+```typescript
+nodeAdapter({
+  canonicalOrigin: "https://app.example.com",
+  basePathStripped: true,
+});
+```
+
+This is explicit because an upstream path such as `/my-project/about` is
+ambiguous by inspection: it could be a retained `/my-project/` base followed
+by route `/about`, or the already-stripped route `/my-project/about`. The flag
+selects the latter and lets the runtime restore the public base only for the
+URL exposed to application code and hydration state.
 
 ### Features
 

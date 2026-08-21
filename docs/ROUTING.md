@@ -565,10 +565,16 @@ A sub-path base is wired end to end for static exports
 (`node`, `cloudflare`, …) emit the same base-carrying URLs, and
 `handlePrachtRequest()` strips the base before matching — but their
 static-file and ISG-manifest lookups are still keyed by origin-root paths.
-Mount those behind a proxy that strips the base before forwarding (the usual
-nginx `location /my-project/ { proxy_pass http://app/; }` shape). The runtime
-accepts that base-free upstream path for matching and restores the configured
-base in SSR/hydration state, so `useLocation()` still reports the public URL.
+When a trusted proxy strips the base before forwarding (the usual nginx
+`location /my-project/ { proxy_pass http://app/; }` shape), that rewrite must
+be declared explicitly: generated Node entries use
+`nodeAdapter({ basePathStripped: true })`, while custom runtimes pass
+`basePathStripped: true` to `handlePrachtRequest()`. The runtime then matches
+the base-free upstream path and restores the configured base in SSR/hydration
+state, so `useLocation()` still reports the public URL. The explicit flag also
+keeps a route such as `/my-project/about` distinct: after the proxy removes the
+public base from `/my-project/my-project/about`, the route's first segment must
+not be stripped a second time.
 
 ---
 

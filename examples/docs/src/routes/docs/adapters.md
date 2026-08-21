@@ -473,6 +473,11 @@ trusted reverse proxy that overwrites `Forwarded` or `X-Forwarded-*` headers.
 Never enable it on a directly reachable server; `canonicalOrigin` is safer
 when the public origin is fixed.
 
+If that trusted proxy also strips Vite's deploy base from the forwarded path,
+declare the rewrite separately with `nodeAdapter({ basePathStripped: true })`.
+The flag prevents a route whose first segment matches the base from being
+stripped twice.
+
 ### Response compression
 
 Responses are compressed by default via `Accept-Encoding` negotiation — the

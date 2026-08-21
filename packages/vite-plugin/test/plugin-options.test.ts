@@ -179,9 +179,11 @@ describe("createPrachtServerModuleSource static target export", () => {
   });
 
   it("exports the resolved Vite base so the CLI can reject sub-path static deploys", () => {
+    const source = createPrachtServerModuleSource({}, { base: "/", configuredBase: "./" });
     expect(createPrachtServerModuleSource({}, { base: "/app/" })).toContain(
       'export const buildBase = "/app/";',
     );
     expect(createPrachtServerModuleSource()).toContain('export const buildBase = "/";');
+    expect(source).toContain('export const configuredBase = "./";');
   });
 });

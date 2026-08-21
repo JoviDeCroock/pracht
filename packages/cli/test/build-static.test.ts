@@ -373,6 +373,18 @@ describe("validateStaticExport", () => {
     }
   });
 
+  it("fails closed when Vite normalized a configured relative base in the SSR bundle", async () => {
+    const error = await validateStaticExport({
+      buildBase: "/",
+      configuredBase: "./",
+      resolvedApp: { routes: [{ path: "/", render: "ssg" }] },
+    }).catch((thrown: Error) => thrown);
+
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toContain('is set to "./"');
+    expect((error as Error).message).toContain("root-absolute path base");
+  });
+
   it("accepts the default base, however it is spelled by the bundle", async () => {
     await expect(
       validateStaticExport({

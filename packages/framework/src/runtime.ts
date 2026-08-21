@@ -276,6 +276,13 @@ export interface HandlePrachtRequestOptions<TContext = unknown> {
    */
   app: PrachtApp | ResolvedPrachtApp;
   request: Request;
+  /**
+   * Set when a trusted upstream removed Vite's deploy base from the request
+   * pathname before forwarding it. This is explicit because a base-free route
+   * may itself begin with the same segments as the base, making prefix-based
+   * inference ambiguous.
+   */
+  basePathStripped?: boolean;
   context?: TContext;
   registry?: ModuleRegistry;
   /** Expose raw server error details in rendered HTML and route-state JSON. */
@@ -329,14 +336,24 @@ export async function handlePrachtRequest<TContext>(
   if (hasDataParam) {
     url.searchParams.delete("_data");
   }
-  const strippedRoutePathname = stripBase(url.pathname);
-  const routePathname = strippedRoutePathname ?? url.pathname;
-  // A serverful deployment commonly strips the mount prefix in its reverse
-  // proxy (`location /app/ { proxy_pass http://upstream/; }`). Route matching
-  // accepts that base-free upstream path, but the URL serialized into SSR and
-  // hydration state must still be the one the visitor sees in the browser.
-  const requestPath =
-    strippedRoutePathname === null ? withBase(getRequestPath(url)) : getRequestPath(url);
+  const routePathname = options.basePathStripped ? url.pathname : stripBase(url.pathname);
+  // Outside the configured base belongs to another app on the same origin.
+  // A proxy-rewritten request must opt into the base-free interpretation
+  // above; inferring it here would make a legitimate first route segment that
+  // matches the base impossible to distinguish from a retained public base.
+  if (routePathname === null) {
+    return withDefaultSecurityHeaders(
+      new Response("Not found", {
+        status: 404,
+        headers: { "content-type": "text/plain; charset=utf-8" },
+      }),
+    );
+  }
+  // When the upstream explicitly stripped the mount prefix, restore it only
+  // in the URL serialized into SSR/hydration state. Matching remains base-free.
+  const requestPath = options.basePathStripped
+    ? withBase(getRequestPath(url))
+    : getRequestPath(url);
   // Everything the app declares — routes, API routes, capability endpoints —
   // is addressed without the deploy base, while the request carries it.
   // `requestPath` stays the URL the visitor is at: it drives `useLocation()`

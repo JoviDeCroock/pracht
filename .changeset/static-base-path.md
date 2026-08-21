@@ -2,6 +2,7 @@
 "@pracht/core": minor
 "@pracht/vite-plugin": minor
 "@pracht/adapter-static": minor
+"@pracht/adapter-node": minor
 "@pracht/cli": minor
 "@pracht/image": minor
 "@pracht/openapi": minor
@@ -20,6 +21,6 @@ Two deliberate boundaries:
 - Hand-written root-absolute links are not rewritten. `<a href="/about">` means the origin root in HTML, matching Next's `basePath` and SvelteKit's `base`; use `<Link route="about">` or `href("about")` for internal navigation. A same-origin link outside the base is handed to the browser instead of matched as a route.
 - A cross-origin base (`https://cdn.example.com/`, or protocol-relative `//cdn…`) stays a static-export build error. It relocates only assets while documents and the route-state tree remain at the origin root, and a static export serves all three from one deploy root. Document-relative bases (`""` and `"./"`) are rejected too because their asset URLs resolve beneath each nested prerendered page directory; use a root-absolute path base instead.
 
-A sub-path base is wired end to end for static exports. Serverful adapters emit the same base-carrying URLs and strip the base before route matching, but their static-file and ISG-manifest lookups are still keyed by origin-root paths — mount those behind a proxy that strips the base before forwarding.
+A sub-path base is wired end to end for static exports. Serverful adapters emit the same base-carrying URLs and strip the base before route matching, but their static-file and ISG-manifest lookups are still keyed by origin-root paths. When a trusted Node proxy strips the base before forwarding, declare that rewrite with `nodeAdapter({ basePathStripped: true })`; the explicit contract prevents a route whose first segment matches the base from being stripped twice.
 
 With the default base of `/`, `withBase()` and `stripBase()` are the identity and output is byte-for-byte unchanged.

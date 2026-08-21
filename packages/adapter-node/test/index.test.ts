@@ -115,6 +115,13 @@ describe("createNodeServerEntryModule", () => {
     expect(createNodeServerEntryModule()).toContain("compression: undefined");
     expect(createNodeServerEntryModule({ compression: false })).toContain("compression: false");
   });
+
+  it("passes the stripped deploy-base contract through to the generated handler", () => {
+    expect(createNodeServerEntryModule()).toContain("basePathStripped: undefined");
+    expect(createNodeServerEntryModule({ basePathStripped: true })).toContain(
+      "basePathStripped: true",
+    );
+  });
 });
 
 describe("createNodeRequestHandler", () => {

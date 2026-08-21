@@ -302,6 +302,7 @@ export function createPrachtServerModuleSource(
     root?: string;
     isBuild?: boolean;
     base?: string;
+    configuredBase?: string;
   } = {},
 ): string {
   const resolved = resolveOptions(options);
@@ -365,6 +366,10 @@ export function createPrachtServerModuleSource(
     // prerendered documents, to serve `pracht preview` under the same path,
     // and to reject the base shapes a static export cannot honour.
     `export const buildBase = ${JSON.stringify(buildOptions.base ?? "/")};`,
+    // Preserve the user-authored value as well. Vite normalizes document-relative
+    // bases to "/" in SSR builds, but the static-export validator still needs
+    // to reject the original value because the client build resolves it relatively.
+    `export const configuredBase = ${JSON.stringify(buildOptions.configuredBase)};`,
     `export const clientEntryUrl = ${JSON.stringify(clientBuild.clientEntryUrl ?? CLIENT_BROWSER_PATH)};`,
     `export const islandsEntryUrl = ${JSON.stringify(islandsEntryUrl ?? null)};`,
     `export const islandsBootstrapRequired = ${JSON.stringify(islandsBootstrapRequired)};`,

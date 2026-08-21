@@ -145,12 +145,14 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
 
   let isBuild = false;
   let base = "/";
+  let configuredBase: string | undefined;
 
   const prachtPlugin: Plugin = {
     name: "pracht",
     enforce: "pre",
 
     config(_config, env) {
+      configuredBase = typeof _config.base === "string" ? _config.base : undefined;
       const isEdge = resolved.adapter.edge === true;
       const isSSRBuild = env.isSsrBuild;
 
@@ -328,7 +330,7 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
         return createPrachtDevModuleSource(resolved, { root, base });
       }
       if (isServerModule(id)) {
-        return createPrachtServerModuleSource(resolved, { root, isBuild, base });
+        return createPrachtServerModuleSource(resolved, { root, isBuild, base, configuredBase });
       }
       if (isCapabilitiesModule(id)) {
         return createPrachtCapabilitiesClientModuleSource(resolved, { root });

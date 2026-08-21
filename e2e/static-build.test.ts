@@ -941,6 +941,32 @@ test("static export build rejects a CDN base", () => {
   }
 });
 
+test("static export build rejects a document-relative base after SSR normalization", () => {
+  test.setTimeout(180_000);
+  const { exampleDir, tempDir } = createTempExampleDir(
+    staticFixtureDir,
+    "pracht-static-relative-base-",
+  );
+
+  try {
+    const viteConfigPath = resolve(exampleDir, "vite.config.ts");
+    writeFileSync(
+      viteConfigPath,
+      readFileSync(viteConfigPath, "utf-8").replace(
+        "export default defineConfig({",
+        'export default defineConfig({\n  base: "./",',
+      ),
+      "utf-8",
+    );
+
+    const output = buildFailureOutput(exampleDir);
+    expect(output).toContain('is set to "./"');
+    expect(output).toContain("root-absolute path base");
+  } finally {
+    rmSync(tempDir, { force: true, recursive: true });
+  }
+});
+
 test("static export serves non-ASCII prerender paths on a URL-decoding host", async () => {
   test.setTimeout(180_000);
   const { exampleDir, tempDir } = createTempExampleDir(staticFixtureDir, "pracht-static-encoded-");

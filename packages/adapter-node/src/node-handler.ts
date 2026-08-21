@@ -85,6 +85,12 @@ export interface NodeAdapterOptions<TContext = unknown> {
    */
   canonicalOrigin?: string;
   /**
+   * Set when a trusted reverse proxy removes Vite's deploy base from the
+   * request pathname before forwarding it. This prevents the framework from
+   * mistaking a base-like first route segment for a retained deploy base.
+   */
+  basePathStripped?: boolean;
+  /**
    * Whether to trust proxy headers (`Forwarded`, `X-Forwarded-Proto`,
    * `X-Forwarded-Host`) when constructing the request URL.
    *
@@ -234,6 +240,7 @@ export function createNodeRequestHandler<TContext = unknown>(
 
     const response = await handlePrachtRequest({
       app: options.app,
+      basePathStripped: options.basePathStripped,
       context,
       registry: options.registry,
       request: applicationRequest,

@@ -27,6 +27,7 @@ interface StaticRouteView {
 interface StaticServerModuleView {
   staticTarget?: boolean;
   buildBase?: string;
+  configuredBase?: string;
   resolvedApp?: {
     routes?: StaticRouteView[];
     notFound?: StaticRouteView;
@@ -152,9 +153,13 @@ export async function validateStaticExport(serverMod: StaticServerModuleView): P
   // the document/state origin, while the latter resolves differently for
   // every nested prerendered page.
   const buildBase = serverMod.buildBase ?? "/";
-  if (!buildBase.startsWith("/") || buildBase.startsWith("//")) {
+  // Vite normalizes "", ".", and "./" to "/" in an SSR build even though
+  // the client build retains a document-relative base. Validate the original
+  // config value when the generated bundle provides it.
+  const configuredBase = serverMod.configuredBase ?? buildBase;
+  if (!configuredBase.startsWith("/") || configuredBase.startsWith("//")) {
     problems.push(
-      `Vite \`base\` is set to ${JSON.stringify(buildBase)}, but static exports require an origin-root or root-absolute path base:\n` +
+      `Vite \`base\` is set to ${JSON.stringify(configuredBase)}, but static exports require an origin-root or root-absolute path base:\n` +
         `    - CDN bases split assets from documents and /_pracht/state/…\n` +
         `    - relative bases resolve assets beneath each nested page directory\n` +
         '  Use a path base for a sub-path deploy (base: "/my-project/"), or the origin root (base: "/").',
