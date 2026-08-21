@@ -358,10 +358,15 @@ describe("capability static extraction", () => {
     expect(extractCapabilityRegistrations(source)).toEqual([]);
   });
 
-  it("ignores type-only registry queries when checking for mutation", () => {
+  it.each([
+    ["the registry", "typeof capabilities"],
+    ["a registry member", "typeof capabilities.notes"],
+    ["an indexed registry member", 'typeof capabilities["notes"]'],
+    ["a multiline registry member", "\n        typeof capabilities.notes"],
+  ])("ignores type-only queries of %s when checking for mutation", (_description, query) => {
     const source = `
       const capabilities = { notes: "./capabilities/notes.ts" };
-      type CapabilityRegistry = typeof capabilities;
+      type CapabilityRegistry = ${query};
       export const app = defineApp({ capabilities, routes: [] });
     `;
 

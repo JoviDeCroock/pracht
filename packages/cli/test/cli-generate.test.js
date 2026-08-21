@@ -298,6 +298,54 @@ export default { plugins: [pracht(pluginOptions)] };`,
     expect(existsSync(join(appDir, "src/pages/_middleware.ts"))).toBe(false);
   });
 
+  it("refuses pages middleware when a later object spread selects a static adapter", () => {
+    const appDir = createTempDir("pracht-cli-pages-middleware-static-options-spread-");
+    writePagesApp(appDir);
+    writeProjectFile(
+      appDir,
+      "vite.config.ts",
+      `import { pracht } from "@pracht/vite-plugin";
+import { staticAdapter } from "@pracht/adapter-static";
+import { nodeAdapter } from "@pracht/adapter-node";
+const staticOptions = { adapter: staticAdapter() };
+export default {
+  plugins: [pracht({ pagesDir: "/src/pages", adapter: nodeAdapter(), ...staticOptions })],
+};`,
+    );
+
+    const result = spawnSync(
+      process.execPath,
+      [cliPath, "generate", "middleware", "--name", "_middleware"],
+      { cwd: appDir, encoding: "utf-8" },
+    );
+
+    expect(result.status).not.toBe(0);
+    expect(`${result.stdout}${result.stderr}`).toContain(
+      "Pure static exports cannot use request middleware",
+    );
+    expect(existsSync(join(appDir, "src/pages/_middleware.ts"))).toBe(false);
+  });
+
+  it("honors a later object spread that replaces a static adapter", () => {
+    const appDir = createTempDir("pracht-cli-pages-middleware-serverful-options-spread-");
+    writePagesApp(appDir);
+    writeProjectFile(
+      appDir,
+      "vite.config.ts",
+      `import { pracht } from "@pracht/vite-plugin";
+import { staticAdapter } from "@pracht/adapter-static";
+import { nodeAdapter } from "@pracht/adapter-node";
+const serverfulOptions = { adapter: nodeAdapter() };
+export default {
+  plugins: [pracht({ pagesDir: "/src/pages", adapter: staticAdapter(), ...serverfulOptions })],
+};`,
+    );
+
+    runCli(["generate", "middleware", "--name", "_middleware"], { cwd: appDir });
+
+    expect(existsSync(join(appDir, "src/pages/_middleware.ts"))).toBe(true);
+  });
+
   it("refuses pages middleware for a custom static-target adapter", () => {
     const appDir = createTempDir("pracht-cli-pages-middleware-custom-static-");
     writePagesApp(appDir);

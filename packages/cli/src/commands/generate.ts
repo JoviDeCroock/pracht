@@ -563,19 +563,6 @@ function configPropertyName(value: unknown): string | null {
   return null;
 }
 
-function configObjectProperty(object: ConfigAstNode, name: string): unknown {
-  for (const property of configAstNodes(object.properties)) {
-    if (
-      property.type === "Property" &&
-      property.computed !== true &&
-      configPropertyName(property.key) === name
-    ) {
-      return property.value;
-    }
-  }
-  return undefined;
-}
-
 function visitConfigAst(value: unknown, visit: (node: ConfigAstNode) => boolean): boolean {
   if (Array.isArray(value)) return value.some((item) => visitConfigAst(item, visit));
   const node = asConfigAstNode(value);
@@ -656,6 +643,47 @@ function usesStaticAdapter(project: Pick<ProjectConfig, "rawConfig">): boolean {
       return resolveConfigBinding(initializer, new Set([...seen, node.name]));
     };
 
+    type ConfigPropertyResolution =
+      | { kind: "absent" }
+      | { kind: "unknown" }
+      | { kind: "value"; value: unknown };
+
+    const resolveConfigObjectProperty = (
+      object: ConfigAstNode,
+      name: string,
+      seen = new Set<ConfigAstNode>(),
+    ): ConfigPropertyResolution => {
+      if (seen.has(object)) return { kind: "unknown" };
+      const nextSeen = new Set([...seen, object]);
+      let resolved: ConfigPropertyResolution = { kind: "absent" };
+
+      // Object properties use last-write-wins semantics. Resolve statically
+      // known object spreads in source order so the adapter seen here matches
+      // the adapter that the pracht plugin receives at runtime.
+      for (const property of configAstNodes(object.properties)) {
+        if (property.type === "SpreadElement") {
+          const spread = resolveConfigBinding(property.argument);
+          if (spread?.type !== "ObjectExpression") {
+            resolved = { kind: "unknown" };
+            continue;
+          }
+          const spreadProperty = resolveConfigObjectProperty(spread, name, nextSeen);
+          if (spreadProperty.kind !== "absent") resolved = spreadProperty;
+          continue;
+        }
+
+        if (property.type !== "Property") continue;
+        const propertyName = configPropertyName(property.key);
+        if (property.computed === true && asConfigAstNode(property.key)?.type !== "Literal") {
+          resolved = { kind: "unknown" };
+        } else if (propertyName === name) {
+          resolved = { kind: "value", value: property.value };
+        }
+      }
+
+      return resolved;
+    };
+
     const isStaticAdapterExpression = (value: unknown, seen = new Set<string>()): boolean => {
       const node = unwrapConfigExpression(value);
       if (!node) return false;
@@ -668,7 +696,11 @@ function usesStaticAdapter(project: Pick<ProjectConfig, "rawConfig">): boolean {
       }
 
       if (node.type === "ObjectExpression") {
-        const staticTarget = unwrapConfigExpression(configObjectProperty(node, "staticTarget"));
+        const staticTargetProperty = resolveConfigObjectProperty(node, "staticTarget");
+        const staticTarget =
+          staticTargetProperty.kind === "value"
+            ? unwrapConfigExpression(staticTargetProperty.value)
+            : null;
         return staticTarget?.type === "Literal" && staticTarget.value === true;
       }
 
@@ -704,10 +736,9 @@ function usesStaticAdapter(project: Pick<ProjectConfig, "rawConfig">): boolean {
           configPropertyName(callee.property) === "pracht");
       if (!isPrachtCall) return false;
       const options = resolveConfigBinding(configAstNodes(node.arguments)[0]);
-      return (
-        options?.type === "ObjectExpression" &&
-        isStaticAdapterExpression(configObjectProperty(options, "adapter"))
-      );
+      if (options?.type !== "ObjectExpression") return false;
+      const adapter = resolveConfigObjectProperty(options, "adapter");
+      return adapter.kind === "value" && isStaticAdapterExpression(adapter.value);
     });
   } catch {
     return false;
