@@ -279,3 +279,7 @@ with `defineApp()`. Unresolved computed keys continue to fail closed.
 The interactive `create-pracht` router prompt now advertises the pages router's
 single root `_middleware.ts` support on server adapters instead of describing all
 pages middleware as unavailable.
+
+Ejected-pages ownership detection also recognizes the marker when a valid ESM
+string-literal export name is used, preserving the client middleware boundary
+for quoted named-export aliases.
