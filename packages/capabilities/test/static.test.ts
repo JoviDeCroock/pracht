@@ -22,6 +22,14 @@ describe("middleware export classification", () => {
     ["export let middleware;", false],
     ["let middleware;\nmiddleware = () => {};\nexport { middleware };", true],
     ["export let middleware;\nmiddleware = () => {};", true],
+    [
+      "let candidate = 1;\nconst middleware = candidate;\ncandidate = () => {};\nexport { middleware };",
+      false,
+    ],
+    [
+      "let candidate = 1;\ncandidate = () => {};\nconst middleware = candidate;\nexport { middleware };",
+      true,
+    ],
     ["export const middleware = (() => {}) as MiddlewareFn;", true],
     ["export const middleware = <MiddlewareFn>(() => {});", true],
     ["const candidate = {};\nexport { candidate as middleware };", false],

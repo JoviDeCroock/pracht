@@ -176,3 +176,12 @@ being rejected from the declaration alone.
 Static-target detection follows aliased and namespace imports of the pracht
 plugin as well as aliased adapter imports. The canonical routing guides now
 consistently qualify pages request middleware as a serverful-adapter feature.
+
+Ejected-pages ownership detection now preserves the client boundary when the
+generated marker is exported through a named export list, including an aliased
+local binding. Middleware callable validation keeps initializer snapshots
+accurate when a non-callable mutable binding is copied before a later
+reassignment, while still accepting aliases created after a module-scope
+assignment. The pages middleware generator also follows immutable aliases for
+the complete pracht plugin options object before deciding whether the selected
+adapter is a pure static target.
