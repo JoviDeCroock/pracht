@@ -41,7 +41,7 @@ const MANIFEST_PLUGIN_OPTIONS = { appFile: "/src/routes.ts" } as const;
  */
 function writeCapabilityManifestProject(
   root: string,
-  { capabilityPath = "./capabilities/notes-search.ts" } = {},
+  { capabilityKey = '"notes.search"', capabilityPath = "./capabilities/notes-search.ts" } = {},
 ): void {
   mkdirSync(join(root, "src", "routes"), { recursive: true });
   mkdirSync(join(root, "src", "capabilities"), { recursive: true });
@@ -76,7 +76,7 @@ export default defineCapability({
 
 export const app = defineApp({
   capabilities: {
-    "notes.search": () => import(${JSON.stringify(capabilityPath)}),
+    ${capabilityKey}: () => import(${JSON.stringify(capabilityPath)}),
   },
   routes: [route("/", () => import("./routes/home.tsx"), { id: "home" })],
 });
@@ -971,6 +971,25 @@ export function Component() {
       join(root, "src", "routes", "home.tsx"),
       `
 import capability from "../server/elsewhere";
+
+export function Component() {
+  return <main>{capability.title}</main>;
+}
+`,
+    );
+
+    await expect(buildTempProject(root, MANIFEST_PLUGIN_OPTIONS)).rejects.toThrow(
+      /Capability module .* was imported by client code/,
+    );
+  });
+
+  it("guards capability modules registered with computed literal keys", async () => {
+    const root = makeTempProject();
+    writeCapabilityManifestProject(root, { capabilityKey: '["notes.search"]' });
+    writeFileSync(
+      join(root, "src", "routes", "home.tsx"),
+      `
+import capability from "../capabilities/notes-search";
 
 export function Component() {
   return <main>{capability.title}</main>;

@@ -1461,11 +1461,11 @@ function defaultExportLocalName(searchable: string): string | null {
 export interface TopLevelPropertyScan {
   properties: Map<string, string>;
   /**
-   * True when the scan hit a token it could not parse as a key (a spread, a
-   * computed key) and stopped. Everything from that point on is missing from
-   * `properties`, so a caller must not read an absent key as "not declared" —
-   * that is how a spread-in `agentPolicy` or `middleware` came back as "no
-   * policy, no middleware" instead of "unreadable".
+   * True when the scan hit a token it could not parse as a key (a spread, an
+   * unresolved computed key) and stopped. Everything from that point on is
+   * missing from `properties`, so a caller must not read an absent key as "not
+   * declared" — that is how a spread-in `agentPolicy` or `middleware` came
+   * back as "no policy, no middleware" instead of "unreadable".
    */
   truncated: boolean;
 }
@@ -1483,9 +1483,10 @@ export function scanTopLevelPropertyEntries(objectBody: string): TopLevelPropert
     index = skipInsignificant(objectBody, index);
     if (index >= objectBody.length) break;
 
-    // Property key: identifier, quoted string, or numeric literal. Registry
-    // names use JavaScript's runtime property-key coercion, so an entry such as
-    // `123: () => import(...)` has the string name `"123"`.
+    // Property key: identifier, quoted string, numeric literal, or a computed
+    // primitive literal. Registry names use JavaScript's runtime property-key
+    // coercion, so entries such as `123: () => import(...)` and
+    // `["notes.search"]: () => import(...)` keep their runtime names.
     let key: string | null = null;
     const char = objectBody[index];
     if (char === '"' || char === "'") {
@@ -1503,6 +1504,14 @@ export function scanTopLevelPropertyEntries(objectBody: string): TopLevelPropert
       index = end + 1;
     } else if (/[0-9]/.test(char) || (char === "." && /[0-9]/.test(objectBody[index + 1]))) {
       const parsed = parseNumericPropertyKey(objectBody, index);
+      if (!parsed) {
+        truncated = true;
+        break;
+      }
+      key = parsed.key;
+      index = parsed.index;
+    } else if (char === "[") {
+      const parsed = parseComputedPropertyKey(objectBody, index);
       if (!parsed) {
         truncated = true;
         break;
@@ -3146,4 +3155,34 @@ function parseNumericPropertyKey(
   } catch {
     return null;
   }
+}
+
+function parseComputedPropertyKey(
+  source: string,
+  start: number,
+): { key: string; index: number } | null {
+  const end = findMatchingBrace(source, start, "[", "]");
+  if (end === -1) return null;
+
+  const expression = source.slice(start + 1, end);
+  const value = evaluateLiteral(expression);
+  if (
+    value === null ||
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+  ) {
+    return { key: String(value), index: end + 1 };
+  }
+
+  // `evaluateLiteral` intentionally handles JSON-shaped values and therefore
+  // excludes bigint and non-decimal numeric syntax. Those are still valid,
+  // statically known JavaScript property keys.
+  const numericStart = skipInsignificant(expression, 0);
+  const numeric = parseNumericPropertyKey(expression, numericStart);
+  if (numeric && skipInsignificant(expression, numeric.index) === expression.length) {
+    return { key: numeric.key, index: end + 1 };
+  }
+
+  return null;
 }

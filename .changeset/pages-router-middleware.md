@@ -271,3 +271,11 @@ Ejected layouts also preserve the pages shell boundary when route files move to
 a separate directory while the root `_app` and underscore-reserved helpers remain
 in the original shell directory. Those helpers stay out of browser module globs
 during partial migrations.
+
+Statically known computed manifest registry keys now retain their runtime property
+names, keeping capability projection and registered-module client guards aligned
+with `defineApp()`. Unresolved computed keys continue to fail closed.
+
+The interactive `create-pracht` router prompt now advertises the pages router's
+single root `_middleware.ts` support on server adapters instead of describing all
+pages middleware as unavailable.
