@@ -135,3 +135,10 @@ at real statement boundaries rather than every line break, and only follows
 immutable `const` bindings, so multiline expressions and reassigned `let`/`var`
 registrations remain opaque instead of projecting or protecting the wrong
 module.
+
+Semicolonless aliases remain visible when a TypeScript assertion or a
+control-flow statement precedes the exported app. Registry-object alias chains
+are now followed only when each binding has a single runtime consumer; directly
+or transitively mutated `const` registries stay opaque so browser projection,
+verification, and the server-only import guard cannot inspect a stale module
+map that differs from the live app.
