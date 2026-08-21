@@ -223,12 +223,51 @@ const __prachtGenerateOpenApiDocument = async (options) => ({
     expect(warn).toHaveBeenCalledTimes(1);
     expect(server.ssrLoadModule).toHaveBeenCalledWith("virtual:pracht/dev-metadata");
   });
+
+  it("serves development artifacts only under the Vite deploy base", async () => {
+    const artifacts = {
+      artifacts: [
+        {
+          content: '{"openapi":"3.1.0"}\n',
+          contentType: "application/json; charset=utf-8",
+          outputPath: "openapi.json",
+          path: "/openapi.json",
+        },
+      ],
+      warnings: [],
+    };
+    let middleware: Connect.NextHandleFunction | undefined;
+    const server = {
+      config: { logger: { error: vi.fn(), warn: vi.fn() } },
+      middlewares: { use: (handler: Connect.NextHandleFunction) => (middleware = handler) },
+      ssrFixStacktrace: vi.fn(),
+      ssrLoadModule: vi.fn(async (id: string) =>
+        id === "@pracht/core/server"
+          ? { matchApiRoute: () => undefined, matchAppRoute: () => undefined }
+          : { generatePrachtOpenApiArtifacts: async () => artifacts },
+      ),
+    } as unknown as ViteDevServer;
+    const plugin = prachtOpenApi({ info: { title: "Example", version: "1.0.0" } });
+    hookHandler(plugin.configResolved).call({} as never, { base: "/app/" } as never);
+    hookHandler(plugin.configureServer).call({} as never, server);
+    if (!middleware) throw new Error("Expected middleware registration");
+
+    const underBase = await runMiddleware(middleware, "/app/openapi.json", "GET");
+    expect(underBase.status).toBe(200);
+    expect(underBase.body).toContain('"openapi"');
+
+    const next = vi.fn();
+    await runMiddleware(middleware, "/openapi.json", "GET", next);
+    expect(next).toHaveBeenCalledOnce();
+    expect(server.ssrLoadModule).toHaveBeenCalledTimes(2);
+  });
 });
 
 async function runMiddleware(
   middleware: Connect.NextHandleFunction,
   url: string,
   method: string,
+  next = vi.fn(),
 ): Promise<{ body: string; headers: Record<string, string>; status: number }> {
   const request = { method, url } as IncomingMessage;
   const headers: Record<string, string> = {};
@@ -242,6 +281,6 @@ async function runMiddleware(
     },
     statusCode: 200,
   } as unknown as ServerResponse;
-  await middleware(request, response, vi.fn());
+  await middleware(request, response, next);
   return { body, headers, status: response.statusCode };
 }

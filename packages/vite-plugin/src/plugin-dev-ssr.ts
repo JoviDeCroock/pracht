@@ -225,7 +225,7 @@ export function createDevSSRMiddleware(
       let body = await response.text();
 
       if (contentType.includes("text/html")) {
-        body = await server.transformIndexHtml(url, body);
+        body = await transformDevHtml(server, url, body, devBase);
       }
 
       res.statusCode = response.status;
@@ -241,6 +241,33 @@ export function createDevSSRMiddleware(
       await handleDevError(server, req, res, next, url, error);
     }
   };
+}
+
+/**
+ * Vite's HTML transform adds `config.base` to root-absolute asset attributes.
+ * Pracht's runtime has already added it to URLs produced by `withBase()` — the
+ * client entry, route-state preloads, image endpoints, and user-authored asset
+ * URLs — while Vite-owned or module-graph URLs still need the transform. Hide
+ * the already-based strings while the hooks run, then restore them afterward,
+ * so each producer applies the deploy base exactly once.
+ */
+async function transformDevHtml(
+  server: ViteDevServer,
+  url: string,
+  html: string,
+  base: string,
+): Promise<string> {
+  if (base === "/") return server.transformIndexHtml(url, html);
+
+  // An external URL is inert to Vite's asset rewriting and module pre-transform.
+  // A relative marker would produce a noisy failed pre-transform even though it
+  // is restored before the HTML reaches the browser.
+  let placeholder = "https://pracht.invalid/__PRACHT_DEV_BASE_PLACEHOLDER__/";
+  while (html.includes(placeholder)) placeholder += "_";
+
+  const protectedHtml = html.replaceAll(base, placeholder);
+  const transformedHtml = await server.transformIndexHtml(url, protectedHtml);
+  return transformedHtml.replaceAll(placeholder, base);
 }
 
 /**

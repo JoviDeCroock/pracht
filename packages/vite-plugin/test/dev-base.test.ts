@@ -1,4 +1,6 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { h } from "preact";
+import { createServer as createViteServer } from "vite";
 import type { ViteDevServer } from "vite";
 import { describe, expect, it, vi } from "vitest";
 
@@ -17,9 +19,10 @@ import { PRACHT_SERVER_MODULE_ID } from "../src/plugin-assets.ts";
 async function loadDevServerModules(base: string) {
   vi.resetModules();
   vi.stubEnv("BASE_URL", base);
-  const [frameworkServer, app, devSsr] = await Promise.all([
+  const [frameworkServer, app, baseHelpers, devSsr] = await Promise.all([
     import("../../framework/src/server.ts"),
     import("../../framework/src/app.ts"),
+    import("../../framework/src/base.ts"),
     import("../src/plugin-dev-ssr.ts"),
   ]);
   return {
@@ -28,6 +31,7 @@ async function loadDevServerModules(base: string) {
     frameworkServer,
     resolveApp: app.resolveApp,
     route: app.route,
+    withBase: baseHelpers.withBase,
   };
 }
 
@@ -53,7 +57,7 @@ function createResponse() {
 }
 
 async function render(base: string, url: string) {
-  const { createDevSSRMiddleware, defineApp, frameworkServer, resolveApp, route } =
+  const { createDevSSRMiddleware, defineApp, frameworkServer, resolveApp, route, withBase } =
     await loadDevServerModules(base);
 
   const serverMod = {
@@ -62,7 +66,7 @@ async function render(base: string, url: string) {
     registry: {
       routeModules: {
         "./routes/about.tsx": async () => ({
-          Component: () => null,
+          Component: () => h("img", { src: withBase("/logo.svg") }),
           loader: async () => ({ ok: true }),
         }),
       },
@@ -74,21 +78,34 @@ async function render(base: string, url: string) {
     ),
   };
 
-  const server = {
-    config: { base, logger: { warn: vi.fn() }, root: "/tmp/pracht-dev-base-test" },
-    ssrFixStacktrace: () => {},
-    ssrLoadModule: async (id: string) => {
-      if (id === "@pracht/core/server") return frameworkServer;
-      if (id === PRACHT_SERVER_MODULE_ID) return serverMod;
-      throw new Error(`Unexpected ssrLoadModule id: ${id}`);
-    },
-    transformIndexHtml: async (_url: string, html: string) => html,
-  } as unknown as ViteDevServer;
+  // Exercise Vite's real HTML transform: it prefixes root-absolute asset
+  // attributes with `base`, which is where double-base regressions arise.
+  const transformServer = await createViteServer({
+    appType: "custom",
+    base,
+    configFile: false,
+    logLevel: "silent",
+    server: { middlewareMode: true },
+  });
+  try {
+    const server = {
+      config: { base, logger: { warn: vi.fn() }, root: "/tmp/pracht-dev-base-test" },
+      ssrFixStacktrace: () => {},
+      ssrLoadModule: async (id: string) => {
+        if (id === "@pracht/core/server") return frameworkServer;
+        if (id === PRACHT_SERVER_MODULE_ID) return serverMod;
+        throw new Error(`Unexpected ssrLoadModule id: ${id}`);
+      },
+      transformIndexHtml: transformServer.transformIndexHtml.bind(transformServer),
+    } as unknown as ViteDevServer;
 
-  const { res, state } = createResponse();
-  // Vite hands the middleware a base-free URL.
-  await createDevSSRMiddleware(server)(createRequest(url), res, vi.fn());
-  return state;
+    const { res, state } = createResponse();
+    // Vite hands the middleware a base-free URL.
+    await createDevSSRMiddleware(server)(createRequest(url), res, vi.fn());
+    return state;
+  } finally {
+    await transformServer.close();
+  }
 }
 
 describe("dev SSR under a deploy base", () => {
@@ -97,6 +114,8 @@ describe("dev SSR under a deploy base", () => {
 
     expect(state.statusCode).toBe(200);
     expect(state.body).toContain('src="/app/@pracht/client.js"');
+    expect(state.body).toContain('src="/app/logo.svg"');
+    expect(state.body).not.toContain("/app/app/");
     expect(state.body).toContain('"url":"/app/about?ref=campaign"');
   });
 

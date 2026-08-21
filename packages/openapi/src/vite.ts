@@ -73,7 +73,7 @@ export function prachtOpenApi(options: PrachtOpenApiOptions): Plugin {
 
     configureServer(server) {
       warnPublicArtifactCollisions(server, resolved);
-      server.middlewares.use(createOpenApiDevMiddleware(server, resolved, warned));
+      server.middlewares.use(createOpenApiDevMiddleware(server, resolved, warned, buildBase));
     },
 
     transform(code, id) {
@@ -279,6 +279,7 @@ function createOpenApiDevMiddleware(
   server: ViteDevServer,
   options: ResolvedPrachtOpenApiOptions,
   warned: Set<string>,
+  base: string,
 ): Connect.NextHandleFunction {
   const endpointPaths = new Set([
     options.documentPath,
@@ -287,7 +288,12 @@ function createOpenApiDevMiddleware(
 
   return async (req: IncomingMessage, res: ServerResponse, next: Connect.NextFunction) => {
     const requestUrl = new URL(req.url ?? "/", "http://localhost");
-    if (!endpointPaths.has(requestUrl.pathname)) return next();
+    // configureServer middleware runs before Vite's internal base middleware,
+    // so strip the configured base here. Requests outside it must continue to
+    // Vite, which returns its normal base-aware 404 instead of exposing these
+    // generated endpoints at the origin root as well.
+    const pathname = stripDevBase(requestUrl.pathname, base);
+    if (pathname === null || !endpointPaths.has(pathname)) return next();
 
     const method = (req.method ?? "GET").toUpperCase();
     if (method !== "GET" && method !== "HEAD") {
@@ -303,15 +309,15 @@ function createOpenApiDevMiddleware(
         server.ssrLoadModule("@pracht/core/server"),
         server.ssrLoadModule(PRACHT_DEV_MODULE_ID),
       ]);
-      const collisionKey = `route:${requestUrl.pathname}`;
+      const collisionKey = `route:${pathname}`;
       if (
         !warned.has(collisionKey) &&
-        (framework.matchAppRoute?.(serverModule.resolvedApp, requestUrl.pathname) ||
-          framework.matchApiRoute?.(serverModule.apiRoutes, requestUrl.pathname))
+        (framework.matchAppRoute?.(serverModule.resolvedApp, pathname) ||
+          framework.matchApiRoute?.(serverModule.apiRoutes, pathname))
       ) {
         warned.add(collisionKey);
         server.config.logger.warn(
-          `[pracht:openapi] An app route matches reserved path ${requestUrl.pathname}. ` +
+          `[pracht:openapi] An app route matches reserved path ${pathname}. ` +
             "The OpenAPI endpoint wins while the companion plugin is enabled.",
         );
       }
@@ -331,9 +337,7 @@ function createOpenApiDevMiddleware(
         );
       }
 
-      const canonicalPath = requestUrl.pathname.endsWith("/")
-        ? requestUrl.pathname.slice(0, -1)
-        : requestUrl.pathname;
+      const canonicalPath = pathname.endsWith("/") ? pathname.slice(0, -1) : pathname;
       const artifact = result.artifacts.find((candidate) => candidate.path === canonicalPath);
       if (!artifact) return next();
 
@@ -353,6 +357,12 @@ function createOpenApiDevMiddleware(
       res.end("OpenAPI generation failed");
     }
   };
+}
+
+function stripDevBase(pathname: string, base: string): string | null {
+  if (base === "/") return pathname;
+  if (!pathname.startsWith(base)) return null;
+  return `/${pathname.slice(base.length)}`;
 }
 
 function warnPublicArtifactCollisions(
