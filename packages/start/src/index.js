@@ -1421,7 +1421,7 @@ function createDockerignore() {
 }
 
 const PAGES_ROUTER_LIMITATIONS =
-  "**The pages router has no manifest**, so these manifest-only features are unavailable: named shells (there is one, `_app.tsx`), named per-route middleware (there is one root `_middleware.ts`, applied to every page route), capabilities (and therefore capability HTTP endpoints, WebMCP, remote MCP, and `pracht eval`), `defineApp({ constraints })`, and `agents`. If the app needs per-route auth policy or a runtime agent surface, eject with `generateRoutesFile` from `@pracht/vite-plugin/pages-router`, remove `pagesDir`, and customize the generated manifest.";
+  "**The pages router has no manifest**, so these manifest-only features are unavailable: named shells (there is one, `_app.tsx`), named per-route middleware (serverful adapters provide one root `_middleware.ts`, applied to every page route; pure static exports cannot use request middleware), capabilities (and therefore capability HTTP endpoints, WebMCP, remote MCP, and `pracht eval`), `defineApp({ constraints })`, and `agents`. If the app needs per-route auth policy or a runtime agent surface, eject with `generateRoutesFile` from `@pracht/vite-plugin/pages-router`, remove `pagesDir`, and customize the generated manifest.";
 
 const PAGES_ROUTER_ISG_POLICY =
   'Pages-router ISG supports time revalidation only: pair `export const RENDER_MODE = "isg"` with a positive integer such as `export const REVALIDATE = 3600`. Missing or misplaced policies fail `pracht build`, `doctor`, and `verify`. Webhook revalidation and combined policies require an explicit manifest.';
@@ -1804,8 +1804,9 @@ function printNextSteps({
   if (router === "pages") {
     console.log("");
     console.log(
-      "Note: the pages router has no manifest, so per-route middleware (only a root\n" +
-        "`_middleware.ts` applied to every page route), capabilities, constraints, and\n" +
+      "Note: the pages router has no manifest, so per-route middleware (serverful adapters\n" +
+        "provide only a root `_middleware.ts` applied to every page route; pure static\n" +
+        "exports cannot use request middleware), capabilities, constraints, and\n" +
         "the agent surface (capability endpoints, WebMCP, remote MCP, `pracht eval`) are not\n" +
         "available. Scaffold with --router=manifest if you need them.",
     );

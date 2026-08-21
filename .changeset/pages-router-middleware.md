@@ -142,3 +142,7 @@ are now followed only when each binding has a single runtime consumer; directly
 or transitively mutated `const` registries stay opaque so browser projection,
 verification, and the server-only import guard cannot inspect a stale module
 map that differs from the live app.
+
+Generated pages-router guidance now qualifies root request middleware as a
+serverful-adapter feature, so pure static-export starters are not instructed to
+add unsupported middleware.
