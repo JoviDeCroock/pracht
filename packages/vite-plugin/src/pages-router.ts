@@ -178,10 +178,11 @@ function scan(
     if (!pageExtensions.has(ext)) continue;
 
     const name = basename(entry, ext);
-    if (name === "_app" && !shellExtensions.has(ext)) continue;
+    const isRootApp = dir === root && name === "_app";
+    if (name === "_app" && (!isRootApp || !shellExtensions.has(ext))) continue;
 
-    // Skip _-prefixed files except _app
-    if (name.startsWith("_") && name !== "_app") continue;
+    // Skip _-prefixed files except the root-level _app shell.
+    if (name.startsWith("_") && !isRootApp) continue;
 
     const rel = relative(root, abs);
     const routePath = filePathToRoutePath(rel);

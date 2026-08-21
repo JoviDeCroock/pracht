@@ -228,3 +228,10 @@ count as uses of a top-level registry binding. Middleware export validation
 also classifies definitely evaluated writes in variable initializers, control
 tests, static class fields, and static blocks, without treating instance fields
 or method bodies as module-scope writes.
+
+Statically resolvable object spreads now preserve and override manifest module
+registrations with normal last-write semantics, while arrow-function parameter
+shadowing no longer makes a safe registry opaque. Pages mode consistently
+reserves `_app` for the root shell and excludes nested lookalikes from both the
+scanner and server registry. Middleware export validation also accounts for
+definitely evaluated `try`/`finally` writes and computed destructuring targets.
