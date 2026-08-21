@@ -166,6 +166,30 @@ describe("@pracht/cli generate", () => {
     expect(middlewareSource).toContain("export const middleware: MiddlewareFn");
   });
 
+  it("refuses to scaffold pages middleware for a pure static export", () => {
+    const appDir = createTempDir("pracht-cli-pages-middleware-static-");
+    writePagesApp(appDir);
+    writeProjectFile(
+      appDir,
+      "vite.config.ts",
+      `import { pracht } from "@pracht/vite-plugin";
+import { staticAdapter } from "@pracht/adapter-static";
+export default { plugins: [pracht({ pagesDir: "/src/pages", adapter: staticAdapter() })] };`,
+    );
+
+    const result = spawnSync(
+      process.execPath,
+      [cliPath, "generate", "middleware", "--name", "_middleware"],
+      { cwd: appDir, encoding: "utf-8" },
+    );
+
+    expect(result.status).not.toBe(0);
+    expect(`${result.stdout}${result.stderr}`).toContain(
+      "Pure static exports cannot use request middleware",
+    );
+    expect(existsSync(join(appDir, "src/pages/_middleware.ts"))).toBe(false);
+  });
+
   it("refuses to duplicate an existing pages middleware extension", () => {
     const appDir = createTempDir("pracht-cli-pages-middleware-existing-");
     writePagesApp(appDir);

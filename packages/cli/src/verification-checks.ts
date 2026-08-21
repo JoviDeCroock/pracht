@@ -550,6 +550,10 @@ function collectPagesMiddlewareChecks(
     return validMiddlewareFiles;
   }
 
+  if (directoryShaped.length > 0 || unsupportedExtension.length > 0 || nested.length > 0) {
+    return validMiddlewareFiles;
+  }
+
   const middleware = rootFiles[0];
   if (!middleware) return validMiddlewareFiles;
 

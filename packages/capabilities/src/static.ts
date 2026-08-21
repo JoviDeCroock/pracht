@@ -1070,6 +1070,7 @@ const STATIC_STATEMENT_START_RE =
 
 function startsStaticStatement(source: string, options: { insideTypeAssertion: boolean }): boolean {
   if (STATIC_STATEMENT_START_RE.test(source)) return true;
+  if (/^async\s+function\b/.test(source)) return true;
   if (!/^import\b/.test(source)) return false;
 
   const afterImport = skipInsignificant(source, "import".length);
@@ -1150,6 +1151,7 @@ function findTopLevelVariableInitializer(
 
 function followsTopLevelConstDeclaration(source: string, end: number): boolean {
   let declarationKind: "const" | "other" | null = null;
+  let declarationStart = -1;
   const keywords = /\b(?:const|import|let|var)\b/g;
 
   for (const match of source.slice(0, end).matchAll(keywords)) {
@@ -1164,12 +1166,20 @@ function followsTopLevelConstDeclaration(source: string, end: number): boolean {
       // initializer; neither starts a new module declaration.
       if (after === "(" || after === ".") continue;
       declarationKind = "other";
+      declarationStart = -1;
     } else {
       declarationKind = match[0] === "const" ? "const" : "other";
+      declarationStart = declarationKind === "const" ? match.index + match[0].length : -1;
     }
   }
 
-  return declarationKind === "const";
+  if (declarationKind !== "const" || declarationStart === -1) return false;
+
+  // A comma inside a generic type annotation is not a later declarator:
+  // `const metadata: Record<string, notes> = ...`. A real later declarator can
+  // only appear after the preceding declarator's initializer assignment.
+  const assignment = findVariableAssignment(source, declarationStart);
+  return assignment !== -1 && assignment < end;
 }
 
 function isAtModuleTopLevel(source: string, end: number): boolean {
