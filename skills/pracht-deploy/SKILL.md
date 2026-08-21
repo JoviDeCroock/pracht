@@ -67,7 +67,9 @@ should use `createNodeRequestHandler({ trustProxy: true })`.
 If that proxy strips Vite's deploy base from the forwarded path, set
 `nodeAdapter({ basePathStripped: true })` (or the same option on a custom
 `createNodeRequestHandler`). Do not infer this from the first path segment: a
-route may legitimately begin with the same segment as the deploy base.
+route may legitimately begin with the same segment as the deploy base. The
+adapter restores the public base before `createContext()`, loaders, and API
+handlers receive the request.
 
 The Node adapter compresses responses by default (brotli/gzip negotiated via
 `Accept-Encoding`, streaming for dynamic bodies, an in-memory LRU for static

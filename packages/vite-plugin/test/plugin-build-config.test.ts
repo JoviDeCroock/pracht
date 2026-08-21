@@ -12,7 +12,7 @@ const edgeAdapter: PrachtAdapter = {
 
 interface BuildConfig {
   resolve?: { dedupe?: string[] };
-  ssr?: { noExternal?: boolean; target?: string };
+  ssr?: { noExternal?: boolean | Array<string | RegExp>; target?: string };
   define?: Record<string, unknown>;
   environments?: {
     ssr?: {
@@ -129,6 +129,28 @@ describe("pracht plugin build config", () => {
     ).toBe(true);
   });
 
+  it("bundles Pracht runtime packages in non-edge SSR builds", () => {
+    const nodeAdapter: PrachtAdapter = {
+      id: "node",
+      serverImports: "",
+      createServerEntryModule: () => "export default {};",
+    };
+    const config = runConfigHook(nodeAdapter, true);
+    const noExternal = config.ssr?.noExternal;
+
+    expect(Array.isArray(noExternal)).toBe(true);
+    expect(
+      (noExternal as Array<string | RegExp>).some(
+        (entry) => entry instanceof RegExp && entry.test("@pracht/core"),
+      ),
+    ).toBe(true);
+    expect(
+      (noExternal as Array<string | RegExp>).some(
+        (entry) => entry instanceof RegExp && entry.test("@pracht/image"),
+      ),
+    ).toBe(true);
+  });
+
   it("uses server package conditions without preserving raw process.env reads", () => {
     const config = runConfigHook(edgeAdapter, true);
 
@@ -151,11 +173,13 @@ describe("pracht plugin build config", () => {
     expect(ssrConfig.build?.rollupOptions?.output?.manualChunks).toBeUndefined();
   });
 
-  it("does not force edge SSR options on non-edge adapters", () => {
+  it("does not force edge-only SSR options on non-edge adapters", () => {
     const nodeLikeAdapter: PrachtAdapter = { ...edgeAdapter, id: "node", edge: false };
     const config = runConfigHook(nodeLikeAdapter, true);
 
-    expect(config.ssr).toBeUndefined();
+    expect(config.ssr?.target).toBeUndefined();
+    expect(config.environments?.ssr).toBeUndefined();
+    expect(config.ssr?.noExternal).toEqual([expect.any(RegExp)]);
   });
 
   it("allows eliminated interop helpers and platform runtime imports", () => {

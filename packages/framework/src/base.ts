@@ -53,11 +53,41 @@ export function withBase(path: string): string {
  */
 export function stripBase(pathname: string): string | null {
   if (!HAS_BASE) return pathname;
+  const baseSegments = PRACHT_BASE.slice(1, -1).split("/");
+  const pathSegments = pathname.startsWith("/") ? pathname.slice(1).split("/") : null;
+  if (!pathSegments || pathSegments.length < baseSegments.length) return null;
+
+  for (let index = 0; index < baseSegments.length; index += 1) {
+    const baseSegment = canonicalizeBaseSegment(baseSegments[index]);
+    const pathSegment = canonicalizeBaseSegment(pathSegments[index]);
+    if (baseSegment === null || pathSegment === null || baseSegment !== pathSegment) return null;
+  }
+
   // The base without its trailing slash is the app root as a user would type
   // it (`/my-project`); hosts usually redirect it to `/my-project/`.
-  if (pathname === PRACHT_BASE.slice(0, -1)) return "/";
-  if (!pathname.startsWith(PRACHT_BASE)) return null;
-  return `/${pathname.slice(PRACHT_BASE.length)}`;
+  const remaining = pathSegments.slice(baseSegments.length);
+  return remaining.length === 0 ? "/" : `/${remaining.join("/")}`;
+}
+
+function canonicalizeBaseSegment(segment: string): string | null {
+  try {
+    const decoded = decodeURIComponent(segment);
+    if (decoded === "." || decoded === "..") return null;
+    for (const character of decoded) {
+      const codePoint = character.codePointAt(0);
+      if (
+        character === "/" ||
+        character === "\\" ||
+        codePoint === 0 ||
+        (codePoint !== undefined && (codePoint <= 0x1f || codePoint === 0x7f))
+      ) {
+        return null;
+      }
+    }
+    return encodeURIComponent(decoded);
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -67,4 +97,12 @@ export function stripBase(pathname: string): string | null {
  */
 export function stripBaseLenient(pathname: string): string {
   return stripBase(pathname) ?? pathname;
+}
+
+/** @internal Restore a trusted proxy-stripped pathname before app code sees the Request. */
+export function restoreBasePathInRequest(request: Request): Request {
+  if (!HAS_BASE) return request;
+  const url = new URL(request.url);
+  url.pathname = withBase(url.pathname);
+  return new Request(url, request);
 }

@@ -102,6 +102,33 @@ function portableOutputName(name: string): string {
   return name.normalize("NFC").toLowerCase();
 }
 
+function isSafeStaticDeployBase(base: string): boolean {
+  if (!base.startsWith("/") || base.startsWith("//") || base.includes("?") || base.includes("#")) {
+    return false;
+  }
+
+  try {
+    return base.split("/").every((segment) => {
+      const decoded = decodeURIComponent(segment);
+      if (decoded === "." || decoded === "..") return false;
+      for (const character of decoded) {
+        const codePoint = character.codePointAt(0);
+        if (
+          character === "/" ||
+          character === "\\" ||
+          codePoint === 0 ||
+          (codePoint !== undefined && (codePoint <= 0x1f || codePoint === 0x7f))
+        ) {
+          return false;
+        }
+      }
+      return true;
+    });
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Find an existing output whose path is equivalent on portable,
  * case-insensitive filesystems. Walk one component at a time so a file that
@@ -157,11 +184,12 @@ export async function validateStaticExport(serverMod: StaticServerModuleView): P
   // the client build retains a document-relative base. Validate the original
   // config value when the generated bundle provides it.
   const configuredBase = serverMod.configuredBase ?? buildBase;
-  if (!configuredBase.startsWith("/") || configuredBase.startsWith("//")) {
+  if (!isSafeStaticDeployBase(configuredBase)) {
     problems.push(
-      `Vite \`base\` is set to ${JSON.stringify(configuredBase)}, but static exports require an origin-root or root-absolute path base:\n` +
+      `Vite \`base\` is set to ${JSON.stringify(configuredBase)}, but static exports require a safe origin-root or root-absolute path base:\n` +
         `    - CDN bases split assets from documents and /_pracht/state/…\n` +
         `    - relative bases resolve assets beneath each nested page directory\n` +
+        `    - malformed or separator-decoding path segments are not portable across static hosts\n` +
         '  Use a path base for a sub-path deploy (base: "/my-project/"), or the origin root (base: "/").',
     );
   }

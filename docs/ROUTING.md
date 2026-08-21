@@ -570,11 +570,17 @@ When a trusted proxy strips the base before forwarding (the usual nginx
 be declared explicitly: generated Node entries use
 `nodeAdapter({ basePathStripped: true })`, while custom runtimes pass
 `basePathStripped: true` to `handlePrachtRequest()`. The runtime then matches
-the base-free upstream path and restores the configured base in SSR/hydration
-state, so `useLocation()` still reports the public URL. The explicit flag also
-keeps a route such as `/my-project/about` distinct: after the proxy removes the
-public base from `/my-project/my-project/about`, the route's first segment must
-not be stripped a second time.
+the base-free upstream path and restores the configured base in the `Request`,
+parsed `url`, and SSR/hydration state. Consequently `createContext()`, loaders,
+API handlers, and `useLocation()` all observe the public URL. The explicit flag
+also keeps a route such as `/my-project/about` distinct: after the proxy removes
+the public base from `/my-project/my-project/about`, the route's first segment
+must not be stripped a second time.
+
+Base matching compares canonical URL segments, so equivalent percent-escape
+spellings match (`/caf%C3%A9/` and `/caf%c3%a9/`). A configured base must not
+contain malformed escapes or a segment that decodes to `/`, `\\`, `.`, `..`,
+NUL, or another control character.
 
 ---
 

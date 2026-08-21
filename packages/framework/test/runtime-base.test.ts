@@ -8,7 +8,12 @@ afterEach(() => {
 
 async function renderUnderBase(
   requestPath: string,
-  options: { basePathStripped?: boolean; expectedStatus?: number; routePath?: string } = {},
+  options: {
+    basePathStripped?: boolean;
+    expectedStatus?: number;
+    observedUrls?: string[];
+    routePath?: string;
+  } = {},
 ): Promise<string> {
   vi.resetModules();
   vi.stubEnv("BASE_URL", "/app/");
@@ -31,6 +36,14 @@ async function renderUnderBase(
       routeModules: {
         "/src/routes/about.tsx": async () => ({
           Component: () => h("main", null, core.useLocation().pathname),
+          ...(options.observedUrls
+            ? {
+                loader: ({ request, url }: { request: Request; url: URL }) => {
+                  options.observedUrls?.push(request.url, url.href);
+                  return null;
+                },
+              }
+            : {}),
         }),
       },
     },
@@ -47,10 +60,18 @@ describe("server runtime under a deploy base", () => {
   });
 
   it("restores the browser base after a reverse proxy strips it", async () => {
-    const html = await renderUnderBase("/about?ref=campaign", { basePathStripped: true });
+    const observedUrls: string[] = [];
+    const html = await renderUnderBase("/about?ref=campaign", {
+      basePathStripped: true,
+      observedUrls,
+    });
 
     expect(html).toContain("<main>/app/about</main>");
     expect(html).toContain('"url":"/app/about?ref=campaign"');
+    expect(observedUrls).toEqual([
+      "http://upstream/app/about?ref=campaign",
+      "http://upstream/app/about?ref=campaign",
+    ]);
   });
 
   it("does not duplicate a base that the upstream request retained", async () => {

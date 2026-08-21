@@ -30,7 +30,9 @@ node dist/server/server.js
 When Vite uses a deploy base and a trusted reverse proxy removes that base
 before forwarding, set `basePathStripped: true`. The explicit setting avoids
 confusing a legitimate route whose first segment matches the base with an
-unstripped public URL.
+unstripped public URL. Pracht restores the configured base before
+`createContext()`, loaders, and API handlers receive the request, so
+application code continues to observe the public URL.
 
 ## Context factory
 

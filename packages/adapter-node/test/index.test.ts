@@ -57,6 +57,8 @@ async function waitFor(predicate: () => boolean, timeoutMs = 2_000): Promise<voi
 
 afterEach(async () => {
   vi.restoreAllMocks();
+  vi.unstubAllEnvs();
+  vi.resetModules();
 
   while (onUnhandledCleanups.length > 0) {
     onUnhandledCleanups.pop()?.();
@@ -125,6 +127,53 @@ describe("createNodeServerEntryModule", () => {
 });
 
 describe("createNodeRequestHandler", () => {
+  it("restores a proxy-stripped base before createContext and route loaders", async () => {
+    vi.stubEnv("BASE_URL", "/app/");
+    vi.resetModules();
+    const [core, adapter] = await Promise.all([
+      import("../../framework/src/index.ts"),
+      import("../src/node-handler.ts"),
+    ]);
+    const observedUrls: string[] = [];
+    const handler = adapter.createNodeRequestHandler({
+      app: core.defineApp({
+        routes: [core.route("/about", "./routes/about.tsx", { render: "ssr" })],
+      }),
+      basePathStripped: true,
+      createContext: ({ request }) => {
+        observedUrls.push(request.url);
+        return {};
+      },
+      registry: {
+        routeModules: {
+          "./routes/about.tsx": async () => ({
+            Component: () => "about",
+            loader: ({ request }: { request: Request }) => {
+              observedUrls.push(request.url);
+              return null;
+            },
+          }),
+        },
+      },
+    });
+    const server = createServer((req: IncomingMessage, res: ServerResponse) => {
+      void handler(req, res);
+    });
+    servers.add(server);
+    server.listen(0, "127.0.0.1");
+    await once(server, "listening");
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("Expected TCP server address");
+
+    const response = await fetch(`http://127.0.0.1:${address.port}/about?ref=campaign`);
+
+    expect(response.status).toBe(200);
+    expect(observedUrls).toEqual([
+      `http://127.0.0.1:${address.port}/app/about?ref=campaign`,
+      `http://127.0.0.1:${address.port}/app/about?ref=campaign`,
+    ]);
+  });
+
   it("warns for deployed Node handlers without a canonical origin", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const staticDir = makeTempDir();

@@ -20,6 +20,7 @@ import {
   preventHeuristicCaching,
   readRevalidationRequest,
   RevalidationReport,
+  restoreBasePathInRequest,
   resolveRevalidationToken,
   type ResolvedApiRoute,
   type PrachtApp,
@@ -233,14 +234,19 @@ export function createNodeRequestHandler<TContext = unknown>(
       if (served) return;
     }
 
-    const applicationRequest = createApplicationRequest(request, compression);
+    let applicationRequest = createApplicationRequest(request, compression);
+    if (options.basePathStripped) {
+      applicationRequest = restoreBasePathInRequest(applicationRequest);
+    }
     const context = options.createContext
       ? await options.createContext({ request: applicationRequest, req, res })
       : undefined;
 
     const response = await handlePrachtRequest({
       app: options.app,
-      basePathStripped: options.basePathStripped,
+      // The adapter restored the public pathname before exposing this Request
+      // to createContext or the framework runtime.
+      basePathStripped: false,
       context,
       registry: options.registry,
       request: applicationRequest,

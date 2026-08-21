@@ -1,7 +1,7 @@
 import { h } from "preact";
 import type { FunctionComponent } from "preact";
 import { matchApiRoute, matchAppRoute, resolveApp } from "./app.ts";
-import { stripBase, withBase } from "./base.ts";
+import { restoreBasePathInRequest, stripBase } from "./base.ts";
 import { collectFontHeadFragments } from "./font.ts";
 import { ROUTE_STATE_REQUEST_HEADER, SAFE_METHODS } from "./runtime-constants.ts";
 import {
@@ -331,12 +331,19 @@ export interface HandlePrachtRequestOptions<TContext = unknown> {
 export async function handlePrachtRequest<TContext>(
   options: HandlePrachtRequestOptions<TContext>,
 ): Promise<Response> {
+  if (options.basePathStripped) {
+    options = {
+      ...options,
+      basePathStripped: false,
+      request: restoreBasePathInRequest(options.request),
+    };
+  }
   const url = new URL(options.request.url);
   const hasDataParam = url.searchParams.get("_data") === "1";
   if (hasDataParam) {
     url.searchParams.delete("_data");
   }
-  const routePathname = options.basePathStripped ? url.pathname : stripBase(url.pathname);
+  const routePathname = stripBase(url.pathname);
   // Outside the configured base belongs to another app on the same origin.
   // A proxy-rewritten request must opt into the base-free interpretation
   // above; inferring it here would make a legitimate first route segment that
@@ -349,11 +356,7 @@ export async function handlePrachtRequest<TContext>(
       }),
     );
   }
-  // When the upstream explicitly stripped the mount prefix, restore it only
-  // in the URL serialized into SSR/hydration state. Matching remains base-free.
-  const requestPath = options.basePathStripped
-    ? withBase(getRequestPath(url))
-    : getRequestPath(url);
+  const requestPath = getRequestPath(url);
   // Everything the app declares — routes, API routes, capability endpoints —
   // is addressed without the deploy base, while the request carries it.
   // `requestPath` stays the URL the visitor is at: it drives `useLocation()`

@@ -145,7 +145,7 @@ This is explicit because an upstream path such as `/my-project/about` is
 ambiguous by inspection: it could be a retained `/my-project/` base followed
 by route `/about`, or the already-stripped route `/my-project/about`. The flag
 selects the latter and lets the runtime restore the public base only for the
-URL exposed to application code and hydration state.
+URL exposed to `createContext()`, loaders, API handlers, and hydration state.
 
 ### Features
 
@@ -1394,6 +1394,10 @@ Two things to know:
   root. `base: "./"` and `base: ""` make nested pages resolve assets beneath
   their own directories. Static exports therefore require `/` or a
   root-absolute path such as `/my-project/`.
+- **The root-absolute base must use safe URL segments.** Malformed percent
+  escapes and segments that decode to `/`, `\\`, `.`, `..`, NUL, or another
+  control character are build errors. Equivalent percent-escape spellings are
+  accepted and matched canonically at runtime.
 
 ### `pracht preview`
 

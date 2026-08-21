@@ -373,6 +373,28 @@ describe("validateStaticExport", () => {
     }
   });
 
+  it("fails closed on unsafe root-absolute base paths", async () => {
+    for (const configuredBase of [
+      "/app%2Fadmin/",
+      "/app%5Cadmin/",
+      "/app%00admin/",
+      "/%2E%2E/admin/",
+      "/app?tenant=admin",
+      "/app#admin",
+      "/bad%escape/",
+    ]) {
+      const error = await validateStaticExport({
+        buildBase: "/app/",
+        configuredBase,
+        resolvedApp: { routes: [{ path: "/", render: "ssg" }] },
+      }).catch((thrown: Error) => thrown);
+
+      expect(error).toBeInstanceOf(Error);
+      expect((error as Error).message).toContain(JSON.stringify(configuredBase));
+      expect((error as Error).message).toContain("separator-decoding");
+    }
+  });
+
   it("fails closed when Vite normalized a configured relative base in the SSR bundle", async () => {
     const error = await validateStaticExport({
       buildBase: "/",

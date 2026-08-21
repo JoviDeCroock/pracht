@@ -277,6 +277,13 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
               },
             }
           : {}),
+        ...(!isEdge && isSSRBuild
+          ? {
+              ssr: {
+                noExternal: [PRACHT_SSR_NO_EXTERNAL],
+              },
+            }
+          : {}),
       };
     },
 
@@ -704,6 +711,11 @@ const PRACHT_OPTIMIZE_DEPS_INCLUDE = [
 // and with them the `options` object `preact/hooks` mutates, which is the
 // state a second copy splits in two.
 const PREACT_DEDUPE = ["preact", "preact-render-to-string"];
+// Published Pracht packages live under node_modules, where Vite would
+// externalize them from Node/static SSR builds. Keep them in the bundle so
+// compile-time values such as import.meta.env.BASE_URL are transformed and
+// module-scoped request state is shared with generated app code.
+const PRACHT_SSR_NO_EXTERNAL = /^@pracht\//;
 
 function createPrachtOptimizeDepsInclude(root: string): string[] {
   // Vite deliberately leaves workspace-linked packages un-optimized (they are

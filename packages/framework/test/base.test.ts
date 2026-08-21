@@ -51,6 +51,22 @@ describe("base helpers under a sub-path", () => {
     expect(removeLenient("/blog")).toBe("/blog");
   });
 
+  it("matches equivalent percent-encoded base spellings", async () => {
+    const { stripBase: remove } = await loadBase("/caf%C3%A9/");
+
+    expect(remove("/caf%c3%a9/about")).toBe("/about");
+    expect(remove("/caf%C3%A9")).toBe("/");
+    expect(remove("/%63af%C3%A9/posts/%61")).toBe("/posts/%61");
+  });
+
+  it("rejects malformed or separator-decoding base spellings", async () => {
+    expect((await loadBase("/app%2Fadmin/")).stripBase("/app%2Fadmin/about")).toBeNull();
+    expect((await loadBase("/app%5Cadmin/")).stripBase("/app%5Cadmin/about")).toBeNull();
+    expect((await loadBase("/app%00admin/")).stripBase("/app%00admin/about")).toBeNull();
+    expect((await loadBase("/app%7Fadmin/")).stripBase("/app%7Fadmin/about")).toBeNull();
+    expect((await loadBase("/bad%escape/")).stripBase("/bad%escape/about")).toBeNull();
+  });
+
   it("leaves relative and absolute URLs alone", async () => {
     const { withBase: add } = await loadBase("/my-project/");
 
