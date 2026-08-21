@@ -98,4 +98,22 @@ describe("client router under a deploy base", () => {
       "/my-project/posts/hello",
     );
   });
+
+  it("prefixes explicit capability form actions with the deploy base", async () => {
+    const { Form } = await loadRouterUnderBase("/my-project/");
+
+    render(
+      h(
+        Form,
+        {
+          action: "/api/custom-save",
+          capability: "items.save" as never,
+        },
+        h("button", { type: "submit" }, "Save"),
+      ),
+      root,
+    );
+
+    expect(root.querySelector("form")!.getAttribute("action")).toBe("/my-project/api/custom-save");
+  });
 });

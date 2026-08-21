@@ -40,7 +40,7 @@ export function setupPrefetching(app: ResolvedPrachtApp, warmModules?: ModuleWar
   /** Route path for an href, or null when it is unparseable or outside the base. */
   function getRoutePathname(url: string): string | null {
     try {
-      return stripBase(new URL(url, window.location.origin).pathname);
+      return stripBase(new URL(url, window.location.href).pathname);
     } catch {
       return null;
     }
@@ -52,7 +52,9 @@ export function setupPrefetching(app: ResolvedPrachtApp, warmModules?: ModuleWar
 
     let url: URL;
     try {
-      url = new URL(href, window.location.origin);
+      // Match native anchor resolution: relative and query-only hrefs are
+      // based on the current document, including its deploy base.
+      url = new URL(href, window.location.href);
     } catch {
       return null;
     }

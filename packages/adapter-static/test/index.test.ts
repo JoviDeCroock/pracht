@@ -177,6 +177,18 @@ describe("createStaticPreviewHandler", () => {
     expect(outside.status).toBe(404);
   });
 
+  it("serves a percent-encoded sub-path base", async () => {
+    const { origin } = await startPreview({ base: "/caf%C3%A9/" });
+
+    const redirect = await fetch(`${origin}/caf%C3%A9`, { redirect: "manual" });
+    expect(redirect.status).toBe(301);
+    expect(redirect.headers.get("location")).toBe("/caf%C3%A9/");
+
+    const about = await fetch(`${origin}/caf%C3%A9/about`);
+    expect(about.status).toBe(200);
+    expect(await about.text()).toContain("about");
+  });
+
   it("answers misses with 404.html and status 404", async () => {
     const { origin } = await startPreview();
     const miss = await fetch(`${origin}/nope`);

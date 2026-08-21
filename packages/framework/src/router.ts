@@ -860,12 +860,13 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
     const href = anchor.getAttribute("href");
     if (!href) return;
 
-    // Resolve relative URLs. A bare `#fragment` resolves against the full
-    // current URL — against the origin alone it would lose the path.
+    // Resolve relative URLs against the current document, matching native
+    // anchor behavior. This also keeps `href="about"` and query-only links
+    // inside a sub-path deploy base.
     const isFragmentHref = href.startsWith("#");
     let url: URL;
     try {
-      url = new URL(href, isFragmentHref ? window.location.href : window.location.origin);
+      url = new URL(href, window.location.href);
     } catch {
       return;
     }

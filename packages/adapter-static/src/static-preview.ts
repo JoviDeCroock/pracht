@@ -37,6 +37,10 @@ export function createStaticPreviewHandler(
   const staticDir = resolve(options.staticDir);
   const fallback = options.fallback ?? null;
   const base = normalizePreviewBase(options.base);
+  // Vite percent-encodes non-ASCII and spaces in `config.base`, while request
+  // paths are decoded below to match the filesystem. Compare like with like,
+  // but retain `base` itself for the encoded Location header.
+  const decodedBase = decodeStaticPreviewPathname(new URL(base, "http://localhost").pathname);
 
   return async function handleStaticPreviewRequest(
     req: IncomingMessage,
@@ -61,21 +65,21 @@ export function createStaticPreviewHandler(
       return;
     }
 
-    if (base !== "/") {
+    if (decodedBase !== "/") {
       // Hosts serving a sub-path deploy redirect the bare base to its
       // trailing-slash form; mirror that so relative links resolve the same
       // way locally as they will in production.
-      if (pathname === base.slice(0, -1)) {
+      if (pathname === decodedBase.slice(0, -1)) {
         res.writeHead(301, { location: `${base}${search}` });
         res.end();
         return;
       }
-      if (!pathname.startsWith(base)) {
+      if (!pathname.startsWith(decodedBase)) {
         res.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
         res.end("Not found");
         return;
       }
-      pathname = `/${pathname.slice(base.length)}`;
+      pathname = `/${pathname.slice(decodedBase.length)}`;
     }
 
     const file = await resolveStaticFile(staticDir, pathname);
