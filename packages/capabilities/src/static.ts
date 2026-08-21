@@ -76,6 +76,8 @@ export function hasNamedMiddlewareExport(program: unknown): boolean {
     root,
     bindingWrites,
   );
+  let hasExplicitMiddlewareExport = false;
+  let hasValueStarExport = false;
 
   for (const statement of nodeArray(root.body)) {
     if (statement.type === "ExportAllDeclaration") {
@@ -83,34 +85,45 @@ export function hasNamedMiddlewareExport(program: unknown): boolean {
       // `export * as middleware` exposes a namespace object rather than the
       // required function. Only an ordinary value `export * from` can
       // conservatively re-export a working middleware binding.
-      if (statement.exportKind === "type" || statement.exported) continue;
-      return true;
+      if (statement.exportKind === "type") continue;
+      if (statement.exported) {
+        if (getStaticIdentifierName(statement.exported) === "middleware") {
+          hasExplicitMiddlewareExport = true;
+        }
+        continue;
+      }
+      hasValueStarExport = true;
+      continue;
     }
     if (statement.type !== "ExportNamedDeclaration" || statement.exportKind === "type") continue;
 
     const declaration = asStaticAnalysisNode(statement.declaration);
     if (declaration?.type === "FunctionDeclaration") {
-      if (
-        getStaticIdentifierName(declaration.id) === "middleware" &&
-        !isBindingKnownNonCallableAt(
-          "middleware",
-          Number.POSITIVE_INFINITY,
-          knownNonCallableBindings,
-          bindingWrites,
-        )
-      ) {
-        return true;
+      if (getStaticIdentifierName(declaration.id) === "middleware") {
+        hasExplicitMiddlewareExport = true;
+        if (
+          !isBindingKnownNonCallableAt(
+            "middleware",
+            Number.POSITIVE_INFINITY,
+            knownNonCallableBindings,
+            bindingWrites,
+          )
+        ) {
+          return true;
+        }
       }
     } else if (declaration?.type === "TSImportEqualsDeclaration") {
       if (
         declaration.importKind !== "type" &&
         getStaticIdentifierName(declaration.id) === "middleware"
       ) {
+        hasExplicitMiddlewareExport = true;
         return true;
       }
     } else if (declaration?.type === "VariableDeclaration" && declaration.declare !== true) {
       for (const declarator of nodeArray(declaration.declarations)) {
         if (!collectStaticBindingNames(declarator.id).includes("middleware")) continue;
+        hasExplicitMiddlewareExport = true;
         if (
           isBindingKnownNonCallableAt(
             "middleware",
@@ -123,11 +136,21 @@ export function hasNamedMiddlewareExport(program: unknown): boolean {
         }
         return true;
       }
+    } else if (
+      declaration &&
+      declaration.declare !== true &&
+      (declaration.type === "ClassDeclaration" ||
+        declaration.type === "TSEnumDeclaration" ||
+        declaration.type === "TSModuleDeclaration") &&
+      getStaticIdentifierName(declaration.id) === "middleware"
+    ) {
+      hasExplicitMiddlewareExport = true;
     }
 
     for (const specifier of nodeArray(statement.specifiers)) {
       if (specifier.type !== "ExportSpecifier" || specifier.exportKind === "type") continue;
       if (getStaticIdentifierName(specifier.exported) !== "middleware") continue;
+      hasExplicitMiddlewareExport = true;
 
       // A re-export from another module cannot be resolved without loading it;
       // preserve working value barrels and let runtime validation fail closed.
@@ -150,7 +173,10 @@ export function hasNamedMiddlewareExport(program: unknown): boolean {
     }
   }
 
-  return false;
+  // Explicit exports take precedence over star exports in ESM. A known-bad
+  // explicit `middleware` therefore cannot be rescued by an unrelated
+  // `export *`, while a module with only a value star remains conservative.
+  return !hasExplicitMiddlewareExport && hasValueStarExport;
 }
 
 function collectTopLevelBindingKinds(
@@ -1613,7 +1639,8 @@ function findBindingShadowRanges(
   declarationIndex: number,
 ): { start: number; end: number }[] {
   const ranges: { start: number; end: number }[] = [];
-  const controlStatementKeywords = new Set(["for", "if", "switch", "while", "with"]);
+  const functionBodyRanges: { start: number; end: number }[] = [];
+  const controlStatementKeywords = new Set(["catch", "for", "if", "switch", "while", "with"]);
   const functions = /\bfunction\s*\*?\s*(?:[A-Za-z_$][A-Za-z0-9_$]*\s*)?\(/g;
 
   for (const match of source.matchAll(functions)) {
@@ -1621,14 +1648,15 @@ function findBindingShadowRanges(
     const parametersStart = match.index + match[0].lastIndexOf("(");
     const parametersEnd = findMatchingBrace(source, parametersStart, "(", ")");
     if (parametersEnd === -1) continue;
-    if (!parameterListBindsName(source.slice(parametersStart + 1, parametersEnd), name)) {
-      continue;
-    }
 
     const bodyStart = skipInsignificant(source, parametersEnd + 1);
     if (source[bodyStart] !== "{") continue;
     const bodyEnd = findMatchingBrace(source, bodyStart, "{", "}");
     if (bodyEnd === -1) continue;
+    functionBodyRanges.push({ start: bodyStart, end: bodyEnd + 1 });
+    if (!parameterListBindsName(source.slice(parametersStart + 1, parametersEnd), name)) {
+      continue;
+    }
     ranges.push({ start: parametersStart, end: bodyEnd + 1 });
   }
 
@@ -1652,18 +1680,20 @@ function findBindingShadowRanges(
     const parametersStart = match.index + match[0].lastIndexOf("(");
     const parametersEnd = findMatchingBrace(source, parametersStart, "(", ")");
     if (parametersEnd === -1) continue;
-    if (!parameterListBindsName(source.slice(parametersStart + 1, parametersEnd), name)) {
-      continue;
-    }
 
     const bodyStart = skipInsignificant(source, parametersEnd + 1);
     if (source[bodyStart] !== "{") continue;
     const bodyEnd = findMatchingBrace(source, bodyStart, "{", "}");
     if (bodyEnd === -1) continue;
+    functionBodyRanges.push({ start: bodyStart, end: bodyEnd + 1 });
+    if (!parameterListBindsName(source.slice(parametersStart + 1, parametersEnd), name)) {
+      continue;
+    }
     ranges.push({ start: parametersStart, end: bodyEnd + 1 });
   }
 
   for (let arrow = source.indexOf("=>"); arrow !== -1; arrow = source.indexOf("=>", arrow + 2)) {
+    if (isVariableTypeAnnotationArrow(source, arrow)) continue;
     let parameterEnd = arrow - 1;
     while (parameterEnd >= 0 && /\s/.test(source[parameterEnd])) parameterEnd -= 1;
 
@@ -1680,7 +1710,6 @@ function findBindingShadowRanges(
       parameterStart += 1;
       parameters = source.slice(parameterStart, parameterEnd + 1);
     }
-    if (!parameterListBindsName(parameters, name)) continue;
 
     const bodyStart = skipInsignificant(source, arrow + 2);
     const bodyEnd =
@@ -1688,15 +1717,27 @@ function findBindingShadowRanges(
         ? findMatchingBrace(source, bodyStart, "{", "}")
         : findArrowExpressionEnd(source, bodyStart);
     if (bodyEnd === -1) continue;
+    functionBodyRanges.push({ start: bodyStart, end: bodyEnd + 1 });
+    if (!parameterListBindsName(parameters, name)) continue;
     ranges.push({ start: parameterStart, end: bodyEnd + 1 });
   }
 
   const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const directDeclaration = new RegExp(`\\b(?:class|const|function|let)\\s+${escapedName}\\b`, "g");
+  const directDeclaration = new RegExp(
+    `\\b(?:class|const|function|let|var)\\s+${escapedName}\\b`,
+    "g",
+  );
   for (const match of source.matchAll(directDeclaration)) {
     if (match.index == null) continue;
     const nameIndex = match.index + match[0].lastIndexOf(name);
     if (nameIndex === declarationIndex || isAtModuleTopLevel(source, match.index)) continue;
+    if (/^var\b/.test(match[0])) {
+      const functionRange = functionBodyRanges
+        .filter(({ start, end }) => match.index! >= start && match.index! < end)
+        .sort((left, right) => right.start - left.start)[0];
+      if (functionRange) ranges.push(functionRange);
+      continue;
+    }
     addEnclosingBlockShadowRange(source, match.index, ranges);
   }
 
@@ -1731,6 +1772,33 @@ function findBindingShadowRanges(
   }
 
   return ranges;
+}
+
+/** Whether a raw `=>` belongs to a variable's TypeScript annotation. */
+function isVariableTypeAnnotationArrow(source: string, arrow: number): boolean {
+  let declarationStart = -1;
+  for (const match of source.slice(0, arrow).matchAll(/\b(?:const|let|var)\b/g)) {
+    if (match.index != null && isAtModuleTopLevel(source, match.index)) {
+      declarationStart = match.index + match[0].length;
+    }
+  }
+  if (declarationStart === -1) return false;
+
+  let segmentStart = declarationStart;
+  for (let index = declarationStart; index < arrow; index += 1) {
+    if ((source[index] === "," || source[index] === ";") && isAtModuleTopLevel(source, index)) {
+      segmentStart = index + 1;
+    }
+  }
+
+  const segment = source.slice(segmentStart, arrow);
+  if (!segment.includes(":")) return false;
+  for (let index = segmentStart; index < arrow; index += 1) {
+    if (source[index] === "=" && source[index + 1] !== ">" && isAtModuleTopLevel(source, index)) {
+      return false;
+    }
+  }
+  return true;
 }
 
 function addEnclosingBlockShadowRange(
@@ -1790,7 +1858,10 @@ function findArrowExpressionEnd(source: string, start: number): number {
     }
     if (atTopLevel && (char === "\n" || char === "\r")) {
       const next = skipInsignificant(source, index);
-      if (startsStaticStatement(source.slice(next), { insideTypeAssertion: false })) {
+      if (
+        startsStaticStatement(source.slice(next), { insideTypeAssertion: false }) ||
+        startsIdentifierExpressionStatement(source, index, next)
+      ) {
         return index - 1;
       }
     }
@@ -1807,6 +1878,28 @@ function findArrowExpressionEnd(source: string, start: number): number {
   }
 
   return source.length - 1;
+}
+
+function startsIdentifierExpressionStatement(
+  source: string,
+  lineBreak: number,
+  next: number,
+): boolean {
+  const nextWord = /^[A-Za-z_$][A-Za-z0-9_$]*/.exec(source.slice(next))?.[0];
+  if (!nextWord || new Set(["as", "in", "instanceof", "satisfies"]).has(nextWord)) return false;
+
+  let previous = lineBreak - 1;
+  while (previous >= 0 && /[ \t]/.test(source[previous])) previous -= 1;
+  if (previous < 0) return false;
+  if (/[)\]}'"`0-9]/.test(source[previous])) return true;
+  if (!/[A-Za-z0-9_$]/.test(source[previous])) return false;
+
+  let wordStart = previous;
+  while (wordStart >= 0 && /[A-Za-z0-9_$]/.test(source[wordStart])) wordStart -= 1;
+  const previousWord = source.slice(wordStart + 1, previous + 1);
+  return !new Set(["await", "delete", "in", "instanceof", "new", "typeof", "void", "yield"]).has(
+    previousWord,
+  );
 }
 
 function parameterListBindsName(parameters: string, name: string): boolean {
@@ -2434,6 +2527,12 @@ function maskLexicalNoise(source: string, maskStrings: boolean): string {
   let index = 0;
   while (index < source.length) {
     const char = source[index];
+    if (char === "`" && maskStrings) {
+      const end = maskTemplateLiteral(source, chars, index);
+      if (end === -1) return chars.slice(0, index).join("") + " ".repeat(source.length - index);
+      index = end + 1;
+      continue;
+    }
     if (char === '"' || char === "'" || char === "`") {
       const end = findStringEnd(source, index);
       if (end === -1) return chars.slice(0, index).join("") + " ".repeat(source.length - index);
@@ -2474,6 +2573,85 @@ function maskLexicalNoise(source: string, maskStrings: boolean): string {
     index += 1;
   }
   return chars.join("");
+}
+
+/** Mask template quasis while preserving executable `${ ... }` expressions. */
+function maskTemplateLiteral(source: string, chars: string[], start: number): number {
+  const mask = (index: number): void => {
+    if (chars[index] !== "\n" && chars[index] !== "\r") chars[index] = " ";
+  };
+  mask(start);
+
+  for (let index = start + 1; index < source.length; index += 1) {
+    const char = source[index];
+    if (char === "\\") {
+      mask(index);
+      if (index + 1 < source.length) mask(++index);
+      continue;
+    }
+    if (char === "`") {
+      mask(index);
+      return index;
+    }
+    if (char !== "$" || source[index + 1] !== "{") {
+      mask(index);
+      continue;
+    }
+
+    mask(index);
+    mask(index + 1);
+    let depth = 1;
+    index += 2;
+    while (index < source.length && depth > 0) {
+      const inner = source[index];
+      if (inner === '"' || inner === "'") {
+        const end = findStringEnd(source, index);
+        if (end === -1) return -1;
+        for (let cursor = index; cursor <= end; cursor += 1) mask(cursor);
+        index = end + 1;
+        continue;
+      }
+      if (inner === "`") {
+        const end = maskTemplateLiteral(source, chars, index);
+        if (end === -1) return -1;
+        index = end + 1;
+        continue;
+      }
+      if (inner === "/" && source[index + 1] === "/") {
+        const end = source.indexOf("\n", index + 2);
+        const limit = end === -1 ? source.length : end;
+        for (let cursor = index; cursor < limit; cursor += 1) mask(cursor);
+        index = limit;
+        continue;
+      }
+      if (inner === "/" && source[index + 1] === "*") {
+        const end = source.indexOf("*/", index + 2);
+        const limit = end === -1 ? source.length : end + 2;
+        for (let cursor = index; cursor < limit; cursor += 1) mask(cursor);
+        index = limit;
+        continue;
+      }
+      if (inner === "/") {
+        const end = regexLiteralEnd(source, index);
+        if (end !== -1) {
+          for (let cursor = index; cursor < end; cursor += 1) mask(cursor);
+          index = end;
+          continue;
+        }
+      }
+      if (inner === "{") depth += 1;
+      else if (inner === "}") {
+        depth -= 1;
+        if (depth === 0) {
+          mask(index);
+          break;
+        }
+      }
+      index += 1;
+    }
+    if (depth > 0) return -1;
+  }
+  return -1;
 }
 
 function maskComments(source: string): string {
