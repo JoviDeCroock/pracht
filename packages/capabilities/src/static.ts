@@ -867,6 +867,7 @@ export function extractManifestModuleRegistrations(
 /** Resolve local identifier aliases until they reach a concrete initializer. */
 function resolveTopLevelBindingAliases(source: string, expression: string): string {
   const seen = new Set<string>();
+  const bindingChain: { declarationIndex: number; name: string }[] = [];
   let resolved = unwrapTransparentRegistryExpression(expression);
 
   while (true) {
@@ -874,10 +875,65 @@ function resolveTopLevelBindingAliases(source: string, expression: string): stri
     if (!identifier || seen.has(identifier)) return resolved;
     seen.add(identifier);
 
-    const initializer = findTopLevelVariableInitializer(source, identifier);
-    if (!initializer) return resolved;
-    resolved = unwrapTransparentRegistryExpression(initializer);
+    const binding = findTopLevelVariableInitializer(source, identifier);
+    if (!binding) return resolved;
+    bindingChain.push({ declarationIndex: binding.declarationIndex, name: identifier });
+
+    const initializer = unwrapTransparentRegistryExpression(binding.initializer);
+    if (
+      startsWithObjectLiteral(initializer) &&
+      bindingChain.some(
+        ({ declarationIndex, name }) => !hasSingleStaticBindingUse(source, name, declarationIndex),
+      )
+    ) {
+      // A `const` binding prevents reassignment, but its registry object can
+      // still be mutated directly or through an alias. Once the object has an
+      // additional runtime use, static extraction cannot prove that the
+      // initializer is still the registry passed to defineApp().
+      return resolved;
+    }
+    resolved = initializer;
   }
+}
+
+function startsWithObjectLiteral(expression: string): boolean {
+  return expression[skipInsignificant(expression, 0)] === "{";
+}
+
+/**
+ * Registry objects are safe to inline only when every binding in their alias
+ * chain is consumed exactly once by the next alias (or by defineApp()). Any
+ * extra use can mutate the object or hand it to code that does, so keep the
+ * registry opaque instead of projecting a stale module map.
+ */
+function hasSingleStaticBindingUse(
+  source: string,
+  name: string,
+  declarationIndex: number,
+): boolean {
+  const searchable = maskCommentsAndStrings(source);
+  const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const identifier = new RegExp(`(?<![A-Za-z0-9_$])${escapedName}(?![A-Za-z0-9_$])`, "g");
+  let uses = 0;
+
+  for (const match of searchable.matchAll(identifier)) {
+    if (match.index == null || match.index === declarationIndex) continue;
+    if (isStaticPropertyName(searchable, match.index, match[0].length)) continue;
+
+    uses += 1;
+    if (uses > 1) return false;
+  }
+
+  return uses === 1;
+}
+
+function isStaticPropertyName(source: string, start: number, length: number): boolean {
+  let before = start - 1;
+  while (before >= 0 && /\s/.test(source[before])) before -= 1;
+  if (source[before] === ".") return true;
+
+  const after = skipInsignificant(source, start + length);
+  return source[after] === ":" && (source[before] === "{" || source[before] === ",");
 }
 
 /**
@@ -923,6 +979,21 @@ function hasStandaloneTypeAssertionTail(expression: string, start: number): bool
     index += 1
   ) {
     const char = expression[index];
+    const atTypeTopLevel = braces === 0 && brackets === 0 && parentheses === 0 && angles === 0;
+    if (atTypeTopLevel && /\s/.test(char)) {
+      const next = skipInsignificant(expression, index);
+      if (
+        next > index &&
+        /\r?\n/.test(expression.slice(index, next)) &&
+        startsStaticStatement(expression.slice(next), { insideTypeAssertion: true })
+      ) {
+        return true;
+      }
+      if (next > index) {
+        index = next - 1;
+        continue;
+      }
+    }
     if (char === '"' || char === "'" || char === "`") {
       const end = findStringEnd(expression, index);
       if (end === -1) return false;
@@ -934,7 +1005,6 @@ function hasStandaloneTypeAssertionTail(expression: string, start: number): bool
       continue;
     }
 
-    const atTypeTopLevel = braces === 0 && brackets === 0 && parentheses === 0 && angles === 0;
     if (atTypeTopLevel) {
       if (char === ";" || char === ",") return true;
       const word = /^[A-Za-z_$][A-Za-z0-9_$]*/.exec(expression.slice(index))?.[0];
@@ -982,9 +1052,7 @@ function extractStandaloneBindingIdentifier(expression: string): string | null {
   const tail = skipInsignificant(expression, end);
   const lineBreakStartsStatement =
     /\r?\n/.test(expression.slice(end, tail)) &&
-    /^(?:(?:export|import)\b|(?:abstract|class|const|declare|enum|function|interface|let|module|namespace|type|var)\b)/.test(
-      expression.slice(tail),
-    );
+    startsStaticStatement(expression.slice(tail), { insideTypeAssertion: false });
   if (
     tail >= expression.length ||
     expression[tail] === ";" ||
@@ -995,6 +1063,17 @@ function extractStandaloneBindingIdentifier(expression: string): string | null {
     return match[0];
   }
   return null;
+}
+
+const STATIC_STATEMENT_START_RE =
+  /^(?:abstract|break|class|const|continue|debugger|declare|do|enum|export|for|function|if|interface|let|module|namespace|return|switch|throw|try|type|var|while)\b/;
+
+function startsStaticStatement(source: string, options: { insideTypeAssertion: boolean }): boolean {
+  if (STATIC_STATEMENT_START_RE.test(source)) return true;
+  if (!/^import\b/.test(source)) return false;
+
+  const afterImport = skipInsignificant(source, "import".length);
+  return !options.insideTypeAssertion || source[afterImport] !== "(";
 }
 
 function scanModuleRegistryProperties(block: string): Map<string, string> {
@@ -1046,7 +1125,10 @@ function extractModuleRefPath(expression: string): string | null {
   return typeof value === "string" ? value : null;
 }
 
-function findTopLevelVariableInitializer(source: string, name: string): string | null {
+function findTopLevelVariableInitializer(
+  source: string,
+  name: string,
+): { declarationIndex: number; initializer: string } | null {
   const searchable = maskCommentsAndStrings(source);
   const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const declaration = new RegExp(`(\\bconst\\s+|,)\\s*${escapedName}\\b`, "g");
@@ -1057,7 +1139,10 @@ function findTopLevelVariableInitializer(source: string, name: string): string |
     const afterName = match.index + match[0].length;
     const assignment = findVariableAssignment(searchable, afterName);
     if (assignment === -1) continue;
-    return source.slice(skipInsignificant(source, assignment + 1));
+    return {
+      declarationIndex: match.index + match[0].length - name.length,
+      initializer: source.slice(skipInsignificant(source, assignment + 1)),
+    };
   }
 
   return null;

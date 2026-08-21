@@ -167,6 +167,21 @@ describe("capability static extraction", () => {
     },
   );
 
+  it.each(["as", "satisfies"])(
+    "resolves semicolonless asserted aliases before the exported app using %s",
+    (operator) => {
+      const source = `
+        const sourcePath = "./capabilities/notes.ts"
+        const notes = sourcePath ${operator} ModuleRef
+        export const app = defineApp({ capabilities: { notes }, routes: [] });
+      `;
+
+      expect(extractCapabilityRegistrations(source)).toEqual([
+        { name: "notes", file: "./capabilities/notes.ts" },
+      ]);
+    },
+  );
+
   it("resolves TypeScript-asserted transitive registry aliases", () => {
     const source = `
       const middlewareSource = "./pages/_middleware.ts";
@@ -226,6 +241,19 @@ describe("capability static extraction", () => {
     expect(extractCapabilityRegistrations(source)).toEqual([]);
   });
 
+  it("resolves semicolonless aliases before a control-flow statement", () => {
+    const source = `
+      const sourcePath = "./capabilities/notes.ts"
+      const notes = sourcePath
+      if (process.env.NODE_ENV === "test") {}
+      export const app = defineApp({ capabilities: { notes }, routes: [] });
+    `;
+
+    expect(extractCapabilityRegistrations(source)).toEqual([
+      { name: "notes", file: "./capabilities/notes.ts" },
+    ]);
+  });
+
   it("resolves semicolonless aliases before the next declaration", () => {
     const source = `
       const sourcePath = "./capabilities/notes.ts"
@@ -276,6 +304,28 @@ describe("capability static extraction", () => {
     expect(extractManifestModuleRegistrations(source, "middleware")).toEqual([
       { name: "pages", file: "./pages/_middleware.ts" },
     ]);
+  });
+
+  it.each([
+    [
+      "directly",
+      `
+        const capabilities = { notes: "./capabilities/original.ts" };
+        capabilities.notes = "./capabilities/runtime.ts";
+        export const app = defineApp({ capabilities, routes: [] });
+      `,
+    ],
+    [
+      "through an alias",
+      `
+        const registry = { notes: "./capabilities/original.ts" };
+        const capabilities = registry;
+        capabilities.notes = "./capabilities/runtime.ts";
+        export const app = defineApp({ capabilities, routes: [] });
+      `,
+    ],
+  ])("keeps a registry mutated %s opaque", (_description, source) => {
+    expect(extractCapabilityRegistrations(source)).toEqual([]);
   });
 
   it("stops safely when manifest module aliases form a cycle", () => {
