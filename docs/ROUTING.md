@@ -1042,7 +1042,10 @@ dedicated middleware module without guessing from registry syntax. This stays
 correct when registries use computed keys, spreads, or helper variables, and it
 keeps ordinary co-located manifest apps from being misclassified. Header
 comments may be edited or removed; the exported marker is the durable boundary,
-including when `_app` or `_middleware` moves to a conventional directory.
+including when `_app` or `_middleware` moves to a conventional directory. Route
+and shell discovery directories may be migrated independently: a shell directory
+that still contains the root `_app` keeps the pages underscore reservation even
+after route files move elsewhere.
 
 ---
 

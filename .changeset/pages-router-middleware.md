@@ -262,3 +262,12 @@ interpolations, distinguishes TypeScript function-type arrows and semicolonless
 statement boundaries from runtime arrow scopes, and respects function-scoped
 `var` shadows. These cases now fail closed without hiding safe static
 registrations.
+
+Semicolonless top-level function type aliases no longer hide a following runtime
+registry use, keeping capability projection, verification, and registered-module
+client guards aligned with registries that are mutated after the type declaration.
+
+Ejected layouts also preserve the pages shell boundary when route files move to
+a separate directory while the root `_app` and underscore-reserved helpers remain
+in the original shell directory. Those helpers stay out of browser module globs
+during partial migrations.

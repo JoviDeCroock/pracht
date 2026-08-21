@@ -515,6 +515,17 @@ describe("capability static extraction", () => {
     expect(extractCapabilityRegistrations(source)).toEqual([]);
   });
 
+  it("does not let a semicolonless function type hide a following registry use", () => {
+    const source = `
+      const capabilities = { notes: "./capabilities/original.ts" };
+      type Handler = (capabilities: unknown) => void
+      mutate(capabilities)
+      export const app = defineApp({ capabilities, routes: [] });
+    `;
+
+    expect(extractCapabilityRegistrations(source)).toEqual([]);
+  });
+
   it("ends a semicolonless expression-bodied arrow at an identifier-led statement", () => {
     const source = `
       const capabilities = { notes: "./capabilities/original.ts" };
