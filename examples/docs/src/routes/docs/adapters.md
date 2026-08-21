@@ -374,12 +374,13 @@ the function by default at the origin root. Under a Vite deploy base those
 base-free publish paths cannot satisfy `/app/...` URLs, so the function bundles
 and serves the framework asset and state trees after stripping the base. Add
 app-specific static prefixes with `excludedPath`, but do not exclude page URLs.
-Default and prefix-shaped exclusions are also omitted from the generated
-function bundle, so large static asset trees do not count against Netlify's
-function size limit. The generated
-config enumerates the remaining client files and roots matching exclusions at
-the function file so the Functions v2 tracer cannot pull bypassed trees back
-into the bundle.
+At the origin root, default and prefix-shaped exclusions are also omitted from
+the generated function bundle, so large static asset trees do not count against
+Netlify's function size limit. With a deploy base, custom exclusions still
+bypass their literal root URLs, while matching files remain bundled for
+base-prefixed requests. The generated config enumerates the required client
+files and roots applicable bundle exclusions at the function file so the
+Functions v2 tracer cannot pull bypassed trees back into the bundle.
 An exact exclusion omits only the matching file; it does not omit an
 `index.html` representation for a trailing-slash URL that can still invoke the
 function.

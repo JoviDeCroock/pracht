@@ -160,10 +160,13 @@ describe("netlifyAdapter", () => {
     const root = await tempDir();
     await mkdir(join(root, "dist/client/assets"), { recursive: true });
     await mkdir(join(root, "dist/client/_pracht"), { recursive: true });
+    await mkdir(join(root, "dist/client/images"), { recursive: true });
     await writeFile(join(root, "dist/client/assets/app.js"), "asset");
     await writeFile(join(root, "dist/client/_pracht/headers.json"), "{}");
+    await writeFile(join(root, "dist/client/images/hero.png"), "image");
 
-    const plugin = netlifyAdapter().vitePlugins?.()[0];
+    const options = { excludedPath: ["/images/*"] };
+    const plugin = netlifyAdapter(options).vitePlugins?.()[0];
     const configResolved = plugin?.configResolved;
     if (typeof configResolved !== "function") throw new Error("missing configResolved hook");
     await configResolved.call({} as never, { root, base: "/app/", build: { ssr: true } } as never);
@@ -174,17 +177,18 @@ describe("netlifyAdapter", () => {
     let source = await readFile(join(root, "netlify/functions/pracht.mjs"), "utf-8");
     expect(source).not.toContain('"/assets/*"');
     expect(source).not.toContain('"/_pracht/*"');
+    expect(source).toContain('"/images/*"');
     expect(source).toContain('"../../dist/client/**"');
     expect(source).not.toContain('"!../../dist/client/assets/**"');
     expect(source).not.toContain('"!../../dist/client/_pracht/**"');
+    expect(source).not.toContain('"!../../dist/client/images/**"');
 
-    await finalizeNetlifyBuild(root, {}, "/app/");
+    await finalizeNetlifyBuild(root, options, "/app/");
     source = await readFile(join(root, "netlify/functions/pracht.mjs"), "utf-8");
     expect(source).toContain('"../../dist/client/assets/app.js"');
     expect(source).toContain('"../../dist/client/_pracht/headers.json"');
-    await expect(readFile(join(root, "dist/client/_headers"), "utf-8")).rejects.toMatchObject({
-      code: "ENOENT",
-    });
+    expect(source).toContain('"../../dist/client/images/hero.png"');
+    expect(await readFile(join(root, "dist/client/_headers"), "utf-8")).toContain("/images/*");
   });
 
   it("rejects excludedPath patterns that could inject _headers rules", () => {

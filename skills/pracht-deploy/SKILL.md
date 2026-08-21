@@ -266,9 +266,11 @@ function so Markdown negotiation and route-state requests remain correct;
 hashed assets bypass it and stay outside the function bundle at the origin
 root. With a Vite deploy base, the function instead bundles and serves the
 base-free asset and `/_pracht` trees so `/app/...` requests remain inside the
-mount. The generated config enumerates only client files the function can
-serve and roots matching exclusions at the function file so Netlify's tracer
-cannot re-add bypassed trees. Netlify durable caching
+mount. Custom `excludedPath` entries still bypass their literal origin-root
+URLs, but matching files remain bundled for base-prefixed requests. The
+generated config enumerates only client files the function can serve and roots
+applicable exclusions at the function file so Netlify's tracer cannot re-add
+bypassed trees. Netlify durable caching
 implements time-based ISG and per-path cache tags implement authenticated
 webhook revalidation. A trailing-slash ISG document request permanently
 redirects to the canonical slashless URL before rendering, and webhook

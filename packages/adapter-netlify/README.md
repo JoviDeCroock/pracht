@@ -65,6 +65,11 @@ corresponding trailing-slash URL can still invoke the function. Percent-encoded
 spaces and Unicode characters are decoded when resolving bundled files; encoded
 path separators and traversal segments are rejected.
 
+With a Vite deploy base, an exclusion still bypasses the function at its literal
+origin-root URL. The matching client files remain bundled as well, because a
+base-prefixed URL such as `/app/images/hero.png` cannot map onto the base-free
+publish path `/images/hero.png` through Netlify's static layer.
+
 ## Context
 
 Generated entries can import an app context factory:
