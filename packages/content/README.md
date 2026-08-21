@@ -126,12 +126,13 @@ export default defineConfig({
 The first plugin transforms plain collection source imports through the
 collection's `module` hook in every Vite environment; resource queries such as
 `?raw` and `?url` retain Vite's built-in semantics. The second serves generated artifacts
-with GET/HEAD in development and emits identical static files in client builds.
+with GET/HEAD beneath Vite's configured base in development and emits identical
+static files in client builds.
 File watcher events invalidate only the affected memoized document and the
 shared route/source index. Artifact `contentType` values are carried into
 Pracht's production headers manifest and applied by the Node, Cloudflare,
-Netlify, and Vercel adapters as well as the development response. Invalid or
-control-character values fail before publication, and an artifact named
+Netlify, and Vercel adapters as well as the development response. Malformed,
+non-portable, or control-character values fail before publication, and an artifact named
 `index.html` keeps its generated headers on its clean URL alias. A collection
 artifact at `/llms.txt` cannot be combined with Pracht's core `llmsTxt`
 generator; the build rejects that collision instead of overwriting the curated
@@ -171,8 +172,10 @@ the module locally with application-specific frontmatter and compiled types.
 ## Loaders and Markdown negotiation
 
 `contentLoader()` turns snapshot lookup into a Pracht-compatible structural
-loader without making `@pracht/core` a dependency. Use `select` to keep loader
-data serializable and small. `markdownRepresentation(document, "raw" | "body")`
+loader without making `@pracht/core` a dependency. It uses Pracht's matched,
+base-free loader `pathname` by default; structural callers outside Pracht can
+provide `pathname` or override `path`. Use `select` to keep loader data
+serializable and small. `markdownRepresentation(document, "raw" | "body")`
 selects the string a generated route module can export as its server-only
 `markdown` representation.
 

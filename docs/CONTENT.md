@@ -134,17 +134,21 @@ rescanning the collection root.
 Failed parsing or compilation is never cached. The next request/build retries,
 which keeps a temporary authoring error from poisoning the development server.
 
+`contentLoader()` uses the framework's matched, base-free loader `pathname` by
+default, so collection routes stay independent of the configured deployment base.
+
 ## Static artifacts
 
 Collection-level artifact generators receive the already-loaded, sorted
-document list. `prachtContent()` serves their output live in development and
-emits the same bytes during the client build. `rawContentArtifacts()` and
+document list. `prachtContent()` serves their output live in development beneath
+Vite's configured deployment base and emits the same bytes during the client
+build. `rawContentArtifacts()` and
 `llmsTxtArtifacts()` cover common cases; a custom generator can emit JSON,
 XML, Markdown, or binary `Uint8Array` content.
 Explicit artifact content types are preserved in the production headers
 manifest and applied to static assets by the Node, Cloudflare, Netlify, and
-Vercel adapters as well as development responses. Invalid or control-character
-content types fail before they can enter a response or deployment manifest, and
+Vercel adapters as well as development responses. Malformed, non-portable, or
+control-character content types fail before they can enter a response or deployment manifest, and
 an artifact named `index.html` keeps those headers on its clean URL alias.
 Artifacts emitted inside an `/assets/` path receive a revalidation cache policy
 because their filenames are not required to contain a content hash. If Pracht's core `llmsTxt` option is

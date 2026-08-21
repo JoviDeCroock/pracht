@@ -1,10 +1,14 @@
-import type { IncomingMessage, ServerResponse } from "node:http";
+import {
+  createServer as createHttpServer,
+  type IncomingMessage,
+  type ServerResponse,
+} from "node:http";
 import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type { Connect, ViteDevServer } from "vite";
-import { build } from "vite";
+import { build, createServer as createViteServer } from "vite";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { defineCollection } from "../src/index.ts";
@@ -289,7 +293,9 @@ describe("prachtContent", () => {
       middlewares: { use: (handler: Connect.NextHandleFunction) => (middleware = handler) },
       ssrFixStacktrace: vi.fn(),
     } as unknown as ViteDevServer;
-    hookHandler(plugin.configureServer).call({} as never, server);
+    const postHook = hookHandler(plugin.configureServer).call({} as never, server);
+    if (typeof postHook !== "function") throw new Error("Expected post configure hook");
+    postHook();
     if (!middleware) throw new Error("Expected middleware");
 
     expect(await runMiddleware(middleware, "/content.txt", "GET")).toMatchObject({
@@ -301,6 +307,41 @@ describe("prachtContent", () => {
       status: 200,
     });
     expect(await runMiddleware(middleware, "/content.txt", "POST")).toMatchObject({ status: 405 });
+  });
+
+  it("serves generated artifacts beneath Vite's configured base", async () => {
+    temporaryDirectory = await mkdtemp(join(tmpdir(), "pracht-content-vite-"));
+    await writeFile(join(temporaryDirectory, "page.md"), "Page");
+    const collection = defineCollection({
+      name: "docs",
+      root: temporaryDirectory,
+      artifacts: [() => ({ path: "/content.txt", source: "content", contentType: "text/plain" })],
+    });
+    const server = await createViteServer({
+      appType: "custom",
+      base: "/app/",
+      configFile: false,
+      logLevel: "silent",
+      plugins: prachtContent({ collections: [collection] }),
+      root: temporaryDirectory,
+      server: { middlewareMode: true },
+    });
+    const httpServer = createHttpServer(server.middlewares);
+
+    try {
+      await new Promise<void>((resolve) => httpServer.listen(0, "127.0.0.1", resolve));
+      const address = httpServer.address();
+      if (!address || typeof address === "string") throw new Error("Expected Vite HTTP server");
+      const response = await fetch(`http://127.0.0.1:${address.port}/app/content.txt`);
+
+      expect(response.status).toBe(200);
+      await expect(response.text()).resolves.toBe("content");
+    } finally {
+      await new Promise<void>((resolve, reject) =>
+        httpServer.close((error) => (error ? reject(error) : resolve())),
+      );
+      await server.close();
+    }
   });
 
   it("keeps artifact failures scoped to known artifact routes", async () => {
@@ -324,7 +365,9 @@ describe("prachtContent", () => {
       middlewares: { use: (handler: Connect.NextHandleFunction) => (middleware = handler) },
       ssrFixStacktrace: vi.fn(),
     } as unknown as ViteDevServer;
-    hookHandler(plugin.configureServer).call({} as never, server);
+    const postHook = hookHandler(plugin.configureServer).call({} as never, server);
+    if (typeof postHook !== "function") throw new Error("Expected post configure hook");
+    postHook();
     if (!middleware) throw new Error("Expected middleware");
 
     expect(await runMiddleware(middleware, "/content.txt", "GET")).toMatchObject({ status: 200 });

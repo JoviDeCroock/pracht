@@ -796,6 +796,7 @@ export async function handlePrachtRequest<TContext>(
       signal: requestSignal,
       url,
       route: match.route,
+      pathname: match.pathname,
     };
     let routeModulePromise: Promise<RouteModule | undefined> | undefined;
     let routeModule: RouteModule | undefined;

@@ -1,5 +1,6 @@
 ---
 "@pracht/content": minor
+"@pracht/core": patch
 "@pracht/cli": patch
 "@pracht/adapter-cloudflare": patch
 "@pracht/adapter-netlify": patch
@@ -63,6 +64,9 @@ hints for unlocalized collections while advertising supported locales for
 localized ones. Artifact content types are validated before entering response or
 deployment headers, and generated headers remain intact on clean URL aliases for
 artifact `index.html` files.
+Loader lookups use Pracht's matched base-free pathname, development artifacts
+honor Vite's configured deployment base, locale alias collisions include the
+target locale, and artifact content types must parse as portable HTTP media types.
 Artifacts inside an `/assets/` path override adapter-wide immutable caching with
 a revalidation policy because their filenames are not required to contain a
 content hash.

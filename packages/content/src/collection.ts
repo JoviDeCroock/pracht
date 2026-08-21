@@ -2,6 +2,7 @@ import { realpathSync } from "node:fs";
 import { readFile, readdir, realpath, stat } from "node:fs/promises";
 import { extname, isAbsolute, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+import { MIMEType } from "node:util";
 
 import { parseFrontmatter } from "./frontmatter.ts";
 import {
@@ -301,11 +302,11 @@ export function defineCollection<
     }
     for (const [alias, target] of routeAliases) {
       const conflicting = [...(byRoute.get(alias)?.values() ?? [])].find(
-        (descriptor) => descriptor.id !== target.id,
+        (descriptor) => descriptor.id !== target.id || descriptor.locale !== target.locale,
       );
       if (conflicting) {
         throw new Error(
-          `Content collection ${JSON.stringify(options.name)} has ambiguous generated route alias ${JSON.stringify(alias)} for ${JSON.stringify(target.id)} and explicit route ${JSON.stringify(conflicting.id)}.`,
+          `Content collection ${JSON.stringify(options.name)} has ambiguous generated route alias ${JSON.stringify(alias)} for ${JSON.stringify({ id: target.id, locale: target.locale })} and explicit route ${JSON.stringify({ id: conflicting.id, locale: conflicting.locale })}.`,
         );
       }
     }
@@ -731,14 +732,20 @@ function assertSupportedLocale(locale: string, locales: ContentLocaleOptions, la
 function assertValidArtifactContentType(contentType: unknown, path: string): void {
   if (contentType === undefined) return;
   if (
-    typeof contentType !== "string" ||
-    contentType.trim() === "" ||
-    hasControlCharacter(contentType)
+    typeof contentType === "string" &&
+    contentType.trim() !== "" &&
+    !hasControlCharacter(contentType)
   ) {
-    throw new TypeError(
-      `Content artifact ${JSON.stringify(path)} contentType must be a non-empty HTTP header value without control characters.`,
-    );
+    try {
+      new MIMEType(contentType);
+      return;
+    } catch {
+      // Fall through to the portable media type error below.
+    }
   }
+  throw new TypeError(
+    `Content artifact ${JSON.stringify(path)} contentType must be a valid portable HTTP media type without control characters.`,
+  );
 }
 
 function hasControlCharacter(value: string): boolean {

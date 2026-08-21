@@ -97,7 +97,9 @@ export function prachtContent(options: PrachtContentOptions): Plugin[] {
     },
 
     configureServer(server) {
-      server.middlewares.use(createArtifactMiddleware(collections, server));
+      return () => {
+        server.middlewares.use(createArtifactMiddleware(collections, server));
+      };
     },
 
     generateBundle: {

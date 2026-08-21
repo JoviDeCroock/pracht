@@ -222,8 +222,20 @@ describe("defineCollection", () => {
       locales: { default: "en", supported: ["en", "fr"] },
     });
 
-    await expect(collision.all()).rejects.toThrow(
-      /ambiguous generated route alias "\/fr\/a" for "a" and explicit route "b"/,
+    await expect(collision.all()).rejects.toThrow(/ambiguous generated route alias "\/fr\/a"/);
+
+    const localeCollision = defineCollection({
+      name: "localized-same-id-collision",
+      root,
+      sources: [
+        { id: "a", source: "a.md", locale: "en" },
+        { id: "a", path: "/fr/a", source: "b.md", locale: "de" },
+      ],
+      locales: { default: "en", supported: ["en", "fr", "de"] },
+    });
+
+    await expect(localeCollision.all()).rejects.toThrow(
+      /ambiguous generated route alias "\/fr\/a"/,
     );
   });
 
@@ -429,7 +441,15 @@ describe("collection integration helpers", () => {
   it("rejects artifact content types that cannot be emitted as portable headers", async () => {
     const root = await fixture({ "guide.md": "Guide" });
 
-    for (const contentType of ["", "   ", "text/plain\r\nx-injected: yes", "text/plain\0"]) {
+    for (const contentType of [
+      "",
+      "   ",
+      "not a media type",
+      "text/plain, text/html",
+      "text/plain 💩",
+      "text/plain\r\nx-injected: yes",
+      "text/plain\0",
+    ]) {
       const collection = defineCollection({
         name: "docs",
         root,
@@ -437,7 +457,7 @@ describe("collection integration helpers", () => {
       });
 
       await expect(collection.emitArtifacts()).rejects.toThrow(
-        /contentType must be a non-empty HTTP header value without control characters/,
+        /contentType must be a valid portable HTTP media type without control characters/,
       );
     }
   });
@@ -453,7 +473,11 @@ describe("collection integration helpers", () => {
     });
 
     await expect(
-      loader({ params: {}, request: new Request("https://example.com/docs/page") }),
+      loader({
+        params: {},
+        pathname: "/docs/page",
+        request: new Request("https://example.com/app/docs/page"),
+      }),
     ).resolves.toEqual({ markdown: "Body", title: "Page" });
     await expect(
       loader({ params: {}, request: new Request("https://example.com/missing") }),

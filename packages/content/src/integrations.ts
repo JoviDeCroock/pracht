@@ -4,6 +4,8 @@ export interface ContentLoaderArgs {
   params: Record<string, string>;
   request: Request;
   url?: URL;
+  /** Matched route pathname with the configured deployment base removed. */
+  pathname?: string;
 }
 
 export interface ContentLoaderOptions<
@@ -11,7 +13,7 @@ export interface ContentLoaderOptions<
   TCompiled,
   TOutput,
 > {
-  /** Resolve the collection route from loader args. Defaults to the request pathname. */
+  /** Resolve the collection route from loader args. Defaults to the matched route pathname. */
   path?: (args: ContentLoaderArgs) => string;
   locale?: (args: ContentLoaderArgs) => string | undefined;
   select?: (document: ContentDocument<TFrontmatter, TCompiled>) => TOutput;
@@ -29,7 +31,7 @@ export function contentLoader<
   options: ContentLoaderOptions<TFrontmatter, TCompiled, TOutput> = {},
 ): (args: ContentLoaderArgs) => Promise<TOutput> {
   return async (args) => {
-    const path = options.path?.(args) ?? new URL(args.request.url).pathname;
+    const path = options.path?.(args) ?? args.pathname ?? new URL(args.request.url).pathname;
     const document = await collection.getByRoute(path, { locale: options.locale?.(args) });
     if (!document) {
       if (options.notFound) throw options.notFound(path);

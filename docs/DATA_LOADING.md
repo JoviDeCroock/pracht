@@ -66,14 +66,15 @@ of falling through to a render (see
 
 ### LoaderArgs
 
-| Field     | Type            | Description                                        |
-| --------- | --------------- | -------------------------------------------------- |
-| `request` | `Request`       | The incoming Web Request                           |
-| `params`  | `RouteParams`   | Dynamic URL params (e.g. `{ slug: "hello" }`)      |
-| `context` | `TContext`      | App-level context (from adapter's context factory) |
-| `signal`  | `AbortSignal`   | Cancellation signal for timeouts                   |
-| `url`     | `URL`           | Parsed URL                                         |
-| `route`   | `ResolvedRoute` | Matched route metadata                             |
+| Field      | Type            | Description                                                   |
+| ---------- | --------------- | ------------------------------------------------------------- |
+| `request`  | `Request`       | The incoming Web Request                                      |
+| `params`   | `RouteParams`   | Dynamic URL params (e.g. `{ slug: "hello" }`)                 |
+| `context`  | `TContext`      | App-level context (from adapter's context factory)            |
+| `signal`   | `AbortSignal`   | Cancellation signal for timeouts                              |
+| `url`      | `URL`           | Parsed URL                                                    |
+| `route`    | `ResolvedRoute` | Matched route metadata                                        |
+| `pathname` | `string`        | Matched pathname with the configured deployment base removed |
 
 ### When loaders run
 
