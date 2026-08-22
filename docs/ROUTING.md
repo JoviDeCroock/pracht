@@ -759,7 +759,7 @@ Auto-discovery replaces the manifest, and several features are registered
 | --- | --- |
 | Render + hydration modes, dynamic and catch-all routes, `getStaticPaths`, API routes | ✅ (`RENDER_MODE` / `HYDRATION` exports) |
 | Shells | one, `_app.tsx` — no named shells or per-route assignment |
-| Middleware | ❌ no registration seam |
+| Middleware | on serverful adapters, one `_middleware.ts` at the pages root, applied to every page route — no nested or per-route middleware; pure static exports have no request runtime |
 | [Capabilities](CAPABILITIES.md) | ❌ — and therefore no capability HTTP endpoints, no WebMCP, no remote MCP, no `pracht eval` |
 | `defineApp({ constraints })`, `agents` | ❌ |
 
@@ -794,7 +794,9 @@ directory and generates the route manifest automatically.
 | `pages/guide.mdx`       | `/guide`               |
 | `pages/docs/intro.md`   | `/docs/intro`          |
 | `pages/_app.tsx`        | _(shell, not a route)_ |
+| `pages/_middleware.ts`  | _(middleware, not a route)_ |
 | `pages/_anything.tsx`   | _(ignored)_            |
+| `pages/_components/button.tsx` | _(ignored — the whole directory is reserved)_ |
 
 Markdown and MDX pages are routed the same way as `.tsx` pages, but pracht does
 not transform them: `.md` **and** `.mdx` both need a Vite transform plugin such
@@ -802,6 +804,13 @@ as `@mdx-js/rollup` registered alongside `pracht()`. Without one, Vite hands the
 raw Markdown to the JS parser and the route fails at request time (`Invalid
 Character`) and at build time. `pracht doctor` and `pracht verify` warn when a
 Markdown page is routed and no such plugin is registered.
+
+The underscore prefix reserves both files and directory trees for non-route
+implementation details. Pracht never creates routes from their contents, so
+`pages/_components/button.tsx` is ignored rather than exposed at
+`/_components/button`. `_app` and `_middleware` are recognized only at the
+pages root; `_middleware/` remains a hard error because silently ignoring a
+directory that looks like an authorization boundary would fail open.
 
 ### Shell via `_app.tsx`
 
@@ -858,6 +867,64 @@ request for otherwise headless custom modules.
 `.tsrx` remains discovered without this option for backward compatibility and
 keeps its bundled ambient module declaration. It may also be listed explicitly
 when adopting the format-agnostic configuration.
+
+### Middleware via `_middleware.ts`
+
+With a serverful adapter, a root-level `pages/_middleware.ts` exports the same
+`MiddlewareFn` contract as [manifest middleware](#middleware) and runs on every
+page route. Pure static exports cannot use request middleware:
+
+```ts
+// src/pages/_middleware.ts
+import { redirect, type MiddlewareFn } from "@pracht/core";
+
+export const middleware: MiddlewareFn = async ({ request, url }, next) => {
+  if (url.pathname === "/legacy") return redirect("/about", { request });
+  const response = await next();
+  response.headers.set("x-request-id", crypto.randomUUID());
+  return response;
+};
+```
+
+Internally it is registered as a named middleware called `"pages"` and
+attached to every page route through the generated manifest, so
+`pracht inspect routes`, the dev banner, `/_pracht` devtools, and the
+ejected manifest all show it.
+
+Scope and limits:
+
+- **Page routes only.** API routes under `src/api` are not wrapped — the
+  same independent-by-default behavior an explicit manifest has. Wrap API
+  handlers in plain higher-order functions instead
+  (`export const GET = withAuth(handler)`).
+- **Root level only, single file.** A `_middleware.ts` inside a
+  subdirectory, a `_middleware/` directory, and middleware-shaped files using
+  unsupported page extensions (including Markdown/MDX, `.tsrx`, and configured
+  custom formats) are hard errors at build, `doctor`, and `verify` time — never
+  silently ignored files that look like an auth gate. Per-group middleware
+  requires ejecting to an explicit manifest.
+- **Server-only helpers stay server-only.** Middleware implementations can live
+  in an underscore-reserved helper such as `pages/_server/auth.ts` and be
+  imported or re-exported by `_middleware.ts`. Reserved files and directory
+  trees are excluded from the client route/shell registries, and the dedicated
+  `_middleware.ts` module becomes empty if client code imports it directly.
+  Helper files still enter a browser bundle if client code imports those files
+  directly.
+- **Runs for page rendering and route state.** For `ssr` (the default) and
+  `spa` routes that is every document and client-side route-state request.
+  `ssg` and `isg` documents render at build/revalidation time on a sanitized
+  request (`GET`, path only — no visitor cookies), and any headers the
+  middleware sets are baked into the static output and replayed for every
+  visitor. Their client-side route-state JSON fetches are separate live
+  requests and still traverse middleware with the visitor request. That can
+  vary the JSON response but cannot protect the already-public static HTML,
+  so cookie- or session-based gating belongs on `ssr`/`spa` routes.
+- The module must export `middleware`; a module that does not fails build,
+  `doctor`, and `verify`, and requests to page routes fail closed at runtime.
+- The 404 page renders without middleware — it is a not-found response, not
+  a route.
+
+Like every other `_`-prefixed file, `_middleware.ts` never becomes a route.
 
 ### Per-Route Render Mode
 
@@ -923,6 +990,9 @@ Routes are sorted: static routes first, then dynamic (`:param`), then catch-all
 - **File add/remove** in pages dir: dev server restarts (new routes need
   new globs)
 
+`_middleware.ts` follows the same conventions: editing it hot-invalidates,
+adding or removing it restarts the dev server.
+
 During `pracht dev`, resolved routes take precedence over filename heuristics.
 That means URLs such as `/blog/release-1.2.3`, `/blog/openapi.json`, and
 `/@alice` still render through the framework when they exist as routes. Only
@@ -942,8 +1012,34 @@ generateRoutesFile("src/pages", "src/routes.ts", {
 });
 ```
 
-Then remove `pagesDir` from your pracht config. The generated file includes
-a header comment explaining how to use it directly.
+Then remove `pagesDir` from your pracht config and point the discovery
+directories at the files the ejected manifest references — the runtime
+resolves manifest refs through those directory registries, so a manifest
+pointing outside them fails closed at request time:
+
+```typescript
+pracht({
+  appFile: "/src/routes.ts",
+  routesDir: "/src/pages", // route files stay in src/pages
+  shellsDir: "/src/pages", // _app.tsx
+  middlewareDir: "/src/pages", // _middleware.ts
+});
+```
+
+Alternatively, move the files into the conventional `src/routes`,
+`src/shells`, and `src/middleware` directories and update the manifest refs.
+The generated file includes instructions and exports
+`__PRACHT_EJECTED_PAGES_LAYOUT__ = true`. Keep that exported marker while the
+manifest retains pages-router layout semantics: the client build uses the
+explicit marker to exclude underscore-reserved route helpers and strip the
+dedicated middleware module without guessing from registry syntax. This stays
+correct when registries use computed keys, spreads, or helper variables, and it
+keeps ordinary co-located manifest apps from being misclassified. Header
+comments may be edited or removed; the exported marker is the durable boundary,
+including when `_app` or `_middleware` moves to a conventional directory. Route
+and shell discovery directories may be migrated independently: a shell directory
+that still contains the root `_app` keeps the pages underscore reservation even
+after route files move elsewhere.
 
 ---
 

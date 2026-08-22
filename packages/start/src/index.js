@@ -490,8 +490,9 @@ async function promptForRouter(readline) {
   console.log("Router:");
   console.log("  1. Manifest (explicit routes.ts) — supports middleware, capabilities,");
   console.log("     MCP, Web Bot Auth, and constraints");
-  console.log("  2. Pages (file-system routing) — pages and API routes only; no");
-  console.log("     middleware, capabilities, MCP, or agent trust (eject later to add them)");
+  console.log("  2. Pages (file-system routing) — pages and API routes, plus one root");
+  console.log("     _middleware.ts on server adapters; no per-route middleware, capabilities,");
+  console.log("     MCP, or agent trust");
 
   while (true) {
     const answer = await readline.question("Router (1): ");
@@ -1421,7 +1422,7 @@ function createDockerignore() {
 }
 
 const PAGES_ROUTER_LIMITATIONS =
-  "**The pages router has no manifest**, so these manifest-only features are unavailable: named shells (there is one, `_app.tsx`), route middleware, capabilities (and therefore capability HTTP endpoints, WebMCP, remote MCP, and `pracht eval`), `defineApp({ constraints })`, and `agents`. If the app needs auth policy or a runtime agent surface, eject with `generateRoutesFile` from `@pracht/vite-plugin/pages-router`, remove `pagesDir`, and customize the generated manifest.";
+  "**The pages router has no manifest**, so these manifest-only features are unavailable: named shells (there is one, `_app.tsx`), named per-route middleware (serverful adapters provide one root `_middleware.ts`, applied to every page route; pure static exports cannot use request middleware), capabilities (and therefore capability HTTP endpoints, WebMCP, remote MCP, and `pracht eval`), `defineApp({ constraints })`, and `agents`. If the app needs per-route auth policy or a runtime agent surface, eject with `generateRoutesFile` from `@pracht/vite-plugin/pages-router`, remove `pagesDir`, and customize the generated manifest.";
 
 const PAGES_ROUTER_ISG_POLICY =
   'Pages-router ISG supports time revalidation only: pair `export const RENDER_MODE = "isg"` with a positive integer such as `export const REVALIDATE = 3600`. Missing or misplaced policies fail `pracht build`, `doctor`, and `verify`. Webhook revalidation and combined policies require an explicit manifest.';
@@ -1469,6 +1470,10 @@ function createAgentInstructions({ adapter, agentTools, packageManager, router, 
     if (adapter.id !== "static") {
       lines.push("- `pracht generate middleware --name auth` — add middleware");
     }
+  } else if (adapter.id !== "static") {
+    lines.push(
+      "- `pracht generate middleware --name _middleware` — add root middleware for every page route",
+    );
   }
   if (adapter.id !== "static") {
     lines.push("- `pracht generate api --path /health --methods GET` — add an API route");
@@ -1804,7 +1809,9 @@ function printNextSteps({
   if (router === "pages") {
     console.log("");
     console.log(
-      "Note: the pages router has no manifest, so middleware, capabilities, constraints, and\n" +
+      "Note: the pages router has no manifest, so per-route middleware (serverful adapters\n" +
+        "provide only a root `_middleware.ts` applied to every page route; pure static\n" +
+        "exports cannot use request middleware), capabilities, constraints, and\n" +
         "the agent surface (capability endpoints, WebMCP, remote MCP, `pracht eval`) are not\n" +
         "available. Scaffold with --router=manifest if you need them.",
     );

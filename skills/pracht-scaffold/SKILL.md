@@ -51,6 +51,7 @@ pracht generate api --path /health --methods GET,POST
 `generate shell` and `generate middleware` take `--name`; `generate api` takes `--path` and `--methods` (comma-separated). All subcommands accept `--json`.
 
 - `--shell`/`--middleware` names must already be registered in the app manifest — the CLI errors otherwise. Generate the shell/middleware first, then the route that references it.
+- Pages-router apps on serverful adapters have a single middleware seam: `pracht generate middleware --name _middleware` scaffolds the root `src/pages/_middleware.ts`, which runs on every page route (API routes are not wrapped). Pure static exports cannot use request middleware. Other names error in pages mode; `generate shell` stays manifest-only (`_app.tsx` is the pages shell).
 - If the pracht MCP server is registered (docs/MCP.md), call the `generate_route`/`generate_shell`/`generate_middleware`/`generate_api` MCP tools instead of Bash — same behavior, structured results.
 - Add `--json` when another agent/tool needs machine-readable output.
 - `generate route` also emits a Playwright smoke test in `e2e/` when the app has a Playwright setup (`playwright.config.*` or an `e2e/` directory). Pass `--no-test` to skip it, `--test` to force it. The test imports `@playwright/test`; if that dependency is absent, follow the generator's install note before typechecking. Keep the generated test — it is the output-level proof the route works.

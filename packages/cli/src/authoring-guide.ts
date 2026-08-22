@@ -44,10 +44,14 @@ Pages-router apps replace the manifest with \`src/pages/\` file routing
 (\`export const RENDER_MODE = "ssg"\` in the page file). Pages ISG also requires
 \`export const REVALIDATE = 3600\`; it supports time policies only and fails
 build/doctor/verify when the policy is missing or misplaced, including on
-\`_app\` or \`404\`. Fenced Markdown/MDX examples are ignored. **The pages router has
-no manifest, so it has no middleware, capabilities, constraints, or \`agents\`**
-— if a task needs auth or the agent surface, use manifest routing (or eject
-with \`generateRoutesFile\`).
+\`_app\` or \`404\`. Fenced Markdown/MDX examples are ignored. With a serverful
+adapter, middleware is a single root-level \`src/pages/_middleware.ts\`
+(\`export const middleware: MiddlewareFn\`) applied to every page route — nested
+or per-route middleware is not supported, and API routes are not wrapped. Pure
+static exports have no request runtime and cannot use middleware. **The pages router has no
+manifest, so it has no capabilities, constraints, or \`agents\`** — if a task
+needs per-route auth or the agent surface, use manifest routing (or eject with
+\`generateRoutesFile\`).
 
 ## Route example
 
