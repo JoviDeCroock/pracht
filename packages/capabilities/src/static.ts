@@ -2329,7 +2329,8 @@ function isInsideErasedTypePosition(source: string, end: number): boolean {
     isInsideTopLevelTypeAlias(source, end) ||
     isInsideInterfaceDeclaration(source, end) ||
     isInsideVariableTypeAnnotation(source, end) ||
-    isInsideFunctionSignatureType(source, end)
+    isInsideFunctionSignatureType(source, end) ||
+    isInsideFunctionTypeParameters(source, end)
   );
 }
 
@@ -2365,7 +2366,7 @@ function isInsideTopLevelTypeAlias(source: string, end: number): boolean {
 
 function isInsideInterfaceDeclaration(source: string, end: number): boolean {
   const declaration =
-    /(?:^|[;\r\n}])\s*(?:export\s+)?(?:declare\s+)?interface\s+[A-Za-z_$][A-Za-z0-9_$]*/g;
+    /(?:^|[;\r\n}])\s*(?:export\s+(?:default\s+)?)?(?:declare\s+)?interface\s+[A-Za-z_$][A-Za-z0-9_$]*/g;
 
   for (const match of source.slice(0, end).matchAll(declaration)) {
     if (match.index == null) continue;
@@ -2404,6 +2405,8 @@ function isInsideVariableTypeAnnotation(source: string, end: number): boolean {
     if (match.index == null) continue;
     const before = source.slice(0, match.index).trimEnd().at(-1);
     if (before === ".") continue;
+    const after = skipInsignificant(source, match.index + match[0].length);
+    if (source[after] === ":" || (source[after] === "?" && source[after + 1] === ":")) continue;
     declarationStart = match.index + match[0].length;
   }
   if (declarationStart === -1) return false;
@@ -2486,12 +2489,55 @@ function isInsideFunctionSignatureType(source: string, end: number): boolean {
   return false;
 }
 
+function isInsideFunctionTypeParameters(source: string, end: number): boolean {
+  let searchFrom = end - 1;
+
+  while (searchFrom >= 0) {
+    const parametersStart = source.lastIndexOf("<", searchFrom);
+    if (parametersStart === -1) return false;
+    const parametersEnd = findMatchingTypeAngle(source, parametersStart);
+    const prefix = source.slice(0, parametersStart).trimEnd();
+    if (
+      parametersEnd >= end &&
+      source[skipInsignificant(source, parametersEnd + 1)] === "(" &&
+      /\bfunction\s*\*?\s*[A-Za-z_$][A-Za-z0-9_$]*$/.test(prefix)
+    ) {
+      return true;
+    }
+    searchFrom = parametersStart - 1;
+  }
+
+  return false;
+}
+
+function findMatchingTypeAngle(source: string, start: number): number {
+  let depth = 0;
+
+  for (let index = start; index < source.length; index += 1) {
+    const char = source[index];
+    if (char === "<") depth += 1;
+    else if (char === ">" && source[index - 1] !== "=") {
+      depth -= 1;
+      if (depth === 0) return index;
+    }
+  }
+
+  return -1;
+}
+
 function isFunctionParameterList(source: string, start: number, end: number): boolean {
   const prefix = source.slice(0, start).trimEnd();
   if (/\bfunction\s*\*?\s*(?:[A-Za-z_$][A-Za-z0-9_$]*\s*)?$/.test(prefix)) return true;
 
   const after = skipInsignificant(source, end + 1);
   if (source.startsWith("=>", after)) return true;
+  if (
+    source[after] === ":" &&
+    isArrowFunctionParameterList(prefix) &&
+    hasArrowFunctionReturnType(source, after + 1)
+  ) {
+    return true;
+  }
 
   const precedingWord = /([A-Za-z_$][A-Za-z0-9_$]*)\s*$/.exec(prefix)?.[1];
   if (
@@ -2500,7 +2546,51 @@ function isFunctionParameterList(source: string, start: number, end: number): bo
   ) {
     return false;
   }
-  return source[after] === "{" || source[after] === ":" || source[after] === ";";
+  if (source[after] === "{") return true;
+  if (source[after] === ":") return isMethodParameterList(prefix);
+  return (
+    source[after] === ";" &&
+    isMethodParameterList(prefix) &&
+    (isInsideInterfaceDeclaration(source, start) || isInsideTopLevelTypeAlias(source, start))
+  );
+}
+
+function hasArrowFunctionReturnType(source: string, start: number): boolean {
+  let braces = 0;
+  let brackets = 0;
+  let parentheses = 0;
+  let angles = 0;
+
+  for (let index = skipInsignificant(source, start); index < source.length; index += 1) {
+    const char = source[index];
+    const atTypeLevel = braces === 0 && brackets === 0 && parentheses === 0 && angles === 0;
+    if (atTypeLevel && source.startsWith("=>", index)) return true;
+    if (atTypeLevel && char === ";") return false;
+
+    if (char === "<") angles += 1;
+    else if (char === ">" && source[index - 1] !== "=" && angles > 0) angles -= 1;
+    else if (char === "{") braces += 1;
+    else if (char === "}") braces = Math.max(0, braces - 1);
+    else if (char === "[") brackets += 1;
+    else if (char === "]") brackets = Math.max(0, brackets - 1);
+    else if (char === "(") parentheses += 1;
+    else if (char === ")") parentheses = Math.max(0, parentheses - 1);
+  }
+
+  return false;
+}
+
+function isMethodParameterList(prefix: string): boolean {
+  const name = /[A-Za-z_$][A-Za-z0-9_$]*\s*$/.exec(prefix);
+  if (name?.index == null) return false;
+  const beforeName = prefix.slice(0, name.index).trimEnd().at(-1);
+  return beforeName !== "." && beforeName !== "?";
+}
+
+function isArrowFunctionParameterList(prefix: string): boolean {
+  const last = prefix.at(-1);
+  if (last && "=(:,[".includes(last)) return true;
+  return /\b(?:async|default|return)\s*$/.test(prefix);
 }
 
 function isInsideFunctionReturnType(source: string, start: number, end: number): boolean {
@@ -2541,13 +2631,16 @@ function isInsideParameterTypeAnnotation(source: string, start: number, end: num
   let braces = 0;
   let brackets = 0;
   let parentheses = 0;
+  let angles = 0;
   let segmentStart = start;
 
   for (let index = start; index < end; index += 1) {
     const char = source[index];
-    const atParameterLevel = braces === 0 && brackets === 0 && parentheses === 0;
+    const atParameterLevel = braces === 0 && brackets === 0 && parentheses === 0 && angles === 0;
     if (atParameterLevel && char === ",") segmentStart = index + 1;
-    if (char === "{") braces += 1;
+    if (char === "<") angles += 1;
+    else if (char === ">" && source[index - 1] !== "=" && angles > 0) angles -= 1;
+    else if (char === "{") braces += 1;
     else if (char === "}") braces = Math.max(0, braces - 1);
     else if (char === "[") brackets += 1;
     else if (char === "]") brackets = Math.max(0, brackets - 1);

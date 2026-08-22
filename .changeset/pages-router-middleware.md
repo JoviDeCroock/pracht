@@ -210,7 +210,10 @@ Top-level type-alias `typeof` queries of registry members are erased along with
 bare registry queries, so they no longer hide otherwise static capability or
 middleware registrations from browser projection, verification, or the
 registered-module client import guard. The same extraction is preserved for
-member queries in interfaces, variable annotations, and function signatures.
+member queries in interfaces, variable annotations, generic constraints, and
+function signatures, including generic and explicitly annotated arrow parameters.
+Runtime calls, ternaries, and reserved-word object properties remain observable
+uses rather than being mistaken for erased type syntax.
 
 Runtime `typeof` expressions after a semicolonless type alias are still treated
 as real registry reads, closing the accessor side-effect gap without regressing
