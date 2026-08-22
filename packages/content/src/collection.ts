@@ -322,12 +322,12 @@ export function defineCollection<
     for (const [alias, target] of routeAliases) {
       const conflicting = [...(byRoute.get(alias)?.values() ?? [])].find(
         (descriptor) =>
-          !descriptor.inferredRoute &&
-          (descriptor.id !== target.id || descriptor.locale !== target.locale),
+          descriptor.id !== target.id ||
+          (!descriptor.inferredRoute && descriptor.locale !== target.locale),
       );
       if (conflicting) {
         throw new Error(
-          `Content collection ${JSON.stringify(options.name)} has ambiguous generated route alias ${JSON.stringify(alias)} for ${JSON.stringify({ id: target.id, locale: target.locale })} and explicit route ${JSON.stringify({ id: conflicting.id, locale: conflicting.locale })}.`,
+          `Content collection ${JSON.stringify(options.name)} has ambiguous generated route alias ${JSON.stringify(alias)} for ${JSON.stringify({ id: target.id, locale: target.locale })} and registered route ${JSON.stringify({ id: conflicting.id, locale: conflicting.locale })}.`,
         );
       }
     }

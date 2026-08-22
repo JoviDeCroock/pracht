@@ -31,7 +31,9 @@ internal content headers or route manifests before the CLI validates them.
 Localized custom routes no longer produce the Cartesian product of every
 translation's slug and every supported locale. Route aliases are emitted only
 for missing locales and use the document that locale fallback would actually
-select.
+select. Routes returned by a collection's `route()` callback now participate in
+generated-alias collision checks, so a configured translation cannot silently
+shadow another document's fallback URL.
 
 `llmsTxtArtifacts()` now matches a string `section.match` against the
 locale-neutral route. A localized collection prefixes translations, so the
