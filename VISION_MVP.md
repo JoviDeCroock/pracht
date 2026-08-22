@@ -93,6 +93,17 @@ Two styles, both fully supported — pick whichever fits your mental model:
 Both styles can coexist in the same app. When a separate `loader` file is
 specified in the config, it takes precedence over inline exports.
 
+Content-heavy apps can add the server-only `@pracht/content` companion for one
+canonical document registry shared by loaders and build tooling: route/source
+mapping, locale fallback, raw/frontmatter/compiled representations,
+memoization, iteration, filesystem-free runtime snapshots, and static asset
+emission. The optional `@pracht/markdown` integration supplies one official
+Markdown route-module compiler and turns relative Markdown images into
+build-time responsive variants through `@pracht/image`. `llms-full.txt`,
+page/search capabilities, and exposure policy stay opt-in rather than becoming
+core framework conventions. See
+[docs/CONTENT.md](docs/CONTENT.md).
+
 - **Head**: `export function head(args)` — per-route `<head>` metadata merged with
   shell-level head.
 - **Client hooks**: `useRouteData()`, `useRevalidate()`, `useNavigation()` (pending
@@ -277,7 +288,9 @@ pracht/
     adapter-netlify/     # Netlify Functions v2 adapter
     adapter-vercel/      # Vercel Edge adapter
     cli/              # Dev/build/generate/inspect/verify/plan/report/doctor commands
-    image/            # Responsive <Image> component + optimization loaders
+    content/          # Server-only content registry + generated artifacts
+    markdown/         # Official Markdown route modules + local image imports
+    image/            # Responsive <Image> component + runtime/static optimization
     i18n/             # Locale-detection middleware, typed dictionaries, hreflang helpers
     create-pracht/     # (Phase 2) Starter scaffolding
   example/            # Working example app

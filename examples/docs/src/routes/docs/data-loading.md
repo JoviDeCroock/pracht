@@ -6,8 +6,8 @@ prev:
   href: /docs/islands
   title: Islands
 next:
-  href: /docs/api-routes
-  title: API Routes
+  href: /docs/content
+  title: Content Collections
 ---
 
 ## Loaders

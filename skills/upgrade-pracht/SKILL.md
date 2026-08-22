@@ -33,8 +33,9 @@ pnpm list --depth 1 --json | grep -A2 '@pracht/'   # or read package.json + lock
 
 The family: `@pracht/core`, `@pracht/cli`, `@pracht/vite-plugin`,
 `@pracht/adapter-node`, `@pracht/adapter-cloudflare`, `@pracht/adapter-vercel`,
-`@pracht/preact-ssr-precompile`, `@pracht/image`. Get the latest published
-versions with `npm view <pkg> version`.
+`@pracht/preact-ssr-precompile`, `@pracht/content`, `@pracht/markdown`,
+`@pracht/image`. Get the latest published versions with
+`npm view <pkg> version`.
 
 ## Step 2: Understand the versioning model
 
@@ -75,6 +76,8 @@ https://raw.githubusercontent.com/JoviDeCroock/pracht/main/packages/<dir>/CHANGE
 | `@pracht/vite-plugin` | `packages/vite-plugin` |
 | `@pracht/adapter-node` / `-cloudflare` / `-vercel` | `packages/adapter-*` |
 | `@pracht/preact-ssr-precompile` | `packages/preact-ssr-precompile` |
+| `@pracht/content` | `packages/content` |
+| `@pracht/markdown` | `packages/markdown` |
 | `@pracht/image` | `packages/image` |
 
 Changelogs are changesets-generated: `## X.Y.Z` sections containing

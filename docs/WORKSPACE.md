@@ -8,6 +8,8 @@ described in `VISION_MVP.md`.
 | Path                          | Package                      | Current role                                                                                                 |
 | ----------------------------- | ---------------------------- | ------------------------------------------------------------------------------------------------------------ |
 | `packages/framework`          | `@pracht/core`               | Core manifest API, route resolution, API routes, SSR rendering, client runtime                               |
+| `packages/content`            | `@pracht/content`            | Optional server-only content registry, locale fallback, compilation cache, Vite transforms, and static artifacts |
+| `packages/markdown`           | `@pracht/markdown`           | Official Markdown collection compiler with safe relative-image imports and zero-runtime responsive markup       |
 | `packages/openapi`            | `@pracht/openapi`            | Opt-in OpenAPI 3.1 descriptors, live JSON/UI endpoints, and static build artifacts for API routes            |
 | `packages/vite-plugin`        | `@pracht/vite-plugin`        | Virtual modules, `import.meta.glob()` registries, API route auto-discovery, HMR, dev SSR middleware          |
 | `packages/preact-ssr-precompile` | `@pracht/preact-ssr-precompile` | Experimental Rolldown/Vite plugin that precompiles safe Preact JSX DOM subtrees into server-only `jsxTemplate()` calls |
@@ -71,6 +73,14 @@ described in `VISION_MVP.md`.
   without changing core API authoring. It serves a live OpenAPI JSON document
   and optional Scalar/Swagger page in development; `pracht build` writes the
   same artifacts under `dist/client/` for every adapter.
+- **Content collection companion** — `defineCollection()` gives content-heavy
+  apps one server-only route/source registry with locale fallback, raw,
+  frontmatter/body, application-defined compiled representations, and
+  per-source memoization. `prachtContent()` reuses it for Vite transforms,
+  watcher invalidation, portable server snapshots, live generated assets, and
+  client build output. Loader,
+  Markdown negotiation, curated `llms.txt`, raw asset, and private-by-default
+  page/search capability adapters remain opt-in.
 - **Client hydration** — The generated client module matches the current route,
   lazy-loads the route and shell modules via `import.meta.glob()`, and calls
   `hydrate()` from Preact.
@@ -88,7 +98,7 @@ described in `VISION_MVP.md`.
   from the resolved route graph for typed links and href helpers,
   `pracht generate route|shell|middleware|api` scaffolds framework-native
   files, and `pracht doctor` validates app wiring across the whole project.
-- **Package builds** — `tsdown` compiles `pracht`, `@pracht/openapi`, `@pracht/vite-plugin`,
+- **Package builds** — `tsdown` compiles `pracht`, `@pracht/content`, `@pracht/markdown`, `@pracht/openapi`, `@pracht/vite-plugin`,
   `@pracht/preact-ssr-precompile`, `@pracht/adapter-node`,
   `@pracht/adapter-cloudflare`, `@pracht/adapter-netlify`,
   `@pracht/adapter-vercel`, `@pracht/adapter-static`, `@pracht/image`, `@pracht/i18n`,

@@ -520,6 +520,7 @@ export async function handlePrachtRequest<TContext>(
         const apiRouteArgs: ApiRouteArgs<TContext> = {
           request: options.request,
           params: apiMatch.params,
+          pathname: apiMatch.pathname,
           context: apiContext,
           signal: requestSignal,
           url,
@@ -534,6 +535,7 @@ export async function handlePrachtRequest<TContext>(
           context: apiContext,
           middlewareFiles: apiMiddlewareFiles,
           params: apiMatch.params,
+          pathname: apiMatch.pathname,
           registry,
           request: options.request,
           route: apiMatch.route,
@@ -680,6 +682,7 @@ export async function handlePrachtRequest<TContext>(
           registry,
           request: options.request,
           url,
+          pathname: routePathname,
           exposeErrors: exposeDiagnostics,
           apiMiddlewareFiles: (options.app.api.middleware ?? []).flatMap((name) => {
             const middlewareFile = options.app.middleware[name];
@@ -732,7 +735,7 @@ export async function handlePrachtRequest<TContext>(
     // with a 404 status — it lives outside the route table, so unlike a
     // catch-all route it only ever runs *after* matching (and, in every
     // first-party adapter, after static-asset serving) has failed.
-    const notFoundMatch = createNotFoundMatch(resolvedApp, url.pathname);
+    const notFoundMatch = createNotFoundMatch(resolvedApp, routePathname);
     if (notFoundMatch && SAFE_METHODS.has(options.request.method)) {
       return renderPageMatch(notFoundMatch, { isNotFoundPage: true, status: 404 });
     }
@@ -796,6 +799,7 @@ export async function handlePrachtRequest<TContext>(
       signal: requestSignal,
       url,
       route: match.route,
+      pathname: match.pathname,
     };
     let routeModulePromise: Promise<RouteModule | undefined> | undefined;
     let routeModule: RouteModule | undefined;
@@ -1164,6 +1168,7 @@ export async function handlePrachtRequest<TContext>(
         context: pageContext,
         middlewareFiles: match.route.middlewareFiles,
         params: match.params,
+        pathname: match.pathname,
         registry,
         request: options.request,
         route: match.route,
@@ -1225,7 +1230,7 @@ export async function handlePrachtRequest<TContext>(
       // ErrorBoundary (the more specific handler wins) or we are already
       // rendering the not-found page.
       if (!pageOptions.isNotFoundPage && isNotFoundError(error) && !isRouteStateRequest) {
-        const notFoundMatch = createNotFoundMatch(resolvedApp, url.pathname);
+        const notFoundMatch = createNotFoundMatch(resolvedApp, match.pathname);
         if (notFoundMatch) {
           const module = routeModule ?? (await routeModulePromise?.catch(() => undefined));
           if (!module?.ErrorBoundary) {
@@ -1284,8 +1289,9 @@ export function createBaseRedirectResponse(request: Request): Response | null {
 
 /**
  * A `RouteMatch` for the app-level not-found page, or `undefined` when the
- * app declares none. `pathname` is the request path so diagnostics and
- * `useLocation()` still report where the visitor actually landed.
+ * app declares none. `pathname` is the matched, base-free request path passed
+ * to loaders, middleware, and route metadata callbacks. `useLocation()` keeps
+ * using the public request URL separately.
  */
 function createNotFoundMatch(app: ResolvedPrachtApp, pathname: string): RouteMatch | undefined {
   const route = app.notFound;

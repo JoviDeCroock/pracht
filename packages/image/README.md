@@ -20,6 +20,10 @@ next/image's loader pattern.
   URL (hashed source assets or stable `publicDir` URLs), intrinsic dimensions
   (EXIF-orientation aware), and a tiny inline `blurDataURL` for CSS-only
   `placeholder="blur"`.
+- Cached `?pracht&pracht-static` imports that emit responsive, content-hashed
+  WebP variants for static hosts and zero-hydration pages.
+- `getImageProps()` for HTML compilers that need exactly the same plain
+  `<img>` attributes as the Preact component.
 
 ```bash
 pnpm add @pracht/image
@@ -33,11 +37,22 @@ import { Image } from "@pracht/image";
 ```
 
 ```tsx
-// vite.config.ts: plugins: [pracht({ … }), prachtImage()] (from "@pracht/image/vite")
+// vite.config.ts: plugins: [prachtImage(), pracht({ … })]
 import hero from "./hero.jpg?pracht"; // { src, width, height, blurDataURL }
 
 <Image src={hero} alt="Hero" placeholder="blur" />;
 ```
+
+For prebuilt responsive files, import
+`./hero.jpg?pracht&pracht-static`. Configure the candidate widths and quality
+with `prachtImage({ staticWidths, staticQuality })`. Static metadata bypasses
+the global runtime loader unless the component supplies an explicit `loader`.
+Server-only route variants are published to `dist/client` by default; use
+`staticOutDir` for a different adapter-served directory. SVG and animated
+sources keep their original encoded bytes but are still published when only a
+server graph discovers them. Root-relative `publicDir` sources stay
+unprocessed at their stable public URLs and bypass the global runtime loader
+for static imports.
 
 ```ts
 // src/api/_pracht/image.ts — mounts the optimization endpoint

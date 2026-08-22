@@ -189,6 +189,13 @@ describe("createImageModuleCode", () => {
     expect(code).toContain('import src from "C:/repo/src/hero.jpg?url&no-inline";');
     expect(code).not.toContain("\\\\");
   });
+
+  it("keeps the static-query variants export available for unprocessed public assets", () => {
+    const code = createImageModuleCode("/photo.jpg", { width: 32, height: 20 }, undefined, true);
+
+    expect(code).toContain("export const variants = undefined;");
+    expect(code).toContain("export default { src, width, height, blurDataURL, variants };");
+  });
 });
 
 describe("prachtImage plugin", () => {
@@ -204,6 +211,9 @@ describe("prachtImage plugin", () => {
   it("validates its options", () => {
     expect(() => prachtImage({ blurWidth: 0 })).toThrow(/blurWidth/);
     expect(() => prachtImage({ blurQuality: 101 })).toThrow(/blurQuality/);
+    expect(() => prachtImage({ staticQuality: 0 })).toThrow(/staticQuality/);
+    expect(() => prachtImage({ staticWidths: [] })).toThrow(/staticWidths/);
+    expect(() => prachtImage({ staticWidths: [320, 1.5] })).toThrow(/staticWidths/);
   });
 
   it("transforms ?pracht ids and watches the source file", async () => {

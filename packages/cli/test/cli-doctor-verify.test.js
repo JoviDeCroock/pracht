@@ -627,9 +627,16 @@ export const app = defineApp({
 
   it("stays quiet about Markdown routes when a transform plugin is registered", () => {
     const withPlugin = createTempDir("pracht-cli-doctor-md-plugin-");
+    const withContentWithoutCompiler = createTempDir("pracht-cli-doctor-content-plugin-");
+    const withContentRegistryOnly = createTempDir("pracht-cli-doctor-content-registry-");
     const withoutPlugin = createTempDir("pracht-cli-doctor-md-no-plugin-");
 
-    for (const appDir of [withPlugin, withoutPlugin]) {
+    for (const appDir of [
+      withPlugin,
+      withContentWithoutCompiler,
+      withContentRegistryOnly,
+      withoutPlugin,
+    ]) {
       writePagesApp(appDir);
       writeProjectFile(appDir, "src/pages/guide.md", "# Guide\n\nHello.\n");
     }
@@ -645,16 +652,63 @@ export default defineConfig({
 });
 `,
     );
+    writeProjectFile(
+      withContentWithoutCompiler,
+      "vite.config.ts",
+      `import { defineConfig } from "vite";
+import { prachtContent } from "@pracht/content/vite";
+import { pracht } from "@pracht/vite-plugin";
 
-    const hasWarning = (appDir) =>
-      JSON.parse(runCli(["doctor", "--json"], { cwd: appDir }).stdout).checks.some((check) =>
+export default defineConfig({
+  plugins: [prachtContent({ collections: [] }), pracht({ pagesDir: "/src/pages" })],
+});
+`,
+    );
+    writeProjectFile(
+      withContentRegistryOnly,
+      "vite.config.ts",
+      `import { defineCollection } from "@pracht/content";
+import { defineConfig } from "vite";
+import { pracht } from "@pracht/vite-plugin";
+
+void defineCollection;
+export default defineConfig({
+  plugins: [pracht({ pagesDir: "/src/pages" })],
+});
+`,
+    );
+
+    // One CLI spawn per fixture: this test drives four apps, and re-running
+    // doctor for each assertion pushes it past the suite timeout.
+    const markdownCheck = (appDir) =>
+      JSON.parse(runCli(["doctor", "--json"], { cwd: appDir }).stdout).checks.find((check) =>
         check.message.includes("Markdown route"),
       );
+    const checks = {
+      withPlugin: markdownCheck(withPlugin),
+      withContentWithoutCompiler: markdownCheck(withContentWithoutCompiler),
+      withContentRegistryOnly: markdownCheck(withContentRegistryOnly),
+      withoutPlugin: markdownCheck(withoutPlugin),
+    };
+    const hasWarning = (key) => checks[key] !== undefined;
 
     // Paired: the negative case only means something next to a positive one in
     // the same shape, otherwise it passes with the feature deleted.
-    expect(hasWarning(withoutPlugin)).toBe(true);
-    expect(hasWarning(withPlugin)).toBe(false);
+    expect(hasWarning("withoutPlugin")).toBe(true);
+    expect(hasWarning("withPlugin")).toBe(false);
+    // A content registry is not itself a Markdown compiler: empty collections,
+    // collections without `module`, and collections that do not own this route
+    // all leave the raw source for Vite's JavaScript parser.
+    expect(hasWarning("withContentWithoutCompiler")).toBe(true);
+    expect(hasWarning("withContentRegistryOnly")).toBe(true);
+
+    // The registry cannot be resolved from config text, so the warning stays.
+    // Its wording must not keep asserting these routes are broken, though: for
+    // a collection that does own them the claim is simply false, and `pracht
+    // build` is where the registry is actually resolved.
+    expect(checks.withContentWithoutCompiler.message).toContain("`prachtContent()`");
+    expect(checks.withContentWithoutCompiler.message).toContain("`pracht build`");
+    expect(checks.withoutPlugin.message).toContain("no known Markdown transform plugin");
   });
 
   it("warns about a Markdown not-found page and under --changed scope", () => {

@@ -63,7 +63,7 @@ imports carrying the `?pracht` query into typed metadata modules:
 import { prachtImage } from "@pracht/image/vite";
 
 export default {
-  plugins: [pracht({ /* … */ }), prachtImage()],
+  plugins: [prachtImage(), pracht({ /* … */ })],
 };
 ```
 
@@ -98,6 +98,54 @@ in your app, or `"types": ["@pracht/image/client"]` in tsconfig):
 ```ts
 /// <reference types="@pracht/image/client" />
 ```
+
+## Static responsive variants
+
+Add `pracht-static` to a source-directory import when the deployment should
+serve prebuilt variants instead of a runtime image endpoint:
+
+```tsx
+import hero from "./hero.jpg?pracht&pracht-static";
+
+<Image src={hero} alt="Hero" sizes="(max-width: 960px) 100vw, 960px" />;
+```
+
+The build creates content-hashed WebP files at the configured breakpoints,
+adds them to `metadata.variants`, and lets `<Image>` render their `srcset`
+directly. These static variants take precedence over the global loader; an
+explicit `loader` prop still opts that individual image back into loader URL
+generation. Output is cached in Vite's `cacheDir` by source bytes and transform
+options, served directly by `pracht dev`, and emitted as ordinary client
+assets for production, including when `build.assetsDir` is empty and assets
+are placed directly at the output root. The source original is not copied when
+variants are available. Images that exist only in an SSR or hydration-disabled
+route graph are written to `dist/client` so adapters and prerendered HTML share
+the same public files; set `staticOutDir` when an integration serves a different
+client directory.
+
+```ts
+prachtImage({
+  staticWidths: [320, 640, 960, 1280, 1920],
+  staticQuality: 75,
+  // staticOutDir: "dist/client",
+});
+```
+
+Widths above the intrinsic source width are omitted, and the intrinsic width
+is always included. SVG and animated sources retain their original encoded
+bytes instead of being flattened into static WebP variants; those originals
+are still published to the client asset directory when discovered only by an
+SSR or hydration-disabled graph. Root-relative `publicDir` images remain
+stable, unprocessed public URLs and bypass the configured runtime loader when
+statically imported. Static variants require an absolute Vite `base` (`/` or a
+pathname such as `/docs/`); a relative base cannot produce URLs that are
+correct at every prerendered route depth and therefore fails explicitly.
+
+`@pracht/markdown` uses this static query automatically for relative Markdown
+images and turns the metadata into plain `<img>` markup with `getImageProps()`.
+The exported helper is also available to other HTML compilers that need the
+same loader, sizing, priority, and placeholder behavior as `<Image>` without
+running a second Preact renderer.
 
 ## Blur placeholders
 
@@ -274,9 +322,3 @@ See `examples/basic`: `src/api/_pracht/image.ts` mounts the endpoint,
 `src/routes/gallery.tsx` renders priority, fixed, `fill`, and
 `?pracht`-imported blur-placeholder images, and `vite.config.ts` registers
 `prachtImage()`.
-
-## Not yet (follow-ups)
-
-- Build-time generation of the resized variants themselves (today `?pracht`
-  imports emit the hashed original plus metadata/blur; resizing still happens
-  in the optimization endpoint or platform service at request time).

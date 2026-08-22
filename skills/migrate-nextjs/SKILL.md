@@ -424,6 +424,15 @@ the `@pracht/image/client` types once in a `.d.ts`, and keep
 `width`/`height`/`blurDataURL` exactly like Next's static imports. Pracht's
 blur is CSS-only (no fade animation, no inline event handlers).
 
+For apps that relied on `next/image` producing files during a static export,
+use `?pracht&pracht-static` instead. It emits cached responsive WebP variants
+and bypasses the runtime loader while retaining plain, hydration-free `<img>`
+markup. When Markdown content contains relative images, prefer
+`defineMarkdownCollection()` from `@pracht/markdown`; it applies the same
+static pipeline to normal `![alt](./photo.jpg)` syntax. Keep root-relative
+`public/` and remote image URLs unchanged, and use an absolute Vite `base` for
+static variants.
+
 #### `useRouter` → navigation
 
 ```tsx

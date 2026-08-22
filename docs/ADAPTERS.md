@@ -952,7 +952,10 @@ resolution.
   the function, so the build also writes a `dist/client/_headers` file that
   gives Netlify's static layer the immutable asset policy and the same default
   security headers the function applies everywhere else. A hand-authored
-  `public/_headers` wins — pracht then skips generating one and warns.
+  `_headers` copied from Vite's configured `publicDir` wins — including the
+  default `public/_headers` — so pracht skips generating one and warns.
+  Manifest entries must name exact paths; wildcard and `:placeholder` syntax is
+  rejected before it can broaden a generated header rule.
   Default and prefix-shaped exclusions are also omitted from the function's
   `includedFiles`, keeping large bypassed asset trees outside its bundle. The
   generated config lists each remaining client file explicitly because the
@@ -1080,8 +1083,8 @@ cache.
   uncacheable (`Cache-Control: private`/`no-store`, `Vary: Cookie`/
   `Authorization`) is logged as a warning, because Vercel's prerender cache
   stores it regardless. Render such routes as `ssr` instead.
-- **Static security headers**: the generated `config.json` includes a `headers`
-  section that applies the same baseline security headers to all responses,
+- **Static security headers**: the generated `config.json` includes continuing
+  `routes` entries with the baseline security headers for all responses,
   including static assets served by Vercel's CDN. Static prerendered routes also
   get route and shell document headers from the prerender header manifest.
   SSG/ISG prerendering rejects dangerous document headers such as `Set-Cookie`,

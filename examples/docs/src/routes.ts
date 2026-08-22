@@ -40,6 +40,10 @@ export const app = defineApp({
         id: "data-loading",
         render: "ssg",
       }),
+      route("/docs/content", () => import("./routes/docs/content.md"), {
+        id: "content",
+        render: "ssg",
+      }),
       route("/docs/api-routes", () => import("./routes/docs/api-routes.md"), {
         id: "api-routes",
         render: "ssg",
@@ -71,6 +75,7 @@ export const app = defineApp({
       route("/docs/images", () => import("./routes/docs/images.md"), {
         id: "images",
         render: "ssg",
+        hydration: "none",
       }),
       route("/docs/env", () => import("./routes/docs/env.md"), {
         id: "env",

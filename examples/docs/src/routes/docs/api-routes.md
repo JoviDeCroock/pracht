@@ -3,8 +3,8 @@ title: API Routes
 lead: Standalone server endpoints that live alongside your pages. Export named HTTP method handlers or one default handler, then return `Response` objects directly.
 breadcrumb: API Routes
 prev:
-  href: /docs/data-loading
-  title: Data Loading
+  href: /docs/content
+  title: Content Collections
 next:
   href: /docs/api-validation
   title: API Validation

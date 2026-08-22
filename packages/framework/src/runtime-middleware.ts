@@ -127,6 +127,7 @@ export async function runMiddlewareChain<TContext>(options: {
   context: TContext;
   middlewareFiles: string[];
   params: Record<string, string>;
+  pathname?: string;
   registry: ModuleRegistry;
   request: Request;
   route: BaseRouteArgs<TContext>["route"] | ResolvedApiRoute;
@@ -190,6 +191,7 @@ export async function runMiddlewareChain<TContext>(options: {
     const args: MiddlewareArgs<TContext> = {
       request: options.request,
       params: options.params,
+      pathname: options.pathname,
       context: options.context,
       signal: options.signal,
       url: options.url,

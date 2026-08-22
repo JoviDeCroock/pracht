@@ -1,5 +1,16 @@
-import { readFile, stat } from "node:fs/promises";
-import { isAbsolute, relative, resolve, sep } from "node:path";
+import { createHash, randomUUID } from "node:crypto";
+import { mkdir, readFile, rename, stat, unlink, writeFile } from "node:fs/promises";
+import {
+  basename,
+  dirname,
+  extname,
+  isAbsolute,
+  join,
+  posix,
+  relative,
+  resolve,
+  sep,
+} from "node:path";
 import type { Plugin } from "vite";
 
 import type { PrachtImageMetadata } from "./metadata.ts";
@@ -16,6 +27,16 @@ export interface PrachtImageOptions {
   blurWidth?: number;
   /** WebP quality (1-100) of the blur placeholder. Defaults to 70. */
   blurQuality?: number;
+  /** Widths generated for `?pracht&pracht-static` imports. */
+  staticWidths?: readonly number[];
+  /** WebP quality for generated static variants. Defaults to 75. */
+  staticQuality?: number;
+  /**
+   * Client asset directory used when a static image is reachable only from
+   * the server graph. Relative paths resolve from Vite's root. Defaults to
+   * `dist/client`, matching `pracht build`.
+   */
+  staticOutDir?: string;
   /** Override how sharp is imported (useful for tests). */
   loadSharp?: () => Promise<unknown>;
 }
@@ -23,6 +44,10 @@ export interface PrachtImageOptions {
 const PRACHT_IMAGE_QUERY = "pracht";
 const DEFAULT_BLUR_WIDTH = 8;
 const DEFAULT_BLUR_QUALITY = 70;
+const DEFAULT_STATIC_QUALITY = 75;
+const DEFAULT_STATIC_WIDTHS = [320, 640, 960, 1280, 1920] as const;
+const STATIC_IMAGE_QUERY = "pracht-static";
+const STATIC_CACHE_VERSION = "pracht-static-image-v1";
 
 const SHARP_INSTALL_HINT =
   '[pracht/image] "?pracht" image imports require the optional "sharp" dependency ' +
@@ -46,7 +71,9 @@ interface SharpPipeline {
   toBuffer(): Promise<Uint8Array>;
 }
 
-type SharpFactory = (input: Uint8Array) => SharpPipeline;
+type SharpFactory = ((input: Uint8Array) => SharpPipeline) & {
+  versions?: { sharp?: string };
+};
 
 function createSharpImporter(load: () => Promise<unknown>): () => Promise<SharpFactory> {
   let cached: Promise<SharpFactory> | undefined;
@@ -70,6 +97,15 @@ export function isPrachtImageId(id: string): boolean {
     .slice(queryStart + 1)
     .split("&")
     .some((part) => part === PRACHT_IMAGE_QUERY);
+}
+
+export function isStaticPrachtImageId(id: string): boolean {
+  const queryStart = id.indexOf("?");
+  if (queryStart === -1) return false;
+  return id
+    .slice(queryStart + 1)
+    .split("&")
+    .some((part) => part === STATIC_IMAGE_QUERY);
 }
 
 /** Strip the entire query, leaving the file path. */
@@ -144,7 +180,19 @@ export async function analyzeImage(
 export function createImageModuleCode(
   assetId: string,
   analyzed: Omit<PrachtImageMetadata, "src">,
+  variants: PrachtImageMetadata["variants"] = undefined,
+  staticQuery = false,
 ): string {
+  if (variants?.length) {
+    return [
+      `export const variants = ${JSON.stringify(variants)};`,
+      "export const src = variants[variants.length - 1].src;",
+      `export const width = ${JSON.stringify(analyzed.width)};`,
+      `export const height = ${JSON.stringify(analyzed.height)};`,
+      `export const blurDataURL = ${JSON.stringify(analyzed.blurDataURL)};`,
+      "export default { src, width, height, blurDataURL, variants };",
+    ].join("\n");
+  }
   // Vite ids always use forward slashes, including Windows drive paths
   // (`C:/…`). Normalize before embedding the path in the generated import.
   const assetImport = `${assetId.replace(/\\/g, "/")}?url&no-inline`;
@@ -153,8 +201,11 @@ export function createImageModuleCode(
     `export const width = ${JSON.stringify(analyzed.width)};`,
     `export const height = ${JSON.stringify(analyzed.height)};`,
     `export const blurDataURL = ${JSON.stringify(analyzed.blurDataURL)};`,
+    ...(staticQuery ? ["export const variants = undefined;"] : []),
     "export { src };",
-    "export default { src, width, height, blurDataURL };",
+    staticQuery
+      ? "export default { src, width, height, blurDataURL, variants };"
+      : "export default { src, width, height, blurDataURL };",
   ].join("\n");
 }
 
@@ -169,6 +220,13 @@ interface ResolvedImage {
   filePath: string;
   /** Vite id imported by the generated metadata module. */
   assetId: string;
+  /** Root-relative publicDir assets deliberately stay unprocessed. */
+  publicAsset?: boolean;
+}
+
+interface StaticAsset {
+  contentType: `image/${string}`;
+  source: Uint8Array;
 }
 
 async function resolvePublicFile(publicDir: string, source: string): Promise<string | undefined> {
@@ -189,13 +247,20 @@ async function resolvePublicFile(publicDir: string, source: string): Promise<str
   return stats?.isFile() ? candidate : undefined;
 }
 
+function contentTypeForOriginal(format: string | undefined, extension: string): `image/${string}` {
+  if (format === "svg" || extension === ".svg") return "image/svg+xml";
+  if (format) return `image/${format}`;
+  const subtype = extension.replace(/^\./, "") || "octet-stream";
+  return `image/${subtype}`;
+}
+
 /**
  * Vite plugin enabling build-time image imports:
  *
  * ```ts
  * // vite.config.ts — add it next to pracht(); it is not included by default.
  * import { prachtImage } from "@pracht/image/vite";
- * export default { plugins: [pracht({ … }), prachtImage()] };
+ * export default { plugins: [prachtImage(), pracht({ … })] };
  * ```
  *
  * ```tsx
@@ -214,11 +279,26 @@ async function resolvePublicFile(publicDir: string, source: string): Promise<str
 export function prachtImage(options: PrachtImageOptions = {}): Plugin {
   const blurWidth = options.blurWidth ?? DEFAULT_BLUR_WIDTH;
   const blurQuality = options.blurQuality ?? DEFAULT_BLUR_QUALITY;
+  const staticQuality = options.staticQuality ?? DEFAULT_STATIC_QUALITY;
+  const staticWidths = [...new Set(options.staticWidths ?? DEFAULT_STATIC_WIDTHS)].sort(
+    (left, right) => left - right,
+  );
   if (!Number.isInteger(blurWidth) || blurWidth < 1 || blurWidth > 64) {
     throw new Error("prachtImage({ blurWidth }) expects an integer between 1 and 64.");
   }
   if (!Number.isInteger(blurQuality) || blurQuality < 1 || blurQuality > 100) {
     throw new Error("prachtImage({ blurQuality }) expects an integer between 1 and 100.");
+  }
+  if (!Number.isInteger(staticQuality) || staticQuality < 1 || staticQuality > 100) {
+    throw new Error("prachtImage({ staticQuality }) expects an integer between 1 and 100.");
+  }
+  if (
+    staticWidths.length === 0 ||
+    staticWidths.some((width) => !Number.isInteger(width) || width < 1 || width > 16_384)
+  ) {
+    throw new Error(
+      "prachtImage({ staticWidths }) expects one or more integer widths between 1 and 16384.",
+    );
   }
   const importSharp = createSharpImporter(options.loadSharp ?? (() => import("sharp")));
   // Include the asset id in the cache key: the same file can be imported via
@@ -227,14 +307,114 @@ export function prachtImage(options: PrachtImageOptions = {}): Plugin {
   // builds/environments reuse the sharp work for matching URL semantics.
   const cache = new Map<string, CacheEntry>();
   const resolvedImages = new Map<string, ResolvedImage>();
+  const staticAssets = new Map<string, StaticAsset>();
   let publicDir = "";
+  let root = process.cwd();
+  let base = "/";
+  let assetsDir = "assets";
+  let cacheDir = "";
+  let staticOutDir = "";
+  let isSsrBuild = false;
 
-  async function transform(filePath: string, assetId: string): Promise<string> {
+  function staticAssetUrl(fileName: string): string {
+    if (base === "" || base === "./") return `${base}${fileName}`;
+    return `${base.endsWith("/") ? base : `${base}/`}${fileName}`;
+  }
+
+  async function createStaticVariants(
+    sharp: SharpFactory,
+    source: Uint8Array,
+    filePath: string,
+    intrinsicWidth: number,
+  ): Promise<PrachtImageMetadata["variants"]> {
+    const metadata = await sharp(source).metadata();
+    if (metadata.format === "svg" || (metadata.pages ?? 1) > 1) {
+      const extension = extname(filePath).toLowerCase();
+      const stem =
+        basename(filePath, extname(filePath)).replace(/[^a-zA-Z0-9_-]+/g, "-") || "image";
+      const hash = createHash("sha256")
+        .update(STATIC_CACHE_VERSION)
+        .update("original")
+        .update(source)
+        .digest("hex")
+        .slice(0, 12);
+      const fileName = posix.join(assetsDir, `${stem}.${hash}${extension}`);
+      const contentType = contentTypeForOriginal(metadata.format, extension);
+      staticAssets.set(fileName, { contentType, source });
+      return [
+        {
+          src: staticAssetUrl(fileName),
+          width: intrinsicWidth,
+          type: contentType,
+        },
+      ];
+    }
+
+    const widths = [
+      ...new Set([...staticWidths.filter((width) => width < intrinsicWidth), intrinsicWidth]),
+    ];
+    const stem = basename(filePath, extname(filePath)).replace(/[^a-zA-Z0-9_-]+/g, "-") || "image";
+    const variants = [];
+    for (const width of widths) {
+      const hash = createHash("sha256")
+        .update(STATIC_CACHE_VERSION)
+        .update(source)
+        .update(
+          JSON.stringify({
+            width,
+            quality: staticQuality,
+            format: "webp",
+            encoder: sharp.versions?.sharp ?? "unknown",
+          }),
+        )
+        .digest("hex")
+        .slice(0, 12);
+      const fileName = posix.join(assetsDir, `${stem}.${width}.${hash}.webp`);
+      const cachedPath = join(cacheDir, "pracht-image", `${hash}.webp`);
+      let output = await readFile(cachedPath).catch(() => undefined);
+      if (!output) {
+        output = Buffer.from(
+          await sharp(source)
+            .rotate()
+            .resize({ width, withoutEnlargement: true })
+            .webp({ quality: staticQuality })
+            .toBuffer(),
+        );
+        await mkdir(join(cacheDir, "pracht-image"), { recursive: true });
+        const temporaryPath = `${cachedPath}.${process.pid}.${randomUUID()}.tmp`;
+        try {
+          await writeFile(temporaryPath, output);
+          await rename(temporaryPath, cachedPath);
+        } catch (error) {
+          // Another build may have atomically populated the same content key.
+          // Reuse its complete bytes; never accept a partially written cache
+          // entry and never fail merely because equivalent work won the race.
+          const concurrent = await readFile(cachedPath).catch(() => undefined);
+          if (!concurrent) throw error;
+          output = concurrent;
+        } finally {
+          await unlink(temporaryPath).catch(() => undefined);
+        }
+      }
+      staticAssets.set(fileName, { contentType: "image/webp", source: output });
+      variants.push({ src: staticAssetUrl(fileName), width, type: "image/webp" as const });
+    }
+    return variants;
+  }
+
+  async function transform(
+    filePath: string,
+    assetId: string,
+    staticImport: boolean,
+    staticQuery: boolean,
+  ): Promise<string> {
     const stats = await stat(filePath).catch(() => {
       throw new Error(`[pracht/image] Could not read "${filePath}" for a "?pracht" import.`);
     });
 
-    const cacheKey = `${filePath}\0${assetId}`;
+    const cacheKey = `${filePath}\0${assetId}\0${
+      staticImport ? "static" : staticQuery ? "static-fallback" : "metadata"
+    }`;
     const cached = cache.get(cacheKey);
     if (cached && cached.mtimeMs === stats.mtimeMs && cached.size === stats.size) {
       return cached.code;
@@ -251,7 +431,10 @@ export function prachtImage(options: PrachtImageOptions = {}): Plugin {
             `${error instanceof Error ? error.message : String(error)}`,
         );
       }
-      return createImageModuleCode(assetId, analyzed);
+      const variants = staticImport
+        ? await createStaticVariants(sharp, source, filePath, analyzed.width)
+        : undefined;
+      return createImageModuleCode(assetId, analyzed, variants, staticQuery);
     })();
     // Drop failed transforms so a fixed image (or a later sharp install) is
     // retried instead of replaying a cached rejection.
@@ -267,13 +450,20 @@ export function prachtImage(options: PrachtImageOptions = {}): Plugin {
     // `hero.jpg?pracht` as a plain asset URL import.
     enforce: "pre",
     configResolved(config) {
+      root = config.root;
       publicDir = config.publicDir;
+      base = config.base;
+      assetsDir = config.build.assetsDir;
+      cacheDir = config.cacheDir;
+      staticOutDir = resolve(root, options.staticOutDir ?? "dist/client");
+      isSsrBuild = Boolean(config.build.ssr);
     },
     async resolveId(source, importer) {
       if (!isPrachtImageId(source)) return null;
       // Resolve the underlying file with the query stripped so relative
       // paths and aliases work, then re-attach the query as the module id.
       const sourcePath = stripImageQuery(source);
+      const staticImport = isStaticPrachtImageId(source);
       const resolved = await this.resolve(sourcePath, importer, { skipSelf: true });
       if (!resolved) return null;
 
@@ -283,10 +473,14 @@ export function prachtImage(options: PrachtImageOptions = {}): Plugin {
       // the public URL so Vite preserves its stable filename and applies base.
       const publicFile =
         resolved.id === sourcePath ? await resolvePublicFile(publicDir, sourcePath) : undefined;
-      const moduleId = `${resolved.id}${resolved.id.includes("?") ? "&" : "?"}${PRACHT_IMAGE_QUERY}`;
+      const query = staticImport
+        ? `${PRACHT_IMAGE_QUERY}&${STATIC_IMAGE_QUERY}`
+        : PRACHT_IMAGE_QUERY;
+      const moduleId = `${resolved.id}${resolved.id.includes("?") ? "&" : "?"}${query}`;
       resolvedImages.set(moduleId, {
         filePath: publicFile ?? resolved.id,
         assetId: publicFile ? sourcePath : resolved.id,
+        publicAsset: publicFile !== undefined,
       });
       return moduleId;
     },
@@ -298,7 +492,66 @@ export function prachtImage(options: PrachtImageOptions = {}): Plugin {
       };
       // Watch the source file so dev rebuilds when the image itself changes.
       this.addWatchFile(resolved.filePath);
-      return transform(resolved.filePath, resolved.assetId);
+      const staticQuery = isStaticPrachtImageId(id);
+      const staticImport = staticQuery && !resolved.publicAsset;
+      if (staticImport && (base === "" || base === "./")) {
+        throw new Error(
+          '[pracht/image] "?pracht&pracht-static" imports require an absolute Vite base ' +
+            '(for example "/" or "/docs/"); a relative base cannot produce route-safe image URLs.',
+        );
+      }
+      return transform(resolved.filePath, resolved.assetId, staticImport, staticQuery);
+    },
+    configureServer(server) {
+      server.middlewares.use((request, response, next) => {
+        const pathname = new URL(request.url ?? "/", "http://pracht.local").pathname;
+        const entry = [...staticAssets].find(
+          ([fileName]) =>
+            new URL(staticAssetUrl(fileName), "http://pracht.local").pathname === pathname,
+        );
+        if (!entry) return next();
+        const method = (request.method ?? "GET").toUpperCase();
+        if (method !== "GET" && method !== "HEAD") return next();
+        response.statusCode = 200;
+        response.setHeader("cache-control", "no-store");
+        response.setHeader("content-type", entry[1].contentType);
+        response.setHeader("x-content-type-options", "nosniff");
+        response.end(method === "HEAD" ? undefined : entry[1].source);
+      });
+    },
+    generateBundle() {
+      const consumer = this.environment?.config?.consumer;
+      const isServerBundle = consumer ? consumer === "server" : isSsrBuild;
+      if (isServerBundle) return;
+      for (const [fileName, asset] of staticAssets) {
+        this.emitFile({ type: "asset", fileName, source: asset.source });
+      }
+    },
+    async writeBundle() {
+      const consumer = this.environment?.config?.consumer;
+      const isServerBundle = consumer ? consumer === "server" : isSsrBuild;
+      if (!isServerBundle) return;
+
+      // Hydration-disabled routes are intentionally absent from the client
+      // graph. Their image imports are first discovered during the server
+      // build, so publish those generated files into the adapter-served client
+      // directory instead of leaving prerendered HTML with dangling URLs.
+      for (const [fileName, asset] of staticAssets) {
+        const outputPath = resolve(staticOutDir, fileName);
+        const relativePath = relative(staticOutDir, outputPath);
+        if (
+          relativePath === "" ||
+          relativePath === ".." ||
+          relativePath.startsWith(`..${sep}`) ||
+          isAbsolute(relativePath)
+        ) {
+          throw new Error(
+            `[pracht/image] Refusing to write static variant outside ${JSON.stringify(staticOutDir)}: ${JSON.stringify(fileName)}.`,
+          );
+        }
+        await mkdir(dirname(outputPath), { recursive: true });
+        await writeFile(outputPath, asset.source);
+      }
     },
     watchChange(filePath) {
       if (this.environment.mode !== "dev") return;

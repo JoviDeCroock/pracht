@@ -24,6 +24,10 @@
       "@pracht/core/server": ["./packages/framework/src/server.ts"],
       "@pracht/core/islands-client": ["./packages/framework/src/islands-client.ts"],
       "@pracht/capabilities": ["./packages/capabilities/src/index.ts"],
+      "@pracht/content": ["./packages/content/src/index.ts"],
+      "@pracht/content/capabilities": ["./packages/content/src/capabilities.ts"],
+      "@pracht/content/runtime": ["./packages/content/src/runtime.ts"],
+      "@pracht/content/vite": ["./packages/content/src/vite.ts"],
       "@pracht/openapi": ["./packages/openapi/src/index.ts"],
       "@pracht/openapi/vite": ["./packages/openapi/src/vite.ts"],
       "@pracht/vite-plugin": ["./packages/vite-plugin/src/index.ts"],
@@ -37,6 +41,8 @@
       "@pracht/image/node": ["./packages/image/src/node.ts"],
       "@pracht/image/vite": ["./packages/image/src/vite.ts"],
       "@pracht/i18n": ["./packages/i18n/src/index.ts"],
+      "@pracht/markdown": ["./packages/markdown/src/index.ts"],
+      "@pracht/markdown/runtime": ["./packages/markdown/src/runtime.ts"],
       "@pracht/test": ["./packages/test/src/index.ts"]
     }
   },
