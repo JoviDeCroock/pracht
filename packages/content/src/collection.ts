@@ -285,29 +285,37 @@ export function defineCollection<
         );
       }
       for (const source of sourceKeys) bySource.set(source, descriptor);
-      if (locales && descriptor.inferredRoute) {
+    }
+    if (locales) {
+      for (const [id, localized] of byId) {
         for (const locale of locales.supported) {
+          if (localized.has(locale)) continue;
+          const fallbackDescriptor = resolveLocaleOrder(locale, true, locales)
+            .slice(1)
+            .map((fallbackLocale) => localized.get(fallbackLocale ?? NO_LOCALE))
+            .find((descriptor) => descriptor !== undefined);
+          if (!fallbackDescriptor?.inferredRoute) continue;
           const configured = options.route?.({
-            id: descriptor.id,
+            id,
             locale,
-            relativePath: descriptor.relativePath,
+            relativePath: fallbackDescriptor.relativePath,
           });
           if (configured === false) continue;
           const alias = normalizeRoutePath(
             configured ??
               createGeneratedRoute({
-                id: descriptor.id,
+                id,
                 locale,
-                relativePath: descriptor.relativePath,
+                relativePath: fallbackDescriptor.relativePath,
               }),
           );
           const existing = routeAliases.get(alias);
-          if (existing && existing.id !== descriptor.id) {
+          if (existing && existing.id !== id) {
             throw new Error(
               `Content collection ${JSON.stringify(options.name)} has ambiguous generated route alias ${JSON.stringify(alias)}.`,
             );
           }
-          if (!existing) routeAliases.set(alias, { id: descriptor.id, locale });
+          if (!existing) routeAliases.set(alias, { id, locale });
         }
       }
     }

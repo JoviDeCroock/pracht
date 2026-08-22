@@ -24,6 +24,14 @@ when the static adapter emits a fallback, and route precedence is preserved
 when an earlier dynamic SSG route shadows a later SPA catch-all. Prototype-named
 collection keys such as `__proto__` are preserved in the internal route
 manifest instead of disappearing during serialization.
+JSON build reports now keep reconciliation warnings visible on stderr, and the
+build rejects configured public-directory files that could replace the
+internal content headers or route manifests before the CLI validates them.
+
+Localized custom routes no longer produce the Cartesian product of every
+translation's slug and every supported locale. Route aliases are emitted only
+for missing locales and use the document that locale fallback would actually
+select.
 
 `llmsTxtArtifacts()` now matches a string `section.match` against the
 locale-neutral route. A localized collection prefixes translations, so the

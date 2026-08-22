@@ -104,6 +104,9 @@ defined. `routePrefix: "never"` keeps translated documents on the same
 locale-neutral route; pass a locale to route lookup to select the translation.
 Without one, route lookup selects the configured default locale regardless of
 its position in `supported`.
+Generated aliases cover only missing locales and use the source selected by
+that locale's fallback order. Existing translations with custom slugs do not
+gain aliases based on another translation's slug.
 
 The filesystem registry is memoized and rebuilt only after `invalidate()`.
 Relative invalidation paths, like source lookup paths, resolve from the
@@ -166,6 +169,10 @@ Route order remains authoritative when patterns overlap. The internal manifest
 preserves every valid collection name, including prototype-named keys such as
 `__proto__`. Configure `unroutedDocuments: "error" | "warn" | "ignore"` on
 `prachtContent()` to select the reconciliation policy.
+Warnings remain visible on stderr when `pracht build --json` reserves stdout
+for the JSON report. Vite's configured `publicDir` cannot occupy the internal
+`_pracht/content-headers.json` or `_pracht/content-routes.json` build-manifest
+paths, including portable file/directory collisions.
 
 For request-time loaders and capabilities, import the generated snapshot rather
 than the filesystem-backed authoring collection:

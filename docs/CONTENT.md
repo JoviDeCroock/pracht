@@ -123,6 +123,10 @@ explicit record entry when the default locale should fall back to another
 locale. Every configured fallback target must also appear in `supported`;
 fallback record keys must name a supported requested locale too. Invalid
 fallback configuration is rejected when the collection is defined.
+Generated route aliases are created only for locales that do not have a
+document, using the document that locale fallback would actually select. A
+translated document with its own custom slug therefore does not inherit the
+other translations' slugs.
 
 ## Representations and memoization
 
@@ -217,6 +221,12 @@ for a data-only collection whose documents are deliberately never pages:
 ```ts
 prachtContent({ collections: [docs], unroutedDocuments: "error" });
 ```
+
+With `pracht build --json`, reconciliation warnings are written to stderr so
+stdout remains valid machine-readable JSON. Vite's configured `publicDir`
+cannot contain `_pracht/content-headers.json` or
+`_pracht/content-routes.json` (including portable file/directory collisions),
+because those paths are reserved for the plugin-to-CLI build channel.
 
 `pracht verify` cannot perform this check: it reads the Vite config as text and
 cannot resolve which sources a registry claims. It reports the presence of a

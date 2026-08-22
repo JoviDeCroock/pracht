@@ -104,6 +104,50 @@ describe("defineCollection", () => {
     expect((await frenchOnly.getByRoute("/fr/docs/guide"))?.locale).toBe("fr");
   });
 
+  it("creates custom-slug aliases only for locales that need fallback", async () => {
+    const root = await fixture({
+      "en/guide.md": "English",
+      "fr/guide-fr.md": "Français",
+    });
+    const collection = defineCollection({
+      name: "localized-slugs",
+      root,
+      sources: [
+        { id: "guide", source: "en/guide.md" },
+        { id: "guide", source: "fr/guide-fr.md" },
+      ],
+      locales: {
+        default: "en",
+        supported: ["en", "fr", "nl"],
+        fallback: { nl: "fr" },
+        routePrefix: "always",
+      },
+      route: ({ locale, relativePath }) => `/${locale}/${relativePath}`,
+    });
+
+    await expect(collection.getByRoute("/en/guide")).resolves.toMatchObject({ locale: "en" });
+    await expect(collection.getByRoute("/fr/guide-fr")).resolves.toMatchObject({ locale: "fr" });
+    await expect(collection.getByRoute("/fr/guide")).resolves.toBeUndefined();
+    await expect(collection.getByRoute("/en/guide-fr")).resolves.toBeUndefined();
+    await expect(collection.resolveByRoute("/nl/guide-fr")).resolves.toMatchObject({
+      document: { locale: "fr" },
+      fallback: true,
+      requestedLocale: "nl",
+    });
+    await expect(collection.getByRoute("/nl/guide")).resolves.toBeUndefined();
+
+    const snapshot = await collection.snapshot();
+    expect(snapshot.routeAliases).toEqual([{ id: "guide", locale: "nl", path: "/nl/guide-fr" }]);
+    const runtime = defineSnapshotCollection(snapshot);
+    await expect(runtime.getByRoute("/fr/guide")).resolves.toBeUndefined();
+    await expect(runtime.getByRoute("/en/guide-fr")).resolves.toBeUndefined();
+    await expect(runtime.resolveByRoute("/nl/guide-fr")).resolves.toMatchObject({
+      document: { locale: "fr" },
+      fallback: true,
+      requestedLocale: "nl",
+    });
+  });
+
   it("does not apply global fallback lists to the default locale", async () => {
     const root = await fixture({ "fr/guide.md": "Français" });
 

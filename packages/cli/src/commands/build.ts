@@ -297,23 +297,45 @@ function findContentArtifactOutputCollision(
   );
 }
 
-export function assertNoPublicContentArtifactCollisions(
-  contentArtifactHeaders: Record<string, Record<string, string>>,
-  publicDir: string,
-  publicDirLabel = "public",
-): void {
+function collectPublicFiles(publicDir: string): string[] {
   const publicFiles: string[] = [];
-  const collectPublicFiles = (directory: string): void => {
+  const collect = (directory: string): void => {
     for (const entry of readdirSync(directory, { withFileTypes: true })) {
       const absolutePath = resolve(directory, entry.name);
       if (entry.isDirectory()) {
-        collectPublicFiles(absolutePath);
+        collect(absolutePath);
         continue;
       }
       publicFiles.push(relative(publicDir, absolutePath).split(sep).join("/"));
     }
   };
-  collectPublicFiles(publicDir);
+  collect(publicDir);
+  return publicFiles;
+}
+
+export function assertNoPublicContentMetadataCollisions(
+  publicDir: string,
+  publicDirLabel = "public",
+): void {
+  const publicFiles = collectPublicFiles(publicDir);
+  const reservedMetadataPaths = ["_pracht/content-headers.json", "_pracht/content-routes.json"];
+  const collision = publicFiles.find((publicFile) =>
+    reservedMetadataPaths.some((metadataPath) =>
+      portableOutputPathsCollide(metadataPath, publicFile),
+    ),
+  );
+  if (!collision) return;
+  throw new Error(
+    `${JSON.stringify(`${publicDirLabel}/${collision}`)} collides with Pracht's internal content build manifests. Remove or rename the public file so it cannot replace build metadata.`,
+  );
+}
+
+export function assertNoPublicContentArtifactCollisions(
+  contentArtifactHeaders: Record<string, Record<string, string>>,
+  publicDir: string,
+  publicDirLabel = "public",
+): void {
+  const publicFiles = collectPublicFiles(publicDir);
 
   for (const path of Object.keys(contentArtifactHeaders)) {
     const artifactOutput = path.slice(1);
@@ -424,6 +446,11 @@ export interface BuildResult {
   buildTarget: string | null;
 }
 
+export function reportBuildWarning(message: string, json: boolean): void {
+  if (json) console.error(message);
+  else console.log(message);
+}
+
 interface BuildOptions {
   analyze?: boolean;
   analyzeJson?: boolean;
@@ -494,15 +521,15 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
       rmSync(sourcePath, { force: true, recursive: true });
     }
   }
+  const publicDirLabel = relative(root, publicDir).split(sep).join("/") || ".";
+  if (publicDir && existsSync(publicDir)) {
+    assertNoPublicContentMetadataCollisions(publicDir, publicDirLabel);
+  }
   const contentArtifactHeaders = readContentArtifactHeaders(clientDir);
   const contentRoutes = readContentRoutesManifest(clientDir);
 
   if (publicDir && existsSync(publicDir)) {
-    assertNoPublicContentArtifactCollisions(
-      contentArtifactHeaders,
-      publicDir,
-      relative(root, publicDir).split(sep).join("/") || ".",
-    );
+    assertNoPublicContentArtifactCollisions(contentArtifactHeaders, publicDir, publicDirLabel);
   }
 
   // `public/` is deliberately not re-copied here: the client build already
@@ -573,7 +600,8 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
       if (unrouted.length > 0) {
         const report = formatUnroutedContentDocuments(unrouted);
         if (contentRoutes.policy === "error") throw new Error(report);
-        log(`\n  Warning: ${report}\n`);
+        const warning = `\n  Warning: ${report}\n`;
+        reportBuildWarning(warning, analyzeJson);
       }
     }
     const expandedContentArtifactHeaders = expandContentArtifactHeaders(contentArtifactHeaders);

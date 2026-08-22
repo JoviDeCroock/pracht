@@ -2,18 +2,20 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   assertNoContentArtifactOutputCollision,
   assertNoContentArtifactPathCollision,
   assertNoPrerenderedContentArtifactCollisions,
   assertNoPublicContentArtifactCollisions,
+  assertNoPublicContentMetadataCollisions,
   assertNoRequestRouteContentArtifactCollisions,
   collectContentRoutePatterns,
   collectUnroutedContentDocuments,
   expandContentArtifactHeaders,
   formatUnroutedContentDocuments,
+  reportBuildWarning,
   resolveGeneratedArtifactOutputPath,
   resolvePrerenderOutputPath,
   runBuild,
@@ -130,6 +132,33 @@ describe("assertNoContentArtifactOutputCollision", () => {
 });
 
 describe("assertNoPublicContentArtifactCollisions", () => {
+  it("rejects public files that occupy internal content build manifests", () => {
+    const publicDir = mkdtempSync(join(tmpdir(), "pracht-content-public-"));
+    try {
+      mkdirSync(resolve(publicDir, "_pracht"));
+      writeFileSync(resolve(publicDir, "_pracht/content-routes.json"), "{}");
+
+      expect(() => assertNoPublicContentMetadataCollisions(publicDir)).toThrow(
+        /public\/_pracht\/content-routes\.json.*internal content build manifests/,
+      );
+    } finally {
+      rmSync(publicDir, { force: true, recursive: true });
+    }
+  });
+
+  it("rejects file-directory collisions with internal content build manifests", () => {
+    const publicDir = mkdtempSync(join(tmpdir(), "pracht-content-public-"));
+    try {
+      writeFileSync(resolve(publicDir, "_pracht"), "public blocker");
+
+      expect(() => assertNoPublicContentMetadataCollisions(publicDir)).toThrow(
+        /public\/_pracht.*internal content build manifests/,
+      );
+    } finally {
+      rmSync(publicDir, { force: true, recursive: true });
+    }
+  });
+
   it("rejects public files that would overwrite generated content artifacts", () => {
     const publicDir = mkdtempSync(join(tmpdir(), "pracht-content-public-"));
     try {
@@ -234,6 +263,59 @@ export default {
       );
     } finally {
       rmSync(root, { force: true, recursive: true });
+    }
+  });
+
+  it("rejects reserved files from Vite's configured publicDir before reading them", async () => {
+    const root = mkdtempSync(join(tmpdir(), "pracht-content-reserved-public-"));
+    try {
+      mkdirSync(resolve(root, "static/_pracht"), { recursive: true });
+      writeFileSync(resolve(root, "static/_pracht/content-routes.json"), "not json");
+      writeFileSync(
+        resolve(root, "vite.config.mjs"),
+        `const CLIENT = "\\0virtual:pracht/client";
+const SERVER = "\\0virtual:pracht/server";
+
+export default {
+  publicDir: "static",
+  plugins: [{
+    name: "reserved-content-metadata-fixture",
+    resolveId(id) {
+      if (id === "virtual:pracht/client") return CLIENT;
+      if (id === "virtual:pracht/server") return SERVER;
+    },
+    load(id) {
+      if (id === CLIENT) return "console.log('client')";
+      if (id === SERVER) {
+        return "export const resolvedApp = { routes: [] }; export async function prerenderApp() { return { pages: [], isgManifest: {} }; }";
+      }
+    },
+  }],
+};
+`,
+      );
+
+      await expect(runBuild(root, { analyzeJson: true })).rejects.toThrow(
+        /static\/_pracht\/content-routes\.json.*internal content build manifests/,
+      );
+    } finally {
+      rmSync(root, { force: true, recursive: true });
+    }
+  });
+});
+
+describe("content route reconciliation warnings", () => {
+  it("writes warnings to stderr when build analysis is JSON", () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      reportBuildWarning("Warning: 1 content document", true);
+
+      expect(error).toHaveBeenCalledWith(expect.stringMatching(/Warning: 1 content document/));
+      expect(log).not.toHaveBeenCalled();
+    } finally {
+      error.mockRestore();
+      log.mockRestore();
     }
   });
 });
