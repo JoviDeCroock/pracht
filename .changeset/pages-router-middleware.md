@@ -289,3 +289,10 @@ module bindings while respecting switch-wide lexical declarations and the local
 `var` scope of class static blocks. Build and CLI verification no longer accept
 non-callable middleware exports, or reject callable ones, because of these
 evaluation and shadowing boundaries.
+
+Nested module-scoped `var` declarations and implicit `for...in`/`for...of`
+assignments now participate in middleware callable analysis without losing the
+runtime binding itself. Registry alias extraction recognizes lexical bindings
+declared in loop headers, and pages middleware generation resolves nested Vite
+config aliases in their actual scope, keeping verification, capability client
+boundaries, and static-adapter checks aligned with runtime behavior.

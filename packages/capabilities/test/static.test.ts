@@ -121,8 +121,11 @@ describe("middleware export classification", () => {
     ["const { candidate } = { candidate: 1 };\nexport { candidate as middleware };", false],
     ["const candidate = createMiddleware();\nexport { candidate as middleware };", true],
     ["export const middleware = () => {};\n{ let middleware; middleware = {}; }", true],
+    ["{ var middleware = () => {}; }\nexport { middleware };", true],
+    ["for (var middleware = () => {}; false; ) {}\nexport { middleware };", true],
     ["export var middleware = () => {};\n{ var middleware = 1; }", false],
     ["export var middleware = () => {};\nfor (var middleware = 1; false; ) {}", false],
+    ["let middleware = 1;\nfor (middleware of [() => {}]) {}\nexport { middleware };", true],
     [
       "export const middleware = 1;\nswitch (0) { case 0: let middleware; middleware = () => {}; break; }",
       false,
@@ -614,6 +617,23 @@ describe("capability static extraction", () => {
       const capabilities = { notes: "./capabilities/notes.ts" };
       {
         const capabilities = { helper: true };
+        inspect(capabilities);
+      }
+      export const app = defineApp({ capabilities, routes: [] });
+    `;
+
+    expect(extractCapabilityRegistrations(source)).toEqual([
+      { name: "notes", file: "./capabilities/notes.ts" },
+    ]);
+  });
+
+  it.each([
+    ["identifier", "const capabilities of []"],
+    ["destructured", "const { capabilities } of []"],
+  ])("ignores uses shadowed by a %s loop binding", (_description, declaration) => {
+    const source = `
+      const capabilities = { notes: "./capabilities/notes.ts" };
+      for (${declaration}) {
         inspect(capabilities);
       }
       export const app = defineApp({ capabilities, routes: [] });
