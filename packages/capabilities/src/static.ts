@@ -621,8 +621,9 @@ function collectTopLevelBindingWritesFromNode(
   // Assignment targets are written after their right-hand side is evaluated.
   // Record the write after descending so nested assignments keep that runtime
   // order instead of the AST's outer-before-inner source order.
-  if (node.type === "VariableDeclarator" && node.init && !directDeclarators.has(node)) {
+  if (node.type === "VariableDeclarator" && node.init) {
     const initializer = asStaticAnalysisNode(node.init);
+    const isDirectDeclarator = directDeclarators.has(node);
     const start =
       initializer && typeof initializer.start === "number"
         ? initializer.start
@@ -631,10 +632,13 @@ function collectTopLevelBindingWritesFromNode(
           : Number.NEGATIVE_INFINITY;
     for (const name of collectStaticBindingNames(node.id)) {
       if (shadowedBindings.has(name)) continue;
+      if (isDirectDeclarator && !writes.has(name)) continue;
       const bindingWrites = writes.get(name) ?? [];
       bindingWrites.push({
         position: start,
-        unconditional: initializer ? unconditionalExpressions.has(initializer) : false,
+        unconditional: initializer
+          ? isDirectDeclarator || unconditionalExpressions.has(initializer)
+          : false,
         value: resolveStaticBindingInitializer(node.id, node.init, name),
       });
       writes.set(name, bindingWrites);
@@ -1923,13 +1927,7 @@ function findBindingShadowRanges(
     if (methodName && controlStatementKeywords.has(methodName)) continue;
     let before = match.index - 1;
     while (before >= 0 && /\s/.test(source[before])) before -= 1;
-    if (
-      before >= 0 &&
-      source[before] !== "{" &&
-      source[before] !== "," &&
-      source[before] !== ";" &&
-      source[before] !== "}"
-    ) {
+    if (before >= 0 && !isMethodDeclarationPrefix(source, before, match.index)) {
       continue;
     }
 
@@ -2032,6 +2030,18 @@ function findBindingShadowRanges(
   }
 
   return ranges;
+}
+
+function isMethodDeclarationPrefix(source: string, before: number, methodStart: number): boolean {
+  const boundaries = new Set(["{", ",", ";", "}"]);
+  if (boundaries.has(source[before])) return true;
+
+  let boundary = before;
+  while (boundary >= 0 && !boundaries.has(source[boundary])) boundary -= 1;
+  const prefix = source.slice(boundary + 1, methodStart).trim();
+  return /^(?:(?:abstract|accessor|async|declare|get|override|private|protected|public|set|static)(?:\s+|$))*\*?\s*$/.test(
+    prefix,
+  );
 }
 
 /** Add the lexical scope owned by a `for` header declaration. */

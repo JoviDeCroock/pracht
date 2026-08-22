@@ -296,3 +296,10 @@ runtime binding itself. Registry alias extraction recognizes lexical bindings
 declared in loop headers, and pages middleware generation resolves nested Vite
 config aliases in their actual scope, keeping verification, capability client
 boundaries, and static-adapter checks aligned with runtime behavior.
+
+Direct module-level `var` initializers now keep their runtime position in
+middleware callable analysis even when an earlier assignment targets the same
+binding. Registry extraction recognizes async, generator, and accessor methods
+whose parameters shadow a top-level registry, and pages middleware generation
+does not mistake a mutable serverful adapter binding for a shadowed static-adapter
+import.

@@ -123,6 +123,8 @@ describe("middleware export classification", () => {
     ["export const middleware = () => {};\n{ let middleware; middleware = {}; }", true],
     ["{ var middleware = () => {}; }\nexport { middleware };", true],
     ["for (var middleware = () => {}; false; ) {}\nexport { middleware };", true],
+    ["middleware = () => {};\nvar middleware = 1;\nexport { middleware };", false],
+    ["middleware = 1;\nvar middleware = () => {};\nexport { middleware };", true],
     ["export var middleware = () => {};\n{ var middleware = 1; }", false],
     ["export var middleware = () => {};\nfor (var middleware = 1; false; ) {}", false],
     ["let middleware = 1;\nfor (middleware of [() => {}]) {}\nexport { middleware };", true],
@@ -587,6 +589,24 @@ describe("capability static extraction", () => {
       `const helper = {
         capabilities() {},
         inspect(capabilities) { return capabilities; },
+      };`,
+    ],
+    [
+      "async object method",
+      `const helper = {
+        async inspect(capabilities) { return capabilities; },
+      };`,
+    ],
+    [
+      "generator object method",
+      `const helper = {
+        *inspect(capabilities) { yield capabilities; },
+      };`,
+    ],
+    [
+      "object setter",
+      `const helper = {
+        set inspect(capabilities) {},
       };`,
     ],
     ["parenthesized arrow function", "const inspect = (capabilities) => capabilities;"],

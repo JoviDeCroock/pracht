@@ -754,7 +754,8 @@ function usesStaticAdapter(project: Pick<ProjectConfig, "rawConfig">): boolean {
       if (node?.type !== "Identifier" || typeof node.name !== "string") return node;
       if (seen.has(node.name)) return node;
       const initializer = activeBindings.get(node.name);
-      if (initializer === undefined || initializer === SHADOWED_CONFIG_BINDING) return node;
+      if (initializer === SHADOWED_CONFIG_BINDING) return null;
+      if (initializer === undefined) return node;
       return resolveConfigBinding(initializer, activeBindings, new Set([...seen, node.name]));
     };
 
@@ -814,10 +815,10 @@ function usesStaticAdapter(project: Pick<ProjectConfig, "rawConfig">): boolean {
       if (!node) return false;
 
       if (node.type === "Identifier" && typeof node.name === "string") {
-        if (staticFactories.has(node.name)) return true;
         if (seen.has(node.name)) return false;
         const initializer = activeBindings.get(node.name);
-        if (initializer === undefined || initializer === SHADOWED_CONFIG_BINDING) return false;
+        if (initializer === SHADOWED_CONFIG_BINDING) return false;
+        if (initializer === undefined) return staticFactories.has(node.name);
         return isStaticAdapterExpression(
           initializer,
           activeBindings,
