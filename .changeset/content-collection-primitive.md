@@ -75,6 +75,9 @@ Artifacts inside an `/assets/` path override adapter-wide immutable caching with
 a revalidation policy because their filenames are not required to contain a
 content hash.
 
+Content collections also reject explicit sources and resolved symbolic links on
+another Windows drive because those paths are outside the collection root.
+
 Unprocessed `publicDir` static image imports now bypass configured runtime
 loaders, and Markdown preserves custom Marked image renderers for root-relative,
 remote, and data image sources. Netlify builds preserve hand-authored `_headers`

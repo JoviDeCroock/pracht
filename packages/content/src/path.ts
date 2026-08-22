@@ -1,4 +1,4 @@
-import { relative, resolve, sep } from "node:path";
+import { isAbsolute, relative, resolve, sep } from "node:path";
 
 export function normalizeRoutePath(value: string, label = "content route"): string {
   if (
@@ -38,7 +38,7 @@ function pathSegmentIsUnsafe(segment: string): boolean {
 export function normalizeRelativeSource(root: string, source: string): string {
   const absolute = resolve(root, source);
   const fromRoot = relative(root, absolute);
-  if (fromRoot === "" || fromRoot === ".." || fromRoot.startsWith(`..${sep}`)) {
+  if (fromRoot === "" || relativePathEscapesRoot(fromRoot)) {
     throw new TypeError(
       `Content source ${JSON.stringify(source)} must stay inside the collection root.`,
     );
@@ -48,7 +48,15 @@ export function normalizeRelativeSource(root: string, source: string): string {
 
 export function isInsideRoot(root: string, source: string): boolean {
   const fromRoot = relative(root, resolve(source));
-  return fromRoot !== ".." && !fromRoot.startsWith(`..${sep}`);
+  return !relativePathEscapesRoot(fromRoot);
+}
+
+export function relativePathEscapesRoot(
+  fromRoot: string,
+  pathIsAbsolute: (path: string) => boolean = isAbsolute,
+  separator = sep,
+): boolean {
+  return pathIsAbsolute(fromRoot) || fromRoot === ".." || fromRoot.startsWith(`..${separator}`);
 }
 
 export function artifactFileName(path: string): string {
