@@ -384,6 +384,21 @@ dist/
     server.js                  # Platform entry module
 ```
 
+### Static assets (`public/`)
+
+Vite copies `publicDir` into the client build's output, and `pracht build` then
+moves that output into `dist/client/`. The CLI never re-copies `public/` itself,
+so two things hold:
+
+- A custom `publicDir` and `build.copyPublicDir: false` behave exactly as they
+  do in a plain Vite build.
+- A plugin that rewrites a copied asset in place (an image optimizer, say, in
+  `closeBundle`) owns the file that ships — nothing restores the source over it.
+
+The server build sets `copyPublicDir: false`: `dist/server/` is build tooling,
+never an asset root, so duplicating `public/` there would only make every asset
+plugin run a second, discarded pass.
+
 ### Optional server JSX precompile
 
 `pracht({ precompileSsrJsx: true })` inserts `@pracht/preact-ssr-precompile`

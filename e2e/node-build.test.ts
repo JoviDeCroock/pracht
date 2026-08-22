@@ -507,8 +507,10 @@ test("public/ folder assets are copied to dist/client/", async () => {
     const publicDir = resolve(exampleDir, "public");
     mkdirSync(publicDir, { recursive: true });
     writeFileSync(resolve(publicDir, "robots.txt"), "User-agent: *\nAllow: /\n", "utf-8");
+    writeFileSync(resolve(publicDir, "optimizable.txt"), "original\n", "utf-8");
     mkdirSync(resolve(publicDir, "icons"), { recursive: true });
     writeFileSync(resolve(publicDir, "icons/favicon.ico"), "fake-ico", "utf-8");
+    installPublicAssetRewritePlugin(exampleDir);
 
     buildExample(exampleDir, { PRACHT_ADAPTER: "node" });
 
@@ -517,10 +519,62 @@ test("public/ folder assets are copied to dist/client/", async () => {
       "User-agent",
     );
     expect(existsSync(resolve(exampleDir, "dist/client/icons/favicon.ico"))).toBe(true);
+    // An asset-rewriting plugin (an image optimizer, say) owns the copy that
+    // ships: the build must not restore the untouched source over its output.
+    expect(readFileSync(resolve(exampleDir, "dist/client/optimizable.txt"), "utf-8")).toBe(
+      "rewritten\n",
+    );
+    // The server bundle is build tooling, so `public/` is not duplicated into
+    // it -- otherwise every asset plugin pays for a second, discarded pass.
+    expect(existsSync(resolve(exampleDir, "dist/server/robots.txt"))).toBe(false);
   } finally {
     rmSync(tempDir, { force: true, recursive: true });
   }
 });
+
+/**
+ * Adds a build plugin to the copied example that rewrites a `public/` file
+ * after Vite has copied it into the out directory, the way an image optimizer
+ * rewrites compressed images in place.
+ */
+function installPublicAssetRewritePlugin(exampleDir: string): void {
+  writeFileSync(
+    resolve(exampleDir, "rewrite-public-asset.mjs"),
+    [
+      'import { existsSync, writeFileSync } from "node:fs";',
+      'import { resolve } from "node:path";',
+      "",
+      "export function rewritePublicAsset() {",
+      '  let root = "";',
+      '  let outDir = "";',
+      "  return {",
+      '    name: "e2e-rewrite-public-asset",',
+      '    apply: "build",',
+      '    enforce: "post",',
+      "    configResolved(config) {",
+      "      root = config.root;",
+      "      outDir = config.build.outDir;",
+      "    },",
+      "    closeBundle() {",
+      '      const file = resolve(root, outDir, "optimizable.txt");',
+      '      if (existsSync(file)) writeFileSync(file, "rewritten\\n", "utf-8");',
+      "    },",
+      "  };",
+      "}",
+      "",
+    ].join("\n"),
+    "utf-8",
+  );
+
+  const configPath = resolve(exampleDir, "vite.config.ts");
+  const config = readFileSync(configPath, "utf-8")
+    .replace(
+      'import { defineConfig } from "vite";',
+      'import { defineConfig } from "vite";\nimport { rewritePublicAsset } from "./rewrite-public-asset.mjs";',
+    )
+    .replace("    plugins: [", "    plugins: [\n      rewritePublicAsset(),");
+  writeFileSync(configPath, config, "utf-8");
+}
 
 function createTempExampleDir(prefix: string): { exampleDir: string; tempDir: string } {
   const tempRoot = resolve(repoRoot, ".tmp");
