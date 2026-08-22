@@ -375,6 +375,27 @@ export default defineConfig(() => {
     expect(existsSync(join(appDir, "src/pages/_middleware.ts"))).toBe(true);
   });
 
+  it("uses a mutable serverful adapter binding that shadows a static-adapter import", () => {
+    const appDir = createTempDir("pracht-cli-pages-middleware-shadowed-static-import-");
+    writePagesApp(appDir);
+    writeProjectFile(
+      appDir,
+      "vite.config.ts",
+      `import { defineConfig } from "vite";
+import { pracht } from "@pracht/vite-plugin";
+import { staticAdapter } from "@pracht/adapter-static";
+import { nodeAdapter } from "@pracht/adapter-node";
+export default defineConfig(() => {
+  let staticAdapter = nodeAdapter;
+  return { plugins: [pracht({ pagesDir: "/src/pages", adapter: staticAdapter() })] };
+});`,
+    );
+
+    runCli(["generate", "middleware", "--name", "_middleware"], { cwd: appDir });
+
+    expect(existsSync(join(appDir, "src/pages/_middleware.ts"))).toBe(true);
+  });
+
   it("refuses pages middleware when pracht options use a const alias", () => {
     const appDir = createTempDir("pracht-cli-pages-middleware-static-options-alias-");
     writePagesApp(appDir);
