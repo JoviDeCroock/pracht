@@ -121,6 +121,20 @@ describe("middleware export classification", () => {
     ["const { candidate } = { candidate: 1 };\nexport { candidate as middleware };", false],
     ["const candidate = createMiddleware();\nexport { candidate as middleware };", true],
     ["export const middleware = () => {};\n{ let middleware; middleware = {}; }", true],
+    ["export var middleware = () => {};\n{ var middleware = 1; }", false],
+    ["export var middleware = () => {};\nfor (var middleware = 1; false; ) {}", false],
+    [
+      "export const middleware = 1;\nswitch (0) { case 0: let middleware; middleware = () => {}; break; }",
+      false,
+    ],
+    [
+      "export const middleware = 1;\nclass Setup { static { var middleware; middleware = () => {}; } }",
+      false,
+    ],
+    [
+      "export const middleware = () => {};\nclass Setup { static { var middleware; middleware = 1; } }",
+      true,
+    ],
     [
       'function candidate() {}\nnamespace candidate { export const id = "pages"; }\nexport { candidate as middleware };',
       true,

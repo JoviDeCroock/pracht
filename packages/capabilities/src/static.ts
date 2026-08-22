@@ -338,11 +338,27 @@ function collectTopLevelBindingWrites(
   program: StaticAnalysisNode,
 ): Map<string, StaticBindingWrite[]> {
   const writes = new Map<string, StaticBindingWrite[]>();
+  const directDeclarators = new Set<StaticAnalysisNode>();
+
+  for (const rawStatement of nodeArray(program.body)) {
+    const statement =
+      rawStatement.type === "ExportNamedDeclaration"
+        ? asStaticAnalysisNode(rawStatement.declaration)
+        : rawStatement;
+    if (statement?.type !== "VariableDeclaration") continue;
+    for (const declarator of nodeArray(statement.declarations)) directDeclarators.add(declarator);
+  }
 
   for (const statement of nodeArray(program.body)) {
     const unconditionalExpressions = new Set<StaticAnalysisNode>();
     collectUnconditionallyEvaluatedStatement(statement, unconditionalExpressions);
-    collectTopLevelBindingWritesFromNode(statement, writes, unconditionalExpressions, new Set());
+    collectTopLevelBindingWritesFromNode(
+      statement,
+      writes,
+      unconditionalExpressions,
+      new Set(),
+      directDeclarators,
+    );
   }
 
   return writes;
@@ -353,6 +369,7 @@ function collectTopLevelBindingWritesFromNode(
   writes: Map<string, StaticBindingWrite[]>,
   unconditionalExpressions: ReadonlySet<StaticAnalysisNode>,
   shadowedBindings: ReadonlySet<string>,
+  directDeclarators: ReadonlySet<StaticAnalysisNode>,
 ): void {
   const node = asStaticAnalysisNode(value);
   if (!node) return;
@@ -366,12 +383,21 @@ function collectTopLevelBindingWritesFromNode(
   }
 
   if (node.type === "ClassDeclaration" || node.type === "ClassExpression") {
-    collectTopLevelBindingWritesFromClass(node, writes, unconditionalExpressions, shadowedBindings);
+    collectTopLevelBindingWritesFromClass(
+      node,
+      writes,
+      unconditionalExpressions,
+      shadowedBindings,
+      directDeclarators,
+    );
     return;
   }
 
   if (node.type === "BlockStatement" || node.type === "StaticBlock") {
     const blockBindings = collectLexicalStatementBindings(nodeArray(node.body));
+    if (node.type === "StaticBlock") {
+      blockBindings.push(...collectStaticBlockVarBindings(nodeArray(node.body)));
+    }
     const blockShadowed = new Set([...shadowedBindings, ...blockBindings]);
     for (const statement of nodeArray(node.body)) {
       collectTopLevelBindingWritesFromNode(
@@ -379,7 +405,45 @@ function collectTopLevelBindingWritesFromNode(
         writes,
         unconditionalExpressions,
         blockShadowed,
+        directDeclarators,
       );
+    }
+    return;
+  }
+
+  if (node.type === "SwitchStatement") {
+    // A switch has one lexical environment shared by every case. Its
+    // discriminant is evaluated before entering that environment, while case
+    // tests and consequents observe the case-wide TDZ and bindings.
+    collectTopLevelBindingWritesFromNode(
+      node.discriminant,
+      writes,
+      unconditionalExpressions,
+      shadowedBindings,
+      directDeclarators,
+    );
+    const cases = nodeArray(node.cases);
+    const switchBindings = collectLexicalStatementBindings(
+      cases.flatMap((switchCase) => nodeArray(switchCase.consequent)),
+    );
+    const switchShadowed = new Set([...shadowedBindings, ...switchBindings]);
+    for (const switchCase of cases) {
+      collectTopLevelBindingWritesFromNode(
+        switchCase.test,
+        writes,
+        unconditionalExpressions,
+        switchShadowed,
+        directDeclarators,
+      );
+      for (const statement of nodeArray(switchCase.consequent)) {
+        collectTopLevelBindingWritesFromNode(
+          statement,
+          writes,
+          unconditionalExpressions,
+          switchShadowed,
+          directDeclarators,
+        );
+      }
     }
     return;
   }
@@ -391,6 +455,7 @@ function collectTopLevelBindingWritesFromNode(
       writes,
       unconditionalExpressions,
       catchShadowed,
+      directDeclarators,
     );
     return;
   }
@@ -414,6 +479,7 @@ function collectTopLevelBindingWritesFromNode(
         writes,
         unconditionalExpressions,
         loopShadowed,
+        directDeclarators,
       );
     }
     return;
@@ -428,6 +494,7 @@ function collectTopLevelBindingWritesFromNode(
           writes,
           unconditionalExpressions,
           shadowedBindings,
+          directDeclarators,
         );
       }
     } else {
@@ -436,6 +503,7 @@ function collectTopLevelBindingWritesFromNode(
         writes,
         unconditionalExpressions,
         shadowedBindings,
+        directDeclarators,
       );
     }
   }
@@ -443,6 +511,26 @@ function collectTopLevelBindingWritesFromNode(
   // Assignment targets are written after their right-hand side is evaluated.
   // Record the write after descending so nested assignments keep that runtime
   // order instead of the AST's outer-before-inner source order.
+  if (node.type === "VariableDeclarator" && node.init && !directDeclarators.has(node)) {
+    const initializer = asStaticAnalysisNode(node.init);
+    const start =
+      initializer && typeof initializer.start === "number"
+        ? initializer.start
+        : typeof node.start === "number"
+          ? node.start
+          : Number.NEGATIVE_INFINITY;
+    for (const name of collectStaticBindingNames(node.id)) {
+      if (shadowedBindings.has(name)) continue;
+      const bindingWrites = writes.get(name) ?? [];
+      bindingWrites.push({
+        position: start,
+        unconditional: initializer ? unconditionalExpressions.has(initializer) : false,
+        value: resolveStaticBindingInitializer(node.id, node.init, name),
+      });
+      writes.set(name, bindingWrites);
+    }
+  }
+
   if (node.type === "AssignmentExpression" || node.type === "UpdateExpression") {
     const start = typeof node.start === "number" ? node.start : Number.NEGATIVE_INFINITY;
     const target = node.type === "AssignmentExpression" ? node.left : node.argument;
@@ -479,6 +567,48 @@ function collectLexicalStatementBindings(statements: readonly StaticAnalysisNode
     }
   }
 
+  return bindings;
+}
+
+/**
+ * Unlike an ordinary module block, a class static block owns its `var`
+ * declarations. Collect them across nested statements while leaving nested
+ * functions and classes to their own scopes.
+ */
+function collectStaticBlockVarBindings(statements: readonly StaticAnalysisNode[]): string[] {
+  const bindings: string[] = [];
+
+  const visit = (value: unknown): void => {
+    const node = asStaticAnalysisNode(value);
+    if (!node) return;
+    if (
+      node.type === "FunctionDeclaration" ||
+      node.type === "FunctionExpression" ||
+      node.type === "ArrowFunctionExpression" ||
+      node.type === "ClassDeclaration" ||
+      node.type === "ClassExpression" ||
+      node.type === "StaticBlock"
+    ) {
+      return;
+    }
+
+    if (node.type === "VariableDeclaration" && node.kind === "var") {
+      for (const declarator of nodeArray(node.declarations)) {
+        bindings.push(...collectStaticBindingNames(declarator.id));
+      }
+    }
+
+    for (const [key, child] of Object.entries(node)) {
+      if (key === "type" || key === "loc" || key === "span") continue;
+      if (Array.isArray(child)) {
+        for (const item of child) visit(item);
+      } else {
+        visit(child);
+      }
+    }
+  };
+
+  for (const statement of statements) visit(statement);
   return bindings;
 }
 
@@ -666,6 +796,7 @@ function collectTopLevelBindingWritesFromClass(
   writes: Map<string, StaticBindingWrite[]>,
   unconditionalExpressions: ReadonlySet<StaticAnalysisNode>,
   shadowedBindings: ReadonlySet<string>,
+  directDeclarators: ReadonlySet<StaticAnalysisNode>,
 ): void {
   const className = getStaticIdentifierName(classNode.id);
   const classShadowed = className ? new Set([...shadowedBindings, className]) : shadowedBindings;
@@ -675,6 +806,7 @@ function collectTopLevelBindingWritesFromClass(
       writes,
       unconditionalExpressions,
       shadowedBindings,
+      directDeclarators,
     );
   }
   collectTopLevelBindingWritesFromNode(
@@ -682,6 +814,7 @@ function collectTopLevelBindingWritesFromClass(
     writes,
     unconditionalExpressions,
     shadowedBindings,
+    directDeclarators,
   );
 
   const body = asStaticAnalysisNode(classNode.body);
@@ -692,6 +825,7 @@ function collectTopLevelBindingWritesFromClass(
         writes,
         unconditionalExpressions,
         classShadowed,
+        directDeclarators,
       );
     }
     if (element.computed === true) {
@@ -700,6 +834,7 @@ function collectTopLevelBindingWritesFromClass(
         writes,
         unconditionalExpressions,
         classShadowed,
+        directDeclarators,
       );
     }
     if (element.type === "PropertyDefinition" && element.static === true) {
@@ -708,6 +843,7 @@ function collectTopLevelBindingWritesFromClass(
         writes,
         unconditionalExpressions,
         classShadowed,
+        directDeclarators,
       );
     } else if (element.type === "StaticBlock") {
       collectTopLevelBindingWritesFromNode(
@@ -715,6 +851,7 @@ function collectTopLevelBindingWritesFromClass(
         writes,
         unconditionalExpressions,
         classShadowed,
+        directDeclarators,
       );
     }
   }

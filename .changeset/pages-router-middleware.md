@@ -283,3 +283,9 @@ pages middleware as unavailable.
 Ejected-pages ownership detection also recognizes the marker when a valid ESM
 string-literal export name is used, preserving the client middleware boundary
 for quoted named-export aliases.
+
+Middleware export validation now records nested `var` initializers that update
+module bindings while respecting switch-wide lexical declarations and the local
+`var` scope of class static blocks. Build and CLI verification no longer accept
+non-callable middleware exports, or reject callable ones, because of these
+evaluation and shadowing boundaries.
