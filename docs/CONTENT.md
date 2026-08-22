@@ -111,7 +111,8 @@ The default route prefix strategy omits the default locale and prefixes every
 other locale. Use `routePrefix: "always" | "never"` or explicit source paths
 for another URL policy. With `"never"`, translated documents intentionally
 share one locale-neutral route; pass `locale` to a lookup to select the desired
-translation.
+translation. Omitting it selects the configured default locale, regardless of
+where that locale appears in `supported`.
 
 `getById()`/`getByRoute()` fall back to the default locale by default.
 `fallback: false` requests an exact locale. The `resolve*` variants report
@@ -201,7 +202,10 @@ routes its registry generates, the CLI matches them against the resolved app
 routes — including dynamic and catch-all patterns — and reports every document
 no route serves, naming its route, collection, and source file. The channel is
 an internal build file that is consumed and deleted before the client output is
-published.
+published. For a static export, a dynamic SSG pattern only serves the concrete
+paths returned by `getStaticPaths()`; an omitted document is still reported
+because the deployed files cannot answer it. Dynamic serverful and SPA routes
+continue to cover their matching document paths.
 
 The default policy is `"warn"`. Use `"error"` to fail the build, or `"ignore"`
 for a data-only collection whose documents are deliberately never pages:

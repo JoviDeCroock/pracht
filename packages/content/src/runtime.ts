@@ -115,11 +115,10 @@ export function defineSnapshotCollection<
     key: string,
     options: ContentLookupOptions = {},
   ): Promise<ContentResolution<TFrontmatter, TCompiled> | undefined> {
-    const alias = kind === "route" ? routeAliases.get(key) : undefined;
+    const directRoute = kind === "route" ? byRoute.get(key) : undefined;
+    const alias = kind === "route" && !directRoute ? routeAliases.get(key) : undefined;
     const localized =
-      kind === "id"
-        ? byId.get(key)
-        : (byRoute.get(key) ?? (alias ? byId.get(alias.id) : undefined));
+      kind === "id" ? byId.get(key) : (directRoute ?? (alias ? byId.get(alias.id) : undefined));
     if (!localized) return undefined;
 
     const requestedLocale = resolveRequestedLocale(

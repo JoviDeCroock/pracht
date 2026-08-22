@@ -411,11 +411,12 @@ export function defineCollection<
     lookupOptions: ContentLookupOptions = {},
   ): Promise<ContentResolution<TFrontmatter, TCompiled> | undefined> {
     const registry = await buildRegistry();
-    const alias = kind === "route" ? registry.routeAliases.get(key) : undefined;
+    const directRoute = kind === "route" ? registry.byRoute.get(key) : undefined;
+    const alias = kind === "route" && !directRoute ? registry.routeAliases.get(key) : undefined;
     const localized =
       kind === "id"
         ? registry.byId.get(key)
-        : (registry.byRoute.get(key) ?? (alias ? registry.byId.get(alias.id) : undefined));
+        : (directRoute ?? (alias ? registry.byId.get(alias.id) : undefined));
     if (!localized) return undefined;
 
     const requestedLocale = resolveRequestedLocale(

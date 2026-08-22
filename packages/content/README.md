@@ -102,6 +102,8 @@ in `supported`, and every fallback record key must name a supported requested
 locale. Invalid fallback configuration is rejected when the collection is
 defined. `routePrefix: "never"` keeps translated documents on the same
 locale-neutral route; pass a locale to route lookup to select the translation.
+Without one, route lookup selects the configured default locale regardless of
+its position in `supported`.
 
 The filesystem registry is memoized and rebuilt only after `invalidate()`.
 Relative invalidation paths, like source lookup paths, resolve from the

@@ -195,6 +195,21 @@ function routePatternMatches(pattern: string, path: string): boolean {
   return patternSegments.length === pathSegments.length;
 }
 
+function routePatternIsDynamic(pattern: string): boolean {
+  return pattern.split("/").some((segment) => segment === "*" || segment.startsWith(":"));
+}
+
+export function collectContentRoutePatterns(
+  routes: readonly ContentArtifactPageRoute[],
+  staticExport: boolean,
+): string[] {
+  return routes
+    .filter(
+      (route) => !(staticExport && route.render === "ssg" && routePatternIsDynamic(route.path)),
+    )
+    .map((route) => route.path);
+}
+
 export function collectUnroutedContentDocuments(
   manifest: ContentRoutesManifest,
   routePaths: readonly string[],
@@ -531,7 +546,7 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
     if (contentRoutes) {
       const unrouted = collectUnroutedContentDocuments(
         contentRoutes,
-        (serverMod.resolvedApp?.routes ?? []).map((route: { path: string }) => route.path),
+        collectContentRoutePatterns(serverMod.resolvedApp?.routes ?? [], isStaticExport),
         pages.map((page: { path: string }) => page.path),
       );
       if (unrouted.length > 0) {

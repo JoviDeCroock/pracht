@@ -137,12 +137,16 @@ describe("defineCollection", () => {
       name: "locale-neutral",
       root,
       locales: {
-        default: "en",
+        default: "fr",
         supported: ["en", "fr"],
         routePrefix: "never",
       },
     });
 
+    await expect(collection.getByRoute("/guide")).resolves.toMatchObject({
+      body: "Français",
+      locale: "fr",
+    });
     await expect(collection.getByRoute("/guide", { locale: "en" })).resolves.toMatchObject({
       body: "English",
       locale: "en",
@@ -153,6 +157,10 @@ describe("defineCollection", () => {
     });
 
     const runtime = defineSnapshotCollection(await collection.snapshot());
+    await expect(runtime.getByRoute("/guide")).resolves.toMatchObject({
+      body: "Français",
+      locale: "fr",
+    });
     await expect(runtime.getByRoute("/guide", { locale: "fr" })).resolves.toMatchObject({
       body: "Français",
       locale: "fr",

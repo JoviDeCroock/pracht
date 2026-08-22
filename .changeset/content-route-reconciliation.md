@@ -17,7 +17,9 @@ routes including dynamic and catch-all patterns, and every unserved document is
 reported with its route, collection, and source file. The channel is an internal
 build file consumed and deleted before the client output is published. The
 policy defaults to `"warn"`; `unroutedDocuments: "error" | "ignore"` selects a
-failing build or exempts a data-only collection.
+failing build or exempts a data-only collection. Static exports now count only
+the concrete `getStaticPaths()` output of dynamic SSG routes, so a document that
+was not actually prerendered is still reported.
 
 `llmsTxtArtifacts()` now matches a string `section.match` against the
 locale-neutral route. A localized collection prefixes translations, so the

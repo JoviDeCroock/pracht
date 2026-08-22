@@ -10,6 +10,7 @@ import {
   assertNoPrerenderedContentArtifactCollisions,
   assertNoPublicContentArtifactCollisions,
   assertNoRequestRouteContentArtifactCollisions,
+  collectContentRoutePatterns,
   collectUnroutedContentDocuments,
   expandContentArtifactHeaders,
   formatUnroutedContentDocuments,
@@ -373,6 +374,28 @@ describe("collectUnroutedContentDocuments", () => {
       { collection: "docs", path: "/docs/guide", source: "guide.md" },
       { collection: "docs", path: "/docs/orphan", source: "orphan.md" },
     ]);
+  });
+
+  it("trusts only concrete dynamic SSG output during a static export", () => {
+    const routes = [
+      { path: "/about", render: "ssg" },
+      { path: "/docs/:slug", render: "ssg" },
+      { path: "/files/:rest*", render: "ssg" },
+      { path: "/app/:view", render: "spa" },
+    ];
+
+    expect(collectContentRoutePatterns(routes, false)).toEqual([
+      "/about",
+      "/docs/:slug",
+      "/files/:rest*",
+      "/app/:view",
+    ]);
+    expect(collectContentRoutePatterns(routes, true)).toEqual(["/about", "/app/:view"]);
+    expect(
+      collectUnroutedContentDocuments(manifest, collectContentRoutePatterns(routes, true), [
+        "/docs/guide",
+      ]),
+    ).toEqual([{ collection: "docs", path: "/docs/orphan", source: "orphan.md" }]);
   });
 
   it("does not let a shorter static route absorb a deeper document path", () => {

@@ -27,8 +27,9 @@ second filesystem/manifest reader has been removed.
 Explicit registries now leave unregistered Markdown sources available to other
 Vite plugins, locale-neutral id lookups retain the configured default locale,
 `routePrefix: "never"` collections allow translations to share one route, and
-development artifact failures no longer block unrelated Vite or application
-requests.
+locale-neutral route lookups select the configured default regardless of
+`supported` ordering. Development artifact failures no longer block unrelated
+Vite or application requests.
 
 Add `@pracht/markdown`, the official collection compiler for Markdown route
 modules, together with cached `?pracht&pracht-static` responsive WebP variants
