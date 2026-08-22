@@ -1,5 +1,12 @@
 # @pracht/openapi
 
+## 0.2.1
+
+### Patch Changes
+
+- Updated dependencies [[`0cd10a6`](https://github.com/JoviDeCroock/pracht/commit/0cd10a648f36b1d6e7babc46317c5b4b9f994921)]:
+  - @pracht/cli@1.11.1
+
 ## 0.2.0
 
 ### Minor Changes

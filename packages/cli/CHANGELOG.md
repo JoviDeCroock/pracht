@@ -1,5 +1,11 @@
 # @pracht/cli
 
+## 1.11.1
+
+### Patch Changes
+
+- [#319](https://github.com/JoviDeCroock/pracht/pull/319) [`0cd10a6`](https://github.com/JoviDeCroock/pracht/commit/0cd10a648f36b1d6e7babc46317c5b4b9f994921) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Stop overwriting build-plugin output for `public/` assets. `pracht build` copied `public/` over `dist/client/` after the client build had already emitted it, which restored the source files on top of anything a plugin rewrote on the way out — an image optimizer's compressed copies, for instance. Vite now owns that copy alone, so a custom `publicDir` and `build.copyPublicDir` are honoured too. The server build no longer duplicates `public/` into `dist/server/` either, so asset plugins stop paying for a second, discarded pass.
+
 ## 1.11.0
 
 ### Minor Changes

@@ -1,5 +1,12 @@
 # @pracht/example-cloudflare
 
+## 0.0.32
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @pracht/openapi@0.2.1
+
 ## 0.0.31
 
 ### Patch Changes
