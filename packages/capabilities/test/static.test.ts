@@ -756,6 +756,10 @@ describe("capability static extraction", () => {
 
   it.each([
     ["an interface member", "interface CapabilityTypes { notes: typeof capabilities.notes }"],
+    [
+      "a default-exported interface member",
+      "export default interface CapabilityTypes { notes: typeof capabilities.notes }",
+    ],
     ["an ambient variable annotation", "declare const notes: typeof capabilities.notes;"],
     ["a variable annotation", "const notes: typeof capabilities.notes = undefined as never;"],
     [
@@ -765,6 +769,22 @@ describe("capability static extraction", () => {
     [
       "a function return annotation",
       "function inspect(): typeof capabilities.notes { throw new Error(); }",
+    ],
+    [
+      "a generic function parameter annotation",
+      "function inspect(notes: Map<string, typeof capabilities.notes>): void {}",
+    ],
+    [
+      "an arrow parameter with a return annotation",
+      "const inspect = (notes: typeof capabilities.notes): void => {};",
+    ],
+    [
+      "a generic function constraint",
+      "function inspect<T extends typeof capabilities.notes>(): void {}",
+    ],
+    [
+      "an interface method parameter",
+      "interface CapabilityTypes { inspect(notes: typeof capabilities.notes); }",
     ],
   ])("ignores type-only queries in %s", (_description, declaration) => {
     const source = `
@@ -799,6 +819,12 @@ describe("capability static extraction", () => {
 
   it.each([
     ["a typed variable initializer", "const observed: string = typeof capabilities.trigger;"],
+    ["a ternary call argument", "observe(true ? 0 : typeof capabilities.trigger);"],
+    [
+      "a ternary call before an arrow branch",
+      "true ? observe(true ? 0 : typeof capabilities.trigger) : () => 1;",
+    ],
+    ["a reserved-word object property", "const observed = { const: typeof capabilities.trigger };"],
     [
       "a default parameter initializer",
       "function inspect(observed: string = typeof capabilities.trigger): void {}",
