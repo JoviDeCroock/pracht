@@ -54,6 +54,20 @@ describe("prachtContent", () => {
     expect(
       await transform.call({} as never, 'export default "/page.md"', `${source}?url`),
     ).toBeNull();
+    expect(
+      await transform.call(
+        {} as never,
+        "export default function WorkerWrapper() {}",
+        `${source}?worker`,
+      ),
+    ).toBeNull();
+    expect(
+      await transform.call(
+        {} as never,
+        "export default function SharedWorkerWrapper() {}",
+        `${source}?sharedworker&inline`,
+      ),
+    ).toBeNull();
     const clientResult = await transform.call({} as never, "# Client", `${source}?pracht-client`);
     expect(typeof clientResult === "string" ? clientResult : clientResult?.code).toContain(
       'export const markdown = "# Client"',

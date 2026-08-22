@@ -33,7 +33,12 @@ translation's slug and every supported locale. Route aliases are emitted only
 for missing locales and use the document that locale fallback would actually
 select. Routes returned by a collection's `route()` callback now participate in
 generated-alias collision checks, so a configured translation cannot silently
-shadow another document's fallback URL.
+shadow another document's fallback URL, including when both translations share
+the same document id.
+
+The content Vite transform now preserves `?worker` and `?sharedworker` imports
+alongside `?raw` and `?url`, rather than recompiling Vite's generated worker
+wrapper as a collection route module.
 
 `llmsTxtArtifacts()` now matches a string `section.match` against the
 locale-neutral route. A localized collection prefixes translations, so the

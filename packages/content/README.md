@@ -68,6 +68,9 @@ fail before output is emitted. Routes and output paths must be safe,
 root-relative URL paths; source paths cannot escape the collection root,
 including through an explicitly registered symbolic link. Symbolic collection
 roots remain addressable through the canonical module IDs emitted by Vite.
+Custom and explicit locale routes cannot shadow generated fallback aliases,
+including aliases for documents with the same id; generated
+`routePrefix: "never"` routes may still share one locale-neutral path.
 
 ## Documents and lookup
 
@@ -131,9 +134,9 @@ export default defineConfig({
 
 The first plugin transforms plain collection source imports through the
 collection's `module` hook in every Vite environment; resource queries such as
-`?raw` and `?url` retain Vite's built-in semantics. The second serves generated artifacts
-with GET/HEAD beneath Vite's configured base in development and emits identical
-static files in client builds.
+`?raw`, `?url`, `?worker`, and `?sharedworker` retain Vite's built-in semantics.
+The second serves generated artifacts with GET/HEAD beneath Vite's configured
+base in development and emits identical static files in client builds.
 File watcher events invalidate only the affected memoized document and the
 shared route/source index. Artifact `contentType` values are carried into
 Pracht's production headers manifest and applied by the Node, Cloudflare,

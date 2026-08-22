@@ -337,6 +337,18 @@ describe("defineCollection", () => {
     await expect(collision.all()).rejects.toThrow(/ambiguous generated route alias "\/fr\/a"/);
   });
 
+  it("rejects same-id callback routes that shadow generated locale aliases", async () => {
+    const root = await fixture({ "en/a.md": "English", "de/a.md": "German" });
+    const collision = defineCollection({
+      name: "localized-same-id-callback-collision",
+      root,
+      locales: { default: "en", supported: ["en", "fr", "de"] },
+      route: ({ id, locale }) => (locale === "en" ? `/${id}` : `/fr/${id}`),
+    });
+
+    await expect(collision.all()).rejects.toThrow(/ambiguous generated route alias "\/fr\/a"/);
+  });
+
   it("rejects explicit sources whose symbolic links escape the collection root", async () => {
     const root = await fixture({ "inside.md": "Inside" });
     const outside = await fixture({ "outside.md": "Outside" });

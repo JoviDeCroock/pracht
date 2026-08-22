@@ -78,8 +78,9 @@ The final output is plain `<img>` markup with `srcset` and `sizes`, so it works
 for SSR, SSG, and `hydration: "none"` without a client Markdown or image
 runtime. Root-relative `public/`, remote, and data URLs remain unchanged.
 Custom Marked image renderers continue to handle those unprocessed sources.
-Vite resource queries such as `?raw` and `?url` also retain their normal Vite
-semantics instead of being claimed by the collection route-module transform.
+Vite resource queries such as `?raw`, `?url`, `?worker`, and `?sharedworker`
+also retain their normal Vite semantics instead of being claimed by the
+collection route-module transform.
 
 ## Registry and paths
 
@@ -95,7 +96,10 @@ link inside the collection cannot read or publish a file outside the root. A
 symbolic collection root is supported: canonical module IDs still resolve to
 the registered source.
 Ambiguous source, route/locale, id/locale, and artifact registrations throw
-instead of letting ordering select a winner.
+instead of letting ordering select a winner. Custom or explicit locale routes
+also cannot shadow a missing locale's generated fallback alias, even when both
+documents share an id; generated `routePrefix: "never"` routes remain the
+intentional locale-neutral exception.
 
 ## Locales
 

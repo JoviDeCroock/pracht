@@ -24,6 +24,7 @@ import type {
 } from "./types.ts";
 
 interface SourceDescriptor {
+  generatedRoute: boolean;
   id: string;
   inferredRoute: boolean;
   locale?: string;
@@ -323,7 +324,7 @@ export function defineCollection<
       const conflicting = [...(byRoute.get(alias)?.values() ?? [])].find(
         (descriptor) =>
           descriptor.id !== target.id ||
-          (!descriptor.inferredRoute && descriptor.locale !== target.locale),
+          (!descriptor.generatedRoute && descriptor.locale !== target.locale),
       );
       if (conflicting) {
         throw new Error(
@@ -375,6 +376,7 @@ export function defineCollection<
     const path = normalizeRoutePath(configuredPath ?? generatedPath);
 
     return {
+      generatedRoute: configuredPath === undefined,
       id,
       inferredRoute: sourceInput.path === undefined,
       locale,
