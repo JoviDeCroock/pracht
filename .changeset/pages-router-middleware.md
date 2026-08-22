@@ -209,7 +209,8 @@ adapter is a pure static target.
 Top-level type-alias `typeof` queries of registry members are erased along with
 bare registry queries, so they no longer hide otherwise static capability or
 middleware registrations from browser projection, verification, or the
-registered-module client import guard.
+registered-module client import guard. The same extraction is preserved for
+member queries in interfaces, variable annotations, and function signatures.
 
 Runtime `typeof` expressions after a semicolonless type alias are still treated
 as real registry reads, closing the accessor side-effect gap without regressing
