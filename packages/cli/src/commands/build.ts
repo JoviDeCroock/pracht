@@ -125,6 +125,113 @@ function readContentArtifactHeaders(clientDir: string): Record<string, Record<st
   return parsed as Record<string, Record<string, string>>;
 }
 
+interface ContentRouteEntry {
+  path: string;
+  source: string;
+}
+
+interface ContentRoutesManifest {
+  policy: "error" | "warn" | "ignore";
+  collections: Record<string, readonly ContentRouteEntry[]>;
+}
+
+/**
+ * Read and remove the content plugin's generated route manifest.
+ *
+ * Like the artifact headers manifest, this is an internal build channel: it is
+ * deleted here so it never reaches the published client output.
+ */
+function readContentRoutesManifest(clientDir: string): ContentRoutesManifest | null {
+  const manifestPath = resolve(clientDir, "_pracht/content-routes.json");
+  if (!existsSync(manifestPath)) return null;
+  const parsed: unknown = JSON.parse(readFileSync(manifestPath, "utf8"));
+  rmSync(manifestPath, { force: true });
+  if (
+    !parsed ||
+    typeof parsed !== "object" ||
+    Array.isArray(parsed) ||
+    !["error", "warn", "ignore"].includes((parsed as ContentRoutesManifest).policy) ||
+    typeof (parsed as ContentRoutesManifest).collections !== "object" ||
+    (parsed as ContentRoutesManifest).collections === null
+  ) {
+    throw new Error("The content routes manifest is invalid.");
+  }
+  for (const entries of Object.values((parsed as ContentRoutesManifest).collections)) {
+    if (
+      !Array.isArray(entries) ||
+      entries.some(
+        (entry) =>
+          !entry ||
+          typeof entry !== "object" ||
+          typeof entry.path !== "string" ||
+          !entry.path.startsWith("/") ||
+          typeof entry.source !== "string",
+      )
+    ) {
+      throw new Error("The content routes manifest is invalid.");
+    }
+  }
+  return parsed as ContentRoutesManifest;
+}
+
+/**
+ * Whether a route pattern (`/docs/:slug`, `/files/:rest*`) matches a concrete
+ * path. Deliberately a local copy of the framework's segment rules rather than
+ * a new `@pracht/core` export: the CLI needs only this direction.
+ */
+function routePatternMatches(pattern: string, path: string): boolean {
+  const patternSegments = pattern.split("/").filter(Boolean);
+  const pathSegments = path.split("/").filter(Boolean);
+  for (let index = 0; index < patternSegments.length; index += 1) {
+    const segment = patternSegments[index];
+    if (segment === "*" || (segment.startsWith(":") && segment.endsWith("*"))) {
+      // A catch-all consumes the rest, but must still have something to take.
+      return pathSegments.length >= index;
+    }
+    if (index >= pathSegments.length) return false;
+    if (segment.startsWith(":")) continue;
+    if (segment !== pathSegments[index]) return false;
+  }
+  return patternSegments.length === pathSegments.length;
+}
+
+export function collectUnroutedContentDocuments(
+  manifest: ContentRoutesManifest,
+  routePaths: readonly string[],
+  concretePagePaths: readonly string[],
+): Array<{ collection: string; path: string; source: string }> {
+  const served = new Set(concretePagePaths);
+  const unrouted: Array<{ collection: string; path: string; source: string }> = [];
+  for (const [collection, entries] of Object.entries(manifest.collections)) {
+    for (const entry of entries) {
+      if (served.has(entry.path)) continue;
+      if (routePaths.some((pattern) => routePatternMatches(pattern, entry.path))) continue;
+      unrouted.push({ collection, path: entry.path, source: entry.source });
+    }
+  }
+  return unrouted;
+}
+
+export function formatUnroutedContentDocuments(
+  unrouted: readonly { collection: string; path: string; source: string }[],
+): string {
+  const lines = unrouted.map(
+    ({ collection, path, source }) =>
+      `    ${path} (collection ${JSON.stringify(collection)}, ${source})`,
+  );
+  return [
+    unrouted.length === 1
+      ? "1 content document generates a route no app route serves:"
+      : `${unrouted.length} content documents generate routes no app route serves:`,
+    ...lines,
+    "",
+    "  These documents still reach every artifact generator, so llms.txt and raw",
+    "  source assets advertise URLs that answer 404. Register them in the app",
+    "  manifest, exclude them with the collection's `route()` callback, or pass",
+    '  `unroutedDocuments: "ignore"` to prachtContent() for a data-only collection.',
+  ].join("\n");
+}
+
 export function assertNoContentArtifactPathCollision(
   contentArtifactHeaders: Record<string, Record<string, string>>,
   path: string,
@@ -356,6 +463,7 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
     }
   }
   const contentArtifactHeaders = readContentArtifactHeaders(clientDir);
+  const contentRoutes = readContentRoutesManifest(clientDir);
 
   if (publicDir && existsSync(publicDir)) {
     assertNoPublicContentArtifactCollisions(
@@ -415,6 +523,23 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
       serverMod.apiRoutes ?? [],
       pages.map((page: { path: string }) => page.path),
     );
+
+    // Reconcile the content registry against the app manifest. The registry
+    // discovers sources from the filesystem while routes are registered by
+    // hand, so a source added without a matching route silently publishes a
+    // dead URL into every artifact that indexes the collection.
+    if (contentRoutes) {
+      const unrouted = collectUnroutedContentDocuments(
+        contentRoutes,
+        (serverMod.resolvedApp?.routes ?? []).map((route: { path: string }) => route.path),
+        pages.map((page: { path: string }) => page.path),
+      );
+      if (unrouted.length > 0) {
+        const report = formatUnroutedContentDocuments(unrouted);
+        if (contentRoutes.policy === "error") throw new Error(report);
+        log(`\n  Warning: ${report}\n`);
+      }
+    }
     const expandedContentArtifactHeaders = expandContentArtifactHeaders(contentArtifactHeaders);
     const contentArtifactCleanRoutes = Object.keys(expandedContentArtifactHeaders).filter(
       (path) => !(path in contentArtifactHeaders),

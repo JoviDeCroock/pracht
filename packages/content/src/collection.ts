@@ -154,8 +154,19 @@ export function defineCollection<
         const artifacts: ContentArtifact[] = [];
         const seen = new Set<string>();
 
-        for (const generate of options.artifacts ?? []) {
-          const generated = await generate({ collection, documents });
+        for (const [index, generate] of (options.artifacts ?? []).entries()) {
+          // Attribute a throwing generator to its collection and position. The
+          // raw failure surfaces from inside a Vite build hook, where the stack
+          // names neither, leaving no way to tell which config line is wrong.
+          let generated: Awaited<ReturnType<typeof generate>>;
+          try {
+            generated = await generate({ collection, documents });
+          } catch (error) {
+            throw new Error(
+              `Content collection ${JSON.stringify(options.name)} failed to generate artifacts from \`artifacts[${index}]\`: ${error instanceof Error ? error.message : String(error)}`,
+              { cause: error },
+            );
+          }
           for (const artifact of generated == null
             ? []
             : Array.isArray(generated)

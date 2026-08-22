@@ -190,6 +190,61 @@ describe("prachtContent", () => {
     );
   });
 
+  it("hands the CLI the generated routes so the app manifest can be reconciled", async () => {
+    temporaryDirectory = await mkdtemp(join(tmpdir(), "pracht-content-vite-"));
+    await writeFile(join(temporaryDirectory, "guide.md"), "---\ntitle: Guide\n---\nBody");
+    const collection = defineCollection({
+      name: "docs",
+      root: temporaryDirectory,
+      routeBase: "/docs",
+    });
+    const [, plugin] = prachtContent({ collections: [collection] });
+    const emitFile = vi.fn();
+
+    await hookHandler(plugin.generateBundle).call(
+      { emitFile } as never,
+      {} as never,
+      {} as never,
+      false,
+    );
+
+    const call = emitFile.mock.calls.find(
+      ([file]) => file.fileName === "_pracht/content-routes.json",
+    );
+    expect(JSON.parse(call?.[0].source)).toEqual({
+      policy: "warn",
+      collections: { docs: [{ path: "/docs/guide", source: "guide.md" }] },
+    });
+  });
+
+  it("omits the route manifest for a data-only collection", async () => {
+    temporaryDirectory = await mkdtemp(join(tmpdir(), "pracht-content-vite-"));
+    await writeFile(join(temporaryDirectory, "guide.md"), "Body");
+    const collection = defineCollection({ name: "docs", root: temporaryDirectory });
+    const [, plugin] = prachtContent({
+      collections: [collection],
+      unroutedDocuments: "ignore",
+    });
+    const emitFile = vi.fn();
+
+    await hookHandler(plugin.generateBundle).call(
+      { emitFile } as never,
+      {} as never,
+      {} as never,
+      false,
+    );
+
+    expect(
+      emitFile.mock.calls.some(([file]) => file.fileName === "_pracht/content-routes.json"),
+    ).toBe(false);
+  });
+
+  it("rejects an unknown unroutedDocuments policy", () => {
+    expect(() => prachtContent({ collections: [], unroutedDocuments: "fail" as never })).toThrow(
+      /`unroutedDocuments` must be "error", "warn", or "ignore"/,
+    );
+  });
+
   it("rejects artifacts that collide with the internal content headers manifest", async () => {
     temporaryDirectory = await mkdtemp(join(tmpdir(), "pracht-content-vite-"));
     await writeFile(join(temporaryDirectory, "page.md"), "Page");

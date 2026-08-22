@@ -37,6 +37,11 @@ function localImageSource(href: string, source: string): string | undefined {
   return decoded.startsWith(".") ? decoded : `./${decoded}`;
 }
 
+function defaultHead(frontmatter: Record<string, unknown>): Record<string, unknown> | undefined {
+  const title = frontmatter.title;
+  return typeof title === "string" && title.trim() ? { title } : undefined;
+}
+
 async function compileMarkdown<TFrontmatter extends Record<string, unknown>>(
   input: ContentCompileInput<TFrontmatter>,
   options: DefineMarkdownCollectionOptions<TFrontmatter>,
@@ -72,7 +77,10 @@ async function compileMarkdown<TFrontmatter extends Record<string, unknown>>(
   const parsed = await marked.parse(input.body);
   const context = { html: parsed, input };
   const rendered = options.render ? await options.render(context) : parsed;
-  const head = options.head ? await options.head(context) : undefined;
+  // `title` frontmatter is already the field `llmsTxtArtifacts()` indexes by
+  // default, so a document carrying one but rendering an untitled page is
+  // almost always an oversight. An explicit `head()` hook still wins outright.
+  const head = options.head ? await options.head(context) : defaultHead(input.frontmatter);
   return {
     html: rendered,
     images,

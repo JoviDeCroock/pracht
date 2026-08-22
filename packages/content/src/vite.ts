@@ -8,6 +8,7 @@ import type { ContentArtifact, ContentCollectionSnapshot } from "./types.ts";
 const CONTENT_MODULE_PREFIX = "virtual:pracht/content/";
 const RESOLVED_CONTENT_MODULE_PREFIX = `\0${CONTENT_MODULE_PREFIX}`;
 export const CONTENT_HEADERS_FILE = "_pracht/content-headers.json";
+export const CONTENT_ROUTES_FILE = "_pracht/content-routes.json";
 
 export interface ViteContentCollection {
   readonly name: string;
@@ -18,8 +19,26 @@ export interface ViteContentCollection {
   snapshot(): Promise<ContentCollectionSnapshot<Record<string, unknown>, unknown>>;
 }
 
+/**
+ * What to do when a collection document's generated route is served by no app
+ * route. Such a document still reaches every artifact generator, so `llms.txt`
+ * and raw-source assets happily advertise a URL that answers 404.
+ */
+export type UnroutedDocumentPolicy = "error" | "warn" | "ignore";
+
 export interface PrachtContentOptions {
   collections: readonly ViteContentCollection[];
+  /**
+   * Reconcile generated document routes against the app's route manifest
+   * during `pracht build`. Defaults to `"warn"`. Use `"ignore"` for a
+   * data-only collection whose documents are never pages.
+   */
+  unroutedDocuments?: UnroutedDocumentPolicy;
+}
+
+interface ContentRoutesManifest {
+  policy: UnroutedDocumentPolicy;
+  collections: Record<string, Array<{ path: string; source: string }>>;
 }
 
 /**
@@ -29,6 +48,7 @@ export interface PrachtContentOptions {
  */
 export function prachtContent(options: PrachtContentOptions): Plugin[] {
   const collections = validateCollections(options);
+  const unroutedDocuments = validateUnroutedDocumentPolicy(options.unroutedDocuments);
 
   const transformPlugin: Plugin = {
     name: "pracht:content",
@@ -145,6 +165,27 @@ export function prachtContent(options: PrachtContentOptions): Plugin[] {
             source: `${JSON.stringify(headers, null, 2)}\n`,
           });
         }
+
+        // Hand the CLI the routes this registry generates so `pracht build`
+        // can reconcile them against the app manifest, which stays a separate
+        // hand-maintained reader. The CLI consumes and deletes this file before
+        // the client output is published, so it never ships. Artifacts can
+        // never collide with it: the `_pracht/` namespace is already reserved.
+        if (unroutedDocuments !== "ignore") {
+          const manifest: ContentRoutesManifest = { policy: unroutedDocuments, collections: {} };
+          for (const collection of collections) {
+            const snapshot = await collection.snapshot();
+            manifest.collections[collection.name] = snapshot.documents.map((document) => ({
+              path: document.path,
+              source: document.relativeSource,
+            }));
+          }
+          this.emitFile({
+            type: "asset",
+            fileName: CONTENT_ROUTES_FILE,
+            source: `${JSON.stringify(manifest, null, 2)}\n`,
+          });
+        }
       },
     },
   };
@@ -210,6 +251,16 @@ function validateCollections(options: PrachtContentOptions): readonly ViteConten
     names.add(collection.name);
   }
   return Object.freeze([...options.collections]);
+}
+
+function validateUnroutedDocumentPolicy(value: unknown): UnroutedDocumentPolicy {
+  if (value === undefined) return "warn";
+  if (value !== "error" && value !== "warn" && value !== "ignore") {
+    throw new TypeError(
+      `prachtContent() \`unroutedDocuments\` must be "error", "warn", or "ignore", received ${JSON.stringify(value)}.`,
+    );
+  }
+  return value;
 }
 
 function registerInvalidation(

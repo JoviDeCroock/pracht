@@ -176,6 +176,44 @@ otherwise resolve them to different on-disk names.
 Artifacts are opt-in. In particular, adding a collection does not publish raw
 source or create an agent surface.
 
+Helper options are validated when the generator is defined rather than when it
+runs, and a generator that throws is reported with its collection name and
+`artifacts[n]` position — a failure inside a Vite build hook otherwise names
+neither.
+
+`llmsTxtArtifacts()` matches a string `section.match` against the
+**locale-neutral** route. A localized collection prefixes its translations
+(`/fr/docs/guide`), so the natural `match: "/docs"` would otherwise index only
+the default locale while `rawContentArtifacts()` published every translation —
+one registry, two artifacts, silently different coverage. Pass a `match`
+function to index a single locale deliberately.
+
+## Route reconciliation
+
+A collection discovers sources from the filesystem, while routes are registered
+by hand in the app manifest. Those are two readers, and a source added without a
+matching route still reaches every artifact generator: `llms.txt` advertises a
+URL, `rawContentArtifacts()` publishes its source, and the page itself answers
+404.
+
+`pracht build` therefore reconciles the two. `prachtContent()` hands the CLI the
+routes its registry generates, the CLI matches them against the resolved app
+routes — including dynamic and catch-all patterns — and reports every document
+no route serves, naming its route, collection, and source file. The channel is
+an internal build file that is consumed and deleted before the client output is
+published.
+
+The default policy is `"warn"`. Use `"error"` to fail the build, or `"ignore"`
+for a data-only collection whose documents are deliberately never pages:
+
+```ts
+prachtContent({ collections: [docs], unroutedDocuments: "error" });
+```
+
+`pracht verify` cannot perform this check: it reads the Vite config as text and
+cannot resolve which sources a registry claims. It reports the presence of a
+registry and defers the precise answer to the build.
+
 ## Runtime snapshots
 
 The collection imported by `vite.config.ts` is an authoring/build object backed

@@ -31,6 +31,19 @@ export default defineConfig({
 });
 ```
 
+Add the route-module types so `import("./guide.md")` typechecks in the app
+manifest, either via tsconfig `"types": ["@pracht/markdown/client"]` or a
+triple-slash directive in any `.d.ts` file:
+
+```ts
+/// <reference types="@pracht/markdown/client" />
+```
+
+Each compiled module exports `Component`, a `head()` function, and the exact
+original `markdown` source for `Accept: text/markdown` negotiation. Without a
+`head()` hook the head defaults to the document's `title` frontmatter, which is
+also the field `llmsTxtArtifacts()` indexes by default; an explicit hook wins.
+
 ```md
 ![Generated responsive WebP variants](./assets/hero.jpg)
 ![Copied from public without processing](/images/hero.jpg)

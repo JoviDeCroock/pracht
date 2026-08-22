@@ -10,7 +10,9 @@ import {
   assertNoPrerenderedContentArtifactCollisions,
   assertNoPublicContentArtifactCollisions,
   assertNoRequestRouteContentArtifactCollisions,
+  collectUnroutedContentDocuments,
   expandContentArtifactHeaders,
+  formatUnroutedContentDocuments,
   resolveGeneratedArtifactOutputPath,
   resolvePrerenderOutputPath,
   runBuild,
@@ -340,5 +342,49 @@ describe("expandContentArtifactHeaders", () => {
       "/": headers["/index.html"],
     });
     expect(Object.keys(headers)).toEqual(["/feed/index.html", "/index.html", "/llms.txt"]);
+  });
+});
+
+describe("collectUnroutedContentDocuments", () => {
+  const manifest = {
+    policy: "warn" as const,
+    collections: {
+      docs: [
+        { path: "/docs/guide", source: "guide.md" },
+        { path: "/docs/orphan", source: "orphan.md" },
+      ],
+    },
+  };
+
+  it("reports documents whose generated route no app route serves", () => {
+    // The registry discovers sources from disk while routes are registered by
+    // hand, so an unregistered source publishes a dead URL into every artifact.
+    expect(collectUnroutedContentDocuments(manifest, ["/"], ["/docs/guide"])).toEqual([
+      { collection: "docs", path: "/docs/orphan", source: "orphan.md" },
+    ]);
+  });
+
+  it("accepts documents served by a dynamic or catch-all route pattern", () => {
+    // A data-backed collection renders through one parameterized route rather
+    // than a manifest entry per document, and is not drift.
+    expect(collectUnroutedContentDocuments(manifest, ["/docs/:slug"], [])).toEqual([]);
+    expect(collectUnroutedContentDocuments(manifest, ["/docs/:rest*"], [])).toEqual([]);
+    expect(collectUnroutedContentDocuments(manifest, ["/other/:slug"], [])).toEqual([
+      { collection: "docs", path: "/docs/guide", source: "guide.md" },
+      { collection: "docs", path: "/docs/orphan", source: "orphan.md" },
+    ]);
+  });
+
+  it("does not let a shorter static route absorb a deeper document path", () => {
+    expect(collectUnroutedContentDocuments(manifest, ["/docs"], [])).toHaveLength(2);
+  });
+
+  it("names the route, collection, and source file it found", () => {
+    const report = formatUnroutedContentDocuments(
+      collectUnroutedContentDocuments(manifest, ["/"], ["/docs/guide"]),
+    );
+
+    expect(report).toContain("1 content document generates a route no app route serves:");
+    expect(report).toContain('/docs/orphan (collection "docs", orphan.md)');
   });
 });

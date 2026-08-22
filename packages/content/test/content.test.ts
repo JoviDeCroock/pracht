@@ -412,6 +412,88 @@ describe("collection integration helpers", () => {
     expect(String(artifacts[3].source)).not.toContain("title: One");
   });
 
+  it("indexes every translation under a locale-neutral llms.txt section prefix", async () => {
+    const root = await fixture({
+      "en/guide.md": "---\ntitle: Guide\n---\nEnglish body",
+      "fr/guide.md": "---\ntitle: Guide FR\n---\nCorps",
+    });
+    const collection = defineCollection({
+      name: "docs",
+      root,
+      routeBase: "/docs",
+      locales: { default: "en", supported: ["en", "fr"] },
+      artifacts: [
+        rawContentArtifacts({ path: (document) => `${document.path}.md` }),
+        // The natural section prefix. Written against the published route it
+        // would only ever match the unprefixed default locale.
+        llmsTxtArtifacts({ title: "Docs", sections: [{ heading: "Docs", match: "/docs" }] }),
+      ],
+    });
+
+    const artifacts = await collection.emitArtifacts();
+    const summary = String(artifacts.find((artifact) => artifact.path === "/llms.txt")?.source);
+
+    // Paired with the raw artifacts: the two generators read one registry, so
+    // disagreeing about which documents exist is the bug worth catching.
+    expect(artifacts.map((artifact) => artifact.path)).toContain("/fr/docs/guide.md");
+    expect(summary).toContain("[Guide](/docs/guide)");
+    expect(summary).toContain("[Guide FR](/fr/docs/guide)");
+  });
+
+  it("keeps locale prefixes matchable when every locale is prefixed", async () => {
+    const root = await fixture({ "en/guide.md": "---\ntitle: Guide\n---\nBody" });
+    const collection = defineCollection({
+      name: "docs",
+      root,
+      routeBase: "/docs",
+      locales: { default: "en", supported: ["en"], routePrefix: "always" },
+      artifacts: [
+        llmsTxtArtifacts({
+          title: "Docs",
+          sections: [{ heading: "Docs", match: "/docs" }],
+          fullPath: false,
+        }),
+      ],
+    });
+
+    expect(String((await collection.emitArtifacts())[0].source)).toContain(
+      "[Guide](/en/docs/guide)",
+    );
+  });
+
+  it("names the helper when artifact options are malformed", () => {
+    expect(() => (rawContentArtifacts as (options: unknown) => unknown)({ base: "/raw" })).toThrow(
+      /rawContentArtifacts\(\) requires a `path` function/,
+    );
+    expect(() =>
+      (rawContentArtifacts as (options: unknown) => unknown)({
+        path: () => "/x.md",
+        representation: "full",
+      }),
+    ).toThrow(/`representation` must be "raw" or "body"/);
+    expect(() => (llmsTxtArtifacts as (options: unknown) => unknown)({})).toThrow(
+      /llmsTxtArtifacts\(\) requires a non-empty `title`/,
+    );
+  });
+
+  it("names the collection and generator index when an artifact generator throws", async () => {
+    const root = await fixture({ "guide.md": "Guide" });
+    const collection = defineCollection({
+      name: "docs",
+      root,
+      artifacts: [
+        () => [{ path: "/ok.txt", source: "ok" }],
+        () => {
+          throw new Error("boom");
+        },
+      ],
+    });
+
+    await expect(collection.emitArtifacts()).rejects.toThrow(
+      /Content collection "docs" failed to generate artifacts from `artifacts\[1\]`: boom/,
+    );
+  });
+
   it("treats a root llms.txt section as a prefix for every content route", async () => {
     const root = await fixture({ "guide.md": "---\ntitle: Guide\n---\nBody" });
     const collection = defineCollection({

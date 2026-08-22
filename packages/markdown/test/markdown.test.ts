@@ -97,6 +97,31 @@ describe("defineMarkdownCollection", () => {
     const { collection, source } = await fixture("![Bad](./photo.jpg?width=10)");
     await expect(collection.loadSource(source)).rejects.toThrow(/cannot contain query strings/);
   });
+
+  it("titles the page from frontmatter when no head() hook is configured", async () => {
+    const { collection, source } = await fixture("---\ntitle: My Post\n---\nBody");
+
+    expect(await collection.renderModule(source)).toContain('return {"title":"My Post"};');
+  });
+
+  it("leaves the head empty without a title and lets an explicit hook win", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pracht-markdown-"));
+    roots.push(root);
+    const source = join(root, "post.md");
+    await writeFile(source, "---\ntitle: Frontmatter\n---\nBody");
+
+    const untitled = defineMarkdownCollection({ name: "untitled", root });
+    const hooked = defineMarkdownCollection({
+      name: "hooked",
+      root,
+      head: () => ({ title: "Explicit" }),
+    });
+
+    await writeFile(source, "Body only");
+    expect(await untitled.renderModule(source)).toContain("return {};");
+    await writeFile(source, "---\ntitle: Frontmatter\n---\nBody");
+    expect(await hooked.renderModule(source)).toContain('return {"title":"Explicit"};');
+  });
 });
 
 describe("renderMarkdownImage", () => {
