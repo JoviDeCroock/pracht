@@ -204,8 +204,12 @@ no route serves, naming its route, collection, and source file. The channel is
 an internal build file that is consumed and deleted before the client output is
 published. For a static export, a dynamic SSG pattern only serves the concrete
 paths returned by `getStaticPaths()`; an omitted document is still reported
-because the deployed files cannot answer it. Dynamic serverful and SPA routes
-continue to cover their matching document paths.
+because the deployed files cannot answer it. Dynamic serverful routes continue
+to cover their matching document paths. A dynamic SPA route covers static
+deep links only when `staticAdapter({ fallback })` emits a fallback document;
+without one, those URLs answer 404. Route order remains authoritative, so a
+later SPA fallback cannot rescue a document shadowed by an earlier dynamic SSG
+route that did not prerender it.
 
 The default policy is `"warn"`. Use `"error"` to fail the build, or `"ignore"`
 for a data-only collection whose documents are deliberately never pages:

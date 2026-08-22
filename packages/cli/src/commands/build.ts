@@ -199,20 +199,29 @@ function routePatternIsDynamic(pattern: string): boolean {
   return pattern.split("/").some((segment) => segment === "*" || segment.startsWith(":"));
 }
 
+interface ContentRoutePattern {
+  path: string;
+  servesUnprerenderedPaths: boolean;
+}
+
 export function collectContentRoutePatterns(
   routes: readonly ContentArtifactPageRoute[],
   staticExport: boolean,
-): string[] {
-  return routes
-    .filter(
-      (route) => !(staticExport && route.render === "ssg" && routePatternIsDynamic(route.path)),
-    )
-    .map((route) => route.path);
+  hasSpaFallback = false,
+): ContentRoutePattern[] {
+  return routes.map((route) => {
+    const dynamic = routePatternIsDynamic(route.path);
+    return {
+      path: route.path,
+      servesUnprerenderedPaths:
+        !staticExport || !dynamic || (route.render === "spa" && hasSpaFallback),
+    };
+  });
 }
 
 export function collectUnroutedContentDocuments(
   manifest: ContentRoutesManifest,
-  routePaths: readonly string[],
+  routePatterns: readonly (string | ContentRoutePattern)[],
   concretePagePaths: readonly string[],
 ): Array<{ collection: string; path: string; source: string }> {
   const served = new Set(concretePagePaths);
@@ -220,7 +229,15 @@ export function collectUnroutedContentDocuments(
   for (const [collection, entries] of Object.entries(manifest.collections)) {
     for (const entry of entries) {
       if (served.has(entry.path)) continue;
-      if (routePaths.some((pattern) => routePatternMatches(pattern, entry.path))) continue;
+      const matchingRoute = routePatterns.find((pattern) =>
+        routePatternMatches(typeof pattern === "string" ? pattern : pattern.path, entry.path),
+      );
+      if (
+        matchingRoute &&
+        (typeof matchingRoute === "string" || matchingRoute.servesUnprerenderedPaths)
+      ) {
+        continue;
+      }
       unrouted.push({ collection, path: entry.path, source: entry.source });
     }
   }
@@ -546,7 +563,11 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
     if (contentRoutes) {
       const unrouted = collectUnroutedContentDocuments(
         contentRoutes,
-        collectContentRoutePatterns(serverMod.resolvedApp?.routes ?? [], isStaticExport),
+        collectContentRoutePatterns(
+          serverMod.resolvedApp?.routes ?? [],
+          isStaticExport,
+          Boolean(serverMod.staticExportConfig?.fallback),
+        ),
         pages.map((page: { path: string }) => page.path),
       );
       if (unrouted.length > 0) {

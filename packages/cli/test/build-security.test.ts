@@ -376,7 +376,7 @@ describe("collectUnroutedContentDocuments", () => {
     ]);
   });
 
-  it("trusts only concrete dynamic SSG output during a static export", () => {
+  it("classifies which route patterns can serve unprerendered paths", () => {
     const routes = [
       { path: "/about", render: "ssg" },
       { path: "/docs/:slug", render: "ssg" },
@@ -385,14 +385,56 @@ describe("collectUnroutedContentDocuments", () => {
     ];
 
     expect(collectContentRoutePatterns(routes, false)).toEqual([
-      "/about",
-      "/docs/:slug",
-      "/files/:rest*",
-      "/app/:view",
+      { path: "/about", servesUnprerenderedPaths: true },
+      { path: "/docs/:slug", servesUnprerenderedPaths: true },
+      { path: "/files/:rest*", servesUnprerenderedPaths: true },
+      { path: "/app/:view", servesUnprerenderedPaths: true },
     ]);
-    expect(collectContentRoutePatterns(routes, true)).toEqual(["/about", "/app/:view"]);
+    expect(collectContentRoutePatterns(routes, true)).toEqual([
+      { path: "/about", servesUnprerenderedPaths: true },
+      { path: "/docs/:slug", servesUnprerenderedPaths: false },
+      { path: "/files/:rest*", servesUnprerenderedPaths: false },
+      { path: "/app/:view", servesUnprerenderedPaths: false },
+    ]);
+    expect(collectContentRoutePatterns(routes, true, true).at(-1)).toEqual({
+      path: "/app/:view",
+      servesUnprerenderedPaths: true,
+    });
+  });
+
+  it("trusts only concrete dynamic output without a static SPA fallback", () => {
+    const routes = [
+      { path: "/docs/:slug", render: "ssg" },
+      { path: "/app/:view", render: "spa" },
+    ];
+
     expect(
       collectUnroutedContentDocuments(manifest, collectContentRoutePatterns(routes, true), [
+        "/docs/guide",
+      ]),
+    ).toEqual([{ collection: "docs", path: "/docs/orphan", source: "orphan.md" }]);
+  });
+
+  it("lets a static SPA fallback serve a matching dynamic route", () => {
+    const routes = [{ path: "/docs/:slug", render: "spa" }];
+
+    expect(
+      collectUnroutedContentDocuments(
+        manifest,
+        collectContentRoutePatterns(routes, true, true),
+        [],
+      ),
+    ).toEqual([]);
+  });
+
+  it("does not let a later SPA fallback bypass an earlier dynamic SSG route", () => {
+    const routes = [
+      { path: "/docs/:slug", render: "ssg" },
+      { path: "/docs/:rest*", render: "spa" },
+    ];
+
+    expect(
+      collectUnroutedContentDocuments(manifest, collectContentRoutePatterns(routes, true, true), [
         "/docs/guide",
       ]),
     ).toEqual([{ collection: "docs", path: "/docs/orphan", source: "orphan.md" }]);

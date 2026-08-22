@@ -158,6 +158,15 @@ encoding. Spaces, non-ASCII segments, Windows-reserved names, trailing dots,
 and filesystem-invalid characters are rejected because deployment adapters
 otherwise resolve them to different on-disk names.
 
+During `pracht build`, generated document routes are reconciled against the app
+route manifest. Dynamic serverful routes cover matching documents, while a
+static export trusts dynamic SSG routes only for concrete `getStaticPaths()`
+output and dynamic SPA routes only when the static adapter emits a fallback.
+Route order remains authoritative when patterns overlap. The internal manifest
+preserves every valid collection name, including prototype-named keys such as
+`__proto__`. Configure `unroutedDocuments: "error" | "warn" | "ignore"` on
+`prachtContent()` to select the reconciliation policy.
+
 For request-time loaders and capabilities, import the generated snapshot rather
 than the filesystem-backed authoring collection:
 

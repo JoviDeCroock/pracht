@@ -19,7 +19,11 @@ build file consumed and deleted before the client output is published. The
 policy defaults to `"warn"`; `unroutedDocuments: "error" | "ignore"` selects a
 failing build or exempts a data-only collection. Static exports now count only
 the concrete `getStaticPaths()` output of dynamic SSG routes, so a document that
-was not actually prerendered is still reported.
+was not actually prerendered is still reported. Dynamic SPA routes count only
+when the static adapter emits a fallback, and route precedence is preserved
+when an earlier dynamic SSG route shadows a later SPA catch-all. Prototype-named
+collection keys such as `__proto__` are preserved in the internal route
+manifest instead of disappearing during serialization.
 
 `llmsTxtArtifacts()` now matches a string `section.match` against the
 locale-neutral route. A localized collection prefixes translations, so the

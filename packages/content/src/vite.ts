@@ -172,14 +172,22 @@ export function prachtContent(options: PrachtContentOptions): Plugin[] {
         // the client output is published, so it never ships. Artifacts can
         // never collide with it: the `_pracht/` namespace is already reserved.
         if (unroutedDocuments !== "ignore") {
-          const manifest: ContentRoutesManifest = { policy: unroutedDocuments, collections: {} };
+          const collectionEntries: Array<[string, ContentRoutesManifest["collections"][string]]> =
+            [];
           for (const collection of collections) {
             const snapshot = await collection.snapshot();
-            manifest.collections[collection.name] = snapshot.documents.map((document) => ({
-              path: document.path,
-              source: document.relativeSource,
-            }));
+            collectionEntries.push([
+              collection.name,
+              snapshot.documents.map((document) => ({
+                path: document.path,
+                source: document.relativeSource,
+              })),
+            ]);
           }
+          const manifest: ContentRoutesManifest = {
+            policy: unroutedDocuments,
+            collections: Object.fromEntries(collectionEntries),
+          };
           this.emitFile({
             type: "asset",
             fileName: CONTENT_ROUTES_FILE,

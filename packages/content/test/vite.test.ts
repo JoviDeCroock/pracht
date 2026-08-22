@@ -217,6 +217,40 @@ describe("prachtContent", () => {
     });
   });
 
+  it("preserves prototype-named collections in the route manifest", async () => {
+    temporaryDirectory = await mkdtemp(join(tmpdir(), "pracht-content-vite-"));
+    await writeFile(join(temporaryDirectory, "guide.md"), "Body");
+    const collection = defineCollection({
+      name: "__proto__",
+      root: temporaryDirectory,
+      routeBase: "/docs",
+    });
+    const [, plugin] = prachtContent({
+      collections: [collection],
+      unroutedDocuments: "error",
+    });
+    const emitFile = vi.fn();
+
+    await hookHandler(plugin.generateBundle).call(
+      { emitFile } as never,
+      {} as never,
+      {} as never,
+      false,
+    );
+
+    const call = emitFile.mock.calls.find(
+      ([file]) => file.fileName === "_pracht/content-routes.json",
+    );
+    const manifest = JSON.parse(call?.[0].source);
+    expect(Object.hasOwn(manifest.collections, "__proto__")).toBe(true);
+    expect(manifest).toEqual({
+      policy: "error",
+      collections: Object.fromEntries([
+        ["__proto__", [{ path: "/docs/guide", source: "guide.md" }]],
+      ]),
+    });
+  });
+
   it("omits the route manifest for a data-only collection", async () => {
     temporaryDirectory = await mkdtemp(join(tmpdir(), "pracht-content-vite-"));
     await writeFile(join(temporaryDirectory, "guide.md"), "Body");
