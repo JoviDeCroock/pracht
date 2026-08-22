@@ -211,6 +211,37 @@ describe("defineCollection", () => {
     });
   });
 
+  it("keeps the configured default for locale-neutral routes with one translation", async () => {
+    const root = await fixture({ "fr/guide.md": "Français" });
+    const collection = defineCollection({
+      name: "locale-neutral-fallback",
+      root,
+      locales: {
+        default: "en",
+        supported: ["en", "fr"],
+        fallback: { en: "fr" },
+        routePrefix: "never",
+      },
+    });
+
+    await expect(collection.resolveByRoute("/guide")).resolves.toMatchObject({
+      document: { locale: "fr" },
+      fallback: true,
+      requestedLocale: "en",
+    });
+    await expect(collection.getByRoute("/guide", { fallback: false })).resolves.toBeUndefined();
+
+    const snapshot = await collection.snapshot();
+    expect(snapshot.routeAliases).toEqual([]);
+    const runtime = defineSnapshotCollection(snapshot);
+    await expect(runtime.resolveByRoute("/guide")).resolves.toMatchObject({
+      document: { locale: "fr" },
+      fallback: true,
+      requestedLocale: "en",
+    });
+    await expect(runtime.getByRoute("/guide", { fallback: false })).resolves.toBeUndefined();
+  });
+
   it("rejects unsupported locale fallback targets during collection definition", async () => {
     const root = await fixture({ "en/guide.md": "English" });
 
@@ -347,6 +378,27 @@ describe("defineCollection", () => {
     });
 
     await expect(collision.all()).rejects.toThrow(/ambiguous generated route alias "\/fr\/a"/);
+  });
+
+  it("rejects same-id fallback aliases that collapse different locales", async () => {
+    const root = await fixture({ "en/a.md": "English", "de/a.md": "German" });
+    const collision = defineCollection({
+      name: "localized-same-id-alias-collision",
+      root,
+      sources: [
+        { id: "a", source: "en/a.md" },
+        { id: "a", source: "de/a.md" },
+      ],
+      locales: {
+        default: "en",
+        supported: ["en", "de", "fr", "nl"],
+        fallback: { fr: "en", nl: "de" },
+        routePrefix: "always",
+      },
+      route: ({ locale }) => (locale === "en" || locale === "de" ? `/${locale}/a` : "/shared"),
+    });
+
+    await expect(collision.all()).rejects.toThrow(/ambiguous generated route alias "\/shared"/);
   });
 
   it("rejects explicit sources whose symbolic links escape the collection root", async () => {

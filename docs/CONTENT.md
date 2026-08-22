@@ -98,8 +98,10 @@ the registered source.
 Ambiguous source, route/locale, id/locale, and artifact registrations throw
 instead of letting ordering select a winner. Custom or explicit locale routes
 also cannot shadow a missing locale's generated fallback alias, even when both
-documents share an id; generated `routePrefix: "never"` routes remain the
-intentional locale-neutral exception.
+documents share an id, and two missing locales cannot collapse onto one
+callback-generated alias. Generated `routePrefix: "never"` routes remain the
+intentional locale-neutral exception and need no aliases because direct route
+lookup applies the requested locale's fallback.
 
 ## Locales
 
@@ -116,7 +118,9 @@ other locale. Use `routePrefix: "always" | "never"` or explicit source paths
 for another URL policy. With `"never"`, translated documents intentionally
 share one locale-neutral route; pass `locale` to a lookup to select the desired
 translation. Omitting it selects the configured default locale, regardless of
-where that locale appears in `supported`.
+where that locale appears in `supported` or whether its document exists. An
+explicit fallback record can then resolve another translation; setting
+`fallback: false` still requires the configured default document itself.
 
 `getById()`/`getByRoute()` fall back to the default locale by default.
 `fallback: false` requests an exact locale. The `resolve*` variants report
@@ -230,7 +234,9 @@ With `pracht build --json`, reconciliation warnings are written to stderr so
 stdout remains valid machine-readable JSON. Vite's configured `publicDir`
 cannot contain `_pracht/content-headers.json` or
 `_pracht/content-routes.json` (including portable file/directory collisions),
-because those paths are reserved for the plugin-to-CLI build channel.
+and an already-emitted Vite output cannot occupy either path, because those
+paths are reserved for the plugin-to-CLI build channel. Register all
+collections through one `prachtContent()` call.
 
 `pracht verify` cannot perform this check: it reads the Vite config as text and
 cannot resolve which sources a registry claims. It reports the presence of a

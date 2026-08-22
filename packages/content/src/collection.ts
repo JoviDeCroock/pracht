@@ -302,6 +302,11 @@ export function defineCollection<
             relativePath: fallbackDescriptor.relativePath,
           });
           if (configured === false) continue;
+          // A generated locale-neutral route already exists in `byRoute` for
+          // every available translation. Keeping a redundant alias would make
+          // multiple missing locales compete for one map entry even though
+          // direct route lookup can apply each locale's fallback itself.
+          if (configured === undefined && locales.routePrefix === "never") continue;
           const alias = normalizeRoutePath(
             configured ??
               createGeneratedRoute({
@@ -311,7 +316,7 @@ export function defineCollection<
               }),
           );
           const existing = routeAliases.get(alias);
-          if (existing && existing.id !== id) {
+          if (existing && (existing.id !== id || existing.locale !== locale)) {
             throw new Error(
               `Content collection ${JSON.stringify(options.name)} has ambiguous generated route alias ${JSON.stringify(alias)}.`,
             );
@@ -433,7 +438,7 @@ export function defineCollection<
       lookupOptions.locale ?? alias?.locale,
       locales,
       localized,
-      kind === "route",
+      kind === "route" && locales?.routePrefix !== "never",
     );
     const localeOrder = resolveLocaleOrder(
       requestedLocale,

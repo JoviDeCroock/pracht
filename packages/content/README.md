@@ -106,10 +106,13 @@ locale. Invalid fallback configuration is rejected when the collection is
 defined. `routePrefix: "never"` keeps translated documents on the same
 locale-neutral route; pass a locale to route lookup to select the translation.
 Without one, route lookup selects the configured default locale regardless of
-its position in `supported`.
+its position in `supported` or whether its document exists. An explicit
+fallback record can resolve another translation, while `fallback: false`
+requires the configured default document itself.
 Generated aliases cover only missing locales and use the source selected by
 that locale's fallback order. Existing translations with custom slugs do not
-gain aliases based on another translation's slug.
+gain aliases based on another translation's slug, and two missing locales
+cannot collapse onto one callback-generated alias.
 
 The filesystem registry is memoized and rebuilt only after `invalidate()`.
 Relative invalidation paths, like source lookup paths, resolve from the
@@ -175,7 +178,9 @@ preserves every valid collection name, including prototype-named keys such as
 Warnings remain visible on stderr when `pracht build --json` reserves stdout
 for the JSON report. Vite's configured `publicDir` cannot occupy the internal
 `_pracht/content-headers.json` or `_pracht/content-routes.json` build-manifest
-paths, including portable file/directory collisions.
+paths, including portable file/directory collisions, and an already-emitted
+Vite output cannot occupy either path. Register all collections through one
+`prachtContent()` call.
 
 For request-time loaders and capabilities, import the generated snapshot rather
 than the filesystem-backed authoring collection:

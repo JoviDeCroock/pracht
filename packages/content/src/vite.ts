@@ -196,6 +196,14 @@ export function prachtContent(options: PrachtContentOptions): Plugin[] {
             policy: unroutedDocuments,
             collections: Object.fromEntries(collectionEntries),
           };
+          const existing = outputFileNames.find((output) =>
+            outputPathsCollide(output, CONTENT_ROUTES_FILE),
+          );
+          if (existing) {
+            throw new Error(
+              `Pracht's internal content routes manifest collides with existing Vite build output ${JSON.stringify(existing)}.`,
+            );
+          }
           this.emitFile({
             type: "asset",
             fileName: CONTENT_ROUTES_FILE,

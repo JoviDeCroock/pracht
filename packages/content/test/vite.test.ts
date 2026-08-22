@@ -287,6 +287,22 @@ describe("prachtContent", () => {
     ).toBe(false);
   });
 
+  it("rejects a route manifest that collides with existing Vite output", async () => {
+    temporaryDirectory = await mkdtemp(join(tmpdir(), "pracht-content-vite-"));
+    await writeFile(join(temporaryDirectory, "guide.md"), "Body");
+    const collection = defineCollection({ name: "docs", root: temporaryDirectory });
+    const [, plugin] = prachtContent({ collections: [collection] });
+
+    await expect(
+      hookHandler(plugin.generateBundle).call(
+        { emitFile: vi.fn() } as never,
+        {} as never,
+        { "_PRACHT/CONTENT-ROUTES.JSON": {} } as never,
+        false,
+      ),
+    ).rejects.toThrow(/content routes manifest collides with existing Vite build output/);
+  });
+
   it("rejects an unknown unroutedDocuments policy", () => {
     expect(() => prachtContent({ collections: [], unroutedDocuments: "fail" as never })).toThrow(
       /`unroutedDocuments` must be "error", "warn", or "ignore"/,

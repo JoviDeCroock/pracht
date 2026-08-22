@@ -26,7 +26,9 @@ collection keys such as `__proto__` are preserved in the internal route
 manifest instead of disappearing during serialization.
 JSON build reports now keep reconciliation warnings visible on stderr, and the
 build rejects configured public-directory files that could replace the
-internal content headers or route manifests before the CLI validates them.
+internal content headers or route manifests before the CLI validates them. It
+also rejects an earlier Vite output at either internal path, so multiple plugin
+instances cannot silently leave the CLI with an incomplete route manifest.
 
 Localized custom routes no longer produce the Cartesian product of every
 translation's slug and every supported locale. Route aliases are emitted only
@@ -34,7 +36,11 @@ for missing locales and use the document that locale fallback would actually
 select. Routes returned by a collection's `route()` callback now participate in
 generated-alias collision checks, so a configured translation cannot silently
 shadow another document's fallback URL, including when both translations share
-the same document id.
+the same document id. Missing locales for one id also cannot collapse onto one
+callback-generated alias and make fallback selection depend on `supported`
+ordering. Locale-neutral lookups keep the configured default even when only a
+non-default translation exists, so explicit default fallbacks and setting
+`fallback: false` retain their documented meaning.
 
 The content Vite transform now preserves `?worker` and `?sharedworker` imports
 alongside `?raw` and `?url`, rather than recompiling Vite's generated worker

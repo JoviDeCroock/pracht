@@ -125,7 +125,7 @@ export function defineSnapshotCollection<
       options.locale ?? alias?.locale,
       locales,
       localized,
-      kind === "route",
+      kind === "route" && locales?.routePrefix !== "never",
     );
     for (const locale of resolveLocaleOrder(requestedLocale, options.fallback !== false, locales)) {
       const document = localized.get(locale ?? NO_LOCALE);
