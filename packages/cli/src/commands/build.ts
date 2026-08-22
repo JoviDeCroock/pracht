@@ -133,6 +133,10 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
     logLevel,
     build: {
       outDir: "dist/server",
+      // The server bundle is build tooling (prerender + adapter entry), never
+      // the deployed asset root, so a second copy of `public/` here is dead
+      // weight -- and any asset-rewriting plugin would process it twice.
+      copyPublicDir: false,
       rollupOptions: {
         input: "virtual:pracht/server",
       },
@@ -157,10 +161,11 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
     }
   }
 
-  const publicDir = resolve(root, "public");
-  if (existsSync(publicDir)) {
-    cpSync(publicDir, clientDir, { recursive: true });
-  }
+  // `public/` is deliberately not re-copied here: the client build already
+  // emitted it (Vite honours a custom `publicDir` and `build.copyPublicDir`
+  // there) and the move above carried it into dist/client. Copying the source
+  // files over that output would overwrite whatever a build plugin rewrote on
+  // the way out -- an image optimizer's compressed copies, for one.
 
   let buildTarget: string | null = null;
   if (existsSync(serverEntry)) {
