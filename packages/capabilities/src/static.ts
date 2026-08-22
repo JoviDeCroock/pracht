@@ -194,6 +194,10 @@ function collectTopLevelBindingKinds(
   const callableFunctionBindings = new Set<string>();
   const namespaceBindings = new Set<string>();
 
+  for (const name of collectModuleScopedVarBindings(program)) {
+    runtimeBindings.add(name);
+  }
+
   for (const rawStatement of nodeArray(program.body)) {
     if (rawStatement.type === "ImportDeclaration") {
       for (const specifier of nodeArray(rawStatement.specifiers)) {
@@ -330,6 +334,62 @@ function collectTopLevelBindingKinds(
 }
 
 /**
+ * `var` declarations nested in module control flow still create module-scoped
+ * runtime bindings. Functions, namespaces, and class static blocks own their
+ * own `var` scopes, while a catch parameter shadows a same-named declaration
+ * in its body without creating an outer binding.
+ */
+function collectModuleScopedVarBindings(program: StaticAnalysisNode): Set<string> {
+  const bindings = new Set<string>();
+
+  const visit = (value: unknown, shadowedBindings: ReadonlySet<string>): void => {
+    const node = asStaticAnalysisNode(value);
+    if (!node) return;
+
+    if (
+      node.type === "FunctionDeclaration" ||
+      node.type === "FunctionExpression" ||
+      node.type === "ArrowFunctionExpression" ||
+      node.type === "ClassDeclaration" ||
+      node.type === "ClassExpression" ||
+      node.type === "StaticBlock" ||
+      node.type === "TSModuleDeclaration"
+    ) {
+      return;
+    }
+
+    if (node.type === "CatchClause") {
+      const catchShadowed = new Set([
+        ...shadowedBindings,
+        ...collectStaticBindingNames(node.param),
+      ]);
+      visit(node.body, catchShadowed);
+      return;
+    }
+
+    if (node.type === "VariableDeclaration" && node.kind === "var" && node.declare !== true) {
+      for (const declarator of nodeArray(node.declarations)) {
+        for (const name of collectStaticBindingNames(declarator.id)) {
+          if (!shadowedBindings.has(name)) bindings.add(name);
+        }
+      }
+    }
+
+    for (const [key, child] of Object.entries(node)) {
+      if (key === "type" || key === "loc" || key === "span") continue;
+      if (Array.isArray(child)) {
+        for (const item of child) visit(item, shadowedBindings);
+      } else {
+        visit(child, shadowedBindings);
+      }
+    }
+  };
+
+  for (const statement of nodeArray(program.body)) visit(statement, new Set());
+  return bindings;
+}
+
+/**
  * A top-level write can replace a binding before the module is imported. Keep
  * the writes in runtime evaluation order so direct exports use the final value
  * while local aliases use the value that existed when their initializer ran.
@@ -460,11 +520,7 @@ function collectTopLevelBindingWritesFromNode(
     return;
   }
 
-  if (
-    node.type === "ForStatement" ||
-    node.type === "ForInStatement" ||
-    node.type === "ForOfStatement"
-  ) {
+  if (node.type === "ForStatement") {
     const declaration = asStaticAnalysisNode(node.init ?? node.left);
     const loopBindings =
       declaration?.type === "VariableDeclaration" && declaration.kind !== "var"
@@ -482,6 +538,60 @@ function collectTopLevelBindingWritesFromNode(
         directDeclarators,
       );
     }
+    return;
+  }
+
+  if (node.type === "ForInStatement" || node.type === "ForOfStatement") {
+    const declaration = asStaticAnalysisNode(node.left);
+    const loopBindings =
+      declaration?.type === "VariableDeclaration" && declaration.kind !== "var"
+        ? nodeArray(declaration.declarations).flatMap((declarator) =>
+            collectStaticBindingNames(declarator.id),
+          )
+        : [];
+    const loopShadowed = new Set([...shadowedBindings, ...loopBindings]);
+
+    // The iterable/object is evaluated before each implicit assignment to the
+    // loop target. The loop may execute zero times, so keep that write
+    // conditional and unresolved rather than reasoning from the stale value
+    // that preceded the loop.
+    collectTopLevelBindingWritesFromNode(
+      node.right,
+      writes,
+      unconditionalExpressions,
+      loopShadowed,
+      directDeclarators,
+    );
+    collectTopLevelBindingWritesFromNode(
+      node.left,
+      writes,
+      unconditionalExpressions,
+      loopShadowed,
+      directDeclarators,
+    );
+    const targetNames =
+      declaration?.type === "VariableDeclaration"
+        ? nodeArray(declaration.declarations).flatMap((declarator) =>
+            collectStaticBindingNames(declarator.id),
+          )
+        : collectStaticBindingNames(node.left);
+    for (const name of targetNames) {
+      if (loopShadowed.has(name)) continue;
+      const bindingWrites = writes.get(name) ?? [];
+      bindingWrites.push({
+        position: typeof node.start === "number" ? node.start : Number.NEGATIVE_INFINITY,
+        unconditional: false,
+        value: UNRESOLVED_STATIC_BINDING,
+      });
+      writes.set(name, bindingWrites);
+    }
+    collectTopLevelBindingWritesFromNode(
+      node.body,
+      writes,
+      unconditionalExpressions,
+      loopShadowed,
+      directDeclarators,
+    );
     return;
   }
 
@@ -1886,6 +1996,7 @@ function findBindingShadowRanges(
       if (functionRange) ranges.push(functionRange);
       continue;
     }
+    if (addEnclosingForShadowRange(source, match.index, ranges)) continue;
     addEnclosingBlockShadowRange(source, match.index, ranges);
   }
 
@@ -1899,6 +2010,7 @@ function findBindingShadowRanges(
       patternEnd !== -1 &&
       destructuringPatternBindsName(source.slice(patternStart, patternEnd + 1), name)
     ) {
+      if (addEnclosingForShadowRange(source, match.index, ranges)) continue;
       addEnclosingBlockShadowRange(source, match.index, ranges);
     }
   }
@@ -1920,6 +2032,62 @@ function findBindingShadowRanges(
   }
 
   return ranges;
+}
+
+/** Add the lexical scope owned by a `for` header declaration. */
+function addEnclosingForShadowRange(
+  source: string,
+  declarationStart: number,
+  ranges: { start: number; end: number }[],
+): boolean {
+  const headerStart = findEnclosingOpeningBrace(source, declarationStart, "(", ")");
+  if (headerStart === -1) return false;
+
+  const prefix = source.slice(0, headerStart).trimEnd();
+  if (!/\bfor(?:\s+await)?$/.test(prefix)) return false;
+
+  const headerEnd = findMatchingBrace(source, headerStart, "(", ")");
+  if (headerEnd === -1) return false;
+  const bodyStart = skipInsignificant(source, headerEnd + 1);
+  if (bodyStart >= source.length) return false;
+
+  const bodyEnd =
+    source[bodyStart] === "{"
+      ? findMatchingBrace(source, bodyStart, "{", "}")
+      : findSimpleStatementEnd(source, bodyStart);
+  if (bodyEnd === -1) return false;
+
+  ranges.push({ start: headerStart, end: bodyEnd + 1 });
+  return true;
+}
+
+function findSimpleStatementEnd(source: string, start: number): number {
+  let braces = 0;
+  let brackets = 0;
+  let parentheses = 0;
+
+  for (let index = start; index < source.length; index += 1) {
+    const char = source[index];
+    const atTopLevel = braces === 0 && brackets === 0 && parentheses === 0;
+    if (atTopLevel && char === ";") return index;
+    if (atTopLevel && (char === "\n" || char === "\r")) {
+      const next = skipInsignificant(source, index + 1);
+      if (startsStaticStatement(source.slice(next), { insideTypeAssertion: false })) {
+        return index - 1;
+      }
+    }
+
+    if (char === "{") braces += 1;
+    else if (char === "}") {
+      if (braces === 0) return index - 1;
+      braces -= 1;
+    } else if (char === "[") brackets += 1;
+    else if (char === "]") brackets -= 1;
+    else if (char === "(") parentheses += 1;
+    else if (char === ")") parentheses -= 1;
+  }
+
+  return source.length - 1;
 }
 
 /** Whether a raw `=>` belongs to a variable's TypeScript annotation. */

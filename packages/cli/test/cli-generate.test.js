@@ -323,6 +323,58 @@ export default { plugins: [pracht({ pagesDir: "/src/pages", adapter })] };`,
     expect(existsSync(join(appDir, "src/pages/_middleware.ts"))).toBe(false);
   });
 
+  it("uses a nested static adapter binding instead of a shadowed top-level alias", () => {
+    const appDir = createTempDir("pracht-cli-pages-middleware-nested-static-alias-");
+    writePagesApp(appDir);
+    writeProjectFile(
+      appDir,
+      "vite.config.ts",
+      `import { defineConfig } from "vite";
+import { pracht } from "@pracht/vite-plugin";
+import { staticAdapter } from "@pracht/adapter-static";
+import { nodeAdapter } from "@pracht/adapter-node";
+const adapter = nodeAdapter();
+export default defineConfig(() => {
+  const adapter = staticAdapter();
+  return { plugins: [pracht({ pagesDir: "/src/pages", adapter })] };
+});`,
+    );
+
+    const result = spawnSync(
+      process.execPath,
+      [cliPath, "generate", "middleware", "--name", "_middleware"],
+      { cwd: appDir, encoding: "utf-8" },
+    );
+
+    expect(result.status).not.toBe(0);
+    expect(`${result.stdout}${result.stderr}`).toContain(
+      "Pure static exports cannot use request middleware",
+    );
+    expect(existsSync(join(appDir, "src/pages/_middleware.ts"))).toBe(false);
+  });
+
+  it("uses a nested serverful adapter binding instead of a shadowed top-level alias", () => {
+    const appDir = createTempDir("pracht-cli-pages-middleware-nested-node-alias-");
+    writePagesApp(appDir);
+    writeProjectFile(
+      appDir,
+      "vite.config.ts",
+      `import { defineConfig } from "vite";
+import { pracht } from "@pracht/vite-plugin";
+import { staticAdapter } from "@pracht/adapter-static";
+import { nodeAdapter } from "@pracht/adapter-node";
+const adapter = staticAdapter();
+export default defineConfig(() => {
+  const adapter = nodeAdapter();
+  return { plugins: [pracht({ pagesDir: "/src/pages", adapter })] };
+});`,
+    );
+
+    runCli(["generate", "middleware", "--name", "_middleware"], { cwd: appDir });
+
+    expect(existsSync(join(appDir, "src/pages/_middleware.ts"))).toBe(true);
+  });
+
   it("refuses pages middleware when pracht options use a const alias", () => {
     const appDir = createTempDir("pracht-cli-pages-middleware-static-options-alias-");
     writePagesApp(appDir);
