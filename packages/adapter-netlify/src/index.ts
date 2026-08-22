@@ -415,16 +415,13 @@ async function writeNetlifyFunctionWrapper(
   const includedClientDir = relative(dir, clientDir).replaceAll("\\", "/");
   const includedServerDir = relative(dir, serverDir).replaceAll("\\", "/");
   await mkdir(clientDir, { recursive: true });
-  const defaultPublicHeadersPath = join(root, "public/_headers");
   const clientHeadersPath = join(clientDir, "_headers");
   const clientHeadersAreHandAuthored =
     existsSync(clientHeadersPath) &&
     !(await readFile(clientHeadersPath, "utf-8")).startsWith(GENERATED_NETLIFY_HEADERS_PREAMBLE);
-  const handAuthoredHeaders = existsSync(defaultPublicHeadersPath)
-    ? "public/_headers"
-    : clientHeadersAreHandAuthored
-      ? "dist/client/_headers copied from Vite's configured publicDir"
-      : undefined;
+  const handAuthoredHeaders = clientHeadersAreHandAuthored
+    ? "dist/client/_headers copied from Vite's configured publicDir"
+    : undefined;
   if (handAuthoredHeaders) {
     console.warn(
       `${handAuthoredHeaders} exists, so @pracht/adapter-netlify will not generate one. ` +

@@ -44,6 +44,8 @@ export interface TestRequestInput {
 
 /** Input shared by every args factory. */
 export interface CreateArgsInput<TContext = RegisteredContext> extends TestRequestInput {
+  /** Matched, base-free pathname. Defaults to the request URL pathname. */
+  pathname?: string;
   /** Dynamic route params (e.g. `{ slug: "hello" }`). Default `{}`. */
   params?: RouteParams;
   /** Request context. A partial is accepted — provide what the code under test reads. */
@@ -199,18 +201,21 @@ interface BuiltBaseArgs<TContext> {
   context: TContext;
   signal: AbortSignal;
   url: URL;
+  pathname: string;
   controller: AbortController;
 }
 
 function buildBaseArgs<TContext>(input: CreateArgsInput<TContext>): BuiltBaseArgs<TContext> {
   const request = createTestRequest(input);
   const controller = new AbortController();
+  const url = new URL(request.url);
   return {
     request,
     params: input.params ?? {},
     context: (input.context ?? {}) as TContext,
     signal: input.signal ?? controller.signal,
-    url: new URL(request.url),
+    url,
+    pathname: input.pathname ?? url.pathname,
     controller,
   };
 }

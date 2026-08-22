@@ -199,6 +199,25 @@ describe("createCapabilityTestHost — request()", () => {
     expect(await response.json()).toEqual({ ok: true, data: { notes: ["roadmap:10"] } });
   });
 
+  it("passes the HTTP capability pathname to named middleware", async () => {
+    let pathname: string | undefined;
+    const host = createCapabilityTestHost({
+      capabilities: {
+        "notes.search": createSearchCapability({ middleware: ["observe"] }),
+      },
+      middleware: {
+        observe: async (args, next) => {
+          pathname = args.pathname;
+          return next();
+        },
+      },
+    });
+
+    const response = await host.request("notes.search", { query: "roadmap" });
+    expect(response.status).toBe(200);
+    expect(pathname).toBe("/api/capabilities/notes/search");
+  });
+
   it("answers invalid input with 400 and path-scoped issues", async () => {
     const host = createCapabilityTestHost({
       capabilities: { "notes.search": createSearchCapability() },

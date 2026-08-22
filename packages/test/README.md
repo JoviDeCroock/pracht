@@ -7,10 +7,12 @@ with Vitest (or any test runner).
 
 - `createLoaderArgs()` / `createApiArgs()` / `createMiddlewareArgs()` /
   `createApiMiddlewareArgs()` — build complete, typed args objects from a
-  shorthand (`url`, `method`, `headers`, `body`, `params`, `context`) or a real
+  shorthand (`url`, `pathname`, `method`, `headers`, `body`, `params`, `context`) or a real
   `Request`, with sensible defaults for everything and the `AbortController`
   behind `signal` exposed for cancellation tests. The two middleware factories
   model the distinct page and API route metadata shapes production supplies.
+  `pathname` defaults to the request URL path and can be overridden with the
+  matched, base-free path when testing an app mounted below a deployment base.
   Blob/File and `URLSearchParams` bodies are normalized across DOM realms, and
   foreign-realm `FormData`/`ArrayBuffer` values retain their wire encoding, so
   JSDOM values work with Node's `Request` implementation.

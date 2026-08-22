@@ -174,10 +174,13 @@ describe("netlifyAdapter", () => {
     },
   );
 
-  it("leaves a hand-authored public/_headers alone", async () => {
+  it("preserves hand-authored _headers copied from the default publicDir", async () => {
     const root = await tempDir();
     await mkdir(join(root, "public"), { recursive: true });
-    await writeFile(join(root, "public/_headers"), "/assets/*\n  X-Custom: 1\n");
+    await mkdir(join(root, "dist/client"), { recursive: true });
+    const publicHeaders = "/assets/*\n  X-Custom: 1\n";
+    await writeFile(join(root, "public/_headers"), publicHeaders);
+    await writeFile(join(root, "dist/client/_headers"), publicHeaders);
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 
     const plugin = netlifyAdapter().vitePlugins?.()[0];
@@ -188,10 +191,27 @@ describe("netlifyAdapter", () => {
     if (typeof closeBundle !== "function") throw new Error("missing closeBundle hook");
     await closeBundle.call({} as never);
 
-    await expect(readFile(join(root, "dist/client/_headers"), "utf-8")).rejects.toMatchObject({
-      code: "ENOENT",
-    });
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining("public/_headers exists"));
+    await expect(readFile(join(root, "dist/client/_headers"), "utf-8")).resolves.toBe(
+      publicHeaders,
+    );
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("dist/client/_headers"));
+  });
+
+  it("ignores public/_headers when a custom publicDir did not copy it", async () => {
+    const root = await tempDir();
+    await mkdir(join(root, "public"), { recursive: true });
+    await mkdir(join(root, "dist/server"), { recursive: true });
+    await writeFile(join(root, "public/_headers"), "/unrelated/*\n  X-Custom: 1\n");
+    await writeFile(
+      join(root, "dist/server/headers-manifest.json"),
+      JSON.stringify({ "/feed.data": { "content-type": "application/json" } }),
+    );
+
+    await finalizeNetlifyBuild(root);
+
+    await expect(readFile(join(root, "dist/client/_headers"), "utf-8")).resolves.toContain(
+      "/feed.data\n  content-type: application/json",
+    );
   });
 
   it("preserves hand-authored _headers copied from a custom Vite publicDir", async () => {

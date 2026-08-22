@@ -7,6 +7,7 @@
 "@pracht/adapter-node": patch
 "@pracht/image": minor
 "@pracht/markdown": minor
+"@pracht/test": patch
 ---
 
 Add the opt-in, server-only `@pracht/content` collection primitive. One
@@ -64,11 +65,12 @@ hints for unlocalized collections while advertising supported locales for
 localized ones. Artifact content types are validated before entering response or
 deployment headers, and generated headers remain intact on clean URL aliases for
 artifact `index.html` files.
-Loader, API, and middleware arguments use Pracht's matched base-free pathname,
-including app-level not-found loaders; development artifacts honor Vite's
-configured deployment base, locale alias collisions include the target locale,
-and artifact content types must parse as portable HTTP media types that can be
-represented by Web response headers.
+Loader, API, middleware, MCP capability dispatch, and first-party test factory
+arguments use Pracht's matched base-free pathname, including app-level
+not-found loaders; development artifacts honor Vite's configured deployment
+base, locale alias collisions include the target locale, and artifact content
+types must parse as portable HTTP media types that can be represented by Web
+response headers.
 Artifacts inside an `/assets/` path override adapter-wide immutable caching with
 a revalidation policy because their filenames are not required to contain a
 content hash.
@@ -76,4 +78,5 @@ content hash.
 Unprocessed `publicDir` static image imports now bypass configured runtime
 loaders, and Markdown preserves custom Marked image renderers for root-relative,
 remote, and data image sources. Netlify builds preserve hand-authored `_headers`
-files copied from a custom Vite public directory.
+files copied from the configured Vite public directory without allowing an
+unused default `public/_headers` to suppress generated deployment headers.

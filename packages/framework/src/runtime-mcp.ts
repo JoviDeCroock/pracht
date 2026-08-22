@@ -422,12 +422,14 @@ async function handleToolsCall<TContext>(
     options.onAudit,
     options.agent ?? null,
   );
+  const capabilityUrl = new URL(capabilityRequest.url);
   const response = await handleCapabilityRequest({
     match,
     context: options.context,
     registry: options.registry,
     request: capabilityRequest,
-    url: new URL(capabilityRequest.url),
+    url: capabilityUrl,
+    pathname: capabilityUrl.pathname,
     exposeErrors: options.exposeErrors,
     apiMiddlewareFiles: options.apiMiddlewareFiles,
     agents: options.agents,
