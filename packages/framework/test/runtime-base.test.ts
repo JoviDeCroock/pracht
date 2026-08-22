@@ -125,4 +125,107 @@ describe("server runtime under a deploy base", () => {
     expect(html).toContain("<main>/app/app/about</main>");
     expect(html).toContain('"url":"/app/app/about?ref=campaign"');
   });
+
+  it("passes a base-free pathname to an unmatched not-found loader", async () => {
+    vi.resetModules();
+    vi.stubEnv("BASE_URL", "/app/");
+    const core = await import("../src/index.ts");
+    const server = await import("../src/server.ts");
+    let pathname: string | undefined;
+    const response = await server.handlePrachtRequest({
+      app: core.defineApp({
+        routes: [core.route("/", "./routes/home.tsx")],
+        notFound: "./routes/not-found.tsx",
+      }),
+      request: new Request("https://example.com/app/missing"),
+      registry: {
+        routeModules: {
+          "./routes/home.tsx": async () => ({ Component: () => null }),
+          "./routes/not-found.tsx": async () => ({
+            Component: () => null,
+            loader: (args) => {
+              pathname = args.pathname;
+              return null;
+            },
+          }),
+        },
+      },
+    });
+
+    expect(response.status).toBe(404);
+    expect(pathname).toBe("/missing");
+  });
+
+  it("passes a base-free pathname to a loader-triggered not-found page", async () => {
+    vi.resetModules();
+    vi.stubEnv("BASE_URL", "/app/");
+    const core = await import("../src/index.ts");
+    const server = await import("../src/server.ts");
+    let pathname: string | undefined;
+    const response = await server.handlePrachtRequest({
+      app: core.defineApp({
+        routes: [core.route("/posts/:slug", "./routes/post.tsx")],
+        notFound: "./routes/not-found.tsx",
+      }),
+      request: new Request("https://example.com/app/posts/missing"),
+      registry: {
+        routeModules: {
+          "./routes/post.tsx": async () => ({
+            Component: () => null,
+            loader: () => {
+              throw core.notFound();
+            },
+          }),
+          "./routes/not-found.tsx": async () => ({
+            Component: () => null,
+            loader: (args) => {
+              pathname = args.pathname;
+              return null;
+            },
+          }),
+        },
+      },
+    });
+
+    expect(response.status).toBe(404);
+    expect(pathname).toBe("/posts/missing");
+  });
+
+  it("passes base-free pathnames to API handlers and middleware", async () => {
+    vi.resetModules();
+    vi.stubEnv("BASE_URL", "/app/");
+    const core = await import("../src/index.ts");
+    const server = await import("../src/server.ts");
+    const observed: Array<string | undefined> = [];
+    const response = await server.handlePrachtRequest({
+      apiRoutes: core.resolveApiRoutes(["/src/api/items/[id].ts"]),
+      app: core.defineApp({
+        api: { middleware: ["observe"] },
+        middleware: { observe: "./middleware/observe.ts" },
+        routes: [core.route("/", "./routes/home.tsx")],
+      }),
+      request: new Request("https://example.com/app/api/items/42"),
+      registry: {
+        apiModules: {
+          "/src/api/items/[id].ts": async () => ({
+            GET: async (args) => {
+              observed.push(args.pathname);
+              return Response.json({ id: args.params.id });
+            },
+          }),
+        },
+        middlewareModules: {
+          "./middleware/observe.ts": async () => ({
+            middleware: async (args, next) => {
+              observed.push(args.pathname);
+              return next();
+            },
+          }),
+        },
+      },
+    });
+
+    expect(response.status).toBe(200);
+    expect(observed).toEqual(["/api/items/42", "/api/items/42"]);
+  });
 });

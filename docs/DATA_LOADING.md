@@ -76,6 +76,10 @@ of falling through to a render (see
 | `route`    | `ResolvedRoute` | Matched route metadata                                        |
 | `pathname` | `string`        | Matched pathname with the configured deployment base removed |
 
+`ApiRouteArgs` and `MiddlewareArgs` expose the same base-free `pathname`, so
+route-aware server code does not need to strip the deployment base from
+`url.pathname` itself.
+
 ### When loaders run
 
 | Scenario          | Loader runs on                                                    |

@@ -275,6 +275,8 @@ interface CapabilityPipelineOptions<TContext> {
   request: Request;
   signal: AbortSignal;
   url: URL;
+  /** Matched HTTP pathname without the configured deployment base. */
+  pathname?: string;
   /** Include internal error details (dev / direct server use). HTTP redacts in production. */
   exposeErrors: boolean;
   /**
@@ -381,6 +383,7 @@ async function runCapabilityPipeline<TContext>(
     context: options.context,
     middlewareFiles,
     params: {},
+    pathname: options.pathname,
     registry: options.registry,
     request: options.request,
     route: syntheticRoute,
@@ -447,6 +450,8 @@ export interface HandleCapabilityRequestOptions<TContext> {
   registry: ModuleRegistry;
   request: Request;
   url: URL;
+  /** Matched HTTP pathname without the configured deployment base. */
+  pathname?: string;
   exposeErrors: boolean;
   /** App-level `api.middleware`, wrapped around the HTTP projection only. */
   apiMiddlewareFiles?: string[];
@@ -582,6 +587,7 @@ async function dispatchCapabilityHttpWithApiMiddleware<TContext>(
       context: options.context,
       middlewareFiles,
       params: {},
+      pathname: options.pathname,
       registry: options.registry,
       request: options.request,
       route: capabilityMiddlewareRoute(options.match),
@@ -728,6 +734,7 @@ async function dispatchCapabilityHttp<TContext>(
       request: options.request,
       signal: AbortSignal.timeout(CAPABILITY_TIMEOUT_MS),
       url: options.url,
+      pathname: options.pathname,
       exposeErrors: options.exposeErrors,
       beforeRun,
     });
